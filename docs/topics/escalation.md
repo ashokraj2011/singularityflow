@@ -8,19 +8,19 @@ related:
   - reconciliation
   - quick-fix
   - waivers
-version: 2
+version: 3
 commands: []
 ---
 Every story pins its escalation ladder at start — strictly stronger-only, acyclic, never resolved from later configuration. When work outgrows its rail (a protected path touched, scope grown), it escalates along the pinned ladder with every commit preserved: the stronger rail's approvals now apply, the reason is recorded, and nothing is reverted. The system never discards sound work for the crime of differing from the plan.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **escalation**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **escalation**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow explain`. Run `singularity-flow explain --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow

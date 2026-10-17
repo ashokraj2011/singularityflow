@@ -17,22 +17,22 @@ related:
   - nextsteps
   - starting-work
   - fast-onboarding
-version: 4
+version: 5
 ---
 Install from your artifact mirror (`npm install -g`), then run `sflow doctor` — it checks Node, Git identity, and plugin state, and names exact fixes. `sflow guide --first-run` creates a throwaway sandbox repository (never your checkout) and walks one toy story end to end — start, offline authoring, the real approval ceremony, receipt — in about ten minutes and five commands, no model required.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **getting started**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **getting started**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow doctor`, `sflow guide`, `sflow quickstart`, `sflow init`. Attach an existing
-  governed checkout with `sflow onboard <path>`; refresh its exact authority pin with
+  Singularity Flow checkout with `sflow onboard <path>`; refresh its exact authority pin with
   `sflow authority refresh <path>`; clear only disposable derived data with
   `sflow cache clear --derived --repo <path>`. Run `singularity-flow doctor --help` for the exact
   forms supported by this build.
-- **Copilot:** `/sf-doctor`, `/sf-quickstart`, `/sf-init`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-doctor`, `/sf-quickstart`, `/sf-init`. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open the Command Palette and choose **Fast Onboard Existing Repository**, **Refresh
   Repository Authority Pin**, **Inspect or Enable Safe Git Acceleration**, or **Clear Disposable
   Derived Cache**. The extension renders engine results; it does not independently decide
@@ -48,7 +48,7 @@ Use this topic when the current goal matches **getting started**. Start in a gov
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `quickstart`, `init`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `quickstart`, `init`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

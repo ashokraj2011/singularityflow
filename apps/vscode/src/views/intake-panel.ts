@@ -1007,7 +1007,7 @@ export class IntakePanel {
       const message = (error as Error).message;
       this.update({
         busy: false,
-        error: /No governed story matches/i.test(message)
+        error: /No story matches/i.test(message)
           ? `Story ${workId} is not published yet. Let the terminal command finish, then check again.`
           : message
       });

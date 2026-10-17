@@ -31,7 +31,8 @@ already exist.
 **Flow Gate**, **Flow Ledger** and **Flow Policy** name things the product owns that would otherwise
 read as generic Git, CI or configuration words. Nothing else takes the prefix: not the work itself
 (it is a Story or an Initiative, and starting one is **Start new work**), not people, and not a
-mode. "Flow state" is not a term.
+mode. "Flow state" is not a term. **Flow Impact**, the impact-study feature, keeps the name it
+already had.
 
 ### "Governed" is retired from what people read
 

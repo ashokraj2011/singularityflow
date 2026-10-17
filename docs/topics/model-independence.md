@@ -10,7 +10,7 @@ commands:
 related:
   - manual-authorship
   - telemetry-and-cost
-version: 5
+version: 6
 ---
 Every operation is classified `never`, `optional` (with a deterministic fallback), or `required`; unclassified operations are rejected, not assumed safe. One chokepoint invokes providers; the effective policy is the most restrictive in the call stack. `SINGULARITY_FLOW_NO_MODEL=1` (or `--no-model`) disables model use — most-restrictive-wins — and model-dependent commands fail fast with the manual alternative.
 
@@ -18,12 +18,12 @@ Deterministic reads and previews retain that guarantee: `wm brief`, `copilot --d
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **model independence**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **model independence**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow doctor`. Run `singularity-flow doctor --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-doctor`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-doctor`. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow

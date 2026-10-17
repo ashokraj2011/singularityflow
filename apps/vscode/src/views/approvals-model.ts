@@ -164,7 +164,7 @@ function standingFor(
     // No authority named is a configuration gap, not a decision anybody can take.
     return {
       standing: 'blocked',
-      reason: 'No approval authority is configured for this subject.',
+      reason: 'No approval group is configured for this subject.',
       authorities: []
     };
   }
@@ -205,7 +205,7 @@ export function buildApprovals(snapshot: RepositorySnapshot | null): Approvals {
   if (!initiative) {
     return {
       initiativeId: '', actor: null, pending: [], obstacles: [],
-      empty: 'Nothing governed is checked out on this branch.'
+      empty: 'No Story or Initiative is checked out on this branch.'
     };
   }
   return approvalsOf(snapshot, initiative);

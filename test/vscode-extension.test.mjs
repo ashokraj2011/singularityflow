@@ -2751,7 +2751,7 @@ test('a gate the engine says is ready contributes no blockers', () => {
 test('the journey says why it is empty rather than rendering a blank page', () => {
   assert.match(buildJourney(null).empty, /Reading the repository/);
   assert.match(buildJourney({ initiative: null, initiatives: [], workItems: [] }).empty, /No work has been started/);
-  assert.match(buildJourney({ initiative: null, initiatives: [{ id: 'A' }], workItems: [] }).empty, /Nothing governed is checked out/);
+  assert.match(buildJourney({ initiative: null, initiatives: [{ id: 'A' }], workItems: [] }).empty, /No Story or Initiative is checked out/);
 });
 
 const { buildReconciliation } = await import(source('views/reconciliation-model.ts'));
@@ -3476,7 +3476,7 @@ test('Journey claims nothing about a gate it did not evaluate', async () => {
   // shown only when a gate was evaluated, and no longer claims every requirement is satisfied.
   const page = await readFile(source('views/journey.ts'), 'utf8');
   assert.doesNotMatch(page, /Every requirement of this phase is satisfied/);
-  assert.match(page, /journey\.gateEvaluated\s*\?\s*`<section><h2>\$\{icon\('gate'\)\}Gate<\/h2><p class="ok-text">\$\{icon\('ok'\)\}The phase gate reported no blockers\./);
+  assert.match(page, /journey\.gateEvaluated\s*\?\s*`<section><h2>\$\{icon\('gate'\)\}Gate<\/h2><p class="ok-text">\$\{icon\('ok'\)\}The Flow Gate reported no blockers\./);
 });
 
 test('an older pinned Story never offers absent or future rejection targets', () => {
@@ -3523,7 +3523,7 @@ test('an approval with no configured authority cannot proceed, and says so', () 
   // a reviewer to a refusal.
   const orphan = buildApprovals(awaiting({ authorities: [] }));
   assert.equal(orphan.pending[0].standing, 'blocked');
-  assert.match(orphan.pending[0].reason, /No approval authority is configured/);
+  assert.match(orphan.pending[0].reason, /No approval group is configured/);
 });
 
 test('approving your own work is flagged before you decide, not after', () => {
@@ -5424,7 +5424,7 @@ test('the capability screen opens with a portfolio dashboard above the editable 
   assert.match(html, /Capability portfolio/);
   assert.doesNotMatch(html, /Repository grounding/);
   assert.match(html, /Organisation at a glance/);
-  assert.match(html, /open governed work/);
+  assert.match(html, /open work/);
   assert.match(html, /awaiting approvals/);
   assert.match(html, /data-select="commerce"/);
   assert.ok(html.indexOf('Capability portfolio') < html.indexOf('<th>Capability</th>'),
@@ -5682,7 +5682,7 @@ test('visual-review fixtures are deterministic across three themes and narrow an
     assert.doesNotMatch(first, /https?:\/\/|font-src|unsafe-inline|unsafe-eval/);
     assert.match(first, /Approval inbox/);
     assert.match(first, /Workflow progress/);
-    assert.match(first, /Governed agent/);
+    assert.match(first, /Agent<\/h3>/);
     assert.match(first, /Configuration navigation/);
     assert.match(first, /Artifact inventory/);
     assert.match(first, /Active Stories/);
@@ -5867,7 +5867,7 @@ test('no tracker is a first-class answer, not a degraded one', () => {
   // Teams without Jira were reading a key field and concluding the product was not for them.
   const html = intakeHtml(intake());
   assert.match(html, /data-tracker="none"/);
-  assert.match(html, /Described here and governed in Git/);
+  assert.match(html, /Described here and recorded in Git/);
   // Unconfigured Jira is still shown, with the reason — hiding it makes a missing integration look
   // like a missing feature.
   assert.match(intakeHtml(intake({ jiraReason: 'Set JIRA_BASE_URL and JIRA_PAT.' })),
@@ -7368,7 +7368,7 @@ test('the Epic section reports where it has got to, and what is holding it', () 
   assert.match(epic.detail.join(' '), /phases approved/);
 
   const none = buildDashboard({ ...snapshot, initiative: null });
-  assert.match(none.sections.find((section) => section.id === 'epic').headline, /Nothing governed is checked out/);
+  assert.match(none.sections.find((section) => section.id === 'epic').headline, /No Story or Initiative is checked out/);
 });
 
 const LIFECYCLE_REPORT = {
@@ -7608,7 +7608,7 @@ test('Flow Impact has a dedicated configuration and reporting entry point', asyn
   assert.match(extensionSource, /'open-flow-impact'\) await vscode\.commands\.executeCommand\('singularityFlow\.openFlowImpact'\)/);
   assert.match(extensionSource, /'open-impact-file'\)[\s\S]{0,200}singularity\/impact\.yml/);
   const panel = await readFile(source('views/flow-impact.ts'), 'utf8');
-  assert.match(panel, /Governed delivery measurement/);
+  assert.match(panel, /Delivery measurement/);
   assert.match(panel, /Story measurement/);
   assert.match(panel, /Cohort comparison/);
   assert.match(panel, /minimumCohortSize/);
@@ -7833,7 +7833,7 @@ test('Comprehension Center is a lazy leased read-only surface with explicit unkn
     'explicit source selection uses the model-free read-only comprehension command');
   assert.doesNotMatch(panel, /request\.model|phase publish|submit/,
     'the Center has no model or lifecycle mutation path');
-  assert.match(panel, /No governed cause bindings are available/);
+  assert.match(panel, /No cause bindings are available/);
   assert.match(panel, /Exact bounded diff/);
   assert.match(panel, /Available cached symbols/,
     'regions expose cache-only symbol navigation without making AST a dependency');

@@ -1020,7 +1020,7 @@ export function navigationPlan(command: string, available: readonly string[]): N
   if (available.includes(command)) return { kind: 'execute', command };
   return {
     kind: 'unavailable',
-    message: 'That view needs a governed repository. Choose a workspace and it will be available.',
+    message: 'That view needs a repository. Choose a workspace and it will be available.',
     action: 'Choose a workspace',
     resolve: NAV_RESOLVE_COMMAND
   };

@@ -22,7 +22,7 @@ related:
   - project-binding
   - world-model
   - model-independence
-version: 8
+version: 9
 ---
 AST intelligence is an optional, bounded source of structural code facts for the world model. It
 can identify symbols, imports, declarations, and relationships with an explicit `text`, `syntax`,
@@ -32,7 +32,7 @@ text grounding, and it never authorizes or blocks a lifecycle transition.
 ## Purpose and prerequisites
 
 Use AST intelligence when a code question benefits from structural facts instead of broad file
-search. No pack is required for ordinary governed work. Run `sflow wm ast doctor --json` before
+search. No pack is required for ordinary work. Run `sflow wm ast doctor --json` before
 depending on a particular language, provider, assurance level, or project binding.
 
 ## Use it from each surface
@@ -51,11 +51,11 @@ operation override.
 
 `auto` means use an available reviewed provider within the configured safety budgets. It does not
 promise semantic assurance. `off` returns a valid disabled result without scanning or creating a
-cache. In either mode normal file access and governed work continue.
+cache. In either mode normal file access and work continue.
 
 The repository can also set `ast.warmOnStoryStart.mode` to `background` (the default),
 `before-first-phase`, or `off`. The VS Code AST Intelligence page exposes this as **Warm the AST
-cache when a Story starts**. Background warming starts only after the governed Story commit is
+cache when a Story starts**. Background warming starts only after the Story commit is
 durable and lets Story work continue immediately. The wait option completes the same bounded build
 before returning from Story start. Neither option can fail, roll back, or block the Story.
 
@@ -67,7 +67,7 @@ repository record as `repositoryWarm`.
 `scope: configured-roots` uses pinned capability/world-model roots and falls back to the bounded
 repository when no roots are declared. `scope: repository` explicitly requests the bounded entire
 repository. The worker is tied to the exact starting revision and skips instead of warming a newer
-checkout. Its local status is shown by `wm ast doctor`; it creates no governed commit and uses no
+checkout. Its local status is shown by `wm ast doctor`; it creates no commit and uses no
 model.
 
 ## Availability and assurance
@@ -86,7 +86,7 @@ interpreter is run). Other reviewed parser or semantic packs are optional.
 Missing packs, unsupported languages, adapter failures, incomplete project bindings, and evidence
 store failures produce disabled or partial diagnostics. Even a predicate marked `required` is
 required only for an explicitly requested `wm ast gate` diagnostic; it is not a publication,
-submission, readiness, or governance gate.
+submission, readiness, or Flow Gate.
 
 Start with a small query such as `sflow wm ast query --predicate symbol --value Payment --paths src
 --max-facts 50 --max-output-bytes 32768 --json`; follow its opaque cursor only if the question is
@@ -98,7 +98,7 @@ fail-closed way to build a cone manifest or surface cache write failures.
 
 Context and query reads are bounded by selected paths, files, facts, and output bytes. Start with a
 small scope and widen it deliberately. AST results contain facts and provenance rather than source
-bodies. Automatic warming writes only disposable content-addressed cache entries and never governed
+bodies. Automatic warming writes only disposable content-addressed cache entries and never
 state; a write failure produces a warning and the read continues. Semantic warm-up, explicit builds,
 pruning, and clearing retain their documented boundaries. No AST outcome grants lifecycle authority.
 

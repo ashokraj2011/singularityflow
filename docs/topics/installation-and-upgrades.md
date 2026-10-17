@@ -23,13 +23,13 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 36
+version: 37
 ---
-Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
+Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing application history.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **installation and upgrades**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **installation and upgrades**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
@@ -334,7 +334,7 @@ on every surface before the command runs, then continues the command on the new 
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `init`, `bootstrap`, `quickstart`, `plugin`, `fresh-install`, `reinstall`, `product align`, `product reviews`, and `sf-install`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth. Distribution installation changes product surfaces only; it does not refresh repositories unless the separately displayed refresh command is reviewed and run.
+These commands can change repository or machine-local state: `init`, `bootstrap`, `quickstart`, `plugin`, `fresh-install`, `reinstall`, `product align`, `product reviews`, and `sf-install`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth. Distribution installation changes product surfaces only; it does not refresh repositories unless the separately displayed refresh command is reviewed and run.
 
 ## Troubleshooting
 

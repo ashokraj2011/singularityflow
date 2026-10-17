@@ -11,18 +11,18 @@ related:
   - checkpoints-pause-continue
   - reconciliation
   - escalation
-version: 2
+version: 3
 ---
 Entering a source-writing phase opens a work interval automatically: the baseline pins the source-base commit, spec and policy hashes, protected paths, required checks, and the escalation ladder. Inside the interval you work free — any editor, any assistant, your own commits, offline; no check-ins, no narration, no timers, nothing watching. The system governs the boundaries of work, not the keystrokes. Stopping without any command is legal and breaks nothing. Pause duration is never exported or used as a productivity signal.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **work intervals**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **work intervals**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow story`. Run `singularity-flow story --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -35,7 +35,7 @@ Use this topic when the current goal matches **work intervals**. Start in a gove
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `story`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `story`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

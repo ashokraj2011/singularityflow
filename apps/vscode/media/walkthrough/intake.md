@@ -1,4 +1,4 @@
-# Start governed work in Lifecycle
+# Start work in Lifecycle
 
 Start an Initiative, Epic, or Story—with Jira or a local ID—and choose its
 configured workflow. Lifecycle then shows the phase rail, inputs, outputs,

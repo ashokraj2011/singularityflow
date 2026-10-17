@@ -40,7 +40,7 @@ const CONFIGURATION_NAVIGATION: Array<{ label: string; items: ConfigurationNavig
     { label: 'Model routing', glyph: 'agent', tab: 'models' },
     { label: 'MCP tools', glyph: 'mcp', tab: 'mcp' }
   ] },
-  { label: 'Governance & review', items: [
+  { label: 'Flow Policy & sign-off', items: [
     { label: 'Constitution', glyph: 'configuration', action: 'constitution' },
     { label: 'People & approvals', glyph: 'team', tab: 'people' },
     { label: 'Review proposals', glyph: 'merge', action: 'proposals' },
@@ -63,8 +63,8 @@ function navigation(active: ConfigurationTab): string {
 
 
 function overview(view: ConfigurationCenterView): string {
-  return `<section class="plain configuration-overview"><div class="section-heading"><div><h2>${icon('ok')}Repository readiness</h2><p class="muted">A quick view of the governed setup that applies to this repository.</p></div></div>
-    <div class="summary-grid"><div class="summary-card"><strong>${view.authorities.length}</strong><span>Approval groups</span></div><div class="summary-card"><strong>${view.mcpServers.length}</strong><span>Governed MCP servers</span></div><div class="summary-card"><strong>${view.agents.length}</strong><span>Governed agents</span></div><div class="summary-card"><strong>${view.phases.length}</strong><span>Story phases</span></div></div>
+  return `<section class="plain configuration-overview"><div class="section-heading"><div><h2>${icon('ok')}Repository readiness</h2><p class="muted">A quick view of the setup and Flow Policy that apply to this repository.</p></div></div>
+    <div class="summary-grid"><div class="summary-card"><strong>${view.authorities.length}</strong><span>Approval groups</span></div><div class="summary-card"><strong>${view.mcpServers.length}</strong><span>MCP servers</span></div><div class="summary-card"><strong>${view.agents.length}</strong><span>Agents</span></div><div class="summary-card"><strong>${view.phases.length}</strong><span>Story phases</span></div></div>
     <p class="muted">Workflow ledger: <strong>${escape(view.ledger.summary)}</strong>. ${escape(view.ledger.detail)}</p>
     <h2>Connections</h2>
     <div class="configuration-action-list">
@@ -93,14 +93,14 @@ function overview(view: ConfigurationCenterView): string {
       <button class="configuration-action-row" data-action="cleanup-history">${icon('configuration', { size: 16 })}<span><strong>Clean configuration history</strong><small>Preview old snapshot branches, retain the latest 10 and current configuration, then archive exact commits as tags before retiring branch refs. Stories and approvals stay unchanged.</small></span>${icon('next')}</button>
       <button class="configuration-action-row" data-action="workflow-studio">${icon('workflow', { size: 16 })}<span><strong>Workflow Studio</strong><small>Design workflows, steps, agents and approvals visually, then publish once.</small></span>${icon('next')}</button>
       <button class="configuration-action-row" data-action="shared-workflow-drafts">${icon('workflow', { size: 16 })}<span><strong>Shared workflow drafts</strong><small>Explicitly save partial drafts in the configuration authority across machines.</small></span>${icon('next')}</button>
-      <button class="configuration-action-row" data-action="open-copilot">${icon('agent', { size: 16 })}<span><strong>Continue active Story in Copilot</strong><small>Hand the open interval to Copilot with governed context.</small></span>${icon('next')}</button>
+      <button class="configuration-action-row" data-action="open-copilot">${icon('agent', { size: 16 })}<span><strong>Continue active Story in Copilot</strong><small>Hand the open interval to Copilot with its Story context.</small></span>${icon('next')}</button>
       <button class="configuration-action-row" data-action="open-specification-trace">${icon('document', { size: 16 })}<span><strong>Specification traceability</strong><small>Review which clauses each artifact and test claims to satisfy.</small></span>${icon('next')}</button>
     </div>
     <details class="configuration-advanced-tools"><summary>Advanced configuration</summary>
       <p class="card-foot"><button class="secondary" data-action="open-workflow">Open workflow YAML</button><button class="secondary" data-action="open-portfolio">Open portfolio YAML</button><button class="link" data-action="reset-jira">Reset saved Jira</button></p>
       <div class="configuration-action-list">
         <button class="configuration-action-row" data-action="inspect-composition-cache">${icon('ok', { size: 16 })}<span><strong>Inspect composition cache</strong><small>Review cached agent composition and validity.</small></span>${icon('next')}</button>
-        <button class="configuration-action-row" data-action="check-ledger-deployment">${icon('ok', { size: 16 })}<span><strong>Check ledger deployment</strong><small>Verify the governance ledger is reachable and current.</small></span>${icon('next')}</button>
+        <button class="configuration-action-row" data-action="check-ledger-deployment">${icon('ok', { size: 16 })}<span><strong>Check the Flow Ledger</strong><small>Verify the Flow Ledger is reachable and current.</small></span>${icon('next')}</button>
         <button class="configuration-action-row" data-action="open-impact-file">${icon('configuration', { size: 16 })}<span><strong>Open impact.yml</strong><small>Study methods, cohorts, metrics, guardrails, and privacy.</small></span>${icon('next')}</button>
       </div>
     </details>
@@ -126,7 +126,7 @@ function autoMode(view: ConfigurationCenterView): string {
     <form id="auto-form" class="editor-card">
       <label class="field"><span>Repository Auto</span>
         <select name="enabled">
-          ${option('false', String(view.auto.enabled), 'Off — manual governed workflow only')}
+          ${option('false', String(view.auto.enabled), 'Off — manual workflow only')}
           ${option('true', String(view.auto.enabled), 'On — allow opted-in work types')}
         </select>
         <small>This is the master switch. Turning it on does not start work and does not bypass confirmation, approvals, protected paths, or budgets.</small>
@@ -202,7 +202,7 @@ function modelRouting(view: ConfigurationCenterView): string {
       <table class="rows"><thead><tr><th>Task</th><th>Model</th><th>Fallback</th><th>Parameters</th><th>Routed by</th></tr></thead>
         <tbody>${rows}</tbody></table>
       <p class="muted">Sent to Copilot: ${sendParametersText(routing.sendParameters)}. Set <code>sendParameters</code> in the tier mapping to <code>none</code>, <code>all</code> or a list of tasks; params not sent are recorded on each invocation receipt only.</p>
-      <p class="muted">Mapping revision <code>${escape((routing.revision ?? '').slice(0, 12))}</code> — pinned per story alongside the task, so a model retired mid-story changes what runs without changing what the story was governed by.</p>
+      <p class="muted">Mapping revision <code>${escape((routing.revision ?? '').slice(0, 12))}</code> — pinned per story alongside the task, so a model retired mid-story changes what runs without changing the Flow Policy the Story was held to.</p>
     </div></section>`;
 }
 
@@ -252,7 +252,7 @@ function currentIdentityCard(view: ConfigurationCenterView): string {
   return `<form id="current-identity-authority-form" class="editor-card">
     <div class="section-heading"><div><h2>${icon('approval')}Add my current Git identity</h2><p class="muted">By default, your identity is added to every configured approval group. You can narrow it to one scope or group. Existing matching members are enriched, never duplicated.</p></div></div>
     <div class="summary-grid"><div class="summary-card"><strong>${escape(identity.name)}</strong><span>Git name</span></div><div class="summary-card"><strong>${escape(identity.email || 'not configured')}</strong><span>Git email</span></div><div class="summary-card"><strong>${escape(identity.githubLogin || 'not resolved')}</strong><span>GitHub login</span></div></div>
-    <div class="form-grid"><label class="span-2"><span>Apply identity to</span><select name="target">${choices}</select><small>Authority is granted only to the selected governed groups.</small></label></div>
+    <div class="form-grid"><label class="span-2"><span>Apply identity to</span><select name="target">${choices}</select><small>Sign-off rights are granted only to the selected approval groups.</small></label></div>
     <div class="check-grid"><label class="check"><input name="allowSelfApproval" type="checkbox"${view.approvalAllowSelfApproval ? ' checked' : ''}>Allow self-approval for newly started work</label>
     <label class="check"><input name="autoEnrollNewIdentities" type="checkbox"${view.approvalAutoEnrollNewIdentities ? ' checked' : ''}>Automatically add a new Git identity to every approval group when work starts</label></div>
     <small>Both controls are enabled by default for normal team configuration and can be disabled here. Current profile: <code>${escape(view.approvalSecurityProfile)}</code>. Active work keeps its pinned policy.</small>
@@ -262,10 +262,10 @@ function currentIdentityCard(view: ConfigurationCenterView): string {
 
 function people(view: ConfigurationCenterView, selected: AuthorityView | null): string {
   return `<section class="plain"><h2>${icon('agent')}My local profile</h2>
-    <p class="muted">This profile changes guidance only. Governed decisions use the Git and GitHub identities shown in approval records.</p>
+    <p class="muted">This profile changes guidance only. Decisions use the Git and GitHub identities shown in approval records.</p>
     <form id="profile-form" class="editor-card"><div class="form-grid"><label><span>Name</span><input name="name" type="text" value="${escape(view.profile.name)}"></label><label><span>Menu persona</span><select name="role">${PROFILE_PERSONAS.map((persona) => `<option value="${persona.id}"${persona.id === view.profile.role ? ' selected' : ''}>${escape(persona.label)}</option>`).join('')}</select><small>Changes menu order and suggestions only.</small></label></div><div class="card-foot"><button type="submit">Save local profile</button><button type="button" class="secondary" data-action="discard-edits">Discard changes</button></div></form>
     ${currentIdentityCard(view)}
-    <div class="section-heading"><h2>${icon('team')}Human approval authorities</h2><button class="secondary" data-action="new-authority">Add authority</button></div>
+    <div class="section-heading"><h2>${icon('team')}Approval groups</h2><button class="secondary" data-action="new-authority">Add approval group</button></div>
     <p class="muted">People are not agents. These groups match real Git email or authenticated GitHub login when somebody approves or rejects.</p>
     <div class="configuration-list">${view.authorities.map((group) => `<button class="configuration-row secondary" data-authority="${escape(`${group.scope}:${group.id}`)}"><span>${icon('approval')}</span><strong>${escape(group.label)}</strong><small>${group.scope === 'story' ? 'Story workflow' : 'Initiative workflow'} · ${group.allowAnyGitIdentity ? 'any Git identity' : `${group.members.length} member${group.members.length === 1 ? '' : 's'}`}</small></button>`).join('') || '<p class="empty">No approval groups are configured.</p>'}</div>
     ${selected ? authorityForm(selected) : ''}
@@ -273,24 +273,24 @@ function people(view: ConfigurationCenterView, selected: AuthorityView | null): 
 }
 
 function authorityForm(group: AuthorityView): string {
-  return `<form id="authority-form" class="editor-card" data-previous-id="${escape(group.id)}"><div class="section-heading"><h2>${icon('approval')}${group.id ? 'Edit' : 'New'} authority</h2></div>
+  return `<form id="authority-form" class="editor-card" data-previous-id="${escape(group.id)}"><div class="section-heading"><h2>${icon('approval')}${group.id ? 'Edit' : 'New'} approval group</h2></div>
     <div class="form-grid"><label><span>Applies to</span>${group.id
-      ? `<input type="hidden" name="scope" value="${group.scope}"><input type="text" value="${group.scope === 'story' ? 'Story workflows' : 'Initiative workflows'}" disabled><small>Scope is fixed after creation so the group cannot be copied into a second governed file accidentally.</small>`
-      : `<select name="scope"><option value="story">Story workflows</option><option value="initiative">Initiative workflows</option></select>`}</label><label><span>Authority ID</span><input name="id" type="text" value="${escape(group.id)}" placeholder="architecture-reviewers"></label><label class="span-2"><span>Display label</span><input name="label" type="text" value="${escape(group.label)}"></label></div>
-    ${group.scope === 'story' ? `<label class="check"><input name="allowAnyGitIdentity" type="checkbox"${group.allowAnyGitIdentity ? ' checked' : ''}>Any configured Git identity may act as this Story authority</label>` : '<p class="notice">Initiative authorities require named Git identities. This prevents an Initiative gate from silently becoming open to everyone.</p>'}
+      ? `<input type="hidden" name="scope" value="${group.scope}"><input type="text" value="${group.scope === 'story' ? 'Story workflows' : 'Initiative workflows'}" disabled><small>Scope is fixed after creation so the group cannot be copied into a second file accidentally.</small>`
+      : `<select name="scope"><option value="story">Story workflows</option><option value="initiative">Initiative workflows</option></select>`}</label><label><span>Group ID</span><input name="id" type="text" value="${escape(group.id)}" placeholder="architecture-reviewers"></label><label class="span-2"><span>Display label</span><input name="label" type="text" value="${escape(group.label)}"></label></div>
+    ${group.scope === 'story' ? `<label class="check"><input name="allowAnyGitIdentity" type="checkbox"${group.allowAnyGitIdentity ? ' checked' : ''}>Any configured Git identity may sign off for this Story approval group</label>` : '<p class="notice">Initiative approval groups require named Git identities. This prevents an Initiative gate from silently becoming open to everyone.</p>'}
     <label class="stack"><span>Named members</span><textarea name="members" rows="5" placeholder="Name | email@example.com | github-login">${escape(memberText(group))}</textarea><small>One person per line: name | email | optional GitHub login.</small></label>
-    <div class="card-foot"><button type="submit">Save authority</button><button class="secondary" type="button" data-action="cancel-edit">Cancel</button>${group.id ? '<span class="grow"></span><button class="danger" type="button" data-action="delete-authority">Delete</button>' : ''}</div></form>`;
+    <div class="card-foot"><button type="submit">Save approval group</button><button class="secondary" type="button" data-action="cancel-edit">Cancel</button>${group.id ? '<span class="grow"></span><button class="danger" type="button" data-action="delete-authority">Delete</button>' : ''}</div></form>`;
 }
 
 function mcpForm(server: McpServerView): string {
   return `<form id="mcp-form" class="editor-card" data-previous-id="${escape(server.id)}"><div class="section-heading"><h2>${icon('mcp')}${server.id ? 'Edit' : 'New'} MCP policy</h2></div>
-    <div class="form-grid"><label><span>Server ID</span><input name="id" type="text" value="${escape(server.id)}" placeholder="playwright"></label><label><span>Display label</span><input name="label" type="text" value="${escape(server.label)}"></label><label><span>Host reference</span><input name="hostReference" type="text" value="${escape(server.hostReference)}"></label><label><span>Host approval</span><select name="approval"><option value="confirm"${server.approval === 'confirm' ? ' selected' : ''}>Confirm every use</option><option value="host"${server.approval === 'host' ? ' selected' : ''}>Use host policy</option></select></label><label class="span-2"><span>Governed agents</span><input name="agents" type="text" value="${csv(server.agents)}" placeholder="qa, product-designer"><small>Comma-separated. Empty means every agent whose Agent Markdown permits the namespace.</small></label><label class="span-2"><span>Allowed phases</span><input name="phases" type="text" value="${csv(server.phases)}" placeholder="verification, conformance"></label><label class="span-2"><span>Allowed tools</span><input name="tools" type="text" value="${csv(server.tools)}" placeholder="browser_navigate, browser_snapshot"><small>Unqualified MCP tool names. Empty permits the whole host namespace.</small></label></div>
+    <div class="form-grid"><label><span>Server ID</span><input name="id" type="text" value="${escape(server.id)}" placeholder="playwright"></label><label><span>Display label</span><input name="label" type="text" value="${escape(server.label)}"></label><label><span>Host reference</span><input name="hostReference" type="text" value="${escape(server.hostReference)}"></label><label><span>Host approval</span><select name="approval"><option value="confirm"${server.approval === 'confirm' ? ' selected' : ''}>Confirm every use</option><option value="host"${server.approval === 'host' ? ' selected' : ''}>Use host policy</option></select></label><label class="span-2"><span>Agents</span><input name="agents" type="text" value="${csv(server.agents)}" placeholder="qa, product-designer"><small>Comma-separated. Empty means every agent whose Agent Markdown permits the namespace.</small></label><label class="span-2"><span>Allowed phases</span><input name="phases" type="text" value="${csv(server.phases)}" placeholder="verification, conformance"></label><label class="span-2"><span>Allowed tools</span><input name="tools" type="text" value="${csv(server.tools)}" placeholder="browser_navigate, browser_snapshot"><small>Unqualified MCP tool names. Empty permits the whole host namespace.</small></label></div>
     <div class="check-grid"><label class="check"><input name="required" type="checkbox"${server.required ? ' checked' : ''}>Required for matching contexts</label><label class="check"><input name="captureToolCalls" type="checkbox"${server.captureToolCalls ? ' checked' : ''}>Record material tool calls</label><label class="check"><input name="captureResults" type="checkbox"${server.captureResults ? ' checked' : ''}>Require result evidence</label></div>
     <div class="card-foot"><button type="submit">Save MCP policy</button><button class="secondary" type="button" data-action="cancel-edit">Cancel</button>${server.id ? '<span class="grow"></span><button class="danger" type="button" data-action="delete-mcp">Delete</button>' : ''}</div></form>`;
 }
 
 function mcp(view: ConfigurationCenterView, selected: McpServerView | null): string {
-  return `<section class="plain"><div class="section-heading"><h2>${icon('mcp')}Governed MCP tools</h2><button class="secondary" data-action="new-mcp">Add server policy</button></div>
+  return `<section class="plain"><div class="section-heading"><h2>${icon('mcp')}MCP tools</h2><button class="secondary" data-action="new-mcp">Add server policy</button></div>
     <p class="muted">VS Code or Copilot owns the process and credentials. Singularity Flow governs which agents, phases, and tools may use it, then records durable evidence.</p>
     ${(view.mcpErrors.length || view.mcpWarnings.length) ? `<div class="notice warning">${[...view.mcpErrors, ...view.mcpWarnings].map((entry) => `<p>${escape(entry)}</p>`).join('')}</div>` : ''}
     <div class="configuration-list">${view.mcpServers.map((server) => {
@@ -304,7 +304,7 @@ function mcp(view: ConfigurationCenterView, selected: McpServerView | null): str
             ? 'configured; start, trust, authenticate, then attest readiness'
             : 'host setup required';
       return `<button class="configuration-row secondary" data-mcp="${escape(server.id)}"><span>${icon(glyph)}</span><strong>${escape(server.label)}</strong><small>${escape(`${server.hostReference} · ${detail}`)}</small></button>`;
-    }).join('') || '<p class="empty">No MCP servers are governed yet.</p>'}</div>
+    }).join('') || '<p class="empty">No MCP server policies yet.</p>'}</div>
     <p class="card-foot"><button class="secondary" data-action="playwright">Add Playwright host starter</button><button class="secondary" data-action="open-mcp-host">Open VS Code MCP host file</button><button class="secondary" data-action="open-instruction-designer">Open Agent Designer</button></p>
     ${selected ? mcpForm(selected) : ''}
   </section>`;
@@ -331,7 +331,7 @@ export function configurationCenterHtml(
   const guardedContent = pendingProposal
     ? `<div class="notice warning" role="status"><strong>Configuration proposal pending review.</strong> The submitted settings are on <code>${escape(pendingProposal.branch)}</code> and are not approved yet. Merge it into <code>${escape(pendingProposal.baseBranch)}</code>, then recheck the approved authority. If you discarded it instead, deliberately resume the approved baseline. The approved baseline below is read-only until then.<span class="grow"></span><button class="secondary" type="button" data-action="workflow-proposals">Review proposal</button><button class="secondary" id="configuration-pending-refresh" type="button">Recheck approved authority</button><button class="secondary" id="configuration-resume-approved" type="button">Resume approved baseline</button></div><fieldset disabled aria-label="Approved configuration is read-only while a proposal is pending">${content}</fieldset>`
     : content;
-  return `<header class="inbox-header">${brandLockup()}<p class="eyebrow">Governed repository setup</p><h1>${icon('configuration', { size: 24 })}Configuration Center</h1><p class="meta">Configure the product through guided screens. Use YAML only for advanced settings that do not yet have a form.</p></header>
+  return `<header class="inbox-header">${brandLockup()}<p class="eyebrow">Repository setup</p><h1>${icon('configuration', { size: 24 })}Configuration Center</h1><p class="meta">Configure the product through guided screens. Use YAML only for advanced settings that do not yet have a form.</p></header>
     <div id="configuration-runtime-message" class="notice warning" role="status" aria-live="polite" hidden><span id="configuration-runtime-text"></span><span class="grow"></span><button class="secondary" id="configuration-reload" type="button">Reload newer configuration</button><button class="secondary" id="configuration-keep" type="button">Keep editing</button><button class="secondary" id="configuration-runtime-resume-approved" type="button" hidden>Resume approved baseline</button></div>
     <div class="configuration-shell">${navigation(tab)}<main class="configuration-content">
       ${guardedContent}

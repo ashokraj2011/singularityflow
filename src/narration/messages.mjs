@@ -306,7 +306,7 @@ export const MESSAGES = Object.freeze({
     preserves: false
   },
   'sgos.reported': {
-    headline: (s) => slot(s.summary, 'Singularity Flow governed execution result is ready.'),
+    headline: (s) => slot(s.summary, 'Singularity Flow execution result is ready.'),
     preserves: true
   },
   'auto.plan-ready': {
@@ -841,7 +841,7 @@ export const MESSAGES = Object.freeze({
     preserves: false
   },
   'quickstart.completed': {
-    headline: (s) => `Walked one Story through ${slot(s.steps, 'every')} governed ${Number(s.steps) === 1 ? 'step' : 'steps'} in a throwaway repository.`,
+    headline: (s) => `Walked one Story through ${slot(s.steps, 'every')} ${Number(s.steps) === 1 ? 'step' : 'steps'} in a throwaway repository.`,
     // The sandbox is created and removed inside the command. The repository the reader is standing
     // in is untouched, which is the whole reason this is safe to run first.
     preserves: true
@@ -851,7 +851,7 @@ export const MESSAGES = Object.freeze({
     preserves: true
   },
   'recommend.no-current-work': {
-    headline: (s) => `${s.name ? `${slot(s.name)}, ` : ''}no governed work is currently selected.`,
+    headline: (s) => `${s.name ? `${slot(s.name)}, ` : ''}no work is currently selected.`,
     preserves: true
   },
   'goal.created': {
@@ -935,14 +935,14 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Abandoned ${slot(s.goalId)} and preserved its history.`
   },
   'goal.proposed': {
-    headline: (s) => `Prepared a read-only governed Goal proposal for ${slot(s.workspace)}.`,
+    headline: (s) => `Prepared a read-only repository Goal proposal for ${slot(s.workspace)}.`,
     preserves: true
   },
   'goal.governed': {
-    headline: (s) => `Promoted ${slot(s.personalGoalId)} into governed Goal ${slot(s.goalId)}.`
+    headline: (s) => `Promoted ${slot(s.personalGoalId)} into repository Goal ${slot(s.goalId)}.`
   },
   'goal.governed-listed': {
-    headline: (s) => `Found ${slot(s.count, '0')} governed Goal(s) in ${slot(s.workspace)}.`,
+    headline: (s) => `Found ${slot(s.count, '0')} repository Goal(s) in ${slot(s.workspace)}.`,
     preserves: true
   },
   'goal.plan-compiled': {
@@ -970,19 +970,19 @@ export const MESSAGES = Object.freeze({
     preserves: true
   },
   'goal.paused': {
-    headline: (s) => `Paused governed Goal ${slot(s.goalId)}.`
+    headline: (s) => `Paused repository Goal ${slot(s.goalId)}.`
   },
   'goal.resumed': {
-    headline: (s) => `Resumed governed Goal ${slot(s.goalId)}.`
+    headline: (s) => `Resumed repository Goal ${slot(s.goalId)}.`
   },
   'goal.synced': {
-    headline: (s) => `Published governed Goal ${slot(s.goalId)} at ${slot(s.commit)}.`
+    headline: (s) => `Published repository Goal ${slot(s.goalId)} at ${slot(s.commit)}.`
   },
   'goal.precommit-recovered': {
-    headline: (s) => `Restored interrupted governed Goal creation ${slot(s.goalId)} before publication.`
+    headline: (s) => `Restored interrupted repository Goal creation ${slot(s.goalId)} before publication.`
   },
   'goal.already-synced': {
-    headline: (s) => `Governed Goal ${slot(s.goalId)} is already published.`,
+    headline: (s) => `Repository Goal ${slot(s.goalId)} is already published.`,
     preserves: true
   },
   'journal.today-reported': {
@@ -1128,7 +1128,7 @@ export const REASONS = Object.freeze({
     render: (s) => `the Goal came from the personal durable record for workspace ${slot(s.workspace)}`
   },
   'goal.from-governed-repository': {
-    render: (s) => `governed Goal ${slot(s.goalId)} was reconstructed from its repository lifecycle branch`
+    render: (s) => `repository Goal ${slot(s.goalId)} was reconstructed from its repository lifecycle branch`
   }
 });
 

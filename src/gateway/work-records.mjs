@@ -24,7 +24,7 @@ export function resolveWorkRecord(records, { workId, workKind = null } = {}) {
   const matches = (records?.items ?? []).filter((entry) => entry.id === workId
     && (!workKind || entry.kind === workKind));
   if (matches.length <= 1) return matches[0] ?? null;
-  const error = new Error(`Work ID '${workId}' exists as more than one governed subject; supply workKind.`);
+  const error = new Error(`Work ID '${workId}' exists as more than one kind of work; supply workKind.`);
   error.code = 'WORK_SUBJECT_AMBIGUOUS';
   throw error;
 }

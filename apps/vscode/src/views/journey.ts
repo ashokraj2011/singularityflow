@@ -39,7 +39,7 @@ const STATUS_CLASS: Record<string, string> = {
 const ACTION_VERBS: Record<string, string> = {
   start: 'Start this work item',
   resume: 'Resume this work item',
-  agent: 'Run the governed agent',
+  agent: 'Run the agent',
   prepare: 'Prepare this phase',
   submit: 'Submit for approval',
   approve: 'Approve this phase',
@@ -168,7 +168,7 @@ export function journeyBodyHtml(journey: Journey, deliveries: JourneyDeliveries 
     ? `<section><h2>${icon('bad')}This phase is not ready</h2><ul class="blockers">${
       journey.blockers.map((blocker) => `<li>${escape(blocker)}</li>`).join('')}</ul></section>`
     : journey.gateEvaluated
-      ? `<section><h2>${icon('gate')}Gate</h2><p class="ok-text">${icon('ok')}The phase gate reported no blockers.</p></section>`
+      ? `<section><h2>${icon('gate')}Gate</h2><p class="ok-text">${icon('ok')}The Flow Gate reported no blockers.</p></section>`
       : '';
 
   const sources = `${journey.sources.length
@@ -223,7 +223,7 @@ export function journeyBodyHtml(journey: Journey, deliveries: JourneyDeliveries 
     </section>` : ''}
 
     <section class="journey-rail"><h2>${icon('epic')}Lifecycle</h2>
-      <p class="muted">Select a phase to inspect its governed artifacts and approvals.</p>
+      <p class="muted">Select a phase to inspect its artifacts and approvals.</p>
       <ol class="phase-rail">${railHtml(journey)}</ol>
     </section>
 

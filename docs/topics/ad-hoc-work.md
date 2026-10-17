@@ -1,6 +1,6 @@
 ---
 id: ad-hoc-work
-title: Ad hoc work and governed landing
+title: Ad hoc work and landing as a Story
 aliases:
   - adhoc
   - ad-hoc
@@ -21,7 +21,7 @@ keywords:
   - disposition
   - landing packet
   - promotion
-version: 2
+version: 3
 ---
 Ad hoc mode lets work begin without a Story and later applies a small, exact safety envelope before publication. It does not fabricate a pre-work specification: confirmed intent is explicitly recorded as discovered at landing.
 
@@ -44,7 +44,7 @@ Use ad hoc mode for bounded work in one initialized Git repository. The thin pil
 3. Confirm an objective and at least one observable success criterion. The record says `discovered-at-landing`.
 4. Claim every resource against a confirmed criterion, or mark it for deviation, split, revert, or local-only handling. Anything not claimed blocks direct landing.
 5. Run `adhoc landing preview`. SFlow executes one allowlisted deterministic test and returns either an eligible packet or explicit promotion reasons.
-6. Publish only with the exact packet SHA-256. SFlow rechecks HEAD, effects, identity, and the required test, then uses the ordinary governed publication transaction.
+6. Publish only with the exact packet SHA-256. SFlow rechecks HEAD, effects, identity, and the required test, then uses the ordinary publication transaction.
 
 ## State and safety
 
@@ -54,10 +54,10 @@ The committed landing receipt binds through the lifecycle event and commit trail
 
 ## Troubleshooting
 
-`ADH_DIRTY_START_CHOICE_REQUIRED` means existing work was found and needs explicit `--include-existing`; nothing was adopted. `ADH_CHANGE_UNCLAIMED` lists resources still needing a disposition. `ADH_PROMOTION_REQUIRED` preserves the branch and provides a workflow handoff. `ADH_PACKET_STALE` means HEAD or bytes changed after preview; create and review a replacement packet. Push failure retains the exact governed commit in the existing publication-recovery mechanism.
+`ADH_DIRTY_START_CHOICE_REQUIRED` means existing work was found and needs explicit `--include-existing`; nothing was adopted. `ADH_CHANGE_UNCLAIMED` lists resources still needing a disposition. `ADH_PROMOTION_REQUIRED` preserves the branch and provides a workflow handoff. `ADH_PACKET_STALE` means HEAD or bytes changed after preview; create and review a replacement packet. Push failure retains the exact commit in the existing publication-recovery mechanism.
 
 ## Related topics
 
-Follow the [complete ad hoc work and governed landing guide](../../README-AD-HOC-WORK.md) for the exact CLI sequence, Copilot and VS Code entry points, safe recovery, common refusals, records, privacy, and the current thin-pilot boundary.
+Follow the [complete ad hoc work and landing as a Story guide](../../README-AD-HOC-WORK.md) for the exact CLI sequence, Copilot and VS Code entry points, safe recovery, common refusals, records, privacy, and the current thin-pilot boundary.
 
-See `starting-work` for compiled Story entry, `story-lifecycle` for preplanned phase governance, and `recovery` for exact commit publication recovery.
+See `starting-work` for compiled Story entry, `story-lifecycle` for preplanned phases and Flow Gates, and `recovery` for exact commit publication recovery.

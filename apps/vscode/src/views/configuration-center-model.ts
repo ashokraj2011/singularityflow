@@ -394,7 +394,7 @@ export function updateMcpYaml(text: string, draft: McpDraft | null, deleteId: st
 }
 
 export function updateAuthorityYaml(text: string, draft: AuthorityDraft | null, deleteId: string | null = null): string {
-  const parsed = document(text, 'governed configuration');
+  const parsed = document(text, 'approved configuration');
   if (deleteId) parsed.deleteIn(['approvalAuthorities', deleteId]);
   if (draft) {
     const errors = validateAuthorityDraft(draft);

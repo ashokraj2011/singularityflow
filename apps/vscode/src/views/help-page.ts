@@ -55,7 +55,7 @@ const START_TOPICS = [
   'low-friction-cockpit-diagnostics-and-guided-execution',
   'workspaces-and-capabilities',
   'workspace-configuration',
-  'governed-agents-and-approval-authority',
+  'agents-and-approval-groups',
   'world-model',
   'jira-intake',
   'multi-repository-initiatives',

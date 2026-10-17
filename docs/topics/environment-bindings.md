@@ -12,7 +12,7 @@ related:
   - visual-verification
 commands:
   - env
-version: 1
+version: 2
 ---
 An environment binding separates a names-only repository declaration from values held in private machine state. Put the closed declaration in `singularity/environments.yml`, bind values through standard input or an approved reference, and inspect only redacted status metadata. SFlow refuses declared local files at commit, candidate, publication, document-intake, and World Model boundaries. A missing binding is unavailable and never a pass. Environment-bound execution is allowed to satisfy a gate only through an approved isolated runner; the developer-local runner is not silently promoted into that role.
 
@@ -47,8 +47,8 @@ The current developer-local runner can prove that a binding exists, but it is no
 - If `env status` says an environment is partial, bind only the listed missing names through standard input and recheck status.
 - If Configuration Center reports an unknown quality-command ID, copy the exact `id` from a reachable workflow phase's `qualityCommands`; do not use a display label or shell command text.
 - If a declaration changed after a binding was created, rebind it so the local record is tied to the current declaration fingerprint.
-- If audit names a declared local file, remove it from the index and every governed artifact. Adding it to `.gitignore` alone does not satisfy the gate.
-- If a check says that isolated execution is unavailable, preserve that result and configure an approved runner; do not reinterpret a developer-local run as governed evidence.
+- If audit names a declared local file, remove it from the index and every artifact. Adding it to `.gitignore` alone does not satisfy the gate.
+- If a check says that isolated execution is unavailable, preserve that result and configure an approved runner; do not reinterpret a developer-local run as evidence.
 - If a Copilot or VS Code action cannot accept secret input safely, use the displayed shell command. Never paste the value into chat, a webview, or a command-line argument.
 
 ## Related topics

@@ -103,14 +103,14 @@ function retentionOptions(selected: number): string {
 }
 
 function body(snapshot: PromptAuditSnapshot | null, selected: string | null, error: string | null): string {
-  if (!snapshot) return `<header><p class="eyebrow">Local governance</p><h1>${icon('prompt', { size: 24 })}Prompt audit</h1></header>
+  if (!snapshot) return `<header><p class="eyebrow">Local records</p><h1>${icon('prompt', { size: 24 })}Prompt audit</h1></header>
     <section><p>${error ? escape(error) : 'Reading workspace prompt records…'}</p><button class="secondary" data-action="refresh">Retry</button></section>`;
   const active = snapshot.records.find((record) => record.id === selected) ?? snapshot.records[0] ?? null;
   return `<header class="inbox-header">
     ${brandLockup()}
-    <p class="eyebrow">Workspace-local governance</p>
+    <p class="eyebrow">Kept in this workspace</p>
     <h1>${icon('prompt', { size: 24 })}Prompt audit</h1>
-    <p class="meta">Capture the governed prompt assembled for each Copilot agent handoff. Copilot system prompts and chat history are never captured.</p>
+    <p class="meta">Capture the prompt assembled for each Copilot agent handoff. Copilot system prompts and chat history are never captured.</p>
     <p class="card-foot"><button data-action="toggle">Turn capture ${snapshot.enabled ? 'off' : 'on'}</button><button class="secondary" data-action="refresh">Refresh</button><button class="secondary" data-action="repair">Repair</button><button class="secondary" data-action="clear">Clear history</button></p>
   </header>
   <section class="plain">
@@ -130,7 +130,7 @@ function body(snapshot: PromptAuditSnapshot | null, selected: string | null, err
       <button class="audit-record${active?.id === record.id ? ' selected' : ''}" data-record="${escape(record.id)}">
         <strong>${escape(record.agent)}</strong><span>${escape(record.workId ?? 'repository')} · ${escape(record.phase)} · generation ${escape(record.generation ?? '—')}</span>
         <small>${escape(record.recordedAt)} · ${escape(record.source)} · ${escape(record.execution.model ?? 'model unavailable')} · ${escape(record.execution.tokens.total == null ? `~${record.execution.tokens.promptEstimate.value ?? '—'} estimated prompt tokens` : `${record.execution.tokens.total} provider tokens`)}</small>
-      </button>`).join('')}</div>` : '<div class="empty"><p>No prompts captured yet. Turn capture on, then run a governed phase handoff.</p></div>'}</section>
+      </button>`).join('')}</div>` : '<div class="empty"><p>No prompts captured yet. Turn capture on, then run a phase handoff.</p></div>'}</section>
     <section><h2>${icon('document')}Structured prompt record</h2>${active ? `
       <div class="summary-grid"><div class="summary-card"><strong>${escape(active.execution.model ?? 'Unavailable')}</strong><span>Model</span></div><div class="summary-card"><strong>${escape(metric(active.execution.tokens.total))}</strong><span>Provider tokens</span></div><div class="summary-card"><strong>${escape(active.execution.tools.mode ?? 'Unavailable')}</strong><span>Tool policy</span></div><div class="summary-card"><strong>${escape(active.execution.status)}</strong><span>Execution</span></div></div>
       <h3>Context</h3><dl class="audit-meta"><div><dt>Agent</dt><dd>${escape(active.agent)}</dd></div><div><dt>Story</dt><dd>${escape(active.workId ?? '—')}</dd></div><div><dt>Phase</dt><dd>${escape(active.phase)}</dd></div><div><dt>Generation</dt><dd>${escape(active.generation ?? '—')}</dd></div><div><dt>Source</dt><dd>${escape(active.source)}</dd></div><div><dt>Task</dt><dd>${escape(active.task ?? 'Unavailable')}</dd></div><div><dt>Prompt bytes</dt><dd>${escape(active.bytes.toLocaleString('en-US'))}</dd></div><div><dt>Redactions</dt><dd>${active.redactions}</dd></div><div><dt>Integrity</dt><dd>${escape(active.integrityVerification?.status ?? 'Legacy')}</dd></div></dl>

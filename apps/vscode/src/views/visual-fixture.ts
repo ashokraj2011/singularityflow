@@ -45,10 +45,10 @@ function fixtureBody(theme: VisualTheme): string {
       <button type="button" class="active-story-card"><span class="active-story-title">${icon('story')}CFA-STORY</span><span class="active-story-phase">implementation</span><small>Calculate compound interest</small><span class="active-story-action">Open checkout${icon('next')}</span></button></div>
     <div class="notice warning" role="status"><strong>Start command timed out</strong><p>The durable result can be checked without starting the Story again.</p><button type="button" class="secondary">Check and open created Story</button></div></section>
   <section class="fixture-task"><div class="section-heading"><h2>${icon('approval')}Approval inbox</h2><span class="pill wait">${icon('waiting')}Waiting</span></div>
-    <article class="decision-card"><p class="eyebrow">Phase gate</p><h3>Solution design</h3><p class="muted">Review the exact approved specification and its source hash.</p>
+    <article class="decision-card"><p class="eyebrow">Flow Gate</p><h3>Solution design</h3><p class="muted">Review the exact approved specification and its source hash.</p>
       <div class="card-foot"><button>Review &amp; approve</button><button class="secondary">Open artifact</button><button class="link">Reject</button></div></article></section>
   <section><h2>${icon('workflow')}Workflow progress</h2><div class="workflow-rail"><span class="rail-node"><b>1</b>Intake</span><span class="rail-arrow">${icon('next')}</span><span class="rail-node"><b>2</b>Requirements</span><span class="rail-arrow">${icon('next')}</span><span class="rail-node"><b>3</b>Planning</span></div></section>
-  <section class="fixture-task editor-card"><div class="editor-title"><p class="eyebrow">Configuration studio</p><h3>${icon('agent')}Governed agent</h3></div>
+  <section class="fixture-task editor-card"><div class="editor-title"><p class="eyebrow">Configuration studio</p><h3>${icon('agent')}Agent</h3></div>
     <div class="form-grid"><label class="field"><span>Display name</span><input type="text" value="Solution architect"></label>
       <label class="field"><span>Default phase</span><select><option>Design</option></select></label>
       <label class="field full"><span>Prompt guidance</span><textarea rows="3">Ground every recommendation in the selected world-model views.</textarea></label></div>
@@ -56,8 +56,8 @@ function fixtureBody(theme: VisualTheme): string {
   <section class="fixture-task"><h2>${icon('configuration')}Configuration navigation</h2>
     <div class="configuration-shell"><aside class="configuration-sidebar"><nav class="configuration-nav" aria-label="Configuration areas">
       <section class="configuration-nav-group"><h2>Repository setup</h2><ul><li><button class="configuration-nav-item active" aria-current="page">${icon('configuration')}<span>Overview</span></button></li><li><button class="configuration-nav-item">${icon('capability')}<span>Capabilities</span></button></li></ul></section>
-      <section class="configuration-nav-group"><h2>Governance &amp; review</h2><ul><li><button class="configuration-nav-item">${icon('approval')}<span>People &amp; approvals</span></button></li></ul></section>
-    </nav></aside><main class="configuration-content"><div class="summary-grid"><div class="summary-card"><strong>4</strong><span>approval groups</span></div><div class="summary-card"><strong>3</strong><span>governed agents</span></div></div>
+      <section class="configuration-nav-group"><h2>Flow Policy &amp; sign-off</h2><ul><li><button class="configuration-nav-item">${icon('approval')}<span>People &amp; approvals</span></button></li></ul></section>
+    </nav></aside><main class="configuration-content"><div class="summary-grid"><div class="summary-card"><strong>4</strong><span>approval groups</span></div><div class="summary-card"><strong>3</strong><span>agents</span></div></div>
       <div class="configuration-action-list"><button class="configuration-action-row">${icon('workflow')}<span><strong>Workflow Studio</strong><small>Design workflows, steps, agents and approvals visually, then publish once.</small></span>${icon('next')}</button></div></main></div>
   </section>
   <section><h2>${icon('artifact')}Artifact inventory</h2><table><thead><tr><th>Artifact</th><th>Status</th><th>Owner</th></tr></thead>

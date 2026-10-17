@@ -4318,7 +4318,7 @@ export async function stageWorkspaceDocuments(workspacePath, sourcePaths) {
       status: 'staged-not-governed'
     });
   }
-  return { workspaceId: workspace.id, added, warning: 'Staged documents are local and not governed until explicitly imported into a Git work item or initiative.' };
+  return { workspaceId: workspace.id, added, warning: 'Staged documents are local and not part of a Story until explicitly imported into a Story or Initiative.' };
 }
 
 export async function listWorkspaceDocuments(workspacePath) {

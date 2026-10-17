@@ -393,14 +393,14 @@ function guidanceHtml(view: ResultCardView): string {
   const effectLabels: Record<string, string> = {
     read: 'Nothing. This is a read-only recommendation.',
     synchronize: 'Synchronizes the retained commit or branch with its configured remote.',
-    decision: 'Records governed lifecycle state and publishes the attributed decision.',
-    generation: 'May update generated artifacts and governed lifecycle records.',
-    mutation: 'May update governed state, Git refs, publication, or an external system.'
+    decision: 'Records lifecycle state and publishes the attributed decision.',
+    generation: 'May update generated artifacts and lifecycle records.',
+    mutation: 'May update state, Git refs, publication, or an external system.'
   };
   const recommendation = guidance.recommendation ? `
     <p class="sf-guidance-change"><b>This will change:</b> ${escape(effectLabels[guidance.recommendation.effect]
       ?? effectLabels.mutation)}${guidance.recommendation.confirmationRequired
-    ? ' Nothing runs until you explicitly authorize the governed action.' : ''}</p>
+    ? ' Nothing runs until you explicitly authorize the action.' : ''}</p>
     <details class="sf-guidance-routes" aria-label="Recommended command"><summary>Run it from Copilot or a terminal</summary>
       <p class="sf-guidance-command"><b>Copilot</b><code>${escape(guidance.recommendation.copilotCommand)}</code>
         ${guidance.recommendation.copyable
@@ -502,7 +502,7 @@ function homeHtml(view: ResultCardView, now: number): string {
       ${home.now && !nowShownInNeeds ? button(home.now, 'primary') : ''}</div>
     ${railHtml(view)}${receiptHtml(view)}${sinceHtml(view, now)}
   </section>` : `<section class="sf-home-card"><h3>No active work here</h3>
-    <p class="sf-home-muted">Choose a quick start below. Governed work remains in durable workspace and repository records.</p>
+    <p class="sf-home-muted">Choose a quick start below. Work remains in durable workspace and repository records.</p>
     ${home.now && !nowShownInNeeds ? button(home.now, 'primary') : ''}</section>`;
   const today = home.today ? `<section class="sf-home-card"><span class="sf-home-item-head"><h3>Today</h3>
     <span class="sf-home-privacy">${icon('statusPinned', { size: 14 })} Stored locally · Never pushed</span></span>
@@ -526,7 +526,7 @@ function homeHtml(view: ResultCardView, now: number): string {
   const recent = `<section class="sf-home-card"><h3>Recent Work</h3>${home.recent.length
     ? `<ul class="sf-home-list">${home.recent.map((item: any) => `<li><b>${escape(item.id)}</b>
       <span class="sf-home-muted">${escape([item.title, item.phase, item.group].filter(Boolean).join(' · '))}</span></li>`).join('')}</ul>`
-    : '<p class="sf-home-muted">No other visible governed work was found.</p>'}</section>`;
+    : '<p class="sf-home-muted">No other visible work was found.</p>'}</section>`;
   const quick = home.promptActions.filter((action) => action.id !== primaryId).slice(0, 4);
   const details = `<details class="sf-home-details"><summary>Binding and sources</summary><pre>${escape(
     `revision: ${home.projectionRevision}\nas of: ${home.asOf}\nhealth: ${home.health.status}\njournal: ${home.health.journal}`)}</pre></details>`;

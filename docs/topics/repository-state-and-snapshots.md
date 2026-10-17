@@ -13,9 +13,9 @@ related:
   - recovery
   - workspaces-and-sessions
   - pins
-version: 2
+version: 3
 ---
-Repository snapshots are read models of governed and Git state. Refresh uses safe fast-forward behavior and never hides dirty, diverged, or ambiguous work.
+Repository snapshots are read models of and Git state. Refresh uses safe fast-forward behavior and never hides dirty, diverged, or ambiguous work.
 
 ## Faster VS Code reads
 
@@ -46,12 +46,12 @@ afterward. These measurements are not native Copilot token savings or Windows la
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **repository state and snapshots**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **repository state and snapshots**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow state`, `sflow snapshot`, `sflow refresh-branch`. Run `singularity-flow state --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-refresh-branch`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-refresh-branch`. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -64,7 +64,7 @@ Use this topic when the current goal matches **repository state and snapshots**.
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `state`, `refresh-branch`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `state`, `refresh-branch`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

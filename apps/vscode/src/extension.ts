@@ -295,7 +295,7 @@ async function firstRunChecks(extensionPath: string, location: { executable: str
   const writable = await access(writableTarget, fsConstants.W_OK).then(() => true).catch(() => false);
   const repositoryKind = repository
     ? await lstat(path.join(repository, 'singularity', 'workflow.yml')).then((entry) => entry.isFile()
-      ? 'governed repository' : 'ordinary Git repository').catch(() => 'ordinary Git repository')
+      ? 'Singularity Flow repository' : 'ordinary Git repository').catch(() => 'ordinary Git repository')
     : 'no repository open';
   return [
     { id: 'extension', status: bundle?.isFile() ? 'healthy' : 'blocked', detail: 'packaged extension bundle' },
@@ -644,7 +644,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.impactForm', () => {
     if (!activeRepositoryContext()) {
-      showRefusal('No governed workspace or repository is selected. Choose a workspace or open a governed repository.',
+      showRefusal('No workspace or repository is selected. Choose a workspace or open a repository.',
         { headline: 'No workspace selected' });
       return;
     }
@@ -660,14 +660,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const active = activeRepositoryContext();
     const selected = menuResource(argument) ?? vscode.window.activeTextEditor?.document.uri;
     if (!active || !selected || selected.scheme !== 'file') {
-      showRefusal('Open a file inside the active governed repository, then try again.', { headline: 'No code selected' });
+      showRefusal('Open a file inside the active repository, then try again.', { headline: 'No code selected' });
       return;
     }
     // The same containment the explain menus use, so a file opened through a symbolic link (on
     // macOS, /tmp is /private/tmp) is not refused as outside the repository.
     const relative = await repositoryRelativePath(active.root, selected.fsPath);
     if (!relative) {
-      showRefusal('The selected file is outside the active governed repository.', { headline: 'Selection is out of scope' });
+      showRefusal('The selected file is outside the active repository.', { headline: 'Selection is out of scope' });
       return;
     }
     try {
@@ -750,7 +750,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     label: persona.label, description: persona.description, value: persona.id
   })), {
     title: 'Choose your menu persona',
-    placeHolder: 'Persona changes navigation only; governed agents and approval authority do not change.'
+    placeHolder: 'Persona changes navigation only; agents and approval groups do not change.'
   });
 
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.choosePersona', async () => {
@@ -806,7 +806,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (!context.globalState.get<boolean>('onboardingComplete') && !context.globalState.get<boolean>('walkthroughOffered')) {
     void context.globalState.update('walkthroughOffered', true);
     void showCompactInformationMessage(
-      'New to Singularity Flow? The walkthrough sets up your profile and first governed workspace.',
+      'New to Singularity Flow? The walkthrough sets up your profile and first workspace.',
       'Show me', 'Not now'
     ).then((choice) => {
       if (choice === 'Show me') void vscode.commands.executeCommand('singularityFlow.openWalkthrough');
@@ -1009,11 +1009,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const helpNodes = (topicGroup: TreeNode[]): TreeNode[] => [
     {
       kind: 'group', id: 'help:start', label: 'Learn Singularity Flow', icon: 'book', children: [
-        { kind: 'action', id: 'help:quick-start', label: 'Quick start', description: 'first governed work', icon: 'rocket', runCommand: 'singularityFlow.openHelp' },
+        { kind: 'action', id: 'help:quick-start', label: 'Quick start', description: 'first work', icon: 'rocket', runCommand: 'singularityFlow.openHelp' },
         { kind: 'action', id: 'help:workspaces-and-capabilities', label: 'Workspaces & capabilities', description: 'scope and ownership', icon: 'type-hierarchy', runCommand: 'singularityFlow.openHelp' },
         { kind: 'action', id: 'help:story-intake', label: 'Story intake', description: 'Jira or manual', icon: 'book', runCommand: 'singularityFlow.openHelp' },
         { kind: 'action', id: 'help:how-the-workflow-works', label: 'Lifecycle & approvals', description: 'state and phases', icon: 'git-branch', runCommand: 'singularityFlow.openHelp' },
-        { kind: 'action', id: 'help:governed-agents-and-approval-authority', label: 'Agents, prompts & world model', description: 'prompt composition', icon: 'hubot', runCommand: 'singularityFlow.openHelp' }
+        { kind: 'action', id: 'help:agents-and-approval-groups', label: 'Agents, prompts & world model', description: 'prompt composition', icon: 'hubot', runCommand: 'singularityFlow.openHelp' }
       ]
     },
     {
@@ -1433,7 +1433,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     if (current.active) {
       return showRefusal(
-        'The active workspace does not resolve to a ready repository. Repair or reselect it before starting governed work.',
+        'The active workspace does not resolve to a ready repository. Repair or reselect it before starting work.',
         { headline: 'Active workspace needs attention' }
       );
     }
@@ -3833,7 +3833,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const chosen = await chooseWorkspace(
         node,
         'Attach Copilot to a Singularity Flow workspace',
-        'Choose the workspace whose governed repository Copilot should use'
+        'Choose the workspace whose repository Copilot should use'
       );
       if (!chosen) return;
       try {
@@ -3919,7 +3919,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // A first launch has nothing to compare against: record the build and let the person start.
     if (offered === undefined) return;
     void showCompactInformationMessage(
-      'A new Singularity Flow build is installed. Review capability, workspace, and governed-agent updates?',
+      'A new Singularity Flow build is installed. Review capability, workspace, and agent updates?',
       'Review upgrades'
     ).then((choice) => choice === 'Review upgrades'
       ? vscode.commands.executeCommand('singularityFlow.upgradeWorkspaces') : undefined);
@@ -4144,12 +4144,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const target = await resolveGovernedRepository(context, output);
       if ('reason' in target) {
         return showRefusal(
-          'Open the repository clone that contains the published Story, or choose its governed workspace, then try Return again.',
+          'Open the repository clone that contains the published Story, or choose its workspace, then try Return again.',
           { headline: 'No repository available for Return' }
         );
       }
       const workId = (await vscode.window.showInputBox({
-        title: 'Return to governed work',
+        title: 'Return to work',
         prompt: 'Enter the published Work ID. This preview does not change your branch.',
         placeHolder: 'WRK-123',
         ignoreFocusOut: true,
@@ -4219,7 +4219,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await vscode.commands.executeCommand('workbench.action.reloadWindow');
       }
     } catch (error) {
-      showRefusal(error, { headline: 'Could not return to governed work' });
+      showRefusal(error, { headline: 'Could not return to work' });
     }
   }));
 
@@ -4550,7 +4550,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Without this the sidebar sat empty and silent for the whole of it, which reads as broken rather
   // than as busy. ProgressLocation.Window is the status-bar spinner: present, not in the way.
   const resolved = await vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Window, title: 'Singularity Flow: finding the governed repository…' },
+    { location: vscode.ProgressLocation.Window, title: 'Singularity Flow: finding the repository…' },
     () => resolveGovernedRepository(context, output)
   );
   if ('reason' in resolved) {
@@ -4580,7 +4580,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   resultPanelRepositoryChanged(repository);
   // Which repository this window is acting on, and why that one. Every screen below operates on it,
   // and when it was not the open folder that has to be visible rather than inferred.
-  output.appendLine(`Governed repository: ${repository} (${origin})`);
+  output.appendLine(`Repository: ${repository} (${origin})`);
   // Named in the status bar too: which workspace you are in is the one piece of context every
   // screen shares, and inferring it from a folder path in a title bar is not the same as being told.
   // Not a constant: choosing a different workspace changes it, and the status bar is where a person
@@ -4619,7 +4619,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const expandReference = async (seed?: string): Promise<void> => {
     const handle = seed?.startsWith('sfref:') ? seed : await vscode.window.showInputBox({
-      title: 'Expand governed reference',
+      title: 'Expand reference',
       prompt: 'Paste the opaque sfref:v1 handle. The CLI verifies its exact Git revision and hash.',
       value: seed ?? '', ignoreFocusOut: true,
       validateInput: (value) => /^sfref:v1:(story|initiative):[^:]+:[a-f0-9]{12,64}$/.test(value.trim())
@@ -4646,7 +4646,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     try {
       const result = await client.run<GovernedReferencePreview>(args);
       const content = [
-        '# Governed reference preview', '',
+        '# Reference preview', '',
         `- Handle: \`${result.handle}\``,
         `- Artifact: \`${result.reference.artifact.path}\``,
         `- Revision: \`${result.reference.revision.commitSha}\``,
@@ -4659,7 +4659,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const document = await vscode.workspace.openTextDocument({ language: 'markdown', content });
       await vscode.window.showTextDocument(document, { preview: true });
     } catch (error) {
-      showRefusal(error, { headline: 'Could not expand governed reference' });
+      showRefusal(error, { headline: 'Could not expand reference' });
     }
   };
   const openHarnessReport = async (): Promise<void> => {
@@ -5348,7 +5348,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const phase = currentPhaseLabel(state.snapshot)
         ?? ((workflow as { status?: string }).status === 'cancelled' ? 'cancelled' : 'every step decided');
       status.text = `$(git-pull-request) ${workflow.workItem.id} · ${phase}`;
-      status.tooltip = `${where}${workflow.workItem.title ?? 'Governed Story workflow'}`;
+      status.tooltip = `${where}${workflow.workItem.title ?? 'Story'}`;
       status.show();
       // Cached content is useful first paint, but it is not authority for new repository reads.
       // Invalidate late work from the previous Story immediately and wait for the confirmed
@@ -5374,7 +5374,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const gates = home.gates;
         if (gates) {
           status.text = `$(git-pull-request) ${workflow.workItem.id} · ${phase} · gates ${gates.met}/${gates.total}`;
-          status.tooltip = `${where}${workflow.workItem.title ?? 'Governed Story workflow'}`
+          status.tooltip = `${where}${workflow.workItem.title ?? 'Story'}`
             + `\n${gates.unmet} unmet, ${gates.outstanding - gates.unmet} not evaluated`;
         }
         if (home.recoveryWorkId) {
@@ -5409,8 +5409,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!initiative) {
       status.text = `$(rocket) ${where}No work`;
       status.tooltip = workspaceLabel
-        ? `Working in ${workspaceLabel}. Nothing governed is checked out on this branch.`
-        : 'Nothing governed is checked out on this branch.';
+        ? `Working in ${workspaceLabel}. No Story or Initiative is checked out on this branch.`
+        : 'No Story or Initiative is checked out on this branch.';
       status.show();
       /**
        * Having nothing checked out does not mean nothing is waiting on you. `[DHR:REQ-062]`
@@ -5428,7 +5428,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (cached.decisions) {
           status.text = `$(person) ${where}${cached.decisions} waiting on you`;
           status.tooltip = `${cached.decisions} decision(s) are waiting on you.`
-            + '\nNothing governed is checked out on this branch.';
+            + '\nNo Story or Initiative is checked out on this branch.';
         }
         return;
       }
@@ -5438,7 +5438,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (!home.decisions) return;
         status.text = `$(person) ${where}${home.decisions} waiting on you`;
         status.tooltip = `${home.decisions} decision(s) are waiting on you.`
-          + '\nNothing governed is checked out on this branch.';
+          + '\nNo Story or Initiative is checked out on this branch.';
       });
       return;
     }
@@ -5515,7 +5515,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } = lazyPanels();
     GoalsPanel.repositoryChanged(); FaultRepairsPanel.repositoryChanged(); JournalPanel.repositoryChanged(); DiagnosticsPanel.refreshCurrent(); AstIntelligencePanel.repositoryChanged();
     startAuxiliaryReadsAfterConfirmedSnapshot();
-    output.appendLine(`Governed repository: ${repository} (the selected repository of your active workspace, ${selected.workspaceName})`);
+    output.appendLine(`Repository: ${repository} (the selected repository of your active workspace, ${selected.workspaceName})`);
   });
 
   /**
@@ -5882,7 +5882,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const workflow = store.current.snapshot?.workflow;
     const phaseId = workflow?.currentPhase;
     if (!workflow || !phaseId) {
-      void showCompactWarningMessage('No governed Story phase is active in this workspace.');
+      void showCompactWarningMessage('No Story phase is active in this workspace.');
       return;
     }
     if (action === 'submit') {
@@ -6123,7 +6123,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             + `${changedPaths.join('\n')}\n\n`
             + (release
               ? `This Story is cancelled. Singularity Flow can preserve these edits in a named Git stash and return to ${release.baseBranch}; the archived branch and history remain intact.`
-              : 'Commit or stash these changes before starting governed work.')
+              : 'Commit or stash these changes before starting work.')
         },
         ...(releaseAction ? [releaseAction] : []),
         'Open Source Control'
@@ -6163,8 +6163,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const approvalAuthorityMissing = Object.keys(authorities).length > 0 && !named.length;
     if (checkoutShape && approvalAuthorityMissing) {
       const open = await showCompactWarningMessage(
-        'No approval authority has a member yet, so governed work cannot be started.',
-        { modal: true, detail: 'Add at least one person in People & approvals. Every governed approval is checked against the configured Git or GitHub identity.' },
+        'No approval group has a member yet, so work cannot be started.',
+        { modal: true, detail: 'Add at least one person in People & approvals. Every approval is checked against the configured Git or GitHub identity.' },
         'Open People & approvals');
       if (open === 'Open People & approvals') await vscode.commands.executeCommand('singularityFlow.configurePeople');
       return;
@@ -6256,7 +6256,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const available = evidenceTargets(store.current.snapshot);
     if (!available.length) {
       void showCompactWarningMessage(
-        'Start or resume an Epic or Story before attaching evidence. The evidence must have a governed owner.');
+        'Start or resume an Epic or Story before attaching evidence. The evidence must have an owner.');
       return;
     }
     let target: EvidenceTarget | undefined = requestedTarget ?? available[0];
@@ -6269,7 +6269,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             : 'available to Epic requirements and planning',
           target: candidate
         })),
-        { title: 'Attach evidence & designs', placeHolder: 'Choose the governed owner' }
+        { title: 'Attach evidence & designs', placeHolder: 'Choose the owner' }
       );
       target = picked?.target;
     }
@@ -6285,7 +6285,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }, {
       label: 'Figma export folder', value: 'figma-export' as const,
       description: target.kind === 'story'
-        ? 'Preserve the export as one governed Story package'
+        ? 'Preserve the export as one Story package'
         : 'Pin every exported file to the Epic in deterministic order'
     }, {
       label: 'Figma design link', value: 'figma-link' as const,
@@ -6488,7 +6488,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const confirmation = await showCompactInformationMessage(
       (input.kind === 'files' || input.kind === 'epic-source') && input.store === 'local'
         ? `Attach ${summary} to ${target.label}? The file stays on this machine; only its name, size and SHA-256 are committed and pushed.`
-        : `Attach ${summary} to ${target.label}? The governed record will be committed and pushed.`,
+        : `Attach ${summary} to ${target.label}? The record will be committed and pushed.`,
       { modal: true }, 'Attach evidence');
     if (confirmation !== 'Attach evidence') return;
     for (const [index, command] of commands.entries()) {
@@ -6502,7 +6502,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     await refreshAfterKnownMutation();
     void showCompactInformationMessage(
-      `Attached ${summary} to ${target.label}. Open Lifecycle to review the governed IDs and artifacts.`);
+      `Attached ${summary} to ${target.label}. Open Lifecycle to review the IDs and artifacts.`);
   };
 
   // Verified document text, shown read-only and memory-backed: never the stored file, never a temporary file.
@@ -6605,7 +6605,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         label: 'Detach complete package', description: item.packageId, scope: 'package' as const
       }], {
         title: `Detach ${item.label}`,
-        placeHolder: 'Choose how much of this governed Figma/design package to detach'
+        placeHolder: 'Choose how much of this Figma/design package to detach'
       });
       if (!selected) return;
       scope = selected.scope;
@@ -6658,7 +6658,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const meaningful = result.split(/\r?\n/).filter((line) =>
         /^(Commit|Invalidated phases|Reopened phase|Next in Copilot|Run|In Copilot):/.test(line));
       const action = await showCompactInformationMessage(
-        `Detached ${target}. ${meaningful.slice(0, 2).join(' · ') || 'The decision was committed through the governed publication transaction.'}`,
+        `Detached ${target}. ${meaningful.slice(0, 2).join(' · ') || 'The decision was committed through the publication transaction.'}`,
         'Show complete result'
       );
       if (action === 'Show complete result') output.show(true);
@@ -6744,12 +6744,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (direct) return detachEvidenceItem(direct);
     const active = evidenceCatalog(store.current.snapshot).filter((item) => item.status === 'active');
     if (!active.length) {
-      void showCompactInformationMessage('No active governed evidence is available to detach.');
+      void showCompactInformationMessage('No active evidence is available to detach.');
       return;
     }
     const picked = await vscode.window.showQuickPick(active.map((item) => ({
       label: item.label, description: `${item.target.label} · ${item.id}`, item
-    })), { title: 'Detach evidence', placeHolder: 'Choose the exact governed evidence' });
+    })), { title: 'Detach evidence', placeHolder: 'Choose the exact evidence' });
     if (picked) await detachEvidenceItem(picked.item);
   };
 
@@ -7149,7 +7149,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       `Working directory: ${client.repository}`,
       '',
       'Use this repository as the working directory for every file and shell operation.',
-      'This workspace is attached, but no governed Story is selected yet.',
+      'This workspace is attached, but no Story is selected yet.',
       'Ask the contributor to run /sf-session and choose the exact Story before lifecycle work.',
       'Do not treat the checked-out Story or the only available Story as an implicit selection.',
       'Do not inspect or modify another repository merely because it was open in the previous chat.'
@@ -7450,12 +7450,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const editor = vscode.window.activeTextEditor;
     const selected = atCursor ? editor?.document.uri ?? null : menuResource(argument) ?? editor?.document.uri ?? null;
     if (!active || !selected || selected.scheme !== 'file') {
-      showRefusal('Open a file inside the active governed repository, then try again.', { headline: 'No code selected' });
+      showRefusal('Open a file inside the active repository, then try again.', { headline: 'No code selected' });
       return null;
     }
     const relative = await repositoryRelativePath(active.root, selected.fsPath);
     if (!relative) {
-      showRefusal('The selected file is outside the active governed repository.', { headline: 'Selection is out of scope' });
+      showRefusal('The selected file is outside the active repository.', { headline: 'Selection is out of scope' });
       return null;
     }
     // Singularity Flow's own records and agent files are not application code (code-explainer-model).
@@ -7926,7 +7926,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           description: 'Read the reviewed offline procedure and recovery guidance',
           action: 'guide'
         }
-      ], { title: 'Ad Hoc Work & Governed Landing', placeHolder: 'Choose a safe next step' });
+      ], { title: 'Ad Hoc Work & Land as a Story', placeHolder: 'Choose a safe next step' });
       if (!choice) return;
       if (choice.action === 'guide') {
         await vscode.commands.executeCommand('singularityFlow.explainTopic', { id: 'help:topic:ad-hoc-work' });
@@ -8371,7 +8371,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.prefillStoryPhaseGeneration': async (node?: TreeNode) => {
       const phaseId = store.current.snapshot?.workflow?.currentPhase;
       if (!phaseId) {
-        void showCompactWarningMessage('No governed Story phase is active in this workspace.');
+        void showCompactWarningMessage('No Story phase is active in this workspace.');
         return;
       }
       const prefill = phaseGenerationChatPrefill(node?.prefill);
@@ -8547,7 +8547,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!selected) return;
       const reason = await vscode.window.showInputBox({
         title: `Why is ${workflow.workItem.id} being reopened?`,
-        prompt: 'The comment is recorded as a governed change request and injected into the target phase.',
+        prompt: 'The comment is recorded as a change request and injected into the target phase.',
         ignoreFocusOut: true,
         validateInput: (value) => value.trim() ? null : 'A comment is required.'
       });
@@ -8895,14 +8895,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           };
           await context.globalState.update(COPILOT_HANDOFF_KEY, pending);
           void showCompactInformationMessage(
-            `${workId ?? 'Governed work'} belongs to ${target}. Switching this window to that repository; Copilot will open after reload.`
+            `${workId ?? 'Work'} belongs to ${target}. Switching this window to that repository; Copilot will open after reload.`
           );
           await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(target), false);
           return;
         }
         await openGovernedCopilot(workId);
       } catch (error) {
-        showRefusal(error, { headline: 'Could not prepare governed Copilot context' });
+        showRefusal(error, { headline: 'Could not prepare the Copilot context' });
       }
     },
     'singularityFlow.openMeteredCopilot': async () => {
@@ -8987,7 +8987,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           await openWorkspaceCopilot(pendingHandoff.workspaceName);
         }
       } catch (error) {
-        showRefusal(error, { headline: 'Could not resume governed Copilot handoff' });
+        showRefusal(error, { headline: 'Could not resume the Copilot handoff' });
       }
     }
     // The Navigator is already the successful first screen. My Work remains its primary action,

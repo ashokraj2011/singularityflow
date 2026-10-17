@@ -30,7 +30,7 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
       id: 'workspaces:empty',
       label: 'Guided start',
       description: 'capability → workspace → first work item',
-      tooltip: 'Map what the organisation builds, create its local workspace, then start governed work.',
+      tooltip: 'Map what the organisation builds, create its local workspace, then start work.',
       icon: 'start',
       contextValue: 'sflow.workspaces.empty',
       runCommand: 'singularityFlow.startWizard'
@@ -53,7 +53,7 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
       tooltip: row.archived
         ? `${row.directory}${row.lead ? `\nLead repository: ${row.lead}` : ''}\n\nArchived locally. Click to inspect or restore it.`
         : row.collides
-        ? `${row.directory}\n\nAnother workspace occupies this directory. Two sets of governed state writing into one tree is not a conflict to resolve later.`
+        ? `${row.directory}\n\nAnother workspace occupies this directory. Two sets of state writing into one tree is not a conflict to resolve later.`
         : `${row.directory}${row.lead ? `\nLead repository: ${row.lead}` : ''}\n\n${row.active
           ? unavailable
             ? `This workspace is selected, but its repository is ${row.repositoryState}. Repair the workspace before opening Lifecycle, Inbox, or Configuration.`
@@ -211,7 +211,7 @@ function repositoryNodes(
       ].filter(Boolean).join(' · '),
       tooltip: [
         state?.url ?? `Repository ${id}.`,
-        id === capability.leadRepository ? 'Holds the governed state for this capability.' : null
+        id === capability.leadRepository ? 'Holds the state for this capability.' : null
       ].filter(Boolean).join('\n'),
       icon: state && !state.hasStateBranch ? 'statusWarning' : 'delivery',
       contextValue: 'sflow.capability.repository'

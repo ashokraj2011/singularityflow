@@ -44,7 +44,7 @@ test('a destination that does not exist yet explains itself instead of throwing'
   ]) {
     const plan = navigationPlan(command, DEGRADED);
     assert.equal(plan.kind, 'unavailable', `${command} is registered late and must be guarded`);
-    assert.match(plan.message, /governed repository/);
+    assert.match(plan.message, /needs a repository/);
     assert.equal(plan.action, 'Choose a workspace');
     // And the offer resolves the actual cause rather than just apologising.
     assert.equal(plan.resolve, NAV_RESOLVE_COMMAND);

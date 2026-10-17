@@ -32,13 +32,13 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 64
+version: 65
 ---
-Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
+Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **workflow authoring**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **workflow authoring**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Workflow Studio
 
@@ -159,7 +159,7 @@ with the `singularity-flow push retry <ID>` command. A retry you ask for always 
 On **Your workflows**, **Export…** saves the chosen published workflows and everything they depend on
 (steps, templates, artifact sets, agents) as one bundle, and **Import…** previews a bundle's plan
 read-only and, after you confirm, proposes it as one change. **Open workflow.yml** (Advanced, in the
-workflow settings) opens the governed file for settings Studio does not show, and **Open** on a
+workflow settings) opens the file for settings Studio does not show, and **Open** on a
 template opens its file.
 
 A step's default agent is part of the agent's own file, so it applies to every workflow that uses
@@ -171,7 +171,7 @@ tool evidence for it. It then takes the step's place there: the steps that read 
 targets, decisions, planned claims, source review, where Auto stops and fast-path verbs name the
 copy, and shared lists that allow the step (MCP servers, document uploads)
 allow the copy too. The engine governs the copy exactly as the step, because it reads what a step
-does, never its name (see *A step is governed by what it is* below). Check says what a copy cannot
+does, never its name (see *A step is held to what it is* below). Check says what a copy cannot
 take along: a skill that takes its built-in step by name (`/sf-requirements`, `/sf-design`,
 `/sf-release`) does not take the copy, so choose it under **Drafted with** to keep it, and an agent's
 remote skill or template kept for the step is not used for the copy until it is imported again with
@@ -256,7 +256,7 @@ sign-off-only step has no drafting skill. When a step's output changes so that a
 longer draft it, the step's own choice and each workflow's go back to **Automatic** and the check
 summary says so; changing the output back before publishing restores them.
 
-## A step is governed by what it is, not what it is called
+## A step is held to what it is, not what it is called
 
 A step's id is only its name. The engine reads what a step is for from its structure, so renaming a
 step, or copying it under another name, keeps every rule that governs it, and naming a step after a
@@ -303,8 +303,8 @@ The same holds for every role:
   Studio**, or **Configuration Center → Workflow Studio**). See *Workflow Studio* below.
 - **VS Code:** in **Workflow Studio**, **Your workflows** offers **Export…**, **Import…** and
   **Duplicate** for Story workflows, and the Epic workflows list offers **Duplicate** as a linked
-  copy. An import previews its plan read-only and stops for confirmation. Lead-governed changes
-  create review proposals, listed under **Changes → Waiting for review**; self-governed changes
+  copy. An import previews its plan read-only and stops for confirmation. Lead-changes
+  create review proposals, listed under **Changes → Waiting for review**; self-changes
   leave an uncommitted edit on local `sflow/config`. The selected Story snapshot is never edited.
   **Configuration Center → Shared workflow drafts** (or Command Palette **Singularity Flow:
   Shared workflow drafts**) opens six guided stages with an advanced literal JSON editor.
@@ -1015,7 +1015,7 @@ bytes live on `sflow/config`; a Story contains an immutable copy selected when t
 Writing a new workflow into the active Story would neither update future Stories nor update the
 approved catalog, and it would make the Story fail its protected-path gate.
 
-For a lead-governed repository, Workflow Studio (and every `--propose` command) performs this bounded transaction:
+For a lead-repository, Workflow Studio (and every `--propose` command) performs this bounded transaction:
 
 1. read the exact approved `sflow/config` revision into a disposable checkout;
 2. apply and validate the workflow edit there;
@@ -1029,7 +1029,7 @@ workspace state branch and makes the workflow available to new Stories. Existing
 pinned by design. A failed push retains an exact transport intent and reports its `push status`
 recovery command.
 
-For a self-governed FOS-local repository, `--propose` does not invent a remote review branch. Switch to the local `sflow/config` authority branch first, then save through the Designer or CLI. The edit remains uncommitted for review; commit it through the repository's normal local configuration review path. Authoring from another branch is refused before any file is changed.
+For a FOS-local repository that is its own configuration authority, `--propose` does not invent a remote review branch. Switch to the local `sflow/config` authority branch first, then save through the Designer or CLI. The edit remains uncommitted for review; commit it through the repository's normal local configuration review path. Authoring from another branch is refused before any file is changed.
 
 CLI example:
 
@@ -1046,7 +1046,7 @@ singularity-flow workflow create customer-onboarding \
 Export one portable bundle for one or more Story or Initiative workflows. The deterministic bundle
 includes the selected workflow rows and the configuration objects they require: phases, artifact
 sets and templates, approval authorities (including groups only a decision's `by` or a
-specification-quality `exceptionAuthority` names), governed Agent Markdown (including a
+specification-quality `exceptionAuthority` names), Agent Markdown (including a
 repository's own source reviewer; a packaged reviewer is installed everywhere), MCP assignments,
 applicability policies, and exact remote-agent dependency locks.
 A skill or template an agent's lock names as imported (vendored) travels as its exact bytes, with
@@ -1107,7 +1107,7 @@ singularity-flow workflow export \
 
 Import is preview-first. Review the exact `add`, `reuse`, `conflicts`, and shared-dependency sets,
 then apply the unchanged bundle with the returned plan SHA. `--propose` keeps the change inside the
-normal governed configuration-review path.
+normal approved configuration-review path.
 Approved-destination previews also bind the authority kind, remote fingerprint, `sflow/config`
 source revision and observed mirror revision when applicable. A byte-identical configuration in
 a different authority or a newer approved commit cannot reuse the old confirmation. Import and
@@ -1210,7 +1210,7 @@ New Story workflows infer a required planned-claims contract when a qualifying c
 
 To make review-led correction part of a Story workflow, add a bounded backward **rework loop** with a step's send-back rules in Workflow Studio or with `workflow edit <ID> --loop <REVIEW-PHASE>:<EARLIER-PHASE>:<MAX-ATTEMPTS>[:<RESET-PHASE>] --propose`. The optional reset phase must be strictly earlier than the return target. The loop becomes a reviewer rejection route and a repair-attempt budget; it does not execute phases, approve artifacts, or amend a specification automatically. Existing Stories retain their pinned workflow. See [Bounded rework loops](../WORKFLOW-REWORK-LOOPS.md) for the full sequence and safety boundaries.
 
-`workflow phase add` defaults to a Story phase. An unknown phase named by `workflow create` is not silently created: a new Story phase also needs a reviewed template, approval authority, and exactly one default governed Agent Markdown mapping. Add that contract through a configuration change before using the phase. The CLI names eligible clause phases when a selection cannot carry planned claims.
+`workflow phase add` defaults to a Story phase. An unknown phase named by `workflow create` is not silently created: a new Story phase also needs a reviewed template, approval authority, and exactly one default Agent Markdown mapping. Add that contract through a configuration change before using the phase. The CLI names eligible clause phases when a selection cannot carry planned claims.
 
 ## Convert a team's agents into a workflow
 
@@ -1401,7 +1401,7 @@ to author a POC Lite record.
 ## Enterprise Playwright POC workflow
 
 `POC workflow — enterprise Playwright` (`poc-workflow`) retains the existing workflow ID and is the
-seeded Story workflow for a governed UI-regression proof of concept. It appears in CLI, Copilot,
+seeded Story workflow for an UI-regression proof of concept. It appears in CLI, Copilot,
 and VS Code workflow selection and runs this contract:
 
 `POC intent and environment → Regression impact analysis → Governed UI exploration → Playwright test generation → Playwright validation and bounded repair → Publication and PR review`
@@ -1412,14 +1412,14 @@ test intent, acceptance criteria, viewports, test data, and secret references. D
 least-privilege analyst, explorer, test-developer, and validator agents compare the pinned revisions, record Playwright MCP observations, follow
 the repository's existing test and Page Object conventions, and produces exact command and evidence
 records. The host must have the Playwright MCP server configured, and every allowed browser call
-retains host confirmation and governed provenance.
+retains host confirmation and provenance.
 
 A failed validation never starts an autonomous healing loop. A quality reviewer may reject to UI
 exploration, test generation, or validation for at most two human-authorized repair generations.
 The workflow stops blocked when that budget is exhausted. A passing validation advances to a
 separate publication review requiring independent quality and engineering approvals. That phase
 prepares the Story-branch diff and PR description; it does not create a PR or update the selected
-base without an explicit governed publication action.
+base without an explicit publication action.
 
 ```bash
 sflow workspace branches --json
@@ -1452,7 +1452,7 @@ set study when the only variable is prompt wording.
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `workflow`, `configuration`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `workflow`, `configuration`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

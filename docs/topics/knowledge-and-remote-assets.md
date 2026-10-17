@@ -12,18 +12,18 @@ related:
   - artifacts-and-generation
   - world-model
   - evidence-and-ledger
-version: 3
+version: 4
 ---
 Remote templates, generated artifacts, and knowledge are copied or pinned by exact content. Changed remote bytes require an explicit trust or replacement decision.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **knowledge and remote assets**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **knowledge and remote assets**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow knowledge`, `sflow artifact`. Run `singularity-flow knowledge --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -44,7 +44,7 @@ no-op.
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `knowledge`, `artifact`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `knowledge`, `artifact`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

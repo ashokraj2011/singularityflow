@@ -16,7 +16,7 @@ related:
   - agents-and-routing
   - importing-assets
   - workflow-authoring
-version: 6
+version: 7
 ---
 The skill master is the repository's collection of named skills. Attach a skill to a **workflow** to apply it only within that workflow, or to an **agent** to apply it wherever that agent is selected. Each attachment can restrict its steps and say when to use it. Both scopes eagerly inject exact instructions by default; explicitly optional procedures can instead use a retained catalog.
 
@@ -33,7 +33,7 @@ Agent instructions and applicable agent skills are composed with the applicable 
 
 ## Purpose and prerequisites
 
-Use this topic to write a checklist, a house style or a review procedure once and have several agents follow it. For example, the developer can run a security review before it publishes code, and QA can run the same review when it verifies. Run the commands in a governed checkout. The skill master is configuration. In a repository with an approved configuration authority (`sflow/config`) each change is saved as a draft that no Story uses yet; when the batch is ready, `singularity-flow configuration propose` sends every draft as one review and `singularity-flow configuration approve` activates it. Without an authority, changes are written to the working tree for your usual review.
+Use this topic to write a checklist, a house style or a review procedure once and have several agents follow it. For example, the developer can run a security review before it publishes code, and QA can run the same review when it verifies. Run the commands in a Singularity Flow checkout. The skill master is configuration. In a repository with an approved configuration authority (`sflow/config`) each change is saved as a draft that no Story uses yet; when the batch is ready, `singularity-flow configuration propose` sends every draft as one review and `singularity-flow configuration approve` activates it. Without an authority, changes are written to the working tree for your usual review.
 
 ## What a skill is
 
@@ -145,7 +145,7 @@ These skills are not the compiled skill packages under `singularity/skills/` tha
   - `sflow skill remove <ID>` deletes it.
 
   A change is saved as a draft while the repository has an approved configuration authority; `--dry-run` previews it on top of your drafts, and `--propose` proposes your drafts and this change together. `sflow configuration drafts` lists the drafts, and `sflow configuration discard <NUMBER>` drops one.
-- **Copilot:** `/sf-help` followed by the `skill` commands above. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-help` followed by the `skill` commands above. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:**
   - **Singularity Flow: Skills** in the command palette, or **Configuration Center → Skills**, opens **Workflow Studio → Skill master**. It lists every skill and the workflows and agents that use it.
   - **New skill** writes a skill, and **Add from a link** imports one.

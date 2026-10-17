@@ -12,18 +12,18 @@ related:
   - quick-fix
 commands:
   - secrets
-version: 2
+version: 3
 ---
-A credential that reaches a commit is in the history on every clone, and deleting it in the next commit does not remove it — so the check runs before the commit exists rather than after. Every governed publication and every `commit()` passes through one gate that scans the exact content going in: the working-tree version of scoped paths, the staged blob when the whole index is committed. It fails closed — an unreadable file refuses the commit, because an unscanned file is not a clean file — and it never prints the value it found, since a refusal echoed into a terminal, a CI log and a scrollback buffer has published the credential more widely than the commit would have. `sflow secrets scan [--staged]` runs it by hand and exits non-zero, so CI fails too; `sflow secrets protect` installs a `pre-commit` hook so plain `git commit` is covered, running the CLI it was installed from rather than whatever is first on PATH. Detection is conservative on purpose — provider formats that are recognisable on sight, plus one entropy-gated rule for assignments — because a check that fires on documentation is a check people learn to wave through. Real examples are waived per line with a reason (`# sflow-allow-secret: why this is not a real credential`), so the exemption appears in the diff and is reviewed with the change instead of being set once in a config file and forgotten.
+A credential that reaches a commit is in the history on every clone, and deleting it in the next commit does not remove it — so the check runs before the commit exists rather than after. Every publication and every `commit()` passes through one gate that scans the exact content going in: the working-tree version of scoped paths, the staged blob when the whole index is committed. It fails closed — an unreadable file refuses the commit, because an unscanned file is not a clean file — and it never prints the value it found, since a refusal echoed into a terminal, a CI log and a scrollback buffer has published the credential more widely than the commit would have. `sflow secrets scan [--staged]` runs it by hand and exits non-zero, so CI fails too; `sflow secrets protect` installs a `pre-commit` hook so plain `git commit` is covered, running the CLI it was installed from rather than whatever is first on PATH. Detection is conservative on purpose — provider formats that are recognisable on sight, plus one entropy-gated rule for assignments — because a check that fires on documentation is a check people learn to wave through. Real examples are waived per line with a reason (`# sflow-allow-secret: why this is not a real credential`), so the exemption appears in the diff and is reviewed with the change instead of being set once in a config file and forgotten.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **secrets**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **secrets**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow secrets`. Run `singularity-flow secrets --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -36,7 +36,7 @@ Use this topic when the current goal matches **secrets**. Start in a governed ch
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `secrets`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `secrets`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

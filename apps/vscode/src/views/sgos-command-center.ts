@@ -584,7 +584,7 @@ export class SgosCommandCenterPanel {
       }
       const confirmed = await showCompactWarningMessage(
         `Replay ${plan.taskInstanceIds.length} pure suffix task${plan.taskInstanceIds.length === 1 ? '' : 's'} in ${processId}?`,
-        { modal: true, detail: `Checkpoint: ${checkpoint}\nPlan: ${plan.replayPlanSha256}\n\nExisting receipts remain historical; replayed tasks receive new governed attempts.` },
+        { modal: true, detail: `Checkpoint: ${checkpoint}\nPlan: ${plan.replayPlanSha256}\n\nExisting receipts remain historical; replayed tasks receive new attempts.` },
         'Confirm exact replay'
       );
       if (confirmed !== 'Confirm exact replay') return;

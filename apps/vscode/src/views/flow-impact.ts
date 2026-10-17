@@ -94,7 +94,7 @@ studies:
         assistanceMode: baseline
         weight: 1
       - id: governed-agent
-        label: Governed agent
+        label: Agent
         assistanceMode: governed-agent
         weight: 1
     matching:
@@ -168,7 +168,7 @@ function storyHtml(state: FlowImpactState): string {
       <p class="card-foot"><button class="secondary" data-action="verify" ${!measurement?.receipt ? 'disabled' : ''}>Verify receipt</button><button class="link" data-action="doctor">Run measurement doctor</button></p>
     </div>
     ${doctor ? `<div class="card ${doctor.valid ? '' : 'blocked'}"><div class="card-head"><h3>${icon(doctor.valid ? 'ok' : 'warning')}Measurement diagnostics</h3><span class="pill ${doctor.valid ? 'ok' : 'bad'}">${doctor.valid ? 'healthy' : 'attention required'}</span></div>
-      ${doctorFindings.length ? `<ul>${doctorFindings.map((finding) => `<li><strong>${escape(finding.severity.toUpperCase())} · ${escape(finding.code)}</strong><br><span class="muted">${escape(finding.message)}</span></li>`).join('')}</ul>` : '<p>No measurement findings.</p>'}</div>` : ''}` : '<div class="empty"><p>Choose a Story to load its governed measurement state.</p></div>'}
+      ${doctorFindings.length ? `<ul>${doctorFindings.map((finding) => `<li><strong>${escape(finding.severity.toUpperCase())} · ${escape(finding.code)}</strong><br><span class="muted">${escape(finding.message)}</span></li>`).join('')}</ul>` : '<p>No measurement findings.</p>'}</div>` : ''}` : '<div class="empty"><p>Choose a Story to load its measurement state.</p></div>'}
   </section>`;
 }
 
@@ -192,21 +192,21 @@ export function flowImpactBody(state: FlowImpactState, tab = 'overview'): string
   const selectedStudy = state.studies.find((item) => item.id === state.selectedStudyId) ?? null;
   const tabButton = (id: string, label: string): string => `<button class="${tab === id ? '' : 'secondary'}" data-tab="${id}">${label}</button>`;
   const banner = state.error ? `<p class="blockers">${icon('bad')}${escape(state.error)}</p>` : state.notice ? `<p class="ok-text">${icon('ok')}${escape(state.notice)}</p>` : '';
-  return `<header class="inbox-header">${brandLockup()}<p class="eyebrow">Governed delivery measurement</p>
+  return `<header class="inbox-header">${brandLockup()}<p class="eyebrow">Delivery measurement</p>
     <h1>${icon('impact', { size: 24 })}Flow Impact</h1><p class="meta">Configure studies, inspect Story enrollment and evidence, compare privacy-safe cohorts, and export normalized receipts.</p></header>
     <nav class="instruction-tabs" aria-label="Flow Impact sections">${tabButton('overview', 'Overview')}${tabButton('story', 'Story measurement')}${tabButton('reports', 'Study reports')}${tabButton('configuration', 'Configuration')}</nav>
     ${banner}
-    ${state.loading ? '<p class="muted">Refreshing governed impact data…</p>' : ''}
+    ${state.loading ? '<p class="muted">Refreshing impact data…</p>' : ''}
     ${tab === 'overview' ? `<section class="plain"><div class="section-heading"><div class="grow"><h2>${icon('impact')}Configured studies</h2><p class="muted">Only enabled studies may enroll new Stories. Assignment is deterministic and the human confirms complexity and risk before implementation.</p></div><button class="secondary" data-action="refresh">Refresh</button></div>${studyCards(state.studies, state.selectedStudyId)}</section>${storyHtml(state)}` : ''}
     ${tab === 'story' ? storyHtml(state) : ''}
     ${tab === 'reports' ? `<section class="plain"><div class="section-heading"><div class="grow"><h2>${icon('impact')}Cohort comparison</h2><p class="muted">Statistics, matching, confidence intervals, guardrails, and privacy-floor refusal come from the Flow engine.</p></div><button class="secondary" data-action="export">Export receipts</button></div>
       <div class="card-foot"><label>Study <select id="report-study">${state.studies.map((study) => `<option value="${escape(study.id)}" ${study.id === state.selectedStudyId ? 'selected' : ''}>${escape(study.label)}${study.enabled ? '' : ' (disabled)'}</option>`).join('')}</select></label><button data-action="compare" ${!selectedStudy ? 'disabled' : ''}>Run comparison</button></div>
       ${comparisonHtml(state.comparison)}</section>` : ''}
-    ${tab === 'configuration' ? `<section class="plain"><div class="section-heading"><div class="grow"><h2>${icon('configuration')}Study configuration</h2><p class="muted"><code>singularity/impact.yml</code> is validated by the CLI before it is saved. Prompt-set studies compare two reviewed Markdown prompts while keeping the governed agent and lifecycle ceremony fixed. Enabling a study affects future enrollment; active Stories retain their pinned study hash.</p></div><button class="secondary" data-action="open-config">Open as file</button></div>
+    ${tab === 'configuration' ? `<section class="plain"><div class="section-heading"><div class="grow"><h2>${icon('configuration')}Study configuration</h2><p class="muted"><code>singularity/impact.yml</code> is validated by the CLI before it is saved. Prompt-set studies compare two reviewed Markdown prompts while keeping the agent and lifecycle ceremony fixed. Enabling a study affects future enrollment; active Stories retain their pinned study hash.</p></div><button class="secondary" data-action="open-config">Open as file</button></div>
       ${state.configMissing ? '<p class="warning-text">No impact.yml exists. The starter below is disabled by default and safe to review before saving.</p>' : ''}
       <p class="card-foot"><button class="secondary" data-action="prompt-hash">Calculate reviewed prompt hash…</button><span class="muted">Choose Markdown from <code>singularity/prompts/</code>; the result is safe to paste into a variant.</span></p>
       ${state.configurationBlockedReason ? `<p class="warning-text"><strong>Read-only recovery configuration:</strong> ${escape(state.configurationBlockedReason)} Restore or reinitialize <code>sflow/config</code> in Configuration Center before editing.</p>` : ''}
-      <textarea id="impact-config" class="prompt-content" rows="30" spellcheck="false"${state.loading || !state.configurationWritable ? ' disabled' : ''}>${escape(state.configText)}</textarea><p class="card-foot"><button data-action="save-config"${state.loading || !state.configurationWritable ? ' disabled' : ''}>Validate and save configuration</button><span class="muted">${state.loading ? 'Loading the exact approved configuration revision…' : !state.configurationWritable ? 'Editing is disabled until the approved configuration authority is restored.' : state.externalConfigurationAuthority ? 'Saving creates a review proposal from the approved configuration authority; the application checkout is not changed.' : 'Saving changes the working tree; commit it through your normal governed configuration review.'}</span></p></section>` : ''}`;
+      <textarea id="impact-config" class="prompt-content" rows="30" spellcheck="false"${state.loading || !state.configurationWritable ? ' disabled' : ''}>${escape(state.configText)}</textarea><p class="card-foot"><button data-action="save-config"${state.loading || !state.configurationWritable ? ' disabled' : ''}>Validate and save configuration</button><span class="muted">${state.loading ? 'Loading the exact approved configuration revision…' : !state.configurationWritable ? 'Editing is disabled until the approved configuration authority is restored.' : state.externalConfigurationAuthority ? 'Saving creates a review proposal from the approved configuration authority; the application checkout is not changed.' : 'Saving changes the working tree; commit it through your normal approved configuration review.'}</span></p></section>` : ''}`;
 }
 
 const SCRIPT = `
@@ -382,7 +382,7 @@ export class FlowImpactPanel {
         return;
       }
       if (this.state.externalConfigurationAuthority) {
-        this.state = { ...this.state, notice: 'This approved Flow Impact configuration is supplied by sflow/config. Edit it in this panel to create a governed review proposal.', error: null };
+        this.state = { ...this.state, notice: 'This approved Flow Impact configuration is supplied by sflow/config. Edit it in this panel to create a review proposal.', error: null };
         this.render();
         return;
       }

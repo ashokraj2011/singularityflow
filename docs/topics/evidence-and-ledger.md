@@ -1,7 +1,7 @@
 ---
 id: evidence-and-ledger
 title: Evidence, the ledger, and traceability
-version: 15
+version: 16
 aliases:
   - ledger
   - worldline
@@ -21,7 +21,7 @@ related:
 ---
 Everything consequential is hash-linked: artifacts, inputs, approvals, checks, receipts. The append-only capability ledger mirrors lifecycle events as a tamper-evident chain; `sflow ledger verify` validates it from a bare clone, offline. `sflow spec index/coverage/trace` gives requirements stable clause identities and walks requirement → claim → commit → test evidence → approval. Mechanical coverage never claims semantic correctness — judgment and evidence are both retained and never confused. For auditors, fieldwork starts with `git clone`.
 
-The first comprehension pilot is deliberately read-only. `sflow comprehension regions` derives conservative, material resource regions from the existing exact repository change set; `sflow comprehension check` evaluates bounded caller-supplied cause bindings and dispositions as untrusted diagnostics without writing, approving, publishing, or invoking a model. `sflow comprehension graph` includes only bindings that passed the same exact validation, and `sflow comprehension explain clause|file|change` traverses that graph in both directions. `sflow comprehension replay` projects the existing normalized Story lifecycle history with explicit attested-lifecycle versus operational-history provenance while excluding actors, operational detail, prompts, transcripts, model summaries, and SGOS Process state. Causal provenance, including post-hoc and reverse-converged labels, remains unavailable until a governed source records it; the replay never infers those labels from ordinary lifecycle events. It is not the mutating SGOS Process replay. Symbol, refusal, generation, and test queries report unavailable until their authoritative sources exist; missing AST is never a failure. The compatibility subject is not the universal Candidate, and this pilot cannot mint authority or authorize publication. A result at resource granularity is observational evidence, not semantic proof. Enforcement remains unavailable until ordinary Story delivery and SGOS share one universal Candidate authority.
+The first comprehension pilot is deliberately read-only. `sflow comprehension regions` derives conservative, material resource regions from the existing exact repository change set; `sflow comprehension check` evaluates bounded caller-supplied cause bindings and dispositions as untrusted diagnostics without writing, approving, publishing, or invoking a model. `sflow comprehension graph` includes only bindings that passed the same exact validation, and `sflow comprehension explain clause|file|change` traverses that graph in both directions. `sflow comprehension replay` projects the existing normalized Story lifecycle history with explicit attested-lifecycle versus operational-history provenance while excluding actors, operational detail, prompts, transcripts, model summaries, and SGOS Process state. Causal provenance, including post-hoc and reverse-converged labels, remains unavailable until a source records it; the replay never infers those labels from ordinary lifecycle events. It is not the mutating SGOS Process replay. Symbol, refusal, generation, and test queries report unavailable until their authoritative sources exist; missing AST is never a failure. The compatibility subject is not the universal Candidate, and this pilot cannot mint authority or authorize publication. A result at resource granularity is observational evidence, not semantic proof. Enforcement remains unavailable until ordinary Story delivery and SGOS share one universal Candidate authority.
 
 `sflow comprehension walkthrough draft` emits a deterministic, model-free baseline containing one
 exact `file-changed` claim per current change region. It does not write the draft or add semantic or
@@ -45,12 +45,12 @@ GDP-M9 also provides a developer-local signed observation path. `sflow delivery 
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **evidence and ledger**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **evidence and ledger**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow ledger`, `sflow receipt show`, `sflow spec`, `sflow comprehension regions|check|graph`, `sflow comprehension explain clause AC-001`, `sflow comprehension replay --work-id <WORK-ID>`, `sflow comprehension walkthrough draft`, `sflow comprehension walkthrough validate review/walkthrough.json`, `sflow change show <WORK-ID> --shadow`, `sflow proof status <WORK-ID>`, or `sflow delivery local-runner-options --work-id <WORK-ID>`. Run the command with `--help` for the exact forms supported by this build.
-- **Copilot:** `/sf-ledger` for durable evidence, `/sf-inspect comprehension` for the CMP pilot, `/sf-inspect <WORK-ID> passport` for M2, or `/sf-inspect <WORK-ID> proof` for M3. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-ledger` for durable evidence, `/sf-inspect comprehension` for the CMP pilot, `/sf-inspect <WORK-ID> passport` for M2, or `/sf-inspect <WORK-ID> proof` for M3. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Diagnostics and select the final **Shadow Passport** tab for M2/M3, or open **SGOS Command Center** and select **Local Runner…** for the non-gating M9 signed observation journey. Both remain secondary; existing Lifecycle views remain authoritative and unchanged.
 
 ## Guided workflow
@@ -84,7 +84,7 @@ mismatch. Moving future pins from `refs` to `branches` does not repair historica
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `ledger`, `spec`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `ledger`, `spec`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

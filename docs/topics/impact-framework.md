@@ -11,20 +11,20 @@ commands:
 related:
   - telemetry-and-cost
   - evidence-and-ledger
-version: 4
+version: 5
 ---
-Every closed Story can mint an Impact Receipt: velocity, quality, AI exposure, cost, governance counters, and a completeness grade — deterministic, bound to the completion commit, reproducible via `impact verify`. Studies are pre-registered in `singularity/impact.yml` (pinned at enrollment; complexity bands human-confirmed before implementation). `impact compare` matches cohorts and reports either a validated, quality-gated delivery gain (all guardrails held) or observed acceleration (faster, full stop) — the labels never blur. Every number carries sample sizes, method, evidence grade A–D, completeness, and confidence interval; missing data reads `unavailable`, never estimated; cohorts below the privacy floor refuse to render; there are no individual rankings, by design.
+Every closed Story can mint an Impact Receipt: velocity, quality, AI exposure, cost, Flow Gate and sign-off counters, and a completeness grade — deterministic, bound to the completion commit, reproducible via `impact verify`. Studies are pre-registered in `singularity/impact.yml` (pinned at enrollment; complexity bands human-confirmed before implementation). `impact compare` matches cohorts and reports either a validated, quality-gated delivery gain (all guardrails held) or observed acceleration (faster, full stop) — the labels never blur. Every number carries sample sizes, method, evidence grade A–D, completeness, and confidence interval; missing data reads `unavailable`, never estimated; cohorts below the privacy floor refuse to render; there are no individual rankings, by design.
 
-Schema 2 also supports two-arm `prompt-set-randomized` studies. Each variant maps the same target phases to reviewed Markdown under `singularity/prompts/`; obtain each required SHA-256 with `sflow impact study prompt-hash`. Story birth deterministically assigns one variant, copies its bytes into immutable Story context, and discloses the resulting `studyRunId` and variant. Prompt composition replaces only the governed agent's prompt body. Agent, model routing, skills, tools, grounding, templates, gates, and approval ceremony stay common across arms; prompt drift, a copied-prompt change, or an agent override fails closed. Reports remain intention-to-treat, show prompt adherence, require first-pass approval and rework guardrails, and never mix study generations.
+Schema 2 also supports two-arm `prompt-set-randomized` studies. Each variant maps the same target phases to reviewed Markdown under `singularity/prompts/`; obtain each required SHA-256 with `sflow impact study prompt-hash`. Story birth deterministically assigns one variant, copies its bytes into immutable Story context, and discloses the resulting `studyRunId` and variant. Prompt composition replaces only the agent's prompt body. Agent, model routing, skills, tools, grounding, templates, gates, and approval ceremony stay common across arms; prompt drift, a copied-prompt change, or an agent override fails closed. Reports remain intention-to-treat, show prompt adherence, require first-pass approval and rework guardrails, and never mix study generations.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **impact framework**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **impact framework**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow impact`. Run `singularity-flow impact --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-impact`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-impact`. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Flow Impact, Analytics, and Activity**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -37,7 +37,7 @@ Use this topic when the current goal matches **impact framework**. Start in a go
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `impact`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `impact`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

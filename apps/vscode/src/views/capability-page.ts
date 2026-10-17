@@ -56,7 +56,7 @@ function metadataEditor(metadata: Record<string, string> = {}): string {
     <div class="metadata-list" data-metadata-list>${rows.length
       ? rows.map(([key, value]) => metadataRow(key, value)).join('')
       : metadataRow()}</div>
-    <p class="remedy">Stored in <code>singularity/capabilities.yml</code>. In a governed organisation,
+    <p class="remedy">Stored in <code>singularity/capabilities.yml</code>. In an organisation using Singularity Flow,
       the authoritative copy is the lead repository's <code>sflow/config</code> branch.</p>
   </div>`;
 }
@@ -98,7 +98,7 @@ function dashboardHtml(dashboard: CapabilityDashboard): string {
       <div class="summary-card"><strong>${escape(dashboard.deliveryCapabilities)}</strong><span>delivery capabilities</span></div>
       <div class="summary-card"><strong>${escape(dashboard.repositories)}</strong><span>repositories</span></div>
       <div class="summary-card"><strong>${escape(dashboard.jiraRoutes)}</strong><span>Jira routes</span></div>
-      <div class="summary-card"><strong>${escape(dashboard.openWork)}</strong><span>open governed work</span></div>
+      <div class="summary-card"><strong>${escape(dashboard.openWork)}</strong><span>open work</span></div>
       <div class="summary-card${dashboard.approvals ? ' important' : ''}"><strong>${escape(dashboard.approvals)}</strong><span>awaiting approvals</span></div>
     </div>
     <p class="meta">Open work and approvals are portfolio signals from the active lead repository; capability cards below show
@@ -130,7 +130,7 @@ function implicitCapabilityHtml(tree: CapabilityNode[], error: string | null): s
     <p class="remedy">No capability setup is required. New Stories keep an exact copy of these rules.</p>
   </section>
   <section class="plain">
-    <h2>Make governance more specific</h2>
+    <h2>Make the Flow Policy more specific</h2>
     <p class="muted">These actions create a review proposal. Existing Stories keep their pinned rules and nothing is activated automatically.</p>
     <div class="action-grid">
       <button type="button" data-progressive-start>${icon('start')}Start Story</button>
@@ -340,7 +340,7 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
 
   <div class="subsection">
     <div class="card-head">
-      <div><h2>${icon('git')}Governed history and removal</h2>
+      <div><h2>${icon('git')}History and removal</h2>
         <p class="muted">Every save or removal is a review proposal. Older approved map revisions remain auditable in Git.</p></div>
       <span class="grow"></span>
       <button type="button" class="secondary" data-review-proposals>Review proposals</button>
@@ -375,7 +375,7 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
   <p class="remedy">Policy is written in <code>singularity/capabilities.yml</code>. It is not editable
     here on purpose: every field folds differently, so a form would make the value that applies harder
     to see rather than easier.</p>`
-    : `<p class="muted">Nothing tightens governance at this capability, and no ancestor tightens it either.</p>
+    : `<p class="muted">Nothing tightens the Flow Policy at this capability, and no ancestor tightens it either.</p>
        <p class="remedy">Policy is written in <code>singularity/capabilities.yml</code>.</p>`}
 
   ${autoPolicyEditor(detail)}

@@ -23,13 +23,13 @@ related:
   - waivers
   - inbox-and-review
   - sequence-gates
-version: 11
+version: 12
 ---
 Approval is an authorization event, never an agent utterance. Authority comes from `approvalAuthorities` groups in pinned configuration; the ceremony shows the exact artifact and its SHA-256, then requires typing the exact confirmation — nothing auto-fills it. The record binds identity, authority group, and artifact hash, verifiable offline. If artifact bytes change afterward, the approval goes stale automatically; the old signature remains in history attached to the bytes it actually covered. Agents cannot approve. Normal team configuration defaults self-approval and first-use identity enrollment on; both are explicit `approvalSecurity` switches in **People & approvals**, while the regulated profile defaults them off. Rejections require reasons — which become pinned context the next generation literally reads.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **approvals**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **approvals**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
@@ -49,7 +49,7 @@ Use this topic when the current goal matches **approvals**. Start in a governed 
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `approve`, `reject`, `upstream-issue raise`, `upstream-issue decide`, `upstream-issue propose-amendment`, `upstream-issue decide-amendment`, `upstream-issue revalidate`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `approve`, `reject`, `upstream-issue raise`, `upstream-issue decide`, `upstream-issue propose-amendment`, `upstream-issue decide-amendment`, `upstream-issue revalidate`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

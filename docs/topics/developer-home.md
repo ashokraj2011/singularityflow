@@ -1,7 +1,7 @@
 ---
 id: developer-home
 title: Developer Home and returning to work
-version: 9
+version: 10
 aliases:
   - home
   - return-to-work
@@ -21,12 +21,12 @@ related:
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **developer home**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **developer home**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow home`, `sflow home --request "What should I do next?" --json`, `sflow choices`. Run `singularity-flow home --help` for the exact forms supported by this build.
-- **Copilot:** invoke `/sf-home`, or select the SFlow workflow agent before asking naturally. Skills are explicit-only; installation alone never takes over native requests. `/sf-pause` disables SFlow guidance locally; `/sf-pause off` restores it without advancing a Story. Orientation and inspection reads may run immediately only when guidance is active. The skill must show the proposed effects and ask before any governed mutation.
+- **Copilot:** invoke `/sf-home`, or select the SFlow workflow agent before asking naturally. Skills are explicit-only; installation alone never takes over native requests. `/sf-pause` disables SFlow guidance locally; `/sf-pause off` restores it without advancing a Story. Orientation and inspection reads may run immediately only when guidance is active. The skill must show the proposed effects and ask before it changes anything.
 - **VS Code:** open Singularity Flow **My Work and Workspaces**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -52,7 +52,7 @@ The commands mapped to this topic are read-only. They may inspect local files an
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.
 - If a Copilot or VS Code action is unavailable, use the displayed CLI fallback; do not guess a command from the label.
-- If a request could mean more than one governed action, choose from the displayed options or use `/sf-home`; no mutation is silently selected.
+- If a request could mean more than one action, choose from the displayed options or use `/sf-home`; no mutation is silently selected.
 - If the greeting is missing or incorrect, set the repository's local Git display name with `git config user.name "Your Name"`, then reopen Home. SFlow does not guess a name from email, login, or chat history.
 
 ## Related topics

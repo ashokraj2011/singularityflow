@@ -1,7 +1,7 @@
 ---
 id: telemetry-and-cost
 title: Telemetry, tokens, and cost
-version: 10
+version: 11
 aliases:
   - tokens
   - cost
@@ -20,12 +20,12 @@ Token accounting is exact where the provider supplies it and labeled `unavailabl
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **telemetry and cost**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **telemetry and cost**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** launch with `sflow copilot`; inspect or control capture with `sflow telemetry`. Read the current phase with `sflow context xray`, or the whole-Story ledger with `sflow tokens report`. Run `singularity-flow telemetry --help` for exact forms.
-- **Copilot:** `/sf-telemetry`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-telemetry`. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** **Continue with Copilot CLI** opens the metered SFlow launcher in an integrated terminal. **Open Native Copilot Chat** remains available with an honest “usage unavailable” qualification.
 
 ## Guided workflow
@@ -49,7 +49,7 @@ Many Copilot plans leave token counts off their spans. For SFlow-owned launches,
 
 These are counts and model names only. No prompt, response, tool argument, tool result, error message or conversation identifier is kept.
 
-The record also stores the size of the governed prompt SFlow composed for the generation: exact bytes from the committed prompt snapshot, tokens estimated as bytes ÷ 4, and the prompt budget. Copilot adds its own instructions, tool definitions and chat history, which no client can see, so the size is a floor on what the model read.
+The record also stores the size of the prompt SFlow composed for the generation: exact bytes from the committed prompt snapshot, tokens estimated as bytes ÷ 4, and the prompt budget. Copilot adds its own instructions, tool definitions and chat history, which no client can see, so the size is a floor on what the model read.
 
 `sflow report` and VS Code's Story Analytics chart these per phase, with generations and how often a later reviewer sent the work back. GitHub bills one premium request per prompt, times the serving model's multiplier, and does not bill the tool calls an agent makes on its own. Reports estimate premium requests from optional multipliers:
 

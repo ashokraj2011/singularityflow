@@ -19,17 +19,17 @@ related:
   - installation-and-upgrades
   - recovery
   - secrets
-version: 8
+version: 9
 ---
 Reset commands have deliberately different scopes. Preview the exact scope and use the confirmation printed by that same mode.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **resets and cleanup**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **resets and cleanup**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
-- **Shell:** `sflow factory-reset`, `sflow reset-all`, `sflow local-reset --forget-only`, or destructive `sflow local-reset`. To remove installed product surfaces while preserving all governed data, run the promoted distribution's `./uninstall.sh`, `.\uninstall.ps1`, or `uninstall.cmd`. Run `singularity-flow local-reset --help` for the exact reset forms supported by this build.
+- **Shell:** `sflow factory-reset`, `sflow reset-all`, `sflow local-reset --forget-only`, or destructive `sflow local-reset`. To remove installed product surfaces while preserving all data, run the promoted distribution's `./uninstall.sh`, `.\uninstall.ps1`, or `uninstall.cmd`. Run `singularity-flow local-reset --help` for the exact reset forms supported by this build.
 - **Copilot:** `/sf-factory-reset`, `/sf-local-reset`. There is deliberately no Copilot command for machine-level product uninstall: uninstall removes the Copilot integration itself and must remain an explicit operating-system shell action.
 - **VS Code:** choose the operation whose boundary matches the recovery you need:
   - **Reinitialize framework assets:** run **Singularity Flow: Reinitialize Framework Assets
@@ -66,7 +66,7 @@ content on the caller's behalf.
 5. In an interactive terminal, omit `--dry-run` and `--confirm` to receive the same preview and an exact prompt in one invocation. Entering anything else, EOF, or cancellation changes nothing.
 6. Reopen VS Code so the marker clears Singularity Flow SecretStorage credentials, global state, acknowledgements, handoffs, onboarding, favorites, persona, and global extension settings.
 
-## Uninstall product surfaces without deleting governed data
+## Uninstall product surfaces without deleting data
 
 Run the platform uninstaller from an intact promoted distribution directory:
 
@@ -101,7 +101,7 @@ Forget-only removes the workspace registry and active selection, capability lead
 Destructive local reset retains the existing stricter boundary: run it outside every workspace it will delete, and each existing registration must have an exact matching regular workspace manifest. Both modes reject symlink targets and dangerously broad custom directories, stage renames before committing, and roll back moved targets if application fails.
 
 Product uninstall is separate from both reset modes. Uninstall removes executable product surfaces
-and preserves local registrations and governed bytes; forget-only removes registrations and
+and preserves local registrations and bytes; forget-only removes registrations and
 preserves installed product surfaces; destructive reset can remove registered workspace
 directories but does not uninstall the product.
 

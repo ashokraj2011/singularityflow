@@ -170,7 +170,7 @@ export function inboxHtml(inbox: Inbox, refresh: InboxRefreshState = { refreshin
     ${storyCards(inbox)}
     <section><div class="section-heading"><h2>${icon('approval')}Needs your attention</h2><span class="count-badge">${yours}</span></div>${decisionCards(inbox)}</section>
     <section><div class="section-heading"><h2>${icon('document')}Everything generated</h2><span class="count-badge">${inbox.artifacts.length}</span></div>
-      <p class="muted">Every existing governed output across every phase. Open any card to inspect the exact committed file.</p>${artifactRows(inbox)}</section>`;
+      <p class="muted">Every existing output across every phase. Open any card to inspect the exact committed file.</p>${artifactRows(inbox)}</section>`;
 }
 
 const SCRIPT = `

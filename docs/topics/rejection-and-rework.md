@@ -8,7 +8,7 @@ aliases:
 related:
   - approvals
   - artifacts-and-generation
-version: 5
+version: 6
 commands: []
 ---
 A rejection reopens the phase and requires a fresh generation — with the reviewer's reasons pinned as composed context for the regeneration, alongside anything they cited. Nothing else is lost: implementation branches, interval history, checkpoints, and evidence carry forward. Rejection is designed to be cheap for the author and informative by construction: generation 2 starts from everything generation 1 learned, including the reviewer's exact words.
@@ -33,12 +33,12 @@ When roll-forward exactly restores a clean submitted checkpoint, it creates a fr
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **rejection and rework**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **rejection and rework**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow explain`. Run `singularity-flow explain --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow

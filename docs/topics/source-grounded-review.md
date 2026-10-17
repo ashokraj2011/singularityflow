@@ -7,7 +7,7 @@ questions:
   - What human clarification does the reviewer read?
 commands: [review-source]
 related: [approvals, workflow-authoring, story-lifecycle]
-version: 4
+version: 5
 ---
 
 ## Purpose and prerequisites
@@ -17,7 +17,7 @@ it does not approve, advance or rewrite the author's artifact. The phase's respo
 not its name, determine the review kind, including copied/custom workflows.
 
 Use this topic when a phase's published generation needs independent source review: that review
-must be recorded before the phase can be submitted. Work in the governed checkout of the selected
+must be recorded before the phase can be submitted. Work in the Singularity Flow checkout of the selected
 Story. The phase must have a published generation; a private draft is never reviewed.
 
 ## Use it from each surface

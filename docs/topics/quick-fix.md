@@ -10,7 +10,7 @@ related:
   - waivers
   - escalation
   - work-intervals
-version: 4
+version: 5
 ---
 `sflow start FIX-88 --work-type quick-fix` runs a three-step rail (scope and plan · implement · verify) with no generated design requirement and waiver eligibility below a deterministic risk threshold. Even a short fix states what it must do and where it lands before code changes: its intake lists the acceptance criteria and the planned paths and tests, and one engineer signs that scope and plan off. Implement must then meet exactly those claims. Ceremony still scales with stakes: a typo fix meets one short sign-off; the same quick fix touching a protected path loses its verify waiver and meets a human — and work that outgrows the rail escalates with everything preserved.
 
@@ -18,12 +18,12 @@ In **Implement**, `/sf-code` (or you) writes the planned code and tests in an op
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **quick fix**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **quick fix**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow start`. Run `singularity-flow start --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-start`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-start`. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -36,7 +36,7 @@ Use this topic when the current goal matches **quick fix**. Start in a governed 
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `start`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `start`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

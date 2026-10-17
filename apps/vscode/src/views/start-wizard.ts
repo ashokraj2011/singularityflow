@@ -15,7 +15,7 @@ const STEPS: ReadonlyArray<{
 }> = Object.freeze([
   { id: 'capability', label: 'Map capability', description: 'what the organisation builds' },
   { id: 'workspace', label: 'Create workspace', description: 'where its repositories live' },
-  { id: 'work', label: 'Start work', description: 'choose the governed journey' }
+  { id: 'work', label: 'Start work', description: 'choose what to start' }
 ]);
 
 /** A single, consistent orientation rail shared by all three existing governed forms. */
@@ -48,7 +48,7 @@ export function startWizardProgress(progress: StartWizardProgress | null = null)
   }).join('')}
       </ol>
       ${context ? `<p class="start-wizard-context">${escape(context)}</p>` : ''}
-      <p class="muted">Each step uses the normal governed checks and confirmations. You can close the screen and resume without creating partial lifecycle state.</p>
+      <p class="muted">Each step uses the normal checks and confirmations. You can close the screen and resume without creating partial lifecycle state.</p>
       <div class="start-wizard-actions">
         ${previous ? `<button type="button" class="secondary" data-guided="back">← Back to ${escape(previous.label)}</button>` : ''}
         <button type="button" class="secondary" data-guided="exit">Exit guided start</button>

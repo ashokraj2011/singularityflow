@@ -18,26 +18,26 @@ function labelFor(preview, kind = null) {
   if (command === 'sync') return 'Finish publishing your work';
   if (command === 'resume') return `Resume the active ${kind === 'initiative' ? 'Initiative' : 'Story'}`;
   if (command === 'assign') return 'Assign the active phase';
-  if (command === 'agents') return 'Restore the governed agent';
+  if (command === 'agents') return 'Restore the agent';
   if (command === 'wm') return 'Prepare repository grounding';
   if (command === 'inputs') return 'Resolve the required inputs';
   if (command === 'prepare' || command === 'phase') return 'Produce the current phase artifact';
   if (command === 'submit') return 'Submit the current phase for review';
-  if (command === 'approve') return 'Open the governed review decision';
+  if (command === 'approve') return 'Open the review decision';
   if (command === 'gate') return 'Run the completion gate';
   if (command === 'pr' && subcommand) return 'Prepare the pull request';
   if (command === 'progress' || command === 'report') return 'Review the completed work';
   if (command === 'start') return 'Start new work';
-  return 'Continue with the next governed step';
+  return 'Continue with the next step';
 }
 
 function preflight(home, context, preview) {
   const local = home.data?.localChanges ?? null;
   return Object.freeze([
     Object.freeze({ id: 'workspace', state: home.data?.workspace ? 'ready' : 'needed',
-      detail: home.data?.workspace?.name ?? 'Choose a governed workspace.' }),
+      detail: home.data?.workspace?.name ?? 'Choose a workspace.' }),
     Object.freeze({ id: 'repository', state: context.repositoryId ? 'ready' : 'needed',
-      detail: context.repositoryId ?? 'Choose or open a governed repository.' }),
+      detail: context.repositoryId ?? 'Choose or open a repository.' }),
     Object.freeze({ id: 'identity', state: context.actor?.email || context.actor?.login ? 'ready' : 'needed',
       detail: context.actor?.email ?? context.actor?.login ?? 'Configure a stable Git email or login.' }),
     Object.freeze({ id: 'worktree', state: local == null ? 'unknown' : local.dirty ? 'attention' : 'ready',
@@ -45,7 +45,7 @@ function preflight(home, context, preview) {
         ? `${local.files} local path(s) are preserved and will be revalidated.` : 'The worktree is clean.' }),
     Object.freeze({ id: 'remote', state: preview?.effect?.externalSideEffect ? 'required-before-mutation' : 'not-required',
       detail: preview?.effect?.externalSideEffect
-        ? 'Remote access is checked by the governed command before it mutates anything.'
+        ? 'Remote access is checked by the command before it changes anything.'
         : 'This recommendation does not require a remote write.' })
   ]);
 }

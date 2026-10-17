@@ -465,7 +465,7 @@ export class CodeExplainerPanel {
     const current = () => generation === this.generation && !this.disposed;
     const root = this.store.current.snapshot?.repository?.root ?? this.client.repository;
     if (!root) {
-      this.post({ type: 'cx.empty', text: 'Open a governed repository to explain its code.' });
+      this.post({ type: 'cx.empty', text: 'Open a repository to explain its code.' });
       return;
     }
     this.progress('Reading the captured change…');

@@ -10,18 +10,18 @@ commands:
 related:
   - model-independence
   - artifacts-and-generation
-version: 3
+version: 4
 ---
 `sflow phase publish --authored human --from ./design.md` gives hand-written artifacts the same pipeline: template validation, hashing, the standard transaction, approvals, evidence. The record states precisely what is known: the kernel invoked no model. External AI use defaults to `unknown` and can be attested only as self-reported — the system never infers AI authorship from style. Imported files are hashed before copying, written atomically to the pinned artifact path, and any forged lifecycle metadata inside them is stripped. Repeat `--change-origin` when a reviewed generation combines human, Copilot, formatter, compiler, migration-tool, test-generator, code-generator, or external-tool contributions. These declarations record provenance; path-based delivery classification is stored separately and never pretends to identify an author.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **manual authorship**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **manual authorship**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow phase`. Run `singularity-flow phase --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-phase`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-phase`. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -34,7 +34,7 @@ Use this topic when the current goal matches **manual authorship**. Start in a g
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `phase`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `phase`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

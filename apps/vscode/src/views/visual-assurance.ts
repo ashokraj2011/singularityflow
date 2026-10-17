@@ -163,7 +163,7 @@ export class VisualAssurancePanel implements vscode.Disposable {
           );
           if (confirmed !== 'Record remote evidence') return;
         }
-        await this.operateText('Governed MCP evidence recorded.', args);
+        await this.operateText('MCP evidence recorded.', args);
       });
     }
   });
@@ -197,7 +197,7 @@ export class VisualAssurancePanel implements vscode.Disposable {
       const inside = path.relative(repository, candidate);
       return inside && !inside.startsWith('..') && !path.isAbsolute(inside) && existsSync(candidate);
     });
-    if (!target) { this.operationError = `The governed artifact could not be found inside this repository: ${relative}`; return this.render(); }
+    if (!target) { this.operationError = `The artifact could not be found inside this repository: ${relative}`; return this.render(); }
     await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(target));
   }
 
@@ -225,7 +225,7 @@ export class VisualAssurancePanel implements vscode.Disposable {
 
   private render(): void {
     const token = nonce();
-    const body = `${this.busy ? '<div class="notice warning">An explicit governed operation is running. The dashboard will refresh when it finishes.</div>' : ''}${visualAssuranceHtml(buildVisualAssuranceView(this.store.current.snapshot), this.notice, this.operationError, (relative) => this.mediaUri(relative))}`;
+    const body = `${this.busy ? '<div class="notice warning">An operation you started is running. The dashboard will refresh when it finishes.</div>' : ''}${visualAssuranceHtml(buildVisualAssuranceView(this.store.current.snapshot), this.notice, this.operationError, (relative) => this.mediaUri(relative))}`;
     this.panel.webview.html = page('Visual Assurance', body, contentSecurityPolicy(this.panel.webview, token), token, VISUAL_ASSURANCE_SCRIPT);
   }
 

@@ -13,7 +13,7 @@ related:
   - workspaces-and-sessions
   - capability-management
   - recovery
-version: 4
+version: 5
 ---
 Smart initialization turns a fresh local Git repository into an explicitly accepted Singularity
 Flow repository without asking people to hand-author commands or capability maps. It is a bounded,
@@ -108,7 +108,7 @@ A passing run stores a hash-only receipt under the Git common directory. It cont
 stderr, prompt, secret, or dependency cache. The receipt is bound to the exact commit, source
 manifest, platform, architecture, test adapter, and plan. When repository policy requires
 readiness, Story start checks that receipt for every selected capability repository before creating
-governed state. The managed Story worktree may replay only the receipt-authorized locked dependency
+state. The managed Story worktree may replay only the receipt-authorized locked dependency
 restore so later phases receive their local dependencies without changing source bytes.
 
 If setup is wrong, `/sf-ready --repair` may propose a separate `sflow/readiness/<digest>` branch for
@@ -132,7 +132,7 @@ sflow init --recover --proposal sha256:<PROPOSAL>
 Recovery verifies the journal, branch, base commit, declared paths, and byte hashes. It either proves
 the proposal-bound activation commit complete or removes only unchanged files that this fresh
 activation created. Advanced history or user-edited target bytes are preserved for human review.
-If the repository is already governed, use `sflow configuration`, `sflow doctor`, or the approved
+If the repository already uses Singularity Flow, use `sflow configuration`, `sflow doctor`, or the approved
 configuration refresh journey instead of smart initialization.
 
 ## Troubleshooting

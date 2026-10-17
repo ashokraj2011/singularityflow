@@ -12,18 +12,18 @@ related:
   - inbox-and-review
   - agents-and-routing
   - approvals
-version: 1
+version: 2
 ---
 Assignments and watchlists direct human attention. They never grant approval authority or change the evidence required by a gate.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **assignments and watchlists**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **assignments and watchlists**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow assign`, `sflow watch`. Run `singularity-flow assign --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Inbox and Approvals**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -36,7 +36,7 @@ Use this topic when the current goal matches **assignments and watchlists**. Sta
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `assign`, `watch`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `assign`, `watch`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

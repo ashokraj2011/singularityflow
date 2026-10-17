@@ -9167,7 +9167,7 @@ function renderWorkspaceStatus(status) {
     { key: 'branch', label: 'BRANCH' },
     { key: 'dirty', label: 'DIRTY' }
   ]));
-  console.log(`Staged documents: ${status.counts.stagedDocuments} (not governed)`);
+  console.log(`Staged documents: ${status.counts.stagedDocuments} (not in a Story yet)`);
 }
 
 function renderWorkspaceMaterialization(result) {
@@ -10338,7 +10338,7 @@ async function workspaceCommand(positionals, options) {
       if (!files.length) throw new SingularityFlowError('workspace documents import requires at least one file.');
       const result = await stageWorkspaceDocuments(workspacePath, files);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-      result.added.forEach((item) => console.log(`${item.name} · ${item.bytes} bytes · ${item.sha256.slice(0, 12)} · staged, not governed`));
+      result.added.forEach((item) => console.log(`${item.name} · ${item.bytes} bytes · ${item.sha256.slice(0, 12)} · staged, not in a Story yet`));
       return;
     }
     const documents = await listWorkspaceDocuments(workspacePath);

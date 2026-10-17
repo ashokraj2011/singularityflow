@@ -8,19 +8,19 @@ aliases:
 related:
   - configuration
   - story-lifecycle
-version: 2
+version: 3
 commands: []
 ---
 When a story starts, its rules are resolved once and pinned: phase sequence, templates, agents, approval authorities, checks, policies — hashes recorded, and configuration bytes physically copied from the `sflow/config` branch to the story branch. In-flight work continues under its exact starting contract even when repository configuration later changes; edits affect future stories only.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **pins**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **pins**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow explain`. Run `singularity-flow explain --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow

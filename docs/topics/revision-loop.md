@@ -12,7 +12,7 @@ related:
   - revision-feedback-attachments
   - artifacts-and-generation
   - workflow-authoring
-version: 2
+version: 3
 ---
 ## Purpose and prerequisites
 
@@ -49,7 +49,7 @@ REV is eligible only when the selected Story session is ready, the active open g
 
 Feedback, bindings, disposition, packet, Candidate lineage, and precheck records are content-addressed. Private recovery payloads are immutable and the current recovery pointer is self-hashed and compare-and-swap updated. Every successful start confirmation stores an immutable result receipt under its exact plan digest; replaying the same feedback and selectors returns that original result even after a later interval replaces the pointer. Other historical mutations are not replayable. Changed bytes or authority require a new preview. The agent cannot use the interval to run Git, edit workflow/process configuration, alter requirement or criterion text, change proof policy, perform unknown external effects, fabricate a receipt, or promote `observed-unverified` output.
 
-The safe built-in profile is not an autonomous model/code executor and does not claim external-effect or release attestation. It never publishes, submits, approves, merges, deploys, amends intent, or replaces later Testing/Verification. A model summary or self-hashed test log cannot replace governed evidence.
+The safe built-in profile is not an autonomous model/code executor and does not claim external-effect or release attestation. It never publishes, submits, approves, merges, deploys, amends intent, or replaces later Testing/Verification. A model summary or self-hashed test log cannot replace evidence.
 
 ## Troubleshooting
 

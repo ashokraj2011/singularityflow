@@ -118,9 +118,9 @@ function workspaceImpactHtml(
     : `<p class="muted">${escape(selected.failure ?? 'No summary is available yet.')}</p>`}
     ${selected.status === 'complete' ? `<p class="card-foot">
       <button data-impact-promote data-impact-id="${escape(selected.id)}" ${selected.freshness === 'stale' || selected.promotedDocument ? 'disabled' : ''}>${selected.promotedDocument ? 'Added to intake sources' : 'Use as intake source'}</button>
-      <button class="secondary" data-impact-start data-impact-id="${escape(selected.id)}">Start governed work</button>
+      <button class="secondary" data-impact-start data-impact-id="${escape(selected.id)}">Start work</button>
     </p>` : ''}
-    <p class="muted">This report is advisory. It becomes lifecycle context only after it is staged and selected during governed intake.</p>
+    <p class="muted">This report is advisory. It becomes lifecycle context only after it is staged and selected when a Story starts.</p>
   </section>` : '';
   return `<section class="plain">
     <span class="eyebrow">No Work ID or branch required</span>
@@ -377,7 +377,7 @@ export class ImpactPanel {
       await this.client.run(['workspace', 'impact', 'promote', this.workspace.path, id, '--json']);
       this.workspaceActionError = null;
       await this.reload();
-      void vscode.window.showInformationMessage('Impact summary staged as an intake source. Start governed work when ready.');
+      void vscode.window.showInformationMessage('Impact summary staged as an intake source. Start work when ready.');
     } catch (error) {
       this.workspaceActionError = (error as Error).message;
       this.render();
@@ -418,7 +418,7 @@ export class ImpactPanel {
     const token = nonce();
     const governed = this.store.current.snapshot?.initiative
       ? bodyHtml(this.report, this.error)
-      : `<section><h2>${icon('initiative')}Governed Epic impact</h2><p class="muted">No governed Initiative is selected. Workspace analysis remains available without one.</p></section>`;
+      : `<section><h2>${icon('initiative')}Initiative impact</h2><p class="muted">No Initiative is selected. Workspace analysis remains available without one.</p></section>`;
     this.panel.webview.html = page(
       'Impact analysis',
       `<header><h1>${icon('impact', { size: 20 })}Impact analysis</h1></header>

@@ -91,8 +91,8 @@ function epicSection(initiative: InitiativeSnapshot | null | undefined): Dashboa
   if (!initiative) {
     return {
       id: 'epic', label: 'Epic', status: 'skip',
-      headline: 'Nothing governed is checked out on this branch.',
-      detail: ['Starting one is the first governed act in a repository.']
+      headline: 'No Story or Initiative is checked out on this branch.',
+      detail: ['Starting one is the first act in a repository.']
     };
   }
 
@@ -162,7 +162,7 @@ function governanceSection(snapshot: RepositorySnapshot): DashboardSection {
   const enabled = Boolean(ledger?.enabled);
   return {
     id: 'governance',
-    label: 'Governance',
+    label: 'Flow Ledger',
     // Not an error: a repository can be governed without a ledger. It is worth stating, because
     // the difference decides whether workflow progress is recoverable from Git.
     status: enabled ? 'pass' : 'skip',

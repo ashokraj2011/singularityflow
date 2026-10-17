@@ -91,7 +91,7 @@ function causeMap(snapshot: ComprehensionIdeSnapshot): string {
       const edges = snapshot.graph.edges.filter((edge) => edge.from === cause.id);
       const targets = edges.map((edge) => changed.find((node) => node.id === edge.to)).filter(Boolean);
       return `<article class="card"><h3>${escape(cause.causeId ?? cause.id)} <span class="badge">${escape(cause.causeKind ?? 'cause')}</span></h3><p>${escape(cause.statement ?? 'No statement text is exposed.')}</p>${targets.length ? `<ul>${targets.map((target) => `<li><button class="link" type="button" data-open-file="${escape(target?.pathAfter ?? target?.pathBefore ?? '')}">${escape(target?.pathAfter ?? target?.pathBefore ?? target?.id ?? 'change')}</button></li>`).join('')}</ul>` : '<p class="muted">No exact changed resource is linked.</p>'}</article>`;
-    }).join('') : '<div class="empty"><p>No governed cause bindings are available for this Candidate. The changed paths remain visible under Regions.</p></div>'}
+    }).join('') : '<div class="empty"><p>No cause bindings are available for this Candidate. The changed paths remain visible under Regions.</p></div>'}
     <p class="callout"><strong>Authority boundary:</strong> this graph is observe-only and cannot approve, publish, gate, or change lifecycle state.</p></section>`;
 }
 

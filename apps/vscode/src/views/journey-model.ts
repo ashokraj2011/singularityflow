@@ -117,7 +117,7 @@ const EMPTY: Journey = {
   kind: 'story', id: '', title: '', profile: '', branch: null, status: '',
   stages: [], currentStage: null, selectedStage: null, artifacts: [], approvals: [], packs: [], sources: [],
   repositories: [], blockers: [], gateEvaluated: false, nextAction: null, decision: null, decisionAhead: null,
-  empty: 'Nothing governed is checked out on this branch.'
+  empty: 'No Story or Initiative is checked out on this branch.'
 };
 
 /**
@@ -146,7 +146,7 @@ export function buildJourney(snapshot: RepositorySnapshot | null, selectedStageI
     return {
       ...EMPTY,
       empty: snapshot.initiatives?.length
-        ? 'Nothing governed is checked out on this branch. Check out an Epic branch to see its journey.'
+        ? 'No Story or Initiative is checked out on this branch. Check out an Initiative branch to see its journey.'
         : 'No work has been started in this repository yet.'
     };
   }
@@ -499,7 +499,7 @@ function initiativeJourneyOf(initiative: InitiativeSnapshot, selectedStageId: st
       copilotCommand: nextRoutes.copilotCommand,
       copyable: nextRoutes.copyable,
       ...(nextRoutes.modelFreeCommand ? { modelFreeCommand: nextRoutes.modelFreeCommand } : {}),
-      reason: next?.reason ?? 'Continue with the next governed step.',
+      reason: next?.reason ?? 'Continue with the next step.',
       execution: 'run'
     } : null,
     decision: null,

@@ -166,7 +166,7 @@ export function handoffPacket(sections = {}) {
 // Personal draft `[INT:CON-177]`
 
 /** The label is part of the record, not a rendering choice a surface can forget. */
-export const PERSONAL_DRAFT_LABEL = 'Not governed';
+export const PERSONAL_DRAFT_LABEL = 'Personal draft';
 
 export function personalDraft({ id, ownerId, label, content = {}, createdAt } = {}) {
   requireField(id, 'DRAFT_INVALID', 'A draft needs an ID.');

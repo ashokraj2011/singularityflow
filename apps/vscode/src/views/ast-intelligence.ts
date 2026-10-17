@@ -175,7 +175,7 @@ function runtimeSummary(doctor: AstDoctorResult | null): string {
       <div class="summary-card"><strong>${escape(storyWarm?.status ?? 'not run')}</strong><span>latest Story-start warm${storyWarm?.workId ? ` · ${escape(storyWarm.workId)}` : ''}</span></div>
       <div class="summary-card"><strong>${escape(gateStatus)}</strong><span>workflow dependency</span></div></div>
     <div class="table-wrap"><table><thead><tr><th>Source</th><th>Mode</th><th>Ownership</th></tr></thead><tbody>${sourceRows.map(([name, mode, detail]) => `<tr><td><strong>${escape(name)}</strong></td><td><code>${escape(mode ?? 'auto')}</code></td><td>${escape(detail)}</td></tr>`).join('')}</tbody></table></div>
-    <p class="notice">The most restrictive source wins. AST is always optional: disabled modes, missing language packs, unavailable adapters, and evidence-store problems degrade structural results but never block phase publication, submission, governance, or ordinary repository file access.</p>
+    <p class="notice">The most restrictive source wins. AST is always optional: disabled modes, missing language packs, unavailable adapters, and evidence-store problems degrade structural results but never block phase publication, submission, sign-off, or ordinary repository file access.</p>
     ${list<NonNullable<AstDoctorResult['diagnostics']>[number]>(doctor.diagnostics).length ? `<ul>${list<NonNullable<AstDoctorResult['diagnostics']>[number]>(doctor.diagnostics).map((entry) => `<li><code>${escape(entry.code ?? 'AST_DIAGNOSTIC')}</code>${entry.message ? ` — ${escape(entry.message)}` : ''}</li>`).join('')}</ul>` : ''}
   </section>`;
 }
@@ -205,7 +205,7 @@ function repositorySelector(
 }
 
 function repositoryScope(scope: AstRepositoryScopeView | null, inventory: AstWorkspaceRepositoryInventory | null, inventoryError: string | null): string {
-  if (!scope) return `<section class="warning"><h2>${icon('warning')}No repository selected</h2><p>This screen cannot read or change an AST policy until a governed workspace or repository is selected.</p><p class="card-foot"><button class="secondary" data-message="open-workspaces">Choose a workspace</button></p></section>`;
+  if (!scope) return `<section class="warning"><h2>${icon('warning')}No repository selected</h2><p>This screen cannot read or change an AST policy until a workspace or repository is selected.</p><p class="card-foot"><button class="secondary" data-message="open-workspaces">Choose a workspace</button></p></section>`;
   return `<section class="plain" aria-label="Current repository scope"><div class="section-heading"><div><h2>${icon('repository')}Current repository scope</h2><p>Every repository policy, preview, cache action, and advanced YAML link on this screen applies to this repository.</p></div><button class="secondary" data-message="open-workspaces">Switch workspace</button></div>
     <div class="summary-grid"><div class="summary-card"><strong>${escape(scope.workspace)}</strong><span>workspace</span></div><div class="summary-card"><strong>${escape(scope.repository)}</strong><span>repository</span></div></div>
     <dl class="details"><div><dt>Repository root</dt><dd><code>${escape(scope.root)}</code></dd></div><div><dt>Selected from</dt><dd>${escape(scope.origin)}</dd></div></dl>
@@ -235,7 +235,7 @@ function policyForm(
 ): string {
   const repository = scope?.repository ?? 'the selected repository';
   const preset = astPolicyPreset(policy);
-  return `<section><div class="section-heading"><div><h2>${icon('worldModel')}Repository policy</h2><p>Saved through the governed configuration engine. Review and publish <code>singularity/workflow.yml</code> through the normal configuration path.</p></div><button class="secondary" data-message="open-configuration">Configuration Center</button></div>
+  return `<section><div class="section-heading"><div><h2>${icon('worldModel')}Repository policy</h2><p>Saved through the approved configuration engine. Review and publish <code>singularity/workflow.yml</code> through the normal configuration path.</p></div><button class="secondary" data-message="open-configuration">Configuration Center</button></div>
     ${blockedReason ? `<p class="notice warning"><strong>Read-only recovery configuration:</strong> ${escape(blockedReason)} Open Configuration Center to restore or reinitialize the approved authority.</p>` : ''}
     <form id="ast-policy-form">
       <div class="editor-card"><h3>Choose how AST works for ${escape(repository)}</h3><div class="choices">
@@ -303,7 +303,7 @@ function scopeRunner(policy: AstPolicyDraft): string {
 function cacheSection(doctor: AstDoctorResult | null, preview: AstCachePreview | null): string {
   const cache = doctor?.cache ?? {};
   const expected = preview?.action === 'clear' ? 'CLEAR AST CACHE' : preview?.action === 'prune' ? 'PRUNE AST CACHE' : '';
-  return `<section><h2>${icon('remove')}Derived cache</h2><p>${escape(cache.files ?? 0)} local record(s), ${escape(bytes(cache.bytes))}. Disabling AST does not delete them; cache cleanup never changes source, branches, or governed records.</p>
+  return `<section><h2>${icon('remove')}Derived cache</h2><p>${escape(cache.files ?? 0)} local record(s), ${escape(bytes(cache.bytes))}. Disabling AST does not delete them; cache cleanup never changes source, branches, or records.</p>
     <p class="card-foot"><button class="secondary" data-message="preview-cache" data-kind="prune">Preview stale-record pruning</button><button class="secondary" data-message="preview-cache" data-kind="clear">Preview complete cache cleanup</button></p>
     ${preview ? `<div class="editor-card"><h3>${preview.action === 'clear' ? 'Complete cleanup' : 'Stale-record pruning'} preview</h3><p>${preview.action === 'clear' ? `${escape(cache.files ?? 0)} record(s), ${escape(bytes(preview.bytes))}` : `${escape(preview.candidates ?? 0)} stale or expired record(s)`} would be removed.</p>
       ${list(preview.targets).length ? `<ul>${list(preview.targets).map((target) => `<li><code>${escape(target)}</code></li>`).join('')}</ul>` : ''}
@@ -576,7 +576,7 @@ export class AstIntelligencePanel {
     const draft = this.draft(message); const errors = validateAstPolicyDraft(draft);
     if (errors.length) { this.error = errors.join(' '); this.render(); return; }
     const snapshot = this.store.current.snapshot; const source = String(snapshot?.definitionText ?? '');
-    if (!snapshot || !source) { this.error = 'The governed workflow definition is unavailable. Refresh the repository before saving.'; this.render(); return; }
+    if (!snapshot || !source) { this.error = 'The workflow definition is unavailable. Refresh the repository before saving.'; this.render(); return; }
     try {
       const target = snapshot.definitionPath ?? 'singularity/workflow.yml';
       const plan = configurationSavePlan(snapshot.configurationSource, target, source);

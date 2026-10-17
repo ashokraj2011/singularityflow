@@ -10,7 +10,7 @@ related:
   - skill-master
   - workflow-authoring
   - importing-assets
-version: 7
+version: 8
 ---
 
 ## Purpose and prerequisites
@@ -22,7 +22,7 @@ Definitions are kept at `singularity/instruction-library/<id>/INSTRUCTIONS.md`. 
 the definitions that skill uses. Preview exact configuration changes and obtain human approval
 before activation.
 
-Work in a governed checkout; no Story is required. Definitions are configuration, so every change
+Work in a Singularity Flow checkout; no Story is required. Definitions are configuration, so every change
 uses the same exact preview, human review and activation path as workflow and agent changes.
 
 Optional `metadata.sflow-tags` provides up to 32 lower-case discovery tags, such as

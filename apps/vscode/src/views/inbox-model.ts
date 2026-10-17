@@ -365,7 +365,7 @@ export function buildInbox(
       : null,
     empty: subjectId || artifacts.length || approvals.pending.length || stories.length
       ? null
-      : 'Nothing governed is checked out on this branch.'
+      : 'No Story or Initiative is checked out on this branch.'
   };
 }
 
@@ -389,7 +389,7 @@ export function buildInboxTree(
   }] : [];
   if (error) return [{
     kind: 'message', id: 'inbox:error', label: error.message, icon: 'error',
-    tooltip: 'The inbox could not read the governed repository.'
+    tooltip: 'The inbox could not read the repository.'
   }, ...discoveryWarning, refreshStories];
   const inbox = buildInbox(snapshot, catalog, currentRepositoryPath, repositoryBinding);
   if (!snapshot && !inbox.stories.length) {

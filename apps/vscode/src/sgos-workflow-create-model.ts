@@ -86,7 +86,7 @@ export function sgosWorkflowSelectionIssue(
     entry.id === selection.verificationOperation)) {
     return 'Choose an independent verifier explicitly paired with the selected operation.';
   }
-  if (!selection.outputRef.trim()) return 'Name the governed output resource.';
+  if (!selection.outputRef.trim()) return 'Name the output resource.';
   const maximum = guide.installedLimits?.maximumAttemptsPerTask;
   if (maximum != null && selection.maximumAttempts > maximum) {
     return `This build permits at most ${maximum} attempts per task.`;

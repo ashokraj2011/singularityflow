@@ -15,13 +15,13 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 11
+version: 12
 ---
-A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing governed repository state.
+A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing repository state.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **workspaces and sessions**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **workspaces and sessions**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
@@ -90,7 +90,7 @@ Use **Open** on the selected workspace row to reopen its folder if an older inst
 terminal selection left a different native folder open.
 
 The shell command `workspace use` records the machine-local selection but cannot change its
-parent terminal's directory. CLI session commands still prefer a governed current directory;
+parent terminal's directory. CLI session commands still prefer a current directory;
 use exact workspace/repository selectors to inspect another workspace from there. Background
 selection updates do not force other VS Code windows to switch folders.
 
@@ -106,7 +106,7 @@ From inside a saved workspace or one of its subdirectories, `sflow workspace sta
 the exact workspace directory; the last selected workspace is never repaired implicitly.
 `workspace prepare --initialize` explicitly requests an immediate checkout and state
 initialization; `--no-clone --initialize` is contradictory and refused. Mapping a capability reads
-governed configuration, not application source.
+approved configuration, not application source.
 
 If Windows or macOS briefly locks a new checkout, repair retries the final staging-to-target
 move and rechecks ownership and target occupancy before every retry. A failed move preserves its original
@@ -176,7 +176,7 @@ Once a repository is in place, creation, adoption and repair queue a background 
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `workspace`, `session`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `workspace`, `session`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

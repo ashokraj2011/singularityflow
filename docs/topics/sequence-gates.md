@@ -13,7 +13,7 @@ related:
   - reconciliation
   - approvals
   - nextsteps
-version: 4
+version: 5
 ---
 `sflow submit` checks the sequence gates — phase order, current generation, artifact published and pushed, hash match, required checks, final reconciliation — and refuses with a to-do list when any fail: each unmet gate, its evidence, and the exact repair command, closing with what was preserved ("Nothing was submitted. Nothing was lost."). Hard gates protect invariants and cannot be overridden; soft gates accept a typed, recorded override. `sflow validate` runs checks without side effects. On success the phase enters awaiting_approval and reviewers are notified with a link.
 
@@ -33,7 +33,7 @@ must consume this explicit projection rather than derive publication state
 from the full status tree, an artifact's `in_progress` label, or a
 generation-zero binding event.
 
-Generation zero is a seeded authoring file, not a governed publication. Clients
+Generation zero is a seeded authoring file, not a publication. Clients
 label an existing generation-zero file **Seeded draft — not published**, keep
 Submit disabled, and expose one primary **Generate and publish <Phase>** action
 through the exact engine-selected `nextSkill`. Once the current immutable publication is recorded,
@@ -43,12 +43,12 @@ reviewable mutations.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **sequence gates**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **sequence gates**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
-- **Shell:** run `sflow status [WORK-ID] --submission-readiness --json` for the read-only lifecycle preflight; use `sflow submit`, `sflow validate`, or `sflow gate` for actual checks and governed actions. Run `singularity-flow submit --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-submit`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Shell:** run `sflow status [WORK-ID] --submission-readiness --json` for the read-only lifecycle preflight; use `sflow submit`, `sflow validate`, or `sflow gate` for actual checks and actions. Run `singularity-flow submit --help` for the exact forms supported by this build.
+- **Copilot:** `/sf-submit`. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -61,7 +61,7 @@ Use this topic when the current goal matches **sequence gates**. Start in a gove
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `submit`, `gate`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `submit`, `gate`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

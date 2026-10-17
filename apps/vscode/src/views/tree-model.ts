@@ -347,7 +347,7 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
       description: available ? `${available} available` : undefined,
       icon: 'info',
       tooltip: available
-        ? 'Check out a governed branch, or start something new.'
+        ? 'Check out a branch, or start something new.'
         : 'An Initiative, an Epic or a Story — with or without a tracker.',
       contextValue: 'sflow.lifecycle.empty'
     }, {
@@ -405,7 +405,7 @@ function activeStoryArchive(snapshot: RepositorySnapshot, excludeId?: string): T
   return stories.length ? {
     kind: 'group', id: 'active-stories', label: 'Active Stories',
     description: `${stories.length} ${stories.length === 1 ? 'Story' : 'Stories'}`,
-    tooltip: 'Active governed work in sibling branches. Select a Story to open its isolated checkout.',
+    tooltip: 'Active work in sibling branches. Select a Story to open its isolated checkout.',
     icon: 'list-tree', contextValue: 'sflow.activeStories', children: stories
   } : null;
 }
@@ -454,7 +454,7 @@ function completedStorySummaries(snapshot: RepositorySnapshot, excludeId?: strin
       id: `completed-story-summary:${item.id}`,
       label: item.id,
       description: item.title ?? 'Closed Story',
-      tooltip: `Closed on ${item.branch ?? item.id}. Select it to synchronize that governed branch and browse its artifacts.`,
+      tooltip: `Closed on ${item.branch ?? item.id}. Select it to synchronize that branch and browse its artifacts.`,
       icon: 'statusSuccess',
       command: ['session', 'attach', item.id],
       runCommand: 'singularityFlow.runAction',
@@ -483,7 +483,7 @@ function cancelledStorySummaries(snapshot: RepositorySnapshot, excludeId?: strin
     .map((item) => ({
       kind: 'story' as const, id: `archived-story-summary:${item.id}`, label: item.id,
       description: item.title ?? 'Cancelled Story',
-      tooltip: `Cancelled on ${item.branch ?? item.id}. Select it to synchronize that governed branch and browse its preserved artifacts.`,
+      tooltip: `Cancelled on ${item.branch ?? item.id}. Select it to synchronize that branch and browse its preserved artifacts.`,
       icon: 'archive', command: ['session', 'attach', item.id], runCommand: 'singularityFlow.runAction',
       contextValue: 'sflow.story.archived.summary'
     }));
@@ -729,7 +729,7 @@ function storyGeneratedArtifacts(
   return {
     kind: 'group', id: `story:${workflow.workItem.id}:generated-artifacts`,
     label: 'Generated artifacts', description: String(count), icon: 'files',
-    tooltip: `Governed outputs generated for ${workflow.workItem.id}, grouped by lifecycle phase.`,
+    tooltip: `Outputs generated for ${workflow.workItem.id}, grouped by lifecycle phase.`,
     contextValue: 'sflow.story.artifacts',
     children: groups.length ? groups.map(({ phase, artifacts }) => ({
       kind: 'group' as const, id: `story:${workflow.workItem.id}:artifacts:${phase.id}`,
@@ -1144,7 +1144,7 @@ function storyWorkflowNode(
         kind: 'action' as const,
         id: `story:change-request:${request.id}:roll-forward`,
         label: `Discard rework and return to ${request.sourcePhase}`,
-        description: 'preview exact files · local backup · governed commit',
+        description: 'preview exact files · local backup · commit',
         tooltip: `Restore checkpoint ${request.forwardCheckpoint.id} without rewriting Git history.`,
         icon: 'discard',
         command: [
@@ -1317,7 +1317,7 @@ function initiativeNode(initiative: InitiativeSnapshot): TreeNode {
   children.push({
     kind: 'group', id: `initiative:${state.initiative.id}:generated-artifacts`,
     label: 'Generated artifacts', description: String(generatedCount), icon: 'files',
-    tooltip: `Governed outputs generated for ${state.initiative.id}, grouped by lifecycle phase.`,
+    tooltip: `Outputs generated for ${state.initiative.id}, grouped by lifecycle phase.`,
     contextValue: 'sflow.initiative.artifacts',
     children: generatedByPhase.length ? generatedByPhase.map(({ phase, artifacts }) => ({
       kind: 'group' as const, id: `initiative:${state.initiative.id}:artifacts:${phase.id}`,

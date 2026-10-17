@@ -1,143 +1,143 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "64b2147a28d657b2fdbed81fdbfa953d0646661d",
+  "sourceCommit": "8e68075ff1e8d7741c35d98b931dfc1369d845f1",
   "topicCount": 84,
-  "contentSha256": "9d2ef2abe10ed76d21fd6e19e673b9191ce9b1bd78294ce076dc4173a45fab3a",
+  "contentSha256": "2a64d13e89508c5bb0a416f7fcc2b975c4b67e2f4ddfee8e9ad38d1718fece9f",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
       "title": "Activity logs, prompt audit, and operational trace",
-      "version": 4,
-      "sha256": "e800344e0642badfaae0e823d0202e32c6c70f8e8b943eb0ae70ec16930897a6",
+      "version": 5,
+      "sha256": "26d6814d0e67e663811d32755fa638844c5017cdfa0b9670cae4c774d53e1b13",
       "routingSha256": "332bbcacb673289aa488c06c3253ec7d7d7f3c33677660afb5b2a93336e066fa",
       "file": "activity-and-prompt-audit.md"
     },
     {
       "id": "ad-hoc-work",
-      "title": "Ad hoc work and governed landing",
-      "version": 2,
-      "sha256": "0dc8cdc41de88086703aaded5f51fc5957d4826db7bc3f977887d332042f062e",
+      "title": "Ad hoc work and landing as a Story",
+      "version": 3,
+      "sha256": "8d7a605504a2a1a198848b500e0ca5658537e2ecad7e8cca0b11fa0cc25c5b92",
       "routingSha256": "5cc50cf586524cc24138d4c473af6f13631cf3b7e7e040184507630319ddba23",
       "file": "ad-hoc-work.md"
     },
     {
       "id": "after-step-actions",
       "title": "After-step actions and integrations",
-      "version": 11,
-      "sha256": "83d1eb0936be80c35685360733ec3fbf2a32c6470da31796860e941319a48b08",
+      "version": 12,
+      "sha256": "01b1a56d33615a6431492dd1514321a9d9bc205c989ddc1edc948d75a7da8dd1",
       "routingSha256": "13e342acfd47757d04f7d8aa2f855d713c4136f64dc55c322441e0b74ff132d4",
       "file": "after-step-actions.md"
     },
     {
       "id": "agents-and-routing",
-      "title": "Governed agents, assignments, and model routing",
-      "version": 6,
-      "sha256": "238bf046792968bda41de89fd231fc58d81e275cb80005469d921c591a90f0e4",
+      "title": "Agents, assignments, and model routing",
+      "version": 7,
+      "sha256": "58600ac448ced51e5570fa0e8a2058190abff2ea2954c0b947355111b6abf58a",
       "routingSha256": "001a52719941c2f9910ffacf2306d9ded4e45e3a3d202f73a843fc33649dd603",
       "file": "agents-and-routing.md"
     },
     {
       "id": "approvals",
       "title": "Approvals",
-      "version": 11,
-      "sha256": "effc845e0ca9d21ee008a2f022dc7b2c3e5befc1e9ff58c6aebaaab88b18b342",
+      "version": 12,
+      "sha256": "d860e50ac9b8f0fddbb6444cda9b5d73f22c0ab0cc5f79f0577bd224ea34ea05",
       "routingSha256": "676136a98f28623561cc90435028bd77fc57fa52e8b79d5fba93b6a595169098",
       "file": "approvals.md"
     },
     {
       "id": "artifacts-and-generation",
       "title": "Artifacts, templates, and publication",
-      "version": 12,
-      "sha256": "a24659dd2f40f72862c00d29b5973f4de03205243af6133dc6ae669803b8a063",
+      "version": 13,
+      "sha256": "d7e74c0b46c90e4818adabd1d3abbe0205535db03d83cb113895d13ecaa0cbe8",
       "routingSha256": "dd716dda63734db0f89e1995d31e40d3f25400815b1a17e57d2f0d758e7c58b7",
       "file": "artifacts-and-generation.md"
     },
     {
       "id": "assignments-and-watchlists",
       "title": "Assignments, watchlists, and review attention",
-      "version": 1,
-      "sha256": "a795061346e9b522237a0f6a5fa335d50279f53e98bf9d775341dd19c0bc7037",
+      "version": 2,
+      "sha256": "d7eebab82850c0104d82ed3587330685d92ef3ab85bd8972a52e13e260972077",
       "routingSha256": "fbe1f85c6d73da29d78dcafda5e27375c285b593a00d4ec3aced71054d31857e",
       "file": "assignments-and-watchlists.md"
     },
     {
       "id": "ast-intelligence",
       "title": "Optional AST intelligence",
-      "version": 8,
-      "sha256": "33aa449969c77c001cb260c1f7d7bf5bdf47d6ff38394db14eccebd566b3c2ab",
+      "version": 9,
+      "sha256": "10d7d10e47e24334fee6d8e7eccf4e9a5d966a5fba4442a79ff3bd10ab043873",
       "routingSha256": "1671f988a2f09eeb1af1cef10389c698c3e3a813a6caf2a362c9c3509bf23847",
       "file": "ast-intelligence.md"
     },
     {
       "id": "auto-mode",
       "title": "Bounded Auto mode",
-      "version": 10,
-      "sha256": "090c4e41d809e9f68f883b5f08f71a8f5ce86aadf8d3f200a53ef1af0b9711cb",
+      "version": 11,
+      "sha256": "5c13f535d0a2a195742e1e3ed6e1fee9e94165c231d0a4f979bef6b21c5bbb00",
       "routingSha256": "5e13fc1070186507fd232923db25b8e09b8e47b869690d71ee880dc9b95eed1f",
       "file": "auto-mode.md"
     },
     {
       "id": "capability-management",
       "title": "Capability mapping and activation",
-      "version": 23,
-      "sha256": "fbf959ce396bd0103981e6f2fd2961108566386a4eefc94068b5537990034b64",
+      "version": 24,
+      "sha256": "65c39a3fafcfbdc2d4d05f381f35a0ee3374966cb5d6db246c5435b286a1fac9",
       "routingSha256": "34335f7f4930297cb596fd5e42a87bb80b3b74eb7842f8a5bb3801bdf0fa144b",
       "file": "capability-management.md"
     },
     {
       "id": "checkpoints-pause-continue",
       "title": "Checkpoints, pause, and continue",
-      "version": 2,
-      "sha256": "7b44f5047aed57f5ef87dbff34858cad7786439cef6779d958bfd9651ac2ce6a",
+      "version": 3,
+      "sha256": "1de0fae5077574cedbdfd12e4cf951957e3ca186adeca089c3da49d426fc3ef6",
       "routingSha256": "4c603b239aa79d5fc63a34667b70be0962a94c8d0283a23c8d11935c87b35bf3",
       "file": "checkpoints-pause-continue.md"
     },
     {
       "id": "code-explanation",
       "title": "Explain current code changes",
-      "version": 8,
-      "sha256": "b560f5c341961816106ac36d55d6751839b31eb05ef103346eb70c6f5895cb81",
+      "version": 9,
+      "sha256": "1c92fad3af1cf152c28195fdd98f4b7fe293f9fb15a6550ccae6115a4b6f0ced",
       "routingSha256": "850900458031734fd5a411202347b68652e528c290aeaa6dce22d6e7cfc910e2",
       "file": "code-explanation.md"
     },
     {
       "id": "compact-phase-entry",
       "title": "Compact phase entry for Copilot",
-      "version": 14,
-      "sha256": "e7301aa525f21b7f28a53ef1b4a037222b778e2766bcb7baef7918025390c593",
+      "version": 15,
+      "sha256": "f0f167a61f3b19b474346a66c89edb93710a9d013f3dcbafc5006e0185aa6abe",
       "routingSha256": "bcd885145db0455bd1ec31c50649b5056e38b66b77e10123514a20c5f3d1d0cb",
       "file": "compact-phase-entry.md"
     },
     {
       "id": "configuration",
       "title": "Configuration, capabilities, and the policy fold",
-      "version": 6,
-      "sha256": "76410305af2afaff7b37391c748ac3e3640ccf6d3c1206980d2f7155268b1d53",
+      "version": 7,
+      "sha256": "2453f966ccfa2ab2163e8ab071d4056b7e80770c552b0009719e1aa48369d387",
       "routingSha256": "2d2fa1c092e101abe3c2074545597f9ed25b38d2627aeaa9e9d89c3c24c15c58",
       "file": "configuration.md"
     },
     {
       "id": "constitution",
       "title": "The constitution",
-      "version": 2,
-      "sha256": "03092fee78b4a5115342f57dcd032aa42d72d6c6b197e600c6123efd35e61b0d",
+      "version": 3,
+      "sha256": "3a5b92d41720147d03f88a4cd59dc8169bf40baaeb6e6f3902dbad8fbd744a53",
       "routingSha256": "b012bda5ed31c4b78e536e23c7da47da1079bf0bc25a910d3a83b2fca2033328",
       "file": "constitution.md"
     },
     {
       "id": "copilot-and-surfaces",
       "title": "Copilot, VS Code, and shell surfaces",
-      "version": 20,
-      "sha256": "b57bf093820c31666f5efc959929838ffc5b6eac6e8b40b32403946c6a0b10e5",
+      "version": 21,
+      "sha256": "192453b960c8656b5d2b7de8085cdabad09a8ec8f3ae5769f025bce3f1d93bc2",
       "routingSha256": "e858ea1962d0e273c529409ccaba3c62598ecc238bf7dba15de5e82163ce305b",
       "file": "copilot-and-surfaces.md"
     },
     {
       "id": "delivery-and-proof",
       "title": "Governed Delivery and Proof",
-      "version": 4,
-      "sha256": "b238f4a2b3616da21b0bf809fef29506c9a2d149dc593983fb1ca1410e193938",
+      "version": 5,
+      "sha256": "cd65011986e596945c3ad0313ae64441de5bc5390500343cca764f80b0f73b27",
       "routingSha256": "50fe51fde59f58a3a2685e84eb13987d273f1b70e6f4dd46f32df823e3d8f341",
       "file": "delivery-and-proof.md"
     },
@@ -152,88 +152,88 @@
     {
       "id": "developer-home",
       "title": "Developer Home and returning to work",
-      "version": 9,
-      "sha256": "82038c3f854ac29547134f2fe4719defec50fef29a2c7cab53115374bc3e4bc5",
+      "version": 10,
+      "sha256": "57421345d927011f934e4590366c2e2f95cfe00a343ffa52fbc9cf30368e89d5",
       "routingSha256": "f78f882be7abeaff7d971f6b2f436739deb89348ff7f685294e5ed6db4c2eeba",
       "file": "developer-home.md"
     },
     {
       "id": "diagnostics-and-regression",
       "title": "Diagnostics, regression investigation, and hooks",
-      "version": 3,
-      "sha256": "2d374bdd55a1943310fb10eb715b3835d1d1dee78f4d19dd6c13a361f68e54d9",
+      "version": 4,
+      "sha256": "bf2a44b67ac2003cc67827b176b0e07eafd9be8ff81eef0c6eb04cf55b6ed75f",
       "routingSha256": "76ae2d7d5ea6d171289a78938a37c1c9a822cd56dbf581809b7f59c81560b424",
       "file": "diagnostics-and-regression.md"
     },
     {
       "id": "document-test-repair",
       "title": "Document-led acceptance and repair workflow",
-      "version": 3,
-      "sha256": "0dfde94f62384268288dab5c1e23e3c6d3e3e1bf12e8fd65a7b9477a6954eac5",
+      "version": 4,
+      "sha256": "f88cfbe0a85a35041cd4887c7c0e5b03c30b7b613b65004b6fbc89d0dfb34714",
       "routingSha256": "792cf7b684167734fcd9235d375f6b9e9d282154a97c01d6788e45e31674d8e9",
       "file": "document-test-repair.md"
     },
     {
       "id": "environment-bindings",
       "title": "Test environments without committing their values",
-      "version": 1,
-      "sha256": "1ead778e05605a3c7eee15b168e259f95c8d57da5c7d70f630ed8e27fe2f76ab",
+      "version": 2,
+      "sha256": "d3f661a43855dd26d964d9d4659ef04ce657662a14536509f4eebdaeb8e24e1b",
       "routingSha256": "0c61c3f9e4515b7e0995db1a3080f4f9a94910d5ba00054a2486e856fa068c30",
       "file": "environment-bindings.md"
     },
     {
       "id": "epics-and-planning",
       "title": "Epics, planning, and user stories",
-      "version": 3,
-      "sha256": "2852b057d88c3170c254f9ed1b683b8cfa42793f4150b47aab83c2c3f0c1bf13",
+      "version": 4,
+      "sha256": "d59af76b4e1194f81130827b7da8e3ca917477787d380b5d2dee4c5f6abb810e",
       "routingSha256": "c02ac0d580b365aaaf3127a46264b228cff86e95d584a66c644004b86928401f",
       "file": "epics-and-planning.md"
     },
     {
       "id": "escalation",
       "title": "Rail escalation",
-      "version": 2,
-      "sha256": "e2330f4ec7a6d7d368acb8ceaa82762c0522fda2fe40159b43eb09d03bc11ae4",
+      "version": 3,
+      "sha256": "81fec28c5a20bae2f00e69ce07ecb3408692936ff81f097d149027e470c03ca3",
       "routingSha256": "454d5fa3b4220f16d2899a891a9eb5f38067462ab7f5c5a8d577d1d2d7b314da",
       "file": "escalation.md"
     },
     {
       "id": "evidence-and-ledger",
       "title": "Evidence, the ledger, and traceability",
-      "version": 15,
-      "sha256": "0e2aa706cb362c3fc69f800ceafa1e3c3632e171715598367d5fa166e2753794",
+      "version": 16,
+      "sha256": "6d6b81e3e6441f1421d7964d613b29fa0380b24194b2d5cc1f3ef488fc47b384",
       "routingSha256": "6874f5f9dc616c4396f385a212ab931331c2f12555461854f8678d64049fa650",
       "file": "evidence-and-ledger.md"
     },
     {
       "id": "evidence-matrix",
       "title": "Evidence matrix for requirements and acceptance criteria",
-      "version": 28,
-      "sha256": "acb2e78c9bde04a38fc60f279503222445990227aeef9528dd268b3bfc337b0c",
+      "version": 29,
+      "sha256": "ae108a5943a09b3e63b882f054d9ffec9be6d34b270dca06d19e5365db9ccad2",
       "routingSha256": "1ac630e7dfdfbe2a92bf3ce0b059e2e77bbcee7d68307e9575047cac45b60332",
       "file": "evidence-matrix.md"
     },
     {
       "id": "fast-onboarding",
       "title": "Fast onboarding and safe Git acceleration",
-      "version": 4,
-      "sha256": "0a1257c742381361e2c88366810b33ac0e12d15d882c4407f9ef229f42d6ee62",
+      "version": 5,
+      "sha256": "aeeb9e8c42cde0412afbbfaed4c7ed625433b1abf680c3e76915e324af7ca5b6",
       "routingSha256": "97bfdd2aaba3db080e1866fae4b3abd05b495ffa089b75a651ab4671c8c0083e",
       "file": "fast-onboarding.md"
     },
     {
       "id": "fast-path-verbs",
       "title": "The five verbs",
-      "version": 3,
-      "sha256": "d3d89073dce9eab81c9e437c0e3f742d7184055ae2a3a4121e08ca81356d1fc0",
+      "version": 4,
+      "sha256": "15745c0875ea73890035092b6beb5e83ec01f940a6fe061ccd87eab14af35478",
       "routingSha256": "d777f4eef9dfb5a5ed879f921ec895a467b1a417dbff84da0450549b74392720",
       "file": "fast-path-verbs.md"
     },
     {
       "id": "fault-intake-and-repair",
-      "title": "Fault intake and governed repair",
-      "version": 3,
-      "sha256": "06d00b7abe74427b154f92621ed2e09d553d69dbd77db457a75b3b57b6dae314",
+      "title": "Fault intake and repair",
+      "version": 4,
+      "sha256": "bc72c1dba8f9c98f86ff1bdcb14b786d4f52eb6e010734ad06b40a2f41fc9bf5",
       "routingSha256": "17f477535d4ea94f9ce1a0c94ad8193814bd6112e2d131e16d9a321f57eff70b",
       "file": "fault-intake-and-repair.md"
     },
@@ -248,16 +248,16 @@
     {
       "id": "getting-started",
       "title": "Getting started",
-      "version": 4,
-      "sha256": "b25687dd85ef9ce1021bb712355cb99ef22e0138d6b56e01e169630a405c29d3",
+      "version": 5,
+      "sha256": "a6fdebdf97810da9d00e587624c8e7ff5d427d4e1a9744f979dc51e6b07528dc",
       "routingSha256": "c4fb3eedd242f5d18b04d4da037c6e2f38946715fde7734ff8a485486e393228",
       "file": "getting-started.md"
     },
     {
       "id": "goals-and-outcomes",
-      "title": "Goals, outcomes, and governed work",
-      "version": 2,
-      "sha256": "db7d2b710f99919b0c4e0c20e03706f018f4dfbf8cbffcd3c8e3f222daa01bc2",
+      "title": "Goals, outcomes, and work",
+      "version": 3,
+      "sha256": "681a0c5b6596362b0f87fbe634c97b6e0c2d0f86c2aba8bfb27f0f0997aead8c",
       "routingSha256": "9d913529481e548323151ab57051b755a72cc8a5726300c69992ea4e6fc1bc5c",
       "file": "goals-and-outcomes.md"
     },
@@ -272,72 +272,72 @@
     {
       "id": "governed-execution",
       "title": "Governed execution and safe next actions",
-      "version": 4,
-      "sha256": "b22c570b51c001c2c7f879120818d4dd629e987012fc6f0890a924052a442419",
+      "version": 5,
+      "sha256": "16ee0f2fe4bad7c28a7fbc40a56e8e98bde2d154c0e5bb196c067dd81491dd42",
       "routingSha256": "94338a211b346bbb6356aa389cda6328744becc0d398931bd568359c49be870b",
       "file": "governed-execution.md"
     },
     {
       "id": "help-and-docs",
       "title": "Getting help",
-      "version": 6,
-      "sha256": "9c3c0589d4a1bc0505b4143fcc3016c02325d77d8ba7eb352f41cb4f4413376a",
+      "version": 7,
+      "sha256": "50b389581bd3361126045f66944e3b98bfb32639b178b81ebb8f0511c903b1d3",
       "routingSha256": "1ccccb5ccfaf7c105a2c911929eade75bc4232056e1aa57b56ec97a7de9b38e9",
       "file": "help-and-docs.md"
     },
     {
       "id": "impact-framework",
       "title": "Impact receipts and studies",
-      "version": 4,
-      "sha256": "b49e3aa429e4662aa3c4d329209c637d7bd475eb29d8c6141019f1d1a2c75d4e",
+      "version": 5,
+      "sha256": "515f9689bcf2a36b8737e5094b974a7c6b75167fcc52c971bbe032efb839dfca",
       "routingSha256": "01a02600f566bf118bcce46fa2556335513c19e32ac61e1c12a6d1e860ec6a0f",
       "file": "impact-framework.md"
     },
     {
       "id": "importing-assets",
       "title": "Importing skills, templates, and agents",
-      "version": 6,
-      "sha256": "34af22e19b7398bd4faebdcef7f33979833c5d3ace62625b413b251bfb18cb25",
+      "version": 7,
+      "sha256": "c6cd360885ae62356f976557cac6f8395e20002ebc76ce1216bf44a09fef94ad",
       "routingSha256": "aaf37214a54793f39448126ce20f7bea8d6e54c15a568bed8304b301d5f7fc2d",
       "file": "importing-assets.md"
     },
     {
       "id": "inbox-and-review",
       "title": "The inbox and review packets",
-      "version": 2,
-      "sha256": "05fe2df826ffa07ab17e2b7664a4c8f24bfd6bf795950cb48c722358a231afab",
+      "version": 3,
+      "sha256": "a413cf97e5bd0431f43c81fe04833d2f971e10cad89aec963fa6c2a9547e39e6",
       "routingSha256": "ee049c941ea80528ef46f9ae9ff9a24567c52a42eac69656acd0b997457c219a",
       "file": "inbox-and-review.md"
     },
     {
       "id": "initiative-lifecycle",
       "title": "Initiative lifecycle and multi-repository delivery",
-      "version": 1,
-      "sha256": "1498f3642274cf297d778f359ca1245c84d538a3335146d622e1a512c2477c16",
+      "version": 2,
+      "sha256": "2d82929ef88d786149c9445ee1e0955b57887172043dcb54281ac3503613ee7a",
       "routingSha256": "47e9242348bb801a6bf8428085d9ffed32c63da8fb9cc65fbd7c25ca19fb4518",
       "file": "initiative-lifecycle.md"
     },
     {
       "id": "installation-and-upgrades",
       "title": "Installation, initialization, and upgrades",
-      "version": 36,
-      "sha256": "3bcb2e0d8d9f0d5d00cdbf370a176446af9cde069695b9bcde49edfe34d5ec35",
+      "version": 37,
+      "sha256": "97f9bb99bc884591198a488c5c39ba81e2839939066160ac842283a62c78c452",
       "routingSha256": "106c03fc08b2145390e4ddccda9ee831e051f9f235db4b9465d0e2d57004a07a",
       "file": "installation-and-upgrades.md"
     },
     {
       "id": "jira-integration",
-      "title": "Jira integration and governed identity",
-      "version": 1,
-      "sha256": "fcc2821b3d1edb5107c10c161d18993ba4d5271abe852eef9cb1e1927b3a188f",
+      "title": "Jira integration and identity",
+      "version": 2,
+      "sha256": "9311ea3d46e1dcbf5de2880f2cf97cdabac8b4e9bb012c27214099bb3f53353f",
       "routingSha256": "3c6bda233175876ee9c8d86474afb88c171288274ecf9d5675b04241762d5363",
       "file": "jira-integration.md"
     },
     {
       "id": "knowledge-and-remote-assets",
       "title": "Knowledge, artifacts, and remote assets",
-      "version": 3,
-      "sha256": "beb1fa3782f22e34e0a87604448d47e7a1f68f004b0a5cda7c19179b910fdb82",
+      "version": 4,
+      "sha256": "101096833e4b54cc8b2cdfa0ffefdea693e5e8863e605d18796fadc0c8596f10",
       "routingSha256": "5de7ecfacea848dfccdd7f9c2771989a9c24812024081eb515b4f8c73383eaf0",
       "file": "knowledge-and-remote-assets.md"
     },
@@ -352,56 +352,56 @@
     {
       "id": "local-work-journal",
       "title": "Private local work journal",
-      "version": 1,
-      "sha256": "bb7ef578146697c46678d995d61b713cb36664685009ef9fb7b66245f0bdc95f",
+      "version": 2,
+      "sha256": "92ebfc845a71bcb2b7512094e020d3203d4765cb9723da8a444fefeef590334c",
       "routingSha256": "339986a5e9a3271f2c32101a6e6890fd3f658fefcf6fc853133fd5ac019d6086",
       "file": "local-work-journal.md"
     },
     {
       "id": "manual-authorship",
       "title": "Manual authorship and working without AI",
-      "version": 3,
-      "sha256": "409fafa4ff60135e8b8380dff96f94d4b1bc37246e2b42d296168036424bc98a",
+      "version": 4,
+      "sha256": "026b0f4b511d031ad185cad717d3d6d642ffa00df78023374e56438193e90ab4",
       "routingSha256": "a6c40596c5731d416c827727275c68cd65c23106f22739a055dfb8c34e7a4a47",
       "file": "manual-authorship.md"
     },
     {
       "id": "mcp-integration",
       "title": "MCP integration",
-      "version": 7,
-      "sha256": "4389f40b86466f9cd2cacd3e8c7775653142e7d6a6bc02ed3cba148019a9ab88",
+      "version": 8,
+      "sha256": "a81f5f15b22a0e2a8f506da6084b6d905e166e199ffe920e73a64d96a29b3284",
       "routingSha256": "c84ac0fcbc53adf0f6f791f64254ceec3a4a1ddceb96b7767dcdd5db4aefcb39",
       "file": "mcp-integration.md"
     },
     {
       "id": "model-independence",
       "title": "Model independence",
-      "version": 5,
-      "sha256": "cb2d9d0a3805b7f4e6763ffdc1058720473363cdf0f9abbd84ea2b5be4999f7a",
+      "version": 6,
+      "sha256": "400f77b779a4fef70f3521959cc5fa9a416e6494b4a612d4838717029f6f477d",
       "routingSha256": "cf0fc876954ff0be1f6dd06d267d45183e60f9c647749e7ca3ff6999fbaa3a12",
       "file": "model-independence.md"
     },
     {
       "id": "nextsteps",
       "title": "Guidance — nextsteps and the narration contract",
-      "version": 7,
-      "sha256": "1aff7d52641a718c792b7fbee00b544a300342761ff0c7a1d78234a00f305481",
+      "version": 8,
+      "sha256": "769b93c0b75d13dcbc7e64bcaad032045e0f9f73b605b376e183c10dc4ac2f00",
       "routingSha256": "ef4810deabfd97c053a8863fc7e53c872039f95c9504843ebddf70f2ffc3ba39",
       "file": "nextsteps.md"
     },
     {
       "id": "phase-appeals",
       "title": "Phase appeals and recoverable blockers",
-      "version": 5,
-      "sha256": "e21f414c6f691e7fd737381fb67433d6f632185b9c36c22dcd6349faaa9861b7",
+      "version": 6,
+      "sha256": "f64842b645c639a4b1bad7c0227ce7c1be6e77dec28787aee5ed0d765ccae9db",
       "routingSha256": "e2a804ba23d067717ab94a3b915334324e81bcc4ec14f67c09990e97295fed67",
       "file": "phase-appeals.md"
     },
     {
       "id": "pins",
       "title": "Pins and the immutable resolution",
-      "version": 2,
-      "sha256": "dd069ca668bdaa70115ed2442b46e5f38b07440e520e810e66e60de1184a43b9",
+      "version": 3,
+      "sha256": "13e2685c52272414779cb8c6f40b01716ae686e2a180273f898643753323c4f1",
       "routingSha256": "e2eb5df112b3f0a4b950c06eaa79cdea9fc9fee8031fcf11f4254a37751d9684",
       "file": "pins.md"
     },
@@ -416,232 +416,232 @@
     {
       "id": "pull-requests-and-stacks",
       "title": "Pull requests, Story stacks, and merge order",
-      "version": 2,
-      "sha256": "da777fe7a5e12c93f1b7b556cffb5758b633ee29415289e6a3d12f4a4c0e4f23",
+      "version": 3,
+      "sha256": "b6053f4ca7e26ebb831fb24f8b68c205bff38e7c558c0fa2299d3516162bc15b",
       "routingSha256": "71b5911c72960fa9a425ad5a6d0cc52177712369cdf7ad81528575964b1570fd",
       "file": "pull-requests-and-stacks.md"
     },
     {
       "id": "quick-fix",
       "title": "The quick-fix rail",
-      "version": 4,
-      "sha256": "3566b0775aef91fb4b98bac8a416dac214c96e456f2e4fd34ac47d5d57351799",
+      "version": 5,
+      "sha256": "24f5439c4865a290091063069d735a0b6b2ec2ee58fb07be656dd0136049a292",
       "routingSha256": "e48bee95d4e2dc5f4001a723006a2735a28b5216de204e3ae8aafaf6b91d1c12",
       "file": "quick-fix.md"
     },
     {
       "id": "reconciliation",
       "title": "Reconciliation and dispositions",
-      "version": 10,
-      "sha256": "722a0f11e6614298a57e7220bd98905b1aade00f5760aae4c65b6cc9e1ca3e9e",
+      "version": 11,
+      "sha256": "bdfb4b647f2acb02d37d7410d29331d7c56af02695129795a80d858e39b0ff93",
       "routingSha256": "48a986aceb19a24c858f7afdd2b8cba4ce3e55ede741d4b437d592712669e3a7",
       "file": "reconciliation.md"
     },
     {
       "id": "recovery",
       "title": "Recovery — nothing is ever lost",
-      "version": 18,
-      "sha256": "5266b0856256ff079feae99c2ac177e7afe90e52f35c5e060f5aceaa9f941ce8",
-      "routingSha256": "36c528b9d6d19e6cb6fbff5168bb2c203071e18874e1a230c7300b67342c40cd",
+      "version": 19,
+      "sha256": "67f75b47bb59461540e35715a7edaf7e3237f55630fc216f448b971de5c09931",
+      "routingSha256": "ec19438fa4b366eac19b4bd9b55e117a89e69037680b70068b45c9d7c45a0cbe",
       "file": "recovery.md"
     },
     {
       "id": "reference-previews",
       "title": "Previews, handles, and show",
-      "version": 2,
-      "sha256": "a06a4630b00f20915b1677adc8027123d5c1362d4c7ed3c9a85a14916b437cfc",
+      "version": 3,
+      "sha256": "0c1b1811d67d1997a2dd52c6bbdb5a095cfb89c0bea7c9aa11c4476921539d99",
       "routingSha256": "1a01bc3977b63a0171a0886b9c57226a121365dc8ec1b10b60c90fbc9e8087b2",
       "file": "reference-previews.md"
     },
     {
       "id": "rejection-and-rework",
       "title": "Rejection and rework",
-      "version": 5,
-      "sha256": "135987eb5ab2803af8bee3df1734c3742e2f90f3bf933b1140c0f953fe297cac",
+      "version": 6,
+      "sha256": "81ae5253a24eea5da4a5d7719d7aa1ae324c1a03fbdbd90665f15170727d39fa",
       "routingSha256": "1f6e7452a50ce8f4a4ce16c0cbc245d198d1d1815ff25a77c9429e37aff18825",
       "file": "rejection-and-rework.md"
     },
     {
       "id": "repository-state-and-snapshots",
       "title": "Repository state, snapshots, and branch refresh",
-      "version": 2,
-      "sha256": "b2b328652933dcc86e3aeec126c4aaffa22b8b5fe2e316fa430a737ba38390c7",
+      "version": 3,
+      "sha256": "49cd4ef8c980115361210c8e56eb1f3a06f7dce6f4ac3b4b2a563856f61e85fb",
       "routingSha256": "4c8f6678320f217c5fdcb21d495c5be1507fc1bf1636c87ae7638d9b0b49720e",
       "file": "repository-state-and-snapshots.md"
     },
     {
       "id": "resets-and-cleanup",
       "title": "Reset, cleanup, and fresh installation",
-      "version": 8,
-      "sha256": "5650b57cc96ac08bf99cab5063722cd9bc5c795c8181425dc2363f0a5edb894b",
+      "version": 9,
+      "sha256": "b3a2101275a1a0be90689125cd794b2567dfff70664514f3e47e58e591a8a696",
       "routingSha256": "6a466026dd470566f0b40ffddd76705c52ba2bf2968c4d8c0b282e5f60b0b3e4",
       "file": "resets-and-cleanup.md"
     },
     {
       "id": "reusable-instructions",
       "title": "Reusable instructions referenced by skills",
-      "version": 7,
-      "sha256": "102bbd8be6cc827b15a1ac679f76e58031226d195f8c9b59143715425a948e10",
+      "version": 8,
+      "sha256": "695834553b685d9041696138b90e79109cc46d1fbca20164b66b1072a0ce0b7e",
       "routingSha256": "819508e7d86f0c94478e4e14ff69d396888fe9a2769c18b780d25b0d43747622",
       "file": "reusable-instructions.md"
     },
     {
       "id": "revision-feedback-attachments",
       "title": "Revision feedback attachment staging",
-      "version": 5,
-      "sha256": "4c1c58a51693418f981c94e1b2ebae68381de8aa4098340606dd530cace02faf",
+      "version": 6,
+      "sha256": "866996b56f43217440f7c3fe3156d1054f1b30820297420a896b2d16ccaa11dc",
       "routingSha256": "5170043c54234fa7eafdf7437e7be50a5a7b9f97d04a0ddfcd42a9292f8a3027",
       "file": "revision-feedback-attachments.md"
     },
     {
       "id": "revision-loop",
       "title": "Bounded code Candidate revision loop",
-      "version": 2,
-      "sha256": "0caa2651ea73c63cf282b291028b4dee6656791c94594f19a8d624c9a7542f7b",
+      "version": 3,
+      "sha256": "83703083d9fa9bd47e69d8f0c19014d1c9eef3defc947fe447034d09532aef92",
       "routingSha256": "da32593b0266e2e0d23bceecf9bd245d71449ec93893456df95884e41dd890c0",
       "file": "revision-loop.md"
     },
     {
       "id": "secrets",
       "title": "Refusing to commit a credential",
-      "version": 2,
-      "sha256": "b9463118d7b6467bfe78022d0514241bfcc263698b889234457b9d416625b559",
+      "version": 3,
+      "sha256": "6ec14366b820f0a1185eb10707ea70085dc2e12ba6a9e284579957b6407efe15",
       "routingSha256": "49da34867a0d139cd67eb4f9775ee43b0eb4819eb33db5a2aee70d81bd20dae3",
       "file": "secrets.md"
     },
     {
       "id": "sequence-gates",
       "title": "Sequence gates and submission",
-      "version": 4,
-      "sha256": "42dac8f526b957353b05cacd0f93326aa58181f9f8d0c42862f160b44459b976",
+      "version": 5,
+      "sha256": "d6f3b08e1e7514389bc0bee435c2041d379e04f62300eb2343010911900032dc",
       "routingSha256": "33e8926d2944073e4592ede7af57a6157686383cb9c55d14e098952138abcbae",
       "file": "sequence-gates.md"
     },
     {
       "id": "sgos-governed-execution",
       "title": "SGOS governed execution",
-      "version": 26,
-      "sha256": "9eb4cd58940b0a1b92b8f7277256629aebaad368bed6e5bbd83501042c2062b9",
+      "version": 27,
+      "sha256": "7d490121563698703c587fe5e174010a4f5f06b392a7019d9106e24c18ceea93",
       "routingSha256": "dd35cdb578b69d97cc1d3f32f1a438a9f1b9f439039d94252e36b04f3d34afea",
       "file": "sgos-governed-execution.md"
     },
     {
       "id": "skill-master",
       "title": "Skill master and attached skills",
-      "version": 6,
-      "sha256": "1b85be62019a4f13587ec3809f6eb115c71158bdc0187f2a7d985d1d15b4df8d",
+      "version": 7,
+      "sha256": "96bc059150031ec6ac414ef4f23ec00ceb6812eb2b619f801eca5a6778639ede",
       "routingSha256": "0fd4468408d098ee8b88433a15885071003c69e6fab735de15d09d1f424aa4da",
       "file": "skill-master.md"
     },
     {
       "id": "smart-initialization",
       "title": "Smart repository initialization",
-      "version": 4,
-      "sha256": "152524d57589baf4490e1b9145d89a4536187fe662ac8233b282824247f1b3af",
+      "version": 5,
+      "sha256": "c4ce99b6eacfb722fb1bdbf004ebc4d64dfa45687e5145f2f2bf1589697f84cd",
       "routingSha256": "e090e2b732fd9a3a198bc89359fb479e0fc8302cf1806c9c61891e0e019c12bf",
       "file": "smart-initialization.md"
     },
     {
       "id": "source-grounded-review",
       "title": "Independent source-grounded review",
-      "version": 4,
-      "sha256": "3bbbe2661006b0e464487ca22af1f67223cc4ceb5992ad1adb38d9cbf54c71e7",
+      "version": 5,
+      "sha256": "a038d6de501c22765056a456d101b10f86a4afec5cb0c462e9e31872f834fad8",
       "routingSha256": "0c3fb5640f1493f14d8795c3e77b63917c630b28fba11bb13f20bb2add4d808c",
       "file": "source-grounded-review.md"
     },
     {
       "id": "specification-quality",
       "title": "Specification quality and clarification markers",
-      "version": 12,
-      "sha256": "7940b19dc9d0b057a92bea2656accf2d33e5dd387e6ad555b10e93f29254ae1c",
+      "version": 13,
+      "sha256": "0238ecb34bdffcb585bfed60d56c3dc34851eaa60d53b34dca03fce2114df99d",
       "routingSha256": "6f4200409c982f2aec675cbaf904563a0b014733cbc9e88da82127c4982fdd21",
       "file": "specification-quality.md"
     },
     {
       "id": "starting-work",
       "title": "Starting work",
-      "version": 28,
-      "sha256": "b391b60fee057abd343b3c6bdd14b146e860a6aa912e3dc8c5b64d3f1139dc99",
+      "version": 29,
+      "sha256": "7881a42ab1de7a8d3061baad5a38bb91bc21fe47cfe628765906e5cfff298844",
       "routingSha256": "5693a64459940975a49c2840529f78c8668f80c781e37f8b1b33e46042b54d08",
       "file": "starting-work.md"
     },
     {
       "id": "story-lifecycle",
       "title": "Story lifecycle, phases, and generations",
-      "version": 6,
-      "sha256": "465b2154bb8539a77868f5732103b881d4047d34b8c45b109b4ac7cc03ff0ae9",
+      "version": 7,
+      "sha256": "0c4b15fe587abad57e4f6122e4b46faed77d557f11777b9e9ad63b9e820221bc",
       "routingSha256": "3b0bff2625cc67700ca6c85dbe9fdae373732b590782d27cc064bb74649fea18",
       "file": "story-lifecycle.md"
     },
     {
       "id": "supporting-documents",
       "title": "Supporting documents",
-      "version": 8,
-      "sha256": "14d50a3d07b1145868a4f83473cb5afea0eef90596484e27f592d7de99fdebe1",
+      "version": 9,
+      "sha256": "3b05db718a4baca5b0ff458ec7c55607d39ac624012268fbc8c20b8566b3c051",
       "routingSha256": "e999b62cfd8ab0711c2320feca3f5d0f54656404584de22af6de4aa30060db1c",
       "file": "supporting-documents.md"
     },
     {
       "id": "telemetry-and-cost",
       "title": "Telemetry, tokens, and cost",
-      "version": 10,
-      "sha256": "68ce748c285dedabbd727ae996f1c9bcb8c8ccd26a98baa59a118be8de3a4b9b",
+      "version": 11,
+      "sha256": "2438dca42ea5770d5d5c5ecbd71e7df7c271237c9d49858c8419991e0cab5fef",
       "routingSha256": "ef471b8311113be4dd0cd1e937ad735f38012f471772a3d639b1ffdf20c0f4e2",
       "file": "telemetry-and-cost.md"
     },
     {
       "id": "test-recovery",
       "title": "Story test policy and recovery pilot",
-      "version": 18,
-      "sha256": "1476344c9a8659826826bd4b229465f03ab2ebe06bb90fb506b7a827c98c1cdf",
+      "version": 19,
+      "sha256": "7559883427e4c51c4027b6bacd8a5dd07ed3f7afbb3aa1a3a0b5de5f08381619",
       "routingSha256": "8330286140e41b11c99e24d5b83150c155d7563d24f240c9c9df28418d6a2ea2",
       "file": "test-recovery.md"
     },
     {
       "id": "visual-verification",
       "title": "Visual verification for mobile",
-      "version": 2,
-      "sha256": "5c2700e7a552e0dbf04abd58bfea11d25c00b6913cd6031097685db1cfcb5848",
+      "version": 3,
+      "sha256": "c52d9a0299493d035eb4518962f231694779fa7ca9e383e59a63c2b8a1f8411c",
       "routingSha256": "2e2011faa98461dbf16f975ee882a4539944aba6dfb1ed908f47f4b825aaf423",
       "file": "visual-verification.md"
     },
     {
       "id": "waivers",
       "title": "Policy waivers",
-      "version": 3,
-      "sha256": "06a08192313e934ad7b3e73ec279670824865c9a5f7209f3a5c54f56289beb00",
+      "version": 4,
+      "sha256": "16f466709cd11cfb28fe27a7fb52092a52030730b71dd288ce1436944dbfa8cf",
       "routingSha256": "052f89f709367cee2eced1d501d4ef4778bb01f32e50377d28b94bfd8cc21d1e",
       "file": "waivers.md"
     },
     {
       "id": "what-is-singularity-flow",
       "title": "What is Singularity Flow",
-      "version": 2,
-      "sha256": "bf9a967c02f7290873ebefac12a8cb396f84560c1d7438e8add7ef888b163da3",
+      "version": 3,
+      "sha256": "06a07fdac3af6628aa7bc4d595357a17b1c4c898bf95c2217a0acef4460dfdfe",
       "routingSha256": "ecdbad51f9489238d12e40d660fb85e13341e7ddbddf5c5dc13a60ce48f79f5f",
       "file": "what-is-singularity-flow.md"
     },
     {
       "id": "work-intervals",
       "title": "Work intervals",
-      "version": 2,
-      "sha256": "2a5c66835477e3fef623ceba811786e3b51fc2ef8065413ab62856603544170c",
+      "version": 3,
+      "sha256": "cb985d65254067c5db65354e027899330103319b6c04a05895ee4ba72db5a42c",
       "routingSha256": "832805aefde0d031baa0427dd00f11e9567ad45c08c949ca3d67cc087eb07236",
       "file": "work-intervals.md"
     },
     {
       "id": "workflow-authoring",
       "title": "Workflow and configuration authoring",
-      "version": 64,
-      "sha256": "25e5339e3685aef0ffa1579ab44544b0196ad7cc203e35767e33eb318c3cfd50",
+      "version": 65,
+      "sha256": "d8134c501c07872a742abb81bd1c4e7b4ece95da3935cfefb8b89bb8f6786e11",
       "routingSha256": "52ea5d0663b720fca50e9c4439a88674cece947be2cff2f23f7f8fe5640f9f01",
       "file": "workflow-authoring.md"
     },
     {
       "id": "workflow-decisions",
       "title": "Decisions, branches and loops in Story workflows",
-      "version": 10,
-      "sha256": "df513d18b9975702f272a31a05b64ac093cbb9af68dbd4622f4c9a318b4bcef4",
+      "version": 11,
+      "sha256": "cdcf385b16bba4bdc9e46cbf6ba065f686f813e5501a44dc1c0c58092cae911c",
       "routingSha256": "dcc9577dec4f1d3b710538ad2115d7409ea5022c47c100ad95caff22977b8b96",
       "file": "workflow-decisions.md"
     },
@@ -664,16 +664,16 @@
     {
       "id": "workspaces-and-sessions",
       "title": "Workspaces, sessions, and current selection",
-      "version": 11,
-      "sha256": "c05d789cf95b7b6438866a9d08046d59f658c10e44fff7484dac9e212dd789da",
+      "version": 12,
+      "sha256": "579a4076c9ddaa3c6e2ed22a9bbf06b0519781d2816c10fd975f0d7114345f62",
       "routingSha256": "4d60343e291e638a0267e6605861c798f629b641c57cf4a98ab6ce87633647b6",
       "file": "workspaces-and-sessions.md"
     },
     {
       "id": "world-model",
       "title": "World Model and the Repository brief",
-      "version": 40,
-      "sha256": "f6441633a54492c876d4ac7d9d6a98fc386f695714bfe71c70297e42d369fc76",
+      "version": 41,
+      "sha256": "c016d8ac02a8e647c8d591c96a4cb844abb81d0f9baa5dcaa5ffa11b4566d573",
       "routingSha256": "e8bc81fa19c1360eb38defcc0c51657bfdbe20101662beb54d403fa0bccefa68",
       "file": "world-model.md"
     }

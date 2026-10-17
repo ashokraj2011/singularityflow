@@ -144,7 +144,7 @@ function analyticsHtml(analytics: LifecycleAnalytics | null): string {
   ${copilotActivityHtml(analytics)}
 
   <section>
-    <h2>${icon('approval')}Governance and rework</h2>
+    <h2>${icon('approval')}Sign-offs and rework</h2>
     <div class="summary-grid governance-kpis">
       <div class="summary-card"><strong>${analytics.reworkCycles}</strong><span>Regeneration cycles</span></div>
       <div class="summary-card"><strong>${analytics.sentBack}</strong><span>Sent back to an earlier phase</span></div>
@@ -185,7 +185,7 @@ function bodyHtml(dashboard: Dashboard | null): string {
     ? `<p class="ok-text">${icon('ok')}Nothing is broken and nothing is waiting on you.</p>`
     : ''}
     ${dashboard.failing.length ? `
-    <h2>${icon('bad')}Would stop governed work</h2>
+    <h2>${icon('bad')}Would stop work</h2>
     <table>
       <thead><tr><th>State</th><th>Check</th><th>What it found</th><th>Fix</th></tr></thead>
       <tbody>${dashboard.failing.map(checkHtml).join('')}</tbody>

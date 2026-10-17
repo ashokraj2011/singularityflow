@@ -97,7 +97,7 @@
     "runtime": ["documents", "list", "--active", "--json"],
     "template": "documents",
     "skill": "/sf-documents",
-    "description": "List active governed documents",
+    "description": "List the active Story's documents",
     "keywords": ["docs", "documents"],
     "acceptsArguments": false,
     "requiresRepository": true,
@@ -152,7 +152,7 @@
   {
     "id": "submit", "class": "deterministic", "transport": "local", "effect": "human-decision",
     "runtime": null, "template": "lifecycle", "skill": "/sf-submit",
-    "description": "Confirm and submit the published current phase with its governed checks, without a model",
+    "description": "Confirm and submit the published current phase with its Flow Gate checks, without a model",
     "keywords": [], "acceptsArguments": true, "requiresRepository": true, "requiresSession": true,
     "confirmation": "separate-guarded-flow"
   },

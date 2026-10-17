@@ -1030,7 +1030,7 @@ export class RepositoryAuthorityUnavailableError extends Error {
   readonly repository: string;
   readonly failures: ReadonlyArray<{ remote: string; operation: 'ls-remote' | 'fetch' | 'verify'; reason: string }>;
   constructor(repository: string, failures: Array<{ remote: string; operation: 'ls-remote' | 'fetch' | 'verify'; reason: string }>) {
-    super('Singularity Flow configuration may exist on a governed remote branch, but its authority could not be read or verified. Check network and Git credentials, then retry; do not initialize over the existing authority.');
+    super('Singularity Flow configuration may exist on a remote branch, but its authority could not be read or verified. Check network and Git credentials, then retry; do not initialize over the existing authority.');
     this.name = 'RepositoryAuthorityUnavailableError';
     this.repository = repository;
     this.failures = Object.freeze(failures.map((entry) => Object.freeze({ ...entry })));

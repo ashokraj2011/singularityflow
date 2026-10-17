@@ -23,7 +23,7 @@ const STANDING_PILL: Record<string, { className: string; label: string }> = {
 };
 
 const KIND_LABEL: Record<string, string> = {
-  output: 'Artifact', pack: 'Artifact pack', phase: 'Phase gate'
+  output: 'Artifact', pack: 'Artifact pack', phase: 'Phase sign-off'
 };
 
 function chainHtml(approval: PendingApproval): string {

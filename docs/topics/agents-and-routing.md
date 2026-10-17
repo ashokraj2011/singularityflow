@@ -1,6 +1,6 @@
 ---
 id: agents-and-routing
-title: Governed agents, assignments, and model routing
+title: Agents, assignments, and model routing
 aliases:
   - agents
   - agent-routing
@@ -14,9 +14,9 @@ related:
   - model-independence
   - assignments-and-watchlists
   - skill-master
-version: 6
+version: 7
 ---
-Phase activation selects a governed agent from pinned policy. Human approval authority remains separate from agent selection, and explicit overrides are local and audited.
+Phase activation selects an agent from pinned policy. Human approval authority remains separate from agent selection, and explicit overrides are local and audited.
 
 The bundled model-routing policy uses the provider selector `auto`, so Copilot chooses the
 concrete model for each isolated ACP invocation. SFlow still owns the task mapping, tool boundary,
@@ -58,12 +58,12 @@ that workflow first. Duplicating an agent does not change running Stories or the
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **agents and routing**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **agents and routing**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow agent`, `sflow agents`, `sflow assign`. Run `singularity-flow agent --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-agent`, `/sf-agents`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-agent`, `/sf-agents`. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Configuration Center**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -76,7 +76,7 @@ Use this topic when the current goal matches **agents and routing**. Start in a 
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `agent`, `agents`, `assign`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `agent`, `agents`, `assign`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

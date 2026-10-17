@@ -35,7 +35,7 @@ test('Story intake gives the description room and offers one empty document slot
   assert.deepEqual([...chosen.matchAll(/data-attachment-slot="(\d+)"/g)].map((match) => match[1]), ['0', '1'],
     'a chosen document keeps its slot number and one empty slot stays offered');
   assert.match(html, /Choose documents…/);
-  assert.match(html, /opening governed Git\s+commit; files kept in Git are copied into that commit and pushed/);
+  assert.match(html, /opening Git\s+commit; files kept in Git are copied into that commit and pushed/);
   assert.match(html, /files kept on this machine\s+stay here/, 'machine-only documents are not promised to the commit');
   assert.match(html, /may use bounded text from selected\s+text documents/);
 

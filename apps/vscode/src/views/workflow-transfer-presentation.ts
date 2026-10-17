@@ -55,8 +55,8 @@ export type WorkflowTransferIdentity = {
 
 type WorkflowOperationKind = 'add' | 'reuse' | 'replace' | 'keep' | 'conflicts';
 
-const AUTHORITY_DISPOSITION = 'The repository configuration authority decides the result: governed '
-  + 'authority creates a review proposal; local authority records a local edit. Applying this plan does '
+const AUTHORITY_DISPOSITION = 'The repository configuration authority decides the result: a shared '
+  + 'authority creates a review proposal; a local authority records a local edit. Applying this plan does '
   + 'not bypass either policy.';
 
 function operations(plan: WorkflowMutationPreview, kind: WorkflowOperationKind): unknown[] {

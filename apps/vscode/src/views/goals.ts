@@ -35,7 +35,7 @@ const SCRIPT = `
 `;
 
 function workOptions(work: readonly GoalWorkChoice[]): string {
-  return `<option value="">Choose governed work…</option><option value="none">No link yet (explicit)</option>${work.map((item) =>
+  return `<option value="">Choose work…</option><option value="none">No link yet (explicit)</option>${work.map((item) =>
     `<option value="${item.kind}:${escape(item.id)}">${escape(item.id)} — ${escape(item.title ?? item.status ?? item.kind)}</option>`).join('')}`;
 }
 
@@ -52,7 +52,7 @@ export function goalsBody(
   const governedPlan = governedDetail?.plan ?? null;
   const governedState = governedDetail?.state ?? null;
   return `<header><p class="eyebrow">Lifecycle</p><h1>${icon('impact', { size: 24 })} Goals</h1>
-    <p class="meta">Personal outcomes stay local. Governed executions use durable GEX branches, typed success oracles, and exact-hash plan approval.</p></header>
+    <p class="meta">Personal outcomes stay local. Repository Goals use durable GEX branches, typed success oracles, and exact-hash plan approval.</p></header>
   ${error ? `<section class="warning"><strong>Could not read Goals</strong><p>${escape(error)}</p></section>` : ''}
   <div class="split-layout">
     <section><div class="section-title"><h2>Goals</h2><button class="secondary" data-message="refresh">Refresh</button></div>
@@ -63,26 +63,26 @@ export function goalsBody(
     <section><h2>${selected ? escape(selected.id) : 'Create a Goal'}</h2>
       ${selected ? `<div class="card"><h3>${escape(selected.statement ?? selected.id)}</h3><span class="badge">personal · ${escape(selected.status ?? 'unknown')}</span>
         <h4>Observable success</h4><ul>${list<string>(selected.successCriteria).map((item) => `<li>${escape(item)}</li>`).join('') || '<li>None recorded</li>'}</ul>
-        <h4>Linked governed work</h4>${links.length ? `<ul>${links.map((link) => `<li><strong>${escape(link.id ?? '')}</strong> · ${escape(link.kind ?? 'work')} · ${escape(link.status ?? link.availability ?? 'unknown')}
+        <h4>Linked work</h4>${links.length ? `<ul>${links.map((link) => `<li><strong>${escape(link.id ?? '')}</strong> · ${escape(link.kind ?? 'work')} · ${escape(link.status ?? link.availability ?? 'unknown')}
           <button class="link" data-message="unlink" data-id="${escape(selected.id)}" data-work="${escape(link.id ?? '')}" data-kind="${escape(link.kind ?? 'story')}">Unlink</button></li>`).join('')}</ul>` : '<p class="muted">No work linked.</p>'}
         ${detail?.recommendation?.action?.label ? `<p class="callout">Next: ${escape(bounded(detail.recommendation.action.label))}</p>` : ''}
         <p class="card-foot">${canActivateGoal(selected, active) ? `<button data-message="activate" data-id="${escape(selected.id)}">Make active</button>` : ''}
-          ${selected.status === 'active' ? `<button class="secondary" data-message="govern" data-id="${escape(selected.id)}">Promote to governed execution</button>` : ''}</p>
-        <form data-message="link"><input type="hidden" name="id" value="${escape(selected.id)}"><label>Link governed work<select name="work" required>${workOptions(work)}</select></label><button type="submit">Link</button></form>
+          ${selected.status === 'active' ? `<button class="secondary" data-message="govern" data-id="${escape(selected.id)}">Promote to execution</button>` : ''}</p>
+        <form data-message="link"><input type="hidden" name="id" value="${escape(selected.id)}"><label>Link work<select name="work" required>${workOptions(work)}</select></label><button type="submit">Link</button></form>
         <details><summary>Complete or abandon</summary><form data-message="close"><input type="hidden" name="id" value="${escape(selected.id)}"><label>Action<select name="action"><option value="complete">Complete</option><option value="abandon">Abandon</option></select></label><label>Exact Goal ID<input name="confirm" autocomplete="off" required placeholder="${escape(selected.id)}"></label><label>Note / reason<input name="note" required></label><button class="secondary" type="submit">Confirm transition</button></form></details>
       </div>` : '<p class="muted">Create a Goal or select one from the list.</p>'}
     </section>
   </div>
   <section><h2>Create Goal</h2><form data-message="create" class="form-grid"><label>Outcome statement<input name="statement" required></label>
     <label>Observable success criteria <span class="muted">one per line</span><textarea name="success" required rows="4"></textarea></label>
-    <label>Initial governed work<select name="work" required>${workOptions(work)}</select></label><button type="submit">Create personal Goal</button><button type="reset" class="secondary">Clear</button></form></section>
-  <section><div class="section-title"><div><p class="eyebrow">Repository-owned</p><h2>Governed executions</h2></div><button class="secondary" data-message="refresh">Refresh</button></div>
+    <label>Initial work<select name="work" required>${workOptions(work)}</select></label><button type="submit">Create personal Goal</button><button type="reset" class="secondary">Clear</button></form></section>
+  <section><div class="section-title"><div><p class="eyebrow">Repository-owned</p><h2>Repository Goals</h2></div><button class="secondary" data-message="refresh">Refresh</button></div>
     ${governed.length ? `<div class="audit-list">${governed.map((goal) => `<button class="audit-record${selectedGoverned?.id === goal.id ? ' selected' : ''}" data-message="showGoverned" data-id="${escape(goal.id)}">
       <strong>${escape(goal.statement ?? goal.id)}</strong><span>${escape(goal.id)} · ${escape(goal.status ?? 'unknown')} · ${escape(goal.assurance ?? 'unassessed')} · plan ${goal.planGeneration ?? 0}${goal.planApproved ? ' approved' : ''}</span></button>`).join('')}</div>`
-      : '<div class="empty"><p>No governed Goal exists yet. Promote an active personal Goal after linking its existing Stories or Initiatives.</p></div>'}
-    ${governedData?.unreadable?.length ? `<div class="warning"><strong>${governedData.unreadable.length} governed Goal branch(es) could not be read</strong></div>` : ''}
+      : '<div class="empty"><p>No repository Goal exists yet. Promote an active personal Goal after linking its existing Stories or Initiatives.</p></div>'}
+    ${governedData?.unreadable?.length ? `<div class="warning"><strong>${governedData.unreadable.length} repository Goal branch(es) could not be read</strong></div>` : ''}
     ${selectedGoverned ? `<div class="card"><h3>${escape(selectedGoverned.statement ?? selectedGoverned.id)}</h3>
-      <p><span class="badge">governed</span> <span class="badge">${escape(governedState?.status ?? selectedGoverned.status ?? 'unknown')}</span> <span class="badge">${escape(governedState?.assurance ?? selectedGoverned.assurance ?? 'unassessed')}</span></p>
+      <p><span class="badge">repository</span> <span class="badge">${escape(governedState?.status ?? selectedGoverned.status ?? 'unknown')}</span> <span class="badge">${escape(governedState?.assurance ?? selectedGoverned.assurance ?? 'unassessed')}</span></p>
       <h4>Success oracles</h4><ul>${list<GovernedCriterion>(governedDetail?.contract?.criteria).map((criterion) => `<li><strong>${escape(criterion.id ?? '')}</strong> ${escape(criterion.statement ?? '')} <span class="badge">${escape(criterion.oracle?.type ?? 'unknown')}</span></li>`).join('')}</ul>
       <h4>Plan rail</h4>${governedPlan ? `<p>Generation ${governedPlan.generation} · <code>${escape(governedPlan.planSha256 ?? '')}</code></p><ol>${list<GovernedPlanStep>(governedPlan.steps).map((step) => `<li>${escape(step.id ?? '')} — ${escape(step.subject?.id ?? '')}${governedState?.currentStepId === step.id ? ' · current' : ''}</li>`).join('')}</ol>` : '<p class="muted">No plan compiled.</p>'}
       ${governedDetail?.recommendation?.action?.label ? `<p class="callout">Next: ${escape(bounded(governedDetail.recommendation.action.label))}</p>` : ''}
@@ -92,7 +92,7 @@ export function goalsBody(
         ${governedState?.approvedPlan ? `<button data-message="runGoverned" data-id="${escape(selectedGoverned.id)}">Run / navigate one step</button><button class="secondary" data-message="verifyGoverned" data-id="${escape(selectedGoverned.id)}">Verify oracles</button>` : ''}
         ${governedState?.paused ? `<button class="secondary" data-message="resumeGoverned" data-id="${escape(selectedGoverned.id)}">Resume</button>` : `<form data-message="pauseGoverned"><input type="hidden" name="id" value="${escape(selectedGoverned.id)}"><label>Pause reason<input name="reason" required></label><button class="secondary" type="submit">Pause</button></form>`}
       </div>
-      <details><summary>Abandon governed execution</summary><form data-message="abandonGoverned"><input type="hidden" name="id" value="${escape(selectedGoverned.id)}"><label>Exact GEX ID<input name="confirm" autocomplete="off" required></label><label>Reason<input name="reason" required></label><button class="secondary" type="submit">Abandon; keep linked work</button></form></details>
+      <details><summary>Abandon execution</summary><form data-message="abandonGoverned"><input type="hidden" name="id" value="${escape(selectedGoverned.id)}"><label>Exact GEX ID<input name="confirm" autocomplete="off" required></label><label>Reason<input name="reason" required></label><button class="secondary" type="submit">Abandon; keep linked work</button></form></details>
     </div>` : ''}
   </section>`;
 }
@@ -155,7 +155,7 @@ export class GoalsPanel {
     resumeGoverned: (message) => { const id = stringField(message, 'id'); if (id) void this.mutate(['goal', 'resume', id, '--json'], true); },
     abandonGoverned: (message) => {
       const id = stringField(message, 'id'); const confirm = stringField(message, 'confirm'); const reason = stringField(message, 'reason');
-      if (!id || confirm !== id || !reason) return void vscode.window.showWarningMessage('Type the exact governed Goal ID and provide a reason.');
+      if (!id || confirm !== id || !reason) return void vscode.window.showWarningMessage('Type the exact Goal ID and provide a reason.');
       void this.mutate(['goal', 'abandon', id, '--confirm', confirm, '--reason', reason, '--json'], true);
     },
     unlink: (message) => {
@@ -164,7 +164,7 @@ export class GoalsPanel {
     },
     link: (message) => {
       const id = stringField(message, 'id'); const selection = stringField(message, 'work');
-      if (!id || !selection || selection === 'none') return void vscode.window.showWarningMessage('Choose governed work to link.');
+      if (!id || !selection || selection === 'none') return void vscode.window.showWarningMessage('Choose work to link.');
       const [kind, work] = selection.split(':');
       if (work && (kind === 'story' || kind === 'initiative')) void this.mutate(['goal', 'link', id, work, '--kind', kind, '--json']);
     },

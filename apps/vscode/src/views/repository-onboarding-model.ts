@@ -679,7 +679,7 @@ function repositoryOnboardingFailureCopy(
   if (snapshot && code.includes('WORK_LIMIT_EXCEEDED')) {
     return retryCopy(
       'Repository inspection work limit reached',
-      'The governed snapshot may fit the size limit, but SFlow cannot prove another admission pass will remain within the bounded transfer budget. Open Diagnostics before retrying.'
+      'The snapshot may fit the size limit, but SFlow cannot prove another admission pass will remain within the bounded transfer budget. Open Diagnostics before retrying.'
     );
   }
   if (snapshot && code.includes('LIMIT_EXCEEDED')) {
@@ -840,7 +840,7 @@ export function repositoryOnboardingCommandFailureCopy(value: unknown): Reposito
   if (/\bREPOSITORY_ONBOARDING_SNAPSHOT_WORK_LIMIT_EXCEEDED\b/u.test(diagnostic)) {
     return retryCopy(
       'Repository inspection work limit reached',
-      'The governed snapshot may fit the size limit, but SFlow cannot prove another admission pass will remain within the bounded transfer budget. Open Diagnostics before retrying.'
+      'The snapshot may fit the size limit, but SFlow cannot prove another admission pass will remain within the bounded transfer budget. Open Diagnostics before retrying.'
     );
   }
   if (/\bREPOSITORY_ONBOARDING_SNAPSHOT_LIMIT_EXCEEDED\b/u.test(diagnostic)) {

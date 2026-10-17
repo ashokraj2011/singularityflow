@@ -89,7 +89,7 @@ function agentEditor(catalog: InstructionCatalog, view: InstructionDesignerView)
   const locked = packaged ? ' disabled' : '';
   const tools = [...new Set([...draft.tools, 'read', 'search', 'edit', 'execute', 'web'])];
   return `<section class="instruction-editor">
-    <div class="editor-title"><p class="eyebrow">Governed agent</p><h1>${isNew ? 'Create an agent' : escape(draft.label)}</h1><p class="muted">Agents combine these instructions with the active phase, the Repository brief, and approved inputs.</p></div>
+    <div class="editor-title"><p class="eyebrow">Agent</p><h1>${isNew ? 'Create an agent' : escape(draft.label)}</h1><p class="muted">Agents combine these instructions with the active phase, the Repository brief, and approved inputs.</p></div>
     ${errors(view)}<div class="form-grid">
       <label class="field"><span>Agent ID</span><input data-agent-id value="${escape(draft.id)}"${isNew && !packaged ? '' : ' disabled'} placeholder="security-reviewer"></label>
       <label class="field"><span>Display name</span><input data-agent-label value="${escape(draft.label)}" placeholder="Security reviewer"${locked}></label>
@@ -104,7 +104,7 @@ function agentEditor(catalog: InstructionCatalog, view: InstructionDesignerView)
       <p class="muted">Only resources declared here are fetched. Secrets are never embedded; first trust records exact SHA-256 hashes in <code>singularity/agents.lock.yml</code>.</p>
       <h3>${icon('skill')}Remote skills</h3><p class="muted">Prompt context loaded only for the phases listed.</p>${remoteRows('skill', draft, packaged)}
       <h3>${icon('artifact')}Remote artifact templates</h3><p class="muted">Referenced explicitly as <code>agent:${escape(draft.id || '<agent>')}/&lt;template-id&gt;</code>.</p>${remoteRows('template', draft, packaged)}
-      <h3>${icon('delivery')}Remote generated artifacts</h3><p class="muted">Fetched once per generation into the governed phase artifact folder.</p>${remoteRows('output', draft, packaged)}
+      <h3>${icon('delivery')}Remote generated artifacts</h3><p class="muted">Fetched once per generation into the phase artifact folder.</p>${remoteRows('output', draft, packaged)}
     </section>
     <div class="composition-map"><strong>Prompt composition</strong><span>${icon('phase')}Phase contract</span><i>${icon('add')}</i><span>${icon('agent')}This agent</span><i>${icon('add')}</i><span>${icon('worldModel')}Repository brief</span><i>${icon('add')}</i><span>${icon('approval')}Approved inputs</span></div>
     <div class="form-actions">${packaged ? `<button data-copy-agent="${escape(view.selected?.path)}">Copy into repository</button>` : `<button data-save-agent="1">${isNew ? 'Create agent' : 'Save agent'}</button>`}<button class="secondary" data-cancel="1">Cancel</button></div>
@@ -115,7 +115,7 @@ function deliveryEditor(catalog: InstructionCatalog, view: InstructionDesignerVi
   const configured = catalog.mappings.filter((row) => row.source === 'configured');
   const statuses = catalog.agentStatus;
   return `<section class="instruction-editor delivery-editor">
-    <div class="editor-title"><p class="eyebrow">Copilot routing &amp; remote trust</p><h1>${icon('delivery', { size: 24 })}Agent delivery</h1><p class="muted">Map native Copilot agent names to governed Flow agents, then review, lock, and materialize their remote Markdown.</p></div>
+    <div class="editor-title"><p class="eyebrow">Copilot routing &amp; remote trust</p><h1>${icon('delivery', { size: 24 })}Agent delivery</h1><p class="muted">Map native Copilot agent names to Flow agents, then review, lock, and materialize their remote Markdown.</p></div>
     ${errors(view)}${view.notice ? `<p class="ok-text">${escape(view.notice)}</p>` : ''}
     <section class="delivery-section"><div class="section-heading"><div><h2>${icon('agent')}Copilot → Flow agent mappings</h2><p class="muted">Unmapped same-name agents continue to resolve automatically.</p></div><code>${escape(catalog.mappingPath)}</code></div>
       <select data-agent-catalog hidden>${catalog.agents.map((agent) => `<option value="${escape(agent.id)}">${escape(agent.name)}</option>`).join('')}</select>
@@ -123,13 +123,13 @@ function deliveryEditor(catalog: InstructionCatalog, view: InstructionDesignerVi
       <div class="form-actions"><button class="secondary" data-add-mapping="1">${icon('add')}Add mapping</button><button data-save-mappings="1">Save mappings</button></div>
     </section>
     <section class="delivery-section"><div class="section-heading"><div><h2>${icon('gate')}Remote resource trust</h2><p class="muted">Trust is explicit and reviewable. Sync never changes a lock.</p></div><button class="secondary" data-agent-action="refresh" data-agent-id="*">${icon('refresh')}Refresh status</button></div>
-      <div class="trust-grid">${catalog.agents.map((agent) => trustCard(agent, statuses.find((entry) => entry.id === agent.id))).join('') || '<p class="empty-state">No governed agents were found.</p>'}</div>
+      <div class="trust-grid">${catalog.agents.map((agent) => trustCard(agent, statuses.find((entry) => entry.id === agent.id))).join('') || '<p class="empty-state">No agents were found.</p>'}</div>
     </section>
   </section>`;
 }
 
 function mappingRow(copilotAgent: string, agentId: string, catalog: InstructionCatalog): string {
-  return `<div class="mapping-row" data-mapping-row><label><span>Native Copilot agent</span><input data-copilot-agent value="${escape(copilotAgent)}" placeholder="architecture"></label><span class="mapping-arrow">→</span><label><span>Governed Flow agent</span><select data-flow-agent>${catalog.agents.map((agent) => `<option value="${escape(agent.id)}"${agent.id === agentId ? ' selected' : ''}>${escape(agent.name)}</option>`).join('')}</select></label><button class="icon-button danger" data-remove-mapping="1" title="Remove mapping" aria-label="Remove mapping">${icon('remove')}</button></div>`;
+  return `<div class="mapping-row" data-mapping-row><label><span>Native Copilot agent</span><input data-copilot-agent value="${escape(copilotAgent)}" placeholder="architecture"></label><span class="mapping-arrow">→</span><label><span>Flow agent</span><select data-flow-agent>${catalog.agents.map((agent) => `<option value="${escape(agent.id)}"${agent.id === agentId ? ' selected' : ''}>${escape(agent.name)}</option>`).join('')}</select></label><button class="icon-button danger" data-remove-mapping="1" title="Remove mapping" aria-label="Remove mapping">${icon('remove')}</button></div>`;
 }
 
 function trustCard(agent: InstructionEntry, status: InstructionCatalog['agentStatus'][number] | undefined): string {
@@ -197,7 +197,7 @@ export function instructionDesignerHtml(catalog: InstructionCatalog, view: Instr
       return draft.phases.includes(phase.id);
     }).map((agent) => agent.name); return result;
   }, {})).filter(([, agents]) => agents.length);
-  return `<header>${brandLockup()}<h1>${icon('agent', { size: 24 })}Agents, prompts &amp; skills</h1><p class="meta">Design what Copilot receives, see where it runs, and keep every instruction as governed Markdown.</p><p><button class="secondary" data-agent-action="refresh" data-agent-id="*">${icon('refresh')}Reload approved instructions</button></p></header>
+  return `<header>${brandLockup()}<h1>${icon('agent', { size: 24 })}Agents, prompts &amp; skills</h1><p class="meta">Design what Copilot receives, see where it runs, and keep every instruction as reviewed Markdown.</p><p><button class="secondary" data-agent-action="refresh" data-agent-id="*">${icon('refresh')}Reload approved instructions</button></p></header>
     ${tabs(view.tab, catalog)}
     ${view.configurationBlockedReason ? `<p class="blockers"><strong>Read-only recovery configuration</strong><br>${escape(view.configurationBlockedReason)} Restore or reinitialize <code>sflow/config</code> before editing.</p>` : ''}
     ${view.configurationBlockedReason ? '<fieldset disabled>' : ''}
@@ -247,7 +247,7 @@ document.addEventListener('click', (event) => {
   if (target.dataset.saveSkill) vscode.postMessage({ type: 'save-skill', id: val('[data-skill-id]'), description: val('[data-skill-description]'), argumentHint: val('[data-skill-hint]'), disableModelInvocation: Boolean(document.querySelector('[data-skill-disable]')?.checked), body: val('[data-skill-body]') });
   if (target.dataset.addRemote) { const list = document.querySelector('[data-remote-list="' + target.dataset.addRemote + '"]'); list?.querySelector('.empty-state')?.remove(); list?.insertAdjacentHTML('beforeend', remoteTemplate(target.dataset.addRemote)); }
   if (target.dataset.removeRemote) target.closest('[data-remote-row]')?.remove();
-  if (target.dataset.addMapping) { const list = document.querySelector('[data-mapping-list]'); list?.querySelector('.empty-state')?.remove(); const options = [...document.querySelectorAll('[data-agent-catalog] option')].map((option) => '<option value="' + option.value + '">' + option.textContent + '</option>').join('') || '<option value="">Choose Flow agent</option>'; list?.insertAdjacentHTML('beforeend', '<div class="mapping-row" data-mapping-row><label><span>Native Copilot agent</span><input data-copilot-agent placeholder="architecture"></label><span class="mapping-arrow">→</span><label><span>Governed Flow agent</span><select data-flow-agent>' + options + '</select></label><button class="icon-button danger" data-remove-mapping="1" title="Remove mapping" aria-label="Remove mapping">' + removeIcon + '</button></div>'); }
+  if (target.dataset.addMapping) { const list = document.querySelector('[data-mapping-list]'); list?.querySelector('.empty-state')?.remove(); const options = [...document.querySelectorAll('[data-agent-catalog] option')].map((option) => '<option value="' + option.value + '">' + option.textContent + '</option>').join('') || '<option value="">Choose Flow agent</option>'; list?.insertAdjacentHTML('beforeend', '<div class="mapping-row" data-mapping-row><label><span>Native Copilot agent</span><input data-copilot-agent placeholder="architecture"></label><span class="mapping-arrow">→</span><label><span>Flow agent</span><select data-flow-agent>' + options + '</select></label><button class="icon-button danger" data-remove-mapping="1" title="Remove mapping" aria-label="Remove mapping">' + removeIcon + '</button></div>'); }
   if (target.dataset.removeMapping) target.closest('[data-mapping-row]')?.remove();
   if (target.dataset.saveMappings) vscode.postMessage({ type: 'save-mappings', rows: mappingRows() });
   if (target.dataset.agentAction) vscode.postMessage({ type: 'agent-action', action: target.dataset.agentAction, agentId: target.dataset.agentId });

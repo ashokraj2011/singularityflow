@@ -21,7 +21,7 @@ commands:
 related:
   - getting-started
   - nextsteps
-version: 6
+version: 7
 ---
 Every command supports `--help` (without executing). `sflow nextsteps` answers "what should I do here" from state; `sflow doctor` answers "why is my machine unhappy" with named fixes. Product questions in Copilot are answered from these packaged topics — grounded in the served text with the topic cited, never from model memory; questions with no matching topic say so and list the nearest topics. Judgment questions ("should I escalate?") are for `nextsteps` and the humans your pinned configuration names.
 
@@ -30,7 +30,7 @@ answer shape as concept, procedure, diagnosis, comparison, command discovery, or
 matches only authored topic metadata and returns the cited topic bytes. Exact IDs and aliases win;
 a weak match is refused and a close tie returns choices. This classification selects help content,
 never a lifecycle operation. Questions about current blockers remain on the durable Home/readiness
-path, and action-shaped prose still requires the normal explicit governed selection.
+path, and action-shaped prose still requires the normal explicit selection.
 
 VS Code also contributes the explicit `@sflow` participant. Its `/help`, `/why`, `/how`, `/recover`,
 and `/topics` routes use the same resolver and never call the chat model; `/explain` also remains
@@ -46,7 +46,7 @@ and reload VS Code. See [the complete participant boundary](../CPT-CHAT-PARTICIP
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **help and docs**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **help and docs**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 

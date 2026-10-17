@@ -42,7 +42,7 @@ function state() {
 test('SGOS creator page is explicit, accessible, and labels the unratified boundary', () => {
   const html = sgosWorkflowCreateHtml(state());
   for (const label of ['Confirmed Intent IR', 'Policy snapshot', 'Operation registry snapshot',
-    'Governed operation', 'Independent verifier', 'Stable workflow ID', 'Storage profile SHA-256',
+    '<span>Operation</span>', 'Independent verifier', 'Stable workflow ID', 'Storage profile SHA-256',
     'Declaration JSON', 'Workflow IR JSON']) assert.match(html, new RegExp(label));
   assert.match(html, /This is not a Story phase workflow/);
   assert.match(html, /Review Intent clauses/);

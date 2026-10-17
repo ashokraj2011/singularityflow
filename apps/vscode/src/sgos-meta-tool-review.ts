@@ -195,7 +195,7 @@ export async function showSgosMetaToolReview(client: SingularityFlowClient): Pro
     { label: 'Revoke activation', description: 'Withdraw authority and its current selector', action: 'revoke' as const },
     { label: 'Roll back activation', description: 'Restore a retained non-revoked activation', action: 'rollback' as const }
   ], {
-    title: 'Review governed Meta-tool authority',
+    title: 'Review Meta-tool authority',
     placeHolder: 'No action is preselected or performed automatically',
     ignoreFocusOut: true
   });
@@ -216,7 +216,7 @@ export async function showSgosMetaToolReview(client: SingularityFlowClient): Pro
       throw new Error('The engine did not return an exact mutation-plan confirmation.');
     }
     const accepted = await showCompactWarningMessage(
-      `${selection.action.charAt(0).toUpperCase()}${selection.action.slice(1)} this governed Meta-tool authority?`,
+      `${selection.action.charAt(0).toUpperCase()}${selection.action.slice(1)} this Meta-tool authority?`,
       { modal: true, detail: metaToolPlanReview(preview) },
       `Confirm ${selection.action}`
     );

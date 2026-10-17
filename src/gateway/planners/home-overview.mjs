@@ -37,7 +37,7 @@ import { autoHomeSummary } from '../auto-home-summary.mjs';
  */
 export const HOME_CHOICES = Object.freeze([
   { id: 'work.continue', label: 'Continue current work' },
-  { id: 'goal.next', label: 'Continue governed Goal' },
+  { id: 'goal.next', label: 'Continue repository Goal' },
   { id: 'work.list', label: 'See current work' },
   /**
    * Third in the stable order, and second when promoted.

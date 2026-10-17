@@ -49,7 +49,7 @@ export function evidenceManagerHtml(
     ['files', 'Files, images & PDFs', 'Choose one or more local documents, screenshots, spreadsheets, or design assets.', 'document'],
     ['figma-export', 'Figma export package', 'Attach an exported folder as pinned, reviewable design evidence.', 'visual'],
     ['figma-link', 'Figma design link', 'Record an HTTPS Figma reference without storing credentials.', 'visual'],
-    ['url', 'HTTPS reference', 'Record a governed link to an external document or design system.', 'document'],
+    ['url', 'HTTPS reference', 'Record a link to an external document or design system.', 'document'],
     ...(releasedFrom ? [['epic-source', 'Source from the Epic', `Import a verified copy of one of Epic ${releasedFrom}'s sources into the Story.`, 'document'] as [EvidenceSourceKind, string, string, IconName]] : [])
   ];
   const sourceButtons = sourceCards.map(([source, label, description, glyph]) => `
@@ -83,20 +83,20 @@ export function evidenceManagerHtml(
   const body = `
     ${brandLockup()}
     <header class="inbox-header">
-      <p class="eyebrow">Governed lifecycle evidence</p>
+      <p class="eyebrow">Lifecycle evidence</p>
       <h1>${icon('visual', { size: 24 })}Evidence & designs</h1>
       <p class="meta">Attach source material once, then review exactly what each Story or Epic can use. The Flow CLI hashes every file and commits and pushes the record; a Story file kept on this machine only commits its name, size and SHA-256, never its bytes.</p>
     </header>
     <div class="summary-grid">
       <div class="summary-card"><strong>${active.length}</strong><span>Active evidence</span></div>
       <div class="summary-card"><strong>${detached.length}</strong><span>Detached records</span></div>
-      <div class="summary-card"><strong>${targets.length}</strong><span>Governed owners</span></div>
+      <div class="summary-card"><strong>${targets.length}</strong><span>Owners</span></div>
     </div>
     <section class="evidence-attach">
       <div class="section-heading"><h2>${icon('add')}Attach evidence</h2></div>
       ${targets.length ? `<label class="field compact"><span>Attach to</span><select id="evidence-target">${targetOptions}</select>
         <small>The selected Story or Epic owns the evidence and its audit history.</small></label>`
-        : `<div class="empty-state"><strong>No governed owner is active.</strong><p>Start or resume a Story or Epic, then return here to attach its evidence.</p></div>`}
+        : `<div class="empty-state"><strong>No owner is active.</strong><p>Start or resume a Story or Epic, then return here to attach its evidence.</p></div>`}
       <div class="evidence-source-grid">${sourceButtons}</div>
     </section>
     <section>

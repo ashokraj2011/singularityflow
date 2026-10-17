@@ -276,7 +276,7 @@ function detailHtml(
 
   <h2>${icon('git')}Copy this workspace</h2>
   <p class="question">The same capabilities, repositories and lead, in a different working
-    directory. Nothing governed lives in a workspace that a second copy would fork.</p>
+    directory. Nothing authoritative lives in a workspace, so a second copy cannot fork it.</p>
   <p>
     <label>Identifier <input type="text" value="${escape(draft.id)}" data-field="copy-id" size="22"
       placeholder="${escape(row.anchorKey)}-spike"></label>
@@ -309,7 +309,7 @@ function archiveWorkspaceHtml(
       <div class="card-head"><strong>Preserved locally</strong><span class="grow"></span>
         <span class="pill">archived</span></div>
       <p class="muted">Its checkout, branches and generated artifacts were not deleted. Restore it
-        before selecting it for governed work.</p>
+        before selecting it for work.</p>
       <p class="card-foot"><button data-restore="${escape(row.path)}">Restore workspace</button></p>
     </div>`;
   }
@@ -633,7 +633,7 @@ export function workspacesHtml(
   ${collisions.length ? `
   <section class="plain">
     <p class="blockers">${collisions.length} workspaces share a working directory. Two sets of
-      governed state writing into one tree is not a conflict to resolve later — forget one, or copy
+      state writing into one tree is not a conflict to resolve later — forget one, or copy
       it somewhere of its own.</p>
   </section>` : ''}
 

@@ -343,7 +343,7 @@ const UPGRADE_KNOWN = Object.freeze({
   ],
   LEGACY_PERSONA_MIGRATION_UNSAFE: () => [
     step('review-governed-agents',
-      'Convert the repository-owned role to governed Agent Markdown and review its phase routing, then reinitialize.',
+      'Convert the repository-owned role to Agent Markdown and review its phase routing, then reinitialize.',
       'singularity-flow agents list --json')
   ],
   REPOSITORY_ONBOARDING_MIGRATION_SOURCE_MISSING: () => [
@@ -365,10 +365,10 @@ const UPGRADE_KNOWN = Object.freeze({
   STORY_ARCHIVED_BY_REBUILD: (argv, error) => {
     const plan = /^grb-[0-9a-f]{24}$/u.test(String(error?.details?.plan ?? '')) ? error.details.plan : null;
     return [
-      step('start-new-story', 'This Story was explicitly retired and stays read-only. Start a new Story with a new ID under the current governance.',
+      step('start-new-story', 'This Story was explicitly retired and stays read-only. Start a new Story with a new ID under the current Flow Policy.',
         'singularity-flow start <WORK-ID> --from-branch <BASE> --title <TITLE>', 'remediation'),
       ...(plan ? [step('preview-governance-restore',
-        'Only if the rebuild itself was a mistake: preview restoring the governance it replaced, a reviewed change for the whole repository.',
+        'Only if the rebuild itself was a mistake: preview restoring the Flow Policy it replaced, a reviewed change for the whole repository.',
         `singularity-flow governance restore --plan ${plan} --dry-run`)] : [])
     ];
   }
@@ -857,7 +857,7 @@ const KNOWN = Object.freeze({
   CLARIFICATION_MODE_OFF: (_argv, error) => {
     const phase = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(error?.details?.phase ?? '')
       ? error.details.phase : null;
-    const label = 'Skip clarification questions and recording; continue the phase from approved sources and governed repository evidence.';
+    const label = 'Skip clarification questions and recording; continue the phase from approved sources and repository evidence.';
     const command = phase ? `singularity-flow prepare ${phase}` : null;
     // The refusal names the step's own drafting skill; the generic one for `prepare` is the fallback.
     const skill = /^\/sf-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(error?.details?.remediation?.skill ?? '')
@@ -1034,7 +1034,7 @@ export function refusalRemediationPlan(error, argv = []) {
     : riskReviewBlocked
     ? 'Inspect the exact risk or repair prerequisite. Only a delegated human can record an eligible exception; normal phase approval stays separate. End an approval-only turn before any review mutation, then re-evaluate in a fresh turn.'
     : phaseContext?.turn === 'new-turn'
-    ? 'Do not retry approval in this turn. Repair and resubmit through governed phase actions, then begin a fresh approval turn.'
+    ? 'Do not retry approval in this turn. Repair and resubmit through phase actions, then begin a fresh approval turn.'
     : upstreamInputBlocked
     ? 'Retry only after the approved inputs read ready again: restored to their approved bytes, or replaced by an approved new generation of the earlier phase. Never edit them from this phase.'
     : requiredTestBlocked && requiredTestFailure?.retryCondition === 'runtime-changed'

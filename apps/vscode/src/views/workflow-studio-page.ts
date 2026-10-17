@@ -2967,7 +2967,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var claimsSection = plannedClaimsSection(workflowId, workflow);
     if (claimsSection) aside.appendChild(claimsSection);
     aside.appendChild(section('advanced', 'Advanced', [
-      el('span', { class: 'hint', text: 'Settings Studio does not show (input selectors and summaries, write scope, tool evidence) are in the governed workflow file.' }),
+      el('span', { class: 'hint', text: 'Settings Studio does not show (input selectors and summaries, write scope, tool evidence) are in the workflow file.' }),
       el('div', { class: 'studio-row' }, button('Open workflow.yml', function () { openFile('singularity/workflow.yml'); }, { class: 'secondary' }))
     ], null, null, true));
     aside.appendChild(el('div', { class: 'prop-actions' }, button('Back to the step', function () { state.panel = null; render(); }, { class: 'secondary' })));
@@ -4429,7 +4429,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var section = el('section', { class: 'studio-card', 'aria-label': 'From an MCP server' });
     section.appendChild(el('h2', { text: 'From an MCP server' }));
     if (!servers.length) {
-      section.appendChild(el('p', { class: 'muted', text: 'No MCP server allows imports yet. A server allows them when its governed policy lists what may be read (mcpServers.<id>.sources), or when you install one from a marketplace.' }));
+      section.appendChild(el('p', { class: 'muted', text: 'No MCP server allows imports yet. A server allows them when its Flow Policy lists what may be read (mcpServers.<id>.sources), or when you install one from a marketplace.' }));
       return section;
     }
     section.appendChild(el('p', { class: 'muted', text: 'Read a prompt, a resource or a tool\'s answer from an approved server. Singularity Flow starts or contacts the server only after you allow it, and stops it as soon as the import is read.' }));
@@ -4494,7 +4494,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       }))));
     card.appendChild(el('fieldset', { class: 'field', style: 'border:0;margin:0;padding:0' }, el('legend', { class: 'label', text: 'In which steps (none chosen: every step)' }),
       stepChecks('mcp-step-', target.phases, Object.keys(state.draft.phases).sort(function (a, b) { return state.draft.phases[a].label.localeCompare(state.draft.phases[b].label); }), function (phases) { target.phases = phases; })));
-    card.appendChild(el('p', { class: 'muted', text: 'Publishing adds its governed policy and grants the chosen agents its tools. Its host entry is added to your VS Code workspace afterwards, when you choose to.' }));
+    card.appendChild(el('p', { class: 'muted', text: 'Publishing adds its Flow Policy and grants the chosen agents its tools. Its host entry is added to your VS Code workspace afterwards, when you choose to.' }));
   }
 
   // ---- Artifacts ------------------------------------------------------------------------------
@@ -4504,7 +4504,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
 
   var SECTION_KINDS = [
     { kind: 'narrative', label: 'Narrative', title: 'Context', guidance: 'State the facts, constraints, and boundaries relevant to this decision.' },
-    { kind: 'requirements', label: 'Requirements', title: 'Requirements', guidance: 'Use stable REQ-nnn identifiers and cite the governed source for every requirement.' },
+    { kind: 'requirements', label: 'Requirements', title: 'Requirements', guidance: 'Use stable REQ-nnn identifiers and cite the source for every requirement.' },
     { kind: 'acceptance-criteria', label: 'Acceptance criteria', title: 'Acceptance criteria', guidance: 'Map each AC-nnn to one or more requirements and make the outcome observable.' },
     { kind: 'decision-log', label: 'Decision log', title: 'Decisions', guidance: 'Record decisions that constrain implementation and why the alternatives were rejected.' },
     { kind: 'risk-register', label: 'Risk register', title: 'Risks and mitigations', guidance: 'Capture material delivery, operational, security, and compliance risks.' },

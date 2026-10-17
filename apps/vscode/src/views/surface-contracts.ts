@@ -63,6 +63,6 @@ export function schemaRecordRemedy(storedVersion: unknown, minimum: unknown, max
 
 export const SCHEMA_REMEDIES = Object.freeze({
   future: 'written by a newer sflow — upgrade to read it.',
-  older: 'use the archival reader for that release, or a governed republication with recorded lineage.',
+  older: 'use the archival reader for that release, or a republication with recorded lineage.',
   unregistered: 'archive the record outside active state until an installed reader registers that family.'
 });

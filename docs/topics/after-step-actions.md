@@ -12,7 +12,7 @@ related:
   - activity-and-prompt-audit
 commands:
   - integrations
-version: 11
+version: 12
 ---
 A workflow step can tell another system when it is submitted, approved or rejected: a webhook, a log service such as Splunk, Datadog, Elastic or Loki, a Microsoft Teams channel, the Story's Jira issue, a branch of another repository, a Confluence page, or a OneDrive or SharePoint folder. Targets are declared once under `integrations.targets` in `singularity/workflow.yml`; steps list the actions that use them under `afterStep`. Configuration names secrets and never holds their values. A Story pins its actions when it starts, so later edits never change what a running Story sends.
 
@@ -92,7 +92,7 @@ A workflow replaces a shared step's list with `workTypes.<id>.phaseOverrides.<st
 
 Every action sends one JSON event (`sflow-step-action@1`): the Story id and title, the step and its generation, the trigger, who acted and when, the commit that records it, and each artifact's repository path and SHA-256. It never carries source code, diffs, prompts, secrets or paths on someone's machine; the Story's Jira issue key is included when it was started from Jira. An action that sends `artifact` also seals the approved artifact's bytes, checked against the hash the step recorded, into its delivery when the step moves, so later edits never change what is sent. Webhook requests carry `Idempotency-Key`, `X-SFlow-Trigger`, and, with a signing secret, `X-SFlow-Timestamp` and `X-SFlow-Signature: v1=<HMAC-SHA256 of "<timestamp>.<body>">`. Triggers follow the step's state: a submit that approved itself sends `approved`, and an approval below the step's threshold sends nothing.
 
-Deliveries start after the governed commit is published; with publication `off` they start at once, and a commit that could not be pushed holds them until `singularity-flow sync` publishes it. Each delivery is written to this repository's action outbox on this machine and tried within the command's time budget. Retries use the same delivery key; the receiver must deduplicate it. Exactly-once side effects cannot be guaranteed after a crash or lost response. A Jira delivery records its key as an issue property and in its comment, and a retry checks those before writing. A delivery never undoes a transition, and the outbox and activity log are machine-local, never governance evidence. `SINGULARITY_FLOW_NO_NETWORK=1` stops every delivery.
+Deliveries start after the commit is published; with publication `off` they start at once, and a commit that could not be pushed holds them until `singularity-flow sync` publishes it. Each delivery is written to this repository's action outbox on this machine and tried within the command's time budget. Retries use the same delivery key; the receiver must deduplicate it. Exactly-once side effects cannot be guaranteed after a crash or lost response. A Jira delivery records its key as an issue property and in its comment, and a retry checks those before writing. A delivery never undoes a transition, and the outbox and activity log are machine-local, never evidence. `SINGULARITY_FLOW_NO_NETWORK=1` stops every delivery.
 
 An HTTP 409 alone is a conflict, not delivery evidence. A webhook can acknowledge an earlier identical request with HTTP 409 and exactly this JSON contract (no additional fields):
 

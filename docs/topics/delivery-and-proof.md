@@ -13,7 +13,7 @@ related:
   - governed-execution
   - evidence-and-ledger
   - story-lifecycle
-version: 4
+version: 5
 ---
 Governed Delivery and Proof (GDP) projects the same Candidate and deterministic proof system across
 Workflow mode and bounded Outcome mode. It is opt-in. Existing Stories keep their creation-pinned
@@ -22,7 +22,7 @@ workflow, approval, evidence, and publication rules.
 ## Purpose and prerequisites
 
 Use GDP to recommend a delivery mode, inspect proof observations, or create an explicitly
-developer-local signed test receipt. Run it only inside the selected governed repository. A local
+developer-local signed test receipt. Run it only inside the selected repository. A local
 runner additionally requires one reviewed `qualityCommands` entry whose command is an argv array
 and whose `modelPolicy` is `never`. Missing AST, World Model, language adapters, or enterprise
 providers remains explicit and does not block non-enrolled work.

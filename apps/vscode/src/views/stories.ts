@@ -90,7 +90,7 @@ function bodyHtml(stories: Stories): string {
   ${stories.materialized ? '' : `
   <section class="plain">
     <p><button data-materialize="all">Push these Stories to their repositories</button></p>
-    <p class="muted">Creates a branch in each repository, seeded with the governed Story context.</p>
+    <p class="muted">Creates a branch in each repository, seeded with the Story context.</p>
   </section>`}
 
   ${stories.groups.map((group) => `

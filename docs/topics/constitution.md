@@ -14,18 +14,18 @@ related:
   - configuration
   - approvals
   - evidence-and-ledger
-version: 2
+version: 3
 ---
 A constitution is the standing rules a Story is held to before anyone writes a requirement. It lives at `singularity/constitution.md` on the approved configuration branch, and it has two kinds of article. An **enforced** article restates a machine policy the kernel already applies: its prose is generated from the effective policy value, so it cannot say something the kernel does not do. A **judged** article is authored prose about something no policy can check — "every change carries a rollback" — carrying `level: must|should` and `evidenceRequired: true|false`. Nothing evaluates a judged article; a human records its verdict at conformance, and the article's job is to make sure they are asked.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **constitution**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **constitution**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow constitution`. Run `singularity-flow constitution --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -38,7 +38,7 @@ Use this topic when the current goal matches **constitution**. Start in a govern
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `constitution`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `constitution`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

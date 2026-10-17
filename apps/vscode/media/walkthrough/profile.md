@@ -1,8 +1,8 @@
 # Your local profile
 
 Set your display name and menu persona so the extension can put the most relevant
-navigation first. It never hides commands, grants approval authority, or selects a governed agent. The
-workflow phase selects a governed agent; the real Git/GitHub identity is recorded
+navigation first. It never hides commands, grants approval authority, or selects an agent. The
+workflow phase selects an agent; the real Git/GitHub identity is recorded
 for lifecycle decisions.
 
 The **New workspace** form asks for this profile during workspace creation and

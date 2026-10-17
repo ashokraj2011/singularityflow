@@ -107,7 +107,7 @@ const ROUTES = Object.freeze([
     ]
   }),
   route({
-    id: 'inspect-progress', intent: 'inspect', label: 'Show progress and governed artifacts',
+    id: 'inspect-progress', intent: 'inspect', label: 'Show progress and artifacts',
     operationId: 'work.list', skill: '/sf-progress', automatic: true, confirmation: 'none',
     patterns: [
       /\b(progress|what phase|which phase|show (?:the|my) work)\b/,
@@ -116,7 +116,7 @@ const ROUTES = Object.freeze([
     ]
   }),
   route({
-    id: 'act-ceremony', intent: 'act', label: 'Open the governed review decision',
+    id: 'act-ceremony', intent: 'act', label: 'Open the review decision',
     operationId: 'work.continue', skill: '/sf-review', automatic: false, confirmation: 'ceremony',
     patterns: [/\b(approve|approval|reject|rejection|review decision)\b/]
   }),
@@ -150,7 +150,7 @@ const ROUTES = Object.freeze([
     ]
   }),
   route({
-    id: 'continue', intent: 'continue', label: 'Continue current governed work',
+    id: 'continue', intent: 'continue', label: 'Continue current work',
     operationId: 'work.continue', skill: '/sf-resume', automatic: false, confirmation: 'host-confirm',
     patterns: [/\b(continue|resume|pick up|carry on|return to)\b(?:.{0,32}\b(work|story|task|epic|initiative|where i left off)\b)?/]
   }),

@@ -11,18 +11,18 @@ commands:
 related:
   - telemetry-and-cost
   - nextsteps
-version: 2
+version: 3
 ---
 Large deterministic results are not pasted into model sessions: over-threshold output returns a bounded, format-aware preview plus a revision-bound handle (work ID, generation, commit, path, SHA-256, bytes) reproducible from any machine. `sflow show <handle> --section <heading> | --json-pointer <ptr> | --range A..B` expands exactly what is asked, hash-verified before display; stale content reports itself rather than serving different bytes. Model-facing `show` accepts registered handles only. This keeps transcripts append-only and cache-valid — the platform reduced the platform surface first, then the context surface.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **reference previews**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **reference previews**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow show`. Run `singularity-flow show --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-show`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-show`. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow

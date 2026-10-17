@@ -373,7 +373,7 @@ export class TeamImportJourney {
     if (this.view.busy || !this.view.written) return;
     this.view.repository = this.host.repository();
     if (!this.view.repository) {
-      this.view.error = 'Open the governed repository you want to import into, then open Workflow Studio from here again.';
+      this.view.error = 'Open the repository you want to import into, then open Workflow Studio from here again.';
       this.render();
       return;
     }

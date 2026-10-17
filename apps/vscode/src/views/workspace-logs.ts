@@ -85,7 +85,7 @@ function detail(item: WorkspaceLogEntry | null, fullPrompt: string | null): stri
   if (!item) return `<aside class="details empty"><p>Select an entry to inspect its structured metadata.</p></aside>`;
   const prompt = item.source === 'prompt'
     ? `<section><h3>Captured prompt</h3>${fullPrompt == null
-      ? '<p class="muted">Select the entry to load its redacted governed prompt from the audit record.</p>'
+      ? '<p class="muted">Select the entry to load its redacted prompt from the audit record.</p>'
       : `<pre>${escape(fullPrompt)}</pre>`}</section>` : '';
   return `<aside class="details">
     <div class="section-heading"><h2>${icon('document', { size: 20 })}Entry details</h2>

@@ -100,7 +100,7 @@ test('XPL2-AC-053 Forged messages and source escape are refused', async (t) => {
   assert.doesNotMatch(exact.text, /PRIVATE-OUTSIDE-CONTENT/u);
   const escaped = await containedWorkingPath(linked.root, 'docs/escape');
   assert.equal(escaped.target, null);
-  assert.match(escaped.refusal, /link that resolves outside the governed repository/u);
+  assert.match(escaped.refusal, /link that resolves outside the repository/u);
   assert.equal((await containedWorkingPath(linked.root, 'docs/readme.md')).target, path.join(path.resolve(linked.root), 'docs/readme.md'));
   for (const traversal of ['../outside.md', '/etc/passwd', 'docs/../../x', '']) {
     assert.equal((await containedWorkingPath(linked.root, traversal)).target, null, JSON.stringify(traversal));

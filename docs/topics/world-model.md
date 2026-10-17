@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 40
+version: 41
 ---
 ## Purpose and prerequisites
 
@@ -21,7 +21,7 @@ covers the rules that apply (with their messages and HTTP statuses), contracts, 
 Story's change touches, and the risky places. Each bullet ends with its source as a file and line;
 what could not be determined is one closing "Not known" line.
 
-Phase prompts get it in a governed repository, where it is on by default; `wm knowledge` also reads a
+Phase prompts get it in a repository, where it is on by default; `wm knowledge` also reads a
 plain Git repository. No build, model or network access is required.
 
 ## What a phase receives

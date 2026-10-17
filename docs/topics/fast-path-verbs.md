@@ -17,18 +17,18 @@ related:
   - starting-work
   - approvals
   - nextsteps
-version: 3
+version: 4
 ---
-`spec-driven-standard` Stories are driven by five verbs: `sflow specify`, `plan`, `implement`, `converge`, `verify`. Each is a router, not an autopilot — it resolves the subject, phase, generation, pending publication and approval state, then runs only the registered kernel operations that are legal before the next checkpoint and stops. A checkpoint is any boundary needing model generation, consent, human review, approval, external completion, or recovery. The verbs orchestrate; they never reimplement lifecycle rules, compute competing state, or bypass a transition, so the authoritative result is identical to running the underlying phase commands by hand. Every response names the milestone it is working toward, the checkpoint it stopped at, and the underlying operations — so a small vocabulary never hides which governed operation ran. The final `verify` verb owns both Verification and Release; it is complete only after the Release phase is approved. A milestone counts only when workflow state proves it; a command returning successfully is not completion. Pending publication is routed before any new work. The advanced phase commands remain available and unchanged.
+`spec-driven-standard` Stories are driven by five verbs: `sflow specify`, `plan`, `implement`, `converge`, `verify`. Each is a router, not an autopilot — it resolves the subject, phase, generation, pending publication and approval state, then runs only the registered kernel operations that are legal before the next checkpoint and stops. A checkpoint is any boundary needing model generation, consent, human review, approval, external completion, or recovery. The verbs orchestrate; they never reimplement lifecycle rules, compute competing state, or bypass a transition, so the authoritative result is identical to running the underlying phase commands by hand. Every response names the milestone it is working toward, the checkpoint it stopped at, and the underlying operations — so a small vocabulary never hides which operation ran. The final `verify` verb owns both Verification and Release; it is complete only after the Release phase is approved. A milestone counts only when workflow state proves it; a command returning successfully is not completion. Pending publication is routed before any new work. The advanced phase commands remain available and unchanged.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **fast path verbs**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **fast path verbs**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow specify`, `sflow plan`, `sflow implement`, `sflow verify`, `sflow converge`. Run `singularity-flow specify --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-specify`, `/sf-plan`, `/sf-implement`, `/sf-verify`, `/sf-converge`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-specify`, `/sf-plan`, `/sf-implement`, `/sf-verify`, `/sf-converge`. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow

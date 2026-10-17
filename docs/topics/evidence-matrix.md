@@ -23,7 +23,7 @@ related:
   - story-lifecycle
   - workflow-decisions
   - rejection-and-rework
-version: 28
+version: 29
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -150,7 +150,7 @@ The matrix header, the pull request summary and `evidence scope` show both state
 
 ## State and safety
 
-Assurance is stated at its real strength. A criterion whose own test was found passing is `exact-local-observed`; one whose runner only counts tests is `module-observed`, and a command that passed with skipped tests leaves it inconclusive, because which test was skipped is not known. A failed test or command fails the criterion unless a governed risk decision accepted it, and the failed observation stays visible beside the exception. Submitting a code step warns about each criterion whose test did not pass; the Story cannot complete until it passes or its risk is accepted.
+Assurance is stated at its real strength. A criterion whose own test was found passing is `exact-local-observed`; one whose runner only counts tests is `module-observed`, and a command that passed with skipped tests leaves it inconclusive, because which test was skipped is not known. A failed test or command fails the criterion unless a risk decision accepted it, and the failed observation stays visible beside the exception. Submitting a code step warns about each criterion whose test did not pass; the Story cannot complete until it passes or its risk is accepted.
 
 The completion line never derives "complete" from where the Story stands. An in-progress or cancelled Story reads "Incomplete — verification pending or insufficient". A Story closes only when the final evaluation passes inside the transition that ends it; that evaluation is recorded on the Story, and while it still matches the evidence the line reads "Complete" or "Complete with accepted exceptions". A closed Story whose evidence changed afterwards reads "Incomplete — final verification not evaluated".
 

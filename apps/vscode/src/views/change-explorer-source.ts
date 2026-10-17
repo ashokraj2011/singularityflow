@@ -93,13 +93,13 @@ export async function containedWorkingPath(repositoryRoot: string, file: string)
   const target = path.resolve(repository, file);
   const inside = (candidate: string, root: string) => candidate === root || candidate.startsWith(`${root}${path.sep}`);
   if (!file || path.isAbsolute(file) || !inside(target, repository)) {
-    return { target: null, refusal: 'The selected path resolves outside the governed repository and was not opened.' };
+    return { target: null, refusal: 'The selected path resolves outside the repository and was not opened.' };
   }
   let real: string;
   try { real = await realpath(target); } catch { return { target, refusal: null }; }
   const realRepository = await realpath(repository).catch(() => repository);
   if (!inside(real, realRepository)) {
-    return { target: null, refusal: 'The selected path is a link that resolves outside the governed repository and was not opened.' };
+    return { target: null, refusal: 'The selected path is a link that resolves outside the repository and was not opened.' };
   }
   return { target, refusal: null };
 }

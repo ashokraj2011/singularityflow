@@ -91,7 +91,7 @@ async function runObservedCommand(client: SingularityFlowClient): Promise<void> 
   if (!picked) return;
   const signerId = await identifier(
     'Local evidence runner · Signer',
-    'A repository-local developer key; never independent approval authority.',
+    'A repository-local developer key; never an independent sign-off.',
     options.defaultSigner,
     true
   );

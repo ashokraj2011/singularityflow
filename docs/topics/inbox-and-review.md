@@ -12,18 +12,18 @@ commands:
 related:
   - approvals
   - epics-and-planning
-version: 2
+version: 3
 ---
 `sflow inbox` lists every phase awaiting approval in the repository, labeled by authority group — computed from remote branches, so it needs only a clone: no workspace, no local setup. (`sflow workspace` aggregates a capability's repositories for multi-repo reviewers — a convenience, never a prerequisite.)
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **inbox and review**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **inbox and review**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow inbox`, `sflow review`, `sflow report`. Run `singularity-flow inbox --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-inbox`, `/sf-review`, `/sf-report`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-inbox`, `/sf-review`, `/sf-report`. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Inbox and Approvals**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -36,7 +36,7 @@ Use this topic when the current goal matches **inbox and review**. Start in a go
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `review`, `report`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `review`, `report`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

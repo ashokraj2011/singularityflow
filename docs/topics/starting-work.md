@@ -14,7 +14,7 @@ related:
   - pins
   - work-intervals
   - supporting-documents
-version: 28
+version: 29
 ---
 Three intake doors, one result: Jira, a manual description, or a Story released from an Epic breakdown. For every new Jira or manual Story, first run `sflow workspace branches --json` and explicitly choose a branch published by every required repository. `sflow start PAY-1234 --jira --from-branch main` then refreshes that remote base, verifies that the configured remote can accept `PAY-1234`, creates the canonical branch, pins its exact base commit, and pushes only `refs/heads/PAY-1234`. The selected base ref is never changed. Existing and Epic-materialized Stories keep their already-pinned lineage instead of choosing a second base.
 
@@ -27,7 +27,7 @@ explicit repair/review states. Choices are never preselected, the selected-base 
 fresh, and the opening mutation revalidates authority and repository deltas. This packet is not a
 readiness receipt, publication permission, or an approval.
 
-VS Code starts every Story in a dedicated linked Git worktree and opens that folder after the governed start commit lands. The checkout used to launch Start Work is never switched or cleaned, so a cancelled or unfinished Story can keep its uncommitted files while another Work ID starts independently. The CLI automatically uses the same isolation whenever its launch checkout is dirty; pass `--isolated-worktree` to request it from a clean checkout too. Failed-start cleanup removes only a clean disposable worktree and branch without unique commits. It retains dirty checkouts and unpublished commits with an exact recovery path.
+VS Code starts every Story in a dedicated linked Git worktree and opens that folder after the start commit lands. The checkout used to launch Start Work is never switched or cleaned, so a cancelled or unfinished Story can keep its uncommitted files while another Work ID starts independently. The CLI automatically uses the same isolation whenever its launch checkout is dirty; pass `--isolated-worktree` to request it from a clean checkout too. Failed-start cleanup removes only a clean disposable worktree and branch without unique commits. It retains dirty checkouts and unpublished commits with an exact recovery path.
 
 An existing workspace repository is reused, not cloned again for each Story. The ordinary new-Story
 launch refreshes only the selected base branch, retains a partial clone's `blob:none` filter, and
@@ -70,7 +70,7 @@ workflow by default). Each file is captured before mutation and recorded with it
 SHA-256, name, storage, and phases in `documents.json`. A Git-kept file is copied under
 `singularity/work-items/<WORK-ID>/inputs/DOC-nnn/`; a machine-only file stays in this clone's Git
 directory, and only its name, size, and hash are committed. The manifest, the Git-kept bytes,
-`source.json`, `USER-STORY.md`, and the workflow state land in the single opening governed commit and
+`source.json`, `USER-STORY.md`, and the workflow state land in the single opening commit and
 are pushed together. The shell form is
 `sflow start … --document <FILE> --document-name <NAME>`, with optional `--document-phases <A,B>` and
 `--document-store git|local` given once for every document or once per `--document` in the same
@@ -199,10 +199,10 @@ risk rationale remains in the machine-local Git-private decision.
 
 Story creation also seals the Story's test policy in `context/test-policy.json`: which tests run (the affected modules, or every configured test under the Story test policy pilot), what happens to failures the base already has, that each acceptance criterion is verified by an automated test unless its verification contract says otherwise, the risk categories and the longest risk acceptance, and the repository's test capability at the base. The capability names every build module with the test command that would run it, whether that runner reads each test case or only counts tests, the strongest assurance it can reach, and any module with no supported runner, two build systems, or a missing launcher. Start prints it, `singularity-flow story test-policy show` repeats it, and a plan whose planned tests could not run is refused before any code is written. Failures on the base are repaired inside the Story by default; pass `--baseline-failures resolve-outside` to require that the base passes before the Story starts. Start then refuses, naming every failing test the confirmed readiness probe found, or asks for that probe when the base has not been observed.
 
-Story start includes one shared, read-only readiness check in the CLI, Copilot flow, and VS Code preview. Workflow choices come from the exact selected base (or the approved shared configuration), not from whichever branch happened to launch the form. Selecting another base refreshes the workflow catalog; a workflow absent from that base is cleared and must be chosen again. After the operator selects a base and workflow, readiness proves all of the following before governed Story state, approval-membership changes, commits or pushes are recorded:
+Story start includes one shared, read-only readiness check in the CLI, Copilot flow, and VS Code preview. Workflow choices come from the exact selected base (or the approved shared configuration), not from whichever branch happened to launch the form. Selecting another base refreshes the workflow catalog; a workflow absent from that base is cleared and must be chosen again. After the operator selects a base and workflow, readiness proves all of the following before Story state, approval-membership changes, commits or pushes are recorded:
 
 - the approved configuration is pinned to one exact authority revision, or the selected base carries a validated legacy configuration;
-- the chosen workflow resolves, its planned-claim policy is operational, and every phase has one installed default governed agent;
+- the chosen workflow resolves, its planned-claim policy is operational, and every phase has one installed default agent;
 - every required repository has an exact base commit and Story destination ref, and the configured Git publication authority passed its preflight;
 - optional intelligence remains optional: a missing World Model, AST pack, model provider, telemetry span, or Copilot plugin does not block Story creation.
 
@@ -212,7 +212,7 @@ An isolated Start makes one authoritative repository-readiness evidence collecti
 checkout. When policy requires non-test prerequisites, a bounded metadata-only presence check rejects
 missing observations before allocating that checkout; it does not rebuild the launch checkout's
 readiness plan or accept a risk. The final collector still verifies any required baseline-plan
-currency before enrollment or governed writes. A changed base, runtime, policy, corrupt record or
+currency before enrollment or writes. A changed base, runtime, policy, corrupt record or
 new failed baseline cannot reuse an old passing result. No process-global readiness cache or preview
 approval is introduced, and every observation reads current Git-private record bytes.
 
@@ -252,12 +252,12 @@ Review the returned plan and apply only its exact confirmation command. Re-run S
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **starting work**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **starting work**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow start`, `sflow story`. Run `singularity-flow start --help` or `singularity-flow story --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-start`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-start`. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **My Work and Workspaces**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -271,7 +271,7 @@ Use this topic when the current goal matches **starting work**. Start in a gover
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `start`, `story`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `start`, `story`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

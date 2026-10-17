@@ -16,7 +16,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 23
+version: 24
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -59,12 +59,12 @@ Use **Read repository & suggest** for bounded manifest-based suggestions or **As
 suggestions** (`/sf-test-setup`) for an explanation based on manifests and reporter configuration.
 No tests, clones or dependency installs run during inspection. See [Test setup](configuration.md).
 
-Use this topic when the current goal matches **capability management**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **capability management**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow capability`, `sflow capabilities`. Run `singularity-flow capability --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-capabilities` for reads; `/sf-capability-map` for repository setup, one mapping, or atomic team onboarding. The skills must preserve CLI results and ask before any governed mutation.
+- **Copilot:** `/sf-capabilities` for reads; `/sf-capability-map` for repository setup, one mapping, or atomic team onboarding. The skills must preserve CLI results and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Configuration Center**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Repository setup front door
@@ -183,7 +183,7 @@ release. Normal repository setup entry points use `capability onboard`.
 1. Begin with the exact credential-free Git URL and preview `sflow capability onboard <GIT-URL> --dry-run --json`.
 2. Preserve the returned status, effects, preserved data, and next actions. Ask before running its exact `--confirm-plan` command. Do not select `--migrate`, `--recreate`, or `--reset-local` unless the contributor explicitly chose that mode and reviewed its own preview.
 3. Continue to capability metadata only when the applied or already-ready result says to map the capability. `sflow capability inspect-repository <GIT-URL> --json` remains a one-release compatibility diagnostic: reuse `already-mapped`; resolve every `ambiguous` match to one explicit lead; and treat `unreachable` or partial `inconclusive` results as unknown rather than new. `known-repository-unassigned` requires an explicit mapping choice, while `not-onboarded` is scoped to the complete set of checked approved maps.
-4. Only after the contributor explicitly requests more detail, use `sflow capability add <ID> --owns <DIRECTORY>`, `capability protect <PATH>`, or `capability depend <TARGET>@<REFERENCE>`. These create governed proposals. Keep `capability map` and remote `capability edit` as expert multi-repository compatibility flows.
+4. Only after the contributor explicitly requests more detail, use `sflow capability add <ID> --owns <DIRECTORY>`, `capability protect <PATH>`, or `capability depend <TARGET>@<REFERENCE>`. These create proposals. Keep `capability map` and remote `capability edit` as expert multi-repository compatibility flows.
 5. For a capability-map proposal, inspect the exact branch, commit, changed files, and diff with `sflow capability proposal` or **Configuration → Review proposals**. The proposal does not activate itself.
    If inspection identifies an exact historical packaged Agent Markdown contract that conflicts
    with the current MCP policy, use the returned `capability repair-proposal` command (or
@@ -265,7 +265,7 @@ review queue expose this action. For a replacement of the same capability, the e
 deletion and new proposal creation use one atomic remote transaction. If Git cannot prove the
 old outcome, the replacement does not start and the recovery receipt remains available.
 
-For a delivery in a large monorepo, **Map a capability** also records two independent boundaries. **World-model application/shared roots** decide which paths can ground this capability. **Clone strategy/sparse checkout directories** decide which bytes a new workspace materializes. Prefer `blobless-sparse` with `fallback: refuse`; Flow always includes its governed configuration and agent contracts. These settings are reviewed and activated with the rest of the capability proposal rather than stored as an ungoverned developer preference.
+For a delivery in a large monorepo, **Map a capability** also records two independent boundaries. **World-model application/shared roots** decide which paths can ground this capability. **Clone strategy/sparse checkout directories** decide which bytes a new workspace materializes. Prefer `blobless-sparse` with `fallback: refuse`; Flow always includes its approved configuration and agent contracts. These settings are reviewed and activated with the rest of the capability proposal rather than stored as an unreviewed developer preference.
 
 In VS Code, select a capability to navigate its direct parent and children. **Add child** opens the mapping form with the selected parent prefilled. To move an existing capability, change **Linked under** and save; the engine stores one canonical parent link and derives the parent's child list from it, so both views update together.
 
@@ -273,7 +273,7 @@ To remove a capability that still has children, choose where those direct childr
 
 ## State and safety
 
-The approved map lives on `sflow/config`; its orphan state-branch copy is a read mirror, not an independent write authority. Governed changes use proposal branches and exact activation. Activation uses an exact leased update and appends a tamper-evident event containing proposer, approver, proposal and target commits, changed files, and the protection result. A provider rejection leaves the proposal available for its normal pull-request path; only explicit pull-request, review, or protection evidence is classified as review-required.
+The approved map lives on `sflow/config`; its orphan state-branch copy is a read mirror, not an independent write authority. Changes use proposal branches and exact activation. Activation uses an exact leased update and appends a tamper-evident event containing proposer, approver, proposal and target commits, changed files, and the protection result. A provider rejection leaves the proposal available for its normal pull-request path; only explicit pull-request, review, or protection evidence is classified as review-required.
 
 Activation is staged, so a failure after the configuration ref advances is reported as partial
 completion rather than rolled back or called complete:
@@ -376,7 +376,7 @@ Organisation reads prefer the state mirror, fall back to `sflow/config`, and kee
 - If activation is complete but projection or portability is pending, run the returned `capability publish` action. Do not merge or reset `sflow/config` again.
 - If recovery reports `CAPABILITY_ACTIVATION_RECOVERY_CONFLICT`, fetch or restore the exact authority/ledger history named in the diagnostic. A newer branch head is not evidence of the original approval.
 - If a push is reported as `outcome-unknown`, run the returned exact proposal inspection before retrying. Do not delete or recreate the branch based only on a timeout.
-- If Map reports `CAPABILITY_AUTHOR_IDENTITY_REQUIRED`, configure both values explicitly with `git config --global user.name "Your Name"` and `git config --global user.email you@example.com`, then retry. The operating-system account name is not governed Git authorship.
+- If Map reports `CAPABILITY_AUTHOR_IDENTITY_REQUIRED`, configure both values explicitly with `git config --global user.name "Your Name"` and `git config --global user.email you@example.com`, then retry. The operating-system account name is not Git authorship.
 - If proposal coverage is `partial`, review/retire the remote proposal backlog or raise the issue with the capability-map owner. Do not bypass the 4,096-ref safety ceiling or assume an uninspected proposal is absent.
 - If Git reports `REMOTE_POLICY_REJECTED`, review the named repository rule or server hook. SFlow does not bypass signed-commit, naming, review, or protected-branch policy.
 - If Git reports `REMOTE_ATOMIC_PUSH_UNSUPPORTED`, use the returned reviewed recovery path or an authority provider that supports the required atomic update; SFlow does not silently downgrade a multi-ref safety boundary.

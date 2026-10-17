@@ -8,19 +8,19 @@ related:
   - quick-fix
   - approvals
   - escalation
-version: 3
+version: 4
 commands: []
 ---
-On low-ceremony rails, low-risk changes may complete under a policy waiver: a deterministic evaluation against the pinned waiver policy (its ID and hash recorded, predicates listed, evaluated at the exact commit). Denial is automatic for protected paths, public-interface changes, migrations, security boundaries, regulated data, or any classifier that cannot run — path count alone is never sufficient. A waiver is recorded as a waiver: it is never rendered, counted, or exported as a human approval, and impact receipts keep the distinction. An approval of mode `policy` that names no policy uses the default `quick-fix-low-risk-v1`; one that names a policy this build cannot evaluate waives nothing, says so at submission, and goes to people for approval. A waiver describes only the completion that recorded it: reopening the phase, submitting it for people to review, or approving it clears the record. The governance gate replays a recorded waiver; one that no longer replays fails the gate only when it is what authorizes the phase, and is reported as a warning when current approvals already satisfy the policy.
+On low-ceremony rails, low-risk changes may complete under a policy waiver: a deterministic evaluation against the pinned waiver policy (its ID and hash recorded, predicates listed, evaluated at the exact commit). Denial is automatic for protected paths, public-interface changes, migrations, security boundaries, regulated data, or any classifier that cannot run — path count alone is never sufficient. A waiver is recorded as a waiver: it is never rendered, counted, or exported as a human approval, and impact receipts keep the distinction. An approval of mode `policy` that names no policy uses the default `quick-fix-low-risk-v1`; one that names a policy this build cannot evaluate waives nothing, says so at submission, and goes to people for approval. A waiver describes only the completion that recorded it: reopening the phase, submitting it for people to review, or approving it clears the record. The Flow Gate replays a recorded waiver; one that no longer replays fails the gate only when it is what authorizes the phase, and is reported as a warning when current approvals already satisfy the policy.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **waivers**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **waivers**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow explain`. Run `singularity-flow explain --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow

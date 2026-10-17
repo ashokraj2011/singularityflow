@@ -87,7 +87,7 @@ export function teamImportHtml(view: TeamImportView): string {
       <p class="card-foot"><button data-team-action="write"${disabled || !ready ? ' disabled' : ''}>Write bundle…</button>
         <button data-team-action="studio"${disabled || !view.written ? ' disabled' : ''}>Import in Workflow Studio…</button></p>
       ${view.written ? `<p class="notice">${icon('ok')}Wrote <code>${escape(view.written.path)}</code>. Workflow Studio previews the import and proposes it as one reviewed change.</p>` : ready ? '' : '<p class="muted">Writing is offered once the check is ready.</p>'}
-      ${view.written && !view.repository ? '<p class="muted">Open the governed repository you want to import into first.</p>' : ''}
+      ${view.written && !view.repository ? '<p class="muted">Open the repository you want to import into first.</p>' : ''}
       <p class="muted">${escape(view.check?.meaning ?? 'Ready means the bundle passed every deterministic check. It is not approved, activated, executed, tested or reviewed.')}</p>
     </section>`;
 }

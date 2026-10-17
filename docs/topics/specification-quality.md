@@ -19,9 +19,9 @@ related:
   - approvals
   - artifacts-and-generation
   - rejection-and-rework
-version: 12
+version: 13
 ---
-Specification quality asks "is the requirement good enough?", which is a different question from verification ("does the implementation satisfy it?") and from conformance ("does the evidence trace to approved intent?"). `sflow spec analyze` answers the deterministic part without a model: unresolved clarification markers, duplicate requirement text, missing scenario sections, and defects the clause extractor refuses. It never claims prose is complete, clear, consistent or correct, and it says so in its own report — a clean run means nothing checkable is wrong, not that the specification is good. `--assisted` adds semantic candidates through one governed model turn with no tools; candidates are observations for a reviewer, are recorded separately with the model, prompt hash and usage, and change no deterministic finding and no gate. Running it again for the same specification, findings and model shows the recorded candidates without another model call; `--refresh` asks again.
+Specification quality asks "is the requirement good enough?", which is a different question from verification ("does the implementation satisfy it?") and from conformance ("does the evidence trace to approved intent?"). `sflow spec analyze` answers the deterministic part without a model: unresolved clarification markers, duplicate requirement text, missing scenario sections, and defects the clause extractor refuses. It never claims prose is complete, clear, consistent or correct, and it says so in its own report — a clean run means nothing checkable is wrong, not that the specification is good. `--assisted` adds semantic candidates through one model turn with no tools; candidates are observations for a reviewer, are recorded separately with the model, prompt hash and usage, and change no deterministic finding and no gate. Running it again for the same specification, findings and model shows the recorded candidates without another model call; `--refresh` asks again.
 
 The current starter workflow keeps those deterministic checks but does not require the six legacy quality-article decisions at Specification approval. It instead pins an independent source-grounded review for Specification and Planning. After each generation is published, `/sf-review-source` (Shell: `singularity-flow review-source context <phase> --json`) gives a separate read-only reviewer the exact Story, attached source documents, current artifact, and—during Planning—the approved Specification. The reviewer maps source passages to scenarios and clauses, then checks the plan's per-clause paths and tests. A report with missing citations, omissions, unresolved questions, or blocking findings cannot pass. Proposed exclusions and non-testable clauses require a separate, reasoned human disposition. Neither a clean deterministic analyzer nor a structurally complete review report is a guarantee of semantic correctness; the human still decides approval.
 
@@ -46,7 +46,7 @@ not invalidate unchanged authored content. Pending approved intent amendments ro
 explicit human acknowledgement across guide, readiness, fast-path and recovery, before downstream
 authoring, publication or submission. Self-approval warnings remain separate from acknowledgement.
 
-Use this topic when the current goal matches **specification quality**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **specification quality**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Scenario coverage before publication
 
@@ -122,7 +122,7 @@ no prior human decision or published artifact is rewritten.
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `spec`, `approve`, `reject`, `clarification`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `spec`, `approve`, `reject`, `clarification`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

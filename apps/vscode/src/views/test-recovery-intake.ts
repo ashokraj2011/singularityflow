@@ -99,7 +99,7 @@ export function testRecoveryTermsProblems(draft: TestRecoveryDraft): string[] {
   const problems: string[] = [];
   if (!records.length || records.length > 64 || new Set(records).size !== records.length
       || records.some(value => !/^sha256:[a-f0-9]{64}$/u.test(value))) {
-    problems.push('Supply 1–64 distinct exact baseline record digests from the governed baseline command.');
+    problems.push('Supply 1–64 distinct exact baseline record digests from the baseline command.');
   }
   for (const [value, label, minimum, maximum] of [
     [draft.testBaselineReason, 'Baseline acceptance reason', 15, 2000],

@@ -9,7 +9,7 @@ related:
   - pins
   - story-lifecycle
   - model-independence
-version: 2
+version: 3
 commands:
   - about
 ---
@@ -17,12 +17,12 @@ Singularity Flow is a Git-native lifecycle kernel: it lets AI participate in the
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **what is singularity flow**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **what is singularity flow**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow about`. Run `singularity-flow about --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-about`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-about`. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow

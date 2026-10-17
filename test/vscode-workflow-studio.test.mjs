@@ -1385,7 +1385,7 @@ test('a template designed from sections is chosen for a step from its properties
   // The section designer writes exactly what the template file holds.
   assert.equal(logic.templateFromSections({ governs: 'story', title: 'Vendor brief', purpose: '', sections: [logic.newSection('requirements'), logic.newSection('evidence')] }),
     '# {{work.id}} — Vendor brief\n\nState what decision this artifact supports and what would make it incomplete.\n\n'
-    + '## Requirements\n\n> Use stable REQ-nnn identifiers and cite the governed source for every requirement.\n\n'
+    + '## Requirements\n\n> Use stable REQ-nnn identifiers and cite the source for every requirement.\n\n'
     + '### REQ-001\n\n- Statement:\n- Rationale:\n- Priority: Must / Should / Could\n- Source citations:\n- Verification method:\n\n'
     + '## Evidence\n\n> The managed inputs block is injected here when the phase is prepared.\n\n{{inputs}}\n');
   assert.match(logic.templateFromSections({ governs: 'initiative', title: 'Plan', purpose: 'Why it exists.', sections: [logic.newSection('checklist')] }),

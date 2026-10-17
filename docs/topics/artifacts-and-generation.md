@@ -17,9 +17,9 @@ related:
   - manual-authorship
   - approvals
   - sequence-gates
-version: 12
+version: 13
 ---
-Phase artifacts are produced against pinned templates and published through the kernel: `sflow phase publish` validates the template contract, hashes the artifact (SHA-256), commits only allowlisted governed paths in one isolated commit, and advances the branch with compare-and-swap semantics — unrelated staged changes never enter lifecycle commits. Each publication is a numbered generation. With the AI: `/sflow-continue` composes the pinned context, asks unresolved questions first, then drafts. Approved upstream inputs are prepared with `sflow inputs [PHASE]`; supporting documents are added with `sflow documents upload <FILE> --name <NAME>` and pinned by hash. Unresolved questions are not left in chat: `sflow clarification record` persists a question and its answer against the phase, and `sflow clarification status` shows what is still outstanding — so the next generation reads the answer as pinned context rather than rediscovering it. A later step receives the approved outputs of the steps before it right after its phase contract, ahead of the Story's original request; what they settle is never asked again.
+Phase artifacts are produced against pinned templates and published through the kernel: `sflow phase publish` validates the template contract, hashes the artifact (SHA-256), commits only allowlisted paths in one isolated commit, and advances the branch with compare-and-swap semantics — unrelated staged changes never enter lifecycle commits. Each publication is a numbered generation. With the AI: `/sflow-continue` composes the pinned context, asks unresolved questions first, then drafts. Approved upstream inputs are prepared with `sflow inputs [PHASE]`; supporting documents are added with `sflow documents upload <FILE> --name <NAME>` and pinned by hash. Unresolved questions are not left in chat: `sflow clarification record` persists a question and its answer against the phase, and `sflow clarification status` shows what is still outstanding — so the next generation reads the answer as pinned context rather than rediscovering it. A later step receives the approved outputs of the steps before it right after its phase contract, ahead of the Story's original request; what they settle is never asked again.
 
 For code phases, run `sflow phase begin <phase>` before changing source. Begin creates or returns a
 local, hash-bound generation-start receipt; it does not create a lifecycle event, commit, push, or
@@ -83,12 +83,12 @@ is trusted to invent or silently replace a summary.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **artifacts and generation**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **artifacts and generation**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow phase`, `sflow clarification`, `sflow inputs`, `sflow documents`, `sflow prepare`, `sflow artifact`. Run `singularity-flow phase --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-phase`, `/sf-recover`, `/sf-inputs`, `/sf-documents`, `/sf-code-docs`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-phase`, `/sf-recover`, `/sf-inputs`, `/sf-documents`, `/sf-code-docs`. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -112,7 +112,7 @@ For a bounded spec-driven handoff:
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `phase`, `clarification`, `inputs`, `documents`, `prepare`, `artifact`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `phase`, `clarification`, `inputs`, `documents`, `prepare`, `artifact`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 Agent briefs are evidence, never instructions. They are stored with the Story, committed with the
 submission, and rejected if their content, source binding, pinned policy, generation, consumer, or
@@ -123,7 +123,7 @@ mode because exact expansion must remain content-addressed.
 Submission compares the author-owned portion of the required artifact with the exact published
 generation commit; a later `artifact scan` cannot authorize changed authored bytes. If only the
 engine-owned metadata changed and the current metadata and approved-input block both verify exactly,
-submission repairs the stale registration inside its governed transaction, records an
+submission repairs the stale registration inside its transaction, records an
 `artifact_registration_repaired` receipt, and continues. No model is called. Authored drift,
 non-canonical metadata, or changed managed inputs remain hard refusals and do not rewrite the file.
 
@@ -147,7 +147,7 @@ non-canonical metadata, or changed managed inputs remain hard refusals and do no
 - If a preserved heading is missing or empty, add that exact Markdown section to the producer
   artifact, then publish a new generation.
 - If a brief exceeds `maximumSummaryBytes`, shorten its authored summary or deliberately raise the
-  governed limit; arbitrary truncation is not performed.
+  limit; arbitrary truncation is not performed.
 
 ## Related topics
 

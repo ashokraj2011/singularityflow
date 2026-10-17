@@ -628,7 +628,7 @@ async function handleChatRevision(
   }
   if (action.kind === 'prepare') {
     if (referenceCount > 0) {
-      stream.markdown('### Register feedback documents first\n\n`@sflow /revise` does not silently convert chat references into governed evidence. Use `@sflow /attachments` with genuine local file references, confirm the returned attachment set, then invoke `/sf-revise` with that exact set digest. Opaque uploads remain unavailable because their original bytes cannot be verified. Nothing was executed.\n');
+      stream.markdown('### Register feedback documents first\n\n`@sflow /revise` does not silently convert chat references into evidence. Use `@sflow /attachments` with genuine local file references, confirm the returned attachment set, then invoke `/sf-revise` with that exact set digest. Opaque uploads remain unavailable because their original bytes cannot be verified. Nothing was executed.\n');
       stream.button({
         command: 'workbench.action.chat.open', title: 'Prepare @sflow /attachments',
         arguments: [{ query: '@sflow /attachments ', isPartialQuery: true }]
@@ -1009,7 +1009,7 @@ function renderRouter(value: unknown): ParticipantRendered {
 
 function renderDocuments(value: unknown): ParticipantRendered {
   const documents = jsonArray(value).map(jsonObject).filter((entry): entry is JsonObject => Boolean(entry));
-  let markdown = `### Active governed documents\n\n${documents.length} document${documents.length === 1 ? '' : 's'} returned.\n\n`;
+  let markdown = `### Active documents\n\n${documents.length} document${documents.length === 1 ? '' : 's'} returned.\n\n`;
   for (const document of documents.slice(0, 20)) {
     const digest = typeof document.sha256 === 'string' ? document.sha256.slice(0, 12) : 'unavailable';
     markdown += `- **${markdownValue(document.label ?? document.id ?? 'Document')}**`;

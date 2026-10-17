@@ -211,7 +211,7 @@ test('the destination preview is offered only with a governed repository open; S
   f.journey.view.written = { path: '/work/b.json', bundleSha256: 'x' };
   await f.journey.openInStudio();
   assert.deepEqual(f.studio, []);
-  assert.match(f.journey.view.error, /Open the governed repository/);
+  assert.match(f.journey.view.error, /Open the repository/);
 });
 
 test('a CLI refusal is shown in the panel and keeps the journey usable', async () => {

@@ -118,13 +118,13 @@ export function sgosWorkflowCreateHtml(state: SgosWorkflowPageState): string {
     </section>
     <section class="editor-card" aria-labelledby="sgos-operation-heading"><h2 id="sgos-operation-heading">2. Operation and proof</h2>
       ${guide?.intent ? `<p><strong>${escape(guide.intent.intentId ?? 'Confirmed Intent')}</strong>${guide.intent.objective ? ` · ${escape(guide.intent.objective)}` : ''}</p>
-      <p class="muted">${escape(guide.intent.clauseCount ?? 0)} governed clauses</p>` : '<p class="muted">Check the reviewed inputs to see eligible operations.</p>'}
+      <p class="muted">${escape(guide.intent.clauseCount ?? 0)} clauses</p>` : '<p class="muted">Check the reviewed inputs to see eligible operations.</p>'}
       ${clauses.length ? `<details><summary>Review Intent clauses (${clauses.length})</summary><table><thead><tr><th>Clause</th><th>Field</th><th>Statement</th></tr></thead><tbody>
         ${clauses.slice(0, 50).map((clause) => `<tr><td><code>${escape(clause.clauseId ?? '')}</code>${clause.required ? ' · required' : ''}</td><td>${escape(clause.field ?? '')}</td><td>${escape(clause.statement ?? '')}</td></tr>`).join('')}
         </tbody></table>${clauses.length > 50 ? `<p class="muted">Showing the first 50 of ${clauses.length} clauses. Review the full Intent IR before creating.</p>` : ''}</details>` : ''}
       ${blockers.length ? `<div class="notice error" role="alert"><strong>Resolve before creating</strong><ul>${blockers.map((reason) => `<li>${escape(reason)}</li>`).join('')}</ul></div>` : ''}
       <div class="form-grid">
-        <label class="field" for="sgos-operation"><span>Governed operation</span><select id="sgos-operation" data-sgos-field="operation"${!guide || blockers.length ? ' disabled' : ''}>
+        <label class="field" for="sgos-operation"><span>Operation</span><select id="sgos-operation" data-sgos-field="operation"${!guide || blockers.length ? ' disabled' : ''}>
           <option value="">Choose an eligible operation…</option>${operations.map((entry) => option(entry, choice.operation ?? '')).join('')}</select>
           <small>Only registered core operations accepted by this Intent are shown.</small></label>
         <label class="field" for="sgos-verificationOperation"><span>Independent verifier</span><select id="sgos-verificationOperation" data-sgos-field="verificationOperation"${!selectedOperation || !verifiers.length ? ' disabled' : ''}>

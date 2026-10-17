@@ -11,18 +11,18 @@ commands:
 related:
   - work-intervals
   - recovery
-version: 2
+version: 3
 ---
 `sflow story checkpoint -m "note"` marks where you are (local — may be dirty; the record states plainly that uncommitted bytes are not durable elsewhere). `--published` requires a clean tree and verifies the commit is reachable from the remote before claiming cross-machine durability. `sflow story pause --publish --detach` records a stop or handoff.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **checkpoints pause continue**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **checkpoints pause continue**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow story`, `sflow resume`. Run `singularity-flow story --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-resume`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-resume`. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **My Work and Workspaces**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -35,7 +35,7 @@ Use this topic when the current goal matches **checkpoints pause continue**. Sta
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `story`, `resume`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `story`, `resume`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

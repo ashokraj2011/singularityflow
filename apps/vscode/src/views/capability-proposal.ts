@@ -108,7 +108,7 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
       : ''}<p>Preserved: ${escape((activated.preserved ?? ['proposal branch', 'approved configuration', 'application branches']).join(', '))}.</p></div>`;
   return `${brandLockup({ compact: true })}
     <header class="inbox-header">
-      <p class="eyebrow">Governed configuration review</p>
+      <p class="eyebrow">Approved configuration review</p>
       <h1>${icon('merge', { size: 24 })} Review capability proposal</h1>
       <p class="meta">${escape(changeSummary)}</p>
     </header>

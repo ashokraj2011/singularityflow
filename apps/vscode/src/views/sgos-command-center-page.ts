@@ -249,7 +249,7 @@ export function sgosCommandCenterBody(view: SgosCommandCenterView): string {
     `<article class="sgos-capability" data-status="${escape(capability.status)}"><strong>${escape(id.replace(/([A-Z])/g, ' $1'))}</strong>
       <small>${escape(capability.status)} · ${escape(capability.reason)}</small>
       ${capability.status === 'available' ? '' : '<button type="button" disabled aria-disabled="true">Not installed</button>'}</article>`).join('')}</div>`;
-  return `${brandLockup()}<header><span class="eyebrow">Governed execution</span><h1>${icon('workflow')}Command Center</h1>
+  return `${brandLockup()}<header><span class="eyebrow">Execution</span><h1>${icon('workflow')}Command Center</h1>
     <p class="meta">Exact SGOS Process projection with proposal-only Workflow authoring. The UI cannot bypass runtime authority.</p></header>
     <div class="sgos-toolbar"><p class="meta">${summary} Process record${summary === 1 ? '' : 's'} · ${escape(view.profileId ?? 'loading runtime profile')}</p>
       <div class="card-foot"><button type="button" data-create-workflow>${icon('add')}Create Workflow…</button>

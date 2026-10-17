@@ -1007,7 +1007,7 @@ test('a window with nothing open and no active workspace says which of the two t
   const refusalText = refusal.webview.html.replace(/<style[\s\S]*?<\/style>/g, '')
     .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   assert.match(refusalText,
-    /No governed workspace or repository is selected\. Choose a workspace or open a governed repository\./);
+    /No workspace or repository is selected\. Choose a workspace or open a repository\./);
   assert.doesNotMatch(refusalText, /No folder is open/);
 });
 
@@ -1104,7 +1104,7 @@ test('My Work resolves an active workspace when no editor folder is open', async
     'the active Story in the workspace lead repository is visible');
   assert.match(visible, /Resume the active Story/);
   assert.ok(registered.output.some((line) => /active-home/.test(line)
-    && /Governed repository:/.test(line)),
+    && /Repository:/.test(line)),
   'the gateway root came from the machine-wide active workspace');
   assert.doesNotMatch(result.webview.html, /No workspace selected|No folder is open/);
 
@@ -2095,7 +2095,7 @@ test('the explain menus open the Change Explorer on a file, and on the change at
   await registered.commands.get('singularityFlow.explainFileChanges')(api.Uri.file(path.join(os.tmpdir(), 'elsewhere.ts')));
   const refusal = registered.panels.slice(before).find((entry) => entry.id === 'singularityFlow.result')
     ?? registered.panels.find((entry) => entry.id === 'singularityFlow.result');
-  assert.match(refusal.webview.html, /outside the active governed repository/);
+  assert.match(refusal.webview.html, /outside the active repository/);
 });
 
 test('the built extension leases, evicts, and reacquires exact comprehension data', async (t) => {
@@ -4034,7 +4034,7 @@ test('starting work before any approver is named says so first, and offers the f
   // Asked for directly, an Epic checks the precondition before anything is asked.
   await registered.commands.get('singularityFlow.startWork')({ shape: 'epic' });
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked before the precondition was checked');
-  assert.ok(registered.warnings.some((message) => /No approval authority has a member/.test(message)));
+  assert.ok(registered.warnings.some((message) => /No approval group has a member/.test(message)));
   assert.equal(registered.panels.filter((entry) => entry.id === 'singularityFlow.intake').length, 0,
     'the Epic form was not opened over a precondition that would refuse it');
   assert.deepEqual(registered.errors, [], 'a missing precondition is not an error dialog');
@@ -4045,10 +4045,10 @@ test('starting work before any approver is named says so first, and offers the f
   await registered.commands.get('singularityFlow.startWork')();
   const intakePanel = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
   assert.ok(intakePanel, 'the Story form opened without waiting on the Epic-only precondition');
-  assert.ok(!registered.warnings.some((message) => /No approval authority has a member/.test(message)));
+  assert.ok(!registered.warnings.some((message) => /No approval group has a member/.test(message)));
   await until(() => (intakePanel.webview.html.includes('data-work-type') ? true : null));
   await intakePanel.post({ type: 'shape', value: 'epic' });
-  assert.match(await until(() => (/No approval authority has a member/.test(intakePanel.webview.html)
+  assert.match(await until(() => (/No approval group has a member/.test(intakePanel.webview.html)
     ? intakePanel.webview.html : null)), /People &amp; approvals/);
 });
 
@@ -4351,7 +4351,7 @@ test('the impact panel supports workspace advisory analysis and governed plan re
   assert.match(panel.webview.html, /Impact analysis/);
   assert.match(panel.webview.html, /No Work ID or branch required|Select a workspace to analyze/);
   // It renders synchronously before the subprocess answers, rather than showing a blank page.
-  assert.match(panel.webview.html, /Computing impact|Reconciliation|Nothing governed/);
+  assert.match(panel.webview.html, /Computing impact|Reconciliation|No Story or Initiative/);
 });
 
 test('the Flow Impact panel exposes governed measurement and aggregate reporting', async (t) => {
@@ -4649,7 +4649,7 @@ test('a workspace is chosen as capabilities, and its repositories follow', async
   assert.match(panel.webview.html, /<option value="payments-api" selected>/);
   assert.doesNotMatch(panel.webview.html, /data-draft="state-branch"/);
   assert.match(panel.webview.html, /\(<code>api<\/code>\) is checked out when work starts/);
-  assert.match(panel.webview.html, /governed <code>state<\/code> branch is initialized then if needed/);
+  assert.match(panel.webview.html, /Flow Ledger \(<code>state<\/code> branch\) is initialized then if needed/);
 
   registered.pickedFolder = org.base;
   await panel.post({ type: 'choose', what: 'base' });
@@ -5024,7 +5024,7 @@ test('creating a workspace asks nothing through a prompt', async (t) => {
   await settle();
   assert.match(panel.webview.html, /<button data-submit="create" >/);
   assert.match(panel.webview.html, /\(<code>api<\/code>\) is checked out when work starts/);
-  assert.match(panel.webview.html, /governed <code>state<\/code> branch is initialized then if needed/);
+  assert.match(panel.webview.html, /Flow Ledger \(<code>state<\/code> branch\) is initialized then if needed/);
 
   // Not one input box, from opening the panel to being ready to create.
   assert.equal(registered.inputBoxes.length, 0,
@@ -5935,7 +5935,7 @@ test('Lifecycle follows a Story or workspace selection changed outside VS Code',
     const root = lifecycle.getChildren()[0];
     return lifecycle.getTreeItem(root).description === 'Externally selected checkout' ? root : null;
   }, { what: 'Lifecycle to refresh from the externally selected repository' });
-  assert.ok(registered.output.some((line) => line.includes(`Governed repository: ${path.resolve(betaRoot)}`)),
+  assert.ok(registered.output.some((line) => line.includes(`Repository: ${path.resolve(betaRoot)}`)),
     'all repository-bound screens were re-pointed through the shared selection callback');
   await until(() => comprehension.webview.html.includes('Beta-only comprehension marker') ? true : null,
     { what: 'the leased Comprehension Center to follow the selected repository' });
@@ -6128,9 +6128,9 @@ test('Story Analytics opens from Work tools and pins, and reports the repository
   assert.doesNotMatch(panel.webview.html, /unsafe-inline|unsafe-eval/);
   assert.match(panel.webview.html, /Story Analytics/);
   // Real diagnostics from a real subprocess, not a fixture.
-  assert.match(panel.webview.html, /diagnostics pass|Would stop governed work/);
+  assert.match(panel.webview.html, /diagnostics pass|Would stop work/);
   assert.match(panel.webview.html, /Approvals/);
-  assert.match(panel.webview.html, /Governance/);
+  assert.match(panel.webview.html, /Flow Ledger|Sign-offs/);
   assert.match(panel.webview.html, /Start or attach a Story to see phase progress/);
 });
 
@@ -6748,7 +6748,7 @@ test('a workspace-only handoff opens a fresh chat that asks for explicit Story s
   assert.match(opened.args[0].query, /Workspace: Commerce/);
   assert.match(opened.args[0].query, /Working directory:/);
   assert.match(opened.args[0].query, /run \/sf-session/);
-  assert.match(opened.args[0].query, /no governed Story is selected yet/);
+  assert.match(opened.args[0].query, /no Story is selected yet/);
   assert.match(opened.args[0].query, /checked-out Story.*implicit selection/);
   assert.doesNotMatch(opened.args[0].query, /Story: WORKSPACE-CANDIDATE/,
     'the checked-out Story remains a candidate rather than becoming the handoff target');
@@ -7051,7 +7051,7 @@ test('opening a workspace directory works: its lead repository is what gets gove
   const [first] = provider.getChildren();
   assert.doesNotMatch(first.label, /not a repository/);
   assert.ok(registered.output.some((line) =>
-    /Governed repository: .*commerce\/repos\/platform \(the lead repository of the workspace directory you have open\)/
+    /Repository: .*commerce\/repos\/platform \(the lead repository of the workspace directory you have open\)/
       .test(String(line))), `the repository and where it came from are stated: ${registered.output.join(' | ')}`);
 });
 
@@ -8833,7 +8833,7 @@ test('selecting a workspace whose exact repository is already the native folder 
   assert.equal(dispatched.some((entry) =>
     entry.id === 'vscode.openFolder' || entry.id === 'workbench.action.reloadWindow'), false,
   'the correct single native folder keeps its editor and receives the ordinary repository refresh');
-  assert.ok(registered.output.some((line) => String(line).includes(`Governed repository: ${target}`)
+  assert.ok(registered.output.some((line) => String(line).includes(`Repository: ${target}`)
     && String(line).includes('already-open')));
   const selected = JSON.parse(await readFile(selectionFile, 'utf8'));
   assert.equal(path.resolve(selected.repositoryPath), target);

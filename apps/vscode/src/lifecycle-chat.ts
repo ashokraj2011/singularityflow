@@ -198,7 +198,7 @@ export async function runLifecycleChat(
     completed = true;
   }
   if (!completed) { stream.markdown('The action was cancelled or refused. No approval is claimed; inspect the SFlow result panel.\n'); return; }
-  stream.markdown(`The governed **${kind}** command completed. No model was invoked by SFlow; it did not run another lifecycle action.\n\n`);
+  stream.markdown(`The **${kind}** command completed. No model was invoked by SFlow; it did not run another lifecycle action.\n\n`);
   // Refresh only this still-selected repository; a workspace switch must not repaint another Story.
   try {
     const current = await getSession(signal);

@@ -56,7 +56,7 @@ approvalAuthorities:
         email: architect@example.com
 ```
 
-Approval authority is separate from governed agents. Agents affect GitHub Copilot prompt composition; initiative authorization matches the normalized local `git user.email`. Reports label this `configured-local` because local Git identity is configurable and is not cryptographic authentication.
+Approval groups are separate from agents. Agents affect GitHub Copilot prompt composition; initiative authorization matches the normalized local `git user.email`. Reports label this `configured-local` because local Git identity is configurable and is not cryptographic authentication.
 
 Use VS Code **Configuration** to inspect Initiative profiles, repositories,
 authorities, capabilities, and validated portfolio YAML.
@@ -69,9 +69,9 @@ Install the plugin, open Copilot in the lead repository, and run:
 /sflow-initiative-start INIT-2026-001
 ```
 
-Copilot displays selectable profile options. The first initiative phase's governed agent activates automatically. A one-time selection receipt keeps durable human choices inside Copilot even when its shell does not provide persistent terminal input.
+Copilot displays selectable profile options. The first Initiative phase's agent activates automatically. A one-time selection receipt keeps durable human choices inside Copilot even when its shell does not provide persistent terminal input.
 
-The start operation checks the ID and authority groups, creates the exact initiative branch, snapshots all governed configuration and templates, creates `singularity/initiatives/<INIT-ID>/`, then commits and pushes initial state. The phase-default agent remains local in `.git/singularity-flow/session.json`; it is recorded with the next mutation but never treated as approval authority.
+The start operation checks the ID and authority groups, creates the exact initiative branch, snapshots the approved configuration and templates, creates `singularity/initiatives/<INIT-ID>/`, then commits and pushes initial state. The phase-default agent remains local in `.git/singularity-flow/session.json`; it is recorded with the next mutation but never treated as approval authority.
 
 ### Which branch a story starts from
 
@@ -122,7 +122,7 @@ Phase preparation records a complete Copilot prompt under `context/prompts/` plu
 
 ```text
 phase contract
-+ phase-default governed Agent Markdown
++ phase-default Agent Markdown
 + locked remote Agent Markdown dependencies
 + approved upstream initiative artifacts
 ```
@@ -311,7 +311,7 @@ singularity-flow pr [WORK-ID] [--json]           # preview, the default
 singularity-flow pr [WORK-ID] --create           # open it, after typed confirmation
 ```
 
-The pull request targets `story.parentBranch` from the seed, so a lead-repository story targets the initiative branch and a story elsewhere targets that repository's default branch. The body is assembled entirely from committed governed state — epic and story identity, the branch it was cut from, acceptance criteria, every approved epic artifact with the exact hash it was approved at, required checks, and the story's position in the merge sequence. Nothing in it is invented.
+The pull request targets `story.parentBranch` from the seed, so a lead-repository story targets the initiative branch and a story elsewhere targets that repository's default branch. The body is assembled entirely from committed Story and Initiative state — epic and story identity, the branch it was cut from, acceptance criteria, every approved epic artifact with the exact hash it was approved at, required checks, and the story's position in the merge sequence. Nothing in it is invented.
 
 Opening a pull request is an outward action, so preview is the default and `--create` additionally requires typing the exact work ID. A story whose dependencies have not merged is refused, naming the blockers. An existing pull request for the same head and base is reported instead of opening a duplicate. The repository's `branchCompletionPolicy` is honoured: `direct` repositories do not use pull requests at all. When the GitHub CLI is unavailable the generated body is printed for manual use rather than failing.
 
@@ -359,7 +359,7 @@ Reports group every planned story under its epic even before branch materializat
 
 ## VS Code experience
 
-Open the VS Code extension, choose the lead workspace, and use **Lifecycle** for intake, phase progress, checklist evidence, approvals, Story status, and governed documents. Use **Configuration** for portfolio, workflow, agent, prompt, template, integration, and policy design. Jira sign-in is stored through VS Code `SecretStorage`.
+Open the VS Code extension, choose the lead workspace, and use **Lifecycle** for intake, phase progress, checklist evidence, approvals, Story status, and documents. Use **Configuration** for portfolio, workflow, agent, prompt, template, integration, and policy design. Jira sign-in is stored through VS Code `SecretStorage`.
 
 After the planning/elaboration phase is approved, **Create Jira & Git stories** previews repositories and story operations, requires the exact Initiative ID, and runs the same resumable materializer as the CLI. **Sync story branches** refreshes the epic dashboard and commits/pushes the aggregate snapshot. Other initiative state, evidence, approvals, and contracts remain read-only in the designer.
 

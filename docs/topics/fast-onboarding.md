@@ -15,7 +15,7 @@ commands:
 related:
   - getting-started
   - starting-work
-version: 4
+version: 5
 ---
 Fast onboarding attaches an existing Git checkout to one exact reviewed configuration authority.
 It performs no clone, source scan, AST or World-Model build, model call, application checkout, or
@@ -50,7 +50,7 @@ remote forms are refused before persistence or network access.
 2. Run `singularity-flow onboard <LOCAL-PATH>`. Name `--remote <NAME>` when more than one
    configured remote exists, or use `--authority-local` only for a deliberately local authority.
 3. Review the returned full authority commit, fold digest, pin, and receipt status.
-4. Start or resume normal governed work. Onboarding never launches AST, a World Model, or a model.
+4. Start or resume normal work. Onboarding never launches AST, a World Model, or a model.
 5. When reviewed configuration moves, run `singularity-flow authority refresh <LOCAL-PATH>`;
    ordinary repeated onboarding intentionally keeps the previous exact pin.
 6. Use `--no-cache` only for diagnosis or semantic comparison. It does not clear durable caches.

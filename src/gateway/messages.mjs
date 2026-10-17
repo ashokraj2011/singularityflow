@@ -67,7 +67,7 @@ export const RESULT_MESSAGES = Object.freeze({
 
   // ---- Kernel
   'gateway.planner-unavailable': M('This build cannot answer that yet', 'The operation is declared but has no implementation here.'),
-  'gateway.plan-invalid': M('That Plan cannot be prepared from the current governed state', 'Nothing was carried out.'),
+  'gateway.plan-invalid': M('That Plan cannot be prepared from the current state', 'Nothing was carried out.'),
   'gateway.denied-by-policy': M('Policy does not allow this'),
   'gateway.not-a-read': M('That is not a read'),
   'gateway.not-a-mutation': M('That Plan is not an executable mutation'),
@@ -97,7 +97,7 @@ export const RESULT_MESSAGES = Object.freeze({
     'Home did not treat unreadable private Auto records as an empty flight list. Run the displayed diagnostic command.'),
   'home.briefing-unavailable': M('The cross-workspace briefing is unavailable', 'Only this workspace was read.'),
   'home.default-order': M('Shown in the standard order'),
-  'home.no-workspace-selected': M('No governed workspace or repository is selected. Choose a workspace or open a governed repository.'),
+  'home.no-workspace-selected': M('No workspace or repository is selected. Choose a workspace or open a repository.'),
   'home.select-a-workspace-first': M('Choose a workspace'),
   'home.continue-active-work': M('Continue where you left off'),
   'home.local-work-unreconciled': M('{files} local change(s) not yet compared against the plan'),
@@ -112,20 +112,20 @@ export const RESULT_MESSAGES = Object.freeze({
 
   // ---- Rootless workspace recovery
   'workspace.bootstrap-available': M('A workspace setup can be continued', 'Review its preserved state before retrying the next operation.'),
-  'workspace.prepare-available': M('Create a governed workspace', 'Choose its capabilities, location, and identity in the guided setup.'),
+  'workspace.prepare-available': M('Create a workspace', 'Choose its capabilities, location, and identity in the guided setup.'),
   'workspace.open-available': M('Use an existing repository clone', 'Inspect it first; Git state and working-tree bytes are preserved.'),
   'workspace.doctor-available': M('Run workspace diagnostics', 'Inspect machine, network, Git, and preserved setup evidence without changing state.'),
   'workspace.explore-available': M('Explore saved workspaces', 'Choose only from workspaces registered on this machine.'),
 
   // ---- Fault intake and governed repair
   'fault.unresolved': M('{severity} fault {fault} needs attention', '{type}: {summary}'),
-  'fault.repair-guided': M('Prepare a governed repair', 'Diagnosis and the exact mutation scope are reviewed before an isolated worktree is changed.'),
+  'fault.repair-guided': M('Prepare a repair', 'Diagnosis and the exact mutation scope are reviewed before an isolated worktree is changed.'),
   'fault.diagnose-first': M('Diagnose without changing files', 'Produces deterministic facts and hypotheses only; no repair worktree is created.'),
   'fault.open-evidence': M('Open the redacted fault record', 'Shows retained evidence and integrity metadata without exposing absolute paths.'),
   'fault.records-unavailable': M('Fault records could not be read', 'Home continued without treating an unread fault store as an empty one.'),
 
   // ---- Developer recommendation
-  'developer.recommended-next': M('Recommended from the current governed state',
+  'developer.recommended-next': M('Recommended from the current state',
     'Review what it will change before selecting it.'),
   'developer.start-with-intake': M('Start by describing the work',
     'SFlow will ask only for the consequential choices it cannot derive.'),
@@ -133,7 +133,7 @@ export const RESULT_MESSAGES = Object.freeze({
     'Start new work, resume an existing Story, or switch workspace.'),
 
   // ---- Work
-  'work.from-governed-records': M('From governed records'),
+  'work.from-governed-records': M('From records'),
   'work.reconstructed-from-records': M('Reconstructed from records', 'Phase {phase}, generation {generation}.'),
   'work.local-changes-present': M('You have uncommitted changes', '{files} file(s) changed locally. They are preserved and were not used.'),
   'work.single-repository-scope': M('Only {repository} was read'),
@@ -191,7 +191,7 @@ export const RESULT_MESSAGES = Object.freeze({
   'readiness.revalidate-approvals': M('Revalidate approvals against the current artifact bytes'),
   'readiness.resolve-clarifications': M('Resolve the recorded clarification markers'),
   'readiness.claim-changes': M('Record trace claims for the unclaimed changes'),
-  'readiness.reconcile-changes': M('Reconcile changed paths against the governed plan'),
+  'readiness.reconcile-changes': M('Reconcile changed paths against the approved plan'),
   'readiness.inspect-ast': M('Inspect the required structural predicates'),
   'readiness.capture-visuals': M('Capture required visual evidence'),
   'readiness.record-external-build': M('Record the required external build checks'),
@@ -203,10 +203,10 @@ export const RESULT_MESSAGES = Object.freeze({
    * `current-state` carries its own explanation because the *absence* of a delta is the fact: a
    * reader who is not told this is everything will read it as everything-that-changed.
    */
-  'return.current-state': M('Current state', 'This covers the governed interval rather than claiming an acknowledgement-relative delta.'),
+  'return.current-state': M('Current state', 'This covers the work interval rather than claiming an acknowledgement-relative delta.'),
   'return.since-you-were-here': M('Since you were here'),
   'return.reconciled': M('{changed} path(s) changed, {unplanned} outside the plan'),
-  'return.no-open-interval': M('No governed work interval is open', 'Your local work is untouched; it is simply not attached to a governed interval.'),
+  'return.no-open-interval': M('No work interval is open', 'Your local work is untouched; it is simply not attached to a work interval.'),
   'return.planned': M('Changes match the plan', '{planned} of {changed} changed path(s) were planned.'),
   'return.unplanned': M('Changes outside the plan'),
   'return.protected': M('Protected paths untouched', '{count} protected path(s) changed.'),
@@ -229,7 +229,7 @@ export const RESULT_MESSAGES = Object.freeze({
   'impact.work-in-the-same-area': M('Other work touches this area'),
   'impact.start-reviewed-plan': M('Accept this exact plan in a guarded start ceremony'),
   'context.bounded-brief': M(
-    'Bounded {slice} context from governed records',
+    'Bounded {slice} context from records',
     '{bytes} content byte(s) were included; deeper material remains behind a newly sealed read action.'
   ),
   'context.expand-slice': M('Expand only this context slice'),
@@ -246,10 +246,10 @@ export const RESULT_MESSAGES = Object.freeze({
   'repository.explore.nothing-was-carried-out': M('Nothing was carried out', 'Repository exploration is read-only.'),
   'intent.trace.resource-observation': M(
     'Observed {regions} exact changed resource region(s) for {path}',
-    'This resource-level observation is not a governed cause or semantic explanation.'
+    'This resource-level observation is not a cause or semantic explanation.'
   ),
   'intent.trace.cause-unavailable': M(
-    'Governed cause authority is unavailable for {path}',
+    'Cause authority is unavailable for {path}',
     'The read does not infer intent from proximity, commit prose, or a model summary.'
   ),
   'intent.trace.path-not-changed': M(
@@ -290,7 +290,7 @@ export const RESULT_MESSAGES = Object.freeze({
     'This read reports structural facts from the selected repository cone without returning source bodies or changing repository state.'
   ),
   'goal.durable-execution': M(
-    'From the governed Goal lifecycle branch',
+    'From the repository Goal lifecycle branch',
     'The contract, plan, approval, and state were reconstructed from the exact GEX revision.'
   )
 });

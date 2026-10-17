@@ -4,7 +4,7 @@ title: Compact phase entry for Copilot
 commands: [phase, nextsteps, inputs, review-source]
 aliases: [phase-entry]
 related: [artifacts-and-generation, approvals, phase-appeals, nextsteps]
-version: 14
+version: 15
 ---
 # Compact phase entry for Copilot
 
@@ -18,7 +18,7 @@ Use this topic to understand the compact JSON packets that Copilot skills read b
 code or review a phase, and what those packets do and do not permit. They replace separate
 pause/session/status, recovery, clarification and reference lookups with one verified read.
 
-- Run the reads from a governed checkout with the Story attached. A different Story must be
+- Run the reads from a Singularity Flow checkout with the Story attached. A different Story must be
   attached first; entry never switches Stories for you.
 - `--for-agent` is a boolean flag that requires `--json`.
 - Phase entry is a model-free read. With `--compose` it writes preparation context/audit only
@@ -37,7 +37,7 @@ next-phase authoring. In a conversation that worked on an earlier phase, `new` m
 These are chat operations, not Shell or model-free workflow gates. The approval remains recorded.
 Pending publication, recovery and required after-step actions keep their priority.
 
-## Governed execution evidence across phases
+## Execution evidence across phases
 
 Every phase entry includes `retainedExecutionEvidence`, including custom phase names and future
 workflows. Composed prompts include the same read-only facts. They come from the latest generation's
@@ -49,9 +49,9 @@ are not copied into the prompt.
 Keep these distinctions when authoring Verification, Release or any other phase:
 
 - An earlier report written before publication may describe an initial failed command even though
-  the governed publication/submission later ran tests successfully. Cite both observations and
-  their provenance; use retained execution facts for the governed outcome.
-- An IDE saying **No tests found** is a discovery failure. It neither erases a governed passing
+  the publication/submission later ran tests successfully. Cite both observations and
+  their provenance; use retained execution facts for the outcome.
+- An IDE saying **No tests found** is a discovery failure. It neither erases a passing
   execution nor establishes a new passing test run. This phase having no configured tests does
   not mean its upstream phases have no execution evidence.
 - Reuse requires matching source and separately hashed test inputs, committed execution ancestry,
@@ -153,7 +153,7 @@ returned composed context once, derive specific material ambiguities, and ask th
 ask the human to supply the questions or unspecified “clarification answers.” In required mode,
 if there is no material ambiguity, ask for confirmation of a concise interpretation. A menu
 selection promising an answer is not an answer. Record actual replies through the returned
-`responseStagingPath` and response-file command; do not invent answers or edit governed records.
+`responseStagingPath` and response-file command; do not invent answers or edit records.
 
 `assess-ambiguity` applies the same process only when needed; `off` neither asks nor records.
 `inspect-binding` preserves an existing invalid/stale record for exact binding inspection, not
@@ -236,7 +236,7 @@ Authoring skills use `phase prepublish PHASE --for-agent --json` once. Prepublis
 draft-check internally. Compact checks preserve all findings, correction/repair/risk choices,
 fingerprints, warnings, exact commands and test requirements. Omitted verbose observations have
 an explicit full-inspection command; the ordinary `--json` contract is unchanged. Required tests
-still run freshly at the governed execution transition, not during these read-only checks.
+still run freshly at the execution transition, not during these read-only checks.
 
 ### Source review entry
 

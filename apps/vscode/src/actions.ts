@@ -339,7 +339,7 @@ export async function runPlannedAction(
     const waiting = plan.actions.map((action) => `${action.order}. ${action.reason}`).join('\n');
     void showCompactInformationMessage(
       waiting
-        ? `No governed action has a valid Shell and Copilot route yet. ${waiting}`
+        ? `No action has a valid Shell and Copilot route yet. ${waiting}`
         : 'The workflow has no next action.'
     );
     return false;
@@ -352,14 +352,14 @@ export async function runPlannedAction(
     action,
     guidance
   })), {
-    title: 'Continue governed work',
+    title: 'Continue work',
     placeHolder: 'Choose one action from the exact current lifecycle plan',
     ignoreFocusOut: true
   });
   if (!choice) return false;
 
   const confirmed = await showCompactWarningMessage(
-    `Run the exact governed action “${choice.action.reason}”?`,
+    `Run the exact action “${choice.action.reason}”?`,
     {
       modal: true,
       detail: `Copilot: ${choice.guidance.copilotCommand}\nShell: ${choice.guidance.command}\nVS Code (model-free): ${choice.guidance.modelFreeCommand ?? 'not available for this action'}\n\nPlan ${plan.planId} is bound to ${plan.revision.branch}@${plan.revision.head.slice(0, 12)}. Any repository or lifecycle change invalidates it.`

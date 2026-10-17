@@ -23,7 +23,7 @@ function body(rows: TraceRow[] | null, error: string | null): string {
     <section class="plain"><p class="warning-text">${icon('warning')}${escape(error ?? 'Reading clause indexes and claim maps…')}</p></section>`;
   const complete = rows.filter((row) => row.verdict === 'matched').length;
   return `<header class="inbox-header">${brandLockup()}
-    <p class="eyebrow">Active Story · governed evidence</p><h1>${icon('document', { size: 24 })}Specification traceability</h1>
+    <p class="eyebrow">Active Story · evidence</p><h1>${icon('document', { size: 24 })}Specification traceability</h1>
     <p class="meta">Follow each stable clause from its approved specification to planned files, observed source, tests, and conformance verdict.</p></header>
     <section class="plain"><div class="summary-grid"><div class="summary-card important"><strong>${rows.length}</strong><span>Indexed clauses</span></div>
       <div class="summary-card"><strong>${complete}</strong><span>Matched</span></div><div class="summary-card"><strong>${rows.length - complete}</strong><span>Need evidence</span></div></div>

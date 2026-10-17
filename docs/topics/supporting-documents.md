@@ -22,7 +22,7 @@ related:
   - artifacts-and-generation
   - specification-quality
   - epics-and-planning
-version: 8
+version: 9
 ---
 Supporting documents are the evidence a Story is built from: a brief, API notes, a spreadsheet of rules, a design export or screenshot. Images (PNG, JPEG, GIF, WebP, SVG) are attached like any other file. Each one is attached with a name, a storage location, and the phases that read it. `sflow documents upload <FILE> --name <NAME>` attaches a file and pins it by SHA-256; the Story's `documents.json` records its `DOC-nnn` ID, name, hash, size, storage, and phases. Names are required and unique within the Story: case and spacing are ignored, and a detached document keeps its name. Prompts list each document as `DOC-nnn — <name>`, and artifacts cite it the same way.
 
@@ -101,7 +101,7 @@ kept as a decision record under `evidence/document-scope/`.
 ## Purpose and prerequisites
 
 Use this topic to attach, name, store, scope, and cite the documents a Story is built from. Start in
-the Story's governed checkout and run `sflow status` to confirm the Work ID and current phase.
+the Story's Singularity Flow checkout and run `sflow status` to confirm the Work ID and current phase.
 Uploads are accepted at Story start, in the first phase, and in the phases a work type lists under
 `documents.allowedPhases` (Specification and Planning in the spec-driven starters). Epics attach
 their sources with `sflow epic sources add` instead.
@@ -113,7 +113,7 @@ their sources with `sflow epic sources add` instead.
   `sflow documents scope`, `sflow documents detach`, `sflow documents fetch`. Run
   `singularity-flow documents --help` for the exact forms supported by this build.
 - **Copilot:** `/sf-upload`, `/sf-documents`, `/sf-start`, `/sf-specify`, `/sf-review-source`. The
-  skills preserve the CLI result and ask before any governed mutation.
+  skills preserve the CLI result and ask before it changes anything.
 - **VS Code:** attaching a file asks for its name, where to keep it (**Commit to Git** or **Keep on
   this machine only**), and its phases. The Evidence view shows each document's name, storage,
   availability, and phases; **Phases…** previews a scope change before applying it. Start Work asks,

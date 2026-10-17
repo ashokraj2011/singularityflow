@@ -159,7 +159,7 @@ function proposalsHtml(entries: ProposalEntry[], setupEntries: SetupProposalEntr
   }).join('');
   return `${brandLockup()}
     <header class="inbox-header">
-      <p class="eyebrow">Governed configuration review</p>
+      <p class="eyebrow">Approved configuration review</p>
       <div class="section-heading"><h1>${icon('merge', { size: 24 })} Review proposals</h1>
         <button class="secondary" data-action="add-setup-repository" ${busy ? 'disabled' : ''}>${icon('repository')} Find setup proposal…</button>
         <button class="secondary" data-action="toggle-history" ${busy ? 'disabled' : ''}>${icon('git')} ${includeMerged ? 'Hide merged history' : 'Show merged history'}</button>

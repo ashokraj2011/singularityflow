@@ -160,7 +160,7 @@ test('every gateway surface uses the validated active repository context', async
   assert.match(codeOnly(extension), /gatewaySession\(active\)/,
     'repository-backed surfaces supply the validated active context');
   assert.match(extension,
-    /No governed workspace or repository is selected\. Choose a workspace or open a governed repository\./,
+    /No workspace or repository is selected\. Choose a workspace or open a repository\./,
     'the empty-state message describes both supported resolution paths');
 });
 

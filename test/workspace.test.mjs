@@ -3170,7 +3170,7 @@ test('workspace creates isolated clones, stages ungoverned documents, and can be
   await writeFile(requirement, 'pinned requirement');
   const staged = await stageWorkspaceDocuments(created.workspace.path, [requirement]);
   assert.equal(staged.added[0].status, 'staged-not-governed');
-  assert.match(staged.warning, /not governed/);
+  assert.match(staged.warning, /not part of a Story/);
   assert.equal((await listWorkspaceDocuments(created.workspace.path)).length, 1);
   const resolved = await resolveWorkspaceDocument(created.workspace.path, staged.added[0].path);
   assert.equal(resolved.absolutePath, path.join(created.workspace.path, staged.added[0].path));

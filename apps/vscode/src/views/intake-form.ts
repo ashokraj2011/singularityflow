@@ -400,7 +400,7 @@ export const SHAPES: { id: Shape; label: string; leads: string }[] = [
   {
     id: 'story',
     label: 'Story',
-    leads: 'One governed branch through its phases to a reviewed change. Start here when the work '
+    leads: 'One branch through its phases to a reviewed change. Start here when the work '
       + 'is already understood.'
   }
 ];
@@ -463,7 +463,7 @@ export function intakeProblems(form: IntakeForm): string[] {
     if (form.shape !== 'story') problems.push('GitHub Issue intake currently starts a Story.');
     if (!form.githubConfigured) problems.push(form.githubReason ?? 'GitHub CLI authentication is unavailable.');
     if (!form.key.trim()) problems.push("Give the GitHub Issue URL or 'owner/repository#number'.");
-    if (!identifier) problems.push('Give the Story a governed identifier.');
+    if (!identifier) problems.push('Give the Story an identifier.');
     else if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(identifier)) {
       problems.push('The identifier may contain letters, numbers, dots, underscores and hyphens.');
     }
@@ -486,7 +486,7 @@ export function intakeProblems(form: IntakeForm): string[] {
     problems.push('Choose the delivery profile, which decides the phases this runs.');
   }
   if (needsProfile(form.shape) && form.approvalAuthorityMissing) {
-    problems.push('No approval authority has a member yet, so governed work cannot be started. '
+    problems.push('No approval group has a member yet, so work cannot be started. '
       + 'Add at least one person in People & approvals.');
   }
   if (form.shape === 'story') {
@@ -753,7 +753,7 @@ function trackerHtml(form: IntakeForm): string {
       <label class="choice sf-tracker${form.tracker === 'none' ? ' chosen' : ''}">
         <input type="radio" name="tracker" value="none" data-tracker="none"${form.tracker === 'none' ? ' checked' : ''}>
         <span class="choice-label"><span class="sf-title">No tracker</span></span>
-        <span class="choice-detail">Described here and governed in Git. Nothing else is needed.</span>
+        <span class="choice-detail">Described here and recorded in Git. Nothing else is needed.</span>
         <span class="sf-card-foot"><span>Recorded in Git</span><span>Ready</span></span>
       </label>
       <label class="choice sf-tracker${form.tracker === 'jira' ? ' chosen' : ''}">
@@ -895,7 +895,7 @@ function profileHtml(form: IntakeForm): string {
 function preflightTestReadinessHtml(readiness: PreflightTestReadiness | null): string {
   if (!readiness?.repositories.length) return '';
   return `<div class="notice" role="status"><strong>Pre-code test tools and existing results</strong>
-    <p class="meta">Read from the selected base on this machine. These results do not waive any Story or phase gate.</p>
+    <p class="meta">Read from the selected base on this machine. These results do not waive any Flow Gate.</p>
     ${readiness.repositories.map((repository) => {
       const disposition = repository.disposition === 'no-observed-pre-story-failures'
         ? 'The selected test run had no observed failures; any skipped tests are listed above.'
@@ -1130,7 +1130,7 @@ function storyWorkflowHtml(form: IntakeForm): string {
         </article>`).join('')}
       </div>
       <p><button type="button" class="secondary" data-workflow-refresh>Refresh or reinitialize repository configuration</button></p>
-      <p class="muted">Refresh uses the governed Git configuration path. Review is still required;
+      <p class="muted">Refresh reads the approved configuration from Git. Review is still required;
         this screen never installs a workflow or edits protected files directly.</p>
     </div>` : ''}
   </section>`;
@@ -1148,7 +1148,7 @@ function workflowCodeGenerationBadge(workflow: ProfileChoice): string {
   const detail = workflow.generatesCode === true
     ? `Contains code-generation phase${codePhases.length === 1 ? '' : 's'}${codePhases.length ? `: ${codePhases.join(', ')}` : ''}. Starting the Story does not generate code automatically; code is authored only when a code phase is run.`
     : workflow.generatesCode === false
-      ? 'Contains no governed code-generation phase. Starting the Story does not generate application code.'
+      ? 'Contains no code-generation phase. Starting the Story does not generate application code.'
       : 'Code-generation behavior is unavailable in this snapshot. Refresh approved configuration before relying on it.';
   const label = workflow.generatesCode === true ? 'Generates code'
     : workflow.generatesCode === false ? 'No code generation' : 'Code behavior unavailable';
@@ -1160,7 +1160,7 @@ function pocReadinessHtml(form: IntakeForm): string {
   if (form.shape !== 'story' || form.workType !== 'poc-workflow') return '';
   return `<section class="plain">
     <h2>${icon('mcp')}POC browser readiness</h2>
-    <p class="question">Starting creates the isolated Story and opens governed intent intake. Before
+    <p class="question">Starting creates the isolated Story and opens intent intake. Before
       UI exploration, this workflow requires a current Playwright host attestation, a live smoke
       against the authorized target origin, and generation-bound browser evidence.</p>
     <p><label>Authorized target URL <input type="url" value="${escape(form.targetUrl)}"
@@ -1263,7 +1263,7 @@ function storyAttachmentsHtml(form: IntakeForm): string {
     <p class="question">Choose the requirements, designs, examples, or other source documents that
       should travel with this Story and be available as grounded Copilot context. Choosing a file
       only stages it locally. <strong>Enhance with Copilot</strong> may use bounded text from selected
-      text documents. Story start records each file's name and SHA-256 in the opening governed Git
+      text documents. Story start records each file's name and SHA-256 in the opening Git
       commit; files kept in Git are copied into that commit and pushed, and files kept on this machine
       stay here.</p>
     <div class="attachment-slots" aria-label="Story supporting document slots">
@@ -1386,7 +1386,7 @@ export function intakeRegions(form: IntakeForm, journey: StartWizardProgress | n
     { key: 'Workspace', value: form.targetWorkspace ?? '', chip: true },
     { key: 'Repository', value: form.targetRepository ?? '' },
     { key: 'Checked out', value: form.targetBranch ?? '', accent: true }
-  ]) + (form.shape === 'story' ? infoNote('This Story gets a dedicated Git checkout. The target branch, index, and uncommitted files stay unchanged; the editor opens the new checkout only after its governed start succeeds.') : ''),
+  ]) + (form.shape === 'story' ? infoNote('This Story gets a dedicated Git checkout. The target branch, index, and uncommitted files stay unchanged; the editor opens the new checkout only after its start succeeds.') : ''),
 
     scope: `<div class="sf-panels">
     <section class="sf-panel">
@@ -1394,7 +1394,7 @@ export function intakeRegions(form: IntakeForm, journey: StartWizardProgress | n
       ${shapeHtml(form)}
     </section>
     <section class="sf-panel">
-      ${stepHeading(2, 'Where is it tracked?', 'A tracker is optional. Without one, the work is described here and governed in Git commits.')}
+      ${stepHeading(2, 'Where is it tracked?', 'A tracker is optional. Without one, the work is described here and recorded in Git commits.')}
       ${trackerHtml(form)}
     </section>
   </div>`,
@@ -1428,8 +1428,8 @@ export function intakeRegions(form: IntakeForm, journey: StartWizardProgress | n
       : '<p class="blockers">Fix the highlighted configuration issue above, then check again.</p>'}${checking.map((problem) =>
         `<p class="meta" role="status" aria-live="polite">${escape(problem)}</p>`).join('')}`
     : `<h2>${icon('ok')}Ready</h2><p class="ok-text">${mintsIdentifier(form)
-      ? `Reserves a branch for this ${escape(noun)}, which is what mints its identifier, and commits its first governed state.`
-      : `Starts ${escape(noun)} <code>${escape(intakeIdentifier(form))}</code> and commits its first governed state.`}</p>`}
+      ? `Reserves a branch for this ${escape(noun)}, which is what mints its identifier, and commits its first state.`
+      : `Starts ${escape(noun)} <code>${escape(intakeIdentifier(form))}</code> and commits its first state.`}</p>`}
     ${form.error ? `<div class="notice error" role="alert">${escape(form.error)}</div>` : ''}
     ${form.recoveryCommand && recoveryRoute ? `<div class="notice warning" role="status" aria-live="polite"><strong>Continue safely</strong>
       <p>The command is bound to this repository and preserves every argument exactly.</p>

@@ -30,7 +30,7 @@ function openButton(path?: string, label = 'Open'): string {
 }
 
 function evidenceRows(rows: VisualEvidenceRecord[]): string {
-  if (!rows.length) return '<tr><td colspan="6" class="muted">No governed evidence records in this category.</td></tr>';
+  if (!rows.length) return '<tr><td colspan="6" class="muted">No evidence records in this category.</td></tr>';
   return rows.map((row) => `<tr>
     <td><strong>${escape(row.id)}</strong><small>${escape(row.kind)}</small></td>
     <td>${escape(row.server ?? '—')}<small>${escape(row.tool ?? '—')}</small></td>
@@ -55,7 +55,7 @@ function sourceSection(view: VisualAssuranceView): string {
     </div>` : `<div class="empty-state"><strong>No approved design-source set yet.</strong><p>Record the versioned design output during the configured capture phase, publish it, and approve that exact generation. The dashboard never substitutes a live design for the pinned source.</p></div>`}
     <div class="section-heading subheading"><h3>${icon('document')}Recorded design evidence</h3><button class="secondary" data-action="show-record">Record evidence</button></div>
     <div class="table-wrap"><table><thead><tr><th>Record</th><th>MCP source</th><th>Phase</th><th>Version / nodes</th><th>Hash / agent</th><th>Artifact</th></tr></thead><tbody>${evidenceRows(view.designSources)}</tbody></table></div>
-    ${view.candidates.length ? `<div class="notice warning"><strong>${view.candidates.length} newer candidate version${view.candidates.length === 1 ? '' : 's'} detected.</strong><p>A candidate becomes governed only through a new capture-phase generation and approval; this page does not silently replace the pin.</p>
+    ${view.candidates.length ? `<div class="notice warning"><strong>${view.candidates.length} newer candidate version${view.candidates.length === 1 ? '' : 's'} detected.</strong><p>A candidate is adopted only through a new capture-phase generation and approval; this page does not silently replace the pin.</p>
       <div class="table-wrap candidate-table"><table><thead><tr><th>Design file</th><th>Approved version</th><th>Candidate version</th><th>Classification</th><th>Decision</th></tr></thead><tbody>${view.candidates.map((candidate) => `<tr><td><code>${escape(candidate.fileKey ?? '—')}</code></td><td>${escape(candidate.approvedVersion ?? '—')}</td><td>${escape(candidate.candidateVersion ?? '—')}</td><td>${escape(candidate.classification ?? 'candidate')}</td><td>${candidate.candidateRecordId ? `<button type="button" class="secondary compact-action" data-promote-candidate="${escape(candidate.candidateRecordId)}">Promote candidate</button>` : '—'}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
     <div class="card-foot"><button data-action="inventory"${approved ? '' : ' disabled'}>${icon('worldModel')}Generate deterministic inventory</button>${inventory ? openButton(inventory.path, 'Open inventory') : ''}</div>
   </section>`;
@@ -111,7 +111,7 @@ function mcpSection(view: VisualAssuranceView): string {
   return `<section class="plain assurance-section"><div class="section-heading"><div><p class="eyebrow">Explicit network boundary</p><h2>${icon('mcp')}MCP readiness & evidence</h2></div><button class="secondary" data-action="network-doctor">Run network doctor</button></div>
     <p class="muted">Opening or refreshing this dashboard performs local checks only. Network doctor and warm-up contact the selected host only after confirmation.</p>
     ${view.servers.length ? `<div class="server-grid">${view.servers.map((server) => `<article class="server-card"><div>${icon('mcp')}<strong>${escape(server.label)}</strong><span class="pill ${server.readiness === 'ready' ? 'ok' : 'wait'}">${escape(server.readiness)}</span></div><small>${escape(server.id)} · ${server.tools.length || 'all'} allowed tool${server.tools.length === 1 ? '' : 's'}</small>${server.reasons.length ? `<ul>${server.reasons.map((reason) => `<li>${escape(reason)}</li>`).join('')}</ul>` : ''}<div class="card-foot"><button type="button" class="secondary compact-action" data-attest="${escape(server.id)}">${icon('approval')}Attest host readiness</button></div></article>`).join('')}</div>
-      <form id="warm-form" class="inline-form"><label class="field"><span>Server to warm</span><select name="server">${options}</select></label><button type="submit" class="secondary">Warm selected server</button></form>` : '<div class="empty-state">No governed MCP servers are configured. Add one in Configuration Center → MCP tools.</div>'}
+      <form id="warm-form" class="inline-form"><label class="field"><span>Server to warm</span><select name="server">${options}</select></label><button type="submit" class="secondary">Warm selected server</button></form>` : '<div class="empty-state">No MCP servers are configured. Add one in Configuration Center → MCP tools.</div>'}
     <details id="record-evidence"><summary>Record an existing MCP output</summary><form id="record-form" class="editor-card compact-form"><div class="form-grid">
       <label class="field"><span>Server</span><select name="server" required>${options}</select></label>
       <label class="field"><span>Tool</span><input name="tool" type="text" placeholder="get_file" required></label>
@@ -121,15 +121,15 @@ function mcpSection(view: VisualAssuranceView): string {
       <label class="field"><span>File key / version</span><input name="fileKey" type="text" placeholder="file-key"><input name="fileVersion" type="text" placeholder="immutable version"></label>
       <label class="field"><span>Profile / screen / state</span><input name="profileId" type="text" placeholder="mobile-portrait"><input name="screenId" type="text" placeholder="login"><input name="stateId" type="text" placeholder="signed-out"></label>
       <label class="field"><span>Nodes</span><input name="nodes" type="text" placeholder="node-1, node-2"></label>
-    </div><div class="card-foot"><button type="submit">Record governed provenance</button><button type="reset" class="secondary">Clear</button></div></form></details>
+    </div><div class="card-foot"><button type="submit">Record provenance</button><button type="reset" class="secondary">Clear</button></div></form></details>
     <div class="section-heading subheading"><h3>${icon('commit')}Other MCP evidence</h3></div>
     <div class="table-wrap"><table><thead><tr><th>Record</th><th>MCP source</th><th>Phase</th><th>Version</th><th>Hash / agent</th><th>Artifact</th></tr></thead><tbody>${evidenceRows(view.otherEvidence)}</tbody></table></div>
   </section>`;
 }
 
 export function visualAssuranceHtml(view: VisualAssuranceView, notice: string | null, operationError: string | null, media: VisualMediaResolver = () => null): string {
-  if (!view.available) return `<header class="inbox-header">${brandLockup()}<p class="eyebrow">Governed review</p><h1>${icon('visual', { size: 24 })}Visual Assurance</h1></header><div class="empty"><p>Start or resume a Story to inspect its pinned design and visual evidence.</p></div>`;
-  return `<header class="inbox-header assurance-header"><div>${brandLockup()}<p class="eyebrow">Governed design review</p><h1>${icon('visual', { size: 24 })}Visual Assurance · ${escape(view.workId)}</h1><p class="meta">Pinned design evidence, implementation captures, deterministic comparisons, and MCP provenance in one review surface.</p></div>
+  if (!view.available) return `<header class="inbox-header">${brandLockup()}<p class="eyebrow">Review</p><h1>${icon('visual', { size: 24 })}Visual Assurance</h1></header><div class="empty"><p>Start or resume a Story to inspect its pinned design and visual evidence.</p></div>`;
+  return `<header class="inbox-header assurance-header"><div>${brandLockup()}<p class="eyebrow">Design review</p><h1>${icon('visual', { size: 24 })}Visual Assurance · ${escape(view.workId)}</h1><p class="meta">Pinned design evidence, implementation captures, deterministic comparisons, and MCP provenance in one review surface.</p></div>
     <div class="header-actions"><span class="pill ${statusClass(view.status)}">${escape(view.statusLabel)}</span><button class="secondary" data-action="refresh">${icon('refresh')}Refresh</button></div></header>
     ${notice ? `<div class="notice ok">${icon('ok')}${escape(notice)}</div>` : ''}${operationError ? `<div class="notice error">${icon('blocked')}${escape(operationError)}</div>` : ''}${notices(view)}
     <section class="plain"><div class="summary-grid assurance-summary">

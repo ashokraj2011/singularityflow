@@ -70,7 +70,7 @@ export function copilotActivityHtml(analytics: LifecycleAnalytics): string {
     : '';
   return `<section>
     <h2>${icon('impact')}Copilot activity</h2>
-    <p class="muted">Counted from the spans Copilot exports for launches through <code>singularity-flow copilot</code>; native chat sends SFlow none. Premium requests are estimated as requests × <code>tokens.premiumMultipliers</code>, and GitHub's billing is authoritative. The governed prompt is what sflow composed for the latest generation (bytes exact, tokens ≈ bytes ÷ 4); Copilot adds its own instructions, tools and history.</p>
+    <p class="muted">Counted from the spans Copilot exports for launches through <code>singularity-flow copilot</code>; native chat sends SFlow none. Premium requests are estimated as requests × <code>tokens.premiumMultipliers</code>, and GitHub's billing is authoritative. The prompt is what sflow composed for the latest generation (bytes exact, tokens ≈ bytes ÷ 4); Copilot adds its own instructions, tools and history.</p>
     <div class="summary-grid lifecycle-kpis">
       <div class="summary-card"><strong>${escape(copilotCountLabel(copilot.requests))}</strong><span>Requests you sent</span></div>
       <div class="summary-card${copilot.events.some((event) => event.kind !== 'failed') ? ' governance-warning' : ''}"><strong>${escape(premiumLabel(copilot.premiumRequests))}</strong><span>Premium requests · ${escape(premiumNote)}</span></div>
@@ -81,7 +81,7 @@ export function copilotActivityHtml(analytics: LifecycleAnalytics): string {
     </div>
     ${captureNotes}
     <div class="table-wrap"><table class="analytics-table">
-      <thead><tr><th>Phase</th><th>Requests</th><th>Turns</th><th>Model calls</th><th>Tool calls</th><th>Premium (est.)</th><th>Governed prompt</th></tr></thead>
+      <thead><tr><th>Phase</th><th>Requests</th><th>Turns</th><th>Model calls</th><th>Tool calls</th><th>Premium (est.)</th><th>Prompt</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
     ${events}

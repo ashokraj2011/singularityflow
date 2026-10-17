@@ -10,7 +10,7 @@ related:
   - revision-loop
   - copilot-and-surfaces
   - artifacts-and-generation
-version: 5
+version: 6
 ---
 `singularity-flow revision attachments` stages verified local files as feedback evidence for the selected Story and active phase. This is attachment intake only: it does not open or execute a REV loop, invoke a model, amend approved intent, or publish a Candidate. When the guarded pilot is eligible, a separate `/sf-revise` invocation may bind one active attachment set into an exact preview and confirmed interval.
 
@@ -39,7 +39,7 @@ To attach several local documents, repeat `--file` (up to the reported per-feedb
 
 The literal `--feedback` form is compatible but can expose private feedback through shell history or process listings. For private feedback, send the **same exact bytes** to both commands through standard input instead, for example `printf '%s' "$REV_FEEDBACK" | singularity-flow revision attachments preview --file review.md --feedback-stdin --json`; use the matching `register` command with `--feedback-stdin` and the returned `--confirm` digest. The VS Code preview route uses standard input automatically.
 
-Preview validates the file and stages a short-lived private plan in the repository's common Git directory; it changes no Story lifecycle state, worktree file, or Git ref. Review the returned file name, media type, byte count, original SHA-256, extraction status, selected state, exact Story/phase and feedback binding, and plan digest before confirming registration. Register rereads the file and rejects changed bytes, feedback, source revision, configuration, workflow, phase, or plan. Listing returns registered attachment-set receipts; registration itself still does not start a revision. Local evidence survives linked-worktree handoff but is **not pushed to Git or shared across laptops**; keep the source file until a governed REV publication path is available.
+Preview validates the file and stages a short-lived private plan in the repository's common Git directory; it changes no Story lifecycle state, worktree file, or Git ref. Review the returned file name, media type, byte count, original SHA-256, extraction status, selected state, exact Story/phase and feedback binding, and plan digest before confirming registration. Register rereads the file and rejects changed bytes, feedback, source revision, configuration, workflow, phase, or plan. Listing returns registered attachment-set receipts; registration itself still does not start a revision. Local evidence survives linked-worktree handoff but is **not pushed to Git or shared across laptops**; keep the source file until a REV publication path is available.
 
 To exclude a registered set from future routing, first run `singularity-flow revision attachments remove-preview --attachment-set sha256:<SET> --json`. Review its exact plan, then run `singularity-flow revision attachments remove --confirm sha256:<PLAN> --json`. `status` reports active or revoked sets. Its `objectIntegrity: not-checked` field means this fast metadata view is not a byte-integrity check; evidence reads verify the exact selected bytes, and `list` checks every registered object. Removal appends a private revocation; it does not delete the original proof bytes or rewrite historical receipts. To replace a set, register a newly reviewed set first, then explicitly revoke the old one. This is two reviewed operations, not an atomic replacement; if either fails, inspect `status` before retrying.
 

@@ -53,7 +53,7 @@ test('workflow import confirmation renders every operation beyond eight without 
   assert.doesNotMatch(detail, /\+\d+ more/);
   assert.match(detail, /Predicted changed paths: singularity\/workflow\.yml, \.github\/agents\/developer\.agent\.md/);
   assert.match(markdown, /## Predicted changed paths \(2\)/);
-  assert.match(detail, /governed authority creates a review proposal; local authority records a local edit/);
+  assert.match(detail, /a shared authority creates a review proposal; a local authority records a local edit/);
 });
 
 test('workflow transfer review displays the exact bound destination, not only its plan digest', () => {

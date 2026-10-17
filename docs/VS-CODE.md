@@ -2,7 +2,7 @@
 
 The VS Code extension is the supported visual surface for business users,
 product owners, architects, developers, QA, and approvers. It delegates all
-governed reads and mutations to `sflow`; it does not keep a competing workflow
+reads and mutations to `sflow`; it does not keep a competing workflow
 database.
 
 **My Work** is the visible home. The hidden **Talk to SFlow** command is retained only for compatibility and opens My Work. See `sflow explain developer-home` and `sflow explain copilot-and-surfaces` for the shared-state and session-boundary details.
@@ -22,7 +22,7 @@ Choose a machine-local menu persona from the Navigator header or **Configure Use
 Product owner, Business analyst, Product designer, Architect, Developer, QA, Security, Delivery
 manager, Operations, Admin, and General personas place their most relevant sections first and seed
 first-use Favorites with useful shortcuts. Persona selection never hides a command, changes a
-governed agent, or grants approval authority. Explicitly customized Favorites survive later persona
+agent, or grants approval authority. Explicitly customized Favorites survive later persona
 changes.
 
 On a first visit, Favorites and the persona's highest-priority section are expanded while the
@@ -36,7 +36,7 @@ of a navigation choice remains visible after the click.
 
 Run **Singularity Flow: Guided Start — Capability, Workspace, Work** from the
 Command Palette, the Workspaces section, Favorites, or the getting-started
-walkthrough. One visible progress rail joins the three existing governed forms:
+walkthrough. One visible progress rail joins the three existing forms:
 
 1. **Map capability** records what the organisation builds and which repository ships it.
 2. **Create workspace** carries that capability forward, derives its repositories, and runs the
@@ -88,14 +88,14 @@ Favorites answers **where are the menus I use every day?**
   A short confirmation identifies newly pinned menus.
 
 Favorites are stored in VS Code global state for this installation. They are personal navigation
-preferences, not governed workflow state, and are never committed or pushed.
+preferences, not workflow state, and are never committed or pushed.
 
 ### Operational surfaces
 
 The Navigator keeps related work together instead of adding a second dashboard hierarchy:
 
 - **Goals** is under Lifecycle. Create a Goal with observable success criteria, inspect it, make it
-  active, link or unlink explicitly selected governed work, and complete or abandon it with an
+  active, link or unlink explicitly selected work, and complete or abandon it with an
   exact Goal-ID confirmation.
 - **Faults & Repairs** is under Inbox. The Faults and Repairs tabs expose redacted fault intake,
   diagnosis, repair-plan preview, hash-bound authorization, patch attempts, cancellation, and
@@ -103,7 +103,7 @@ The Navigator keeps related work together instead of adding a second dashboard h
   extension never executes a returned command string.
 - **Local Journal** is available from My Work and Help. It shows Today and history, controls local
   capture and retention, previews exports, and requires date-bound confirmation for deletion. Its
-  records are machine-local context, never governance evidence.
+  records are machine-local context, never evidence.
 - **Diagnostics** is under Help. Repository, capability, workspace-reliability, and Schema Health
   tabs render the corresponding CLI census. Future, unreadable, unregistered, or archived schema
   records include the exact documented upgrade or archival remedy rather than being silently rewritten.
@@ -131,7 +131,7 @@ Workspaces answers **where am I working?**
   only missing approved repositories; unsafe local deletion is refused.
 - Copy a workspace when a different local directory or repository boundary is
   required; an edit never silently redirects an existing clone.
-- Rename a workspace without changing governed state. Archive it only after the
+- Rename a workspace without changing state. Archive it only after the
   engine refreshes every repository and proves there are no active Stories;
   archived workspaces move into a separate folder and retain every checkout and
   artifact for inspection or restore.
@@ -148,15 +148,15 @@ history is not retargeted: open a new terminal in the selected repository and a 
 scoped Copilot chat. A deferred checkout path is not a valid terminal working directory.
 The selected row also offers **Open** to align an older selection with this window's folder.
 Machine-wide selection changes from another window or the CLI do not force this window to change
-folders. CLI commands still prefer an explicitly opened governed working directory; use exact
+folders. CLI commands still prefer an explicitly opened working directory; use exact
 workspace/repository selectors when inspecting a different workspace from an existing terminal.
 
 ### Lifecycle
 
-Lifecycle answers **what governed work is active, and what happens next?**
+Lifecycle answers **what work is active, and what happens next?**
 
 - Start Story or Initiative intake, with or without Jira.
-- Choose the workflow/work type and its first governed agent.
+- Choose the workflow/work type and its first agent.
 - View the phase rail, current status, inputs, required outputs, checks, and gates.
 - Prepare, publish, submit, approve, reject, synchronize, or run the next valid
   action through the CLI.
@@ -188,7 +188,7 @@ workflow report:
 - provider cost or configured model pricing, with incomplete coverage called out;
 - Copilot activity by phase, for when tokens are unavailable: requests, turns, model
   and tool calls, estimated premium requests, quota and model-substitution events,
-  and the governed prompt's size against its budget; and
+  and the prompt's size against its budget; and
 - how often a later reviewer sent work back to an earlier phase.
 
 Missing provider telemetry and missing pricing are shown as **Unavailable**, never
@@ -209,7 +209,7 @@ palette with **Singularity Flow: Visual Assurance**. The page joins:
 - expected, actual, and diff artifacts for every deterministic comparison;
 - MCP server readiness and tool-call provenance; and
 - blocking errors, warnings, and passes from the same local read model used by
-  the governance engine.
+  the engine.
 
 Opening and refreshing the page is always local and read-only. A network doctor,
 MCP warm-up, or remote evidence download runs only after the user selects that
@@ -258,7 +258,7 @@ Inbox answers **what needs attention?**
 - Approve or reject against the exact submitted hash when authority permits.
 
 The capability portfolio dashboard sits above the operational inbox. It summarizes
-capabilities, delivery capabilities, repositories, Jira routes, open governed work,
+capabilities, delivery capabilities, repositories, Jira routes, open work,
 pending approvals, diagnostics, and world-model health. Root capability cards let
 business users enter a portfolio without navigating repository internals first.
 
@@ -269,7 +269,7 @@ for repository-owned configuration:
 
 - **Configuration Center** — one guided overview of all major areas, including
   first-class People & approvals and MCP policy screens. It distinguishes human
-  identities, governed AI agents, and host-owned tool processes instead of
+  identities, AI agents, and host-owned tool processes instead of
   presenting them as one kind of user.
 
 - **Workflow Studio** — create or edit Story and Epic workflows, step order,
@@ -285,7 +285,7 @@ for repository-owned configuration:
 - **Capability Designer** — add or edit collection and delivery
   capabilities, connect repositories and Jira routes, and view inherited policy.
 - **Integrations and policy** — secure Jira and Teams actions, approval
-  authorities, governed MCP policy and host readiness, remote-agent locks, and
+  authorities, MCP policy and host readiness, remote-agent locks, and
   world-model rules.
 
 Configuration changes affect new work unless a lifecycle explicitly regenerates a
@@ -293,7 +293,7 @@ new version. Active work continues from its pinned resolution.
 
 ## Native Copilot handoff
 
-The extension does not host a separate model process. **Open Governed Context in
+The extension does not host a separate model process. **Open Context in
 Copilot** asks `sflow` to compose the current phase and then hands the result to
 native Copilot Chat. The same composition can be inspected first:
 
@@ -316,7 +316,7 @@ logs, or Git.
 ## Refresh and concurrent terminals
 
 Git is the shared state-transfer mechanism. The extension refreshes from revisioned
-CLI snapshots and watches governed files so a terminal or another user can change
+CLI snapshots and watches files so a terminal or another user can change
 the branch without leaving the visual state permanently stale. Normal Git
 fast-forward rules prevent one terminal from overwriting another decision.
 Ordinary local snapshot reads do not fetch. The explicit **Refresh Stories** action
@@ -334,4 +334,4 @@ code --install-extension apps/vscode/singularity-flow-vscode-0.9.0.vsix --force
 ```
 
 Then run **Developer: Reload Window**. Open the Singularity Flow activity-bar icon,
-select a workspace, and use Lifecycle to start or resume governed work.
+select a workspace, and use Lifecycle to start or resume work.

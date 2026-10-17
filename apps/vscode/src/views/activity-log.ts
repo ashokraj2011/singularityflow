@@ -67,7 +67,7 @@ function bodyHtml(entries: LogEntry[] | null, level: Level, error: string | null
     data-level="${option}">${option === 'all' ? 'Everything' : escape(option)}</button>`).join('');
 
   const head = `<header>
-    <p class="eyebrow">Local governance</p>
+    <p class="eyebrow">Local records</p>
     <h1>${icon('search', { size: 24 })}Activity log</h1>
     <p class="meta">Every command this repository has run, from its durable record. Nothing here changes anything.</p>
   </header>
@@ -80,7 +80,7 @@ function bodyHtml(entries: LogEntry[] | null, level: Level, error: string | null
   if (!entries) return `${head}<div class="empty"><p>Reading the log…</p></div>`;
   if (!entries.length) {
     return `${head}<div class="empty"><p>Nothing recorded at this level yet.</p>
-      <p class="muted">Run a governed command and it will appear here.</p></div>`;
+      <p class="muted">Run a Singularity Flow command and it will appear here.</p></div>`;
   }
 
   const failures = entries.filter((entry) => entry.level === 'error').length;

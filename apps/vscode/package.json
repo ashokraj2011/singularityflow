@@ -69,11 +69,11 @@
           { "name": "checks", "description": "Run the read-only quick readiness checks" },
           { "name": "explain", "description": "Resolve a reviewed help topic without a model" },
           { "name": "converge", "description": "Read the convergence router result without following it" },
-          { "name": "docs", "description": "List active governed documents" },
+          { "name": "docs", "description": "List the active Story's documents" },
           { "name": "inputs", "description": "Preview active-phase inputs without writing the managed record" },
           { "name": "workflows", "description": "List installed and available workflow profiles" },
           { "name": "approve", "description": "Review and approve the current phase through exact human confirmation, without a model" },
-          { "name": "submit", "description": "Confirm and submit the published current phase with its governed checks, without a model" },
+          { "name": "submit", "description": "Confirm and submit the published current phase with its Flow Gate checks, without a model" },
           { "name": "publish", "description": "Confirm the current draft publication with fresh tests and normal gates, without a model" },
           { "name": "continue", "description": "Choose and confirm one currently legal model-free lifecycle action; never auto-loop" },
           { "name": "validate", "description": "Validate the current workflow without changing it" },
@@ -122,7 +122,7 @@
         "singularityFlow.userName": {
           "type": "string",
           "default": "",
-          "description": "Preferred name for SFlow Copilot replies and suggestions. Falls back to the active repository's Git name. Stored locally; governed decisions still use Git and provider identities."
+          "description": "Preferred name for SFlow Copilot replies and suggestions. Falls back to the active repository's Git name. Stored locally; sign-offs still use Git and provider identities."
         },
         "singularityFlow.role": {
           "type": "string",
@@ -141,7 +141,7 @@
             "admin",
             "other"
           ],
-          "description": "Machine-local menu persona used to order navigation and suggestions. The active governed agent and approval authority are selected independently by the workflow and identity records."
+          "description": "Machine-local menu persona used to order navigation and suggestions. The active agent and approval group are selected independently by the workflow and identity records."
         }
       }
     },
@@ -149,7 +149,7 @@
       {
         "id": "singularityFlow.gettingStarted",
         "title": "Get started with Singularity Flow",
-        "description": "Map a capability, create its workspace, and start the first governed work item.",
+        "description": "Map a capability, create its workspace, and start the first Story.",
         "steps": [
           {
             "id": "profile",
@@ -190,7 +190,7 @@
           {
             "id": "intake",
             "title": "Start intake",
-            "description": "Choose the work shape and workflow, then hand governed context to native Copilot.",
+            "description": "Choose the work shape and workflow, then hand the Story context to native Copilot.",
             "media": {
               "markdown": "media/walkthrough/intake.md"
             },
@@ -383,7 +383,7 @@
       },
       {
         "command": "singularityFlow.openAdhocWork",
-        "title": "Singularity Flow: Ad Hoc Work & Governed Landing",
+        "title": "Singularity Flow: Ad Hoc Work & Land as a Story",
         "icon": "$(git-commit)"
       },
       {
@@ -483,7 +483,7 @@
       },
       {
         "command": "singularityFlow.configurePeople",
-        "title": "Singularity Flow: People & Approval Authorities",
+        "title": "Singularity Flow: People & Approval Groups",
         "icon": "$(organization)"
       },
       {
@@ -548,7 +548,7 @@
       },
       {
         "command": "singularityFlow.expandReference",
-        "title": "Singularity Flow: Expand Governed Reference",
+        "title": "Singularity Flow: Expand Reference",
         "icon": "$(preview)"
       },
       {

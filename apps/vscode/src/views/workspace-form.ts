@@ -417,7 +417,7 @@ function leadHtml(form: WorkspaceForm): string {
     </p>
     <p class="muted">The workspace's centre of gravity. Its repository
       ${lead ? `(<code>${escape(lead.repository ?? '')}</code>)` : ''} is checked out when work starts.
-      The governed <code>state</code> branch is initialized then if needed.</p>`;
+      The Flow Ledger (<code>state</code> branch) is initialized then if needed.</p>`;
 }
 
 function repositoryRows(form: WorkspaceForm): string {

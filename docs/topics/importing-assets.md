@@ -14,13 +14,13 @@ related:
   - knowledge-and-remote-assets
   - workflow-authoring
   - skill-master
-version: 6
+version: 7
 ---
 Agent skills, artifact templates, whole agents, generated-artifact sources and MCP servers can come from a link, from a marketplace the repository trusts, or from an approved MCP server. A preview shows the exact content and its SHA-256; an add names that hash, copies the bytes into the configuration in one reviewed change, and records where they came from.
 
 ## Purpose and prerequisites
 
-Use this topic to take a skill, template, or agent someone has published at a public HTTPS link and use it in this repository's workflows. Run it in a governed checkout. Imports change configuration, so in a repository with an approved configuration authority add `--propose` and review the proposal like any other configuration change.
+Use this topic to take a skill, template, or agent someone has published at a public HTTPS link and use it in this repository's workflows. Run it in a Singularity Flow checkout. Imports change configuration, so in a repository with an approved configuration authority add `--propose` and review the proposal like any other configuration change.
 
 ## Use it from each surface
 
@@ -46,7 +46,7 @@ Use this topic to take a skill, template, or agent someone has published at a pu
 - Adding a skill to an agent that already names remote resources nobody has trusted is refused; run `singularity-flow agents lock <AGENT>` first.
 - No credentials, cookies or tokens are ever sent. Links with embedded credentials, private hosts and `localhost` are refused.
 - A marketplace index can only list files from its own origin and the origins `workflow.yml` allows for it; anything else refuses the whole index.
-- An MCP server is started or contacted only with `--launch`, for an item its governed `sources` allow; its answer is vendored and never re-read.
+- An MCP server is started or contacted only with `--launch`, for an item its `sources` allow; its answer is vendored and never re-read.
 
 ## Troubleshooting
 

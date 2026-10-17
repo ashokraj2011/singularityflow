@@ -11,7 +11,7 @@ questions:
   - Recover interrupted implementation
   - How do I recover after a failed phase on macOS?
   - How do I recover interrupted work?
-  - Why was work interrupted before its governed commit completed?
+  - Why was work interrupted before its commit completed?
 commands:
   - sync
   - recover
@@ -20,18 +20,18 @@ commands:
 related:
   - checkpoints-pause-continue
   - sequence-gates
-version: 18
+version: 19
 ---
-Publication is a transaction: verified preconditions, an integrity-bound preimage written to the local journal, one isolated commit of allowlisted paths, compare-and-swap branch advance, and push without force. If the process dies before the commit, `sflow sync` reclaims its dead subject lock, preserves the partial bytes under `.git/singularity-flow/publication-rescues/`, and restores the exact pre-transaction governed state. If the commit exists but push failed, sync retries that exact commit once without regenerating or rewriting it. When the push was refused because another clone published to the same Story first, sync says so; if the retained commit is a document upload, `sflow sync --replay` (preview with `--dry-run`) adds the same documents again on top of the published Story, where they take the next free IDs, and keeps the retained commit under `refs/sflow-replayed/<WORK-ID>/`. An upload refused before it committed, because this checkout was behind, names `sflow refresh-branch`. A live command is reported as active and is never rolled back. A branch-head race refuses rather than clobbering — reload and retry. A dead laptop costs nothing already committed: clone and `sflow resume`. `sflow doctor` diagnoses; `sflow recover` produces a content-addressed, model-free plan for transport, artifact, Agent Brief, code-delivery, and generation-intent blockers. Concurrent writes to the same work item are serialized by a subject lock and caught by a state fingerprint even when uncommitted.
+Publication is a transaction: verified preconditions, an integrity-bound preimage written to the local journal, one isolated commit of allowlisted paths, compare-and-swap branch advance, and push without force. If the process dies before the commit, `sflow sync` reclaims its dead subject lock, preserves the partial bytes under `.git/singularity-flow/publication-rescues/`, and restores the exact pre-transaction state. If the commit exists but push failed, sync retries that exact commit once without regenerating or rewriting it. When the push was refused because another clone published to the same Story first, sync says so; if the retained commit is a document upload, `sflow sync --replay` (preview with `--dry-run`) adds the same documents again on top of the published Story, where they take the next free IDs, and keeps the retained commit under `refs/sflow-replayed/<WORK-ID>/`. An upload refused before it committed, because this checkout was behind, names `sflow refresh-branch`. A live command is reported as active and is never rolled back. A branch-head race refuses rather than clobbering — reload and retry. A dead laptop costs nothing already committed: clone and `sflow resume`. `sflow doctor` diagnoses; `sflow recover` produces a content-addressed, model-free plan for transport, artifact, Agent Brief, code-delivery, and generation-intent blockers. Concurrent writes to the same work item are serialized by a subject lock and caught by a state fingerprint even when uncommitted.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **recovery**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **recovery**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow recover [WORK-ID] --json` inspects the active phase, including before its first publication. Use `--phase <phase>` for an explicit phase. An automatic action requires `--apply --confirm <planId>`. `sflow sync`, `sflow doctor`, and `sflow refresh-branch` remain available for their narrower roles.
-- **Copilot:** `/sf-recover`, `/sf-doctor`, `/sf-refresh-branch`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-recover`, `/sf-doctor`, `/sf-refresh-branch`. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -69,11 +69,11 @@ For an interrupted publication, `sflow sync` selects the recovery action from th
 
 ## State and safety
 
-Recovery inspection is read-only and never invokes a model or AST. `recover --apply`, `sync`, and `refresh-branch` can mutate governed or machine-local state and remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Pre-commit rollback touches only the governed roots named by the integrity-checked journal; unrelated source edits and staged files are not reset. Only system-owned transport and exact preimage restoration are automatic. Source, authored artifacts, policy, approvals, and human answers are never invented or repaired by a model. AST or a language pack being unavailable is advisory and cannot block recovery or ordinary file-based work.
+Recovery inspection is read-only and never invokes a model or AST. `recover --apply`, `sync`, and `refresh-branch` can change repository or machine-local state and remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Pre-commit rollback touches only the roots named by the integrity-checked journal; unrelated source edits and staged files are not reset. Only system-owned transport and exact preimage restoration are automatic. Source, authored artifacts, policy, approvals, and human answers are never invented or repaired by a model. AST or a language pack being unavailable is advisory and cannot block recovery or ordinary file-based work.
 
 The rollback boundary restores both durable files and the same in-memory Story aggregate retained by
 long-lived hosts, so an immediate retry cannot see a phase transition that was refused. After a
-governed commit lands, session refresh and review rendering are presentation work: failures there are
+commit lands, session refresh and review rendering are presentation work: failures there are
 reported as warnings with a resume route and never relabel the committed lifecycle mutation as a
 failure or invite a duplicate publish, submit, approval, rejection, reopen, amendment decision, or
 convergence-rework decision.
@@ -143,7 +143,7 @@ singularity-flow phase prepublish <phase> --json
 Recovery and prepublish expose `testExecution.commands` without executing tests, including after
 publication. Compare the interpreter, argv, working directory, report adapter and path with the
 manual test run. Inferred commands are shown directly; configured argv are withheld from generic
-diagnostics because they may contain credentials. Inspect those through their governed configuration
+diagnostics because they may contain credentials. Inspect those through their approved configuration
 source. IDs such as `.-python-tests` are identifiers, not executables.
 
 ### Why a passing test report can accompany a failed gate

@@ -33,7 +33,7 @@ function emptyAgent(): AgentDraft {
 function emptyPrompt(): PromptDraft { return { id: '', body: '# Purpose\n\nDescribe the reusable instruction.' }; }
 function emptySkill(): SkillDraft {
   return { id: '', description: '', argumentHint: '[WORK-ID]', disableModelInvocation: false,
-    body: '# Run this governed action\n\n1. Inspect the active lifecycle context.\n2. Run the corresponding `singularity-flow` command.\n3. Report artifacts, state changes, and the next valid action.' };
+    body: '# Run this action\n\n1. Inspect the active lifecycle context.\n2. Run the corresponding `singularity-flow` command.\n3. Report artifacts, state changes, and the next valid action.' };
 }
 
 export class InstructionDesignerPanel {
@@ -191,7 +191,7 @@ export class InstructionDesignerPanel {
     }
     this.selectedPath = path;
     this.notice = disposition.kind === 'proposal'
-      ? `Created governed review proposal${disposition.branch ? ` ${disposition.branch}` : ''} for ${path}. Merge it into ${disposition.baseBranch}, then refresh workspace configuration.`
+      ? `Created review proposal${disposition.branch ? ` ${disposition.branch}` : ''} for ${path}. Merge it into ${disposition.baseBranch}, then refresh workspace configuration.`
       : disposition.kind === 'unchanged'
         ? `The approved authority already contains the requested ${path} content; no proposal was required.`
         : `Saved ${path} as a local configuration draft.`;
@@ -337,7 +337,7 @@ export class InstructionDesignerPanel {
     const catalog = this.catalog();
     if (!catalog) {
       const token = nonce();
-      this.panel.webview.html = page('Agents, prompts & skills', '<p class="empty">Open a governed repository to design instructions.</p>', contentSecurityPolicy(this.panel.webview, token), token);
+      this.panel.webview.html = page('Agents, prompts & skills', '<p class="empty">Open a repository to design instructions.</p>', contentSecurityPolicy(this.panel.webview, token), token);
       return;
     }
     const selected = this.selected(catalog);

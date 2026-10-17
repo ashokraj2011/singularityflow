@@ -126,7 +126,7 @@ function catalog(view: TeamOnboardingView): string {
     <div class="section-heading"><div><p class="eyebrow">Repository discovery</p>
       <h2 id="repository-catalog-heading">Choose repositories</h2></div>
       <span class="count-badge" aria-label="${selected} of ${TEAM_ONBOARDING_MAX_SELECTED} selected">${selected}/${TEAM_ONBOARDING_MAX_SELECTED}</span></div>
-    <p class="meta">Only checked rows will be inspected. Listing and filtering grant no governance authority.</p>
+    <p class="meta">Only checked rows will be inspected. Listing and filtering grant no sign-off rights.</p>
     <form class="toolbar-row" data-catalog-search-form role="search">
       <label class="field compact" for="team-repository-query"><span>Find by owner or repository</span>
         <input id="team-repository-query" type="search" data-catalog-query value="${escape(view.catalog.query)}"

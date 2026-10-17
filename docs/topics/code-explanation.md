@@ -24,7 +24,7 @@ related:
   - delivery-and-proof
   - model-independence
   - world-model
-version: 8
+version: 9
 ---
 ## Purpose and prerequisites
 
@@ -45,13 +45,13 @@ says how many were left out, and the JSON reports them under `scope`.
 - **Shell:** `singularity-flow explain code --json`, optionally with one exact `--hunk`, `--symbol`,
   `--clause`, or `--since` selector. `singularity-flow explain code --repository [--path DIR] --json`
   explains what the repository, or one folder or file of it, holds.
-- **Copilot:** `/sf-explain-code` resolves the governed repository boundary and relays the same
+- **Copilot:** `/sf-explain-code` resolves the repository boundary and relays the same
   computed result. Model narration is separate and optional.
 - **VS Code:** the extension renders the engine result and does not manufacture missing impact or
   proof. **Change Explorer** (a tab of the Comprehension Center, also its own command) draws the
   same subject view as a map of intent, changed code and recorded results, with an inventory, an
   inspector and an exact native diff. **Code Explanation** is the per-hunk list of why each change
-  is there. Open them from any of these, in a governed repository:
+  is there. Open them from any of these, in a repository:
   - right-click in a file → **Singularity Flow** → **Explain This Change** (the change at the
     cursor), **Explain Changes in This File**, **Change Explorer**, **Code Explanation**;
   - right-click a file in the Explorer → **Singularity Flow** → **Explain Changes in This File**;
@@ -161,12 +161,12 @@ security, privacy, and the deferred authority prerequisites.
 - If a hunk, symbol, or clause is unavailable, use an ID returned by the unfiltered computed result.
 - If impact or proof reports an unavailable reason, treat that reason as the result. Narration cannot
   upgrade missing Candidate-bound authority.
-- If narration is refused or invalid, use the unchanged computed result; no governed evidence was
+- If narration is refused or invalid, use the unchanged computed result; no evidence was
   lost.
 - If a subject view says `bounded-delivery`, narrow the question with `--subject line` or
   `--subject clause`, or raise `--max-bytes`; the counts already cover the whole change.
 - If the Change Explorer says the snapshot changed, refresh it; it never mixes two captures.
-- If right-click menus have no **Singularity Flow** entry, no governed repository is selected in
+- If right-click menus have no **Singularity Flow** entry, no repository is selected in
   this window yet. Open the Singularity Flow sidebar or choose a workspace, and the menus appear.
 - If `--repository` says the code is over the AST budget, ask about one folder with `--path`, or raise
   `ast.budgets` in `singularity/workflow.yml` when indexing the whole repository is acceptable.

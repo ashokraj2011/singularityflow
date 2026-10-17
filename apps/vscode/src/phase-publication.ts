@@ -4,7 +4,7 @@ export function phasePublicationProgressLabel(step: string): string | null {
     'publication.preflight': 'Checking the saved artifact',
     'publication.discovery': 'Collecting changed files',
     'publication.validation': 'Validating the generation and required tests',
-    'publication.commit': 'Recording the governed commit',
+    'publication.commit': 'Recording the commit',
     'publication.push': 'Publishing the exact commit'
   };
   return Object.hasOwn(labels, step) ? labels[step]! : null;

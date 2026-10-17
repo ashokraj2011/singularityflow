@@ -404,7 +404,10 @@ if (hostedAutomation.length) {
   const canonical = [
     { prefer: 'Initiative', avoid: /\bEpics?\b/g, allow: /--epic|epic-[a-z]|sflow-epic|epicBranch|epicId/ },
     { prefer: 'Story', avoid: /\bwork items?\b/gi, allow: /work-items|--work-id|workItem/ },
-    { prefer: 'workflow', avoid: /\bprofiles?\b/gi, allow: /portfolio|--profile|profiles\.|userProfile/ }
+    { prefer: 'workflow', avoid: /\bprofiles?\b/gi, allow: /portfolio|--profile|profiles\.|userProfile/ },
+    // "Governed" is retired from prose; machine names and the feature names that contain it survive.
+    { prefer: 'a plain word instead of "governed"', avoid: /\b(?:un)?govern(?:ed|ance)\b/gi,
+      allow: /`[^`]*govern[^`]*`|governed-|-governed|GOVERNED-|[Gg]overnance rebuild|[Gg]overned execution|Governed Delivery and Proof/ }
   ];
   // docs/GLOSSARY.md is the dictionary: it has to name the words it is resolving. Blockquotes are
   // excluded for the same reason — that is where a page states which older name still appears where.

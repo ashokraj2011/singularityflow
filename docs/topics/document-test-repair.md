@@ -8,7 +8,7 @@ questions:
   - Which skills and agents test document-derived scenarios?
 commands: [workflow, start, prepare, phase, submit, approve, decision, mcp]
 related: [workflow-authoring, workflow-decisions, story-lifecycle, approvals]
-version: 3
+version: 4
 ---
 Select **Document-led acceptance & repair** (`document-test-repair`) during Story intake. It is a
 packaged starter that turns screenshots or documents into scenarios, tests the existing behavior
@@ -103,7 +103,7 @@ environment during intake. Other installed repository runners may be used. Missi
 stays pending; `/sf-test-setup` guides a reviewed runner proposal and `/sf-recover` guides adoption
 for an open repair generation. Do not edit protected workflow configuration on the Story branch.
 
-For Playwright, configure the host explicitly using `/sf-mcp`, then use the governed scaffold,
+For Playwright, configure the host explicitly using `/sf-mcp`, then use the scaffold,
 attestation and live same-origin smoke check for the approved target. Only scenario-tester and
 the check/retest phases are added to its allowlist. Record actual tool calls and durable sanitized
 outputs. No tools or dependencies are installed implicitly; browser access and target permissions

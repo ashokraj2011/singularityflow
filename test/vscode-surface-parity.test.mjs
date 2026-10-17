@@ -43,7 +43,7 @@ test('fault rendering boundary removes host paths', () => {
 test('schema health exposes exact future and archive remedies', () => {
   assert.match(SCHEMA_REMEDIES.future, /upgrade to read it/);
   assert.match(SCHEMA_REMEDIES.older, /archival reader/);
-  assert.match(SCHEMA_REMEDIES.older, /governed republication/);
+  assert.match(SCHEMA_REMEDIES.older, /a republication with recorded lineage/);
   assert.equal(schemaRecordRemedy(99, 1, 2), SCHEMA_REMEDIES.future);
   assert.equal(schemaRecordRemedy(0, 1, 2), SCHEMA_REMEDIES.older);
 });

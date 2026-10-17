@@ -283,7 +283,7 @@ export function buildReconciliation(
       initiativeId: '',
       levels: [],
       empty: snapshot.initiatives?.length
-        ? 'Nothing governed is checked out on this branch. Check out a governed branch to reconcile it.'
+        ? 'No Story or Initiative is checked out on this branch. Check out a branch to reconcile it.'
         : 'No work has been started in this repository yet.'
     };
   }

@@ -8,8 +8,8 @@ const LABELS = Object.freeze({
   impact: 'Open accepted Flight Plan impact',
   'world-model': 'Expand repository world-model context',
   ast: 'Expand bounded structural context',
-  evidence: 'Expand governed evidence references',
-  history: 'Find similar completed governed work',
+  evidence: 'Expand evidence references',
+  history: 'Find similar completed work',
   knowledge: 'Open bounded prior knowledge guidance',
   observation: 'Open the current compressed observation'
 });

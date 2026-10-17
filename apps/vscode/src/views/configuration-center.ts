@@ -558,7 +558,7 @@ export class ConfigurationCenterPanel {
 
   private async deleteAuthority(): Promise<void> {
     const view = this.view(); const selected = view?.authorities.find((entry) => `${entry.scope}:${entry.id}` === this.authorityKey); if (!selected) return;
-    const confirmed = await showCompactWarningMessage(`Delete approval authority '${selected.label}'?`, { modal: true }, 'Delete');
+    const confirmed = await showCompactWarningMessage(`Delete approval group '${selected.label}'?`, { modal: true }, 'Delete');
     if (confirmed !== 'Delete') return;
     const snapshot = this.store.current.snapshot!; const story = selected.scope === 'story';
     const text = story ? this.renderedTexts.definitionText : this.renderedTexts.portfolioText;
@@ -591,7 +591,7 @@ export class ConfigurationCenterPanel {
   private render(): void {
     this.snapshotRenders.rendered();
     const view = this.view(); const token = nonce();
-    if (!view) { this.panel.webview.html = page('Configuration Center', '<p class="empty">Choose a governed workspace to configure it.</p>', contentSecurityPolicy(this.panel.webview, token), token, '', { nav: 'configuration' }); return; }
+    if (!view) { this.panel.webview.html = page('Configuration Center', '<p class="empty">Choose a workspace to configure it.</p>', contentSecurityPolicy(this.panel.webview, token), token, '', { nav: 'configuration' }); return; }
     this.renderedTexts = this.texts();
     this.renderedConfigurationSource = this.store.current.snapshot?.configurationSource;
     const selectedAuthority = this.newAuthority ? emptyAuthority() : view.authorities.find((entry) => `${entry.scope}:${entry.id}` === this.authorityKey) ?? null;

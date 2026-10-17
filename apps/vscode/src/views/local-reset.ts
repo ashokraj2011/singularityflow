@@ -20,7 +20,7 @@ const SCRIPT = `
 export function localResetBody(plan: ResetPlan | null, error: string | null): string {
   const mode = plan?.mode ?? null; const expected = plan?.confirmation ?? '';
   return `<header><p class="eyebrow">Workspaces</p><h1>${icon('remove', { size: 24 })} Local Data & Reset</h1>
-    <p class="meta">Preview exactly what will be preserved or deleted. This never uninstalls the CLI, extension, plugin, or skills, and never changes remote governed data.</p></header>
+    <p class="meta">Preview exactly what will be preserved or deleted. This never uninstalls the CLI, extension, plugin, or skills, and never changes data on the remote.</p></header>
   ${error ? `<section class="warning"><strong>Reset refused</strong><p>${escape(error)}</p></section>` : ''}
   <section><h2>1. Choose a mode</h2><p>No mode is preselected.</p><div class="split-layout"><form data-message="preview"><input type="hidden" name="mode" value="forget-only"><div class="card"><h3>Forget local registrations</h3><p>Preserves every workspace directory, clone, branch, dirty file, worktree, and repository recovery record. Clears machine registrations and Singularity Flow personalization.</p><button type="submit">Preview forget-only</button></div></form>
     <form data-message="preview"><input type="hidden" name="mode" value="delete-workspaces"><div class="card warning"><h3>Delete workspace directories</h3><p>Permanently deletes validated registered workspace directories and their repository clones. Execution is allowed only from an empty VS Code window.</p><button class="secondary" type="submit">Preview destructive reset</button></div></form></div></section>

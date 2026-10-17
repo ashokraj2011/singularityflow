@@ -87,7 +87,7 @@ function versions(family: SchemaFamily): string {
 }
 
 export function schemaHealth(census: SchemaCensus | null | undefined): string {
-  if (!census) return '<div class="empty"><p>Schema census requires a governed repository. Select a workspace, then refresh Diagnostics.</p></div>';
+  if (!census) return '<div class="empty"><p>Schema census requires a repository. Select a workspace, then refresh Diagnostics.</p></div>';
   const families = list<SchemaFamily>(census.families);
   const outsideRange = families.flatMap((family) => list<SchemaRecord>(family.outsideRange).map((record) => ({
     ...record, family: family.family,
@@ -133,7 +133,7 @@ export function deliveryHealth(delivery: DeliveryProjection | null | undefined):
 export function diagnosticsBody(tab: Tab, repository: DoctorResult | null, capabilities: unknown, workspace: unknown, passport: ShadowPassport | null, proof: ProofObservation | null, delivery: DeliveryProjection | null, errors: Partial<Record<Tab, string>>): string {
   const tabs: Array<[Tab, string]> = [['repository', 'Repository'], ['capabilities', 'Capabilities'], ['workspace', 'Workspace Reliability'], ['schema', 'Schema Health'], ['passport', 'Shadow Passport'], ['delivery', 'Delivery & Proof']];
   const error = errors[tab];
-  const body = tab === 'repository' ? `${repository ? `<section class="plain"><div class="summary-grid"><div class="summary-card ${repository.healthy ? '' : 'important'}"><strong>${repository.healthy ? 'Healthy' : 'Needs attention'}</strong><span>repository</span></div><div class="summary-card"><strong>${escape(repository.branch ?? '—')}</strong><span>branch</span></div><div class="summary-card"><strong>${escape(repository.workId ?? 'No active work')}</strong><span>work item</span></div></div></section>${checks(repository.checks)}` : '<div class="empty"><p>No governed repository is selected. Workspace and capability diagnostics remain available.</p></div>'}`
+  const body = tab === 'repository' ? `${repository ? `<section class="plain"><div class="summary-grid"><div class="summary-card ${repository.healthy ? '' : 'important'}"><strong>${repository.healthy ? 'Healthy' : 'Needs attention'}</strong><span>repository</span></div><div class="summary-card"><strong>${escape(repository.branch ?? '—')}</strong><span>branch</span></div><div class="summary-card"><strong>${escape(repository.workId ?? 'No active work')}</strong><span>work item</span></div></div></section>${checks(repository.checks)}` : '<div class="empty"><p>No repository is selected. Workspace and capability diagnostics remain available.</p></div>'}`
     : tab === 'capabilities' ? checks(genericChecks(capabilities))
       : tab === 'workspace' ? checks(genericChecks(workspace))
         : tab === 'schema' ? schemaHealth(repository?.schemaCensus)

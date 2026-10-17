@@ -1,7 +1,7 @@
 ---
 id: mcp-integration
 title: MCP integration
-version: 7
+version: 8
 aliases:
   - mcp
   - playwright
@@ -15,7 +15,7 @@ related:
 ---
 MCP setup has two layers. VS Code or Copilot owns the server process, transport,
 credentials and trust prompt. Flow owns the repository policy: `mcpServers` in
-`workflow.yml` declares which governed agents, phases and exact tools may use the
+`workflow.yml` declares which agents, phases and exact tools may use the
 host server, with what approval and evidence capture. The host server ID and Flow
 `hostReference` must match. Flow never stores MCP credentials or silently starts a
 server from read-only commands; it reads from a server itself only for an import the policy allows
@@ -23,12 +23,12 @@ and a person consents to.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **mcp integration**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **mcp integration**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow mcp`. Run `singularity-flow mcp --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-mcp`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-mcp`. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Configuration Center**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -62,7 +62,7 @@ path in memory; the tracked host file never contains that path.
 
 ### Import from an MCP server, or install one
 
-A governed server may also say what Singularity Flow itself may read from it for imports:
+A server may also say what Singularity Flow itself may read from it for imports:
 
 ```yaml
 mcpServers:
@@ -83,7 +83,7 @@ answer is vendored, because an MCP server's output cannot be fetched again to pr
 workflow bundle refuses agents with MCP-imported resources.
 
 To install a server published as a `sflow-mcp-server@1` descriptor (from a link or a marketplace),
-import it with `--as mcp-server --agents <A,B>`: the governed policy is added, the chosen agents are
+import it with `--as mcp-server --agents <A,B>`: the Flow Policy is added, the chosen agents are
 granted its tools, and the descriptor is kept under `singularity/imports/mcp/`. A descriptor cannot
 assign itself to agents or steps. Its host entry is added to this workspace's `.vscode/mcp.json` only
 by `sflow mcp host add <SERVER>`, which prints the exact command or URL; VS Code still asks before
@@ -91,7 +91,7 @@ starting it.
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `mcp`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `mcp`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

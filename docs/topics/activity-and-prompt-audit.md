@@ -13,18 +13,18 @@ related:
   - evidence-and-ledger
   - telemetry-and-cost
   - copilot-and-surfaces
-version: 4
+version: 5
 ---
-Activity logs report lifecycle and operational events without exposing secrets. Prompt audit is optional, workspace-local evidence of composed governed prompts and does not replace lifecycle state.
+Activity logs report lifecycle and operational events without exposing secrets. Prompt audit is optional, workspace-local evidence of composed prompts and does not replace lifecycle state.
 
 ## Purpose and prerequisites
 
-Use this topic when the current goal matches **activity and prompt audit**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+Use this topic when the current goal matches **activity and prompt audit**. Start in a repository that uses Singularity Flow unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
 - **Shell:** `sflow logs`, `sflow prompt-log`, `sflow help-metrics status`. Run `singularity-flow logs --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-logs`, `/sf-prompt-log`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-logs`, `/sf-prompt-log`. The skill must preserve the CLI result and ask before it changes anything.
 - **VS Code:** open Singularity Flow **Flow Impact, Analytics, and Activity**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
@@ -55,7 +55,7 @@ content. Inspect or control them with `sflow help-metrics status --json`, `sflow
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `prompt-log`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `prompt-log`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

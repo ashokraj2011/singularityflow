@@ -26,7 +26,7 @@ related:
   - governed-execution
   - workflow-authoring
   - evidence-and-ledger
-version: 26
+version: 27
 ---
 SGOS compiles confirmed intent and a ratified workflow into a finite, content-addressed Governed VM
 Program. Its operational Process state never replaces Story, Initiative, configuration, ledger, or
@@ -43,7 +43,7 @@ Capability Pack sharing.
 ## Purpose and prerequisites
 
 Use this profile to inspect and exercise deterministic SGOS compiler profile v3 and the runtime.
-Start inside the selected governed repository with committed input JSON for the Intent IR, Workflow IR,
+Start inside the selected repository with committed input JSON for the Intent IR, Workflow IR,
 Ratification, policy snapshot, registry snapshot, and optional Process Binding. The core profile is
 model-free by default and supports a bounded deterministic parallel wave for compatible resource
 contracts. It can dispatch only the exact registry-pinned `deterministic-translator` Execution Unit,
@@ -67,7 +67,7 @@ diagnostic instead of silently falling back to core or another Pack.
 
 Candidate handling is automatic for supported Story, Initiative, ad hoc, Goal, Epic, capability,
 and direct Story-promotion publications. It is not a second user workflow. Before the lifecycle can
-create a governed commit, SFlow freezes the exact prospective Git tree, admits protected paths and
+create a commit, SFlow freezes the exact prospective Git tree, admits protected paths and
 secrets, verifies the normalized lifecycle event, retains the Candidate, and binds its commit,
 tree, verification receipt, trailers, journal, and pending recovery record.
 

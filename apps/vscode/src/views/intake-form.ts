@@ -1002,7 +1002,7 @@ function baseBranchHtml(form: IntakeForm): string {
     ${baseStoryNoteHtml(form)}
     ${visibleOrphans.length ? `<p class="meta">Not offered: ${visibleOrphans.map((name) => `<code>${escape(name)}</code>`).join(', ')}
       — ${visibleOrphans.length === 1 ? 'it shares' : 'they share'} no history with the default branch, so no Story can start from ${visibleOrphans.length === 1 ? 'it' : 'them'}.</p>` : ''}
-    ${form.baseBranch && form.basePreflightPassed ? `<p class="meta">Readiness preview for
+    ${form.baseBranch && form.basePreflightPassed ? `<p class="meta">Story-start readiness confirmed for
       workflow <code>${escape(form.workType ?? '')}</code>: create <code>${escape(intakeIdentifier(form) || '<Story ID>')}</code>
       from <code>${escape(form.baseRemote ?? 'remote')}/${escape(form.baseBranch)}</code> and publish only
       <code>${escape(form.baseRemote ?? 'remote')}/refs/heads/${escape(intakeIdentifier(form) || '<Story ID>')}</code>.
@@ -1011,8 +1011,8 @@ function baseBranchHtml(form: IntakeForm): string {
     ${form.basePreflightChecking ? '<p class="meta">Checking approved configuration, workflow agents, and selected branches. Publication access is checked on Start.</p>' : ''}
     ${(form.basePreflightPassed || form.basePreflightChecking) && form.basePreflightReason ? `<p class="meta" role="status">${escape(form.basePreflightReason)}</p>` : ''}
     ${form.baseBranch && !form.basePreflightPassed && !form.basePreflightChecking && form.basePreflightReason ? `<p class="blockers" role="alert">${escape(form.basePreflightReason)}</p>
-      <button type="button" class="secondary" data-readiness-retry ${form.busy || form.basePreflightChecking ? 'disabled' : ''}>Retry readiness</button>
-      ${form.targetWorkspace ? `<button type="button" class="secondary" data-branch-download ${form.busy || form.basePreflightChecking ? 'disabled' : ''}>Download fresh branch checkout</button>
+      <button type="button" class="secondary" data-readiness-retry ${form.busy ? 'disabled' : ''}>Retry readiness</button>
+      ${form.targetWorkspace ? `<button type="button" class="secondary" data-branch-download ${form.busy ? 'disabled' : ''}>Download fresh branch checkout</button>
       <p class="hint">Download the selected branch into workspace/repos, then retry. Existing checkouts and unpublished work are preserved.</p>` : ''}` : ''}
     ${form.basePreflightWarnings.length ? `<div class="notice warning" role="status">
       <strong>Ready with advisory information</strong>

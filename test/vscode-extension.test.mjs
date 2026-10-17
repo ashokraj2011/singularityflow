@@ -6152,7 +6152,7 @@ test('Story-start readiness distinguishes blocking findings from non-blocking ad
     description: 'Retry once', basePreflightWarnings: [warning],
     basePreflightRefreshRecommended: true
   }));
-  assert.match(ready, /Readiness preview for/);
+  assert.match(ready, /Story-start readiness confirmed/);
   assert.match(ready, /Ready with advisory information/);
   assert.match(ready, /No shared configuration snapshot is pinned/);
   assert.match(ready, /data-workflow-refresh/);

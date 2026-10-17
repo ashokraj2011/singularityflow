@@ -390,7 +390,7 @@ test('Copilot cannot mutate a consumed code generation or claim human authorship
   assert.match(wrongConfiguredProducer.permissionDecisionReason, /--authored deterministic --channel kernel-generator/);
 });
 
-// Copilot 1.0.9x runtimes send preToolUse as { sessionId, cwd, toolCalls: [{ id, name, args }] }.
+// The batch shape Copilot 1.0.9x records for preToolUse: { sessionId, cwd, toolCalls: [{ id, name, args }] }.
 function toolCall(id, name, args) { return { id: `call_${id}`, name, args }; }
 
 test('a batched toolCalls payload passes the selection gate only when every call would', async () => {

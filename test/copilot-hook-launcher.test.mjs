@@ -208,7 +208,8 @@ test('the packaged preToolUse hook judges a batched toolCalls payload call by ca
     assert.equal(result.status, 0, `${action}: ${result.stderr}`);
     return JSON.parse(result.stdout);
   };
-  // Copilot 1.0.9x sends { sessionId, cwd, toolCalls: [{ id, name, args }] } and reads one decision.
+  // The batch shape Copilot 1.0.9x records, { sessionId, cwd, toolCalls: [{ id, name, args }] }; a
+  // command hook has so far received one call as toolName/toolArgs. Either way it gives one decision.
   const binding = { sessionId: 'batched-session', cwd: item.cwd };
   const workspace = { id: 'call_1', name: 'bash', args: { command: 'singularity-flow workspace current --json' } };
   const view = { id: 'call_2', name: 'view', args: { path: path.join(item.cwd, 'notes.md') } };

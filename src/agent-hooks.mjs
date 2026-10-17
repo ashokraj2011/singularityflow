@@ -218,9 +218,10 @@ function parsedToolArgs(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
-// Copilot runtimes since 1.0.9x send `toolCalls: [{ id, name, args }]` instead of one
-// toolName/toolArgs pair, and take one decision for the whole payload. Each call becomes its own
-// payload so every check sees every call; an empty or malformed batch is read as the old shape.
+// Copilot 1.0.9x records a preToolUse batch as `toolCalls: [{ id, name, args }]`, but a command
+// hook has so far received each call alone as toolName/toolArgs. Both shapes are read. A payload
+// that carries several calls gets one decision, so each call becomes its own payload and every
+// check sees every call; an empty or malformed batch is read as the single-call shape.
 function normalizedToolCalls(payload = {}) {
   const { toolCalls, ...shared } = payload;
   const calls = Array.isArray(toolCalls) && toolCalls.length ? toolCalls

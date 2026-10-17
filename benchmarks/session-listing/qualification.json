@@ -1,0 +1,345 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Advisory session candidate snapshots with configurable 30-minute reuse, explicit refresh, and lossless composed-command refusal propagation",
+  "date": "2026-10-17",
+  "baselineRef": "c19248b327213726f92d37d075859165b45773c4",
+  "functionalSourceRef": "9998fc74",
+  "windowsCIRef": "603e789b0026bf2290bfc000062a88b59c0c3f98",
+  "windowsRunId": 39053526425,
+  "scope": "Fresh CLI processes against disposable local bare remotes. Empty ledger in measured commands; no real workspace, Story approval or model invocation. OS/executable caches were not flushed.",
+  "behavior": {
+    "default": {
+      "mode": "cached",
+      "intervalMinutes": 30
+    },
+    "settings": "Shared machine/workspace repository-check preferences, VS Code Repository Check Mode / Interval Minutes, or SINGULARITY_FLOW_REPOSITORY_CHECK_MODE / SINGULARITY_FLOW_REPOSITORY_CHECK_INTERVAL_MINUTES.",
+    "refresh": [
+      "singularity-flow session candidates --refresh --diagnostics --json",
+      "singularity-flow session open --refresh --json",
+      "/sf-session --refresh",
+      "VS Code Refresh Stories"
+    ],
+    "cacheScope": "Complete advisory candidate lists only, including URL-only listings. Exact cwd/selectors, settings, build/environment and local dependency fingerprints bind reuse. Legacy JSON remains an array.",
+    "firstLocalRead": "A complete verified local state index may seed the initial advisory listing without network; source local and remoteCheckedAt null are never represented as a fresh remote observation.",
+    "failure": "No failure/incomplete roster is cached as a success. Explicit refresh invalidates the older observation. Expired/corrupt snapshots and Always mode use the remote verifier; they do not fall back to first-use local seeding.",
+    "authority": "Attachment, Story/phase binding, source integrity, publication, tests, submission and approval retain their fresh owners. No application branch/history scan or automatic retry was added.",
+    "transport": "Preserves the underlying code, message and recovery packet across table/text/JSON composed steps, even with a debug trailer. Closed state transport evidence includes observation/fetch stage, classification, exit/signal, logical/process deadline and elapsed time. Raw provider stderr is not copied; timeouts are not inferred DNS failures. An early packet or late zero exit cannot erase a process timeout.",
+    "refreshRace": "An explicit VS Code refresh is scheduled after an older in-flight advisory read instead of silently joining it."
+  },
+  "measurements": {
+    "mac": {
+      "before": {
+        "platform": "darwin",
+        "node": "v25.5.0",
+        "rows": [
+          {
+            "name": "first",
+            "ms": 724,
+            "gitProcesses": 23,
+            "remoteOperations": 2,
+            "snapshot": null
+          },
+          {
+            "name": "repeat",
+            "ms": 420,
+            "gitProcesses": 16,
+            "remoteOperations": 1,
+            "snapshot": null
+          },
+          {
+            "name": "repeat",
+            "ms": 408,
+            "gitProcesses": 14,
+            "remoteOperations": 1,
+            "snapshot": null
+          },
+          {
+            "name": "refresh",
+            "ms": 398,
+            "gitProcesses": 14,
+            "remoteOperations": 1,
+            "snapshot": null
+          },
+          {
+            "name": "always",
+            "ms": 389,
+            "gitProcesses": 14,
+            "remoteOperations": 1,
+            "snapshot": null
+          }
+        ],
+        "scope": "Fresh processes, local bare remotes, OS caches not flushed. Empty ledger; no Story, model or approval in measured commands."
+      },
+      "after": {
+        "platform": "darwin",
+        "node": "v25.5.0",
+        "rows": [
+          {
+            "name": "first",
+            "ms": 850,
+            "gitProcesses": 29,
+            "remoteOperations": 2,
+            "snapshot": "fresh"
+          },
+          {
+            "name": "repeat",
+            "ms": 404,
+            "gitProcesses": 9,
+            "remoteOperations": 0,
+            "snapshot": "local"
+          },
+          {
+            "name": "repeat",
+            "ms": 530,
+            "gitProcesses": 0,
+            "remoteOperations": 0,
+            "snapshot": "cache"
+          },
+          {
+            "name": "refresh",
+            "ms": 443,
+            "gitProcesses": 15,
+            "remoteOperations": 1,
+            "snapshot": "fresh"
+          },
+          {
+            "name": "always",
+            "ms": 424,
+            "gitProcesses": 14,
+            "remoteOperations": 1,
+            "snapshot": "fresh"
+          }
+        ],
+        "scope": "Fresh processes, local bare remotes, OS caches not flushed. Empty ledger; no Story, model or approval in measured commands."
+      },
+      "bundled": {
+        "platform": "darwin",
+        "node": "v25.5.0",
+        "rows": [
+          {
+            "name": "first",
+            "ms": 685,
+            "gitProcesses": 29,
+            "remoteOperations": 2,
+            "snapshot": "fresh"
+          },
+          {
+            "name": "repeat",
+            "ms": 409,
+            "gitProcesses": 9,
+            "remoteOperations": 0,
+            "snapshot": "local"
+          },
+          {
+            "name": "repeat",
+            "ms": 259,
+            "gitProcesses": 0,
+            "remoteOperations": 0,
+            "snapshot": "cache"
+          },
+          {
+            "name": "refresh",
+            "ms": 398,
+            "gitProcesses": 15,
+            "remoteOperations": 1,
+            "snapshot": "fresh"
+          },
+          {
+            "name": "always",
+            "ms": 922,
+            "gitProcesses": 14,
+            "remoteOperations": 1,
+            "snapshot": "fresh"
+          }
+        ],
+        "scope": "Fresh processes, local bare remotes, OS caches not flushed. Empty ledger; no Story, model or approval in measured commands."
+      }
+    },
+    "windows": {
+      "before": {
+        "platform": "win32",
+        "node": "v22.23.3",
+        "rows": [
+          {
+            "name": "first",
+            "ms": 5932,
+            "gitProcesses": 23,
+            "remoteOperations": 2,
+            "snapshot": null
+          },
+          {
+            "name": "repeat",
+            "ms": 1773,
+            "gitProcesses": 16,
+            "remoteOperations": 1,
+            "snapshot": null
+          },
+          {
+            "name": "repeat",
+            "ms": 1697,
+            "gitProcesses": 14,
+            "remoteOperations": 1,
+            "snapshot": null
+          },
+          {
+            "name": "refresh",
+            "ms": 1717,
+            "gitProcesses": 14,
+            "remoteOperations": 1,
+            "snapshot": null
+          },
+          {
+            "name": "always",
+            "ms": 1733,
+            "gitProcesses": 14,
+            "remoteOperations": 1,
+            "snapshot": null
+          }
+        ],
+        "scope": "Fresh processes, local bare remotes, OS caches not flushed. Empty ledger; no Story, model or approval in measured commands."
+      },
+      "after": {
+        "platform": "win32",
+        "node": "v22.23.3",
+        "rows": [
+          {
+            "name": "first",
+            "ms": 4938,
+            "gitProcesses": 29,
+            "remoteOperations": 2,
+            "snapshot": "fresh"
+          },
+          {
+            "name": "repeat",
+            "ms": 1495,
+            "gitProcesses": 10,
+            "remoteOperations": 0,
+            "snapshot": "local"
+          },
+          {
+            "name": "repeat",
+            "ms": 967,
+            "gitProcesses": 0,
+            "remoteOperations": 0,
+            "snapshot": "cache"
+          },
+          {
+            "name": "refresh",
+            "ms": 1761,
+            "gitProcesses": 15,
+            "remoteOperations": 1,
+            "snapshot": "fresh"
+          },
+          {
+            "name": "always",
+            "ms": 1643,
+            "gitProcesses": 14,
+            "remoteOperations": 1,
+            "snapshot": "fresh"
+          }
+        ],
+        "scope": "Fresh processes, local bare remotes, OS caches not flushed. Empty ledger; no Story, model or approval in measured commands."
+      },
+      "bundled": {
+        "platform": "win32",
+        "node": "v22.23.3",
+        "rows": [
+          {
+            "name": "first",
+            "ms": 2896,
+            "gitProcesses": 29,
+            "remoteOperations": 2,
+            "snapshot": "fresh"
+          },
+          {
+            "name": "repeat",
+            "ms": 1334,
+            "gitProcesses": 10,
+            "remoteOperations": 0,
+            "snapshot": "local"
+          },
+          {
+            "name": "repeat",
+            "ms": 775,
+            "gitProcesses": 0,
+            "remoteOperations": 0,
+            "snapshot": "cache"
+          },
+          {
+            "name": "refresh",
+            "ms": 1495,
+            "gitProcesses": 16,
+            "remoteOperations": 1,
+            "snapshot": "fresh"
+          },
+          {
+            "name": "always",
+            "ms": 1397,
+            "gitProcesses": 14,
+            "remoteOperations": 1,
+            "snapshot": "fresh"
+          }
+        ],
+        "scope": "Fresh processes, local bare remotes, OS caches not flushed. Empty ledger; no Story, model or approval in measured commands."
+      }
+    }
+  },
+  "qualification": {
+    "mac": {
+      "coreTestsPassed": 197,
+      "extensionTestsPassed": 330,
+      "sessionHostTestsPassed": 2,
+      "surfaceBudgetRosterCatalogTestsPassed": 21,
+      "relatedTests": {
+        "passed": 218,
+        "total": 220,
+        "failures": "The same two unchanged-main refusal-wiring assertions listed below."
+      },
+      "skippedInFinalSuites": 0
+    },
+    "windows": {
+      "status": "success",
+      "runId": 39053526425,
+      "coreTestsPassed": 197,
+      "extensionTestsPassed": 330,
+      "discoveryHostTestsPassed": 1,
+      "skippedInFinalSuites": 0,
+      "typecheckBuildAndBudgets": "passed"
+    },
+    "phaseCommandMatrix": "All 48 seeded phase IDs plus custom-future-phase, across session open, publish-if-ready, submit-if-ready and approval-packet failure propagation. This is shared protocol coverage, not complete end-to-end Story qualification for every workflow.",
+    "staticChecks": "2709 checks across 179 skills passed; existing vocabulary advisories only.",
+    "gitBypassAudit": "1788 reviewed production process/Git sites; no unreviewed new sites.",
+    "bundleBudget": "Passed. Lazy-panel byte ceiling increased by 500 bytes (3094000 to 3094500) for refresh routing; its 249-module ceiling and all other ceilings remain unchanged. No gateway module-ceiling increase.",
+    "testMaintenance": "The existing session-open parity test now excludes only independently observed check timestamp/age after validating their types; it still compares the semantic packet. The existing 5ms process-cleanup fixture was given a 1000ms launch window so Windows Git setup cannot consume the entire deadline before its fake child starts. Signal, timeout, late-zero-exit and cleanup-bound assertions remain."
+  },
+  "knownBaselineFailures": [
+    {
+      "test": "test/vscode-refusal-wiring.test.mjs: missing Story configuration has exact-repository recovery actions and a manual setup route",
+      "evidence": "Reproduced on unchanged c19248b3 and candidate; static intake-source regex expectation. No production intake code was changed for this task."
+    },
+    {
+      "test": "test/vscode-refusal-wiring.test.mjs: VS Code accepts a registered policy-selected generation skill without widening command families",
+      "evidence": "Reproduced on unchanged c19248b3 and candidate; its deterministic convergence publication fixture asserts the old /sf-converge route instead of canonical /sf-publish convergence. Validation was not weakened."
+    },
+    {
+      "test": "test/vscode-host.test.mjs: clicking a remote Story without a local checkout attaches it and opens Copilot",
+      "platform": "native Windows",
+      "comparisonRunIds": [
+        39052831678,
+        39052983708
+      ],
+      "evidence": "Both unchanged c19248b3 and candidate fail the post-attachment Copilot-open assertion. Candidate diagnostics retain WORK_SOURCE_HASH_MISMATCH: source.json differs from the immutable Story source snapshot. Listing, selection and strict attachment complete before this distinct prompt-integrity refusal. The underlying byte difference was not investigated or normalized in this caching change.",
+      "handling": "Integrity validation is unchanged and not bypassed. The final scoped Windows run retains the passing native discovery UI probe; it is not a claim that this broader handoff probe passed."
+    }
+  ],
+  "limitations": [
+    "Small local-remotes fixtures, not office proxy/credential/antivirus or cloud-offloaded storage qualification.",
+    "Before/after samples run sequentially and vary with host load. A new process is not a flushed OS or Node compile cache.",
+    "The first repeat may be a local-index cache fill, not a cache hit; snapshot identifies which. Both local and cache rows avoid remote work.",
+    "Repeated Windows source cache hit was 967ms versus the corresponding baseline 1697ms in the final sample, with zero Git/remote calls; this is a sample, not an SLA.",
+    "Mac source wall-clock samples did not consistently improve even though cached Git/remote counts were zero. Candidate installed-layout measurements have no matched installed-layout baseline here.",
+    "Cold setup is not removed. The first uncached attempt can add a local-index probe before remote discovery (29 Git calls versus baseline 23); first-download timings must not be described as a universal speedup.",
+    "Real authentication/TLS failures and source-integrity failures remain refusals. Cached browsing cannot repair remote access or authorize a mutation.",
+    "Temporary hosted CI workflow files are confined to the CI branch and are never merged into production."
+  ]
+}

@@ -4,7 +4,7 @@
   "baselineCommit": "987b0f8a24d90c38e3527134f0b9abf06e7d1590",
   "runtimeCommit": "4bd003e0f9047b2c657e9c8f1ba525080bbc6907",
   "windowsCiCommit": "db767e95923376c7d4d6ae9483521430b1d7bd04",
-  "windowsRun": "https://github.com/ashokraj2011/singularityflow/actions/runs/38987660713",
+  "windowsRunId": 38987660713,
   "date": "2026-10-17",
   "protocol": {
     "files": 1000,

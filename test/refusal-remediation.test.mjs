@@ -24,6 +24,23 @@ import { structuredTestCommandRequiredError } from '../src/code-delivery-tests.m
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 
+test('session transport refusal retains the selected listing scope and explicit refresh without retry', () => {
+  const error = Object.assign(new Error('State observation timed out'), {
+    code: 'SESSION_STATE_REFRESH_UNAVAILABLE', details: {
+      remoteFailure: { failure: { advice: 'Inspect the credential helper and the recorded deadline.' } }
+    }
+  });
+  const plan = refusalRemediationPlan(error, ['session', 'candidates', '--workspace', 'team',
+    '--repository', 'app', '--json']);
+  assert.equal(plan.steps[0].command, null);
+  assert.equal(plan.steps[0].label, error.details.remoteFailure.failure.advice);
+  assert.deepEqual(plan.steps[1].argv, ['session', 'candidates', '--workspace', 'team',
+    '--repository', 'app', '--refresh', '--diagnostics', '--json']);
+  assert.equal(plan.steps[1].copilotCommand, '/sf-session --refresh');
+  assert.equal(plan.retry.automatic, false);
+  assert.doesNotMatch(JSON.stringify(plan.steps), /branch --all|session --help/);
+});
+
 test('missing workflow authority has bounded repair guidance, never an automatic destructive retry', () => {
   for (const code of ['STORY_CONFIGURATION_AUTHORITY_MISSING', 'WORKFLOW_CONFIGURATION_MISSING']) {
     const plan = refusalRemediationPlan(Object.assign(new Error('Missing approved workflow'), { code }), ['start', 'WORK-1', '--json']);

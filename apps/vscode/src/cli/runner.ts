@@ -1033,7 +1033,7 @@ export class RepositoryAuthorityUnavailableError extends Error {
   readonly repository: string;
   readonly failures: ReadonlyArray<{ remote: string; operation: 'ls-remote' | 'fetch' | 'verify'; reason: string }>;
   constructor(repository: string, failures: Array<{ remote: string; operation: 'ls-remote' | 'fetch' | 'verify'; reason: string }>) {
-    super('Cannot verify remote Singularity Flow configuration. Check Git access and retry; do not initialize over existing authority.');
+    super('Singularity Flow configuration may exist on a remote branch, but its authority could not be read or verified. Check network and Git credentials, then retry; do not initialize over the existing authority.');
     this.name = 'RepositoryAuthorityUnavailableError';
     this.repository = repository;
     this.failures = Object.freeze(failures.map((entry) => Object.freeze({ ...entry })));
@@ -1129,7 +1129,7 @@ export class CliTimeoutError extends Error {
       + 'The interrupted operation may have retained recoverable transaction state.';
     super(command
       ? `${summary}\n\nRun this exact command from a terminal:\n${command}`
-      : `${summary}\n\nEphemeral authorization cannot be safely replayed. Use Continue safely to authorize a fresh action.`);
+      : `${summary}\n\nThis invocation carried ephemeral authorization and cannot be safely replayed. Return to Continue safely and authorize a fresh action.`);
     this.name = 'CliTimeoutError';
     this.timeoutMs = timeoutMs;
     this.terminalCommand = command;
@@ -2082,7 +2082,7 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
         reportTiming('success', code);
         succeed(value);
       } catch {
-        fail(new Error(`SFlow could not read CLI response: ${safeDisplayDiagnosticText(stdout.slice(0, 500))}`));
+        fail(new Error(`The CLI returned data this extension could not read: ${safeDisplayDiagnosticText(stdout.slice(0, 500))}`));
       }
     }
 

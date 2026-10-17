@@ -29,6 +29,18 @@ test('CLI lifecycle commands map to installed direct Copilot skills', () => {
   assert.equal(copilotSkillForCommand('singularity-flow not-a-command'), '/sf-next');
 });
 
+test('session listing refresh is explicit in the Copilot route', () => {
+  for (const command of [
+    'singularity-flow session candidates --refresh --diagnostics --json',
+    'singularity-flow session open --workspace team --repository app --refresh --json'
+  ]) {
+    assert.equal(copilotCommandForCommand(command), '/sf-session --refresh');
+    assert.equal(safeCommandGuidance({ command }).copilotCommand, '/sf-session --refresh');
+  }
+  assert.equal(copilotCommandForCommand('singularity-flow session candidates --json'), '/sf-session');
+  assert.equal(copilotCommandForCommand('singularity-flow session candidates --refresh=false --json'), '/sf-session');
+});
+
 test('SGOS and learning commands never route through the workflow catalog skill', () => {
   for (const family of [
     'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit',

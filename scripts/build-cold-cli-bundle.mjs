@@ -8,14 +8,17 @@ import { pathToFileURL } from 'node:url';
 const FAMILIES = Object.freeze([
   ['core', ['cli-bundle-entry.mjs', 'command-loaders.mjs', 'deferred-index-refresh.mjs']],
   ['hooks', ['copilot-hook-runtime.mjs', 'copilot-repository-boundary.mjs', 'copilot-mutation-guard.mjs']],
-  ['worker-protocol', ['read-worker.mjs', 'history-index-worker.mjs', 'configuration-read-worker.mjs']],
-  ['configuration-sync', ['configuration-proposal-sync-worker.mjs']],
+  // Both small worker-helper closures depend only on core. Sharing this slot keeps catalogs and
+  // general reads separate without increasing the deployment's fixed file count. Entry programs
+  // themselves remain private; importing helper definitions never starts a worker.
+  ['worker-protocol', ['read-worker.mjs', 'history-index-worker.mjs', 'configuration-read-worker.mjs',
+    'configuration-proposal-sync-worker.mjs']],
   ['light', ['commands/about.mjs', 'commands/pause.mjs', 'commands/workspace.mjs', 'commands/capability.mjs',
     'commands/intake-entry.mjs', 'commands/snapshot.mjs', 'agent-output.mjs',
     'commands/logs.mjs', 'commands/help.mjs', 'commands/explain.mjs']],
   // Claim catalog definitions before authoring closures. Leaving these dynamic roots unassigned
   // put every list/show in compatibility, importing the entire administration/model dispatcher.
-  // Reuse the former broad reads slot: editor/home/inbox stay lazy with their actual owners.
+  // Keep the broad reads slot too: making Home/Inbox fall into compatibility would shift the cost.
   ['catalogs', ['commands/agents.mjs', 'commands/workflow.mjs', 'commands/workflow-list.mjs',
     'commands/skill.mjs', 'commands/skill-master.mjs', 'commands/instruction.mjs', 'asset-catalog.mjs',
     'configuration-drafts.mjs', 'logging.mjs', 'harness-events.mjs']],
@@ -28,6 +31,7 @@ const FAMILIES = Object.freeze([
     'commands/story-entry.mjs', 'story-worktree-preparation.mjs',
     'local-work-journal.mjs', 'history-index.mjs']],
   ['maintenance', ['first-run-pass.mjs', 'product-requirement.mjs', 'configuration-review-pass.mjs']],
+  ['reads', ['commands/inbox.mjs', 'commands/home.mjs', 'editor.mjs']],
   ['phases', ['commands/phase.mjs', 'commands/prepare.mjs', 'commands/inputs.mjs', 'commands/review-source.mjs',
     'commands/submit.mjs', 'commands/approve.mjs', 'commands/nextsteps-deferred.mjs']],
   ['models', ['commands/wm.mjs', 'commands/comprehension.mjs']]

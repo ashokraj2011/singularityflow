@@ -131,6 +131,7 @@ export async function load(url, context, next) {
     return { status: result.status, stdout: result.stdout, modules };
   };
   for (const args of [['--version'], ['help'], ['snapshot', '--include', 'repository', '--json'], ['nextsteps', '--json'],
+    ['home', '--json'], ['inbox', '--json'],
     ['agents', 'list', '--json'], ['agents', 'mappings', '--json'], ['agents', 'status', '--json'],
     ['workflow', 'list', '--json'], ['skill', 'list', '--json'], ['instruction', 'list', '--json'],
     ['start', 'BUNDLE-NEW-STORY', '--json'],
@@ -139,10 +140,19 @@ export async function load(url, context, next) {
     const source = await runWith(args, false);
     const bundled = await runWith(args, true);
     assert.equal(bundled.status, source.status, args.join(' '));
-    assert.equal(bundled.stdout, source.stdout, `${args.join(' ')} prints the same`);
+    if (['home', 'inbox'].includes(args[0])) {
+      // These issue read timestamps (and Home one-use selection handles). Every binding, action,
+      // outcome and effect still compares exactly; only these deliberately fresh values differ.
+      const stable = text => JSON.parse(text, (key, value) => {
+        if (key === 'handle' && /^sel_[a-f0-9]+$/u.test(value)) return '<one-use-selection>';
+        if (['asOf', 'generatedAt'].includes(key) && typeof value === 'string' && Number.isFinite(Date.parse(value))) return '<time-of-read>';
+        return value;
+      });
+      assert.deepEqual(stable(bundled.stdout), stable(source.stdout), `${args[0]} preserves its result apart from fresh read values`);
+    } else assert.equal(bundled.stdout, source.stdout, `${args.join(' ')} prints the same`);
     assert.ok(bundled.modules.length <= 28, `${args.join(' ')} opened ${bundled.modules.length} module files: ${bundled.modules.join(', ')}`);
     if (args[0] === '--version') assert.ok(bundled.modules.length <= 8, 'version only loads core');
-    if (['snapshot', 'nextsteps'].includes(args[0])) assert.ok(!bundled.modules.some(url => url.endsWith('/cold-compatibility.mjs')),
+    if (['snapshot', 'nextsteps', 'home', 'inbox'].includes(args[0])) assert.ok(!bundled.modules.some(url => url.endsWith('/cold-compatibility.mjs')),
       `${args[0]} must not load the general compatibility handler`);
     if (['agents', 'workflow', 'skill', 'instruction'].includes(args[0]) && ['list', 'mappings', 'status'].includes(args[1])) {
       for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs']) {

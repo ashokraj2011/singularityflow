@@ -90,6 +90,44 @@ in a follow-up qualification. The bridge's C# compiler is a test-only requiremen
 not a product dependency. Production object/integrity validation was not weakened.
 One pre-existing Windows symlink test is skipped where unsupported.
 
+### Cold utility follow-up
+
+Installed catalog handlers now have an explicit coarse `cold-catalogs` family rather
+than falling into the general compatibility dispatcher. Agent, workflow, skill and
+instruction lists retain their original services, approved configuration and pending
+draft notices. Their static bundle closure is limited to 5 MiB and cannot include
+the compatibility, model, intake, phase or hook-context families. The complete
+deployment remains at most 20 module files; shared engine modules keep one identity.
+Home, Inbox and editor definitions keep their separate general-read family. The
+small read/sync worker-helper families share a slot, never their entry programs.
+Package inspection is also lazy in the source skill router.
+
+The existing installation/VS Code runtime warmup additionally prepares catalog and
+phase definitions. It executes no command, model, worker program, repository scan or
+authority decision. The same selected executable, build and compile-cache environment
+are used; disabled caching, failed preparation and cancellation retain the ordinary
+command path. Preparation has a real cost: first-visible-request measurements after
+warmup report that cost separately, not as a cold-start speedup.
+
+`agents list`, `agents mappings` and `agents status` are explicit read operations.
+Agent creation, editing, trust locking, synchronization and output refresh keep the
+existing `agents` mutation operation, reset-visible lease and authority policy.
+Unknown actions cannot acquire read classification. No approval or publication gate
+is cached or relaxed.
+
+Compare against an already-combined baseline without counting the previous entry
+optimization twice:
+
+```sh
+node scripts/bench-utility-entry.mjs BASELINE RESULTS.json --combined-baseline --samples=3
+node scripts/bench-utility-entry.mjs BASELINE WARMED.json --combined-baseline --prewarm --samples=3
+```
+
+Each sample gets its own private V8 cache and three subsequent fresh processes;
+variant order alternates. Warmup runs before measurement on both sides and its
+duration is retained. The OS cache is not flushed, full agent JSON is used, and no
+native Copilot host/model latency or office-laptop antivirus policy is measured.
+
 ### Story operations
 
 - Every registered skill is audited; aliases delegate once to their canonical owner.

@@ -29,19 +29,24 @@ test('coarse families share one module identity and never import worker programs
       [id('commands/workflow-list.mjs'), { importedIds: [id('catalog-shared.mjs')], isExternal: false }],
       [id('catalog-shared.mjs'), { importedIds: [], isExternal: false }],
       [id('editor.mjs'), { importedIds: [id('catalog-shared.mjs')], isExternal: false }],
+      [id('configuration-proposal-sync-worker.mjs'), { importedIds: [id('sync-protocol.mjs')], isExternal: false }],
+      [id('sync-protocol.mjs'), { importedIds: [], isExternal: false }],
       [id('worker-protocol.mjs'), { importedIds: [], isExternal: false }]
     ]);
     const owners = coarseChunkAssignment(root, { getModuleIds: () => graph.keys(), getModuleInfo: key => graph.get(key) }, {
       cli: 'src/cli-bundle-entry.mjs', hook: 'src/copilot-hook-runtime.mjs',
-      worker: 'src/read-worker.mjs', history: 'src/history-index-worker.mjs'
+      worker: 'src/read-worker.mjs', history: 'src/history-index-worker.mjs',
+      sync: 'src/configuration-proposal-sync-worker.mjs'
     });
     assert.equal(owners.get(id('shared.mjs')), 'core');
     assert.equal(owners.get(id('worker-protocol.mjs')), 'worker-protocol');
     assert.equal(owners.get(id('commands/agents.mjs')), 'catalogs');
     assert.equal(owners.get(id('commands/workflow-list.mjs')), 'catalogs');
     assert.equal(owners.get(id('catalog-shared.mjs')), 'catalogs');
-    assert.equal(owners.get(id('editor.mjs')), 'compatibility', 'editing cannot enlarge the catalog family');
-    for (const program of ['cli-bundle-entry.mjs', 'copilot-hook-runtime.mjs', 'read-worker.mjs', 'history-index-worker.mjs']) {
+    assert.equal(owners.get(id('editor.mjs')), 'reads', 'editing cannot enlarge the catalog family');
+    assert.equal(owners.get(id('sync-protocol.mjs')), 'worker-protocol');
+    for (const program of ['cli-bundle-entry.mjs', 'copilot-hook-runtime.mjs', 'read-worker.mjs', 'history-index-worker.mjs',
+      'configuration-proposal-sync-worker.mjs']) {
       assert.equal(owners.has(id(program)), false, `${root}: ${program} remains private`);
     }
   }

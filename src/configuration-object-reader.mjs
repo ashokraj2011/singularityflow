@@ -15,6 +15,18 @@ const MAX_INVENTORIES = 128;
 const MAX_INVENTORY_BYTES = 4 * 1024 * 1024;
 const fail = message => { throw new SingularityFlowError(message, { code: 'CONFIGURATION_RECREATE_UNSAFE' }); };
 
+/** Text metadata may use Windows line endings; object bytes and identities remain exact. */
+export function parseConfigurationObjectChecks(output, oids) {
+  const rows = output.trimEnd().split(/\r?\n/u);
+  if (rows.length !== oids.length) fail('Incomplete configuration object inventory.');
+  return rows.map((row, index) => {
+    if (row === `${oids[index]} missing`) return oids[index];
+    const match = /^([a-f0-9]{40}|[a-f0-9]{64}) blob (\d+)$/u.exec(row);
+    if (!match || match[1] !== oids[index] || Number(match[2]) > MAX_BYTES) fail('Unsafe configuration object type or size.');
+    return null;
+  }).filter(Boolean);
+}
+
 function git(root, args, env, extra = {}) {
   return run('git', args, { cwd: root, env, timeoutMs: 15_000, maxBuffer: MAX_BYTES, ...extra });
 }
@@ -147,14 +159,7 @@ export class ConfigurationObjectReader {
     if (!oids.length) return [];
     this.seal();
     const output = git(this.root, ['cat-file', '--batch-check'], this.env, { input: oids.join('\n') + '\n' }).stdout;
-    const rows = output.trimEnd().split('\n');
-    if (rows.length !== oids.length) fail('Incomplete configuration object inventory.');
-    return rows.map((row, index) => {
-      if (row === `${oids[index]} missing`) return oids[index];
-      const match = /^([a-f0-9]{40}|[a-f0-9]{64}) blob (\d+)$/u.exec(row);
-      if (!match || match[1] !== oids[index] || Number(match[2]) > MAX_BYTES) fail('Unsafe configuration object type or size.');
-      return null;
-    }).filter(Boolean);
+    return parseConfigurationObjectChecks(output, oids);
   }
 
   async hydrate(entries) {

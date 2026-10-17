@@ -13,6 +13,12 @@ const FAMILIES = Object.freeze([
   ['light', ['commands/about.mjs', 'commands/pause.mjs', 'commands/workspace.mjs', 'commands/capability.mjs',
     'commands/intake-entry.mjs', 'commands/snapshot.mjs', 'agent-output.mjs',
     'commands/logs.mjs', 'commands/help.mjs', 'commands/explain.mjs']],
+  // Claim catalog definitions before authoring closures. Leaving these dynamic roots unassigned
+  // put every list/show in compatibility, importing the entire administration/model dispatcher.
+  // Reuse the former broad reads slot: editor/home/inbox stay lazy with their actual owners.
+  ['catalogs', ['commands/agents.mjs', 'commands/workflow.mjs', 'commands/workflow-list.mjs',
+    'commands/skill.mjs', 'commands/skill-master.mjs', 'commands/instruction.mjs', 'asset-catalog.mjs',
+    'configuration-drafts.mjs', 'logging.mjs', 'harness-events.mjs']],
   ['hook-context', ['commands/shared/session-repository-authority.mjs', 'agent-hooks.mjs',
     'accepted-story-execution.mjs', 'delivery-evidence.mjs', 'worktree-fingerprint.mjs']],
   ['status', ['read-worker-service.mjs', 'commands/status.mjs', 'commands/nextsteps.mjs', 'commands/progress.mjs']],
@@ -22,7 +28,6 @@ const FAMILIES = Object.freeze([
     'commands/story-entry.mjs', 'story-worktree-preparation.mjs',
     'local-work-journal.mjs', 'history-index.mjs']],
   ['maintenance', ['first-run-pass.mjs', 'product-requirement.mjs', 'configuration-review-pass.mjs']],
-  ['reads', ['commands/inbox.mjs', 'commands/home.mjs', 'editor.mjs']],
   ['phases', ['commands/phase.mjs', 'commands/prepare.mjs', 'commands/inputs.mjs', 'commands/review-source.mjs',
     'commands/submit.mjs', 'commands/approve.mjs', 'commands/nextsteps-deferred.mjs']],
   ['models', ['commands/wm.mjs', 'commands/comprehension.mjs']]

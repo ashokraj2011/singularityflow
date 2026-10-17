@@ -13,8 +13,8 @@
   ],
   "sites": {
     "scripts/bench-utility-entry.mjs": {
-      "counts": { "command-run": 3, "process-import": 1, "process-launch": 1 },
-      "digest": "abfcfa5cae7e09ae444b27f1caadbcc71d626afc75699bb0cbf7aa35bd05b36a"
+      "counts": { "command-run": 4, "process-import": 1, "process-launch": 1 },
+      "digest": "a80a1c76b463695cf3b468f8f0d02ab7fbb2280ffd3b92a7a562e8efcd34deb8"
     },
     "scripts/story-creation-benchmark.mjs": {
       "counts": { "command-git": 13, "process-import": 1, "process-launch": 1 },

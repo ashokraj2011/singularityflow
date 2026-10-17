@@ -104,7 +104,7 @@ test('performance-v2 source entry manifest enforces module ceilings and unrelate
 });
 
 test('utility catalogs do not statically import the legacy dispatcher, model runner or Studio authoring', async () => {
-  for (const entry of ['commands/agents.mjs', 'commands/workflow-list.mjs', 'commands/skill-master.mjs',
+  for (const entry of ['commands/agents.mjs', 'commands/workflow-list.mjs', 'commands/skill.mjs', 'commands/skill-master.mjs',
     'commands/instruction.mjs', 'asset-catalog.mjs']) {
     const names = [...await staticClosure('src/' + entry)]
       .map(file => path.relative(packageRoot, file).split(path.sep).join('/'));
@@ -112,6 +112,8 @@ test('utility catalogs do not statically import the legacy dispatcher, model run
       assert.ok(!names.includes(forbidden), `${entry} reaches ${forbidden}`);
     }
   }
+  const skill = [...await staticClosure('src/commands/skill.mjs')];
+  assert.ok(!skill.some(file => file.endsWith('/skp-package.mjs')), 'package inspection loads only for its requested action');
 });
 
 test('generator validation shares exact IDs with rendering without importing its Jira/source graph', async () => {

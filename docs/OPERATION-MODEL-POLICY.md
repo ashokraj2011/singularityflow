@@ -32,6 +32,9 @@ Every public operation is classified before its implementation module is importe
 | adhoc.sync | mutation | never | — | — |
 | agent | mutation | never | — | — |
 | agents | mutation | never | — | — |
+| agents.list | read | never | — | — |
+| agents.mappings | read | never | — | — |
+| agents.status | read | never | — | — |
 | appeal.attest | mutation | never | — | — |
 | appeal.checkpoint | mutation | never | — | — |
 | appeal.checkpoint-show | read | never | — | — |

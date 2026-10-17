@@ -86,6 +86,12 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   assert.ok(hookOutput.modules <= 650, `hook bundle: ${hookOutput.modules} modules`);
   assert.ok(cliStartup < 3 * 1024 * 1024, `CLI cold parse: ${cliStartup}`);
   assert.ok(hookStartup < 3 * 1024 * 1024, `hook cold parse: ${hookStartup}`);
+  const catalogClosure = closure('cold-catalogs.mjs');
+  assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5 * 1024 * 1024,
+    'catalog parsing stays bounded instead of pulling in the entire administration bundle');
+  for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
+    assert.ok(!catalogClosure.some(item => item.file === name), `catalogs must not statically reach ${name}`);
+  }
   const text = (await Promise.all(closure('cli.mjs').map(item => readFile(path.join(outdir, item.file), 'utf8')))).join('\n');
   assert.doesNotMatch(text, /node_modules\/(?:typescript|pyright|sql\.js|@agentclientprotocol)\//u, 'large or file-based packages stay external');
   assert.match(text, /\.\.\/src\/build-info\.mjs/u, 'the install stamp is read live from src/');
@@ -125,6 +131,8 @@ export async function load(url, context, next) {
     return { status: result.status, stdout: result.stdout, modules };
   };
   for (const args of [['--version'], ['help'], ['snapshot', '--include', 'repository', '--json'], ['nextsteps', '--json'],
+    ['agents', 'list', '--json'], ['agents', 'mappings', '--json'], ['agents', 'status', '--json'],
+    ['workflow', 'list', '--json'], ['skill', 'list', '--json'], ['instruction', 'list', '--json'],
     ['start', 'BUNDLE-NEW-STORY', '--json'],
     ['workflow', 'intent', 'preflight', '--source', 'installed', '--json'],
     ['workflow', 'markup', 'example', '--json']]) {
@@ -136,6 +144,11 @@ export async function load(url, context, next) {
     if (args[0] === '--version') assert.ok(bundled.modules.length <= 8, 'version only loads core');
     if (['snapshot', 'nextsteps'].includes(args[0])) assert.ok(!bundled.modules.some(url => url.endsWith('/cold-compatibility.mjs')),
       `${args[0]} must not load the general compatibility handler`);
+    if (['agents', 'workflow', 'skill', 'instruction'].includes(args[0]) && ['list', 'mappings', 'status'].includes(args[1])) {
+      for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs']) {
+        assert.ok(!bundled.modules.some(url => url.endsWith('/' + name)), `${args.join(' ')} must not load ${name}`);
+      }
+    }
     if (args[0] !== '--version') assert.ok(source.modules.length > 35, `${args.join(' ')} from the sources opened ${source.modules.length}`);
   }
 
@@ -148,6 +161,10 @@ export async function load(url, context, next) {
   if (preparation.prepared) {
     assert.equal(preparation.commandsExecuted, 0); assert.equal(preparation.modelsInvoked, 0);
     assert.ok(preparation.files.every(file => file.startsWith('cold-') && !file.includes('worker')));
+    assert.ok(preparation.files.includes('cold-catalogs.mjs'), 'prepares catalog definitions');
+    assert.ok(preparation.files.includes('cold-phases.mjs'), 'prepares phase definitions');
+    assert.ok(!warmed.modules.some(url => /\/(?:cold-compatibility|cold-models|read-worker|history-index-worker)\.mjs$/u.test(url)),
+      'warming definitions cannot start a worker or import the compatibility/model domain');
   } else assert.equal(preparation.reason, 'cache-or-bundle-unavailable', 'Node 20/disabled cache is optional');
   assert.equal(spawnSync('git', ['status', '--porcelain'], { cwd: repo, env, encoding: 'utf8' }).stdout, beforeWarm);
   for (const [action, payload] of [

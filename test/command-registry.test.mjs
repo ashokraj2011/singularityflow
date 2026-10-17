@@ -51,6 +51,23 @@ test('every registered SGOS subcommand has a closed option contract', () => {
   }
 });
 
+test('agent catalog reads have explicit model-free operations; every writer keeps its mutation lease', () => {
+  const catalog = new Map(operationCatalog().map(entry => [entry.id, entry]));
+  for (const action of ['list', 'mappings', 'status', 'create', 'edit', 'lock', 'sync', 'refresh-output']) {
+    const operation = resolveOperation({ requestedCommand: 'agents', positionals: ['agents', action], options: { json: true } });
+    const read = ['list', 'mappings', 'status'].includes(action);
+    assert.equal(operation.id, read ? `agents.${action}` : 'agents');
+    assert.equal(operation.classification, read ? 'read' : 'mutation');
+    assert.equal(operation.modelPolicy, 'never');
+    assert.deepEqual(catalog.get(operation.id), operation);
+    assert.equal(operation.output, 'human-or-json');
+  }
+  for (const action of ['lits', 'remove', undefined]) {
+    const unknown = resolveOperation({ requestedCommand: 'agents', positionals: ['agents', action], options: {} });
+    assert.equal(unknown.classification, 'mutation', 'an unknown action cannot acquire read permissions');
+  }
+});
+
 test('SGOS option strictness does not change non-SGOS operation resolution', () => {
   assert.equal(resolveOperation({
     requestedCommand: 'status',

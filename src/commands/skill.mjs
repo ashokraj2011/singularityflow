@@ -1,4 +1,3 @@
-import { inspectSkillPackage, skillInspectionView } from '../skp-package.mjs';
 import { commandResult, effects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { SingularityFlowError } from '../util.mjs';
@@ -106,7 +105,8 @@ export async function run(argv, { positionals, options, applyChangeSet, printRes
         { code: 'SKP_SKILL_MISSING' });
     }
     const source = options.source === undefined ? null
-      : await inspectSkillPackage(options.source, { skillId: positionals[2] });
+      : await import('../skp-package.mjs').then(({ inspectSkillPackage }) =>
+        inspectSkillPackage(options.source, { skillId: positionals[2] }));
     const diagnostic = diagnoseRetainedSkillPackage(retained, { source });
     // Only the accepted Story owner above proves provenance. The pure byte diagnostic does not.
     diagnostic.provenance = { status: 'verified-story-snapshot' };
@@ -119,6 +119,7 @@ export async function run(argv, { positionals, options, applyChangeSet, printRes
     }), { json: Boolean(options.json), restStateWhenIdle: 'informational' });
   }
   let capture;
+  const { inspectSkillPackage, skillInspectionView } = await import('../skp-package.mjs');
   if (subcommand === 'inspect') {
     capture = await inspectSkillPackage(positionals[2], { skillId: options['skill-id'] });
   } else {

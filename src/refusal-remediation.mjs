@@ -15,6 +15,7 @@ import {
   commandRouteLines, safeCommandGuidance, validateSafeSflowCommand
 } from './safe-command-guidance.mjs';
 import { projectGateRefusal } from './evidence/gate-refusal.mjs';
+import { parseArgs } from './util.mjs';
 
 const safeCommand = validateSafeSflowCommand;
 
@@ -494,6 +495,17 @@ function repairBudgetSteps(_argv, error) {
 }
 
 const KNOWN = Object.freeze({
+  SESSION_STATE_REFRESH_UNAVAILABLE: (argv, error) => {
+    const { options } = parseArgs(argv);
+    const selectors = ['workspace', 'repository', 'repository-url', 'configuration-url']
+      .flatMap(name => typeof options[name] === 'string' ? [`--${name}`, options[name]] : []);
+    const refresh = safeCommandGuidance({ argv: ['session', 'candidates', ...selectors, '--refresh', '--diagnostics', '--json'] });
+    return [step('inspect-state-transport',
+      error.details?.remoteFailure?.failure?.advice ?? 'Inspect the state-index Git error and deadline evidence. A timeout alone does not establish a DNS failure.',
+      null, 'diagnostic'), refresh && step('refresh-session-listing',
+      'After resolving the reported transport condition, explicitly refresh the same Story listing. A cached listing is advisory; do not scan application branches or weaken attachment checks.',
+      refresh.command, 'diagnostic')];
+  },
   WORKFLOW_CONFIGURATION_MISSING: missingConfigurationSteps,
   PHASE_INPUTS_NOT_READY: upstreamInputSteps,
   SPECIFICATION_INDEX_UNTRUSTED: upstreamInputSteps,
@@ -1096,6 +1108,11 @@ export function refusalDetails(details) {
   const field = (value) => typeof value === 'string' && value.length <= 256
     && /^(?:\$|[a-zA-Z_$][a-zA-Z0-9_$]*(?:\[\d+\]|\.[a-zA-Z_$][a-zA-Z0-9_$]*)*)$/u.test(value) ? value : null;
   const projected = {};
+  if (details.execution && typeof details.execution === 'object') projected.execution = compact({
+    step: text(details.execution.step), processCode: text(details.execution.processCode), signal: text(details.execution.signal),
+    timedOut: typeof details.execution.timedOut === 'boolean' ? details.execution.timedOut : null,
+    exitCode: Number.isInteger(details.execution.exitCode) ? details.execution.exitCode : null
+  });
   for (const key of ['workId', 'phase', 'currentPhase', 'operation']) if (text(details[key])) projected[key] = text(details[key]);
   const paths = list(details.paths, text);
   if (paths.length) projected.paths = paths;

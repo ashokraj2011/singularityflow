@@ -16,7 +16,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 13
+version: 14
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing repository state.
 
@@ -203,6 +203,7 @@ Copilot does not spend a model round trip on each step:
 
 ```bash
 singularity-flow session open --json
+singularity-flow session open --refresh --json
 singularity-flow session open <WORK-ID> --workspace <WORKSPACE> --repository <REPOSITORY-ID> --json
 ```
 
@@ -213,6 +214,35 @@ the two codes above, checks `session status` at the returned checkout (ready, th
 same agent), and returns the brief context and the next steps with `status: "ready"`. Each step
 is the same command in its own process, so a refusal keeps that step's code, message and
 recovery plan.
+
+Story listings share the repository-check preferences: `cached` defaults to 30 minutes, `always`
+refreshes each time, and `manual` retains the last complete listing until invalidation or explicit
+refresh. `SINGULARITY_FLOW_REPOSITORY_CHECK_INTERVAL_MINUTES` and
+`SINGULARITY_FLOW_REPOSITORY_CHECK_MODE` override these settings. Successful complete listings,
+including URL-only metadata listings, are machine-local advisory snapshots, not attachment or
+approval evidence. `--diagnostics --json` includes `listingSnapshot` with source, checked time, age
+and interval; a cache hit reports `fetched: false`. Plain JSON remains the legacy array and prints
+the cache notice on stderr. The table shows freshness above its rows.
+
+On first use, a complete locally retained state index can seed the advisory snapshot without
+waiting for a network fetch. Its source is `local`, `remoteCheckedAt` is null and `fetched` is false;
+local verification time is not presented as remote freshness. Absent or incomplete local metadata
+takes the normal remote path. Expired/corrupt snapshots, explicit refresh and `always` mode require
+the remote check rather than silently replacing it with this first-use path.
+
+Use `session candidates --refresh --diagnostics --json` with the same workspace/repository or URL
+selectors to force a refresh; `/sf-session --refresh` and `session open --refresh --json` do the same
+for the selection table. VS Code's explicit **Refresh Stories** bypasses the cache; background
+listing can reuse it. Changed local configuration, selection/manifest, refs or cache corruption
+cause a fresh check. Expired or failed refreshes never silently serve stale rows as fresh; a refused
+explicit refresh invalidates the older success. Opening a selected Story still revalidates through
+the uncached local-open/attach owner, and publish/submit/approval never use the listing cache.
+
+Failures retain the original structured refusal even when an inner command was requested as a
+human table. State-index refusals expose observation versus fetch stage, the classified Git cause,
+configured deadline when available, elapsed time and content-free exit/signal/timeout evidence.
+A timeout alone is not called a DNS failure. No branch scan or automatic retry substitutes for a
+failed state refresh.
 
 To use a clone already on the machine, run `sflow workspace adopt <DIRECTORY> --id <ID> --base <DIRECTORY> --dry-run --json`. Review its canonical path, origin, branch, worktrees, submodules, SFlow configuration, changed paths, and preservation list. A dirty clone requires the exact content-aware hash returned by the preview in `--confirm-dirty`; changing file bytes invalidates it. Adoption creates a separate workspace shell and never fetches, checks out, stashes, commits, resets, cleans, or edits the clone remote.
 

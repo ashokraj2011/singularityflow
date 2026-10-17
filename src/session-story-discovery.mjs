@@ -137,7 +137,7 @@ export async function discoverRemoteStoryCandidates(root, definition, {
     if (!authority.enabled) throw ledgerDisabledDiscoveryError(authority, error);
     throw new SingularityFlowError(
       `Story discovery requires the Flow Ledger state index on '${authority.branch}'. Refresh or reconcile the ledger; no application branches were scanned. ${error.message}`,
-      { code: error.code ?? 'SESSION_STATE_INDEX_UNAVAILABLE' }
+      { code: error.code ?? 'SESSION_STATE_INDEX_UNAVAILABLE', details: error.details, cause: error }
     );
   }
   const unavailable = [];

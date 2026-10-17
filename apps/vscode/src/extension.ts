@@ -5120,8 +5120,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     deferredDiscovery = null;
   };
   context.subscriptions.push({ dispose: cancelDeferredDiscovery });
-  const refreshRemoteStories = ({ afterCurrent = false, refreshSnapshot = true }: {
-    afterCurrent?: boolean; refreshSnapshot?: boolean;
+  const refreshRemoteStories = ({ afterCurrent = false, refreshSnapshot = true, force = true }: {
+    afterCurrent?: boolean; refreshSnapshot?: boolean; force?: boolean;
   } = {}): Promise<void> => {
     // Explicit Refresh/attachment/map actions never wait for the advisory post-start idle hint.
     cancelPostStartDiscoveryTimer();
@@ -5181,7 +5181,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             }>(['session', 'candidates', '--repository-url', entry.url,
               ...(entry.configurationUrl && entry.configurationUrl !== entry.url
                 ? ['--configuration-url', entry.configurationUrl] : []),
-              '--json', '--diagnostics']);
+              '--json', '--diagnostics', ...(force ? ['--refresh'] : [])]);
           }
           const verifiedRoot = await validateRepositoryDirectory(entry.absolutePath, {
             signal: extensionLifetime.signal
@@ -5210,7 +5210,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             items: Array<{ id: string; title: string; status: string; phase: string | null; branch: string | null }>;
             unavailableCount: number;
             unavailable: Array<{ code?: string; branch?: string | null; ref?: string | null; reason?: string }>;
-          }>(['session', 'candidates', '--json', '--diagnostics']);
+          }>(['session', 'candidates', '--json', '--diagnostics', ...(force ? ['--refresh'] : [])]);
         });
         if (!repositoryEpoch.isCurrent(scope)) return;
         workspaceStoryCatalog = catalog.stories;
@@ -5279,7 +5279,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         runCommand: 'singularityFlow.openWorkspaceLogs'
       }]);
     }
-    const discover = (): void => { void refreshRemoteStories({ refreshSnapshot: false }).catch((error) => {
+    const discover = (): void => { void refreshRemoteStories({ refreshSnapshot: false, force: false }).catch((error) => {
       if (isCliReadSuperseded(error)) return;
       if (repositoryEpoch.isCurrent(scope)) {
         output.appendLine(`Story discovery needs attention: ${(error as Error).message}`);

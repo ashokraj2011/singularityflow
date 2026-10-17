@@ -140,6 +140,7 @@ export function renderStoryRoster(result, {
     && selectedItem(item, result, activeSelection));
   add('# Story roster');
   add('');
+  if (result.listingSnapshot) add(`Listing: ${literal(result.listingSnapshot.source)}; checked ${literal(result.listingSnapshot.checkedAt)}; remote checked ${literal(result.listingSnapshot.remoteCheckedAt, 'unknown (local index)')}. Advisory only; attachment revalidates the selected Story. Refresh with --refresh.`);
   if (text(scope?.workspaceReference)) add(`Workspace selector: ${literal(scope.workspaceReference)}`);
   if (text(scope?.repositoryId)) add(`Repository selector: ${literal(scope.repositoryId)}`);
   if (text(scope?.repositoryUrl)) add(`Repository URL selector: ${literal(scope.repositoryUrl)}`);

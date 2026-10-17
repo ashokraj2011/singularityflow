@@ -163,6 +163,8 @@ test('a refusal printed for people still reaches the VS Code card as its structu
   assert.match(prose, /Singularity Flow error: Phase 'review' requires current Code evidence\./);
   assert.equal(prose.includes(REFUSAL_ENVELOPE_MARKER), false);
   assert.equal(envelope.resultType, 'sflow-refusal-plan');
+  assert.deepEqual(splitStructuredRefusal(stderr + '\nError: debug stack follows\n    at debug-only-frame').envelope, envelope,
+    'debug output must not hide a real structured refusal');
   assert.equal(envelope.error.details.gate.actions[0].command, 'singularity-flow reject review --to backend --repair --reason <REASON>');
 
   // The editor side: a text run asks for it, keeps the marker out of the Output channel, and the

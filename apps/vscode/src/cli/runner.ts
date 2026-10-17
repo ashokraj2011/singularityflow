@@ -1033,7 +1033,7 @@ export class RepositoryAuthorityUnavailableError extends Error {
   readonly repository: string;
   readonly failures: ReadonlyArray<{ remote: string; operation: 'ls-remote' | 'fetch' | 'verify'; reason: string }>;
   constructor(repository: string, failures: Array<{ remote: string; operation: 'ls-remote' | 'fetch' | 'verify'; reason: string }>) {
-    super('Singularity Flow configuration may exist on a remote branch, but its authority could not be read or verified. Check network and Git credentials, then retry; do not initialize over the existing authority.');
+    super('Cannot verify remote Singularity Flow configuration. Check Git access and retry; do not initialize over existing authority.');
     this.name = 'RepositoryAuthorityUnavailableError';
     this.repository = repository;
     this.failures = Object.freeze(failures.map((entry) => Object.freeze({ ...entry })));
@@ -1129,7 +1129,7 @@ export class CliTimeoutError extends Error {
       + 'The interrupted operation may have retained recoverable transaction state.';
     super(command
       ? `${summary}\n\nRun this exact command from a terminal:\n${command}`
-      : `${summary}\n\nThis invocation carried ephemeral authorization and cannot be safely replayed. Return to Continue safely and authorize a fresh action.`);
+      : `${summary}\n\nEphemeral authorization cannot be safely replayed. Use Continue safely to authorize a fresh action.`);
     this.name = 'CliTimeoutError';
     this.timeoutMs = timeoutMs;
     this.terminalCommand = command;
@@ -1709,7 +1709,10 @@ export function splitStructuredRefusal(stderr: string): { prose: string; envelop
   const at = stderr.lastIndexOf(REFUSAL_ENVELOPE_MARKER);
   if (at < 0) return { prose: stderr, envelope: null };
   let envelope: unknown = null;
-  try { envelope = JSON.parse(stderr.slice(at + REFUSAL_ENVELOPE_MARKER.length).trim()); } catch { envelope = null; }
+  const tail = stderr.slice(at + REFUSAL_ENVELOPE_MARKER.length).trim();
+  try { envelope = JSON.parse(tail); } catch {
+    try { envelope = JSON.parse(tail.split(/\r?\n/u)[0] ?? ''); } catch { envelope = null; }
+  }
   return { prose: stderr.slice(0, at).replace(/\s+$/u, '\n'), envelope };
 }
 
@@ -2079,7 +2082,7 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
         reportTiming('success', code);
         succeed(value);
       } catch {
-        fail(new Error(`The CLI returned data this extension could not read: ${safeDisplayDiagnosticText(stdout.slice(0, 500))}`));
+        fail(new Error(`SFlow could not read CLI response: ${safeDisplayDiagnosticText(stdout.slice(0, 500))}`));
       }
     }
 

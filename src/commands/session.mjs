@@ -146,6 +146,8 @@ export async function exactStoryMetadataAtRef(root, remote, item, expectedCommit
 }
 
 export async function printSessionCandidateResult(discovered, options, scope = {}) {
+  if (discovered.listingSnapshot?.source === 'cache' && !optionBoolean(options, 'table')) console.error(
+    `Using cached Story listing checked at ${discovered.listingSnapshot.checkedAt}; attachment revalidates the selected Story. Use --refresh for a fresh listing.`);
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(
     optionBoolean(options, 'diagnostics') ? discovered : discovered.items, null, 2
   ));
@@ -162,6 +164,28 @@ export async function printSessionCandidateResult(discovered, options, scope = {
 }
 
 export async function sessionCommand(positionals, options) {
+  if (positionals[1] === 'candidates') {
+    const agentEntry = options['for-agent'] != null ? await import('../session-agent-entry.mjs') : null;
+    const paused = agentEntry?.sessionAgentEntryGuard(positionals, options);
+    if (paused) return console.log(JSON.stringify(paused));
+    const { sessionListingSnapshot } = await import('../session-listing-cache.mjs');
+    const render = (discovered, _options, scope) => ({ discovered, scope });
+    const packet = await sessionListingSnapshot(positionals, options, async ({ allowLocal = false } = {}) => {
+      if (allowLocal && !optionString(options, 'repository-url')) {
+        try {
+          const local = await sessionCommandUncached(positionals, options, render, { localListing: true });
+          if (local?.discovered && !local.discovered.unavailableCount && !local.discovered.unavailable?.length) return local;
+        } catch { /* First use only: absent/incomplete local metadata takes the normal remote path. */ }
+      }
+      return sessionCommandUncached(positionals, options, render);
+    });
+    if (!packet?.discovered) return packet;
+    return printSessionCandidateResult(packet.discovered, options, packet.scope);
+  }
+  return sessionCommandUncached(positionals, options);
+}
+
+async function sessionCommandUncached(positionals, options, renderCandidates = printSessionCandidateResult, { localListing = false } = {}) {
   if (positionals[1] === 'open-local') return (await import('./session-open-local.mjs')).openLocalSessionCommand(positionals, options);
   const agentEntry = options['for-agent'] != null ? await import('../session-agent-entry.mjs') : null;
   const paused = agentEntry?.sessionAgentEntryGuard(positionals, options);
@@ -197,7 +221,7 @@ export async function sessionCommand(positionals, options) {
       { code: 'SESSION_REMOTE_URL_COMMAND_INVALID' }
     );
     const discovered = await discoverRemoteStoryCandidatesByUrl(repositoryUrl, { configurationUrl });
-    return printSessionCandidateResult(discovered, options, { repositoryUrl });
+    return renderCandidates(discovered, options, { repositoryUrl });
   }
   if (subcommand === 'workspace') {
     const registry = workspaceRegistryFile();
@@ -455,8 +479,9 @@ export async function sessionCommand(positionals, options) {
     console.log(`Selected Story ${workId} at ${result.repositoryPath}. No Git state was changed.`);
     return result;
   }
-  let resolved = await resolveSessionRepository({ workspaceReference, repositoryId: selectedRepositoryId, remoteProbe: subcommand !== 'context' });
+  let resolved = await resolveSessionRepository({ workspaceReference, repositoryId: selectedRepositoryId, remoteProbe: !localListing && subcommand !== 'context' });
   let root = resolved.root;
+  if (localListing && !root) throw new SingularityFlowError('No materialized local Story state index.', { code: 'SESSION_LOCAL_INDEX_UNAVAILABLE' });
   let preflightStory = null;
   if (!root && resolved.workspaceContext && ['candidates', 'attach'].includes(subcommand)) {
     const context = resolved.workspaceContext;
@@ -465,7 +490,7 @@ export async function sessionCommand(positionals, options) {
       configurationUrl: authority.configurationUrl
     });
     if (subcommand === 'candidates') {
-      return printSessionCandidateResult(discovered, options, {
+      return renderCandidates(discovered, options, {
         workspaceReference: workspaceReference ?? context.workspacePath,
         repositoryId: selectedRepositoryId ?? context.repositoryId
       });
@@ -579,8 +604,8 @@ export async function sessionCommand(positionals, options) {
     return;
   }
   if (subcommand === 'candidates') {
-    const discovered = await discoverRemoteStoryCandidates(root, config, { remote: discovery.remote });
-    return printSessionCandidateResult(discovered, options, {
+    const discovered = await discoverRemoteStoryCandidates(root, config, { remote: discovery.remote, fetch: !localListing });
+    return renderCandidates(discovered, options, {
       workspaceReference: workspaceReference ?? resolved.workspaceContext?.workspacePath ?? null,
       repositoryId: selectedRepositoryId ?? resolved.workspaceContext?.repositoryId ?? null
     });

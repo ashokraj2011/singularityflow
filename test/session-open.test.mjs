@@ -17,6 +17,17 @@ function completeAgentResult(text) {
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
+function semanticProjection(value) {
+  const copy = structuredClone(value);
+  if (copy.repositoryChecks) {
+    const { checkedAt, ageMs } = copy.repositoryChecks;
+    if (checkedAt !== undefined) assert.ok(Number.isFinite(Date.parse(checkedAt)), 'real check timestamp');
+    if (ageMs !== undefined) assert.ok(Number.isFinite(ageMs) && ageMs >= 0, 'real nonnegative observation age');
+    delete copy.repositoryChecks.checkedAt; delete copy.repositoryChecks.ageMs;
+  }
+  return copy;
+}
+
 test('session open lists the Stories without an ID and opens one with its status, context and next steps in one command', { timeout: 300_000 }, async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-session-open-'));
   t.after(() => rm(base, { recursive: true, force: true }));
@@ -80,7 +91,7 @@ test('session open lists the Stories without an ID and opens one with its status
   });
   assert.equal(legacy.status, 0, legacy.stderr);
   const reference = JSON.parse(legacy.stdout);
-  for (const key of ['session', 'context', 'nextsteps']) assert.deepEqual(opened[key], reference[key], `${key} projection must retain the isolated reference result`);
+  for (const key of ['session', 'context', 'nextsteps']) assert.deepEqual(semanticProjection(opened[key]), semanticProjection(reference[key]), `${key} projection must retain the isolated reference result`);
 
   const counted = must(process.execPath, [cli, 'session', 'open', 'OPEN-1', '--json', '--timings']);
   assert.match(counted.stderr, /session\.snapshot\.state-loads=1(?:\s|$)/u);
@@ -96,7 +107,7 @@ test('session open lists the Stories without an ID and opens one with its status
       });
       assert.equal(measured.status, 0, measured.stdout + measured.stderr);
       assert.equal(JSON.parse(measured.stdout).localOnly, true);
-      for (const key of ['session', 'context', 'nextsteps']) assert.deepEqual(JSON.parse(measured.stdout)[key], reference[key]);
+      for (const key of ['session', 'context', 'nextsteps']) assert.deepEqual(semanticProjection(JSON.parse(measured.stdout)[key]), semanticProjection(reference[key]));
       physicalProcesses[mode] = await physical.counts(measured.pid);
       assert.equal(physicalProcesses[mode].nodeChildren, 1, 'only the existing isolated local-open mutation may spawn Node');
     }
@@ -110,7 +121,7 @@ test('session open lists the Stories without an ID and opens one with its status
       const elapsed = performance.now() - started;
       assert.equal(measured.status, 0, measured.stdout + measured.stderr);
       assert.equal(JSON.parse(measured.stdout).localOnly, true);
-      for (const key of ['session', 'context', 'nextsteps']) assert.deepEqual(JSON.parse(measured.stdout)[key], reference[key]);
+      for (const key of ['session', 'context', 'nextsteps']) assert.deepEqual(semanticProjection(JSON.parse(measured.stdout)[key]), semanticProjection(reference[key]));
       if (sample >= 5) timings[mode].push({ durationMs: elapsed, outputBytes: Buffer.byteLength(measured.stdout),
         calls: /subprocesses:\s+(\d+)\s+calls/u.test(measured.stderr) ? Number(/subprocesses:\s+(\d+)\s+calls/u.exec(measured.stderr)[1]) : null,
         moduleLoadMs: Number(/module-load=(\d+(?:\.\d+)?)ms/u.exec(measured.stderr)?.[1]) || null,

@@ -650,6 +650,25 @@ export function failureEvidence(result) {
   });
 }
 
+/** Closed transport evidence for a state-index refusal; never copy raw provider output. */
+export function stateRefreshError(config, stage, result = {}, { elapsedMs = null, failure = result?.failure, deadlineMs = result?.timeoutMs } = {}) {
+  result ??= {};
+  const diagnosed = failure ?? classifyGitRemoteFailure(result);
+  const branch = redactDiagnosticText(String(config.branch)).slice(0, 256);
+  const evidence = failureEvidence(result);
+  const timeoutMs = Number.isFinite(deadlineMs) ? deadlineMs : null;
+  const remoteFailure = { operation: 'state-index-refresh', stage, branch,
+    failure: { code: diagnosed.code, classification: diagnosed.classification,
+      retryable: diagnosed.retryable === true, advice: diagnosed.advice },
+    evidence, timeoutMs, processTimeoutMs: Number.isFinite(result.timeoutMs) ? result.timeoutMs : null,
+    elapsedMs: Number.isFinite(elapsedMs) ? Math.round(elapsedMs) : null };
+  return new SingularityFlowError(
+    `Could not refresh the Story state index on '${branch}' during ${stage}: ${diagnosed.code}`
+    + (evidence.timedOut ? ` (Git deadline exceeded${timeoutMs == null ? '' : `; ${timeoutMs} ms`})` : '')
+    + `. ${diagnosed.advice ?? 'Inspect the Git transport diagnostic before retrying.'} Cached state was not accepted as fresh.`,
+    { code: 'SESSION_STATE_REFRESH_UNAVAILABLE', details: { remoteFailure } });
+}
+
 function gitExecutableUnavailable(result, output, cwdAvailable) {
   if (result?.error?.code === 'ENOENT' && cwdAvailable !== false) return true;
   if (/\bWindows (?:could not resolve a native git\.exe from PATH|Git must be a trusted absolute git\.exe or a PATH-resolved git\.exe)\b/i.test(output)) return true;

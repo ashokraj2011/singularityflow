@@ -10,7 +10,7 @@ import { mkdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { serialize, deserialize } from 'node:v8';
 import path from 'node:path';
 import { freshGitFactsRequired, gitFactCheckout, gitFactFingerprint, gitFactRequest, gitFactSnapshot } from './git-fact-cache.mjs';
-import { repositoryCheckKey, repositoryCheckSettings } from './repository-check-settings.mjs';
+import { repositoryCheckKey, repositoryCheckSettings, repositoryCheckPreferencesFile } from './repository-check-settings.mjs';
 import { operationContext } from './operation-context.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { BUILD_INFO } from './build-info.mjs';
@@ -24,7 +24,7 @@ const pending = new Map();
 const ROUTINE = new Set(['phase.enter', 'phase.enter.compose', 'nextsteps', 'session.open',
   'session.open-local', 'session.current', 'session.status', 'session.context', 'check']);
 const PRESENTATION_ENV = new Set(['_', 'SHLVL', 'NODE_COMPILE_CACHE', 'SINGULARITY_FLOW_AGENT_OUTPUT',
-  'SINGULARITY_FLOW_OUTPUT_TIMING', 'SINGULARITY_FLOW_PROGRESS']);
+  'SINGULARITY_FLOW_OUTPUT_TIMING', 'SINGULARITY_FLOW_PROGRESS', 'SINGULARITY_FLOW_REFUSAL_ENVELOPE']);
 const HOST_ENV = /^(?:GIT_|SINGULARITY_FLOW_|LC_|PATH$|HOME$|USERPROFILE$|HOMEDRIVE$|HOMEPATH$|XDG_CONFIG_HOME$|LANG$|DEVELOPER_DIR$|SYSTEMROOT$|PROGRAMDATA$|COMSPEC$)/iu;
 
 export function routineRepositoryChecksAllowed() {
@@ -91,13 +91,13 @@ function readCache(file, key, stamp, settings, now) {
 }
 
 /** No Git processes: reuse the existing cross-platform HEAD/config/object visibility observers. */
-function dependencyStamp(root, files, env, advisoryPreview = false) {
+function dependencyStamp(root, files, env, advisoryPreview = false, metadataOnly = false, directory = cacheDirectory(root)) {
   const request = gitFactRequest(advisoryPreview ? ['rev-parse', 'HEAD'] : ['log', '--format=%H', 'HEAD', '--', '.'], { cwd: root, env });
-  const observed = gitFactSnapshot(request);
+  const observed = metadataOnly ? new Map() : gitFactSnapshot(request);
   if (!observed || [...observed.values()].some(value => value === null)) return null;
   const checkout = gitFactCheckout(root);
-  for (const file of [path.join(checkout.gitDir, 'index'),
-    path.join(checkout.gitDir, 'singularity-flow', 'cache', 'repository-checks', 'refresh'),
+  for (const file of [...(metadataOnly ? [] : [path.join(checkout.gitDir, 'index')]),
+    path.join(directory, 'refresh'),
     ...files]) {
     const stamp = gitFactFingerprint(file);
     if (stamp === null) return null;
@@ -143,10 +143,20 @@ export async function cachedStoryIntakeCatalog(root, { identity, files = [], env
       && !value.unreachable?.length && !value.intake.workflowReason && !value.intake.workflowCatalogReason }, verify);
 }
 
-async function cachedCheck(root, { kind, identity, files, env, settingsRoot = root, accept = () => true }, verify) {
+/** Browsing only, including metadata-only workspace repositories. Never an attachment proof. */
+export async function cachedSessionListing(root, { identity, files = [], env = process.env, settingsRoot = root }, verify) {
+  return cachedCheck(root, { kind: 'session-listing', identity, files, env, settingsRoot, metadataOnly: true,
+    storageDirectory: path.join(path.dirname(repositoryCheckPreferencesFile(env)), 'cache', 'session-listings'),
+    partition: repositoryCheckKey(identity), firstReadLocal: true,
+    accept: value => Array.isArray(value?.discovered?.items) && value.discovered.count === value.discovered.items.length
+      && !value.discovered.unavailableCount && !value.discovered.unavailable?.length }, verify);
+}
+
+async function cachedCheck(root, { kind, identity, files, env, settingsRoot = root, accept = () => true,
+  metadataOnly = false, storageDirectory = null, partition = null, firstReadLocal = false }, verify) {
   const settings = repositoryCheckSettings(settingsRoot, { env });
-  const advisoryPreview = kind === 'story-readiness-preview' || kind === 'story-intake-catalog';
-  const directory = cacheDirectory(root);
+  const advisoryPreview = metadataOnly || kind === 'story-readiness-preview' || kind === 'story-intake-catalog';
+  const directory = storageDirectory ?? cacheDirectory(root);
   const forced = Boolean(refresh.getStore() || freshGitFactsRequired());
   // Invalidate the old observation before an explicit check. If that check refuses, the next
   // routine entry must not silently resurrect the successful observation it just disproved.
@@ -173,8 +183,10 @@ async function cachedCheck(root, { kind, identity, files, env, settingsRoot = ro
     // Includes machine/environment inputs without writing credentials or raw environment values.
     environment: repositoryCheckKey(Object.entries(env).filter(([name]) => HOST_ENV.test(name) && !PRESENTATION_ENV.has(name))
       .sort(([a], [b]) => a.localeCompare(b))) });
-  const stamp = directory ? dependencyStamp(root, files, env, advisoryPreview) : null;
-  const file = directory ? path.join(directory, `${repositoryCheckKey({ kind, runtime })}.json`) : null;
+  const stamp = directory ? dependencyStamp(root, files, env, advisoryPreview, metadataOnly, directory) : null;
+  const file = directory ? path.join(directory, `${repositoryCheckKey({ kind, runtime, ...(partition ? { partition } : {}) })}.json`) : null;
+  let missing = false;
+  try { if (file) lstatSync(file); } catch (error) { missing = error.code === 'ENOENT'; }
   const cached = !forced && settings.mode !== 'always' && stamp
     ? readCache(file, key, stamp, settings, Date.now()) : null;
   if (cached) {
@@ -187,10 +199,10 @@ async function cachedCheck(root, { kind, identity, files, env, settingsRoot = ro
   if (pending.has(pendingKey)) return deserialize(serialize(await pending.get(pendingKey)));
   const compute = async () => {
     incrementCommandCounter('repository-checks.refreshes');
-    const value = await verify();
+    const value = firstReadLocal ? await verify({ allowLocal: missing && !forced && settings.mode !== 'always' }) : await verify();
     const checkedAt = Date.now();
     observe(root, settings, 'fresh', checkedAt, stamp ? null : 'Dependency observation unavailable; verification was fresh.');
-    if (!accept(value) || !stamp || dependencyStamp(root, files, env, advisoryPreview) !== stamp) return value;
+    if (!accept(value) || !stamp || dependencyStamp(root, files, env, advisoryPreview, metadataOnly, directory) !== stamp) return value;
     let temporary;
     try {
       if (typeof value?.bytes === 'number' && value.bytes > MAXIMUM_PAYLOAD_BYTES) return value;

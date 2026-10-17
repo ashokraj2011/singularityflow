@@ -83,6 +83,7 @@ function skillRouteForCommand(command, skill, fallback) {
       && !['/sf-approve', '/sf-worldmodel', '/sf-review-source', '/sf-appeal', '/sf-publish'].includes(directCopilotSkillId(explicit))) return explicit;
   const selected = directCopilotSkillId(explicit) ?? explicit ?? copilotSkillForCommand(command, fallback);
   const value = String(command ?? '').trim();
+  if (selected === '/sf-session' && / --refresh(?: |$)/u.test(value)) return '/sf-session --refresh';
   const publication = value.match(/^(?:singularity-flow|sflow)\s+phase\s+publish\s+([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\s|$)/u);
   if (publication) return `/sf-publish ${publication[1]}`;
   const disposition = !/[\u0000-\u001f\u007f]/u.test(value)

@@ -19,7 +19,7 @@ import {
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { LIFECYCLE_EVENT_TYPES } from './lifecycle-event.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
+import { GitRemoteSession, runRemoteGitAsync, gitRemoteProbeTimeout } from './git-execution.mjs';
 import { observePublicationHookEffects } from './git-hook-effects.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { storyPointersFromLedger } from './story-state-index.mjs';
@@ -27,7 +27,7 @@ import { compactCanonicalJson } from './records.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import {
   configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport,
-  safeGitDiagnosticReference
+  safeGitDiagnosticReference, stateRefreshError
 } from './git-remote-diagnostics.mjs';
 
 export const LEDGER_SCHEMA_VERSION = currentSchemaVersion('ledger-entry');
@@ -601,7 +601,7 @@ function forgetLedgerRemoteView(config) {
 
 /** Async initialization-only counterpart: onboarding must never block the extension event loop. */
 async function ensureRemoteBranchFetchedAsync(root, config, {
-  offline = false, env = process.env, transportRemote = undefined, requireFetch = false
+  offline = false, env = process.env, transportRemote = undefined, requireFetch = false, requireFresh = false, runGit = runRemoteGitAsync
 } = {}) {
   if (!hasRemoteInEnvironment(root, config.remote, env)) return LEDGER_REMOTE_VIEW.NO_REMOTE;
   if (offline) return LEDGER_REMOTE_VIEW.NOT_CHECKED;
@@ -626,7 +626,7 @@ async function ensureRemoteBranchFetchedAsync(root, config, {
       observed = { status: 'observed', commit: viewed, timedOut: false, transport, viewed: true };
     }
   }
-  observed ??= await observeRemoteBranch(root, config, { env, transportRemote });
+  observed ??= await observeRemoteBranch(root, config, { env, transportRemote, runGit });
   if (views && !observed.viewed && observed.status === 'observed' && observed.commit && observed.transport) {
     views.set(`${observed.transport.remote}\0${config.branch}`, observed.commit.toLowerCase());
   }
@@ -639,6 +639,10 @@ async function ensureRemoteBranchFetchedAsync(root, config, {
     );
   }
   if (observed.status !== 'observed' || !observed.commit) {
+    if (requireFresh && observed.refreshError) throw observed.refreshError;
+    if (requireFresh && observed.status === 'observed') throw new SingularityFlowError(
+      `The remote did not advertise the Story state-index branch '${config.branch}'. Review ledger initialization or repair; application branches were not scanned.`,
+      { code: 'SESSION_STATE_INDEX_UNAVAILABLE' });
     return observed.timedOut
       ? LEDGER_REMOTE_VIEW.TIMEOUT_CACHED : LEDGER_REMOTE_VIEW.OFFLINE_CACHED;
   }
@@ -656,18 +660,20 @@ async function ensureRemoteBranchFetchedAsync(root, config, {
   if (observed.viewed) {
     // The tracked commit is not local after all. Never fetch against a view: observe afresh.
     views.delete(`${observed.transport.remote}\0${config.branch}`);
-    return ensureRemoteBranchFetchedAsync(root, config, { offline, env, transportRemote, requireFetch });
+    return ensureRemoteBranchFetchedAsync(root, config, { offline, env, transportRemote, requireFetch, requireFresh, runGit });
   }
   // Fetch only into FETCH_HEAD. A configured refspec—or Git's ordinary destination handling—must
   // not dereference and mutate the tracking ref before its exact old-value lease is checked.
   const frozen = frozenRemoteTransport(observed.transport.remote, { env: observed.transport.env });
-  const fetched = await runRemoteGitAsync([
+  const fetchStarted = performance.now();
+  const fetched = await runGit([
     'fetch', '--no-tags', '--refmap=', frozen.remote,
     `refs/heads/${config.branch}`
   ], {
     cwd: root, operation: 'remote-configuration', env: frozen.env
   });
   if (fetched.status !== 0) {
+    if (requireFresh) throw stateRefreshError(config, 'fetch', fetched, { elapsedMs: performance.now() - fetchStarted });
     return fetched.timedOut
       ? LEDGER_REMOTE_VIEW.TIMEOUT_CACHED : LEDGER_REMOTE_VIEW.OFFLINE_CACHED;
   }
@@ -1089,7 +1095,7 @@ async function assertGuardedRemoteRefsCurrent(worktree, config, guards, phase, {
 }
 
 async function observeRemoteBranch(worktree, config, {
-  env = process.env, transportRemote = undefined
+  env = process.env, transportRemote = undefined, runGit = runRemoteGitAsync
 } = {}) {
   const transport = ledgerFetchTransport(worktree, config, { env, transportRemote });
   if (!transport) {
@@ -1097,12 +1103,14 @@ async function observeRemoteBranch(worktree, config, {
   }
   const session = new GitRemoteSession({
     env: transport.env,
-    runAsyncCommand: (args, options) => runRemoteGitAsync(args, {
+    runAsyncCommand: (args, options) => runGit(args, {
       ...options, cwd: worktree
     })
   });
+  const observeStarted = performance.now();
+  const timeoutMs = gitRemoteProbeTimeout(transport.remote, transport.env);
   const observed = await session.observeAsync(transport.remote, {
-    includeHead: false, refs: [`refs/heads/${config.branch}`], refresh: true
+    includeHead: false, refs: [`refs/heads/${config.branch}`], refresh: true, timeoutMs
   });
   if (!observed.ok) {
     if (observed.failure?.code === 'REMOTE_SYMBOLIC_REF_UNSUPPORTED') {
@@ -1116,6 +1124,8 @@ async function observeRemoteBranch(worktree, config, {
       commit: null,
       timedOut: observed.timedOut === true,
       transport,
+      refreshError: stateRefreshError(config, 'observation', observed.result, {
+        elapsedMs: performance.now() - observeStarted, failure: observed.failure, deadlineMs: timeoutMs }),
       detail: safeGitDiagnosticReference(observed.result, 'State branch observation failed')
     };
   }
@@ -3175,8 +3185,8 @@ function readRefFile(root, ref, file) {
  *
  * Writers keep `temporaryWorktree`, which they genuinely need — they commit. Readers never did.
  */
-async function ledgerRefSnapshot(root, config, callback, { offline = false, requireFresh = false } = {}) {
-  const remoteView = await ensureRemoteBranchFetchedAsync(root, config, { offline });
+async function ledgerRefSnapshot(root, config, callback, { offline = false, requireFresh = false, runGit = runRemoteGitAsync } = {}) {
+  const remoteView = await ensureRemoteBranchFetchedAsync(root, config, { offline, requireFresh, runGit });
   if (requireFresh && !offline && remoteView !== LEDGER_REMOTE_VIEW.REFRESHED) {
     throw new SingularityFlowError('The remote Story state index could not be refreshed. Cached state was not presented as a fresh Story roster.', {
       code: 'SESSION_STATE_REFRESH_UNAVAILABLE'
@@ -3654,12 +3664,12 @@ export async function ledgerLog(root, rawConfig, { limit = 20, offline = false }
 }
 
 /** Read the complete reachable Story roster from one exact state authority, not all code refs. */
-export async function ledgerStoryPointers(root, rawConfig, { offline = false } = {}) {
+export async function ledgerStoryPointers(root, rawConfig, { offline = false, runGit = runRemoteGitAsync } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   return ledgerRefSnapshot(root, config, (snapshot) => ({
     ref: snapshot.ref,
     items: storyPointersFromLedger(snapshot.head, snapshot.tree('ledger/entries'))
-  }), { offline, requireFresh: true });
+  }), { offline, requireFresh: true, runGit });
 }
 
 export async function ledgerShow(root, rawConfig, hashOrEventId) {

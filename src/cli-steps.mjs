@@ -13,6 +13,7 @@ import { resolveOperation } from './command-registry.mjs';
 import { withoutReadScope } from './read-scope.mjs';
 import { withoutConfigurationReadScope } from './configuration-read-scope.mjs';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
+import { capturedStepResult, stepFailureSummary, stepRefusal } from './cli-step-result.mjs';
 
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../bin/singularity-flow.mjs');
 
@@ -22,11 +23,9 @@ function processStep(args, cwd) {
   const model = operationContext()?.modelMode?.enabled === false && !args.includes('--no-model') ? ['--no-model'] : [];
   // A step's result is read whole by the command that ran it; only that command's own output is bounded.
   const child = spawnSync(process.execPath, [CLI, ...model, ...args], {
-    cwd, env: { ...process.env, SINGULARITY_FLOW_AGENT_OUTPUT: 'raw' }, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 30 * 60 * 1000
+    cwd, env: { ...process.env, SINGULARITY_FLOW_AGENT_OUTPUT: 'raw', SINGULARITY_FLOW_REFUSAL_ENVELOPE: 'stderr-v1' }, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 30 * 60 * 1000
   });
-  let value = null;
-  try { value = JSON.parse(child.stdout); } catch { value = null; }
-  return { ok: child.status === 0, status: child.status, value, stdout: child.stdout, stderr: child.stderr };
+  return capturedStepResult(child);
 }
 
 const READ_STEPS = new Set([
@@ -51,6 +50,8 @@ async function readStep(args, cwd) {
   const previousStarted = globalThis.__SINGULARITY_FLOW_PROCESS_STARTED_AT;
   const previousDepth = globalThis.__SINGULARITY_FLOW_CLI_STEP_DEPTH ?? 0;
   const out = process.stdout.write, err = process.stderr.write;
+  const presentation = Object.fromEntries(['SINGULARITY_FLOW_AGENT_OUTPUT', 'SINGULARITY_FLOW_REFUSAL_ENVELOPE']
+    .map(key => [key, process.env[key]]));
   const chunks = { stdout: [], stderr: [] }, sizes = { stdout: 0, stderr: 0 };
   const capture = name => function(chunk, encoding, callback) {
     const bytes = Buffer.isBuffer(chunk) ? Buffer.from(chunk) : Buffer.from(chunk, typeof encoding === 'string' ? encoding : 'utf8');
@@ -64,6 +65,8 @@ async function readStep(args, cwd) {
   let status = 0;
   try {
     process.chdir(cwd); process.exitCode = undefined;
+    process.env.SINGULARITY_FLOW_AGENT_OUTPUT = 'raw';
+    process.env.SINGULARITY_FLOW_REFUSAL_ENVELOPE = 'stderr-v1';
     globalThis.__SINGULARITY_FLOW_PROCESS_STARTED_AT = process.hrtime.bigint();
     globalThis.__SINGULARITY_FLOW_CLI_STEP_DEPTH = previousDepth + 1;
     process.stdout.write = capture('stdout'); process.stderr.write = capture('stderr');
@@ -83,11 +86,12 @@ async function readStep(args, cwd) {
     globalThis.__SINGULARITY_FLOW_PROCESS_STARTED_AT = previousStarted;
     globalThis.__SINGULARITY_FLOW_CLI_STEP_DEPTH = previousDepth;
     process.chdir(previousCwd);
+    for (const [key, value] of Object.entries(presentation)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
   }
   const stdout = Buffer.concat(chunks.stdout).toString('utf8'), stderr = Buffer.concat(chunks.stderr).toString('utf8');
-  let value = null;
-  try { value = JSON.parse(stdout); } catch { /* Human table output is intentionally not JSON. */ }
-  return { ok: status === 0, status, value, stdout, stderr };
+  return capturedStepResult({ status, stdout, stderr });
 }
 
 /** Serialize captured reads; every step keeps a fresh operation context and its exact refusal. */
@@ -114,14 +118,16 @@ export async function step(args, cwd) {
  */
 export function stop(result, label, code = 'CLI_STEP_FAILED') {
   const exitCode = Number.isInteger(result.status) && result.status !== 0 ? result.status : 1;
-  const relayed = result.value && typeof result.value === 'object' && !Array.isArray(result.value) ? result.value : null;
+  const relayed = stepRefusal(result);
   const error = relayed?.error
     ? new SingularityFlowError(relayed.error.message ?? `${label} was refused.`, {
       code: relayed.error.code ?? 'CLI_STEP_REFUSED', exitCode,
       details: { step: label, ...(relayed.error.details ?? {}) }
     })
-    : new SingularityFlowError(`${label} did not complete: ${(result.stderr || result.stdout || '').trim().split('\n').at(-1) ?? 'no output'}`, {
-      code, exitCode, details: { step: label }
+    : new SingularityFlowError(`${label} did not complete: ${stepFailureSummary(result)}`, {
+      code: result.timedOut ? 'CLI_STEP_TIMEOUT' : result.processError?.code === 'ENOBUFS' ? 'CLI_STEP_OUTPUT_TOO_LARGE' : code,
+      exitCode, details: { execution: { step: label, exitCode: result.status ?? null, signal: result.signal ?? null,
+        timedOut: result.timedOut === true, processCode: result.processError?.code ?? null } }
     });
   if (relayed) Object.defineProperty(error, 'relayedResult', { value: relayed });
   throw error;

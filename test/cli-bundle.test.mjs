@@ -96,6 +96,12 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   for (const name of ['cold-catalogs.mjs', 'cold-hook-context.mjs', 'cold-narrow-reads.mjs', 'cold-compatibility.mjs']) {
     assert.ok(!statusClosure.some(item => item.file === name), `status must not statically reach ${name}`);
   }
+  const presentationClosure = closure('cold-worker-protocol.mjs');
+  assert.ok(presentationClosure.reduce((sum, item) => sum + item.bytes, 0) < 2 * 1024 * 1024,
+    'small output helpers must not shift policy loading into every agent response');
+  for (const name of ['cold-catalogs.mjs', 'cold-hook-context.mjs', 'cold-narrow-reads.mjs', 'cold-compatibility.mjs']) {
+    assert.ok(!presentationClosure.some(item => item.file === name), `output must not statically reach ${name}`);
+  }
   assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4.25 * 1024 * 1024,
     'strict next-step reads must not inherit the broad phase-review closure');
   assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7 * 1024 * 1024,

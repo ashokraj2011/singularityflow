@@ -11,11 +11,12 @@ const FAMILIES = Object.freeze([
   ['status', ['commands/status.mjs', 'commands/progress.mjs', 'commands/report.mjs',
     'command-observability.mjs', 'logging.mjs', 'accounting-projection.mjs', 'read-worker-service.mjs']],
   ['hooks', ['copilot-hook-runtime.mjs', 'copilot-repository-boundary.mjs', 'copilot-mutation-guard.mjs']],
-  // Both small worker-helper closures depend only on core. Sharing this slot keeps catalogs and
-  // general reads separate without increasing the deployment's fixed file count. Entry programs
-  // themselves remain private; importing helper definitions never starts a worker.
+  // Small worker/presentation helper closures share a slot without increasing deployment files.
+  // Claim output before policy reads: otherwise even status pays to load the policy chunk when
+  // rendering --for-agent. Entry programs remain private; helper imports never start a worker.
   ['worker-protocol', ['read-worker.mjs', 'history-index-worker.mjs', 'configuration-read-worker.mjs',
-    'configuration-proposal-sync-worker.mjs']],
+    'configuration-proposal-sync-worker.mjs', 'agent-output.mjs', 'agent-catalog-presentation.mjs',
+    'agent-packet-presentation.mjs']],
   // Claim strict next-step reads before broad catalog/review families. Sharing their slot with
   // phase review caused every nextsteps call to load document, receipt and lifecycle writers.
   ['narrow-reads', ['commands/nextsteps.mjs', 'commands/status-details.mjs',

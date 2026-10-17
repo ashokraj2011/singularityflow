@@ -34,6 +34,7 @@ import {
 } from '../src/ledger.mjs';
 import { configuredRemoteAuthority } from '../src/git-remote-diagnostics.mjs';
 import { publicationPushOutcome } from '../src/git.mjs';
+import { gitTestWrapperEnvironment, realGitForTest, writeGitTestWrapper } from './helpers/git-test-wrapper.mjs';
 
 function git(root, args) {
   return run('git', args, { cwd: root });
@@ -377,9 +378,8 @@ process.exit(result.status == null ? 1 : result.status);
 /** A Git wrapper for the tests below: `script` runs first and may call forward()/relay(). */
 async function gitWrapper(parent, name, script) {
   const directory = path.join(parent, name);
-  await mkdir(directory);
-  const realGit = run('which', ['git']).stdout.trim();
-  await writeFile(path.join(directory, 'git'), `#!/usr/bin/env node
+  const realGit = realGitForTest();
+  await writeGitTestWrapper(directory, `#!/usr/bin/env node
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const args = process.argv.slice(2);
@@ -398,8 +398,7 @@ const pathWithoutWrapper = () => process.env.PATH.split(${JSON.stringify(path.de
 ${script}
 relay(forward());
 `);
-  await chmod(path.join(directory, 'git'), 0o755);
-  return { directory, env: { ...process.env, PATH: `${directory}${path.delimiter}${process.env.PATH}` } };
+  return { directory, env: gitTestWrapperEnvironment(directory) };
 }
 
 const recordPush = (file) => `if (args[0] === 'push') {
@@ -1396,33 +1395,25 @@ test('state publication never moves a concurrently refreshed remote-tracking aut
   // Interpose at the exact boundary after push has returned (and Git has updated its normal
   // tracking ref) but before the publisher synchronizes its authority cache. This is the same
   // window as a concurrent fetch observing a later publication.
-  const shimDirectory = path.join(parent, 'git-shim');
-  await mkdir(shimDirectory);
-  const shim = path.join(shimDirectory, 'git');
-  const realGit = run('which', ['git']).stdout.trim();
-  await writeFile(shim, `#!/bin/sh
-"$SFLOW_REAL_GIT" "$@"
-status=$?
-if [ "$status" -eq 0 ] && [ "$1" = "push" ]; then
-  case " $* " in
-    *refs/heads/state*)
-      observed=$("$SFLOW_REAL_GIT" --git-dir="$SFLOW_TEST_REMOTE" rev-parse refs/heads/state) || exit 1
-      "$SFLOW_REAL_GIT" --git-dir="$SFLOW_TEST_REMOTE" update-ref refs/heads/state "$SFLOW_TEST_CONCURRENT" "$observed" || exit 1
-      "$SFLOW_REAL_GIT" --git-dir="$SFLOW_TEST_ROOT/.git" update-ref refs/remotes/origin/state "$SFLOW_TEST_CONCURRENT" || exit 1
-      ;;
-  esac
-fi
-exit "$status"
-`);
-  await chmod(shim, 0o755);
-  const env = {
-    ...process.env,
-    PATH: `${shimDirectory}${path.delimiter}${process.env.PATH ?? ''}`,
-    SFLOW_REAL_GIT: realGit,
-    SFLOW_TEST_REMOTE: remote,
-    SFLOW_TEST_ROOT: root,
-    SFLOW_TEST_CONCURRENT: concurrent
-  };
+  const realGit = realGitForTest();
+  const { env } = await gitWrapper(parent, 'git-shim', `
+if (args[0] === 'push' && args.some(arg => arg.includes('refs/heads/state'))) {
+  const landed = forward();
+  if (landed.status !== 0) relay(landed);
+  const control = argv => spawnSync(${JSON.stringify(realGit)}, argv, {
+    env: { ...process.env, PATH: pathWithoutWrapper() }, encoding: 'utf8'
+  });
+  const observed = control(['--git-dir', ${JSON.stringify(remote)}, 'rev-parse', 'refs/heads/state']);
+  if (observed.status !== 0) relay(observed);
+  for (const argv of [
+    ['--git-dir', ${JSON.stringify(remote)}, 'update-ref', 'refs/heads/state', ${JSON.stringify(concurrent)}, observed.stdout.trim()],
+    ['--git-dir', ${JSON.stringify(path.join(root, '.git'))}, 'update-ref', 'refs/remotes/origin/state', ${JSON.stringify(concurrent)}]
+  ]) {
+    const updated = control(argv);
+    if (updated.status !== 0) relay(updated);
+  }
+  relay(landed);
+}`);
 
   const published = await publishToStateBranch(root, enabled, {
     'singularity/world-model/manifest.json': '{"format":"registered-v4"}\n'

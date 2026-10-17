@@ -14,7 +14,7 @@ const FAMILIES = Object.freeze([
   ['worker-protocol', ['read-worker.mjs', 'history-index-worker.mjs', 'configuration-read-worker.mjs',
     'configuration-proposal-sync-worker.mjs']],
   ['light', ['commands/about.mjs', 'commands/pause.mjs', 'commands/workspace.mjs', 'commands/capability.mjs',
-    'commands/intake-entry.mjs', 'commands/snapshot.mjs', 'agent-output.mjs',
+    'commands/intake-entry.mjs', 'commands/snapshot.mjs', 'commands/phase.mjs', 'agent-output.mjs', 'agent-catalog-presentation.mjs',
     'commands/logs.mjs', 'commands/help.mjs', 'commands/explain.mjs']],
   // Claim catalog definitions before authoring closures. Leaving these dynamic roots unassigned
   // put every list/show in compatibility, importing the entire administration/model dispatcher.
@@ -31,7 +31,7 @@ const FAMILIES = Object.freeze([
     'commands/story-entry.mjs', 'story-worktree-preparation.mjs',
     'local-work-journal.mjs', 'history-index.mjs']],
   ['maintenance', ['first-run-pass.mjs', 'product-requirement.mjs', 'configuration-review-pass.mjs']],
-  ['reads', ['commands/inbox.mjs', 'commands/home.mjs', 'editor.mjs']],
+  ['reads', ['commands/phase-show.mjs', 'commands/report.mjs', 'commands/inbox.mjs', 'commands/home.mjs', 'editor.mjs']],
   ['phases', ['commands/phase.mjs', 'commands/prepare.mjs', 'commands/inputs.mjs', 'commands/review-source.mjs',
     'commands/submit.mjs', 'commands/approve.mjs', 'commands/nextsteps-deferred.mjs']],
   ['models', ['commands/wm.mjs', 'commands/comprehension.mjs']]

@@ -10,20 +10,24 @@ const arguments_ = process.argv.slice(2);
 const combinedBaseline = arguments_.includes('--combined-baseline');
 const prewarm = arguments_.includes('--prewarm');
 const sampleOption = arguments_.find(value => value.startsWith('--samples='));
+const outputOption = arguments_.find(value => value.startsWith('--agent-output='));
+const outputMode = outputOption?.slice('--agent-output='.length) ?? 'full';
 const samples = sampleOption ? Number(sampleOption.slice('--samples='.length)) : 1;
 const positional = arguments_.filter(value => !value.startsWith('--'));
 if (!Number.isInteger(samples) || samples < 1 || samples > 5 || positional.length > 2
-    || arguments_.some(value => value.startsWith('--') && !['--combined-baseline', '--prewarm', sampleOption].includes(value))) {
+    || !['full', 'bounded'].includes(outputMode)
+    || arguments_.some(value => value.startsWith('--') && !['--combined-baseline', '--prewarm', sampleOption, outputOption].includes(value))) {
   throw new Error('Unsupported benchmark option or sample count (1–5).');
 }
 const baselineRoot = positional[0] && path.resolve(positional[0]);
-if (!baselineRoot) throw new Error('Usage: node scripts/bench-utility-entry.mjs <BASELINE-CHECKOUT> [RESULT.json] [--combined-baseline] [--prewarm] [--samples=3]');
+if (!baselineRoot) throw new Error('Usage: node scripts/bench-utility-entry.mjs <BASELINE-CHECKOUT> [RESULT.json] [--combined-baseline] [--prewarm] [--samples=3] [--agent-output=full|bounded]');
 const fixture = await createWarmReadFixture({ files: 1000, branches: 20 });
 const report = { schemaVersion: 1, platform: process.platform, node: process.version,
   fixture: { files: 1000, branches: 20, catalogs: 'full installed seeded defaults',
     runtime: 'stamped installed cold bundle', cache: 'empty private V8 cache per variant, then three fresh processes; OS cache not flushed',
     modelCalls: 0, configuredRemotes: 0, baselineEntry: combinedBaseline ? 'combined utility read' : 'pause plus utility read',
-    samples, variantOrder: 'alternating before/after order per sample',
+    samples, output: outputMode, listingTask: 'Read all catalog IDs/names; required expansion files are read and counted, not modeled as native Copilot tool latency.',
+    variantOrder: 'alternating before/after order per sample',
     prewarm: prewarm ? 'both variants prepared before timing; warmup reported separately' : 'none',
     note: 'Synthetic CLI benchmark, not a native Copilot conversation.' }, commands: [] };
 const variants = [{ id: 'before', root: path.join(fixture.directory, 'baseline') }, { id: 'after', root: fixture.engine }];
@@ -55,7 +59,7 @@ try {
   for (const args of [['init', '-q', '-b', 'main'], ['config', 'user.name', 'Utility Tester'],
     ['config', 'user.email', 'utility@example.invalid']]) fixture.git(args, { cwd: catalog });
   const common = { ...fixture.env, SINGULARITY_FLOW_BUNDLE: 'on', SINGULARITY_FLOW_DISABLE_TIMING_LOG: '0',
-    SINGULARITY_FLOW_AGENT_OUTPUT: 'full' };
+    SINGULARITY_FLOW_AGENT_OUTPUT: outputMode, SINGULARITY_FLOW_AGENT_OUTPUT_BYTES: '7500' };
   delete common.NODE_DISABLE_COMPILE_CACHE;
   delete common.SINGULARITY_FLOW_GIT_FACT_STORE;
   function run(variant, args, cwd, cache) {
@@ -92,6 +96,22 @@ try {
           if (combined && (value?.resultType !== 'sflow-utility-entry' || !value.readCompleted)) {
             throw new Error(`${name} did not return a completed utility read`);
           }
+          let listingTask = null;
+          if (name.endsWith('-list')) {
+            const rowsOf = packet => {
+              let data = packet?.data ?? packet;
+              if (data?.resultType === 'sflow-result') data = data.data;
+              return name === 'workflow-list' ? data : data?.agents ?? data?.skills ?? data?.instructions;
+            };
+            const inline = rowsOf(value);
+            listingTask = { inlineRows: Array.isArray(inline) ? inline.length : 0, fileReads: 0, bytesRead: read.bytes };
+            if ((!Array.isArray(inline) || value?.catalogView?.more) && value?.agentOutput?.path) {
+              const full = await readFile(value.agentOutput.path, 'utf8');
+              listingTask.fileReads++;
+              listingTask.bytesRead += Buffer.byteLength(full);
+              listingTask.totalRows = rowsOf(JSON.parse(full))?.length ?? null;
+            } else listingTask.totalRows = Array.isArray(inline) ? inline.length : null;
+          }
           let timing = null;
           try {
             const lines = (await readFile(path.join(cwd, '.git/singularity-flow/dx/timings.jsonl'), 'utf8')).trim().split('\n');
@@ -99,7 +119,7 @@ try {
           } catch { /* Timing absence remains unavailable. */ }
           row.runs.push({ sample, iteration, totalMs: read.ms + (pause?.ms ?? 0), readMs: read.ms,
             pauseMs: pause?.ms ?? 0, bytes: read.bytes, counters: timing?.counters ?? null,
-            stages: timing?.stages ?? null });
+            stages: timing?.stages ?? null, listingTask });
         }
       }
     }

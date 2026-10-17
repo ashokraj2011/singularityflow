@@ -133,6 +133,7 @@ export async function load(url, context, next) {
   for (const args of [['--version'], ['help'], ['snapshot', '--include', 'repository', '--json'], ['nextsteps', '--json'],
     ['home', '--json'], ['inbox', '--json'],
     ['agents', 'list', '--json'], ['agents', 'mappings', '--json'], ['agents', 'status', '--json'],
+    ['phase', 'show', 'intake', '--json'], ['report', 'MISSING', '--format', 'json'],
     ['workflow', 'list', '--json'], ['skill', 'list', '--json'], ['instruction', 'list', '--json'],
     ['start', 'BUNDLE-NEW-STORY', '--json'],
     ['workflow', 'intent', 'preflight', '--source', 'installed', '--json'],
@@ -157,6 +158,11 @@ export async function load(url, context, next) {
     if (['agents', 'workflow', 'skill', 'instruction'].includes(args[0]) && ['list', 'mappings', 'status'].includes(args[1])) {
       for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs']) {
         assert.ok(!bundled.modules.some(url => url.endsWith('/' + name)), `${args.join(' ')} must not load ${name}`);
+      }
+    }
+    if (args[0] === 'report' || args[0] === 'phase' && args[1] === 'show') {
+      for (const file of ['cold-compatibility.mjs', 'cold-phases.mjs', 'cold-models.mjs']) {
+        assert.ok(!bundled.modules.some(url => url.endsWith('/' + file)), `${args.join(' ')} must not load ${file}`);
       }
     }
     if (args[0] !== '--version') assert.ok(source.modules.length > 35, `${args.join(' ')} from the sources opened ${source.modules.length}`);

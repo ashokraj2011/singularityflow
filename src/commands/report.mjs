@@ -4,7 +4,6 @@ import { withCommandObservability } from '../command-observability.mjs';
 import { TimingCollector, writeHumanTimings } from '../dx-timings.mjs';
 import { repoRoot } from '../git.mjs';
 import { deriveReport, renderHtml, renderMarkdown } from '../report.mjs';
-import { createReviewBundle, reviewContinuationLines, reviewHtml, reviewMarkdown } from '../review.mjs';
 import * as style from '../style.mjs';
 import { SingularityFlowError, commandLineFile, optionBoolean, optionString, writeText } from '../util.mjs';
 import { selectedPhaseArgument } from './shared/selected-phase-argument.mjs';
@@ -90,6 +89,7 @@ export async function reportCommand(positionals, options) {
 }
 
 export async function reviewCommand(positionals, options) {
+  const { createReviewBundle, reviewContinuationLines, reviewHtml, reviewMarkdown } = await import('../review.mjs');
   const root = repoRoot();
   const { config, workflow } = await loadAcceptedStoryExecution(root);
   const bundle = await createReviewBundle(root, config, workflow, selectedPhaseArgument(positionals, options, 'review'));

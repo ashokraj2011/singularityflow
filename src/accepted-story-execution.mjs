@@ -1,5 +1,7 @@
 import path from 'node:path';
-import { withReadScope } from './read-scope.mjs';
+import { withReadScope, scopedCommandRead } from './read-scope.mjs';
+import { configurationReadRoot } from './configuration-read-scope.mjs';
+import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { loadDefinition } from './config.mjs';
 import { loadStoryAggregate } from './state-stores.mjs';
 import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
@@ -98,6 +100,15 @@ async function locateAcceptedStory(root, definition, reference = null) {
  * remain sourced from the current definition because the resolver overlays only captured policy.
  */
 export async function loadAcceptedStoryExecution(root, workId = null) {
+  incrementCommandCounter('story.context-requests');
+  // A caller may derive local display fields; never let it modify another reader's Story snapshot.
+  return scopedCommandRead(`accepted-story:${root}:${configurationReadRoot(root)}:${JSON.stringify(workId)}`,
+    () => loadAcceptedStoryExecutionUncached(root, workId),
+    value => Object.freeze({ ...value, workflow: structuredClone(value.workflow) }));
+}
+
+async function loadAcceptedStoryExecutionUncached(root, workId) {
+  incrementCommandCounter('story.context-load');
   return withReadScope(async () => {
     const bootstrap = await loadDefinition(root, { storyBootstrap: true });
     const located = await locateAcceptedStory(root, bootstrap, workId);

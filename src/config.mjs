@@ -1469,18 +1469,26 @@ export function validateCapturedAgentBriefHeadingContracts(definition, templates
 
 async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
   const definitionRoot = configurationReadRoot(root);
-  const workflow = await secureRepositoryPath(root, WORKFLOW_PATH, {
-    label: 'Workflow configuration',
-    type: 'file'
-  });
-  if (workflow.exists) {
+  const source = await scopedRead(`config.source:${root}:${definitionRoot}`, async () => {
+    const workflow = await secureRepositoryPath(root, WORKFLOW_PATH, { label: 'Workflow configuration', type: 'file' });
+    if (!workflow.exists) return { workflow };
+    incrementCommandCounter('configuration.source-read');
     const workflowText = await readFile(workflow.absolute, 'utf8');
+    incrementCommandCounter('configuration.yaml-parse');
+    try { return { workflow, workflowText, parsed: parseYamlText(workflowText) }; }
+    catch (error) { return { workflow, workflowText, error }; }
+  });
+  const { workflow, workflowText } = source;
+  if (workflow.exists) {
     // A broken workflow.yml is refused exactly as before; the refusal also carries every problem in
     // the file, located and with its fix. Only this failure path pays for the diagnosis.
     const diagnosed = error => withWorkflowDiagnostics(definitionRoot, workflowText, error, { storyBootstrap });
-    let parsed;
-    try { parsed = parseYamlText(workflowText); } catch (error) { throw await diagnosed(error); }
-    const definition = applyWorkflowCompatibility(parsed);
+    if (source.error) throw await diagnosed(Object.create(
+      Object.getPrototypeOf(source.error), Object.getOwnPropertyDescriptors(source.error)
+    ));
+    // Compatibility normalization and both validators may mutate their input. Share bytes and
+    // parsing only, not a bootstrap result or mutable object with current-policy validation.
+    const definition = applyWorkflowCompatibility(structuredClone(source.parsed));
     // An accepted Story owns exact governed-agent bytes in its WFA closure. Parsing today's live
     // files before that closure is even located would let a deleted or malformed replacement deny
     // offline resume. Bootstrap therefore loads only the declarative workflow shape; the shared

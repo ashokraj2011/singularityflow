@@ -11,7 +11,6 @@ import { storyDraftTransaction } from './shared/story-draft-transaction.mjs';
 import { verifyOpenGenerationIntent, generationStartPublicationBinding } from '../generation-boundary.mjs';
 import { phaseReview } from './shared/phase-review.mjs';
 import { printPhaseReview } from './shared/print-phase-review.mjs';
-import { phaseContinuationLines } from '../phase-continuation.mjs';
 import { loadSession } from '../session.mjs';
 import { phasePrepublish, prepublishTestExecutionLines } from '../phase-prepublish.mjs';
 import { publishedGenerationCommit } from '../generation-publication-store.mjs';
@@ -45,6 +44,7 @@ export async function run(argv, { positionals, options }) {
 export async function phaseCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'phase subcommand');
   if (subcommand === 'prepublish' && options['publish-if-ready'] === true) return (await import('./phase-publish-if-ready.mjs')).run({ positionals, options });
+  if (subcommand === 'show') return (await import('./phase-show.mjs')).phaseShowCommand(positionals, options);
   const root = repoRoot();
   const accepted = await loadAcceptedStoryExecution(root);
   const config = accepted.definition;
@@ -153,20 +153,6 @@ export async function phaseCommand(positionals, options) {
     const output = { ...intent, local: true, lifecycleEvent: null };
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(output, null, 2));
     else console.log(`Began ${phaseId} generation ${generation} with local intent ${intent.id}. The receipt will be bound into the generation publication.`);
-    return;
-  }
-  if (subcommand === 'show') {
-    const phaseId = positionals[2] ?? workflow.currentPhase;
-    const phase = workflow.phases[phaseId];
-    if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
-    const review = await phaseReview(root, config, workflow, phase, { includeContinuation: true });
-    if (optionBoolean(options, 'for-agent') && !optionBoolean(options, 'json')) throw new SingularityFlowError('--for-agent requires --json.');
-    if (optionBoolean(options, 'for-agent')) { const presentation = await import('../agent-packet-presentation.mjs'); console.log(presentation.agentJson(presentation.phaseReviewAgentPresentation(review))); }
-    else if (optionBoolean(options, 'json')) console.log(JSON.stringify(review, null, 2));
-    else {
-      printPhaseReview(review, { showArtifact: optionBoolean(options, 'show-artifact') });
-      if (review.continuation) console.log(`\n${phaseContinuationLines(review.continuation).join('\n')}`);
-    }
     return;
   }
   if (subcommand === 'draft-check' || subcommand === 'prepublish') {

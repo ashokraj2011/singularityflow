@@ -23,7 +23,7 @@ import { productRequirementDue } from './product-requirement-gate.mjs';
 import { agentViewRequested, interpretsForAgent, withCliJsonOutput, withoutAgentFlag } from './cli-json-output.mjs';
 import { copilotModeFile, copilotModePresentation, readCopilotMode } from './copilot-mode.mjs';
 import { scopedUtilityRead, validateUtilityEntry, withoutUtilityEntry } from './utility-entry.mjs';
-import { withReadScope } from './read-scope.mjs';
+import { withCommandReadScope } from './read-scope.mjs';
 
 // These commands promise to remove machine-local Singularity state. Recording their own duration
 // after they finish would immediately recreate `.git/singularity-flow/` and make that promise false.
@@ -920,7 +920,7 @@ async function runMain(argv, utilityEntry = null) {
     // Only closed read forms share configuration through accounting and execution. A mutation,
     // repair, phase entry or unknown option never inherits cached configuration decisions.
     const invoke = scopedUtilityRead([definition.name, ...positionals.slice(1)], options)
-      ? () => withReadScope(guardedExecute) : guardedExecute;
+      ? () => withCommandReadScope(guardedExecute) : guardedExecute;
     const result = await withCommandTiming(timer, invoke).finally(abandonRemoteBranchObservations);
     timer.stage('execute');
     // The handler has printed its result; what follows is bookkeeping the person does not wait on

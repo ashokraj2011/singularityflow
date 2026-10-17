@@ -14,6 +14,7 @@ export function validatePhaseEntryRequest({ positionals, options }) {
 let lifecycleModule, publicationModule;
 export async function load({ positionals, options }) {
   if (positionals[1] === 'enter') return;
+  if (positionals[1] === 'show') return import('./phase-show.mjs');
   if (positionals[1] === 'prepublish' && options['publish-if-ready'] === true) {
     publicationModule ??= import('./phase-publish-if-ready.mjs');
     return publicationModule;

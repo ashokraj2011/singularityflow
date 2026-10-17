@@ -337,7 +337,9 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
   const act = counted && locate() ? observeAgentLoop(locate().root, result, derived, { now: now.getTime() }) : derived;
   const ordered = await withAgentRoutes(act ? { act, ...Object.fromEntries(Object.entries(result).filter(([key]) => key !== 'act')) } : result);
   const whole = agentJson(ordered);
-  if (bytes(whole) <= budget || !locate()) return `${whole}\n`;
+  const { catalogAgentView } = await import('./agent-catalog-presentation.mjs');
+  const catalog = catalogAgentView(ordered);
+  if ((!catalog && bytes(whole) <= budget) || !locate()) return `${whole}\n`;
   const target = locate();
   const kind = String(result.resultType ?? (result.error ? 'refusal' : 'result')).replace(/[^A-Za-z0-9-]/gu, '-').slice(0, 48);
   const base = `${kind}-${now.toISOString().replace(/[:.]/gu, '-')}-${sha256(whole).slice(7, 15)}`;
@@ -353,6 +355,14 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
     ...(relative && !relative.startsWith('..') && !path.isAbsolute(relative) ? { relativePath: relative.split(path.sep).join('/') } : {}),
     bytes: bytes(fullText), lines: fullText.split('\n').length - 1, sha256: sha256(fullText),
     instruction: 'A bounded view of a complete result. omittedFields lists each field left out with its exact line range in agentOutput.path, and long texts as their own files; read only the ranges you need with your file-reading tool. Nothing was truncated.' };
+  if (catalog) {
+    agentOutput.instruction = 'Metadata-only catalog. Read a selected detailField from this exact retained result; long texts have their own referenced files. No definition was discarded. A summary does not replace selected skill/instruction bodies.';
+    for (const limit of [20, 10, 5, 1]) {
+      const view = { ...catalogAgentView(ordered, limit), agentOutput };
+      const rendered = agentJson(view);
+      if (bytes(rendered) <= budget) return `${rendered}\n`;
+    }
+  }
   const keys = Object.keys(ordered).filter((key) => key !== 'act');
   const size = Object.fromEntries(keys.map((key) => [key, bytes(JSON.stringify(ordered[key]) ?? 'null')]));
   const reference = Object.fromEntries(keys.map((key) => {

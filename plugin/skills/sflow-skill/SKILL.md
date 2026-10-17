@@ -7,6 +7,8 @@ argument-hint: "inspect <LOCAL-DIRECTORY> | approved <ID> | doctor <ID> --story 
 
 # Inspect a skill package
 
+When a list returns `catalogView.metadataOnly`, use its inline names, scope and attachment metadata for listing; do not expand the entire catalog by default. For selected details, read only the returned `detailField` in `agentOutput.path` and any exact text-file reference it contains. Catalog metadata is not executable instruction content: authoring still requires the selected skill's exact retained instructions and the governed phase context.
+
 <!-- sflow-copilot-pause -->
 Read-only utility: run the requested read once with `--utility-entry --for-agent --json` (default `singularity-flow skill list --utility-entry --for-agent --json`). Keep explicit Work IDs/filters; do not replace requested edits with a list. Eligible forms: status, progress, nextsteps, logs, agents list/mappings/status, workflow list, skill/instruction list/show without retained selectors. It checks pause before Git and returns verified `repositoryPath` plus `data`; no separate pause/session/workspace lookup or STATUS.md read. If paused, native Copilot; only offer `/sf-pause off`, never resume implicitly. Other forms: Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly. Reads never authorize mutations; preserve later gates. If unsupported, stop with the compatibility error, never retry blindly.
 

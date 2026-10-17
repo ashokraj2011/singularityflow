@@ -126,6 +126,17 @@ test('generator validation shares exact IDs with rendering without importing its
   for (const forbidden of ['src/initiative-generators.mjs', 'src/epic-sources.mjs', 'src/jira.mjs']) assert.ok(!names.includes(forbidden), forbidden);
 });
 
+test('phase documents and JSON report routes do not statically load lifecycle mutation dispatchers', async () => {
+  for (const entry of ['src/commands/phase-show.mjs', 'src/commands/report.mjs']) {
+    const names = [...await staticClosure(entry)].map(file => path.relative(packageRoot, file).split(path.sep).join('/'));
+    for (const forbidden of ['src/commands/phase-lifecycle.mjs', 'src/commands/prepare.mjs', 'src/cli.mjs', 'src/model-runner.mjs']) {
+      assert.ok(!names.includes(forbidden), `${entry} reaches ${forbidden}`);
+    }
+  }
+  const report = await readFile(path.join(packageRoot, 'src/commands/report.mjs'), 'utf8');
+  assert.doesNotMatch(report, /^import .*from '\.\.\/review\.mjs'/mu);
+});
+
 test('startup read entrypoints do not statically reach the legacy monolith', async () => {
   const registry = await import('../src/command-registry.mjs');
   assert.equal(registry.commandDefinition('workspace').modulePath, './commands/workspace.mjs');

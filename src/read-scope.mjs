@@ -28,6 +28,16 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 const scopes = new AsyncLocalStorage();
+const COMMAND_READ = Symbol('command-read-context');
+
+/** Only the CLI's closed read vocabulary may share resolved Story context, never a writer. */
+export function withCommandReadScope(fn) {
+  return scopes.run(new Map([[COMMAND_READ, true]]), fn);
+}
+
+export function scopedCommandRead(key, compute, project = value => value) {
+  return scopes.getStore()?.get(COMMAND_READ) ? scopedRead(key, compute).then(project) : compute();
+}
 
 /** A composed CLI step starts without its caller's cached mutable observations. */
 export function withoutReadScope(fn) {

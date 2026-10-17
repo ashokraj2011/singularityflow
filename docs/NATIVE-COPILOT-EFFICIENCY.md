@@ -128,6 +128,26 @@ variant order alternates. Warmup runs before measurement on both sides and its
 duration is retained. The OS cache is not flushed, full agent JSON is used, and no
 native Copilot host/model latency or office-laptop antivirus policy is measured.
 
+The [paired cold follow-up results](../benchmarks/utility-entry/cold-followup.json)
+compare against `7e50d127` with combined entry on both sides. Native Windows passed
+89 regression/lifecycle/output tests, typecheck and the unchanged package budgets.
+The static catalog-family dependency closure drops from 15.7 MB to 4.2 MB; actual
+execution can dynamically load additional shared services.
+
+| Windows read | Mode | Before first median | After first median |
+| --- | --- | ---: | ---: |
+| Agents | Cold | 573 ms | 524 ms |
+| Workflows | Cold | 743 ms | 709 ms |
+| Phase documents | Prewarmed | 514 ms | 480 ms |
+| Report | Prewarmed | 477 ms | 453 ms |
+
+These are incremental improvements, not a blanket speedup. Several commands remain
+flat and small regressions are retained. Prewarming the additional definitions costs
+roughly 40 ms more on this Windows fixture; it moves work ahead of the visible
+request and is not a total-work reduction for a one-off command. For example, the
+prewarmed skill/instruction reads are slightly slower in this sample. All cold,
+repeat and warmup wall samples are retained, including unchanged/regressed cases.
+
 ### Story operations
 
 - Every registered skill is audited; aliases delegate once to their canonical owner.

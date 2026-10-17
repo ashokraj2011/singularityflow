@@ -1,0 +1,1983 @@
+{
+  "schemaVersion": 1,
+  "resultType": "cold-utility-followup-qualification",
+  "date": "2026-10-17",
+  "baselineCommit": "7e50d127a2253dac5a9ddcd4a8e7f5c68211347f",
+  "runtimeCommit": "5d3a360c9c99c69462392908c6a8540aeb1fe049",
+  "windowsQualification": {
+    "runId": 38992212930,
+    "ciCommit": "8e377017bd1156459331890a3e20ffaddba848b5",
+    "passed": 89,
+    "failed": 0,
+    "skipped": 0,
+    "typecheck": "passed",
+    "bundleBudget": "passed"
+  },
+  "protocol": {
+    "files": 1000,
+    "branches": 20,
+    "catalogs": "full installed seeded defaults",
+    "runtime": "stamped installed cold bundle",
+    "cache": "empty private V8 cache per variant, then three fresh processes; OS cache not flushed",
+    "modelCalls": 0,
+    "configuredRemotes": 0,
+    "baselineEntry": "combined utility read",
+    "samples": 3,
+    "variantOrder": "alternating before/after order per sample",
+    "prewarm": "none",
+    "note": "Native hosted Windows and local macOS fixtures, not complete Copilot conversation latency or an enterprise laptop guarantee.",
+    "first": "median of three fresh private compile-cache samples",
+    "repeat": "median of nine subsequent fresh processes",
+    "output": "full agent JSON on both sides",
+    "osCacheFlushed": false,
+    "windowsTemp": "D:\\sfuc",
+    "prewarmed": "same three-pair protocol, both variants warmed before measuring; warmup samples recorded separately"
+  },
+  "bundle": {
+    "beforeFiles": 20,
+    "afterFiles": 20,
+    "beforeCatalogStaticBytes": 15672782,
+    "afterCatalogStaticBytes": 4177462,
+    "note": "Static closure of the catalog entry family, not all bytes dynamically loaded during execution. General-read and hook identities remain separate."
+  },
+  "macos": {
+    "node": "v25.5.0",
+    "cold": [
+      {
+        "name": "status",
+        "before": {
+          "firstMedianMs": 265,
+          "firstSamplesMs": [
+            301,
+            254,
+            265
+          ],
+          "repeatMedianMs": 171,
+          "repeatSamplesMs": [
+            158,
+            146,
+            177,
+            201,
+            150,
+            171,
+            171,
+            169,
+            171
+          ]
+        },
+        "after": {
+          "firstMedianMs": 248,
+          "firstSamplesMs": [
+            231,
+            248,
+            262
+          ],
+          "repeatMedianMs": 174,
+          "repeatSamplesMs": [
+            190,
+            195,
+            174,
+            180,
+            172,
+            166,
+            158,
+            168,
+            185
+          ]
+        }
+      },
+      {
+        "name": "progress",
+        "before": {
+          "firstMedianMs": 318,
+          "firstSamplesMs": [
+            318,
+            320,
+            274
+          ],
+          "repeatMedianMs": 204,
+          "repeatSamplesMs": [
+            231,
+            224,
+            228,
+            204,
+            185,
+            198,
+            186,
+            204,
+            224
+          ]
+        },
+        "after": {
+          "firstMedianMs": 298,
+          "firstSamplesMs": [
+            275,
+            303,
+            298
+          ],
+          "repeatMedianMs": 228,
+          "repeatSamplesMs": [
+            235,
+            228,
+            241,
+            297,
+            219,
+            233,
+            212,
+            208,
+            211
+          ]
+        }
+      },
+      {
+        "name": "nextsteps",
+        "before": {
+          "firstMedianMs": 428,
+          "firstSamplesMs": [
+            432,
+            428,
+            413
+          ],
+          "repeatMedianMs": 268,
+          "repeatSamplesMs": [
+            251,
+            284,
+            263,
+            270,
+            268,
+            249,
+            257,
+            274,
+            275
+          ]
+        },
+        "after": {
+          "firstMedianMs": 411,
+          "firstSamplesMs": [
+            452,
+            411,
+            407
+          ],
+          "repeatMedianMs": 263,
+          "repeatSamplesMs": [
+            278,
+            262,
+            273,
+            260,
+            262,
+            263,
+            294,
+            255,
+            268
+          ]
+        }
+      },
+      {
+        "name": "phase-show",
+        "before": {
+          "firstMedianMs": 437,
+          "firstSamplesMs": [
+            467,
+            423,
+            437
+          ],
+          "repeatMedianMs": 260,
+          "repeatSamplesMs": [
+            248,
+            272,
+            260,
+            254,
+            251,
+            259,
+            262,
+            263,
+            279
+          ]
+        },
+        "after": {
+          "firstMedianMs": 438,
+          "firstSamplesMs": [
+            438,
+            445,
+            430
+          ],
+          "repeatMedianMs": 270,
+          "repeatSamplesMs": [
+            270,
+            286,
+            257,
+            271,
+            282,
+            259,
+            264,
+            284,
+            269
+          ]
+        }
+      },
+      {
+        "name": "inputs-preview",
+        "before": {
+          "firstMedianMs": 448,
+          "firstSamplesMs": [
+            448,
+            431,
+            456
+          ],
+          "repeatMedianMs": 272,
+          "repeatSamplesMs": [
+            277,
+            289,
+            264,
+            272,
+            262,
+            260,
+            272,
+            306,
+            279
+          ]
+        },
+        "after": {
+          "firstMedianMs": 443,
+          "firstSamplesMs": [
+            432,
+            460,
+            443
+          ],
+          "repeatMedianMs": 277,
+          "repeatSamplesMs": [
+            258,
+            266,
+            300,
+            300,
+            286,
+            273,
+            275,
+            277,
+            278
+          ]
+        }
+      },
+      {
+        "name": "report",
+        "before": {
+          "firstMedianMs": 400,
+          "firstSamplesMs": [
+            396,
+            426,
+            400
+          ],
+          "repeatMedianMs": 259,
+          "repeatSamplesMs": [
+            263,
+            266,
+            259,
+            268,
+            252,
+            253,
+            280,
+            248,
+            243
+          ]
+        },
+        "after": {
+          "firstMedianMs": 434,
+          "firstSamplesMs": [
+            434,
+            454,
+            426
+          ],
+          "repeatMedianMs": 253,
+          "repeatSamplesMs": [
+            262,
+            260,
+            254,
+            270,
+            241,
+            250,
+            253,
+            247,
+            251
+          ]
+        }
+      },
+      {
+        "name": "workflow-list",
+        "before": {
+          "firstMedianMs": 458,
+          "firstSamplesMs": [
+            471,
+            442,
+            458
+          ],
+          "repeatMedianMs": 368,
+          "repeatSamplesMs": [
+            397,
+            354,
+            355,
+            391,
+            368,
+            386,
+            339,
+            367,
+            370
+          ]
+        },
+        "after": {
+          "firstMedianMs": 477,
+          "firstSamplesMs": [
+            477,
+            487,
+            450
+          ],
+          "repeatMedianMs": 363,
+          "repeatSamplesMs": [
+            366,
+            356,
+            390,
+            363,
+            343,
+            373,
+            346,
+            367,
+            354
+          ]
+        }
+      },
+      {
+        "name": "agents-list",
+        "before": {
+          "firstMedianMs": 407,
+          "firstSamplesMs": [
+            407,
+            424,
+            400
+          ],
+          "repeatMedianMs": 305,
+          "repeatSamplesMs": [
+            303,
+            328,
+            305,
+            293,
+            328,
+            279,
+            307,
+            305,
+            294
+          ]
+        },
+        "after": {
+          "firstMedianMs": 315,
+          "firstSamplesMs": [
+            315,
+            310,
+            608
+          ],
+          "repeatMedianMs": 244,
+          "repeatSamplesMs": [
+            243,
+            256,
+            238,
+            238,
+            253,
+            270,
+            238,
+            244,
+            258
+          ]
+        }
+      },
+      {
+        "name": "skill-list",
+        "before": {
+          "firstMedianMs": 265,
+          "firstSamplesMs": [
+            239,
+            265,
+            270
+          ],
+          "repeatMedianMs": 189,
+          "repeatSamplesMs": [
+            186,
+            219,
+            183,
+            185,
+            205,
+            224,
+            175,
+            189,
+            189
+          ]
+        },
+        "after": {
+          "firstMedianMs": 247,
+          "firstSamplesMs": [
+            247,
+            240,
+            265
+          ],
+          "repeatMedianMs": 193,
+          "repeatSamplesMs": [
+            182,
+            198,
+            178,
+            176,
+            184,
+            193,
+            208,
+            193,
+            214
+          ]
+        }
+      },
+      {
+        "name": "instruction-list",
+        "before": {
+          "firstMedianMs": 262,
+          "firstSamplesMs": [
+            263,
+            205,
+            262
+          ],
+          "repeatMedianMs": 177,
+          "repeatSamplesMs": [
+            180,
+            169,
+            176,
+            179,
+            164,
+            177,
+            180,
+            205,
+            174
+          ]
+        },
+        "after": {
+          "firstMedianMs": 226,
+          "firstSamplesMs": [
+            225,
+            226,
+            241
+          ],
+          "repeatMedianMs": 178,
+          "repeatSamplesMs": [
+            175,
+            174,
+            167,
+            178,
+            184,
+            178,
+            167,
+            189,
+            190
+          ]
+        }
+      }
+    ],
+    "prewarmed": [
+      {
+        "name": "status",
+        "before": {
+          "firstMedianMs": 185,
+          "firstSamplesMs": [
+            199,
+            185,
+            172
+          ],
+          "repeatMedianMs": 174,
+          "repeatSamplesMs": [
+            180,
+            180,
+            160,
+            171,
+            178,
+            170,
+            175,
+            165,
+            174
+          ],
+          "warmupSamplesMs": [
+            249,
+            262,
+            239
+          ]
+        },
+        "after": {
+          "firstMedianMs": 166,
+          "firstSamplesMs": [
+            164,
+            178,
+            166
+          ],
+          "repeatMedianMs": 174,
+          "repeatSamplesMs": [
+            163,
+            175,
+            167,
+            187,
+            167,
+            190,
+            174,
+            166,
+            174
+          ],
+          "warmupSamplesMs": [
+            270,
+            293,
+            289
+          ]
+        }
+      },
+      {
+        "name": "progress",
+        "before": {
+          "firstMedianMs": 216,
+          "firstSamplesMs": [
+            228,
+            216,
+            216
+          ],
+          "repeatMedianMs": 216,
+          "repeatSamplesMs": [
+            216,
+            201,
+            227,
+            214,
+            229,
+            206,
+            214,
+            219,
+            237
+          ],
+          "warmupSamplesMs": [
+            257,
+            248,
+            254
+          ]
+        },
+        "after": {
+          "firstMedianMs": 224,
+          "firstSamplesMs": [
+            224,
+            207,
+            224
+          ],
+          "repeatMedianMs": 219,
+          "repeatSamplesMs": [
+            219,
+            217,
+            194,
+            213,
+            266,
+            226,
+            228,
+            222,
+            208
+          ],
+          "warmupSamplesMs": [
+            287,
+            279,
+            277
+          ]
+        }
+      },
+      {
+        "name": "nextsteps",
+        "before": {
+          "firstMedianMs": 371,
+          "firstSamplesMs": [
+            375,
+            371,
+            366
+          ],
+          "repeatMedianMs": 303,
+          "repeatSamplesMs": [
+            261,
+            266,
+            296,
+            391,
+            313,
+            283,
+            326,
+            344,
+            303
+          ],
+          "warmupSamplesMs": [
+            261,
+            248,
+            274
+          ]
+        },
+        "after": {
+          "firstMedianMs": 321,
+          "firstSamplesMs": [
+            309,
+            328,
+            321
+          ],
+          "repeatMedianMs": 269,
+          "repeatSamplesMs": [
+            274,
+            306,
+            263,
+            269,
+            258,
+            249,
+            280,
+            268,
+            278
+          ],
+          "warmupSamplesMs": [
+            269,
+            263,
+            318
+          ]
+        }
+      },
+      {
+        "name": "phase-show",
+        "before": {
+          "firstMedianMs": 355,
+          "firstSamplesMs": [
+            361,
+            355,
+            348
+          ],
+          "repeatMedianMs": 272,
+          "repeatSamplesMs": [
+            269,
+            273,
+            308,
+            276,
+            259,
+            272,
+            287,
+            263,
+            271
+          ],
+          "warmupSamplesMs": [
+            254,
+            247,
+            252
+          ]
+        },
+        "after": {
+          "firstMedianMs": 326,
+          "firstSamplesMs": [
+            324,
+            360,
+            326
+          ],
+          "repeatMedianMs": 273,
+          "repeatSamplesMs": [
+            270,
+            262,
+            249,
+            292,
+            278,
+            273,
+            271,
+            321,
+            311
+          ],
+          "warmupSamplesMs": [
+            286,
+            276,
+            279
+          ]
+        }
+      },
+      {
+        "name": "inputs-preview",
+        "before": {
+          "firstMedianMs": 329,
+          "firstSamplesMs": [
+            367,
+            320,
+            329
+          ],
+          "repeatMedianMs": 280,
+          "repeatSamplesMs": [
+            296,
+            292,
+            280,
+            252,
+            239,
+            232,
+            283,
+            305,
+            276
+          ],
+          "warmupSamplesMs": [
+            262,
+            240,
+            262
+          ]
+        },
+        "after": {
+          "firstMedianMs": 336,
+          "firstSamplesMs": [
+            321,
+            336,
+            349
+          ],
+          "repeatMedianMs": 276,
+          "repeatSamplesMs": [
+            277,
+            297,
+            296,
+            276,
+            260,
+            274,
+            249,
+            279,
+            269
+          ],
+          "warmupSamplesMs": [
+            264,
+            281,
+            283
+          ]
+        }
+      },
+      {
+        "name": "report",
+        "before": {
+          "firstMedianMs": 350,
+          "firstSamplesMs": [
+            361,
+            350,
+            331
+          ],
+          "repeatMedianMs": 270,
+          "repeatSamplesMs": [
+            253,
+            286,
+            284,
+            269,
+            270,
+            247,
+            261,
+            284,
+            278
+          ],
+          "warmupSamplesMs": [
+            252,
+            262,
+            240
+          ]
+        },
+        "after": {
+          "firstMedianMs": 321,
+          "firstSamplesMs": [
+            358,
+            321,
+            318
+          ],
+          "repeatMedianMs": 267,
+          "repeatSamplesMs": [
+            253,
+            267,
+            283,
+            297,
+            261,
+            244,
+            290,
+            258,
+            268
+          ],
+          "warmupSamplesMs": [
+            288,
+            315,
+            284
+          ]
+        }
+      },
+      {
+        "name": "workflow-list",
+        "before": {
+          "firstMedianMs": 407,
+          "firstSamplesMs": [
+            468,
+            360,
+            407
+          ],
+          "repeatMedianMs": 363,
+          "repeatSamplesMs": [
+            385,
+            361,
+            389,
+            363,
+            370,
+            360,
+            359,
+            357,
+            364
+          ],
+          "warmupSamplesMs": [
+            293,
+            279,
+            267
+          ]
+        },
+        "after": {
+          "firstMedianMs": 382,
+          "firstSamplesMs": [
+            387,
+            382,
+            364
+          ],
+          "repeatMedianMs": 364,
+          "repeatSamplesMs": [
+            395,
+            374,
+            355,
+            374,
+            348,
+            345,
+            364,
+            333,
+            370
+          ],
+          "warmupSamplesMs": [
+            266,
+            273,
+            314
+          ]
+        }
+      },
+      {
+        "name": "agents-list",
+        "before": {
+          "firstMedianMs": 299,
+          "firstSamplesMs": [
+            338,
+            286,
+            299
+          ],
+          "repeatMedianMs": 301,
+          "repeatSamplesMs": [
+            318,
+            295,
+            293,
+            301,
+            303,
+            309,
+            318,
+            285,
+            296
+          ],
+          "warmupSamplesMs": [
+            281,
+            239,
+            260
+          ]
+        },
+        "after": {
+          "firstMedianMs": 285,
+          "firstSamplesMs": [
+            264,
+            304,
+            285
+          ],
+          "repeatMedianMs": 277,
+          "repeatSamplesMs": [
+            264,
+            271,
+            281,
+            257,
+            277,
+            289,
+            272,
+            355,
+            342
+          ],
+          "warmupSamplesMs": [
+            258,
+            285,
+            280
+          ]
+        }
+      },
+      {
+        "name": "skill-list",
+        "before": {
+          "firstMedianMs": 205,
+          "firstSamplesMs": [
+            222,
+            204,
+            205
+          ],
+          "repeatMedianMs": 204,
+          "repeatSamplesMs": [
+            220,
+            271,
+            195,
+            213,
+            236,
+            204,
+            204,
+            192,
+            199
+          ],
+          "warmupSamplesMs": [
+            293,
+            268,
+            257
+          ]
+        },
+        "after": {
+          "firstMedianMs": 203,
+          "firstSamplesMs": [
+            234,
+            191,
+            203
+          ],
+          "repeatMedianMs": 200,
+          "repeatSamplesMs": [
+            199,
+            204,
+            203,
+            210,
+            187,
+            178,
+            203,
+            196,
+            200
+          ],
+          "warmupSamplesMs": [
+            292,
+            291,
+            280
+          ]
+        }
+      },
+      {
+        "name": "instruction-list",
+        "before": {
+          "firstMedianMs": 192,
+          "firstSamplesMs": [
+            217,
+            192,
+            189
+          ],
+          "repeatMedianMs": 196,
+          "repeatSamplesMs": [
+            221,
+            193,
+            196,
+            178,
+            181,
+            201,
+            204,
+            188,
+            204
+          ],
+          "warmupSamplesMs": [
+            284,
+            257,
+            258
+          ]
+        },
+        "after": {
+          "firstMedianMs": 190,
+          "firstSamplesMs": [
+            189,
+            190,
+            190
+          ],
+          "repeatMedianMs": 191,
+          "repeatSamplesMs": [
+            191,
+            206,
+            177,
+            184,
+            192,
+            185,
+            193,
+            198,
+            191
+          ],
+          "warmupSamplesMs": [
+            297,
+            271,
+            284
+          ]
+        }
+      }
+    ]
+  },
+  "windows": {
+    "node": "v24.21.0",
+    "cold": [
+      {
+        "name": "status",
+        "before": {
+          "firstMedianMs": 333,
+          "firstSamplesMs": [
+            403,
+            333,
+            325
+          ],
+          "repeatMedianMs": 219,
+          "repeatSamplesMs": [
+            219,
+            213,
+            218,
+            215,
+            211,
+            221,
+            222,
+            228,
+            225
+          ]
+        },
+        "after": {
+          "firstMedianMs": 325,
+          "firstSamplesMs": [
+            311,
+            325,
+            334
+          ],
+          "repeatMedianMs": 212,
+          "repeatSamplesMs": [
+            209,
+            218,
+            215,
+            216,
+            217,
+            207,
+            206,
+            212,
+            209
+          ]
+        }
+      },
+      {
+        "name": "progress",
+        "before": {
+          "firstMedianMs": 419,
+          "firstSamplesMs": [
+            491,
+            419,
+            407
+          ],
+          "repeatMedianMs": 296,
+          "repeatSamplesMs": [
+            299,
+            290,
+            303,
+            298,
+            286,
+            296,
+            283,
+            287,
+            297
+          ]
+        },
+        "after": {
+          "firstMedianMs": 419,
+          "firstSamplesMs": [
+            419,
+            408,
+            419
+          ],
+          "repeatMedianMs": 294,
+          "repeatSamplesMs": [
+            291,
+            301,
+            285,
+            296,
+            290,
+            294,
+            297,
+            295,
+            294
+          ]
+        }
+      },
+      {
+        "name": "nextsteps",
+        "before": {
+          "firstMedianMs": 702,
+          "firstSamplesMs": [
+            726,
+            689,
+            702
+          ],
+          "repeatMedianMs": 456,
+          "repeatSamplesMs": [
+            448,
+            466,
+            457,
+            464,
+            453,
+            459,
+            454,
+            456,
+            430
+          ]
+        },
+        "after": {
+          "firstMedianMs": 688,
+          "firstSamplesMs": [
+            688,
+            674,
+            692
+          ],
+          "repeatMedianMs": 454,
+          "repeatSamplesMs": [
+            444,
+            424,
+            454,
+            430,
+            447,
+            456,
+            471,
+            464,
+            462
+          ]
+        }
+      },
+      {
+        "name": "phase-show",
+        "before": {
+          "firstMedianMs": 636,
+          "firstSamplesMs": [
+            737,
+            636,
+            620
+          ],
+          "repeatMedianMs": 400,
+          "repeatSamplesMs": [
+            394,
+            397,
+            401,
+            403,
+            400,
+            396,
+            393,
+            419,
+            408
+          ]
+        },
+        "after": {
+          "firstMedianMs": 652,
+          "firstSamplesMs": [
+            642,
+            652,
+            655
+          ],
+          "repeatMedianMs": 400,
+          "repeatSamplesMs": [
+            413,
+            400,
+            408,
+            397,
+            404,
+            387,
+            391,
+            395,
+            403
+          ]
+        }
+      },
+      {
+        "name": "inputs-preview",
+        "before": {
+          "firstMedianMs": 682,
+          "firstSamplesMs": [
+            682,
+            676,
+            690
+          ],
+          "repeatMedianMs": 448,
+          "repeatSamplesMs": [
+            448,
+            463,
+            439,
+            444,
+            439,
+            448,
+            456,
+            452,
+            445
+          ]
+        },
+        "after": {
+          "firstMedianMs": 690,
+          "firstSamplesMs": [
+            705,
+            690,
+            683
+          ],
+          "repeatMedianMs": 449,
+          "repeatSamplesMs": [
+            474,
+            449,
+            448,
+            460,
+            460,
+            449,
+            431,
+            425,
+            433
+          ]
+        }
+      },
+      {
+        "name": "report",
+        "before": {
+          "firstMedianMs": 595,
+          "firstSamplesMs": [
+            622,
+            590,
+            595
+          ],
+          "repeatMedianMs": 363,
+          "repeatSamplesMs": [
+            373,
+            367,
+            363,
+            360,
+            361,
+            350,
+            351,
+            363,
+            367
+          ]
+        },
+        "after": {
+          "firstMedianMs": 583,
+          "firstSamplesMs": [
+            583,
+            583,
+            606
+          ],
+          "repeatMedianMs": 359,
+          "repeatSamplesMs": [
+            361,
+            354,
+            350,
+            355,
+            366,
+            359,
+            385,
+            378,
+            359
+          ]
+        }
+      },
+      {
+        "name": "workflow-list",
+        "before": {
+          "firstMedianMs": 743,
+          "firstSamplesMs": [
+            821,
+            739,
+            743
+          ],
+          "repeatMedianMs": 612,
+          "repeatSamplesMs": [
+            608,
+            610,
+            613,
+            623,
+            612,
+            625,
+            623,
+            605,
+            610
+          ]
+        },
+        "after": {
+          "firstMedianMs": 709,
+          "firstSamplesMs": [
+            719,
+            699,
+            709
+          ],
+          "repeatMedianMs": 600,
+          "repeatSamplesMs": [
+            628,
+            600,
+            593,
+            603,
+            592,
+            608,
+            603,
+            593,
+            591
+          ]
+        }
+      },
+      {
+        "name": "agents-list",
+        "before": {
+          "firstMedianMs": 573,
+          "firstSamplesMs": [
+            564,
+            583,
+            573
+          ],
+          "repeatMedianMs": 449,
+          "repeatSamplesMs": [
+            440,
+            446,
+            460,
+            457,
+            459,
+            455,
+            446,
+            449,
+            442
+          ]
+        },
+        "after": {
+          "firstMedianMs": 524,
+          "firstSamplesMs": [
+            538,
+            524,
+            504
+          ],
+          "repeatMedianMs": 400,
+          "repeatSamplesMs": [
+            417,
+            406,
+            400,
+            415,
+            403,
+            395,
+            398,
+            394,
+            393
+          ]
+        }
+      },
+      {
+        "name": "skill-list",
+        "before": {
+          "firstMedianMs": 397,
+          "firstSamplesMs": [
+            397,
+            406,
+            397
+          ],
+          "repeatMedianMs": 320,
+          "repeatSamplesMs": [
+            313,
+            316,
+            322,
+            328,
+            320,
+            318,
+            323,
+            322,
+            313
+          ]
+        },
+        "after": {
+          "firstMedianMs": 398,
+          "firstSamplesMs": [
+            413,
+            398,
+            383
+          ],
+          "repeatMedianMs": 316,
+          "repeatSamplesMs": [
+            319,
+            319,
+            310,
+            321,
+            310,
+            316,
+            307,
+            319,
+            311
+          ]
+        }
+      },
+      {
+        "name": "instruction-list",
+        "before": {
+          "firstMedianMs": 395,
+          "firstSamplesMs": [
+            395,
+            396,
+            385
+          ],
+          "repeatMedianMs": 314,
+          "repeatSamplesMs": [
+            320,
+            311,
+            315,
+            317,
+            311,
+            314,
+            311,
+            307,
+            316
+          ]
+        },
+        "after": {
+          "firstMedianMs": 390,
+          "firstSamplesMs": [
+            390,
+            378,
+            442
+          ],
+          "repeatMedianMs": 310,
+          "repeatSamplesMs": [
+            321,
+            299,
+            304,
+            310,
+            320,
+            322,
+            310,
+            306,
+            309
+          ]
+        }
+      }
+    ],
+    "prewarmed": [
+      {
+        "name": "status",
+        "before": {
+          "firstMedianMs": 216,
+          "firstSamplesMs": [
+            288,
+            204,
+            216
+          ],
+          "repeatMedianMs": 216,
+          "repeatSamplesMs": [
+            228,
+            218,
+            212,
+            211,
+            224,
+            225,
+            216,
+            213,
+            206
+          ],
+          "warmupSamplesMs": [
+            309,
+            297,
+            326
+          ]
+        },
+        "after": {
+          "firstMedianMs": 211,
+          "firstSamplesMs": [
+            212,
+            211,
+            206
+          ],
+          "repeatMedianMs": 205,
+          "repeatSamplesMs": [
+            203,
+            206,
+            201,
+            205,
+            204,
+            203,
+            210,
+            213,
+            209
+          ],
+          "warmupSamplesMs": [
+            356,
+            343,
+            342
+          ]
+        }
+      },
+      {
+        "name": "progress",
+        "before": {
+          "firstMedianMs": 282,
+          "firstSamplesMs": [
+            348,
+            282,
+            282
+          ],
+          "repeatMedianMs": 288,
+          "repeatSamplesMs": [
+            279,
+            284,
+            291,
+            291,
+            289,
+            288,
+            287,
+            289,
+            278
+          ],
+          "warmupSamplesMs": [
+            301,
+            300,
+            305
+          ]
+        },
+        "after": {
+          "firstMedianMs": 286,
+          "firstSamplesMs": [
+            286,
+            285,
+            286
+          ],
+          "repeatMedianMs": 286,
+          "repeatSamplesMs": [
+            282,
+            287,
+            283,
+            284,
+            286,
+            288,
+            286,
+            288,
+            285
+          ],
+          "warmupSamplesMs": [
+            352,
+            332,
+            334
+          ]
+        }
+      },
+      {
+        "name": "nextsteps",
+        "before": {
+          "firstMedianMs": 560,
+          "firstSamplesMs": [
+            583,
+            542,
+            560
+          ],
+          "repeatMedianMs": 432,
+          "repeatSamplesMs": [
+            435,
+            437,
+            434,
+            428,
+            430,
+            432,
+            425,
+            449,
+            432
+          ],
+          "warmupSamplesMs": [
+            310,
+            309,
+            304
+          ]
+        },
+        "after": {
+          "firstMedianMs": 512,
+          "firstSamplesMs": [
+            509,
+            512,
+            534
+          ],
+          "repeatMedianMs": 431,
+          "repeatSamplesMs": [
+            431,
+            422,
+            417,
+            427,
+            458,
+            455,
+            433,
+            435,
+            423
+          ],
+          "warmupSamplesMs": [
+            350,
+            343,
+            335
+          ]
+        }
+      },
+      {
+        "name": "phase-show",
+        "before": {
+          "firstMedianMs": 514,
+          "firstSamplesMs": [
+            564,
+            507,
+            514
+          ],
+          "repeatMedianMs": 397,
+          "repeatSamplesMs": [
+            392,
+            397,
+            392,
+            403,
+            392,
+            402,
+            394,
+            412,
+            417
+          ],
+          "warmupSamplesMs": [
+            308,
+            310,
+            304
+          ]
+        },
+        "after": {
+          "firstMedianMs": 480,
+          "firstSamplesMs": [
+            496,
+            469,
+            480
+          ],
+          "repeatMedianMs": 391,
+          "repeatSamplesMs": [
+            388,
+            383,
+            373,
+            391,
+            394,
+            397,
+            397,
+            391,
+            384
+          ],
+          "warmupSamplesMs": [
+            360,
+            337,
+            351
+          ]
+        }
+      },
+      {
+        "name": "inputs-preview",
+        "before": {
+          "firstMedianMs": 557,
+          "firstSamplesMs": [
+            557,
+            558,
+            542
+          ],
+          "repeatMedianMs": 444,
+          "repeatSamplesMs": [
+            463,
+            465,
+            450,
+            444,
+            442,
+            428,
+            430,
+            426,
+            450
+          ],
+          "warmupSamplesMs": [
+            316,
+            306,
+            302
+          ]
+        },
+        "after": {
+          "firstMedianMs": 558,
+          "firstSamplesMs": [
+            531,
+            558,
+            561
+          ],
+          "repeatMedianMs": 441,
+          "repeatSamplesMs": [
+            445,
+            441,
+            441,
+            457,
+            437,
+            432,
+            452,
+            435,
+            439
+          ],
+          "warmupSamplesMs": [
+            360,
+            363,
+            351
+          ]
+        }
+      },
+      {
+        "name": "report",
+        "before": {
+          "firstMedianMs": 477,
+          "firstSamplesMs": [
+            486,
+            472,
+            477
+          ],
+          "repeatMedianMs": 370,
+          "repeatSamplesMs": [
+            377,
+            384,
+            376,
+            372,
+            363,
+            363,
+            361,
+            356,
+            370
+          ],
+          "warmupSamplesMs": [
+            320,
+            308,
+            312
+          ]
+        },
+        "after": {
+          "firstMedianMs": 453,
+          "firstSamplesMs": [
+            453,
+            459,
+            444
+          ],
+          "repeatMedianMs": 374,
+          "repeatSamplesMs": [
+            375,
+            381,
+            368,
+            374,
+            377,
+            372,
+            374,
+            381,
+            369
+          ],
+          "warmupSamplesMs": [
+            359,
+            361,
+            355
+          ]
+        }
+      },
+      {
+        "name": "workflow-list",
+        "before": {
+          "firstMedianMs": 642,
+          "firstSamplesMs": [
+            765,
+            633,
+            642
+          ],
+          "repeatMedianMs": 620,
+          "repeatSamplesMs": [
+            609,
+            639,
+            620,
+            650,
+            615,
+            624,
+            622,
+            609,
+            616
+          ],
+          "warmupSamplesMs": [
+            328,
+            320,
+            320
+          ]
+        },
+        "after": {
+          "firstMedianMs": 601,
+          "firstSamplesMs": [
+            605,
+            601,
+            599
+          ],
+          "repeatMedianMs": 601,
+          "repeatSamplesMs": [
+            597,
+            601,
+            645,
+            602,
+            594,
+            614,
+            591,
+            600,
+            613
+          ],
+          "warmupSamplesMs": [
+            352,
+            362,
+            344
+          ]
+        }
+      },
+      {
+        "name": "agents-list",
+        "before": {
+          "firstMedianMs": 424,
+          "firstSamplesMs": [
+            424,
+            418,
+            437
+          ],
+          "repeatMedianMs": 426,
+          "repeatSamplesMs": [
+            425,
+            431,
+            420,
+            451,
+            440,
+            426,
+            416,
+            430,
+            422
+          ],
+          "warmupSamplesMs": [
+            311,
+            304,
+            303
+          ]
+        },
+        "after": {
+          "firstMedianMs": 392,
+          "firstSamplesMs": [
+            394,
+            392,
+            379
+          ],
+          "repeatMedianMs": 378,
+          "repeatSamplesMs": [
+            386,
+            387,
+            376,
+            376,
+            372,
+            377,
+            380,
+            378,
+            389
+          ],
+          "warmupSamplesMs": [
+            351,
+            337,
+            337
+          ]
+        }
+      },
+      {
+        "name": "skill-list",
+        "before": {
+          "firstMedianMs": 300,
+          "firstSamplesMs": [
+            302,
+            298,
+            300
+          ],
+          "repeatMedianMs": 298,
+          "repeatSamplesMs": [
+            305,
+            298,
+            297,
+            297,
+            290,
+            302,
+            298,
+            299,
+            303
+          ],
+          "warmupSamplesMs": [
+            300,
+            312,
+            292
+          ]
+        },
+        "after": {
+          "firstMedianMs": 309,
+          "firstSamplesMs": [
+            313,
+            309,
+            296
+          ],
+          "repeatMedianMs": 301,
+          "repeatSamplesMs": [
+            299,
+            300,
+            308,
+            316,
+            301,
+            307,
+            298,
+            301,
+            288
+          ],
+          "warmupSamplesMs": [
+            351,
+            345,
+            331
+          ]
+        }
+      },
+      {
+        "name": "instruction-list",
+        "before": {
+          "firstMedianMs": 298,
+          "firstSamplesMs": [
+            298,
+            304,
+            298
+          ],
+          "repeatMedianMs": 300,
+          "repeatSamplesMs": [
+            322,
+            299,
+            293,
+            310,
+            310,
+            297,
+            300,
+            299,
+            302
+          ],
+          "warmupSamplesMs": [
+            300,
+            313,
+            303
+          ]
+        },
+        "after": {
+          "firstMedianMs": 306,
+          "firstSamplesMs": [
+            306,
+            306,
+            300
+          ],
+          "repeatMedianMs": 303,
+          "repeatSamplesMs": [
+            301,
+            303,
+            302,
+            303,
+            295,
+            308,
+            304,
+            310,
+            321
+          ],
+          "warmupSamplesMs": [
+            368,
+            356,
+            348
+          ]
+        }
+      }
+    ]
+  },
+  "limitations": [
+    "No universal speedup: several unchanged commands and small regressions are retained.",
+    "Warmup adds work outside the first visible request; it is optional, cancellable and not free.",
+    "No provider invocation, approval consent or durable authority caching was introduced.",
+    "Raw stage/counter reports remain in the qualification run artifact."
+  ]
+}

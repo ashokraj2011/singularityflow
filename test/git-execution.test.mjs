@@ -1391,9 +1391,12 @@ test('remote execution waits for bounded cleanup and rejects a late zero exit', 
   child.stdout = new PassThrough();
   child.stderr = new PassThrough();
   child.kill = () => true;
+  // The assertion is about cleanup after spawn, not the Windows executable/configuration lookup.
+  // A 5ms whole-operation deadline can correctly expire before this fake child is launched.
+  const timeoutMs = 1000;
   const startedAt = performance.now();
   const result = await runRemoteGitAsync(['fetch', 'origin'], {
-    timeoutMs: 5,
+    timeoutMs,
     terminationGraceMs: 100,
     spawnCommand: () => child,
     terminateTree(_child, treeSignal) {
@@ -1412,8 +1415,8 @@ test('remote execution waits for bounded cleanup and rejects a late zero exit', 
   assert.equal(result.timedOut, true);
   assert.equal(result.failure.classification, 'operation-timeout');
   assert.deepEqual(cleanupSignals, ['SIGTERM', 'SIGKILL']);
-  assert.ok(elapsedMs >= 50, `remote operation settled before forced cleanup (${elapsedMs}ms)`);
-  assert.ok(elapsedMs < 200, `remote cleanup exceeded the hard grace (${elapsedMs}ms)`);
+  assert.ok(elapsedMs >= timeoutMs + 50, `remote operation settled before forced cleanup (${elapsedMs}ms)`);
+  assert.ok(elapsedMs < timeoutMs + 200, `remote cleanup exceeded the hard grace (${elapsedMs}ms)`);
   child.emit('close', 0, null);
   assert.equal(result.status, 1, 'a later zero close cannot erase the timeout boundary');
 });

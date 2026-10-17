@@ -1,7 +1,8 @@
-/** Optional native-chat tool. Loaded only by an explicitly opened workflow designer. */
+/** Optional native-chat tools. Loaded only by an explicitly opened workflow designer or workflow build. */
 import * as vscode from 'vscode';
 import { randomUUID } from 'node:crypto';
 export { workflowIntentPrompt } from './views/workflow-intent-prompt.ts';
+import { WORKFLOW_BUILDER_TOOL, answerBuilderTool, builderToolInput, type BuilderRunner, type BuilderToolInput } from './views/workflow-builder-tool.ts';
 
 export const WORKFLOW_INTENT_TOOL = 'singularityFlow_workflowAuthoring';
 interface Input { action: string; session: string; revision: number; source?: string; kind?: string; id?: string; query?: string; cursor?: number }
@@ -46,5 +47,35 @@ export function attachWorkflowIntentTool(handler: (input: Input) => Promise<unkn
   return { available: true, session, dispose() {
     targets.delete(session);
     if (!targets.size) { registration?.dispose(); registration = null; void vscode.commands.executeCommand('setContext', 'singularityFlow.workflowIntentOpen', false); }
+  } };
+}
+
+const builds = new Map<string, BuilderRunner>();
+let builderRegistration: vscode.Disposable | null = null;
+
+/**
+ * #sflowWorkflowBuilder, for the build open in Workflow Studio's Build view: registered while one is
+ * open, bound to that build. It reads and records proposals and questions; a person decides.
+ */
+export function attachWorkflowBuilderTool(build: string, runner: BuilderRunner): { available: boolean; dispose(): void } {
+  const host = vscode as unknown as OptionalTools;
+  if (typeof host.lm?.registerTool !== 'function' || typeof host.LanguageModelTextPart !== 'function' || typeof host.LanguageModelToolResult !== 'function') return { available: false, dispose() {} };
+  if (!builderRegistration) builderRegistration = host.lm.registerTool(WORKFLOW_BUILDER_TOOL, {
+    prepareInvocation: () => ({ invocationMessage: 'Reading the workflow build, or recording a proposal for a person to accept in Workflow Studio.' }),
+    invoke: async (options: { input: unknown }) => {
+      if (vscode.workspace.getConfiguration('singularityFlow').get<string>('modelMode', 'auto') === 'disabled'
+          || vscode.workspace.getConfiguration('chat').get<boolean>('disableAIFeatures', false)) throw new Error('Model features are disabled. Build in Workflow Studio by hand, or with the workflow build commands.');
+      const request: BuilderToolInput = builderToolInput(options.input);
+      const target = builds.get(request.build);
+      if (!target) throw new Error(`Build ${request.build} is not open in Workflow Studio. Open it in Build with Copilot first.`);
+      return new host.LanguageModelToolResult!([new host.LanguageModelTextPart!(JSON.stringify(await answerBuilderTool(request, target)))]);
+    }
+  });
+  builds.set(build, runner);
+  void vscode.commands.executeCommand('setContext', 'singularityFlow.workflowBuildOpen', true);
+  return { available: true, dispose() {
+    if (builds.get(build) !== runner) return;
+    builds.delete(build);
+    if (!builds.size) { builderRegistration?.dispose(); builderRegistration = null; void vscode.commands.executeCommand('setContext', 'singularityFlow.workflowBuildOpen', false); }
   } };
 }

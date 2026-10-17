@@ -14,6 +14,58 @@ import { CATALOG_SEARCH_SCRIPT } from './catalog-search.ts';
 const STUDIO_STYLE = `
 .studio{display:grid;grid-template-columns:200px minmax(0,1fr);min-height:calc(100vh - 80px);gap:0}
 [hidden]{display:none!important}
+.build-start-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:var(--sf-space-3)}
+.build-start.chosen{border-color:var(--sf-accent)}
+.build-start-body{display:flex;flex-direction:column;gap:var(--sf-space-2)}
+.build-start-body textarea,.build-add textarea,.build-step-tools textarea{width:100%;box-sizing:border-box;font:inherit}
+.build-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--sf-space-2)}
+.build-tabs{display:flex;gap:4px}
+.build-tab{display:inline-flex;align-items:center;gap:6px;background:transparent;color:inherit;border:1px solid var(--sf-border-color);border-radius:14px;padding:4px 12px;cursor:pointer}
+.build-tab[aria-selected=true]{border-color:var(--sf-accent);background:var(--sf-accent-quiet);font-weight:600}
+.build-grid{display:grid;grid-template-columns:minmax(280px,1.1fr) minmax(240px,.9fr) minmax(280px,1fr);gap:var(--sf-space-3);align-items:start}
+.build-pane{border:1px solid var(--sf-border-color);border-radius:10px;padding:var(--sf-space-3);background:var(--sf-surface);display:flex;flex-direction:column;gap:var(--sf-space-2);min-width:0}
+.build-pane h2{margin:0;font-size:14px}.build-pane h3{margin:8px 0 0;font-size:13px}
+.build-log{display:flex;flex-direction:column;gap:8px}
+.build-turn{font-size:12px;line-height:1.45;display:flex;gap:6px}
+.build-who{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;opacity:.75;white-space:nowrap}
+.build-proposal,.build-question,.build-item,.build-explain-step{display:flex;flex-direction:column;gap:4px;font-size:12px;line-height:1.45;padding:8px 10px;border-radius:6px;border:1px solid var(--sf-border-color);border-left-width:3px}
+.build-proposal.status-pending,.build-question:not(.answered){border-left-color:var(--sf-accent)}
+.build-proposal.status-accepted{border-left-color:var(--sf-ok)}
+.build-proposal.status-declined,.build-proposal.status-stale,.build-item.status-left-out{opacity:.7}
+.build-proposal.previewing{box-shadow:0 0 0 1px var(--sf-accent)}
+.build-moves{margin:0;padding-left:18px}
+.pill.evidence{font-family:var(--sf-font-mono,monospace);cursor:pointer;background:transparent;color:inherit}
+.build-ask{display:flex;flex-wrap:wrap;gap:6px;align-items:center;border-top:1px solid var(--sf-border-color);padding-top:8px}
+.build-add{display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--sf-border-color);padding-top:8px}
+.build-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.build-step{display:flex;flex-direction:column;align-items:stretch;position:relative;padding-bottom:14px}
+.build-step:after{content:'';position:absolute;left:21px;bottom:0;height:14px;border-left:2px solid var(--sf-border-color)}
+.build-step-card{display:flex;gap:10px;align-items:flex-start;justify-content:flex-start;text-align:left;width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid var(--sf-border-color);background:var(--sf-surface);color:inherit;font:inherit;cursor:pointer}
+.build-step.selected .build-step-card{border-color:var(--sf-accent);box-shadow:0 0 0 1px var(--sf-accent)}
+.build-step.added .build-step-card{border-style:dashed;border-color:var(--sf-ok)}
+.build-step.changed .build-step-card{border-style:dashed;border-color:var(--sf-wait)}
+.build-step.removed .build-step-card{opacity:.6;cursor:default}
+.build-step-number{flex:0 0 24px;height:24px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;border:1px solid var(--sf-border-color)}
+.build-step-body{display:flex;flex-direction:column;gap:2px;min-width:0;font-size:12px}
+.build-step-title{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.build-decision{margin:6px 0 0 34px;font-size:11px;opacity:.85}
+.build-end{display:inline-flex;align-self:flex-start;align-items:center;gap:6px;border-radius:18px;border:1px dashed var(--sf-border-color);padding:4px 12px;font-size:12px;font-weight:600}
+.build-step-tools{display:flex;flex-direction:column;gap:6px}
+.build-kinds{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.build-kinds .pill{cursor:pointer;background:transparent;color:inherit}
+.build-kinds .pill[aria-pressed=true]{border-color:var(--sf-accent);background:var(--sf-accent-quiet)}
+.build-found{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--sf-space-3);align-items:start}
+.build-found.with-source{grid-template-columns:minmax(0,1fr) minmax(280px,1fr)}
+.build-items{display:flex;flex-direction:column;gap:6px}
+.build-kind{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;opacity:.75}
+.build-source{display:flex;flex-direction:column;gap:6px;position:sticky;top:8px;min-width:0}
+.build-lines{font-family:var(--sf-font-mono,monospace);font-size:11.5px;line-height:1.5;max-height:60vh;overflow:auto;border:1px solid var(--sf-border-color);border-radius:6px;padding:6px 0}
+.build-line{display:flex;gap:10px;padding:0 8px;white-space:pre-wrap;overflow-wrap:anywhere}
+.build-line.cited{background:var(--sf-accent-quiet)}
+.build-line-number{flex:0 0 32px;text-align:right;opacity:.6;user-select:none}
+.build-grid>.build-chat{grid-column:1;grid-row:1}
+@media (max-width:1300px){.build-grid{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr)}.build-grid>.build-chat{grid-row:1 / span 2}}
+@media (max-width:800px){.build-grid{grid-template-columns:minmax(0,1fr)}.build-grid>.build-chat{grid-row:auto}.build-found.with-source{grid-template-columns:minmax(0,1fr)}.build-source{position:static}}
 .catalog-search{display:flex;flex-direction:column;gap:8px}
 .catalog-search input{flex:1;min-width:120px}
 .catalog-search label{font-size:12px}
@@ -305,7 +357,7 @@ body:has(#studio-root) .page-nav .link,body:has(#studio-root) .page-nav .nav-cur
 export const PROPOSAL_BRANCH = /^sflow\/config-change\/[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$/;
 const MAX_LISTED_PROPOSALS = 100;
 /** The sections the page can be opened at, for screens that send a person to one. */
-export const STUDIO_FOCUS_VIEWS = Object.freeze(['home', 'agents', 'skills', 'instructions', 'constitution', 'artifacts', 'library', 'people', 'integrations', 'changes'] as const);
+export const STUDIO_FOCUS_VIEWS = Object.freeze(['home', 'build', 'agents', 'skills', 'instructions', 'constitution', 'artifacts', 'library', 'people', 'integrations', 'changes'] as const);
 export type StudioFocusView = typeof STUDIO_FOCUS_VIEWS[number];
 
 /** A configuration proposal as the Changes view lists it: names and counts, never file content. */
@@ -926,6 +978,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     canvasLayout: function () { return canvasLayout.apply(null, arguments); }, copyStep: function () { return copyStep.apply(null, arguments); },
     // The draft operations the inspector runs, against the model the host sent, and that state.
     state: function () { return state; },
+    buildState: function () { return buildState(); }, renderBuild: function () { return renderBuild.apply(null, arguments); }, moveText: function () { return moveText.apply(null, arguments); },
+    openBuilds: function () { return openBuilds(); },
     openWorkflowCanvas: function () { return openWorkflowCanvas.apply(null, arguments); },
     createWorkflowFromWizard: function () { return createWorkflowFromWizard.apply(null, arguments); },
     removeNewWorkflow: function () { return removeNewWorkflow.apply(null, arguments); }, orphanedSteps: function () { return orphanedSteps.apply(null, arguments); },
@@ -1171,19 +1225,22 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     else if (subject.step && workflow.phases.indexOf(subject.step) >= 0) { state.step = subject.step; state.decision = null; canvasView(workflowId).reveal = subject.step; }
     state.panel = null; render();
   }
-  function findingList(workflowId, findings) {
+  /** Findings, each with Show (the step or decision) and Open file; options.show and options.files false change those. */
+  function findingList(workflowId, findings, options) {
+    var show = options && options.show ? options.show : function (subject) { showSubject(workflowId, subject); };
+    var files = !options || options.files !== false;
     return el('div', { class: 'finding-list' }, findings.map(function (item) {
       var subject = item.subject || {};
-      var where = item.location ? item.location.file + (item.location.line ? ' line ' + item.location.line : '') : null;
+      var where = files && item.location ? item.location.file + (item.location.line ? ' line ' + item.location.line : '') : null;
       var target = subject.step || subject.decision;
       return el('div', { class: 'finding sev-' + item.severity, 'data-finding': item.code },
         el('div', null, el('span', { class: 'sev ' + item.severity, text: item.severity }), ' ', el('strong', { text: item.title })),
         item.detail && item.detail !== item.title ? el('div', { class: 'muted', text: item.detail }) : null,
         item.fix ? el('div', { text: 'Fix: ' + item.fix.text }) : null,
         where ? el('div', { class: 'finding-where', text: where }) : null,
-        target || item.location ? el('div', { class: 'studio-row' },
-          target ? button('Show', function () { showSubject(workflowId, subject); }, { class: 'secondary', 'data-key': 'finding-show-' + item.id }) : null,
-          item.location ? button('Open file', function () { openFile(item.location.file, item.location.line || null); }, { class: 'secondary', 'data-key': 'finding-open-' + item.id }) : null) : null);
+        target || where ? el('div', { class: 'studio-row' },
+          target ? button('Show', function () { show(subject); }, { class: 'secondary', 'data-key': 'finding-show-' + item.id }) : null,
+          where ? button('Open file', function () { openFile(item.location.file, item.location.line || null); }, { class: 'secondary', 'data-key': 'finding-open-' + item.id }) : null) : null);
     }));
   }
   function renderCheckPanel(workflowId) {
@@ -1448,6 +1505,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     root.appendChild(el('nav', { class: 'studio-nav', 'aria-label': 'Workflow Studio' },
       compact ? null : el('div', { class: 'brand', text: 'WORKFLOW STUDIO' }),
       item('home', 'Workflows', 'flow', Object.keys(state.draft.workflows).length, false),
+      item('build', 'Build with Copilot', 'spark', null, false),
       item('agents', 'Agents', 'agent', Object.keys(state.draft.agents).length, false),
       item('skills', 'Skill master', 'spark', Object.keys(state.draft.skills || {}).length || null, false),
       item('instructions', 'Instructions', 'book', Object.keys(state.draft.instructions || {}).length || null, false),
@@ -1516,6 +1574,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         button('Open Changes', function () { state.view = 'changes'; render(); }, { class: 'secondary' })) : null));
     main.appendChild(el('div', { class: 'studio-row spread' }, el('h2', { text: 'Your workflows' }), el('div', { class: 'studio-row' },
       button(state.busy === 'import' ? 'Importing…' : 'Import…', importWorkflows, { class: 'secondary', disabled: Boolean(state.busy), title: 'Add workflows from a bundle file, as one reviewed change' }),
+      button('Build with Copilot…', openBuilds, { class: 'secondary', 'data-key': 'home-build', title: 'Grow a workflow a piece at a time from a workflow you have, a team\'s material or a description: Copilot proposes, you accept, and every change is explained and checked' }),
       button('Import a team…', function () { post({ type: 'studio.importTeam' }); }, { class: 'secondary', title: 'Turn a team\'s agents, skills and instructions into a workflow bundle with Copilot, then import it here' }),
       button('Create with Copilot…', function () { post({ type: 'studio.markup' }); }, { class: 'secondary', title: 'Describe your workflow; let Copilot draft it, then validate and review the generated phases and routes' }),
       button('Export…', function () { state.exporting = state.exporting || {}; render(); }, { class: 'secondary' }),
@@ -5921,6 +5980,538 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
 
   // ---- Frame ---------------------------------------------------------------------------------
 
+  // ---- Build with Copilot ---------------------------------------------------------------------
+  // A build grows one workflow a piece at a time. SFlow lists what the material holds; Copilot
+  // proposes pieces with the lines they came from; only you accept or decline them. After every
+  // change the workflow is drawn, explained and checked. The host runs the workflow build commands.
+
+  var BUILD_OUTPUT_WORDS = { document: 'writes a document', analysis: 'writes an analysis', code: 'changes code', none: 'no output' };
+  var BUILD_ITEM_STATUS = { open: 'not used yet', confirmed: 'used', 'left-out': 'left out', 'kept-as-link': 'kept as a link', prerequisite: 'needed first' };
+
+  function buildState() {
+    if (!state.build) {
+      state.build = { list: null, loading: false, modelAvailable: true, id: null, view: null, check: null, checking: false, tab: 'build', busy: null, error: null,
+        preview: null, source: null, start: { from: 'material', workflow: '', describe: '', name: '' }, decline: {}, leaving: {}, selected: null, addStep: null, kind: null, finished: null, purpose: null };
+    }
+    return state.build;
+  }
+  function requestBuilds() { var b = buildState(); b.loading = true; post({ type: 'studio.build.list' }); }
+  function openBuilds() {
+    var b = buildState();
+    if (b.id) post({ type: 'studio.build.close' });
+    state.view = 'build'; state.returnTo = null; b.id = null; b.view = null; b.check = null; b.error = null; b.finished = null;
+    requestBuilds(); render();
+  }
+  function buildAction(type, extra, busy) {
+    var b = buildState(); b.busy = busy || type; b.error = null;
+    post(Object.assign({ type: 'studio.build.' + type, build: b.id }, extra || {})); render();
+  }
+  function openBuild(id) {
+    var b = buildState();
+    b.id = id; b.view = null; b.check = null; b.preview = null; b.source = null; b.tab = 'build'; b.selected = null; b.addStep = null; b.finished = null; b.decline = {}; b.leaving = {};
+    buildAction('open', { build: id }, 'open');
+  }
+  /** Your own change: recorded and accepted at once, so it shows like any other piece of the build. */
+  function buildMine(title, why, moves) { buildAction('mine', { proposal: JSON.stringify({ title: title, why: why, moves: moves }) }, 'mine'); }
+  function buildWhen(iso) { var date = iso ? new Date(iso) : null; return date && !isNaN(date.getTime()) ? date.toLocaleString() : ''; }
+  function buildKindLabel(kind) { var kinds = (buildState().view || {}).kinds || {}; return kinds[kind] || kind; }
+  function buildKindOne(kind) { var words = (buildState().view || {}).kindOne || {}; return words[kind] || kind; }
+  function buildCountsText(counts) {
+    var parts = Object.keys(counts || {}).filter(function (kind) { return kind !== 'withheld'; }).map(function (kind) { return counts[kind] + ' ' + buildKindLabel(kind).toLowerCase(); });
+    return parts.length ? parts.join(', ') : 'nothing found yet';
+  }
+  /** What the canvas and the explanation show: the build as accepted, or with the proposal being previewed. */
+  function buildResult() { var b = buildState(); return b.preview && b.preview.result ? b.preview.result : b.check; }
+  function buildWorkflow(result) { return result && result.preview && result.preview.workflows ? result.preview.workflows[0] || null : null; }
+  /** A step, agent or group by its name: as the build has it, as a proposal adds it, or as the repository has it. */
+  function buildName(kind, id) {
+    var workflow = buildWorkflow(buildState().check);
+    var step = kind === 'step' && workflow ? workflow.steps.find(function (entry) { return entry.id === id; }) : null;
+    if (step) return step.label;
+    var added = null;
+    (((buildState().view || {}).build || { proposals: [] }).proposals || []).forEach(function (proposal) {
+      proposal.moves.forEach(function (move) { if (move.move === kind + '.add' && move.id === id && move.label) added = move.label; });
+    });
+    if (added) return added;
+    var own = (kind === 'step' ? state.draft.phases : kind === 'agent' ? state.draft.agents : state.draft.groups)[id];
+    return own && own.label ? own.label : id;
+  }
+  function buildStepLabel(id) { return buildName('step', id); }
+  function buildItemName(id) {
+    var item = ((buildState().view || {}).build || { items: [] }).items.find(function (entry) { return entry.id === id; });
+    return item ? item.name : id;
+  }
+
+  /** One move, in plain words, as the conversation shows it. */
+  function moveText(move) {
+    var signOff = function (value) { return !value ? '' : value === 'none' ? ', no sign-off' : ', signed off by ' + (value.groups || []).map(function (id) { return buildName('group', id); }).join(', '); };
+    switch (move.move) {
+      case 'step.add': return Object.keys(move).length <= 3 && state.draft.phases[move.id] && !move.label
+        ? 'Use the existing step ' + buildStepLabel(move.id) + (move.after === undefined ? '' : move.after ? ' after ' + buildStepLabel(move.after) : ' at the start')
+        : 'Add the step ' + (move.label || move.id) + (move.from ? ' (a copy of ' + buildStepLabel(move.from) + ')' : '') + (move.after ? ' after ' + buildStepLabel(move.after) : move.after === null ? ' at the start' : '')
+          + (move.agent ? ', drafted by ' + buildName('agent', move.agent) : '') + (move.output ? ', ' + (BUILD_OUTPUT_WORDS[move.output] || move.output) : '') + signOff(move.signOff);
+      case 'step.change': return 'Change ' + buildStepLabel(move.id) + ': ' + ['label', 'purpose', 'agent', 'output', 'reads', 'signOff'].filter(function (key) { return move[key] !== undefined; })
+        .map(function (key) { return key === 'purpose' ? 'what it is for' : key === 'signOff' ? 'sign-off' : key; }).join(', ');
+      case 'step.remove': return 'Remove ' + buildStepLabel(move.id) + ' from this workflow';
+      case 'step.move': return 'Move ' + buildStepLabel(move.id) + (move.after ? ' after ' + buildStepLabel(move.after) : ' to the start');
+      case 'agent.add': return 'Add the agent ' + move.label + (move.from ? ', starting from ' + buildName('agent', move.from) : '');
+      case 'skill.add': return 'Add the skill ' + (move.label || move.id) + (move.from ? ', starting from ' + move.from : '');
+      case 'skill.attach': return 'Attach the skill ' + move.skill + (move.agent ? ' to ' + buildName('agent', move.agent) : ' to this workflow') + (move.steps && move.steps.length ? ' for ' + move.steps.map(buildStepLabel).join(', ') : '');
+      case 'instruction.add': return 'Add the instruction ' + (move.label || move.id);
+      case 'decision.add': return 'Add a decision after ' + buildStepLabel(move.after) + ': ' + move.label;
+      case 'decision.remove': return 'Remove the decision after ' + buildStepLabel(move.after);
+      case 'group.add': return 'Add the approval group ' + move.label + ' (people are added later)';
+      case 'action.add': return 'Tell ' + move.target + ' when ' + buildStepLabel(move.step) + ' is ' + move.on;
+      case 'item.classify': return 'Treat ' + buildItemName(move.item) + ' as ' + move.as;
+      case 'item.leaveOut': return 'Leave out ' + buildItemName(move.item) + ': ' + move.reason;
+      case 'item.keepAsLink': return 'Keep ' + buildItemName(move.item) + ' as a link';
+      case 'item.prerequisite': return 'Needed first: ' + buildItemName(move.item) + ' (' + move.description + ')';
+      default: return move.move;
+    }
+  }
+
+  function renderBuild(main) {
+    var b = buildState();
+    if (!b.id) renderBuildStart(main); else renderBuildOpen(main);
+  }
+
+  function renderBuildStart(main) {
+    var b = buildState(); var form = b.start;
+    if (b.list === null && !b.loading) requestBuilds();
+    main.appendChild(el('header', { class: 'studio-card', style: 'border:0;background:transparent;padding:0' },
+      el('h1', { text: 'Build a workflow with Copilot' }),
+      el('p', { class: 'studio-lede', text: 'Start from a workflow you have, from a team\'s own agents, skills, instructions and runbooks, or from a description. SFlow lists what the material holds, each piece with the file and line it came from. Copilot proposes the workflow a piece at a time; you accept or decline each piece, and every change is drawn, explained and checked. Nothing is used until you finish and the usual review approves it.' })));
+    if (b.error) main.appendChild(el('div', { class: 'callout bad', role: 'alert', text: b.error }));
+    var workflows = state.draft.order.filter(function (id) { return state.draft.workflows[id]; });
+    var options = workflows.map(function (id) { return { value: id, label: state.draft.workflows[id].label }; });
+    function choice(from, title, text, body) {
+      var chosen = form.from === from;
+      return el('div', { class: 'studio-card build-start' + (chosen ? ' chosen' : '') },
+        el('label', { class: 'studio-row' }, el('input', { type: 'radio', name: 'build-from', value: from, checked: chosen, 'data-key': 'build-from-' + from,
+          onchange: function () { form.from = from; render(); } }), el('strong', { text: title })),
+        el('span', { class: 'muted', text: text }), chosen ? body : null);
+    }
+    var busy = Boolean(b.busy);
+    // A node has one parent, so each card gets its own name field (only the chosen card shows one).
+    var name = function () { return field('build-name', 'Name of the new workflow (optional)', textInput('build-name', form.name, function (value) { form.name = value; }, { placeholder: 'Payments release' })); };
+    main.appendChild(el('div', { class: 'build-start-grid' },
+      choice('material', 'From a team\'s material', 'Folders or files a team already uses: agent, skill, instruction and prompt files, runbooks, API collections, scripts. They are screened for credentials, never run or fetched.',
+        el('div', { class: 'build-start-body' },
+          field('build-base', 'Add to a workflow you have (optional)', select('build-base', [{ value: '', label: 'No: a new workflow' }].concat(options), form.workflow, function (value) { form.workflow = value; })),
+          name(), button(b.busy === 'start' ? 'Reading…' : 'Choose folders or files…', function () { buildAction('start', { from: 'material', workflow: form.workflow || null, name: form.name || null }, 'start'); },
+            { class: 'primary', 'data-key': 'build-start-material', disabled: busy }))),
+      choice('workflow', 'From a workflow you have', 'Copy one of your workflows and change it a piece at a time. The original stays as it is.',
+        el('div', { class: 'build-start-body' },
+          field('build-from-workflow', 'Workflow', select('build-from-workflow', [{ value: '', label: 'Choose a workflow' }].concat(options), form.workflow, function (value) { form.workflow = value; render(); })),
+          name(), button(b.busy === 'start' ? 'Starting…' : 'Start from this workflow', function () { buildAction('start', { from: 'workflow', workflow: form.workflow, name: form.name || null }, 'start'); },
+            { class: 'primary', 'data-key': 'build-start-workflow', disabled: busy || !form.workflow }))),
+      choice('describe', 'From a description', 'Say how the team works in a few sentences. Copilot proposes steps from it; you can add material later.',
+        el('div', { class: 'build-start-body' },
+          field('build-describe', 'How does the team work?', el('textarea', { id: 'build-describe', 'data-key': 'build-describe', rows: 5, placeholder: 'A change is triaged, built and tested, reviewed by security for PCI, then released with release notes.',
+            oninput: function (event) { form.describe = event.target.value; } }, form.describe)),
+          name(), button(b.busy === 'start' ? 'Starting…' : 'Start', function () {
+            if (!form.describe.trim()) { setStatus('Say how the team works first.'); return; }
+            buildAction('start', { from: 'describe', describe: form.describe, name: form.name || null }, 'start');
+          }, { class: 'primary', 'data-key': 'build-start-describe', disabled: busy })))));
+    var list = b.list || [];
+    main.appendChild(el('section', { class: 'studio-card', 'aria-label': 'Continue a build' },
+      el('div', { class: 'studio-row spread' }, el('h2', { text: 'Continue a build' }), button('Refresh', requestBuilds, { class: 'secondary', 'data-key': 'build-list-refresh' })),
+      b.loading && !list.length ? el('p', { class: 'muted', text: 'Looking for builds…' })
+        : !list.length ? el('p', { class: 'muted', text: 'No builds for this repository yet. A build is kept on this computer for 14 days after its last change.' })
+          : el('div', null, list.map(function (entry) {
+            return el('div', { class: 'check-row', 'data-build': entry.id }, el('span', { class: 'mark dim', 'aria-hidden': 'true' }),
+              el('div', null, el('div', { text: entry.label, style: 'font-weight:600' }), el('div', { class: 'muted', text: buildCountsText(entry.counts) + ' · changed ' + buildWhen(entry.updatedAt) })),
+              button('Open', function () { openBuild(entry.id); }, { class: 'secondary', 'data-key': 'build-open-' + entry.id, 'aria-label': 'Open the build ' + entry.label }));
+          }))));
+  }
+
+  function renderBuildOpen(main) {
+    var b = buildState();
+    if (!b.view) {
+      main.appendChild(el('p', { class: 'muted', text: b.error ? '' : 'Opening the build…' }));
+      if (b.error) main.appendChild(el('div', { class: 'callout bad', role: 'alert' }, b.error, ' ', button('Back to builds', openBuilds, { class: 'secondary' })));
+      return;
+    }
+    var build = b.view.build;
+    var pending = build.proposals.filter(function (proposal) { return proposal.status === 'pending'; }).length;
+    var ready = b.check && b.check.ready;
+    function tab(key, label, count) {
+      return el('button', { type: 'button', role: 'tab', class: 'build-tab', 'aria-selected': b.tab === key ? 'true' : 'false', 'data-key': 'build-tab-' + key,
+        onclick: function () { b.tab = key; b.source = null; render(); } }, label, count ? el('span', { class: 'count attention', text: String(count) }) : null);
+    }
+    main.appendChild(el('div', { class: 'board-head build-head' },
+      el('div', { class: 'studio-row' },
+        el('button', { type: 'button', class: 'crumb', 'data-key': 'build-back', onclick: openBuilds }, 'Builds'),
+        el('span', { class: 'crumb-sep', 'aria-hidden': 'true', text: '›' }),
+        el('strong', { text: build.label }),
+        el('span', { class: 'muted', text: 'kept on this computer until ' + buildWhen(build.expiresAt) })),
+      el('div', { class: 'build-tabs', role: 'tablist', 'aria-label': 'Build' },
+        tab('found', 'What we found', 0), tab('build', 'Build', pending), tab('finish', ready ? 'Finish ✓' : 'Finish', 0))));
+    if (b.error) main.appendChild(el('div', { class: 'callout bad', role: 'alert', 'data-key': 'build-error', text: b.error }));
+    if (buildLanded()) main.appendChild(landedCallout(buildLanded()));
+    if (b.tab === 'found') renderBuildFound(main);
+    else if (b.tab === 'finish') renderBuildFinish(main);
+    else renderBuildWork(main);
+  }
+
+  function evidenceButton(span, label) {
+    var b = buildState();
+    var configuration = span.path.indexOf('configuration:') === 0;
+    var where = span.path.replace(/^configuration:/, '') + (span.startLine ? ':' + span.startLine + (span.endLine && span.endLine !== span.startLine ? '-' + span.endLine : '') : '');
+    return el('button', { type: 'button', class: 'pill evidence', title: configuration ? 'Open this file in an editor' : 'Show these lines, as SFlow screened and kept them',
+      onclick: function () {
+        if (configuration) { openFile(span.path.replace(/^configuration:/, ''), span.startLine || null); return; }
+        b.source = { path: span.path, startLine: span.startLine || 1, endLine: span.endLine || span.startLine || 1, result: null };
+        buildAction('source', { path: span.path, from: Math.max(1, (span.startLine || 1) - 20) }, 'source');
+      } }, label || where);
+  }
+
+  function renderBuildSource() {
+    var b = buildState(); var source = b.source;
+    var box = el('section', { class: 'build-source', 'aria-label': 'Lines from ' + source.path },
+      el('div', { class: 'studio-row spread' }, el('strong', { text: source.path }), button('Close', function () { b.source = null; render(); }, { class: 'secondary', 'data-key': 'build-source-close' })));
+    if (!source.result) { box.appendChild(el('p', { class: 'muted', text: b.busy === 'source' ? 'Reading…' : 'Not read.' })); return box; }
+    var pre = el('div', { class: 'build-lines', role: 'list' });
+    source.result.lines.forEach(function (line, index) {
+      var number = source.result.startLine + index;
+      var cited = number >= source.startLine && number <= source.endLine;
+      pre.appendChild(el('div', { class: 'build-line' + (cited ? ' cited' : ''), role: 'listitem' }, el('span', { class: 'build-line-number', 'aria-hidden': 'true', text: String(number) }), el('span', { text: line || ' ' })));
+    });
+    box.appendChild(pre);
+    box.appendChild(el('p', { class: 'hint', text: 'Material a team uploaded is data, not instructions: nothing in it is run, fetched or followed.' }));
+    return box;
+  }
+
+  function renderBuildFound(main) {
+    var b = buildState(); var build = b.view.build;
+    var found = build.conversation.filter(function (turn) { return turn.kind === 'found'; });
+    main.appendChild(el('div', { class: 'studio-row spread' },
+      el('p', { class: 'studio-lede', 'data-key': 'build-found-summary', text: found.length ? found[found.length - 1].text : 'Nothing was read yet.' }),
+      button(b.busy === 'add' ? 'Reading…' : 'Add more material…', function () { buildAction('add', null, 'add'); }, { class: 'secondary', 'data-key': 'build-add', disabled: Boolean(b.busy) })));
+    var kinds = Object.keys(b.view.kinds || {}).filter(function (kind) { return build.items.some(function (item) { return item.kind === kind; }); });
+    if (b.kind && kinds.indexOf(b.kind) < 0) b.kind = null;
+    main.appendChild(el('div', { class: 'build-kinds', role: 'group', 'aria-label': 'Show' },
+      [el('button', { type: 'button', class: 'pill', 'aria-pressed': b.kind ? 'false' : 'true', onclick: function () { b.kind = null; render(); } }, 'Everything (' + build.items.length + ')')].concat(kinds.map(function (kind) {
+        var count = build.items.filter(function (item) { return item.kind === kind; }).length;
+        return el('button', { type: 'button', class: 'pill', 'data-key': 'build-kind-' + kind, 'aria-pressed': b.kind === kind ? 'true' : 'false', onclick: function () { b.kind = kind; render(); } }, buildKindLabel(kind) + ' (' + count + ')');
+      }))));
+    var layout = el('div', { class: 'build-found' + (b.source ? ' with-source' : '') });
+    var list = el('div', { class: 'build-items' });
+    build.items.filter(function (item) { return !b.kind || item.kind === b.kind; }).forEach(function (item) {
+      var open = item.status === 'open' && item.foundBy !== 'workflow' && item.kind !== 'withheld';
+      var leaving = b.leaving[item.id];
+      list.appendChild(el('article', { class: 'build-item status-' + item.status, 'data-item': item.id },
+        el('div', { class: 'studio-row spread' }, el('span', null, el('span', { class: 'build-kind', text: buildKindOne(item.kind) }), ' ', el('strong', { text: item.name })),
+          el('span', { class: 'pill', title: item.reason || item.prerequisite || '', text: BUILD_ITEM_STATUS[item.status] || item.status })),
+        item.detail ? el('div', { class: 'muted', text: item.detail }) : null,
+        item.reason ? el('div', { class: 'muted', text: 'Why: ' + item.reason }) : null,
+        el('div', { class: 'studio-row' }, (item.evidence || []).slice(0, 3).map(function (span) { return evidenceButton(span); }),
+          item.certainty === 'inferred' ? el('span', { class: 'muted', text: 'inferred' }) : null),
+        open ? el('div', { class: 'studio-row' },
+          leaving === undefined ? button('Leave out…', function () { b.leaving[item.id] = ''; state.focusKey = 'build-leave-' + item.id; render(); }, { class: 'secondary', 'data-key': 'build-leave-open-' + item.id }) : null,
+          leaving === undefined && ['link', 'document', 'api-call', 'tool', 'script'].indexOf(item.kind) >= 0
+            ? button('Keep as a link', function () { buildMine('Keep ' + item.name + ' as a link', 'Kept for people to open; not part of any step.', [{ move: 'item.keepAsLink', item: item.id }]); }, { class: 'secondary', 'data-key': 'build-link-' + item.id, disabled: Boolean(b.busy) }) : null,
+          leaving !== undefined ? textInput('build-leave-' + item.id, leaving, function (value) { b.leaving[item.id] = value; }, { placeholder: 'Why it is left out', 'aria-label': 'Why ' + item.name + ' is left out' }) : null,
+          leaving !== undefined ? button('Leave out', function () {
+            var reason = (b.leaving[item.id] || '').trim();
+            if (!reason) { setStatus('Say why it is left out, so the next person knows.'); return; }
+            delete b.leaving[item.id];
+            buildMine('Leave out ' + item.name, reason, [{ move: 'item.leaveOut', item: item.id, reason: reason }]);
+          }, { class: 'primary', 'data-key': 'build-leave-confirm-' + item.id, disabled: Boolean(b.busy) }) : null,
+          leaving !== undefined ? button('Cancel', function () { delete b.leaving[item.id]; render(); }, { class: 'secondary' }) : null) : null));
+    });
+    layout.appendChild(list);
+    if (b.source) layout.appendChild(renderBuildSource());
+    main.appendChild(layout);
+  }
+
+  function renderBuildWork(main) {
+    var grid = el('div', { class: 'build-grid' });
+    grid.appendChild(renderBuildConversation());
+    grid.appendChild(renderBuildFlow());
+    grid.appendChild(renderBuildExplanation());
+    main.appendChild(grid);
+  }
+
+  function buildProposalCard(proposal) {
+    var b = buildState(); var waiting = proposal.status === 'pending'; var pending = waiting && !buildLanded();
+    var previewing = Boolean(b.preview && b.preview.proposal === proposal.id);
+    var declining = b.decline[proposal.id];
+    var status = { pending: 'waiting for you', accepted: 'accepted', declined: 'declined', stale: 'no longer fits' }[proposal.status] || proposal.status;
+    return el('article', { class: 'build-proposal status-' + proposal.status + (previewing ? ' previewing' : ''), 'data-proposal': proposal.id },
+      el('div', { class: 'studio-row spread' }, el('strong', { text: proposal.title }), el('span', { class: 'pill' + (pending ? ' new' : ''), text: waiting && !pending ? 'not used' : status })),
+      el('div', { class: 'muted', text: (proposal.by === 'you' ? 'You' : 'Copilot') + ': ' + proposal.why }),
+      el('ul', { class: 'build-moves' }, proposal.moves.map(function (move) { return el('li', { text: moveText(move) }); })),
+      (proposal.evidence || []).length ? el('div', { class: 'studio-row' }, el('span', { class: 'muted', text: 'From' }), proposal.evidence.map(function (span) { return evidenceButton(span); })) : null,
+      proposal.status === 'stale' && proposal.findings && proposal.findings.length ? el('div', { class: 'callout wait', text: proposal.findings[0].message + ' Ask Copilot for a new proposal.' }) : null,
+      proposal.status === 'declined' && proposal.reason ? el('div', { class: 'muted', text: 'Why not: ' + proposal.reason }) : null,
+      pending ? el('div', { class: 'studio-row' },
+        button(previewing ? 'Stop previewing' : b.busy === 'preview-' + proposal.id ? 'Drawing…' : 'Preview', function () {
+          if (previewing) { b.preview = null; render(); } else { b.preview = { proposal: proposal.id, result: null }; buildAction('preview', { proposal: proposal.id }, 'preview-' + proposal.id); }
+        }, { class: 'secondary', 'data-key': 'build-preview-' + proposal.id, 'aria-pressed': previewing ? 'true' : 'false', title: 'Draw and check the workflow as it would be with this piece, without accepting it' }),
+        button('Accept', function () { b.preview = null; buildAction('decide', { proposal: proposal.id, accept: true }, 'decide'); }, { class: 'primary', 'data-key': 'build-accept-' + proposal.id, disabled: Boolean(b.busy) }),
+        declining === undefined ? button('Decline…', function () { b.decline[proposal.id] = ''; state.focusKey = 'build-decline-reason-' + proposal.id; render(); }, { class: 'secondary', 'data-key': 'build-decline-' + proposal.id }) : null) : null,
+      pending && declining !== undefined ? el('div', { class: 'studio-row' },
+        textInput('build-decline-reason-' + proposal.id, declining, function (value) { b.decline[proposal.id] = value; }, { placeholder: 'Why not? Copilot reads this (optional)', 'aria-label': 'Why you decline ' + proposal.title }),
+        button('Decline', function () {
+          var reason = (b.decline[proposal.id] || '').trim(); delete b.decline[proposal.id];
+          if (b.preview && b.preview.proposal === proposal.id) b.preview = null;
+          buildAction('decide', reason ? { proposal: proposal.id, accept: false, reason: reason } : { proposal: proposal.id, accept: false }, 'decide');
+        }, { class: 'secondary', 'data-key': 'build-decline-confirm-' + proposal.id, disabled: Boolean(b.busy) })) : null);
+  }
+
+  function buildQuestionCard(question) {
+    var b = buildState();
+    return el('article', { class: 'build-question' + (question.answer ? ' answered' : ''), 'data-question': question.id },
+      el('div', { class: 'studio-row' }, el('span', { class: 'build-who', text: question.by === 'you' ? 'You asked' : 'Copilot asks' }),
+        question.blocking && !question.answer ? el('span', { class: 'sev warning', text: 'needed to finish' }) : null),
+      el('strong', { text: question.question }),
+      question.answer ? el('div', { class: 'muted', text: 'Answered: ' + question.answer.choice })
+        : el('div', { class: 'studio-row' }, question.choices.map(function (choice, index) {
+          return button(choice, function () { buildAction('answer', { question: question.id, choice: choice }, 'answer'); }, { class: 'secondary', 'data-key': 'build-answer-' + question.id + '-' + index, disabled: Boolean(b.busy) });
+        })));
+  }
+
+  function renderBuildConversation() {
+    var b = buildState(); var build = b.view.build;
+    var pane = el('section', { class: 'build-pane build-chat', 'aria-label': 'Conversation' }, el('h2', { text: 'Conversation' }));
+    var log = el('div', { class: 'build-log', role: 'log', 'aria-live': 'polite' });
+    build.conversation.forEach(function (turn) {
+      if (turn.kind === 'proposal') {
+        var proposal = build.proposals.find(function (entry) { return entry.id === turn.proposal; });
+        if (proposal) log.appendChild(buildProposalCard(proposal));
+        return;
+      }
+      if (turn.kind === 'question') {
+        var question = build.questions.find(function (entry) { return entry.id === turn.question; });
+        if (question) log.appendChild(buildQuestionCard(question));
+        return;
+      }
+      // An answer shows on its question; a decision on its proposal, unless it says more (stale, finished).
+      if (turn.kind === 'answer' || (turn.kind === 'decision' && turn.by === 'you')) return;
+      log.appendChild(el('div', { class: 'build-turn by-' + turn.by }, el('span', { class: 'build-who', text: turn.by === 'you' ? 'You' : turn.by === 'copilot' ? 'Copilot' : 'SFlow' }), el('span', { text: turn.text })));
+    });
+    pane.appendChild(log);
+    if (buildLanded()) return pane;
+    pane.appendChild(el('div', { class: 'build-ask' },
+      b.modelAvailable
+        ? button('Ask Copilot for the next piece…', function () { post({ type: 'studio.build.chat', build: b.id }); }, { class: 'primary', 'data-key': 'build-chat',
+          title: 'Opens Copilot Chat with /sf-build-workflow for this build. Its proposals appear here; only you accept them.' })
+        : el('p', { class: 'hint', 'data-key': 'build-model-off', text: 'Copilot is off in this window. You can still build: add steps yourself, and leave out or keep what was found.' }),
+      button(b.addStep ? 'Close the step form' : 'Add a step yourself…', function () { b.addStep = b.addStep ? null : { label: '', after: '', agent: '', output: 'document', signOff: '', purpose: '' }; render(); },
+        { class: 'secondary', 'data-key': 'build-add-step' })));
+    if (b.addStep) pane.appendChild(renderBuildAddStep());
+    return pane;
+  }
+
+  /** IDs the build may not give a new step: the repository's own steps and the ones it already adds. */
+  function freshStepId(label) {
+    var taken = {}; Object.keys(state.draft.phases).forEach(function (id) { taken[id] = true; });
+    var workflow = buildWorkflow(buildState().check);
+    (workflow ? workflow.steps : []).forEach(function (step) { taken[step.id] = true; });
+    var stem = kebab(label) || 'step'; var id = stem;
+    for (var index = 2; taken[id]; index += 1) id = stem + '-' + index;
+    return id;
+  }
+
+  function renderBuildAddStep() {
+    var b = buildState(); var form = b.addStep; var check = b.check;
+    var workflow = buildWorkflow(check);
+    var steps = workflow ? workflow.steps : [];
+    var agents = Object.keys(state.draft.agents).map(function (id) { return { value: id, label: state.draft.agents[id].label || id }; })
+      .concat(((check && check.draft && check.draft.newAgents) || []).map(function (id) { return { value: id, label: id + ' (new in this build)' }; }));
+    var groups = Object.keys(state.draft.groups).map(function (id) { return { value: id, label: state.draft.groups[id].label || id }; })
+      .concat(((check && check.draft && check.draft.newGroups) || []).map(function (id) { return { value: id, label: id + ' (new in this build)' }; }));
+    if (!form.after && steps.length) form.after = steps[steps.length - 1].id;
+    return el('section', { class: 'build-add', 'aria-label': 'Add a step' },
+      field('build-step-label', 'Step name', textInput('build-step-label', form.label, function (value) { form.label = value; }, { placeholder: 'Release notes' })),
+      field('build-step-after', 'After', select('build-step-after', [{ value: '', label: 'At the start' }].concat(steps.map(function (step) { return { value: step.id, label: step.label }; })), form.after, function (value) { form.after = value; })),
+      field('build-step-agent', 'Drafted by', select('build-step-agent', [{ value: '', label: 'Choose an agent' }].concat(agents), form.agent, function (value) { form.agent = value; render(); })),
+      field('build-step-output', 'It', select('build-step-output', Object.keys(BUILD_OUTPUT_WORDS).map(function (key) { return { value: key, label: BUILD_OUTPUT_WORDS[key] }; }), form.output, function (value) { form.output = value; })),
+      field('build-step-signoff', 'Signed off by', select('build-step-signoff', [{ value: '', label: 'Nobody: it moves on when it is submitted' }].concat(groups), form.signOff, function (value) { form.signOff = value; })),
+      field('build-step-purpose', 'What it is for', el('textarea', { id: 'build-step-purpose', 'data-key': 'build-step-purpose', rows: 2, oninput: function (event) { form.purpose = event.target.value; } }, form.purpose)),
+      el('div', { class: 'studio-row' }, button('Add the step', function () {
+        var label = form.label.trim();
+        if (!label || !form.agent) { setStatus('A step needs a name and the agent that drafts it.'); return; }
+        var move = { move: 'step.add', id: freshStepId(label), label: label, after: form.after || null, agent: form.agent, output: form.output,
+          signOff: form.signOff ? { groups: [form.signOff], minimum: 1 } : 'none' };
+        if (form.purpose.trim()) move.purpose = form.purpose.trim();
+        b.addStep = null;
+        buildMine('Add ' + label, form.purpose.trim() || 'Added by hand.', [move]);
+      }, { class: 'primary', 'data-key': 'build-step-add', disabled: Boolean(b.busy) || !form.agent })));
+  }
+
+  function renderBuildFlow() {
+    var b = buildState(); var result = buildResult(); var workflow = buildWorkflow(result);
+    var including = b.preview && b.preview.result ? b.preview.result.including : null;
+    var pane = el('section', { class: 'build-pane build-flow', 'aria-label': 'The workflow' },
+      el('div', { class: 'studio-row spread' }, el('h2', { text: workflow ? workflow.label : 'The workflow' }),
+        including ? el('span', { class: 'pill new', 'data-key': 'build-previewing', text: 'Preview with ' + including.title }) : b.checking ? el('span', { class: 'muted', text: 'Checking…' }) : null));
+    if (!result) { pane.appendChild(el('p', { class: 'muted', text: b.checking || (b.preview && !b.preview.result) ? 'Drawing the workflow…' : 'Not checked yet.' })); return pane; }
+    if (!workflow || !workflow.steps.length) {
+      pane.appendChild(el('p', { class: 'muted', 'data-key': 'build-no-steps', text: 'No steps yet. Accept a proposal from Copilot, or add a step yourself.' }));
+      return pane;
+    }
+    var agents = {}; (result.preview.agents || []).forEach(function (agent) { agents[agent.id] = agent; });
+    var groups = {}; (result.preview.groups || []).forEach(function (group) { groups[group.id] = group; });
+    var added = including ? including.newSteps : []; var changed = including ? including.changedSteps || [] : [];
+    var fresh = (result.draft && result.draft.newSteps) || [];
+    var findings = result.findings || [];
+    var list = el('ol', { class: 'build-steps' });
+    workflow.steps.forEach(function (step, index) {
+      var mine = findings.filter(function (item) { return item.subject && item.subject.step === step.id; });
+      var mark = stepMark(mine);
+      var agent = agents[step.agent];
+      var approval = step.approval || {};
+      var signOff = approval.mode && approval.mode !== 'none' ? (approval.authorities || []).map(function (id) { return groups[id] ? groups[id].label : id; }).join(', ') : null;
+      var selected = b.selected === step.id;
+      var tag = added.indexOf(step.id) >= 0 ? 'would be added' : changed.indexOf(step.id) >= 0 ? 'would change' : fresh.indexOf(step.id) >= 0 ? 'new' : null;
+      list.appendChild(el('li', { class: 'build-step' + (added.indexOf(step.id) >= 0 ? ' added' : changed.indexOf(step.id) >= 0 ? ' changed' : '') + (selected ? ' selected' : '') },
+        el('button', { type: 'button', class: 'build-step-card', 'data-key': 'build-step-' + step.id, 'aria-pressed': selected ? 'true' : 'false',
+          title: selected ? 'Show every step' : 'Explain this step', onclick: function () { b.selected = selected ? null : step.id; b.source = null; render(); } },
+          el('span', { class: 'build-step-number', 'aria-hidden': 'true', text: String(index + 1) }),
+          el('span', { class: 'build-step-body' },
+            el('span', { class: 'build-step-title' }, el('strong', { text: step.label }), tag ? el('span', { class: 'pill' + (tag === 'new' ? '' : ' new'), text: tag }) : null,
+              mark ? el('span', { class: 'node-finding check-badge ' + mark, title: mine.length + ' to look at', text: String(mine.filter(function (item) { return item.severity === mark; }).length) }) : null),
+            el('span', { class: 'muted', text: (agent ? agent.label : step.agent || 'No agent') + ' · ' + (BUILD_OUTPUT_WORDS[step.output] || step.output) }),
+            el('span', { class: 'muted', text: signOff ? 'Signed off by ' + signOff : 'No sign-off' }))),
+        (workflow.decisions || []).filter(function (decision) { return decision.after === step.id; }).map(function (decision) {
+          return el('div', { class: 'build-decision', text: '◇ ' + decision.label });
+        })));
+    });
+    (including ? including.removedSteps || [] : []).forEach(function (id) {
+      list.appendChild(el('li', { class: 'build-step removed' }, el('span', { class: 'build-step-card' }, el('span', { class: 'build-step-body' }, el('s', { text: buildStepLabel(id) }), el('span', { class: 'pill new', text: 'would be removed' })))));
+    });
+    pane.appendChild(list);
+    pane.appendChild(el('div', { class: 'build-end' }, icon('flag', 14), 'Finish'));
+    return pane;
+  }
+
+  /** Your own changes to the step the explanation shows: move it, take it out, say what it is for. */
+  function buildStepTools(step, steps, fresh) {
+    var b = buildState(); var index = steps.indexOf(step.id);
+    var editing = b.purpose && b.purpose.step === step.id;
+    return el('div', { class: 'build-step-tools' },
+      el('div', { class: 'studio-row' },
+        button('Move earlier', function () { buildMine('Move ' + step.label + ' earlier', 'Moved by hand.', [{ move: 'step.move', id: step.id, after: index > 1 ? steps[index - 2] : null }]); },
+          { class: 'secondary', 'data-key': 'build-move-up', disabled: index <= 0 || Boolean(b.busy) }),
+        button('Move later', function () { buildMine('Move ' + step.label + ' later', 'Moved by hand.', [{ move: 'step.move', id: step.id, after: steps[index + 1] }]); },
+          { class: 'secondary', 'data-key': 'build-move-down', disabled: index >= steps.length - 1 || Boolean(b.busy) }),
+        fresh ? button('What it is for…', function () { b.purpose = { step: step.id, text: step.why ? step.why.text : '' }; state.focusKey = 'build-purpose'; render(); }, { class: 'secondary', 'data-key': 'build-purpose-open' }) : null,
+        button('Take out of this workflow', function () {
+          confirmAction('Take ' + step.label + ' out of this workflow?', 'Only this build changes. A step other workflows use stays in them.', 'Take it out', function () {
+            b.selected = null; buildMine('Take ' + step.label + ' out', 'Taken out by hand.', [{ move: 'step.remove', id: step.id }]);
+          });
+        }, { class: 'secondary', 'data-key': 'build-remove', disabled: Boolean(b.busy) })),
+      editing ? el('div', { class: 'studio-row' },
+        el('textarea', { id: 'build-purpose', 'data-key': 'build-purpose', rows: 2, 'aria-label': 'What ' + step.label + ' is for', oninput: function (event) { b.purpose.text = event.target.value; } }, b.purpose.text),
+        button('Save', function () {
+          var text = b.purpose.text.trim(); b.purpose = null;
+          if (text) buildMine(step.label + ': what it is for', text, [{ move: 'step.change', id: step.id, purpose: text }]); else render();
+        }, { class: 'primary', 'data-key': 'build-purpose-save' })) : null);
+  }
+
+  function renderBuildExplanation() {
+    var b = buildState(); var result = buildResult();
+    var pane = el('section', { class: 'build-pane build-explain', 'aria-label': 'What it does and whether it makes sense' });
+    if (b.source) { pane.appendChild(renderBuildSource()); return pane; }
+    pane.appendChild(el('h2', { text: 'What it does' }));
+    if (!result) { pane.appendChild(el('p', { class: 'muted', text: 'Explained after the first check.' })); return pane; }
+    var explanation = result.explanation;
+    var workflow = buildWorkflow(result);
+    if (explanation) pane.appendChild(el('p', { class: 'check-summary', 'data-key': 'build-summary' }, el('strong', { text: explanation.summary })));
+    if (result.plan && result.plan.problems && result.plan.problems.length) {
+      pane.appendChild(el('div', { class: 'callout bad', text: 'These pieces cannot be saved together yet: ' + result.plan.problems.map(function (problem) { return problem.message; }).join(' ') }));
+    }
+    var steps = explanation ? explanation.steps : [];
+    if (b.selected && !steps.some(function (step) { return step.id === b.selected; })) b.selected = null;
+    (b.selected ? steps.filter(function (step) { return step.id === b.selected; }) : steps).forEach(function (step) {
+      pane.appendChild(el('article', { class: 'build-explain-step', 'data-step': step.id },
+        el('strong', { text: step.number + '. ' + step.label }),
+        el('div', { text: step.what }),
+        step.why ? el('div', { text: 'Why: ' + step.why.text }) : el('div', { class: 'muted', text: 'It does not say what it is for yet.' }),
+        el('div', { text: step.signOff }),
+        step.then.map(function (line) { return el('div', { class: 'muted', text: line }); }),
+        step.agent ? el('div', { class: 'muted', text: 'Drafted by ' + step.agent.label + (step.skills.length ? ', with ' + step.skills.map(function (skill) { return skill.label; }).join(', ') : '') + '.' }) : null,
+        step.reads.length ? el('div', { class: 'muted', text: 'Reads ' + step.reads.map(function (read) { return read.label + (read.optional ? ' (if there)' : ''); }).join(', ') + '.' }) : null,
+        step.apiCalls.length ? el('div', { class: 'muted', text: 'Calls ' + step.apiCalls.map(function (call) { return call.method + ' ' + call.target; }).join(', ') + '.' }) : null));
+    });
+    if (b.selected && workflow && !(b.preview && b.preview.result) && !result.landed) {
+      var picked = steps.find(function (step) { return step.id === b.selected; });
+      if (picked) pane.appendChild(buildStepTools(picked, workflow.steps.map(function (step) { return step.id; }), ((result.draft && result.draft.newSteps) || []).indexOf(picked.id) >= 0));
+    }
+    var findings = result.findings || [];
+    pane.appendChild(el('h3', { text: 'Does it make sense?' }));
+    pane.appendChild(el('p', { class: 'muted', 'data-key': 'build-counts', text: countWords(result.counts) }));
+    if (findings.length) pane.appendChild(findingList(null, findings, { files: false, show: function (subject) { if (subject.step) { b.selected = subject.step; b.source = null; render(); } } }));
+    else pane.appendChild(el('div', { class: 'callout ok', text: 'Nothing to fix in this workflow.' }));
+    if (findings.some(function (item) { return item.code === 'BUILD_ITEMS_OPEN'; })) {
+      pane.appendChild(el('div', { class: 'studio-row' }, button('See what is not used yet', function () { b.tab = 'found'; b.kind = null; render(); }, { class: 'secondary', 'data-key': 'build-see-open' })));
+    }
+    if (!(b.preview && b.preview.result) && !result.landed) {
+      pane.appendChild(result.ready
+        ? el('div', { class: 'callout ok', 'data-key': 'build-ready' }, 'Ready to finish. ', button('Finish…', function () { b.tab = 'finish'; render(); }, { class: 'primary', 'data-key': 'build-go-finish' }))
+        : el('div', { class: 'callout wait', 'data-key': 'build-not-ready', text: buildBlockers(result).join(' ') || 'Not ready to finish yet.' }));
+    }
+    return pane;
+  }
+
+  /** A finished build whose workflow is active: what it made is shown, and changing it starts a new build from it. */
+  function buildLanded() { var check = buildState().check; return check && check.landed ? check.landed : null; }
+  function landedCallout(landed) {
+    var b = buildState();
+    return el('div', { class: 'callout ok', 'data-key': 'build-landed' },
+      el('div', { text: 'Finished: ' + landed.label + ' is in the approved configuration. Running and new Stories can use it. To change it, start a new build from it.' }),
+      el('div', { class: 'studio-row', style: 'margin-top:6px' },
+        button('Start a build from ' + landed.label, function () { buildAction('start', { from: 'workflow', workflow: landed.workflow, name: null }, 'start'); },
+          { class: 'primary', 'data-key': 'build-from-landed', disabled: Boolean(b.busy) }),
+        button('Open it in Workflows', function () { openWorkflowCanvas(landed.workflow); }, { class: 'secondary', 'data-key': 'build-open-landed' })));
+  }
+  function buildBlockers(result) {
+    var reasons = [];
+    if (!result.draft || !result.draft.workflow.phases.length) reasons.push('It has no steps yet.');
+    if (result.plan && !result.plan.valid) reasons.push('Its pieces cannot be saved together yet.');
+    if (result.counts && result.counts.problem) reasons.push(result.counts.problem + (result.counts.problem === 1 ? ' problem needs' : ' problems need') + ' fixing.');
+    var blocking = (result.questions || []).filter(function (question) { return question.blocking; }).length;
+    if (blocking) reasons.push(blocking + (blocking === 1 ? ' question needs' : ' questions need') + ' an answer.');
+    return reasons;
+  }
+
+  function renderBuildFinish(main) {
+    var b = buildState(); var result = b.check; var build = b.view.build;
+    var card = el('section', { class: 'studio-card', 'aria-label': 'Finish the build' }, el('h2', { text: 'Finish the build' }));
+    main.appendChild(card);
+    if (!result) { card.appendChild(el('p', { class: 'muted', text: b.checking ? 'Checking…' : 'Not checked yet.' })); return; }
+    if (result.landed) { card.appendChild(el('p', { class: 'muted', text: 'Nothing is left to finish in this build.' })); return; }
+    var draft = result.draft;
+    card.appendChild(el('p', null, el('strong', { text: draft.workflow.label }), ' (' + draft.workflow.id + '): ', result.explanation ? result.explanation.summary : draft.workflow.phases.length + ' steps.'));
+    function line(label, ids) { return ids && ids.length ? el('div', { class: 'check-row' }, el('span', { class: 'mark ok', 'aria-hidden': 'true', text: '+' }), el('div', null, el('div', { text: label, style: 'font-weight:600' }), el('div', { class: 'muted', text: ids.join(', ') })), el('span')) : null; }
+    var names = function (kind, ids) { return (ids || []).map(function (id) { return buildName(kind, id); }); };
+    card.appendChild(el('div', null, line('New steps', names('step', draft.newSteps)), line('New agents', names('agent', draft.newAgents)), line('New skills', draft.newSkills),
+      line('New instructions', draft.newInstructions), line('New approval groups (add people in People & approvals once it is active)', names('group', draft.newGroups))));
+    var pending = (result.pending || []).length;
+    if (pending) card.appendChild(el('div', { class: 'callout wait', text: pending + (pending === 1 ? ' proposal is' : ' proposals are') + ' still waiting for you; finishing leaves ' + (pending === 1 ? 'it' : 'them') + ' out.' }));
+    var open = (result.findings || []).find(function (item) { return item.code === 'BUILD_ITEMS_OPEN'; });
+    if (open) card.appendChild(el('div', { class: 'callout wait' }, open.title + '. ', button('See them', function () { b.tab = 'found'; render(); }, { class: 'secondary' })));
+    var reasons = buildBlockers(result);
+    card.appendChild(result.ready ? el('div', { class: 'callout ok', 'data-key': 'build-finish-ready', text: 'Ready: ' + countWords(result.counts) + '.' })
+      : el('div', { class: 'callout bad', 'data-key': 'build-finish-blocked', text: 'Not ready: ' + reasons.join(' ') }));
+    var authority = (state.model.authority || {}).kind || 'working-tree';
+    var proposal = authority !== 'working-tree';
+    card.appendChild(el('div', { class: 'studio-row' },
+      button(b.busy === 'finish' ? 'Finishing…' : proposal ? 'Create the proposal' : 'Write the files', function () { buildAction('finish', { how: 'publish' }, 'finish'); },
+        { class: 'primary', 'data-key': 'build-finish-publish', disabled: !result.ready || Boolean(b.busy) }),
+      button('Save as a portable file…', function () { buildAction('finish', { how: 'file' }, 'finish'); }, { class: 'secondary', 'data-key': 'build-finish-file', disabled: !result.ready || Boolean(b.busy) })));
+    card.appendChild(el('p', { class: 'hint', text: proposal
+      ? 'Create the proposal makes one reviewed change on the approved configuration, like publishing from Workflow Studio. Running Stories keep their workflow; new Stories use it once it is activated.'
+      : 'Write the files puts the workflow in this repository\'s configuration; review the diff and commit it. A portable file can be imported in another repository with Import….' }));
+    if (b.finished) {
+      card.appendChild(el('div', { class: 'callout ok', role: 'status', 'data-key': 'build-finished' }, b.finished.summary,
+        b.finished.how === 'publish' ? el('div', { class: 'studio-row', style: 'margin-top:6px' }, button('Open Changes', function () { state.view = 'changes'; requestProposals(); render(); }, { class: 'secondary' })) : null));
+    }
+    if (build.finished && !b.finished) card.appendChild(el('p', { class: 'muted', text: 'Finished before, ' + buildWhen(build.finished.at) + '. Finishing again makes a new proposal or file.' }));
+  }
+
   function render() {
     var root = document.getElementById('studio-root');
     if (!root) return;
@@ -5966,6 +6557,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     else if (state.view === 'people') renderPeople(main);
     else if (state.view === 'integrations') renderIntegrations(main);
     else if (state.view === 'changes') renderChanges(main);
+    else if (state.view === 'build') renderBuild(main);
     else renderHome(main);
     if (state.view !== 'board') main.appendChild(el('div', { id: 'studio-status', class: 'studio-status', role: 'status', 'aria-live': 'polite', text: state.status }));
     frame.appendChild(main);
@@ -6038,8 +6630,52 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
           : message.outcome === 'written' ? 'The import was written to this repository; review the diff and commit it.'
             : 'The configuration already has everything in that bundle; nothing changed.');
       render();
+    } else if (message.type === 'studio.builds') {
+      var builds = buildState(); builds.loading = false; builds.list = message.builds || []; builds.modelAvailable = message.modelAvailable !== false;
+      if (state.view === 'build') render();
+    } else if (message.type === 'studio.build') {
+      // The build, then its check: the view first, so the page answers at once.
+      var opened = buildState();
+      if (opened.id && message.build !== opened.id && opened.busy !== 'start') return;
+      // An answer to something you did shows the build; a change Copilot made waits until you look.
+      var asked = Boolean(opened.busy) || state.view === 'build';
+      // A new build opens on what was found in it; one you reopen, on the build itself.
+      if (opened.id !== message.build) { opened.check = null; opened.preview = null; opened.source = null; opened.selected = null; opened.tab = opened.busy === 'start' && message.view.build.items.length ? 'found' : 'build'; }
+      opened.id = message.build; opened.view = message.view; opened.checking = message.checking !== false; opened.error = null;
+      if (opened.busy && opened.busy !== 'source' && opened.busy.indexOf('preview-') !== 0) opened.busy = null;
+      if (message.modelAvailable !== undefined) opened.modelAvailable = message.modelAvailable !== false;
+      if (opened.preview && !message.view.build.proposals.some(function (proposal) { return proposal.id === opened.preview.proposal && proposal.status === 'pending'; })) opened.preview = null;
+      if (message.status) setStatus(message.status);
+      if (asked) { state.view = 'build'; render(); }
+    } else if (message.type === 'studio.buildChecked') {
+      var checked = buildState();
+      if (message.build !== checked.id) return;
+      checked.checking = false;
+      if (message.result) checked.check = message.result;
+      if (message.error) checked.error = message.error;
+      if (state.view === 'build') render();
+    } else if (message.type === 'studio.buildPreview') {
+      var previewed = buildState();
+      if (message.build !== previewed.id || !previewed.preview || previewed.preview.proposal !== message.proposal) return;
+      previewed.busy = null; previewed.preview.result = message.result; if (state.view === 'build') render();
+    } else if (message.type === 'studio.buildSource') {
+      var read = buildState();
+      if (message.build !== read.id || !read.source || read.source.path !== message.path) return;
+      read.busy = null; read.source.result = message.result; if (state.view === 'build') render();
+    } else if (message.type === 'studio.buildFailed') {
+      var stopped = buildState();
+      if (stopped.busy && stopped.busy.indexOf('preview-') === 0) stopped.preview = null;
+      if (stopped.busy === 'source') stopped.source = null;
+      stopped.busy = null; stopped.error = message.message || 'That did not work.'; if (state.view === 'build') render();
+    } else if (message.type === 'studio.buildCancelled') {
+      var calm = buildState(); calm.busy = null; if (message.status) setStatus(message.status); if (state.view === 'build') render();
+    } else if (message.type === 'studio.buildFinished') {
+      var done = buildState();
+      done.busy = null; done.finished = { how: message.how, summary: message.summary || 'Finished.' }; setStatus(done.finished.summary); render();
     } else if (message.type === 'studio.focus') {
-      if (typeof message.workflowId === 'string') openWorkflowCanvas(message.workflowId);
+      if (typeof message.build === 'string') { state.view = 'build'; openBuild(message.build); }
+      else if (message.view === 'build') openBuilds();
+      else if (typeof message.workflowId === 'string') openWorkflowCanvas(message.workflowId);
       else if (['home', 'agents', 'skills', 'instructions', 'constitution', 'artifacts', 'library', 'people', 'integrations', 'changes'].indexOf(message.view) >= 0) { state.view = message.view; state.returnTo = null; render(); }
     } else if (message.type === 'studio.failed') {
       state.busy = null; state.reviewing = null; setStatus(message.message || 'That did not work.'); if (!state.model) state.error = message.message; render();
@@ -6133,6 +6769,22 @@ export function studioPublishArgs(authority: StudioAuthority | null | undefined)
 
 export const STUDIO_PREVIEW_ARGS = Object.freeze(['workflow', 'studio', 'apply', '--change-set', '-', '--dry-run', '--json']);
 export const STUDIO_MODEL_ARGS = Object.freeze(['workflow', 'studio', '--json']);
+/** A workflow build ID, proposal and question, as `workflow build` names them. */
+export const BUILD_ID = /^wb_[a-f0-9]{16}$/;
+export const BUILD_PROPOSAL_ID = /^p-[1-9]\d{0,3}$/;
+export const BUILD_QUESTION_ID = /^q-[1-9]\d{0,3}$/;
+/** One `workflow build` command for the Build view, always as JSON. */
+export function studioBuildArgs(action: string, build: string, extra: readonly string[] = []): string[] {
+  return ['workflow', 'build', action, '--build', build, ...extra, '--json'];
+}
+/** What a chat hand-off types for the person: the skill, this build, and the chat tool when it is there. */
+export function buildChatQuery(build: string, tool: boolean): string {
+  return `/sf-build-workflow --build ${build} ${tool ? '#sflowWorkflowBuilder ' : ''}`;
+}
+/** The builds the Build view lists: this repository's, and those not tied to one yet. */
+export function buildsForRepository<T extends { repository?: { root?: string } | null }>(builds: readonly T[], same: (root: string) => boolean): T[] {
+  return builds.filter((build) => !build.repository?.root || same(build.repository.root));
+}
 /** Explain and check one workflow, as a draft's change set (on standard input) would leave it. */
 export function studioCheckArgs(workflow: string, withChangeSet: boolean): string[] {
   return ['workflow', 'check', workflow, ...(withChangeSet ? ['--change-set', '-'] : []), '--json'];

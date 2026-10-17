@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "03269c0fc359e5d385a755776ab5b718a95a9824",
+  "sourceCommit": "243b178e3642a5095c0f5b81c18e033344be6161",
   "topicCount": 84,
-  "contentSha256": "d9ec7279eacf6cb53dcd3ccbff8b43b0404b5d67c5979f2a120915c035ebef30",
+  "contentSha256": "e963626888cf816c8cbc52f3628c57c207309f24721d9b04849cac52cdae3555",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -632,8 +632,8 @@
     {
       "id": "workflow-authoring",
       "title": "Workflow and configuration authoring",
-      "version": 69,
-      "sha256": "af526f3f0db031cbfd355e2317dd708b22d6538eed42fb32a63f87f714df4862",
+      "version": 70,
+      "sha256": "9198850707bf2dec977f7c5b4684182c53cdf957f33a61f511676d460de32fd1",
       "routingSha256": "db9a49796ed83230b5bd8e877576ab64d19d6159fd1a763a9b5260ff51fe572b",
       "file": "workflow-authoring.md"
     },

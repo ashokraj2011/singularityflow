@@ -11,10 +11,11 @@ const OPTIONS = {
   start: new Set(['from-workflow', 'folder', 'file', 'notes', 'describe', 'name', 'json']),
   add: new Set(['build', 'folder', 'file', 'notes', 'json']),
   status: new Set(['build', 'json']),
-  propose: new Set(['build', 'proposal', 'by', 'json']),
+  propose: new Set(['build', 'proposal', 'by', 'accept', 'json']),
+  source: new Set(['build', 'path', 'from', 'json']),
   decide: new Set(['build', 'proposal', 'accept', 'decline', 'reason', 'json']),
   answer: new Set(['build', 'question', 'choice', 'json']),
-  check: new Set(['build', 'json']),
+  check: new Set(['build', 'include', 'json']),
   finish: new Set(['build', 'propose', 'out', 'json'])
 };
 const SEVERITY = { problem: 'problem', warning: 'warning', note: 'note' };
@@ -86,6 +87,10 @@ function printCheck(result) {
   }
   for (const proposal of result.pending) console.log(`  waiting  ${proposal.id} by ${proposal.by}: ${proposal.title}`);
   for (const question of result.questions) console.log(`  question ${question.id}: ${question.question} (${question.choices.join(' | ')})`);
+  if (result.landed) {
+    console.log(`Finished: ${result.landed.label} is in the approved configuration. To change it: singularity-flow workflow build start --from-workflow ${result.landed.workflow}`);
+    return;
+  }
   console.log(result.ready ? 'Ready to finish: singularity-flow workflow build finish --build ' + result.build.id + ' --propose'
     : `Not ready to finish: ${result.counts.problem} problem${result.counts.problem === 1 ? '' : 's'}${result.questions.some((question) => question.blocking) ? ', questions waiting for an answer' : ''}.`);
 }
@@ -94,9 +99,19 @@ async function engineAction(action, { options, root, json, buildId, api, labels 
   const engine = await import('../workflow-build/engine.mjs');
   const id = buildId();
   if (action === 'check') {
-    const result = await engine.checkBuild(id, { root });
+    const result = await engine.checkBuild(id, { root, include: optionString(options, 'include') ?? null });
     if (json) return console.log(JSON.stringify({ ...result, proposalPath: await issueProposalPath(id, root) }, null, 2));
     return printCheck(result);
+  }
+  if (action === 'source') {
+    const from = optionString(options, 'from');
+    if (from != null && !/^[1-9]\d{0,6}$/u.test(from)) refuse('--from is a line number, 1 or more.');
+    const result = await engine.sourceOfBuild(id, optionString(options, 'path') ?? refuse('Name the captured file: --path <PATH>.'), { from: from ? Number(from) : 1 });
+    if (json) return console.log(JSON.stringify(result, null, 2));
+    const width = String(result.endLine).length;
+    result.lines.forEach((line, index) => console.log(`${String(result.startLine + index).padStart(width)}  ${line}`));
+    if (result.next) console.log(`… ${result.totalLines - result.endLine} more lines: --from ${result.next}`);
+    return;
   }
   if (action === 'finish') {
     const out = optionString(options, 'out');
@@ -113,7 +128,7 @@ async function engineAction(action, { options, root, json, buildId, api, labels 
     const text = source === '-' ? await (await import('../read-stdin.mjs')).readStdinText() : await readFile(commandLineFile(root, source, { reads: true }), 'utf8');
     let payload;
     try { payload = JSON.parse(text); } catch (error) { refuse(`The proposal is not valid JSON: ${error.message}`, 'WORKFLOW_BUILD_PROPOSAL_INVALID'); }
-    ({ record } = await engine.proposeToBuild(id, payload, { root, by: optionString(options, 'by') ?? 'copilot' }));
+    ({ record } = await engine.proposeToBuild(id, payload, { root, by: optionString(options, 'by') ?? 'copilot', accept: optionBoolean(options, 'accept') }));
   } else if (action === 'decide') {
     const accept = optionBoolean(options, 'accept');
     if (accept === optionBoolean(options, 'decline')) refuse('Decide with --accept or --decline.');
@@ -157,7 +172,7 @@ export async function run(argv, { positionals, options }) {
     return;
   }
   const buildId = () => optionString(options, 'build') ?? refuse(`Name the build: workflow build ${action} --build <ID>.`);
-  if (['propose', 'decide', 'answer', 'check', 'finish'].includes(action)) return engineAction(action, { options, root, json, buildId, api, labels });
+  if (['propose', 'decide', 'answer', 'check', 'finish', 'source'].includes(action)) return engineAction(action, { options, root, json, buildId, api, labels });
   let record;
   if (action === 'start') {
     record = await api.startWorkflowBuild({ root, fromWorkflow: optionString(options, 'from-workflow') ?? null, ...(await material()),

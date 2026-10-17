@@ -125,6 +125,15 @@ test('propose, accept, answer and check: the workflow as the accepted moves leav
 
   const empty = json(root, ['workflow', 'build', 'check', '--build', build.id]);
   assert.deepEqual([empty.draft.workflow.phases, empty.ready, empty.changeSet.changes], [[], false, []], 'a pending proposal changes nothing yet');
+  const preview = json(root, ['workflow', 'build', 'check', '--build', build.id, '--include', 'p-1']);
+  assert.deepEqual(preview.including, { id: 'p-1', title: 'Four steps from release-captain', newSteps: ['intake', 'requirements', 'pay-build', 'pay-pci-review'], changedSteps: [], removedSteps: [] });
+  assert.equal(preview.ready, false, 'a preview is never ready to finish');
+  assert.deepEqual(preview.preview.workflows.map((workflow) => [workflow.id, workflow.readOnly, workflow.phases]), [['payments-release', true, ['intake', 'requirements', 'pay-build', 'pay-pci-review']]]);
+  assert.deepEqual(preview.preview.agents.map((agent) => agent.id).sort(), ['architect', 'pay-captain', 'product-owner']);
+  assert.ok(preview.preview.groups.some((group) => group.id === 'payments-security'), 'the canvas can name the new group');
+  assert.equal(json(root, ['workflow', 'build', 'status', '--build', build.id]).build.proposals[0].status, 'pending', 'previewing accepts nothing');
+  const unknown = flow(root, ['workflow', 'build', 'check', '--build', build.id, '--include', 'p-9'], { allowFailure: true });
+  assert.match(unknown.stderr + unknown.stdout, /has no pending proposal 'p-9'/u);
 
   const wrong = flow(root, ['workflow', 'build', 'answer', '--build', build.id, '--question', 'q-1', '--choice', 'everyone'], { allowFailure: true });
   assert.match(wrong.stderr + wrong.stdout, /'everyone' is not one of: 'payments-security', 'platform-leads'/u);
@@ -188,6 +197,22 @@ test('later decisions: a step other workflows share is copied, not changed; a pr
   const result = json(root, ['workflow', 'build', 'check', '--build', build.id]);
   assert.deepEqual(result.draft.workflow.phases, ['pay-triage', 'requirements', 'pay-build', 'pay-pci-review']);
   assert.equal(result.changeSet.changes.find((change) => change.id === 'pay-triage').copyOf, 'intake');
+
+  // Your own change is accepted as it is recorded; Copilot's never is.
+  const link = final.items.find((entry) => entry.kind === 'document');
+  const mine = { title: 'Keep the runbook as a link', why: 'People open it during release.', moves: [{ move: 'item.keepAsLink', item: link.id }] };
+  const selfAccepted = flow(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-', '--accept'], { allowFailure: true, input: JSON.stringify(mine) });
+  assert.match(selfAccepted.stderr + selfAccepted.stdout, /Only your own proposal can be accepted as it is recorded/u);
+  const own = json(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-', '--by', 'you', '--accept'], { input: JSON.stringify(mine) }).build;
+  assert.deepEqual([own.proposals.at(-1).status, own.proposals.at(-1).by, own.items.find((entry) => entry.id === link.id).status], ['accepted', 'you', 'kept-as-link']);
+  assert.deepEqual(own.conversation.slice(-2).map((entry) => [entry.by, entry.kind, entry.text]), [['you', 'proposal', 'Keep the runbook as a link'], ['you', 'decision', 'Accepted Keep the runbook as a link.']]);
+
+  // What evidence points at: the captured file as screened and kept, with line numbers.
+  const source = json(root, ['workflow', 'build', 'source', '--build', build.id, '--path', 'docs/runbook.md']);
+  assert.deepEqual([source.startLine, source.endLine, source.totalLines, source.lines[0]], [1, 5, 5, '# Runbook']);
+  assert.match(flow(root, ['workflow', 'build', 'source', '--build', build.id, '--path', 'docs/runbook.md', '--from', '3']).stdout, /^3 {2}curl -X POST https:\/\/jira\.example\.com/mu);
+  const missing = flow(root, ['workflow', 'build', 'source', '--build', build.id, '--path', '../secrets.txt'], { allowFailure: true });
+  assert.match(missing.stderr + missing.stdout, /captured no file '\.\.\/secrets\.txt'/u);
 });
 
 test('starting from a workflow copies it; finishing writes a bundle that imports, or one reviewed proposal on the approved configuration', async () => {
@@ -229,4 +254,18 @@ test('starting from a workflow copies it; finishing writes a bundle that imports
   assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config'], base).stdout.trim(), approved, 'nothing is approved until review');
   const finished = json(seed, ['workflow', 'build', 'status', '--build', build.id]).build;
   assert.match(finished.conversation.at(-1).text, /^Created one configuration proposal from this build\./u);
+
+  // Once the approved configuration has the workflow, the build is done: its check is that workflow, and changing it is a new build.
+  const merged = run('git', ['--git-dir', remote, 'rev-parse', proposal.branch], base).stdout.trim();
+  run('git', ['--git-dir', remote, 'update-ref', 'refs/heads/sflow/config', merged, approved], base);
+  run('git', ['fetch', '-q', 'origin'], seed);
+  const landed = json(seed, ['workflow', 'build', 'check', '--build', build.id]);
+  assert.deepEqual([landed.landed.workflow, landed.landed.label, landed.ready, landed.changeSet.changes, landed.plan.problems], ['chore-with-notes', 'Chore with notes', false, [], []]);
+  assert.equal(landed.draft.workflow.phases.at(-1), 'chore-notes');
+  assert.match(landed.explanation.summary, /steps/u);
+  assert.match(flow(seed, ['workflow', 'build', 'check', '--build', build.id]).stdout, /^Finished: Chore with notes is in the approved configuration\. To change it: singularity-flow workflow build start --from-workflow chore-with-notes$/mu);
+  for (const args of [['finish', '--build', build.id, '--propose'], ['propose', '--build', build.id, '--proposal', '-']]) {
+    const refused = flow(seed, ['workflow', 'build', ...args], { allowFailure: true, input: JSON.stringify({ title: 'More', why: 'More.', moves: [{ move: 'step.remove', id: 'chore-notes' }] }) });
+    assert.match(refused.stderr + refused.stdout, /is finished: Chore with notes is in the approved configuration\. To change it, start a new build from it/u);
+  }
 });

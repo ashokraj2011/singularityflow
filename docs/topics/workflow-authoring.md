@@ -36,7 +36,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 69
+version: 70
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1298,15 +1298,19 @@ nowhere. Single files and notes are screened before they are copied into the bui
 ### Grow it a piece at a time
 
 A build grows through small proposals. Each one is a few moves with a one-line title, why it
-belongs, and the lines it relied on. Copilot proposes; you can propose too (`--by you`). Only a
-person accepts or declines, and answers questions.
+belongs, and the lines it relied on. Copilot proposes; you can propose too (`--by you`, and
+`--accept` to accept your own as it is recorded). Only a person accepts or declines, and answers
+questions. `source` shows a captured file with line numbers, as it was screened and kept, which is
+what evidence points at.
 
 ```bash
 singularity-flow workflow build propose --build <ID> --proposal proposal.json
 singularity-flow workflow build decide --build <ID> --proposal p-1 --accept
 singularity-flow workflow build decide --build <ID> --proposal p-2 --decline --reason "CI already scans"
 singularity-flow workflow build answer --build <ID> --question q-1 --choice payments-security
+singularity-flow workflow build source --build <ID> --path docs/runbook.md
 singularity-flow workflow build check --build <ID>
+singularity-flow workflow build check --build <ID> --include p-2
 singularity-flow workflow build finish --build <ID> --propose
 singularity-flow workflow build finish --build <ID> --out payments-release.sflow-workflows.json
 ```
@@ -1326,7 +1330,8 @@ Every move is checked when it is proposed, and each finding names the move and f
 (`moves[2].agent`). The draft with the proposal must still make a configuration Workflow Studio can
 save. Accepting checks it again, so a proposal that an accepted one overtook is marked stale.
 `check` explains the workflow as the accepted moves leave it, runs `workflow check` on it, and says
-how many found items are not used or left out yet. Nothing is written to the repository until
+how many found items are not used or left out yet. `--include p-2` shows it as a pending proposal
+would leave it too, without accepting anything. Nothing is written to the repository until
 `finish`: `--propose` runs Workflow Studio's own apply with the build's change set, which makes one
 reviewed proposal on the approved configuration; `--out` writes a portable workflow bundle that
 Workflow Studio's Import previews like any other.
@@ -1335,6 +1340,27 @@ In Copilot, `/sf-build-workflow` runs this loop with you. It reads only the buil
 writes only the build's issued `proposal.json`, proposes one piece at a time with the lines it
 relied on, asks what it cannot infer, and records your choice only after asking you. It never
 edits a repository; finishing is still Workflow Studio's reviewed proposal.
+
+### Build with Copilot in Workflow Studio
+
+Workflow Studio's **Build with Copilot** is the same build on one screen. Start from a workflow you
+have, from a team's folders or files, or from a description; this repository's builds are listed
+to continue.
+
+- **What we found** lists every item by kind with its file and lines. Its file reference opens the
+  lines as SFlow screened and kept them. Leave an item out with a reason, or keep it as a link.
+- **Build** shows the conversation, the workflow drawn step by step, and what each step does with
+  the check's findings. Each proposal reads in plain words with Preview, Accept and Decline; each
+  question offers its choices. Preview draws and checks the workflow as a waiting proposal would
+  leave it, without accepting it.
+- **Ask Copilot for the next piece…** opens Copilot Chat with `/sf-build-workflow` for the build.
+  While the build is open, the `#sflowWorkflowBuilder` chat tool lets Copilot read the build and
+  record proposals and questions without a terminal; it cannot accept, answer or finish. What
+  Copilot records appears in Studio as it records it.
+- With model features off you build by hand: add steps, move them or take them out, and say what
+  each is for. Your own changes are accepted as they are recorded (`propose --by you --accept`).
+- **Finish** creates one reviewed proposal on the approved configuration (on a working-tree
+  configuration it writes the files, as Publish does), or saves a portable file to import elsewhere.
 
 ## Check that a workflow makes sense
 

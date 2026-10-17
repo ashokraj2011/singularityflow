@@ -16,13 +16,16 @@ import { formatCliArgsForDisplay } from '../cli/runner.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { collectReviewConfirmation } from './review-confirmation.ts';
-import { integerField, registerMessageRouter, stringField } from './messages.ts';
+import { booleanField, integerField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import { INTEGRATION_SECRET_NAME, type IntegrationSecretSource } from '../credentials.ts';
 import {
-  PROPOSAL_BRANCH, STUDIO_FOCUS_VIEWS, STUDIO_MODEL_ARGS, STUDIO_PREVIEW_ARGS, WORKFLOW_STUDIO_SCRIPT, studioCheckArgs, localProposalUploads, proposalSummaries,
+  BUILD_ID, BUILD_PROPOSAL_ID, BUILD_QUESTION_ID, PROPOSAL_BRANCH, STUDIO_FOCUS_VIEWS, buildChatQuery, buildsForRepository, studioBuildArgs, STUDIO_MODEL_ARGS, STUDIO_PREVIEW_ARGS, WORKFLOW_STUDIO_SCRIPT, studioCheckArgs, localProposalUploads, proposalSummaries,
   studioPublishArgs, workflowStudioBody, type LocalProposalUpload, type StudioAuthority, type StudioFocusView
 } from './workflow-studio-page.ts';
 import * as path from 'node:path';
+import { realpathSync, watch, type FSWatcher } from 'node:fs';
+import { stat } from 'node:fs/promises';
+import type { StudioModelLike } from './workflow-builder-tool.ts';
 
 export { STUDIO_FOCUS_VIEWS, proposalSummaries, type StudioFocusView };
 
@@ -41,6 +44,16 @@ const ACTION_SENDS = new Set(['event', 'summary', 'artifact']);
 const MAX_SECRET_NAMES = 64;
 const WORKFLOW_SELECTOR = /^(?:story|initiative):[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MAX_EXPORT_WORKFLOWS = 200;
+const STUDIO_WORKFLOW_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/** A workflow build as `workflow build status|start|add|... --json` returns it; the page reads the rest. */
+interface StudioBuildView { build: { id: string; updatedAt: string; [key: string]: unknown }; proposalPath?: string; [key: string]: unknown }
+/** The build open in the Build view: the watch on its record, and the chat tool bound to it. */
+interface OpenBuild { id: string; updatedAt: string | null; watcher: FSWatcher | null; timer: ReturnType<typeof setTimeout> | null; busy: number; checks: number; tool: { dispose(): void } | null }
+
+function realPath(value: string): string {
+  try { return realpathSync.native(value); } catch { return path.resolve(value); }
+}
 
 /** Where integration secrets are kept on this machine. The page only ever learns whether each is set. */
 export interface IntegrationSecretStore {
@@ -108,6 +121,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
   private workflowToOpen: string | null = null;
   /** A bundle to import once the page is ready, from the team-import panel; never a webview path. */
   private bundleToImport: string | null = null;
+  private build: OpenBuild | null = null;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -214,6 +228,18 @@ export class WorkflowStudioPanel implements vscode.Disposable {
         return outcome;
       });
     },
+    'studio.build.list': () => this.buildList(),
+    'studio.build.start': (message) => this.buildStart(message),
+    'studio.build.open': (message) => this.buildOpen(stringField(message, 'build')),
+    'studio.build.close': () => this.buildClose(),
+    'studio.build.add': (message) => this.buildAdd(stringField(message, 'build')),
+    'studio.build.decide': (message) => this.buildDecide(message),
+    'studio.build.answer': (message) => this.buildAnswer(message),
+    'studio.build.mine': (message) => this.buildMine(stringField(message, 'build'), stringField(message, 'proposal')),
+    'studio.build.preview': (message) => this.buildPreview(stringField(message, 'build'), stringField(message, 'proposal')),
+    'studio.build.source': (message) => this.buildSource(stringField(message, 'build'), stringField(message, 'path'), integerField(message, 'from')),
+    'studio.build.finish': (message) => this.buildFinish(stringField(message, 'build'), stringField(message, 'how')),
+    'studio.build.chat': (message) => this.buildChat(stringField(message, 'build')),
     'studio.duplicateWorkflow': (message) => this.duplicateWorkflow(stringField(message, 'selector'), integerField(message, 'pending') ?? 0),
     'studio.openFile': (message) => this.openFile(stringField(message, 'path'), integerField(message, 'line')),
     'studio.integrationTest': (message) => this.integrationTest(stringField(message, 'target'), stringField(message, 'trigger'),
@@ -694,9 +720,265 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     }
   }
 
+
+  // ---- Build with Copilot ---------------------------------------------------------------------
+
+  private modelAvailable(): boolean {
+    return vscode.workspace.getConfiguration('singularityFlow').get<string>('modelMode', 'auto') !== 'disabled'
+      && !vscode.workspace.getConfiguration('chat').get<boolean>('disableAIFeatures', false);
+  }
+
+  private buildFailed(message: string): void { this.post({ type: 'studio.buildFailed', message }); }
+
+  /** The build the page names, when it is the one open here; anything else is refused. */
+  private openBuildId(raw: string | null): string | null {
+    if (raw && BUILD_ID.test(raw) && this.build?.id === raw) return raw;
+    this.buildFailed('Open the build first.');
+    return null;
+  }
+
+  /** This repository's builds, and those not tied to one yet, newest first. */
+  private async buildList(): Promise<void> {
+    try {
+      const result = await this.client.run<{ builds: Array<{ repository?: { root?: string } | null }> }>(['workflow', 'build', 'status', '--json']);
+      const here = realPath(this.client.repository);
+      this.post({ type: 'studio.builds', builds: buildsForRepository(result.builds ?? [], (root) => realPath(root) === here), modelAvailable: this.modelAvailable() });
+    } catch (error) { this.post({ type: 'studio.builds', builds: [], modelAvailable: this.modelAvailable() }); this.buildFailed((error as Error).message); }
+  }
+
+  private async buildStart(message: InboundMessage): Promise<void> {
+    const from = stringField(message, 'from');
+    const workflow = stringField(message, 'workflow');
+    const name = stringField(message, 'name')?.trim() ?? '';
+    const describe = stringField(message, 'describe')?.trim() ?? '';
+    if (name.length > 120) return this.buildFailed('Keep the name to 120 characters.');
+    if (workflow && !STUDIO_WORKFLOW_ID.test(workflow)) return this.buildFailed('Choose one of the workflows listed.');
+    const args = ['workflow', 'build', 'start', ...(name ? ['--name', name] : [])];
+    if (from === 'workflow') {
+      if (!workflow) return this.buildFailed('Choose the workflow to start from.');
+      args.push('--from-workflow', workflow);
+    } else if (from === 'describe') {
+      if (!describe || Buffer.byteLength(describe, 'utf8') > 32 * 1024) return this.buildFailed('Describe how the team works, in at most 32 KiB.');
+      args.push('--describe', describe);
+    } else if (from === 'material') {
+      const picked = await vscode.window.showOpenDialog({ canSelectFiles: true, canSelectFolders: true, canSelectMany: true, openLabel: 'Use this material',
+        title: 'Choose a team\'s folders or files: agents, skills, instructions, runbooks, API collections' });
+      if (!picked?.length) { this.post({ type: 'studio.buildCancelled', status: 'Nothing was chosen; no build was started.' }); return; }
+      if (workflow) args.push('--from-workflow', workflow);
+      for (const uri of picked) args.push((await stat(uri.fsPath).catch(() => null))?.isDirectory() ? '--folder' : '--file', uri.fsPath);
+    } else return this.buildFailed('Choose where the build starts from.');
+    await this.buildChange(() => this.client.run<StudioBuildView>([...args, '--json']), 'Started the build: here is what was found.', true);
+  }
+
+  private async buildOpen(raw: string | null): Promise<void> {
+    if (!raw || !BUILD_ID.test(raw)) return this.buildFailed('Choose a build to open.');
+    await this.buildChange(() => this.client.run<StudioBuildView>(studioBuildArgs('status', raw)), null, true);
+  }
+
+  private async buildAdd(raw: string | null): Promise<void> {
+    const id = this.openBuildId(raw);
+    if (!id) return;
+    const picked = await vscode.window.showOpenDialog({ canSelectFiles: true, canSelectFolders: true, canSelectMany: true, openLabel: 'Add this material', title: 'Add folders or files to the build' });
+    if (!picked?.length) { this.post({ type: 'studio.buildCancelled' }); return; }
+    const args: string[] = [];
+    for (const uri of picked) args.push((await stat(uri.fsPath).catch(() => null))?.isDirectory() ? '--folder' : '--file', uri.fsPath);
+    await this.buildChange(() => this.client.run<StudioBuildView>(studioBuildArgs('add', id, args)), 'Added the material.');
+  }
+
+  private async buildDecide(message: InboundMessage): Promise<void> {
+    const id = this.openBuildId(stringField(message, 'build'));
+    const proposal = stringField(message, 'proposal');
+    if (!id) return;
+    if (!proposal || !BUILD_PROPOSAL_ID.test(proposal)) return this.buildFailed('Choose a proposal.');
+    const accept = booleanField(message, 'accept');
+    const reason = stringField(message, 'reason')?.trim().slice(0, 2000) ?? '';
+    await this.buildChange(() => this.client.run<StudioBuildView>(studioBuildArgs('decide', id, ['--proposal', proposal, ...(accept ? ['--accept'] : ['--decline', ...(reason ? ['--reason', reason] : [])])])),
+      accept ? `Accepted ${proposal}.` : `Declined ${proposal}.`);
+  }
+
+  private async buildAnswer(message: InboundMessage): Promise<void> {
+    const id = this.openBuildId(stringField(message, 'build'));
+    const question = stringField(message, 'question');
+    const choice = stringField(message, 'choice');
+    if (!id) return;
+    if (!question || !BUILD_QUESTION_ID.test(question) || !choice || choice.length > 200) return this.buildFailed('Choose one of the answers offered.');
+    await this.buildChange(() => this.client.run<StudioBuildView>(studioBuildArgs('answer', id, ['--question', question, '--choice', choice])), 'Answered.');
+  }
+
+  /** Your own change from the page: recorded and accepted at once. */
+  private async buildMine(raw: string | null, text: string | null): Promise<void> {
+    const id = this.openBuildId(raw);
+    if (!id) return;
+    if (!text || Buffer.byteLength(text, 'utf8') > MAX_CHANGE_SET_BYTES) return this.buildFailed('That change is empty or too large.');
+    let title = 'your change';
+    try { title = String((JSON.parse(text) as { title?: unknown }).title ?? title); } catch { /* the engine refuses it with its reason */ }
+    await this.buildChange(() => this.client.runWithInput<StudioBuildView>(studioBuildArgs('propose', id, ['--proposal', '-', '--by', 'you', '--accept']), text), `Done: ${title}.`);
+  }
+
+  private async buildPreview(raw: string | null, proposal: string | null): Promise<void> {
+    const id = this.openBuildId(raw);
+    if (!id) return;
+    if (!proposal || !BUILD_PROPOSAL_ID.test(proposal)) return this.buildFailed('Choose a proposal.');
+    try {
+      const result = await this.client.run<unknown>(studioBuildArgs('check', id, ['--include', proposal]));
+      this.post({ type: 'studio.buildPreview', build: id, proposal, result });
+    } catch (error) { this.buildFailed((error as Error).message); }
+  }
+
+  private async buildSource(raw: string | null, file: string | null, from: number | null): Promise<void> {
+    const id = this.openBuildId(raw);
+    if (!id) return;
+    if (!file || file.length > 1024 || file.includes('\0')) return this.buildFailed('Choose a file the build captured.');
+    try {
+      const result = await this.client.run<unknown>(studioBuildArgs('source', id, ['--path', file, ...(from && from > 1 ? ['--from', String(from)] : [])]));
+      this.post({ type: 'studio.buildSource', build: id, path: file, result });
+    } catch (error) { this.buildFailed((error as Error).message); }
+  }
+
+  /**
+   * Finish: one reviewed proposal on the approved configuration (or, on a working-tree authority,
+   * the files written as Studio's Publish writes them), or a portable file to import elsewhere.
+   */
+  private async buildFinish(raw: string | null, how: string | null): Promise<void> {
+    const id = this.openBuildId(raw);
+    if (!id) return;
+    try {
+      if (how === 'file') {
+        const check = await this.client.run<{ build: { workflow: string } }>(studioBuildArgs('check', id));
+        const target = await vscode.window.showSaveDialog({ title: 'Save the workflow as a portable file', saveLabel: 'Save',
+          defaultUri: vscode.Uri.file(path.join(this.client.repository, `${check.build.workflow}.sflow-workflows.json`)), filters: { 'Workflow bundle': ['json'] } });
+        if (!target) { this.post({ type: 'studio.buildCancelled' }); return; }
+        const result = await this.client.run<{ path: string }>(studioBuildArgs('finish', id, ['--out', target.fsPath]));
+        this.post({ type: 'studio.buildFinished', build: id, how: 'file', summary: `Saved ${path.basename(result.path)}. Import it with Import… in Workflow Studio, here or in another repository.` });
+        await this.buildRefresh(id);
+        return;
+      }
+      let publishArgs: string[];
+      try { publishArgs = studioPublishArgs(this.model?.authority); }
+      catch (error) { return this.buildFailed((error as Error).message); }
+      const proposal = publishArgs.includes('--propose');
+      const check = await this.client.run<{ ready: boolean; changeSet: unknown; build: { workflow: string; label: string } }>(studioBuildArgs('check', id));
+      if (!check.ready) return this.buildFailed('The build is not ready to finish. Its check says what is left.');
+      const confirmed = await showCompactWarningMessage(`Create the workflow ${check.build.label}?`, {
+        modal: true,
+        detail: proposal
+          ? 'It becomes one review proposal on the approved configuration. Nothing changes for running or new Stories until it is reviewed and activated.'
+          : 'The files are written to this repository. Review the diff and commit it through your usual review.'
+      }, proposal ? 'Create the proposal' : 'Write files');
+      if (!confirmed) { this.post({ type: 'studio.buildCancelled' }); return; }
+      const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Finishing the workflow build', cancellable: false },
+        () => proposal
+          ? this.client.run<StudioApplyResult>(studioBuildArgs('finish', id, ['--propose']))
+          : this.client.runWithInput<StudioApplyResult>(publishArgs, JSON.stringify(check.changeSet)));
+      const summary = result.reviewRequired && result.branch ? `Proposed for review as ${result.branch}. Review and activate it under Changes.`
+        : `Wrote ${(result.written ?? []).length} file(s) to this repository. Review the diff and commit it.`;
+      this.post({ type: 'studio.buildFinished', build: id, how: 'publish', summary });
+      await this.buildRefresh(id);
+      await this.load(true);
+      await this.actions.refresh();
+      if (result.reviewRequired && result.branch) {
+        const choice = await showCompactInformationMessage(`The workflow is ready for review: ${result.branch}.`, 'Review and activate', 'Later');
+        if (choice === 'Review and activate') await this.actions.reviewProposal(result.branch);
+      }
+    } catch (error) {
+      this.output.appendLine(`  refused: ${(error as Error).message}`);
+      this.buildFailed((error as Error).message);
+    }
+  }
+
+  private async buildChat(raw: string | null): Promise<void> {
+    const id = this.openBuildId(raw);
+    if (!id) return;
+    if (!this.modelAvailable()) return this.buildFailed('Copilot is off in this window. Add steps yourself, or turn model features on.');
+    await vscode.commands.executeCommand('workbench.action.chat.open', { query: buildChatQuery(id, Boolean(this.build?.tool)), isPartialQuery: true });
+    this.post({ type: 'studio.buildCancelled', status: 'Copilot Chat is open for this build. Its proposals appear here as it makes them; only you accept them.' });
+  }
+
+  /** Run a command that changes or opens a build, then show it and check it. A failure still redraws the build. */
+  private async buildChange(command: () => Promise<StudioBuildView>, status: string | null, opening = false): Promise<void> {
+    const watched = this.build;
+    if (watched) watched.busy += 1;
+    try {
+      const view = await command();
+      await this.buildShow(view, status, opening);
+    } catch (error) {
+      this.buildFailed((error as Error).message);
+      if (this.build && !opening) await this.buildRefresh(this.build.id);
+    } finally { if (watched) watched.busy -= 1; }
+  }
+
+  private async buildRefresh(id: string, onlyIfChanged = false): Promise<void> {
+    try {
+      const view = await this.client.run<StudioBuildView>(studioBuildArgs('status', id));
+      if (this.build?.id !== id || (onlyIfChanged && view.build.updatedAt === this.build.updatedAt)) return;
+      await this.buildShow(view, onlyIfChanged ? 'The build changed: Copilot recorded something new.' : null);
+    } catch { /* the next action shows why */ }
+  }
+
+  /** Show a build at once, then its check. Opening another build moves the watch and the chat tool to it. */
+  private async buildShow(view: StudioBuildView, status: string | null, opening = false): Promise<void> {
+    const id = view.build.id;
+    if (opening || this.build?.id !== id) this.buildWatch(id, view.proposalPath ?? null);
+    const watched = this.build!;
+    watched.updatedAt = view.build.updatedAt;
+    this.post({ type: 'studio.build', build: id, view, checking: true, modelAvailable: this.modelAvailable(), ...(status ? { status } : {}) });
+    const sequence = ++watched.checks;
+    watched.busy += 1;
+    try {
+      const result = await this.client.run<{ build?: { updatedAt?: string } }>(studioBuildArgs('check', id));
+      if (this.build !== watched || sequence !== watched.checks) return;
+      if (result.build?.updatedAt) watched.updatedAt = result.build.updatedAt;
+      this.post({ type: 'studio.buildChecked', build: id, result });
+    } catch (error) {
+      if (this.build === watched && sequence === watched.checks) this.post({ type: 'studio.buildChecked', build: id, error: (error as Error).message });
+    } finally { watched.busy -= 1; }
+  }
+
+  /**
+   * Watch the open build's record, so a proposal Copilot records (in chat, through the tool or the
+   * workflow build commands) shows here without a click. Changes this panel makes are not redrawn twice.
+   */
+  private buildWatch(id: string, proposalPath: string | null): void {
+    this.buildClose();
+    const watched: OpenBuild = { id, updatedAt: null, watcher: null, timer: null, busy: 0, checks: 0, tool: null };
+    this.build = watched;
+    if (proposalPath) {
+      try {
+        watched.watcher = watch(path.dirname(proposalPath), (_event, file) => {
+          if (file && String(file) !== 'build.json') return;
+          if (watched.timer) clearTimeout(watched.timer);
+          watched.timer = setTimeout(() => { watched.timer = null; if (this.build === watched && !watched.busy) void this.buildRefresh(id, true); }, 400);
+        });
+        watched.watcher.on('error', () => undefined);
+      } catch { watched.watcher = null; }
+    }
+    if (this.modelAvailable()) {
+      try {
+        const runtime = require(path.join(__dirname, 'workflow-intent-runtime.cjs')) as typeof import('../workflow-intent-runtime.ts');
+        const attached = runtime.attachWorkflowBuilderTool(id, {
+          run: (args) => this.client.run(args),
+          runWithInput: (args, input) => this.client.runWithInput(args, input),
+          model: () => this.model as StudioModelLike | null,
+          recorded: (view) => { if (this.build === watched) void this.buildShow(view as StudioBuildView, 'Copilot recorded a proposal.'); }
+        });
+        watched.tool = attached.available ? attached : null;
+      } catch { watched.tool = null; }
+    }
+  }
+
+  private buildClose(): void {
+    const watched = this.build;
+    if (!watched) return;
+    this.build = null;
+    watched.watcher?.close();
+    if (watched.timer) clearTimeout(watched.timer);
+    watched.tool?.dispose();
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.buildClose();
     for (const subscription of this.subscriptions.splice(0)) subscription.dispose();
     if (WorkflowStudioPanel.current === this) WorkflowStudioPanel.current = null;
   }

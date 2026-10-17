@@ -9,10 +9,10 @@
     "gateway-status-worker.cjs": { "maximumBytes": 200000, "maximumModules": 30 },
     "help-runtime.cjs": { "maximumBytes": 670000, "maximumModules": 128 },
     "runtime-prewarm.cjs": { "maximumBytes": 110000, "maximumModules": 24 },
-    "lazy-panels-runtime.cjs": { "maximumBytes": 3050000, "maximumModules": 249 },
+    "lazy-panels-runtime.cjs": { "maximumBytes": 3090000, "maximumModules": 249 },
     "support-runtime.cjs": { "maximumBytes": 455000, "maximumModules": 105 },
     "workflow-markup-runtime.cjs": { "maximumBytes": 140000, "maximumModules": 12 },
-    "workflow-intent-runtime.cjs": { "maximumBytes": 20000, "maximumModules": 2 },
+    "workflow-intent-runtime.cjs": { "maximumBytes": 20000, "maximumModules": 3 },
     "workflow-authoring-ui-runtime.cjs": { "maximumBytes": 70000, "maximumModules": 6 }
   }
 }

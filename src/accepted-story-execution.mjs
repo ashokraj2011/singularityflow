@@ -3,7 +3,7 @@ import { withReadScope, scopedCommandRead } from './read-scope.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 import { loadDefinition } from './config.mjs';
-import { loadStoryAggregate } from './story-aggregate-read.mjs';
+import { loadStoryAggregateWithExecution } from './story-aggregate-read.mjs';
 import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
 import { branch } from './git.mjs';
 import { SingularityFlowError, run } from './util.mjs';
@@ -59,7 +59,7 @@ function matchesReference(workflow, reference) {
 async function locateAcceptedStory(root, definition, reference = null) {
   let originalError = null;
   try {
-    return { definition, workflow: await loadStoryAggregate(root, definition, reference) };
+    return { definition, ...await loadStoryAggregateWithExecution(root, definition, reference) };
   } catch (error) {
     originalError = error;
   }
@@ -72,9 +72,9 @@ async function locateAcceptedStory(root, definition, reference = null) {
     if (workItemRoot === definition.workItemRoot) continue;
     const candidateDefinition = definitionAtWorkItemRoot(definition, workItemRoot);
     try {
-      const workflow = await loadStoryAggregate(root, candidateDefinition, reference);
-      if (matchesReference(workflow, reference)) matches.push({
-        definition: candidateDefinition, workflow
+      const loaded = await loadStoryAggregateWithExecution(root, candidateDefinition, reference);
+      if (matchesReference(loaded.workflow, reference)) matches.push({
+        definition: candidateDefinition, ...loaded
       });
     } catch (error) {
       if (error?.code !== 'STORY_NOT_FOUND') throw error;
@@ -113,9 +113,9 @@ async function loadAcceptedStoryExecutionUncached(root, workId) {
     const bootstrap = await measureCommandSpan('story.bootstrap', () => loadDefinition(root, { storyBootstrap: true }));
     const located = await measureCommandSpan('story.aggregate', () => locateAcceptedStory(root, bootstrap, workId));
     if (located.workflow.workflowSnapshot) {
-      const executionCatalog = await measureCommandSpan('story.execution-catalog', () => resolveStoryExecutionCatalog(
-        root, located.definition, located.workflow
-      ));
+      if (located.executionCatalog) incrementCommandCounter('story.context-catalog-handoffs');
+      const executionCatalog = located.executionCatalog ?? await measureCommandSpan(
+        'story.execution-catalog', () => resolveStoryExecutionCatalog(root, located.definition, located.workflow));
       const definition = executionCatalog.effectiveDefinition;
       return Object.freeze({
         definition, config: definition, workflow: located.workflow, executionCatalog

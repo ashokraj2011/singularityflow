@@ -431,6 +431,21 @@ export async function resolveStoryExecutionCatalog(root, definition, workflow) {
   return verified;
 }
 
+/** Revalidate every amended baseline against this load's private, byte-verified closure. */
+export async function verifyStoryCatalogAmendments(root, definition, workflow, catalog) {
+  const accepted = verifiedCatalogFor(root, workflow, catalog);
+  if (!accepted || accepted.mode !== 'workflow-snapshot') {
+    fail('Amendment revalidation requires the exact accepted Story catalog.', 'WFA_SNAPSHOT_INVALID');
+  }
+  // Do not expose closure bytes, accept a caller-made verification summary, or mint a reusable
+  // approval capability. Both existing forensic owners still inspect their immutable baseline.
+  const { verifyAcceptedSkillAmendmentRevalidation } = await import('./state.mjs');
+  const { verifyAcceptedTestCommandAmendment } = await import('./story-test-command-amendment.mjs');
+  const verified = await verifyAcceptedSkillAmendmentRevalidation(
+    root, definition, workflow, accepted[VERIFIED_CLOSURE]);
+  await verifyAcceptedTestCommandAmendment(root, definition, workflow, verified);
+}
+
 /**
  * Read one skill phase from the verified accepted Story closure. This is a dependency reader,
  * not producer admission: callers still need their own governed host and evidence decisions.

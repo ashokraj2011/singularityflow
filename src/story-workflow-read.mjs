@@ -5,7 +5,7 @@ import { SingularityFlowError, readJson, invariant } from './util.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import { normalizeCurrentWorkflow } from './story-state-normalization.mjs';
 import { needsAcceptedPhaseInterpretation } from './phase-semantics.mjs';
-import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
+import { resolveStoryExecutionCatalog, verifyStoryCatalogAmendments } from './story-execution-context.mjs';
 import { verifyRejectedSkillVersionReviews } from './workflow-snapshots.mjs';
 import { workflowBranchAllowed } from './story-paths.mjs';
 
@@ -22,6 +22,15 @@ export function attachLegacyGovernedRoots(workflow, config) {
 }
 
 export async function loadWorkflow(root, config, id = undefined) {
+  return (await readWorkflow(root, config, id, false)).workflow;
+}
+
+/** Strict load with its freshly verified catalog; no optional bypass or cross-load cache. */
+export async function loadWorkflowWithExecution(root, config, id = undefined) {
+  return readWorkflow(root, config, id, true);
+}
+
+async function readWorkflow(root, config, id, includeExecution) {
   const index = await buildRepositorySubjectIndex(root, { definition: config });
   let selected = resolveContext(index, {
     reference: id ?? branch(root),
@@ -58,14 +67,24 @@ export async function loadWorkflow(root, config, id = undefined) {
   if (id == null && !workflowBranchAllowed(workflow, branch(root))) {
     throw new SingularityFlowError(`Current branch '${branch(root)}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`);
   }
+  let executionCatalog = null;
   if (Number(workflow.workflowSnapshot?.revision ?? 1) > 1) {
-    const { verifyAcceptedSkillAmendmentRevalidation } = await import('./state.mjs');
-    const { verifyAcceptedTestCommandAmendment } = await import('./story-test-command-amendment.mjs');
-    const verifiedAmendment = await verifyAcceptedSkillAmendmentRevalidation(root, config, workflow);
-    await verifyAcceptedTestCommandAmendment(root, config, workflow, verifiedAmendment);
+    if (includeExecution) {
+      executionCatalog = await resolveStoryExecutionCatalog(root, config, workflow);
+      await verifyStoryCatalogAmendments(root, config, workflow, executionCatalog);
+    } else {
+      // Ordinary domain reads retain their existing forensic-only contract. Asking for a
+      // catalog adds interpretation; it must not make this API depend on agent selection.
+      const { verifyAcceptedSkillAmendmentRevalidation } = await import('./state.mjs');
+      const { verifyAcceptedTestCommandAmendment } = await import('./story-test-command-amendment.mjs');
+      const verified = await verifyAcceptedSkillAmendmentRevalidation(root, config, workflow);
+      await verifyAcceptedTestCommandAmendment(root, config, workflow, verified);
+    }
   }
   verifyRejectedSkillVersionReviews(root, config, workflow);
-  if (needsAcceptedPhaseInterpretation(workflow)) await resolveStoryExecutionCatalog(root, config, workflow);
-  return workflow;
+  if (!executionCatalog && needsAcceptedPhaseInterpretation(workflow)) {
+    executionCatalog = await resolveStoryExecutionCatalog(root, config, workflow);
+  }
+  return { workflow, executionCatalog };
 }
 

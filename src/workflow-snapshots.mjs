@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { parseImmutableJson } from './immutable-json-read.mjs';
 import { readStoryPathHistory } from './story-path-history.mjs';
-import { measureCommandSpan } from './dx-timing-context.mjs';
+import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 import { constants as fsConstants } from 'node:fs';
 import { lstat, mkdir, open, rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -2792,6 +2792,7 @@ export async function verifyWorkflowSnapshot(root, config, workflow, options = {
     status: 'legacy', enrolled: false, closure: 'unproven', reason: 'snapshot-reference-absent'
   };
   if (requireAccepted) {
+    incrementCommandCounter('story.snapshot-verifications');
     const chain = await measureCommandSpan('story.snapshot-accepted-chain', () => acceptedAmendmentChain(
       root, config, workflow.workItem.id, storedReference, options[TEST_COMMAND_ORIGIN_INSPECTION] ?? null));
     let previous = null;

@@ -3,9 +3,8 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { branch, identity } from './git.mjs';
 import { run, commandExists, nowIso, SingularityFlowError, writeJson } from './util.mjs';
-import {
-  commitAndPublish, saveStoryDraft, workflowPublicationBranch, workDir
-} from './state-stores.mjs';
+import { workDir } from './story-paths.mjs';
+import { commitAndPublish, saveStoryDraft, workflowPublicationBranch } from './state-stores.mjs';
 import { readStoryReviewPacket } from './story-lineage.mjs';
 import { runGovernanceGate } from './governance.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';

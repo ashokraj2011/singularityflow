@@ -1,8 +1,7 @@
 import { authoringRoute } from './code-delivery-policy.mjs';
 import { phaseHandoff } from './guide.mjs';
-import { pinnedResolutionVerification } from './state-stores.mjs';
+import { pinnedResolutionVerification } from './pinned-policy-read.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
-import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
 import { reviewContinuation } from './review-continuation.mjs';
 import { phaseAuthoringEntry } from './phase-authoring-entry.mjs';
 
@@ -25,7 +24,7 @@ export async function phaseAuthoringSummary(root, config, workflow, phase, {
   }
   let reviewError = null;
   const sourceReviewEvidence = phase.status === 'in_progress' && phase.generation > 0 && sourceReviewRequired(workflow, phase.id)
-    ? await readSourceReviewStatus(root, config, workflow, phase.id).catch(error => {
+    ? await (await import('./source-review-lifecycle.mjs')).readSourceReviewStatus(root, config, workflow, phase.id).catch(error => {
       reviewError = { code: error.code ?? null, message: error.message }; return null;
     }) : null;
   return {

@@ -6,7 +6,8 @@ import { evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDelive
 import { head, identity, repoRoot } from '../git.mjs';
 import { commandResult, effects, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
-import { StoryStateStore, sourceTreeHash, storyPublicationPending, workDir } from '../state-stores.mjs';
+import { workDir } from '../story-paths.mjs';
+import { StoryStateStore, sourceTreeHash, storyPublicationPending } from '../state-stores.mjs';
 import { sealTrpRecord } from '../test-recovery-policy.mjs';
 import { appendTrpAuthorityReceipt, appendTrpRecord, consumeTrpAuthority, trpAuthorityReview } from '../test-recovery-store.mjs';
 import { loadTrpDeliveryAgreement, resolveTrpDeliverySelection, trpSelectionAuthorityContext,

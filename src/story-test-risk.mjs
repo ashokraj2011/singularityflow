@@ -2,7 +2,8 @@
 import { captureTerminalActionAuthorization } from './action-authorization.mjs';
 import { requireApprovalAuthority } from './approval-authority.mjs';
 import { head, identity } from './git.mjs';
-import { StoryStateStore, storyPublicationPending, workDir } from './state-stores.mjs';
+import { workDir } from './story-paths.mjs';
+import { StoryStateStore, storyPublicationPending } from './state-stores.mjs';
 import { sealTrpRecord, trpDigest, trpEnvironmentDigest, validateTrpRecord } from './test-recovery-policy.mjs';
 import { appendTrpAuthorityReceipt, appendTrpRecord, consumeTrpAuthority, loadTrpRecords, trpAuthorityReview } from './test-recovery-store.mjs';
 import { loadTrpDeliveryAgreement } from './trp-delivery-selection.mjs';

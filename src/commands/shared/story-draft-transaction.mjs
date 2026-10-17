@@ -1,6 +1,7 @@
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
 import { runDraftTransaction } from '../../draft-unit-of-work.mjs';
-import { workflowPublicationBranch, workDir } from '../../state-stores.mjs';
+import { workDir } from '../../story-paths.mjs';
+import { workflowPublicationBranch } from '../../state-stores.mjs';
 import { posix } from '../../util.mjs';
 import path from 'node:path';
 import { captureAggregateRecovery, restoreAggregateRecovery } from '../../aggregate-recovery.mjs';

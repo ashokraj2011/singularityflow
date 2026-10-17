@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { currentPhase } from './state-stores.mjs';
+import { currentPhase } from './phase-generation.mjs';
 import { loadDefinition, normalizeSessionPolicy } from './config.mjs';
 import { branch, identity } from './git.mjs';
 import { AGENT_MAPPING_PATH, agentStatus, resolveCopilotAgent } from './agents.mjs';

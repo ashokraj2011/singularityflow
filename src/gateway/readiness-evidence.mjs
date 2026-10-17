@@ -15,7 +15,7 @@ import {
 import { secureRepositoryPath, snapshot } from '../util.mjs';
 import { evaluateVisualCoverage } from '../visual-coverage.mjs';
 import { reconcileWorkInterval } from '../work-intervals.mjs';
-import { workDir } from '../state-stores.mjs';
+import { workDir } from '../story-paths.mjs';
 import { applicationPathContext } from '../application-paths.mjs';
 
 const row = (id, state, source, evidence, slots = {}, action = null) => ({

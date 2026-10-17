@@ -13,20 +13,27 @@ const prewarm = arguments_.includes('--prewarm');
 const sampleOption = arguments_.find(value => value.startsWith('--samples='));
 const outputOption = arguments_.find(value => value.startsWith('--agent-output='));
 const storyOption = arguments_.find(value => value.startsWith('--story-mode='));
+const historyOption = arguments_.find(value => value.startsWith('--history-commits='));
+const artifactOption = arguments_.find(value => value.startsWith('--artifacts='));
+const policyOnly = arguments_.includes('--commands=policy');
+const historyCommits = Number(historyOption?.split('=')[1] ?? 0);
+const artifacts = Number(artifactOption?.split('=')[1] ?? 0);
 const storyMode = storyOption?.slice('--story-mode='.length) ?? 'legacy';
 const outputMode = outputOption?.slice('--agent-output='.length) ?? 'full';
 const samples = sampleOption ? Number(sampleOption.slice('--samples='.length)) : 1;
 const positional = arguments_.filter(value => !value.startsWith('--'));
 if (!Number.isInteger(samples) || samples < 1 || samples > 5 || positional.length > 2
-    || !['full', 'bounded'].includes(outputMode) || !['legacy', 'pinned'].includes(storyMode)
-    || arguments_.some(value => value.startsWith('--') && !['--combined-baseline', '--prewarm', sampleOption, outputOption, storyOption].includes(value))) {
+    || !['full', 'bounded'].includes(outputMode) || !['legacy', 'pinned', 'amended'].includes(storyMode)
+    || arguments_.some(value => value.startsWith('--') && !['--combined-baseline', '--prewarm', '--commands=policy',
+      sampleOption, outputOption, storyOption, historyOption, artifactOption].includes(value))) {
   throw new Error('Unsupported benchmark option or sample count (1–5).');
 }
 const baselineRoot = positional[0] && path.resolve(positional[0]);
 if (!baselineRoot) throw new Error('Usage: node scripts/bench-utility-entry.mjs <BASELINE-CHECKOUT> [RESULT.json] [--combined-baseline] [--prewarm] [--samples=3] [--agent-output=full|bounded]');
-const fixture = await createWarmReadFixture({ files: 1000, branches: 20, storyMode });
+const fixture = await createWarmReadFixture({ files: 1000, branches: 20, storyMode, historyCommits, artifacts });
 const report = { schemaVersion: 1, platform: process.platform, node: process.version,
   fixture: { files: 1000, branches: 20, storyMode, pinnedVerification: fixture.pinnedVerification,
+    historyCommits, totalCommits: fixture.totalCommits, extraArtifacts: artifacts,
     catalogs: 'full installed seeded defaults, local approved configuration branch',
     runtime: 'stamped installed cold bundle', cache: 'empty private V8 cache per variant, then three fresh processes; OS cache not flushed',
     modelCalls: 0, configuredRemotes: 0, baselineEntry: combinedBaseline ? 'combined utility read' : 'pause plus utility read',
@@ -36,13 +43,13 @@ const report = { schemaVersion: 1, platform: process.platform, node: process.ver
     note: 'Synthetic CLI benchmark, not a native Copilot conversation.' }, commands: [] };
 const variants = [{ id: 'before', root: path.join(fixture.directory, 'baseline') }, { id: 'after', root: fixture.engine }];
 const cases = [
-  ['status', ['status', 'PERF-001']], ['progress', ['progress', 'PERF-001']],
-  ['nextsteps', ['nextsteps', 'PERF-001']],
-  ['phase-show', ['phase', 'show', 'intake']],
-  ['inputs-preview', ['inputs', 'intake', '--dry-run']], ['report', ['report', 'PERF-001', '--format', 'json']],
+  ['status', ['status', fixture.workId]], ['progress', ['progress', fixture.workId]],
+  ['nextsteps', ['nextsteps', fixture.workId]],
+  ['phase-show', ['phase', 'show', fixture.phaseId]],
+  ['inputs-preview', ['inputs', fixture.phaseId, '--dry-run']], ['report', ['report', fixture.workId, '--format', 'json']],
   ['workflow-list', ['workflow', 'list']], ['agents-list', ['agents', 'list']],
   ['skill-list', ['skill', 'list']], ['instruction-list', ['instruction', 'list']]
-];
+].filter(([name]) => !policyOnly || !name.endsWith('-list'));
 try {
   await mkdir(variants[0].root);
   for (const name of ['src', 'bin', 'templates', 'plugin', 'schemas', 'package.json', 'scripts',

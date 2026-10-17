@@ -3,7 +3,9 @@ import { requirePositional, SingularityFlowError, optionString, optionBoolean } 
 import { repoRoot, branch, gitDir, identity } from '../git.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { sourceReviewKind } from '../phase-roles.mjs';
-import { workflowBranchAllowed, assertNoPendingPublication, transactStory, loadStoryAggregate } from '../state-stores.mjs';
+import { workflowBranchAllowed } from '../story-paths.mjs';
+import { loadStoryAggregate } from '../story-aggregate-read.mjs';
+import { assertNoPendingPublication, transactStory } from '../state-stores.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { commandResult, effects, noEffects, action as narrationAction, noop, succeeded } from '../narration/command-result.mjs';
 import { sourceReviewRequired } from '../source-review-policy.mjs';

@@ -60,9 +60,8 @@ import { loadPortfolio, PORTFOLIO_PATH, validatePortfolio } from './initiative-c
 import {
   initiativeProgress, listInitiatives, secureInitiativePath
 } from './state-stores.mjs';
-import {
-  loadInitiativeAggregate, loadStoryAggregate, storyPublicationPending
-} from './state-stores.mjs';
+import { loadStoryAggregate } from './story-aggregate-read.mjs';
+import { loadInitiativeAggregate, storyPublicationPending } from './state-stores.mjs';
 import { evaluateInitiativePhase } from './initiative-evidence.mjs';
 import { interfaceContractStatus } from './initiative-contracts.mjs';
 import { deriveInitiativeReport, initiativeNextActions } from './initiative-report.mjs';

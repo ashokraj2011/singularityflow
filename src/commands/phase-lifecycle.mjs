@@ -3,7 +3,8 @@ import { requirePositional, SingularityFlowError, optionString, optionBoolean, r
 import { repoRoot } from '../git.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { generationRecovery } from '../recovery-plan.mjs';
-import { generationResultMatches, generationResultDigest, beginPhaseGeneration, saveStoryDraft, prefetchStoryPublicationObservation, workDir, scanArtifacts, commitAndPublish, publishGeneration } from '../state-stores.mjs';
+import { workDir } from '../story-paths.mjs';
+import { generationResultMatches, generationResultDigest, beginPhaseGeneration, saveStoryDraft, prefetchStoryPublicationObservation, scanArtifacts, commitAndPublish, publishGeneration } from '../state-stores.mjs';
 import { safeCommandGuidance, commandGuidanceLines } from '../safe-command-guidance.mjs';
 import { nextPhaseGeneration } from '../phase-generation.mjs';
 import { printCommandRoutes } from './shared/print-command-routes.mjs';

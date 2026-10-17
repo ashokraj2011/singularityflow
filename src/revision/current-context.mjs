@@ -15,7 +15,9 @@ import { configurationAssetPaths, readConfigurationSource } from '../configurati
 import { gitCommonDir, repoRoot } from '../git.mjs';
 import { recordSha256 } from '../records.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
-import { loadWorkflow, sourceTreeHash, workDirRelative, workflowPath } from '../state-stores.mjs';
+import { loadWorkflow } from '../story-workflow-read.mjs';
+import { workDirRelative, workflowPath } from '../story-paths.mjs';
+import { sourceTreeHash } from '../state-stores.mjs';
 import { run, secureRepositoryPath, SingularityFlowError } from '../util.mjs';
 import { withoutConfiguredFilters } from '../worktree-fingerprint.mjs';
 

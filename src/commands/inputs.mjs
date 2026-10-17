@@ -1,7 +1,8 @@
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
 import { repoRoot } from '../git.mjs';
 import { optionBoolean, posix, table } from '../util.mjs';
-import { preparePhaseInputs, saveStoryDraft, workDir } from '../state-stores.mjs';
+import { workDir } from '../story-paths.mjs';
+import { preparePhaseInputs, saveStoryDraft } from '../state-stores.mjs';
 import { storyDraftTransaction } from './shared/story-draft-transaction.mjs';
 import path from 'node:path';
 import { phaseContinuationLines } from '../phase-continuation.mjs';

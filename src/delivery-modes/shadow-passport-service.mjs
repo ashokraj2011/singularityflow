@@ -7,7 +7,8 @@
 import { readAutoFlightState } from '../auto/auto-flight-store.mjs';
 import { recordSha256 } from '../records.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from '../repository-subject-index.mjs';
-import { loadStoryAggregate, storyPublicationPending } from '../state-stores.mjs';
+import { loadStoryAggregate } from '../story-aggregate-read.mjs';
+import { storyPublicationPending } from '../state-stores.mjs';
 import { projectLegacyGdpCompatibility } from './compatibility-projection.mjs';
 import { buildShadowChangePassport } from './shadow-passport.mjs';
 

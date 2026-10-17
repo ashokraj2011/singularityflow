@@ -27,7 +27,9 @@ import {
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { clearPendingPublication, readPendingPublication } from './publication-pending.mjs';
 import { readRecord } from './schema-migrations.mjs';
-import { commitAndPublish, loadStoryAggregate, workDir, workDirRelative } from './state-stores.mjs';
+import { loadStoryAggregate } from './story-aggregate-read.mjs';
+import { workDir, workDirRelative } from './story-paths.mjs';
+import { commitAndPublish } from './state-stores.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 const MAXIMUM_DOCUMENT_BYTES = 256 * 1024 * 1024;

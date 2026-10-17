@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import { parseImmutableJson } from './immutable-json-read.mjs';
+import { readStoryPathHistory } from './story-path-history.mjs';
+import { measureCommandSpan } from './dx-timing-context.mjs';
 import { constants as fsConstants } from 'node:fs';
 import { lstat, mkdir, open, rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -9,22 +12,16 @@ import { exactTreePathsAtObject, head } from './git.mjs';
 import { runRemoteGit } from './git-execution.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { approvalRequirementsMet, matchApprovalAuthority } from './approval-authority.mjs';
-import { syncAgent } from './agents.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { effectiveLibrarySkills, librarySkillPath, librarySkillReference, parseLibrarySkill, readSkillAttachments } from './skill-library.mjs';
 import { instructionPath, parseInstruction, instructionUtf8 } from './instruction-library.mjs';
 import { assertInstructionClosure, instructionComposerFor, instructionOwner, INSTRUCTION_COMPOSERS } from './instruction-snapshots.mjs';
-import { approvedStoryApprovalAuthorities, inspectApprovedSkillPackage,
-  resolveApprovedStoryWorkType } from './configuration-branch.mjs';
 import { verifySkillConfigurationAncestry } from './skp-amendment-audit.mjs';
 import { assertTestCommandAmendmentPolicyScope, assertTestCommandCandidateGlobalScope, TEST_COMMAND_AMENDMENT_DIALECTS,
   publishedTestCommandRevalidation, testCommandAmendmentDialect, testCommandAmendmentVersion,
   testCommandAmendmentDigest, testCommandRevalidationRequirement,
   validateTestCommandAmendmentRecord } from './test-command-amendment-contracts.mjs';
 import { verifyTestCommandReviewOrigin } from './test-command-amendment-origin.mjs';
-import { applyCapabilityPolicyToWorkResolution } from './capability-context.mjs';
-import { applicationPathContext, isApplicationChangeEntry } from './application-paths.mjs';
-import { buildRepositoryTreeChangeSet } from './repository-change-set.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
 import { SKP_CAPTURE_LIMITS, SKP_PACKAGE_FORMAT, SKP_PARSER_PROFILE,
@@ -365,7 +362,7 @@ async function captureRemoteAgentDependencies(root, config, workId, agent) {
   if (!(agent.dependencies ?? []).length) return { assets: [], dependencies: [] };
   let synchronized = null;
   try {
-    synchronized = await syncAgent(root, agent.id);
+    synchronized = await (await import('./agents.mjs')).syncAgent(root, agent.id);
     if (synchronized.agent?.sha256 !== agent.sha256) {
       fail(
         `Governed agent '${agent.id}' changed while its saved dependencies were resolved.`,
@@ -951,7 +948,7 @@ async function captureApprovedSkillPackages(root, config, workId, selected, appr
   let selectedBytes = 0;
   for (const choice of selected) {
     const capture = approvedSnapshot
-      ? await inspectApprovedSkillPackage(approvedSnapshot, choice.skillId, {
+      ? await (await import('./configuration-branch.mjs')).inspectApprovedSkillPackage(approvedSnapshot, choice.skillId, {
           expectedPackageSha256: choice.packageSha256
         })
       : retainedDraftSkillPackages.get(choice.skillId);
@@ -1405,6 +1402,8 @@ export async function captureWorkflowTestCommandAmendment(root, config, currentW
   assertTestCommandWorkflowScope(currentWorkflow, proposedWorkflow, decision.phaseId, { decision });
   verifyPublishedTestCommandBinding(root, config, currentWorkflow, decision);
   // Only the configuration owner can provide this capability. A cloned snapshot object fails.
+  const { applyCapabilityPolicyToWorkResolution } = await import('./capability-context.mjs');
+  const { resolveApprovedStoryWorkType, approvedStoryApprovalAuthorities } = await import('./configuration-branch.mjs');
   const candidate = applyCapabilityPolicyToWorkResolution(
     resolveApprovedStoryWorkType(approvedConfigurationSnapshot, currentWorkflow.workItem.workType), currentWorkflow.resolution.capability);
   assertTestCommandCandidateGlobalScope(previous.policy, candidate);
@@ -1840,12 +1839,7 @@ function initialSnapshotAuthority(root, config, workId) {
 function firstAddedCommit(root, relative, label) {
   // Read-only Git history queries: each constructed Story-local amendment path must be added
   // exactly once and never modified or deleted, even if later restored to identical bytes.
-  const history = storyHistoryCommits(root, [
-    '--full-history', '--format=%H', '--diff-filter=A', '--', relative
-  ], label);
-  const touches = storyHistoryCommits(root, [
-    '--full-history', '--format=%H', '--', relative
-  ], label);
+  const { history, touches } = readStoryPathHistory(root, relative, label);
   if (history.length > 1 || touches.length > 1
       || (touches.length === 1 && touches[0] !== history[0])) {
     fail(`${label} changed after its immutable first-add commit.`, 'WFA_AMENDMENT_INVALID');
@@ -1866,7 +1860,7 @@ function readCommittedJson(root, commit, relative, label,
     maximumBytes, maximumObjectBytes: maximumBytes
   }).get(relative);
   let record;
-  try { record = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
+  try { record = parseImmutableJson(bytes); }
   catch { fail(`${label} is not valid UTF-8 JSON.`, 'WFA_SNAPSHOT_INVALID'); }
   return { bytes, record };
 }
@@ -2255,6 +2249,8 @@ async function validateAcceptedTestCommandEvidence(root, config, workId, {
     configurationAncestrySha256: testCommandAmendmentDigest(decision.configurationAncestry),
     ...(decision.revalidation ? { revalidation: decision.revalidation } : {}) };
   if (testCommandAmendmentDigest(plan) !== review.record.planSha256) fail('Test-command review does not bind the exact published compare-and-swap parent.', 'WFA_AMENDMENT_INVALID');
+  const { applicationPathContext, isApplicationChangeEntry } = await import('./application-paths.mjs');
+  const { buildRepositoryTreeChangeSet } = await import('./repository-change-set.mjs');
   const changes = buildRepositoryTreeChangeSet(root, { baseTree: sourceHead, targetTree: acceptanceCommit,
     env: { ...withoutGitProcessOverrides(), GIT_NO_REPLACE_OBJECTS: '1', GIT_NO_LAZY_FETCH: '1' } });
   if (changes.entries.some((entry) => isApplicationChangeEntry(entry, applicationPathContext(config, workflow)))) fail('Test-command amendment changed reviewed application source bytes.', 'WFA_AMENDMENT_INVALID');
@@ -2796,15 +2792,15 @@ export async function verifyWorkflowSnapshot(root, config, workflow, options = {
     status: 'legacy', enrolled: false, closure: 'unproven', reason: 'snapshot-reference-absent'
   };
   if (requireAccepted) {
-    const chain = await acceptedAmendmentChain(root, config, workflow.workItem.id,
-      storedReference, options[TEST_COMMAND_ORIGIN_INSPECTION] ?? null);
+    const chain = await measureCommandSpan('story.snapshot-accepted-chain', () => acceptedAmendmentChain(
+      root, config, workflow.workItem.id, storedReference, options[TEST_COMMAND_ORIGIN_INSPECTION] ?? null));
     let previous = null;
     let current = null;
     for (const authority of chain) {
-      current = await verifyWorkflowSnapshot(root, config, authority.workflow, {
+      current = await measureCommandSpan('story.snapshot-byte-validation', () => verifyWorkflowSnapshot(root, config, authority.workflow, {
         retainBytes: true,
         [ACCEPTED_REVISION_AUTHORITY]: authority
-      });
+      }));
       if (previous) {
         const testCommand = TEST_COMMAND_AMENDMENT_DIALECTS.includes(current.manifest?.semantics?.amendment);
         const validateDecision = testCommand ? validateTestCommandDecision : validateAmendmentDecision;

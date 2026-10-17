@@ -17,7 +17,8 @@ import YAML from 'yaml';
 import { epicSourceIsActive, sourceRuntime, storageAdapter } from './epic-sources.mjs';
 import { exactFileAtObject, isAncestor } from './git.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
-import { initiativeRelative, workDir } from './state-stores.mjs';
+import { workDir } from './story-paths.mjs';
+import { initiativeRelative } from './state-stores.mjs';
 import { SingularityFlowError, snapshot } from './util.mjs';
 
 const SHA256 = /^[a-f0-9]{64}$/;

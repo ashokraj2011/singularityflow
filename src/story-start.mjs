@@ -27,13 +27,9 @@ import {
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { storyPublicationPreflightError } from './story-publication-preflight.mjs';
 import { loadCopilotSession, loadSession, setAgentSession } from './session.mjs';
-import {
-  commitAndPublish,
-  createWorkflow,
-  loadWorkflow,
-  validateId,
-  workDirRelative
-} from './state-stores.mjs';
+import { loadWorkflow } from './story-workflow-read.mjs';
+import { workDirRelative } from './story-paths.mjs';
+import { commitAndPublish, createWorkflow, validateId } from './state-stores.mjs';
 import { gitReadOutput, run, SingularityFlowError } from './util.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
 import { normalizeMcpTargetOrigin } from './mcp-target.mjs';

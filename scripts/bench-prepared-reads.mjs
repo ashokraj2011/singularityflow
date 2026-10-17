@@ -11,16 +11,19 @@ import { createWarmReadFixture } from './warm-read-fixture.mjs';
 const baseline = path.resolve(process.argv[2]), output = process.argv[3];
 const storyMode = process.argv.find(arg => arg.startsWith('--story-mode='))?.split('=')[1] ?? 'legacy';
 const samples = Number(process.argv.find(arg => arg.startsWith('--samples='))?.split('=')[1] ?? 3);
-if (!process.argv[2] || !output || !['legacy', 'pinned'].includes(storyMode)
+const historyCommits = Number(process.argv.find(arg => arg.startsWith('--history-commits='))?.split('=')[1] ?? 0);
+const artifacts = Number(process.argv.find(arg => arg.startsWith('--artifacts='))?.split('=')[1] ?? 0);
+if (!process.argv[2] || !output || !['legacy', 'pinned', 'amended'].includes(storyMode)
     || !Number.isSafeInteger(samples) || samples < 1 || samples > 5) throw new Error('Use <BASELINE> <RESULT.json> [--story-mode=legacy|pinned] [--samples=3].');
-const f = await createWarmReadFixture({ files: 1000, branches: 20, storyMode });
+const f = await createWarmReadFixture({ files: 1000, branches: 20, storyMode, historyCommits, artifacts });
 const variants = [{ id: 'before', root: path.join(f.directory, 'baseline') }, { id: 'after', root: f.engine }];
-const cases = { status: ['status', 'PERF-001', '--json'], progress: ['progress', 'PERF-001', '--json'],
-  report: ['report', 'PERF-001', '--format', 'json', '--json'], nextsteps: ['nextsteps', 'PERF-001', '--json'] };
+const cases = { status: ['status', f.workId, '--json'], progress: ['progress', f.workId, '--json'],
+  report: ['report', f.workId, '--format', 'json', '--json'], nextsteps: ['nextsteps', f.workId, '--json'] };
 const elapsed = async fn => { const started = performance.now(); const value = await fn(); return { ms: Math.round(performance.now() - started), value }; };
 const comparable = value => { const copy = structuredClone(value); delete copy.generatedAt; return copy; };
 const report = { schemaVersion: 1, platform: process.platform, node: process.version,
   protocol: { samples, files: 1000, unrelatedBranches: 20, storyMode, pinnedVerification: f.pinnedVerification,
+    historyCommits, totalCommits: f.totalCommits, extraArtifacts: artifacts,
     output: 'full canonical JSON; no presentation cache', first: 'fresh worker and private bytecode cache',
     prepared: 'both builds get bytecode warmup; an available definition-only worker-preparation API is invoked before timing',
     cache: 'Git fact persistence disabled; OS cache not flushed', modelCalls: 0, configuredRemotes: 0,

@@ -1,5 +1,6 @@
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
-import { documentCatalog, viewDocument } from '../../documents.mjs';
+import { createDocumentReadSession } from '../../documents-read.mjs';
+import { measureCommandSpan } from '../../dx-timing-context.mjs';
 import { phaseDocumentVersionMatches, phaseDisplayBinding } from '../../review-display.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 import { pathForDisplay } from './path-for-display.mjs';
@@ -8,22 +9,22 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { criterionResults, witnessResult, describeWitnessResult } from '../../verification/witness-results.mjs';
 import { withReadScope } from '../../read-scope.mjs';
-import { witnessMappingReview } from '../../review.mjs';
-import { approvalReviewBinding } from '../../choices.mjs';
+import { witnessMappingReview } from '../../witness-review-read.mjs';
 import { owedDecisions, stepsThrough } from '../../owed-decisions.mjs';
 import { phaseUpstreamDiscrepancies } from '../../phase-upstream-discrepancies.mjs';
 import { openUpstreamIssues, upstreamIssueDecideCommand } from '../../upstream-issues.mjs';
 import { phaseAuthoringSummary } from '../../phase-authoring-summary.mjs';
 
 export async function phaseReview(root, config, workflow, phase, { includeContinuation = false } = {}) {
-  const records = (await documentCatalog(root, config, workflow))
+  const documentRead = await measureCommandSpan('phase.document-catalog', () => createDocumentReadSession(root, config, workflow));
+  const records = documentRead.records
     .filter((record) => ['artifact', 'agent-brief'].includes(record.type)
       && record.phase === phase.id
       && Number(record.generation ?? phase.generation) === Number(phase.generation));
   const documents = [];
   for (const record of records) {
     try {
-      const viewed = await viewDocument(root, config, workflow, record.id);
+      const viewed = await measureCommandSpan('phase.document-body', () => documentRead.view(record.id));
       if (!phaseDocumentVersionMatches(record, viewed)) {
         throw new SingularityFlowError(`Document '${record.id}' changed while reading this review. Read the current phase again.`, {
           code: 'DOCUMENT_REVIEW_CHANGED'
@@ -105,7 +106,7 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
     // Drafts, historical phases and unavailable document bodies convey no reusable approval binding.
     reviewBinding: phase.id === workflow.currentPhase && phase.status === 'awaiting_approval'
       && documents.every((document) => !document.error)
-      ? await approvalReviewBinding(root, config, workflow)
+      ? await (await import('../../choices.mjs')).approvalReviewBinding(root, config, workflow)
       : null
   }));
   return {

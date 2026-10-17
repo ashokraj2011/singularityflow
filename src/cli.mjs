@@ -40,7 +40,9 @@ import { SingularityFlowError, commandExists, commandLineFile, didYouMean, exist
 import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, hasUpstream, head, identity, localBranches, pullFastForward, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 
-import { actorKey, assertNoPendingPublication, cancelWorkflow, commitAndPublish, completionPhaseOf, CONFIG_PATH, currentPhase, decideStory, loadConfig, preparePhaseInputs, promoteDesignSource, registerArtifact, rejectPhase, reopenWorkflow, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, syncPublication, validateId, workflowBranchAllowed, workflowPublicationBranch, workDir } from './state-stores.mjs';
+import { currentPhase } from './phase-generation.mjs';
+import { workflowBranchAllowed, workDir } from './story-paths.mjs';
+import { actorKey, assertNoPendingPublication, cancelWorkflow, commitAndPublish, completionPhaseOf, CONFIG_PATH, decideStory, loadConfig, preparePhaseInputs, promoteDesignSource, registerArtifact, rejectPhase, reopenWorkflow, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, syncPublication, validateId, workflowPublicationBranch } from './state-stores.mjs';
 import { generationSkillForPhase, workflowAuthoringRoutes } from './code-delivery-policy.mjs';
 import { phasePreparationCommandLines } from './phase-preparation-guidance.mjs';
 import { renderChangeDirectoryCommand, renderPlatformCommand } from './safe-command-guidance.mjs';
@@ -163,7 +165,8 @@ import { readLocalGitBlobs } from './git-blob-batch.mjs';
 import { capabilityDoctor } from './capability-doctor.mjs';
 import { inspectStatePlanes, reconcileStateProjections } from './state-planes.mjs';
 import { recoverPreparedPublicationBySubject } from './publication-pending.mjs';
-import { InitiativeStateStore, StoryStateStore, loadInitiativeAggregate, loadStoryAggregate } from './state-stores.mjs';
+import { loadStoryAggregate } from './story-aggregate-read.mjs';
+import { InitiativeStateStore, StoryStateStore, loadInitiativeAggregate } from './state-stores.mjs';
 import { assertRequiredStepActionsRecorded } from './step-action-receipts.mjs';
 import { SnapshotCoordinator } from './snapshot-coordinator.mjs';
 import { writeHumanTimings } from './dx-timings.mjs';

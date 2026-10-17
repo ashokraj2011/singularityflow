@@ -4,7 +4,6 @@ import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { directCopilotSkill, copilotSkillForCommand } from './copilot-guidance.mjs';
 import { modelFreeCommandForCommand } from './model-free-commands.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
-import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { decisionFedBy, decisionSubmitArguments, recordedDecisionValues, storyDecisionView } from './workflow-decisions.mjs';
 import { storyRequiresStepActions } from './step-actions.mjs';
@@ -114,7 +113,7 @@ export async function submissionReadiness(root, config, workflow, {
   if (phase && sourceReviewRequired(workflow, phaseId)
       && phase.status === 'in_progress' && Number(phase.generation) > 0) {
     try {
-      sourceReviewEvidence = await readSourceReviewStatus(root, config, workflow, phaseId);
+      sourceReviewEvidence = await (await import('./source-review-lifecycle.mjs')).readSourceReviewStatus(root, config, workflow, phaseId);
     } catch (error) {
       // An unavailable or malformed source is a review blocker, not a reason to lose the whole
       // host-facing readiness projection. The exact command still owns the detailed refusal.

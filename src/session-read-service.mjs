@@ -13,7 +13,7 @@ import { withFreshReadScope } from './read-scope.mjs';
 import { withoutConfigurationReadScope } from './configuration-read-scope.mjs';
 import { copilotModeFile } from './copilot-mode.mjs';
 import { activeWorkspaceFile, workspaceRegistryFile } from './workspace-context.mjs';
-import { STATE_REVISION } from './state-stores.mjs';
+import { STATE_REVISION } from './state-revision-read.mjs';
 import { withStableRead } from './stable-read.mjs';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 import { SingularityFlowError } from './util.mjs';

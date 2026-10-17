@@ -1,6 +1,6 @@
 import { phaseContinuation } from './phase-continuation.mjs';
 import { submissionReadiness } from './submission-readiness.mjs';
-import { storyPublicationPending } from './state-stores.mjs';
+import { storyPublicationPending } from './story-publication-read.mjs';
 
 function readinessReason(readiness) {
   if (readiness.reason || readiness.continuation?.actions?.[0]?.reason) {

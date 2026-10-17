@@ -3,7 +3,7 @@ import { phaseEntryContext } from './phase-entry.mjs';
 import { sourceReviewContext } from './source-review-lifecycle.mjs';
 import { sourceReviewKind } from './phase-roles.mjs';
 import { branch, gitDir } from './git.mjs';
-import { workflowBranchAllowed } from './state-stores.mjs';
+import { workflowBranchAllowed } from './story-paths.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 /**

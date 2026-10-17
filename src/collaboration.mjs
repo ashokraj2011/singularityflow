@@ -4,9 +4,8 @@ import {
   branch, changedFiles, changes, fetchOrigin, hasUpstream, head, indexLockState, pullFastForward,
   refreshIndexEntries, storyIndexDrift
 } from './git.mjs';
-import {
-  currentPhase, generationResultDigest, generationResultMatches, syncPublication
-} from './state-stores.mjs';
+import { currentPhase } from './phase-generation.mjs';
+import { generationResultDigest, generationResultMatches, syncPublication } from './state-stores.mjs';
 import { inspectPendingPublication } from './publication-pending.mjs';
 import { recordSha256 } from './records.mjs';
 import { inspectPhaseRecovery, inspectPhaseWorktreeScope } from './recovery-plan.mjs';

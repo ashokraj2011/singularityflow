@@ -17,7 +17,8 @@ process.on('message', message => {
   if (!binding) {
     if (message?.type !== 'bind' || message.format !== READ_WORKER_FORMAT
         || !/^[a-f0-9]{64}$/u.test(message.build ?? '') || !/^[a-f0-9]{32}$/u.test(message.nonce ?? '')
-        || typeof message.repository !== 'string' || !path.isAbsolute(message.repository)) return process.exit(1);
+        || typeof message.repository !== 'string' || !path.isAbsolute(message.repository)
+        || (message.preparePolicy != null && typeof message.preparePolicy !== 'boolean')) return process.exit(1);
     // Set before awaiting so a second bind cannot race the first one.
     binding = { ...message };
     drain = (async () => {
@@ -25,7 +26,7 @@ process.on('message', message => {
       const repository = await realpath(process.cwd());
       if (build?.fingerprint !== binding.build || repository !== await realpath(binding.repository)) return process.exit(1);
       const { prepareReadWorkerDefinitions } = await import('./read-worker-service.mjs');
-      await prepareReadWorkerDefinitions();
+      await prepareReadWorkerDefinitions({ policy: binding.preparePolicy === true });
       binding.repository = repository;
       reply({ type: 'ready', format: READ_WORKER_FORMAT, nonce: binding.nonce, build: binding.build });
     })().catch(() => process.exit(1));

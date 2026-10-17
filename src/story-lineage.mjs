@@ -7,10 +7,9 @@ import {
   exactRemoteBranchObservationAsync, head, identity
 } from './git.mjs';
 import { loadSession, setAgentSession } from './session.mjs';
-import {
-  commitAndPublish, loadWorkflow, saveStoryDraft, sourceTreeHash, testInputTreeHash, workflowBranchAllowed,
-  storyWelEnrollmentStatus, workflowPublicationBranch, workDir
-} from './state-stores.mjs';
+import { loadWorkflow } from './story-workflow-read.mjs';
+import { workflowBranchAllowed, workDir } from './story-paths.mjs';
+import { commitAndPublish, saveStoryDraft, sourceTreeHash, testInputTreeHash, storyWelEnrollmentStatus, workflowPublicationBranch } from './state-stores.mjs';
 import {
   gitHeadIsUnborn, gitReadOutput, nowIso, run, SingularityFlowError, snapshot, writeJson
 } from './util.mjs';

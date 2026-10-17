@@ -1,9 +1,8 @@
 import path from 'node:path';
 import { mkdir } from 'node:fs/promises';
 import { branch, fetchRemote, gitDir, identity } from './git.mjs';
-import {
-  approvePhase, commitAndPublish, loadConfig, loadWorkflow, rejectPhase
-} from './state-stores.mjs';
+import { loadWorkflow } from './story-workflow-read.mjs';
+import { approvePhase, commitAndPublish, loadConfig, rejectPhase } from './state-stores.mjs';
 import { loadInitiative } from './state-stores.mjs';
 import { loadInitiativeBreakdown, syncInitiativeRepositories } from './initiative-repositories.mjs';
 import { readStoryReviewPacket } from './story-lineage.mjs';

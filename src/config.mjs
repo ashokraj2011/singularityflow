@@ -20,9 +20,7 @@ import { scopedRead, withReadScope } from './read-scope.mjs';
 import { configurationReadRoot, configurationReadDefinition } from './configuration-read-scope.mjs';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 import { assertAttachedLibrarySkills } from './skill-library.mjs';
-import {
-  discoverAgents, isAgentTemplateReference, materializeAgentTemplate, parseAgentTemplateReference, validateAgentCatalog
-} from './agents.mjs';
+import { isAgentTemplateReference, parseAgentTemplateReference } from './agent-document-parser.mjs';
 import { loadPortfolio, normalizeStorage } from './initiative-config.mjs';
 import { normalizeLogging } from './logging.mjs';
 import { normalizeContextPolicy } from './context-policy.mjs';
@@ -1464,7 +1462,8 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
     // offline resume. Bootstrap therefore loads only the declarative workflow shape; the shared
     // Story resolver installs the verified saved catalog before any agent is selected or rendered.
     // New-Story and repository-management reads keep the strict live discovery below.
-    const agents = storyBootstrap ? [] : await measureCommandSpan('configuration.agents', () => discoverAgents(definitionRoot));
+    const agentServices = storyBootstrap ? null : await import('./agents.mjs');
+    const agents = storyBootstrap ? [] : await measureCommandSpan('configuration.agents', () => agentServices.discoverAgents(definitionRoot));
     definition.agents = Object.fromEntries(agents.map((agent) => [agent.id, agent]));
     definition.agentCatalog = agents;
     definition.agentPromptsRoot = '.github/agents';
@@ -1493,7 +1492,7 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
       ));
     }
     if (!storyBootstrap) {
-      validateAgentCatalog(agents, definition);
+      agentServices.validateAgentCatalog(agents, definition);
       await assertAttachedLibrarySkills(definitionRoot, agents, definition);
     }
     const portfolio = await loadPortfolio(definitionRoot, { required: false });
@@ -2027,7 +2026,7 @@ export async function snapshotResolution(root, definition, resolved) {
   for (const phase of resolved.phases) {
     if (phase.kind === 'skill') continue;
     if (isAgentTemplateReference(phase.template)) {
-      templates[phase.id] = await materializeAgentTemplate(root, phase.template, { phaseId: phase.id });
+      templates[phase.id] = await (await import('./agents.mjs')).materializeAgentTemplate(root, phase.template, { phaseId: phase.id });
       continue;
     }
     const file = await secureRepositoryPath(root, path.join(definition.templatesRoot, phase.template), {
@@ -2184,7 +2183,7 @@ export async function renderArtifactTemplate(root, definition, resolvedPhase, va
 }
 
 export async function agentPrompt(root, definition, agentId) {
-  const agent = definition.agents?.[agentId] ?? (await discoverAgents(root)).find((candidate) => candidate.id === agentId);
+  const agent = definition.agents?.[agentId] ?? (await (await import('./agents.mjs')).discoverAgents(root)).find((candidate) => candidate.id === agentId);
   if (!agent) throw new SingularityFlowError(`Unknown governed agent '${agentId}'.`);
   return agent.prompt;
 }

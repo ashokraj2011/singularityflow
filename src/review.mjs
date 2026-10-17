@@ -3,7 +3,8 @@ import { completionPhaseOf } from './lifecycle-transitions.mjs';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { branch, identity } from './git.mjs';
-import { currentPhase, workDir } from './state-stores.mjs';
+import { currentPhase } from './phase-generation.mjs';
+import { workDir } from './story-paths.mjs';
 import { documentCatalog } from './documents.mjs';
 import { assistedRecordRelative } from './assisted-quality.mjs';
 import { citedArticleIds, requiredArticles } from './constitution.mjs';
@@ -41,47 +42,7 @@ async function assistedCandidatesFor(root, config, workflow, phase, artifact) {
 }
 function activeApprovals(phase) { return phase.approvals.filter((item) => !item.invalidatedAt); }
 
-export async function witnessMappingReview(root, config, workflow, phase) {
-  const submission = [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
-    entry.phase === phase.id && Number(entry.generation) === Number(phase.generation));
-  if (!submission) return null;
-  const { readStoryReviewPacket } = await import('./story-lineage.mjs');
-  const packet = await readStoryReviewPacket(root, config, workflow, submission.packetSha256);
-  const mappings = packet.witnessReview?.clauseMappings ?? [];
-  if (!mappings.length) return {
-    ...structuredClone(packet.witnessReview ?? {}), mappings: []
-  };
-  const clauses = new Map();
-  for (const producer of Object.values(workflow.phases ?? {})) {
-    for (const artifact of producer.artifacts ?? []) {
-      if (!['requirements', 'implementation-spec'].includes(artifact.kind)) continue;
-      try {
-        const historical = run('git', ['show', `${packet.evidenceCommit}:${artifact.path}`], {
-          cwd: root, allowFailure: true
-        });
-        if (historical.status !== 0) continue;
-        const content = historical.stdout;
-        for (const clause of extractClauses(content, { sourcePath: artifact.path })) {
-          clauses.set(clause.id, clause);
-        }
-      } catch { /* Missing or malformed clauses remain visibly unavailable below. */ }
-    }
-  }
-  return {
-    ...structuredClone(packet.witnessReview ?? {}),
-    mappings: mappings.slice(0, 1000).map((mapping) => {
-      const clause = clauses.get(mapping.clauseId);
-      const currentBodySha256 = clause?.bodySha256 ? `sha256:${clause.bodySha256}` : null;
-      return {
-        ...structuredClone(mapping),
-        clauseText: currentBodySha256 === mapping.clauseBodySha256 ? clause.body : null,
-        clauseFields: currentBodySha256 === mapping.clauseBodySha256
-          ? witnessedClauseReviewFields(clause.body) : null,
-        clauseStatus: currentBodySha256 === mapping.clauseBodySha256 ? 'current' : 'stale-or-unavailable'
-      };
-    })
-  };
-}
+export { witnessMappingReview } from './witness-review-read.mjs';
 
 /** The pinned articles in scope for this phase, plus the exceptions recorded against them. */
 function constitutionSection(workflow, phase, artifact) {

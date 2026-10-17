@@ -9,7 +9,7 @@ import { governedDocumentPath } from './documents.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
 import { exactFileAtObject } from './git.mjs';
 import { readRecord } from './schema-migrations.mjs';
-import { workDirRelative } from './state-stores.mjs';
+import { workDirRelative } from './story-paths.mjs';
 import { SingularityFlowError, posix } from './util.mjs';
 
 const MAX_BYTES = 1024 * 1024;

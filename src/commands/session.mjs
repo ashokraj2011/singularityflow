@@ -7,7 +7,8 @@ import { sessionRepositoryAuthority } from './shared/session-repository-authorit
 import { sessionDiscoveryConfiguration } from './shared/session-discovery-configuration.mjs';
 import { existsSync } from 'node:fs';
 import { WORKFLOW_PATH, validateDefinition } from '../config.mjs';
-import { loadStoryAggregate, loadConfig, validateId } from '../state-stores.mjs';
+import { loadStoryAggregate } from '../story-aggregate-read.mjs';
+import { loadConfig, validateId } from '../state-stores.mjs';
 import { requireCopilotWorkItemSelection, agentSessionStatus, loadSession, activateWorkItemSession, loadCopilotSession } from '../session.mjs';
 import { branch, head, gitDir, gitCommonDir, repoRoot, fetchRemote, refHead, isAncestor, assertClean, changes, checkout, fastForwardTo, removeCleanAttachStagingWorktree } from '../git.mjs';
 import { printCommandRoutes } from './shared/print-command-routes.mjs';

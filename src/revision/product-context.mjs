@@ -10,9 +10,9 @@ import { PACKAGE_ROOT } from '../package-root.mjs';
 import { readPendingPublication } from '../publication-pending.mjs';
 import { recordSha256 } from '../records.mjs';
 import { loadSession, validAgentSession } from '../session.mjs';
-import {
-  loadConfig, loadStoryAggregate, workDir
-} from '../state-stores.mjs';
+import { loadStoryAggregate } from '../story-aggregate-read.mjs';
+import { workDir } from '../story-paths.mjs';
+import { loadConfig } from '../state-stores.mjs';
 import {
   loadActiveSpecRecords, predecessorSpecClauses
 } from '../specifications.mjs';

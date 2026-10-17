@@ -5,7 +5,7 @@ import {
 } from './specifications.mjs';
 import { applicationPathContext } from './application-paths.mjs';
 import { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
-import { workDir } from './state-stores.mjs';
+import { workDir } from './story-paths.mjs';
 import { run } from './util.mjs';
 
 export const EVIDENCE_RECEIPT_RESULT_VERSION = 2; // schema-transient: deterministic projection, never persisted

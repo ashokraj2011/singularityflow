@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-import { workDir } from './state-stores.mjs';
+import { workDir } from './story-paths.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { posix, readJson, run, SingularityFlowError, writeJson } from './util.mjs';
 import {

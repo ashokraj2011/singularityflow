@@ -28,9 +28,8 @@ import {
   normalizeTokenEconomy, selectedTokenEconomyProfile, tokenEconomyDigest
 } from './token-economy.mjs';
 import { withWorldModelSourceScope, worldModelSourceScope } from './source-scope.mjs';
-import {
-  loadConfig, loadStoryAggregate, storyWelEnrollmentStatus
-} from './state-stores.mjs';
+import { loadStoryAggregate } from './story-aggregate-read.mjs';
+import { loadConfig, storyWelEnrollmentStatus } from './state-stores.mjs';
 import { run, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
 export const EVIDENCE_PACKET_SLICES = Object.freeze([

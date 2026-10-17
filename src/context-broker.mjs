@@ -12,7 +12,8 @@ import { compileEvidencePacket, EVIDENCE_PACKET_SLICES, expandEvidencePacketHand
 import { head } from './git.mjs';
 import { recordSha256 } from './records.mjs';
 import { withWorldModelSourceScope, worldModelSourceScope } from './source-scope.mjs';
-import { loadConfig, loadStoryAggregate } from './state-stores.mjs';
+import { loadStoryAggregate } from './story-aggregate-read.mjs';
+import { loadConfig } from './state-stores.mjs';
 import { secureRepositoryPath } from './util.mjs';
 
 export const CONTEXT_BRIEF_RESULT_VERSION = 1; // schema-transient: bounded gateway result, never persisted

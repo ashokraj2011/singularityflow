@@ -15,7 +15,7 @@ import {
   normalizeSpecPolicy, plannedSupportingFiles, plannedProductSourcePaths
 } from './specifications.mjs';
 import { isConfigurationPath } from './configuration-paths.mjs';
-import { workDir } from './state-stores.mjs';
+import { workDir } from './story-paths.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
 
 /** Check the actual editable candidate, before tests, publication or submission consume it. */

@@ -8,7 +8,7 @@ import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { configurationReadSnapshot } from './configuration-read-scope.mjs';
 import { agentBriefReviewDocuments, verifyAgentBriefsForReview } from './agent-briefs.mjs';
-import { workDirRelative } from './state-stores.mjs';
+import { workDirRelative } from './story-paths.mjs';
 
 const RECEIPT_TTL_MS = 15 * 60 * 1000;
 const RECEIPT_LOCK_TIMEOUT_MS = 5 * 1000;

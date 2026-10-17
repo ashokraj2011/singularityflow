@@ -14,6 +14,8 @@ import {
 } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { createHash } from 'node:crypto';
+import { revision, attachRevision } from './state-revision-read.mjs';
+export { STATE_REVISION } from './state-revision-read.mjs';
 import { branch, head } from './git.mjs';
 import {
   activateWorkspaceContext, readActiveWorkspaceContext
@@ -21,34 +23,10 @@ import {
 import { loadSession } from './session.mjs';
 import { stateFingerprint } from './util.mjs';
 
-function stable(value) {
-  if (Array.isArray(value)) return value.map(stable);
-  if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])]));
-}
 
-function subjectRevision(value) {
-  return createHash('sha256').update(JSON.stringify(stable(value))).digest('hex');
-}
 
-function revision(root, aggregate, statePath) {
-  return {
-    branch: branch(root),
-    head: head(root),
-    subjectRevision: subjectRevision(aggregate),
-    statePath,
-    stateSha256: stateFingerprint(statePath)
-  };
-}
 
-export const STATE_REVISION = Symbol.for('singularity-flow.state-revision');
 
-function attachRevision(aggregate, value) {
-  if (aggregate && typeof aggregate === 'object') {
-    Object.defineProperty(aggregate, STATE_REVISION, { value, configurable: true, writable: true, enumerable: false });
-  }
-  return aggregate;
-}
 
 /**
  * Narrow Story state boundary. Story semantics remain in state.mjs; callers that

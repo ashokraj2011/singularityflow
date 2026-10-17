@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { parseAgentDependencies } from './agents.mjs';
+import { parseAgentDependencies } from './agent-document-parser.mjs';
 import { effectiveLibrarySkills } from './skill-library.mjs';
 import { INSTRUCTION_COMPOSERS, retainedInstructionsForSkill } from './instruction-snapshots.mjs';
 import {

@@ -11,7 +11,7 @@ import { head } from '../git.mjs';
 import { readPromptGeneration } from '../inject.mjs';
 import { generationTaskForPhase } from '../model-tasks.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
-import { loadStoryAggregate } from '../state-stores.mjs';
+import { loadStoryAggregate } from '../story-aggregate-read.mjs';
 import { recordSha256 } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { tryWindowsTaskkill } from '../platform-process.mjs';

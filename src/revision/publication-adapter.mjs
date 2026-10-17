@@ -9,7 +9,7 @@ import { recordSha256 } from '../records.mjs';
 import { nextPhaseGeneration } from '../phase-generation.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { head } from '../git.mjs';
-import { loadStoryAggregate } from '../state-stores.mjs';
+import { loadStoryAggregate } from '../story-aggregate-read.mjs';
 import { currentSubjectLockOwner } from '../subject-lock.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { sgosRevisionCandidateReference, verifySgosRevisionCandidateReference } from './candidate-adapter.mjs';

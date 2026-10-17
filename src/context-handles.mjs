@@ -6,7 +6,8 @@ import path from 'node:path';
 import { gitCommonDir, head } from './git.mjs';
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { loadConfig, loadStoryAggregate } from './state-stores.mjs';
+import { loadStoryAggregate } from './story-aggregate-read.mjs';
+import { loadConfig } from './state-stores.mjs';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
 
 const HANDLE = /^ctx_([a-f0-9]{32})_([a-f0-9]{32})$/;

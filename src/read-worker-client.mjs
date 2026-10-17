@@ -50,7 +50,7 @@ function idle(worker) {
   worker.idle.unref?.();
 }
 
-function open({ key, repository, selected, executable, env, build, entry, onWorkerStarted, onWorkerExited }) {
+function open({ key, repository, selected, executable, env, build, entry, onWorkerStarted, onWorkerExited, preparePolicy }) {
   let child;
   try {
     // Fixed owned script, native argv and parent-private IPC. Never a shell or user-supplied handler.
@@ -59,7 +59,7 @@ function open({ key, repository, selected, executable, env, build, entry, onWork
       stdio: ['ignore', 'ignore', 'ignore', 'ipc'], windowsHide: true });
   } catch { return null; }
   try { onWorkerStarted?.(child.pid); } catch { /* Diagnostic only. */ }
-  const worker = { key, repository, selected, child, build: build.fingerprint,
+  const worker = { key, repository, selected, child, build: build.fingerprint, policyPrepared: preparePolicy,
     nonce: randomBytes(16).toString('hex'), pending: new Map(), nextId: 0,
     startedAt: Date.now(), closed: false, readyResolve: null, ready: null,
     startTimer: null, idle: null };
@@ -86,7 +86,7 @@ function open({ key, repository, selected, executable, env, build, entry, onWork
   child.once('exit', () => { stop(worker); try { onWorkerExited?.(child.pid); } catch { /* Diagnostic only. */ } });
   child.once('disconnect', () => stop(worker));
   child.send({ type: 'bind', format: READ_WORKER_FORMAT, nonce: worker.nonce,
-    repository, build: worker.build }, error => { if (error) stop(worker); });
+    repository, build: worker.build, preparePolicy }, error => { if (error) stop(worker); });
   return worker;
 }
 
@@ -112,6 +112,11 @@ export async function readWithWorker({ executable, cli, repository: selected, ar
     if (worker.pending.size) return null;
     stop(worker); worker = null;
   }
+  if (prepareOnly && worker && !worker.policyPrepared) {
+    // Optional preparation never interrupts a live read or turns demand-loaded light reads heavy.
+    if (worker.pending.size) return null;
+    stop(worker); worker = null;
+  }
   const reused = Boolean(worker);
   if (!worker) {
     if (workers.size >= MAX_WORKERS) {
@@ -122,7 +127,7 @@ export async function readWithWorker({ executable, cli, repository: selected, ar
     const entry = bundledReadWorkerUrl(build.root, env)
       ?? new URL('./read-worker.mjs', import.meta.url).href;
     worker = open({ key: scope, repository, selected: path.resolve(selected), executable, env, build,
-      entry: fileURLToPath(entry), onWorkerStarted, onWorkerExited });
+      entry: fileURLToPath(entry), onWorkerStarted, onWorkerExited, preparePolicy: prepareOnly });
     if (!worker) return null;
   }
   const current = worker;

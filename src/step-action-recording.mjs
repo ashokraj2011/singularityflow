@@ -5,7 +5,8 @@
  */
 import { identity } from './git.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
-import { commitAndPublish, loadConfig, loadStoryAggregate } from './state-stores.mjs';
+import { loadStoryAggregate } from './story-aggregate-read.mjs';
+import { commitAndPublish, loadConfig } from './state-stores.mjs';
 import {
   assertReceiptsMayBeRecorded, missingRequiredStepActionReceipts, planStepActionReceipts, stepAwaitingApproval,
   storyRequiresStepActions, writeStepActionReceipts

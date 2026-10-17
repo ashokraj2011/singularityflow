@@ -1,5 +1,13 @@
 import { assertStoryNotArchived } from './governance-archive.mjs';
 import { normalizeCurrentWorkflow } from './story-state-normalization.mjs';
+import { workDir, workDirRelative, workflowPath, workflowBranchNames, workflowBranchAllowed } from './story-paths.mjs';
+export { workDir, workDirRelative, workflowPath, workflowBranchNames, workflowBranchAllowed } from './story-paths.mjs';
+import { loadWorkflow, attachLegacyGovernedRoots } from './story-workflow-read.mjs';
+export { loadWorkflow } from './story-workflow-read.mjs';
+import { pinnedResolutionVerification } from './pinned-policy-read.mjs';
+export { pinnedResolutionVerification } from './pinned-policy-read.mjs';
+import { storyPublicationPending } from './story-publication-read.mjs';
+export { storyPublicationPending } from './story-publication-read.mjs';
 import {
   convergencePhaseOf, intentAmendmentSource, isConformancePhase, isConvergencePhase, isVisualVerificationPhase, scopeStepOf
 } from './phase-roles.mjs';
@@ -360,9 +368,6 @@ export function validateId(config, id) {
   }
 }
 
-export function workDir(root, config, id) { return path.join(root, config.workItemRoot ?? 'singularity/work-items', id); }
-export function workDirRelative(config, id) { return posix(path.join(config.workItemRoot ?? 'singularity/work-items', id)); }
-export function workflowPath(root, config, id) { return path.join(workDir(root, config, id), 'workflow.json'); }
 export function statusPath(root, config, id) { return path.join(workDir(root, config, id), 'STATUS.md'); }
 export function sourcePath(root, config, id) { return path.join(workDir(root, config, id), 'source.json'); }
 export function userStoryPath(root, config, id) { return path.join(workDir(root, config, id), 'USER-STORY.md'); }
@@ -375,15 +380,6 @@ function legacyPendingPublicationPath(root, config, id) { return path.join(workD
  *   coordinator's did-anything-change check fails when a capture mutates the working tree — which
  *   made the first snapshot after an upgrade error out blaming a concurrent writer that never existed.
  */
-export async function storyPublicationPending(root, config, id, { migrate = true } = {}) {
-  return hasPendingPublication(root, {
-    kind: 'story',
-    id,
-    legacyPath: legacyPendingPublicationPath(root, config, id),
-    roots: { workItemRoot: config?.workItemRoot },
-    migrate
-  });
-}
 
 /**
  * The one identity string every governed record uses.
@@ -401,17 +397,7 @@ function workflowPublicationMode(config, workflow) {
   return configured;
 }
 
-export function workflowBranchNames(workflow) {
-  return [...new Set([
-    workflow.workItem.branch,
-    workflow.lineage?.canonicalBranch,
-    ...(workflow.lineage?.childBranches ?? []).map((entry) => entry.name)
-  ].filter(Boolean))];
-}
 
-export function workflowBranchAllowed(workflow, branchName) {
-  return workflowBranchNames(workflow).includes(branchName);
-}
 
 /**
  * Ask for the Story branch's remote tip that `commitAndPublish` checks before publishing, now, so
@@ -765,7 +751,7 @@ const PINNED_RESOLUTION_VERIFICATIONS = new Map();
  * and approve. A Story without a snapshot is compared with its creation commit once per process for
  * each resolution it presents.
  */
-export async function pinnedResolutionVerification(root, config, workflow) {
+export async function legacyPinnedResolutionVerification(root, config, workflow) {
   if (workflow.workflowSnapshot && storyExecutionVerified(root, config, workflow)) {
     return { verified: true, reason: null };
   }
@@ -1423,63 +1409,7 @@ export async function createWorkflow(root, config, {
 }
 
 
-function attachLegacyGovernedRoots(workflow, config) {
-  if (!Array.isArray(workflow.resolution?.governedRoots)
-      && Array.isArray(config?.governedRoots)) {
-    Object.defineProperty(workflow.resolution, 'governedRoots', {
-      value: config.governedRoots,
-      enumerable: false,
-      configurable: true
-    });
-  }
-  return workflow;
-}
 
-export async function loadWorkflow(root, config, id = undefined) {
-  const index = await buildRepositorySubjectIndex(root, { definition: config });
-  let selected = resolveContext(index, {
-    reference: id ?? branch(root),
-    kind: 'story',
-    required: false
-  });
-  if (id == null && !selected) {
-    const session = await loadSession(root, { required: false });
-    if (session?.workId) selected = resolveContext(index, { reference: session.workId, kind: 'story', required: false });
-  }
-  if (!selected) {
-    const requested = id ?? branch(root);
-    // A state file that exists but will not parse is the likeliest reason a Story "does not exist",
-    // and saying so is the difference between fixing a file and hunting for a missing directory.
-    const unreadable = index.unreadable ?? [];
-    const requestedStateUnreadable = unreadable.some((entry) => (
-      path.posix.basename(path.posix.dirname(String(entry.path ?? '').replaceAll('\\', '/')))
-        === requested
-    ));
-    throw new SingularityFlowError(
-      `No workflow found for ${requested}. The repository subject index contains no matching Story ID or registered branch alias.`
-      + (unreadable.length
-        ? ` These state files exist but could not be read: ${unreadable.map((entry) => `${entry.path} (${entry.reason})`).join('; ')}.`
-        : ''),
-      {
-        code: requestedStateUnreadable ? 'STORY_STATE_UNREADABLE' : 'STORY_NOT_FOUND',
-        details: { requested }
-      }
-    );
-  }
-  const file = path.join(root, selected.location.path);
-  const workflow = attachLegacyGovernedRoots(normalizeCurrentWorkflow(await readJson(file)), config);
-  invariant(workflow.workItem?.id === selected.id, `Workflow ID does not match indexed Story ${selected.id}.`);
-  if (id == null && !workflowBranchAllowed(workflow, branch(root))) {
-    throw new SingularityFlowError(`Current branch '${branch(root)}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`);
-  }
-  if (Number(workflow.workflowSnapshot?.revision ?? 1) > 1) {
-    const verifiedAmendment = await verifyAcceptedSkillAmendmentRevalidation(root, config, workflow);
-    await verifyAcceptedTestCommandAmendment(root, config, workflow, verifiedAmendment);
-  }
-  verifyRejectedSkillVersionReviews(root, config, workflow);
-  if (needsAcceptedPhaseInterpretation(workflow)) await resolveStoryExecutionCatalog(root, config, workflow);
-  return workflow;
-}
 
 export async function resolveWorkItem(root, config, idOrRef = branch(root), { mutation = false, creation = false } = {}) {
   const requested = String(idOrRef ?? '').trim();
@@ -9270,7 +9200,7 @@ export function applySkillAmendmentSelectiveReopen(workflow, amendment, at) {
  * acceptance commit; later ordinary lifecycle commits may advance generation but cannot rewrite
  * or erase that baseline.
  */
-async function verifyAcceptedSkillAmendmentRevalidation(root, config, workflow,
+export async function verifyAcceptedSkillAmendmentRevalidation(root, config, workflow,
   verifiedSnapshot = null) {
   if (Number(workflow.workflowSnapshot?.revision ?? 1) <= 1) return;
   const verified = verifiedSnapshot ?? await verifyWorkflowSnapshot(root, config, workflow, {

@@ -3,7 +3,7 @@ import { withReadScope, scopedCommandRead } from './read-scope.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 import { loadDefinition } from './config.mjs';
-import { loadStoryAggregate } from './state-stores.mjs';
+import { loadStoryAggregate } from './story-aggregate-read.mjs';
 import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
 import { branch } from './git.mjs';
 import { SingularityFlowError, run } from './util.mjs';

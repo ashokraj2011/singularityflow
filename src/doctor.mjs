@@ -8,9 +8,9 @@ import { loadPortfolio } from './initiative-config.mjs';
 import { loadSession } from './session.mjs';
 import { VERSION } from './version.mjs';
 import { BUILD_INFO, versionLine } from './build-info.mjs';
-import {
-  inspectRequiredArtifactRegistration, storyPublicationPending, validateWorkflow, workflowPath, loadStoryAggregate
-} from './state-stores.mjs';
+import { workflowPath } from './story-paths.mjs';
+import { loadStoryAggregate } from './story-aggregate-read.mjs';
+import { inspectRequiredArtifactRegistration, storyPublicationPending, validateWorkflow } from './state-stores.mjs';
 import { findLegacyPendingPublications } from './publication-pending.mjs';
 import { inspectStatePlanes } from './state-planes.mjs';
 import { commandExists, platformShell, run } from './util.mjs';

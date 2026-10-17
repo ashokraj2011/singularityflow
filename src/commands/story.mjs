@@ -66,13 +66,10 @@ import {
   mergeObservedClaimRecords,
   mergePlannedClaimRecords
 } from '../specifications.mjs';
-import {
-  StoryStateStore, acknowledgeIntentAmendment, actorKey, assertAmendedScopeContent, commitAndPublish, createWorkflow,
-  currentPhase, decideIntentAmendment, decideStorySkillVersion, loadConfig, loadStoryAggregate,
-  preparePhase, previewReworkRollForward, previewStorySkillVersionDecision,
-  previewStorySkillVersionProposal, proposeStorySkillVersion, rejectPhase, rollForwardRework,
-  saveStoryDraft, sourceTreeHash, storySkillVersionStatus, workflowPublicationBranch, workDir
-} from '../state-stores.mjs';
+import { currentPhase } from '../phase-generation.mjs';
+import { loadStoryAggregate } from '../story-aggregate-read.mjs';
+import { workDir } from '../story-paths.mjs';
+import { StoryStateStore, acknowledgeIntentAmendment, actorKey, assertAmendedScopeContent, commitAndPublish, createWorkflow, decideIntentAmendment, decideStorySkillVersion, loadConfig, preparePhase, previewReworkRollForward, previewStorySkillVersionDecision, previewStorySkillVersionProposal, proposeStorySkillVersion, rejectPhase, rollForwardRework, saveStoryDraft, sourceTreeHash, storySkillVersionStatus, workflowPublicationBranch } from '../state-stores.mjs';
 import { attachStoryBranch, createStoryBranch, promoteStoryBranch, storyBranchStatus } from '../story-lineage.mjs';
 import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, posix, readJson, requirePositional, run, secureRepositoryPath, snapshot, table, writeBytes, writeJson, writeText } from '../util.mjs';
 import { runRemoteGitAsync } from '../git-execution.mjs';

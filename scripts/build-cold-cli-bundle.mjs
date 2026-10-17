@@ -16,6 +16,10 @@ const FAMILIES = Object.freeze([
   // themselves remain private; importing helper definitions never starts a worker.
   ['worker-protocol', ['read-worker.mjs', 'history-index-worker.mjs', 'configuration-read-worker.mjs',
     'configuration-proposal-sync-worker.mjs']],
+  // Claim strict next-step reads before broad catalog/review families. Sharing their slot with
+  // phase review caused every nextsteps call to load document, receipt and lifecycle writers.
+  ['narrow-reads', ['commands/nextsteps.mjs', 'commands/status-details.mjs',
+    'accepted-story-execution.mjs', 'story-workflow-read.mjs']],
   ['light', ['commands/about.mjs', 'commands/pause.mjs', 'commands/workspace.mjs', 'commands/capability.mjs',
     'commands/intake-entry.mjs', 'commands/snapshot.mjs', 'commands/phase.mjs', 'agent-output.mjs', 'agent-catalog-presentation.mjs',
     'commands/logs.mjs', 'commands/help.mjs', 'commands/explain.mjs']],
@@ -26,9 +30,7 @@ const FAMILIES = Object.freeze([
     'accounting-projection.mjs',
     'commands/skill.mjs', 'commands/skill-master.mjs', 'commands/instruction.mjs', 'asset-catalog.mjs',
     'configuration-drafts.mjs', 'logging.mjs', 'harness-events.mjs']],
-  ['narrow-reads', ['commands/phase-show.mjs',
-    'commands/nextsteps.mjs', 'commands/status-details.mjs']],
-  ['hook-context', ['commands/shared/session-repository-authority.mjs', 'agent-hooks.mjs',
+  ['hook-context', ['commands/phase-show.mjs', 'commands/shared/session-repository-authority.mjs', 'agent-hooks.mjs',
     'accepted-story-execution.mjs', 'delivery-evidence.mjs', 'worktree-fingerprint.mjs']],
   ['session', ['commands/session-entry.mjs', 'commands/session-open.mjs', 'commands/session-open-local.mjs',
     'commands/session.mjs', 'session-agent-entry.mjs', 'session-read-service.mjs']],

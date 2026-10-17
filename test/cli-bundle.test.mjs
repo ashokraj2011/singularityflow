@@ -96,8 +96,10 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   for (const name of ['cold-catalogs.mjs', 'cold-hook-context.mjs', 'cold-narrow-reads.mjs', 'cold-compatibility.mjs']) {
     assert.ok(!statusClosure.some(item => item.file === name), `status must not statically reach ${name}`);
   }
-  assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7 * 1024 * 1024,
-    'document/report reads have a separate byte ceiling, not only a file-count limit');
+  assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4.25 * 1024 * 1024,
+    'strict next-step reads must not inherit the broad phase-review closure');
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7 * 1024 * 1024,
+    'phase-review reads retain their existing byte ceiling after moving families');
   assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5 * 1024 * 1024,
     'catalog parsing stays bounded instead of pulling in the entire administration bundle');
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {

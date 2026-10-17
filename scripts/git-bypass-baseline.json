@@ -12,6 +12,24 @@
     "scripts/gal-matrix-cell.mjs"
   ],
   "sites": {
+    "src/witness-review-read.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "07b2c14c0c206d26ce8242777dfb67fe9d380d9038307e06a75bcddd7506cb98"
+    },
+    "src/story-path-history.mjs": {
+      "counts": {
+        "command-runCommand": 1
+      },
+      "digest": "868ea7fe45d7ee1c202d8614de8237d71e85db4ba3cd637c31492e3fd8264d38"
+    },
+    "scripts/amended-read-fixture.mjs": {
+      "counts": {
+        "command-run": 24
+      },
+      "digest": "de4f3358664417e53744ae00a5b253f6d767d6c5bacc1cb10690659ce154d2c6"
+    },
     "scripts/bench-prepared-reads.mjs": {
       "counts": { "process-import": 1, "process-launch": 1 },
       "digest": "3009f292bf38a3b8322da102b6528c4cb45f1a1085251b6567257b4b0125fef0"
@@ -33,8 +51,8 @@
       "digest": "75514e5515c7c64f2b409927ccdc2c69c836fef92a86b5919430320746486676"
     },
     "scripts/warm-read-fixture.mjs": {
-      "counts": { "command-git": 8, "process-import": 1, "process-launch": 2 },
-      "digest": "9f38f3200d170b12b3682a25b4e856f9dffbc4fa80a672d58f942e0d4f93203c"
+      "counts": {"command-git":15,"process-import":1,"process-launch":2},
+      "digest": "a60158ec7f3b264d8bffe9e222848cff7561b709c340cb6fc76cdf44d10c5ed5"
     },
     "scripts/warm-read-benchmark.mjs": {
       "counts": { "command-git": 12 },
@@ -1192,9 +1210,9 @@
     },
     "src/review.mjs": {
       "counts": {
-        "command-run": 2
+        "command-run": 1
       },
-      "digest": "1622675556543fda7bb01c0a6c0a4d1b37f1b736e3473a41ff7d0038a9e6796e"
+      "digest": "794e873c03251bb64fd22e3c42402eb84e8d4e9cde65f5539c7fa7efce9d7b0e"
     },
     "src/revision/current-context.mjs": {
       "counts": {

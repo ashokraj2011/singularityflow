@@ -12,6 +12,10 @@
     "scripts/gal-matrix-cell.mjs"
   ],
   "sites": {
+    "scripts/story-readiness-benchmark.mjs": {
+      "counts": { "command-git": 8, "process-import": 1, "process-launch": 2 },
+      "digest": "8bff5159efe75ec38d940431dbb1d6090ca9faa03a9ebcaea7407f80b3c548ae"
+    },
     "src/witness-review-read.mjs": {
       "counts": {
         "command-run": 1

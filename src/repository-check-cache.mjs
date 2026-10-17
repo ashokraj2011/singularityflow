@@ -127,6 +127,16 @@ export function repositoryCheckStatus(root) {
 /** Successes only. A change during verification is never published as a reusable observation. */
 export async function cachedRepositoryCheck(root, { kind, identity, files = [], env = process.env }, verify) {
   if (!routineRepositoryChecksAllowed()) return verify();
+  return cachedCheck(root, { kind, identity, files, env }, verify);
+}
+
+/** Advisory intake only. Never consumed as publication, test or approval authority. */
+export async function cachedStoryReadinessPreview(root, { identity, files = [], env = process.env }, verify) {
+  return cachedCheck(root, { kind: 'story-readiness-preview', identity, files, env,
+    accept: value => value?.preflight?.passed === true }, verify);
+}
+
+async function cachedCheck(root, { kind, identity, files, env, accept = () => true }, verify) {
   const settings = repositoryCheckSettings(root, { env });
   const directory = cacheDirectory(root);
   const forced = Boolean(refresh.getStore() || freshGitFactsRequired());
@@ -166,7 +176,7 @@ export async function cachedRepositoryCheck(root, { kind, identity, files = [], 
     const value = await verify();
     const checkedAt = Date.now();
     observe(root, settings, 'fresh', checkedAt, stamp ? null : 'Dependency observation unavailable; verification was fresh.');
-    if (!stamp || dependencyStamp(root, files, env) !== stamp) return value;
+    if (!accept(value) || !stamp || dependencyStamp(root, files, env) !== stamp) return value;
     let temporary;
     try {
       if (typeof value?.bytes === 'number' && value.bytes > MAXIMUM_PAYLOAD_BYTES) return value;

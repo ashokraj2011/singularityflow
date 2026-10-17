@@ -812,7 +812,7 @@ export class IntakePanel {
     readinessRetry: () => {
       if (this.form.busy || this.form.baselineRunning || this.form.basePreflightChecking) return;
       this.preflightKey = null;
-      return this.preflightBaseBranch();
+      return this.preflightBaseBranch({ refresh: true });
     },
     branchDownload: () => this.downloadBranch(),
     testRecoveryRefresh: () => {
@@ -1276,7 +1276,7 @@ export class IntakePanel {
   }
 
   /** Recheck the exact Story tuple; a superseded answer must never enable Start. */
-  private async preflightBaseBranch(): Promise<void> {
+  private async preflightBaseBranch({ refresh = false }: { refresh?: boolean } = {}): Promise<void> {
     this.cancelBasePreflight();
     this.prep?.cancel(); this.prep = null;
     const command = storyPreflightCommand(this.form);
@@ -1305,7 +1305,8 @@ export class IntakePanel {
         };
         intake?: EngineStoryWorkflowCatalog;
         branchCheckout?: { repositoryPath?: string; branch?: string; originalPreserved?: boolean };
-      }>(command, controller.signal, { onProgress: (step) => {
+        readinessSnapshot?: { source?: string; checkedAt?: string; intervalMinutes?: number };
+      }>(refresh ? [...command, '--refresh-readiness'] : command, controller.signal, { onProgress: (step) => {
         if (version !== this.preflightVersion || this.disposed) return;
         if (['start.branch-checkout', 'start.branch-download', 'start.readiness'].includes(step) && !timedStages.has(step)) {
           timedStages.add(step); clearTimeout(deadline); deadline = armDeadline();
@@ -1374,7 +1375,9 @@ export class IntakePanel {
           workflowCatalogReason: result.intake?.workflowCatalogReason ?? null,
           workType: exactWorkType, workflowReason: null
         } : {}),
-        basePreflightPassed: true, basePreflightChecking: false, basePreflightReason: null,
+        basePreflightPassed: true, basePreflightChecking: false,
+        basePreflightReason: result.readinessSnapshot?.source === 'cache'
+          ? `Using readiness checked at ${result.readinessSnapshot.checkedAt}. Publication access is checked on Start.` : null,
         basePreflightWarnings: warnings,
         baseTestReadiness: result.preflight?.testReadiness ?? null,
         testRecovery,

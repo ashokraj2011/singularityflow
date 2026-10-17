@@ -337,3 +337,36 @@ Workspace operations are designed to be recoverable:
 
 See [VS Code guide](docs/VS-CODE.md), [Capability ledger](CAPABILITY-LEDGER.md), and
 [State authority](docs/STATE-AUTHORITY.md) for the related boundaries.
+# Story-readiness snapshots
+
+Selected-branch Story readiness is an advisory preview, not permission to publish. It reuses one
+machine-local snapshot for the exact Story/workflow/base/capability/reference and test-policy tuple.
+The existing repository-check preferences apply: `cached` defaults to 30 minutes, `always` checks
+again on every request, and `manual` retains a preview until its local dependencies change or an
+explicit refresh is requested. VS Code workspace preferences and the native CLI use the same settings.
+`SINGULARITY_FLOW_REPOSITORY_CHECK_INTERVAL_MINUTES` overrides the interval; set
+`SINGULARITY_FLOW_REPOSITORY_CHECK_MODE=always` to disable reuse.
+
+A snapshot hit performs no remote lookup, fetch or dry-run push. The response reports
+`readinessSnapshot.source`, `checkedAt`, `ageMs`, `intervalMinutes` and `provisional: true`.
+Changing local HEAD/index/Git configuration, selected refs, workspace registration or the selected
+tuple invalidates reuse. Corrupt, unsafe, expired or unavailable caches fall back to the normal check;
+blocked results are never cached. A remote-only change is discovered on expiry or explicit refresh,
+not silently treated as a fresh observation. In the intake form, **Retry readiness** forces refresh;
+in the CLI repeat the same command with `--refresh-readiness`.
+
+On a miss, the coordinator shares one parsed approved definition and batches selected local refs.
+It observes exact selected/configuration/state refs rather than rediscovering all branches.
+It fetches the selected application branch only when its tip differs; a state-ref mismatch does not
+cause an unrelated application fetch. Configuration retrieval remains with its existing owner.
+Intake does not probe push permission: that check is explicitly deferred to Start.
+
+Start never accepts this preview as approval, test evidence or write authority. The existing sealed,
+single-use intake handoff retains its separate 15-minute expiry; Start freshly observes its inputs
+and probes publication access in one verification wave. An absent, expired, consumed or changed
+handoff falls back to full start checks. Existing create-only remote publication prevents a cached
+preview from overwriting a Story created by somebody else. No application tests are run by readiness.
+
+For reproducible Git-call and latency measurements, run `node scripts/story-readiness-benchmark.mjs`.
+It uses disposable local bare remotes, creates no Story, and reports fresh-process first-download,
+reused-fresh and cached requests. It does not model enterprise network or credential latency.

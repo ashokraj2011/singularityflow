@@ -28,7 +28,7 @@ import {
 import {
   assertClean, branch as currentBranch, checkout, exactRemoteBranchObservationAsync, publicationPushOutcome,
   gitCommonDir, orphanRemoteBranches, refExists, refHead, refsShareHistory, remoteDefaultBranchName, repoRoot,
-  validBranch
+  validBranch, localRefHeads
 } from './git.mjs';
 import { workspaceRepositoryPath } from './workspace.mjs';
 import {
@@ -180,8 +180,12 @@ function observedTipsCurrent(candidate, remote, baseBranch, storyBranch, tips) {
   const storyRef = `refs/heads/${storyBranch}`;
   if (!observed.patterns?.includes(baseRef) || !observed.patterns?.includes(storyRef)) return false;
   const remoteBase = observed.refs.get(baseRef);
-  if (!remoteBase || refHead(candidate.root, `refs/remotes/${remote}/${baseBranch}`) !== remoteBase) return false;
-  if (observed.refs.has(storyRef) || refHead(candidate.root, `refs/remotes/${remote}/${storyBranch}`) !== null) return false;
+  const local = ref => candidate.previewRefs ? candidate.previewRefs.get(ref) ?? null : refHead(candidate.root, ref);
+  if (!remoteBase || local(`refs/remotes/${remote}/${baseBranch}`) !== remoteBase) return false;
+  if (observed.refs.has(storyRef) || local(`refs/remotes/${remote}/${storyBranch}`) !== null) return false;
+  // A preview only needs the application base to be current here. The configuration owner
+  // independently checks state/config authority; fetching main cannot repair a missing state ref.
+  if (candidate.previewRefs) return true;
   const config = stateBranchAuthority(candidate.worldModelDefinition);
   const state = config?.remote === remote ? config : null;
   if (!state) return true;
@@ -755,6 +759,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   launchFetchProof = null,
   launchFetchObservation = null,
   observedTips = null,
+  previewOnly = false,
   intakeProof = null,
   workers = DEFAULT_REMOTE_WORKERS,
   runGit = runRemoteGitAsync
@@ -843,6 +848,10 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       ?? await loadDefinition(root).catch(() => null);
     candidates.push({
       repository, root, fetchAuthority, pushAuthority,
+      ...(previewOnly ? { previewRefs: localRefHeads(root, [
+        `refs/remotes/${remote}/${plan.resolution.resolved[repository.id].branch}`,
+        `refs/remotes/${remote}/${storyBranch}`, `refs/heads/${storyBranch}`
+      ]) } : {}),
       worldModelDefinition: repositoryDefinition
     });
   }
@@ -916,7 +925,8 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   for (const { repository, root, pushAuthority, fetchReused } of fetched) {
     const base = plan.resolution.resolved[repository.id];
     const sourceRef = `refs/remotes/${remote}/${base.branch}`;
-    if (!refExists(root, sourceRef)) {
+    const previewBase = previewOnly ? localRefHeads(root, [sourceRef]).get(sourceRef) : null;
+    if (previewOnly ? !previewBase : !refExists(root, sourceRef)) {
       throw new SingularityFlowError(
         `Selected base branch '${base.branch}' is no longer published for required repository `
         + `'${repository.id}' on remote '${remote}'. Nothing was changed.`,
@@ -933,7 +943,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       root,
       remote,
       baseBranch: base.branch,
-      baseCommit: refHead(root, sourceRef),
+      baseCommit: previewOnly ? previewBase : refHead(root, sourceRef),
       sourceRef,
       destinationRef: `refs/heads/${storyBranch}`,
       branch: storyBranch,
@@ -947,6 +957,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   // A dry-run push cannot move a remote ref. Probe independent repositories with the same bounded
   // fan-out as fetch, while retaining input-order results so the first refusal remains deterministic.
   const checked = await mapLimit(candidatesToProbe, workers, async (candidate) => {
+    if (previewOnly) return { candidate: { ...candidate, publicationProbe: 'deferred-to-start' }, dryRun: null };
     if (!candidate.publishRequired) return { candidate, dryRun: null };
     // The intake wave dry-ran exactly this destination from exactly this base a moment ago.
     if (intakeDryRunCovers(intakeProof, candidate)) {

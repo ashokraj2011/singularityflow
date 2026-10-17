@@ -119,7 +119,8 @@ async function prune(directory, now) {
 
 /**
  * Seal and store a receipt for a readiness preview that passed. `repositories` are what the preview
- * proved for each one: base commit, destination absent, dry run accepted, and the state tip it saw.
+ * observed for each one: base commit, destination absent, configured push transport and state tip.
+ * This is not a push-permission claim: Start always probes publication in its fresh verification wave.
  */
 export async function mintStoryIntakeReceipt(root, {
   inputs, authority, repositories, now = Date.now(), storageOptions = {}

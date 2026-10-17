@@ -134,6 +134,7 @@ export function inspectStoryStartReadiness({
   repositoryReadiness = null,
   readinessBaseline = 'reuse',
   publicationRequired = true,
+  publicationVerified = true,
   surface = 'shell'
 } = {}) {
   const checks = [];
@@ -206,7 +207,9 @@ export function inspectStoryStartReadiness({
   } else {
     checks.push(check(
       'git-publication', 'pass', 'STORY_GIT_PREFLIGHT_VALID',
-      `Base '${baseBranch}' and the Story destination are ready in ${normalizedRepositories.length} repository/repositories.`
+      publicationVerified
+        ? `Base '${baseBranch}' and the Story destination are ready in ${normalizedRepositories.length} repository/repositories.`
+        : `Base '${baseBranch}' and the Story destination were observed in ${normalizedRepositories.length} repository/repositories. Publication access will be checked on Start.`
     ));
   }
 

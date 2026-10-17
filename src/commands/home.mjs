@@ -24,7 +24,7 @@ function renderConversation(conversation, homeEnvelope) {
   console.log('\nI found');
   console.log(current
     ? `${current.id}${current.title ? ` — ${current.title}` : ''}${current.phase ? ` · ${current.phase}` : ''}`
-    : `${homeEnvelope.data?.workspace?.name ?? 'This workspace'} · no current governed work on this branch`);
+    : `${homeEnvelope.data?.workspace?.name ?? 'This workspace'} · no current work on this branch`);
 
   console.log(`\n${nextSuggestionsHeading(homeEnvelope.data?.personalization)}`);
   if (conversation.route) {
@@ -41,9 +41,9 @@ function renderConversation(conversation, homeEnvelope) {
   } else if (conversation.route.confirmation === 'none') {
     console.log('Nothing. This is a read-only request.');
   } else if (conversation.route.confirmation === 'ceremony') {
-    console.log('Open the governed decision and provide the required human identity and decision.');
+    console.log('Open the decision and provide the required human identity and decision.');
   } else {
-    console.log('Confirm the proposed action before any governed state changes.');
+    console.log('Confirm the proposed action before any lifecycle state changes.');
   }
 
   console.log('\nThis will change');
@@ -61,7 +61,7 @@ function render(homeEnvelope, answerEnvelope, { context, selected, actor }, conv
   if (homeEnvelope.data?.personalization?.replyName) console.log(`\nHello, ${homeEnvelope.data.personalization.replyName}.`);
   console.log(`\n${active
     ? `${active.id} is in ${active.phase ?? 'its workflow'}.`
-    : `${context.workspaceName ?? 'Local setup'} has ${homeEnvelope.outcome.slots.active ?? 0} active governed work item(s).`}`);
+    : `${context.workspaceName ?? 'Local setup'} has ${homeEnvelope.outcome.slots.active ?? 0} active Story(ies).`}`);
   renderConversation(conversation, homeEnvelope);
   if (answerEnvelope) {
     console.log('\nAnswer');

@@ -43,7 +43,7 @@ test('work-item resolution decouples the Work ID from canonical and child branch
   assert.equal((await resolveWorkItem(root, config, 'feature/export-ui')).workId, 'PAY-1234');
   run('git', ['switch', '-c', 'feature/export-ui'], { cwd: root });
   assert.equal((await loadWorkflow(root, config)).workItem.id, 'PAY-1234');
-  await assert.rejects(() => resolveWorkItem(root, config, 'MISSING-1'), /No governed Story matches/);
+  await assert.rejects(() => resolveWorkItem(root, config, 'MISSING-1'), /No Story matches/);
   assert.equal((await resolveWorkItem(root, config, 'NEW-1', { creation: true })).source, 'creation-fallback');
 });
 

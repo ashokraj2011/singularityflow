@@ -108,7 +108,7 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   const upstream = upstreamPhases.map((producer) => upstreamChangeRoutes(workflow, producer, { currentPhaseId: phase.id }));
   add('inputs', 'inputs', inputs.errors, {
     command: `singularity-flow inputs ${phase.id} --dry-run --json`, skill: '/sf-inputs',
-    detail: `Inspect the approved input bindings${upstreamPhases.length ? ` from ${upstreamPhases.join(', ')}; ${phase.id} must not edit them` : ''}. Restore the exact approved bytes, or request governed rework of the producer phase; do not edit approved hashes or approve replacement evidence automatically.`
+    detail: `Inspect the approved input bindings${upstreamPhases.length ? ` from ${upstreamPhases.join(', ')}; ${phase.id} must not edit them` : ''}. Restore the exact approved bytes, or request rework of the producer phase; do not edit approved hashes or approve replacement evidence automatically.`
   }, { code: inputs.sourceCode ?? 'PHASE_INPUTS_NOT_READY', findings: inputFindings,
     message: inputs.errors.length ? `Phase ${phase.id} inputs are not ready:\n- ${inputs.errors.join('\n- ')}${upstreamPhases.length
       ? `\nThese inputs belong to ${upstreamPhases.join(', ')}; ${phase.id} must not edit them.` : ''}` : null,

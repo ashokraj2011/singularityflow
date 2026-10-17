@@ -20,7 +20,7 @@ export function phaseAgentMutationRestriction(config, workflow, phase, session, 
       ? `SOURCE_REVIEW_REVIEWER_CANNOT_${operation.toUpperCase().replaceAll('-', '_')}`
       : 'READ_ONLY_AGENT_CANNOT_MUTATE',
     category: 'agent-role', phase: phase?.id ?? null, workId: workflow?.workItem?.id ?? null,
-    message: `The read-only ${agent.mode === 'read-only-review' ? 'source reviewer' : 'governed agent'} '${agent.id}' cannot ${operation.replaceAll('-', ' ')} phase '${phase?.id}'. Select the configured phase author${command ? ` with ${command}` : ''}; preserve published authorship and review history.`,
+    message: `The read-only ${agent.mode === 'read-only-review' ? 'source reviewer' : 'agent'} '${agent.id}' cannot ${operation.replaceAll('-', ' ')} phase '${phase?.id}'. Select the configured phase author${command ? ` with ${command}` : ''}; preserve published authorship and review history.`,
     actions: [{ command, skill: command ? '/sf-agent' : null,
       detail: 'Select the accepted phase author before any lifecycle mutation.' }]
   };

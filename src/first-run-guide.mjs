@@ -46,7 +46,7 @@ function greetingTest(expected, { story = false } = {}) {
     "import { greeting } from '../greeting.mjs';",
     '',
     ...(story ? ['/** @ac:TOY-001:AC-001 */'] : []),
-    "test('the governed greeting is exact', () => {",
+    "test('the greeting is exact', () => {",
     `  assert.equal(greeting, ${JSON.stringify(expected)});`,
     '});',
     ''
@@ -114,7 +114,7 @@ export async function runFirstRunGuide({ keep = false, onBoundary } = {}) {
     const story = path.join(directory, 'story.yml');
     await writeFile(story, YAML.stringify({
       title: 'Correct the greeting punctuation',
-      description: 'Change the toy greeting while exercising the governed quick-fix path.',
+      description: 'Change the toy greeting while exercising the quick-fix path.',
       desiredOutcome: 'The greeting is precise and the lifecycle completes without network access.',
       acceptanceCriteria: ['The greeting says Hello, Singularity Flow!', 'The verification evidence records the changed file.'],
       risk: 'low',

@@ -27,7 +27,7 @@ function preservationLine(result) {
   if (!preservedEverything(result)) return null;
   const message = MESSAGES[result.outcome.messageId];
   if (!message?.preserves) return null;
-  return 'No governed state, files, publications or external systems were changed.';
+  return 'No lifecycle state, files, publications or external systems were changed.';
 }
 
 function headline(result) {
@@ -99,13 +99,13 @@ function goalLines(result) {
   const lines = [
     '',
     style.heading(goal.statement),
-    style.detail(`Goal: ${goal.id} · ${goal.status} · ${goal.authority === 'governed-execution' ? 'governed execution' : 'personal advisory state'}`),
+    style.detail(`Goal: ${goal.id} · ${goal.status} · ${goal.authority === 'governed-execution' ? 'repository Goal' : 'personal advisory state'}`),
     '',
     style.heading('Success means:'),
     ...goal.successCriteria.map((criterion) => `  - ${criterion}`)
   ];
   if (goal.links.length) {
-    lines.push('', style.heading('Governed work:'));
+    lines.push('', style.heading('Work:'));
     const facts = new Map(links.map((link) => [`${link.repositoryId}:${link.kind}:${link.id}`, link]));
     for (const link of goal.links) {
       const live = facts.get(`${link.repositoryId}:${link.kind}:${link.id}`);

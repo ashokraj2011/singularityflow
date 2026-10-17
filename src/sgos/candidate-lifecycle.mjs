@@ -330,7 +330,7 @@ async function scopedWorktreeTree(root, baselineCommit, paths) {
     if (present) scope.push(candidate);
   }
   if (!scope.length) {
-    fail('Lifecycle Candidate requires at least one governed path.', 'SGOS_CANDIDATE_SCOPE_INVALID');
+    fail('Lifecycle Candidate requires at least one path.', 'SGOS_CANDIDATE_SCOPE_INVALID');
   }
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'sflow-candidate-scope-'));
   const env = temporaryIndexEnvironment(path.join(temporary, 'index'));
@@ -372,7 +372,7 @@ export function sgosLifecycleCandidateIdentity(event) {
   const subject = event?.subject;
   if (!eventId || !['story', 'initiative', 'adhoc', 'goal'].includes(subject?.kind)
       || !String(subject?.id ?? '').trim()) {
-    fail('Lifecycle Candidate identity requires an exact governed lifecycle event.',
+    fail('Lifecycle Candidate identity requires an exact lifecycle event.',
       'SGOS_CANDIDATE_EVENT_INVALID');
   }
   const payload = structuredClone(event.payload ?? {});
@@ -524,7 +524,7 @@ export async function freezeSgosCandidate(root, {
   }
   const baselineTree = gitText(root, ['rev-parse', `${baselineCommit}^{tree}`]);
   if (admittedTree != null && (exactCandidateCommit != null || !paths?.length)) {
-    fail('An admitted Candidate tree needs its governed paths and no exact commit.', 'SGOS_CANDIDATE_SCOPE_INVALID');
+    fail('An admitted Candidate tree needs its paths and no exact commit.', 'SGOS_CANDIDATE_SCOPE_INVALID');
   }
   // `admittedTree` is the tree publication admission already built from exactly these paths at
   // this baseline; building it again from the checkout only repeated that. It is still admitted
@@ -853,7 +853,7 @@ export async function verifySgosLifecycleCandidateBinding(root, binding, {
 export async function verifiedSgosLifecycleCandidateForCommit(root, publishedCommit) {
   const identity = governedCommitIdentity(root, publishedCommit);
   if (!identity?.candidate || identity.candidate.invalid === true) {
-    fail('Governed commit has no complete lifecycle Candidate binding.',
+    fail('Commit has no complete lifecycle Candidate binding.',
       'SGOS_CANDIDATE_VERIFICATION_REQUIRED');
   }
   const retained = await readSgosRetainedCandidate(root, identity.candidate.candidateId);
@@ -1442,7 +1442,7 @@ export async function planSgosCandidatePublication(root, candidateId, {
     entry.canonicalBranch === targetBranch || entry.branches.includes(targetBranch));
   if (governedTarget) {
     fail(
-      `Branch '${targetBranch}' is governed by ${governedTarget.kind} '${governedTarget.id}'. `
+      `Branch '${targetBranch}' belongs to ${governedTarget.kind} '${governedTarget.id}'. `
       + 'Publish it through the lifecycle transaction so its installed admission packet, exact '
       + 'Candidate, and recovery receipt remain one authority.',
       'SGOS_CANDIDATE_LIFECYCLE_ADMISSION_REQUIRED',

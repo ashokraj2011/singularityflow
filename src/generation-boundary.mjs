@@ -82,7 +82,7 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
   const interval = workflow.workIntervals?.current;
   if (!interval || interval.phaseId !== phase.id || interval.status !== 'open') {
     throw new SingularityFlowError(
-      `Phase '${phase.id}' has no open governed work interval. Prepare the phase before beginning code generation.`,
+      `Phase '${phase.id}' has no open work interval. Prepare the phase before beginning code generation.`,
       { code: 'GENERATION_INTENT_REQUIRED' }
     );
   }
@@ -137,7 +137,7 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
   if (existing.length && (protectedPaths.length || outsideSourceBoundaryPaths.length)) {
     throw new SingularityFlowError(
       `Code changed outside the phase's allowed source scope before generation begin. `
-      + `Preserve and review the ${changedPaths.length} changed path(s), restore protected or out-of-boundary paths to the governed baseline, then retry generation begin.`,
+      + `Preserve and review the ${changedPaths.length} changed path(s), restore protected or out-of-boundary paths to the baseline, then retry generation begin.`,
       { code: 'GENERATION_DIRTY_START', details: dirtyDetails }
     );
   }
@@ -146,7 +146,7 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
       throw new SingularityFlowError(
         `Code already changed before the first generation began (${changedPaths.length} path(s)). `
         + 'This Story policy blocks adoption. Review and preserve the listed changes outside this Story checkout, '
-        + 'return the checkout to its governed baseline, then begin generation and reapply the reviewed changes.',
+        + 'return the checkout to its baseline, then begin generation and reapply the reviewed changes.',
         { code: 'GENERATION_DIRTY_START', details: dirtyDetails }
       );
     }
@@ -162,7 +162,7 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
     // rollover so a failed submit can be repaired without weakening initial dirty-start policy.
     if (initialAdoptionBlocked) {
       throw new SingularityFlowError(
-        'This Story policy blocks adoption of changes made before the first generation. Review and preserve the listed changes outside this Story checkout, return the checkout to its governed baseline, then begin generation and reapply the reviewed changes.',
+        'This Story policy blocks adoption of changes made before the first generation. Review and preserve the listed changes outside this Story checkout, return the checkout to its baseline, then begin generation and reapply the reviewed changes.',
         { code: 'GENERATION_DIRTY_START', details: dirtyDetails }
       );
     }
@@ -241,7 +241,7 @@ export async function verifyOpenGenerationIntent(root, workflow, phase) {
     ? publishedGenerationCommit(root, workflow, phase, phase.generation)
     : workflow.workIntervals?.current?.sourceBaseCommit ?? null;
   if (!expectedBaseline || intent.baseline?.commit !== expectedBaseline) {
-    throw new SingularityFlowError('The generation intent no longer matches its governed generation baseline.', {
+    throw new SingularityFlowError('The generation intent no longer matches its generation baseline.', {
       code: 'GENERATION_INTENT_REQUIRED'
     });
   }

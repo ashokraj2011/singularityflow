@@ -117,7 +117,7 @@ async function restore(root, options) {
 export async function run(_argv, { positionals, options }) {
   const subcommand = positionals[1];
   if (!SUBCOMMANDS.includes(subcommand)) {
-    throw new SingularityFlowError(`Unknown governance action '${subcommand ?? ''}'. Use: ${PREVIEW}`, {
+    throw new SingularityFlowError(`Unknown action '${subcommand ?? ''}' for singularity-flow governance. Use: ${PREVIEW}`, {
       code: 'GOVERNANCE_ACTION_UNKNOWN'
     });
   }

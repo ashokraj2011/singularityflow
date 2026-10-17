@@ -105,7 +105,7 @@ function assertGoal(goal) {
   if (!Array.isArray(goal.links)) throw new SingularityFlowError(`Goal '${goal.id}' has invalid links.`, { code: 'GOAL_STATE_INVALID' });
   for (const link of goal.links) {
     if (!GOAL_SUBJECT_KINDS.includes(link.kind) || !link.id || !link.repositoryId) {
-      throw new SingularityFlowError(`Goal '${goal.id}' contains an invalid governed-work link.`, { code: 'GOAL_STATE_INVALID' });
+      throw new SingularityFlowError(`Goal '${goal.id}' contains an invalid work link.`, { code: 'GOAL_STATE_INVALID' });
     }
   }
 }
@@ -356,7 +356,7 @@ export async function completeGoal(context, reference, {
     const unresolved = linkStates.filter((item) => item.availability !== 'available' || item.terminal !== true);
     if (unresolved.length) {
       throw new SingularityFlowError(
-        `Goal '${goal.id}' still has ${unresolved.length} unresolved or active governed-work link(s). Complete, abandon, or unlink them first.`,
+        `Goal '${goal.id}' still has ${unresolved.length} unresolved or active work link(s). Complete, abandon, or unlink them first.`,
         { code: 'GOAL_LINKS_OPEN', details: { links: unresolved.map((item) => ({ kind: item.kind, id: item.id, status: item.status })) } }
       );
     }

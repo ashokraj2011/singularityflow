@@ -97,7 +97,7 @@ const LINES = Object.freeze({
   'interval.closed': (b) => `closed the work interval on ${b.phase ?? 'a phase'}`,
   'design.promoted': () => 'promoted a reviewed design source',
   'impact.invalidated': () => 'invalidated the impact receipt',
-  'configuration.changed': () => 'changed the governed configuration'
+  'configuration.changed': () => 'changed the approved configuration'
 });
 
 function line(beat, options) {

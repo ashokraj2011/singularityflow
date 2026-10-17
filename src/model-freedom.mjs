@@ -30,7 +30,7 @@ export function modelFreedomSnapshot({ definition = null, workflow = null, model
   const unknownStrictness = definition?.noModel?.unknownExternalCommands ?? 'warn';
   const blockers = [];
   const warnings = [];
-  if (phase && generation.requirement !== 'none' && !modelFreeProducer) blockers.push(`Phase '${phase.id}' permits only governed-agent generation.`);
+  if (phase && generation.requirement !== 'none' && !modelFreeProducer) blockers.push(`Phase '${phase.id}' permits only agent-authored generation.`);
   if (externalCounts.required) blockers.push(`${externalCounts.required} quality command(s) require an external model.`);
   if (externalCounts.unknown && unknownStrictness === 'block') blockers.push(`${externalCounts.unknown} quality command(s) have unknown model behavior and strict no-model policy blocks them.`);
   if (externalCounts.unknown && unknownStrictness !== 'block') warnings.push(`${externalCounts.unknown} quality command(s) have unknown model behavior and will be skipped in model-disabled mode.`);
@@ -73,7 +73,7 @@ export function modelFreedomSnapshot({ definition = null, workflow = null, model
       advisoryOperations: operationCounts.required ? 'partial' : 'complete',
       cli: { status: 'complete', control: '--no-model or SINGULARITY_FLOW_NO_MODEL=1' },
       vscode: { status: 'complete', control: 'singularityFlow.modelMode' },
-      externalHosts: { status: 'outside-guarantee', reason: 'Host-side extensions and MCP servers remain governed by their owning host.' }
+      externalHosts: { status: 'outside-guarantee', reason: 'Host-side extensions and MCP servers remain under the control of their owning host.' }
     },
     summary: { status: lifecycleStatus, modelFreeLifecycleReady: blockers.length === 0, blockers, warnings }
   };

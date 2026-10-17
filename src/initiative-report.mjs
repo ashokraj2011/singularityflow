@@ -214,7 +214,7 @@ export function renderInitiativeReport(report) {
     '|---|---|---:|---:|---:|---|'
   ];
   for (const phase of report.phases) lines.push(`| ${phase.label} | ${phase.status} | ${phase.duration} | ${phase.generation} | ${phase.publishedOutputs}/${phase.outputs} | ${phase.errors.length ? `${phase.errors.length} blocking` : phase.warnings.length ? `${phase.warnings.length} warning` : 'ready'} |`);
-  lines.push('', '## Evidence and governance', '');
+  lines.push('', '## Evidence and sign-off', '');
   lines.push(`- Evidence records: ${report.evidence.records}`);
   for (const [assurance, count] of Object.entries(report.evidence.byAssurance)) lines.push(`- ${assurance}: ${count}`);
   lines.push(`- Stale checklist items: ${report.evidence.stale}`);
@@ -254,7 +254,7 @@ async function resolveInitiativeNextActions(root, initiativeId) {
       ? `singularity-flow epic report ${initiativeId}`
       : `singularity-flow initiative report ${initiativeId}`,
     reason: initiative.resolution.lifecycleMode === 'planning-only'
-      ? 'Epic planning governance is complete; the read-only dashboard now tracks accepted canonical Story results.'
+      ? 'Epic planning sign-off is complete; the read-only dashboard now tracks accepted canonical Story results.'
       : 'The initiative is complete; review final conformance, evidence assurance, time, tokens, and cost.'
   }];
   const phase = initiative.phases[initiative.currentPhase];

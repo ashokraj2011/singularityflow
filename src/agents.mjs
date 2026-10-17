@@ -125,7 +125,7 @@ async function discoverAgentsSnapshot(root, repositoryRoot) {
 }
 
 export function validateAgentCatalog(agents, definition) {
-  if (!agents.length) throw new SingularityFlowError('No governed Agent Markdown files were found in .github/agents or the bundled plugin.');
+  if (!agents.length) throw new SingularityFlowError('No Agent Markdown files were found in .github/agents or the bundled plugin.');
   const displayNames = new Map();
   for (const agent of agents) {
     const name = (agent.displayName ?? agent.label ?? agent.id).trim().toLowerCase();
@@ -185,18 +185,18 @@ export function validateAgentCatalog(agents, definition) {
   }
   for (const phaseId of phaseIds) {
     const compatible = agents.filter((agent) => !agent.phases.length || agent.phases.includes(phaseId));
-    if (!compatible.length) throw new SingularityFlowError(`Phase '${phaseId}' has no compatible governed agent.`);
+    if (!compatible.length) throw new SingularityFlowError(`Phase '${phaseId}' has no compatible agent.`);
     const defaults = compatible.filter((agent) => agent.defaultFor.includes(phaseId));
-    if (defaults.length !== 1) throw new SingularityFlowError(`Phase '${phaseId}' requires exactly one default governed agent; found ${defaults.length}.`);
+    if (defaults.length !== 1) throw new SingularityFlowError(`Phase '${phaseId}' requires exactly one default agent; found ${defaults.length}.`);
   }
   return agents;
 }
 
 export function resolvePhaseAgent(agents, phaseId, { requestedAgent = null, nativeCopilotAgent = null } = {}) {
   const fallback = agents.find((agent) => agent.defaultFor.includes(phaseId));
-  if (!fallback) throw new SingularityFlowError(`Phase '${phaseId}' has no default governed agent.`);
+  if (!fallback) throw new SingularityFlowError(`Phase '${phaseId}' has no default agent.`);
   const selected = requestedAgent ? agents.find((agent) => agent.id === requestedAgent) : fallback;
-  if (!selected) throw new SingularityFlowError(`Unknown governed agent '${requestedAgent}'.`);
+  if (!selected) throw new SingularityFlowError(`Unknown agent '${requestedAgent}'.`);
   const compatible = !selected.phases.length || selected.phases.includes(phaseId);
   return {
     agent: selected,
@@ -217,8 +217,8 @@ export function validateAgentMappings(value, { agentIds = null } = {}) {
   const normalized = {};
   for (const [copilotAgent, agentId] of Object.entries(mappings)) {
     if (!validCopilotAgentMappingName(copilotAgent)) throw new SingularityFlowError(`Copilot agent mapping key '${copilotAgent}' must ${COPILOT_AGENT_MAPPING_NAME_RULE}.`);
-    if (typeof agentId !== 'string' || !idPattern(agentId)) throw new SingularityFlowError(`Copilot agent '${copilotAgent}' must map to a lower-case kebab-case governed agent ID.`);
-    if (known && !known.has(agentId)) throw new SingularityFlowError(`Copilot agent '${copilotAgent}' maps to unknown governed agent '${agentId}'.`);
+    if (typeof agentId !== 'string' || !idPattern(agentId)) throw new SingularityFlowError(`Copilot agent '${copilotAgent}' must map to a lower-case kebab-case agent ID.`);
+    if (known && !known.has(agentId)) throw new SingularityFlowError(`Copilot agent '${copilotAgent}' maps to unknown agent '${agentId}'.`);
     normalized[copilotAgent] = agentId;
   }
   return { version: 1, mappings: normalized };
@@ -245,7 +245,7 @@ export async function resolveCopilotAgent(root, copilotAgent, { agents = null } 
   const displayMatches = exact ? [] : discovered.filter((candidate) => candidate.displayName === copilotAgent);
   if (!explicit && displayMatches.length > 1) {
     throw new SingularityFlowError(
-      `Copilot agent display name '${copilotAgent}' matches multiple governed agents. Add an exact mapping in ${AGENT_MAPPING_PATH}.`
+      `Copilot agent display name '${copilotAgent}' matches multiple agents. Add an exact mapping in ${AGENT_MAPPING_PATH}.`
     );
   }
   const automatic = exact ?? displayMatches[0] ?? null;
@@ -282,7 +282,7 @@ export async function agentMappingStatus(root) {
 
 export async function findAgent(root, id) {
   const agent = (await discoverAgents(root)).find((candidate) => candidate.id === id);
-  if (!agent) throw new SingularityFlowError(`Unknown governed agent '${id}'. Run singularity-flow agents list.`);
+  if (!agent) throw new SingularityFlowError(`Unknown agent '${id}'. Run singularity-flow agents list.`);
   return agent;
 }
 

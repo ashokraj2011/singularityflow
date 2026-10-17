@@ -14,7 +14,7 @@ export function printCommandRoutes(command, { skill = null, indent = '', label =
     ? { command, skill }
     : { ...command, skill });
   if (!guidance) {
-    console.log(`${indent}Copilot: unavailable — ask /sf-next for a current governed action.`);
+    console.log(`${indent}Copilot: unavailable — ask /sf-next for a current action.`);
     console.log(`${indent}Shell: unavailable — the supplied command was not safe to display.`);
     console.log(`${indent}VS Code (model-free): not available for this action`);
     return;

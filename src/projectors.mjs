@@ -34,7 +34,7 @@ function assertSubjectPath(root, subjectDirectory, candidate, label) {
   const relative = repoRelative(root, candidate);
   const subjectRelative = normalizePath(path.relative(root, subjectDirectory));
   if (relative !== subjectRelative && !relative.startsWith(`${subjectRelative}/`)) {
-    throw new SingularityFlowError(`${label} escapes the governed subject directory: ${relative}.`);
+    throw new SingularityFlowError(`${label} escapes the subject directory: ${relative}.`);
   }
   return relative;
 }

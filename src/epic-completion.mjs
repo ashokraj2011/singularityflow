@@ -205,7 +205,7 @@ export async function epicDeliveryReadiness(root, initiativeId, {
   const materialized = initiative.materialization?.status === 'complete';
   const ready = planningComplete && materialized && required.length > 0 && required.every((story) => story.ready);
   const blockers = [
-    ...(!planningComplete ? ['Epic planning governance is not complete'] : []),
+    ...(!planningComplete ? ['Epic planning sign-off is not complete'] : []),
     ...(!materialized ? ['Jira/Git Story materialization is not complete'] : []),
     ...(!required.length ? ['No blocking Stories are defined'] : []),
     ...required.filter((story) => !story.ready).map((story) => `${story.workId}: ${story.problems.join('; ')}`)

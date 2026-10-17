@@ -142,7 +142,7 @@ export async function planAgentBriefs(root, workflow, producerPhase, {
   if (!consumers.length) return { created: [], pendingWrites: [] };
   const relativeArtifact = producerPhase.requiredArtifact?.path;
   if (!relativeArtifact || !itemDirectory || !itemRelative) {
-    throw new SingularityFlowError(`Cannot create an agent brief because phase ${producerPhase.id} has no governed artifact location.`, {
+    throw new SingularityFlowError(`Cannot create an agent brief because phase ${producerPhase.id} has no artifact location.`, {
       code: 'AGENT_BRIEF_SOURCE_REQUIRED'
     });
   }

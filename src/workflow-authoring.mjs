@@ -450,9 +450,9 @@ export async function addPhase(root, phaseId, {
     try {
       validateAgentCatalog(await discoverAgents(root), definition);
     } catch (error) {
-      if (/requires exactly one default governed agent; found 0/.test(error?.message ?? '')) {
+      if (/requires exactly one default (?:governed )?agent; found 0/.test(error?.message ?? '')) {
         throw new SingularityFlowError(
-          `Phase '${id}' has no default governed agent. Add exactly one reviewed Agent Markdown `
+          `Phase '${id}' has no default agent. Add exactly one reviewed Agent Markdown `
           + `sflow-default-for entry for '${id}' together with the phase in a configuration change; `
           + 'nothing was written. Existing agent mappings cannot be inferred safely.',
           { code: 'WORKFLOW_PHASE_DEFAULT_AGENT_REQUIRED', cause: error }

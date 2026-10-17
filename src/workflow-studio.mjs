@@ -1742,7 +1742,7 @@ class StudioCandidate {
     const serverId = descriptor.id;
     const key = importLedgerKey('mcp-server', { id: serverId });
     if (this.content.mcpServers?.[serverId]) {
-      if (!replace) throw new SingularityFlowError(`An MCP server called '${serverId}' is already governed here. Replace it deliberately, or import it under another ID.`, { code: 'STUDIO_MCP_SERVER_EXISTS' });
+      if (!replace) throw new SingularityFlowError(`An MCP server called '${serverId}' is already declared here. Replace it deliberately, or import it under another ID.`, { code: 'STUDIO_MCP_SERVER_EXISTS' });
       if (!this.ledger.imports[key]) throw new SingularityFlowError(`MCP server '${serverId}' was configured in this repository, not imported, so an import cannot replace it.`, { code: 'STUDIO_MCP_SERVER_EXISTS' });
     }
     if (!Array.isArray(agents)) throw new SingularityFlowError('The agents that may use an MCP server must be a list.', { code: 'STUDIO_IMPORT_INVALID' });

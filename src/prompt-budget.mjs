@@ -165,7 +165,7 @@ function overflowError(profile, mandatory, text, admission, unsafe = false) {
     );
   }
   return new SingularityFlowError(
-    `Mandatory governed prompt context does not fit token-economy profile '${profile.id}'.`,
+    `Mandatory phase prompt context does not fit token-economy profile '${profile.id}'.`,
     {
       code: 'TKN_MANDATORY_CONTEXT_OVERFLOW',
       details: {
@@ -173,7 +173,7 @@ function overflowError(profile, mandatory, text, admission, unsafe = false) {
         configuredEstimatedPromptLimitBytes: profile.maximumEstimatedPromptTokens * 4,
         admission,
         bySection: Object.fromEntries(mandatory.map((section) => [section.id, section.bytes])),
-        unsafeReason: 'Applicable governance context and the omission capsule cannot be truncated or budget-evicted.',
+        unsafeReason: 'Applicable Flow Policy context and the omission capsule cannot be truncated or budget-evicted.',
         nextAction: 'Select an approved larger profile, narrow the operation, or split the work.'
       }
     }
@@ -200,7 +200,7 @@ export function compilePromptSections(inputSections, policyValue = {}, options =
           mode: policy.mode,
           missingCapability: 'wmp-lifecycle-and-request-delivery',
           milestone: 'M2',
-          nextAction: "Use composer 'legacy-v1' for governed prompt delivery. Evaluate tkr-v1 only through the pure token-reduction prompt adapter until M2 is implemented and qualified."
+          nextAction: "Use composer 'legacy-v1' for phase prompt delivery. Evaluate tkr-v1 only through the pure token-reduction prompt adapter until M2 is implemented and qualified."
         }
       }
     );

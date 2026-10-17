@@ -466,7 +466,7 @@ async function initCommand(options) {
   }
   if (approvedAuthority && !configurationRelation) {
     throw new SingularityFlowError(
-      `This repository is already governed by approved configuration ${approvedAuthority.ref}`
+      `This repository already has approved configuration ${approvedAuthority.ref}`
       + `${approvedAuthority.sourceCommit ? `@${approvedAuthority.sourceCommit.slice(0, 12)}` : ''}. `
       + 'Singularity Flow will not install generic configuration on an application or Work-ID branch. '
       + 'Use singularity-flow start <WORK-ID> for new work, or singularity-flow workspace refresh-configuration to update the shared authority. Nothing was changed.', {
@@ -488,7 +488,7 @@ async function initCommand(options) {
   if (workId) validateId(config, workId);
   console.log(wrote.length
     ? `${repair ? 'Repaired' : 'Created'} ${wrote.join(', ')}`
-    : `Verified ${WORKFLOW_PATH}, templates, prompts, and governed agents; nothing needed repair.`);
+    : `Verified ${WORKFLOW_PATH}, templates, prompts, and agents; nothing needed repair.`);
   if (!existsSync(path.join(root, 'singularity/capabilities.yml'))) {
     console.log('Capability: this repository. No capability setup is required.');
   }
@@ -1457,7 +1457,7 @@ async function returnCommand(positionals, options) {
   if (!json) {
     summary(workflow);
     console.log(`Returned from ${plan.freshness} evidence at ${plan.sourceCommit.slice(0, 12)}.`);
-    console.log(`Active governed agent: ${session.agentLabel ?? session.agent} (${session.agent})`);
+    console.log(`Active agent: ${session.agentLabel ?? session.agent} (${session.agent})`);
   }
   const active = currentPhase(workflow);
   if (active && !json) {
@@ -1484,7 +1484,7 @@ async function agentCommand(positionals, options = {}) {
     selection: optionString(options, 'agent') ?? null,
     nonInteractiveHint: 'Pass --agent <id> to choose one without a terminal.'
   });
-  console.log(`Active governed agent: ${session.agentLabel ?? session.agent} (${session.agent})`);
+  console.log(`Active agent: ${session.agentLabel ?? session.agent} (${session.agent})`);
   console.log(`Session scope: ${workflow.workItem.id} on branch ${branch(root)} (canonical ${workflow.workItem.branch})`);
   console.log('The selection is local to this checkout and will be recorded with the next workflow action.');
   if (session.phaseCompatibilityOverride) console.warn(`Warning: ${session.agent} is not declared for phase '${session.phaseCompatibilityOverride.phase}'. This is an audited prompt override, not approval authority.`);
@@ -1888,7 +1888,7 @@ async function actionCommand(positionals, options) {
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...plan,
       ...(publication ? { publicationReadiness: publication.readiness } : {}) }, null, 2));
-    console.log(`Governed action plan: ${plan.planId}`);
+    console.log(`Action plan: ${plan.planId}`);
     console.log(`Bound to: ${plan.revision.branch}@${plan.revision.head.slice(0, 12)} · expires ${plan.expiresAt}`);
     console.log(table(plan.actions.map((action) => ({
       id: action.actionId.slice(0, 10), timing: action.timing, intent: action.intent,
@@ -1967,7 +1967,7 @@ async function actionCommand(positionals, options) {
     head: head(root)
   });
   if (optionBoolean(options, 'json')) console.log(JSON.stringify({ replayed: false, record: result }, null, 2));
-  else console.log(`Governed action ${action.actionId.slice(0, 10)} completed and was recorded locally.`);
+  else console.log(`Action ${action.actionId.slice(0, 10)} completed and was recorded locally.`);
   if (!action.effect?.mutatesState) return {};
   return {
     harnessEvidence: {
@@ -2011,8 +2011,8 @@ async function nextCommand(options) {
     return decisionShowCommand(['decision', 'show', workflow.workItem.id], options);
   }
   if (!phase) {
-    printCommandRoutes('singularity-flow gate --terminal', { label: 'Run the final governance gate' });
-    console.log('Run the governance gate for the completed workflow.');
+    printCommandRoutes('singularity-flow gate --terminal', { label: 'Run the final Flow Gate' });
+    console.log('Run the Flow Gate for the completed workflow.');
     return (await import('./commands/validate.mjs')).gateCommand({ ...options, terminal: true });
   }
   if (phase.status === 'awaiting_approval') {
@@ -2053,7 +2053,7 @@ async function nextCommand(options) {
   // `next` composes the governed phase prompt: the Story's contract and inputs, its supporting
   // documents and the Repository brief read from the source. --task is accepted and ignored.
   if (optionString(options, 'task')) {
-    console.warn('Ignoring --task: Story context comes from the governed phase. Use wm compose --task to request an ad-hoc task guide.');
+    console.warn('Ignoring --task: Story context comes from the phase. Use wm compose --task to request an ad-hoc task guide.');
   }
   if (!deterministicConvergence) {
     await worldModelCommand(root, ['wm', 'compose'], { phase: phase.id });
@@ -2269,7 +2269,7 @@ async function documentsCommand(positionals, options) {
     if (dryRun && json) return console.log(JSON.stringify(plan, null, 2));
     if (!json) {
       console.log(`Detach ${scope === 'package' ? `package ${selected.packageId} (${targets.length} files)` : documentTitle(selected)}.`);
-      console.log('Committed bytes and audit history will be preserved. Future governed prompts will omit the evidence.');
+      console.log('Committed bytes and audit history will be preserved. Future phase prompts will omit the evidence.');
       console.log(`Published work that used it: ${documentUsesLabel(plan.usedBy)}`);
       console.log(`Phases invalidated: ${plan.affectedPhases.length ? plan.affectedPhases.join(', ') : 'none'}${plan.reopenedPhase ? ` (reopens ${plan.reopenedPhase})` : ''}`);
       if (plan.pendingPrompt) console.log(`Composed but not yet published, so recomposed without it the next time it is composed: ${plan.pendingPrompt}`);
@@ -2278,7 +2278,7 @@ async function documentsCommand(positionals, options) {
       console.log('Dry run: no state changed.');
       return;
     }
-    if (!optionBoolean(options, 'yes') && !(await confirmExact('Confirm this governed evidence detachment.', documentId))) {
+    if (!optionBoolean(options, 'yes') && !(await confirmExact('Confirm this evidence detachment.', documentId))) {
       console.log('No state changed.');
       return;
     }
@@ -2315,7 +2315,7 @@ async function documentsCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(documentTitle(result.record));
     if (result.record.url) console.log(`URL: ${result.record.url}`);
-    else if (result.previewable) console.log(`Governed inline preview verified at ${result.sha256}.`);
+    else if (result.previewable) console.log(`Inline preview verified at ${result.sha256}.`);
     else if (result.binary) console.log('This binary type requires its native viewer.');
     else if (result.content != null) process.stdout.write(`\n${result.content}`);
     return;
@@ -2330,7 +2330,7 @@ async function documentsCommand(positionals, options) {
       config,
       workflow,
       { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, payload: { operation: 'document-upload' } },
-      `[${workflow.workItem.id}][documents][upload] governed evidence`,
+      `[${workflow.workItem.id}][documents][upload] evidence`,
       [],
       {
         beforeStateWrite: async () => {
@@ -2394,7 +2394,7 @@ async function documentsCommand(positionals, options) {
       config,
       workflow,
       { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { operation: 'document-fetch' } },
-      `[${workflow.workItem.id}][documents][fetch] governed evidence`,
+      `[${workflow.workItem.id}][documents][fetch] evidence`,
       [],
       {
         beforeStateWrite: async () => {
@@ -3100,7 +3100,7 @@ async function mcpCommand(positionals, options) {
     if (!serverId) {
       const servers = await withApprovedConfigurationRead(root, () => importableMcpServers(root), { preferAuthority: true });
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'mcp-importable-servers', servers }, null, 2));
-      if (!servers.length) return console.log('No governed MCP server allows imports. Allow one with mcpServers.<id>.sources in a reviewed workflow change.');
+      if (!servers.length) return console.log('No MCP server allows imports. Allow one with mcpServers.<id>.sources in a reviewed workflow change.');
       for (const server of servers) console.log(`${server.id}: ${server.label} — prompts ${server.sources.prompts.join(', ') || 'none'}; resources ${server.sources.resources.join(', ') || 'none'}; tools ${server.sources.tools.join(', ') || 'none'}`);
       return;
     }
@@ -3230,12 +3230,12 @@ async function mcpCommand(positionals, options) {
     const result = await mcpDoctor(root, config, { network: optionBoolean(options, 'network') });
     const selected = optionString(options, 'server');
     if (selected && !result.servers.some((server) => server.id === selected)) {
-      throw new SingularityFlowError(`Unknown governed MCP server '${selected}'.`, { code: 'MCP_SERVER_UNKNOWN' });
+      throw new SingularityFlowError(`Unknown MCP server '${selected}'.`, { code: 'MCP_SERVER_UNKNOWN' });
     }
     const servers = selected ? result.servers.filter((server) => server.id === selected) : result.servers;
     const payload = { ...result, servers };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(payload, null, 2));
-    if (!servers.length) console.log('No governed MCP servers are declared in singularity/workflow.yml.');
+    if (!servers.length) console.log('No MCP servers are declared in singularity/workflow.yml.');
     for (const server of servers) {
       server.reasons.forEach((reason) => console.log(`  ${server.id}: ${reason}`));
       console.log(`MCP ${server.id}: ${server.readiness}`);
@@ -3288,7 +3288,7 @@ async function mcpCommand(positionals, options) {
   if (['list', 'status'].includes(subcommand)) {
     const result = await mcpStatus(root, config);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    if (!result.servers.length) console.log('No governed MCP servers are declared in singularity/workflow.yml.');
+    if (!result.servers.length) console.log('No MCP servers are declared in singularity/workflow.yml.');
     else console.log(table(result.servers.map((server) => ({
       id: server.id,
       host: server.hostReference,
@@ -3646,7 +3646,7 @@ export { submitConfirmedConvergenceCommand } from './commands/submit.mjs';
 async function rejectCommand(positionals, options) {
   const { root, config, workflow, phase: current, session, testingRepairPlan } = await decisionWorkflow(positionals, options, 'reject');
   const target = optionString(options, 'to') ?? current.id;
-  console.log(`Requesting changes to ${current.id}, returning work to ${target} as ${session.actor.name ?? session.actor.email ?? session.actor.login}; governed agent ${session.agent} is audit context only. Approvals from ${target} onward will be invalidated.`);
+  console.log(`Requesting changes to ${current.id}, returning work to ${target} as ${session.actor.name ?? session.actor.email ?? session.actor.login}; agent ${session.agent} is audit context only. Approvals from ${target} onward will be invalidated.`);
   // Inside the transaction: rejecting used to write workflow.json and the change-request decision
   // first and publish afterwards, so a refusal in the publication preflight reported that nothing
   // had happened while leaving every downstream approval invalidated and the decision durable and
@@ -4986,7 +4986,7 @@ async function syncCommand(positionals = [], options = {}) {
   const direct = await recoverPreparedPublicationBySubject(root, { kind: 'story', id: requestedId });
   if (direct.status === 'active') {
     throw new SingularityFlowError(
-      `Story '${requestedId}' has an active governed publication command (PID ${direct.active.pid}). `
+      `Story '${requestedId}' has an active publication command (PID ${direct.active.pid}). `
       + 'Return to that terminal and complete or interrupt it; recovery never rolls back a live owner.'
     );
   }
@@ -5384,7 +5384,7 @@ async function capabilitiesCommand(positionals, options) {
     const authority = optionString(options, 'authority', requiredGroups[0] ?? Object.keys(workflowConfig.approvalAuthorities ?? {})[0]);
     if (requiredGroups.length && !requiredGroups.includes(authority)) {
       throw new SingularityFlowError(
-        `Capability '${capabilityId}' break-glass leases require one of its governed authority groups: ${requiredGroups.join(', ')}.`,
+        `Capability '${capabilityId}' break-glass leases require one of its approval groups: ${requiredGroups.join(', ')}.`,
         { code: 'CAPABILITY_LEASE_AUTHORITY_INVALID' }
       );
     }
@@ -5857,7 +5857,7 @@ async function workflowCommand(positionals, options) {
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(created, null, 2));
       if (printProposal(created)) return;
       console.log(`Created ${created.governs} workflow ${created.workflowId}: ${created.phases.join(' \u2192 ')}`);
-      console.log(`  ${created.path} — commit it to put the workflow under governance.`);
+      console.log(`  ${created.path} — commit it to put the workflow into use.`);
       if (created.governs === 'story') process.stdout.write(simulationText(await simulateWorkflow(root, id)));
       return;
     }
@@ -6207,7 +6207,7 @@ async function fixCommand(positionals, options) {
     data: result, changed: !preview, json: optionBoolean(options, 'json'),
     commands: preview
       ? [{
-          label: 'Review and request this governed repair',
+          label: 'Review and request this repair',
           // The exact allow-paths and verifier argv remain in `data.plan`. They can contain
           // spaces, JSON punctuation, or shell metacharacters, so never project them into a
           // command-result guidance string. Present a non-copyable route requiring the human to
@@ -6219,7 +6219,7 @@ async function fixCommand(positionals, options) {
             '--allow-path', '<PATH>', '--verify-argv', '<JSON-ARGV>'
           ].join(' ')
         }]
-      : repairNextActions(result.repair).map((command) => ({ label: 'Continue the governed repair', command }))
+      : repairNextActions(result.repair).map((command) => ({ label: 'Continue the repair', command }))
   });
 }
 
@@ -6244,7 +6244,7 @@ async function repairCommand(positionals, options) {
     : subcommand === 'status' ? 'repair.returned'
       : subcommand === 'authorize' ? 'repair.authorized'
         : subcommand === 'attempt' ? 'repair.attempted' : 'repair.cancelled';
-  const commands = state ? repairNextActions(state).map((command) => ({ label: 'Continue the governed repair', command })) : [];
+  const commands = state ? repairNextActions(state).map((command) => ({ label: 'Continue the repair', command })) : [];
   return emitFaultRepairResult({
     operationId: `repair.${subcommand}`, classification: read ? 'read' : 'mutation', messageId,
     slots: subcommand === 'list' ? { count: result.repairs.length }
@@ -6282,7 +6282,7 @@ async function runCommand(positionals, options) {
     return result;
   }
   const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config); const phase = currentPhase(workflow);
-  if (!phase) { console.log('Every step is decided. Running the final governance gate.'); return (await import('./commands/validate.mjs')).gateCommand({ terminal: true }); }
+  if (!phase) { console.log('Every step is decided. Running the final Flow Gate.'); return (await import('./commands/validate.mjs')).gateCommand({ terminal: true }); }
   if (phase.status === 'awaiting_approval') {
     console.log(`Guided run stopped: '${phase.id}' is awaiting human review and approval.`);
     printCommandRoutes(`singularity-flow review ${phase.id}`, { label: 'Review' });
@@ -6341,7 +6341,7 @@ async function cockpitCommand() {
     console.log(style.heading('Singularity Flow is not set up in this repository.'));
     const entries = [
       ['singularity-flow quickstart', [
-        'See one complete governed change in a throwaway repository.',
+        'See one complete change in a throwaway repository.',
         'About 8 seconds, offline, and nothing here is touched.'
       ]],
       ['singularity-flow init', ['Set this repository up.']],
@@ -6366,7 +6366,7 @@ async function cockpitCommand() {
   const progress = progressSnapshot(workflow); const session = await loadSession(root, { required: false }); const active = currentPhase(workflow);
   console.log(`Singularity Flow cockpit — ${workflow.workItem.id}`);
   console.log(`${progressBar(progress.percentage)} ${progress.percentage}% · ${progress.approvedPhases}/${progress.totalPhases} phases`);
-  console.log(`governed agent: ${session?.workId === workflow.workItem.id ? session.agent : 'not selected'} · Branch: ${workflow.workItem.branch}`);
+  console.log(`Agent: ${session?.workId === workflow.workItem.id ? session.agent : 'not selected'} · Branch: ${workflow.workItem.branch}`);
   console.log(`Current: ${active ? `${active.label} (${active.status})` : 'none — every step is decided'}`);
   console.log(`Assignment: ${active ? workflow.collaboration?.assignments?.[active.id]?.assignee ?? 'unassigned' : 'none'}`);
   console.log('\nNext actions:');
@@ -6693,7 +6693,7 @@ function initiativeProfileChoices(portfolio) {
   return Object.entries(portfolio.initiativeProfiles).map(([id, profile]) => ({
     id,
     label: profile.label ?? id,
-    description: `${profile.phases.length} governed phases`,
+    description: `${profile.phases.length} phases`,
     // The phases themselves, not only how many. Which phases a profile runs is the entire
     // difference between two profiles, and a count cannot be compared against anything.
     phases: [...profile.phases]
@@ -6708,7 +6708,7 @@ async function activateInitiativeAgent(root, definition, initiativeId, phase, re
   const declared = phase?.agents ?? [];
   const fallback = declared[0] ?? (definition.agents?.['product-owner'] ? 'product-owner' : Object.keys(definition.agents ?? {})[0]);
   const agent = requestedAgent ?? fallback;
-  if (!agent || !definition.agents?.[agent]) throw new SingularityFlowError(`Initiative phase '${phase?.id ?? 'unknown'}' has no valid governed agent.`);
+  if (!agent || !definition.agents?.[agent]) throw new SingularityFlowError(`Initiative phase '${phase?.id ?? 'unknown'}' has no valid agent.`);
   if (requestedAgent && declared.length && !declared.includes(requestedAgent)) {
     console.warn(`Warning: agent '${requestedAgent}' is not declared for initiative phase '${phase.id}'. Continuing with an audited override; human approval authority is unchanged.`);
   }
@@ -7065,7 +7065,7 @@ async function capabilityCommand(positionals, options) {
     }
     console.log(`Capability authority routing reconciled to ${result.plan.canonicalAuthority.remote}.`);
     if (result.unresolvedIndependentAuthorities) {
-      console.warn(`  ${result.unresolvedIndependentAuthorities} independent authority claim(s) remain visible for governance review; none was deleted.`);
+      console.warn(`  ${result.unresolvedIndependentAuthorities} independent authority claim(s) remain visible for review; none was deleted.`);
     }
     return result;
   }
@@ -7569,16 +7569,16 @@ async function capabilityCommand(positionals, options) {
     });
     const state = {
       published: false,
-      reason: 'local authoring never publishes governed capability state; use capability edit --lead <URL> to propose an organisation change'
+      reason: 'local authoring never publishes capability state; use capability edit --lead <URL> to propose an organisation change'
     };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...result, state }, null, 2));
     console.log(result.removed
       ? `Removed capability ${id} from ${result.path}.`
       : `Saved capability ${id} to ${result.path}.`);
-    console.log('  This is a local authoring change; no governed state branch was created or moved.');
+    console.log('  This is a local authoring change; no Flow Ledger branch was created or moved.');
     printCommandRoutes('singularity-flow capability edit <ID> --lead <URL> --mode set …', {
       indent: '  ',
-      label: 'Governed route'
+      label: 'Route'
     });
     return;
   }
@@ -7698,7 +7698,7 @@ async function bootstrapCommand(positionals, options) {
   // No pull request, and nothing to merge. The definition lives on the configuration branch, and
   // `start` materializes it into each Story branch, so the application branch is never touched.
   console.log(result.published.configuration
-    ? '\nGoverned. Nothing was written to the application branch; start work with singularity-flow start <WORK-ID>.'
+    ? '\nReady. Nothing was written to the application branch; start work with singularity-flow start <WORK-ID>.'
     : '\nNot published. Re-run without --no-push to establish the configuration and state branches.');
 }
 
@@ -7987,7 +7987,7 @@ async function initiativeCommand(positionals, options) {
     const session = await activateInitiativeAgent(
       root, config, initiativeId, loaded.initiative.resolution.phases[loaded.initiative.currentPhase], optionString(options, 'agent') ?? null
     );
-    console.log(`Resumed ${initiativeId} at ${loaded.initiative.currentPhase ?? 'complete'} with governed agent ${session.agent}.`);
+    console.log(`Resumed ${initiativeId} at ${loaded.initiative.currentPhase ?? 'complete'} with agent ${session.agent}.`);
     console.log(initiativeFlowText(initiativeProgress(loaded.initiative)));
     return;
   }
@@ -8006,7 +8006,7 @@ async function initiativeCommand(positionals, options) {
     const direct = await recoverPreparedPublicationBySubject(root, { kind: 'initiative', id: initiativeId });
     if (direct.status === 'active') {
       throw new SingularityFlowError(
-        `Initiative '${initiativeId}' has an active governed publication command (PID ${direct.active.pid}). `
+        `Initiative '${initiativeId}' has an active publication command (PID ${direct.active.pid}). `
         + 'Return to that terminal and complete or interrupt it; recovery never rolls back a live owner.'
       );
     }
@@ -8193,7 +8193,7 @@ async function initiativeCommand(positionals, options) {
             generation: referencePhase.generation,
             payload: { referenceCommit: generationPublication.sha }
           },
-          `[${initiativeId}][initiative:${phaseId}][references:${referencePhase.generation}] register governed handles`,
+          `[${initiativeId}][initiative:${phaseId}][references:${referencePhase.generation}] register handles`,
           async () => ({
             initiative: referenceState.initiative,
             references: await registerInitiativePhaseReferences(
@@ -8204,7 +8204,7 @@ async function initiativeCommand(positionals, options) {
         referencePublication = registered.publication;
       }
       console.log(`Published ${phaseId} generation ${result.phase.generation}. Commit ${generationPublication.sha.slice(0, 8)}${generationPublication.pushed ? ' pushed' : ''}.`);
-      if (referencePublication) console.log(`Registered ${references.length} governed reference(s). Commit ${referencePublication.sha.slice(0, 8)}${referencePublication.pushed ? ' pushed' : ''}.`);
+      if (referencePublication) console.log(`Registered ${references.length} reference(s). Commit ${referencePublication.sha.slice(0, 8)}${referencePublication.pushed ? ' pushed' : ''}.`);
     } else {
       const generation = Number(initiative.phases[phaseId].generation) + 1;
       const { value: prepared, publication } = await transactInitiativeCommand(
@@ -8223,7 +8223,7 @@ async function initiativeCommand(positionals, options) {
       );
       const { context, ...result } = prepared;
       console.log(`Prepared ${result.outputs.length} ${phaseId} documents. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
-      console.log(`Governed Copilot prompt: ${context.record.promptPath} (${context.record.renderedSha256.slice(0, 12)})`);
+      console.log(`Copilot prompt: ${context.record.promptPath} (${context.record.renderedSha256.slice(0, 12)})`);
       context.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
       result.outputs.forEach((document) => {
         const detail = document.awaitingUpload
@@ -8782,7 +8782,7 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
         source: {
           externalId: initiativeId,
           version: result.attempt.completedAt,
-          observedState: `${result.attempt.stories.length} canonical Story branches and governed seeds published`
+          observedState: `${result.attempt.stories.length} canonical Story branches and Story seeds published`
         }
       });
       if (usesEpicPlanningLifecycle(before.initiative.resolution)) {
@@ -8858,7 +8858,7 @@ async function promptLogCommand(positionals, options) {
     return process.stdout.write(renderPromptAudit(result.record));
   }
   if (action === 'list') {
-    if (!result.records.length) return console.log(`Prompt audit is ${result.enabled ? 'on' : 'off'}; no governed prompts have been captured.`);
+    if (!result.records.length) return console.log(`Prompt audit is ${result.enabled ? 'on' : 'off'}; no phase prompts have been captured.`);
     return console.log(table(result.records.map((record) => ({
       time: record.recordedAt,
       source: record.source === 'model-invocation' ? 'invocation' : 'handoff',
@@ -8889,7 +8889,7 @@ async function promptLogCommand(positionals, options) {
   console.log(`Retention: ${result.retentionDays} day(s) · integrity: ${result.integrity.status}`);
   console.log(`File: ${result.logFile}`);
   for (const warning of result.warnings ?? []) console.log(`Warning: ${warning}`);
-  if (action === 'on') console.log('Future governed prompts composed for Copilot will be captured. Existing prompts are not backfilled.');
+  if (action === 'on') console.log('Future phase prompts composed for Copilot will be captured. Existing prompts are not backfilled.');
 }
 
 async function helpMetricsCommand(positionals, options) {
@@ -9096,7 +9096,7 @@ function epicReviewChoiceDefinition(review, decision) {
   const packetSha256 = review.packet.packetSha256;
   const confirmation = `${decision}:${storyId}:${packetSha256}`;
   if (!review.approval.availableAgents.length || !review.approval.defaultAgent) {
-    throw new SingularityFlowError(`No governed agent is configured for phase '${review.approval.phase}'.`);
+    throw new SingularityFlowError(`No agent is configured for phase '${review.approval.phase}'.`);
   }
   const choiceSets = [];
   if (decision === 'reject') {
@@ -10137,7 +10137,7 @@ async function workspaceCommand(positionals, options) {
     });
     await rememberWorkspace(registry, renamed.workspace, renamed.status, { preserveArchived: true });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(renamed, null, 2));
-    return console.log(`Renamed workspace to ${renamed.workspace.name}. Governed repository state was not changed.`);
+    return console.log(`Renamed workspace to ${renamed.workspace.name}. Repository state was not changed.`);
   }
   if (subcommand === 'archive') {
     const archived = await archiveWorkspace(registry, workspacePath, {
@@ -10515,9 +10515,9 @@ async function epicCommand(positionals, options) {
       const json = optionBoolean(options, 'json');
       if (!json) {
         console.log(`Detach ${sourceId} — ${selected.name}.`);
-        console.log('Committed bytes and audit history will be preserved. Future governed prompts will omit this source; dependent generated work and approvals may be invalidated.');
+        console.log('Committed bytes and audit history will be preserved. Future phase prompts will omit this source; dependent generated work and approvals may be invalidated.');
       }
-      if (!optionBoolean(options, 'yes') && !(await confirmExact('Confirm this governed Epic source detachment.', sourceId))) {
+      if (!optionBoolean(options, 'yes') && !(await confirmExact('Confirm this Epic source detachment.', sourceId))) {
         console.log('No state changed.');
         return;
       }
@@ -10561,7 +10561,7 @@ async function epicCommand(positionals, options) {
         { appendOnly: true }
       );
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ record: result.record, publication }, null, 2));
-      console.log(`Registered governed text ${result.record.sourceId}: ${result.record.name}`);
+      console.log(`Registered text ${result.record.sourceId}: ${result.record.name}`);
       console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
       return;
     }
@@ -10920,7 +10920,7 @@ async function epicCommand(positionals, options) {
           source: {
             externalId: initiativeId,
             version: materialized.attempt.completedAt,
-            observedState: `${materialized.attempt.stories.length} local Story branches and governed seeds published`
+            observedState: `${materialized.attempt.stories.length} local Story branches and Story seeds published`
           }
         });
         await completeEpicPublication(root, initiativeId);
@@ -10988,7 +10988,7 @@ async function epicCommand(positionals, options) {
         source: {
           externalId: planSha256,
           version: materialized.attempt.completedAt,
-          observedState: `${materialized.attempt.stories.length} canonical Story branches and governed seeds published`
+          observedState: `${materialized.attempt.stories.length} canonical Story branches and Story seeds published`
         }
       });
       await completeEpicPublication(root, initiativeId);
@@ -11048,7 +11048,7 @@ async function epicCommand(positionals, options) {
     const publication = await commitInitiativeChange(root, completionState.portfolio, completionState.initiative, {
       type: LIFECYCLE_EVENT.WORK_COMPLETED,
       payload: { operation: 'epic-delivery-completion' }
-    }, `[${initiativeId}][epic:complete] governed decision`, {
+    }, `[${initiativeId}][epic:complete] decision`, {
       beforeStateWrite: async () => {
         result = await completeEpicDelivery(root, initiativeId, {
           confirmation: initiativeId,
@@ -11285,7 +11285,7 @@ async function epicCommand(positionals, options) {
       });
       const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { system: 'jira', operation: 'adopt-drift', observationSha256: result.observation.observationSha256 } }, `[${initiativeId}][epic:jira-drift] adopt ${result.observation.observationSha256.slice(0, 12)}`);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ observation: result.observation, publication }, null, 2));
-      console.log(`Adopted Jira observations into a new governed Git generation. Commit ${publication.sha.slice(0, 8)}.`);
+      console.log(`Adopted Jira observations into a new Git generation. Commit ${publication.sha.slice(0, 8)}.`);
       return;
     }
     if (action === 'restore-plan') {
@@ -11555,7 +11555,7 @@ async function expandDocsHandle(handle, options) {
 }
 
 async function showCommand(positionals, options) {
-  const handle = requirePositional(positionals, 1, 'governed reference handle');
+  const handle = requirePositional(positionals, 1, 'reference handle');
   const selectors = [optionString(options, 'section'), optionString(options, 'json-pointer'), optionString(options, 'range')]
     .filter((value) => value != null);
   if (selectors.length > 1) throw new SingularityFlowError('Choose only one of --section, --json-pointer, or --range.', { exitCode: 5, code: 'handle.expansion_invalid' });

@@ -60,7 +60,7 @@ export async function sessionDiscoveryConfiguration(root, authority = null, { st
     } catch { /* Try another legacy lifecycle ref; attachment validates the selected Story strictly. */ }
   }
   throw new SingularityFlowError(
-    `Remote '${authority.remote}' has no readable governed definition on ${CONFIGURATION_BRANCH} or a lifecycle branch.`,
+    `Remote '${authority.remote}' has no readable workflow definition on ${CONFIGURATION_BRANCH} or a lifecycle branch.`,
     { code: 'SESSION_CONFIGURATION_UNAVAILABLE' }
   );
 }

@@ -293,14 +293,14 @@ function assertDocumentPathTrackable(root, relative) {
   });
   if (ignored.status === 0) {
     throw new SingularityFlowError(
-      `Governed document path is excluded by Git ignore policy: ${relative}. `
+      `Document path is excluded by Git ignore policy: ${relative}. `
       + 'Allow singularity/work-items document inputs in the repository ignore policy, then retry.',
       { code: 'STORY_DOCUMENT_GIT_IGNORED' }
     );
   }
   if (ignored.status !== 1) {
     throw new SingularityFlowError(
-      `Git could not verify that governed document path will be published: ${relative}.`,
+      `Git could not verify that document path will be published: ${relative}.`,
       { code: 'STORY_DOCUMENT_GIT_UNVERIFIED' }
     );
   }
@@ -910,7 +910,7 @@ export async function addDocuments(root, config, workflow, {
     assertDocumentInputContainsNoSecret(input, captured);
     capturedBySource.set(path.resolve(input.source), captured);
   }
-  const session = await loadSession(root); if (session.workId && session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Active governed-agent session belongs to ${session.workId}; resume ${workflow.workItem.id} before uploading.`);
+  const session = await loadSession(root); if (session.workId && session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Active agent session belongs to ${session.workId}; resume ${workflow.workItem.id} before uploading.`);
   const added = [];
   const packageMap = new Map();
   for (const input of fileInputs.filter((item) => item.packageSource)) if (!packageMap.has(input.packageSource)) {
@@ -1101,7 +1101,7 @@ export async function fetchRemoteDocument(root, config, workflow, {
     : epic ? { selectedId: 'epic', provider: { type: 'epic-source' } }
       : resolveStorageProvider(config, providerId, workflow);
   const session = await loadSession(root);
-  if (session.workId && session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Active governed-agent session belongs to ${session.workId}; resume ${workflow.workItem.id} before fetching.`);
+  if (session.workId && session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Active agent session belongs to ${session.workId}; resume ${workflow.workItem.id} before fetching.`);
   const adapter = jira ? jiraAttachmentAdapter(jira, runtime)
     : epic ? epicSourceAdapter(root, epic, epicSource, runtime)
       : storageAdapter(selectedId, provider, sourceRuntime(runtime, selectedId));

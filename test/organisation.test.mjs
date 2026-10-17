@@ -6050,7 +6050,7 @@ test('capability fsck rejects a self-consistent configuration-source copied with
   const canonical = fsck.checks.find((entry) =>
     entry.id === `workspace:${story.workspace.id}:canonical-capability-map`);
   assert.equal(canonical.status, 'fail');
-  assert.match(canonical.summary, /not bound to this branch's governed Story resolution/);
+  assert.match(canonical.summary, /not bound to this branch's Story resolution/);
   assert.match(canonical.remediation, /workspace refresh-configuration/);
 });
 

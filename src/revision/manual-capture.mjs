@@ -356,7 +356,7 @@ export async function planManualRevisionCapture({
   if (admittedDrift.some((item) => !item.applicationPath || !['100644', '100755', undefined].includes(item.saved?.mode)
       || !['100644', '100755', undefined].includes(item.index?.mode)
       || !['100644', '100755', undefined].includes(item.candidate?.mode))) {
-    findings.push({ code: 'REV_MANUAL_SCOPE_REFUSED', message: 'Changed paths include governed or unsupported Git entries.' });
+    findings.push({ code: 'REV_MANUAL_SCOPE_REFUSED', message: 'Changed paths include Singularity Flow-owned or unsupported Git entries.' });
   }
   if (hash(selected) !== hash(changedPaths)) {
     findings.push({ code: 'REV_MANUAL_PATH_SELECTION_REQUIRED', message: 'Explicit allowed paths must equal the exact saved/index drift inventory.' });

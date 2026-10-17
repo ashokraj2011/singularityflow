@@ -158,7 +158,7 @@ async function readExactLocalStoryRevision(root, request, callback) {
     catch { fail('The selected commit workflow definition is unavailable.'); }
     let workItemRoot;
     try { workItemRoot = normalizeWorkItemRoot(definition?.workItemRoot); }
-    catch { fail('The selected commit has no safe governed Story root.'); }
+    catch { fail('The selected commit has no safe Story root.'); }
     const prefix = `${workItemRoot}/${workId}`;
     if (!safePath(prefix)) fail('The selected Story path is not portable.', 'SKP_STORY_USAGE_INVALID');
     const reachable = new Set();

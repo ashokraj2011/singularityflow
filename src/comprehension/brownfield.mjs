@@ -275,7 +275,7 @@ export function validateHistoricalBackfillProposal(proposal, { sourceRevision = 
     failures: uniqueFailures,
     notices: [
       'No full-repository backfill is required for new work.',
-      'Historical labels remain untrusted proposals until the existing governed review authority accepts them.',
+      'Historical labels remain untrusted proposals until the existing review authority accepts them.',
       'Historically inferred and unknown entries never become confirmed through validation.'
     ]
   };

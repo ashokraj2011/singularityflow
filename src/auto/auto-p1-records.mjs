@@ -832,7 +832,7 @@ export function validateAutoP1Snapshot(id, snapshot) {
   if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)
       || Object.keys(snapshot).some((family) => !expected.has(family))
       || AUTO_P1_RECORD_FAMILIES.some((family) => !Array.isArray(snapshot[family]))) {
-    fail('Governed Auto lineage snapshot has an invalid field set.', 'AUTO_RECORD_CORRUPT');
+    fail('Auto lineage snapshot has an invalid field set.', 'AUTO_RECORD_CORRUPT');
   }
   return Object.freeze(Object.fromEntries(AUTO_P1_RECORD_FAMILIES.map((family) => [
     family,

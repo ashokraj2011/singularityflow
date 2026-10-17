@@ -35,7 +35,7 @@ export function summary(workflow) {
   console.log(`Status: ${workflow.status}`);
   console.log(`Current phase: ${active ? `${active.id} (${active.status})` : 'none'}`);
   if (active) {
-    console.log(`Governed agent: ${active.defaultAgent ?? 'unassigned'}`);
+    console.log(`Agent: ${active.defaultAgent ?? 'unassigned'}`);
     console.log(`Required artifact: ${active.requiredArtifact?.path ?? 'none'}`);
     console.log(`Registered artifacts: ${active.artifacts.length}`);
   }
@@ -94,7 +94,7 @@ export async function activatePhaseAgent(
     ?? definition.agentCatalog?.find((agent) => agent.defaultFor.includes(phase?.id))?.id
     ?? null;
   const agent = requestedAgent ?? defaultAgent;
-  if (!agent || !definition.agents?.[agent]) throw new SingularityFlowError(`Phase '${phase?.id ?? 'unknown'}' has no valid governed agent.`);
+  if (!agent || !definition.agents?.[agent]) throw new SingularityFlowError(`Phase '${phase?.id ?? 'unknown'}' has no valid agent.`);
   const compatible = !phase?.id || !definition.agents[agent].phases.length || definition.agents[agent].phases.includes(phase.id);
   if (requestedAgent && !compatible) {
     console.warn(`Warning: agent '${requestedAgent}' is not declared for phase '${phase.id}'. Continuing with an audited prompt override; human approval authority is unchanged.`);

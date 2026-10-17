@@ -426,15 +426,15 @@ export function verifyPendingPublicationCommit(root, record, {
   if (!identity) failures.push('recorded commit is unavailable');
   else {
     if (identity.commit !== record.commit) failures.push('commit does not resolve to the exact recorded object ID');
-    if (identity.parents.length !== 1) failures.push('governed transaction commit must have exactly one parent');
+    if (identity.parents.length !== 1) failures.push('transaction commit must have exactly one parent');
     if (record.expectedRemoteShaSource === 'implicit-local-parent'
       && (identity.parents.length !== 1 || record.expectedRemoteSha !== identity.parents[0])) {
-      failures.push('implicit local-parent remote lease does not match the governed commit parent');
+      failures.push('implicit local-parent remote lease does not match the commit parent');
     }
     if (record.expectedRemoteShaSource === 'observed-remote'
       && fullObjectId(record.expectedRemoteSha)
       && !commitIsAncestor(root, record.expectedRemoteSha, record.commit)) {
-      failures.push('observed remote commit is not an ancestor of the governed commit');
+      failures.push('observed remote commit is not an ancestor of the commit');
     }
     if (identity.tree !== record.tree) failures.push('commit tree does not match the marker tree');
     if (identity.transactionId !== record.transactionId) failures.push('commit transaction trailer does not match the marker');
@@ -448,7 +448,7 @@ export function verifyPendingPublicationCommit(root, record, {
       failures.push('commit Candidate trailers do not match the marker');
     }
     if (record.candidate != null && record.candidate.candidateTree !== record.tree) {
-      failures.push('Candidate tree does not match the governed commit tree');
+      failures.push('Candidate tree does not match the commit tree');
     }
     if (identity.parents.length === 1
       && fullObjectId(record.tree)
@@ -471,7 +471,7 @@ export function verifyPendingPublicationCommit(root, record, {
           ? { expectedRemoteSha: record.expectedRemoteSha }
           : {})
       })}`;
-      if (record.stateSha256 !== stateSha256) failures.push('state digest does not match the governed transaction identity');
+      if (record.stateSha256 !== stateSha256) failures.push('state digest does not match the transaction identity');
     }
   }
   const candidateVerified = failures.length === 0 && record.candidate != null;
@@ -671,7 +671,7 @@ export async function readPendingPublication(root, { kind, id, legacyPath = null
       const record = currentHead === recorded.expectedHead
         ? recoveryRecord(recorded, {
             recoveryStage: 'interrupted-before-branch-ref-advanced',
-            error: 'The process stopped before the governed commit completed; exact pre-transaction recovery is available.'
+            error: 'The process stopped before the commit completed; exact pre-transaction recovery is available.'
           })
         : divergentRecovery(recorded, `HEAD changed from ${recorded.expectedHead} to ${currentHead} without an identified transaction commit`);
       return { path: journal.path, record, migrated: false, journal: true, journalRecord: recorded };
@@ -721,7 +721,7 @@ export async function readPendingPublication(root, { kind, id, legacyPath = null
     }
     const record = recoveryRecord(recorded, {
       recoveryStage: 'branch-ref-advanced-before-publication',
-      error: 'The process stopped after creating the exact governed commit and before publication completed.',
+      error: 'The process stopped after creating the exact commit and before publication completed.',
       ...(localRevisionCommit ? { localCommitted: true } : {})
     });
     if (migrate) {

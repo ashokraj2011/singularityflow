@@ -564,7 +564,7 @@ function assertLocalCandidateRetention(root, binding) {
 function admitRecoveredAutoCandidate(root, binding) {
   const observedTree = governedCommitIdentity(root, binding.repository.candidateCommit)?.tree ?? null;
   if (observedTree !== binding.repository.candidateTree) {
-    fail('Recovered Candidate commit does not reproduce its governed tree.',
+    fail('Recovered Candidate commit does not reproduce its tree.',
       'AUTO_CANDIDATE_RECOVERY_CORRUPT');
   }
   admitExactProspectiveTree(root, {
@@ -745,7 +745,7 @@ export async function discoverAutoCandidateRecoveryAuthority(root, {
   });
   if (!rows.length) return null;
   if (rows.length > 4) {
-    fail('Auto Candidate recovery authority is ambiguous for this governed boundary.',
+    fail('Auto Candidate recovery authority is ambiguous for this boundary.',
       'AUTO_CANDIDATE_RECOVERY_CONFLICT');
   }
   const recovered = [];
@@ -765,7 +765,7 @@ export async function discoverAutoCandidateRecoveryAuthority(root, {
     `${entry.attemptNumber}:${entry.modelInvocations}`
   )));
   if (bindingHashes.size !== 1 || counterTuples.size !== 1) {
-    fail('Multiple different Candidates claim the same governed recovery boundary.',
+    fail('Multiple different Candidates claim the same recovery boundary.',
       'AUTO_CANDIDATE_RECOVERY_CONFLICT');
   }
   // Preservation is monotonic: once any post-freeze failure/stop path records the same Candidate
@@ -835,22 +835,22 @@ export async function restoreAutoCandidateAuthority(root, binding, verification 
       || receipt.candidateId !== retained.candidateId
       || receipt.candidateSha256 !== retained.candidateSha256
       || receipt.bindingSha256 !== retained.bindingSha256)) {
-    fail('Governed Candidate verification does not bind the restored Candidate.',
+    fail('Candidate verification does not bind the restored Candidate.',
       'AUTO_CANDIDATE_VERIFICATION_CORRUPT');
   }
   if (await remoteCandidateObject(root, remote, retained.repository.retainedRef)
       !== retained.repository.candidateCommit) {
-    fail('The governed Auto Candidate is no longer reachable from its remote authority.',
+    fail('The Auto Candidate is no longer reachable from its remote authority.',
       'AUTO_CANDIDATE_REMOTE_LOST');
   }
   const localRef = exactLocalRef(root, retained.repository.retainedRef);
   if (localRef.kind === 'symbolic') {
-    fail('The local Candidate ref conflicts with governed remote authority.',
+    fail('The local Candidate ref conflicts with remote authority.',
       'AUTO_CANDIDATE_REMOTE_CONFLICT');
   }
   let local = localRef.oid;
   if (local && local !== retained.repository.candidateCommit) {
-    fail('The local Candidate ref conflicts with governed remote authority.',
+    fail('The local Candidate ref conflicts with remote authority.',
       'AUTO_CANDIDATE_REMOTE_CONFLICT');
   }
   if (!local || git(root, ['cat-file', '-e', `${retained.repository.candidateCommit}^{commit}`], {
@@ -862,7 +862,7 @@ export async function restoreAutoCandidateAuthority(root, binding, verification 
     if (fetched.status !== 0
         || candidateGitRead(root, ['rev-parse', '--verify', 'FETCH_HEAD'], 'The fetched Candidate commit')
           .toString('utf8').trim() !== retained.repository.candidateCommit) {
-      fail('The governed Auto Candidate commit could not be fetched exactly.',
+      fail('The Auto Candidate commit could not be fetched exactly.',
         'AUTO_CANDIDATE_REMOTE_LOST');
     }
   }
@@ -875,7 +875,7 @@ export async function restoreAutoCandidateAuthority(root, binding, verification 
       retained.repository.candidateCommit, {
         expectedOld: local,
         conflictCode: 'AUTO_CANDIDATE_REMOTE_CONFLICT',
-        conflictMessage: 'The governed Auto Candidate ref could not be restored locally.'
+        conflictMessage: 'The Auto Candidate ref could not be restored locally.'
       });
     local = retained.repository.candidateCommit;
   }
@@ -883,7 +883,7 @@ export async function restoreAutoCandidateAuthority(root, binding, verification 
     'rev-parse', '--verify', '--quiet', `${retained.repository.candidateCommit}^{tree}`
   ], 'The fetched Candidate tree', { absentStatus: 1 }).toString('utf8').trim();
   if (local !== retained.repository.candidateCommit || tree !== retained.repository.candidateTree) {
-    fail('The fetched Auto Candidate does not reproduce its governed tree.',
+    fail('The fetched Auto Candidate does not reproduce its tree.',
       'AUTO_CANDIDATE_RETENTION_LOST');
   }
   await writeAutoPrivateRecord(
@@ -908,7 +908,7 @@ export async function restoreAutoCandidateWorktree(root, binding, pathContext = 
     flightId: binding?.flightId, candidateId: binding?.candidateId
   });
   if (retained.bindingSha256 !== binding.bindingSha256) {
-    fail('Restored Auto Candidate binding differs from governed checkpoint authority.',
+    fail('Restored Auto Candidate binding differs from checkpoint authority.',
       'AUTO_CANDIDATE_CORRUPT');
   }
   const headTree = outputText(git(root, ['rev-parse', '--verify', 'HEAD^{tree}']));

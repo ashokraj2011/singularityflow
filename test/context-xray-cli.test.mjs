@@ -69,6 +69,6 @@ test('context and tokens CLI commands separate read-only projections from machin
   assert.equal(compiled.data.packet.correlation.storyId, 'CXR-CLI-1');
   assert.ok(compiled.data.packet.items.some((item) => item.mandatory));
   assert.match(text, /CONTEXT X-RAY · CXR-CLI-1/);
-  assert.match(text, /No governed state, files, publications or external systems were changed/);
+  assert.match(text, /No lifecycle state, files, publications or external systems were changed/);
   assert.equal(git(root, 'status', '--porcelain'), before);
 });

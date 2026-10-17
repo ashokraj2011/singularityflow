@@ -26,7 +26,7 @@ export function workItemRootFromDefinitionText(text) {
 export function workItemWorkflowRelative(workId, workItemRoot = DEFAULT_WORK_ITEM_ROOT) {
   const id = String(workId ?? '').trim();
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id)) {
-    throw new SingularityFlowError(`'${id}' is not a safe governed Work ID.`);
+    throw new SingularityFlowError(`'${id}' is not a safe Work ID.`);
   }
   return path.posix.join(normalizeWorkItemRoot(workItemRoot), id, 'workflow.json');
 }

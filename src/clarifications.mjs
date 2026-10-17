@@ -191,7 +191,7 @@ export async function recordClarificationResponses(root, definition, workflow, p
   if (!Array.isArray(responses) || !responses.length) throw new SingularityFlowError('Record at least one clarification response.');
   const groundingPath = groundingRecordRelative(definition, workflow, phase, generation);
   if (!(await exists(path.join(root, groundingPath)))) {
-    throw new SingularityFlowError(`Compose the governed prompt before recording clarification: singularity-flow wm compose --phase ${phase.id}`);
+    throw new SingularityFlowError(`Compose the phase prompt before recording clarification: singularity-flow wm compose --phase ${phase.id}`);
   }
   const grounding = await readJson(path.join(root, groundingPath));
   const groundingInfo = await snapshot(path.join(root, groundingPath));
@@ -324,7 +324,7 @@ async function inspectClarificationRecord(root, definition, workflow, phase, {
   if (record.workId !== workflow.workItem.id || record.phase !== phase.id || record.generation !== generation) problems.push(`clarification record identity mismatch: ${relative}`);
   if (record.mode !== policy.mode) problems.push(`clarification record mode differs from the pinned phase policy: ${relative}`);
   if (!record.recordedBy || typeof record.recordedBy !== 'object') problems.push(`clarification record has no human actor: ${relative}`);
-  if (!record.agent) problems.push(`clarification record has no governed agent: ${relative}`);
+  if (!record.agent) problems.push(`clarification record has no agent: ${relative}`);
   if (!Array.isArray(record.responses) || !record.responses.length) problems.push(`clarification record contains no human responses: ${relative}`);
   if ((record.responses?.length ?? 0) > policy.maxQuestions) problems.push(`clarification record exceeds ${policy.maxQuestions} questions: ${relative}`);
   if (record.responses?.some((response) => !response.question || !response.answer)) problems.push(`clarification record contains an empty question or answer: ${relative}`);

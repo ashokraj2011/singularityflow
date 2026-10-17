@@ -364,7 +364,7 @@ export function validateId(config, id) {
   const reserved = new Set(['main', 'master', String(config.defaultBaseBranch ?? '').trim()]
     .filter(Boolean).map((value) => value.toLocaleLowerCase('en-US')));
   if (reserved.has(portableId.toLocaleLowerCase('en-US'))) {
-    throw new SingularityFlowError(`Work ID '${portableId}' is reserved for application integration and cannot identify governed work.`);
+    throw new SingularityFlowError(`Work ID '${portableId}' is reserved for application integration and cannot identify work.`);
   }
 }
 
@@ -955,7 +955,7 @@ export function storyStatusMarkdown(workflow) {
       `- Cancellation reason: ${workflow.cancellation.reason}`,
       `- Cancelled at: ${workflow.cancellation.cancelledAt}`
     ] : []), '',
-    '| # | Phase | Governed agent | Status | Generation | Approvals | Tokens |',
+    '| # | Phase | Agent | Status | Generation | Approvals | Tokens |',
     '|---:|---|---|---|---:|---:|---:|'
   ];
   for (const id of workflow.phaseOrder) {
@@ -993,7 +993,7 @@ export function storyStatusMarkdown(workflow) {
     }
   }
   lines.push('', '## Recent history', '');
-  workflow.history.slice(-15).reverse().forEach((item) => lines.push(`- ${item.at} — **${item.event}**${item.phase ? ` (${item.phase})` : ''} by ${item.actor ?? 'unknown'}${item.agent ? ` · governed agent ${item.agent}` : ''}${item.detail ? `: ${item.detail}` : ''}`));
+  workflow.history.slice(-15).reverse().forEach((item) => lines.push(`- ${item.at} — **${item.event}**${item.phase ? ` (${item.phase})` : ''} by ${item.actor ?? 'unknown'}${item.agent ? ` · agent ${item.agent}` : ''}${item.detail ? `: ${item.detail}` : ''}`));
   if (workflow.sequenceOverrides?.length) lines.push('', `> ⚠ ${workflow.sequenceOverrides.length} confirmed soft sequence override(s) are recorded for this work item.`);
   return `${lines.join('\n')}\n`;
 }
@@ -1391,7 +1391,7 @@ export async function createWorkflow(root, config, {
   }
   await writeJson(path.join(workDir(root, config, id), sealedTestPolicy.relativePath), sealedTestPolicy.record);
   workflow.testPolicy = { path: sealedTestPolicy.relativePath, sha256: sealedTestPolicy.sha256 };
-  await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state and accepted workflow-snapshot reference\n- [config/wfa/](./config/wfa/) — immutable effective policy, phase templates, and governed-agent bytes\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n- [USER-STORY.md](./USER-STORY.md) — ${source.type === 'jira' ? 'Jira' : 'manual'} story snapshot\n- [context/test-policy.json](./context/test-policy.json) — sealed test policy and the repository's test capability at creation\n${repositoryReadiness && readinessRepositories.length ? '- [context/repository-test-readiness.json](./context/repository-test-readiness.json) — pinned pre-code test tools and existing-failure disposition\n' : ''}${referenceManifest ? '- [context/reference-repositories.json](./context/reference-repositories.json) — immutable read-only source repository pins\n' : ''}- [documents.json](./documents.json) — supporting-document catalog (created on first upload)\n- [inputs/](./inputs/) — uploaded files (created on first upload)\n- [context/](./context/) — per-generation prompt-grounding audit records\n- [telemetry/](./telemetry/) — sanitized per-generation model, token, and cost records\n- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
+  await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state and accepted workflow-snapshot reference\n- [config/wfa/](./config/wfa/) — immutable effective policy, phase templates, and agent bytes\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n- [USER-STORY.md](./USER-STORY.md) — ${source.type === 'jira' ? 'Jira' : 'manual'} story snapshot\n- [context/test-policy.json](./context/test-policy.json) — sealed test policy and the repository's test capability at creation\n${repositoryReadiness && readinessRepositories.length ? '- [context/repository-test-readiness.json](./context/repository-test-readiness.json) — pinned pre-code test tools and existing-failure disposition\n' : ''}${referenceManifest ? '- [context/reference-repositories.json](./context/reference-repositories.json) — immutable read-only source repository pins\n' : ''}- [documents.json](./documents.json) — supporting-document catalog (created on first upload)\n- [inputs/](./inputs/) — uploaded files (created on first upload)\n- [context/](./context/) — per-generation prompt-grounding audit records\n- [telemetry/](./telemetry/) — sanitized per-generation model, token, and cost records\n- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
   const firstPhaseNeedsReadinessRepair = (['readiness-repair', 'baseline-risk-publication'].includes(workflow.testRecovery?.route)
     || sealedTestPolicy.record.baselineFailures === 'resolve-outside') && phaseRequiresCodeDelivery(phases[0]);
   if (!firstPhaseNeedsReadinessRepair) await ensureWorkIntervalBaseline(root, config, workflow, {
@@ -1458,7 +1458,7 @@ export async function resolveWorkItem(root, config, idOrRef = branch(root), { mu
     }
   }
   if (creation) return { workId: requested, branch: requested, workflow: null, source: 'creation-fallback' };
-  throw new SingularityFlowError(`No governed Story matches '${requested}'. Use a creation command to reserve a new Work ID.`);
+  throw new SingularityFlowError(`No Story matches '${requested}'. Use a creation command to reserve a new Work ID.`);
 }
 
 import { currentPhase } from './phase-generation.mjs';
@@ -2595,7 +2595,7 @@ function artifactFor(phase, relativePath) { return phase.artifacts.find((item) =
  */
 async function repositoryArtifactSnapshot(root, relativePath) {
   const secured = await secureRepositoryPath(root, relativePath, {
-    label: 'Governed artifact',
+    label: 'Artifact',
     allowFinalSymlink: true
   });
   if (!secured.entry) return { exists: false, size: 0, sha256: null };
@@ -2616,7 +2616,7 @@ async function repositoryArtifactSnapshot(root, relativePath) {
 
 async function readRepositoryArtifactText(root, relativePath) {
   const secured = await secureRepositoryPath(root, relativePath, {
-    label: 'Governed artifact',
+    label: 'Artifact',
     mustExist: true,
     type: 'file'
   });
@@ -2875,7 +2875,7 @@ export async function scanArtifacts(root, config, workflow, phaseId = undefined)
     console.warn('If one belongs to this Story, account for it with singularity-flow decision plan, then scan again.');
   }
   if (adopted.length) {
-    console.warn(`Warning: ${phase.id} is adopting ${adopted.length} untracked file(s) as governed artifacts:`);
+    console.warn(`Warning: ${phase.id} is adopting ${adopted.length} untracked file(s) as artifacts:`);
     adopted.forEach((file) => console.warn(`  ${file}`));
     console.warn('Delete or .gitignore anything above that is not part of this change, then scan again.');
   }
@@ -3707,7 +3707,7 @@ export async function publishGeneration(root, config, workflow, {
     const minimum = workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'unavailable';
     if ((MODEL_ASSURANCE_RANK[codeModelAssurance] ?? -1) < requiredModelAssuranceRank(minimum)) {
       throw new SingularityFlowError(
-        `Governed code generation requires ${minimum} model assurance; the host supplied ${codeModelAssurance}.`,
+        `Code generation requires ${minimum} model assurance; the host supplied ${codeModelAssurance}.`,
         { code: 'CODE_MODEL_ASSURANCE_REQUIRED' }
       );
     }
@@ -5183,7 +5183,7 @@ async function submitPhaseTransition(root, config, workflow, {
         `Phase ${phase.id} authored content changed after its published generation. `
         + `Published authored hash: ${digest(registration.publishedAuthoredSha256)}. `
         + `Current authored hash: ${digest(registration.currentAuthoredSha256)}. `
-        + `The change was not registered or submitted. Begin and publish a new governed generation; inspect the safe path with: `
+        + `The change was not registered or submitted. Begin and publish a new generation; inspect the safe path with: `
         + `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id}.`,
         {
           code: 'ARTIFACT_AUTHORED_BYTES_CHANGED_AFTER_PUBLICATION',
@@ -5501,7 +5501,7 @@ async function submitPhaseTransition(root, config, workflow, {
     const interval = workflow.workIntervals?.current;
     if (!interval || interval.phaseId !== phase.id || interval.status !== 'open') {
       throw new SingularityFlowError(
-        `Phase '${phase.id}' has no open governed work interval. Run singularity-flow prepare ${phase.id} before changing source or submitting.`
+        `Phase '${phase.id}' has no open work interval. Run singularity-flow prepare ${phase.id} before changing source or submitting.`
       );
     }
     const reconciliation = await reconcileWorkInterval(root, config, workflow, {
@@ -5512,7 +5512,7 @@ async function submitPhaseTransition(root, config, workflow, {
     if (!reconciliation.decision.eligibleForSubmission) {
       const target = reconciliation.decision.escalationTarget;
       throw new SingularityFlowError(
-        `Phase ${phase.id} exceeds its governed work interval:\n- ${reconciliation.decision.reasons.join('\n- ')}\n`
+        `Phase ${phase.id} exceeds its work interval:\n- ${reconciliation.decision.reasons.join('\n- ')}\n`
         + (target
           ? `Review the non-destructive escalation plan with singularity-flow story interval escalate --to ${target}.`
           : 'Use a stronger configured workflow before submitting.')
@@ -5871,7 +5871,7 @@ export async function approvePhase(root, config, workflow, {
   if (interveningCommits.some((commit) => !allowedReviewCommits.has(commit))) {
     throw new SingularityFlowError(
       `Phase '${phase.id}' repository history changed after its immutable review evidence was recorded. `
-      + 'Only prior governed approvals, applicability decisions or an exact Auto human-boundary checkpoint for this submitted phase may precede another approval; submit fresh evidence for every other commit.',
+      + 'Only prior approvals, applicability decisions or an exact Auto human-boundary checkpoint for this submitted phase may precede another approval; submit fresh evidence for every other commit.',
       {
         code: 'STORY_REVIEW_INTERVENING_COMMIT',
         details: {
@@ -8599,7 +8599,7 @@ export async function promoteDesignSource(root, config, workflow, {
   candidateRecordId, reason = null, actor = null, agent = null, channel = 'terminal'
 } = {}) {
   const configured = workflow.resolution?.designSources;
-  if (!configured) throw new SingularityFlowError('This Story has no governed design-source policy.', { code: 'DESIGN_SOURCE_NOT_CONFIGURED' });
+  if (!configured) throw new SingularityFlowError('This Story has no design-source policy.', { code: 'DESIGN_SOURCE_NOT_CONFIGURED' });
   const binding = approvedDesignSourceBinding(workflow);
   if (!binding) throw new SingularityFlowError('No approved design-source set exists to replace.', { code: 'DESIGN_SOURCE_APPROVAL_MISSING' });
   const evidence = await verifyMcpEvidence(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
@@ -9855,7 +9855,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
         code: typeof error?.code === 'string' ? error.code : 'LOCAL_PENDING_CLEANUP_FAILED'
       };
       console.warn(
-        `Warning: governed commit ${result.sha.slice(0, 8)} was pushed, but its local publication marker could not be cleared. `
+        `Warning: commit ${result.sha.slice(0, 8)} was pushed, but its local publication marker could not be cleared. `
         + 'Do not repeat the lifecycle action; run singularity-flow sync to verify and clear the marker.'
       );
     }
@@ -9910,7 +9910,7 @@ export async function syncPublication(root, config, workflow, { fault = null } =
     const liveOwner = livePreparedPublicationOwner(pending, root);
     if (liveOwner) {
       throw new SingularityFlowError(
-        `Story '${workflow.workItem.id}' has an active governed publication command (PID ${liveOwner.pid}`
+        `Story '${workflow.workItem.id}' has an active publication command (PID ${liveOwner.pid}`
         + `${liveOwner.createdAt ? `, started ${liveOwner.createdAt}` : ''}). `
         + 'Return to that terminal and complete or interrupt the command; do not start another mutation. '
         + 'After interrupting it, run singularity-flow sync again.'
@@ -9930,7 +9930,7 @@ export async function syncPublication(root, config, workflow, { fault = null } =
       };
     }
     throw new SingularityFlowError(
-      `Story '${workflow.workItem.id}' was interrupted before its governed commit completed. `
+      `Story '${workflow.workItem.id}' was interrupted before its commit completed. `
       + 'Inspect the working tree, run singularity-flow doctor, and repair or discard the partial local state before retrying.'
     );
   }
@@ -9980,7 +9980,7 @@ export async function syncPublication(root, config, workflow, { fault = null } =
     });
     if (!verification.valid) {
       throw new SingularityFlowError(
-        `Story '${workflow.workItem.id}' pending publication marker does not prove one exact governed commit: `
+        `Story '${workflow.workItem.id}' pending publication marker does not prove one exact commit: `
         + `${verification.failures.join('; ')}. The marker was retained and no commit was pushed. `
         + 'Run singularity-flow doctor --json and repair or discard the invalid recovery receipt.',
         {
@@ -10028,7 +10028,7 @@ export async function syncPublication(root, config, workflow, { fault = null } =
     if (!record.remoteFingerprint || !rootRemoteAuthority?.url
       || rootRemoteAuthority.fingerprint !== record.remoteFingerprint) {
       throw new SingularityFlowError(
-        `Story '${workflow.workItem.id}' publication remote '${record.remote}' changed after the governed commit was retained. `
+        `Story '${workflow.workItem.id}' publication remote '${record.remote}' changed after the commit was retained. `
         + 'The marker was retained and no ref was pushed.',
         { code: 'PENDING_PUBLICATION_REMOTE_CHANGED', details: { subject, markerPath: current.path } }
       );
@@ -10174,7 +10174,7 @@ export async function syncPublication(root, config, workflow, { fault = null } =
       }
       if (progressFailures.length) {
         throw new SingularityFlowError(
-          `Story '${workflow.workItem.id}' pending capability publication marker is not bound to its governed root commit: `
+          `Story '${workflow.workItem.id}' pending capability publication marker is not bound to its root commit: `
           + `${progressFailures.join('; ')}. The marker was retained and no sibling ref was pushed.`,
           {
             code: 'PENDING_CAPABILITY_PUBLICATION_IDENTITY_INVALID',
@@ -10313,7 +10313,7 @@ export async function validateWorkflow(root, config, workflow, {
     if (JSON.stringify(pinnedGates) !== JSON.stringify(expectedGates)) errors.push('Sequence gate policy differs from the immutable work-type configuration snapshot.');
     const expectedSession = normalizeSessionPolicy(config.session ?? {});
     const pinnedSession = normalizeSessionPolicy(workflow.resolution?.session ?? {});
-    if (JSON.stringify(pinnedSession) !== JSON.stringify(expectedSession)) errors.push('Session governed-agent policy differs from the immutable configuration snapshot.');
+    if (JSON.stringify(pinnedSession) !== JSON.stringify(expectedSession)) errors.push('Session agent policy differs from the immutable configuration snapshot.');
     const expectedContextPolicy = normalizeContextPolicy(config.contextPolicy ?? {}, { phaseIds: Object.keys(config.phases ?? {}) });
     const pinnedContextPolicy = normalizeContextPolicy(workflow.resolution?.contextPolicy ?? {});
     if (JSON.stringify(pinnedContextPolicy) !== JSON.stringify(expectedContextPolicy)) errors.push('Copilot context-boundary policy differs from the immutable configuration snapshot.');

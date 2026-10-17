@@ -51,7 +51,7 @@ export function normalizeMcpServers(value = {}, { agents = [], phases = [] } = {
     const assignedAgents = stringList(entry.agents, `MCP server '${id}' agents`);
     const assignedPhases = stringList(entry.phases, `MCP server '${id}' phases`);
     const tools = stringList(entry.tools, `MCP server '${id}' tools`);
-    for (const agent of assignedAgents) if (knownAgents.size && !knownAgents.has(agent)) throw new SingularityFlowError(`MCP server '${id}' references unknown governed agent '${agent}'.`);
+    for (const agent of assignedAgents) if (knownAgents.size && !knownAgents.has(agent)) throw new SingularityFlowError(`MCP server '${id}' references unknown agent '${agent}'.`);
     for (const phase of assignedPhases) if (knownPhases.size && !knownPhases.has(phase)) throw new SingularityFlowError(`MCP server '${id}' references unknown phase '${phase}'.`);
     for (const tool of tools) if (!TOOL.test(tool) || tool.includes('/')) throw new SingularityFlowError(`MCP server '${id}' tool '${tool}' must be an unqualified MCP tool name.`);
     const approval = entry.approval ?? 'confirm';

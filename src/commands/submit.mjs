@@ -192,7 +192,7 @@ export async function runSubmitCommand(positionals, options, submitContext) {
     }
   ));
   if (!reviewPacket) {
-    console.warn('Warning: the governed submission commit succeeded, but its review packet was not returned to the caller. Do not submit again; reload the committed Story and inspect recovery.');
+    console.warn('Warning: the submission commit succeeded, but its review packet was not returned to the caller. Do not submit again; reload the committed Story and inspect recovery.');
     printCommandRoutes(`singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`, {
       label: 'Inspect committed submission evidence'
     });

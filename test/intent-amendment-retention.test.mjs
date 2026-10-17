@@ -134,7 +134,7 @@ test('an amendment keeps the approval of a step it cites nothing of, refreshes o
   f.sflow('prepare', 'verify');
   f.sflow('phase', 'publish', 'verify', '--authored', 'deterministic');
   f.sflow('submit', 'verify');
-  if ((await f.workflow('QN-1')).phases.verify.status !== 'approved') assert.match(f.sflow('approve', 'verify', '--yes'), /Final governance check passed/u);
+  if ((await f.workflow('QN-1')).phases.verify.status !== 'approved') assert.match(f.sflow('approve', 'verify', '--yes'), /Final Flow Gate passed/u);
   assert.equal((await f.workflow('QN-1')).status, 'closed');
 
   // QN-2: AC-002 changes; fix-design cites it, so it runs again as before.

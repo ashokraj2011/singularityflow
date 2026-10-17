@@ -159,7 +159,7 @@ async function resumePinnedLocalStory(root, { id, agent = null } = {}) {
     const actor = identity(root);
     const resumedAgent = agent || workflow.phases?.[workflow.currentPhase]?.defaultAgent;
     if (!definition.agents?.[resumedAgent]) {
-      throw new SingularityFlowError(`Story phase '${workflow.currentPhase}' has no valid governed agent.`);
+      throw new SingularityFlowError(`Story phase '${workflow.currentPhase}' has no valid agent.`);
     }
     await setAgentSession(root, definition, actor, resumedAgent, id, {
       phaseId: workflow.currentPhase,
@@ -748,7 +748,7 @@ export async function startStory(root, {
   });
   if (targetOrigin) normalizedSource.targetOrigin = targetOrigin;
   const selectedAgent = agent ?? resolved.phases[0]?.defaultAgent;
-  if (!definition.agents?.[selectedAgent]) throw new SingularityFlowError(`Work type '${workType}' has no default governed agent for its first phase.`);
+  if (!definition.agents?.[selectedAgent]) throw new SingularityFlowError(`Work type '${workType}' has no default agent for its first phase.`);
 
   if (existed) {
     // fetchRemote updated the remote-tracking ref; now advance an existing
@@ -766,7 +766,7 @@ export async function startStory(root, {
     }
     const resumedAgent = agent || resumedWorkflow.phases?.[resumedWorkflow.currentPhase]?.defaultAgent;
     if (!definition.agents?.[resumedAgent]) {
-      throw new SingularityFlowError(`Story phase '${resumedWorkflow.currentPhase}' has no valid governed agent.`);
+      throw new SingularityFlowError(`Story phase '${resumedWorkflow.currentPhase}' has no valid agent.`);
     }
     await setAgentSession(root, definition, actor, resumedAgent, id, {
       phaseId: resumedWorkflow.currentPhase,

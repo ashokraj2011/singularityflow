@@ -66,7 +66,7 @@ export function buildAgentExecutionBinding({
   }
   if (!process || typeof process !== 'object' || Array.isArray(process)) fail('process is required.');
   if (process.authorityBinding?.subjectId && process.authorityBinding.subjectId !== id) {
-    fail('SGOS Process belongs to another governed subject.');
+    fail('SGOS Process belongs to another subject.');
   }
   if (!PROCESS_STATUSES.has(process.status)) fail(`process status '${process.status}' is unsupported.`);
   const gaps = [];

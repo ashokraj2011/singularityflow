@@ -31,7 +31,7 @@ export function convergenceReviewRoute(error, workflow) {
   if (allowed.includes('propose-intent-amendment')) return Object.freeze({
     kind: 'intent-amendment',
     class: 'human-input',
-    guidance: 'Human review selected an intent change. Propose the reviewed specification amendment through the governed amendment path.',
+    guidance: 'Human review selected an intent change. Propose the reviewed specification amendment through the amendment path.',
     command: `singularity-flow story intent-amendment propose --work-id ${workflow.workItem.id} --file <AMENDED-SPEC.md> --reason <reason>`,
     skill: '/sf-converge'
   });

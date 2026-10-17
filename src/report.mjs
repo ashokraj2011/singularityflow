@@ -562,7 +562,7 @@ function copilotEventLine(event) {
   return `${where}: ${calls} failed (${event.errorType ?? 'error'}).`;
 }
 
-const COPILOT_SOURCES = 'Requests, turns, model calls and tool calls are counted from the spans Copilot exports for launches through `singularity-flow copilot`; native IDE chat sends SFlow none. A turn is one model round trip; where Copilot does not report the count, it is the model calls under the request. Premium requests are estimated as requests times `tokens.premiumMultipliers`; GitHub\'s billing is authoritative. The governed prompt is the prompt sflow composed for the latest generation: exact bytes, tokens estimated as bytes ÷ 4. Copilot adds its own instructions, tools and history to it.';
+const COPILOT_SOURCES = 'Requests, turns, model calls and tool calls are counted from the spans Copilot exports for launches through `singularity-flow copilot`; native IDE chat sends SFlow none. A turn is one model round trip; where Copilot does not report the count, it is the model calls under the request. Premium requests are estimated as requests times `tokens.premiumMultipliers`; GitHub\'s billing is authoritative. The phase prompt is the prompt sflow composed for the latest generation: exact bytes, tokens estimated as bytes ÷ 4. Copilot adds its own instructions, tools and history to it.';
 
 export function renderMarkdown(report) {
   const item = report.workItem;
@@ -594,10 +594,10 @@ export function renderMarkdown(report) {
       copilot.premiumRequests.value != null ? `${premiumCell(copilot.premiumRequests)} premium requests (estimated)` : null,
       copilot.turns.value != null ? `${countCell(copilot.turns)} turns` : null,
       copilot.eventCount ? `${copilot.eventCount} quota or model event${copilot.eventCount === 1 ? '' : 's'}` : null,
-      copilot.largestPrompt ? `largest governed prompt ${sizeLabel(copilot.largestPrompt.bytes)} in \`${copilot.largestPrompt.phase}\`` : null
+      copilot.largestPrompt ? `largest phase prompt ${sizeLabel(copilot.largestPrompt.bytes)} in \`${copilot.largestPrompt.phase}\`` : null
     ].filter(Boolean);
     if (totals.length) lines.push(totals.join(' · '), '');
-    lines.push('| Phase | Gens | Sent back | Requests | Turns | Model calls | Tool calls | Premium requests | Governed prompt |');
+    lines.push('| Phase | Gens | Sent back | Requests | Turns | Model calls | Tool calls | Premium requests | Phase prompt |');
     lines.push('|-------|------|-----------|----------|-------|-------------|------------|------------------|-----------------|');
     for (const phase of report.phases) {
       lines.push(`| ${phase.label} (\`${phase.id}\`) | ${phase.generations} | ${phase.sentBack} | ${countCell(phase.copilot.requests)} | ${countCell(phase.copilot.turns)} | ${countCell(phase.copilot.modelCalls)} | ${toolCell(phase)} | ${premiumCell(phase.copilot.premiumRequests)} | ${promptCell(phase.copilot.prompt)} |`);
@@ -619,15 +619,15 @@ export function renderMarkdown(report) {
     }
     lines.push(`_${COPILOT_SOURCES} \`*\` marks a count some generations did not report; \`unavailable\` means none did._`, '');
   }
-  if (report.selfApprovals) lines.push(`**Governance note:** ${report.selfApprovals} active self-approval${report.selfApprovals === 1 ? '' : 's'}; these are not independent reviews.`, '');
-  if (report.sequenceOverrides.length) lines.push(`**Governance note:** ${report.sequenceOverrides.length} confirmed soft sequence override${report.sequenceOverrides.length === 1 ? '' : 's'}; review the audit details below.`, '');
+  if (report.selfApprovals) lines.push(`**Sign-off note:** ${report.selfApprovals} active self-approval${report.selfApprovals === 1 ? '' : 's'}; these are not independent reviews.`, '');
+  if (report.sequenceOverrides.length) lines.push(`**Sign-off note:** ${report.sequenceOverrides.length} confirmed soft sequence override${report.sequenceOverrides.length === 1 ? '' : 's'}; review the audit details below.`, '');
   if (report.rejections.length) {
     lines.push('## Rework history', '');
-    for (const rejection of report.rejections) lines.push(`- ${rejection.at} — \`${rejection.phase}\` rejected by ${rejection.actor} (governed agent ${rejection.agent ?? 'unavailable'}): ${rejection.detail}`);
+    for (const rejection of report.rejections) lines.push(`- ${rejection.at} — \`${rejection.phase}\` rejected by ${rejection.actor} (agent ${rejection.agent ?? 'unavailable'}): ${rejection.detail}`);
     lines.push('');
   }
   if (report.sequenceOverrides.length) {
-    lines.push('## Soft sequence overrides', '', '| Time | Gate | Action | Phase | Actor / governed agent | Reason |', '|------|------|--------|-------|----------------------|--------|');
+    lines.push('## Soft sequence overrides', '', '| Time | Gate | Action | Phase | Actor / agent | Reason |', '|------|------|--------|-------|----------------------|--------|');
     for (const override of report.sequenceOverrides) {
       const actor = actorLabel(override.actor);
       lines.push(`| ${override.at} | ${override.gate} | ${override.action} | ${override.requestedPhase ?? override.before?.currentPhase ?? '—'} | ${actor} / ${override.agent ?? 'unknown'} | ${override.reason ?? '—'} |`);
@@ -636,7 +636,7 @@ export function renderMarkdown(report) {
   }
   const agents = Object.entries(report.tokens.byAgent);
   if (agents.length) {
-    lines.push('## Token usage by governed agent', '', '| governed agent | Records | Exact | Tokens |', '|--------------|---------|-------|--------|');
+    lines.push('## Token usage by agent', '', '| agent | Records | Exact | Tokens |', '|--------------|---------|-------|--------|');
     for (const [agent, aggregate] of agents) lines.push(`| ${agent} | ${aggregate.records} | ${aggregate.exactRecords} | ${aggregateTokens(aggregate)} |`);
     lines.push('');
   }
@@ -768,12 +768,12 @@ function copilotHtml(report) {
   const missing = copilot.premiumRequests.missingModels.length
     ? `<p class="note">Premium requests are ${copilot.premiumRequests.value == null ? 'unavailable' : 'partial'}: no <code>tokens.premiumMultipliers</code> entry for ${escapeHtml(copilot.premiumRequests.missingModels.join(', '))}.</p>` : '';
   return `<h2>Copilot activity by phase</h2>
-<table><thead><tr><th>Phase</th><th>Gens</th><th>Sent back</th><th>Requests</th><th>Turns</th><th>Model calls</th><th>Tool calls</th><th>Premium requests</th><th>Governed prompt</th></tr></thead><tbody>${tableRows}</tbody></table>
+<table><thead><tr><th>Phase</th><th>Gens</th><th>Sent back</th><th>Requests</th><th>Turns</th><th>Model calls</th><th>Tool calls</th><th>Premium requests</th><th>Phase prompt</th></tr></thead><tbody>${tableRows}</tbody></table>
 <h3>Requests, turns, model and tool calls</h3>
 ${activityChart}
 <h3>Estimated premium requests</h3>
 ${premiumChart}
-<h3>Governed prompt size</h3>
+<h3>Phase prompt size</h3>
 <p class="note">Dashed red line: the phase's prompt budget.</p>
 ${promptChart}
 ${captureNotes}
@@ -795,12 +795,12 @@ export function renderHtml(report) {
   const modelTable = modelRows ? `<h2>Token usage by model</h2>\n<table><thead><tr><th>Provider</th><th>Model</th><th>Records</th><th>Exact</th><th>Unavailable</th><th>Tokens</th></tr></thead><tbody>${modelRows}</tbody></table>` : '';
   const bottleneck = report.bottleneck ? `<p><strong>Bottleneck:</strong> approval latency on <code>${escapeHtml(report.bottleneck.phase)}</code> (${humanizeDuration(report.bottleneck.waitingMs)}${report.bottleneck.share != null ? `, ${report.bottleneck.share}% of elapsed` : ''}).</p>` : '';
   const governance = [
-    report.selfApprovals ? `<p><strong>Governance note:</strong> ${report.selfApprovals} active self-approval${report.selfApprovals === 1 ? '' : 's'}; these are not independent reviews.</p>` : '',
-    report.sequenceOverrides.length ? `<p><strong>Governance note:</strong> ${report.sequenceOverrides.length} confirmed soft sequence override${report.sequenceOverrides.length === 1 ? '' : 's'}.</p>` : ''
+    report.selfApprovals ? `<p><strong>Sign-off note:</strong> ${report.selfApprovals} active self-approval${report.selfApprovals === 1 ? '' : 's'}; these are not independent reviews.</p>` : '',
+    report.sequenceOverrides.length ? `<p><strong>Sign-off note:</strong> ${report.sequenceOverrides.length} confirmed soft sequence override${report.sequenceOverrides.length === 1 ? '' : 's'}.</p>` : ''
   ].join('');
   const overrideRows = report.sequenceOverrides.map((override) => `<tr><td>${escapeHtml(override.at)}</td><td>${escapeHtml(override.gate)}</td><td>${escapeHtml(override.action)}</td><td>${escapeHtml(override.requestedPhase ?? override.before?.currentPhase ?? '—')}</td><td>${escapeHtml(actorLabel(override.actor))} / ${escapeHtml(override.agent ?? 'unknown')}</td><td>${escapeHtml(override.reason ?? '—')}</td></tr>`).join('');
   const copilotSection = copilotHtml(report);
-  const overrideTable = overrideRows ? `<h2>Soft sequence overrides</h2>\n<table><thead><tr><th>Time</th><th>Gate</th><th>Action</th><th>Phase</th><th>Actor / governed agent</th><th>Reason</th></tr></thead><tbody>${overrideRows}</tbody></table>` : '';
+  const overrideTable = overrideRows ? `<h2>Soft sequence overrides</h2>\n<table><thead><tr><th>Time</th><th>Gate</th><th>Action</th><th>Phase</th><th>Actor / agent</th><th>Reason</th></tr></thead><tbody>${overrideRows}</tbody></table>` : '';
   return `<!doctype html>
 <html lang="en">
 <head>

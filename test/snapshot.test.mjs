@@ -709,7 +709,7 @@ test('visual editor configuration saves validate atomically and publish scoped c
   await saveConfigurationFile(root, '.github/agents/reviewer.agent.md', '---\nname: reviewer\ndescription: Repository reviewer\ntools: ["bash"]\n---\n\nReview local work carefully.\n');
   const mappingPath = path.join(root, 'singularity/agent-mappings.yml');
   const originalMappings = await readFile(mappingPath, 'utf8');
-  await assert.rejects(() => saveConfigurationFile(root, 'singularity/agent-mappings.yml', 'version: 1\nmappings:\n  enterprise-reviewer: missing-pack\n'), /unknown governed agent/i);
+  await assert.rejects(() => saveConfigurationFile(root, 'singularity/agent-mappings.yml', 'version: 1\nmappings:\n  enterprise-reviewer: missing-pack\n'), /unknown agent/i);
   assert.equal(await readFile(mappingPath, 'utf8'), originalMappings);
   await saveConfigurationFile(root, 'singularity/agent-mappings.yml', 'version: 1\nmappings:\n  enterprise-reviewer: reviewer\n');
   await assert.rejects(() => deleteConfigurationFile(root, '.github/agents/reviewer.agent.md'), /Copilot agent mapping enterprise-reviewer/);
@@ -1371,7 +1371,7 @@ test('visual editor agent selection remains local and requires the active work b
   const session = await selectEditorAgent(root, 'DESK-2', 'architect');
   assert.equal(session.agent, 'architect');
   assert.equal(session.workId, 'DESK-2');
-  await assert.rejects(() => selectEditorAgent(root, 'DESK-2', 'unknown'), /Unknown governed agent/);
+  await assert.rejects(() => selectEditorAgent(root, 'DESK-2', 'unknown'), /Unknown agent/);
 });
 
 test('Story diagnostics and editor lifecycle reads survive live root and agent removal', async () => {
@@ -1436,7 +1436,7 @@ test('Story diagnostics and editor lifecycle reads survive live root and agent r
     const result = run(process.execPath, [bin, ...args], root, { allowFailure: true });
     assert.notEqual(result.status, 0, `${args.join(' ')} unexpectedly succeeded`);
     assert.match(`${result.stdout}\n${result.stderr}`, expected);
-    assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /Unknown governed agent|Missing singularity\/workflow\.yml/);
+    assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /Unknown agent|Missing singularity\/workflow\.yml/);
   }
   assert.match(run(process.execPath, [bin], root).stdout, /DESK-SAVED/);
 

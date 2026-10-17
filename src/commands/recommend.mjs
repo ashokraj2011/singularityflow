@@ -16,7 +16,7 @@ function continuation(envelope) {
   // Keep the recommendation's own skill (a step's drafting skill) rather than re-inferring it.
   return [plannedAction({
     id: 'developer-recommendation',
-    label: envelope.next?.[0]?.label ?? 'Continue with the next governed step',
+    label: envelope.next?.[0]?.label ?? 'Continue with the next step',
     command: recommendation.command,
     rank: 'NOW',
     kind: 'workflow',
@@ -36,7 +36,7 @@ export function recommendationNarration(envelope) {
       name,
       workId: guidance.workId ?? 'No current work',
       phase: guidance.currentPhase ?? 'none',
-      action: next[0]?.label ?? 'Start or resume governed work'
+      action: next[0]?.label ?? 'Start or resume work'
     }),
     effects: noEffects(),
     why: [because('recommend.from-durable-state', 'evidence', {

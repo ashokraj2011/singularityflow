@@ -293,7 +293,7 @@ test('story pull request targets the epic branch and is built from committed sta
   assert.match(body, /business-case\.md` — define\/business-case @ `bbbbbbbbbbbb`/);
   assert.match(body, /APP-1:governed\/story-state\/APP-1\/workflow\.json/);
   assert.match(body, /Editable draft generated deterministically/);
-  assert.match(body, /not a governed lifecycle artifact/);
+  assert.match(body, /not a lifecycle artifact/);
 
   // A story whose dependencies have not merged cannot open a pull request.
   const blocked = { workId: 'APP-2', base: EPIC, head: 'APP-2', title: 't', body: 'b', requiredChecks: [], blockedBy: ['APP-1'] };

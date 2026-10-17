@@ -182,7 +182,7 @@ function assertGovernedCommit(root, prepared, { commit, eventSha256, stateSha256
       || candidate?.verificationProfileSha256 !== candidateBinding.verificationProfileSha256
       || candidateBinding.candidateTree !== identity.tree) {
     fail('REV_ATTESTATION_COMMIT_MISMATCH',
-      'The exact governed commit does not bind the selected REV head and publication transaction.');
+      'The exact commit does not bind the selected REV head and publication transaction.');
   }
   return identity;
 }
@@ -272,7 +272,7 @@ export async function readRevisionPublicationAttestation(root, { subject, transa
       || identity.candidate?.candidateSha256 !== committed.lifecycleCandidateSha256
       || identity.candidate?.verificationReceiptSha256 !== committed.lifecycleVerificationReceiptSha256
       || identity.candidate?.verificationProfileSha256 !== committed.lifecycleVerificationProfileSha256) {
-    fail('REV_ATTESTATION_CORRUPT', 'REV commit receipt diverges from governed Git commit trailers.');
+    fail('REV_ATTESTATION_CORRUPT', 'REV commit receipt diverges from Git commit trailers.');
   }
   return Object.freeze({ status: 'commit-retained-local', prepared, committed });
 }
@@ -301,7 +301,7 @@ export async function recoverRevisionPublicationAttestation(root, {
   if (!record || record.transactionId !== transactionId
       || ['interrupted-before-branch-ref-advanced', 'publication-recovery-diverged']
         .includes(record.recoveryStage)) {
-    fail('REV_ATTESTATION_RECOVERY_UNPROVEN', 'Recovery lacks one exact ref-advanced governed commit.');
+    fail('REV_ATTESTATION_RECOVERY_UNPROVEN', 'Recovery lacks one exact ref-advanced commit.');
   }
   const verification = verifyPendingPublicationCommit(root, record, {
     subject, branch: current.prepared.branch,

@@ -160,7 +160,7 @@ test('first-run completion has replayable authority and verification cannot repl
       }
       active.lineage.submissions = active.lineage.submissions.filter((entry) => entry.phase !== 'implement');
       await assert.rejects(() => assertReviewCodeEvidenceFresh(root, config, active, active.phases.verify),
-        (error) => error.details.repairCommand === null && /Restore the original governed Code submission/.test(error.message));
+        (error) => error.details.repairCommand === null && /Restore the original Code submission/.test(error.message));
       git('reset', '-q', '--hard', 'HEAD~1');
     }
   });

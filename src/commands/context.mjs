@@ -26,8 +26,8 @@ async function xrayProjection(positionals, options, { defaultToCurrentPhase = tr
     if (error?.code !== 'STORY_NOT_FOUND') throw error;
     throw new SingularityFlowError(
       workId
-        ? `Context X-Ray could not resolve governed work '${workId}'.`
-        : 'Context X-Ray requires active governed Story work or --work-id.',
+        ? `Context X-Ray could not resolve work '${workId}'.`
+        : 'Context X-Ray requires active Story work or --work-id.',
       { code: 'CXR_NO_ACTIVE_WORK', cause: error }
     );
   }

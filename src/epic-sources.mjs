@@ -560,7 +560,7 @@ export async function registerEpicTextSource(root, {
   const sourceId = `SRC-${contentSha.slice(0, 12).toUpperCase()}`;
   const filename = `${kind}-${contentSha.slice(0, 12)}.md`;
   const contentTarget = await secureInitiativePath(root, portfolio, initiativeId, `sources/text/${filename}`, {
-    label: `Epic '${initiativeId}' governed text`
+    label: `Epic '${initiativeId}' text`
   });
   await writeText(contentTarget.absolute, `${content}\n`);
   const actor = identity(root);

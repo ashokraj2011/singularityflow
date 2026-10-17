@@ -48,7 +48,7 @@ function safeEditPath(value) {
     fail('REV_ATTEMPT_PATH_INVALID', 'Git behavior metadata is not an application edit target.');
   }
   if (!isApplicationPath(relative)) {
-    fail('REV_ATTEMPT_SCOPE_REFUSED', 'Governed state is not an application edit target.');
+    fail('REV_ATTEMPT_SCOPE_REFUSED', 'Lifecycle state is not an application edit target.');
   }
   return relative;
 }
@@ -59,7 +59,7 @@ function pathSet(values, context) {
   }
   const paths = values.map(safeEditPath);
   if (paths.some((item) => !isApplicationPath(item, context))) {
-    fail('REV_ATTEMPT_SCOPE_REFUSED', 'Allowed paths contain a configured governed resource.');
+    fail('REV_ATTEMPT_SCOPE_REFUSED', 'Allowed paths contain a configured resource.');
   }
   if (new Set(paths).size !== paths.length) {
     fail('REV_ATTEMPT_SCOPE_INVALID', 'Allowed application paths must be unique.');

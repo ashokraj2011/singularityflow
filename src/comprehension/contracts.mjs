@@ -515,7 +515,7 @@ function causeFailures(cause, candidateSha256) {
   const failures = [];
   const fail = (code, message) => failures.push({ code, message });
   if (!plainObject(cause) || cause.kind !== 'cause-ref') {
-    fail('CMP_CAUSE_REFERENCE_MISSING', 'A binding cause does not resolve to a governed cause-ref record.');
+    fail('CMP_CAUSE_REFERENCE_MISSING', 'A binding cause does not resolve to a cause-ref record.');
     return failures;
   }
   if (!transportSchemaOne(cause)) {
@@ -528,7 +528,7 @@ function causeFailures(cause, candidateSha256) {
     fail('CMP_CAUSE_REFERENCE_INVALID', 'The cause identifier is missing, generic, or a placeholder.');
   }
   if (!validStatement(cause.statement)) {
-    fail('CMP_CAUSE_REFERENCE_INVALID', `Cause '${cause.causeId ?? '(missing)'}' has no specific governed statement.`);
+    fail('CMP_CAUSE_REFERENCE_INVALID', `Cause '${cause.causeId ?? '(missing)'}' has no specific statement.`);
   } else if (cause.statementSha256 !== sha256Bytes(Buffer.from(cause.statement, 'utf8'))) {
     fail('CMP_CAUSE_REFERENCE_INVALID', `Cause '${cause.causeId}' has a mismatched statement digest.`);
   }
@@ -606,7 +606,7 @@ export function validateChangeCauseBinding(binding, {
     fail('CMP_BINDING_RELATIONSHIP_INVALID', `Binding relationship '${binding.relationship ?? '(missing)'}' is not registered.`);
   }
   if (!Array.isArray(binding.causeRefs) || binding.causeRefs.length === 0) {
-    fail('CMP_CAUSE_REFERENCE_MISSING', 'The binding has no governed cause references.');
+    fail('CMP_CAUSE_REFERENCE_MISSING', 'The binding has no cause references.');
   } else {
     const fullCauses = [
       ...(Array.isArray(causes) ? causes : []),
@@ -623,7 +623,7 @@ export function validateChangeCauseBinding(binding, {
       seen.add(key);
       const cause = byIdentity.get(key);
       if (!cause) {
-        fail('CMP_CAUSE_REFERENCE_MISSING', `Cause '${reference?.causeId ?? '(missing)'}' does not resolve to a governed cause-ref record.`);
+        fail('CMP_CAUSE_REFERENCE_MISSING', `Cause '${reference?.causeId ?? '(missing)'}' does not resolve to a cause-ref record.`);
         continue;
       }
       failures.push(...causeFailures(cause, candidateSha256));
@@ -956,7 +956,7 @@ export function evaluateComprehensionCoverage({
         counts.explained += 1;
         for (const binding of coveringBindings) usedBindings.add(binding.bindingSha256);
       }
-      else unresolvedRegions.push(unresolved(region, 'No valid governed cause binding exists.', 'CMP_CAUSE_COVERAGE_INCOMPLETE'));
+      else unresolvedRegions.push(unresolved(region, 'No valid cause binding exists.', 'CMP_CAUSE_COVERAGE_INCOMPLETE'));
       continue;
     }
     if (disposition.disposition === 'approved-deviation') {
@@ -985,7 +985,7 @@ export function evaluateComprehensionCoverage({
       // recomputation proves absence and the target work receipt resolves.
       unresolvedRegions.push(unresolved(
         region,
-        'The region remains present; a target subject hash alone does not prove a governed split.',
+        'The region remains present; a target subject hash alone does not prove a split.',
         'CMP_SPLIT_PENDING'
       ));
       continue;

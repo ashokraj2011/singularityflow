@@ -138,7 +138,7 @@ export function renderStoryRoster(result, {
   const literal = (value, fallback) => cell(value, maximumBytes, fallback);
   const showSelection = result.items.some((item) => object(item)
     && selectedItem(item, result, activeSelection));
-  add('# Governed Story roster');
+  add('# Story roster');
   add('');
   if (text(scope?.workspaceReference)) add(`Workspace selector: ${literal(scope.workspaceReference)}`);
   if (text(scope?.repositoryId)) add(`Repository selector: ${literal(scope.repositoryId)}`);
@@ -168,7 +168,7 @@ export function renderStoryRoster(result, {
     add(`| ${index + 1} | ${literal(item.id)} | ${literal(item.title)} | ${literal(item.status)} | ${literal(phaseId, '—')} | ${samePhase ? literal(current?.status) : 'unavailable'} | ${generation} | ${fraction} | ${literal(item.branch)} |${showSelection ? ` ${selectedItem(item, result, activeSelection) ? 'selected' : '—'} |` : ''}`);
   });
   if (!result.items.length) add('');
-  if (!result.items.length) add('No verified governed Stories were found in this discovery scope.');
+  if (!result.items.length) add('No verified Stories were found in this discovery scope.');
   const unavailableProgress = result.items.filter((item) => !countsAvailable(item.progress)).length;
   if (unavailableProgress) {
     add('');

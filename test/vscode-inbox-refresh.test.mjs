@@ -300,7 +300,7 @@ test('Inbox refresh discovers Stories from an empty workspace and supports a fai
   store.current.snapshot = null;
   InboxPanel.refreshCurrent();
   assert.match(panel.webview.html, /No Stories are confirmed yet/);
-  assert.doesNotMatch(panel.webview.html, /Nothing governed is checked out/);
+  assert.doesNotMatch(panel.webview.html, /No Story or Initiative is checked out/);
   assert.deepEqual(buildInboxTree(null, null, [], '/repo/a', catalogIssue).map((node) => node.id),
     ['inbox:story-discovery-issue', 'inbox:refresh-stories']);
   catalogIssue = null;

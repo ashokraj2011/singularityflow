@@ -241,7 +241,7 @@ test('Story bootstrap defers mutable live agent and template availability to the
   await unlink(path.join(root, '.github/agents/developer.agent.md'));
   await unlink(path.join(root, 'singularity/templates/common/implementation.md'));
 
-  await assert.rejects(loadDefinition(root), /default governed agent|Template missing/);
+  await assert.rejects(loadDefinition(root), /default agent|Template missing/);
   const bootstrap = await loadDefinition(root, { storyBootstrap: true });
   // Bootstrap must not parse or fall back to today's live catalog. The accepted Story resolver
   // installs its verified saved catalog before any selection or composition.

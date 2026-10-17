@@ -426,7 +426,7 @@ function prefetchRefSubjects(root, refs, { workRoot, initiativeRoot, env }) {
     if (value.status !== 'ok') { result.set(name, { commit, roots: value, observed: null }); continue; }
     const errors = [];
     const contents = new Map();
-    if (failures.has(commit)) errors.push({ code: 'REF_TREE_LIST_FAILED', message: `Git could not list governed state at '${name}'.`, ref: name });
+    if (failures.has(commit)) errors.push({ code: 'REF_TREE_LIST_FAILED', message: `Git could not list lifecycle state at '${name}'.`, ref: name });
     for (const { file } of failures.has(commit) ? [] : subjectDirectories.filter((entry) => entry.commit === commit)) {
       const entry = leaves.get(`${commit}:${file}`);
       if (entry.status === 'missing') continue;
@@ -582,7 +582,7 @@ export function resolveContext(index, {
   if (!candidates.length) {
     if (creation) return { kind, id: requested, canonicalBranch: requested, selectedBranch: requested, source: 'creation-fallback', state: null };
     if (!required) return null;
-    throw new SingularityFlowError(`No governed ${kind ?? 'subject'} matches '${requested}'.`);
+    throw new SingularityFlowError(`No ${kind ?? 'subject'} matches '${requested}'.`);
   }
   const resolved = candidates[0];
   const selectedBranch = resolved.branches.includes(requested) ? requested : resolved.canonicalBranch;

@@ -140,7 +140,7 @@ async function verifiedWorkspaceMemberRepository(root, member, { strict }) {
   if (valid) return true;
   if (strict) {
     throw new SingularityFlowError(
-      `Workspace repository '${member.repositoryId}' no longer matches its reviewed Git identity. Select or repair the workspace before governed work.`,
+      `Workspace repository '${member.repositoryId}' no longer matches its reviewed Git identity. Select or repair the workspace before work.`,
       {
         code: 'WORKSPACE_REPOSITORY_IDENTITY_MISMATCH',
         details: {

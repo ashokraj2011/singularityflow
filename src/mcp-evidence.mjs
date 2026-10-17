@@ -155,7 +155,7 @@ function validateCommon(workflow, configured, values) {
     throw new SingularityFlowError(`MCP evidence can only target an in-progress phase; '${activePhase}' is ${workflow.phases[activePhase].status}.`, { code: 'MCP_EVIDENCE_PHASE_CLOSED' });
   }
   if (configured.phases.length && !configured.phases.includes(activePhase)) throw new SingularityFlowError(`MCP server '${values.server}' is not allowed in phase '${activePhase}'.`);
-  if (configured.agents.length && (!values.agent || !configured.agents.includes(values.agent))) throw new SingularityFlowError(`MCP server '${values.server}' requires one of these governed agents: ${configured.agents.join(', ')}.`);
+  if (configured.agents.length && (!values.agent || !configured.agents.includes(values.agent))) throw new SingularityFlowError(`MCP server '${values.server}' requires one of these agents: ${configured.agents.join(', ')}.`);
   if (!TOOL.test(values.tool ?? '')) throw new SingularityFlowError('MCP evidence requires --tool with an unqualified tool name.');
   if (configured.tools.length && !configured.tools.includes(values.tool)) throw new SingularityFlowError(`Tool '${values.tool}' is not allowed for MCP server '${values.server}'.`);
   return activePhase;
@@ -486,7 +486,7 @@ export async function verifyMcpEvidence(root, workflow, { itemDirectory = null }
     }
     if (!workflow.phaseOrder.includes(record.phase)) errors.push(`${prefix} references unknown phase '${record.phase ?? 'unknown'}'.`);
     if (configured.phases.length && !configured.phases.includes(record.phase)) errors.push(`${prefix} is outside MCP server '${record.server}' phase scope.`);
-    if (configured.agents.length && !configured.agents.includes(record.agent)) errors.push(`${prefix} was recorded by governed agent '${record.agent ?? 'unknown'}', outside the pinned assignment.`);
+    if (configured.agents.length && !configured.agents.includes(record.agent)) errors.push(`${prefix} was recorded by agent '${record.agent ?? 'unknown'}', outside the pinned assignment.`);
     if (!TOOL.test(record.tool ?? '')) errors.push(`${prefix} has an invalid tool name.`);
     else if (configured.tools.length && !configured.tools.includes(record.tool)
         && !(record.captureSource === 'observed-by-mcp-host'

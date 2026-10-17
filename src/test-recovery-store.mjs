@@ -379,7 +379,7 @@ export async function loadTrpAuthorityVerifier({ root, workRoot, policy, pinnedA
   const repositoryRoot = await realpath(root);
   const actualWorkRoot = await realpath(workRoot);
   const workRelative = path.relative(repositoryRoot, actualWorkRoot);
-  if (workRelative === '..' || workRelative.startsWith(`..${path.sep}`) || path.isAbsolute(workRelative)) fail('TRP work root is outside its governed repository');
+  if (workRelative === '..' || workRelative.startsWith(`..${path.sep}`) || path.isAbsolute(workRelative)) fail('TRP work root is outside its repository');
   const inventory = await loadTrpRecords(workRoot);
   const revocations = inventory.filter((record) => record.kind === 'phase-risk-revocation');
   const loaded = records ? [...records, ...inventory.filter((record) =>

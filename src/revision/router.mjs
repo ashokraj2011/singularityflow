@@ -104,11 +104,11 @@ export async function planRevisionRouteWithRegisteredAttachments({
   if (attachmentSetSha256 != null) {
     requireHash(attachmentSetSha256, 'Attachment set');
     if (typeof store?.read !== 'function') {
-      fail('REV_ATTACHMENT_SET_UNVERIFIED', 'A governed attachment store read is required for routing.');
+      fail('REV_ATTACHMENT_SET_UNVERIFIED', 'An attachment store read is required for routing.');
     }
     attachmentSet = await store.read(attachmentSetSha256);
     if (attachmentSet?.attachmentSetSha256 !== attachmentSetSha256) {
-      fail('REV_ATTACHMENT_SET_UNVERIFIED', 'Selected attachment set was not found in the governed store.');
+      fail('REV_ATTACHMENT_SET_UNVERIFIED', 'Selected attachment set was not found in the store.');
     }
   }
   return { plan: planRevisionRoute({ context, feedbackText, attachmentSet }), attachmentSet };

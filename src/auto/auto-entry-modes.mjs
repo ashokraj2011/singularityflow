@@ -59,7 +59,7 @@ export async function resolveAutoGoalSeed(root, goalId, options = {}) {
       config: options.definition ?? {}, refresh: options.refresh !== false
     });
     if (['achieved', 'abandoned', 'cancelled'].includes(loaded.state.status)) {
-      fail(`Governed Goal '${id}' is ${loaded.state.status} and cannot seed new work.`, 'AUTO_GOAL_NOT_ACTIVE');
+      fail(`Repository Goal '${id}' is ${loaded.state.status} and cannot seed new work.`, 'AUTO_GOAL_NOT_ACTIVE');
     }
     return Object.freeze({
       goalId: id,
@@ -188,7 +188,7 @@ function continuationAction(workflow, flight) {
       command: null,
       reason: workflow.status === 'closed'
         ? 'The Story is already closed.'
-        : 'This Story has no ratified Auto origin. Attaching automation requires a new exact intake and governed origin transition.'
+        : 'This Story has no ratified Auto origin. Attaching automation requires a new exact intake and origin transition.'
     };
   }
   if (flight.status === 'waiting-human') return {
@@ -203,7 +203,7 @@ function continuationAction(workflow, flight) {
   if (flight.status === 'recovery-required') return {
     status: 'recovery-required',
     command: `singularity-flow auto recover ${workflow.workItem.id} --flight ${flight.flightId}`,
-    reason: 'Recovery must rebuild and verify the governed boundary before execution.'
+    reason: 'Recovery must rebuild and verify the boundary before execution.'
   };
   return {
     status: flight.status,

@@ -72,7 +72,7 @@ export async function verifyRevisionCandidateApplicationTree(root, {
     .filter((path) => selected.get(path) !== prospective.get(path)).sort();
   if (differences.length) {
     refuse('REV_PUBLICATION_CANDIDATE_MISMATCH',
-      `The governed publication differs from the selected Candidate at ${differences.slice(0, 5).join(', ')}.`);
+      `The publication differs from the selected Candidate at ${differences.slice(0, 5).join(', ')}.`);
   }
   const projection = [...selected].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
   const core = {

@@ -30,7 +30,7 @@ async function verifiedScanRoot(base, boundary) {
   const requestedBoundary = path.resolve(boundary);
   if (!isInside(requestedBoundary, requestedBase)) {
     throw new SingularityFlowError(
-      'Schema census refused a governed root outside its verified repository or Git-state boundary.',
+      'Schema census refused a root outside its verified repository or Git-state boundary.',
       { code: 'SCHEMA_CENSUS_ROOT_UNSAFE' }
     );
   }
@@ -42,7 +42,7 @@ async function verifiedScanRoot(base, boundary) {
     if (!info) return null;
     if (info.isSymbolicLink() || !info.isDirectory()) {
       throw new SingularityFlowError(
-        'Schema census refused a governed root that is not a real directory inside its verified boundary.',
+        'Schema census refused a root that is not a real directory inside its verified boundary.',
         { code: 'SCHEMA_CENSUS_ROOT_UNSAFE' }
       );
     }
@@ -52,7 +52,7 @@ async function verifiedScanRoot(base, boundary) {
   ]);
   if (!isInside(canonicalBoundary, canonicalBase)) {
     throw new SingularityFlowError(
-      'Schema census refused a governed root that resolves outside its verified repository or Git-state boundary.',
+      'Schema census refused a root that resolves outside its verified repository or Git-state boundary.',
       { code: 'SCHEMA_CENSUS_ROOT_UNSAFE' }
     );
   }
@@ -491,7 +491,7 @@ function lifecycleRefFiles(root, refs, roots, historyDir, {
           structuralFailures.push(unreadableFile(
             `$ref/${entry.ref}/${relativePath}`,
             'SCHEMA_CENSUS_LIFECYCLE_REF_FILE_UNSAFE',
-            'governed lifecycle JSON on a branch ref must be a regular Git file'
+            'lifecycle JSON on a branch ref must be a regular Git file'
           ));
           return false;
         }

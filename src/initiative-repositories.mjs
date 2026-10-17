@@ -631,18 +631,18 @@ async function materializeStoryContext(root, portfolio, initiative, story, targe
   for (const item of sources) {
     const source = item.initiativeRelative
       ? await secureInitiativePath(root, portfolio, initiative.initiative.id, item.output.path, {
-        label: `Governed Story context '${item.id}'`,
+        label: `Story context '${item.id}'`,
         mustExist: true,
         type: 'file'
       })
       : await secureRepositoryPath(root, item.output.path, {
-        label: `Governed Story context '${item.id}'`,
+        label: `Story context '${item.id}'`,
         mustExist: true,
         type: 'file'
       });
     const current = await snapshot(source.absolute);
     if (current.sha256 !== item.output.sha256) {
-      throw new SingularityFlowError(`Governed Story context '${item.id}' changed after approval.`);
+      throw new SingularityFlowError(`Story context '${item.id}' changed after approval.`);
     }
     const extension = path.extname(item.output.path) || '.md';
     const relative = path.posix.join(contextRoot, `${item.id}${extension}`);

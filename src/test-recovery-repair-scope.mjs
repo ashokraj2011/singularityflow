@@ -41,19 +41,19 @@ export function inspectTrpRepairScope(root, { workflow, workRoot, baseCommit, re
     const name = entry.newPath ?? entry.oldPath;
     const paths = [entry.oldPath, entry.newPath].filter(Boolean);
     let disposition = 'scope-review-required';
-    let reason = 'Product, runner or unclassified changes need a separate governed scope; this pilot cannot authorize them.';
+    let reason = 'Product, runner or unclassified changes need a separate scope; this pilot cannot authorize them.';
     if ((entry.oldPath && !isRegular(entry.oldMode)) || (entry.newPath && !isRegular(entry.newMode))) {
       reason = 'Symlink, submodule or non-regular changes cannot qualify readiness repair.';
     } else if (paths.every(value => projected.has(value))) {
       disposition = 'approved-configuration-input'; reason = 'Exact pinned configuration projection, not repair output.';
     } else if (paths.every(value => inRoot(value, ownedRoot))) {
-      disposition = 'story-owned-evidence'; reason = 'Story metadata remains subject to its snapshot and governed transaction checks.';
+      disposition = 'story-owned-evidence'; reason = 'Story metadata remains subject to its snapshot and transaction checks.';
     } else if (paths.every(documentation)) {
       disposition = 'documentation'; reason = 'Conventional top-level project notes.';
     } else if (paths.some(testPath)) {
       if (entry.status === 'added' && isTestSourceName(name)) {
         disposition = 'added-test'; reason = 'New executable test; existing test sources remain byte-identical.';
-      } else reason = 'Changing, deleting, moving or replacing baseline tests/fixtures could weaken their meaning; exact governed scope review is unavailable in this pilot.';
+      } else reason = 'Changing, deleting, moving or replacing baseline tests/fixtures could weaken their meaning; exact scope review is unavailable in this pilot.';
     } else if (path.posix.basename(name) === 'package.json' && entry.status === 'modified'
       && dependencyOnly(readFileAt(root, baseCommit, name), readFileAt(root, repairCommit, name))) {
       disposition = 'dependency-configuration'; reason = 'Only dependency values/additions changed; scripts and all other manifest fields are unchanged.';

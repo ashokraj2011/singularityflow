@@ -138,7 +138,7 @@ export async function composeEvidenceReceipt(root, config, workflow, packet) {
     reviewPacket: { status: 'exact', sha256: packet.packetSha256 },
     nextHumanAction: packet.status === 'awaiting_review'
       ? 'Review and decide this phase.'
-      : 'Continue to the next governed phase.',
+      : 'Continue to the next phase.',
     links: {
       reviewPacket: workflow.lineage?.submissions?.find((entry) => entry.packetSha256 === packet.packetSha256)?.path ?? null,
       trace: `singularity-flow spec trace --work-id ${workflow.workItem.id}`,

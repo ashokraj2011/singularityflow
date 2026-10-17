@@ -845,7 +845,7 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
     text(value.description, 'Agent description', 1024); const prompt = body(value, 'prompt', 'promptAsset', 'Agent prompt');
     if (!Array.isArray(value.toolBindings) || value.toolBindings.length) fail('New agent tools require an approved effective-host mapping; no general shell or wildcard grant is emitted.', 'WCA_OPERATION_MAPPING_UNAVAILABLE');
     for (const skill of optionalArray(value.skillRefs, 'Agent skill references')) resolve(skill, 'skill', 'Agent skill reference');
-    if (value.skillRefs?.length) add('WCA_SKILL_ASSIGNMENT_UNAVAILABLE', `definitions.agents.${key}.skillRefs`, 'The governed Agent Markdown owner has no admitted local skill-assignment renderer; references are not silently discarded.');
+    if (value.skillRefs?.length) add('WCA_SKILL_ASSIGNMENT_UNAVAILABLE', `definitions.agents.${key}.skillRefs`, 'The Agent Markdown owner has no admitted local skill-assignment renderer; references are not silently discarded.');
     const phases = [...symbols.phases.values()].filter((phase) => {
       const reference = typeof phase.agent === 'string' ? { source: 'candidate', kind: 'agent', id: phase.agent } : phase.agent?.ref ?? phase.agent;
       return reference?.source === 'candidate' && reference.kind === 'agent' && reference.id === key;

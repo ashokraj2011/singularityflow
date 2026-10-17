@@ -49,8 +49,8 @@ export function assertBaseCarriesGovernance(root, {
   if (!baseRef || fileAtRef(root, baseRef, WORKFLOW_PATH) !== null) return;
   throw new SingularityFlowError(
     `Base branch '${base}' does not carry ${WORKFLOW_PATH} yet, so a Story branch cut from it would `
-    + `lose the governed definition currently on '${currentBranch}'.\n`
-    + `Publish the reviewed governance to 'sflow/config' first, then run this again. `
+    + `lose the workflow definition currently on '${currentBranch}'.\n`
+    + `Publish the reviewed configuration to 'sflow/config' first, then run this again. `
     + `The application branch '${base}' does not need to change. Nothing was changed.`
   );
 }
@@ -134,7 +134,7 @@ export async function resumeCommand(positionals, options) {
   }
   if (!json) {
     summary(workflow);
-    console.log(`Active governed agent: ${session.agentLabel ?? session.agent} (${session.agent})`);
+    console.log(`Active agent: ${session.agentLabel ?? session.agent} (${session.agent})`);
   }
   const active = currentPhase(workflow);
   if (active && !json) {
@@ -234,7 +234,7 @@ export async function capabilityDoctorStoryPin(root) {
     const source = await readConfigurationSource(root, { verify: true });
     if (!storyPresent) {
       throw new SingularityFlowError(
-        `${CONFIGURATION_SOURCE_PATH} is not bound to a governed Story on branch '${currentBranch}'.`
+        `${CONFIGURATION_SOURCE_PATH} is not bound to a Story on branch '${currentBranch}'.`
       );
     }
     const pinned = workflow?.resolution?.configurationSource;

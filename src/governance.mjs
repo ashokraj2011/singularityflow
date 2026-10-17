@@ -556,7 +556,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       if (!authority.authorized) refuse('gate.approval.unauthorized', `${phaseId} approval by '${decision.actor?.email ?? decision.actor?.login ?? decision.actor?.name ?? 'unknown'}' lacks configured authority`, { phase: phaseId });
       else if (decision.authorityGroup !== authority.authorityGroup) refuse('gate.approval.authority-mismatch', `${phaseId} approval authority record does not match the pinned policy`, { phase: phaseId });
       if (!decision.identityAssurance) refuse('gate.approval.assurance-missing', `${phaseId} approval is missing identity-assurance metadata`, { phase: phaseId });
-      if (decision.selfApproval) warnings.push(`${phaseId} is self-approved by ${decision.actor?.name ?? 'unknown'}; governed agent '${decision.agent ?? 'unavailable'}' is execution context, not independent review`);
+      if (decision.selfApproval) warnings.push(`${phaseId} is self-approved by ${decision.actor?.name ?? 'unknown'}; agent '${decision.agent ?? 'unavailable'}' is execution context, not independent review`);
     }
     for (const artifact of phase.artifacts) {
       const current = await snapshot(path.join(root, artifact.path));

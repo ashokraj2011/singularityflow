@@ -291,7 +291,7 @@ export async function validateFosPublicationBoundary(input, {
   const bound = kernelResult?.disposition === 'allow'
     && Object.entries(request).every(([key, value]) => kernelResult[key] === value);
   if (!bound) fail(
-    'The governance kernel did not grant this exact publication request.', 'NOT_AUTHORIZED'
+    'The kernel did not grant this exact publication request.', 'NOT_AUTHORIZED'
   );
   const body = {
     kind: 'fos-publication-authorization',

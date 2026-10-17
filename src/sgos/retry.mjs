@@ -283,7 +283,7 @@ async function retryBoundary(root, processId, taskInstanceId) {
   }
   const maximumAttempts = retryCeiling(program, template);
   if (task.attemptIds.length >= maximumAttempts) {
-    fail(`Task '${taskInstanceId}' exhausted its ${maximumAttempts} governed attempt(s).`,
+    fail(`Task '${taskInstanceId}' exhausted its ${maximumAttempts} attempt(s).`,
       'SGOS_TASK_RETRY_ATTEMPTS_EXHAUSTED', {
         attempts: task.attemptIds.length, maximumAttempts
       });

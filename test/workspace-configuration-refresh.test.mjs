@@ -1847,7 +1847,7 @@ test('configuration refresh refuses a cross-file-invalid preserved agent and acc
 
   await assert.rejects(() => refreshPackagedConfiguration(root), (error) => {
     assert.equal(error.code, 'CONFIGURATION_REFRESH_INVALID');
-    assert.match(error.message, /testing.*default governed agent/i);
+    assert.match(error.message, /testing.*default agent/i);
     assert.match(error.message, /--resolve PATH=bundled/);
     assert.ok(error.details.conflicts.some((entry) => entry.path === '.github/agents/qa.agent.md'));
     return true;
@@ -1904,7 +1904,7 @@ test('workspace refresh preview returns an actionable packaged-agent repair inst
   assert.equal(blocked.status, 'blocked');
   assert.equal(blocked.planId, undefined, 'an invalid contract cannot produce an applicable plan');
   assert.equal(blocked.results[0].status, 'blocked');
-  assert.match(blocked.results[0].error, /testing.*default governed agent/i);
+  assert.match(blocked.results[0].error, /testing.*default agent/i);
   assert.deepEqual(blocked.results[0].repair, {
     kind: 'packaged-agents',
     label: 'Restore packaged agents',

@@ -30,8 +30,8 @@ export async function capabilityDoctor(root, { capabilityId = null, offline = fa
   else {
     const ledger = definition.ledger;
     checks.push(ledger.enabled
-      ? check('state-config', 'pass', `Governed state uses orphan branch '${ledger.branch}' with ${ledger.publication} publication.`)
-      : check('state-config', 'warn', 'The governed orphan state branch is disabled.'));
+      ? check('state-config', 'pass', `The Flow Ledger uses orphan branch '${ledger.branch}' with ${ledger.publication} publication.`)
+      : check('state-config', 'warn', 'The Flow Ledger is disabled.'));
     if (ledger.enabled) {
       try {
         const state = await ledgerStatus(root, ledger, { offline });

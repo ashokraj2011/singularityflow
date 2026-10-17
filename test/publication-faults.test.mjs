@@ -2004,7 +2004,7 @@ test('governed publication rejects a pre-staged governed path without changing H
 
   await assert.rejects(
     () => commitIsolated(root, 'must not commit', ['governed.json'], { expectedHead: before }),
-    /already staged governed path/
+    /already staged path/
   );
   assert.equal(git(['rev-parse', 'HEAD'], root), before);
   assert.equal(git(['diff', '--cached', '--binary'], root), stagedBefore);

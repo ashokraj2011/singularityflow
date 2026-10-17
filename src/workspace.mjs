@@ -2239,7 +2239,7 @@ export async function previewWorkspaceCapabilityChange(workspacePath, capability
     const active = archiveReadiness.activeStories.filter((story) => dropIds.includes(story.repository));
     if (active.length) {
       throw new SingularityFlowError(
-        `Cannot drop local repository checkout${dropIds.length === 1 ? '' : 's'} while governed work is active: `
+        `Cannot drop local repository checkout${dropIds.length === 1 ? '' : 's'} while work is active: `
           + active.map((story) => `${story.id} in ${story.repository} is ${story.status}`).join('; '),
         { code: 'WORKSPACE_CAPABILITY_DROP_ACTIVE_STORY', details: { activeStories: active } }
       );
@@ -2468,7 +2468,7 @@ export async function changeWorkspaceCapability(workspacePath, capabilityId, opt
     const active = readiness.activeStories.filter((story) => candidateIds.includes(story.repository));
     if (active.length) {
       throw new SingularityFlowError(
-        `Governed work became active after preview: ${active.map((story) => `${story.id} in ${story.repository}`).join(', ')}. Nothing was dropped.`,
+        `Work became active after preview: ${active.map((story) => `${story.id} in ${story.repository}`).join(', ')}. Nothing was dropped.`,
         { code: 'WORKSPACE_CAPABILITY_PLAN_STALE' }
       );
     }

@@ -451,12 +451,12 @@ async function assertNoRepositoryResetBarrier(root, ttlMs = DEFAULT_TTL_MS) {
       ? `PID ${state.owner.pid ?? 'unknown'} on ${state.owner.host ?? 'unknown'} since ${state.owner.acquiredAt ?? 'unknown'}`
       : 'another process that is still acquiring it';
     throw new SingularityFlowError(
-      `Repository reinitialization is in progress (${held}). Wait for it to finish before starting governed work.`,
+      `Repository reinitialization is in progress (${held}). Wait for it to finish before starting work.`,
       { code: 'FACTORY_RESET_IN_PROGRESS', details: { lock: directory, owner: state.owner } }
     );
   }
   throw new SingularityFlowError(
-    'Repository reinitialization state changed while governed work was starting. Retry after it becomes stable.',
+    'Repository reinitialization state changed while work was starting. Retry after it becomes stable.',
     { code: 'FACTORY_RESET_IN_PROGRESS', details: { lock: directory } }
   );
 }
@@ -514,7 +514,7 @@ export async function assertNoActiveSubjectLocks(root) {
       : path.basename(lock.directory);
   });
   throw new SingularityFlowError(
-    `Repository reinitialization requires a quiescent repository; active governed operation(s): `
+    `Repository reinitialization requires a quiescent repository; active operation(s): `
     + `${descriptions.join(', ')}${locks.length > descriptions.length ? ` and ${locks.length - descriptions.length} more` : ''}. `
     + 'Wait for them to finish or stop them through their normal recovery path, then preview again.',
     { code: 'FACTORY_RESET_ACTIVE_OPERATIONS', details: { locks } }
@@ -1125,7 +1125,7 @@ export async function withRepositoryResetBarrier(root, callback, {
   } catch (error) {
     barrierWarning = `The repository reinitialization barrier could not be cleared at `
       + `${directory}: ${error.message}. Close other SFlow processes and remove that stale barrier `
-      + 'through the documented recovery path before starting governed work.';
+      + 'through the documented recovery path before starting work.';
   }
   if (barrierWarning) {
     if (operationError && typeof operationError.message === 'string') {

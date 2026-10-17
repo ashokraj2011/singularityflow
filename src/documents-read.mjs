@@ -98,7 +98,7 @@ export async function governedDocumentPath(root, config, workflow, record) {
   }
   const fileInfo = await lstat(absolute).catch(() => null);
   if (!fileInfo?.isFile() || fileInfo.isSymbolicLink()) {
-    throw new SingularityFlowError(`Document '${record.id}' is not a regular governed file.`);
+    throw new SingularityFlowError(`Document '${record.id}' is not a regular file.`);
   }
   const [realItemRoot, realDocument] = await Promise.all([realpath(itemRoot), realpath(absolute)]);
   const realRelative = path.relative(realItemRoot, realDocument);

@@ -661,7 +661,7 @@ export async function assertCurrentStoredProcessBinding(root, process) {
     assertSgosStoryAuthority(stored.subjectAuthority, subjectAuthority);
     assertSgosStoryAuthority(process.authorityBinding.subjectAuthority, subjectAuthority);
   } else if (stored.subjectAuthority !== null || process.authorityBinding?.subjectAuthority != null) {
-    fail('A non-Story Process cannot claim governed Story authority.',
+    fail('A non-Story Process cannot claim Story authority.',
       'SGOS_STORY_AUTHORITY_MISMATCH');
   }
   const current = buildSgosProcessBinding(root, {
@@ -781,7 +781,7 @@ async function startSgosProcessWithinPolicy(root, options = {}) {
     maximumAttempts: SGOS_INSTALLED_LIMITS.maximumAttemptsPerTask
   });
   assertProgram(program);
-  if (!subject?.id) fail('An SGOS process must bind an existing governed subject.', 'SGOS_SUBJECT_REQUIRED');
+  if (!subject?.id) fail('An SGOS process must bind an existing subject.', 'SGOS_SUBJECT_REQUIRED');
   const subjectKind = subject.kind ?? 'story';
   if (!SUBJECT_KINDS.has(subjectKind)) {
     fail(`Unsupported SGOS subject kind '${subjectKind}'. Allowed: story, repository.`,
@@ -1207,7 +1207,7 @@ function blockedOpcodeReason(opcode) {
   };
   if (opcode === 'DEVICE') return {
     code: 'SGOS_DEVICE_EXECUTION_UNAVAILABLE',
-    message: 'DEVICE is blocked until a conforming governed device is installed.'
+    message: 'DEVICE is blocked until a conforming device is installed.'
   };
   return { code: 'SGOS_OPCODE_UNSUPPORTED', message: `Opcode '${opcode}' is not supported by the sequential runtime.` };
 }
@@ -2163,7 +2163,7 @@ async function runNextSgosTaskWithinPolicy(root, processId, {
         code: template.opcode === 'AGENT'
           ? 'SGOS_AGENT_EXECUTION_UNAVAILABLE'
           : 'SGOS_DEVICE_EXECUTION_UNAVAILABLE',
-        message: error?.message ?? 'The exact governed adapter is unavailable.',
+        message: error?.message ?? 'The exact adapter is unavailable.',
         causeCode: error?.code ?? 'SGOS_GVM_ADAPTER_UNAVAILABLE'
       }, clock);
     }
@@ -2172,7 +2172,7 @@ async function runNextSgosTaskWithinPolicy(root, processId, {
   if (handlerKind && !operationHandler(handlers, handlerKind, template)) {
     return Object.freeze({ status: 'unavailable', reason: Object.freeze({
       code: `SGOS_${template.opcode}_HANDLER_REQUIRED`,
-      message: `${template.opcode} '${template.operation ?? task.taskTemplateId}' has no governed handler.`
+      message: `${template.opcode} '${template.operation ?? task.taskTemplateId}' has no handler.`
     }), taskInstanceId: task.taskInstanceId, process: before });
   }
   if (template.opcode === 'END' && !allOtherTasksTerminal(before, task.taskInstanceId)) {

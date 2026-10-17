@@ -91,7 +91,7 @@ test('isolated ungoverned local name refuses before authority, fetch, or worktre
   const before = { head: git('rev-parse', 'HEAD'), worktrees: git('worktree', 'list', '--porcelain') };
   const result = invoke(process.execPath, [bin, 'start', 'LOCAL-OCCUPIED', '--json',
     '--isolated-worktree', '--from-branch', 'main'], root, { allowFailure: true, probe: true });
-  assertLocalOnlyRefusal(result, git, /neither governed Story state nor a materialized Story seed/u, before);
+  assertLocalOnlyRefusal(result, git, /neither Story state nor a materialized Story seed/u, before);
   assert.equal(await readFile(path.join(root, 'unrelated-draft.txt'), 'utf8'),
     'preserve unrelated work\n');
 });

@@ -1119,7 +1119,7 @@ test('My Work resolves an active workspace when no editor folder is open', async
     .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   assert.match(returnedText, /path\(s\) changed/,
     'the built extension reconciles the real interval instead of returning a hidden failure');
-  assert.doesNotMatch(result.webview.html, /No governed work interval is open/);
+  assert.doesNotMatch(result.webview.html, /No work interval is open/);
 });
 
 test('a selected workspace with a missing lead repository offers repair instead of claiming no workspace is active', async (t) => {

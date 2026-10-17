@@ -168,18 +168,18 @@ export function inspectStoryStartReadiness({
       resolved = assertWorkTypeStartable(resolveWorkType(definition, workType));
       checks.push(check(
         'workflow', 'pass', 'STORY_WORKFLOW_VALID',
-        `Workflow '${workType}' resolves to ${resolved.phases.length} governed phase(s).`
+        `Workflow '${workType}' resolves to ${resolved.phases.length} phase(s).`
       ));
       const invalid = resolved.phases.find((phase) => !phase.defaultAgent
         || !definition.agents?.[phase.defaultAgent]);
       checks.push(invalid
         ? check(
             'governed-agents', 'block', 'STORY_PHASE_DEFAULT_AGENT_INVALID',
-            `Phase '${invalid.id}' does not resolve to exactly one installed default governed agent.`
+            `Phase '${invalid.id}' does not resolve to exactly one installed default agent.`
           )
         : check(
             'governed-agents', 'pass', 'STORY_PHASE_DEFAULT_AGENTS_VALID',
-            'Every phase resolves to an installed default governed agent.'
+            'Every phase resolves to an installed default agent.'
           ));
     } catch (error) {
       checks.push(check(

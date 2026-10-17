@@ -53,7 +53,7 @@ function safeEditPath(value) {
     fail('REV_AGENT_GIT_MUTATION_DENIED', 'Git behavior metadata cannot be edited by an execution unit.');
   }
   if (!isApplicationPath(relative, { caseInsensitivePaths: true })) {
-    fail('REV_ATTEMPT_SCOPE_REFUSED', 'Governed state is not an application edit target.');
+    fail('REV_ATTEMPT_SCOPE_REFUSED', 'Lifecycle state is not an application edit target.');
   }
   return relative;
 }
@@ -66,7 +66,7 @@ function allowedPathSet(values, context) {
   if (result.size !== values.length
       || new Set([...result].map((item) => item.toLocaleLowerCase('en-US'))).size !== result.size
       || [...result].some((item) => !isApplicationPath(item, context))) {
-    fail('REV_ATTEMPT_SCOPE_REFUSED', 'Allowed paths overlap governed state or are ambiguous.');
+    fail('REV_ATTEMPT_SCOPE_REFUSED', 'Allowed paths overlap lifecycle state or are ambiguous.');
   }
   return result;
 }

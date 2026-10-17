@@ -838,7 +838,7 @@ test('MCP registry validates agent, phase, tool, approval, and evidence declarat
   const result = configured();
   assert.deepEqual(result.playwright.tools, ['browser_navigate', 'browser_take_screenshot']);
   assert.equal(result.playwright.evidence.captureResults, true);
-  assert.throws(() => normalizeMcpServers({ bad: { agents: ['missing'] } }, { agents: ['qa'] }), /unknown governed agent/);
+  assert.throws(() => normalizeMcpServers({ bad: { agents: ['missing'] } }, { agents: ['qa'] }), /unknown agent/);
   assert.throws(() => normalizeMcpServers({ bad: { phases: ['missing'] } }, { phases: ['verification'] }), /unknown phase/);
   assert.throws(() => normalizeMcpServers({ bad: { tools: ['playwright\/browser_navigate'] } }), /unqualified MCP tool name/);
   assert.throws(() => normalizeMcpServers({ bad: { approval: 'never' } }), /confirm or host/);
@@ -1251,7 +1251,7 @@ test('MCP provenance records only governed tools and hash-bound work-item output
   assert.equal(result.record.targetGeneration, 2);
   assert.equal(result.record.output.sha256.length, 64);
   await assert.rejects(() => recordMcpEvidence(root, workflow, { server: 'playwright', tool: 'browser_install', agent: 'qa' }), /not allowed/);
-  await assert.rejects(() => recordMcpEvidence(root, workflow, { server: 'playwright', tool: 'browser_navigate', agent: 'developer' }), /requires one of these governed agents/);
+  await assert.rejects(() => recordMcpEvidence(root, workflow, { server: 'playwright', tool: 'browser_navigate', agent: 'developer' }), /requires one of these agents/);
 });
 
 test('MCP evidence rejects symbolic-link sources and credential-bearing URLs', async () => {

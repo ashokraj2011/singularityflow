@@ -147,8 +147,8 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
     // This local name can never be adopted, irrespective of current authority or base. Refuse in
     // the launch checkout before a seal/fetch or disposable worktree is created and rolled back.
     throw new SingularityFlowError(
-      `Local branch '${canonicalBranch}' exists but contains neither governed Story state nor a materialized Story seed. `
-      + 'Singularity Flow will not adopt an ungoverned branch as a new Story. Rename or remove that branch, then retry.',
+      `Local branch '${canonicalBranch}' exists but contains neither Story state nor a materialized Story seed. `
+      + 'Singularity Flow will not adopt such a branch as a new Story. Rename or remove that branch, then retry.',
       { code: 'STORY_BRANCH_EXISTS' }
     );
   }
@@ -571,8 +571,8 @@ export async function startCommand(positionals, options) {
   if (localStoryExists
       && fileAtRef(root, localStoryRef, storySeedRelative) === null) {
     throw new SingularityFlowError(
-      `Local branch '${canonicalBranch}' exists but contains neither governed Story state nor a materialized Story seed. `
-      + 'Singularity Flow will not adopt an ungoverned branch as a new Story. Rename or remove that branch, then retry.',
+      `Local branch '${canonicalBranch}' exists but contains neither Story state nor a materialized Story seed. `
+      + 'Singularity Flow will not adopt such a branch as a new Story. Rename or remove that branch, then retry.',
       { code: 'STORY_BRANCH_EXISTS' }
     );
   }
@@ -856,13 +856,13 @@ export async function startCommand(positionals, options) {
     if (existing) {
       if (referenceRequests.length) {
         throw new SingularityFlowError(
-          `Source ${requestedExternalSource.stableId} is already governed as Story '${existing.id}'. `
+          `Source ${requestedExternalSource.stableId} is already tracked as Story '${existing.id}'. `
           + 'Reference repositories are immutable intake inputs and cannot be added while attaching.',
           { code: 'REFERENCE_REPOSITORY_STORY_EXISTS' }
         );
       }
       if (!optionBoolean(options, 'json')) {
-        console.log(`Source ${requestedExternalSource.stableId} is already governed as ${existing.id}; attaching instead of creating ${id}.`);
+        console.log(`Source ${requestedExternalSource.stableId} is already tracked as ${existing.id}; attaching instead of creating ${id}.`);
       }
       return resumeCommand(['resume', existing.id], { ...options, fetch: true });
     }
@@ -872,8 +872,8 @@ export async function startCommand(positionals, options) {
 
   if (refExists(root, localStoryRef) && !localStory && !materializedSeed) {
     throw new SingularityFlowError(
-      `Local branch '${canonicalBranch}' exists but contains neither governed Story state nor a materialized Story seed. `
-      + 'Singularity Flow will not adopt an ungoverned branch as a new Story. Rename or remove that branch, then retry.',
+      `Local branch '${canonicalBranch}' exists but contains neither Story state nor a materialized Story seed. `
+      + 'Singularity Flow will not adopt such a branch as a new Story. Rename or remove that branch, then retry.',
       { code: 'STORY_BRANCH_EXISTS' }
     );
   }
@@ -1677,7 +1677,7 @@ export async function startCommand(positionals, options) {
     stage: 'configuration-ready', workItemRelative: workDirRelative(config, id)
   });
   if (receiptToken && !receipt) {
-    throw new SingularityFlowError('A start selection receipt requires an initialized governed definition before checkout.');
+    throw new SingularityFlowError('A start selection receipt requires an initialized workflow definition before checkout.');
   }
   // Re-run the same pure gate against the exact definition materialized onto the Story checkout
   // before any governed state, commit, or publication is created, closing the preflight race.

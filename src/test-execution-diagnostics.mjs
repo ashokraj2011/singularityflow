@@ -25,7 +25,7 @@ const FAILURE_GUIDANCE = Object.freeze({
     retryCondition: 'source-reviewed'
   },
   'failed-tests': {
-    guidance: 'Repair the reported failing tests or implementation in the governed phase, then run the tests again.',
+    guidance: 'Repair the reported failing tests or implementation in the phase, then run the tests again.',
     retryCondition: 'test-failure-repaired'
   },
   'process-failed-with-passing-report': {

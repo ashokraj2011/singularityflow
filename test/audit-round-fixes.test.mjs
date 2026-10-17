@@ -95,7 +95,7 @@ test('the reset guard refuses rather than reporting a clean tree it could not re
   await writeFile(path.join(root, '.git', 'index'), 'not-an-index');
   await assert.rejects(
     () => factoryResetPlan(root),
-    /Cannot determine whether .* has uncommitted governed changes/
+    /Cannot determine whether .* has uncommitted changes/
   );
 });
 

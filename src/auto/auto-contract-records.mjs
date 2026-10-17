@@ -479,7 +479,7 @@ export function validateAutoPhaseContractSnapshot(value, {
   if (canonicalJson(contextManifest) !== canonicalJson(value.contextManifest)
       || canonicalJson(taskContract) !== canonicalJson(value.taskContract)
       || canonicalJson(executionSelection) !== canonicalJson(value.executionSelection)) {
-    fail('Auto phase-contract snapshot requires a governed composite migration.',
+    fail('Auto phase-contract snapshot requires a composite migration.',
       'AUTO_PHASE_CONTRACT_MIGRATION_REQUIRED');
   }
   const identities = [contextManifest, taskContract, executionSelection];
@@ -880,7 +880,7 @@ export async function restoreAutoContractRecords(root, phaseContracts = {}, exec
     ).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
     if (existing && existing[descriptor.hash] !== record[descriptor.hash]) {
       fail(
-        `Governed Auto checkpoint record '${record[descriptor.id]}' differs from its disposable sidecar.`,
+        `Auto checkpoint record '${record[descriptor.id]}' differs from its disposable sidecar.`,
         'AUTO_CONTRACT_RECORD_CONFLICT', {
           family,
           recordId: record[descriptor.id],

@@ -176,7 +176,7 @@ export class GitPublicationUnitOfWork {
     if (publication.expectedLocalHead !== undefined
       && String(publication.expectedLocalHead).toLowerCase() !== publicationHead.toLowerCase()) {
       throw new SingularityFlowError(
-        `${subject.kind} '${subject.id}' local branch moved before its governed publication transaction began. `
+        `${subject.kind} '${subject.id}' local branch moved before its publication transaction began. `
         + 'Reload the lifecycle state and retry; nothing was changed.',
         {
           code: 'PUBLICATION_LOCAL_PARENT_CHANGED',
@@ -566,7 +566,7 @@ export class GitPublicationUnitOfWork {
       await clearPublicationJournal(root, subject, { transactionId: journal.transactionId });
       if (revisionPrepared && error.revisionAttestationBindFailed === true) {
         throw new SingularityFlowError(
-          `Story '${subject.id}' retained exact governed commit ${sourceCommit.slice(0, 12)}, `
+          `Story '${subject.id}' retained exact commit ${sourceCommit.slice(0, 12)}, `
           + 'but its REV publication attestation could not be completed. The exact pending '
           + 'publication marker was retained; run Story sync/recovery to complete the '
           + 'REV attestation before another mutation.',

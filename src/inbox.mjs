@@ -132,7 +132,7 @@ export async function approvalInbox(root, definition, { fetch = true, now = new 
 
 export function approvalInboxText(snapshot) {
   const warning = snapshot.unavailableCount
-    ? `\nWarning: ${snapshot.unavailableCount} governed state record(s) are unavailable or conflicting; they were not treated as absent.\nCopilot: ${copilotCommandForCommand('singularity-flow doctor')}\nShell: singularity-flow doctor\nVS Code (model-free): not available for this action\n`
+    ? `\nWarning: ${snapshot.unavailableCount} lifecycle state record(s) are unavailable or conflicting; they were not treated as absent.\nCopilot: ${copilotCommandForCommand('singularity-flow doctor')}\nShell: singularity-flow doctor\nVS Code (model-free): not available for this action\n`
     : '';
   if (!snapshot.items.length) return `Pending approval inbox — ${snapshot.remote}\n\nNo phases are awaiting approval on readable committed remote work-item branches.${warning}\n`;
   const rows = snapshot.items.map((item) => ({

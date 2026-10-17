@@ -123,7 +123,7 @@ async function publishControlBoundary(root, state, options = {}, bind = null) {
       };
     }, { expectedCheckpoint: state.checkpointSha256 });
     throw new SingularityFlowError(
-      `Auto flight '${state.flightId}' recorded the decision locally but could not publish its governed Human Boundary checkpoint.`, {
+      `Auto flight '${state.flightId}' recorded the decision locally but could not publish its Human Boundary checkpoint.`, {
         code: 'AUTO_CHECKPOINT_PUBLICATION_FAILED', cause: error,
         details: {
           flightId: state.flightId, status: recovery.status,
@@ -365,7 +365,7 @@ async function authorizeAutoRepairInternal(
         if (state.boundaryCheckpoint?.checkpointSha256 !== used.checkpointSha256
             || state.boundaryCheckpoint?.commit !== used.checkpointCommit
             || state.boundaryCheckpoint?.position !== 'repair-authorized') {
-          fail('The recorded repair reservation is not bound to its exact governed checkpoint.',
+          fail('The recorded repair reservation is not bound to its exact checkpoint.',
             'AUTO_REPAIR_PLAN_STALE', {
               repairPlanId: plan.repairPlanId,
               checkpointSha256: used.checkpointSha256,
@@ -437,10 +437,10 @@ async function authorizeAutoRepairInternal(
     ? await options.loadStoryAuthority(state) : await loadPinnedStoryAuthority(state);
   const generationIntentSha256 = authority.phase?.generationIntent?.receiptSha256 ?? null;
   if (!generationIntentSha256) {
-    fail('The bounded repair cannot bind an exact governed generation intent.',
+    fail('The bounded repair cannot bind an exact generation intent.',
       'AUTO_GENERATION_INTENT_REQUIRED', {
         phase: state.story.phase,
-        nextAction: `Open a governed generation for phase '${state.story.phase}', then review the repair again.`
+        nextAction: `Open a generation for phase '${state.story.phase}', then review the repair again.`
       });
   }
   const attemptNumber = Number(state.counters?.authoringAttempts?.[state.story.phase] ?? 0) + 1;

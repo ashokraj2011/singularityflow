@@ -254,9 +254,9 @@ async function capturePackagedPlanningPrompt(root, config, workId) {
 }
 
 async function captureInstalledAgent(root, config, workId, agent) {
-  const captured = await stableFile(agent.file, `Governed agent '${agent.id}'`);
-  if (captured.sha256 !== digestHex(agent.sha256, `Governed agent '${agent.id}'`)) {
-    fail(`Governed agent '${agent.id}' differs from its selected digest.`, 'WFA_SOURCE_STALE');
+  const captured = await stableFile(agent.file, `Agent '${agent.id}'`);
+  if (captured.sha256 !== digestHex(agent.sha256, `Agent '${agent.id}'`)) {
+    fail(`Agent '${agent.id}' differs from its selected digest.`, 'WFA_SOURCE_STALE');
   }
   const blob = await installBlob(root, config, workId, {
     ...captured, mediaType: 'text/markdown; charset=utf-8'
@@ -285,7 +285,7 @@ async function captureAttachedLibrarySkills(root, config, workId, agent, phaseId
   for (const attachment of effectiveLibrarySkills(agent)) {
     if (attachment.phases.length && !attachment.phases.some((id) => phaseIds.has(id))) continue;
     const logicalId = `agent:${agent.id}:skill:${attachment.id}`;
-    const label = `Skill '${attachment.id}' attached to governed agent '${agent.id}'`;
+    const label = `Skill '${attachment.id}' attached to agent '${agent.id}'`;
     const source = await secureRepositoryPath(configurationReadRoot(root), librarySkillPath(attachment.id), { label, type: 'file' });
     if (!source.exists) fail(`${label} is not in the skill master.`, 'WFA_DEPENDENCY_UNAVAILABLE');
     const captured = await stableFile(source.absolute, label);
@@ -365,14 +365,14 @@ async function captureRemoteAgentDependencies(root, config, workId, agent) {
     synchronized = await (await import('./agents.mjs')).syncAgent(root, agent.id);
     if (synchronized.agent?.sha256 !== agent.sha256) {
       fail(
-        `Governed agent '${agent.id}' changed while its saved dependencies were resolved.`,
+        `Agent '${agent.id}' changed while its saved dependencies were resolved.`,
         'WFA_SOURCE_STALE'
       );
     }
   } catch (error) {
     if ((agent.dependencies ?? []).some((dependency) => !dependency.optional)) {
       fail(
-        `Required saved dependency for governed agent '${agent.id}' is unavailable: ${error.message}`,
+        `Required saved dependency for agent '${agent.id}' is unavailable: ${error.message}`,
         'WFA_DEPENDENCY_UNAVAILABLE'
       );
     }
@@ -401,7 +401,7 @@ async function captureRemoteAgentDependencies(root, config, workId, agent) {
     if (!materialized?.path || materialized.status !== 'ready') {
       if (!declaration.optional) {
         fail(
-          `Required ${declaration.type} '${declaration.id}' for governed agent '${agent.id}' is unavailable.`,
+          `Required ${declaration.type} '${declaration.id}' for agent '${agent.id}' is unavailable.`,
           'WFA_DEPENDENCY_UNAVAILABLE'
         );
       }
@@ -467,7 +467,7 @@ function selectedSkillBindings(policy) {
       continue;
     }
     if (!KEBAB_ID.test(phase.defaultAgent ?? '')) {
-      fail(`Skill phase '${phase.id}' has no exact selected governed agent.`,
+      fail(`Skill phase '${phase.id}' has no exact selected agent.`,
         'WFA_DEPENDENCY_UNAVAILABLE');
     }
     const binding = phase.skillBinding;
@@ -691,7 +691,7 @@ function verifyPublishedTestCommandBinding(root, config, workflow, decision, atC
   if (testCommandAmendmentVersion(decision) !== 2) return;
   const phase = workflow.phases[decision.phaseId];
   const publicationCommit = publishedGenerationCommit(root, workflow, phase);
-  if (!publicationCommit || !commitIsAncestor(root, publicationCommit, atCommit)) fail('Published command amendment has no retained governed publication ancestor.', 'WFA_AMENDMENT_INVALID');
+  if (!publicationCommit || !commitIsAncestor(root, publicationCommit, atCommit)) fail('Published command amendment has no retained publication ancestor.', 'WFA_AMENDMENT_INVALID');
   const original = readCommittedJson(root, publicationCommit, storyRelative(config, workflow.workItem.id, 'workflow.json'),
     'Story at its original command publication').record;
   const publication = phase.generationPublications.find(entry => entry.generation === phase.generation);
@@ -1081,7 +1081,7 @@ export async function captureWorkflowSnapshot(root, config, workflow, {
   for (const agentId of [...selectedAgentIds].sort()) {
     const agent = agents.get(agentId);
     if (!agent?.file || !agent?.sha256) {
-      fail(`Selected governed agent '${agentId}' is unavailable for snapshot capture.`, 'WFA_DEPENDENCY_UNAVAILABLE');
+      fail(`Selected agent '${agentId}' is unavailable for snapshot capture.`, 'WFA_DEPENDENCY_UNAVAILABLE');
     }
     assets.push(await captureInstalledAgent(root, config, workId, agent));
     const capturedDependencies = await captureAgentExecutionDependencies(

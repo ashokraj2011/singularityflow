@@ -213,7 +213,7 @@ async function beginAutoAttemptLineageLocked(root, flightId, {
           status: 'failed',
           result: {
             status: 'failed', code: 'AUTO_REPAIR_AUTHORIZATION_CONSUMED',
-            message: 'Repair authorization was consumed by an exact governed generation attempt.'
+            message: 'Repair authorization was consumed by an exact generation attempt.'
           }
         }, { expectedRecordSha256: current.recordSha256 });
         state = await mutateAutoFlightState(root, flightId, (draft) => {
@@ -592,7 +592,7 @@ export async function ensureAutoClarificationRequest(root, flightId, detail) {
   if (open) return { flight: state, request: open };
   return createAutoHumanBoundary(root, flightId, {
     requestType: 'clarification', title: 'Clarification required before Auto can continue',
-    detail: { question: String(detail), whyStopped: 'The answer materially changes governed intent or scope.' },
+    detail: { question: String(detail), whyStopped: 'The answer materially changes intent or scope.' },
     options: []
   });
 }

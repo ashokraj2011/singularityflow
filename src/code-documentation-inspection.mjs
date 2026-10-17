@@ -78,7 +78,7 @@ export async function inspectCodeDocumentation(root, config, workflow, phase) {
         reason: 'no-open-code-generation',
         guidance: 'Documentation was not inspected because this phase has no open generation intent. '
           + 'This does not mean existing code is documented or implementation is complete. '
-          + 'Run phase prepublish for the governed begin/recovery route, then rerun draft-check.'
+          + 'Run phase prepublish for the begin/recovery route, then rerun draft-check.'
       }), advisories: [] };
     }
     const baseCommit = phase.generationIntent?.baseline?.commit ?? workflow.workIntervals?.current?.sourceBaseCommit ?? null;

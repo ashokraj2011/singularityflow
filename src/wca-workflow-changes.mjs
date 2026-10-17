@@ -674,7 +674,7 @@ function agentMetadataReplacement(source, parsed, text, path, id, definition) {
     fail('WCA_SHARED_AGENT_EFFECT_CHANGE_UNSUPPORTED', 'Only name, description, sflow-label, phase eligibility and default mappings may change; native tools, views and unknown fields remain exact data.');
   }
   if (parseAgentDependencies(text, { source: path }).id !== id) {
-    fail('WCA_SHARED_AGENT_ID_CHANGE_UNSUPPORTED', 'Display metadata cannot rename the governed agent identity discovered from its existing file.');
+    fail('WCA_SHARED_AGENT_ID_CHANGE_UNSUPPORTED', 'Display metadata cannot rename the agent identity discovered from its existing file.');
   }
   for (const [field, maximum] of [['displayName', 128], ['label', 512], ['description', 1024]]) {
     if (typeof parsed[field] !== 'string' || !parsed[field].trim() || Buffer.byteLength(parsed[field]) > maximum

@@ -65,7 +65,7 @@ export function assertSourceBoundary(boundary, files, { phaseId = 'unknown' } = 
   const outside = [...new Set(files ?? [])].filter((file) => !isTestAutomationPath(file));
   if (outside.length) {
     throw new SingularityFlowError(
-      `Phase ${phaseId} may change test automation only; product-source changes are outside its governed boundary: ${outside.join(', ')}`,
+      `Phase ${phaseId} may change test automation only; product-source changes are outside its boundary: ${outside.join(', ')}`,
       { code: 'SOURCE_BOUNDARY_VIOLATION' }
     );
   }

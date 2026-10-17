@@ -71,7 +71,7 @@ export function normalizePromptExecutionContext(value, {
     }
   }
   if (!AGENT_ID.test(String(candidate.agentId ?? ''))) {
-    invalid(`${label}.agentId must be a lower-case kebab-case governed-agent ID.`, code);
+    invalid(`${label}.agentId must be a lower-case kebab-case agent ID.`, code);
   }
   for (const field of ['parserProfile', 'composerProfile']) {
     if (!PROFILE.test(String(candidate[field] ?? ''))) {

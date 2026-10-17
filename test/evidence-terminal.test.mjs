@@ -179,7 +179,7 @@ test('completion reads the record the ending transition made, and a refusal says
   assert.equal(verdict.label, COMPLETION_LABELS.completeWithExceptions);
   const lines = [];
   printCompletionVerdict(verdict, { write: (line) => lines.push(line), warn: (line) => lines.push(line) });
-  assert.equal(lines[0], 'Final governance check passed: Complete with accepted exceptions.');
+  assert.equal(lines[0], 'Final Flow Gate passed: Complete with accepted exceptions.');
 
   const message = terminalRefusalMessage('POC-1', {
     blockers: Array.from({ length: 22 }, (_, index) => `open obligation ${index + 1}`),

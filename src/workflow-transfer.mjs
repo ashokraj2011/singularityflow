@@ -701,7 +701,7 @@ function workflowDependencyClosure(configs, workflows, agents, missingCode, { le
       if (processedAgents.has(id)) continue;
       processedAgents.add(id);
       const agent = agents.get(id);
-      if (!agent) fail(`Referenced governed agent '${id}' is not installed.`, missingCode);
+      if (!agent) fail(`Referenced agent '${id}' is not installed.`, missingCode);
       for (const view of agent.worldModelViews) dependencies.worldModelViews.add(view);
       if (!legacy) {
         for (const serverId of serversByAgent.get(id) ?? []) dependencies.mcpServers.add(serverId);
@@ -894,7 +894,7 @@ function validateBundleClosure(bundle, agents, storedVersion, importedHere = nul
   const templateRoots = bundle.requirements?.templateRoots;
   if (!plainObject(templateRoots)
       || Object.keys(templateRoots).some((governs) => !['story', 'initiative'].includes(governs))) {
-    fail('Workflow bundle is missing its governed template-root inventory.',
+    fail('Workflow bundle is missing its template-root inventory.',
       'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');
   }
   for (const [governs, root] of Object.entries(templateRoots)) {
@@ -909,7 +909,7 @@ function validateBundleClosure(bundle, agents, storedVersion, importedHere = nul
     templateAssets.set(key, existing);
     const root = templateRoots[asset.governs];
     if (typeof root !== 'string') {
-      fail(`Workflow bundle template '${key}' has no governed template root.`,
+      fail(`Workflow bundle template '${key}' has no template root.`,
         'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');
     }
     let declaredPath = asset.reference;
@@ -934,7 +934,7 @@ function validateBundleClosure(bundle, agents, storedVersion, importedHere = nul
     const expectedRootRelative = expectedPath === root ? '' : expectedPath.slice(root.length + 1);
     if (!expectedRootRelative || asset.rootRelative !== expectedRootRelative
         || asset.path !== `${root}/${expectedRootRelative}`) {
-      fail(`Workflow bundle template '${key}' does not match its governed reference, root-relative path, and source path.`,
+      fail(`Workflow bundle template '${key}' does not match its reference, root-relative path, and source path.`,
         'WORKFLOW_BUNDLE_DEPENDENCY_MISMATCH');
     }
   }
@@ -946,16 +946,16 @@ function validateBundleClosure(bundle, agents, storedVersion, importedHere = nul
       dependencies.agents.add(agentId);
       const agent = agents.get(agentId);
       if (!agent) {
-        fail(`Workflow bundle is missing governed agent '${agentId}' for template '${reference}'.`,
+        fail(`Workflow bundle is missing agent '${agentId}' for template '${reference}'.`,
           'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');
       }
       const dependency = agent.dependencies.find((candidate) => candidate.id === templateId);
       if (!dependency) {
-        fail(`Governed agent '${agentId}' does not declare remote template '${templateId}'.`,
+        fail(`Agent '${agentId}' does not declare remote template '${templateId}'.`,
           'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');
       }
       if (dependency.type !== 'template') {
-        fail(`Governed agent '${agentId}' dependency '${templateId}' is '${dependency.type}', not a template.`,
+        fail(`Agent '${agentId}' dependency '${templateId}' is '${dependency.type}', not a template.`,
           'WORKFLOW_BUNDLE_DEPENDENCY_MISMATCH');
       }
       if (!phaseId) {
@@ -1009,18 +1009,18 @@ function validateBundleClosure(bundle, agents, storedVersion, importedHere = nul
     const defaults = [...agents.values()].filter((agent) => agent.defaultFor.includes(phaseId));
     if (!defaults.length && importedHere?.phases.has(phaseId)) continue;
     if (defaults.length !== 1) {
-      fail(`Workflow bundle phase '${phaseId}' requires exactly one default governed agent; found ${defaults.length}.`,
+      fail(`Workflow bundle phase '${phaseId}' requires exactly one default agent; found ${defaults.length}.`,
         'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');
     }
     dependencies.agents.add(defaults[0].id);
   }
   for (const id of dependencies.agents) {
-    if (!agents.has(id)) fail(`Workflow bundle is missing governed agent '${id}'.`,
+    if (!agents.has(id)) fail(`Workflow bundle is missing agent '${id}'.`,
       'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');
   }
   for (const id of agents.keys()) {
     if (!dependencies.agents.has(id) && !importedHere?.agents.has(id)) {
-      fail(`Workflow bundle contains unreferenced governed agent '${id}'.`,
+      fail(`Workflow bundle contains unreferenced agent '${id}'.`,
         'WORKFLOW_BUNDLE_DEPENDENCY_EXTRA');
     }
   }
@@ -1195,45 +1195,45 @@ function lockedAgentEntry(lock, agent) {
   if (!agent.dependencies.length) return null;
   const entry = lock?.agents?.[agent.id];
   if (!plainObject(entry)) {
-    fail(`Governed agent '${agent.id}' has remote dependencies but no exact ${AGENT_LOCK_PATH} entry. `
+    fail(`Agent '${agent.id}' has remote dependencies but no exact ${AGENT_LOCK_PATH} entry. `
       + `Run singularity-flow agents lock ${agent.id} before exporting this workflow.`,
     'WORKFLOW_AGENT_LOCK_MISSING');
   }
   if (entry.sourceSha256 !== agent.sha256) {
-    fail(`Governed agent '${agent.id}' changed after its dependency lock was recorded. `
+    fail(`Agent '${agent.id}' changed after its dependency lock was recorded. `
       + `Run singularity-flow agents lock ${agent.id} --update before exporting this workflow.`,
     'WORKFLOW_AGENT_LOCK_STALE');
   }
   if (!Array.isArray(entry.dependencies)) {
-    fail(`Governed agent '${agent.id}' has an invalid dependency lock.`, 'WORKFLOW_AGENT_LOCK_INVALID');
+    fail(`Agent '${agent.id}' has an invalid dependency lock.`, 'WORKFLOW_AGENT_LOCK_INVALID');
   }
   const dependencies = [];
   for (const dependency of agent.dependencies) {
     const locked = entry.dependencies.find((candidate) => candidate?.id === dependency.id
       && candidate?.type === dependency.type);
     if (!locked) {
-      fail(`Governed agent '${agent.id}' dependency '${dependency.id}' is not locked. `
+      fail(`Agent '${agent.id}' dependency '${dependency.id}' is not locked. `
         + `Run singularity-flow agents lock ${agent.id} --update before exporting this workflow.`,
       'WORKFLOW_AGENT_LOCK_MISSING');
     }
     if (!plainObject(locked) || locked.maxBytes !== dependency.maxBytes) {
-      fail(`Governed agent '${agent.id}' dependency '${dependency.id}' has invalid locked metadata.`,
+      fail(`Agent '${agent.id}' dependency '${dependency.id}' has invalid locked metadata.`,
         'WORKFLOW_AGENT_LOCK_INVALID');
     }
     if (dependency.type === 'generated') {
       if (locked.dynamic !== true || locked.urlTemplate !== dependency.url) {
-        fail(`Governed agent '${agent.id}' generated dependency '${dependency.id}' has a stale lock.`,
+        fail(`Agent '${agent.id}' generated dependency '${dependency.id}' has a stale lock.`,
           'WORKFLOW_AGENT_LOCK_STALE');
       }
     } else if (locked.url !== dependency.url
         || (locked.status === 'unavailable'
           ? (!dependency.optional || locked.sha256 != null)
           : !/^[a-f0-9]{64}$/.test(locked.sha256 ?? ''))) {
-      fail(`Governed agent '${agent.id}' dependency '${dependency.id}' has a stale or invalid lock.`,
+      fail(`Agent '${agent.id}' dependency '${dependency.id}' has a stale or invalid lock.`,
         'WORKFLOW_AGENT_LOCK_STALE');
     }
     if (String(locked.url ?? '').startsWith('mcp://')) {
-      fail(`Governed agent '${agent.id}' ${dependency.type} '${dependency.id}' was imported from an MCP server, which a workflow bundle cannot carry yet. `
+      fail(`Agent '${agent.id}' ${dependency.type} '${dependency.id}' was imported from an MCP server, which a workflow bundle cannot carry yet. `
         + 'Import it in the destination repository from the same server instead.', 'WORKFLOW_AGENT_DEPENDENCY_UNPORTABLE');
     }
     // An imported (vendored) copy keeps its recorded path. From bundle v4 the copy itself travels
@@ -1266,7 +1266,7 @@ async function buildBundle(root, workflowIds) {
   const sourceRoot = configurationReadRoot(root);
   const story = await readYamlDocument(sourceRoot, STORE.story, { optional: true });
   const initiative = await readYamlDocument(sourceRoot, STORE.initiative, { optional: true });
-  if (!story && !initiative) fail('No governed workflow configuration exists. Run singularity-flow init first.',
+  if (!story && !initiative) fail('No workflow configuration exists. Run singularity-flow init first.',
     'WORKFLOW_CONFIGURATION_MISSING');
   const configs = { story: story?.value ?? {}, initiative: initiative?.value ?? {} };
   const documents = { story, initiative };
@@ -1412,12 +1412,12 @@ async function buildBundle(root, workflowIds) {
   const exportedAgentText = new Map();
   for (const agentId of [...dependencies.agents].sort()) {
     const agent = discovered.find((candidate) => candidate.id === agentId);
-    if (!agent) fail(`Referenced governed agent '${agentId}' is not installed.`, 'WORKFLOW_DEPENDENCY_MISSING');
+    if (!agent) fail(`Referenced agent '${agentId}' is not installed.`, 'WORKFLOW_DEPENDENCY_MISSING');
     const content = phaseScopedAgentText(portableAgentText(agent), carriedSteps);
     exportedAgentText.set(agentId, content);
     if (agent.scope === 'repository') {
       await secureRepositoryPath(sourceRoot, agent.source, {
-        label: `Governed agent '${agentId}'`, mustExist: true, type: 'file'
+        label: `Agent '${agentId}'`, mustExist: true, type: 'file'
       });
     }
     const size = Buffer.byteLength(content, 'utf8');
@@ -1607,7 +1607,7 @@ async function validateBundle(raw, { importedHere = null } = {}) {
   const expectedObjects = emptyObjects();
   if (storedVersion < 6) delete expectedObjects.story.integrations;
   if (canonicalJson(Object.keys(raw.objects).sort()) !== canonicalJson(Object.keys(expectedObjects).sort())) {
-    fail('Workflow bundle has unknown or missing governed object sections.');
+    fail('Workflow bundle has unknown or missing object sections.');
   }
   for (const governs of Object.keys(expectedObjects)) {
     if (canonicalJson(Object.keys(raw.objects[governs]).sort())
@@ -1683,7 +1683,7 @@ async function validateBundle(raw, { importedHere = null } = {}) {
       if (!['story', 'initiative'].includes(asset.governs)
           || typeof asset.reference !== 'string' || !asset.reference
           || typeof asset.rootRelative !== 'string') {
-        fail(`Workflow bundle template asset is missing its governed reference: ${asset.path}`);
+        fail(`Workflow bundle template asset is missing its reference: ${asset.path}`);
       }
       if (isTemplateReference(asset.reference)) parseTemplateReference(asset.reference);
       else safeAssetPath(asset.reference, 'Template reference');
@@ -1753,7 +1753,7 @@ async function validateBundle(raw, { importedHere = null } = {}) {
     ...Object.keys(raw.objects.initiative.initiativeProfiles).map((id) => `initiative:${id}`)
   ].sort();
   if (canonicalJson([...workflowIdentities].sort()) !== canonicalJson(catalogWorkflows)) {
-    fail('Workflow bundle workflow inventory does not exactly match its governed workflow objects.');
+    fail('Workflow bundle workflow inventory does not exactly match its workflow objects.');
   }
   return clone(raw);
 }

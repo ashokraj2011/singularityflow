@@ -327,7 +327,7 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
     const process = await readSgosProcess(root, processId);
     const workId = optionString(options, 'work-id') ?? process.authorityBinding?.subjectId;
     if (!workId) throw new SingularityFlowError(
-      'The SGOS Process does not identify a governed Story. Pass --work-id explicitly.',
+      'The SGOS Process does not identify a Story. Pass --work-id explicitly.',
       { code: 'GDM_EXECUTION_BINDING_INVALID' }
     );
     const { projection } = await workflowDeliveryFor(

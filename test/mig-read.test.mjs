@@ -24,7 +24,7 @@ test('past version below a family range refuses with the archival remedy', () =>
     () => readRecord('pending-publication', { schemaVersion: 1 }),
     (error) => error.code === 'SCHEMA_VERSION_ARCHIVED'
       && /archival reader/.test(error.message)
-      && /governed republication/.test(error.message)
+      && /or a republication/.test(error.message)
   );
 });
 

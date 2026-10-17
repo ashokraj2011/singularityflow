@@ -409,7 +409,7 @@ export function submissionReadinessText(snapshot) {
       : snapshot.classification === 'synchronization-required'
         ? `Published generation ${snapshot.publishedGeneration} — synchronization required`
         : snapshot.classification === 'convergence-advance-required'
-          ? `Published generation ${snapshot.publishedGeneration} — ready for governed advancement`
+          ? `Published generation ${snapshot.publishedGeneration} — ready for advancement`
           : snapshot.lifecycleReady
             ? `Published generation ${snapshot.publishedGeneration} — ready to submit`
             : `Published generation ${snapshot.publishedGeneration} — not ready to submit`;

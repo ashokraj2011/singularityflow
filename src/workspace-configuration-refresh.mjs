@@ -655,7 +655,7 @@ const LEGACY_FRAMEWORK_PHASE_PERSONAS = Object.freeze({
 function unsafeLegacyPersonaMigration(message, details = {}) {
   return new SingularityFlowError(
     `Legacy role-prompt configuration cannot be migrated safely: ${message} `
-      + 'Convert the repository-owned role to governed Agent Markdown and review its phase routing before reinitializing.',
+      + 'Convert the repository-owned role to Agent Markdown and review its phase routing before reinitializing.',
     { code: 'LEGACY_PERSONA_MIGRATION_UNSAFE', details }
   );
 }

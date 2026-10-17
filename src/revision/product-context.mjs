@@ -171,14 +171,14 @@ export async function loadActiveRevisionStory(root, {
   });
   if (pendingPublication) {
     fail('REV_RECOVERY_REQUIRED',
-      `Story '${workflow.workItem.id}' has an unfinished governed publication. Recover that exact publication before opening or advancing a revision interval.`, {
+      `Story '${workflow.workItem.id}' has an unfinished publication. Recover that exact publication before opening or advancing a revision interval.`, {
         recoveryStage: pendingPublication.record?.recoveryStage ?? 'publication-pending'
       });
   }
   const phaseId = workflow.currentPhase;
   const phase = workflow.phases?.[phaseId];
   if (workflow.status !== 'in_progress' || !phase) {
-    fail('REV_NO_ACTIVE_WORK', 'Revision requires one active governed Story phase. Resume the Story first.');
+    fail('REV_NO_ACTIVE_WORK', 'Revision requires one active Story phase. Resume the Story first.');
   }
   if (!validAgentSession(config, session, workflow.workItem.id, null, phaseId)) {
     fail('REV_NO_ACTIVE_WORK', `The local session is not bound to ${workflow.workItem.id}/${phaseId}. Run singularity-flow resume ${workflow.workItem.id}.`);
@@ -372,7 +372,7 @@ export function revisionCreator(active) {
     || (['poc', 'team'].includes(security.profile) && security.autoEnrollNewIdentities === true);
   if (!permitted) {
     fail('REV_IDENTITY_NOT_AUTHORIZED',
-      `Repository governance does not permit configured-local identity '${id}' to persist revision feedback.`);
+      `The Flow Policy does not permit configured-local identity '${id}' to persist revision feedback.`);
   }
   return Object.freeze({ candidate: { kind: 'human', id }, feedback: {
     kind: 'configured-local', id, name: observed.name || id
@@ -489,7 +489,7 @@ export async function packetInputFor({
       'The current Candidate diff exceeds the bounded revision packet. Narrow the implementation before revising.');
   }
   if (attachmentSet && typeof attachmentStore?.read !== 'function') {
-    fail('REV_ATTACHMENT_SET_UNVERIFIED', 'Registered attachment evidence needs its governed store.');
+    fail('REV_ATTACHMENT_SET_UNVERIFIED', 'Registered attachment evidence needs its store.');
   }
   const attachmentRenditions = attachmentSet
     ? await Promise.all(attachmentSet.attachments.map((item) =>

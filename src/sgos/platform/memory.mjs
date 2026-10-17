@@ -105,7 +105,7 @@ export function createPlatformMemoryService({ authorityStore, repositoryRoot }) 
         fail(`Memory candidate '${candidateId}' has already been decided.`, 'SGOS_MEMORY_IMMUTABLE');
       }
       const ref = candidate.proposedRef;
-      if (ref.class === 'cache') fail('Cache memory cannot be promoted into governed memory.', 'SGOS_MEMORY_CLASS_FORBIDDEN');
+      if (ref.class === 'cache') fail('Cache memory cannot be promoted into memory.', 'SGOS_MEMORY_CLASS_FORBIDDEN');
       if (ref.authorityStoreId !== store.storeId) fail('Memory candidate targets another Authority Store.', 'SGOS_MEMORY_AUTHORITY_MISMATCH');
       if (ref.dependencies.some((dependency) => dependency.memoryId === ref.memoryId)) {
         fail('Memory cannot depend on another version of itself.', 'SGOS_MEMORY_DEPENDENCY_INVALID');

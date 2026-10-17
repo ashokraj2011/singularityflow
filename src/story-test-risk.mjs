@@ -68,7 +68,7 @@ function reviewIdentity(root, authority, record = null) {
   const principal = actorPrincipal(actor);
   if (!principal) fail('A named delegated terminal reviewer is required.', 'TRP_AUTHORITY_REQUIRED');
   if (record && record.kind !== 'story-test-recovery-agreement' && principal !== record.issuer.principal.toLowerCase()) fail(
-    `This immutable record belongs to '${record.issuer.principal}'. That original reviewer must re-attest it; use a separately governed replacement to change its principal.`,
+    `This immutable record belongs to '${record.issuer.principal}'. That original reviewer must re-attest it; use a separately approved replacement to change its principal.`,
     'TRP_RISK_ORIGINAL_REVIEWER_REQUIRED');
   return principal;
 }

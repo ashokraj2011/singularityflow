@@ -293,7 +293,7 @@ async function staticPublicationBlockers(root, config, workflow, phase, { retain
         : `singularity-flow phase begin ${phase.id}`,
         skill: consumed ? '/sf-recover' : '/sf-code', detail: consumed
           ? 'Inspect the guarded phase rollover in recovery; do not overwrite a published result or route back to /sf-code before recovery clears.'
-          : 'Open the governed code generation before changing source, then recheck.' });
+          : 'Open the code generation before changing source, then recheck.' });
     }
   }
   const sourceId = pinned?.testEvidenceFrom;

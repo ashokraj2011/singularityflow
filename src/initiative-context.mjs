@@ -271,7 +271,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
     if (verification.valid && availabilityOnlyWarnings && !drift
         && verification.record?.agent === selectedAgent) {
       const prompt = await secureRepositoryPath(root, verification.record.promptPath, {
-        label: `Governed initiative prompt for '${phaseId}'`,
+        label: `Initiative prompt for '${phaseId}'`,
         mustExist: true,
         type: 'file'
       });
@@ -410,7 +410,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   };
   if (!dryRun) {
     const promptTarget = await secureInitiativePath(root, portfolio, initiativeId, promptRelative(initiative, phaseId, generation), {
-      label: `Governed initiative prompt for '${phaseId}'`
+      label: `Initiative prompt for '${phaseId}'`
     });
     const recordTarget = await secureInitiativePath(root, portfolio, initiativeId, recordRelative(phaseId, generation), {
       label: `Initiative prompt record for '${phaseId}'`
@@ -438,7 +438,7 @@ export async function verifyInitiativeContext(root, portfolio, initiative, phase
   const errors = [];
   const warnings = [];
   if (!recordTarget.exists) {
-    warnings.push(`governed Copilot prompt is missing for ${phaseId} generation ${targetGeneration}; run singularity-flow initiative context ${phaseId}`);
+    warnings.push(`Copilot prompt is missing for ${phaseId} generation ${targetGeneration}; run singularity-flow initiative context ${phaseId}`);
     return { valid: true, mode, errors, warnings, path: relative, record: null };
   }
   const record = readRecord('initiative-context', await readFile(recordTarget.absolute)).record;
@@ -448,7 +448,7 @@ export async function verifyInitiativeContext(root, portfolio, initiative, phase
   ));
   if (record.promptPath !== expectedPrompt) errors.push(`initiative prompt path mismatch: ${record.promptPath ?? 'missing'}`);
   const promptTarget = await secureRepositoryPath(root, record.promptPath ?? '', {
-    label: `Governed initiative prompt for '${phaseId}'`,
+    label: `Initiative prompt for '${phaseId}'`,
     type: 'file'
   });
   const prompt = await snapshot(promptTarget.absolute);

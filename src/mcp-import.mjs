@@ -69,7 +69,7 @@ export function normalizeMcpArguments(value = {}) {
 export async function configuredMcpServers(root) {
   let raw;
   try { raw = YAML.parse(await readFile(path.join(configurationReadRoot(root), WORKFLOW_PATH), 'utf8')) ?? {}; }
-  catch (error) { throw fail(`Cannot read the governed MCP servers: ${error.message}`, 'MCP_CONFIGURATION_UNREADABLE'); }
+  catch (error) { throw fail(`Cannot read the MCP servers: ${error.message}`, 'MCP_CONFIGURATION_UNREADABLE'); }
   return normalizeMcpServers(raw.mcpServers ?? {});
 }
 

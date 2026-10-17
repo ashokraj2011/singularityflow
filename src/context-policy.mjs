@@ -65,9 +65,9 @@ export function contextBoundaryHandoff(policy, phaseId, {
     complete,
     commands,
     reason: selected === 'new'
-      ? 'The approved phase is committed and pushed; start a clean Copilot conversation and rebuild the next phase from governed Git context.'
+      ? 'The approved phase is committed and pushed; start a clean Copilot conversation and rebuild the next phase from Git context.'
       : selected === 'compact'
-        ? 'Compact this Copilot conversation before loading the next governed phase.'
+        ? 'Compact this Copilot conversation before loading the next phase.'
         : 'Continue in the current Copilot conversation.'
   };
 }

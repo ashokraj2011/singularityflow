@@ -62,7 +62,7 @@ export async function secretsCommand(positionals, options) {
     const script = [
       '#!/bin/sh',
       '# Installed by `sflow secrets protect`. Refuses a commit containing a credential.',
-      '# Bypass in a genuine emergency with `git commit --no-verify`; the governed commit path',
+      '# Bypass in a genuine emergency with `git commit --no-verify`; the commit path',
       '# checks again and cannot be bypassed that way.',
       `if [ -f ${JSON.stringify(installedFrom)} ]; then`,
       `  exec node ${JSON.stringify(installedFrom)} secrets scan --staged`,

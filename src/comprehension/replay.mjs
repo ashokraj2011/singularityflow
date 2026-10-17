@@ -106,7 +106,7 @@ export function buildComprehensionReplay(workflow, {
 } = {}) {
   if (!workflow?.workItem?.id || !Array.isArray(workflow.history)
       || !Array.isArray(workflow.publicationProjections ?? [])) {
-    throw new SingularityFlowError('Comprehension replay requires one readable governed Story history.', {
+    throw new SingularityFlowError('Comprehension replay requires one readable Story history.', {
       code: 'CMP_REPLAY_SOURCE_INVALID'
     });
   }

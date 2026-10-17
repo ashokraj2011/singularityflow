@@ -146,7 +146,7 @@ export async function injectAgentPrompt(root, definition, agentId, signals = {},
   promptOverride = null, resolvedAgent = null
 } = {}) {
   const agent = resolvedAgent ?? definition.agents?.[agentId];
-  if (!agent) throw new SingularityFlowError(`Unknown governed agent '${agentId}'.`);
+  if (!agent) throw new SingularityFlowError(`Unknown agent '${agentId}'.`);
   const base = promptOverride?.text ?? agent.prompt;
   const { placeholder } = injectionConfig(definition);
   return {

@@ -38,6 +38,9 @@ export function catalogAgentView(result, limit = 20, { identityOnly = false } = 
   const projected = kind === 'skill' ? { ...data, skills: summaries } : summaries;
   return { ...(utility ? { ...result, data: projected } : projected), catalogView: {
     kind, metadataOnly: true, detailLevel: identityOnly ? 'identity' : 'scope',
+    ...(kind === 'workflow' && rows.some(row => row.catalogProjection) ? { readiness: 'not-assessed',
+      sourceBindings: [...new Map(rows.filter(row => row.catalogProjection).map(row =>
+        [JSON.stringify(row.catalogProjection), row.catalogProjection])).values()] } : {}),
     total: rows.length, shown: summaries.length, more: rows.length > summaries.length,
     details: 'Read only the needed fields from agentOutput.path. It retains the exact full catalog; a summary is not an instruction or an authority decision.'
   } };

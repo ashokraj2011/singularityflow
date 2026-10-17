@@ -1,4 +1,6 @@
 import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { BUILD_INFO } from './build-info.mjs';
 import { cp, mkdir, readFile, readdir } from 'node:fs/promises';
 import YAML from 'yaml';
 import { parseAgentDependencies } from './agents.mjs';
@@ -12,12 +14,15 @@ import { workflowCodeGeneration } from './code-delivery-policy.mjs';
 import { simulateResolvedWorkflowLifecycle } from './workflow-lifecycle-simulation.mjs';
 import { renderDataPreservingFormatting } from './yaml-formatting.mjs';
 import { packagedWorkflowSkills } from './packaged-workflow-skills.mjs';
+import { readConfigurationSource, configurationSourceBinding } from './configuration-source.mjs';
+import { measureCommandSpan, incrementCommandCounter } from './dx-timing-context.mjs';
 
 const starterPath = path.join(PACKAGE_ROOT, 'templates', 'workflow.yml');
 const OPTIONAL_CATALOG_REASON_MAX_CHARS = 512;
 export const WORKFLOW_SIMULATION_CATALOG_LIMITS = Object.freeze({ workflows: 64, outputBytes: 2 * 1024 * 1024 });
 
-async function starterDefinition() { return validateDefinition(YAML.parse(await readFile(starterPath, 'utf8'))); }
+async function starterDefinition() { return starterDefinitionFromText(await readFile(starterPath, 'utf8')); }
+function starterDefinitionFromText(text) { return validateDefinition(YAML.parse(text)); }
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
   if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
@@ -71,6 +76,23 @@ export async function workflowCatalogForDefinition(installed) {
 export async function workflowCatalog(root) {
   const installed = await loadDefinition(root);
   return workflowCatalogForDefinition(installed);
+}
+
+/** Display projection, never a start/readiness definition or a validation receipt. */
+export async function workflowCatalogMetadata(root) {
+  return measureCommandSpan('catalog.workflow-metadata', async () => {
+    const installed = await loadDefinition(root, { storyBootstrap: true });
+    const binding = configurationSourceBinding(root, await readConfigurationSource(root));
+    const packagedText = await readFile(starterPath, 'utf8');
+    const packagedSha256 = createHash('sha256').update(packagedText).digest('hex');
+    const rows = catalogFromDefinitions(installed, await starterDefinitionFromText(packagedText));
+    incrementCommandCounter('catalog.metadata-projections');
+    return rows.map(row => ({ ...row, catalogProjection: {
+      kind: 'metadata-only', readiness: 'not-assessed', sourceSha256: binding.sha256,
+      sourceCommit: binding.commit, packagedSha256,
+      build: BUILD_INFO.commit ?? BUILD_INFO.sourceSha256 ?? null
+    } }));
+  });
 }
 
 /**

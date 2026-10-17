@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 
 const FAMILIES = Object.freeze([
   ['core', ['cli-bundle-entry.mjs', 'command-loaders.mjs', 'deferred-index-refresh.mjs']],
+  ['status', ['commands/status.mjs']],
   ['hooks', ['copilot-hook-runtime.mjs', 'copilot-repository-boundary.mjs', 'copilot-mutation-guard.mjs']],
   // Both small worker-helper closures depend only on core. Sharing this slot keeps catalogs and
   // general reads separate without increasing the deployment's fixed file count. Entry programs
@@ -20,19 +21,21 @@ const FAMILIES = Object.freeze([
   // put every list/show in compatibility, importing the entire administration/model dispatcher.
   // Keep the broad reads slot too: making Home/Inbox fall into compatibility would shift the cost.
   ['catalogs', ['commands/agents.mjs', 'commands/workflow.mjs', 'commands/workflow-list.mjs',
+    'accounting-projection.mjs',
     'commands/skill.mjs', 'commands/skill-master.mjs', 'commands/instruction.mjs', 'asset-catalog.mjs',
     'configuration-drafts.mjs', 'logging.mjs', 'harness-events.mjs']],
+  ['narrow-reads', ['commands/progress.mjs', 'commands/report.mjs', 'commands/phase-show.mjs',
+    'commands/nextsteps.mjs', 'commands/status-details.mjs']],
   ['hook-context', ['commands/shared/session-repository-authority.mjs', 'agent-hooks.mjs',
     'accepted-story-execution.mjs', 'delivery-evidence.mjs', 'worktree-fingerprint.mjs']],
-  ['status', ['read-worker-service.mjs', 'commands/status.mjs', 'commands/nextsteps.mjs', 'commands/progress.mjs']],
   ['session', ['commands/session-entry.mjs', 'commands/session-open.mjs', 'commands/session-open-local.mjs',
     'commands/session.mjs', 'session-agent-entry.mjs', 'session-read-service.mjs']],
   ['intake', ['commands/start.mjs', 'commands/workspace-branches.mjs', 'commands/intake-entry.mjs',
     'commands/story-entry.mjs', 'story-worktree-preparation.mjs',
     'local-work-journal.mjs', 'history-index.mjs']],
-  ['maintenance', ['first-run-pass.mjs', 'product-requirement.mjs', 'configuration-review-pass.mjs']],
-  ['reads', ['commands/phase-show.mjs', 'commands/report.mjs', 'commands/inbox.mjs', 'commands/home.mjs', 'editor.mjs']],
-  ['phases', ['commands/phase.mjs', 'commands/prepare.mjs', 'commands/inputs.mjs', 'commands/review-source.mjs',
+  ['reads', ['commands/inbox.mjs', 'commands/home.mjs', 'editor.mjs', 'read-worker-service.mjs']],
+  ['phases', ['first-run-pass.mjs', 'product-requirement.mjs', 'configuration-review-pass.mjs',
+    'commands/phase.mjs', 'commands/prepare.mjs', 'commands/inputs.mjs', 'commands/review-source.mjs',
     'commands/submit.mjs', 'commands/approve.mjs', 'commands/nextsteps-deferred.mjs']],
   ['models', ['commands/wm.mjs', 'commands/comprehension.mjs']]
 ]);

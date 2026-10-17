@@ -30,6 +30,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 const scopes = new AsyncLocalStorage();
 const COMMAND_READ = Symbol('command-read-context');
 
+export function inCommandReadScope() { return scopes.getStore()?.get(COMMAND_READ) === true; }
+
 /** Only the CLI's closed read vocabulary may share resolved Story context, never a writer. */
 export function withCommandReadScope(fn) {
   return scopes.run(new Map([[COMMAND_READ, true]]), fn);

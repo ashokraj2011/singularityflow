@@ -1,0 +1,127 @@
+import { workflowAuthoringRoutes } from '../code-delivery-policy.mjs';
+import { branch } from '../git.mjs';
+import { executeGitQuery } from '../git-query.mjs';
+import { ledgerStatus } from '../ledger.mjs';
+import { buildRepositorySubjectIndex, resolveContext } from '../repository-subject-index.mjs';
+import { optionBoolean, SingularityFlowError, table } from '../util.mjs';
+import { noCurrentPhaseLabel, storyStatusLabel } from '../progress.mjs';
+import { storyLineageLines } from '../story-base-lineage.mjs';
+import { openUpstreamIssues } from '../upstream-issues.mjs';
+
+function activePhase(workflow) {
+  return workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] ?? null : null;
+}
+
+function summary(workflow) {
+  const active = activePhase(workflow);
+  console.log(`\n${workflow.workItem.id} — ${workflow.workItem.title}`);
+  console.log(`Branch: ${workflow.workItem.branch}`);
+  for (const line of storyLineageLines(workflow)) console.log(line);
+  console.log(`Status: ${storyStatusLabel(workflow.status)}`);
+  console.log(`Current phase: ${active ? `${active.id} (${active.status})` : noCurrentPhaseLabel(workflow.status)}`);
+  if (active) {
+    console.log(`Governed agent: ${active.defaultAgent ?? 'unassigned'}`);
+    console.log(`Required artifact: ${active.requiredArtifact?.path ?? 'none'}`);
+    console.log(`Registered artifacts: ${active.artifacts.length}`);
+  }
+  const upstream = openUpstreamIssues(workflow);
+  if (upstream.length) {
+    console.log(`Open upstream issues: ${upstream.map(({ issue }) => `${issue.id} (${issue.phase})`).join(', ')}; `
+      + `the Story completes when each is decided (singularity-flow upstream-issue list --open).`);
+  }
+  if (workflow.sequenceOverrides?.length) console.warn(`Warning: ${workflow.sequenceOverrides.length} confirmed soft sequence override(s) are recorded for this work item.`);
+}
+
+/**
+ * One-spawn, registered branch observation for Story selection.
+ *
+ * Do not replace this with the general repository facade: status needs only one worktree-local
+ * symbolic ref, and paying discovery plus HEAD stability probes was a measured 10x regression.
+ */
+import { galStatusBranchCandidate, galStatusBranch, galStatusRepositoryRoot, galStatusSelection, readStatus } from './status-read.mjs';
+export { galStatusBranchCandidate, galStatusBranch, galStatusRepositoryRoot, galStatusSelection, readStatus };
+
+export async function run(_argv, { positionals, options }) {
+  const root = galStatusRepositoryRoot();
+  if (optionBoolean(options, 'submission-readiness') && optionBoolean(options, 'submit-if-ready')) {
+    return (await import('./submit-if-ready.mjs')).run({ positionals, options });
+  }
+  if (optionBoolean(options, 'submission-readiness')) {
+    const [
+      { loadAcceptedStoryExecution },
+      { storyPublicationPending },
+      { submissionReadiness, submissionReadinessText }
+    ] = await Promise.all([
+      import('../accepted-story-execution.mjs'),
+      import('../state-stores.mjs'),
+      import('../submission-readiness.mjs')
+    ]);
+    const { definition, workflow } = await loadAcceptedStoryExecution(root, positionals[1]);
+    const pendingSynchronization = await storyPublicationPending(
+      root, definition, workflow.workItem.id, { migrate: false }
+    );
+    const readiness = await submissionReadiness(root, definition, workflow, { pendingSynchronization });
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(readiness, null, 2));
+    else console.log(submissionReadinessText(readiness));
+    return;
+  }
+  if (optionBoolean(options, 'json') && !optionBoolean(options, 'git-shadow')) {
+    return console.log(JSON.stringify(await readStatus(root, positionals[1]), null, 2));
+  }
+  const gitShadow = optionBoolean(options, 'git-shadow');
+  const gitShadowObservations = [];
+  let currentBranch = null;
+  if (!positionals[1]) {
+    if (gitShadow) {
+      const { runFosGitShadowRead } = await import('../fos-git-shadow.mjs');
+      ({ value: currentBranch } = await runFosGitShadowRead({
+        operation: 'status.repository-branch',
+        mode: 'shadow',
+        // The registered one-spawn read is authoritative. `--git-shadow` now compares the retired
+        // direct helper without allowing it to select another Story.
+        reference: () => galStatusBranch(root),
+        candidate: () => branch(root),
+        record(value) { gitShadowObservations.push(value); }
+      }));
+    } else currentBranch = await galStatusBranch(root);
+  }
+  const reference = positionals[1] ?? currentBranch;
+  const selected = resolveContext(await buildRepositorySubjectIndex(root), {
+    reference,
+    kind: 'story',
+    required: true
+  });
+  const workflow = selected.state;
+  let gitShadowSummary = null;
+  if (gitShadow) {
+    const { summarizeFosGitShadowObservations } = await import('../fos-git-shadow.mjs');
+    gitShadowSummary = summarizeFosGitShadowObservations(gitShadowObservations);
+  }
+  // Each step's drafting route, from the pinned resolution, beside the record and never inside its
+  // steps, so the printed state still reads as the record it is.
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify({
+    ...workflow,
+    ...(gitShadowSummary ? { gitShadow: gitShadowSummary } : {}),
+    authoringRoutes: workflowAuthoringRoutes(workflow)
+  }, null, 2));
+
+  summary(workflow);
+  if (gitShadowSummary) {
+    console.log(`Git shadow: ${gitShadowSummary.equivalent}/${gitShadowSummary.comparisons} equivalent · reference remains authoritative`);
+  }
+  console.log(`\n${table(workflow.phaseOrder.map((id, index) => {
+    const phase = workflow.phases[id];
+    return { index: index + 1, phase: id, agent: phase.defaultAgent ?? '', status: phase.status, artifacts: phase.artifacts.length };
+  }), [
+    { key: 'index', label: '#' }, { key: 'phase', label: 'PHASE' }, { key: 'agent', label: 'AGENT' },
+    { key: 'status', label: 'STATUS' }, { key: 'artifacts', label: 'ARTIFACTS' }
+  ])}`);
+  const selfApprovals = workflow.phaseOrder.flatMap((id) => workflow.phases[id].approvals
+    .filter((item) => !item.invalidatedAt && item.selfApproval)
+    .map((item) => `${id}: ${item.actor?.name ?? 'unknown'}; agent ${item.agent ?? 'unavailable'}`));
+  if (selfApprovals.length) console.warn(`\nSelf-approval warnings (not independent review):\n- ${selfApprovals.join('\n- ')}`);
+  const ledger = await ledgerStatus(root, workflow.resolution?.ledger ?? {}, { offline: true });
+  if (ledger.enabled) {
+    console.log(`\nCapability ledger: ${ledger.initialized ? ledger.verification.valid ? 'verified' : 'invalid' : 'not initialized'} · pending ${ledger.pending?.length ?? 0} · local outbox ${ledger.outbox}`);
+  }
+}

@@ -10,7 +10,7 @@ export async function prewarmRuntime(root, env = process.env) {
   const manifest = JSON.parse(await readFile(new URL('./manifest.json', entry), 'utf8'));
   if (manifest.format !== 2) return { prepared: false, reason: 'legacy-bundle' };
   const safe = new Set(['cold-core.mjs', 'cold-hooks.mjs', 'cold-hook-context.mjs', 'cold-light.mjs', 'cold-status.mjs',
-    'cold-session.mjs', 'cold-intake.mjs', 'cold-maintenance.mjs', 'cold-catalogs.mjs', 'cold-phases.mjs', 'cold-reads.mjs']);
+    'cold-session.mjs', 'cold-intake.mjs', 'cold-catalogs.mjs', 'cold-phases.mjs', 'cold-reads.mjs', 'cold-narrow-reads.mjs']);
   const prepared = [];
   for (const output of manifest.outputs) {
     if (!safe.has(output.file)) continue;

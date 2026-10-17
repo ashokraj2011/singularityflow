@@ -1,7 +1,9 @@
 /** Catalog reads do not load the legacy model/authoring dispatcher. */
 import { repoRoot } from '../git.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
-import { workflowCatalog } from '../workflow-catalog.mjs';
+import { workflowCatalog, workflowCatalogMetadata } from '../workflow-catalog.mjs';
+import { inCommandReadScope } from '../read-scope.mjs';
+import { measureCommandSpan } from '../dx-timing-context.mjs';
 import { listWorkflows } from '../workflow-authoring.mjs';
 import { listWorkflowConfigurationProposals } from '../configuration-proposal.mjs';
 import { optionBoolean, table } from '../util.mjs';
@@ -13,13 +15,17 @@ export async function run({ options, argv = ['workflow', 'list'] }) {
 
 export async function listWorkflowCatalog({ options }) {
   const root = repoRoot();
+  // Capture read classification, not source bytes, before the authority opens a fresh overlay.
+  const metadata = inCommandReadScope() && !optionBoolean(options, 'for-start');
   return withApprovedConfigurationRead(root, async () => {
-    const catalog = (await workflowCatalog(root)).map(item => ({ ...item, governs: 'story' }));
+    const catalog = (await (metadata ? workflowCatalogMetadata(root) : workflowCatalog(root)))
+      .map(item => ({ ...item, governs: 'story' }));
     const initiatives = (await listWorkflows(root, 'initiative').catch(() => []))
       .map(workflow => ({ ...workflow, status: 'current' }));
     // Pending intent stays visible but non-selectable. Start reads only approved configuration.
     const pending = optionBoolean(options, 'for-start') ? []
-      : await listWorkflowConfigurationProposals(root, { includeDiff: false }).catch(() => []);
+      : await measureCommandSpan('catalog.pending-proposals',
+        () => listWorkflowConfigurationProposals(root, { includeDiff: false })).catch(() => []);
     const proposed = pending.flatMap(proposal => (proposal.workflows ?? [])
       .filter(workflow => workflow.change === 'added')
       .map(workflow => ({ ...workflow, status: 'pending-review', installed: false,

@@ -87,6 +87,14 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   assert.ok(cliStartup < 3 * 1024 * 1024, `CLI cold parse: ${cliStartup}`);
   assert.ok(hookStartup < 3 * 1024 * 1024, `hook cold parse: ${hookStartup}`);
   const catalogClosure = closure('cold-catalogs.mjs');
+  const statusClosure = closure('cold-status.mjs');
+  assert.ok(statusClosure.reduce((sum, item) => sum + item.bytes, 0) < 1.5 * 1024 * 1024,
+    'ordinary JSON status must not inherit catalog or review closures');
+  for (const name of ['cold-catalogs.mjs', 'cold-hook-context.mjs', 'cold-narrow-reads.mjs', 'cold-compatibility.mjs']) {
+    assert.ok(!statusClosure.some(item => item.file === name), `status must not statically reach ${name}`);
+  }
+  assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7 * 1024 * 1024,
+    'document/report reads have a separate byte ceiling, not only a file-count limit');
   assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5 * 1024 * 1024,
     'catalog parsing stays bounded instead of pulling in the entire administration bundle');
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {
@@ -180,6 +188,7 @@ export async function load(url, context, next) {
     assert.ok(preparation.files.includes('cold-catalogs.mjs'), 'prepares catalog definitions');
     assert.ok(preparation.files.includes('cold-phases.mjs'), 'prepares phase definitions');
     assert.ok(preparation.files.includes('cold-reads.mjs'), 'prepares narrow phase-document/report definitions too');
+    assert.ok(preparation.files.includes('cold-narrow-reads.mjs'), 'prepares the isolated read family');
     assert.ok(!warmed.modules.some(url => /\/(?:cold-compatibility|cold-models|read-worker|history-index-worker)\.mjs$/u.test(url)),
       'warming definitions cannot start a worker or import the compatibility/model domain');
   } else assert.equal(preparation.reason, 'cache-or-bundle-unavailable', 'Node 20/disabled cache is optional');

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readConfigurationSource } from './configuration-source.mjs';
 import {
   cp, mkdir, readFile, readdir
 } from 'node:fs/promises';
@@ -38,7 +39,7 @@ import { isTemplateReference, normalizeTemplateCatalog, parseTemplateReference, 
 import { normalizeMcpServers, normalizePhaseMcpPolicy, validateMcpAgentTools } from './mcp.mjs';
 import { normalizeMarketplaces } from './marketplace.mjs';
 import { isSpecificationDefinitionPhase, normalizeSpecPolicy, skillPhasePrimaryOutputRole } from './specifications.mjs';
-import { normalizeHarnessImports } from './harness-imports.mjs';
+import { normalizeHarnessImports } from './harness-import-policy.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { normalizeRepairBudget, normalizeReworkLoops } from './repair-budget.mjs';
@@ -1469,15 +1470,7 @@ export function validateCapturedAgentBriefHeadingContracts(definition, templates
 
 async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
   const definitionRoot = configurationReadRoot(root);
-  const source = await scopedRead(`config.source:${root}:${definitionRoot}`, async () => {
-    const workflow = await secureRepositoryPath(root, WORKFLOW_PATH, { label: 'Workflow configuration', type: 'file' });
-    if (!workflow.exists) return { workflow };
-    incrementCommandCounter('configuration.source-read');
-    const workflowText = await readFile(workflow.absolute, 'utf8');
-    incrementCommandCounter('configuration.yaml-parse');
-    try { return { workflow, workflowText, parsed: parseYamlText(workflowText) }; }
-    catch (error) { return { workflow, workflowText, error }; }
-  });
+  const source = await readConfigurationSource(root);
   const { workflow, workflowText } = source;
   if (workflow.exists) {
     // A broken workflow.yml is refused exactly as before; the refusal also carries every problem in
@@ -1494,7 +1487,7 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
     // offline resume. Bootstrap therefore loads only the declarative workflow shape; the shared
     // Story resolver installs the verified saved catalog before any agent is selected or rendered.
     // New-Story and repository-management reads keep the strict live discovery below.
-    const agents = storyBootstrap ? [] : await discoverAgents(definitionRoot);
+    const agents = storyBootstrap ? [] : await measureCommandSpan('configuration.agents', () => discoverAgents(definitionRoot));
     definition.agents = Object.fromEntries(agents.map((agent) => [agent.id, agent]));
     definition.agentCatalog = agents;
     definition.agentPromptsRoot = '.github/agents';
@@ -1512,7 +1505,7 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
      * VS Code extension, CI, and a teammate's laptop all hit this the moment one person upgrades.
      */
     try {
-      validateDefinition(definition, { storyBootstrap });
+      await measureCommandSpan('configuration.validate', () => validateDefinition(definition, { storyBootstrap }));
     } catch (error) {
       if (!(error instanceof SingularityFlowError && /contains unknown field/.test(error.message))) throw await diagnosed(error);
       throw await diagnosed(new SingularityFlowError(
@@ -1568,13 +1561,13 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
       }
       // Independent read-only containment checks can overlap Windows file-open latency. Settle
       // every reader before returning; retain original catalog order for deterministic refusals.
-      const templates = await mapLimit(checkedTemplates.values(), 4, async entry => {
+      const templates = await measureCommandSpan('configuration.templates', () => mapLimit(checkedTemplates.values(), 4, async entry => {
         try {
           return { ...entry, template: await secureRepositoryPath(root, entry.relativeTemplate, {
             label: `Template for work type '${entry.workTypeId}' phase '${entry.phase.id}'`, type: 'file'
           }) };
         } catch (error) { return { ...entry, error }; }
-      });
+      }));
       for (const { workTypeId, phase, template, error } of templates) {
         if (error) throw error;
         if (!template.exists) throw await diagnosed(new SingularityFlowError(`Template missing for work type '${workTypeId}' phase '${phase.id}': ${path.posix.join(definition.templatesRoot, phase.template)}`));

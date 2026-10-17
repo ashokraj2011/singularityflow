@@ -57,15 +57,25 @@ export async function withCliJsonOutput(json, execute, { forAgent = false, kind 
     stream.write = write;
   }
   // An agent reads `act` first and never more than its host shows (agent-output.mjs).
+  const timed = process.env.SINGULARITY_FLOW_OUTPUT_TIMING === 'stderr-v1';
+  const outputStarted = timed ? performance.now() : 0;
   let output = Buffer.concat(chunks).toString('utf8');
   if (utilityEntry) {
     const { utilityResult } = await import('./utility-entry.mjs');
     output = JSON.stringify(utilityResult(utilityEntry, JSON.parse(output)), null, 2) + '\n';
   }
+  const serializedAt = timed ? performance.now() : 0;
   const { agentOutputGoverned, boundedAgentOutput } = forAgent ? await import('./agent-output.mjs') : {};
-  if (forAgent && agentOutputGoverned()) write.call(stream, await boundedAgentOutput(output));
+  const compact = forAgent && agentOutputGoverned();
+  const rendered = compact ? await boundedAgentOutput(output) : output;
+  const renderedAt = timed ? performance.now() : 0;
+  if (compact) write.call(stream, rendered);
   else if (utilityEntry) write.call(stream, output);
   else for (const chunk of chunks) write.call(stream, chunk);
+  if (timed) process.stderr.write('@@sflow-output/v1 ' + JSON.stringify({
+    serializeMs: serializedAt - outputStarted, renderMs: renderedAt - serializedAt,
+    emitMs: performance.now() - renderedAt, inputBytes: bytes, outputBytes: Buffer.byteLength(rendered)
+  }) + '\n');
   return value;
 }
 

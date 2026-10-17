@@ -59,7 +59,8 @@ try {
   for (const args of [['init', '-q', '-b', 'main'], ['config', 'user.name', 'Utility Tester'],
     ['config', 'user.email', 'utility@example.invalid']]) fixture.git(args, { cwd: catalog });
   const common = { ...fixture.env, SINGULARITY_FLOW_BUNDLE: 'on', SINGULARITY_FLOW_DISABLE_TIMING_LOG: '0',
-    SINGULARITY_FLOW_AGENT_OUTPUT: outputMode, SINGULARITY_FLOW_AGENT_OUTPUT_BYTES: '7500' };
+    SINGULARITY_FLOW_AGENT_OUTPUT: outputMode, SINGULARITY_FLOW_AGENT_OUTPUT_BYTES: '7500',
+    SINGULARITY_FLOW_OUTPUT_TIMING: 'stderr-v1' };
   delete common.NODE_DISABLE_COMPILE_CACHE;
   delete common.SINGULARITY_FLOW_GIT_FACT_STORE;
   function run(variant, args, cwd, cache) {
@@ -70,7 +71,9 @@ try {
     });
     if (result.status !== 0) throw new Error(`${variant.id} ${args.join(' ')}: ${result.error?.message ?? result.stderr ?? result.stdout}`);
     return { ms: Math.round(performance.now() - start), bytes: Buffer.byteLength(result.stdout),
-      stdout: result.stdout };
+      stdout: result.stdout, outputTiming: (() => { try {
+        return JSON.parse(result.stderr.split('\n').find(line => line.startsWith('@@sflow-output/v1 '))?.slice(18));
+      } catch { return null; } })() };
   }
   run(variants[0], ['init'], catalog, path.join(fixture.directory, 'init-cache'));
   fixture.git(['add', '.'], { cwd: catalog });
@@ -119,7 +122,7 @@ try {
           } catch { /* Timing absence remains unavailable. */ }
           row.runs.push({ sample, iteration, totalMs: read.ms + (pause?.ms ?? 0), readMs: read.ms,
             pauseMs: pause?.ms ?? 0, bytes: read.bytes, counters: timing?.counters ?? null,
-            stages: timing?.stages ?? null, listingTask });
+            stages: timing?.stages ?? null, spans: timing?.spans ?? null, outputTiming: read.outputTiming, listingTask });
         }
       }
     }

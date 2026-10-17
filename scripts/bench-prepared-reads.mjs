@@ -5,8 +5,8 @@ import { spawnSync } from 'node:child_process';
 import { isDeepStrictEqual } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { createWarmReadFixture } from './warm-read-fixture.mjs';
-import { buildCliBundle } from './build-cli-bundle.mjs';
 
 const baseline = path.resolve(process.argv[2]), output = process.argv[3];
 const storyMode = process.argv.find(arg => arg.startsWith('--story-mode='))?.split('=')[1] ?? 'legacy';
@@ -34,7 +34,11 @@ try {
   const stamp = path.join(variants[0].root, 'src/build-info.mjs');
   await writeFile(stamp, (await readFile(stamp, 'utf8')).replace('commit: null', `commit: '${'2'.repeat(40)}'`));
   for (const variant of variants) {
-    await buildCliBundle({ root: variant.root });
+    const { buildCliBundle } = await import(pathToFileURL(path.join(variant.root, 'scripts/build-cli-bundle.mjs')).href);
+    const built = await buildCliBundle({ root: variant.root });
+    report[variant.id + 'Bundle'] = built.manifest.outputs;
+    report[variant.id + 'PartitionerSha256'] = createHash('sha256')
+      .update(await readFile(path.join(variant.root, 'scripts/build-cold-cli-bundle.mjs'))).digest('hex');
     variant.cli = path.join(variant.root, 'bin/singularity-flow.mjs');
     variant.adapter = await import(pathToFileURL(path.join(variant.root, 'src/read-worker-client.mjs')));
   }

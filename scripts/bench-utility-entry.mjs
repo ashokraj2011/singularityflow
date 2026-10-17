@@ -3,8 +3,9 @@
 import { cp, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { createHash } from 'node:crypto';
 import { createWarmReadFixture } from './warm-read-fixture.mjs';
-import { buildCliBundle } from './build-cli-bundle.mjs';
 
 const arguments_ = process.argv.slice(2);
 const combinedBaseline = arguments_.includes('--combined-baseline');
@@ -53,9 +54,14 @@ try {
   const stamp = path.join(variants[0].root, 'src/build-info.mjs');
   await writeFile(stamp, (await readFile(stamp, 'utf8')).replace('commit: null', `commit: '${'2'.repeat(40)}'`));
   for (const variant of variants) {
+    // The baseline must use its own partitioner; the candidate's graph assignment can otherwise
+    // silently inflate or shrink the baseline closure and manufacture a startup improvement.
+    const { buildCliBundle } = await import(pathToFileURL(path.join(variant.root, 'scripts/build-cli-bundle.mjs')).href);
     const built = await buildCliBundle({ root: variant.root });
     variant.bundle = built.outdir;
     report[variant.id + 'Bundle'] = built.manifest.outputs;
+    report[variant.id + 'PartitionerSha256'] = createHash('sha256')
+      .update(await readFile(path.join(variant.root, 'scripts/build-cold-cli-bundle.mjs'))).digest('hex');
   }
   const catalog = path.join(fixture.directory, 'seeded');
   await mkdir(catalog);

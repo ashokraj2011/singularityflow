@@ -75,6 +75,15 @@ test('pure validators preserve request refusals and have no command-service depe
   }
 });
 
+test('paired qualification selects each revision own package builder', async () => {
+  for (const name of ['bench-utility-entry', 'bench-prepared-reads']) {
+    const source = await readFile(new URL(`../scripts/${name}.mjs`, import.meta.url), 'utf8');
+    assert.match(source, /import\(pathToFileURL\(path\.join\(variant\.root, 'scripts\/build-cli-bundle\.mjs'\)\)\.href\)/u);
+    assert.doesNotMatch(source, /import \{ buildCliBundle \} from '\.\/build-cli-bundle\.mjs'/u);
+    assert.match(source, /PartitionerSha256/u);
+  }
+});
+
 test('approved authority reads batch frozen metadata and ignore irrelevant lower-priority policy', async t => {
   const f = await createWarmReadFixture(); t.after(f.cleanup);
   f.git(['branch', 'sflow/config']);

@@ -35,6 +35,7 @@ import {
 import { configuredRemoteAuthority } from '../src/git-remote-diagnostics.mjs';
 import { publicationPushOutcome } from '../src/git.mjs';
 import { gitTestWrapperEnvironment, realGitForTest, writeGitTestWrapper } from './helpers/git-test-wrapper.mjs';
+import { enterpriseGitEnvironment } from '../src/git-enterprise-environment.mjs';
 
 function git(root, args) {
   return run('git', args, { cwd: root });
@@ -398,7 +399,11 @@ const pathWithoutWrapper = () => process.env.PATH.split(${JSON.stringify(path.de
 ${script}
 relay(forward());
 `);
-  return { directory, env: gitTestWrapperEnvironment(directory) };
+  // Freeze this scoped executable environment before the remote boundary. On Windows an
+  // ordinary override can otherwise coexist with the process snapshot's differently cased Path.
+  // The product transport's normal in-memory attestation keeps both local and remote fixture
+  // calls on the same native shim without adding a test-only product escape hatch.
+  return { directory, env: enterpriseGitEnvironment(gitTestWrapperEnvironment(directory)) };
 }
 
 const recordPush = (file) => `if (args[0] === 'push') {

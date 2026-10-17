@@ -71,7 +71,10 @@ function assertBaselineCandidate(report) {
 }
 
 function git(root, args) {
-  return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  // Git for Windows may emit one CRLF conversion warning for every generated growth-fixture file.
+  // Drain that bounded diagnostic volume instead of failing fixture creation at Node's 1 MiB default.
+  return execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 
 /** Bounded file creation keeps large benchmark fixtures from becoming a serial filesystem test. */

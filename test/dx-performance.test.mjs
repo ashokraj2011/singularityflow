@@ -509,8 +509,10 @@ test('machine-local timing logs rotate and use private permissions', async () =>
     const files = await readdir(directory);
     assert.ok(files.includes('timings.jsonl'));
     assert.ok(files.some((file) => /^timings-.*\.jsonl$/.test(file)), 'the full log was rotated');
-    const mode = (await stat(path.join(directory, 'timings.jsonl'))).mode & 0o777;
-    assert.equal(mode, 0o600);
+    const info = await stat(path.join(directory, 'timings.jsonl'));
+    assert.ok(info.isFile());
+    // Windows mode bits are not POSIX access permissions; ACL behavior is not attested by chmod.
+    if (process.platform !== 'win32') assert.equal(info.mode & 0o777, 0o600);
     const stored = JSON.parse((await readFile(path.join(directory, 'timings.jsonl'), 'utf8')).trim());
     assert.equal(stored.event, 'dx.command-timing');
 

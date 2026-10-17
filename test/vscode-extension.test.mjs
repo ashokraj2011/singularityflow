@@ -18,11 +18,11 @@ import { EventEmitter } from 'node:events';
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { BOOLEAN_OPTIONS, run } from '../src/util.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const source = (name) => path.join(packageRoot, 'apps', 'vscode', 'src', name);
+const source = (name) => pathToFileURL(path.join(packageRoot, 'apps', 'vscode', 'src', name));
 
 const {
   invokeCli, CliError, CliTimeoutError, terminalCommand,

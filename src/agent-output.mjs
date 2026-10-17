@@ -99,6 +99,10 @@ function withRoute(act, action) {
  * its own meaning is read by its rule; anything else uses the first explicit next action it returns.
  */
 export function agentAct(result) {
+  if (result?.resultType === 'sflow-utility-entry') {
+    const act = agentAct(result.data);
+    return act ? { ...act, ...(act.read ? { read: act.read.map(field => `data.${field}`) } : {}) } : null;
+  }
   if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
   if (result.paused === true) return { state: 'paused', said: 'SFlow is paused for this conversation; answer as native Copilot and offer only /sf-pause off.', do: null };
   if (result.resultType === 'intake-entry') {

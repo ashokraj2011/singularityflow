@@ -121,8 +121,8 @@ function printSkill(model, skill) {
  */
 export async function runSkillMaster({ positionals, options, applyChangeSet, printResult }) {
   const action = validateSkillMasterRequest({ positionals, options });
-  const [{ repoRoot }, { withApprovedConfigurationRead }, { buildStudioModel, STUDIO_CHANGE_SET_SCHEMA }] = await Promise.all([
-    import('../git.mjs'), import('../approved-configuration-reader.mjs'), import('../workflow-studio.mjs')
+  const [{ repoRoot }, { withApprovedConfigurationRead }] = await Promise.all([
+    import('../git.mjs'), import('../approved-configuration-reader.mjs')
   ]);
   const root = repoRoot();
   const json = options.json === true;
@@ -145,7 +145,8 @@ export async function runSkillMaster({ positionals, options, applyChangeSet, pri
     return console.log(json ? JSON.stringify(result, null, 2) : result.skill.composedText);
   }
   if (SKILL_MASTER_READS.includes(action)) {
-    const model = await withApprovedConfigurationRead(root, () => buildStudioModel(root), { preferAuthority: true });
+    const { readAssetCatalog } = await import('../asset-catalog.mjs');
+    const model = await withApprovedConfigurationRead(root, () => readAssetCatalog(root), { preferAuthority: true });
     if (action === 'list') {
       const notice = await import('../configuration-drafts.mjs').then(({ draftNotice }) => draftNotice(root, 'skill'));
       if (json) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'skill-master', skills: model.skills, problems: model.skillProblems ?? [], drafts: notice.entries }, null, 2));
@@ -167,6 +168,7 @@ export async function runSkillMaster({ positionals, options, applyChangeSet, pri
     return printSkill(model, { ...skill, instructions: skill.composedText });
   }
   const id = positionals[2];
+  const { STUDIO_CHANGE_SET_SCHEMA } = await import('../workflow-studio.mjs');
   const changeSet = { schema: STUDIO_CHANGE_SET_SCHEMA, changes: [await changeFor(action, id, options)] };
   const result = await applyChangeSet(root, changeSet, { subject: id, message: `[configuration] skill ${action}: ${id}` });
   if (json) return console.log(JSON.stringify(result, null, 2));

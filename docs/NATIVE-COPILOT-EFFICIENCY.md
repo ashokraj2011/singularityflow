@@ -6,6 +6,92 @@ reuse affects SFlow-owned provider calls, not ordinary `/sf-*` turns.
 
 ## Entry and reuse contract
 
+### Utility reads
+
+Eight utility skills use the requested read itself as their pause-aware entry:
+status, progress, nextsteps, logs, agents, workflows, skills and instructions.
+For example:
+
+```sh
+singularity-flow progress STORY-ID --utility-entry --for-agent --json
+singularity-flow workflow list --utility-entry --for-agent --json
+```
+
+The opt-in result is `sflow-utility-entry`: a verified `repositoryPath`, requested
+`operation`, `readCompleted: true`, and the existing result under `data`.
+It is a completed read, not lifecycle readiness or permission to mutate. Pause and
+request eligibility are checked before Git. A missing repository, unknown flag,
+mutation, retained-skill selector, output-file request or failed read is refused,
+not converted into a successful entry. Paused results retain the existing pause
+contract. Older installations must be updated rather than silently retrying.
+
+The closed forms are status, progress, nextsteps, logs, agents list/mappings/status,
+workflow list, skill/instruction list/show, phase show, inputs with `--dry-run`,
+and report with `--format json`. Every combined call requires `--for-agent --json`.
+Explicit IDs and supported filters are preserved; no directory search, selection
+change, extra STATUS.md read or duplicate pause/session/workspace call is needed.
+Mixed catalog skills keep their original gates for create/edit/activate operations.
+Ordinary CLI output stays compatible; agents list/mappings/status now honor JSON.
+Logs with no existing file return an empty JSON array instead of prose.
+
+Catalog reads retain approved-configuration selection, pending-proposal notices,
+instruction references, attachment scope and exact retrieval semantics. Skill and
+instruction readers share projections with Studio but skip unrelated canvas,
+template, integration and blueprint construction. Agent and workflow lists no
+longer enter the legacy dispatcher. Mutations still use the existing owners.
+
+Only the closed read forms share an invocation-local read scope across accounting
+and execution. Application/configuration roots and bootstrap/current definitions
+remain separate keys; approved overlays still open fresh scopes and verify bytes.
+No scope crosses commands, a writer, publication or an approval decision.
+
+Reproduce paired installed-build measurements against a trusted baseline checkout:
+
+```sh
+node scripts/bench-utility-entry.mjs /absolute/path/baseline-checkout results.json
+```
+
+The fixture has 1,000 files, 20 unrelated branches, full seeded catalogs and no
+configured remotes/models. It compares the old pause-plus-read skill sequence with
+the combined read, recording the read separately to distinguish handler savings
+from the removed process. Each variant starts with an empty private V8 cache and
+then uses three fresh processes; the OS cache is not flushed. This is CLI
+qualification, not a measured native Copilot conversation or token-savings claim.
+
+The [2026-10-17 paired results](../benchmarks/utility-entry/qualification.json)
+retain every wall/read sample. Windows ran natively with Node v24.21.0; macOS used
+v25.5.0. Both variants used full agent JSON to isolate CLI/backend costs, not
+bounded presentation or host/model latency. Windows fixture TEMP was a short
+disposable path; antivirus, OneDrive and enterprise laptop behavior are not qualified.
+
+| Windows utility sequence | Before, first | Combined, first | Before, repeat median | Combined, repeat median |
+| --- | ---: | ---: | ---: | ---: |
+| Status | 700 ms | 434 ms | 447 ms | 271 ms |
+| Progress | 1,112 ms | 833 ms | 710 ms | 496 ms |
+| Workflow list | 1,517 ms | 1,141 ms | 1,104 ms | 836 ms |
+| Skill list | 1,406 ms | 1,043 ms | 1,189 ms | 473 ms |
+| Instruction list | 1,443 ms | 778 ms | 1,149 ms | 472 ms |
+
+Across the ten Windows forms, first-sequence improvements range from 15% to 46%;
+repeat medians improve 24% to 60%. These include removing the separate pause
+process. Standalone reads are not universally faster: the Mac nextsteps first
+sample regressed from 428 to 478 ms, and its baseline repeat samples were noisy.
+Progress, phase show, input preview and report reduce uncached definition loads
+from three to two without conflating bootstrap and current policy. Source fallback
+workflow/agent catalogs load 246/238 engine modules instead of 608/614, with
+accounting retained and no legacy dispatcher or model runner import.
+
+Native Windows qualification also covers source/bundle parity, scoped catalog
+isolation, pause-before-Git, the scripted four-phase lifecycle and bounded output.
+Configuration fault-injection fixtures were made genuinely portable: file-URL
+imports, legal filenames, a native executable bridge, exact quoted arguments,
+binary stream draining and BOM-free stdin. Their corrected end-to-end checks ran
+in a follow-up qualification. The bridge's C# compiler is a test-only requirement,
+not a product dependency. Production object/integrity validation was not weakened.
+One pre-existing Windows symlink test is skipped where unsupported.
+
+### Story operations
+
 - Every registered skill is audited; aliases delegate once to their canonical owner.
 - Story-bound operations use `singularity-flow session current --for-agent --json`
   once instead of separate pause and session calls. Pause is checked before repository

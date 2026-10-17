@@ -8,6 +8,7 @@
  */
 export const COMMAND_LOADERS = Object.freeze({
   './commands/start.mjs': () => import('./commands/start.mjs'),
+  './commands/agents.mjs': () => import('./commands/agents.mjs'),
   './commands/about.mjs': () => import('./commands/about.mjs'),
   './commands/adhoc.mjs': () => import('./commands/adhoc.mjs'),
   './commands/appeal.mjs': () => import('./commands/appeal.mjs'),

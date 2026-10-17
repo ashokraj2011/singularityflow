@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -13,7 +13,7 @@ const legacy = path.join(packageRoot, 'src', 'commands', 'legacy.mjs');
 function invoke(args, env, { legacyRoute = false } = {}) {
   const command = legacyRoute
     ? ['--input-type=module', '-e',
-        `const command = await import(${JSON.stringify(legacy)});`
+        `const command = await import(${JSON.stringify(pathToFileURL(legacy).href)});`
         + `await command.run(${JSON.stringify(args)});`]
     : [bin, ...args];
   return spawnSync(process.execPath, command, {
@@ -23,8 +23,9 @@ function invoke(args, env, { legacyRoute = false } = {}) {
   });
 }
 
-test('startup reads preserve legacy fields and text with explicit local workspace manifest hints', async () => {
+test('startup reads preserve legacy fields and text with explicit local workspace manifest hints', async t => {
   const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-lazy-startup-'));
+  t.after(() => rm(machine, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 }));
   const registry = path.join(machine, 'workspaces.json');
   const active = path.join(machine, 'active-workspace.json');
   const leads = path.join(machine, 'leads.json');
@@ -100,6 +101,17 @@ test('performance-v2 source entry manifest enforces module ceilings and unrelate
     for (const name of forbidden) assert.ok(!names.includes(name), `${entry} reaches ${name}`);
   }
   assert.equal((await import('../src/command-registry.mjs')).commandDefinition('logs').modulePath, './commands/logs.mjs');
+});
+
+test('utility catalogs do not statically import the legacy dispatcher, model runner or Studio authoring', async () => {
+  for (const entry of ['commands/agents.mjs', 'commands/workflow-list.mjs', 'commands/skill-master.mjs',
+    'commands/instruction.mjs', 'asset-catalog.mjs']) {
+    const names = [...await staticClosure('src/' + entry)]
+      .map(file => path.relative(packageRoot, file).split(path.sep).join('/'));
+    for (const forbidden of ['src/cli.mjs', 'src/model-runner.mjs', 'src/workflow-studio.mjs']) {
+      assert.ok(!names.includes(forbidden), `${entry} reaches ${forbidden}`);
+    }
+  }
 });
 
 test('generator validation shares exact IDs with rendering without importing its Jira/source graph', async () => {

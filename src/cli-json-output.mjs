@@ -29,7 +29,7 @@ export function withoutAgentFlag(argv) {
   return argv.filter((token, index) => (end >= 0 && index > end) || !/^--for-agent(?:=.*)?$/u.test(token));
 }
 
-export async function withCliJsonOutput(json, execute, { forAgent = false, kind = 'text' } = {}) {
+export async function withCliJsonOutput(json, execute, { forAgent = false, kind = 'text', utilityEntry = null } = {}) {
   if (!json) return forAgent ? withAgentText(execute, kind) : execute();
   const stream = process.stdout;
   const write = stream.write;
@@ -57,8 +57,14 @@ export async function withCliJsonOutput(json, execute, { forAgent = false, kind 
     stream.write = write;
   }
   // An agent reads `act` first and never more than its host shows (agent-output.mjs).
+  let output = Buffer.concat(chunks).toString('utf8');
+  if (utilityEntry) {
+    const { utilityResult } = await import('./utility-entry.mjs');
+    output = JSON.stringify(utilityResult(utilityEntry, JSON.parse(output)), null, 2) + '\n';
+  }
   const { agentOutputGoverned, boundedAgentOutput } = forAgent ? await import('./agent-output.mjs') : {};
-  if (forAgent && agentOutputGoverned()) write.call(stream, await boundedAgentOutput(Buffer.concat(chunks).toString('utf8')));
+  if (forAgent && agentOutputGoverned()) write.call(stream, await boundedAgentOutput(output));
+  else if (utilityEntry) write.call(stream, output);
   else for (const chunk of chunks) write.call(stream, chunk);
   return value;
 }

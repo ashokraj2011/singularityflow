@@ -1148,7 +1148,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~580 body tokens</span>
+          <span class="pill">~768 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-agents</code></dd></div>
@@ -1170,7 +1170,7 @@ disable-model-invocation: true
 # Manage governed agents
 
 &lt;!-- sflow-copilot-pause --&gt;
-Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
+Read-only utility: run the requested read once with `--utility-entry --for-agent --json` (default `singularity-flow agents list --utility-entry --for-agent --json`). Keep explicit Work IDs/filters; do not replace requested edits with a list. Eligible forms: status, progress, nextsteps, logs, agents list/mappings/status, workflow list, skill/instruction list/show without retained selectors. It checks pause before Git and returns verified `repositoryPath` plus `data`; no separate pause/session/workspace lookup or STATUS.md read. If paused, native Copilot; only offer `/sf-pause off`, never resume implicitly. Other forms: Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly. Reads never authorize mutations; preserve later gates. If unsupported, stop with the compatibility error, never retry blindly.
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
 **Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say &quot;not available for this action&quot;. Missing Copilot: &quot;no verified equivalent&quot;. Never invent routes.
@@ -5869,7 +5869,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">mutation</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~744 body tokens</span>
+          <span class="pill">~934 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-instructions</code></dd></div>
@@ -5891,7 +5891,7 @@ argument-hint: &quot;list | show ID | create ID | edit ID | remove ID&quot;
 # Reusable instructions
 
 &lt;!-- sflow-copilot-pause --&gt;
-Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
+Read-only utility: run the requested read once with `--utility-entry --for-agent --json` (default `singularity-flow instruction list --utility-entry --for-agent --json`). Keep explicit Work IDs/filters; do not replace requested edits with a list. Eligible forms: status, progress, nextsteps, logs, agents list/mappings/status, workflow list, skill/instruction list/show without retained selectors. It checks pause before Git and returns verified `repositoryPath` plus `data`; no separate pause/session/workspace lookup or STATUS.md read. If paused, native Copilot; only offer `/sf-pause off`, never resume implicitly. Other forms: Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly. Reads never authorize mutations; preserve later gates. If unsupported, stop with the compatibility error, never retry blindly.
 
 &lt;!-- sflow-output-contract: deterministic-mutation --&gt;
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say &quot;not available for this action&quot;. Missing Copilot: &quot;no verified equivalent&quot;. Never invent routes.
@@ -7005,7 +7005,7 @@ workspace being removed, uninstall product components, or convert the request in
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~939 body tokens</span>
+          <span class="pill">~1125 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-logs</code></dd></div>
@@ -7027,7 +7027,7 @@ argument-hint: &quot;[--level error|warn|info|debug|all] [--event PATTERN] [--ta
 # Read the activity log
 
 &lt;!-- sflow-copilot-pause --&gt;
-Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
+Read-only utility: run the requested read once with `--utility-entry --for-agent --json` (default `singularity-flow logs --utility-entry --for-agent --json`). Keep explicit Work IDs/filters; do not replace requested edits with a list. Eligible forms: status, progress, nextsteps, logs, agents list/mappings/status, workflow list, skill/instruction list/show without retained selectors. It checks pause before Git and returns verified `repositoryPath` plus `data`; no separate pause/session/workspace lookup or STATUS.md read. If paused, native Copilot; only offer `/sf-pause off`, never resume implicitly. Other forms: Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly. Reads never authorize mutations; preserve later gates. If unsupported, stop with the compatibility error, never retry blindly.
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
 **Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say &quot;not available for this action&quot;. Missing Copilot: &quot;no verified equivalent&quot;. Never invent routes.
@@ -7223,7 +7223,7 @@ First run `singularity-flow nextsteps --for-agent --json` once. It checks pause 
           <span class="pill">conversational</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~607 body tokens</span>
+          <span class="pill">~795 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-nextsteps</code></dd></div>
@@ -7244,14 +7244,14 @@ disable-model-invocation: true
 # Show next actions
 
 &lt;!-- sflow-copilot-pause --&gt;
-Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
+Read-only utility: run the requested read once with `--utility-entry --for-agent --json` (default `singularity-flow nextsteps --utility-entry --for-agent --json`). Keep explicit Work IDs/filters; do not replace requested edits with a list. Eligible forms: status, progress, nextsteps, logs, agents list/mappings/status, workflow list, skill/instruction list/show without retained selectors. It checks pause before Git and returns verified `repositoryPath` plus `data`; no separate pause/session/workspace lookup or STATUS.md read. If paused, native Copilot; only offer `/sf-pause off`, never resume implicitly. Other forms: Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly. Reads never authorize mutations; preserve later gates. If unsupported, stop with the compatibility error, never retry blindly.
 
 &lt;!-- sflow-output-contract: guided-actions --&gt;
 **Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say &quot;not available for this action&quot;. Missing Copilot: &quot;no verified equivalent&quot;. Never invent routes.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-1. In the Boundary repository run `singularity-flow nextsteps &lt;WORK-ID&gt; --for-agent --json` when the user supplied an ID; otherwise run `singularity-flow nextsteps --for-agent --json`. A ready Story session is not required for repository initialization, start, resume, or explicit-ID guidance.
+1. In the Boundary repository run `singularity-flow nextsteps &lt;WORK-ID&gt; --utility-entry --for-agent --json` when the user supplied an ID; otherwise omit the ID. Read the returned `data`. A ready Story session is not required for repository initialization, start, resume, or explicit-ID guidance.
 2. Read `contextBoundary` before listing actions. If this chat already worked on an earlier phase, show its ordered `commandGuidance.copilotCommand` (`/clear`, then `/sf-next`, or `/compact`, then `/sf-next`) and stop; authoring is after that boundary, not NOW in this chat. No Shell or model-free equivalent exists for a chat reset. A fresh chat continues without another reset. Present returned actions in order, preserving labels, routes and reasons.
 3. List only the returned actions, in their order (initialization, start or resume, `singularity-flow sync`, then the step&#39;s own); never add one the CLI did not return.
 4. Keep this operation read-only. Do not execute any returned action unless the user separately asks to perform it.
@@ -7681,7 +7681,7 @@ This skill compares each with the build the installation receipt recorded.
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~599 body tokens</span>
+          <span class="pill">~752 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-progress</code></dd></div>
@@ -7703,16 +7703,16 @@ argument-hint: &quot;[WORK-ID]&quot;
 # Show workflow progress
 
 &lt;!-- sflow-copilot-pause --&gt;
-Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
+Read-only utility: run the requested read once with `--utility-entry --for-agent --json` (default `singularity-flow progress --utility-entry --for-agent --json`). Keep explicit Work IDs/filters; do not replace requested edits with a list. Eligible forms: status, progress, nextsteps, logs, agents list/mappings/status, workflow list, skill/instruction list/show without retained selectors. It checks pause before Git and returns verified `repositoryPath` plus `data`; no separate pause/session/workspace lookup or STATUS.md read. If paused, native Copilot; only offer `/sf-pause off`, never resume implicitly. Other forms: Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly. Reads never authorize mutations; preserve later gates. If unsupported, stop with the compatibility error, never retry blindly.
 
 &lt;!-- sflow-output-contract: concise-relay --&gt;
 **Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say &quot;not available for this action&quot;. Missing Copilot: &quot;no verified equivalent&quot;. Never invent routes.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-1. Use the Boundary repository. With an explicit Work ID, do not require or change the active Story. Without an ID, run `singularity-flow session current --json` and require its `ready` Story; use its exact `repositoryPath` as cwd.
-2. Run `singularity-flow progress &lt;WORK-ID&gt; --markdown` for an explicit ID, or `singularity-flow progress --markdown` for the attached Story. Do not forward user-supplied formatting flags.
-3. Reproduce the complete returned Markdown in the visible Copilot response so its headings, journey, summary fields, and phase table render normally. A collapsed Shell/tool block does not count; do not wrap the Markdown in a code fence.
+1. Use the Boundary repository. With an explicit Work ID, do not require or change the active Story. Without an ID, let the utility entry resolve the attached Story; never infer selection.
+2. Run `singularity-flow progress &lt;WORK-ID&gt; --utility-entry --for-agent --json` (omit the ID only when absent). Do not forward user-supplied formatting flags.
+3. Render the returned `data` as a concise journey and phase table, preserving status, generation, approvals and tokens. Do not fetch Markdown or other documents for display.
 4. Preserve the exact deterministic percentage and approved/total phase count. Never invent partial completion inside an unapproved phase.
 5. Preserve `exact`, `partial`, `unavailable`, and `not recorded` token disclosures exactly as returned.
 6. If the output shows a rejected or approval-pending phase, briefly call out that state after the table without guessing a decision or changing the next action.
@@ -9941,7 +9941,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">conversational</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~740 body tokens</span>
+          <span class="pill">~928 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-skill</code></dd></div>
@@ -9963,7 +9963,7 @@ argument-hint: &quot;inspect &lt;LOCAL-DIRECTORY&gt; | approved &lt;ID&gt; | doc
 # Inspect a skill package
 
 &lt;!-- sflow-copilot-pause --&gt;
-Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
+Read-only utility: run the requested read once with `--utility-entry --for-agent --json` (default `singularity-flow skill list --utility-entry --for-agent --json`). Keep explicit Work IDs/filters; do not replace requested edits with a list. Eligible forms: status, progress, nextsteps, logs, agents list/mappings/status, workflow list, skill/instruction list/show without retained selectors. It checks pause before Git and returns verified `repositoryPath` plus `data`; no separate pause/session/workspace lookup or STATUS.md read. If paused, native Copilot; only offer `/sf-pause off`, never resume implicitly. Other forms: Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly. Reads never authorize mutations; preserve later gates. If unsupported, stop with the compatibility error, never retry blindly.
 
 &lt;!-- sflow-output-contract: guided-actions --&gt;
 **Output contract:** Report the CLI&#39;s exact package identity, candidates, findings, and limits. Inspection is not confirmation, configuration approval, host admission, or execution. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say &quot;not available for this action&quot;. Missing Copilot: &quot;no verified equivalent&quot;. Never invent routes.
@@ -10302,7 +10302,7 @@ TRP: `singularity-flow explain test-recovery`; acceptance needs native evidence/
           <span class="pill">conversational</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~412 body tokens</span>
+          <span class="pill">~622 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-status</code></dd></div>
@@ -10324,14 +10324,14 @@ argument-hint: &quot;[WORK-ID]&quot;
 # Show Singularity Flow status
 
 &lt;!-- sflow-copilot-pause --&gt;
-Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
+Read-only utility: run the requested read once with `--utility-entry --for-agent --json` (default `singularity-flow status --utility-entry --for-agent --json`). Keep explicit Work IDs/filters; do not replace requested edits with a list. Eligible forms: status, progress, nextsteps, logs, agents list/mappings/status, workflow list, skill/instruction list/show without retained selectors. It checks pause before Git and returns verified `repositoryPath` plus `data`; no separate pause/session/workspace lookup or STATUS.md read. If paused, native Copilot; only offer `/sf-pause off`, never resume implicitly. Other forms: Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly. Reads never authorize mutations; preserve later gates. If unsupported, stop with the compatibility error, never retry blindly.
 
 &lt;!-- sflow-output-contract: guided-actions --&gt;
 **Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say &quot;not available for this action&quot;. Missing Copilot: &quot;no verified equivalent&quot;. Never invent routes.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-Run `singularity-flow status` with the supplied work ID, if any. Read `STATUS.md` and report the branch, immutable work type, current phase, suggested governed agents, generation, artifacts, token usage, human approval authority groups, threshold, self-approval warnings, publication state, and next valid action. Do not change files or lifecycle state.
+Run `singularity-flow status --utility-entry --for-agent --json` with the supplied work ID, if any. Use only returned `data` to report the branch, immutable work type, current phase, suggested governed agents, generation, artifacts, token usage, human approval authority groups, threshold, self-approval warnings, publication state, and next valid action. Unavailable fields stay unavailable. Do not read STATUS.md, change files or lifecycle state.
 </code></pre>
       </div>
     </details>
@@ -11363,7 +11363,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">mutation</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1012 body tokens</span>
+          <span class="pill">~1201 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-workflows</code></dd></div>
@@ -11385,7 +11385,7 @@ argument-hint: &quot;[list|author list|author where-used SKILL-ID|author preview
 # Workflows and shared drafts
 
 &lt;!-- sflow-copilot-pause --&gt;
-Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
+Read-only utility: run the requested read once with `--utility-entry --for-agent --json` (default `singularity-flow workflow list --utility-entry --for-agent --json`). Keep explicit Work IDs/filters; do not replace requested edits with a list. Eligible forms: status, progress, nextsteps, logs, agents list/mappings/status, workflow list, skill/instruction list/show without retained selectors. It checks pause before Git and returns verified `repositoryPath` plus `data`; no separate pause/session/workspace lookup or STATUS.md read. If paused, native Copilot; only offer `/sf-pause off`, never resume implicitly. Other forms: Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly. Reads never authorize mutations; preserve later gates. If unsupported, stop with the compatibility error, never retry blindly.
 
 &lt;!-- sflow-output-contract: deterministic-mutation --&gt;
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say &quot;not available for this action&quot;. Missing Copilot: &quot;no verified equivalent&quot;. Never invent routes.

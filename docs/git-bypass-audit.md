@@ -1,5 +1,11 @@
 # GAL Git bypass regression gate
 
+The utility-entry qualification harness adds one bounded Node process launcher (90 seconds,
+8 MiB, structured argv) for copied SFlow runtimes inside an owned temporary fixture. Three call
+sites invoke fixed pause, initialization and allowlisted utility-read forms. Git setup stays in
+the existing warm-read fixture owner; no provider, remote or caller repository is changed.
+The exact reviewed fingerprint is frozen; this is not a new product process owner.
+
 Intake preparation adds a narrow cleanup path to the existing Story-worktree owner, not a new
 general process owner. It runs `worktree remove` without force only after exact managed-path,
 common-directory, staging-branch, initial-commit and tracked/untracked/ignored-cleanliness checks.

@@ -52,6 +52,7 @@ export async function logsCommand(positionals, options) {
   }
 
   if (!existsSync(file)) {
+    if (optionBoolean(options, 'json')) return console.log('[]');
     console.log(`No activity log yet at ${file}.`);
     console.log('It is written as commands run. Set SINGULARITY_FLOW_LOG_LEVEL=all to capture everything.');
     return;

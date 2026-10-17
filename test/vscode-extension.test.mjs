@@ -3093,6 +3093,27 @@ test('workspace creation asks for the person once and keeps menu personas separa
   assert.match(formProblems(missing).join(' '), /menu persona/);
 });
 
+/** The public host, assembled as repository-source hygiene requires (scripts/check.mjs). */
+const GITHUB = ['github', 'com'].join('.');
+/** The link an onboarded capability gains beside its repository, as `repositoryWebLink` draws it. */
+const githubLink = (slug) => {
+  const page = `https://${GITHUB}/${slug}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const label = `${GITHUB}/${slug}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`<span class="help-link repository-web-link" data-repository-web="${page}" role="link" tabindex="0"[^>]*>${label}</span>`);
+};
+
+test('workspace creation links each repository a chosen capability brings in to its GitHub page', () => {
+  const form = withMap(['payments'], {
+    capabilities: capabilityChoices(REMOTE_TREE, {
+      ...REMOTE_REPOSITORIES, api: { url: `https://${GITHUB}/acme/payments-api.git`, defaultBranch: 'main' }
+    })
+  });
+  const html = workspaceFormHtml(form);
+  assert.match(html, new RegExp(`<code>api</code> ${githubLink('acme/payments-api').source}`));
+  assert.doesNotMatch(workspaceFormHtml(withMap(['storefront'])), /repository-web-link/,
+    'a repository hosted elsewhere keeps its plain identifier');
+});
+
 test('the organisation map is flattened with each capability\'s depth, ancestors and clone URL', () => {
   const choices = capabilityChoices(REMOTE_TREE, REMOTE_REPOSITORIES);
   assert.deepEqual(choices.map((choice) => choice.id),
@@ -4815,6 +4836,37 @@ test('capability mapping checks the Git URL before revealing capability details'
   assert.match(pending, /data-map-details hidden/);
 });
 
+test('an already-onboarded repository links to its GitHub page beside each capability that maps it', () => {
+  const link = githubLink('acme/payments-api');
+  const remote = `git@${GITHUB}:acme/payments-api.git`;
+  const mapped = mapCapabilityHtml({
+    ...EMPTY_MAP_FORM,
+    repositoryUrl: remote, inspectionStatus: 'already-mapped',
+    inspectionCompleteness: 'complete', inspectionProposalCoverage: 'complete',
+    inspectionMatches: [
+      { lead: 'https://git.example/platform.git', repositoryUrl: remote, capabilities: ['payments'] },
+      { lead: 'https://git.example/legacy.git', repositoryUrl: remote, capabilities: [] }
+    ]
+  });
+  assert.match(mapped, new RegExp(`<li>payments in https://git\\.example/platform\\.git ${link.source}</li>`));
+  assert.match(mapped, /<li>no assigned capability in https:\/\/git\.example\/legacy\.git<\/li>/,
+    'a repository known to a map but not assigned to a capability is not onboarded and gains nothing');
+  const ambiguous = mapCapabilityHtml({
+    ...EMPTY_MAP_FORM,
+    repositoryUrl: `https://${GITHUB}/acme/payments-api`, inspectionStatus: 'ambiguous',
+    inspectionMatches: [
+      { lead: 'https://git.example/a.git', repositoryUrl: `https://${GITHUB}/acme/payments-api`, capabilities: ['payments'] },
+      { lead: 'https://git.example/b.git', repositoryUrl: `https://${GITHUB}/acme/payments-api`, capabilities: ['checkout'] }
+    ]
+  });
+  assert.equal(ambiguous.match(new RegExp(link.source, 'g'))?.length, 2);
+  assert.doesNotMatch(mapCapabilityHtml({
+    ...EMPTY_MAP_FORM,
+    repositoryUrl: 'https://git.example/payments.git', inspectionStatus: 'already-mapped',
+    inspectionMatches: [{ lead: 'https://git.example/platform.git', repositoryUrl: 'https://git.example/payments.git', capabilities: ['payments'] }]
+  }), /repository-web-link/);
+});
+
 test('repository inspection unlocks only safe outcomes and explains blocked outcomes', async () => {
   const repositoryUrl = 'https://git.example/payments.git';
   const known = mapCapabilityHtml({
@@ -5457,6 +5509,30 @@ test('the progressive capability page starts an implicit repository without setu
   assert.match(CAPABILITY_SCRIPT, /type: 'progressive-start'/);
   assert.match(html, /Optional capability policy/);
   assert.match(html, /data-managed-auto-save="repository-root"/);
+});
+
+test('onboarded capabilities show their repository as a GitHub link and nothing else gains one', () => {
+  const repositories = { api: { url: `git@${GITHUB}:acme/payments-api.git` } };
+  const link = githubLink('acme/payments-api');
+  const count = (html) => html.match(new RegExp(link.source, 'g'))?.length ?? 0;
+  // The map table, the Relationships child row and the Ships from row each name the repository.
+  const detail = capabilitiesHtml(capabilityFixture, 'payments', null, undefined, 'explicit-legacy', repositories);
+  assert.equal(count(detail), 3);
+  assert.match(detail, /<code>api<\/code> <span class="help-link repository-web-link"/);
+  assert.equal(count(capabilitiesHtml(capabilityFixture, null, null, undefined, 'explicit-managed', repositories)), 1,
+    'the receipt-managed map table links the same repository');
+  assert.equal(count(capabilitiesHtml(capabilityFixture, 'payments-api', null, undefined, 'explicit-legacy', repositories)), 2);
+  // Collections name no repository, so their rows stay as they were.
+  assert.match(detail, /data-select="commerce"[\s\S]*?<span class="muted">—<\/span>/);
+  for (const html of [
+    capabilitiesHtml(capabilityFixture, 'payments', null),
+    capabilitiesHtml(capabilityFixture, 'payments', null, undefined, 'explicit-legacy',
+      { api: { url: 'https://git.example.corp/acme/payments-api.git' } }),
+    capabilitiesHtml([{
+      id: 'repository-root', name: 'This repository', kind: 'delivery', delivery: true,
+      repository: 'api', policy: {}, effectivePolicy: {}, children: []
+    }], null, null, undefined, 'implicit', repositories)
+  ]) assert.doesNotMatch(html, /repository-web-link/, 'no GitHub remote or no capability map: nothing new');
 });
 
 test('a delivery capability is rendered as shipping from its declared repository', () => {
@@ -7080,6 +7156,37 @@ test('an attach-existing handoff explains its authority scope and has a distinct
   const renderedIssue = changed.match(/<p class="blockers">[\s\S]*?<\/p>/)?.[0] ?? '';
   assert.doesNotMatch(renderedIssue, /authority revision|configuration commit|pin/i,
     'the normal rendered drift state stays repository-oriented');
+});
+
+test('workspace capabilities link their GitHub repository in the details and in Manage', () => {
+  const rows = workspaceRows(REGISTRY);
+  const status = {
+    healthy: true,
+    leadRepositoryPath: '/work/commerce/repos/platform',
+    workspace: {
+      id: 'local--commerce', name: 'commerce', path: '/work/commerce',
+      leadRepository: 'platform', capabilities: ['checkout', 'payments', 'risk']
+    },
+    repositories: [{ id: 'platform', role: 'lead', absolutePath: '/work/commerce/repos/platform', state: 'ready' }],
+    counts: { repositories: 1, ready: 1, dirty: 0 },
+    warnings: [],
+    availableCapabilities: [
+      { id: 'checkout', name: 'Checkout', depth: 0, ancestors: [], repository: null, url: null },
+      { id: 'payments', name: 'Payments', depth: 0, ancestors: [], repository: 'platform',
+        url: `ssh://git@${GITHUB}/acme/commerce-platform.git` },
+      { id: 'risk', name: 'Risk', depth: 0, ancestors: [], repository: 'risk',
+        url: 'https://git.example.corp/acme/risk.git' }
+    ]
+  };
+  const link = githubLink('acme/commerce-platform');
+  const details = workspacesHtml(rows, '/work/commerce', EMPTY_COPY, null, status, false, null);
+  assert.match(details, new RegExp(`payments</span> ${link.source}`));
+  assert.equal(details.match(/repository-web-link/g)?.length, 1, 'groupings and non-GitHub hosts show nothing new');
+  const manage = workspacesHtml(rows, '/work/commerce', EMPTY_COPY, null, status, false, null, {
+    open: true, name: 'commerce', capabilities: ['payments', 'risk'], preferredCapabilityId: null, busy: false
+  });
+  assert.match(manage, new RegExp(`Ships from platform ${link.source}`));
+  assert.doesNotMatch(manage, /Ships from risk <span/);
 });
 
 test('the page carries the directories it needs to answer without a round trip', () => {

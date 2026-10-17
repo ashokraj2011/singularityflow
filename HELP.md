@@ -946,6 +946,7 @@ workspace does not delete the shared capability map or lifecycle state.
 In VS Code:
 
 1. Open **Configuration → Capabilities** to browse, add, edit, nest, or map a capability.
+   A capability whose repository is hosted on GitHub shows a link that opens its GitHub page.
 2. Open **Workspaces → Create workspace** and select one or more mapped capabilities.
 3. Choose the local directory and review the repositories that will be cloned or reused.
 4. Select the workspace row to make it active. Its details show the working directory,

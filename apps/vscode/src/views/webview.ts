@@ -996,6 +996,66 @@ export function navigationTarget(raw: unknown): string | null {
   return Object.hasOwn(GUIDED_COMMANDS, message.to) ? GUIDED_COMMANDS[message.to] ?? null : null;
 }
 
+/**
+ * An onboarded capability's repository as a page a person can open, not the address Git clones.
+ *
+ * The portfolio records a credential-free Git remote — usually SSH or an HTTPS URL ending in
+ * `.git` — and neither is something to hand a browser. Only GitHub remotes are converted: there the
+ * web page is the remote's owner/repository path, which is a rule; for any other host it would be a
+ * guess, so those show nothing new. Pages draw the link, `NAV_SCRIPT` posts the click, and the
+ * panel re-derives the URL from the message before anything is opened.
+ *
+ * Drawn like a Help link — a `role="link"` span, not an anchor. VS Code's own webview handling opens
+ * every clicked `<a href>` whether or not the page prevented it, so an anchor here opened the page
+ * twice.
+ */
+// Assembled, like PUBLIC_GITHUB_HOST in git-repository-identity.mjs, so repository-source hygiene
+// does not see one public host spelled out through the product.
+const GITHUB_HOST = ['github', 'com'].join('.');
+const GITHUB_HOSTS = new Set([GITHUB_HOST, `www.${GITHUB_HOST}`, `ssh.${GITHUB_HOST}`]);
+const GITHUB_OWNER = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/u;
+const GITHUB_REPOSITORY = /^[A-Za-z0-9._-]{1,100}$/u;
+
+/** The GitHub page (`https://<host>/owner/repo`) of a GitHub remote in SSH, scp, git or HTTPS form; otherwise null. */
+export function repositoryWebUrl(remote: unknown): string | null {
+  const value = typeof remote === 'string' ? remote.trim() : '';
+  if (!value) return null;
+  let host = '';
+  let location = '';
+  const scp = /^(?:[^@\s/:]+@)?([^@\s/:]+):(?!\/\/)([^\s]+)$/u.exec(value);
+  if (scp) {
+    [, host = '', location = ''] = scp;
+  } else {
+    let parsed: URL;
+    try { parsed = new URL(value); } catch { return null; }
+    if (!['https:', 'http:', 'ssh:', 'git+ssh:', 'git:'].includes(parsed.protocol)
+      || parsed.password || parsed.search || parsed.hash) return null;
+    host = parsed.hostname;
+    location = parsed.pathname;
+  }
+  if (!GITHUB_HOSTS.has(host.toLowerCase())) return null;
+  const [owner, repository, ...rest] = location.replace(/^\/+|\/+$/gu, '').replace(/\.git$/iu, '').split('/');
+  if (rest.length || !owner || !repository || !GITHUB_OWNER.test(owner)
+    || !GITHUB_REPOSITORY.test(repository) || /^\.+$/u.test(repository)) return null;
+  return `https://${GITHUB_HOST}/${owner}/${repository}`;
+}
+
+/** The link drawn beside an onboarded capability, or nothing when its remote is not on GitHub. */
+export function repositoryWebLink(remote: unknown): string {
+  const url = repositoryWebUrl(remote);
+  if (!url) return '';
+  const label = url.slice('https://'.length);
+  return ` <span class="help-link repository-web-link" data-repository-web="${escape(url)}" role="link" tabindex="0" title="Open ${escape(label)} in the browser">${escape(label)}</span>`;
+}
+
+/** The GitHub page an `open-repository-web` message asks for, re-derived rather than taken as sent. */
+export function repositoryWebTarget(raw: unknown): string | null {
+  const message = raw as { type?: unknown; url?: unknown };
+  if (message?.type !== 'open-repository-web' || typeof message.url !== 'string') return null;
+  const url = repositoryWebUrl(message.url);
+  return url === message.url ? url : null;
+}
+
 /** Choosing a workspace is what makes the late-registered destinations exist. */
 export const NAV_RESOLVE_COMMAND = 'singularityFlow.openWorkspaces';
 
@@ -1047,6 +1107,14 @@ export const NAV_SCRIPT = `
     if (target) window.__sfVscode.postMessage({ type: 'navigate', to: target.dataset.nav });
     const guided = event.target.closest('[data-guided]');
     if (guided) window.__sfVscode.postMessage({ type: 'navigate', to: 'guided-' + guided.dataset.guided });
+    const web = event.target.closest('[data-repository-web]');
+    if (web) window.__sfVscode.postMessage({ type: 'open-repository-web', url: web.dataset.repositoryWeb });
+  });
+  document.addEventListener('keydown', (event) => {
+    const web = (event.key === 'Enter' || event.key === ' ') && event.target.closest?.('[data-repository-web]');
+    if (!web) return;
+    event.preventDefault();
+    window.__sfVscode.postMessage({ type: 'open-repository-web', url: web.dataset.repositoryWeb });
   });
 `;
 

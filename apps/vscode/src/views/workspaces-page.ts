@@ -13,7 +13,7 @@ import {
   type WorkspaceFosAction, type WorkspaceFosOutcome, type WorkspaceRecoveryAction,
   isSafeWorkspaceReinitializationPreview
 } from './workspaces-model.ts';
-import { escape, icon } from './webview.ts';
+import { escape, icon, repositoryWebLink } from './webview.ts';
 import { commandGuidanceHtml } from './command-guidance.ts';
 
 function rowHtml(row: WorkspaceRow, selected: string | null): string {
@@ -62,6 +62,7 @@ function workspaceDetails(status: WorkspaceStatus | null, loading: boolean, deta
   if (!status) return '<p class="muted">Workspace details are unavailable.</p>';
 
   const capabilities = status.workspace.capabilities ?? [];
+  const choices = status.availableCapabilities ?? [];
   const anchor = status.workspace.anchor;
   const warnings = status.warnings ?? [];
   const repositoryContext = status.repositories.filter((repository) =>
@@ -75,7 +76,7 @@ function workspaceDetails(status: WorkspaceStatus | null, loading: boolean, deta
     <p><strong>Working directory</strong><br><code>${escape(status.workspace.path)}</code></p>
     <p><strong>Lead repository</strong><br><code>${escape(status.leadRepositoryPath)}</code></p>
     <p><strong>Capabilities</strong><br>${capabilities.length
-      ? capabilities.map((capability) => `<span class="pill ok">${icon('capability')}${escape(capability)}</span>`).join(' ')
+      ? capabilities.map((capability) => `<span class="pill ok">${icon('capability')}${escape(capability)}</span>${repositoryWebLink(choices.find((choice) => choice.id === capability)?.url)}`).join(' ')
       : '<span class="muted">No capabilities mapped</span>'}</p>
     <p><strong>Work / Jira anchor</strong><br>${anchor
       ? `${valuePairs({ provider: anchor.provider, key: anchor.key, title: anchor.title,
@@ -570,7 +571,7 @@ function workspaceEditHtml(
         const choice = choices.find((entry) => entry.id === id);
         const beneath = choices.filter((entry) => entry.ancestors.includes(id));
         return `<tr><td>${icon('capability')}<strong>${escape(capabilityLabel(choice, id))}</strong></td>
-          <td class="muted">${beneath.length ? `Includes ${beneath.length} beneath it` : (choice?.repository ? `Ships from ${escape(choice.repository)}` : 'Grouping')}</td>
+          <td class="muted">${beneath.length ? `Includes ${beneath.length} beneath it` : (choice?.repository ? `Ships from ${escape(choice.repository)}` : 'Grouping')}${repositoryWebLink(choice?.url)}</td>
           <td><span class="card-foot">
             <button class="secondary" data-capability-detach="${escape(id)}" data-workspace-path="${escape(row.path)}"${edit.busy ? ' disabled' : ''}>Detach</button>
             <button class="link danger" data-capability-drop="${escape(id)}" data-workspace-path="${escape(row.path)}"${edit.busy ? ' disabled' : ''}>Detach &amp; drop local…</button>

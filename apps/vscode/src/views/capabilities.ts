@@ -12,8 +12,8 @@ import { showCompactWarningMessage } from "../compact-message.ts";
 import * as vscode from 'vscode';
 import { bodyHtml, readEdits, SCRIPT } from './capability-page.ts';
 import { buildCapabilityDashboard } from './capability-dashboard-model.ts';
-import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
-import { navigateTo } from './navigate.ts';
+import { contentSecurityPolicy, navigationTarget, nonce, page, repositoryWebTarget } from './webview.ts';
+import { navigateTo, openRepositoryWeb } from './navigate.ts';
 import type { WorkspaceStore } from '../state.ts';
 import { RetainedPanelRenderGate } from '../single-flight.ts';
 
@@ -65,6 +65,8 @@ export class CapabilitiesPanel {
       // this panel's own message contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
+      const repositoryWeb = repositoryWebTarget(raw);
+      if (repositoryWeb) return void openRepositoryWeb(repositoryWeb);
 
       const message = raw as {
         type?: unknown; id?: unknown; parent?: unknown; edits?: unknown; dirty?: unknown;
@@ -199,7 +201,8 @@ export class CapabilitiesPanel {
       'Capabilities',
       bodyHtml(
         map?.capabilities ?? [], this.selected,
-        this.error ?? map?.error ?? null, dashboard, map?.mode
+        this.error ?? map?.error ?? null, dashboard, map?.mode,
+        this.store.current.snapshot?.portfolio?.repositories ?? {}
       ),
       contentSecurityPolicy(this.panel.webview, token),
       token,

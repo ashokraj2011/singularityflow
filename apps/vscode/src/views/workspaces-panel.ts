@@ -7,8 +7,8 @@
  * two of them occupy the same directory, and it enforces it by refusing before the command runs.
  */
 import * as vscode from 'vscode';
-import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
-import { navigateTo } from './navigate.ts';
+import { contentSecurityPolicy, navigationTarget, nonce, page, repositoryWebTarget } from './webview.ts';
+import { navigateTo, openRepositoryWeb } from './navigate.ts';
 import { collectReviewConfirmation } from './review-confirmation.ts';
 import { booleanField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import {
@@ -138,6 +138,8 @@ export class WorkspacesPanel {
       // this panel's own message contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
+      const repositoryWeb = repositoryWebTarget(raw);
+      if (repositoryWeb) return void openRepositoryWeb(repositoryWeb);
       return this.router.route(raw);
     }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);

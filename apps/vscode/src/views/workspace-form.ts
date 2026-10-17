@@ -14,7 +14,7 @@
  * mapped on the Capabilities screen, because a workspace over capabilities that do not exist yet is
  * not a form to fill in, it is a step taken out of order.
  */
-import { escape, icon } from './webview.ts';
+import { escape, icon, repositoryWebLink } from './webview.ts';
 import { PROFILE_PERSONAS, PROFILE_PERSONA_IDS } from './profile-personas.ts';
 import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts';
 
@@ -383,7 +383,7 @@ function capabilityHtml(form: WorkspaceForm): string {
         <tr>
           <td>${icon('capability')}${escape(capability?.name ?? id)}</td>
           <td class="muted">${beneath.length ? `${beneath.length} beneath it · ` : ''}${repositories.length
-      ? repositories.map((repository) => `${icon('repository')}<code>${escape(repository.id)}</code>${repository.url ? '' : ` <span class="pill bad">${icon('bad')}no clone URL</span>`}`).join(' ')
+      ? repositories.map((repository) => `${icon('repository')}<code>${escape(repository.id)}</code>${repository.url ? repositoryWebLink(repository.url) : ` <span class="pill bad">${icon('bad')}no clone URL</span>`}`).join(' ')
       : 'ships nothing yet'}</td>
           <td><button class="link" data-capability-remove="${escape(id)}">Remove</button></td>
         </tr>`;

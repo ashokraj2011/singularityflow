@@ -187,6 +187,8 @@ export interface WorkspaceCapabilityChoice {
   depth: number;
   ancestors: string[];
   repository: string | null;
+  /** Where that repository is cloned from, as the approved portfolio declares it. */
+  url?: string | null;
 }
 
 export interface WorkspaceCapabilityChangePreview {

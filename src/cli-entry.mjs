@@ -714,7 +714,7 @@ async function runMain(argv, utilityEntry = null) {
   }
   const agentEntry = ['inputs', 'nextsteps', 'review-source'].includes(definition.name) && options['for-agent'] !== undefined;
   if (agentEntry) (await import('./agent-entry-options.mjs')).validateAgentEntryRequest(definition.name, { positionals, options });
-  if (['hook', 'home'].includes(definition.name) || phaseEntry || agentEntry) {
+  if (['hook', 'home', 'check'].includes(definition.name) || phaseEntry || agentEntry) {
     const mode = readCopilotMode();
     if (mode.paused) {
       if (definition.name === 'hook') return console.log('{}');

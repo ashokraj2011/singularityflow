@@ -24,6 +24,7 @@ import {
 } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
 import { synchronizeChatProfile } from './personalization.ts';
+import { saveRepositoryCheckSettings } from '../../../src/repository-check-settings.mjs';
 import { StepActionDeliveryMonitor } from './step-action-deliveries.ts';
 import { RepositorySnapshotFileCache } from './snapshot-file-cache.ts';
 import { IntakeCatalogCache } from './intake-catalog-cache.ts';
@@ -697,6 +698,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!vscode.workspace.getConfiguration('singularityFlow').get<boolean>('warmReads', true)) {
       environment.SINGULARITY_FLOW_READ_WORKER = 'off';
     }
+    // Mirror resource-scoped settings for native Copilot shell commands too. They do not inherit
+    // this client's custom environment. Common Git roots remain beneath the selected workspace
+    // even when an isolated Story worktree is elsewhere.
+    const userPerformance = vscode.workspace.getConfiguration('singularityFlow');
+    await saveRepositoryCheckSettings({
+      mode: userPerformance.inspect?.<string>('repositoryCheckMode')?.globalValue ?? 'cached',
+      intervalMinutes: userPerformance.inspect?.<number>('repositoryCheckIntervalMinutes')?.globalValue ?? 30
+    }).catch((error: Error) => output.appendLine(`Could not mirror repository-check defaults: ${error.message}`));
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    for (const folder of folders) {
+      const performance = vscode.workspace.getConfiguration('singularityFlow', folder.uri);
+      const mode = performance.inspect?.<string>('repositoryCheckMode');
+      const interval = performance.inspect?.<number>('repositoryCheckIntervalMinutes');
+      const overridden = [mode?.workspaceValue, mode?.workspaceFolderValue,
+        interval?.workspaceValue, interval?.workspaceFolderValue].some(value => value !== undefined);
+      await saveRepositoryCheckSettings(overridden ? {
+        mode: performance.get<string>('repositoryCheckMode', 'cached'),
+        intervalMinutes: performance.get<number>('repositoryCheckIntervalMinutes', 30)
+      } : null, { workspacePath: folder.uri.fsPath }).catch((error: Error) => output.appendLine(`Could not mirror repository-check preferences: ${error.message}`));
+    }
     return environment;
   };
   const resetMarker = path.resolve(process.env.SINGULARITY_FLOW_VSCODE_RESET_MARKER
@@ -711,7 +732,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   if (pendingFreshReset) {
     const settings = vscode.workspace.getConfiguration('singularityFlow');
-    const globalSettingKeys = ['cliPath', 'nodePath', 'modelMode', 'userName', 'role', 'warmReads'];
+    const globalSettingKeys = ['cliPath', 'nodePath', 'modelMode', 'userName', 'role', 'warmReads', 'repositoryCheckMode', 'repositoryCheckIntervalMinutes'];
     const globalKeys = typeof context.globalState.keys === 'function'
       ? context.globalState.keys()
       : ['onboardingComplete', START_WIZARD_KEY];
@@ -740,7 +761,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const configurationListener = vscode.workspace.onDidChangeConfiguration?.(async (event) => {
     if (event.affectsConfiguration('singularityFlow.modelMode')
       || event.affectsConfiguration('singularityFlow.userName')
-      || event.affectsConfiguration('singularityFlow.warmReads')) cliEnvironment = await resolvedCliEnvironment();
+      || event.affectsConfiguration('singularityFlow.warmReads')
+      || event.affectsConfiguration('singularityFlow.repositoryCheckMode')
+      || event.affectsConfiguration('singularityFlow.repositoryCheckIntervalMinutes')) cliEnvironment = await resolvedCliEnvironment();
     if (event.affectsConfiguration('singularityFlow.role')
       || event.affectsConfiguration('singularityFlow.userName')) refreshPersonaMenus();
   });
@@ -4615,6 +4638,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onOutput: (text) => output.append(text)
   });
   output.appendLine(`Using CLI (${client.location.source}): ${client.location.cli}`);
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.checkRepository', async () => {
+    try {
+      const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
+        title: 'Checking repository now', cancellable: false }, () => client.run<any>(['check', '--json']));
+      const report = result.data ?? result;
+      output.appendLine(`Repository checks: ${report.status} · checked ${report.repositoryChecks?.checkedAt ?? 'now'} · mode ${report.repositoryChecks?.mode ?? 'unknown'}`);
+      showResultCard(buildResultCard(result));
+    } catch (error) { showRefusal(error, { headline: 'Repository check needs attention' }); }
+  }));
   // Begin after activation yields, ahead of the first menu click. This only prepares owned code;
   // it does not scan the repository, execute a handler, or claim readiness/approval.
   const readPreparation = setTimeout(() => {

@@ -7,6 +7,7 @@ test('model-free presentation preserves supported phase and Story selectors', ()
   assert.deepEqual(parseModelFreeTarget('custom-build --work-id PILOT-1'), { phase: 'custom-build', workId: 'PILOT-1' });
   for (const [argv, expected] of [
     [['nextsteps', '--json'], '@sflow /next'],
+    [['check', '--json'], '@sflow /check'],
     [['instruction', 'list', '--json'], '@sflow /instructions'],
     [['submit', 'custom-build', '--json'], '@sflow /submit custom-build'],
     [['approve', 'custom-check', '--work-id', 'PILOT-1', '--fetch'], '@sflow /approve custom-check --work-id PILOT-1'],
@@ -34,6 +35,7 @@ test('unsafe, unsupported, selector-dropping and authority-bearing alternatives 
 });
 
 test('CLI and Copilot guidance show derived @sflow options without trusting asserted routes', () => {
+  assert.equal(safeCommandGuidance({ command: 'singularity-flow check --json' }).copilotCommand, '/sf-check');
   const guidance = safeCommandGuidance({ command: 'singularity-flow approve build --work-id STORY-1 --fetch', modelFreeCommand: '@evil /approve' });
   assert.equal(guidance.modelFreeCommand, '@sflow /approve build --work-id STORY-1');
   const mapped = commandGuidanceForCommands({ publish: 'singularity-flow phase publish build --authored governed-agent --channel copilot-host' });

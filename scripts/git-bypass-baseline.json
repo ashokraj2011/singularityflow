@@ -46,6 +46,10 @@
       "counts": { "command-git": 7, "process-import": 1, "process-launch": 1 },
       "digest": "73e2292759624fd4b4095b9d9669c7c23439def7730f13364447311e1f6f15e0"
     },
+    "scripts/repository-check-benchmark.mjs": {
+      "counts": { "process-import": 1, "process-launch": 1 },
+      "digest": "49c06b5f71db5bd06af39e8c7d80cb412e4b344ad4e875181e4f35635e40e667"
+    },
     "scripts/cold-start-benchmark.mjs": {
       "counts": {"command-git":12,"process-import":1,"process-launch":1},
       "digest": "ee80ad3f936ac02827e9202e3b3878ca4e305aad9ebd29a578cbeef1c64b03f8"

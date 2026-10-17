@@ -21,6 +21,7 @@ import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import { authoringSkillCatalog } from '../authoring-skills.mjs';
 import { agentOrIndentedJson, agentPacketPresentation } from '../agent-packet-presentation.mjs';
 import { measureCommandSpan } from '../dx-timing-context.mjs';
+import { repositoryCheckStatus } from '../repository-check-cache.mjs';
 
 async function localSession(root) {
   const target = path.join(gitDir(root), 'singularity-flow', 'session.json');
@@ -214,7 +215,8 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
       prerequisites: await measureCommandSpan('nextsteps.prerequisites', () => storyPrerequisites(root, workflow, selected, modelMode, { definition, executionCatalog, observeFile })),
       modelMode
     }),
-    evidence: evidenceSummary(workflow)
+    evidence: evidenceSummary(workflow),
+    repositoryChecks: repositoryCheckStatus(root)
   };
 }
 

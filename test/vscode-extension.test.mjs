@@ -1076,6 +1076,9 @@ test('configuration validation always reads current bytes while ordinary status 
         `shared ${action} must observe peer saves/deletions, not a cached acknowledgement`);
     }
     assert.equal(await readFile(counter, 'utf8'), '15');
+    assert.deepEqual(await client.run(['check', '--json']), { count: 16 });
+    assert.deepEqual(await client.run(['check', '--json']), { count: 17 },
+      'Check now is a real refresh even when clicked twice inside the normal read-cache TTL');
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

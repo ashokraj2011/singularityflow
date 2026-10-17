@@ -9,7 +9,7 @@ import { SingularityFlowError } from '../util.mjs';
 
 export const MIGRATED_NARRATION_COMMANDS = Object.freeze([
   'adhoc', 'agent', 'appeal', 'approvals', 'approve', 'authority-store', 'auto', 'candidate',
-  'change', 'clarification', 'comprehension', 'constitution', 'context', 'converge', 'copilot', 'decision', 'delivery', 'device', 'import', 'imports', 'marketplace',
+  'change', 'check', 'clarification', 'comprehension', 'constitution', 'context', 'converge', 'copilot', 'decision', 'delivery', 'device', 'import', 'imports', 'marketplace',
   'env', 'evidence', 'execution-unit', 'explain', 'fault', 'fix', 'goal', 'governance', 'help-metrics', 'implement',
   'intent', 'journal', 'land', 'learn', 'local', 'local-reset', 'memory', 'meta-tool', 'pack', 'pause',
   'onboard', 'authority', 'cache',

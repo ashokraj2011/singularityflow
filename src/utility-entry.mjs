@@ -26,7 +26,9 @@ export function scopedUtilityRead(positionals, options = {}) {
   const key = Object.hasOwn(FORMS, pair) ? pair : positionals[0];
   const form = Object.hasOwn(FORMS, key) ? FORMS[key] : null;
   return Boolean(form && positionals.length >= (form.min ?? 1) && positionals.length <= form.max
-    && Object.keys(options).every(key => key === 'utility-entry' || form.options.includes(key))
+    && Object.keys(options).every(key => key === 'utility-entry' || form.options.includes(key)
+      // Observability must not disable invocation-local reuse and change the path being measured.
+      || ['timings', 'timing'].includes(key) && options[key] === true)
     && (positionals[0] !== 'inputs' || options['dry-run'] === true)
     && (positionals[0] !== 'report' || options.format === 'json')
     && !positionals.includes('--'));

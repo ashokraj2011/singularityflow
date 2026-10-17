@@ -124,6 +124,7 @@ skills:
   sflow-review-decide: { class: mutation }
   sflow-converge: { class: generative, maximumTokenOverride: 822, exception: "It ends with `phase prepublish --publish-if-ready`, which publishes and returns the review in the same command instead of three Copilot round trips, so it names when not to run `commands.publish` itself. Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open." }
   sflow-doctor: { class: echo, executionBoundary: machine }
+  sflow-check: { class: echo, executionBoundary: repository }
   sflow-documents: { class: mutation, executionBoundary: repository }
   sflow-environment: { class: interactive, executionBoundary: repository }
   sflow-epic-complete: { class: review, executionBoundary: repository }

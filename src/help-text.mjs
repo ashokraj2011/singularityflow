@@ -290,6 +290,12 @@ Usage:
   singularity-flow repair attempt <REPAIR-ID> --patch PATCH-FILE [--json]
   singularity-flow repair cancel <REPAIR-ID> --reason TEXT [--json]
   singularity-flow doctor [WORK-ID] [--offline] [--performance] [--json]
+  singularity-flow check [--for-agent] [--json]
+    Refresh local repository and accepted workflow checks now, ignoring the routine-check cache.
+    No tests, remote fetch, preparation, publication or approval. Copilot: /sf-check; VS Code: @sflow /check.
+    Routine entry checks default to cached / 30 minutes. VS Code settings:
+    singularityFlow.repositoryCheckMode (always|cached|manual), singularityFlow.repositoryCheckIntervalMinutes.
+    Shell overrides: SINGULARITY_FLOW_REPOSITORY_CHECK_MODE and SINGULARITY_FLOW_REPOSITORY_CHECK_INTERVAL_MINUTES.
   singularity-flow doctor --git-speed [--apply] [--enable fsmonitor] [--enable untracked-cache] [--json]
   singularity-flow doctor --fix telemetry [--confirm "ENABLE LOCAL USAGE"] [--json]
   singularity-flow home [--workspace ID] [--lens developer|qa|architect|product-owner|admin]

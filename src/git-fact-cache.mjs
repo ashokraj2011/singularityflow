@@ -564,6 +564,9 @@ export function withFreshGitFacts(read) {
   return Promise.resolve(result).finally(() => { freshDepth -= 1; });
 }
 
+/** Other routine accelerators must honor callers explicitly demanding a fresh Git proof too. */
+export function freshGitFactsRequired() { return freshDepth > 0; }
+
 /** Forget every answer. Tests use it; nothing in the product needs to. */
 export function clearGitFactCache() {
   entries.clear();

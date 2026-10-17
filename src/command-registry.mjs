@@ -107,6 +107,7 @@ const LAZY_MODULES = Object.freeze({
   validate: './commands/validate.mjs',
   gate: './commands/validate.mjs',
   doctor: './commands/doctor.mjs',
+  check: './commands/check.mjs',
   telemetry: './commands/telemetry.mjs',
   context: './commands/context.mjs',
   tokens: './commands/context.mjs',
@@ -129,8 +130,8 @@ function operation(id, modelPolicy = 'never', overrides = {}) {
 }
 
 function command([name, aliases = []]) {
-  const classification = READ_ONLY.has(name) ? 'read' : 'mutation';
-  const output = name === 'agents' || name === 'pause' || STRUCTURED.has(name) ? 'human-or-json' : 'human';
+  const classification = name === 'check' || READ_ONLY.has(name) ? 'read' : 'mutation';
+  const output = name === 'check' || name === 'agents' || name === 'pause' || STRUCTURED.has(name) ? 'human-or-json' : 'human';
   const mixed = name === 'pause' || name === 'wm' || name === 'workspace' || name === 'pr' || MODEL_FREE_MIXED_COMMANDS.has(name);
   return Object.freeze({
     name,
@@ -162,7 +163,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   // The first-run walkthrough already existed as `guide --first-run` and was the best teaching asset
   // in the product, buried behind a flag on a verb that also means something else. This is the front
   // door; the flag still works.
-  ['quickstart', ['first-run']]
+  ['quickstart', ['first-run']], ['check']
 ].map(command));
 
 const canonical = new Map(COMMAND_REGISTRY.flatMap((entry) => [

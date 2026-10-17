@@ -21,6 +21,7 @@ export function modelFreeCommandForArgv(argv) {
   const exact = (expected) => tokens.length === expected.length && tokens.every((value, i) => value === expected[i]);
   for (const [route, expected] of [
     ['next', ['nextsteps']], ['status', ['status']], ['checks', ['precheck', '--quick']],
+    ['check', ['check']],
     ['docs', ['documents', 'list', '--active']], ['workflows', ['workflow', 'list']],
     ['validate', ['validate']], ['converge', ['converge']], ['instructions', ['instruction', 'list']]
   ]) if (exact(expected)) return `@sflow /${route}`;

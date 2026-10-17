@@ -37,6 +37,10 @@ test('combined utility entry is closed to mutations, effects, ambiguous flags an
   assert.deepEqual(withoutUtilityEntry(['status', '--utility-entry', '--', '--utility-entry']),
     ['status', '--', '--utility-entry']);
   assert.doesNotThrow(() => validateUtilityEntry(['inputs', 'intake'], { ...flags, 'dry-run': true }));
+  for (const flag of ['timing', 'timings']) {
+    assert.equal(scopedUtilityRead(['nextsteps'], { json: true, 'for-agent': true, [flag]: true }), true);
+    assert.equal(scopedUtilityRead(['nextsteps'], { json: true, 'for-agent': true, [flag]: 'false' }), false);
+  }
   assert.doesNotThrow(() => validateUtilityEntry(['report'], { ...flags, format: 'json' }));
   assert.throws(() => validateUtilityEntry(['report'], flags), { code: 'UTILITY_ENTRY_REQUEST_INVALID' });
   const entry = utilityResult({ repositoryPath: '/fixture', operation: 'status' },

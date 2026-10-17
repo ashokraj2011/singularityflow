@@ -285,6 +285,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Singularity Flow quick precheck is ${slot(s.status)} across ${slot(s.checks, '0')} check(s).`,
     preserves: true
   },
+  'repository-check.reported': {
+    headline: (s) => `Local repository checks: ${slot(s.status)}. Mode: ${slot(s.mode)}; interval: ${slot(s.intervalMinutes)} minutes. No tests or lifecycle transition ran.`,
+    preserves: true
+  },
   'precheck.run-planned': {
     headline: (s) => `Repository readiness has ${slot(s.commands, '0')} command(s) ready for exact review.`,
     preserves: true

@@ -866,6 +866,7 @@ type ParticipantRendered = {
   shellCopyable?: boolean;
   copilot?: string | null;
   openApproval?: boolean;
+  checkNow?: boolean;
 };
 
 function jsonObject(value: unknown): JsonObject | null {
@@ -940,13 +941,20 @@ function renderNextAction(value: unknown): ParticipantRendered {
   const action = actions.find((entry) => entry.timing === 'now') ?? actions[0] ?? null;
   let markdown = `### Next legal action\n\n- Story: **${markdownValue(result.workId ?? 'not selected')}**\n`;
   markdown += `- Current phase: **${markdownValue(result.currentPhase ?? 'unavailable')}**\n`;
-  if (!action) return { markdown: `${markdown}- No currently available action was returned.\n` };
+  const verification = jsonObject(result.repositoryChecks);
+  const checked = typeof verification?.checkedAt === 'string' ? verification.checkedAt : null;
+  if (checked) {
+    const age = typeof verification?.ageMs === 'number' && Number.isFinite(verification.ageMs)
+      ? `${Math.max(0, Math.floor(verification.ageMs / 60000))} min ago` : checked;
+    markdown += `- Repository checks: ${markdownValue(age)} · ${markdownValue(verification?.mode ?? 'unknown')} · ${markdownValue(verification?.source ?? 'unknown')}\n`;
+  }
+  if (!action) return { markdown: `${markdown}- No currently available action was returned.\n`, checkNow: Boolean(checked) };
   markdown += `- Why: ${markdownValue(action.reason ?? 'No reason returned.', 1000)}\n`;
   markdown += `- Availability: ${markdownValue(action.availability ?? 'unknown')}\n`;
   const commands = renderedCommand(action);
   markdown += routeMarkdown(action);
   markdown += '\nNothing was executed. Review or prefill the returned action.\n';
-  return { markdown, ...commands };
+  return { markdown, ...commands, checkNow: Boolean(checked) };
 }
 
 function renderStatus(value: unknown): ParticipantRendered {
@@ -1074,6 +1082,17 @@ function renderParticipantResult(
   if (command.template === 'next-action') return renderNextAction(value);
   if (command.template === 'status') return renderStatus(value);
   if (command.template === 'checks') return renderChecks(value);
+  if (command.template === 'repository-check') {
+    const envelope = jsonObject(value) ?? {};
+    const result = jsonObject(envelope.data) ?? envelope;
+    const checks = jsonObject(result.repositoryChecks) ?? {};
+    const findings = jsonArray(result.findings).map(jsonObject).filter((entry): entry is JsonObject => Boolean(entry));
+    let markdown = `### Repository checks · ${markdownValue(result.status ?? 'unavailable')}\n\n`;
+    markdown += `Last checked: ${markdownValue(checks.checkedAt ?? 'unavailable')} · mode: ${markdownValue(checks.mode ?? 'unknown')} · interval: ${markdownValue(checks.intervalMinutes ?? 'unknown')} minutes.\n\n`;
+    for (const item of findings.slice(0, 12)) markdown += `- ${markdownValue(item.code)}${item.message ? `: ${markdownValue(item.message)}` : ''}\n`;
+    markdown += '\nNo tests, remote fetch, publication or approval was performed.\n';
+    return { markdown, ...renderedCommand(result.next ?? jsonArray(envelope.next)[0]) };
+  }
   if (command.template === 'router') return renderRouter(value);
   if (command.template === 'documents') return renderDocuments(value);
   if (command.template === 'workflows') return renderWorkflows(value);
@@ -1136,6 +1155,7 @@ function addParticipantButtons(
   if (rendered.openApproval) {
     stream.button({ command: 'singularityFlow.openApprovals', title: 'Open guarded approval form' });
   }
+  if (rendered.checkNow) stream.button({ command: 'singularityFlow.checkRepository', title: 'Check now' });
 }
 
 function zeroModelFooter(stream: vscode.ChatResponseStream, startedAt: number, effect = 'read'): void {

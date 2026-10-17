@@ -60,6 +60,13 @@
     "confirmation": "none"
   },
   {
+    "id": "check", "class": "deterministic", "transport": "cli", "effect": "read",
+    "runtime": ["check", "--json"], "template": "repository-check", "skill": "/sf-check",
+    "description": "Refresh local repository and accepted workflow checks now; no tests or lifecycle changes",
+    "keywords": ["check", "check now"], "acceptsArguments": false,
+    "requiresRepository": true, "requiresSession": false, "confirmation": "none"
+  },
+  {
     "id": "explain",
     "class": "deterministic",
     "transport": "local",

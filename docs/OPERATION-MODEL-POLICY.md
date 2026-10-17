@@ -150,6 +150,7 @@ Every public operation is classified before its implementation module is importe
 | capability.tree | read | never | — | — |
 | capability.world-model | read | never | — | — |
 | change.show.shadow | read | never | — | — |
+| check | read | never | — | — |
 | choices | read | never | — | — |
 | clarification.record | mutation | never | — | — |
 | clarification.status | read | never | — | — |

@@ -67,6 +67,7 @@
           { "name": "next", "description": "Read the next legal action without executing it" },
           { "name": "status", "description": "Show bounded Story and phase status" },
           { "name": "checks", "description": "Run the read-only quick readiness checks" },
+          { "name": "check", "description": "Refresh local repository and accepted workflow checks now; no tests or lifecycle changes" },
           { "name": "explain", "description": "Resolve a reviewed help topic without a model" },
           { "name": "converge", "description": "Read the convergence router result without following it" },
           { "name": "docs", "description": "List the active Story's documents" },
@@ -91,6 +92,20 @@
     "configuration": {
       "title": "Singularity Flow",
       "properties": {
+        "singularityFlow.repositoryCheckMode": {
+          "type": "string", "default": "cached", "scope": "resource",
+          "enum": ["always", "cached", "manual"],
+          "enumDescriptions": [
+            "Verify accepted workflow configuration on every routine entry.",
+            "Reuse successful verification until the interval expires or local dependencies change.",
+            "Reuse successful verification until dependencies change or Check now is requested."
+          ],
+          "description": "Routine repository-check reuse, shared with native Copilot shell skills. Worktree, tests, publication and approval checks remain fresh."
+        },
+        "singularityFlow.repositoryCheckIntervalMinutes": {
+          "type": "integer", "default": 30, "minimum": 1, "maximum": 10080, "scope": "resource",
+          "description": "Maximum age of successful routine verification in Cached mode. Use Singularity Flow: Check Repository Now or @sflow /check to refresh immediately."
+        },
         "singularityFlow.warmReads": {
           "type": "boolean",
           "default": true,
@@ -220,6 +235,11 @@
       ]
     },
     "commands": [
+      {
+        "command": "singularityFlow.checkRepository",
+        "title": "Singularity Flow: Check Repository Now",
+        "icon": "$(refresh)"
+      },
       {
         "command": "singularityFlow.manageFavorites",
         "title": "Singularity Flow: Choose Pinned Shortcuts",

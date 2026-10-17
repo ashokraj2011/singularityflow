@@ -91,6 +91,7 @@ const entries = {
   recommend: ['sf-recommend'],
   logs: ['sf-logs'],
   doctor: ['sf-doctor'],
+  check: ['sf-check'],
   review: ['sf-review'],
   'review-source': ['sf-review-source', 'sf-review-decide'],
   workflow: ['sf-workflows', 'sf-import-team'],

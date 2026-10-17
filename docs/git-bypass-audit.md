@@ -1,5 +1,11 @@
 # GAL Git bypass regression gate
 
+`scripts/repository-check-benchmark.mjs` has one reviewed process import and one bounded Node
+launcher (90 seconds, 32 MiB, structured argv). It runs copied CLI code against the existing
+local-only warm-read fixture, with private machine state, no models, no network and unconditional
+fixture cleanup. It measures routine entry commands and is imported only by its focused tests,
+never product handlers. Its frozen baseline adds no production Git owner or transport authority.
+
 Onboarding activation's three new local Git sites initialize an inert, template-free bare store,
 configure its frozen remote alias, and verify its exact fetched state commit. They run through the
 existing bounded process primitive under the reviewed enterprise environment. No application branch

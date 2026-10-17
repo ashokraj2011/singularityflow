@@ -247,7 +247,7 @@ function flattenSnapshot(envelope: SnapshotEnvelope): RepositorySnapshot {
 
 const READ_ONLY_COMMANDS = new Set([
   'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'progress',
-  'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'precheck', 'change', 'proof',
+  'guide', 'logs', 'doctor', 'check', 'nextsteps', 'snapshot', 'validate', 'precheck', 'change', 'proof',
   'comprehension'
 ]);
 const READ_ONLY_CONFIGURATION_COMMANDS = new Set([
@@ -289,7 +289,7 @@ function enabledBooleanOption(args: string[], name: string): boolean {
  * policy; only result reuse is forbidden.
  */
 function cacheableRead(args: string[]): boolean {
-  return !args.includes('--for-agent') && !['review-source', 'choices', 'phase'].includes(args[0] ?? '')
+  return !args.includes('--for-agent') && !['check', 'review-source', 'choices', 'phase'].includes(args[0] ?? '')
     && !args.includes('--submission-readiness') && !args.includes('--submit-if-ready')
     && !(args[0] === 'configuration' && args[1] === 'validate')
     // An explicit test-setup inspection must reread the selected module manifests, including

@@ -11835,6 +11835,7 @@ async function dispatch(command, positionals, options, argv) {
     recommend: async () => (await import('./commands/recommend.mjs')).run(positionals, { positionals, options }),
     logs: () => logsCommand(positionals, options),
     doctor: async () => (await import('./commands/doctor.mjs')).doctorCommand(positionals, options),
+    check: async () => (await import('./commands/check.mjs')).run(argv, { positionals, options }),
     review: async () => (await import('./commands/report.mjs')).reviewCommand(positionals, options),
     "review-source": async () => (await import('./commands/review-source.mjs')).reviewSourceCommand(positionals, options),
     receipt: async () => (await import('./commands/receipt.mjs')).receiptCommand(positionals, options),

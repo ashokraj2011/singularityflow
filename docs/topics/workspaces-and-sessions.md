@@ -11,11 +11,12 @@ commands:
   - session
   - choices
   - push
+  - check
 related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 12
+version: 13
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing repository state.
 
@@ -30,6 +31,51 @@ Use this topic when the current goal matches **workspaces and sessions**. Start 
 - **VS Code:** open Singularity Flow **My Work and Workspaces**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
+
+### Routine repository checks
+
+Phase entry, session opening and next-step reads share successful verification of unchanged
+accepted workflow configuration. The default is **Cached, 30 minutes**. This saves repeated
+Git history/object reads; it does not cache an entire command, worktree cleanliness, test
+results, evidence acceptance, approval consent or lifecycle readiness. Legacy Stories without
+an accepted snapshot retain their existing fresh configuration loader.
+
+In VS Code Settings, choose **Singularity Flow: Repository Check Mode** (`always`, `cached`,
+or `manual`) and **Repository Check Interval Minutes** (1–10080, default 30). Settings can be
+scoped to a workspace. VS Code mirrors them into machine-local preferences for native Copilot
+shell skills; they are not committed, pinned into Stories, exported or imported as workflow policy.
+Shell overrides `SINGULARITY_FLOW_REPOSITORY_CHECK_MODE` and
+`SINGULARITY_FLOW_REPOSITORY_CHECK_INTERVAL_MINUTES` take precedence.
+
+- **Always:** perform verification on each routine request.
+- **Cached:** refresh on expiry or a relevant local change.
+- **Manual:** refresh on a relevant local change or explicit request, not merely elapsed time.
+  A missing cache still performs the initial verification; Manual never means unchecked.
+
+Cheap filesystem observations invalidate reuse when HEAD, its ref, the Git index, configuration,
+object visibility or Story bytes change. A different Story selection has a different cache identity.
+Session binding is always checked live, rather than cached. Cache damage or an unsupported layout
+falls back to verification. SFlow writes affecting those inputs invalidate in the same way.
+Current Story/phase binding and worktree checks remain live. Publication, submission, approval,
+tests and explicit recovery do not consume these cached verification results.
+
+To refresh immediately, use **Singularity Flow: Check Repository Now**, Copilot `/sf-check`,
+Shell `singularity-flow check --json`, or model-free `@sflow /check`. The check does not fetch,
+run tests, prepare artifacts, publish or approve. Results report the check time, cache source,
+mode and interval; a successful check is not approval.
+
+For terminal-only setup, the optional local preference file is
+`~/.singularity-flow/repository-checks.json` (or the path in
+`SINGULARITY_FLOW_REPOSITORY_CHECK_PREFERENCES`):
+
+```json
+{"format":1,"defaults":{"mode":"cached","intervalMinutes":30},"workspaces":{}}
+```
+
+Workspace overrides use absolute workspace directory keys inside `workspaces`. Environment
+overrides win, then the most specific matching workspace, then user defaults.
+
+### Selection and inspection
 
 1. Read the current state with `sflow home`, `sflow status`, or the relevant list/status form.
 2. Review the repository, workspace, Work ID, phase, actor, and any warnings before selecting an action.

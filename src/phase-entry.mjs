@@ -30,6 +30,7 @@ import { phaseExecutionEvidence } from './phase-execution-evidence.mjs';
 import { phaseAuthoringProgress, readPhaseDraftEvidence } from './phase-authoring-progress.mjs';
 import { endsStory, upstreamEntrySummary } from './upstream-entry-summary.mjs';
 import { measureCommandSpan } from './dx-timing-context.mjs';
+import { repositoryCheckStatus } from './repository-check-cache.mjs';
 
 /** Verified per-invocation binding shared by phase entry, nextsteps and inputs. */
 export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, workId = null,
@@ -74,6 +75,7 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
     ? await (await import('./delivery-evidence.mjs')).plannedEvidencePaths(root, definition, workflow, phase).catch(() => [])
     : [];
   const packet = { schemaVersion: 1, resultType: 'sflow-phase-entry', paused: false,
+    repositoryChecks: repositoryCheckStatus(root),
     personalization: resolvePersonalization({ root }), ...binding,
     mutationContract: mutationContractPresentation(deriveMutationContract({ root, definition, workflow, phase, turnMode, evidence })),
     authoringContract: phaseAuthoringContract(definition, workflow, phase),
@@ -276,7 +278,7 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
   }));
   // A retest step names the step whose Code evidence it re-checks; skills read this, never a step name.
   const testEvidenceFrom = workflow.resolution?.phases?.find((entry) => entry.id === phase.id)?.testEvidenceFrom ?? null;
-  return { ...base, status, upstream, testEvidenceFrom, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
+  return { ...base, repositoryChecks: repositoryCheckStatus(root), status, upstream, testEvidenceFrom, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
     ...(preparationAdmitted ? { successor: { targetGeneration: authoring.entry.targetGeneration,
       preparation: authoring.entry.preparation, automatic: false } } : {}),
     authoring, recovery, retainedExecutionEvidence, references, clarification, context,

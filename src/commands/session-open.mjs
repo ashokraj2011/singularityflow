@@ -95,7 +95,8 @@ export async function run({ positionals, options }) {
   const result = {
     schemaVersion: 1, resultType: 'session-open', status: 'ready', workId, repositoryPath: checkout,
     localOnly: !attached, attachedFromRemote: attached, open: opened.value, session: status.value,
-    context: context.value, nextsteps: next.value
+    context: context.value, nextsteps: next.value,
+    repositoryChecks: (await import('../repository-check-cache.mjs')).repositoryCheckStatus(checkout)
   };
   if (options['for-agent']) Object.assign(result, agentSessionView(result), { ready: true,
     agentInstruction: 'Reuse the verified open/session binding, brief and nextsteps in this result. Do not repeat pause, workspace, session, context or nextsteps lookups merely to obtain the same fields. Selection changes and later operation-specific readiness/consent still require fresh checks.' });

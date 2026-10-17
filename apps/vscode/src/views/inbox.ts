@@ -10,6 +10,7 @@ import { registerMessageRouter, stringField, type InboundMessage } from './messa
 import { decisionTargetText } from '../decisions.ts';
 import type { WorkspaceStore } from '../state.ts';
 import { workspaceStoriesHtml, storyCreatedDateHtml, STORY_FILTER_SCRIPT, STORY_CATALOG_STYLE } from './workspace-stories-page.ts';
+import { capabilityProposalCheck, type CapabilityProposalCheck } from './setup-review-repositories.ts';
 
 export type InboxMode = 'inbox' | 'stories' | 'reviews';
 
@@ -90,6 +91,48 @@ function storyCards(inbox: Inbox): string {
   </section>`;
 }
 
+/** Workflow and test-configuration proposals of this repository, read once when Reviews opens. */
+export type ConfigurationProposalCount =
+  | { state: 'checking' } | { state: 'counted'; pending: number } | { state: 'failed'; message: string };
+
+/** `workflow proposals --json` lists the proposals still waiting; anything else is not a count. */
+export function pendingConfigurationProposals(listed: unknown): number {
+  if (!Array.isArray(listed)) throw new Error('the CLI returned an incompatible proposal list.');
+  return listed.filter((entry) => entry && typeof entry === 'object' && !(entry as { merged?: unknown }).merged).length;
+}
+
+function checkedAgo(at: string, now: number): string {
+  const minutes = Math.max(0, Math.round((now - Date.parse(at)) / 60_000));
+  return minutes < 1 ? 'just now' : minutes < 60 ? `${minutes} min ago`
+    : minutes < 1_440 ? `${Math.round(minutes / 60)} h ago` : `${Math.round(minutes / 1_440)} d ago`;
+}
+
+/**
+ * Counts for the two proposal queues. The configuration queue is read live: one remote read of this
+ * repository. The capability queue reads every capability map, so Reviews shows its last full read
+ * and when that was, rather than repeating it to draw a number.
+ */
+export function reviewProposalsHtml(
+  configuration: ConfigurationProposalCount | null, capability: CapabilityProposalCheck | null, now = Date.now()
+): string {
+  const waiting = (count: number) => count ? `<strong>${count}</strong> waiting for review` : 'nothing waiting';
+  const configurationText = !configuration ? 'open its approvals to check.'
+    : configuration.state === 'checking' ? '<span role="status">checking…</span>'
+    : configuration.state === 'counted' ? waiting(configuration.pending)
+    : `could not be checked: ${escape(configuration.message.split('\n')[0]!.slice(0, 240))}`;
+  const pending = capability ? capability.capability + capability.setup : 0;
+  const capabilityText = !capability ? 'not checked on this machine yet. Open its proposals to check.'
+    : `${capability.complete || !pending ? '' : 'at least '}${waiting(pending)} when last checked, ${checkedAgo(capability.checkedAt, now)}${capability.complete ? '' : ' (some repositories could not be read)'}. Open its proposals to check again.`;
+  return `<section data-review-group="proposals"><h2>Configuration &amp; capability changes</h2>
+        <ul class="review-counts">
+          <li data-review-count="configuration"><strong>Workflow &amp; test configuration:</strong> ${configurationText}</li>
+          <li data-review-count="capability"><strong>Setup &amp; capability:</strong> ${capabilityText}</li>
+        </ul>
+        <p class="muted">Activating shared configuration does not automatically amend an existing Story.</p>
+        <button class="secondary" data-review-route="workflow-proposals">Workflow &amp; test configuration approvals</button><button class="secondary" data-review-route="proposals">Setup &amp; capability proposals</button>${configuration
+    ? `<button class="secondary" data-review-recount${configuration.state === 'checking' ? ' disabled' : ''}>Check configuration again</button>` : ''}</section>`;
+}
+
 export interface InboxRefreshState {
   refreshing: boolean;
   error: string | null;
@@ -148,6 +191,7 @@ const SCRIPT = `
   document.addEventListener('click',event=>{
     const target=event.target.closest('[data-review-route]');
     if(target)vscode.postMessage({type:'review-route',route:target.dataset.reviewRoute});
+    if(event.target.closest('[data-review-recount]'))vscode.postMessage({type:'review-recount'});
   });
   const reviewFilter=document.getElementById('review-filter');
   if(reviewFilter) {
@@ -179,6 +223,9 @@ export class InboxPanel {
   private readonly catalogIssue: () => string | null;
   private readonly repositoryBinding: () => InboxRepositoryBinding | null;
   private readonly mode: InboxMode;
+  private readonly preferences: vscode.Memento | undefined;
+  private readonly configurationProposals: (() => Promise<unknown>) | null;
+  private configurationCount: ConfigurationProposalCount | null = null;
   private readonly subscription: { dispose(): void };
   private readonly disposables: vscode.Disposable[] = [];
   private disposed = false;
@@ -193,10 +240,14 @@ export class InboxPanel {
     repositoryPath: () => string | null,
     catalogIssue: () => string | null,
     repositoryBinding: () => InboxRepositoryBinding | null,
-    mode: InboxMode = 'inbox'
+    mode: InboxMode = 'inbox',
+    preferences: vscode.Memento | undefined,
+    configurationProposals: (() => Promise<unknown>) | null = null
   ) {
     this.panel = panel;
     this.mode = mode;
+    this.preferences = preferences;
+    this.configurationProposals = mode === 'reviews' ? configurationProposals : null;
     this.store = store;
     this.storyCatalog = storyCatalog;
     this.repositoryPath = repositoryPath;
@@ -230,6 +281,7 @@ export class InboxPanel {
         const route = stringField(message, 'route');
         if (route && commands[route]) void navigateTo(commands[route]!);
       },
+      'review-recount': () => this.countProposals(),
       'refresh-stories': () => {
         if (this.refreshingStories) return;
         this.refreshingStories = true;
@@ -278,6 +330,24 @@ export class InboxPanel {
     }, null, this.disposables);
     panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();
+    this.countProposals();
+  }
+
+  /** One read when Reviews opens and one per explicit recheck; never on activation or a redraw. */
+  private countProposals(): void {
+    const read = this.configurationProposals;
+    if (!read || this.disposed || this.configurationCount?.state === 'checking') return;
+    this.configurationCount = { state: 'checking' };
+    this.render();
+    void Promise.resolve().then(read).then((listed): ConfigurationProposalCount =>
+      ({ state: 'counted', pending: pendingConfigurationProposals(listed) }),
+    (error: unknown): ConfigurationProposalCount => ({
+      state: 'failed', message: error instanceof Error ? error.message : String(error)
+    })).then((count) => {
+      if (this.disposed) return;
+      this.configurationCount = count;
+      this.render();
+    });
   }
 
   static show(
@@ -288,7 +358,8 @@ export class InboxPanel {
     repositoryPath: () => string | null = () => null,
     catalogIssue: () => string | null = () => null,
     repositoryBinding: () => InboxRepositoryBinding | null = () => null,
-    mode: InboxMode = 'inbox'
+    mode: InboxMode = 'inbox',
+    configurationProposals: (() => Promise<unknown>) | null = null
   ): InboxPanel {
     const existing = InboxPanel.current.get(mode);
     if (existing) {
@@ -301,7 +372,8 @@ export class InboxPanel {
       enableScripts: true, retainContextWhenHidden: true,
       localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
     });
-    const current = new InboxPanel(panel, store, onMessage, storyCatalog, repositoryPath, catalogIssue, repositoryBinding, mode);
+    const current = new InboxPanel(panel, store, onMessage, storyCatalog, repositoryPath, catalogIssue, repositoryBinding, mode,
+      context.globalState, configurationProposals);
     InboxPanel.current.set(mode, current);
     return current;
   }
@@ -335,7 +407,7 @@ export class InboxPanel {
       : this.mode === 'reviews' ? `<header><h1>${icon('approval')}Reviews</h1><p class="meta">Decisions and evidence. No action is approved simply by opening this screen.</p></header>
         <label>Review category<select id="review-filter"><option value="all">All categories</option><option value="phases">Phase approvals &amp; workflow decisions</option><option value="proposals">Configuration &amp; capability changes</option><option value="visual">Visual evidence</option></select></label>
         <section data-review-group="phases"><h2>Phase approvals &amp; decisions</h2>${state.snapshot && !state.error && !state.stale && (!state.snapshot.included || state.snapshot.included.includes('lifecycle')) ? decisionCards(inbox) : '<p>Current approval state is not confirmed.</p>'}<button class="secondary" data-review-route="approvals">Open all phase reviews</button><button class="secondary" data-review-route="appeals">Appeals and phase issues</button></section>
-        <section data-review-group="proposals"><h2>Configuration &amp; capability changes</h2><p class="muted">Open the appropriate proposal queue to check its current state. Proposals are not counted as pending until checked. Activating shared configuration does not automatically amend an existing Story.</p><button class="secondary" data-review-route="workflow-proposals">Workflow &amp; test configuration approvals</button><button class="secondary" data-review-route="proposals">Setup &amp; capability proposals</button></section>
+        ${reviewProposalsHtml(this.configurationCount, this.preferences ? capabilityProposalCheck(this.preferences) : null)}
         <section data-review-group="visual"><h2>Visual evidence</h2><p class="muted">Inspect screenshots and comparison evidence for the current work.</p><button class="secondary" data-review-route="visual">Review visual evidence</button></section>`
       : inboxHtml(inbox, refresh);
     const styles = this.mode === 'stories' ? `<style nonce="${token}">${STORY_CATALOG_STYLE}</style>` : '';

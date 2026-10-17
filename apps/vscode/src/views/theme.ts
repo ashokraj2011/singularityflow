@@ -241,6 +241,10 @@ export const THEME_STYLE = `${CALM_PALETTE_STYLE}
   .sf-panel { min-width: 0; padding: 1.25rem 1.35rem 1.4rem; border: 1px solid var(--sf-border-color); border-radius: var(--sf-radius); background: var(--sf-surface); }
   section.sf-panel { border-top: 1px solid var(--sf-border-color); margin: 1.25rem 0; }
   .sf-panels > .sf-panel { margin: 0; }
+  [data-intake-region="actions"] { position: sticky; bottom: 0; z-index: 2; padding-bottom: .5rem; background: var(--sf-bg); }
+  .sf-start-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; padding: .7rem 1rem; border: 1px solid var(--sf-border-strong); border-radius: var(--sf-radius); background: var(--sf-surface); box-shadow: 0 -4px 16px rgba(0,0,0,.18); }
+  .sf-start-bar-summary { flex: 1 1 12rem; margin: 0; }
+  .sf-start-bar button.link { padding: 0; color: inherit; text-decoration: underline; }
   .sf-panel > h2:first-child, .sf-panel-head h2 { margin-top: 0; }
   .sf-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding-bottom: .85rem; margin-bottom: 1rem; border-bottom: 1px solid var(--sf-border-color); }
   .sf-panel-head h2 { margin-bottom: 0; }

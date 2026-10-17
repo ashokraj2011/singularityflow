@@ -36,7 +36,8 @@ register('data:text/javascript,' + encodeURIComponent(`
   }
 `));
 
-const { InboxPanel } = await import('../apps/vscode/src/views/inbox.ts');
+const { InboxPanel, reviewProposalsHtml, pendingConfigurationProposals } = await import('../apps/vscode/src/views/inbox.ts');
+const { capabilityProposalCheck, rememberCapabilityProposalCheck } = await import('../apps/vscode/src/views/setup-review-repositories.ts');
 const { buildInbox, buildInboxTree } = await import('../apps/vscode/src/views/inbox-model.ts');
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -306,4 +307,66 @@ test('Inbox refresh discovers Stories from an empty workspace and supports a fai
   InboxPanel.refreshCurrent();
   assert.doesNotMatch(panel.webview.html, /Story list may be incomplete/);
   inbox.dispose();
+});
+
+const memento = (entries = {}) => {
+  const values = new Map(Object.entries(entries));
+  return { get: (key) => values.get(key), update: async (key, value) => { values.set(key, value); } };
+};
+
+test('Reviews counts configuration proposals once when it opens, and on an explicit recheck only', async () => {
+  const store = { current: { snapshot: null }, onDidChange(listener) { this.changed = listener; return { dispose() {} }; } };
+  const reads = [];
+  const globalState = memento();
+  await rememberCapabilityProposalCheck(globalState, {
+    checkedAt: new Date(Date.now() - 5 * 60_000).toISOString(), capability: 1, setup: 1, complete: true
+  });
+  const reviews = InboxPanel.show({ extensionUri: {}, globalState }, store, () => {}, () => [], () => '/repo/a',
+    () => null, () => null, 'reviews', () => new Promise((resolve, reject) => reads.push({ resolve, reject })));
+  await tick();
+  assert.equal(reads.length, 1, 'one read when Reviews opens');
+  assert.match(panel.webview.html, /Workflow &amp; test configuration:<\/strong> <span role="status">checking…<\/span>/);
+  assert.match(panel.webview.html, /data-review-recount disabled/);
+  assert.match(panel.webview.html, /Setup &amp; capability:<\/strong> <strong>2<\/strong> waiting for review when last checked, 5 min ago\./,
+    'the capability queue is counted from its last full read, never read again here');
+  assert.doesNotMatch(panel.webview.html, /not counted as pending/);
+
+  reads[0].resolve([{ branch: 'sflow/review/a', merged: false }, { branch: 'sflow/review/b', merged: false }, { branch: 'sflow/review/c', merged: true }]);
+  await tick(); await tick();
+  assert.match(panel.webview.html, /Workflow &amp; test configuration:<\/strong> <strong>2<\/strong> waiting for review/);
+  store.changed(store.current, { kind: 'snapshot', revisionChanged: true, changedSlices: ['lifecycle'] });
+  assert.equal(reads.length, 1, 'a redraw never reads again');
+
+  webviewMessage({ type: 'review-recount' });
+  webviewMessage({ type: 'review-recount' });
+  await tick();
+  assert.equal(reads.length, 2, 'Check configuration again reads once, however often it is pressed');
+  reads[1].reject(new Error('Cannot reach origin.\nmore detail'));
+  await tick(); await tick();
+  assert.match(panel.webview.html, /could not be checked: Cannot reach origin\.</);
+  reviews.dispose();
+});
+
+test('proposal counts read only real lists, and the remembered capability check is validated', () => {
+  assert.equal(pendingConfigurationProposals([]), 0);
+  assert.equal(pendingConfigurationProposals([{ merged: false }, { merged: true }, {}]), 2);
+  assert.throws(() => pendingConfigurationProposals({ proposals: [] }), /incompatible/);
+  const now = Date.parse('2026-10-17T12:00:00Z');
+  assert.match(reviewProposalsHtml({ state: 'counted', pending: 0 }, null, now),
+    /configuration:<\/strong> nothing waiting<\/li>[\s\S]*capability:<\/strong> not checked on this machine yet\./);
+  assert.match(reviewProposalsHtml(null, { checkedAt: '2026-10-17T09:00:00Z', capability: 3, setup: 0, complete: false }, now),
+    /at least <strong>3<\/strong> waiting for review when last checked, 3 h ago \(some repositories could not be read\)/);
+  assert.doesNotMatch(reviewProposalsHtml(null, null, now), /data-review-recount/, 'nothing to recheck outside a repository');
+  for (const stored of [undefined, 'x', { checkedAt: 'never', capability: 1, setup: 0, complete: true },
+    { checkedAt: '2026-10-17T09:00:00Z', capability: -1, setup: 0, complete: true },
+    { checkedAt: '2026-10-17T09:00:00Z', capability: 1, setup: 0 }]) {
+    assert.equal(capabilityProposalCheck(memento({ 'singularityFlow.capabilityProposalCheck.v1': stored })), null, JSON.stringify(stored));
+  }
+});
+
+test('the capability queue remembers each full read for Reviews, counting only unmerged proposals', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const queue = await readFile(new URL('../apps/vscode/src/views/capability-proposals.ts', import.meta.url), 'utf8');
+  assert.match(queue, /rememberCapabilityProposalCheck\(this\.context\.globalState, \{\s*checkedAt: new Date\(\)\.toISOString\(\),\s*capability: this\.entries\.filter\(\(entry\) => !entry\.merged\)\.length,\s*setup: this\.setupEntries\.filter\(\(entry\) => !entry\.merged\)\.length,\s*complete: this\.failures\.length === 0/);
+  assert.match(queue, /InboxPanel\.refreshCurrent\(\);\s*this\.busy = false; this\.render\(\);/, 'an open Reviews tab redraws with the new count');
 });

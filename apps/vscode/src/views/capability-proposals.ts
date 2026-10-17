@@ -9,8 +9,9 @@ import { gitRemoteProblem, screenGitRemotes } from './map-capability-form.ts';
 import { commandGuidance } from '../copilot-command.ts';
 import { SetupProposalPanel } from './setup-proposal.ts';
 import {
-  forgetSetupReviewRepository, rememberSetupReviewRepository, setupReviewRepositories
+  forgetSetupReviewRepository, rememberCapabilityProposalCheck, rememberSetupReviewRepository, setupReviewRepositories
 } from './setup-review-repositories.ts';
+import { InboxPanel } from './inbox.ts';
 
 interface LeadRepository { url: string }
 
@@ -370,6 +371,14 @@ export class CapabilityProposalsPanel {
     }
     await Promise.allSettled(this.staleSetupRepositories
       .map((lead) => forgetSetupReviewRepository(this.context.globalState, lead)));
+    // Reviews counts from this read instead of repeating it. The list may include merged proposals.
+    await rememberCapabilityProposalCheck(this.context.globalState, {
+      checkedAt: new Date().toISOString(),
+      capability: this.entries.filter((entry) => !entry.merged).length,
+      setup: this.setupEntries.filter((entry) => !entry.merged).length,
+      complete: this.failures.length === 0
+    }).catch(() => undefined);
+    InboxPanel.refreshCurrent();
     this.busy = false; this.render();
   }
 

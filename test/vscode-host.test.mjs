@@ -3378,6 +3378,16 @@ test('a second Start Work paints the cached catalog at once, then revalidates wi
   await first.post({ type: 'workflowFavourite', value: favouriteIds[0], favourite: 'true' });
   assert.deepEqual(preferences.get(favouriteKey), favouriteIds, 'the host accepts only installed IDs and boolean preferences');
   assert.equal(preferences.get('singularityFlow.intake.workflowFavourites.v1:/another-repository'), undefined, 'preferences are repository-scoped');
+  // `init` seeds demo, benchmark and POC workflows into every repository. One that has not asked
+  // for them does not list them; asking lists them at once and is remembered for this repository.
+  assert.doesNotMatch(first.webview.html, /data-work-type="(?:poc-lite|poc-workflow|benchmarking-a|benchmarking-b|demo-[a-z-]+)"/);
+  assert.match(first.webview.html, /7 demo, benchmark and POC workflows are hidden/);
+  const sampleKey = 'singularityFlow.intake.sampleWorkflows.v1:' + await realpath(root);
+  await first.post({ type: 'sampleWorkflows', value: 'show' });
+  await until(() => first.webview.html.includes('data-work-type="poc-lite"') && preferences.get(sampleKey) === true ? true : null,
+    { what: 'the demo workflows to be listed and remembered' });
+  assert.match(first.webview.html, /data-workflow-samples="hide"/);
+  assert.equal(branchReads(), readsBeforeStars, 'listing them never rechecks repository readiness');
   first.dispose();
   // Past the client's 250 ms read coalescing, so the second open really has to revalidate.
   await new Promise((resolve) => setTimeout(resolve, 400));
@@ -3388,6 +3398,7 @@ test('a second Start Work paints the cached catalog at once, then revalidates wi
   assert.notEqual(second, first, 'a new form opened');
   assert.match(second.webview.html, /data-work-type="feature"/, 'workflows paint from the cache at once');
   for (const id of favouriteIds) assert.match(second.webview.html, new RegExp('data-workflow-favourite="' + id + '"\\s+aria-pressed="true"'), 'favourites survive reopening');
+  assert.match(second.webview.html, /data-work-type="benchmarking-a"/, 'the demo workflow choice survives reopening');
   assert.match(second.webview.html, /data-base-branch="main"/, 'base branches paint from the cache at once');
   assert.match(second.webview.html, /last known\s+branches and workflows/, 'the cached paint is labelled');
   assert.doesNotMatch(second.webview.html, /data-base-branch="main" checked/, 'no base is preselected');
@@ -3735,6 +3746,12 @@ test('the packaged POC release candidate journey survives publication, review, C
   const intake = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
   assert.ok(intake, 'the packaged extension opens governed intake');
   await intake.post({ type: 'shape', value: 'story' });
+  // `init` seeds the POC workflows into every repository; this one is not a demo repository until
+  // someone asks for them, as a person would with Show them.
+  await until(() => intake.webview.html.includes('data-workflow-samples="show"') ? true : null,
+    { what: 'the demo and POC workflows to be offered behind Show them' });
+  assert.doesNotMatch(intake.webview.html, /data-work-type="poc-workflow"/);
+  await intake.post({ type: 'sampleWorkflows', value: 'show' });
   await until(() => intake.webview.html.includes('data-work-type="poc-workflow"') ? true : null,
     { what: 'the packaged POC workflow to appear in Story intake' });
   await intake.post({ type: 'workType', value: 'poc-workflow' });
@@ -4302,10 +4319,18 @@ test('primary Stories and Reviews open separate screens through the existing gua
   const stories = await until(() => registered.panels.find(entry => entry.id === 'singularityFlow.workspaceStories'));
   assert.match(stories.webview.html, /id="story-search"/);
   assert.match(stories.webview.html, /Viewing details does not switch/);
+  const proposalReads = () => registered.output.filter((line) => String(line).includes('[Singularity Flow timing]')
+    && String(line).includes('"command":"workflow"') && String(line).includes('"subcommand":"proposals"')).length;
+  assert.equal(proposalReads(), 0, 'nothing reads proposal queues before Reviews opens');
   await navigation.post({ type: 'action', action: 'reviews' });
   const reviews = await until(() => registered.panels.find(entry => entry.id === 'singularityFlow.reviews'));
   assert.match(reviews.webview.html, /id="review-filter"/);
-  assert.match(reviews.webview.html, /Proposals are not counted as pending until checked/);
+  // The configuration queue is counted live; the result is a count or the reason it could not be.
+  await until(() => /data-review-count="configuration"><strong>Workflow &amp; test configuration:<\/strong> (?:nothing waiting|<strong>\d+<\/strong> waiting for review|could not be checked: \S)/
+    .test(reviews.webview.html) ? true : null, { what: 'the configuration proposal count' });
+  assert.match(reviews.webview.html, /Setup &amp; capability:<\/strong> not checked on this machine yet\./);
+  assert.doesNotMatch(reviews.webview.html, /not counted as pending/);
+  assert.equal(proposalReads(), 1, 'opening Reviews reads the configuration queue once');
   assert.notEqual(stories, reviews);
   const before = registered.executedCommands.length;
   await reviews.post({ type: 'review-route', route: 'unrecognized-command' });
@@ -9170,6 +9195,41 @@ test('Refresh Capability to New Version reaches the reviewed upgrade preview wit
   assert.deepEqual(routed.at(-1), { command: 'singularityFlow.repairRepositorySetup', args: [{ repositoryPath: unregistered }] },
     'a repository no workspace registers gets the repair and upgrade preview for its own setup');
   assert.equal(registered.inputBoxes.length, 0, 'no Git URL is asked for');
+  assert.deepEqual(registered.errors, []);
+});
+
+test('Upgrade or Repair… offers each route once and runs the one chosen', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  const routes = ['singularityFlow.refreshCapability', 'singularityFlow.upgradeWorkspaces',
+    'singularityFlow.repairRepositorySetup', 'singularityFlow.refreshRepositorySetup', 'singularityFlow.afterInstall'];
+  const dispatch = api.commands.executeCommand;
+  const routed = [];
+  api.commands.executeCommand = async (command, ...args) => {
+    if (routes.includes(command)) return void routed.push(command);
+    return dispatch(command, ...args);
+  };
+  const run = registered.commands.get('singularityFlow.upgradeOrRepair');
+  assert.ok(run, 'the merged command is registered before any repository is open');
+  for (const id of routes) assert.ok(registered.commands.has(id), `${id} stays callable`);
+
+  await run();
+  const shown = registered.quickPicks.at(-1);
+  assert.equal(shown.options.title, 'Upgrade or repair');
+  assert.deepEqual(shown.items.map((item) => item.command), routes);
+  assert.ok(shown.items.every((item) => item.detail), 'every choice says what it does');
+  assert.deepEqual(routed, [routes[0]], 'the first choice runs the capability upgrade');
+
+  const pick = api.window.showQuickPick;
+  api.window.showQuickPick = async (items) => items.find((item) => /Git URL/.test(item.label));
+  await run();
+  api.window.showQuickPick = async () => undefined;
+  await run();
+  api.window.showQuickPick = pick;
+  assert.deepEqual(routed, [routes[0], 'singularityFlow.refreshRepositorySetup'], 'dismissing the list runs nothing');
   assert.deepEqual(registered.errors, []);
 });
 

@@ -12,10 +12,11 @@ import {
 } from '../result.mjs';
 import { homeOverview } from './home-overview.mjs';
 
-function labelFor(preview) {
+/** `kind` is the active work's: resuming an Initiative must not call it a Story. */
+function labelFor(preview, kind = null) {
   const [command, subcommand] = preview?.argv ?? [];
   if (command === 'sync') return 'Finish publishing your work';
-  if (command === 'resume') return 'Resume the active Story';
+  if (command === 'resume') return `Resume the active ${kind === 'initiative' ? 'Initiative' : 'Story'}`;
   if (command === 'assign') return 'Assign the active phase';
   if (command === 'agents') return 'Restore the governed agent';
   if (command === 'wm') return 'Prepare repository grounding';
@@ -49,7 +50,7 @@ function preflight(home, context, preview) {
   ]);
 }
 
-function recommendedAction(home, guidance, workId) {
+function recommendedAction(home, guidance, workId, kind) {
   const homePrimary = primaryAction(home);
   if (!homePrimary) return { action: null, preview: null, source: null };
   const guidanceApplies = workId ? guidance?.workId === workId : !guidance?.workId;
@@ -73,11 +74,11 @@ function recommendedAction(home, guidance, workId) {
     action: plannerNavigation({
       ...homePrimary,
       id: 'developer:recommended',
-      label: labelFor(preview),
+      label: labelFor(preview, kind),
       reasonCode: 'developer.recommended-next',
       emphasis: 'primary',
       fallback: {
-        label: labelFor(preview),
+        label: labelFor(preview, kind),
         command: preview.command,
         skill: preview.skill
       },
@@ -118,7 +119,8 @@ export async function developerNext(input = {}) {
       guidanceError = error?.message ?? String(error);
     }
   }
-  const recommendation = recommendedAction(home, guidance, workId);
+  const workKind = (home.data?.currentWork ?? home.data?.activeWork)?.kind ?? null;
+  const recommendation = recommendedAction(home, guidance, workId, workKind);
   const next = recommendation.action
     ? [recommendation.action, ...home.next.filter((entry) => entry.id !== primaryAction(home)?.id)
       .map(secondary)]
@@ -157,7 +159,7 @@ export async function developerNext(input = {}) {
         currentPhase: guidance?.currentPhase ?? home.data?.currentWork?.phase
           ?? home.data?.activeWork?.phase ?? null,
         recommendation: recommendation.preview ? Object.freeze({
-          label: recommendation.action?.label ?? labelFor(recommendation.preview),
+          label: recommendation.action?.label ?? labelFor(recommendation.preview, workKind),
           command: recommendation.preview.command,
           skill: recommendation.preview.skill,
           reason: recommendation.preview.reason,

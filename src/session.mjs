@@ -50,7 +50,7 @@ async function choose(label, entries, { selection = null, nonInteractiveHint = n
       if (label === 'workflow template') {
         throw new SingularityFlowError(
           `Workflow template '${selection}' is not installed in the approved configuration. `
-          + `Choose an installed workflow (${entries.map(([id]) => id).join(', ') || 'none'}), or review the packaged workflow choices in Singularity Flow: Upgrade Capabilities & Workspaces.`,
+          + `Choose an installed workflow (${entries.map(([id]) => id).join(', ') || 'none'}), or review the packaged workflow choices with Singularity Flow: Upgrade or Repair… in VS Code.`,
           {
             code: 'WORKFLOW_TEMPLATE_NOT_INSTALLED',
             details: { requested: selection, installed: entries.map(([id]) => id) }

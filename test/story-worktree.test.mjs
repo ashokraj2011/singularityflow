@@ -1555,7 +1555,7 @@ test('a failed isolated start removes its disposable checkout and branch', async
   ], root, { allowFailure: true });
   assert.notEqual(failed.status, 0);
   assert.match(failed.stdout, /Workflow template 'does-not-exist' is not installed in the approved configuration/);
-  assert.match(failed.stdout, /Upgrade Capabilities & Workspaces/);
+  assert.match(failed.stdout, /Singularity Flow: Upgrade or Repair… in VS Code/);
   assert.equal(git(root, ['worktree', 'list', '--porcelain']), before);
   assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/ISO-FAIL-1'], root, {
     allowFailure: true

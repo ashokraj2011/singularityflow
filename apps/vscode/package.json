@@ -231,6 +231,11 @@
         "icon": "$(list-unordered)"
       },
       {
+        "command": "singularityFlow.upgradeOrRepair",
+        "title": "Singularity Flow: Upgrade or Repair…",
+        "icon": "$(sync)"
+      },
+      {
         "command": "singularityFlow.refreshCapability",
         "category": "Singularity Flow",
         "title": "Upgrade / Migrate SFlow for Capability (Safe Preview)",
@@ -1034,7 +1039,7 @@
           "group": "1_explain@2"
         },
         {
-          "command": "singularityFlow.refreshCapability",
+          "command": "singularityFlow.upgradeOrRepair",
           "when": "view == singularityFlow.navigation",
           "group": "2_maintain@1"
         }
@@ -1098,6 +1103,26 @@
         },
         {
           "command": "singularityFlow.reinitializeWorkspaces",
+          "when": "false"
+        },
+        {
+          "command": "singularityFlow.refreshCapability",
+          "when": "false"
+        },
+        {
+          "command": "singularityFlow.upgradeWorkspaces",
+          "when": "false"
+        },
+        {
+          "command": "singularityFlow.afterInstall",
+          "when": "false"
+        },
+        {
+          "command": "singularityFlow.refreshRepositorySetup",
+          "when": "false"
+        },
+        {
+          "command": "singularityFlow.repairRepositorySetup",
           "when": "false"
         },
         {

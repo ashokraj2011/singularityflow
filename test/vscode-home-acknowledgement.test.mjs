@@ -65,6 +65,9 @@ test('a home with no acknowledgement is reported as current state, not as an emp
    */
   assert.doesNotMatch(delta.heading, /since/i);
   assert.match(delta.summary, /nothing to compare against/i);
+  // Plain words: what to press and what it is for, without "home" or "acknowledgement".
+  assert.match(delta.summary, /Select Mark as checked, and next time this page lists what changed/);
+  assert.doesNotMatch(delta.summary, /\bhome\b|acknowledg/i);
   assert.equal(delta.action.id, ACKNOWLEDGE_ACTION_ID);
   assert.equal(delta.action.label, 'Mark as checked');
 });
@@ -79,7 +82,7 @@ test('an unchanged world since the acknowledgement says so out loud', () => {
   assert.equal(delta.obstacle, null);
   assert.match(delta.summary, /Nothing has changed here since then/);
   // The second press is an update, not a first mark — the label says which.
-  assert.equal(delta.action.label, 'Update acknowledgement');
+  assert.equal(delta.action.label, 'Mark as checked again');
 });
 
 test('a moved HEAD, a moved Story and a dirtied worktree are each named', () => {
@@ -201,7 +204,7 @@ test('a legacy fingerprint acknowledgement is stale rather than silently compara
   };
   const delta = homeDelta(result, legacy);
   assert.equal(delta.state, 'incomparable');
-  assert.match(delta.summary, /older fingerprint algorithm/i);
+  assert.match(delta.summary, /saved by an older version and cannot be compared/i);
 });
 
 test('the key is per workspace and per actor', () => {
@@ -241,7 +244,7 @@ test('the card renders the briefing and its button, and puts no snapshot in the 
   assert.match(html, /Since you last checked/);
   assert.match(html, /Nothing has changed here since then/);
   assert.match(html, new RegExp(`data-action-id="${ACKNOWLEDGE_ACTION_ID}"`));
-  assert.match(html, />Update acknowledgement</);
+  assert.match(html, />Mark as checked again</);
   /**
    * The webview is a separate document and the delta is host memory. The button carries an id and
    * nothing else — a rendered snapshot would put the reader's history in a page any script in it

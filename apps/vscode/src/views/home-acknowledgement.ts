@@ -181,7 +181,7 @@ export function homeDelta(result: any, acknowledgement: HomeAcknowledgement | nu
   const facts = factsOf(result);
   const storable = homeAcknowledgementFor(result) !== null;
   const action = storable
-    ? { id: ACKNOWLEDGE_ACTION_ID, label: acknowledgement ? 'Update acknowledgement' : 'Mark as checked' }
+    ? { id: ACKNOWLEDGE_ACTION_ID, label: acknowledgement ? 'Mark as checked again' : 'Mark as checked' }
     : null;
 
   if (!acknowledgement) {
@@ -193,7 +193,7 @@ export function homeDelta(result: any, acknowledgement: HomeAcknowledgement | nu
       /** `return.current-state`'s framing, for the same reason it exists there `[DHR:REQ-024]`. */
       heading: 'Current state',
       summary: storable
-        ? 'You have not marked this home as checked, so there is nothing to compare against yet.'
+        ? 'Nothing to compare against yet. Select Mark as checked, and next time this page lists what changed since then.'
         : 'This repository could not be read, so there is nothing to compare against yet.',
       action
     });
@@ -208,7 +208,7 @@ export function homeDelta(result: any, acknowledgement: HomeAcknowledgement | nu
       obstacle: 'the saved acknowledgement uses an older worktree fingerprint algorithm',
       code: 'FINGERPRINT_ALGORITHM_STALE',
       heading: 'Could not compare',
-      summary: 'The saved acknowledgement uses an older fingerprint algorithm. Mark this home as checked to establish a new trustworthy baseline.',
+      summary: 'Your last check was saved by an older version and cannot be compared. Select Mark as checked again to start over.',
       action
     });
   }
@@ -227,8 +227,8 @@ export function homeDelta(result: any, acknowledgement: HomeAcknowledgement | nu
       changes: [],
       obstacle: 'the acknowledgement you have was taken in a different workspace',
       heading: 'Could not compare',
-      summary: 'The acknowledgement you have was taken in a different workspace, so nothing here can'
-        + ' be compared against it. Mark this home as checked to start a comparison for this one.',
+      summary: 'Your last check was in a different workspace, so nothing here can be compared with it.'
+        + ' Select Mark as checked again to start comparing this one.',
       action
     });
   }
@@ -247,8 +247,8 @@ export function homeDelta(result: any, acknowledgement: HomeAcknowledgement | nu
       summary: !facts.sourceCommit && facts.dirty === null
         ? 'This repository could not be read just now, so what changed since you last checked is'
           + ' unknown — not nothing.'
-        : 'The acknowledgement you have does not carry the facts this home would compare against, so'
-          + ' what changed is unknown — not nothing.',
+        : 'Your last check did not save what this page compares, so what changed is unknown — not nothing.'
+          + ' Select Mark as checked again to start over.',
       action
     });
   }

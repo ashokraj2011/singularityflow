@@ -19,7 +19,7 @@ import { contextStrip, heroHeader, infoNote, stepHeading, tag } from './theme.ts
 import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts';
 import { gitRemoteProblem } from './map-capability-form.ts';
 import { commandGuidance } from '../copilot-command.ts';
-import { CATALOG_SEARCH_SCRIPT } from './catalog-search.ts';
+import { CATALOG_SEARCH_SCRIPT, SAMPLE_STORY_WORKFLOWS } from './catalog-search.ts';
 import {
   EMPTY_TEST_RECOVERY_DRAFT, testRecoveryArguments, testRecoveryPreviewArguments, testRecoveryEnabled,
   testRecoveryHtml, testRecoveryProblems, testRecoveryNeedsTerminalReview,
@@ -201,6 +201,8 @@ export interface InFlight {
   status: string;
   /** Completed work stays visible but must not be described as under way. */
   completed?: boolean;
+  /** The workflow a Story was started with, when the snapshot says. */
+  workType?: string;
 }
 
 export interface IntakeForm extends TestRecoveryDraft {
@@ -234,6 +236,8 @@ export interface IntakeForm extends TestRecoveryDraft {
   storyWorkflows: ProfileChoice[];
   /** Personal presentation only; does not affect readiness or the pinned workflow. */
   favouriteWorkflows?: string[];
+  /** The demo, benchmark and POC workflows are listed in this repository (see SAMPLE_STORY_WORKFLOWS). */
+  showSampleWorkflows?: boolean;
   /** Packaged Story workflows absent from approved configuration; visible but never selectable. */
   availableStoryWorkflows: ProfileChoice[];
   /** Advisory packaged-catalog failure; installed workflows remain usable. */
@@ -1027,6 +1031,16 @@ function workflowCatalogCoversBranchFailure(form: IntakeForm): boolean {
     && Boolean(workflowReason && branchReason && workflowReason.includes(branchReason));
 }
 
+/**
+ * Whether a seeded demo, benchmark or POC workflow is listed. A repository that asked for them, or
+ * already runs work on one, is a demo repository; elsewhere only the one chosen or starred shows.
+ */
+function sampleWorkflowOffered(form: IntakeForm, id: string): boolean {
+  return !SAMPLE_STORY_WORKFLOWS.has(id) || form.showSampleWorkflows === true || id === form.workType
+    || Boolean(form.favouriteWorkflows?.includes(id))
+    || form.inFlight.some((entry) => entry.workType && SAMPLE_STORY_WORKFLOWS.has(entry.workType));
+}
+
 function storyWorkflowHtml(form: IntakeForm): string {
   if (form.shape !== 'story') return '';
   if (!form.storyWorkflows.length && !form.availableStoryWorkflows.length
@@ -1042,6 +1056,15 @@ function storyWorkflowHtml(form: IntakeForm): string {
       <p><button type="button" class="secondary" data-workflow-refresh>
         Refresh or reinitialize repository configuration</button></p></section>`;
   }
+  const installed = form.storyWorkflows.filter((workflow) => sampleWorkflowOffered(form, workflow.id));
+  const available = form.availableStoryWorkflows.filter((workflow) => sampleWorkflowOffered(form, workflow.id));
+  const hidden = form.storyWorkflows.length - installed.length + form.availableStoryWorkflows.length - available.length;
+  const samples = hidden ? `<p class="meta" data-workflow-samples-note>${hidden === 1 ? '1 demo, benchmark or POC workflow is'
+    : `${hidden} demo, benchmark and POC workflows are`} hidden. They are for demo repositories, not everyday work.
+      <button type="button" class="secondary" data-workflow-samples="show">Show them</button></p>`
+    : form.showSampleWorkflows && [...form.storyWorkflows, ...form.availableStoryWorkflows].some((workflow) => SAMPLE_STORY_WORKFLOWS.has(workflow.id))
+      ? `<p class="meta" data-workflow-samples-note>Demo, benchmark and POC workflows are listed for this repository.
+      <button type="button" class="secondary" data-workflow-samples="hide">Hide them</button></p>` : '';
   return `
   <section>
     <h2>${icon('workflow')}Story workflow</h2>
@@ -1055,16 +1078,16 @@ function storyWorkflowHtml(form: IntakeForm): string {
     </div>
     <p id="story-workflow-count" data-workflow-count class="meta" role="status" aria-live="polite"></p>
     <p data-workflow-empty class="meta" hidden>No matching workflows. Clear the search to see all workflows.</p>
-    ${form.storyWorkflows.length ? `<h3>Ready to use</h3>
+    ${installed.length ? `<h3>Ready to use</h3>
     <p class="question">Choose the workflow template for this Story. Its ordered phases are pinned
       when work starts and cannot change underneath the Story. Star favourites to keep them at the top.</p>
     <div data-workflow-favourites><h3>Favourites</h3>
       <div class="choices" aria-label="Favourite Story workflows" data-workflow-favourite-list></div>
       <p class="meta" data-workflow-favourites-empty>No favourites yet. Use a workflow's star button.</p>
     </div>
-    <details data-workflow-other><summary>Other workflows (${form.storyWorkflows.length})</summary>
+    <details data-workflow-other><summary>Other workflows (${installed.length})</summary>
     <div class="choices" aria-label="Ready to use Story workflows" data-workflow-other-list>
-      ${form.storyWorkflows.map((workflow) => `
+      ${installed.map((workflow) => `
       <article data-workflow-choice="${escape(workflow.id)}" data-workflow-search-text="${escape([workflow.id, workflow.label, workflow.description, ...workflow.phases].join(' '))}">
       <label class="choice workflow-choice${workflow.id === form.workType ? ' chosen' : ''}">
         <input type="radio" name="workType" value="${escape(workflow.id)}" data-work-type="${escape(workflow.id)}"${workflow.id === form.workType ? ' checked' : ''}>
@@ -1080,20 +1103,21 @@ function storyWorkflowHtml(form: IntakeForm): string {
         aria-label="Favourite ${escape(workflow.label)}">${form.favouriteWorkflows?.includes(workflow.id) ? '★ Favourite' : '☆ Favourite'}</button>
       </article>`).join('')}
     </div></details>
-    <p class="meta" data-workflow-selected></p>` : `<p class="blockers">No Story workflow is installed in the approved repository configuration.</p>`}
+    <p class="meta" data-workflow-selected></p>` : form.storyWorkflows.length ? '' : `<p class="blockers">No Story workflow is installed in the approved repository configuration.</p>`}
+    ${samples}
     ${form.workflowCatalogReason ? `<div class="notice warning" role="status">
       <strong>Additional packaged workflows are unavailable</strong>
       <p>${escape(form.workflowCatalogReason)}</p>
       <button type="button" class="secondary" data-workflow-refresh>Refresh or reinitialize repository configuration</button>
     </div>` : ''}
-    ${form.availableStoryWorkflows.length ? `<div class="workflow-catalog">
+    ${available.length ? `<div class="workflow-catalog">
       <h3>Packaged workflows not installed here</h3>
       <p class="question">These workflows ship with this SFlow build but are not present in the
         repository's approved configuration. They are shown for discovery and cannot start a Story.
         Repository refresh restores required product defaults; optional workflows still use the
         reviewed <code>singularity-flow workflow install &lt;id&gt; --dry-run</code> configuration path.</p>
       <div class="choices" aria-label="Available but not installed Story workflows">
-        ${form.availableStoryWorkflows.map((workflow) => `
+        ${available.map((workflow) => `
         <article class="choice workflow-choice unavailable" aria-disabled="true" data-available-workflow="${escape(workflow.id)}"
           data-workflow-search-text="${escape([workflow.id, workflow.label, workflow.description, ...workflow.phases].join(' '))}">
           <span class="workflow-copy">
@@ -1416,15 +1440,22 @@ export function intakeRegions(form: IntakeForm, journey: StartWizardProgress | n
       <p><strong>VS Code (model-free):</strong> ${recoveryRoute.modelFreeCommand ? `<code>${escape(recoveryRoute.modelFreeCommand)}</code>` : 'not available for this action'}</p>
       ${recoveryRoute.copyable ? '' : '<p>Replace the shown placeholders before running this command.</p>'}
       ${form.shape === 'story' ? '<button type="button" class="secondary" data-submit="recover-start">Check and open created Story</button>' : ''}</div>` : ''}
-    <p>
+  </section>`;
+  // The Start button and a one-line summary stay in view while the form scrolls. The bar is a
+  // region of its own, so a patch replaces it by id like any other; the full list stays above.
+  const needed = problems.filter((problem) => !problem.endsWith('…')).length;
+  regions.actions = `<div class="sf-start-bar" role="group" aria-label="Start ${escape(noun)}">
+    <p class="sf-start-bar-summary" role="status" aria-live="polite">${form.busy
+    ? escape(form.startStep ? `${form.startStep}…` : 'Starting…')
+    : needed
+      ? `<button type="button" class="link" data-focus-field="region:status">${needed === 1 ? '1 thing' : `${needed} things`} still needed</button>`
+      : problems.length ? 'Checking…' : `${icon('ok')}Ready to start`}</p>
       <button type="button" data-submit="start" ${problems.length || form.busy || form.enhancing ? 'disabled' : ''}>
         ${form.busy ? 'Starting…' : form.shape === 'story' && testRecoveryNeedsTerminalReview(form)
           ? 'Prepare exact human review in terminal' : `Start ${escape(noun)}`}
       </button>
       <button type="button" class="secondary" data-intake-cancel ${form.busy ? 'disabled' : ''}>Cancel</button>
-      ${form.busy && form.startStep ? `<span class="meta" role="status" aria-live="polite">${escape(form.startStep)}…</span>` : ''}
-    </p>
-  </section>`;
+  </div>`;
   return regions;
 }
 
@@ -1542,6 +1573,8 @@ export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + `
       vscode.postMessage({ type: 'workflowFavourite', value: favourite.dataset.workflowFavourite, favourite: on });
       return;
     }
+    const samples = event.target.closest('[data-workflow-samples]');
+    if (samples) return vscode.postMessage({ type: 'sampleWorkflows', value: samples.dataset.workflowSamples });
     if (event.target.closest('[data-baseline-run]')) return vscode.postMessage({ type: 'baselineRun' });
     if (event.target.closest('[data-base-branch-clear]')) {
       branchSearch.value = '';

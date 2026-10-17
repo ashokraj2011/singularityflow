@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 import { deriveHomeState } from '../src/gateway/home-work-projection.mjs';
 import { developerNext } from '../src/gateway/planners/developer-next.mjs';
@@ -187,6 +189,24 @@ test('a bound Story awaiting this actor\'s decision remains current and keeps re
   assert.equal(narrated.data.home.repository.id, 'rulecompiler');
   assert.equal(narrated.data.home.currentWork.id, 'WRK-19');
   assert.equal(narrated.data.home.attentionWork.id, 'WRK-19');
+});
+
+test('resuming the active work names it by its kind, so an Initiative is not called a Story', async (t) => {
+  // Not a repository: nextsteps is unreadable, so the label comes from Home's own continue route.
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-developer-next-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const label = async (kind) => {
+    const item = { ...started, id: 'INI-7', kind, branch: 'INI-7', branches: ['INI-7'] };
+    const recommended = await developerNext({ root, context: {
+      workspace: { id: 'calc-app', name: 'calc-app' }, repositoryId: 'calc', branch: 'INI-7',
+      records: recordsFor(item), faults: [], today: null, yesterday: null,
+      localChanges: { dirty: false, files: 0, paths: [] }
+    } });
+    assert.equal(recommended.data.guidance.recommendation?.label, recommended.next[0].label);
+    return recommended.next[0].label;
+  };
+  assert.equal(await label('initiative'), 'Resume the active Initiative');
+  assert.equal(await label('story'), 'Resume the active Story');
 });
 
 test('an empty home leads to intake and every route names its Copilot skill', () => {

@@ -267,6 +267,31 @@ test('every command the source runs is one the manifest contributes', () => {
   assert.deepEqual(unknown, []);
 });
 
+/** What Upgrade or Repair… offers, in its order. Each stays registered for keybindings and buttons. */
+const UPGRADE_OR_REPAIR_ROUTES = [
+  'singularityFlow.refreshCapability', 'singularityFlow.upgradeWorkspaces', 'singularityFlow.repairRepositorySetup',
+  'singularityFlow.refreshRepositorySetup', 'singularityFlow.afterInstall'
+];
+
+test('the palette offers upgrading and repairing once, and the merged routes stay callable', () => {
+  const palette = manifest.contributes.menus.commandPalette ?? [];
+  const hidden = new Set(palette.filter((entry) => entry.when === 'false').map((entry) => entry.command));
+  const contributed = new Map(manifest.contributes.commands.map((entry) => [entry.command, entry.title]));
+  assert.equal(contributed.get('singularityFlow.upgradeOrRepair'), 'Singularity Flow: Upgrade or Repair…');
+  assert.equal(hidden.has('singularityFlow.upgradeOrRepair'), false, 'the merged entry is in the palette');
+  for (const id of [...UPGRADE_OR_REPAIR_ROUTES, 'singularityFlow.reinitializeWorkspaces']) {
+    assert.ok(contributed.has(id), `${id} is still contributed, so old keybindings resolve`);
+    assert.ok(hidden.has(id), `${id} leaves the palette`);
+    assert.match(source, new RegExp(`registerCommand\\(\\s*'${id.replace('.', '\\.')}'`), `${id} is still registered`);
+  }
+  // The quick pick names every route, in this order, and nothing destructive.
+  const handler = source.slice(source.indexOf("'singularityFlow.upgradeOrRepair', async"));
+  const picks = handler.slice(0, handler.indexOf('title:'));
+  assert.deepEqual([...picks.matchAll(/command: '(singularityFlow\.\w+)'/g)].map((match) => match[1]), UPGRADE_OR_REPAIR_ROUTES);
+  assert.doesNotMatch(picks, /factoryReset|localReset/);
+  assert.equal(hidden.has('singularityFlow.factoryReset'), false, 'factory reset keeps its own, separately named entry');
+});
+
 test('every command hidden from the palette is reachable or an explicit compatibility alias', () => {
   // `when: false` in commandPalette hides a command because it needs an argument. One hidden with
   // nothing invoking it is dead weight nobody can reach at all.
@@ -286,10 +311,11 @@ test('every command hidden from the palette is reachable or an explicit compatib
   // Hidden aliases may remain callable for old keybindings without occupying current navigation.
   // The retired Workflow Designer and Configure Templates & Instructions open Workflow Studio.
   // reinitializeWorkspaces and doctor run the same handlers as upgradeWorkspaces and openDiagnostics,
-  // so the palette lists each action once.
+  // so the palette lists each action once. The five upgrade and repair routes are choices of
+  // Upgrade or Repair… (UPGRADE_OR_REPAIR_ROUTES below).
   const compatibilityAliases = new Set([
     'singularityFlow.openDeveloperHome', 'singularityFlow.openDesigner', 'singularityFlow.configureTemplates',
-    'singularityFlow.reinitializeWorkspaces', 'singularityFlow.doctor'
+    'singularityFlow.reinitializeWorkspaces', 'singularityFlow.doctor', ...UPGRADE_OR_REPAIR_ROUTES
   ]);
   const orphaned = hidden.filter((command) => !reachable.has(command) && !compatibilityAliases.has(command));
   assert.deepEqual(orphaned, []);

@@ -225,8 +225,45 @@ test('progress-only region changes do not resend workflows or thousands of branc
   const before = intakeRegions(intake);
   const after = intakeRegions({ ...intake, startStep: 'Publishing the Story' });
   const changed = Object.keys(after).filter((id) => before[id] !== after[id]);
-  assert.deepEqual(changed, ['status']);
-  assert.ok(Buffer.byteLength(after.status) < Buffer.byteLength(intakeHtml(intake)) / 10);
+  assert.deepEqual(changed, ['actions'], 'the start step is shown in the sticky bar, so only it is resent');
+  assert.ok(Buffer.byteLength(after.actions) < Buffer.byteLength(intakeHtml(intake)) / 10);
+  assert.match(after.actions, /Publishing the Story…/);
+});
+
+test('the Start button and what is still needed stay in a sticky bar that is patched by its region id', async () => {
+  const blocked = form({ id: '', title: '' });
+  const regions = intakeRegions(blocked);
+  assert.equal(Object.keys(regions).at(-1), 'actions', 'the bar is the last region, so it sticks to the bottom');
+  const needed = intakeProblems(blocked).filter((problem) => !problem.endsWith('…')).length;
+  assert.ok(needed > 1);
+  assert.match(regions.actions, new RegExp(`data-focus-field="region:status">${needed} things still needed</button>`),
+    'a short count that takes the reader to the full list');
+  assert.match(regions.actions, /<button type="button" data-submit="start" disabled>/);
+  assert.doesNotMatch(regions.status, /data-submit="start"/, 'one Start button on the page, in the bar');
+  assert.match(regions.status, /Before this can start/, 'the full list stays in its own region');
+  const html = intakeHtml(blocked);
+  assert.equal([...html.matchAll(/data-submit="start"/g)].length, 1);
+  assert.match(html, /<div data-intake-region="actions"><div class="sf-start-bar" role="group" aria-label="Start Story">/);
+
+  const readyForm = form({ baseBranch: 'main', basePreflightPassed: true, description: 'Retry failed charges.' });
+  assert.deepEqual(intakeProblems(readyForm), []);
+  const ready = intakeRegions(readyForm);
+  assert.match(ready.actions, /Ready to start/);
+  assert.match(ready.actions, /<button type="button" data-submit="start" >/);
+  assert.match(intakeRegions({ ...readyForm, description: '' }).actions, />1 thing still needed</);
+  // A read in flight is not counted as needed: the bar says it is checking.
+  assert.match(intakeRegions({ ...readyForm, basePreflightPassed: false, basePreflightChecking: true }).actions,
+    /role="status" aria-live="polite">Checking…<\/p>/);
+
+  // The page script replaces the bar like any other region.
+  const view = mount(blocked);
+  view.patch({ sequence: 1, regions: [{ id: 'actions', html: ready.actions }] });
+  assert.equal(view.controls['[data-intake-region="actions"]'].innerHTML, ready.actions);
+  assert.deepEqual(view.messages, [], 'a known region id never asks for a reload');
+
+  const { THEME_STYLE } = await import('../apps/vscode/src/views/theme.ts');
+  assert.match(THEME_STYLE, /\[data-intake-region="actions"\] \{ position: sticky; bottom: 0;/,
+    'the sticky rule is on the region itself, so replacing its content keeps it pinned');
 });
 
 test('workflow search is local, opens other choices for results and preserves selection, caret and query across redraw', () => {

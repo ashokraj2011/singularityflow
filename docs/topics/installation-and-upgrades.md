@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 35
+version: 36
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -198,8 +198,9 @@ never selected by the normal Reinitialize action.
 
 ### Guided after-install upgrade in VS Code
 
-Open **After install** in the main SFlow menu, or run **Singularity Flow: After Install — Guided
-Upgrade** from the Command Palette. The same entry is in **Configuration → After install**.
+Open **After install** from **Help** in the SFlow sidebar, or run **Singularity Flow: Upgrade or
+Repair…** from the Command Palette and choose **After install**. The same entry is in
+**Configuration → After install**.
 Opening it runs only a build-alignment check and a local workspace listing. Select an existing
 workspace explicitly; the guide never chooses the active or first workspace on your behalf.
 

@@ -7,7 +7,7 @@ import { showCompactWarningMessage } from "../compact-message.ts";
  * changes nothing.
  */
 import * as vscode from 'vscode';
-import { WORKFLOW_FAVOURITES_KEY, workflowFavourites } from './catalog-search.ts';
+import { SAMPLE_WORKFLOWS_KEY, WORKFLOW_FAVOURITES_KEY, workflowFavourites } from './catalog-search.ts';
 import path from 'node:path';
 import {
   contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
@@ -205,7 +205,8 @@ export function intakeInFlight(snapshot: {
     id: entry.id!,
     title: entry.title ?? entry.id!,
     status: where(entry.status, entry.currentPhase),
-    completed: completed(entry.status)
+    completed: completed(entry.status),
+    ...(entry.workType && entry.workType !== 'epic' ? { workType: entry.workType } : {})
   }));
   return [...initiatives, ...items];
 }
@@ -284,6 +285,7 @@ export class IntakePanel {
       approvalAuthorityMissing: target.approvalAuthorityMissing === true,
       inFlight: target.inFlight,
       favouriteWorkflows: workflowFavourites(preferences.get(WORKFLOW_FAVOURITES_KEY + ':' + target.repository)),
+      showSampleWorkflows: preferences.get(SAMPLE_WORKFLOWS_KEY + ':' + target.repository) === true,
       ...(this.defaults.source ? {
         tracker: this.defaults.source === 'github-issue' ? 'github'
           : this.defaults.source === 'jira' ? 'jira' : 'none'
@@ -729,6 +731,17 @@ export class IntakePanel {
           this.render();
           void showCompactWarningMessage('Workflow favourites could not be saved. Your Story choices are unchanged; try starring the workflow again.');
         }
+      }
+    },
+    /** Show or hide the seeded demo, benchmark and POC workflows, remembered for this repository. */
+    sampleWorkflows: async (message) => {
+      const value = stringField(message, 'value');
+      if (value !== 'show' && value !== 'hide') return;
+      this.update({ showSampleWorkflows: value === 'show' });
+      try {
+        await this.preferences.update(SAMPLE_WORKFLOWS_KEY + ':' + this.form.targetRepository, value === 'show');
+      } catch (error) {
+        this.output.appendLine('Could not remember the demo workflow choice: ' + (error as Error).message);
       }
     },
     qualityGateMode: (message) => {

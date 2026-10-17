@@ -26,3 +26,33 @@ export async function forgetSetupReviewRepository(
 ): Promise<void> {
   await state.update(KEY, setupReviewRepositories(state).filter((value) => value !== repository));
 }
+
+const CHECK_KEY = 'singularityFlow.capabilityProposalCheck.v1';
+
+/**
+ * The setup and capability queue's last full read on this machine. Reviews counts from it, because
+ * reading the queue clones every capability map and is too costly to repeat just to draw a number.
+ */
+export interface CapabilityProposalCheck {
+  checkedAt: string;
+  capability: number;
+  setup: number;
+  /** False when a repository could not be read, so the counts are a lower bound. */
+  complete: boolean;
+}
+
+export function capabilityProposalCheck(state: vscode.Memento): CapabilityProposalCheck | null {
+  const stored = state.get<unknown>(CHECK_KEY);
+  if (!stored || typeof stored !== 'object') return null;
+  const { checkedAt, capability, setup, complete } = stored as Record<string, unknown>;
+  const count = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
+  if (typeof checkedAt !== 'string' || Number.isNaN(Date.parse(checkedAt)) || !count(capability) || !count(setup)
+    || typeof complete !== 'boolean') return null;
+  return { checkedAt, capability, setup, complete };
+}
+
+export async function rememberCapabilityProposalCheck(
+  state: vscode.Memento, check: CapabilityProposalCheck
+): Promise<void> {
+  await state.update(CHECK_KEY, check);
+}

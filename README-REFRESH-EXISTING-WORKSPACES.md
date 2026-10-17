@@ -31,16 +31,21 @@ configuration itself must be valid enough to load and merge.
 
 ## Recommended VS Code flow
 
-To refresh one capability, run **Singularity Flow: Refresh Capability to New Version**. It is also
-in the Navigator's Workspaces links, the Navigator's title-bar menu and the Configuration Center.
+Every upgrade and repair route starts from one Command Palette entry, **Singularity Flow: Upgrade
+or Repair…**, which is also in the Navigator's title-bar menu. Its choices are **Upgrade this
+capability**, **Upgrade capabilities & workspaces**, **Repair repository setup**, **Find a repository
+by Git URL** and **After install**. Each shows a preview first.
+
+To refresh one capability, choose **Upgrade this capability**. It is also in the Navigator's
+Workspaces links and the Configuration Center.
 It never asks for a Git URL. It uses the workspace selected in Workspaces, otherwise the repository
 open in the editor, otherwise one of your registered workspaces you pick, and opens the same
 reviewed preview as step 2 below. A repository open in the editor that no workspace registers goes
 to **Repair or upgrade setup** instead. **Find a repository by Git URL…** on the Workspaces page
 remains for a repository you do not have open.
 
-1. Open the Command Palette and run **Singularity Flow: Upgrade Capabilities & Workspaces**. This
-   opens Workspaces and immediately checks every registered workspace. You can instead open
+1. Run **Singularity Flow: Upgrade or Repair…** and choose **Upgrade capabilities & workspaces**.
+   This opens Workspaces and immediately checks every registered workspace. You can instead open
    **Workspaces** and select **Upgrade capabilities & workspaces** for a narrower review.
 2. Choose **Review _workspace_** to inspect one workspace, or **Review all workspaces**.
 3. Review every repository, file change, state-branch change, and conflict.

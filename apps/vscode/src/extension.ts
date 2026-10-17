@@ -3109,6 +3109,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   ));
 
   /**
+   * The palette's one entry for upgrading and repairing. Each choice runs an existing command with
+   * its own preview and confirmation; those IDs stay callable for keybindings, buttons and pages.
+   */
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.upgradeOrRepair', async () => {
+      const choice = await vscode.window.showQuickPick([
+        { label: '$(sync) Upgrade this capability', command: 'singularityFlow.refreshCapability',
+          detail: 'Bring the capability open here, or one you choose, up to the installed SFlow version.' },
+        { label: '$(sync) Upgrade capabilities & workspaces', command: 'singularityFlow.upgradeWorkspaces',
+          detail: 'Check every registered workspace against the installed version.' },
+        { label: '$(tools) Repair repository setup', command: 'singularityFlow.repairRepositorySetup',
+          detail: 'Repair or upgrade one repository\'s setup, even before a workspace registers it.' },
+        { label: '$(link) Find a repository by Git URL', command: 'singularityFlow.refreshRepositorySetup',
+          detail: 'Refresh or reinitialize a repository you do not have open.' },
+        { label: '$(checklist) After install', command: 'singularityFlow.afterInstall',
+          detail: 'Check that every surface runs the installed build, then upgrade a workspace you choose.' }
+      ], {
+        title: 'Upgrade or repair',
+        placeHolder: 'Each choice shows a preview first. Nothing changes until you confirm it.',
+        ignoreFocusOut: true
+      });
+      if (choice) return vscode.commands.executeCommand(choice.command);
+    }
+  ));
+
+  /**
    * Repository-centric maintenance that works on a new laptop before any workspace is registered.
    * The Map panel owns the shared setup card and the CLI owns every observation and mutation plan.
    */
@@ -7796,8 +7822,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     'singularityFlow.openReviews': async () => {
       const { InboxPanel } = lazyPanels();
+      // The configuration queue's count: one read of this repository's remote, when Reviews opens.
       return InboxPanel.show(context, store, onInboxMessage,
-        () => workspaceStoryCatalog, () => repository, () => workspaceStoryCatalogIssue, () => inboxRepositoryBinding, 'reviews');
+        () => workspaceStoryCatalog, () => repository, () => workspaceStoryCatalogIssue, () => inboxRepositoryBinding, 'reviews',
+        () => client.run<unknown>(['workflow', 'proposals', '--json']));
     },
     'singularityFlow.openConfigurationApprovals': async () =>
       vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'changes' }),

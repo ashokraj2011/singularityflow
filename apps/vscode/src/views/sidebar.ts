@@ -6,7 +6,7 @@ import { resolveProfilePersona, type ProfilePersona } from './profile-personas.t
 import type { SidebarNavigation } from './sidebar-navigation-model.ts';
 import { MicrotaskCoalescer } from '../single-flight.ts';
 import { HELP_COMMANDS, HELP_TOPICS } from './navigator-help.ts';
-import { PRIMARY_NAVIGATION, sidebarBody, SIDEBAR_STYLE, SIDEBAR_SCRIPT } from './sidebar-page.ts';
+import { PRIMARY_NAVIGATION, sidebarBody, SIDEBAR_STYLE, SIDEBAR_SCRIPT, type PromptLogState } from './sidebar-page.ts';
 
 export type SidebarSection = 'favorites' | 'workspaces' | 'lifecycle' | 'inbox' | 'logs' | 'configuration' | 'help';
 
@@ -17,6 +17,12 @@ interface TreeSource {
 
 const ACTION_COMMANDS: Record<string, string> = {
   ...Object.fromEntries(PRIMARY_NAVIGATION.map(item => [item.id, item.command])),
+  // Former main-menu rows, still reachable from tools, pins and the palette.
+  artifacts: 'singularityFlow.openPhaseArtifacts',
+  'story-analytics': 'singularityFlow.openDashboard',
+  'configuration-approvals': 'singularityFlow.openConfigurationApprovals',
+  'configuration-sync': 'singularityFlow.recreateAndSyncConfiguration',
+  'after-install': 'singularityFlow.afterInstall',
   'favorites-manage': 'singularityFlow.manageFavorites',
   'persona-manage': 'singularityFlow.choosePersona',
   'my-work': 'singularityFlow.myWork',
@@ -38,6 +44,7 @@ const ACTION_COMMANDS: Record<string, string> = {
   'workflow-design': 'singularityFlow.openWorkflowStudio',
   'instruction-design': 'singularityFlow.openInstructionDesigner',
   'prompt-audit': 'singularityFlow.openPromptAudit',
+  'prompt-log-toggle': 'singularityFlow.togglePromptLog',
   'visual-assurance': 'singularityFlow.openVisualAssurance',
   'help-open': 'singularityFlow.openHelp',
   journal: 'singularityFlow.openJournal',
@@ -75,13 +82,15 @@ interface FavoriteMenu {
  */
 export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
   { id: 'my-work', label: 'My Work', description: 'current work and next actions', icon: 'home', command: ACTION_COMMANDS['my-work']! },
+  { id: 'artifacts', label: 'Artifacts', description: 'documents each phase produced', icon: 'document', command: ACTION_COMMANDS.artifacts! },
+  { id: 'story-analytics', label: 'Story Analytics', description: 'progress, gates and time across Stories', icon: 'impact', command: ACTION_COMMANDS['story-analytics']! },
   { id: 'command-center', label: 'Command Center', description: 'governed execution processes and requests', icon: 'workflow', command: ACTION_COMMANDS['command-center']! },
   { id: 'change-explorer', label: 'Explain changes', description: 'the current changes, why they were made, and what they touch', icon: 'code', command: ACTION_COMMANDS['change-explorer']! },
   { id: 'code-explainer', label: 'Code Explainer', description: 'changed functions, their callers, callees and tests, as an interactive graph', icon: 'code', command: ACTION_COMMANDS['code-explainer']! },
-  { id: 'code-explanation', label: 'Code explanation', description: 'why each changed hunk is there', icon: 'code', command: ACTION_COMMANDS['code-explanation']! },
-  { id: 'repository-knowledge', label: 'Repository knowledge', description: 'rules, journeys, tests and gaps read from the code', icon: 'book', command: ACTION_COMMANDS['repository-knowledge']! },
+  { id: 'code-explanation', label: 'Explain changed lines', description: 'why each changed hunk is there', icon: 'code', command: ACTION_COMMANDS['code-explanation']! },
+  { id: 'repository-knowledge', label: 'Repository Brief', description: 'rules, journeys, tests and gaps read from the code', icon: 'book', command: ACTION_COMMANDS['repository-knowledge']! },
   { id: 'comprehension-center', label: 'Comprehension Center', description: 'exact change regions, causes, unknowns, and replay', icon: 'code', command: ACTION_COMMANDS['comprehension-center']! },
-  { id: 'work-start', label: 'Start intake', description: 'begin governed work', icon: 'start', command: ACTION_COMMANDS['work-start']! },
+  { id: 'work-start', label: 'Start new work', description: 'describe a request and start a Story', icon: 'start', command: ACTION_COMMANDS['work-start']! },
   { id: 'story-intake', label: 'View Story intake details', description: 'saved inputs, selected base and recorded setup', icon: 'book', command: ACTION_COMMANDS['story-intake']! },
   { id: 'adhoc-work', label: 'Ad hoc work', description: 'land bounded work without a Story', icon: 'commit', command: ACTION_COMMANDS['adhoc-work']! },
   { id: 'inbox-open', label: 'Inbox', description: 'work waiting on you', icon: 'inbox', command: ACTION_COMMANDS['inbox-open']! },
@@ -126,6 +135,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private awaitingFirstRead = false;
   private navigation: SidebarNavigation = { workspace: null, next: null };
   private pendingApprovals: number | null = null;
+  private promptLog: PromptLogState | undefined = undefined;
   private activeDestination: string | null = null;
   private renderedBody: string | null = null;
   private favoriteIds: string[];
@@ -214,8 +224,8 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     this.refreshFavorites();
     const added = this.favoriteIds.filter((id) => !previous.has(id))
       .map((id) => FAVORITE_BY_ID.get(id)?.label).filter((label): label is string => Boolean(label));
-    if (added.length === 1) void vscode.window.showInformationMessage(`${added[0]} added to Favorites.`);
-    else if (added.length > 1) void vscode.window.showInformationMessage(`${added.length} menus added to Favorites.`);
+    if (added.length === 1) void vscode.window.showInformationMessage(`${added[0]} pinned to the sidebar.`);
+    else if (added.length > 1) void vscode.window.showInformationMessage(`${added.length} shortcuts pinned to the sidebar.`);
   }
 
   private async removeFavorite(id: string): Promise<void> {
@@ -263,6 +273,16 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     const normalized = count === null ? null : Number.isSafeInteger(count) && count > 0 ? count : 0;
     if (normalized === this.pendingApprovals) return;
     this.pendingApprovals = normalized;
+    this.renders.request();
+  }
+
+  /** What the switch shows now; a click means the opposite of this. */
+  get promptLogState(): PromptLogState | undefined { return this.promptLog; }
+
+  /** Undefined hides the switch: without a repository there is nothing to record prompts for. */
+  setPromptLog(state: PromptLogState | undefined): void {
+    if (state === this.promptLog) return;
+    this.promptLog = state;
     this.renders.request();
   }
 
@@ -379,9 +399,9 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
 
   private async openTools(group: string): Promise<void> {
     const groups: Record<string, { title: string; ids: string[] }> = {
-      'work-tools': { title: 'Work tools', ids: ['current-work-actions', 'story-intake', 'work-start', 'adhoc-work', 'goals', 'impact-form', 'understand-changes', 'epic-stories', 'command-center', 'flow-impact'] },
+      'work-tools': { title: 'Work tools', ids: ['current-work-actions', 'story-intake', 'artifacts', 'story-analytics', 'understand-changes', 'adhoc-work', 'goals', 'impact-form', 'epic-stories', 'command-center', 'flow-impact'] },
       'understand-changes': { title: 'Understand changes', ids: ['change-explorer', 'code-explainer', 'repository-knowledge', 'code-explanation', 'comprehension-center'] },
-      'help-tools': { title: 'Help & diagnostics', ids: ['help-open', 'diagnostics', 'fault-repairs', 'local-reset'] },
+      'help-tools': { title: 'Help & diagnostics', ids: ['help-open', 'diagnostics', 'fault-repairs', 'after-install', 'local-reset'] },
       'activity-tools': { title: 'Activity & logs', ids: ['logs-open', 'activity-log', 'prompt-audit', 'journal'] }
     };
     const selected = groups[group];
@@ -389,7 +409,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     const menus = selected.ids.flatMap(id => {
       if (id === 'current-work-actions') return [{ label: 'Current work actions & artifacts', description: 'Progress, evidence, phase actions and lifecycle maintenance', id }];
       if (id === 'understand-changes') return [{ label: 'Understand changes', description: 'Explorer, explanations and comprehension', id }];
-      if (id === 'epic-stories') return [{ label: 'Epic Story plan', description: 'Decomposition, dependencies and materialization', id }];
+      if (id === 'epic-stories') return [{ label: 'Initiative Story plan', description: 'How the Initiative breaks into Stories, and their order', id }];
       const menu = FAVORITE_BY_ID.get(id);
       return menu ? [{ label: menu.label, description: menu.description, id }] : [];
     });
@@ -428,6 +448,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         navigation: this.navigation, freshness: this.freshness, loading: this.awaitingFirstRead,
         active: this.activeDestination, pending: this.pendingApprovals,
         menuCollapsed: this.menuCollapsed,
+        promptLog: this.promptLog,
         favorites: this.favoriteIds.flatMap(id => {
           const menu = FAVORITE_BY_ID.get(id);
           return menu ? [{ id, label: menu.label, icon: menu.icon }] : [];

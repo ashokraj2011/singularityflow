@@ -1990,7 +1990,7 @@ test('a repository with nothing started at all offers the command that starts so
   const [node, start] = buildTree({ initiative: null, initiatives: [], workItems: [] });
   assert.match(node.label, /No work has been started/);
   assert.equal(start.contextValue, 'sflow.start');
-  assert.equal(start.label, 'Start intake');
+  assert.equal(start.label, 'Start new work');
 });
 
 test('a checked-out Story exposes only engine-authorized generation or submission actions', () => {
@@ -5852,10 +5852,10 @@ test('intake names the exact workspace, repository, and branch it will mutate', 
     targetRepository: '/workspaces/rule-engine/repos/ruleengine',
     targetBranch: 'WRK-2028'
   }));
-  // One status line names all three, as the keys a terminal would print.
-  assert.match(html, /<dt>Target_workspace:<\/dt><dd class="chip">Rule-engine<\/dd>/);
-  assert.match(html, /<dt>Repo:<\/dt><dd>\/workspaces\/rule-engine\/repos\/ruleengine<\/dd>/);
-  assert.match(html, /<dt>Current_base:<\/dt><dd class="chip accent">git:WRK-2028<\/dd>/);
+  // One status line names all three in plain words.
+  assert.match(html, /<dt>Workspace:<\/dt><dd class="chip">Rule-engine<\/dd>/);
+  assert.match(html, /<dt>Repository:<\/dt><dd>\/workspaces\/rule-engine\/repos\/ruleengine<\/dd>/);
+  assert.match(html, /<dt>Checked out:<\/dt><dd class="chip accent">WRK-2028<\/dd>/);
 });
 
 /** Sentences in the fixtures contain regex metacharacters; matching one literally has to say so. */
@@ -6426,7 +6426,7 @@ test('an intake form still missing something disables the button and lists why',
   const ready = intakeHtml(intake({
     shape: 'story', tracker: 'none', id: 'checkout-retry', title: 'A', description: 'B'
   }));
-  assert.match(ready, /Starts story <code>checkout-retry<\/code>/);
+  assert.match(ready, /Starts Story <code>checkout-retry<\/code>/);
   assert.match(ready, /<button type="button" data-submit="start" >/);
 
   const waitingForRemote = intakeHtml(intake({

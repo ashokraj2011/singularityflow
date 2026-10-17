@@ -1,4 +1,4 @@
-/** A button is the authorization; no model, picker, merge UI or follow-up confirmation. */
+/** One confirmed click is the authorization; no model, picker, merge UI or further questions. */
 export interface ConfigurationSyncResult {
   status: string;
   baseCommit: string;

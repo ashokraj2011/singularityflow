@@ -64,8 +64,8 @@ function decisionCards(inbox: Inbox): string {
       <div class="card-foot">
         ${approval.kind === 'output' || approval.artifactPath
     ? `<button class="secondary" data-open-approval="${escape(approval.id)}">Open artifact</button>` : ''}
-        <button data-approve="${escape(approval.id)}">Review & approve</button>
-        <button class="secondary" data-reject="${escape(approval.id)}">Reject</button>
+        <button data-approve="${escape(approval.id)}">Approve…</button>
+        <button class="secondary" data-reject="${escape(approval.id)}">Request changes…</button>
       </div>
     </article>`).join('')}</div>`;
 }
@@ -84,7 +84,7 @@ function storyCards(inbox: Inbox): string {
         <small>${escape(story.title)}</small>
         <small>Created (UTC): ${storyCreatedDateHtml(story.createdAt)}</small>
         ${story.attachable
-    ? `<span class="active-story-action">${story.current ? 'Continue in Copilot' : story.materialized ? 'Open &amp; continue' : 'Materialize &amp; continue'}${icon('next')}</span>`
+    ? `<span class="active-story-action">${story.current ? 'Continue in Copilot' : story.materialized ? 'Open &amp; continue' : 'Set up &amp; continue'}${icon('next')}</span>`
     : '<small>Repository mapping is unavailable</small>'}
       </button>`).join('')}</div>
   </section>`;

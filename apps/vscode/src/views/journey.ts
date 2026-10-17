@@ -115,7 +115,7 @@ function artifactsHtml(journey: Journey): string {
         <td>${artifact.approvals.length
           ? artifact.approvals.map((approval) => escape(approvalTime(approval.at))).join('<br>')
           : '<span class="muted">—</span>'}</td>
-        <td>${artifact.approvable ? `<button data-approve="${escape(artifact.id)}">Approve</button>` : ''}</td>
+        <td>${artifact.approvable ? `<button data-approve="${escape(artifact.id)}">Approve…</button>` : ''}</td>
       </tr>`).join('')}</tbody></table></div>`;
 }
 

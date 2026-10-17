@@ -93,7 +93,7 @@ import { capabilityProposalArgv } from './views/capability-model.ts';
 import { buildConfigurationTree, unavailableTree, type TreeNode } from './views/tree-model.ts';
 import { NodeTreeProvider } from './views/navigation.ts';
 import { SidebarViewProvider } from './views/sidebar.ts';
-import { deriveSidebarNavigation } from './views/sidebar-navigation-model.ts';
+import { currentPhaseLabel, deriveSidebarNavigation } from './views/sidebar-navigation-model.ts';
 import { sidebarDestination } from './views/sidebar-destination.ts';
 import { buildApprovals } from './views/approvals-model.ts';
 import { PROFILE_PERSONAS, isProfilePersonaId, resolveProfilePersona } from './views/profile-personas.ts';
@@ -937,7 +937,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.decideStory',
     'singularityFlow.publishConfiguration',
-    'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.openActivityLog',
+    'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.togglePromptLog', 'singularityFlow.openActivityLog',
     'singularityFlow.openWorkspaceLogs', 'singularityFlow.refreshWorkspaceLogs', 'singularityFlow.openSpecificationTrace',
     'singularityFlow.inspectCompositionCache', 'singularityFlow.checkLedgerDeployment',
     'singularityFlow.openCopilot', 'singularityFlow.openMeteredCopilot',
@@ -3886,9 +3886,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const loadedBuild = typeof __SFLOW_BUILD__ === 'string' ? __SFLOW_BUILD__ : 'unstamped';
   const upgradeOfferKey = 'singularityFlow.workspaceUpgradeOfferedBuild';
   const offerWorkspaceUpgrade = async (): Promise<void> => {
-    if (loadedBuild === 'unstamped' || !workspaceEntries.some((entry) => !entry.archivedAt)
-      || context.globalState.get<string>(upgradeOfferKey) === loadedBuild) return;
+    if (loadedBuild === 'unstamped' || !workspaceEntries.some((entry) => !entry.archivedAt)) return;
+    const offered = context.globalState.get<string>(upgradeOfferKey);
+    if (offered === loadedBuild) return;
     await context.globalState.update(upgradeOfferKey, loadedBuild);
+    // A first launch has nothing to compare against: record the build and let the person start.
+    if (offered === undefined) return;
     void showCompactInformationMessage(
       'A new Singularity Flow build is installed. Review capability, workspace, and governed-agent updates?',
       'Review upgrades'
@@ -5174,6 +5177,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }, afterCurrent);
   };
   refreshStoriesAfterMapping = () => refreshRemoteStories({ afterCurrent: true });
+  /**
+   * The sidebar's Prompt log switch. One read per repository, after its first confirmed snapshot;
+   * the setting lives with the workspace (or the repository when there is none), so a switch
+   * re-reads rather than carrying the previous repository's answer.
+   */
+  const refreshPromptLog = async (scope = repositoryEpoch.capture()): Promise<void> => {
+    try {
+      const status = await client.run<{ enabled: boolean }>(['prompt-log', 'status', '--json']);
+      if (repositoryEpoch.isCurrent(scope)) sidebar.setPromptLog(status.enabled ? 'on' : 'off');
+    } catch (error) {
+      if (isCliReadSuperseded(error) || !repositoryEpoch.isCurrent(scope)) return;
+      output.appendLine(`Could not read the prompt log setting: ${(error as Error).message}`);
+      sidebar.setPromptLog('unavailable');
+    }
+  };
   // Only Story discovery follows a confirmed initial snapshot. Readiness and logs stay on demand.
   // A failed initial read leaves these deferred; the first later confirmed snapshot starts them.
   let initialRefreshCompleted = false;
@@ -5184,6 +5202,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const scope = repositoryEpoch.capture();
     if (!forceReadiness && auxiliaryEpoch === scope.epoch) return;
     auxiliaryEpoch = scope.epoch;
+    void refreshPromptLog(scope);
     // Capability readiness is demand-loaded by the capability surface or an explicit Refresh.
     // Activation/switching must not fan out remote configuration reads for unopened views.
     // The Logs section is collapsed by default and already has an Open action. Reading up to 500
@@ -5300,7 +5319,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (workflow) {
       // A Story with no current phase has decided every step or was cancelled; neither is evidence
       // that it is complete, which only the final governance check can say.
-      const phase = workflow.currentPhase
+      const phase = currentPhaseLabel(state.snapshot)
         ?? ((workflow as { status?: string }).status === 'cancelled' ? 'cancelled' : 'every step decided');
       status.text = `$(git-pull-request) ${workflow.workItem.id} · ${phase}`;
       status.tooltip = `${where}${workflow.workItem.title ?? 'Governed Story workflow'}`;
@@ -5398,7 +5417,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
     statusWorkId = null;
-    const phase = initiative.state.currentPhase ?? 'complete';
+    const phase = currentPhaseLabel(state.snapshot) ?? 'complete';
     status.text = `$(rocket) ${initiative.state.initiative.id} · ${phase}`;
     status.tooltip = initiative.nextActions?.[0]?.reason ?? 'Singularity Flow';
     status.show();
@@ -5441,6 +5460,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     inboxRepositoryBinding = null;
     resultPanelRepositoryChanged(canonicalTarget);
     client.useRepository(canonicalTarget);
+    sidebar.setPromptLog(null);
     watchGovernedRepository(canonicalTarget, targetGitCommonDirectory);
     workspaceLabel = selected.workspaceName;
     lastHome = null;
@@ -6759,7 +6779,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Change requests need a reason: an invalidation nobody can explain is worse than none at all.
     const reason = await vscode.window.showInputBox({
       title: `Request changes to ${approval.label}`,
-      prompt: `What must change in ${target}? This comment is recorded and injected into the next generation.`,
+      prompt: `What must change in ${store.current.snapshot?.workflow?.phases?.[target]?.label ?? target}? This comment is recorded and given to the next generation.`,
       ignoreFocusOut: true,
       validateInput: (value) => (value.trim() ? null : 'A reason is required.')
     });
@@ -7782,6 +7802,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openConfigurationApprovals': async () =>
       vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'changes' }),
     'singularityFlow.recreateAndSyncConfiguration': async () => {
+      // It writes to the shared configuration and pushes, so it asks once, naming what changes.
+      const proceed = await showCompactWarningMessage('Recreate and sync configuration?', {
+        modal: true,
+        detail: 'Pending configuration edits are applied to the approved configuration, older proposals are archived, '
+          + 'and the result is pushed to the remote. Application code and Stories stay unchanged.'
+      }, 'Recreate & sync');
+      if (proceed !== 'Recreate & sync') return;
       await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
         title: 'Recreating and syncing configuration', cancellable: false }, async () => {
         output.appendLine('Recreate & sync configuration: starting the bounded configuration-only transaction.');
@@ -8454,17 +8481,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
       if (!reason?.trim()) return;
       const decision = await showCompactWarningMessage(
-        `Cancel ${workflow.workItem.id}? Its lifecycle will stop and it will move to Archived. Generated artifacts are preserved.`,
+        `Archive ${workflow.workItem.id}? Its lifecycle stops and it moves to Archived. Generated artifacts are preserved.`,
         { modal: true, detail: `Current phase: ${workflow.currentPhase ?? 'unknown'}\nReason: ${reason.trim()}` },
-        'Cancel and archive'
+        'Archive Story'
       );
-      if (decision !== 'Cancel and archive') return;
+      if (decision !== 'Archive Story') return;
       try {
         await client.runText(['cancel', workflow.workItem.id, '--reason', reason.trim(), '--confirm', workflow.workItem.id]);
         await refreshAfterKnownMutation();
         void showCompactInformationMessage(`${workflow.workItem.id} was cancelled and moved to Archived.`);
       } catch (error) {
-        showRefusal(error, { headline: 'Could not cancel ${workflow.workItem.id}' });
+        showRefusal(error, { headline: `Could not cancel ${workflow.workItem.id}` });
       }
     },
     'singularityFlow.reopenCompleted': async () => {
@@ -8502,7 +8529,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await refreshAfterKnownMutation();
         void showCompactInformationMessage(`${workflow.workItem.id} reopened at ${selected.phaseId}.`);
       } catch (error) {
-        showRefusal(error, { headline: 'Could not reopen ${workflow.workItem.id}' });
+        showRefusal(error, { headline: `Could not reopen ${workflow.workItem.id}` });
       }
     },
     'singularityFlow.rollForwardRework': async (node?: TreeNode) => {
@@ -8757,6 +8784,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openPromptAudit': async () => {
       const { WorkspaceLogsPanel } = lazyPanels();
       return WorkspaceLogsPanel.show(context, client, 'prompt');
+    },
+    'singularityFlow.togglePromptLog': async () => {
+      // A switch does the opposite of what it shows. Only when it shows nothing certain (still
+      // reading, or unavailable, or run from the palette) is the recorded setting read first.
+      const scope = repositoryEpoch.capture();
+      const shown = sidebar.promptLogState;
+      sidebar.setPromptLog(null);
+      try {
+        const enable = shown === 'on' ? false : shown === 'off' ? true
+          : !(await client.run<{ enabled: boolean }>(['prompt-log', 'status', '--json'])).enabled;
+        const next = await client.run<{ enabled: boolean; scope: string }>(['prompt-log', enable ? 'on' : 'off', '--json']);
+        if (!repositoryEpoch.isCurrent(scope)) return;
+        sidebar.setPromptLog(next.enabled ? 'on' : 'off');
+        const where = next.scope === 'workspace' ? 'this workspace' : 'this repository';
+        void showCompactInformationMessage(next.enabled
+          ? `Prompt log is on for ${where}. Prompts sent to models are recorded; see Activity & logs → Prompt audit.`
+          : `Prompt log is off for ${where}. New prompts are not recorded; earlier records are kept.`);
+      } catch (error) {
+        if (repositoryEpoch.isCurrent(scope)) void refreshPromptLog(scope);
+        showRefusal(error, { headline: 'Could not change the prompt log' });
+      }
     },
     'singularityFlow.openActivityLog': async () => {
       const { WorkspaceLogsPanel } = lazyPanels();

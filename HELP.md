@@ -371,8 +371,8 @@ Help            Offline topics · command reference · troubleshooting
 Logs            Activity · prompts · Copilot usage · workspace operations
 ```
 
-Favorites begins with My Work, Start intake, and Inbox on a developer's first visit. Use **Favorites
-→ Choose favorites** to change that set or pin other commonly used menus. An explicitly empty set is
+Pinned shortcuts begin with My Work, Start new work, and Inbox on a developer's first visit. Use
+**Pinned shortcuts → Choose shortcuts** to change that set or pin other commonly used menus. An explicitly empty set is
 preserved. Favorites contain only stable menu IDs in personal VS Code state; they are never written
 to governed files. Opening a favorite runs the original command with the same repository, lifecycle,
 confirmation, and authority checks. Use the inline unpin button to remove a shortcut. Favorites and
@@ -904,7 +904,7 @@ session. Successful generation and lifecycle actions commit and push through
 the existing Singularity Flow guarantees. Refresh the VS Code views to inspect
 the result, run governance checks, and approve it.
 
-The VS Code **Lifecycle**, **Approvals**, **Lifecycle Analytics**, and **Journey** views display
+The VS Code **Lifecycle**, **Approvals**, **Story Analytics**, and **Journey** views display
 phase flow, generated documents, review state, Story progress, elapsed/active/waiting
 time, generation and rework counts, approval latency, model and token usage, and
 provider cost when available. Analytics explicitly labels missing usage or pricing
@@ -2161,7 +2161,7 @@ singularity-flow report WORK-123 --format html --out workflow-report.html
 
 Reports show phase duration, active time, approval waiting, open approval latency, generations, rework, rejections, self-approvals, provider/model identity, exact tokens with per-model totals, optional cost, quality-check duration, and the largest approval-latency bottleneck.
 
-In VS Code, open **Singularity Flow: Lifecycle Analytics** for the same governed
+In VS Code, open **Singularity Flow: Story Analytics** for the same governed
 report as an operational dashboard. It includes a phase rail, completion percentage,
 active-versus-waiting charts, per-phase and per-model token tables, cost coverage,
 and governance/rework indicators. The dashboard refreshes from the repository

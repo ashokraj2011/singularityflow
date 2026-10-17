@@ -176,7 +176,7 @@ export class StoriesPanel {
       return StoriesPanel.current;
     }
     const panel = vscode.window.createWebviewPanel(
-      'singularityFlow.stories', 'Stories', vscode.ViewColumn.Active, {
+      'singularityFlow.stories', 'Initiative Story plan', vscode.ViewColumn.Active, {
         enableScripts: true,
         retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
@@ -188,7 +188,7 @@ export class StoriesPanel {
   private render(): void {
     const token = nonce();
     this.panel.webview.html = page(
-      'Stories',
+      'Initiative Story plan',
       bodyHtml(buildStories(this.store.current.snapshot)),
       contentSecurityPolicy(this.panel.webview, token),
       token,

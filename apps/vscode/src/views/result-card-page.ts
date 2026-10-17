@@ -87,7 +87,10 @@ export const RESULT_CARD_STYLE = `
   background: var(--vscode-textBlockQuote-background); color: var(--vscode-foreground); }
 .sf-card-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
 .sf-card-action { display: grid; gap: 4px; min-width: min(100%, 220px); }
-.sf-action-routes { display: grid; gap: 2px; color: var(--vscode-descriptionForeground); font-size: .82em; }
+.sf-action-routes { color: var(--vscode-descriptionForeground); font-size: .82em; }
+/* Grid only once open: a display on the closed <details> itself shows its folded lines in VS Code's webview. */
+.sf-action-routes[open] { display: grid; gap: 2px; }
+.sf-action-routes > summary, .sf-guidance-routes > summary { cursor: pointer; }
 .sf-action-routes code { user-select: text; overflow-wrap: anywhere; white-space: normal; }
 .sf-card-actions button { font: inherit; padding: 5px 12px; border-radius: 3px; cursor: pointer;
   text-align: left; background: transparent; color: var(--vscode-foreground);
@@ -112,7 +115,7 @@ export const RESULT_CARD_STYLE = `
 .sf-guidance-context span { display: grid; gap: 2px; min-width: 0; color: var(--vscode-descriptionForeground); font-size: .85em; }
 .sf-guidance-context strong { color: var(--vscode-foreground); overflow-wrap: anywhere; }
 .sf-guidance-change { margin: 0; }
-.sf-guidance-routes { display: grid; gap: 6px; }
+.sf-guidance-routes[open] { display: grid; gap: 6px; }
 .sf-guidance-command { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
   gap: 8px; margin: 0; padding: 8px; overflow-x: auto;
   background: var(--vscode-textCodeBlock-background); border-radius: 4px; }
@@ -228,14 +231,19 @@ function button(action: CardAction, className: string): string {
   return `<button type="button" class="${className}" data-action-id="${escape(action.id)}"${title}>${escape(action.label)}</button>`;
 }
 
+/**
+ * The button beside these runs the action here. The three routes keep the presentation contract's
+ * order and wording, folded away: shown open, "VS Code (model-free): not available" read as if the
+ * button next to it could not run in VS Code.
+ */
 function actionRoutes(action: CardAction): string {
   if (!action.command && !action.copilotCommand && !action.skill) return '';
-  return `<span class="sf-action-routes">
+  return `<details class="sf-action-routes"><summary>Other ways to run this</summary>
     ${action.copilotCommand || action.skill
       ? `<span>Copilot: <code>${escape(action.copilotCommand ?? action.skill ?? '')}</code></span>` : ''}
     ${action.command ? `<span>Shell: <code>${escape(action.command)}</code></span>
     <span>VS Code (model-free): ${action.modelFreeCommand ? `<code>${escape(action.modelFreeCommand)}</code>` : 'not available for this action'}</span>` : ''}
-  </span>`;
+  </details>`;
 }
 
 function gateRow(row: ChecklistRow): string {
@@ -279,9 +287,9 @@ const MARKS = Object.freeze({ done: '✓', current: '●', pending: '○' });
  * a sentence is now a visible gap rather than a silent fall-through to the friendliest wording.
  */
 const REST_SENTENCES: Readonly<Record<string, string>> = Object.freeze({
-  blocked: 'There is no step you can take here right now.',
+  blocked: 'Nothing more can be done here. Help & diagnostics or the Output log has the details.',
   complete: 'This work is finished; nothing further is needed.',
-  informational: 'This is a read. There is nothing to do with it.',
+  informational: 'Nothing else to do here.',
   unavailable: 'This build cannot answer that yet. The terminal equivalent still can.',
   'awaiting-decision': 'This is waiting on a decision only a person can make.'
 });
@@ -377,7 +385,8 @@ function guidanceHtml(view: ResultCardView): string {
   const context = [
     ['Workspace', guidance.context.workspace],
     ['Work', guidance.context.workId],
-    ['Phase', guidance.context.phase]
+    // The rail above names the same phase in words; an id here would contradict it.
+    ['Phase', view.rail.find((phase) => phase.id === guidance.context.phase)?.label ?? guidance.context.phase]
   ].filter(([, value]) => value);
   const contextHtml = context.length ? `<div class="sf-guidance-context">${context.map(([label, value]) =>
     `<span>${escape(label!)}<strong>${escape(value!)}</strong></span>`).join('')}</div>` : '';
@@ -392,7 +401,7 @@ function guidanceHtml(view: ResultCardView): string {
     <p class="sf-guidance-change"><b>This will change:</b> ${escape(effectLabels[guidance.recommendation.effect]
       ?? effectLabels.mutation)}${guidance.recommendation.confirmationRequired
     ? ' Nothing runs until you explicitly authorize the governed action.' : ''}</p>
-    <div class="sf-guidance-routes" aria-label="Recommended command">
+    <details class="sf-guidance-routes" aria-label="Recommended command"><summary>Run it from Copilot or a terminal</summary>
       <p class="sf-guidance-command"><b>Copilot</b><code>${escape(guidance.recommendation.copilotCommand)}</code>
         ${guidance.recommendation.copyable
     ? `<button type="button" data-copy-route="${escape(guidance.recommendation.copilotCommand)}">Copy Copilot</button>` : ''}</p>
@@ -402,7 +411,7 @@ function guidanceHtml(view: ResultCardView): string {
       <p class="sf-guidance-command"><b>VS Code (model-free)</b>${guidance.recommendation.modelFreeCommand
     ? `<code>${escape(guidance.recommendation.modelFreeCommand)}</code>` : 'not available for this action'}</p>
       ${guidance.recommendation.copyable ? '' : '<p class="muted">Replace the shown placeholders before running this command.</p>'}
-    </div>` : '';
+    </details>` : '';
   const preflight = guidance.preflight.length ? `<details><summary>Before you continue</summary>
     <ul class="sf-guidance-list">${guidance.preflight.map((entry) => `<li class="sf-guidance-${escape(entry.state)}">
       <b>${escape(entry.id)}</b> — ${escape(entry.detail)}</li>`).join('')}</ul></details>` : '';

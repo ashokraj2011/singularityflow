@@ -288,15 +288,15 @@ function reviewBody(request: ApprovalReviewRequest, errors: string[] = []): stri
     ${findings}${witnessed}${prior}${selfApproval}
       ${checklist}${witnessReview}
       <section class="approval-confirmation">
-        <h2>Confirm the exact decision</h2>
+        <h2>Confirm your decision</h2>
         <label for="approval-confirm">Type <code>${escape(request.expected)}</code></label>
-        <input id="approval-confirm" data-confirmation autocomplete="off" spellcheck="false"
-          placeholder="${escape(request.expected)}">
+        <input id="approval-confirm" data-confirmation autocomplete="off" spellcheck="false">
         <p class="muted">This value is never filled in or remembered.</p>
       </section>
       <div class="approval-errors" role="alert">${errors.map((error) => `<p>${escape(error)}</p>`).join('')}</div>
     </div>
       <div class="form-actions">
+        <p class="approval-progress muted" data-progress aria-live="polite"></p>
         <button type="submit" disabled>Record approval</button>
         <button type="button" class="secondary" data-cancel>Cancel</button>
       </div>
@@ -329,6 +329,7 @@ body > .page-nav button { flex:none; white-space:nowrap; }
 .approval-errors { min-height:1.2rem; color:var(--sf-bad); }
 .approval-errors p { margin:.2rem 0; }
 .form-actions { display:flex; gap:.6rem; flex-wrap:wrap; margin:0; padding:.6rem 0; border-top:var(--sf-border); background:var(--vscode-editor-background); }
+.approval-progress { flex-basis:100%; margin:0; font-size:.85rem; }
 `;
 
 const REVIEW_SCRIPT = `
@@ -339,6 +340,30 @@ const REVIEW_SCRIPT = `
   const error = form.querySelector('.approval-errors');
   const rows = Array.from(form.querySelectorAll('.approval-article'));
   const witnessRows = Array.from(form.querySelectorAll('.witness-mapping'));
+  const progress = form.querySelector('[data-progress]');
+  const api = window.__sfVscode;
+  // Decisions survive a hidden tab or a host-side error re-render. The typed confirmation and the
+  // self-approval acknowledgement are never remembered: they are made fresh, every time.
+  function rowKey(row) { return row.dataset.article ? 'article:' + row.dataset.article : 'mapping:' + row.dataset.mapping; }
+  function remember() {
+    const saved = {};
+    for (const row of rows.concat(witnessRows)) {
+      saved[rowKey(row)] = {
+        decision: row.querySelector('[data-decision]').value,
+        reason: row.querySelector('[data-reason]').value,
+        expiry: row.querySelector('[data-expiry]') ? row.querySelector('[data-expiry]').value : ''
+      };
+    }
+    api.setState({ decisions: saved });
+  }
+  const restored = (api.getState() || {}).decisions || {};
+  for (const row of rows.concat(witnessRows)) {
+    const value = restored[rowKey(row)];
+    if (!value) continue;
+    row.querySelector('[data-decision]').value = value.decision || '';
+    row.querySelector('[data-reason]').value = value.reason || '';
+    if (row.querySelector('[data-expiry]')) row.querySelector('[data-expiry]').value = value.expiry || '';
+  }
   function decisions() {
     return rows.map((row) => ({
       article: row.dataset.article,
@@ -385,7 +410,25 @@ const REVIEW_SCRIPT = `
       if (!expiryNeeded) expiry.value = '';
     }
     submit.disabled = !valid();
-    if (event) error.textContent = '';
+    describeMissing();
+    if (event) { error.textContent = ''; remember(); }
+  }
+  // A disabled button alone never says why; this line does, as the reviewer works.
+  function describeMissing() {
+    const entries = decisions().concat(witnessDecisions());
+    const count = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+    const missing = [];
+    const undecided = entries.filter((entry) => !entry.decision).length;
+    const reasons = entries.filter((entry) => entry.decision && entry.decision !== 'satisfied' && !entry.reason).length;
+    const expiries = witnessDecisions().filter((entry) => entry.decision === 'exception' && !entry.expiresAt).length;
+    if (undecided) missing.push(count(undecided, 'decision', 'decisions'));
+    if (reasons) missing.push(count(reasons, 'reason', 'reasons'));
+    if (expiries) missing.push(count(expiries, 'expiry date', 'expiry dates'));
+    if (form.querySelector('[data-confirmation]').value !== form.dataset.expected) missing.push('the typed confirmation');
+    const self = form.querySelector('[data-self-approval]');
+    if (self && !self.checked) missing.push('the self-approval acknowledgement');
+    const text = missing.length ? 'Still needed: ' + missing.join(', ') + '.' : 'Ready to record.';
+    if (progress && progress.textContent !== text) progress.textContent = text;
   }
   form.addEventListener('input', sync);
   form.addEventListener('change', sync);

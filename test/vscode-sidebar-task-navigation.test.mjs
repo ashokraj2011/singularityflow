@@ -11,7 +11,7 @@ const view = overrides => ({ navigation: { workspace: null, next: null }, freshn
   loading: false, pending: null, active: null, favorites: [], ...overrides });
 
 test('main task destinations have a fixed order and contributed commands', async () => {
-  assert.deepEqual(PRIMARY_NAVIGATION.map(item => item.label), ['My Work', 'Stories', 'Artifacts', 'Story Analytics', 'Code Explainer', 'Reviews', 'Configuration approvals', 'Workspaces', 'Configuration', 'Recreate & sync configuration', 'After install']);
+  assert.deepEqual(PRIMARY_NAVIGATION.map(item => item.label), ['My Work', 'Start new work', 'Stories', 'Reviews', 'Workspaces', 'Configuration']);
   const manifest = JSON.parse(await readFile(new URL('../apps/vscode/package.json', import.meta.url), 'utf8'));
   for (const item of PRIMARY_NAVIGATION) assert.ok(manifest.contributes.commands.some(command => command.command === item.command));
   const html = sidebarBody(view());
@@ -21,10 +21,10 @@ test('main task destinations have a fixed order and contributed commands', async
 });
 
 test('configuration approvals directly open the workflow proposal queue, not only capability proposals', async () => {
-  const item = PRIMARY_NAVIGATION.find(item => item.id === 'configuration-approvals');
-  assert.equal(item.command, 'singularityFlow.openConfigurationApprovals');
-  const html = sidebarBody(view({ active: item.id }));
-  assert.match(html, /data-action="configuration-approvals" aria-current="page"/);
+  // Reached from Reviews, a pin or the palette; Reviews is the one place decisions wait.
+  assert.equal(PRIMARY_NAVIGATION.find(item => item.id === 'configuration-approvals'), undefined);
+  const sidebarSource = await readFile(new URL('../apps/vscode/src/views/sidebar.ts', import.meta.url), 'utf8');
+  assert.match(sidebarSource, /'configuration-approvals': 'singularityFlow\.openConfigurationApprovals'/);
   const source = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
   assert.match(source, /'singularityFlow\.openConfigurationApprovals': async \(\) =>\s*vscode\.commands\.executeCommand\('singularityFlow\.openWorkflowStudio', \{ view: 'changes' \}\)/);
   const commands = source.slice(source.indexOf('const REPOSITORY_COMMANDS = ['), source.indexOf('];', source.indexOf('const REPOSITORY_COMMANDS = [')));
@@ -35,15 +35,36 @@ test('configuration approvals directly open the workflow proposal queue, not onl
   assert.match(reviews, /data-review-route="proposals"/);
 });
 
-test('Story Analytics is a direct main-menu destination even before a Story is selected', () => {
-  const analytics = PRIMARY_NAVIGATION.find(item => item.id === 'story-analytics');
-  assert.equal(analytics.command, 'singularityFlow.openDashboard');
-  const html = sidebarBody(view({ active: 'story-analytics' }));
+test('Story Analytics, Artifacts and the Code Explainer are Work tools, even before a Story is selected', async () => {
+  const sidebarSource = await readFile(new URL('../apps/vscode/src/views/sidebar.ts', import.meta.url), 'utf8');
+  const tools = sidebarSource.match(/'work-tools': \{ title: 'Work tools', ids: \[([^\]]*)\] \}/)[1];
+  for (const id of ['story-analytics', 'artifacts', 'understand-changes']) assert.match(tools, new RegExp(`'${id}'`));
+  assert.match(sidebarSource, /'story-analytics': 'singularityFlow\.openDashboard'/);
+  const html = sidebarBody(view({ active: 'my-work' }));
   const nav = html.match(/<nav aria-label="Singularity Flow">([\s\S]*?)<\/nav>/)[1];
-  assert.match(nav, /data-action="story-analytics" aria-current="page"/);
-  assert.match(nav, />Story Analytics<\/span>/);
+  assert.match(nav, /data-action="my-work" aria-current="page"/);
   assert.equal((nav.match(/aria-current=/g) ?? []).length, 1);
-  assert.equal((html.match(/data-action="story-analytics"/g) ?? []).length, 1);
+  assert.doesNotMatch(nav, /data-action="story-analytics"|data-action="artifacts"|data-action="code-explainer"/);
+});
+
+test('the sidebar shows one next step and the current phase by its label', () => {
+  const entries = [{ id: 'w', path: '/work/w', name: 'W', active: 'yes', repositoryState: 'ready' }];
+  const story = { repository: { root: '/work/w' }, definition: { phases: { design: { label: 'Design' } } },
+    workflow: { workItem: { id: 'S-1' }, currentPhase: 'design' } };
+  const navigation = deriveSidebarNavigation(entries, story);
+  assert.deepEqual(navigation.subject, { id: 'S-1', kind: 'Story', phase: 'Design' });
+  assert.deepEqual(navigation.next, { label: 'Continue S-1', description: 'Story · Design', actionId: 'my-work' });
+  const html = sidebarBody(view({ navigation }));
+  assert.match(html, /<button type="button" class="next-step" data-action="my-work" data-focus-key="next-step">\s*<span class="next-label">Continue S-1<\/span><span class="next-detail">Story · Design<\/span><\/button>/);
+  assert.match(html, /Phase: <span>Design<\/span>/);
+  assert.doesNotMatch(html, /Phase not reported/);
+
+  const initiative = { repository: { root: '/work/w' }, initiative: { state: {
+    initiative: { id: 'SF-E-1' }, currentPhase: 'epic-publish', phases: { 'epic-publish': { label: 'Publish Stories' } } } } };
+  assert.equal(deriveSidebarNavigation(entries, initiative).subject.phase, 'Publish Stories');
+  const idle = deriveSidebarNavigation(entries, { repository: { root: '/work/w' } });
+  assert.equal(idle.next.actionId, 'work-start');
+  assert.match(sidebarBody(view({ navigation: idle })), /class="next-step" data-action="work-start"/);
 });
 
 test('sidebar has no hover commands, tooltips, automatic help or unsafe markup', () => {

@@ -343,7 +343,7 @@ export class IntakePanel {
       IntakePanel.current.dispose();
     }
     const panel = vscode.window.createWebviewPanel(
-      'singularityFlow.intake', target.journey ? 'Guided start' : 'Start work', vscode.ViewColumn.Active, {
+      'singularityFlow.intake', target.journey ? 'Guided start' : 'Start new work', vscode.ViewColumn.Active, {
         enableScripts: true,
         retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
@@ -392,7 +392,7 @@ export class IntakePanel {
     }
     const token = nonce();
     this.panel.webview.html = page(
-      this.journey ? 'Guided start' : 'Start work', intakeHtml(this.form, this.journey),
+      this.journey ? 'Guided start' : 'Start new work', intakeHtml(this.form, this.journey),
       contentSecurityPolicy(this.panel.webview, token), token, INTAKE_SCRIPT
     );
     this.renderedRegions = regions;

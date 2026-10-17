@@ -325,6 +325,12 @@ export const STYLE = `
   .attachment-slots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
   .attachment-slots .attachment-slot { min-width: 0; margin: 0; }
   .attachment-slot strong { overflow-wrap: anywhere; }
+  .sf-required { font-weight: normal; font-size: .85em; color: var(--sf-dim); }
+  .sf-more-options { margin: 1rem 0; }
+  .sf-more-options > summary { cursor: pointer; padding: .5rem 0; font-weight: 600; }
+  .sf-more-options:not(:has(section)) { display: none; }
+  .sf-setup-detail > summary { cursor: pointer; }
+  .blockers button.link { padding: 0; text-align: left; color: inherit; text-decoration: underline; }
   @media(max-width:640px) { .attachment-slots { grid-template-columns: 1fr; } }
   .attachment-options { display: grid; grid-template-columns: minmax(0, 1fr); gap: .5rem; margin-top: .75rem; }
   .attachment-options > label { display: flex; align-items: center; gap: .5rem; white-space: nowrap; }

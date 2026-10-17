@@ -1,7 +1,7 @@
 ---
 id: telemetry-and-cost
 title: Telemetry, tokens, and cost
-version: 9
+version: 10
 aliases:
   - tokens
   - cost
@@ -51,7 +51,7 @@ These are counts and model names only. No prompt, response, tool argument, tool 
 
 The record also stores the size of the governed prompt SFlow composed for the generation: exact bytes from the committed prompt snapshot, tokens estimated as bytes ÷ 4, and the prompt budget. Copilot adds its own instructions, tool definitions and chat history, which no client can see, so the size is a floor on what the model read.
 
-`sflow report` and VS Code's Lifecycle Analytics chart these per phase, with generations and how often a later reviewer sent the work back. GitHub bills one premium request per prompt, times the serving model's multiplier, and does not bill the tool calls an agent makes on its own. Reports estimate premium requests from optional multipliers:
+`sflow report` and VS Code's Story Analytics chart these per phase, with generations and how often a later reviewer sent the work back. GitHub bills one premium request per prompt, times the serving model's multiplier, and does not bill the tool calls an agent makes on its own. Reports estimate premium requests from optional multipliers:
 
 ```yaml
 tokens:
@@ -64,7 +64,7 @@ A name also matches dated builds of that model: `model-alpha-1.5` matches `model
 
 Native IDE chat exports no spans to SFlow, so its phases show generations and prompt size but no requests, turns or quota events.
 
-When a phase has no activity, the report, Lifecycle Analytics and `phase publish` say why and what to do. Publication records the reason from the generation's own launches: no session started through SFlow ran, capture was turned off, an existing OpenTelemetry setup was kept, or a launch has not exported its finished turn yet. Counts that were not captured read "Unavailable", never 0.
+When a phase has no activity, the report, Story Analytics and `phase publish` say why and what to do. Publication records the reason from the generation's own launches: no session started through SFlow ran, capture was turned off, an existing OpenTelemetry setup was kept, or a launch has not exported its finished turn yet. Counts that were not captured read "Unavailable", never 0.
 
 ## State and safety
 

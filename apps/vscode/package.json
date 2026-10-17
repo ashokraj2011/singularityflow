@@ -222,7 +222,7 @@
     "commands": [
       {
         "command": "singularityFlow.manageFavorites",
-        "title": "Singularity Flow: Choose Favorite Menus",
+        "title": "Singularity Flow: Choose Pinned Shortcuts",
         "icon": "$(star-full)"
       },
       {
@@ -438,7 +438,7 @@
       },
       {
         "command": "singularityFlow.openDashboard",
-        "title": "Singularity Flow: Lifecycle Analytics",
+        "title": "Singularity Flow: Story Analytics",
         "icon": "$(pulse)"
       },
       {
@@ -517,6 +517,11 @@
         "icon": "$(comment-discussion)"
       },
       {
+        "command": "singularityFlow.togglePromptLog",
+        "title": "Singularity Flow: Turn Prompt Log On or Off",
+        "icon": "$(record)"
+      },
+      {
         "command": "singularityFlow.openActivityLog",
         "title": "Singularity Flow: Activity Log",
         "icon": "$(output)"
@@ -568,12 +573,12 @@
       },
       {
         "command": "singularityFlow.openReusableInstructions",
-        "title": "Singularity Flow: Reusable Instructions",
+        "title": "Reusable Instructions",
         "category": "Singularity Flow"
       },
       {
         "command": "singularityFlow.openConstitution",
-        "title": "Singularity Flow: Constitution",
+        "title": "Constitution",
         "category": "Singularity Flow"
       },
       {
@@ -593,7 +598,7 @@
       },
       {
         "command": "singularityFlow.openWorkspaceStories",
-        "title": "Singularity Flow: Workspace Stories"
+        "title": "Singularity Flow: Stories"
       },
       {
         "command": "singularityFlow.openReviews",
@@ -616,7 +621,7 @@
       },
       {
         "command": "singularityFlow.openStories",
-        "title": "Singularity Flow: Stories",
+        "title": "Singularity Flow: Initiative Story Plan",
         "icon": "$(git-pull-request)"
       },
       {
@@ -661,7 +666,7 @@
       },
       {
         "command": "singularityFlow.impactForm",
-        "title": "Singularity Flow: Create a Change Flight Plan...",
+        "title": "Singularity Flow: Create a Change Flight Plan\u2026",
         "icon": "$(diff)"
       },
       {
@@ -682,22 +687,22 @@
       },
       {
         "command": "singularityFlow.createSgosWorkflow",
-        "title": "Singularity Flow: Create execution workflow (advanced)...",
+        "title": "Singularity Flow: Create Execution Workflow (Advanced)\u2026",
         "icon": "$(add)"
       },
       {
         "command": "singularityFlow.openSharedWorkflowDrafts",
-        "title": "Singularity Flow: Shared workflow drafts",
+        "title": "Singularity Flow: Shared Workflow Drafts",
         "icon": "$(git-branch)"
       },
       {
         "command": "singularityFlow.reviewSgosMetaTool",
-        "title": "Singularity Flow: Review Meta-tool Authority...",
+        "title": "Singularity Flow: Review Meta-tool Authority\u2026",
         "icon": "$(verified-filled)"
       },
       {
         "command": "singularityFlow.reviewLocalRunner",
-        "title": "Singularity Flow: Developer-local Signed Runner...",
+        "title": "Singularity Flow: Developer-local Signed Runner\u2026",
         "icon": "$(beaker)"
       },
       {
@@ -811,7 +816,7 @@
       {
         "command": "singularityFlow.openChangeExplorer",
         "category": "Singularity Flow",
-        "title": "Change Explorer",
+        "title": "Explain Changes",
         "icon": "$(git-compare)"
       },
       {
@@ -834,7 +839,7 @@
       {
         "command": "singularityFlow.openCodeExplanation",
         "category": "Singularity Flow",
-        "title": "Code Explanation",
+        "title": "Explain Changed Lines",
         "icon": "$(book)"
       },
       {
@@ -1089,6 +1094,14 @@
         },
         {
           "command": "singularityFlow.approve",
+          "when": "false"
+        },
+        {
+          "command": "singularityFlow.reinitializeWorkspaces",
+          "when": "false"
+        },
+        {
+          "command": "singularityFlow.doctor",
           "when": "false"
         }
       ]

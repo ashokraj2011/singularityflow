@@ -3,20 +3,24 @@ import { brandSymbol, escape, icon, type IconName } from './webview.ts';
 import { CALM_PALETTE_STYLE } from './theme.ts';
 import type { SidebarNavigation } from './sidebar-navigation-model.ts';
 
+/**
+ * The daily jobs, and only those. Every row opens a screen; none of them changes anything.
+ * Artifacts, Story Analytics and the explainers live in Work tools, configuration approvals inside
+ * Reviews, After install in Help & diagnostics, and Recreate & sync inside Configuration, where it
+ * asks before it writes.
+ */
 export const PRIMARY_NAVIGATION = [
   { id: 'my-work', label: 'My Work', icon: 'home', command: 'singularityFlow.myWork' },
+  { id: 'work-start', label: 'Start new work', icon: 'start', command: 'singularityFlow.startWork' },
   { id: 'stories', label: 'Stories', icon: 'story', command: 'singularityFlow.openWorkspaceStories' },
-  { id: 'artifacts', label: 'Artifacts', icon: 'document', command: 'singularityFlow.openPhaseArtifacts' },
-  { id: 'story-analytics', label: 'Story Analytics', icon: 'impact', command: 'singularityFlow.openDashboard' },
-  { id: 'code-explainer', label: 'Code Explainer', icon: 'code', command: 'singularityFlow.openCodeExplainer' },
   { id: 'reviews', label: 'Reviews', icon: 'approval', command: 'singularityFlow.openReviews' },
-  { id: 'configuration-approvals', label: 'Configuration approvals', icon: 'merge', command: 'singularityFlow.openConfigurationApprovals' },
   { id: 'workspace-manage', label: 'Workspaces', icon: 'workspace', command: 'singularityFlow.openWorkspaces' },
-  { id: 'configuration-center', label: 'Configuration', icon: 'configuration', command: 'singularityFlow.openConfigurationCenter' },
-  { id: 'configuration-sync', label: 'Recreate & sync configuration', icon: 'configuration', command: 'singularityFlow.recreateAndSyncConfiguration' },
-  { id: 'after-install', label: 'After install', icon: 'configuration', command: 'singularityFlow.afterInstall' }
+  { id: 'configuration-center', label: 'Configuration', icon: 'configuration', command: 'singularityFlow.openConfigurationCenter' }
 ] as const;
 export type PrimaryNavigationId = typeof PRIMARY_NAVIGATION[number]['id'];
+
+/** Whether governed prompts are being recorded here; null while the host is still reading it. */
+export type PromptLogState = 'on' | 'off' | 'unavailable' | null;
 
 export interface SidebarPage {
   navigation: SidebarNavigation;
@@ -26,6 +30,8 @@ export interface SidebarPage {
   active: string | null;
   favorites: ReadonlyArray<{ id: string; label: string; icon: IconName }>;
   menuCollapsed?: boolean;
+  /** Omitted when there is no repository to record prompts for. */
+  promptLog?: PromptLogState;
 }
 
 function link(id: string, label: string, glyph: IconName, active: string | null, badge = ''): string {
@@ -33,9 +39,19 @@ function link(id: string, label: string, glyph: IconName, active: string | null,
     ${icon(glyph, { size: 16 })}<span class="nav-label">${escape(label)}</span>${badge}</button>`;
 }
 
+/** The state is spelled out next to the switch, so it never rests on colour alone. */
+function promptLogSwitch(state: PromptLogState | undefined): string {
+  if (state === undefined) return '';
+  const on = state === 'on';
+  const text = state === null ? 'Checking…' : state === 'unavailable' ? 'Unavailable' : on ? 'On' : 'Off';
+  return `<button type="button" class="nav-row prompt-log" role="switch" aria-checked="${on}" data-action="prompt-log-toggle"${state === null ? ' disabled' : ''}>
+    ${icon('prompt', { size: 16 })}<span class="nav-label">Prompt log</span><span class="switch-state">${text}</span><span class="switch-track${on ? ' on' : ''}" aria-hidden="true"></span></button>`;
+}
+
 export function sidebarBody(view: SidebarPage): string {
   const workspace = view.navigation.workspace;
   const subject = view.navigation.subject;
+  const next = view.navigation.next;
   return `<header class="brand">${brandSymbol(25)}<span>Singularity Flow</span>
     <button type="button" class="profile-button" data-action="persona-manage" aria-label="Profile and shortcut suggestions">${icon('agent', { size: 16 })}</button></header>
     <section class="context" aria-label="Current context">
@@ -43,9 +59,11 @@ export function sidebarBody(view: SidebarPage): string {
       <button type="button" class="workspace-switch" data-action="workspace-switch">
         <span>${escape(workspace?.name ?? 'Choose a workspace')}</span><span aria-hidden="true">▾</span></button>
       ${workspace?.repository ? `<p class="context-detail">Repository: <span>${escape(workspace.repository)}</span></p>` : ''}
-      ${subject ? `<p class="context-detail">${escape(subject.kind)}: <span>${escape(subject.id)}</span></p><p class="context-detail">${escape(subject.phase ?? 'Phase not reported')}</p>` : workspace ? '<p class="context-detail">No confirmed active work</p>' : '<p class="context-detail">Select or create a workspace to begin.</p>'}
+      ${subject ? `<p class="context-detail">${escape(subject.kind)}: <span>${escape(subject.id)}</span></p><p class="context-detail">Phase: <span>${escape(subject.phase ?? 'none current')}</span></p>` : workspace ? '<p class="context-detail">No work in progress</p>' : '<p class="context-detail">Select or create a workspace to begin.</p>'}
       ${subject?.kind === 'Story' ? '<button type="button" class="text-action" data-action="story-intake">View intake details</button>' : ''}
       ${view.freshness || view.loading ? `<p class="freshness" role="status">${escape(view.freshness ?? 'Reading workspace state…')}</p>` : ''}
+      ${next ? `<button type="button" class="next-step" data-action="${escape(next.actionId)}" data-focus-key="next-step">
+        <span class="next-label">${escape(next.label)}</span><span class="next-detail">${escape(next.description)}</span></button>` : ''}
     </section>
     <main>
       <details class="main-menu" data-main-menu${view.menuCollapsed ? '' : ' open'}>
@@ -54,9 +72,10 @@ export function sidebarBody(view: SidebarPage): string {
       ${PRIMARY_NAVIGATION.map((item) => link(item.id, item.label, item.icon, view.active,
         item.id === 'reviews' && view.pending != null && view.pending > 0
           ? `<span class="badge" aria-label="${view.pending} pending phase approvals">${view.pending}</span>` : '')).join('')}
+      ${promptLogSwitch(view.promptLog)}
       </nav>
       </details>
-      ${!workspace ? `<div class="setup-hint"><button type="button" class="text-action" data-action="setup-wizard">Set up a workspace</button></div>` : ''}
+      ${!workspace && !next ? `<div class="setup-hint"><button type="button" class="text-action" data-action="setup-wizard">Set up a workspace</button></div>` : ''}
       <details class="pins" data-state-key="pinned-shortcuts">
         <summary>Pinned shortcuts <span class="pin-count">${view.favorites.length}</span></summary>
         <div class="pin-list">${view.favorites.map((item) => `<div class="pin-row">${link(`favorite:${item.id}`, item.label, item.icon, null)}
@@ -91,6 +110,10 @@ export const SIDEBAR_STYLE = `${CALM_PALETTE_STYLE}
   .context-detail { margin:7px 0 0; font-size:12px; color:var(--sf-dim); overflow-wrap:anywhere; }
   .context-detail span { color:var(--sf-text); }
   .freshness { font-size:11px; margin:8px 0 0; color:var(--vscode-descriptionForeground); }
+  .next-step { display:flex; flex-direction:column; align-items:flex-start; gap:2px; width:100%; margin-top:12px; padding:8px 10px; border:0; border-radius:var(--sf-radius);
+    background:var(--vscode-button-background); color:var(--vscode-button-foreground); text-align:left; }
+  .next-label { font-weight:600; overflow-wrap:anywhere; }
+  .next-detail { font-size:12px; opacity:.9; overflow-wrap:anywhere; }
   main { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; padding:14px 12px 8px; }
   .main-menu>summary { cursor:pointer; min-height:32px; padding:7px 8px; border-radius:var(--sf-radius); color:var(--sf-dim); font-size:12px; }
   .main-menu nav { padding-top:6px; }
@@ -102,6 +125,12 @@ export const SIDEBAR_STYLE = `${CALM_PALETTE_STYLE}
   .nav-row[aria-current="page"] { background:var(--sf-surface-raised); color:var(--sf-text); font-weight:500; box-shadow:inset 2px 0 var(--sf-accent); }
   .nav-row[aria-current="page"] .ico { color:var(--sf-accent); }
   .badge,.pin-count { font-size:11px; border-radius:12px; padding:1px 6px; background:var(--sf-surface-raised); color:var(--sf-text); }
+  .switch-state { font-size:12px; color:var(--sf-dim); }
+  .switch-track { flex:none; position:relative; width:28px; height:16px; border-radius:8px; border:1px solid var(--sf-border-color); background:var(--sf-surface-raised); }
+  .switch-track::after { content:''; position:absolute; top:2px; left:2px; width:10px; height:10px; border-radius:50%; background:var(--sf-dim); transition:transform 140ms ease-out; }
+  .switch-track.on { border-color:var(--sf-accent); background:var(--sf-accent); }
+  .switch-track.on::after { transform:translateX(12px); background:var(--sf-sidebar); }
+  .prompt-log[aria-checked="true"] .switch-state { color:var(--sf-text); }
   .pins { margin-top:18px; padding-top:12px; border-top:1px solid var(--sf-border-color); }
   .pins summary { cursor:pointer; padding:7px 8px; color:var(--sf-dim); }
   .pin-count { margin-left:4px; }
@@ -114,6 +143,7 @@ export const SIDEBAR_STYLE = `${CALM_PALETTE_STYLE}
   footer .nav-row { font-size:12px; min-height:32px; }
   @media (hover:hover) and (pointer:fine) {
     .nav-row:not(:disabled):hover,.workspace-switch:not(:disabled):hover { transform:scale(1.015); background:var(--sf-surface-raised); color:var(--sf-text); }
+    .next-step:hover { background:var(--vscode-button-hoverBackground,var(--vscode-button-background)); }
     .profile-button:hover,.unpin:hover { background:var(--sf-surface-raised); }
     .main-menu>summary:hover { background:var(--sf-surface-raised); color:var(--sf-text); }
   }

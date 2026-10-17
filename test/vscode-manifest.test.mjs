@@ -285,8 +285,11 @@ test('every command hidden from the palette is reachable or an explicit compatib
   ]);
   // Hidden aliases may remain callable for old keybindings without occupying current navigation.
   // The retired Workflow Designer and Configure Templates & Instructions open Workflow Studio.
+  // reinitializeWorkspaces and doctor run the same handlers as upgradeWorkspaces and openDiagnostics,
+  // so the palette lists each action once.
   const compatibilityAliases = new Set([
-    'singularityFlow.openDeveloperHome', 'singularityFlow.openDesigner', 'singularityFlow.configureTemplates'
+    'singularityFlow.openDeveloperHome', 'singularityFlow.openDesigner', 'singularityFlow.configureTemplates',
+    'singularityFlow.reinitializeWorkspaces', 'singularityFlow.doctor'
   ]);
   const orphaned = hidden.filter((command) => !reachable.has(command) && !compatibilityAliases.has(command));
   assert.deepEqual(orphaned, []);

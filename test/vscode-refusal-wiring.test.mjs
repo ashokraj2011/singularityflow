@@ -174,7 +174,7 @@ test('a native authority error keeps safe diagnostics and omits raw provider det
   assert.equal(card.details.classification, 'unknown');
   assert.equal(card.details.retryable, 'false');
   assert.doesNotMatch(JSON.stringify(card), /office-secret|credential-user/);
-  assert.doesNotMatch(resultCardHtml(card), /There is no step you can take here right now/);
+  assert.doesNotMatch(resultCardHtml(card), /Nothing more can be done here/);
 });
 
 test('authority recovery remains bound to the exact repository when copied from VS Code', () => {
@@ -340,7 +340,7 @@ test('missing Story configuration has exact-repository recovery actions and a ma
   assert.equal(envelope.remediationPlan.retry.automatic, false);
   const html = resultCardHtml(card);
   assert.match(html, /Copilot:.*\/sf-workspace-bootstrap/su);
-  assert.doesNotMatch(html, /There is no step you can take here right now/u);
+  assert.doesNotMatch(html, /Nothing more can be done here/u);
   assert.deepEqual(card.preserved, [], 'guidance must not invent an effects receipt');
 
   const intake = await readFile(view('intake-panel.ts'), 'utf8');

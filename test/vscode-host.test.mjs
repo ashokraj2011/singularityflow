@@ -714,7 +714,8 @@ test('the built extension activates against a real repository and populates the 
   // The status bar reports the Epic and the phase it is in.
   const [status] = registered.statusBars;
   assert.match(status.text, /INIT-CHECKOUT/);
-  assert.match(status.text, /discover-define/);
+  // The phase by its label, the same words the sidebar and My Work use.
+  assert.match(status.text, /Discover & Define/);
 
   assert.deepEqual(registered.errors, [], 'activation raised no error dialogs');
 });
@@ -1217,7 +1218,7 @@ test('the visible sidebar is one branded, scrollable navigation surface', async 
   assert.match(navigation.webview.html, /<span>Singularity Flow<\/span>/);
   const primary = navigation.webview.html.match(/<nav aria-label="Singularity Flow">([\s\S]*?)<\/nav>/)?.[1] ?? '';
   assert.deepEqual([...primary.matchAll(/data-action="([^"]+)"/g)].map(match => match[1]),
-      ['my-work', 'stories', 'artifacts', 'story-analytics', 'code-explainer', 'reviews', 'configuration-approvals', 'workspace-manage', 'configuration-center', 'configuration-sync', 'after-install']);
+      ['my-work', 'work-start', 'stories', 'reviews', 'workspace-manage', 'configuration-center']);
   assert.match(navigation.webview.html, /data-state-key="pinned-shortcuts"/);
   assert.match(navigation.webview.html, /data-action="setup-wizard"/);
   assert.doesNotMatch(navigation.webview.html, /sf-help|help-popover|title=|mouseover|last-opened/);
@@ -1279,7 +1280,7 @@ test('developers can choose, launch, unpin, and retain favorite menus', async (t
   assert.match(navigation.webview.html, /data-state-key="pinned-shortcuts"/);
   assert.match(navigation.webview.html, /data-action="favorites-manage"/);
   assert.match(navigation.webview.html, /aria-label="Unpin My Work"/);
-  assert.match(navigation.webview.html, /aria-label="Unpin Start intake"/);
+  assert.match(navigation.webview.html, /aria-label="Unpin Start new work"/);
   assert.match(navigation.webview.html, /aria-label="Unpin Inbox"/);
   assert.ok(registered.commands.has('singularityFlow.manageFavorites'));
 
@@ -1293,7 +1294,7 @@ test('developers can choose, launch, unpin, and retain favorite menus', async (t
   await until(() => navigation.webview.html.includes('aria-label="Unpin Help Center"'));
   assert.deepEqual(values.get('singularityFlow.navigationFavorites.v2'),
     ['my-work', 'work-start', 'inbox-open', 'help-open']);
-  assert.ok(registered.infos.includes('Help Center added to Favorites.'));
+  assert.ok(registered.infos.includes('Help Center pinned to the sidebar.'));
 
   await navigation.post({ type: 'node', key: 'favorites:0' });
   await until(() => registered.executedCommands.some((entry) => entry.id === 'singularityFlow.myWork'));
@@ -2688,7 +2689,7 @@ for (const approvalSurface of ['native', 'chat']) test(`${approvalSurface} start
   { isCancellationRequested: false });
   if (approvalSurface === 'chat') {
     for (const command of ['publish', 'submit']) {
-      registered.warningAnswers.push('Run exact action');
+      registered.warningAnswers.push('Run action');
       await invokeChat(command);
       assert.match(chatMarkdown.join(''), new RegExp(`${command}.*command completed`), chatMarkdown.join(''));
     }
@@ -3860,7 +3861,7 @@ test('the packaged POC release candidate journey survives publication, review, C
   assert.equal(run('git', ['branch', '--show-current'], { cwd: storyRoot }).stdout.trim(), 'POC-RC-1',
     'the shell sees the same Story branch as the editor');
   await until(() => reviewHost.registered.statusBars.some((item) =>
-    /POC-RC-1/.test(item.text) && /poc-impact-analysis/.test(item.text)) ? true : null,
+    /POC-RC-1/.test(item.text) && /Regression impact analysis/.test(item.text)) ? true : null,
   { what: 'the VS Code status bar to show the advanced POC phase' });
 
   await reviewHost.registered.commands.get('singularityFlow.openCopilot')();
@@ -6084,21 +6085,23 @@ test('the sidebar lists workspaces even with no repository open', async (t) => {
   assert.match(rows[0].openPath, /workspaces\/commerce\/repos\/platform/);
 });
 
-test('Story Analytics opens from the main menu and reports the repository it is actually in', async (t) => {
+test('Story Analytics opens from Work tools and pins, and reports the repository it is actually in', async (t) => {
   if (!requireBundle(t)) return;
   // Everything on it was already available from doctor, inbox, initiative status and the agent
   // lock — four commands whose answers a person had to hold in their head at once.
   const { registered } = await activated();
   const navigation = registered.webviewViews.get('singularityFlow.navigation');
-  assert.match(navigation.webview.html, /data-action="story-analytics"/);
+  // A Work tools entry now, not a main-menu row; the sidebar still routes its id to the command.
+  assert.doesNotMatch(navigation.webview.html.match(/<nav aria-label="Singularity Flow">([\s\S]*?)<\/nav>/)?.[1] ?? '',
+    /data-action="story-analytics"/);
   await navigation.post({ type: 'action', action: 'story-analytics' });
 
   const panel = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.dashboard'),
-    { what: 'the analytics main-menu destination to open' });
+    { what: 'the Story Analytics panel to open' });
   assert.ok(panel, 'a lifecycle analytics panel was created');
   assert.match(panel.webview.html, /default-src 'none'/);
   assert.doesNotMatch(panel.webview.html, /unsafe-inline|unsafe-eval/);
-  assert.match(panel.webview.html, /Lifecycle analytics/);
+  assert.match(panel.webview.html, /Story Analytics/);
   // Real diagnostics from a real subprocess, not a fixture.
   assert.match(panel.webview.html, /diagnostics pass|Would stop governed work/);
   assert.match(panel.webview.html, /Approvals/);

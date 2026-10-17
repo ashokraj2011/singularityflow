@@ -234,7 +234,7 @@ test('Inbox refresh discovers Stories from an empty workspace and supports a fai
   assert.match(panel.webview.html, /STORY-10[\s\S]*?cancelled/);
   assert.equal([...panel.webview.html.matchAll(/data-story="STORY-11"/g)].length, 2);
   assert.match(panel.webview.html, /data-story="STORY-11" data-repository-id="shipping"/);
-  assert.match(panel.webview.html, /Materialize &amp; continue|Materialize & continue/);
+  assert.match(panel.webview.html, /Set up &amp; continue|Set up & continue/);
   assert.ok(panel.webview.html.indexOf('data-story="STORY-8"')
     < panel.webview.html.indexOf('data-story="STORY-9"'),
   'active Stories precede terminal ones');

@@ -128,7 +128,7 @@ function render(target: vscode.WebviewPanel, view: ResultCardView, note: string 
    * anything the result itself asserts. Putting it inside the card would make it look like one of
    * the result's own reasons.
    */
-  const footnote = note ? `<p class="sf-fidelity">${escape(note)}</p>` : '';
+  const footnote = note ? `<details class="sf-fidelity"><summary>About this result</summary><p>${escape(note)}</p></details>` : '';
   /**
    * The nonce is load-bearing, and its absence is silent. `[UXH:REQ-134]`
    *
@@ -167,7 +167,9 @@ function render(target: vscode.WebviewPanel, view: ResultCardView, note: string 
    * A card's own actions answer "what about *this*"; the footer answers "get me back to the shell",
    * and a full page in a beside column needs both.
    */
-  target.webview.html = page('Singularity Flow result', body, csp, token, RESULT_CARD_SCRIPT);
+  // The tab says which screen it is; My Work is the one people come back to.
+  target.title = isHome ? 'My Work' : 'Singularity Flow result';
+  target.webview.html = page(isHome ? 'My Work' : 'Singularity Flow result', body, csp, token, RESULT_CARD_SCRIPT);
 }
 
 /** Show a result card, creating the panel on first use and reusing it after. */

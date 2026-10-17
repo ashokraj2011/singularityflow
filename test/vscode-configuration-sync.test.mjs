@@ -7,9 +7,9 @@ import { PRIMARY_NAVIGATION } from '../apps/vscode/src/views/sidebar-page.ts';
 const result = status => ({ status, baseCommit: 'a'.repeat(40), targetCommit: 'b'.repeat(40),
   proposals: [], backupRefs: [] });
 
-test('one-click sync is in the main panel, configuration menu and command palette', async () => {
-  assert.equal(PRIMARY_NAVIGATION.find(item => item.id === 'configuration-sync').command,
-    'singularityFlow.recreateAndSyncConfiguration');
+test('sync lives in the configuration menu and command palette, not among the sidebar destinations', async () => {
+  // A sidebar row only opens a screen; this one writes, so it sits inside Configuration.
+  assert.equal(PRIMARY_NAVIGATION.find(item => item.id === 'configuration-sync'), undefined);
   const manifest = JSON.parse(await readFile(new URL('../apps/vscode/package.json', import.meta.url), 'utf8'));
   assert.ok(manifest.contributes.commands.some(command => command.command === 'singularityFlow.recreateAndSyncConfiguration'));
   const page = await readFile(new URL('../apps/vscode/src/views/configuration-center-page.ts', import.meta.url), 'utf8');
@@ -19,13 +19,16 @@ test('one-click sync is in the main panel, configuration menu and command palett
   const handler = source.slice(source.indexOf("'singularityFlow.recreateAndSyncConfiguration': async"),
     source.indexOf('// Backward-compatible command ID for old keybindings'));
   assert.match(handler, /configurationSyncAction.run\(\)/u);
-  assert.doesNotMatch(handler, /show\w*(?:QuickPick|InputBox|Confirmation)\s*\(|modal\s*:|confirm\s*:|Merge exact/iu);
+  // It pushes shared configuration, so it asks once in a modal that names the effect; nothing more.
+  assert.match(handler, /showCompactWarningMessage\('Recreate and sync configuration\?', \{\s*modal: true,/u);
+  assert.match(handler, /if \(proceed !== 'Recreate & sync'\) return;/u);
+  assert.doesNotMatch(handler, /show\w*(?:QuickPick|InputBox)\s*\(|confirm\s*:|Merge exact/iu);
   assert.match(handler, /catch \(error\)[\s\S]*configurationSyncInterruptedMessage\(/u);
   assert.match(handler, /error instanceof CliError && error.result[\s\S]*showRefusal\(error/u);
   assert.match(source, /await lazyPanels\(\)\.WorkflowStudioPanel\.refreshAfterConfigurationSync\(\)/u);
 });
 
-test('a click executes one exact model-free command with no confirmation and reloads only on success', async () => {
+test('a confirmed click executes one exact model-free command and reloads only on success', async () => {
   const calls = [];
   const action = new ConfigurationSyncAction({ run: async argv => { calls.push(argv); return result('synced'); },
     refresh: async () => calls.push('refresh') });

@@ -18,6 +18,7 @@ import {
 } from '../src/configuration-proposal.mjs';
 import { remoteFingerprint } from '../src/git-remote-diagnostics.mjs';
 import { run } from '../src/util.mjs';
+import { realGitForTest, writeGitTestWrapper } from './helpers/git-test-wrapper.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -72,11 +73,9 @@ async function fixture({ remoteName = 'application.git' } = {}) {
 test('configuration proposal clone failures never expose credential-shaped provider output', async () => {
   const item = await fixture();
   try {
-    const realGit = run('which', ['git']).stdout.trim();
+    const realGit = realGitForTest();
     const wrappers = path.join(item.base, 'clone-failure-bin');
-    const wrapper = path.join(wrappers, 'git');
-    await mkdir(wrappers, { recursive: true });
-    await writeFile(wrapper, `#!/usr/bin/env node
+    await writeGitTestWrapper(wrappers, `#!/usr/bin/env node
 const { spawnSync } = require('node:child_process');
 const args = process.argv.slice(2);
 if (args[0] === 'clone') {
@@ -88,7 +87,6 @@ const result = spawnSync(${JSON.stringify(realGit)}, args, {
 });
 process.exit(result.status == null ? 1 : result.status);
 `);
-    await chmod(wrapper, 0o755);
     await assert.rejects(
       () => proposeConfigurationChange(item.story, {
         operation: 'edit-workflow', subject: 'redaction-check', message: 'redaction check',
@@ -579,12 +577,10 @@ test('workflow proposals publish from approved configuration without changing th
     assert.equal(run('git', ['--git-dir', item.remote, 'rev-parse', 'sflow/config']).stdout.trim(), item.approved,
       'an unprotected authority does not move without its separate acknowledgement');
 
-    const realGit = run('which', ['git']).stdout.trim();
+    const realGit = realGitForTest();
     const wrappers = path.join(item.base, 'git-wrappers');
     const pushLog = path.join(item.base, 'activation-push.jsonl');
-    const wrapper = path.join(wrappers, 'git');
-    await mkdir(wrappers, { recursive: true });
-    await writeFile(wrapper, `#!/usr/bin/env node
+    await writeGitTestWrapper(wrappers, `#!/usr/bin/env node
 const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const args = process.argv.slice(2);
@@ -594,7 +590,6 @@ const result = spawnSync(${JSON.stringify(realGit)}, args, {
 });
 process.exit(result.status == null ? 1 : result.status);
 `);
-    await chmod(wrapper, 0o755);
     run('git', ['--git-dir', item.remote, 'config', 'receive.denyDeletes', 'true']);
     const activated = spawnSync(process.execPath, [
       cli, 'workflow', 'activate', result.branch, '--confirm', result.commit,
@@ -857,9 +852,9 @@ neverCommit:
 });
 
 test('workflow proposal publication distinguishes local authorities whose display URLs collide', async () => {
-  const item = await fixture({ remoteName: 'application.git?blue' });
+  const item = await fixture({ remoteName: 'application.git#blue' });
   try {
-    const collision = path.join(item.base, 'application.git?red');
+    const collision = path.join(item.base, 'application.git#red');
     run('git', ['init', '-q', '--bare', '--initial-branch=main', collision]);
     run('git', ['remote', 'add', 'aaa-display-collision', collision], { cwd: item.story });
 
@@ -952,13 +947,11 @@ test('workflow proposal authority ignores ambient URL rewrites and Git repositor
 
 test('workflow proposal listing refuses a duplicate remote advertisement', async () => {
   const item = await fixture();
-  const realGit = run('which', ['git']).stdout.trim();
+  const realGit = realGitForTest();
   const wrappers = path.join(item.base, 'duplicate-advert-wrapper');
   const calls = path.join(item.base, 'ls-remote-count');
-  const wrapper = path.join(wrappers, 'git');
   try {
-    await mkdir(wrappers, { recursive: true });
-    await writeFile(wrapper, `#!/usr/bin/env node
+    await writeGitTestWrapper(wrappers, `#!/usr/bin/env node
 const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const args = process.argv.slice(2);
@@ -979,7 +972,6 @@ const result = spawnSync(${JSON.stringify(realGit)}, args, {
 });
 process.exit(result.status == null ? 1 : result.status);
 `);
-    await chmod(wrapper, 0o755);
     await assert.rejects(() => listWorkflowConfigurationProposals(item.story, {
       env: { ...process.env, PATH: `${wrappers}${path.delimiter}${process.env.PATH}` }
     }), (error) => error.code === 'REMOTE_PROTOCOL_INVALID'

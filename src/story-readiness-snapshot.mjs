@@ -6,7 +6,7 @@ import { gitFactCheckout } from './git-fact-cache.mjs';
 import { activeWorkspaceFile, workspaceRegistryFile } from './workspace-context.mjs';
 import { optionBoolean, optionString, optionStrings } from './util.mjs';
 
-const presentation = new Set(['json', 'for-agent', 'timings', 'timing', 'refresh-readiness', 'mint-intake-receipt']);
+const presentation = new Set(['json', 'for-agent', 'timings', 'timing', 'refresh-readiness']);
 export async function storyReadinessSnapshot(root, options, checkout, read) {
   if (!optionBoolean(options, 'selected-base-only') || !optionString(options, 'preflight-story')) return read();
   const identity = Object.entries(options).filter(([key]) => !presentation.has(key)).sort(([a], [b]) => a.localeCompare(b));
@@ -19,6 +19,7 @@ export async function storyReadinessSnapshot(root, options, checkout, read) {
     if (!common || !privateGit) return read();
     files.push(path.join(privateGit, 'HEAD'), path.join(privateGit, 'index'),
       path.join(common, 'config'), path.join(common, 'packed-refs'),
+      path.join(common, 'singularity-flow/repository-readiness'),
       path.join(member, 'singularity/workflow.yml'), path.join(member, 'singularity/portfolio.yml'),
       path.join(member, 'singularity/work-items', optionString(options, 'preflight-story'), 'workflow.json'),
       path.join(member, '.github/agents'), path.join(member, 'singularity/skills'), path.join(member, 'singularity/instructions'));

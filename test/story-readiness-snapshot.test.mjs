@@ -26,6 +26,11 @@ test('readiness uses one fresh snapshot, then zero Git processes and zero remote
   const forced = await f.invoke({}, ['--refresh-readiness']);
   assert.equal(forced.metrics.snapshot, 'fresh'); assert.ok(forced.metrics.remoteGitOperations > 0);
   assert.equal(forced.metrics.counters['git.remote.command.push'] ?? 0, 0);
+  await writeFile(path.join(f.source, 'state-only.txt'), 'unrelated state change');
+  f.git(f.source, 'add', '.'); f.git(f.source, 'commit', '--quiet', '-m', 'state only');
+  f.git(f.source, 'push', '--quiet', 'origin', 'HEAD:refs/heads/state');
+  const stateChanged = await f.invoke({}, ['--refresh-readiness']);
+  assert.equal(stateChanged.metrics.fetches, 0, 'missing state tracking ref must not refetch unchanged main');
   const changed = await f.invoke({}, ['--preflight-story', 'OTHER-READY']);
   assert.equal(changed.metrics.snapshot, 'fresh', 'a different Story cannot reuse the prior tuple');
 });

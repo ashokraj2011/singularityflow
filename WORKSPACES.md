@@ -352,7 +352,8 @@ A snapshot hit performs no remote lookup, fetch or dry-run push. The response re
 Changing local HEAD/index/Git configuration, selected refs, workspace registration or the selected
 tuple invalidates reuse. Corrupt, unsafe, expired or unavailable caches fall back to the normal check;
 blocked results are never cached. A remote-only change is discovered on expiry or explicit refresh,
-not silently treated as a fresh observation. In the intake form, **Retry readiness** forces refresh;
+not silently treated as a fresh observation. In the intake form, **Refresh readiness** (or
+**Retry readiness** after a refusal) forces refresh;
 in the CLI repeat the same command with `--refresh-readiness`.
 
 On a miss, the coordinator shares one parsed approved definition and batches selected local refs.

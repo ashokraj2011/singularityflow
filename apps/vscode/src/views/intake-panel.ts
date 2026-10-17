@@ -817,7 +817,7 @@ export class IntakePanel {
     branchDownload: () => this.downloadBranch(),
     testRecoveryRefresh: () => {
       if (this.form.busy || !testRecoveryEnabled(this.form)) return;
-      return this.preflightBaseBranch();
+      return this.preflightBaseBranch({ refresh: true });
     },
     shape: (message) => {
       const shape = SHAPES.find((entry) => entry.id === stringField(message, 'value'));
@@ -1455,7 +1455,7 @@ export class IntakePanel {
       this.update({ baselineMessage: `Baseline did not pass: ${(error as Error).message}. No failure was accepted; inspect the observed baseline or choose explicit deferral if policy permits.` });
     } finally {
       this.update({ baselineRunning: false });
-      await this.preflightBaseBranch();
+      await this.preflightBaseBranch({ refresh: true });
     }
   }
 

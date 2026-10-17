@@ -907,6 +907,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       // the normal remote-tracking layout without letting a concurrent `remote set-url` redirect it.
       result,
       baseBranch,
+      previewRefsCurrent: previewOnly && (fetchReused || tipsCurrent),
       fetchReused
     };
   });
@@ -922,10 +923,11 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   }
 
   const candidatesToProbe = [];
-  for (const { repository, root, pushAuthority, fetchReused } of fetched) {
+  for (const { repository, root, pushAuthority, fetchReused, previewRefs, previewRefsCurrent } of fetched) {
     const base = plan.resolution.resolved[repository.id];
     const sourceRef = `refs/remotes/${remote}/${base.branch}`;
-    const previewBase = previewOnly ? localRefHeads(root, [sourceRef]).get(sourceRef) : null;
+    const previewBase = previewOnly
+      ? (previewRefsCurrent ? previewRefs : localRefHeads(root, [sourceRef])).get(sourceRef) : null;
     if (previewOnly ? !previewBase : !refExists(root, sourceRef)) {
       throw new SingularityFlowError(
         `Selected base branch '${base.branch}' is no longer published for required repository `

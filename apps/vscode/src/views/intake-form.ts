@@ -1006,9 +1006,12 @@ function baseBranchHtml(form: IntakeForm): string {
       workflow <code>${escape(form.workType ?? '')}</code>: create <code>${escape(intakeIdentifier(form) || '<Story ID>')}</code>
       from <code>${escape(form.baseRemote ?? 'remote')}/${escape(form.baseBranch)}</code> and publish only
       <code>${escape(form.baseRemote ?? 'remote')}/refs/heads/${escape(intakeIdentifier(form) || '<Story ID>')}</code>.
-      The engine recomputes these checks immediately before mutation.</p>` : ''}
+      Publication access and changed inputs are checked on Start.</p>
+      ${form.basePreflightReason ? `<p class="meta" role="status">${escape(form.basePreflightReason)}</p>` : ''}
+      <button type="button" class="secondary" data-readiness-retry ${form.busy || form.basePreflightChecking ? 'disabled' : ''}>Refresh readiness</button>` : ''}
     ${form.basePreflightChecking ? '<p class="meta">Checking approved configuration, workflow agents, and every required remote…</p>' : ''}
-    ${form.baseBranch && form.basePreflightReason ? `<p class="blockers" role="alert">${escape(form.basePreflightReason)}</p>
+    ${form.basePreflightChecking && form.basePreflightReason ? `<p class="meta" role="status">${escape(form.basePreflightReason)}</p>` : ''}
+    ${form.baseBranch && !form.basePreflightPassed && !form.basePreflightChecking && form.basePreflightReason ? `<p class="blockers" role="alert">${escape(form.basePreflightReason)}</p>
       <button type="button" class="secondary" data-readiness-retry ${form.busy || form.basePreflightChecking ? 'disabled' : ''}>Retry readiness</button>
       ${form.targetWorkspace ? `<button type="button" class="secondary" data-branch-download ${form.busy || form.basePreflightChecking ? 'disabled' : ''}>Download fresh branch checkout</button>
       <p class="hint">Download only the selected branch into a new workspace/repos branch folder, then retry readiness there. The original checkout and unpublished work stay untouched.</p>` : ''}` : ''}

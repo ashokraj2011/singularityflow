@@ -6153,6 +6153,12 @@ test('Story-start readiness distinguishes blocking findings from non-blocking ad
   assert.match(ready, /Ready with advisory information/);
   assert.match(ready, /No shared configuration snapshot is pinned/);
   assert.match(ready, /data-workflow-refresh/);
+  assert.match(ready, /Refresh readiness/);
+  assert.match(ready, /Publication access and changed inputs are checked on Start/);
+  const cached = intakeHtml(intake({ shape: 'story', tracker: 'none', id: 'cached-preview',
+    basePreflightPassed: true, basePreflightReason: 'Using readiness checked earlier.' }));
+  assert.match(cached, /class="meta" role="status">Using readiness checked earlier/);
+  assert.doesNotMatch(cached, /class="blockers" role="alert">Using readiness checked earlier/);
 
   const blocked = intake({
     shape: 'story', tracker: 'none', id: 'checkout-retry', title: 'Retry checkout',

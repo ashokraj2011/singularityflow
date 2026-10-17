@@ -585,9 +585,18 @@ const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const args = process.argv.slice(2);
 if (args[0] === 'push') fs.appendFileSync(${JSON.stringify(pushLog)}, JSON.stringify(args) + '\\n');
+const input = fs.readFileSync(0);
 const result = spawnSync(${JSON.stringify(realGit)}, args, {
-  cwd: process.cwd(), env: process.env, stdio: 'inherit'
+  cwd: process.cwd(), env: process.env, input, encoding: null
 });
+if (args[0] === 'cat-file' && args.includes('--batch-check')) {
+  fs.appendFileSync(${JSON.stringify(pushLog + '.metadata')}, JSON.stringify({
+    input: input.toString('hex').slice(0, 2048),
+    output: result.stdout?.toString('hex').slice(0, 2048), status: result.status
+  }) + '\\n');
+}
+if (result.stdout) process.stdout.write(result.stdout);
+if (result.stderr) process.stderr.write(result.stderr);
 process.exit(result.status == null ? 1 : result.status);
 `);
     run('git', ['--git-dir', item.remote, 'config', 'receive.denyDeletes', 'true']);
@@ -601,7 +610,8 @@ process.exit(result.status == null ? 1 : result.status);
         ...gitTestWrapperEnvironment(wrappers), NO_COLOR: '1'
       }
     });
-    assert.equal(activated.status, 0, activated.stderr || activated.stdout);
+    const metadataTrace = await readFile(pushLog + '.metadata', 'utf8').catch(() => '');
+    assert.equal(activated.status, 0, (activated.stderr || activated.stdout) + '\n' + metadataTrace);
     const activation = JSON.parse(activated.stdout);
     assert.equal(activation.activated, true);
     assert.equal(activation.mergeEvidence, 'direct-exact-lease');

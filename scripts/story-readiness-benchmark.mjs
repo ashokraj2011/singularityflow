@@ -15,7 +15,7 @@ const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 export async function createStoryReadinessFixture({ files = 100, cliRoot = packageRoot } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-readiness-bench-'));
   const git = (cwd, ...args) => {
-    const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 60_000 });
+    const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
     assert.equal(result.status, 0, result.stderr);
     return result.stdout.trim();
   };

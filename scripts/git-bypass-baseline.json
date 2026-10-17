@@ -14,7 +14,7 @@
   "sites": {
     "scripts/story-readiness-benchmark.mjs": {
       "counts": { "command-git": 8, "process-import": 1, "process-launch": 2 },
-      "digest": "8bff5159efe75ec38d940431dbb1d6090ca9faa03a9ebcaea7407f80b3c548ae"
+      "digest": "4c352c7c89ca605e40775cc31c7702c77604f6428d41b670232c701379831e0e"
     },
     "src/witness-review-read.mjs": {
       "counts": {

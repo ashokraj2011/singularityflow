@@ -591,7 +591,7 @@ test('a readiness preview lists its own origin once and fetches only when a tip 
   const { base, root } = await repository(t);
   const previewArgs = [
     'workspace', 'branches', '--json', '--intake', '--preflight-story', 'STORY-UNION', '--from-branch', 'main',
-    '--work-type', 'feature', '--selected-base-only', '--timings'
+    '--work-type', 'feature', '--selected-base-only', '--refresh-readiness', '--timings'
   ];
   flow(root, previewArgs);
   const warm = flow(root, previewArgs);

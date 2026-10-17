@@ -15,12 +15,31 @@
       "finding": "Fixture process-launch fingerprint changed with the protected environment",
       "review": "Exact direct Git launch reviewed; counts remain 15 Git commands, 1 process import and 2 launches. Only its digest was refreshed; no registered owner or budget allowance was added."
     },
-    "postQualificationDelta": [
+    "localPostQualificationDelta": [
       "scripts/git-bypass-baseline.json",
       "docs/NATIVE-COPILOT-EFFICIENCY.md",
       "benchmarks/utility-entry/mac-strict-policy-reads.json"
     ],
-    "mainRecheckedBeforeMerge": "43bac9eae3821db0ff39c72fcb750eecffce528b",
+    "mainRecheckedBeforeMerge": "9b96071cf07e577f3489706e4d463e7778fdfe08",
+    "integratedMain": {
+      "commit": "9b96071cf07e577f3489706e4d463e7778fdfe08",
+      "mergeCommit": "8b48dbfcd32aef4cd7cbe1d055b3052c0cbcc77e",
+      "change": "Capability GitHub repository links in VS Code and HELP",
+      "uiRegressionSuite": { "tests": 337, "passed": 337, "failed": 0, "skipped": 0 },
+      "repositoryContracts": { "checks": 2671, "status": "passed" },
+      "typecheck": "passed again after merge",
+      "vscodeBundleBudget": "passed again after merge, unchanged limits",
+      "timedCliDependenciesUnchanged": true,
+      "srcTreeAtQualificationAndMerge": "dbf387eb1a0baf6e9001bb7ff1faea1e329f6e4f",
+      "binTreeAtQualificationAndMerge": "1e5c107462aea702705dcf3edc5fc67f7e9a0176",
+      "unchangedPathsChecked": [
+        "src", "bin", "templates", "plugin", "schemas", "package.json", "package-lock.json",
+        "distribution", "revision-trace-manifest.json", "scripts/build-cli-bundle.mjs",
+        "scripts/build-cold-cli-bundle.mjs", "scripts/bench-utility-entry.mjs",
+        "scripts/bench-prepared-reads.mjs", "scripts/warm-read-fixture.mjs", "scripts/amended-read-fixture.mjs"
+      ],
+      "qualificationDecision": "Existing paired CLI/worker measurements remain applicable; merged changes are outside their timed runtime. VS Code checks were rerun rather than claiming the earlier UI result covers the merge."
+    },
     "controlHostLoad": "Not recorded for standalone identical-code controls; matrix host loads are retained below.",
     "scope": "Targeted read, snapshot, amendment, worker, integrity and Git regressions; not the full repository test suite or a new Windows run."
   },

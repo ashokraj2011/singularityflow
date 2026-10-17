@@ -617,6 +617,10 @@ Deployment remains 20 files. The next-step closure is 3,948,379 bytes and the ph
 All 198 targeted regression/audit cases, 2,670 repository checks, VS Code type checking and CLI/
 VS Code bundle limits passed. The report identifies the exact tested source and documentation/
 reviewed-audit-fingerprint delta; this is not a claim that the entire repository suite ran.
+The final main fetch found `9b96071c` (VS Code capability repository links). It was merged and
+337 additional VS Code cases, 2,671 repository checks, type checking and bundle limits passed on the combined tree.
+Exact tree/path comparison confirmed that its changes do not alter the timed CLI dependencies;
+the retained measurements remain bound to `ac4d4ceb`, not relabeled as a new benchmark run.
 
 Qualification also found a harness defect: direct fixture Git calls bypassed the product's
 existing automatic-maintenance guard. Git 2.54 launched overlapping detached geometric repacks

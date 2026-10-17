@@ -179,6 +179,7 @@ export async function load(url, context, next) {
     assert.ok(preparation.files.every(file => file.startsWith('cold-') && !file.includes('worker')));
     assert.ok(preparation.files.includes('cold-catalogs.mjs'), 'prepares catalog definitions');
     assert.ok(preparation.files.includes('cold-phases.mjs'), 'prepares phase definitions');
+    assert.ok(preparation.files.includes('cold-reads.mjs'), 'prepares narrow phase-document/report definitions too');
     assert.ok(!warmed.modules.some(url => /\/(?:cold-compatibility|cold-models|read-worker|history-index-worker)\.mjs$/u.test(url)),
       'warming definitions cannot start a worker or import the compatibility/model domain');
   } else assert.equal(preparation.reason, 'cache-or-bundle-unavailable', 'Node 20/disabled cache is optional');

@@ -1378,7 +1378,7 @@ export class IntakePanel {
         } : {}),
         basePreflightPassed: true, basePreflightChecking: false,
         basePreflightReason: result.readinessSnapshot?.source === 'cache'
-          ? `Using readiness checked at ${result.readinessSnapshot.checkedAt}. Publication access is checked on Start.` : null,
+          ? `Cached readiness checked at ${result.readinessSnapshot.checkedAt}.` : null,
         basePreflightWarnings: warnings,
         baseTestReadiness: result.preflight?.testReadiness ?? null,
         testRecovery,

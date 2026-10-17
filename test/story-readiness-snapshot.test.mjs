@@ -14,8 +14,11 @@ test('intake catalogs share the cache policy, explicit refresh and complete-only
   assert.equal(first.packet.readinessSnapshot.scope, 'story-intake-catalog');
   assert.equal(first.packet.readinessSnapshot.source, 'fresh');
   const hit = await f.invokeCatalog();
-  assert.equal(hit.metrics.snapshot, 'cache'); assert.equal(hit.metrics.gitSpawns, 0);
+  assert.equal(hit.metrics.snapshot, 'cache');
+  assert.ok(hit.metrics.gitSpawns <= 1, 'at most the uncached native repository-location lookup, never the heavy catalog');
   assert.equal(hit.metrics.remoteGitOperations, 0);
+  t.diagnostic(JSON.stringify({ catalogCacheMs: hit.metrics.ms, gitProcesses: hit.metrics.gitSpawns,
+    remoteOperations: hit.metrics.remoteGitOperations, configurationLoads: hit.metrics.configurationLoads }));
   assert.deepEqual(hit.packet.intake.storyWorkflows, first.packet.intake.storyWorkflows);
   f.git(f.source, 'push', '--quiet', 'origin', 'main:refs/heads/catalog-added');
   assert.equal((await f.invokeCatalog()).metrics.snapshot, 'cache', 'remote-only changes wait for refresh or TTL');

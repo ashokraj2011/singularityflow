@@ -548,7 +548,7 @@ export function intakeProblems(form: IntakeForm): string[] {
           : form.catalogStatus === 'loading' ? 'Reading the remote base branches…'
             : 'No remote base branch is available for this Story.'));
     } else if (form.basePreflightChecking) {
-      problems.push(form.basePreflightReason ?? 'Checking Story-start readiness for configuration, workflow agents, and the selected branch…');
+      problems.push(form.basePreflightReason ?? 'Checking configuration, agents and the selected branch…');
     } else if (!form.basePreflightPassed) {
       problems.push(form.basePreflightReason
         ?? 'Remote publication preflight must succeed before this Story can start.');
@@ -1002,19 +1002,18 @@ function baseBranchHtml(form: IntakeForm): string {
     ${baseStoryNoteHtml(form)}
     ${visibleOrphans.length ? `<p class="meta">Not offered: ${visibleOrphans.map((name) => `<code>${escape(name)}</code>`).join(', ')}
       — ${visibleOrphans.length === 1 ? 'it shares' : 'they share'} no history with the default branch, so no Story can start from ${visibleOrphans.length === 1 ? 'it' : 'them'}.</p>` : ''}
-    ${form.baseBranch && form.basePreflightPassed ? `<p class="meta">Story-start readiness confirmed for
+    ${form.baseBranch && form.basePreflightPassed ? `<p class="meta">Readiness preview for
       workflow <code>${escape(form.workType ?? '')}</code>: create <code>${escape(intakeIdentifier(form) || '<Story ID>')}</code>
       from <code>${escape(form.baseRemote ?? 'remote')}/${escape(form.baseBranch)}</code> and publish only
       <code>${escape(form.baseRemote ?? 'remote')}/refs/heads/${escape(intakeIdentifier(form) || '<Story ID>')}</code>.
       Publication access and changed inputs are checked on Start.</p>
-      ${form.basePreflightReason ? `<p class="meta" role="status">${escape(form.basePreflightReason)}</p>` : ''}
       <button type="button" class="secondary" data-readiness-retry ${form.busy || form.basePreflightChecking ? 'disabled' : ''}>Refresh readiness</button>` : ''}
     ${form.basePreflightChecking ? '<p class="meta">Checking approved configuration, workflow agents, and selected branches. Publication access is checked on Start.</p>' : ''}
-    ${form.basePreflightChecking && form.basePreflightReason ? `<p class="meta" role="status">${escape(form.basePreflightReason)}</p>` : ''}
+    ${(form.basePreflightPassed || form.basePreflightChecking) && form.basePreflightReason ? `<p class="meta" role="status">${escape(form.basePreflightReason)}</p>` : ''}
     ${form.baseBranch && !form.basePreflightPassed && !form.basePreflightChecking && form.basePreflightReason ? `<p class="blockers" role="alert">${escape(form.basePreflightReason)}</p>
       <button type="button" class="secondary" data-readiness-retry ${form.busy || form.basePreflightChecking ? 'disabled' : ''}>Retry readiness</button>
       ${form.targetWorkspace ? `<button type="button" class="secondary" data-branch-download ${form.busy || form.basePreflightChecking ? 'disabled' : ''}>Download fresh branch checkout</button>
-      <p class="hint">Download only the selected branch into a new workspace/repos branch folder, then retry readiness there. The original checkout and unpublished work stay untouched.</p>` : ''}` : ''}
+      <p class="hint">Download the selected branch into workspace/repos, then retry. Existing checkouts and unpublished work are preserved.</p>` : ''}` : ''}
     ${form.basePreflightWarnings.length ? `<div class="notice warning" role="status">
       <strong>Ready with advisory information</strong>
       <ul>${form.basePreflightWarnings.map((warning) => `<li>${escape(warning)}</li>`).join('')}</ul>

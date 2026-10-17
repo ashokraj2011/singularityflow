@@ -6,7 +6,8 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const FAMILIES = Object.freeze([
-  ['core', ['cli-bundle-entry.mjs', 'command-loaders.mjs', 'deferred-index-refresh.mjs']],
+  ['core', ['cli-bundle-entry.mjs', 'command-loaders.mjs', 'deferred-index-refresh.mjs',
+    'commands/skill-request.mjs', 'commands/instruction-request.mjs']],
   ['status', ['commands/status.mjs', 'commands/progress.mjs', 'commands/report.mjs',
     'command-observability.mjs', 'logging.mjs', 'accounting-projection.mjs', 'read-worker-service.mjs']],
   ['hooks', ['copilot-hook-runtime.mjs', 'copilot-repository-boundary.mjs', 'copilot-mutation-guard.mjs']],

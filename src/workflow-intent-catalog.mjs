@@ -135,11 +135,11 @@ async function capture(root, authority) {
     { phase: id, declaration: command, readiness: 'declared-only; runtime resolution and fresh execution still required' }, { description: `Quality command declaration for ${id}; not permission or proof of runner availability.` });
   for (const task of (await import('./model-tasks.mjs')).MODEL_TASKS) add('execution-task', task, { id: task, qualification: 'not-verified' }, { description: 'Installed task name; host/provider availability, phase policy and authority still require verification.' });
   // Procedural Copilot skills are discoverable, but are not attachable prompt-library skills.
-  const packageRoot = path.join(PACKAGE_ROOT, 'plugin', 'skills');
-  const folders = await readdir(packageRoot, { withFileTypes: true });
+  const packagedSkillsDirectory = path.join(PACKAGE_ROOT, 'plugin', 'skills');
+  const folders = await readdir(packagedSkillsDirectory, { withFileTypes: true });
   if (folders.length > 512) fail('Too many packaged procedural skills.', 'WORKFLOW_INTENT_LIMIT');
   for (const folder of folders.filter(item => item.isDirectory()).sort((a, b) => compare(a.name, b.name))) {
-    const file = path.join(packageRoot, folder.name, 'SKILL.md');
+    const file = path.join(packagedSkillsDirectory, folder.name, 'SKILL.md');
     const text = await captureText(file, 256 * 1024); const front = /^---\r?\n([\s\S]*?)\r?\n---/u.exec(text);
     const metadata = front ? YAML.parse(front[1]) : {};
     add('command-skill', metadata.name ?? folder.name, { text, attachable: false }, { description: metadata.description ?? '', text, tags: ['use:invoke-only'] });

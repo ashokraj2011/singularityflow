@@ -87,6 +87,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   assert.ok(cliStartup < 3 * 1024 * 1024, `CLI cold parse: ${cliStartup}`);
   assert.ok(hookStartup < 3 * 1024 * 1024, `hook cold parse: ${hookStartup}`);
   const catalogClosure = closure('cold-catalogs.mjs');
+  const startupCode = await readFile(path.join(outdir, 'cold-core.mjs'), 'utf8');
+  assert.match(startupCode, /validateSkillRequest/u, 'early argv validation must not import the catalog chunk');
+  assert.match(startupCode, /validateInstructionRequest/u, 'instruction validation must remain in the startup chunk');
   const statusClosure = closure('cold-status.mjs');
   assert.ok(statusClosure.reduce((sum, item) => sum + item.bytes, 0) < 1.5 * 1024 * 1024,
     'ordinary JSON status must not inherit catalog or review closures');

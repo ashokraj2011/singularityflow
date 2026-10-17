@@ -265,6 +265,7 @@ test('symlink parents and cancelled downloads cannot write outside the owned wor
 
 test('timeouts and moved branches preserve partial downloads but never issue a ready pointer', async (t) => {
   const f = await fixture(t);
+  const originalBytes = await readFile(path.join(f.original, 'app.txt'));
   for (const mode of ['timeout', 'moved']) {
     let target;
     await assert.rejects(prepareWorkspaceBranch(f.workspace, 'app', 'main', {
@@ -280,7 +281,7 @@ test('timeouts and moved branches preserve partial downloads but never issue a r
     assert.ok(target);
     assert.ok(Array.isArray(await readdir(target)), 'partial download is retained');
     assert.equal(await preparedWorkspaceBranch(f.workspace, 'app', 'main'), null);
-    assert.equal(await readFile(path.join(f.original, 'app.txt'), 'utf8'), 'published application\n');
+    assert.deepEqual(await readFile(path.join(f.original, 'app.txt')), originalBytes);
   }
 });
 

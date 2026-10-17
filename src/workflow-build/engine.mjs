@@ -250,7 +250,8 @@ export async function checkBuild(id, { root = null, env = process.env } = {}) {
     repositoryFindings: inspection?.repository?.findings ?? [],
     pending: record.proposals.filter((proposal) => proposal.status === 'pending').map((proposal) => ({ id: proposal.id, title: proposal.title, by: proposal.by })),
     questions: openQuestions,
-    ready
+    ready,
+    guide: (await import('./moves.mjs')).movesGuide()
   };
 }
 

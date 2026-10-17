@@ -36,7 +36,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 68
+version: 69
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1330,6 +1330,11 @@ how many found items are not used or left out yet. Nothing is written to the rep
 `finish`: `--propose` runs Workflow Studio's own apply with the build's change set, which makes one
 reviewed proposal on the approved configuration; `--out` writes a portable workflow bundle that
 Workflow Studio's Import previews like any other.
+
+In Copilot, `/sf-build-workflow` runs this loop with you. It reads only the build's screened copies,
+writes only the build's issued `proposal.json`, proposes one piece at a time with the lines it
+relied on, asks what it cannot infer, and records your choice only after asking you. It never
+edits a repository; finishing is still Workflow Studio's reviewed proposal.
 
 ## Check that a workflow makes sense
 

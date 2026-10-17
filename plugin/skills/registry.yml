@@ -168,6 +168,7 @@ skills:
   sflow-help: { class: conversational, executionBoundary: machine }
   sflow-home: { class: guided, executionBoundary: machine }
   sflow-import-team: { class: guided, executionBoundary: machine }
+  sflow-build-workflow: { class: guided, executionBoundary: repository }
   sflow-hook: { class: mutation }
   sflow-implement: { class: delegation, executionBoundary: machine, delegatesTo: sflow-code }
   sflow-inbox: { class: interactive, executionBoundary: repository }

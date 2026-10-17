@@ -4,6 +4,7 @@
  * (src/workflow-build/). Builds are machine-local; nothing here changes a repository.
  */
 import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { SingularityFlowError, commandLineFile, optionBoolean, optionString, optionStrings } from '../util.mjs';
 
 const OPTIONS = {
@@ -21,6 +22,17 @@ const SHOWN_PER_KIND = 12;
 
 function refuse(message, code = 'WORKFLOW_BUILD_USAGE') {
   throw new SingularityFlowError(message, { code });
+}
+
+/**
+ * The one file a /sf-build-workflow turn may write: the build's proposal.json, issued to every live
+ * build-workflow turn for this repository. Shown as proposalPath; a paused Copilot gets none.
+ */
+async function issueProposalPath(id, root) {
+  const { workflowBuildPaths } = await import('../workflow-build/store.mjs');
+  const proposalPath = path.join((await workflowBuildPaths(id)).directory, 'proposal.json');
+  await import('../copilot-mutation-guard.mjs').then(({ issueBuildStaging }) => issueBuildStaging(proposalPath, { root })).catch(() => 0);
+  return proposalPath;
 }
 
 async function repositoryRoot() {
@@ -83,7 +95,7 @@ async function engineAction(action, { options, root, json, buildId, api, labels 
   const id = buildId();
   if (action === 'check') {
     const result = await engine.checkBuild(id, { root });
-    if (json) return console.log(JSON.stringify(result, null, 2));
+    if (json) return console.log(JSON.stringify({ ...result, proposalPath: await issueProposalPath(id, root) }, null, 2));
     return printCheck(result);
   }
   if (action === 'finish') {
@@ -109,7 +121,7 @@ async function engineAction(action, { options, root, json, buildId, api, labels 
   } else {
     record = await engine.answerInBuild(id, optionString(options, 'question') ?? refuse('Name the question: --question q-1.'), optionString(options, 'choice') ?? refuse('Give the answer: --choice <TEXT>.'));
   }
-  const view = api.workflowBuildView(record);
+  const view = { ...api.workflowBuildView(record), proposalPath: await issueProposalPath(record.id, root) };
   if (json) return console.log(JSON.stringify(view, null, 2));
   const last = record.conversation.slice(-3).map((turn) => `  ${turn.by === 'you' ? 'You' : turn.by === 'copilot' ? 'Copilot' : 'SFlow'}: ${turn.text}`);
   console.log(`Build ${record.id}: ${record.goal.label}`);
@@ -157,7 +169,7 @@ export async function run(argv, { positionals, options }) {
   } else {
     record = await api.readWorkflowBuild(optionString(options, 'build'));
   }
-  const view = api.workflowBuildView(record);
+  const view = { ...api.workflowBuildView(record), proposalPath: await issueProposalPath(record.id, root) };
   if (json) return console.log(JSON.stringify(view, null, 2));
   printBuild({ ...view, labels });
 }

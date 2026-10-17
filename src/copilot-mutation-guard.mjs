@@ -84,7 +84,7 @@ async function createRecord(payload, record, root, accepted, previous = null) {
   const definition = accepted.definition ?? accepted.config;
   const requestedMode = mutationTurnMode(record.skill);
   const mode = previous?.originPhase && previous.originPhase !== workflow.currentPhase
-    && !['approval-only', 'session-only', 'import-team'].includes(requestedMode) ? 'read' : requestedMode;
+    && !['approval-only', 'session-only', 'import-team', 'build-workflow'].includes(requestedMode) ? 'read' : requestedMode;
   const phase = workflow.phases?.[workflow.currentPhase];
   const evidence = mode === 'authoring' && phase?.generationIntent?.status === 'open'
     ? await (await import('./delivery-evidence.mjs')).plannedEvidencePaths(root, definition, workflow, phase).catch(() => [])
@@ -105,7 +105,8 @@ async function createRecord(payload, record, root, accepted, previous = null) {
     decisionEnded: previous?.decisionEnded ?? false,
     binding: { workflowFile, workflowSha256: digest(await readFile(workflowFile)), ...gitIdentity },
     baseline: previous?.baseline ?? null, findings: previous?.findings ?? [],
-    ...(previous?.importTeamStaging ? { importTeamStaging: previous.importTeamStaging } : {}) };
+    ...(previous?.importTeamStaging ? { importTeamStaging: previous.importTeamStaging } : {}),
+    ...(previous?.buildStaging ? { buildStaging: previous.buildStaging } : {}) };
   return value;
 }
 
@@ -248,6 +249,9 @@ function shellAllowed(call, mode, value) {
   // The /sf-import-team turn: its own three commands; every other mutation stays refused.
   if (mode === 'import-team') return positionals[0] === 'workflow' && positionals[1] === 'import-team'
     && IMPORT_TEAM_COMMANDS.includes(positionals[2]) && positionals.length === 3;
+  // The /sf-build-workflow turn: its build commands are reads; finishing is its one mutation.
+  if (mode === 'build-workflow') return positionals[0] === 'workflow' && positionals[1] === 'build'
+    && positionals[2] === 'finish' && positionals.length === 3;
   if (mode === 'read') return false;
   // Deciding an upstream issue is the earlier step's approvers' call, like approve and reject; an
   // agent may raise one and keep working, never decide it.
@@ -370,6 +374,34 @@ async function importTeamGuard(payload, record, toolCalls) {
 }
 
 /**
+ * /sf-build-workflow: reads, its own `workflow build` commands, and edits to exactly the proposal
+ * files `workflow build` issued to this turn. Like /sf-import-team it needs no Story, edits no
+ * repository and does not delegate.
+ */
+async function buildWorkflowGuard(payload, record, toolCalls) {
+  const value = await importTeamTurn(payload, record);
+  const scope = { ...record, repositoryRoot: value?.contract?.repositoryRoot ?? value?.repositoryRoot };
+  const issued = (value?.buildStaging ?? []).map(file => path.resolve(file));
+  const deny = reason => ({ permissionDecision: 'deny', next: [], permissionDecisionReason: reason });
+  for (const call of toolCalls) {
+    if (DELEGATION.has(call.name)) return deny('BUILD_WORKFLOW_DELEGATION_NOT_ALLOWED: grow the build in this turn; /sf-build-workflow does not delegate');
+    if (TERMINALS.has(call.name)) {
+      if (shellAllowed(call, 'build-workflow', scope)) continue;
+      return deny('BUILD_WORKFLOW_OPERATION_NOT_ALLOWED: run one standalone read command or singularity-flow workflow build start|add|status|propose|decide|answer|check|finish; no other mutations, chains or wrappers');
+    }
+    if (!isEdit(call.name)) continue;
+    const paths = targets(call.args);
+    const cwd = call.args.cwd ?? payload.cwd ?? scope.repositoryRoot ?? process.cwd();
+    const outside = paths.filter(target => !issued.includes(editTarget(target, cwd)));
+    if (paths.length && !outside.length) continue;
+    return deny(issued.length
+      ? `BUILD_WORKFLOW_PATH_DENIED (${outside.join(', ') || 'no target'}): write only the issued proposal file at exactly ${issued.join(', ')}; never the team's material or a repository`
+      : 'BUILD_WORKFLOW_PATH_DENIED: no proposal file is issued to this turn. Run singularity-flow workflow build status --build <ID> --json first and write only its proposalPath');
+  }
+  return {};
+}
+
+/**
  * A shell command that reads the host's own saved copy of a long tool result. The host keeps it
  * outside the workspace, so the agent's file tools cannot open it, and an agent reached for `jq` on
  * it in a turn that runs only SFlow commands. The SFlow result itself, run again as an agent view,
@@ -388,6 +420,7 @@ export async function mutationToolGuard(payload = {}) {
   const toolCalls = calls(payload);
   if (!toolCalls.some(call => TERMINALS.has(call.name) || DELEGATION.has(call.name) || isEdit(call.name))) return {};
   if (mutationTurnMode(record.skill) === 'import-team') return importTeamGuard(payload, record, toolCalls);
+  if (mutationTurnMode(record.skill) === 'build-workflow') return buildWorkflowGuard(payload, record, toolCalls);
   let value;
   try { value = await currentContract(payload, record); }
   catch {
@@ -466,6 +499,12 @@ export async function mutationPostToolGuard(payload = {}) {
     const scope = { ...record, repositoryRoot: value?.contract?.repositoryRoot ?? value?.repositoryRoot };
     if (value && terminals.every(call => shellAllowed(call, 'import-team', scope))) return {};
     return postFinding(mutationDenial(null, 'IMPORT_TEAM_TURN_ENDED: the import-team turn ended or expired; run /sf-import-team again'));
+  }
+  if (mutationTurnMode(record.skill) === 'build-workflow') {
+    const value = await importTeamTurn(payload, record);
+    const scope = { ...record, repositoryRoot: value?.contract?.repositoryRoot ?? value?.repositoryRoot };
+    if (value && terminals.every(call => shellAllowed(call, 'build-workflow', scope))) return {};
+    return postFinding(mutationDenial(null, 'BUILD_WORKFLOW_TURN_ENDED: the build-workflow turn ended or expired; run /sf-build-workflow again'));
   }
   let value;
   try { value = await currentContract(payload, record); }
@@ -610,6 +649,30 @@ export async function issueImportTeamStaging(target, { root = null } = {}) {
     if (owner && resolvedRoot && owner !== resolvedRoot) continue;
     // Bounded: a long conversation keeps its latest candidates, never an unbounded grant list.
     value.importTeamStaging = [...new Set([...(value.importTeamStaging ?? []), path.resolve(target)])].slice(-16);
+    await atomicRecord(file, value);
+    issued += 1;
+  }
+  return issued;
+}
+
+/**
+ * Let live /sf-build-workflow turns edit `target`, the proposal file of a build `workflow build`
+ * just showed. As for team import, every live build-workflow turn for the same repository (or with
+ * none) receives the exact path. Returns how many turns received it.
+ */
+export async function issueBuildStaging(target, { root = null } = {}) {
+  if (readCopilotMode().paused) return 0;
+  const resolvedRoot = root ? await realpath(root).catch(() => path.resolve(root)) : null;
+  let issued = 0;
+  for (const name of (await readdir(directory()).catch(() => [])).filter(name => /^[a-f0-9]{64}\.mutation\.json$/u.test(name))) {
+    const file = path.join(directory(), name);
+    const value = await boundedRecord(file).catch(() => null);
+    if (!value || mutationTurnMode(value.skill) !== 'build-workflow') continue;
+    const record = await turn({ sessionId: value.sessionId });
+    if (!record || !await importTeamTurn({ sessionId: value.sessionId }, record)) continue;
+    const owner = value.contract?.repositoryRoot ?? value.repositoryRoot ?? null;
+    if (owner && resolvedRoot && owner !== resolvedRoot) continue;
+    value.buildStaging = [...new Set([...(value.buildStaging ?? []), path.resolve(target)])].slice(-16);
     await atomicRecord(file, value);
     issued += 1;
   }

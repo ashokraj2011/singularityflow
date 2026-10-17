@@ -212,7 +212,10 @@ export async function createDocumentReadSession(root, config, workflow) {
     records: structuredClone(records),
     view: async reference => {
       await unchanged();
-      const viewed = await viewDocumentRecord(root, config, workflow, resolveDocumentRecord(records, reference));
+      // A rendered document returns its record. Never expose the private catalog authority through
+      // that result: a caller must not rewrite the hash used by a later view in this same request.
+      const record = structuredClone(resolveDocumentRecord(records, reference));
+      const viewed = await viewDocumentRecord(root, config, workflow, record);
       await unchanged();
       return viewed;
     }

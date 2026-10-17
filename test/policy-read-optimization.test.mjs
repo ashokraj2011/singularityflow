@@ -94,7 +94,10 @@ test('a document read session builds one catalog and refuses bytes changed after
   await withCommandTiming({ increment(name) { if (name === 'documents.catalog-build') builds++; } }, async () => {
     const session = await createDocumentReadSession(root, config, workflow);
     session.records.find(row => row.id === 'PHASE-INTAKE').sha256 = 'forged';
-    assert.match((await session.view('PHASE-INTAKE')).content, /First/);
+    const firstView = await session.view('PHASE-INTAKE');
+    assert.match(firstView.content, /First/);
+    firstView.record.sha256 = 'forged';
+    firstView.record.path = 'outside.md';
     assert.match((await session.view('PHASE-INTAKE')).content, /First/);
     assert.equal(builds, 1);
     workflow.phases.intake.generation = 1;

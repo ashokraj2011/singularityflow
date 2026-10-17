@@ -14,6 +14,7 @@ Start with `singularity-flow session open --for-agent --json` once; carry explic
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; an exact selected workspace/repository is also valid before checkout exists; refuse if neither resolves; never search `$HOME`/parents.
 
+Already loaded: never call the `skill` tool for this skill ("Skill not found" is expected). Wait for each command to exit.
 Session setup only: no raw Git, source reads, edits, or lifecycle work. A deferred path is not cwd.
 Story discovery comes from the configured state ledger, not an application-branch scan. The kernel verifies its reachable chain and exact indexed metadata; attachment fetches only the selected Story branch. Missing or unrefreshable state is a diagnostic, not an empty roster. Preserve that refusal; never enumerate branches or search the filesystem as a fallback. Existing verified managed checkouts may still use the local open route.
 

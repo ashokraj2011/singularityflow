@@ -35,6 +35,16 @@ export async function run(argv, { positionals, options }) {
     () => withCommandConfirmation(options, () => sessionCommand(positionals, options)));
 }
 
+/**
+ * Every Git read of a repository whose own files are undownloaded cloud placeholders waits with
+ * no limit, so the scanned repository is checked once, before the first of them.
+ */
+async function requireReadableGitStorage(root) {
+  const mode = String(process.env.SINGULARITY_FLOW_GIT_STORAGE_CHECK ?? '').trim().toLowerCase();
+  if (mode === 'off' || (process.platform !== 'darwin' && mode !== 'always')) return;
+  (await import('../git-storage-availability.mjs')).assertGitStorageAvailable(root);
+}
+
 export async function selectedSessionRemote(context) {
   const workspace = await readWorkspace(context.workspacePath);
   if (workspace.id !== context.workspaceId) throw new SingularityFlowError(
@@ -483,6 +493,7 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
   }
   let resolved = await resolveSessionRepository({ workspaceReference, repositoryId: selectedRepositoryId, remoteProbe: !localListing && subcommand !== 'context' });
   let root = resolved.root;
+  if (root) await requireReadableGitStorage(root);
   if (localListing && !root) throw new SingularityFlowError('No materialized local Story state index.', { code: 'SESSION_LOCAL_INDEX_UNAVAILABLE' });
   let preflightStory = null;
   if (!root && resolved.workspaceContext && ['candidates', 'attach'].includes(subcommand)) {
@@ -519,6 +530,7 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
       { code: 'SESSION_REMOTE_CHANGED' }
     );
     root = refreshed.repositoryPath;
+    await requireReadableGitStorage(root);
     // A deferred clone may initially track only its default branch. Fetch the reviewed delivery
     // remote before resolving its Story-carried configuration; do not mistake that for an
     // ungoverned repository merely because the Story ref is not yet locally advertised.

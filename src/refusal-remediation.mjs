@@ -506,6 +506,13 @@ const KNOWN = Object.freeze({
       'After resolving the reported transport condition, explicitly refresh the same Story listing. A cached listing is advisory; do not scan application branches or weaken attachment checks.',
       refresh.command, 'diagnostic')];
   },
+  // Git would wait with no limit on the repository's undownloaded files; the message names them.
+  GIT_STORAGE_UNAVAILABLE: (argv, error) => {
+    const retry = safeCommandGuidance({ argv });
+    return [step('download-repository-files', error?.message
+      ?? 'Download the repository folder and keep it downloaded, or move the workspace out of the synced folder.', null, 'remediation'),
+    retry && step('retry-after-download', 'Once the folder is downloaded, run the same command again.', retry.command, 'diagnostic')];
+  },
   WORKFLOW_CONFIGURATION_MISSING: missingConfigurationSteps,
   PHASE_INPUTS_NOT_READY: upstreamInputSteps,
   SPECIFICATION_INDEX_UNTRUSTED: upstreamInputSteps,

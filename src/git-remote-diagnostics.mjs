@@ -11,6 +11,7 @@ export const REMOTE_FAILURE_CLASSES = Object.freeze([
   'offline',
   'git-unavailable',
   'working-directory-unavailable',
+  'local-storage-unavailable',
   'credential-helper-unavailable',
   'local-hook-tool-unavailable',
   'local-hook-failed',
@@ -34,6 +35,7 @@ const ADVICE = Object.freeze({
   offline: 'Reconnect to the network, then retry the same bootstrap session.',
   'git-unavailable': 'Install Git or add the approved Git executable to PATH, restart the calling application, then retry.',
   'working-directory-unavailable': 'Restore or reopen the local repository directory, then retry the same operation.',
+  'local-storage-unavailable': 'Git cannot read this repository\'s own files: some are cloud placeholders this computer has not downloaded. Download the repository folder and keep it downloaded, or move the workspace out of the synced folder, then retry.',
   'credential-helper-unavailable': 'Install or repair the configured Git credential helper, then sign in and retry. Do not put a token in the URL.',
   'local-hook-tool-unavailable': 'Repair the command named by the local Git hook and make its runtime available in the calling IDE or terminal environment. For Node version managers, configure Husky initialization for GUI launches, then restart the IDE and retry the retained operation. Do not disable repository hooks globally.',
   'local-hook-failed': 'Review the local Git hook output and repair the reported check or runtime. Preserve authored work and hook-generated files, then retry the retained operation; do not recreate the Story or disable hooks globally.',
@@ -770,7 +772,9 @@ export function classifyGitRemoteFailure(result, { branch = null, cwdAvailable =
   const output = outputForClassification(result);
   const hook = localGitHookFailure(result);
   let classification = 'unknown';
-  if (result?.blocked
+  // Checked before Git ran (git-storage-availability.mjs): no remote was contacted.
+  if (result?.storageUnavailable) classification = 'local-storage-unavailable';
+  else if (result?.blocked
     || /(?:^|[\r\n])\s*(?:network(?: access)? (?:is )?disabled|offline(?:(?: mode)?(?: is)? enabled)?|you (?:appear to be|are) offline)\s*[.!]?\s*(?:$|[\r\n])/i.test(output)) classification = 'offline';
   else if (cwdAvailable === false && result?.error?.code === 'ENOENT') classification = 'working-directory-unavailable';
   else if (gitExecutableUnavailable(result, output, cwdAvailable)) classification = 'git-unavailable';
@@ -806,7 +810,7 @@ export function classifyGitRemoteFailure(result, { branch = null, cwdAvailable =
     classification,
     code: `REMOTE_${classification.replaceAll('-', '_').toUpperCase()}`,
     retryable: [
-      'network-transient', 'offline', 'git-unavailable', 'working-directory-unavailable', 'rate-limited',
+      'network-transient', 'offline', 'git-unavailable', 'working-directory-unavailable', 'local-storage-unavailable', 'rate-limited',
       'proxy-configuration', 'tls-trust',
       'credential-helper-unavailable', 'authentication-required', 'sso-authorization-required'
     ].includes(classification),

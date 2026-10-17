@@ -231,6 +231,18 @@ const terminationGraceFor = (env) => boundedTerminationGrace(
   env.SINGULARITY_FLOW_GIT_TERMINATION_GRACE_MS
 );
 
+// Unreadable (cloud placeholder) storage and detached child groups: both modules load lazily.
+// A clone reads no objects of the repository around its cwd, which may be unrelated to it.
+const storageCheckWanted = (env, platform, args) => {
+  const mode = String(env?.SINGULARITY_FLOW_GIT_STORAGE_CHECK ?? '').trim().toLowerCase();
+  return mode !== 'off' && (platform === 'darwin' || mode === 'always')
+    && args.find((arg, index) => !String(arg).startsWith('-') && args[index - 1] !== '-c' && args[index - 1] !== '-C') !== 'clone';
+};
+let storageModule = null;
+let groupsModule = null;
+const gitStorageUnavailable = async (cwd, options) =>
+  (await (storageModule ??= import('./git-storage-availability.mjs'))).gitStorageUnavailable(cwd, options);
+
 const REMOTE_GIT_VERBS = new Set(['clone', 'fetch', 'ls-remote', 'pull', 'push']);
 const LOCAL_ASYNC_READS = Object.freeze({
   'repository.identity': Object.freeze(['rev-parse', '--path-format=absolute', '--git-common-dir', '--absolute-git-dir', 'HEAD', '--symbolic-full-name', 'HEAD'])
@@ -416,11 +428,18 @@ export async function runRemoteGitAsync(args, {
     // environment: the caller's GIT_DIR and global config (safe.directory) still apply.
     : localRead ? withoutInteractiveGitPrompts(env, { platform })
       : nonInteractiveGitEnvironment(remoteGitEnvironment(env));
+  // Its bounded download attempt is part of this operation and consumes the same deadline.
+  const storage = !signal?.aborted && storageCheckWanted(env, platform, args)
+    ? await gitStorageUnavailable(cwd, { env, platform }) : null;
+  // Only a real detached child: an injected double's pid names no process group of ours.
+  const groups = spawnCommand === spawn && platform !== 'win32'
+    ? await (groupsModule ??= import('./git-child-groups.mjs')) : null;
   const result = signal?.aborted
     // Abort reasons are caller-owned values and may contain credentials, URLs, or UI text. The
     // closed-vocabulary cancellation classification below is the complete public diagnosis; never
     // copy an arbitrary AbortSignal reason into a result, log, receipt, or JSON response.
     ? { status: 1, stdout: '', stderr: '', error: undefined, timedOut: false, aborted: true }
+    : storage ? { status: 1, stdout: '', stderr: '', error: undefined, timedOut: false, aborted: false, storageUnavailable: storage }
     : performance.now() >= operationDeadlineAt
       // System/global Git configuration is read synchronously. It cannot be pre-empted by an
       // event-loop timer, but its elapsed time still consumes the operation budget: do not start a
@@ -456,6 +475,7 @@ export async function runRemoteGitAsync(args, {
       resolve({ status: 1, stdout: '', stderr: '', error, timedOut: false });
       return;
     }
+    const untrackGroup = groups ? groups.trackGitGroup(child.pid) : () => {};
     // Local byte-exact Git descriptors can opt into raw stdout. Keep remote callers' text
     // contract unchanged, and never decode a pathname before its strict parser sees it.
     let stdout = encoding === 'buffer' ? Buffer.alloc(0) : '';
@@ -499,6 +519,7 @@ export async function runRemoteGitAsync(args, {
       if (settled) return;
       settled = true;
       cleanup();
+      untrackGroup();
       if (terminationReason) destroyPipes();
       if (stdoutDecoder) stdout += stdoutDecoder.end();
       stderr += stderrDecoder.end();
@@ -631,12 +652,24 @@ export async function runRemoteGitAsync(args, {
   incrementCommandCounter('git.service-ms', Math.max(0, Math.round(serviceMs)));
   if (probeStarted) recordSubprocessTiming('git', args, serviceMs);
   const succeeded = processResultSucceeded(result);
-  const classified = succeeded
+  let classified = succeeded
     ? null
     : {
         ...classifyGitRemoteFailure(result, { cwdAvailable: workingDirectoryAvailable(cwd) }),
         evidence: failureEvidence(result)
       };
+  // A deadline alone establishes no cause; unreadable repository files are one, so name them.
+  const unreadable = result.storageUnavailable ?? (classified?.classification === 'operation-timeout'
+    && storageCheckWanted(env, platform, args) ? await gitStorageUnavailable(cwd, { env, platform, fresh: true }) : null);
+  if (classified && unreadable) {
+    classified = {
+      ...classifyGitRemoteFailure({ ...result, storageUnavailable: unreadable }),
+      advice: unreadable.advice,
+      storage: { gitDirectory: unreadable.gitDirectory, files: unreadable.files, sample: unreadable.sample,
+        downloadTimeoutMs: unreadable.downloadTimeoutMs },
+      evidence: failureEvidence(result)
+    };
+  }
   const failure = result.aborted
       ? {
         code: 'REMOTE_OPERATION_ABORTED', classification: 'cancelled', retryable: true,

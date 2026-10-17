@@ -37,6 +37,7 @@ export const REPOSITORY_ONBOARDING_FAILURE_CLASSIFICATIONS = [
   'offline',
   'git-unavailable',
   'working-directory-unavailable',
+  'local-storage-unavailable',
   'credential-helper-unavailable',
   'local-hook-tool-unavailable',
   'local-hook-failed',
@@ -727,6 +728,11 @@ function repositoryOnboardingFailureCopy(
       return retryCopy(
         'Working directory is unavailable',
         'The directory used for the Git check is unavailable. Reopen or restore it, then retry.'
+      );
+    case 'local-storage-unavailable':
+      return retryCopy(
+        'Repository files are not downloaded',
+        'Some of its Git files are cloud placeholders. Download the folder and keep it downloaded, or move it out of the synced folder, then retry.'
       );
     case 'credential-helper-unavailable':
       return retryCopy(

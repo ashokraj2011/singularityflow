@@ -397,7 +397,7 @@ export function refusalFor(error: unknown, {
     ? String((typedDetails as { classification?: unknown }).classification ?? '') : '';
   const safeClassifications = new Set([
     'network-transient', 'operation-timeout', 'offline', 'git-unavailable', 'working-directory-unavailable',
-    'credential-helper-unavailable', 'authentication-required', 'sso-authorization-required',
+    'local-storage-unavailable', 'credential-helper-unavailable', 'authentication-required', 'sso-authorization-required',
     'local-hook-tool-unavailable', 'local-hook-failed',
     'authorization-denied', 'tls-trust', 'proxy-configuration', 'remote-not-found',
     'branch-not-found', 'rate-limited', 'policy-rejected', 'atomic-push-unsupported',

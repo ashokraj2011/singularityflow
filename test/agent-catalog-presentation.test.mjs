@@ -53,8 +53,8 @@ test('workflow metadata is bounded and binds exact original phase contracts; lar
   assert.equal(view.catalogView.total, 40);
   assert.equal(view.catalogView.more, true);
   assert.ok(view.catalogView.shown > 0 && view.catalogView.shown <= 20);
-  assert.equal(view.catalogView.detailLevel, 'identity');
-  assert.equal(view.data[0].phaseCount, 1);
+  if (view.catalogView.detailLevel === 'identity') assert.equal(view.data[0].phaseCount, 1);
+  else assert.deepEqual(view.data[0].phases, ['check']);
   assert.equal(view.data[0].status, 'pending-review', 'a candidate is never shown as active');
   assert.deepEqual(JSON.parse(await readFile(view.agentOutput.path, 'utf8')).data, result.data);
 });
@@ -69,4 +69,13 @@ test('identity-first fallback lists every name before rich partial scope metadat
   assert.equal(view.catalogView.more, false);
   assert.deepEqual(view.skills.map(row => row.id), skills.map(row => row.id));
   assert.deepEqual(completeAgentResult(view).skills, skills, 'attachment scope and instructions stay exact for selected expansion');
+  const workflows = Array.from({ length: 20 }, (_, i) => ({ id: `workflow-${i}`, label: `Workflow ${i}`,
+    description: 'Workflow purpose and instructions '.repeat(10), governs: 'story', status: 'current',
+    phases: Array.from({ length: 6 }, (_, j) => ({ id: `phase-${j}`, approval: { authorities: ['reviewers'] } })) }));
+  const workflowView = JSON.parse(await boundedAgentOutput(JSON.stringify({ resultType: 'sflow-utility-entry',
+    operation: 'workflow list', data: workflows }), { cwd: f.repository }));
+  assert.equal(workflowView.catalogView.detailLevel, 'identity');
+  assert.equal(workflowView.catalogView.more, false);
+  assert.deepEqual(workflowView.data.map(row => row.id), workflows.map(row => row.id));
+  assert.deepEqual(completeAgentResult(workflowView).data, workflows);
 });

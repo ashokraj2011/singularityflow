@@ -213,6 +213,27 @@ test('age never reclaims a live owner, foreign owner or unconfirmed child quaran
   }
 });
 
+for (const kind of ['file', 'directory-link']) {
+  test(`dead-owner recovery refuses a ${kind} reclaim root without moving its lease`, async (t) => {
+    const { root, file } = await fixture(t);
+    const record = JSON.stringify(owner(await exitedChild()));
+    await writeFile(file, record, { mode: 0o600 });
+    const reclaim = path.join(root, '.file-lease-reclaims');
+    if (kind === 'file') await writeFile(reclaim, 'not a private directory');
+    else {
+      const target = path.join(root, 'untouched');
+      await mkdir(target);
+      await writeFile(path.join(target, 'sentinel'), 'preserved');
+      await symlink(target, reclaim, process.platform === 'win32' ? 'junction' : 'dir');
+    }
+    await assert.rejects(acquireFileLease(file), { code: 'FILE_LEASE_UNAVAILABLE' });
+    assert.equal(await readFile(file, 'utf8'), record);
+    if (kind === 'directory-link') {
+      assert.equal(await readFile(path.join(root, 'untouched', 'sentinel'), 'utf8'), 'preserved');
+    }
+  });
+}
+
 test('known child quarantine reclaims only after every child and owner are provably dead', async (t) => {
   const { file } = await fixture(t); const pid = await exitedChild();
   await writeFile(file, JSON.stringify(owner(pid, { quarantine: true, childPids: [pid], unknownChildren: false })), { mode: 0o600 });

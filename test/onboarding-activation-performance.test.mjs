@@ -142,16 +142,19 @@ test('the first object-built ledger root and audit match the worktree fallback',
   const intent = createLedgerIntent({ eventType: 'phase-approved', capabilityId: 'service',
     subject: { workId: 'fixture', phase: 'intake', generation: 1 }, actor: { email: 'reviewer@example.invalid' } });
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-17T00:00:00.000Z') });
-  const options = { env: { ...f.env, GIT_AUTHOR_DATE: '2026-10-17T00:00:00Z', GIT_COMMITTER_DATE: '2026-10-17T00:00:00Z' },
-    commitIdentity: f.commitIdentity, initializeIfAbsent: true };
+  const options = { env: f.env, commitIdentity: f.commitIdentity, initializeIfAbsent: true };
   const objects = await prepareLedgerAppend(f.application, ledger, intent, f.main, options);
   const worktree = await prepareLedgerAppend(f.application, ledger, intent, f.main, {
     ...options, env: { ...options.env, SINGULARITY_FLOW_LEDGER_APPEND_WORKTREE: '1' }
   });
   t.mock.timers.reset();
   assert.equal(objects.entryHash, worktree.entryHash);
-  const header = commit => readGit(f.application, ['cat-file', '-p', commit]).replace(/ \d+ [+-]\d{4}$/gmu, '');
-  for (const suffix of ['', '^']) {
+  // The identity boundary intentionally drops ambient Git dates. Native Git's wall clock is
+  // not mocked by Node, so compare the root and its single child structurally rather than
+  // requiring independently created root hashes (and therefore parent hashes) to match.
+  const header = commit => readGit(f.application, ['cat-file', '-p', commit])
+    .replace(/ \d+ [+-]\d{4}$/gmu, '').replace(/^parent [a-f0-9]+$/gmu, 'parent <verified-root>');
+  for (const suffix of ['^', '']) {
     assert.equal(readGit(f.application, ['rev-parse', `${objects.ledgerCommit}${suffix}^{tree}`]),
       readGit(f.application, ['rev-parse', `${worktree.ledgerCommit}${suffix}^{tree}`]));
     assert.equal(header(`${objects.ledgerCommit}${suffix}`), header(`${worktree.ledgerCommit}${suffix}`));

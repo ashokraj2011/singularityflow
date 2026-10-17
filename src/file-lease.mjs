@@ -487,7 +487,11 @@ async function privateReclaimRoot(file) {
   const root = path.join(path.dirname(file), '.file-lease-reclaims');
   await mkdir(root, { mode: 0o700 }).catch((error) => { if (error.code !== 'EEXIST') throw error; });
   const info = await lstat(root);
-  if (!info.isDirectory() || info.isSymbolicLink() || (info.mode & 0o077) !== 0
+  // Windows reports synthetic mode bits even for a directory created with mode 0700; those
+  // bits cannot establish its DACL. Keep the existing same-user derived-cache boundary there,
+  // while still refusing links/non-directories and retaining exact nonce/inode/death fences.
+  if (!info.isDirectory() || info.isSymbolicLink()
+      || (process.platform !== 'win32' && (info.mode & 0o077) !== 0)
       || (typeof process.getuid === 'function' && info.uid !== process.getuid())) throw leaseError();
   return root;
 }

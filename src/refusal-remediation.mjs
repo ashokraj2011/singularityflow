@@ -1007,6 +1007,7 @@ export function refusalRemediationPlan(error, argv = []) {
   const configurationProblemsBlocked = Array.isArray(error?.details?.configurationProblems)
     && error.details.configurationProblems.length > 0;
   const known = (configurationProblemsBlocked ? configurationProblemSteps(error) : KNOWN[code]?.(argv, error) ?? []).filter(Boolean);
+  const sessionTransportBlocked = code === 'SESSION_STATE_REFRESH_UNAVAILABLE';
   const authoringIncomplete = code === 'ARTIFACT_AUTHORING_INCOMPLETE' && known.length > 0;
   // A producer action that repeats a known step's exact command adds a second label, not a route.
   const nonDuplicateExplicit = explicit.filter((entry) => !entry?.command
@@ -1017,6 +1018,7 @@ export function refusalRemediationPlan(error, argv = []) {
   // entry here, and keeps approval repair outside the approval-only turn.
   const ordered = configurationProblemsBlocked ? [...known, ...nonDuplicateExplicit]
     : selfGuidedBlocked ? [...nonDuplicateExplicit, ...known]
+    : sessionTransportBlocked ? [...known, ...nonDuplicateExplicit]
     : repositoryRunnerBlocked || pinnedTestPolicyBlocked || softGateBlocked || unknownRecoveryPhase ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
     ? phaseContext.turn === 'new-turn'
       // Reserve the bounded recovery/new-turn steps before the global three-step presentation cap;

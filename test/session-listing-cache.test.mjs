@@ -34,6 +34,7 @@ test('first listing can verify a retained local index without waiting for an una
   assert.equal(local.packet.listingSnapshot.remoteCheckedAt, null);
   assert.equal(local.packet.fetched, false);
   assert.equal(local.metrics.remoteOperations, 0);
+  assert.match(local.child.stderr, /Using local Story listing.*remote checked at unavailable/u);
   assert.equal((await f.invoke()).packet.listingSnapshot.source, 'cache');
   assert.notEqual((await f.invoke({ options: ['--refresh'] })).child.status, 0);
 });

@@ -146,8 +146,10 @@ export async function exactStoryMetadataAtRef(root, remote, item, expectedCommit
 }
 
 export async function printSessionCandidateResult(discovered, options, scope = {}) {
-  if (discovered.listingSnapshot?.source === 'cache' && !optionBoolean(options, 'table')) console.error(
-    `Using cached Story listing checked at ${discovered.listingSnapshot.checkedAt}; attachment revalidates the selected Story. Use --refresh for a fresh listing.`);
+  if (['cache', 'local'].includes(discovered.listingSnapshot?.source) && !optionBoolean(options, 'table')) console.error(
+    `Using ${discovered.listingSnapshot.source} Story listing checked at ${discovered.listingSnapshot.checkedAt}; `
+    + `remote checked at ${discovered.listingSnapshot.remoteCheckedAt ?? 'unavailable'}. `
+    + 'Attachment revalidates the selected Story. Use --refresh for a fresh listing.');
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(
     optionBoolean(options, 'diagnostics') ? discovered : discovered.items, null, 2
   ));

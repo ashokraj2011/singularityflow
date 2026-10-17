@@ -37,8 +37,8 @@ test('session listing refresh is explicit in the Copilot route', () => {
     assert.equal(copilotCommandForCommand(command), '/sf-session --refresh');
     assert.equal(safeCommandGuidance({ command }).copilotCommand, '/sf-session --refresh');
   }
-  assert.equal(copilotCommandForCommand('singularity-flow session candidates --json'), '/sf-session');
-  assert.equal(copilotCommandForCommand('singularity-flow session candidates --refresh=false --json'), '/sf-session');
+  assert.equal(copilotCommandForCommand('singularity-flow session candidates --json'), '/sf-stories');
+  assert.equal(copilotCommandForCommand('singularity-flow session candidates --refresh=false --json'), '/sf-stories');
 });
 
 test('SGOS and learning commands never route through the workflow catalog skill', () => {

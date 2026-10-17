@@ -7,7 +7,7 @@ questions:
   - Can different teams describe their own workflow instead of writing markup?
 commands: [workflow]
 related: [workflow-markup, workflow-authoring, reusable-instructions, sgos-governed-execution]
-version: 4
+version: 5
 ---
 
 ## Purpose
@@ -23,7 +23,8 @@ read-only preview, and a searchable team library. Add a library item to the sepa
 knowledge** list instead of inserting machine tags into the description. Description starters are
 editable suggestions, not approved intent. Advanced source and file-loading controls stay collapsed.
 
-In Workflow Studio choose **Create with Copilot…**, describe the steps, inputs, decisions, retry
+In Workflow Studio choose **Build with Copilot**, then **Other ways to start → Write it in workflow
+markup (earlier screen)…**, describe the steps, inputs, decisions, retry
 limits and human checkpoints, then choose **Approved repository library** or **SFlow starters**.
 The first reads the locally observed approved configuration, not dirty checkout
 edits; the second is explicitly starter-only, not a fallback silently selected after an error.

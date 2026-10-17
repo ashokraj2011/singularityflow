@@ -64,7 +64,7 @@ function fixture(overrides = {}) {
   return { journey: new TeamImportJourney(host, () => {}), calls, chats, studio, copied };
 }
 
-test('Import a team workflow is a contributed, early, repository-independent command with Studio and Configuration Center entries', async () => {
+test('Import a team workflow is a contributed, early, repository-independent command, reachable from Build with Copilot\'s other ways to start', async () => {
   const manifest = JSON.parse(await readFile(new URL('../apps/vscode/package.json', import.meta.url), 'utf8'));
   assert.ok(manifest.contributes.commands.some(command => command.command === 'singularityFlow.importTeamWorkflow'));
   const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');

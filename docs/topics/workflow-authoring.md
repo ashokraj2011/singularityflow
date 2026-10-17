@@ -36,7 +36,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 70
+version: 71
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -46,7 +46,12 @@ Use this topic when the current goal matches **workflow authoring**. Start in a 
 
 ## Workflow Studio
 
-Choose **Create with Copilot…** to describe the workflow in plain language. Copilot drafts the tags
+Choose **Build with Copilot** (in Studio's navigation, on its home, in the Configuration Center, or
+on the New workflow screen) to grow a workflow a piece at a time from a workflow you have, a team's
+material or a description; see "Build with Copilot in Workflow Studio" below.
+
+The earlier designer is under **Other ways to start → Write it in workflow markup (earlier
+screen)…** on that view: describe the workflow in plain language, and Copilot drafts the tags
 and can propose its checked draft directly in the designer on compatible native-chat hosts.
 **Load Copilot draft…** validates the saved file when that tool is unavailable. The markup editor
 is an advanced option, not a prerequisite. Search the approved or explicitly chosen installed catalog
@@ -1254,8 +1259,8 @@ States: `invalid`, `unsupported` (required behaviour SFlow cannot express), `nee
 `--allow-not-ready` keeps a file that is labelled not ready. Ready never means approved,
 activated, tested or reviewed.
 
-In VS Code, **Import a Team Workflow…** (the command palette, Workflow Studio's **Import a team…**,
-or the Configuration Center) runs the same steps without a terminal. Choose the folder to inspect
+In VS Code, **Import a Team Workflow…** (the command palette, or **Other ways to start** on
+Workflow Studio's Build with Copilot) runs the same steps without a terminal. Choose the folder to inspect
 it and pick the entry agent. **Convert with Copilot…** types the `/sf-import-team` command into
 Copilot Chat, and shows it to copy when Copilot Chat is unavailable. The panel lists every session,
 whichever surface started it. **Check** runs compile with `--dry-run` and offers each open question's

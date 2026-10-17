@@ -979,7 +979,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     // The draft operations the inspector runs, against the model the host sent, and that state.
     state: function () { return state; },
     buildState: function () { return buildState(); }, renderBuild: function () { return renderBuild.apply(null, arguments); }, moveText: function () { return moveText.apply(null, arguments); },
-    openBuilds: function () { return openBuilds(); },
+    openBuilds: function () { return openBuilds(); }, renderWizard: function () { return renderWizard.apply(null, arguments); },
     openWorkflowCanvas: function () { return openWorkflowCanvas.apply(null, arguments); },
     createWorkflowFromWizard: function () { return createWorkflowFromWizard.apply(null, arguments); },
     removeNewWorkflow: function () { return removeNewWorkflow.apply(null, arguments); }, orphanedSteps: function () { return orphanedSteps.apply(null, arguments); },
@@ -1574,9 +1574,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         button('Open Changes', function () { state.view = 'changes'; render(); }, { class: 'secondary' })) : null));
     main.appendChild(el('div', { class: 'studio-row spread' }, el('h2', { text: 'Your workflows' }), el('div', { class: 'studio-row' },
       button(state.busy === 'import' ? 'Importing…' : 'Import…', importWorkflows, { class: 'secondary', disabled: Boolean(state.busy), title: 'Add workflows from a bundle file, as one reviewed change' }),
-      button('Build with Copilot…', openBuilds, { class: 'secondary', 'data-key': 'home-build', title: 'Grow a workflow a piece at a time from a workflow you have, a team\'s material or a description: Copilot proposes, you accept, and every change is explained and checked' }),
-      button('Import a team…', function () { post({ type: 'studio.importTeam' }); }, { class: 'secondary', title: 'Turn a team\'s agents, skills and instructions into a workflow bundle with Copilot, then import it here' }),
-      button('Create with Copilot…', function () { post({ type: 'studio.markup' }); }, { class: 'secondary', title: 'Describe your workflow; let Copilot draft it, then validate and review the generated phases and routes' }),
+      button('Build with Copilot…', openBuilds, { class: 'secondary', 'data-key': 'home-build', title: 'Grow a workflow a piece at a time from a workflow you have, a team\'s agents, skills, instructions and runbooks, or a description: Copilot proposes, you accept, and every change is explained and checked' }),
       button('Export…', function () { state.exporting = state.exporting || {}; render(); }, { class: 'secondary' }),
       button('New workflow', function () { state.view = 'new'; state.wizard = { label: '', from: null }; render(); }, { class: 'primary' }))));
     if (state.exporting) main.appendChild(renderExport());
@@ -1947,6 +1945,10 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       field('wizard-name', 'Workflow name', textInput('wizard-name', wizard.label, function (value) { wizard.label = value; requestRender(); }, { placeholder: 'Vendor assessment' }),
         editing ? 'ID ' + editing + ' (kept)' : id ? 'ID ' + id + (state.draft.workflows[id] ? ' is already used: choose another name' : '') : 'The ID is made from the name.'),
       field('wizard-description', 'What is it for? (optional)', textInput('wizard-description', wizard.description, function (value) { wizard.description = value; }))));
+    if (!editing) {
+      main.appendChild(el('div', { class: 'callout', 'data-key': 'wizard-build' }, 'Have agents, skills, instructions, runbooks or a description already? ',
+        button('Build it with Copilot…', function () { state.wizard = null; openBuilds(); }, { class: 'secondary', 'data-key': 'wizard-build-open' })));
+    }
     main.appendChild(el('div', { class: 'blueprints', role: 'group', 'aria-label': 'Start from' }, choices.map(function (choice) {
       return el('button', { type: 'button', class: 'blueprint', 'aria-pressed': wizard.from === choice.key ? 'true' : 'false', onclick: function () { wizard.from = choice.key; if (!wizard.label && choice.blueprint) wizard.label = choice.label; render(); } },
         el('strong', { text: choice.label }), el('span', { class: 'muted', text: choice.description }),
@@ -6113,6 +6115,12 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
             if (!form.describe.trim()) { setStatus('Say how the team works first.'); return; }
             buildAction('start', { from: 'describe', describe: form.describe, name: form.name || null }, 'start');
           }, { class: 'primary', 'data-key': 'build-start-describe', disabled: busy })))));
+    // The earlier screens stay reachable for work started in them.
+    main.appendChild(el('div', { class: 'studio-row build-other', role: 'group', 'aria-label': 'Other ways to start' }, el('span', { class: 'muted', text: 'Other ways to start:' }),
+      button('Import a team workflow (earlier screen)…', function () { post({ type: 'studio.importTeam' }); }, { class: 'secondary', 'data-key': 'build-other-team',
+        title: 'Turn a team\'s agent directory into a workflow bundle with Copilot, then import it here' }),
+      button('Write it in workflow markup (earlier screen)…', function () { post({ type: 'studio.markup' }); }, { class: 'secondary', 'data-key': 'build-other-markup',
+        title: 'Describe the workflow; Copilot drafts it as workflow markup, which is validated and imported as a bundle' })));
     var list = b.list || [];
     main.appendChild(el('section', { class: 'studio-card', 'aria-label': 'Continue a build' },
       el('div', { class: 'studio-row spread' }, el('h2', { text: 'Continue a build' }), button('Refresh', requestBuilds, { class: 'secondary', 'data-key': 'build-list-refresh' })),
@@ -6120,7 +6128,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         : !list.length ? el('p', { class: 'muted', text: 'No builds for this repository yet. A build is kept on this computer for 14 days after its last change.' })
           : el('div', null, list.map(function (entry) {
             return el('div', { class: 'check-row', 'data-build': entry.id }, el('span', { class: 'mark dim', 'aria-hidden': 'true' }),
-              el('div', null, el('div', { text: entry.label, style: 'font-weight:600' }), el('div', { class: 'muted', text: buildCountsText(entry.counts) + ' · changed ' + buildWhen(entry.updatedAt) })),
+              el('div', null, el('div', { class: 'studio-row' }, el('strong', { text: entry.label }), entry.finished ? el('span', { class: 'pill', text: 'finished' }) : null),
+                el('div', { class: 'muted', text: (entry.found || buildCountsText(entry.counts)) + ' · changed ' + buildWhen(entry.updatedAt) })),
               button('Open', function () { openBuild(entry.id); }, { class: 'secondary', 'data-key': 'build-open-' + entry.id, 'aria-label': 'Open the build ' + entry.label }));
           }))));
   }

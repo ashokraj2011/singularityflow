@@ -112,6 +112,15 @@ steps: in their own `## Attached skills` table, or for any agent (a seeded workf
 in `singularity/skill-library/attachments.yml`. In those steps its instructions are part of the
 agent's prompt. See `sflow explain skill-master`.
 
+### Workflow build versus workflow
+
+A workflow build is a machine-local workspace for making one workflow: what was found in the
+material it started from, the proposals made, and the person's decisions. It is kept on this
+computer for 14 days and changes nothing until it is finished. The workflow it makes becomes part
+of the configuration only through the usual reviewed proposal. A **proposal** in a build is one
+small piece offered by Copilot or a person; only a person accepts it. See
+`sflow explain workflow-build`.
+
 ### Prompt versus world model
 
 A prompt tells Copilot how to reason or format work. A world model records what is

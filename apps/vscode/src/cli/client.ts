@@ -309,6 +309,8 @@ function cacheableRead(args: string[]): boolean {
     // A team import session changes with every check (answers, repair attempts) and in other
     // hosts (Copilot writes the candidate); each click must see it now.
     && !(args[0] === 'workflow' && args[1] === 'import-team')
+    // A workflow build changes with every decision and in other hosts (Copilot records proposals).
+    && !(args[0] === 'workflow' && args[1] === 'build')
     // An upload changes in a background process and on every retry; each look must see it now.
     && args[0] !== 'push'
     // A destructive apply is guarded by a second byte-current preview. Reusing the first preview
@@ -415,13 +417,17 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     if (action !== 'compile') return 'read';
     return enabledBooleanOption(args, 'dry-run') || !hasOption(args, 'out') ? 'read' : 'mutation';
   }
+  if (args[0] === 'workflow' && args[1] === 'build') {
+    // A build is machine-local state; only finishing it changes a repository's configuration.
+    return args[2] === 'finish' ? 'mutation' : 'read';
+  }
   if (args[0] === 'workflow' && args[1] === 'intent') {
     return ['catalog', 'show', 'example', 'attachments', 'preflight'].includes(args[2] ?? '') ? 'read' : 'mutation';
   }
   if (args[0] === 'workflow' && args[1] === 'markup') {
     return args[2] === 'example' || args[2] === 'compile' && !hasOption(args, 'out') ? 'read' : 'mutation';
   }
-  if (args[0] === 'workflow') return ['list', 'proposals', 'proposal', 'proposal-status'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
+  if (args[0] === 'workflow') return ['list', 'proposals', 'proposal', 'proposal-status', 'check'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
   if (args[0] === 'phase') return ['show', 'draft-check', 'prepublish'].includes(args[1] ?? '')
     ? 'read' : 'mutation';
   if (args[0] === 'converge' || args[0] === 'explain') return 'read';

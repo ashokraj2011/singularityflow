@@ -225,6 +225,99 @@ exact and catalogs larger than the inline limit explicitly require further readi
 This does not establish native Copilot tool latency, billed-token savings, whole-Story
 speed or performance under an office laptop's antivirus/OneDrive policy.
 
+### Lightweight installed reads and display projections
+
+Ordinary JSON status now has a separate reader/router; human rendering, ledger detail
+and submission readiness retain the original detailed owner. The status chunk may
+statically reach only its core dependencies, with a 1.5 MiB closure ceiling. A separate
+`cold-narrow-reads` family owns progress, report, phase documents and next-step reads,
+with a 7 MiB ceiling. Home/Inbox/editor definitions remain separate. Maintenance
+definitions share the phase slot, preserving one instance per module and the existing
+20-file deployment limit. Source and installed parity still exercise human and refusal
+paths, hooks and worker isolation. No handler is executed by runtime warmup.
+
+Closed utility reads load accounting preferences from secured configuration bytes
+instead of discovering agents and checking every template just to initialize logging.
+The logging and harness preference validators are unchanged; the pure harness policy
+is shared with its original public exports. Enabled harness accounting still records
+events. Writers and unlisted forms retain full accounting preparation. Handler policy
+checks remain independent of observation preferences.
+
+Default workflow listing in that read context uses a display-only catalog projection.
+Each projected record declares `readiness: not-assessed` and binds the exact workflow
+source digest, approved commit when present, packaged catalog digest and running build.
+Agent discovery, dependency admission and template availability are not inferred from
+this view. `--for-start`, start/preflight, executable-definition loading, publication and
+approval keep their strict paths. The projection cannot occupy a strict-definition
+cache key. No projection persists across requests. Fresh scope/overlay tests cover
+edits, missing templates, malformed preferences, source changes and strict refusal after
+metadata display. Classification is captured before an approved reader opens a fresh
+overlay; source bytes are not carried across that authority boundary.
+
+Timing records now separate secured source-path checks, source I/O, parsing, definition
+validation, agent discovery, template checks, accounting preparation/preferences,
+workflow metadata and pending-proposal lookup. These spans nest and must not be added
+together. `SINGULARITY_FLOW_OUTPUT_TIMING=stderr-v1` additionally emits a bounded
+`@@sflow-output/v1` diagnostic with post-handler buffer/envelope serialization,
+rendering/emission durations and
+byte counts, never content or paths. It is opt-in and leaves stdout unchanged. The paired
+benchmark retains these diagnostics and nested spans; the old baseline has no output
+diagnostic, not a measured zero cost. Wall time outside named stages remains unassigned,
+not automatically attributed to Node startup. Full/bounded modes run on separate Windows
+hosts and must not be subtracted to claim a rendering overhead.
+
+Installed byte/module budgets are unchanged. Two source-graph ceilings increase by two
+to account for the extracted source reader and pure policy helper; the new installed
+read-closure byte ceilings guard the actual deployment cost.
+
+Qualification is retained in
+`benchmarks/utility-entry/light-read-projections.json` (baseline `c9e1d7be`,
+runtime `3629dbda`, native Windows run `39008579928`). Ten commands were paired
+before/after, in full and bounded output modes, on Windows Node 24.21.0 and this
+Mac's Node 25.5.0. Each mode retains three private-V8-cache first requests and nine
+subsequent fresh-process requests. Prewarming is performed before timing, with its
+cost recorded separately; it does not make work free. OS and Git fact caches are not
+flushed. In particular, the first baseline status sample creates persistent facts
+which later candidate samples can reuse, so its apparent cold gain is not strong
+evidence of a startup improvement.
+
+Windows full-output first-request medians, in milliseconds:
+
+| Command | Cold before → after | Prewarmed before → after |
+| --- | ---: | ---: |
+| Workflow list | 871 → 757 (13% faster) | 728 → 601 (17% faster) |
+| Agents list | 605 → 462 (24% faster) | 455 → 311 (32% faster) |
+| Next steps | 824 → 792 | 614 → 600 |
+| Phase documents | 760 → 756 | 565 → 559 |
+| Inputs preview | 832 → 806 | 621 → 631 |
+| Status | 215 → 199 | 158 → 159 |
+| Report | 474 → 477 | 334 → 330 |
+
+Bounded-output workflow/agent listings show similar Windows gains: 13%/24% cold
+and 17%/31% prewarmed. Most other Windows commands are approximately flat, including
+skill/instruction listings; the record retains every slowdown. Mac listings also
+improve, but other Mac commands have mixed results, including regressions. This is
+not a claim of universal command, whole-Story or native Copilot tool/token savings.
+Hosted Windows uses a short disposable TEMP and invokes Node directly: office-laptop
+antivirus, PowerShell/.cmd startup and actual Copilot hooks are not qualified here.
+
+The installed static status closure decreases from 1,636,828 to 1,373,296 bytes;
+document reads decrease from 9,252,100 to 7,121,613 bytes. Deployment remains 20 files.
+These byte reductions do not translate directly into proportional latency gains.
+Listing/accounting no longer checks 57 phase templates merely to display a catalog.
+Governed lifecycle reads still admit full policy: the Windows cold next-step profile
+includes roughly 176–180 ms of handler-module loading and 405–416 ms of execution,
+with about 42–47 ms of agent discovery and 77–82 ms of Git service work. Workflow
+listing still spends about 114–120 ms preparing accounting, 181–190 ms producing
+metadata and 116–136 ms looking up pending proposals. Spans are nested. YAML parsing
+is only about 3–6 ms, and full next-step/list post-handler output serialization and emission are
+each below 1 ms in these samples; neither explains the remaining latency. Status's
+first output renderer import costs about 20 ms and is now visible separately.
+
+Native Windows regressions: 81 passed, zero failed, one platform-specific unsafe
+cache-ancestor symlink test skipped; scripted lifecycle/output: 16 passed. VS Code
+typechecking and unchanged installed bundle budgets passed. Local checks also passed.
+
 ### Story operations
 
 - Every registered skill is audited; aliases delegate once to their canonical owner.

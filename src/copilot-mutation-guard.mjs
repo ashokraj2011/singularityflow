@@ -418,16 +418,18 @@ export async function mutationToolGuard(payload = {}) {
   const record = await turn(payload);
   if (!record) return {};
   const toolCalls = calls(payload);
-  if (!toolCalls.some(call => TERMINALS.has(call.name) || DELEGATION.has(call.name) || isEdit(call.name))) return {};
+  const guarded = toolCalls.filter(call => TERMINALS.has(call.name) || DELEGATION.has(call.name) || isEdit(call.name));
+  if (!guarded.length) return {};
   if (mutationTurnMode(record.skill) === 'import-team') return importTeamGuard(payload, record, toolCalls);
   if (mutationTurnMode(record.skill) === 'build-workflow') return buildWorkflowGuard(payload, record, toolCalls);
   let value;
   try { value = await currentContract(payload, record); }
   catch {
     // Explicit setup/diagnostics can rebuild the contract, but a missing cache never authorizes edits.
+    // A read in the same batch is judged as it is alone: this guard does not govern it.
     const cached = await boundedRecord(recordFile(payload)).catch(() => null);
     const bootstrap = { ...record, repositoryRoot: cached?.contract?.repositoryRoot ?? cached?.repositoryRoot };
-    if (toolCalls.every(call => TERMINALS.has(call.name) && bootstrapAllowed(call, bootstrap))) return {};
+    if (guarded.every(call => TERMINALS.has(call.name) && bootstrapAllowed(call, bootstrap))) return {};
     return mutationDenial(null, 'PHASE_MUTATION_CONTRACT_REQUIRED: refresh the exact binding; expired/corrupt permissions require a new explicit turn; do not discard work');
   }
   const contract = value.contract;

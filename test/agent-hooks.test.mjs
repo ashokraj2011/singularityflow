@@ -390,6 +390,88 @@ test('Copilot cannot mutate a consumed code generation or claim human authorship
   assert.match(wrongConfiguredProducer.permissionDecisionReason, /--authored deterministic --channel kernel-generator/);
 });
 
+// Copilot 1.0.9x runtimes send preToolUse as { sessionId, cwd, toolCalls: [{ id, name, args }] }.
+function toolCall(id, name, args) { return { id: `call_${id}`, name, args }; }
+
+test('a batched toolCalls payload passes the selection gate only when every call would', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-guard-batch-'));
+  const current = workflow();
+  await sessionStartAgentHook(root, definition, current, { sessionId: 'copilot-batch', source: 'startup' });
+  const batch = (...toolCalls) => agentGuardHook(root, definition, current, { sessionId: 'copilot-batch', cwd: root, toolCalls });
+  const attach = toolCall(1, 'bash', { command: 'singularity-flow session attach HOOK-1' });
+  const probe = toolCall(2, 'bash', { command: 'git status --short --branch' });
+  const edit = toolCall(3, 'edit', { path: 'src/app.js' });
+
+  assert.deepEqual(await batch(attach, probe), {}, 'every call is a permitted session-management call');
+  const denied = await batch(edit);
+  assert.equal(denied.permissionDecision, 'deny');
+  assert.match(denied.permissionDecisionReason, /before using 'edit'/);
+  const mixed = await batch(attach, edit, probe);
+  assert.equal(mixed.permissionDecision, 'deny', 'one gated call denies the whole batch');
+  assert.match(mixed.permissionDecisionReason, /before using 'edit'.*session attach HOOK-1/);
+  assert.deepEqual(await batch(toolCall(4, 'bash', JSON.stringify({ command: 'singularity-flow session attach HOOK-1' }))), {},
+    'arguments may arrive as a JSON string');
+
+  // An empty or malformed batch is read as the single-call shape; a malformed entry is an unnamed tool.
+  assert.deepEqual(await agentGuardHook(root, definition, current, { toolCalls: [],
+    toolName: 'bash', toolArgs: { command: 'singularity-flow session attach HOOK-1' } }), {});
+  assert.equal((await agentGuardHook(root, definition, current, { toolCalls: 'edit',
+    toolName: 'edit', toolArgs: { path: 'src/app.js' } })).permissionDecision, 'deny');
+  assert.match((await batch(attach, null)).permissionDecisionReason, /before using 'this tool'/);
+
+  await activateWorkItemSession(root, definition, current);
+  assert.deepEqual(await batch(attach, edit), {}, 'a selected work item lifts the gate for every call');
+});
+
+test('session-only, read-only agent and published-generation checks see every batched call', async () => {
+  const status = toolCall(1, 'bash', { command: 'singularity-flow session status --json' });
+  const edit = toolCall(2, 'edit', { path: 'src/app.js' });
+
+  const sessionRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-guard-batch-session-'));
+  const sessionStory = workflow({ workItemSelection: 'off', requireBeforeTools: true });
+  await activateWorkItemSession(sessionRoot, definition, sessionStory);
+  await recordCopilotTurnIntent(sessionRoot, { sessionId: 'copilot-batch', prompt: '/sflow-session HOOK-1' });
+  const inSession = (...toolCalls) => agentGuardHook(sessionRoot, definition, sessionStory, { sessionId: 'copilot-batch', toolCalls });
+  assert.deepEqual(await inSession(status, toolCall(3, 'bash', { command: 'singularity-flow nextsteps HOOK-1 --json' })), {});
+  const setup = await inSession(status, edit);
+  assert.equal(setup.permissionDecision, 'deny');
+  assert.match(setup.permissionDecisionReason, /session-setup-only turn/);
+  await clearCopilotTurnIntent(sessionRoot, 'copilot-batch');
+  assert.deepEqual(await inSession(status, edit), {});
+
+  const reviewRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-guard-batch-review-'));
+  const reviewStory = workflow({ workItemSelection: 'off', requireBeforeTools: false });
+  await setAgentSession(reviewRoot, definition, { name: 'User', email: 'user@example.test' }, 'architect', 'HOOK-1', { phaseId: 'design' });
+  await setNativeCopilotAgentSession(reviewRoot, { copilotAgent: 'peer', source: 'same-name',
+    agent: { id: 'peer', sha256: 'review-sha', metadata: { 'sflow-mode': 'read-only-review' } } });
+  const inReview = (...toolCalls) => agentGuardHook(reviewRoot, definition, reviewStory, { toolCalls });
+  const context = toolCall(4, 'bash', { command: 'singularity-flow review-source context design --json' });
+  assert.notEqual((await inReview(status, context)).permissionDecision, 'deny');
+  const approve = await inReview(context, toolCall(5, 'bash', { command: 'singularity-flow approve design' }));
+  assert.equal(approve.permissionDecision, 'deny');
+  assert.match(approve.permissionDecisionReason, /is read-only/);
+
+  const codeRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-guard-batch-consumed-'));
+  const codeStory = workflow({ workItemSelection: 'off', requireBeforeTools: false });
+  codeStory.currentPhase = 'implementation';
+  codeStory.phases.implementation = {
+    id: 'implementation', status: 'in_progress', generation: 1, defaultAgent: 'developer',
+    generationPolicy: { task: 'code' }, generationIntent: { generation: 1, status: 'consumed' }
+  };
+  await activateWorkItemSession(codeRoot, definition, codeStory);
+  const inCode = (...toolCalls) => agentGuardHook(codeRoot, definition, codeStory, { toolCalls });
+  const submit = toolCall(6, 'run_in_terminal', { command: 'singularity-flow submit implementation --json' });
+  const recover = toolCall(7, 'run_in_terminal', { command: 'singularity-flow recover HOOK-1 --phase implementation --json' });
+  const npmTest = toolCall(8, 'run_in_terminal', { command: 'npm test' });
+  assert.deepEqual(await inCode(submit, recover), {});
+  const immutable = await inCode(submit, npmTest);
+  assert.equal(immutable.permissionDecision, 'deny');
+  assert.match(immutable.permissionDecisionReason, /already published and immutable/);
+  const authorship = await inCode(npmTest,
+    toolCall(9, 'run_in_terminal', { command: 'singularity-flow phase publish implementation --authored human' }));
+  assert.match(authorship.permissionDecisionReason, /configured producer/, 'the first check that denies any call gives the reason');
+});
+
 test('a conversation opened after the approval boundary keeps the Story this checkout selected', async () => {
   const story = (contextPolicy) => ({
     workItem: { id: 'HOOK-1' }, currentPhase: 'implementation', phaseOrder: ['design', 'implementation'],

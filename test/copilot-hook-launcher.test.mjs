@@ -191,6 +191,49 @@ test('every packaged bash hook accepts VS Code and CLI roots, preferring the cur
   }
 });
 
+test('the packaged preToolUse hook judges a batched toolCalls payload call by call', {
+  skip: process.platform === 'win32'
+}, async t => {
+  const item = await fixture(t);
+  const bin = path.join(item.directory, 'host-bin');
+  await mkdir(bin);
+  await symlink(process.execPath, path.join(bin, 'node'));
+  await symlink(cli, path.join(bin, 'singularity-flow'));
+  const commands = Object.fromEntries(await manifestCommands('bash'));
+  const hook = (action, payload) => {
+    const result = spawnSync('/bin/bash', ['-c', commands[action]], {
+      cwd: item.cwd, env: { ...rootEnvironment(item.env, { PLUGIN_ROOT: pluginRoot }), PATH: `${bin}:/usr/bin:/bin` },
+      input: JSON.stringify(payload), encoding: 'utf8', timeout: 30_000
+    });
+    assert.equal(result.status, 0, `${action}: ${result.stderr}`);
+    return JSON.parse(result.stdout);
+  };
+  // Copilot 1.0.9x sends { sessionId, cwd, toolCalls: [{ id, name, args }] } and reads one decision.
+  const binding = { sessionId: 'batched-session', cwd: item.cwd };
+  const workspace = { id: 'call_1', name: 'bash', args: { command: 'singularity-flow workspace current --json' } };
+  const view = { id: 'call_2', name: 'view', args: { path: path.join(item.cwd, 'notes.md') } };
+  const edit = { id: 'call_3', name: 'edit', args: { path: 'src/App.jsx' } };
+  const search = { id: 'call_4', name: 'glob', args: { pattern: '**/*.jsx', paths: '/' } };
+  assert.deepEqual(hook('boundary-turn', { ...binding, prompt: '/sf-code' }), {});
+
+  assert.deepEqual(hook('boundary-guard', { ...binding, toolCalls: [workspace, view] }), {},
+    'a read beside the permitted bootstrap command is judged as it is alone');
+  const denied = hook('boundary-guard', { ...binding, toolCalls: [edit] });
+  assert.equal(denied.permissionDecision, 'deny');
+  assert.match(denied.permissionDecisionReason, /PHASE_MUTATION_CONTRACT_REQUIRED/);
+  assert.deepEqual(hook('boundary-guard', { ...binding, toolCalls: [workspace, view, edit] }), denied,
+    'one denied call denies the batch with its reason');
+  assert.deepEqual(hook('boundary-guard', { ...binding, toolName: 'edit', toolArgs: edit.args }), denied,
+    'the single-call shape gets the same answer');
+  const discovery = hook('boundary-guard', { ...binding, toolCalls: [view, search] });
+  assert.equal(discovery.permissionDecision, 'deny');
+  assert.match(discovery.permissionDecisionReason, /must not discover a repository/);
+
+  assert.deepEqual(hook('boundary-end', binding), {});
+  assert.deepEqual(hook('boundary-guard', { ...binding, toolCalls: [workspace, view, edit, search] }), {},
+    'outside an explicit SFlow turn no batch is gated');
+});
+
 test('every bash hook diagnoses missing, empty or stale plugin roots before launching', {
   skip: process.platform === 'win32'
 }, async t => {

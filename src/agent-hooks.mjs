@@ -218,12 +218,18 @@ function parsedToolArgs(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
-function normalizedToolPayload(payload = {}) {
-  return {
-    ...payload,
-    toolName: payload.toolName ?? payload.tool_name ?? null,
-    toolArgs: parsedToolArgs(payload.toolArgs ?? payload.tool_input)
-  };
+// Copilot runtimes since 1.0.9x send `toolCalls: [{ id, name, args }]` instead of one
+// toolName/toolArgs pair, and take one decision for the whole payload. Each call becomes its own
+// payload so every check sees every call; an empty or malformed batch is read as the old shape.
+function normalizedToolCalls(payload = {}) {
+  const { toolCalls, ...shared } = payload;
+  const calls = Array.isArray(toolCalls) && toolCalls.length ? toolCalls
+    : [{ name: payload.toolName ?? payload.tool_name, args: payload.toolArgs ?? payload.tool_input }];
+  return calls.map((call) => ({
+    ...shared,
+    toolName: call?.name ?? call?.toolName ?? call?.tool_name ?? null,
+    toolArgs: parsedToolArgs(call?.args ?? call?.toolArgs ?? call?.tool_input)
+  }));
 }
 
 function commandText(toolArgs) {
@@ -400,22 +406,26 @@ function isAgentToolCall(payload) {
 
 export async function agentGuardHook(root, definition, workflow, payload = {}) {
   if (readCopilotMode().paused) return {};
-  payload = normalizedToolPayload(payload);
+  // Each check runs over every call in the order below, so a batch is denied exactly when one of
+  // its calls would be denied alone, with the reason of the first check that denies.
+  const calls = normalizedToolCalls(payload);
   // Work-item selection cannot be satisfied on an initiative branch, so denying tools there blocks
   // governed initiative work permanently rather than protecting anything. Lifecycle mutation stays
   // gated by the initiative's own phase, approval, and evidence checks.
   const log = repositoryLogger(root, definition, {
-    context: { hook: 'agent-guard', toolName: payload.toolName ?? null }
+    context: { hook: 'agent-guard', toolName: calls.length === 1 ? calls[0].toolName : calls.map((call) => call.toolName) }
   });
   const selected = await loadSession(root, { required: false });
   if (['read-only', 'read-only-review'].includes(selected?.nativeAgentMode)
-      && (isCopilotRepositoryMutation(payload) || readOnlyLifecycleCall(payload))) {
+      && calls.some((call) => isCopilotRepositoryMutation(call) || readOnlyLifecycleCall(call))) {
     return { permissionDecision: 'deny', permissionDecisionReason:
       `Native agent '${selected.nativeGovernedAgent}' is read-only. It may inspect and retain its review packet, not author, submit, approve, acknowledge, or advance the Story. Return control to the configured phase author or an authorized human; the shared author session is preserved.` };
   }
   const turnIntent = await loadCopilotTurnIntent(root, payload.sessionId ?? payload.session_id ?? null);
-  if (turnIntent?.intent === 'session-only' && !isSessionBoundaryToolCall(payload)) {
-    log.warn('hook.guard.deny', `denied '${payload.toolName ?? 'tool'}'`, {
+  const setupDenied = turnIntent?.intent === 'session-only'
+    ? calls.find((call) => !isSessionBoundaryToolCall(call)) : null;
+  if (setupDenied) {
+    log.warn('hook.guard.deny', `denied '${setupDenied.toolName ?? 'tool'}'`, {
       reason: 'session-only turn',
       workId: turnIntent.workId ?? null
     });
@@ -430,7 +440,7 @@ export async function agentGuardHook(root, definition, workflow, payload = {}) {
     return {};
   }
   const phase = workflow ? currentPhase(workflow) : null;
-  if (workflow && copilotPublicationAuthorshipViolation(payload, phase)) {
+  if (workflow && calls.some((call) => copilotPublicationAuthorshipViolation(call, phase))) {
     return {
       permissionDecision: 'deny',
       permissionDecisionReason: `A Copilot-issued publication must use the phase's configured producer. Run '${phasePublicationCommand(phase)}'. A human may use manual authorship only from their own terminal action.`
@@ -439,8 +449,8 @@ export async function agentGuardHook(root, definition, workflow, payload = {}) {
   const consumedCodeGeneration = phaseRequiresCodeDelivery(phase)
     && phase?.generationIntent?.status === 'consumed'
     && Number(phase.generationIntent.generation) === Number(phase.generation);
-  if (consumedCodeGeneration && (isCopilotRepositoryMutation(payload)
-      || !isConsumedGenerationTerminalCallAllowed(payload, phase))) {
+  if (consumedCodeGeneration && calls.some((call) => isCopilotRepositoryMutation(call)
+      || !isConsumedGenerationTerminalCallAllowed(call, phase))) {
     return {
       permissionDecision: 'deny',
       permissionDecisionReason: `Generation ${phase.generation} of '${phase.id}' is already published and immutable. Do not change repository bytes or run ad-hoc commands. Run 'singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json' and follow its returned action: submission when the bytes are unchanged, otherwise review its exact digest and begin the next generation before editing.`
@@ -448,14 +458,15 @@ export async function agentGuardHook(root, definition, workflow, payload = {}) {
   }
   const status = await agentSessionStatus(root, definition, workflow);
   const blocked = status.workItemSelectionRequired;
-  if (!status.policy?.requireBeforeTools || !blocked || isAgentToolCall(payload)) {
+  const gated = status.policy?.requireBeforeTools && blocked ? calls.find((call) => !isAgentToolCall(call)) : null;
+  if (!gated) {
     log.debug('hook.guard.allow', null, {
       reason: !status.policy?.requireBeforeTools ? 'requireBeforeTools disabled' : !blocked ? 'session complete' : 'session-management tool',
       workId: status.workId ?? null
     });
     return {};
   }
-  log.warn('hook.guard.deny', `denied '${payload.toolName ?? 'tool'}'`, {
+  log.warn('hook.guard.deny', `denied '${gated.toolName ?? 'tool'}'`, {
     reason: 'work-item selection required',
     workId: status.workId ?? null,
     workItemSelectionRequired: status.workItemSelectionRequired,
@@ -467,7 +478,7 @@ export async function agentGuardHook(root, definition, workflow, payload = {}) {
   // not found", the assistant falls back to composing raw shell orientation commands, those are not
   // on the allowlist, and the loop repeats until the human gives up. So each refusal now states the
   // exact CLI remedy for the missing work-item selection and says who can run it.
-  const tool = payload.toolName ?? 'this tool';
+  const tool = gated.toolName ?? 'this tool';
   if (status.workItemSelectionRequired) {
     const candidate = status.workId ?? status.candidateWorkId ?? null;
     const attach = `singularity-flow session attach ${candidate ?? '<WORK-ID>'}`;

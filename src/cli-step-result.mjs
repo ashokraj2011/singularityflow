@@ -33,6 +33,9 @@ export function stepFailureSummary(result) {
 }
 
 export function stepRefusal(result) {
+  // A child can print a success packet and then hang or overflow its output buffer. An incomplete
+  // process is still an execution failure; never relay that earlier packet as the final result.
+  if (result.timedOut || result.processError || result.status == null && result.signal) return null;
   // Narrated CommandResult failures have outcome/why/next instead of an error object.
   return object(result.value) ? result.value : null;
 }

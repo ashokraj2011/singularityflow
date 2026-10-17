@@ -56,9 +56,12 @@ test('process deadlines, output limits and first meaningful text errors are reta
     assert.deepEqual(error.relayedResult, narrated); return true;
   });
   for (const [processCode, expected] of [['ETIMEDOUT', 'CLI_STEP_TIMEOUT'], ['ENOBUFS', 'CLI_STEP_OUTPUT_TOO_LARGE']]) {
-    const result = capturedStepResult({ status: null, signal: 'SIGTERM', error: { code: processCode, message: 'Child did not finish.' } });
+    const result = capturedStepResult({ status: null, signal: 'SIGTERM',
+      stdout: JSON.stringify({ schemaVersion: 1, status: 'ready' }),
+      error: { code: processCode, message: 'Child did not finish.' } });
     assert.throws(() => stop(result, 'phase publish'), error => {
       assert.equal(error.code, expected); assert.equal(error.details.execution.processCode, processCode);
+      assert.equal(error.relayedResult, undefined, 'a packet printed before a deadline is not process completion');
       assert.equal(error.details.execution.signal, 'SIGTERM');
       assert.equal(refusalEnvelope(error).error.details.execution.processCode, processCode); return true;
     });

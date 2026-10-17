@@ -81,6 +81,15 @@ from three to two without conflating bootstrap and current policy. Source fallba
 workflow/agent catalogs load 246/238 engine modules instead of 608/614, with
 accounting retained and no legacy dispatcher or model runner import.
 
+Native Windows qualification also covers source/bundle parity, scoped catalog
+isolation, pause-before-Git, the scripted four-phase lifecycle and bounded output.
+Configuration fault-injection fixtures were made genuinely portable: file-URL
+imports, legal filenames, a native executable bridge, exact quoted arguments,
+binary stream draining and BOM-free stdin. Their corrected end-to-end checks ran
+in a follow-up qualification. The bridge's C# compiler is a test-only requirement,
+not a product dependency. Production object/integrity validation was not weakened.
+One pre-existing Windows symlink test is skipped where unsupported.
+
 ### Story operations
 
 - Every registered skill is audited; aliases delegate once to their canonical owner.

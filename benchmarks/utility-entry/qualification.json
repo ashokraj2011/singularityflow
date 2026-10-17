@@ -4,7 +4,17 @@
   "baselineCommit": "987b0f8a24d90c38e3527134f0b9abf06e7d1590",
   "runtimeCommit": "4bd003e0f9047b2c657e9c8f1ba525080bbc6907",
   "windowsCiCommit": "db767e95923376c7d4d6ae9483521430b1d7bd04",
-  "windowsRunId": 38987660713,
+  "windowsPerformanceAndCoreRunId": 38987660713,
+  "windowsFinalValidationRunId": 38990518719,
+  "windowsFinalValidationCiCommit": "27d92754627793b4fa812fc1b74522cc5201431c",
+  "windowsFinalChecks": {
+    "passed": 9,
+    "failed": 0,
+    "skipped": 0,
+    "typecheck": "passed",
+    "bundleBudget": "passed"
+  },
+  "validationNote": "Core catalog/scoping, source/bundle parity, scripted four-phase lifecycle and bounded output steps passed in the performance/core run. Existing Windows fault-fixture failures were corrected and rechecked in the final validation run; no production integrity parser relaxation was retained.",
   "date": "2026-10-17",
   "protocol": {
     "files": 1000,

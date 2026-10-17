@@ -128,10 +128,10 @@ Usage:
   singularity-flow agent [WORK-ID] [--agent ID]
   singularity-flow session current|status|candidates|doctor [--json]
   singularity-flow session current --for-agent --json
-  singularity-flow session candidates [--workspace WORKSPACE --repository ID] [--table | --json] [--diagnostics]
+  singularity-flow session candidates [--workspace WORKSPACE --repository ID] [--table | --json] [--diagnostics] [--refresh]
   singularity-flow session workspace <WORKSPACE> [--repository ID] [--story ID] [--json]
   singularity-flow session attach <WORK-ID> [--workspace WORKSPACE --repository ID] [--json]
-  singularity-flow session open [<WORK-ID>] [--workspace WORKSPACE --repository ID] [--json]  Without an ID: the Story table. With one: open or attach it, check the binding, brief context and next steps
+  singularity-flow session open [<WORK-ID>] [--workspace WORKSPACE --repository ID] [--json] [--refresh]  Without an ID: the Story table. With one: open or attach it, check the binding, brief context and next steps
   singularity-flow session open-local <WORK-ID> [--workspace WORKSPACE --repository ID] [--json]
   singularity-flow session repair-selection <WORK-ID> --confirm <WORK-ID> [--json]
   singularity-flow session context [--work-id WORK-ID] [--flight-plan CFP-ID]

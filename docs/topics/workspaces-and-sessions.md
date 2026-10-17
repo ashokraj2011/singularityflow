@@ -211,9 +211,9 @@ Without a work ID it checks the pause state, reads the active workspace selectio
 selectors are given, and returns the candidate table with `status: "choose"`: choosing a Story
 stays the person's decision. With a work ID it runs `open-local`, falls back to `attach` only on
 the two codes above, checks `session status` at the returned checkout (ready, the same Story, the
-same agent), and returns the brief context and the next steps with `status: "ready"`. Each step
-is the same command in its own process, so a refusal keeps that step's code, message and
-recovery plan.
+same agent), and returns the brief context and the next steps with `status: "ready"`. Read-only
+steps may reuse the loaded runtime; mutations retain their isolated processes. Each is the same
+command, so a refusal keeps that step's code, message and recovery plan.
 
 Story listings share the repository-check preferences: `cached` defaults to 30 minutes, `always`
 refreshes each time, and `manual` retains the last complete listing until invalidation or explicit

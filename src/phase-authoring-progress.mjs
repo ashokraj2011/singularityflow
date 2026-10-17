@@ -4,6 +4,7 @@ import { nextPhaseGeneration } from './phase-generation.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
+import { phaseAuthoredReviewArtifacts } from './artifact-review-read.mjs';
 
 export function phaseAuthoringProgress(workflow, phase, { draftEvidence = null } = {}) {
   if (!phase || phase.status !== 'in_progress' || workflow.currentPhase !== phase.id
@@ -38,7 +39,6 @@ export function phaseAuthoringProgress(workflow, phase, { draftEvidence = null }
 /** Only inspect the current prospective primary artifact; never recheck approved phases. */
 export async function readPhaseDraftEvidence(root, definition, workflow, phase, { changedPaths = null, observeFile = null } = {}) {
   if (!phase?.requiredArtifact?.path) return { draftExists: false, draftModified: false };
-  const { phaseAuthoredReviewArtifacts } = await import('./publication-preflight.mjs');
   const review = await phaseAuthoredReviewArtifacts(root, definition, workflow, phase, { observeFile });
   const primary = review.artifacts.find(artifact => artifact.scope === 'primary');
   const baseline = phase.authoringBaseline;

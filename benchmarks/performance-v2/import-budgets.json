@@ -2,7 +2,7 @@
   "format": 1,
   "measurement": "Repository-local static ESM closure; dynamic first-use imports excluded. Runtime source/bundle parity is tested separately.",
   "source": [
-    { "entry": "src/commands/start.mjs", "maximumModules": 434,
+    { "entry": "src/commands/start.mjs", "maximumModules": 435,
       "forbidden": ["src/cli.mjs", "src/commands/legacy.mjs", "src/worldmodel.mjs", "src/model-runner.mjs", "src/editor.mjs"] },
     { "entry": "src/commands/workspace.mjs", "maximumModules": 27 },
     { "entry": "src/commands/capability.mjs", "maximumModules": 12 },

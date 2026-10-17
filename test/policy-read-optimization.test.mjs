@@ -14,6 +14,8 @@ import { parseAgentDependencies as publicParser } from '../src/agents.mjs';
 import { loadWorkflow as publicWorkflowRead, workflowPath as publicWorkflowPath } from '../src/state.mjs';
 import { loadWorkflow } from '../src/story-workflow-read.mjs';
 import { workflowPath } from '../src/story-paths.mjs';
+import { authoredArtifactFingerprint, phaseAuthoredReviewArtifacts } from '../src/artifact-review-read.mjs';
+import { authoredArtifactFingerprint as publicFingerprint, phaseAuthoredReviewArtifacts as publicArtifacts } from '../src/publication-preflight.mjs';
 
 async function repository(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-policy-read-'));
@@ -32,6 +34,8 @@ test('pure agent parsing is the existing public parser, including its strict ref
 test('the lifecycle facade retains the same canonical strict read and path implementations', () => {
   assert.equal(publicWorkflowRead, loadWorkflow);
   assert.equal(publicWorkflowPath, workflowPath);
+  assert.equal(publicFingerprint, authoredArtifactFingerprint);
+  assert.equal(publicArtifacts, phaseAuthoredReviewArtifacts);
 });
 
 test('immutable JSON cache shares no mutable objects and keys exact UTF-8 bytes', () => {

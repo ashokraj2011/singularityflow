@@ -17,14 +17,16 @@
 /**
  * Source with block and line comments removed.
  *
- * Deliberately not a parser. It is wrong inside a string literal containing `//` — a URL, say — and
- * that is an acceptable trade for a helper whose whole job is "does the *code* mention this?". A
- * test that needs to be right about string contents should not be grepping in the first place.
+ * Deliberately not a parser, but quoted single-line strings are stepped over: a glob such as
+ * `'refs/**' + '/*'` written as one literal, or `'A trailing /** is optional.'`, otherwise opens a
+ * block comment that runs to the next `*\/` and silently deletes tens of kilobytes of real code.
+ * Template literals and regular-expression literals are still read as code.
  */
 export function codeOnly(source) {
-  return String(source)
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^\s*\/\/.*$/gm, '');
+  return String(source).replace(
+    /'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|\/\*[\s\S]*?\*\/|^[ \t]*\/\/.*$/gm,
+    (match) => match.startsWith('/*') || /^[ \t]*\/\//.test(match) ? '' : match
+  );
 }
 
 /** How many times a name appears in the code, ignoring anything the file says about it. */

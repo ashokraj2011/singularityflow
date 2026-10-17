@@ -5238,7 +5238,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // A closed Inbox must not load the multi-panel runtime just to refresh an absent view.
       lazyPanelsRuntime?.InboxPanel.refreshCurrent();
       if (issue) throw new Error(issue);
-    }, afterCurrent);
+    // An explicit refresh must not merely join an advisory/cacheable read already in flight.
+    }, afterCurrent || force);
   };
   refreshStoriesAfterMapping = () => refreshRemoteStories({ afterCurrent: true });
   /**

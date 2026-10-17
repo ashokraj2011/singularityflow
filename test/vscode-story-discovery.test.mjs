@@ -1,6 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { discoverWorkspaceStoryRows, settleIndependentStoryRead, StoryRefreshGate } from '../apps/vscode/src/story-discovery.ts';
+
+test('explicit Refresh Stories cannot coalesce into an older advisory listing', async () => {
+  const source = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
+  assert.match(source, /\}, afterCurrent \|\| force\);/u);
+  assert.match(source, /refreshSnapshot: false, force: false/u, 'background discovery remains cacheable');
+  const gate = new StoryRefreshGate();
+  let finish;
+  const advisory = gate.run(1, () => new Promise(resolve => { finish = resolve; }));
+  let freshReads = 0;
+  const explicit = gate.run(1, async () => { freshReads++; }, true);
+  await Promise.resolve();
+  assert.equal(freshReads, 0);
+  finish();
+  await Promise.all([advisory, explicit]);
+  assert.equal(freshReads, 1);
+});
 
 test('an independent local read starts once and joins without serializing remote discovery', async () => {
   const seen = [];

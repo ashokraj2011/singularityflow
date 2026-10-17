@@ -6897,7 +6897,11 @@ test('clicking a remote Story without a local checkout attaches it and opens Cop
   const resumedExtension = loadExtension(resumedHost.api);
   await resumedExtension.activate(context(values));
   assert.ok(resumedHost.registered.executedCommands.some(
-    (entry) => entry.id === 'workbench.action.chat.newChat'));
+    (entry) => entry.id === 'workbench.action.chat.newChat'), JSON.stringify({
+    errors: resumedHost.registered.errors, warnings: resumedHost.registered.warnings,
+    output: resumedHost.registered.output.slice(-12),
+    panels: resumedHost.registered.panels.map(panel => ({ id: panel.id, html: panel.webview.html.slice(-12000) }))
+  }));
   const chat = resumedHost.registered.executedCommands.find(
     (entry) => entry.id === 'workbench.action.chat.open');
   assert.ok(chat, 'Copilot opens after strict attachment switches to the Story checkout');

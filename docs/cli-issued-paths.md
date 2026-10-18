@@ -61,8 +61,8 @@ Old package-managed agent digests remain registered for safe refresh; customized
 overwritten or silently re-pinned. Existing Stories retain their approved inputs and authority.
 Runtime prompt/tool guidance supplies the path rule without rewriting approved artifacts or reviews.
 Cached prompt bytes and recorded clarification answers are not invalidated just to change path
-guidance. Delivered fresh and cached prompts adapt only known legacy path-boundary sentences and
-end with the current runtime file protocol. Pinned role policy, agent hashes, canonical prompt
+guidance. Fresh agent bodies adapt only known legacy path-boundary sentences; complete fresh/cached
+prompts end with the current runtime override without rewriting embedded source evidence. Pinned role policy, agent hashes, canonical prompt
 receipts and approved documents remain intact. Review packets preserve original `instructions`
 and supply `effectiveInstructions` separately, clearly identifying the delivery-only overlay.
 Current CLI tool protocols provide the exact-file exception and output/staging corrections.

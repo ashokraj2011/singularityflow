@@ -29,6 +29,10 @@ test('legacy agent path wording is adapted only at delivery, idempotently and wi
   assert.equal(replay.match(/# Runtime CLI-issued file protocol/gu).length, 1);
   assert.match(replay, /It grants no additional write permission\.\n$/u);
   assert.doesNotMatch(replay, /Resolve every named path inside/u);
+  const pinnedEvidence = '# Pinned Story source\nResolve every named path inside the work-item directory or repository root.';
+  const delivered = withAgentPathProtocol(pinnedEvidence, { normalizeLegacy: false });
+  assert.ok(delivered.startsWith(pinnedEvidence), 'composed source/evidence bytes are never normalized as agent instructions');
+  assert.equal(withAgentPathProtocol(delivered, { normalizeLegacy: false }), delivered);
 });
 
 test('pinned and overridden legacy agents get compatible delivery while exact pins and review bindings stay unchanged', async () => {

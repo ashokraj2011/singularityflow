@@ -158,13 +158,12 @@ test('injectAgentPrompt replaces only the governed prompt body for a prompt-stud
   assert.deepEqual(injection.promptOverride, promptOverride);
 });
 
-test('injectAgentPrompt preserves pinned bytes while adding the current delivered file protocol', async () => {
+test('injectAgentPrompt leaves non-legacy prompts byte-exact; final composition owns the file protocol', async () => {
   const root = await fixtureRoot();
   const config = definition([{ when: {}, include: ['architecture/*'] }], 'append');
   config.agents.architect.prompt = '# Architect\n\nDesign carefully.\n';
   const { text } = await injectAgentPrompt(root, config, 'architect', {});
-  assert.ok(text.startsWith('# Architect\n\nDesign carefully.\n'));
-  assert.match(text, /# Runtime CLI-issued file protocol/u);
+  assert.equal(text, '# Architect\n\nDesign carefully.\n');
   assert.equal(config.agents.architect.prompt, '# Architect\n\nDesign carefully.\n');
 });
 

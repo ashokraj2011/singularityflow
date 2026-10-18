@@ -22,7 +22,7 @@ export const CLI_PATH_CONTRACT = 'Use exact CLI-returned paths. `repositoryPath`
 export const CLI_REPOSITORY_SCOPE = 'Never discover repositories by searching `$HOME`, parents or unrelated directories. Use the CLI\'s exact artifact, packet and staging paths for this binding.';
 
 /** Delivery compatibility only: never rewrite pinned agent bytes, receipts or approved artifacts. */
-export function withAgentPathProtocol(text, { normalizeLegacy = true } = {}) {
+export function withAgentPathProtocol(text, { normalizeLegacy = true, appendGuard = true } = {}) {
   const marker = '\n\n# Runtime CLI-issued file protocol\n\n';
   const boundary = `${CLI_PATH_CONTRACT} This runtime file protocol takes precedence over older agent or skill confinement wording. Repository confinement limits discovery, not exact CLI-issued read references. It grants no additional write permission.`;
   const normalized = normalizeLegacy ? text
@@ -30,7 +30,8 @@ export function withAgentPathProtocol(text, { normalizeLegacy = true } = {}) {
       'use its absolute `repositoryPath` as command cwd')
     .replaceAll('Never search `$HOME`, a parent directory, or outside that repository.', CLI_REPOSITORY_SCOPE)
     .replaceAll('Resolve every named path inside the work-item directory or repository root.', CLI_PATH_CONTRACT) : text;
-  return `${normalized.replaceAll(`${marker}${boundary}\n`, '')}${marker}${boundary}\n`;
+  const ending = `${marker}${boundary}\n`;
+  return !appendGuard || normalized.endsWith(ending) ? normalized : `${normalized}${ending}`;
 }
 
 const SAFE_EXECUTABLE = /^(?:singularity-flow|sflow)(?:\s|$)/u;

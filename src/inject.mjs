@@ -151,7 +151,7 @@ export async function injectAgentPrompt(root, definition, agentId, signals = {},
   const base = promptOverride?.text ?? agent.prompt;
   const { placeholder } = injectionConfig(definition);
   return {
-    text: withAgentPathProtocol(base.replaceAll(placeholder, '')),
+    text: withAgentPathProtocol(base.replaceAll(placeholder, ''), { appendGuard: false }),
     injection: {
       mode: 'off', placeholder, applied: false, matchedRules: 0, sections: [], modelCommit: null,
       depth: 'standard', evidence: false, requiredViews: [], requiredSelections: [], promptOverride

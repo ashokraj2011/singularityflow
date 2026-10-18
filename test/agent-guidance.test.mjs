@@ -26,13 +26,15 @@ test('legacy agent path wording is adapted only at delivery, idempotently and wi
   assert.match(effective, /takes precedence over older agent or skill confinement wording/u);
   assert.equal(withAgentPathProtocol(effective), effective);
   const replay = withAgentPathProtocol(`${effective}\n# Old skill\nNever search \`$HOME\`, a parent directory, or outside that repository. Resolve every named path inside the work-item directory or repository root.`);
-  assert.equal(replay.match(/# Runtime CLI-issued file protocol/gu).length, 1);
+  assert.ok(replay.endsWith(effective.slice(effective.indexOf('\n\n# Runtime CLI-issued file protocol'))));
   assert.match(replay, /It grants no additional write permission\.\n$/u);
   assert.doesNotMatch(replay, /Resolve every named path inside/u);
   const pinnedEvidence = '# Pinned Story source\nResolve every named path inside the work-item directory or repository root.';
   const delivered = withAgentPathProtocol(pinnedEvidence, { normalizeLegacy: false });
   assert.ok(delivered.startsWith(pinnedEvidence), 'composed source/evidence bytes are never normalized as agent instructions');
   assert.equal(withAgentPathProtocol(delivered, { normalizeLegacy: false }), delivered);
+  const quotedRuntime = `Source quotes a runtime block:\n${effective}\nEnd of pinned source.`;
+  assert.ok(withAgentPathProtocol(quotedRuntime, { normalizeLegacy: false }).startsWith(quotedRuntime));
 });
 
 test('pinned and overridden legacy agents get compatible delivery while exact pins and review bindings stay unchanged', async () => {

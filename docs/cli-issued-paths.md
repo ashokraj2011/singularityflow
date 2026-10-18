@@ -112,3 +112,20 @@ host syntax, retaining both distinct keys instead of skipping the test on Window
 passed typechecking, build and unchanged bundle budgets. Local install/release checking passed
 2,754 checks after this integration. The CI revision `da67555f` differs only by its temporary workflow;
 closing documentation does not change the qualified runtime or assertions.
+
+## Generated-output and legacy-prompt qualification
+
+The generated-read follow-up exercises production revision `dfeccd4f`. Native Node 22 run
+`39142268543` passed 124 contract tests and three built-host cases on each of macOS and Windows,
+with no failures or skips. Both hosts passed typechecking, builds and the unchanged bundle limits.
+Read-hint cleanup is best effort when a platform scanner holds a cache entry: once the turn's
+authority record is gone, leftover hints are inert and the next capture retries cleanup.
+
+Integration revision `cf160233` adds only the explicit reviewer-projection contract assertion:
+every original reviewer field must remain identical, while the delivered compatibility overlay is
+checked separately. This preserves the original immutable-binding assertion rather than removing it.
+Run `39142439257` verifies the full phase-entry, prompt-replay, hook, clarification and source-review
+CLI flows. Both macOS and Windows passed all 126 tests with no failures or skips. Combined with the
+contract and built-host groups, each platform passed 253 tests. Local release checking also passed
+all 2,754 checks. Latest main remained `3be26069` at the final pre-merge fetch.
+All qualification workflows remain isolated on the temporary CI branch and are not product assets.

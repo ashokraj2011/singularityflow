@@ -220,9 +220,15 @@ test('explicit takeover uses a published custom branch and returns the accepted 
   assert.equal(git(second, ['branch', '--show-current']), 'main');
   await rememberWorkspace(f.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY, await readWorkspace(f.workspacePath));
   f.flow(['workspace', 'use', f.workspacePath, '--repository', 'app', '--json']);
+  const selectedLocal = JSON.parse(f.flow(['session', 'open', 'CTX-STORY', '--workspace', f.workspacePath,
+    '--repository', 'app', '--json']).stdout);
+  const fromCanonical = f.flow(['phase', 'enter', '--for-agent', '--json'], { cwd: f.root });
+  assert.ok(fromCanonical.stdout.includes(JSON.stringify(selectedLocal.repositoryPath)),
+    'a native Copilot launcher on main must still reach its explicitly selected Story');
   for (const args of [['session', 'current'], ['phase', 'enter'], ['nextsteps']]) {
     const entry = f.flow([...args, '--context-root', taken.repositoryPath, '--for-agent', '--json'], { cwd: f.root });
     assert.match(entry.stdout, /"workId"\s*:\s*"CTX-STORY"/, args.join(' '));
+    assert.ok(entry.stdout.includes(JSON.stringify(taken.repositoryPath)), args.join(' '));
   }
   const hook = spawnSync(process.execPath, ['--input-type=module', '-e',
     `const m = await import(${JSON.stringify(new URL('../src/copilot-repository-boundary.mjs', import.meta.url).href)}); console.log(await m.resolveCopilotDiscoveryRoot({cwd: process.argv[1]}));`,

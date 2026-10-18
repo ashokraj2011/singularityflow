@@ -3,6 +3,7 @@ import { nextPhaseGeneration } from './phase-generation.mjs';
 import { constitutionPromptContext } from './constitution-prompt.mjs';
 import { withoutAttachedSkills, withoutTableSection } from './skill-library.mjs';
 import { resolvePersonalization, withReplyPersonalization } from './personalization.mjs';
+import { withAgentPathProtocol } from './safe-command-guidance.mjs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -701,7 +702,7 @@ async function compose(root, options, {
       console.error(`Grounding composition reused: ${existing.file}`);
       const executionEvidence = await phaseExecutionEvidence(root, definition, workflow, phase);
       const replyPrompt = withReplyPersonalization(
-        withExecutionEvidenceRefresh(existing.text, existing.record, executionEvidence), resolvePersonalization({ root }));
+        withAgentPathProtocol(withExecutionEvidenceRefresh(existing.text, existing.record, executionEvidence)), resolvePersonalization({ root }));
       if (!renderOnly && options['skip-prompt-audit'] !== true) {
         await recordCompositionPromptAudit(root, {
           text: replyPrompt,
@@ -1117,7 +1118,7 @@ async function compose(root, options, {
     console.error(`Grounding composition recorded: ${file}`);
   }
   // Retained grounding stays canonical; the audit describes the exact host-delivered prompt.
-  const replyPrompt = withReplyPersonalization(composedText, resolvePersonalization({ root }));
+  const replyPrompt = withReplyPersonalization(withAgentPathProtocol(composedText), resolvePersonalization({ root }));
   if (!renderOnly && options['skip-prompt-audit'] !== true) {
     await recordCompositionPromptAudit(root, {
       text: replyPrompt,

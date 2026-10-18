@@ -2,7 +2,7 @@
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
-import { lstat, mkdir, readFile, readdir, realpath, rename, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, realpath, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { deriveMutationContract, mutationContractPresentation, mutationDenial, mutationPathDecision, mutationTurnMode } from './phase-mutation-contract.mjs';
 import { copilotModeFile, readCopilotMode } from './copilot-mode.mjs';
@@ -36,12 +36,12 @@ async function atomicRecord(file, record) {
     await rename(temporary, file);
   } finally { await unlink(temporary).catch(() => {}); }
 }
-async function boundedRecord(file) {
+async function boundedRecord(file, kind = 'copilot-mutation-contract') {
   const stat = await lstat(file);
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 256 * 1024) throw new Error('Unsafe mutation record');
   const value = JSON.parse(await readFile(file, 'utf8'));
   const { integritySha256, ...content } = value;
-  if (value.kind !== 'copilot-mutation-contract' || integritySha256 !== digest(JSON.stringify(content))) throw new Error('Corrupt mutation record');
+  if (value.kind !== kind || integritySha256 !== digest(JSON.stringify(content))) throw new Error('Corrupt mutation record');
   return value;
 }
 async function turn(payload) {
@@ -123,6 +123,7 @@ export async function captureMutationTurn(payload, record, {
     root = candidate ? await realpath(candidate) : null;
     if (!root) throw new Error('No verified Story checkout');
     const value = await createRecord(payload, record, root, await load(root));
+    await rm(`${file}.issued`, { recursive: true, force: true }).catch(() => {});
     // One content-bound baseline, not a path/status-only baseline. It is deliberately lazy:
     // edit-tool interception needs no Git process; post-shell detection records its own baseline.
     await atomicRecord(file, value);
@@ -157,7 +158,10 @@ export async function captureMutationTurn(payload, record, {
 
 export async function clearMutationTurn(payload) {
   const file = recordFile(payload);
-  if (file) await unlink(file).catch(error => { if (error.code !== 'ENOENT') throw error; });
+  if (file) {
+    await unlink(file).catch(error => { if (error.code !== 'ENOENT') throw error; });
+    await rm(`${file}.issued`, { recursive: true, force: true });
+  }
 }
 
 function calls(payload) {
@@ -193,8 +197,8 @@ function targets(args) {
 }
 
 /** A correction hint, never automatic retargeting or a broader private-directory grant. */
-function stagingPathMismatch(contract, paths, cwd, operation) {
-  const issued = contract.allow.staging ?? [];
+function stagingPathMismatch(contract, paths, cwd, operation, outputPaths = null) {
+  const issued = outputPaths ?? contract.allow.staging ?? [];
   const corrections = [];
   for (const target of paths) {
     const absolute = editTarget(target, cwd);
@@ -212,9 +216,33 @@ function stagingPathMismatch(contract, paths, cwd, operation) {
   }
   if (!corrections.length) return null;
   return { permissionDecision: 'deny', next: [], pathCorrections: corrections,
-    permissionDecisionReason: `PHASE_MUTATION_STAGING_PATH_MISMATCH: ${corrections.map(entry =>
-      `${operation === 'read' ? 'read' : 'write'} the issued staging file at exactly ${entry.issuedPath}.`).join(' ')} `
+    permissionDecisionReason: `${outputPaths ? 'CLI_ISSUED_PATH_MISMATCH' : 'PHASE_MUTATION_STAGING_PATH_MISMATCH'}: ${corrections.map(entry =>
+      `${operation === 'read' ? 'read' : 'write'} the issued ${outputPaths ? 'output' : 'staging'} file at exactly ${entry.issuedPath}.`).join(' ')} `
       + 'Copy the CLI-returned path verbatim; repositoryPath is command cwd, not a file prefix. Correct only the tool target in this turn; do not recreate or move files, restart the phase or repeat human questions. No operation was retargeted or executed.' };
+}
+
+function issuedSuffix(file) {
+  const parts = file.split(path.sep), index = parts.lastIndexOf('singularity-flow');
+  return index < 0 ? null : parts.slice(index).join(path.sep);
+}
+function issuedReadFile(payload, turnId, suffix) {
+  return path.join(`${recordFile(payload)}.issued`, digest(turnId), `${digest(suffix)}.json`);
+}
+async function outputPathMismatch(payload, record, call) {
+  const owner = await boundedRecord(recordFile(payload)).catch(() => null);
+  const root = owner?.contract?.repositoryRoot ?? owner?.repositoryRoot;
+  if (!root || owner.turnId !== record.turnId || Date.now() - owner.recordedAt > MAX_AGE) return null;
+  for (const target of targets(call.args)) {
+    const absolute = editTarget(target, call.args.cwd ?? payload.cwd ?? root);
+    const suffix = absolute && issuedSuffix(absolute);
+    if (!suffix || ![path.join(root, suffix), path.join(root, '.git', suffix)].includes(absolute)) continue;
+    const issued = await boundedRecord(issuedReadFile(payload, record.turnId, suffix), 'copilot-issued-read').catch(() => null);
+    if (issued?.root !== root || issued.turnId !== record.turnId || typeof issued.path !== 'string') continue;
+    const correction = stagingPathMismatch({ repositoryRoot: root }, [target],
+      call.args.cwd ?? payload.cwd ?? root, 'read', [issued.path]);
+    if (correction) return correction;
+  }
+  return null;
 }
 function scopedShellCommand(call, value) {
   let command = call.args.command ?? call.args.cmd ?? call.args.script;
@@ -460,6 +488,14 @@ export async function mutationToolGuard(payload = {}) {
   const guarded = toolCalls.filter(call => TERMINALS.has(call.name) || DELEGATION.has(call.name) || isEdit(call.name));
   const stagingReads = toolCalls.filter(call => FILE_READS.has(call.name)
     && targets(call.args).some(target => /(?:^|[\\/])singularity-flow[\\/]/u.test(target)));
+  if (stagingReads.length) {
+    // Read references are hints, never write grants. Use the integrity-bound live turn record:
+    // no Story/config reload, Git lookup or directory search is needed to correct an output read.
+    for (const call of stagingReads) {
+      const correction = await outputPathMismatch(payload, record, call);
+      if (correction) return correction;
+    }
+  }
   if (!guarded.length) {
     if (!stagingReads.length) return {}; // Ordinary file reads keep the existing no-policy-load path.
     const current = await currentContract(payload, record).catch(() => null);
@@ -680,6 +716,28 @@ export async function issueMutationStaging(root, target, purpose) {
     if (!mutationPathDecision(value.contract, target, root).allowed) throw new Error('Unsafe private staging target');
     await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
     await atomicRecord(file, value);
+  }
+}
+
+/** Register exact generated files as read references only, scoped to live turns in this checkout. */
+export async function issueMutationReadPaths(root, targets) {
+  if (readCopilotMode().paused || !targets.length) return;
+  root = await realpath(root);
+  const paths = [...new Set(targets.map(target => path.resolve(target)))];
+  for (const name of (await readdir(directory()).catch(() => [])).filter(name => /^[a-f0-9]{64}\.mutation\.json$/u.test(name))) {
+    const file = path.join(directory(), name);
+    const value = await boundedRecord(file).catch(() => null);
+    if ((value?.contract?.repositoryRoot ?? value?.repositoryRoot) !== root) continue;
+    const record = await turn({ sessionId: value.sessionId });
+    if (!record || record.turnId !== value.turnId || Date.now() - value.recordedAt > MAX_AGE) continue;
+    // Immutable per-file entries avoid read/modify/write races between parallel CLI results.
+    // They are removed at turn replacement/end; output pruning still owns the actual files.
+    for (const target of paths) {
+      const suffix = issuedSuffix(target);
+      if (suffix) await atomicRecord(issuedReadFile({ sessionId: value.sessionId }, value.turnId, suffix), {
+        kind: 'copilot-issued-read', root, turnId: value.turnId, path: target
+      });
+    }
   }
 }
 

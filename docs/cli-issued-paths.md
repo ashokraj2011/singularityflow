@@ -37,6 +37,17 @@ under the checkout receives `PHASE_MUTATION_STAGING_PATH_MISMATCH` and `pathCorr
 path, exact issued path and operation. The operation is denied, not retargeted or executed. Correct
 only the file-tool target in the same turn. There is no prepare/review restart route.
 
+Generated context and output files use the same contract, not just writable staging. The bounded
+JSON/text emitters register the exact complete JSON file and every externalized text file, including
+phase context, reviewer guidance, source text, artifacts, catalogs, refusals and diagnostic text.
+A reconstructed read receives `CLI_ISSUED_PATH_MISMATCH` with the exact issued path. It never grants
+write permission or automatically opens, moves, copies, regenerates or retargets a file.
+
+Read references are integrity-checked, per-file records scoped to a live turn and its verified
+checkout. Parallel CLI results cannot overwrite each other's records. Turn replacement/end removes
+the private hint cache; normal output retention still owns generated files. No directory scan or
+Git subprocess is added to read interception. Setup turns without a selected Story work too.
+
 The read correction is deliberately narrow. A same-basename document elsewhere, an unknown file,
 an exact path whose file has not been written yet, and native reads after the SFlow turn ends keep
 their existing behavior and errors. Ordinary file reads retain the existing no-policy-load path;
@@ -50,7 +61,11 @@ Old package-managed agent digests remain registered for safe refresh; customized
 overwritten or silently re-pinned. Existing Stories retain their approved inputs and authority.
 Runtime prompt/tool guidance supplies the path rule without rewriting approved artifacts or reviews.
 Cached prompt bytes and recorded clarification answers are not invalidated just to change path
-guidance; current CLI tool protocols provide the exact-file exception and staging corrections.
+guidance. Delivered fresh and cached prompts adapt only known legacy path-boundary sentences and
+end with the current runtime file protocol. Pinned role policy, agent hashes, canonical prompt
+receipts and approved documents remain intact. Review packets preserve original `instructions`
+and supply `effectiveInstructions` separately, clearly identifying the delivery-only overlay.
+Current CLI tool protocols provide the exact-file exception and output/staging corrections.
 This change does not stage, retain, approve or modify the user's actual review file.
 
 ## Qualification

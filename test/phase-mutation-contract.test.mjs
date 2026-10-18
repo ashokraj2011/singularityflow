@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -18,6 +18,96 @@ import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
 import { readCopilotStoryFollow } from '../src/copilot-story-follow.mjs';
 import { gitDir } from '../src/git-execution.mjs';
 import { recordCopilotSession } from '../src/session.mjs';
+import { boundedAgentOutput, boundedAgentText } from '../src/agent-output.mjs';
+
+test('all generated context, JSON, catalog, refusal and text files get exact read-only hints in linked worktrees', async t => {
+  const f = await fixture(t);
+  const checkout = path.join(path.dirname(f.root), 'Story Ω with spaces');
+  f.git(['worktree', 'add', '-qb', 'issued-output-story', checkout, 'HEAD']);
+  const payload = { cwd: checkout, sessionId: 'issued-output-review', prompt: '/sf-phase' };
+  const capture = (payload, record) => captureMutationTurn(payload, record,
+    { resolveRoot: async () => checkout, load: async () => f.accepted });
+  await recordRepositoryBoundaryTurn(payload, { captureMutation: capture });
+  const prose = Array.from({ length: 350 }, (_, i) => `Line ${i}: exact pinned context Ω.`).join('\n');
+  // Parallel responses must not lose each other's issued paths.
+  const views = await Promise.all(['sflow-phase-entry', 'source-review-agent-context', 'session-open', 'catalog', 'refusal']
+    .map(async resultType => JSON.parse(await boundedAgentOutput(JSON.stringify({
+      resultType, repositoryPath: checkout, workId: 'PMC-1', context: { text: prose },
+      artifact: { text: prose }, reviewer: { instructions: prose }
+    }), { cwd: checkout }))));
+  const files = [];
+  for (const view of views) {
+    const full = JSON.parse(await readFile(view.agentOutput.path, 'utf8'));
+    files.push(view.agentOutput.path, full.context.text.textFile, full.artifact.text.textFile, full.reviewer.instructions.textFile);
+  }
+  const textOutput = await boundedAgentText(prose, { cwd: checkout, kind: 'diagnostic' });
+  const textPath = textOutput.match(/The complete output is (.+) \(/u)[1];
+  files.push(textPath);
+  for (const exact of files) {
+    for (const prefix of [checkout, path.join(checkout, '.git')]) {
+      const wrong = path.join(prefix, 'singularity-flow', 'agent-results', path.basename(exact));
+      const decision = await mutationToolGuard({ ...payload, toolName: 'Read', toolArgs: { path: wrong, view_range: [121, 225] } });
+      assert.equal(decision.permissionDecision, 'deny', wrong);
+      assert.match(decision.permissionDecisionReason, /^CLI_ISSUED_PATH_MISMATCH/u);
+      assert.deepEqual(decision.pathCorrections, [{ attemptedPath: wrong, issuedPath: exact, operation: 'read' }]);
+      assert.deepEqual(decision.next, []);
+      await assert.rejects(readFile(wrong), error => ['ENOENT', 'ENOTDIR'].includes(error.code));
+    }
+    assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'read_file', toolArgs: { path: exact } }), {});
+    assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'view', toolArgs: { path: pathToFileURL(exact).href } }), {});
+    assert.equal((await mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: exact } })).permissionDecision, 'deny');
+  }
+  const missing = `${files[0]}.missing`;
+  assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'read', toolArgs: { path: missing } }), {});
+  await assert.rejects(readFile(missing), { code: 'ENOENT' });
+  const wrong = path.join(checkout, 'singularity-flow/agent-results', path.basename(files[0]));
+  assert.deepEqual(await mutationToolGuard({ ...payload, sessionId: 'different-chat', toolName: 'read', toolArgs: { path: wrong } }), {});
+  await recordRepositoryBoundaryTurn(payload, { captureMutation: capture });
+  assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'read', toolArgs: { path: wrong } }), {}, 'new turns cannot inherit old output hints');
+  const paused = process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
+  await setCopilotPaused(true);
+  assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'read', toolArgs: { path: wrong } }), {});
+  assert.ok(paused);
+});
+
+test('generated output hints work in every phase and custom author/review/session turn without granting writes', async t => {
+  const f = await fixture(t);
+  for (const id of ['specification', 'planning', 'implementation', 'convergence', 'verification', 'release', 'custom-intake', 'custom-repair']) {
+    f.workflow.currentPhase = id;
+    f.workflow.phaseOrder = [id];
+    f.workflow.phases = { [id]: { ...f.phase, id } };
+    await writeFile(f.workflowFile, JSON.stringify(f.workflow));
+    const payload = await f.enter(id === 'planning' ? '/sf-review-source' : id === 'custom-intake' ? '/sf-session' : '/sf-phase', id);
+    const view = JSON.parse(await boundedAgentOutput(JSON.stringify({ resultType: 'sflow-phase-entry', repositoryPath: f.root,
+      workId: 'PMC-1', phase: id, context: { text: 'Exact context.\n'.repeat(800) } }), { cwd: f.root }));
+    const full = JSON.parse(await readFile(view.agentOutput.path, 'utf8'));
+    const exact = full.context.text.textFile;
+    const wrong = path.join(f.root, 'singularity-flow/agent-results', path.basename(exact));
+    const decision = await mutationToolGuard({ ...payload, toolName: 'read_file', toolArgs: { filePath: wrong } });
+    assert.equal(decision.pathCorrections[0].issuedPath, exact, id);
+    assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'read_file', toolArgs: { filePath: exact } }), {}, id);
+  }
+});
+
+test('setup turns without a Story can correct generated reads, while real missing files and ended turns stay native', async t => {
+  const f = await fixture(t);
+  const payload = { cwd: f.root, sessionId: 'setup-output', prompt: '/sf-session' };
+  await recordRepositoryBoundaryTurn(payload, { captureMutation: (payload, record) => captureMutationTurn(payload, record, {
+    resolveRoot: async () => f.root, load: async () => { throw new Error('No Story selected'); }
+  }) });
+  const view = JSON.parse(await boundedAgentOutput(JSON.stringify({ resultType: 'session-open', repositoryPath: f.root,
+    context: { text: 'Read-only setup.\n'.repeat(800) } }), { cwd: f.root }));
+  const full = JSON.parse(await readFile(view.agentOutput.path, 'utf8'));
+  const exact = full.context.text.textFile;
+  const wrong = path.join(f.root, 'singularity-flow/agent-results', path.basename(exact));
+  assert.equal((await mutationToolGuard({ ...payload, toolName: 'Read', toolArgs: { path: wrong } })).pathCorrections[0].issuedPath, exact);
+  assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'Read', toolArgs: { path: path.join(f.root, 'docs', path.basename(exact)) } }), {});
+  await unlink(exact);
+  assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'Read', toolArgs: { path: exact } }), {});
+  await assert.rejects(readFile(exact), { code: 'ENOENT' });
+  await endRepositoryBoundaryTurn(payload);
+  assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'Read', toolArgs: { path: wrong } }), {});
+});
 
 async function fixture(t, phaseOverrides = {}) {
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'sflow-pmc-'));

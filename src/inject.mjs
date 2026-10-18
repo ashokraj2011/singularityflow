@@ -12,6 +12,7 @@ import { canonicalJson } from './records.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { tokenEconomyDigest } from './token-economy.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
+import { withAgentPathProtocol } from './safe-command-guidance.mjs';
 import { verifyTokenReductionShadow } from './token-reduction/shadow-record.mjs';
 
 const DEFAULT_INJECTION = { placeholder: '{{WORLD_MODEL}}', mode: 'append', maxBytes: 32768, rules: [] };
@@ -150,7 +151,7 @@ export async function injectAgentPrompt(root, definition, agentId, signals = {},
   const base = promptOverride?.text ?? agent.prompt;
   const { placeholder } = injectionConfig(definition);
   return {
-    text: base.replaceAll(placeholder, ''),
+    text: withAgentPathProtocol(base.replaceAll(placeholder, '')),
     injection: {
       mode: 'off', placeholder, applied: false, matchedRules: 0, sections: [], modelCommit: null,
       depth: 'standard', evidence: false, requiredViews: [], requiredSelections: [], promptOverride

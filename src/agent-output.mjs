@@ -284,6 +284,14 @@ async function prune(directory) {
   } catch { /* retention is best effort */ }
 }
 
+async function registerReadFiles(root, files) {
+  try { await (await import('./copilot-mutation-guard.mjs')).issueMutationReadPaths(root, files); }
+  catch (error) {
+    // Presentation bookkeeping must not turn a successful publication into a replayable failure.
+    console.error(`Warning: CLI-issued read-path hints could not be registered (${error.code ?? error.message}). Exact returned paths remain authoritative.`);
+  }
+}
+
 function repositoryOf(result, cwd) {
   const candidate = typeof result.repositoryPath === 'string' && path.isAbsolute(result.repositoryPath) ? result.repositoryPath : cwd;
   // Native real paths also expand Windows 8.3 aliases (e.g. a short TEMP path versus Git's long
@@ -387,6 +395,7 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
   const fullText = `${JSON.stringify(full, null, 2)}\n`;
   const file = path.join(target.directory, `${base}.json`);
   await writeAtomic(file, fullText, { mode: 0o600 });
+  await registerReadFiles(target.root, [file, ...texts.map(entry => entry.textFile)]);
   await prune(target.directory);
   const ranges = topLevelRanges(fullText);
   const relative = path.relative(target.root, file);
@@ -442,6 +451,7 @@ export async function boundedAgentText(text, { cwd = process.cwd(), budget = age
   const name = String(kind || 'text').replace(/[^A-Za-z0-9-]/gu, '-').slice(0, 48) || 'text';
   const file = path.join(target.directory, `${name}-${now.toISOString().replace(/[:.]/gu, '-')}-${sha256(text).slice(7, 15)}.txt`);
   await writeAtomic(file, text, { mode: 0o600 });
+  await registerReadFiles(target.root, [file]);
   await prune(target.directory);
   const lines = text.split('\n');
   if (lines.at(-1) === '') lines.pop();

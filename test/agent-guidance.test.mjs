@@ -7,12 +7,53 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import YAML from 'yaml';
 import {
-  AGENT_CLARIFICATION_GUIDANCE, REPOSITORY_AGENT_BOUNDARY, STORY_AGENT_BOUNDARY
+  AGENT_CLARIFICATION_GUIDANCE, REPOSITORY_AGENT_BOUNDARY, STORY_AGENT_BOUNDARY, withAgentPathProtocol
 } from '../src/agent-guidance.mjs';
 import { parseAgentDependencies } from '../src/agents.mjs';
 import { initializeDefinition, loadDefinition } from '../src/config.mjs';
 import { planStudioChangeSet, STUDIO_CHANGE_SET_SCHEMA } from '../src/workflow-studio.mjs';
 import { CLI_PATH_CONTRACT } from '../src/safe-command-guidance.mjs';
+import { injectAgentPrompt } from '../src/inject.mjs';
+import { compactSourceReviewContext } from '../src/source-review-agent-context.mjs';
+
+test('legacy agent path wording is adapted only at delivery, idempotently and without changing role policy', () => {
+  const pinned = 'Require `ready`, bind `workId`, and use its absolute `repositoryPath` as cwd for every shell and file tool. Never search `$HOME`, a parent directory, or outside that repository.\nDo not approve. Keep the custom security review.';
+  const effective = withAgentPathProtocol(pinned);
+  assert.ok(pinned.includes('cwd for every shell and file tool'));
+  assert.doesNotMatch(effective, /cwd for every shell and file tool|or outside that repository/u);
+  assert.ok(effective.includes('Do not approve. Keep the custom security review.'));
+  assert.ok(effective.includes(CLI_PATH_CONTRACT));
+  assert.match(effective, /takes precedence over older agent or skill confinement wording/u);
+  assert.equal(withAgentPathProtocol(effective), effective);
+  const replay = withAgentPathProtocol(`${effective}\n# Old skill\nNever search \`$HOME\`, a parent directory, or outside that repository. Resolve every named path inside the work-item directory or repository root.`);
+  assert.equal(replay.match(/# Runtime CLI-issued file protocol/gu).length, 1);
+  assert.match(replay, /It grants no additional write permission\.\n$/u);
+  assert.doesNotMatch(replay, /Resolve every named path inside/u);
+});
+
+test('pinned and overridden legacy agents get compatible delivery while exact pins and review bindings stay unchanged', async () => {
+  const prompt = 'Use its role. Require `ready`, bind `workId`, and use its absolute `repositoryPath` as cwd for every shell and file tool. Never search `$HOME`, a parent directory, or outside that repository.';
+  const agent = { prompt, sha256: 'pinned-agent-hash' };
+  const definition = { agents: { custom: agent } };
+  const injected = await injectAgentPrompt('/not-used', definition, 'custom', {}, { resolvedAgent: agent });
+  assert.doesNotMatch(injected.text, /cwd for every shell and file tool/u);
+  assert.equal(agent.prompt, prompt);
+  assert.equal(agent.sha256, 'pinned-agent-hash');
+  const override = { text: `${prompt}\nCustom role policy.` };
+  const alternative = await injectAgentPrompt('/not-used', definition, 'custom', {}, { promptOverride: override });
+  assert.ok(alternative.text.includes('Custom role policy.'));
+  assert.equal(alternative.injection.promptOverride, override);
+  const binding = { workId: 'LEGACY', phase: 'specification', generation: 1 };
+  const packet = { canReview: true, binding, reportTemplate: { binding }, reviewer: { instructions: prompt, sha256: agent.sha256 } };
+  const snapshot = structuredClone(packet);
+  const projected = compactSourceReviewContext(packet, { ready: true });
+  assert.deepEqual(packet, snapshot);
+  assert.equal(projected.reviewer.instructions, prompt, 'original pinned bytes remain readable evidence');
+  assert.equal(projected.reviewer.sha256, agent.sha256);
+  assert.doesNotMatch(projected.reviewer.effectiveInstructions, /cwd for every shell and file tool/u);
+  assert.equal(projected.reviewGuide.readOrder[0], 'reviewer.effectiveInstructions');
+  assert.deepEqual(projected.reportTemplate.binding, binding);
+});
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const storyOnly = new Set([

@@ -16,7 +16,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 14
+version: 15
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing repository state.
 
@@ -29,6 +29,22 @@ Use this topic when the current goal matches **workspaces and sessions**. Start 
 - **Shell:** `sflow workspace`, `sflow session`, `sflow choices`. Run `singularity-flow workspace --help` for the exact forms supported by this build.
 - **Copilot:** `/sf-workspaces` lists saved workspaces; `/sf-workspace` asks which workspace and repository to select. `/sf-stories` lists Stories and their progress, then asks which exact Story to make active through `/sf-session`. The skills preserve the CLI result and wait for explicit choices.
 - **VS Code:** open Singularity Flow **My Work and Workspaces**. The extension renders engine results; it does not independently decide lifecycle state.
+
+### Keep VS Code with the Story running in Copilot
+
+After `/sf-session` successfully opens an exact Story, or a bound Story skill such as `/sf-phase`
+or `/sf-code` runs, the originating VS Code window follows the verified Story checkout. The
+Navigator, lifecycle views and editor use that checkout instead of continuing to show “No work”
+on the workspace's base branch. An already-open Story does not reopen or reload the window.
+
+This uses an expiring, folder-scoped local notification under the machine profile's
+`copilot-story-follow/` directory. It contains only the Story ID, paths and delivery identifiers,
+not prompts or artifacts, and grants no lifecycle or mutation authority. The focused window
+rechecks the accepted Story and workspace membership before switching. Failed/stale bindings,
+Story browsing, session-choice lists and another window's global workspace selection do not switch
+the editor. Story creation retains its existing single checkout handoff. VS Code continues to own
+unsaved-file handling; SFlow never discards changes, checks out an application branch, approves
+work, or starts a second Copilot chat as part of following.
 
 ## Guided workflow
 

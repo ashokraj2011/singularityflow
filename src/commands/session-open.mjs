@@ -37,7 +37,7 @@ export function pausedSessionOpenResult(agentInstruction = null) {
   return { schemaVersion: 1, resultType: 'session-open', status: 'paused', paused: true, agentInstruction }; // schema-transient: composed command response, never a durable record
 }
 
-export async function run({ positionals, options }) {
+export async function run({ positionals, options, invocationCwd = process.cwd() }) {
   validateSessionOpenRequest({ positionals, options });
   const json = options.json === true;
   const workId = positionals[2] ?? null;
@@ -112,6 +112,9 @@ export async function run({ positionals, options }) {
     executionContext: projection?.executionContext ?? await (await import('../execution-context.mjs')).captureExecutionContext(checkout, { fresh: true }),
     repositoryChecks: (await import('../repository-check-cache.mjs')).repositoryCheckStatus(checkout)
   };
+  if (options['for-agent']) await (await import('../copilot-story-follow.mjs')).recordCopilotStoryFollow({
+    originPath: invocationCwd, repositoryPath: checkout, workId
+  }).catch(() => {});
   await (await import('../workspace-retention-background.mjs')).scheduleWorkspaceRetention(result.executionContext?.workspace?.path,
     { protect: [checkout] });
   if (options['for-agent']) Object.assign(result, agentSessionView(result), { ready: true,

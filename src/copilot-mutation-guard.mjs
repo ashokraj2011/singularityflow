@@ -125,6 +125,12 @@ export async function captureMutationTurn(payload, record, {
     // One content-bound baseline, not a path/status-only baseline. It is deliberately lazy:
     // edit-tool interception needs no Git process; post-shell detection records its own baseline.
     await atomicRecord(file, value);
+    // A verified native Copilot turn may be rooted in the canonical workspace while its Story
+    // lives in a linked checkout. Tell only that launch folder's window, never every open window.
+    const follow = await import('./copilot-story-follow.mjs');
+    if (follow.copilotStoryFollowSkill(record.skill)) await follow.recordCopilotStoryFollow({
+      originPath: payload.cwd, repositoryPath: root, workId: value.contract.workId
+    }).catch(() => {});
     const presented = mutationContractPresentation(value.contract);
     return { additionalContext: [
       `SFlow turn boundary (${value.skill}): ${presented.summary}`,

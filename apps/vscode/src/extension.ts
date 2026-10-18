@@ -135,6 +135,7 @@ import { renderReworkRollForwardPreview } from './views/rework-roll-forward-prev
 import { RepositoryEpochGuard, type RepositoryEpochToken } from './repository-epoch.ts';
 import { RevisionSliceWatcherFence } from './watcher-refresh-fence.ts';
 import { machineSelectionRevision } from './machine-selection-revision.ts';
+import { copilotStoryFollowDirectory, readCopilotStoryFollow, createCopilotStoryFollower, verifiedCopilotStoryFollow } from '../../../src/copilot-story-follow.mjs';
 import {
   beginHostPerformanceActivation, hostPerformanceSnapshot, markHostPerformance,
   recordHostRuntimeLoad, recordHostSidebarRender, recordHostStoreEvent, resetHostPerformanceInterval,
@@ -1175,11 +1176,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * Align this window's native root with an explicit workspace choice. Rebinding the SFlow
    * client alone leaves terminals and native Copilot in the previous repository. Deferred
    * workspaces open their existing shell, never a nonexistent checkout or an implicit clone.
-   * Background machine-selection updates deliberately do not use this window-navigation helper.
+   * Background profile updates do not navigate. Verified, launch-folder-scoped Copilot bindings
+   * have their own follow path below, so another window's profile cannot take over this window.
    */
   const workspaceSelectionFile = path.resolve(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE
     || path.join(os.homedir(), '.singularity-flow', 'active-workspace.json'));
   let workspaceNavigationGeneration = 0;
+  let workspaceNavigationChangedAt = 0;
   let workspaceSelectionQueue: Promise<unknown> = Promise.resolve();
   const openSelectedWorkspaceFolder = async (selected: {
     workspaceName: string; workspacePath: string; repositoryPath?: string; repositoryState?: string;
@@ -3679,6 +3682,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     forceReload = false, deferReload = false
   ): Promise<boolean> {
     const navigationGeneration = ++workspaceNavigationGeneration;
+    workspaceNavigationChangedAt = Date.now();
     try {
       const chooser = new SingularityFlowClient({
         location: resolveCli({ extensionPath: context.extensionPath }),
@@ -5609,13 +5613,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
 
   /**
-   * Follow Story or workspace selections made outside this extension host.
+   * Observe machine profile choices without letting another window retarget this one.
    *
-   * Copilot skills and terminal commands update the same machine-wide active-workspace record as
-   * the Workspaces screen. Previously only the screen called `workspaceSelected`, so `/sf-session`
-   * could attach a Story successfully while Lifecycle, Inbox, and Work Journey kept reading the
-   * previous checkout until VS Code was reloaded. Read the authoritative CLI projection again and
-   * reuse the one rebind path above; no surface gets to maintain its own idea of the active Story.
+   * The profile is shared by terminal commands and all windows. Its revision alone cannot identify
+   * the Copilot conversation running here. Live Copilot bindings use the launch-folder-scoped
+   * delivery below; explicit local choices keep using the common guarded rebind path above.
    */
   const ACTIVE_SELECTION_REFRESH_DEBOUNCE_MS = 250;
   const activeSelectionFile = workspaceSelectionFile;
@@ -5629,7 +5631,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // seen while a start is in flight waits, and is reconciled once the start has finished.
   let navigationHolds = 0;
   let navigationDeferred = false;
+  let reconcileCopilotStory = async (): Promise<unknown> => undefined;
   const holdNavigation = (): { release(): void } => {
+    ++workspaceNavigationGeneration;
+    workspaceNavigationChangedAt = Date.now();
     navigationHolds += 1;
     let released = false;
     return {
@@ -5637,6 +5642,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (released) return;
         released = true;
         navigationHolds -= 1;
+        if (!navigationHolds) void reconcileCopilotStory();
         if (navigationHolds || !navigationDeferred) return;
         navigationDeferred = false;
         void reconcileActiveWorkspaceSelection();
@@ -5710,6 +5716,74 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }
   );
+
+  // Native Copilot's cwd cannot follow a child CLI's chdir. Listen for its verified binding from
+  // this window's actual launch folders, NOT the machine-global last-selected Story. The kernel
+  // projection rechecks workspace membership and accepted Story identity before we navigate.
+  const copilotLaunchFolders = (vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.fsPath);
+  const copilotFollower = createCopilotStoryFollower({
+    isActive: () => !activationSignal.aborted && !navigationHolds && vscode.window.state.focused,
+    read: async () => {
+      const notices = (await Promise.all(copilotLaunchFolders.map(folder => readCopilotStoryFollow(folder))))
+        .filter((notice): notice is NonNullable<typeof notice> => notice !== null
+          && notice.observedAt >= workspaceNavigationChangedAt);
+      return notices.sort((a, b) => b.observedAt - a.observedAt)[0] ?? null;
+    },
+    verify: async (notice) => {
+      const navigationGeneration = workspaceNavigationGeneration;
+      const bound = client.forkForRepository(notice.repositoryPath);
+      const projected = await bound.run<{
+        workspace?: { id: string; path: string } | null;
+        repository?: { id: string | null };
+        worktree?: { path: string };
+        story?: { id: string } | null;
+      }>(['workspace', 'context', '--json']);
+      // Resolve aliases (including Windows short paths) before exact path comparison.
+      const verified = projected.worktree?.path
+        ? { ...projected, worktree: { ...projected.worktree, path: await fsRealpath(projected.worktree.path) } }
+        : projected;
+      if (!verifiedCopilotStoryFollow(notice, verified) || !verified.workspace || !verified.worktree?.path
+          || navigationGeneration !== workspaceNavigationGeneration) return null;
+      return { notice, navigationGeneration, selection: {
+        workspaceId: verified.workspace.id,
+        workspacePath: verified.workspace.path,
+        workspaceName: workspaceEntries.find(entry => entry.id === verified.workspace!.id)?.name
+          ?? path.basename(verified.workspace.path),
+        repositoryId: verified.repository?.id ?? null,
+        repositoryPath: verified.worktree.path,
+        forIntake: true // membership was verified; navigation does not fetch remote authority
+      } };
+    },
+    apply: async ({ notice, navigationGeneration, selection }, noticeIsCurrent) => {
+      const isCurrent = async (): Promise<boolean> => navigationGeneration === workspaceNavigationGeneration
+        && await noticeIsCurrent();
+      if (!await isCurrent()) return;
+      if (await storyCheckoutNeedsWindowSwitch(selection.repositoryPath,
+        (vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.fsPath))) {
+        if (!await isCurrent()) return;
+        output.appendLine(`Following Copilot Story ${notice.workId} in its verified checkout.`);
+        // No new chat, branch checkout, reset, or pending Copilot handoff. VS Code owns unsaved
+        // editor handling; opening the already-visible Story is an idempotent no-op.
+        await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(selection.repositoryPath), false);
+        // The replacement host resolves the opened Story. If the user cancels an unsaved-file
+        // prompt, retain this window's old UI context rather than creating another split binding.
+        return;
+      }
+      if (!sameStoryAttachPath(repository, selection.repositoryPath)) {
+        for (const follow of workspaceSelected) await follow({ ...selection, navigationIsCurrent: isCurrent });
+      }
+    },
+    onError: error => output.appendLine(`Could not follow Copilot's Story: ${error.message}`)
+  });
+  reconcileCopilotStory = () => copilotFollower.reconcile();
+  const copilotFollowDirectory = copilotStoryFollowDirectory();
+  const copilotFollowWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(
+    vscode.Uri.file(path.dirname(copilotFollowDirectory)), `${path.basename(copilotFollowDirectory)}/*.json`));
+  context.subscriptions.push(copilotFollower, copilotFollowWatcher,
+    copilotFollowWatcher.onDidCreate(() => { void reconcileCopilotStory(); }),
+    copilotFollowWatcher.onDidChange(() => { void reconcileCopilotStory(); }),
+    vscode.window.onDidChangeWindowState(state => { if (state.focused) void reconcileCopilotStory(); }));
+  void reconcileCopilotStory();
 
   /**
    * Run whatever a node offers, then refresh so every view reflects what just happened.
@@ -5842,6 +5916,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // synchronization; only a genuine local miss may fall through to the strict remote attach.
     // Both routes return the verified repositoryPath that this window must open.
     if (argv[0] === 'session' && argv[1] === 'attach') {
+      ++workspaceNavigationGeneration;
+      workspaceNavigationChangedAt = Date.now();
       try {
         let args = argv.includes('--json') ? argv : [...argv, '--json'];
         // A Story card carries only its repository ID. Resolve it against the extension's trusted

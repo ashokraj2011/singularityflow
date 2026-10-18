@@ -1,5 +1,19 @@
 # Developer-experience performance
 
+## Copilot Story following
+
+The editor watches one folder-scoped, expiring delivery slot for each actual window launch
+folder. Idle watching does not launch Git, scan branches/history, poll the CLI or contact a remote.
+A new verified binding performs one fresh `workspace context` projection before navigation;
+watcher bursts coalesce, and an applied event is not replayed. The existing Story-start handoff
+still owns creation. Already-open Story folders do not reload.
+
+The small shared `copilot-story-follow.mjs` protocol adds one activation module (143 → 144).
+The first measured extension bundle was 1,414,584 bytes / 144 modules; the existing 1,420,000-byte
+limit remains unchanged. No configuration, policy, model-provider or gateway graph was added to
+activation. Notifications are advisory only; the fresh accepted Story/workspace projection, not
+the notification, verifies the navigation target.
+
 Singularity Flow treats command latency as a release property. The repository fast-path commands
 are `about`, `status`, `nextsteps`, and a repository-only `snapshot` slice. The machine-state reads
 used repeatedly during editor activation—`workspace list`, `workspace current`, `workspace prompt`,

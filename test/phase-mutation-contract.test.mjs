@@ -15,6 +15,7 @@ import { readFileSync } from 'node:fs';
 import YAML from 'yaml';
 import { resolveWorkType } from '../src/config.mjs';
 import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
+import { readCopilotStoryFollow } from '../src/copilot-story-follow.mjs';
 
 async function fixture(t, phaseOverrides = {}) {
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'sflow-pmc-'));
@@ -105,6 +106,23 @@ test('prompt submission announces the exact code prerequisite before a denied ed
   assert.match(next.additionalContext, /kernel-only.*no direct repository edits/);
   assert.match(next.additionalContext, /Do not inline \/sf-code/);
   assert.equal((await mutationToolGuard({ ...edit, sessionId: 'next-only' })).permissionDecision, 'deny');
+});
+
+test('native Copilot binds its launch window to the accepted Story without changing the profile', async t => {
+  const f = await fixture(t);
+  const origin = path.dirname(f.root);
+  const payload = { cwd: origin, sessionId: 'follow-window', prompt: '/sf-phase' };
+  const capture = (value, record) => captureMutationTurn(value, record, {
+    resolveRoot: async () => f.root, load: async () => f.accepted
+  });
+  const result = await recordRepositoryBoundaryTurn(payload, { captureMutation: capture });
+  assert.match(result.additionalContext, /SFlow turn boundary/);
+  const notice = await readCopilotStoryFollow(origin);
+  assert.equal(notice?.repositoryPath, process.platform === 'win32' ? f.root.toLowerCase() : f.root);
+  assert.equal(notice?.workId, 'PMC-1');
+  await recordRepositoryBoundaryTurn({ ...payload, prompt: '/sf-session' }, { captureMutation: capture });
+  assert.equal((await readCopilotStoryFollow(origin))?.eventId, notice.eventId,
+    'a chooser turn cannot follow a previous Story before the human selects one');
 });
 
 test('artifact edits and creation work, protected/state/other-repository paths do not', async t => {

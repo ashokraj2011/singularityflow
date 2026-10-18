@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, readdir, readFile, writeFile, rm, unlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, realpath, writeFile, rm, unlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +19,7 @@ import { phaseContextAdmission, phaseAdmissionActions } from '../src/phase-entry
 import { agentPacketPresentation } from '../src/agent-packet-presentation.mjs';
 import { completeAgentResult, withAgentRoutes } from '../src/agent-output.mjs';
 import { librarySkillText } from '../src/skill-library.mjs';
+import { readCopilotStoryFollow, copilotStoryFollowDirectory } from '../src/copilot-story-follow.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin/singularity-flow.mjs');
@@ -111,8 +112,29 @@ async function fixture(t, { planningInputs = false, customPhase = null, clarific
   const invoke = (...args) => spawnSync(process.execPath, [cli, ...args], {
     cwd: root, env, encoding: 'utf8', timeout: 30_000
   });
-  return { root, workflow, config, invoke };
+  return { root, workflow, config, invoke, env };
 }
+
+test('phase entry preserves the original launch folder across explicit checkout routing for Copilot', async t => {
+  const item = await fixture(t);
+  const origin = await mkdtemp(path.join(os.tmpdir(), 'sflow-copilot-host-'));
+  t.after(() => rm(origin, { recursive: true, force: true }));
+  const args = [cli, 'phase', 'enter', '--context-root', item.root, '--for-agent', '--json'];
+  const result = spawnSync(process.execPath, args, { cwd: origin, env: item.env, encoding: 'utf8', timeout: 30_000 });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const packet = completeAgentResult(result.stdout);
+  assert.equal(packet.ready, true);
+  const options = { directory: copilotStoryFollowDirectory(item.env) };
+  const follow = await readCopilotStoryFollow(origin, options);
+  assert.equal(follow?.workId, packet.workId);
+  const canonicalCheckout = await realpath(packet.repositoryPath);
+  assert.equal(follow?.repositoryPath, process.platform === 'win32' ? canonicalCheckout.toLowerCase() : canonicalCheckout);
+  const refused = spawnSync(process.execPath, [...args, '--work-id', 'OTHER-1'], {
+    cwd: origin, env: item.env, encoding: 'utf8', timeout: 30_000 });
+  assert.notEqual(refused.status, 0);
+  assert.equal((await readCopilotStoryFollow(origin, options))?.eventId, follow.eventId,
+    'a refused binding cannot overwrite the last verified notification');
+});
 
 test('CLI preparation is an unpublished authoring checkpoint, not a completed template or publication', async t => {
   const item = await fixture(t, { customPhase: 'team-discovery' });

@@ -10,8 +10,8 @@ export function load({ positionals }) {
   return modules.get(name);
 }
 
-export async function run(argv, { positionals, options }) {
+export async function run(argv, { positionals, options, invocationCwd }) {
   const module = await load({ positionals });
-  if (positionals[1] === 'open') return module.run({ positionals, options });
-  return module.run(argv, { positionals, options });
+  if (positionals[1] === 'open') return module.run({ positionals, options, invocationCwd });
+  return module.run(argv, { positionals, options, invocationCwd });
 }

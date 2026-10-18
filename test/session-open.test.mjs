@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -9,6 +9,7 @@ import YAML from 'yaml';
 import { readFileSync } from 'node:fs';
 import { summarizeSamples } from '../src/dx-performance.mjs';
 import { physicalProcessProbe } from './helpers/physical-process-probe.mjs';
+import { readCopilotStoryFollow, copilotStoryFollowDirectory } from '../src/copilot-story-follow.mjs';
 
 function completeAgentResult(text) {
   const result = JSON.parse(text);
@@ -150,11 +151,18 @@ test('session open lists the Stories without an ID and opens one with its status
   assert.equal(compactFull.workId, opened.workId);
   assert.equal(compactFull.repositoryPath, opened.repositoryPath);
   assert.equal(compactFull.session.ready, true);
+  const follow = await readCopilotStoryFollow(root, { directory: copilotStoryFollowDirectory(env) });
+  assert.equal(follow?.workId, opened.workId, 'the exact ready Copilot session delivers a window-scoped follow hint');
+  const canonicalCheckout = await realpath(opened.repositoryPath);
+  assert.equal(follow?.repositoryPath, process.platform === 'win32'
+    ? canonicalCheckout.toLowerCase() : canonicalCheckout);
   assert.equal(packet.act.state, 'next');
   assert.match(compactFull.agentInstruction, /Do not repeat pause, workspace, session/u);
   const compactChoose = JSON.parse(must(process.execPath, [cli, 'session', 'open', '--for-agent', '--json']).stdout);
   assert.equal(compactChoose.act.state, 'ask-person');
   assert.equal(compactChoose.status, 'choose');
+  assert.equal((await readCopilotStoryFollow(root, { directory: copilotStoryFollowDirectory(env) }))?.eventId,
+    follow.eventId, 'listing session candidates cannot switch a window');
 
   const text = must(process.execPath, [cli, 'session', 'open', 'OPEN-1']).stdout;
   assert.match(text, /^OPEN-1 is ready at /);

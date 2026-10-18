@@ -23,7 +23,7 @@ export async function load({ positionals, options }) {
   return lifecycleModule;
 }
 
-export async function run(argv, { positionals, options }) {
+export async function run(argv, { positionals, options, invocationCwd = process.cwd() }) {
   if (positionals[1] === 'prepublish' && options['publish-if-ready'] === true) {
     return (await load({ positionals, options })).run({ positionals, options });
   }
@@ -34,5 +34,10 @@ export async function run(argv, { positionals, options }) {
     workId: optionString(options, 'work-id'), compose: optionBoolean(options, 'compose'),
     modelEnabled: operationContext()?.modelMode?.enabled !== false });
   const forAgent = optionBoolean(options, 'for-agent');
+  if (forAgent && result.ready && !result.paused) {
+    await (await import('../copilot-story-follow.mjs')).recordCopilotStoryFollow({
+      originPath: invocationCwd, repositoryPath: result.repositoryPath, workId: result.workId
+    }).catch(() => {});
+  }
   console.log(agentOrIndentedJson(forAgent, forAgent ? phaseEntryAgentPresentation(result) : result));
 }

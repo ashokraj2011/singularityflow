@@ -586,6 +586,7 @@ export async function main(argv) {
 }
 
 async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
+  const invocationCwd = process.cwd();
   const modelMode = resolveModelMode(argv);
   const effectiveArgv = stripGlobalModelOptions(argv);
   // Product reinstall and product alignment are intentionally not repository operations. Resolving
@@ -930,7 +931,7 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
       startedAt
     }, () => module.run(effectiveArgv, {
       positionals: [definition.name, ...positionals.slice(1)], options, definition,
-      operation, requestedOperation, modelMode
+      operation, requestedOperation, modelMode, invocationCwd
     })), { boundRoot: explicitContextRoot ?? surfaceContext()?.repositoryPath ?? null }));
     // Keep the complete mutating handler visible to factory reset. The reset barrier and this
     // short-lived, uniquely named lease form a two-way exclusion boundary: a reset refuses while

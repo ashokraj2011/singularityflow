@@ -462,6 +462,14 @@ fi`;
   assert.equal(activation.previous.cli.version, version);
   assert.equal(activation.previous.vscode.version, version);
   assert.equal(activation.previous.manifest.existed, true);
+  const installedReceipt = JSON.parse(await readFile(path.join(fixture, '.singularity-flow', 'installations', 'current.json'), 'utf8'));
+  assert.equal(installedReceipt.runtimeRoots.copilot,
+    path.join(fixture, '.singularity-flow', 'installations', 'transactions', activation.operationId,
+      'private-cli-candidate', 'node_modules', 'singularity-flow'));
+  for (const scratch of ['npm-cache', 'private-cli-previous']) {
+    await assert.rejects(stat(path.join(fixture, '.singularity-flow', 'installations', 'transactions', activation.operationId, scratch)),
+      (error) => error.code === 'ENOENT');
+  }
   await assert.rejects(
     stat(path.join(fixture, '.singularity-flow', 'installations', 'activation-current.json.lock')),
     (error) => error?.code === 'ENOENT'

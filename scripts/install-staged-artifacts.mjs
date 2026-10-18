@@ -8,7 +8,7 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  chmod, constants, link, lstat, mkdir, open, realpath, rename, rm, utimes, writeFile
+  chmod, constants, link, lstat, mkdir, open, readdir, realpath, rename, rm, utimes, writeFile
 } from 'node:fs/promises';
 import { gunzipSync, inflateRawSync } from 'node:zlib';
 import path from 'node:path';
@@ -818,7 +818,7 @@ export async function acquireActivationLease({
   const journalFile = path.resolve(text(journal, 'activation journal path'));
   const checkoutPath = path.resolve(text(checkout, 'checkout'));
   const pid = positiveInteger(ownerPid, 'activation lease owner PID');
-  if (!['create', 'resume'].includes(mode)) fail('activation lease mode must be create or resume.');
+  if (!['create', 'resume', 'cleanup'].includes(mode)) fail('activation lease mode must be create, resume, or cleanup.');
   await managedDirectory(path.dirname(journalFile), 'installation journal directory');
 
   const journalInfo = await lstat(journalFile).catch((error) => {
@@ -945,6 +945,213 @@ async function assertActivationLease(journal, id, ownerPid) {
     fail('the activation journal mutation is not owned by the current installer lease.');
   }
   return current;
+}
+
+const RETIRED_TRANSACTION = /^\.retired-install-[0-9a-f-]{36}$/u;
+const TRANSACTION_FILES = new Set([
+  'previous-current-manifest', 'previous-telemetry-env', 'previous-telemetry-profile'
+]);
+const TRANSACTION_TREES = new Set(['npm-cache', 'private-cli-candidate', 'private-cli-previous']);
+const privateStaging = (name) => /^\.private-cli-(?:candidate|previous)\.[A-Za-z0-9]+$/u.test(name);
+const inside = (parent, candidate) => {
+  const relative = path.relative(parent, candidate);
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+};
+
+/**
+ * Collect roots by reference, never by age: a failed install can need old bytes indefinitely.
+ * Only this installer's two owned stores are eligible. Repository/source paths are not targets.
+ */
+function storageReferences(value, installations, transactions, roots) {
+  if (typeof value === 'string' && path.isAbsolute(value)) {
+    const absolute = path.resolve(value);
+    for (const parent of [transactions, path.join(installations, 'versions', 'sha256')]) {
+      if (!inside(parent, absolute) || absolute === parent) continue;
+      roots.add(path.join(parent, path.relative(parent, absolute).split(path.sep)[0]));
+    }
+  } else if (Array.isArray(value)) {
+    for (const item of value) storageReferences(item, installations, transactions, roots);
+  } else if (value && typeof value === 'object') {
+    for (const item of Object.values(value)) storageReferences(item, installations, transactions, roots);
+  }
+}
+
+/**
+ * Bounded installer storage, shared by source/Git Bash and promoted Windows/macOS installs.
+ * The activation lease serializes this sweep with every product mutation. A preview is the
+ * default; the standalone CLI acquires/releases the same lease without rewriting the journal.
+ * Keep this built-in-only implementation here so pinned, single-file recovery remains runnable.
+ */
+export async function cleanupInstallationStorage({
+  journal, checkout, apply = false, operationId: id = null, ownerPid = process.pid
+}) {
+  const journalFile = path.resolve(text(journal, 'activation journal path'));
+  const installations = path.dirname(journalFile);
+  if (path.basename(installations) !== 'installations'
+      || path.basename(path.dirname(installations)) !== '.singularity-flow'
+      || path.basename(journalFile) !== 'activation-current.json') {
+    fail('storage cleanup requires the exact .singularity-flow/installations/activation-current.json layout.');
+  }
+  await managedDirectory(path.dirname(installations), 'machine state directory');
+  await managedDirectory(installations, 'installation directory');
+  const canonicalRoot = await realpath(installations);
+  const lease = id
+    ? await assertActivationLease(journalFile, id, ownerPid)
+    : await acquireActivationLease({ journal: journalFile, checkout, mode: 'cleanup', ownerPid });
+  const result = { applied: apply, removed: [], eligible: [], preserved: [], warnings: [] };
+  try {
+    // Other product operations share the activation lease. Their durable recovery marker is
+    // conservatively a stop for GC, including terminal markers left behind by Windows file locks.
+    for (const name of ['distribution-install-pending.json', 'uninstall-pending.json']) {
+      if (await lstat(path.join(installations, name)).catch((error) => {
+        if (error.code === 'ENOENT') return null;
+        throw error;
+      })) {
+        result.preserved.push({ path: path.join(installations, name), reason: 'pending recovery; cleanup deferred' });
+        return result;
+      }
+    }
+    const current = await optionalJson(path.join(installations, 'current.json'), 'current installation receipt');
+    if (current && ![1, 2].includes(current.schemaVersion)) fail('unsupported current installation receipt; cleanup preserved all bytes.');
+    if (current?.schemaVersion === 2) {
+      if (!current.artifacts || typeof current.artifacts !== 'object' || Array.isArray(current.artifacts)
+          || !Object.hasOwn(current.artifacts, 'tarball') || !Object.hasOwn(current.artifacts, 'vsix')) {
+        fail('current artifact bindings are invalid; cleanup preserved all bytes.');
+      }
+      for (const bindings of [current.artifacts, current.rollbackArtifacts]) {
+        if (!bindings) continue;
+        for (const [kind, artifact] of Object.entries(bindings)) {
+          if (!Object.hasOwn(RETAINED_ARTIFACT_NAMES, kind)) fail('unknown artifact kind; cleanup preserved all bytes.');
+          if (artifact === null) continue;
+          if (!DIGEST.test(artifact?.sha256 ?? '') || typeof artifact.path !== 'string'
+              || path.resolve(artifact.path) !== expectedRetainedArtifactPath(journalFile, kind, artifact.sha256)) {
+            fail('artifact reference escaped the managed digest store; cleanup preserved all bytes.');
+          }
+        }
+      }
+    }
+    const activation = await optionalJson(journalFile, 'activation journal');
+    if (activation && (typeof activation !== 'object'
+        || !['staged', 'activating', 'rolling-back', 'rolled-back', 'rollback-failed', 'complete'].includes(activation.status)
+        || !OPERATION_ID.test(activation.operationId ?? ''))) {
+      fail('unrecognized activation recovery state; cleanup preserved all bytes.');
+    }
+    const transactions = path.join(installations, 'transactions');
+    const roots = new Set();
+    storageReferences(current, installations, transactions, roots);
+    // New receipts explicitly identify any package root still used by Copilot. Legacy receipts
+    // identify only their operation: retain that complete transaction until a full install replaces it.
+    const currentOperation = current?.activation?.operationId;
+    if (OPERATION_ID.test(currentOperation ?? '') && !current.runtimeRoots) {
+      roots.add(path.join(transactions, currentOperation));
+    }
+    const recoveryPending = activation && activation.status !== 'complete';
+    if (activation && (recoveryPending || activation.operationId === currentOperation)) {
+      storageReferences([activation.artifacts, activation.previous], installations, transactions, roots);
+      if (recoveryPending) {
+        roots.add(path.join(transactions, activation.operationId));
+        const snapshot = activation.previous?.manifest?.snapshot;
+        if (snapshot) {
+          const expectedParent = path.join(transactions, activation.operationId);
+          if (path.dirname(path.resolve(snapshot)) !== expectedParent) fail('recovery manifest snapshot escaped its transaction.');
+          storageReferences(await optionalJson(snapshot, 'recovery manifest snapshot'), installations, transactions, roots);
+        }
+      }
+    }
+    // A new installer may have acquired the lease before its journal exists.
+    if (activation?.operationId !== lease.operationId) roots.add(path.join(transactions, lease.operationId));
+
+    const inspectDirectory = async (directory) => {
+      const info = await lstat(directory).catch((error) => {
+        if (error.code === 'ENOENT') return null;
+        throw error;
+      });
+      if (!info) return null;
+      if (!info.isDirectory() || info.isSymbolicLink()) {
+        result.preserved.push({ path: directory, reason: 'not an ordinary directory' });
+        return null;
+      }
+      if (!inside(canonicalRoot, await realpath(directory))) fail('cleanup directory escaped installation storage.');
+      return info;
+    };
+    const retire = async (target, parent, info, transaction = false) => {
+      result.eligible.push(target);
+      if (!apply) return;
+      await assertActivationLease(journalFile, lease.operationId, lease.ownerPid);
+      if (!await inspectDirectory(parent)) fail('cleanup parent is no longer an ordinary owned directory.');
+      const before = await lstat(target);
+      if (!before.isDirectory() || before.isSymbolicLink()
+          || (info.ino && before.ino && (info.ino !== before.ino || info.dev !== before.dev))
+          || path.dirname(target) !== parent) fail('cleanup target changed identity; preserved instead of following it.');
+      const tombstone = transaction && !RETIRED_TRANSACTION.test(path.basename(target))
+        ? path.join(parent, `.retired-install-${randomUUID()}`) : target;
+      try {
+        if (tombstone !== target) await rename(target, tombstone);
+        const retired = await lstat(tombstone);
+        if (!retired.isDirectory() || retired.isSymbolicLink()
+            || (before.ino && retired.ino && (before.ino !== retired.ino || before.dev !== retired.dev))) {
+          fail('retired cleanup target changed identity; deletion deferred.');
+        }
+        // rm does not follow child symlinks. Root/parent checks above also reject Windows junctions.
+        await rm(tombstone, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+        result.removed.push(target);
+      } catch (error) {
+        result.warnings.push({ path: tombstone, code: error.code, message: error.message });
+      }
+    };
+    if (await inspectDirectory(transactions)) {
+      for (const entry of await readdir(transactions, { withFileTypes: true })) {
+        if (!OPERATION_ID.test(entry.name) && !RETIRED_TRANSACTION.test(entry.name)) continue;
+        const directory = path.join(transactions, entry.name);
+        const info = await inspectDirectory(directory);
+        if (!info) continue;
+        if (roots.has(directory)) {
+          result.preserved.push({ path: directory, reason: 'referenced by installed product or recovery' });
+          continue;
+        }
+        const children = await readdir(directory, { withFileTypes: true });
+        if (children.some((child) => !(TRANSACTION_FILES.has(child.name) && child.isFile())
+            && !((TRANSACTION_TREES.has(child.name) || privateStaging(child.name)) && child.isDirectory()))) {
+          result.preserved.push({ path: directory, reason: 'unrecognized contents; retained for inspection' });
+          continue;
+        }
+        await retire(directory, transactions, info, true);
+      }
+    }
+    // Referenced current transactions retain only the package roots they actually serve. Scratch
+    // directories are never needed after the commit point; a nonterminal journal retains all.
+    if (activation?.status === 'complete' && current?.runtimeRoots
+        && activation.operationId === currentOperation) {
+      const directory = path.join(transactions, activation.operationId);
+      if (await inspectDirectory(transactions) && await inspectDirectory(directory)) {
+        for (const name of ['npm-cache', 'private-cli-previous', 'private-cli-candidate']) {
+          const target = path.join(directory, name);
+          if (Object.values(current.runtimeRoots).some((value) => typeof value === 'string' && inside(target, path.resolve(value)))) continue;
+          const info = await inspectDirectory(target);
+          if (info) await retire(target, directory, info);
+        }
+      }
+    }
+    const versions = path.join(installations, 'versions');
+    const digests = path.join(versions, 'sha256');
+    if (await inspectDirectory(versions) && await inspectDirectory(digests)) {
+      for (const entry of await readdir(digests, { withFileTypes: true })) {
+        if (!/^[a-f0-9]{64}$/u.test(entry.name)) continue;
+        const directory = path.join(digests, entry.name);
+        const info = await inspectDirectory(directory);
+        if (!info || roots.has(directory)) continue;
+        const children = await readdir(directory, { withFileTypes: true });
+        if (children.some((child) => !child.isFile() || !Object.values(RETAINED_ARTIFACT_NAMES).includes(child.name))) {
+          result.preserved.push({ path: directory, reason: 'unrecognized artifact contents' });
+          continue;
+        }
+        await retire(directory, digests, info);
+      }
+    }
+    return result;
+  } finally {
+    if (!id) await releaseActivationLease({ journal: journalFile, ...lease });
+  }
 }
 
 export async function createActivationJournal({
@@ -1202,6 +1409,15 @@ const optional = (value) => value === '-' ? null : value;
 async function commandLine() {
   const [command, ...rest] = process.argv.slice(2);
   const args = options(rest);
+  if (command === 'cleanup') {
+    const result = await cleanupInstallationStorage({
+      journal: args['--journal'], checkout: args['--checkout'] ?? process.cwd(),
+      apply: switchValue(args['--apply'] ?? 'off', '--apply'),
+      operationId: args['--operation-id'] ?? null, ownerPid: args['--owner-pid'] ?? process.pid
+    });
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    return;
+  }
   if (command === 'lease-acquire') {
     const lease = await acquireActivationLease({
       journal: args['--journal'], checkout: args['--checkout'], mode: args['--mode'],
@@ -1319,7 +1535,7 @@ async function commandLine() {
     process.stdout.write(`${verified.executable}\n`);
     return;
   }
-  fail('expected lease-acquire, lease-heartbeat, lease-heartbeat-loop, lease-release, create, update, reset, resume, or verify-cli.');
+  fail('expected cleanup, lease-acquire, lease-heartbeat, lease-heartbeat-loop, lease-release, create, update, reset, resume, or verify-cli.');
 }
 
 const invokedPath = process.argv[1] ? await realpath(process.argv[1]).catch(() => null) : null;

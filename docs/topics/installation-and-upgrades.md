@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 37
+version: 38
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing application history.
 
@@ -102,6 +102,39 @@ A legacy clean reinstall is different only when no trusted prior product bytes e
 claim to restore an unknown old build. If apply fails after removal, it retains the verified new
 candidate and prints one exact roll-forward recovery command. Its successful schema-v2 receipt gives
 later upgrades the exact rollback authority needed for automatic compensation.
+
+## Installation storage and automatic cleanup
+
+Install replaces the existing global CLI, VS Code extension and managed Copilot surfaces in place;
+it does not create another permanently installed product for every build. Source repositories and
+development clones remain in the selected workspace/checkout. The installer never moves them into
+the machine-state directory or targets them during housekeeping.
+
+Normal source installs (including Windows Git Bash) sweep superseded installation staging before
+building and again after the durable activation commit. Promoted distribution and clean-reinstall
+runners perform the same sweep after successful activation. The sweep removes old owned transaction
+directories, per-install npm caches and unreferenced content-addressed packages. Current artifacts
+and the immediately previous rollback artifacts stay pinned by the installation receipt. Any private
+package root still serving the installed Copilot plugin is explicitly retained; partial installs
+carry that reference forward instead of deleting an untouched surface's source package.
+
+Cleanup uses the same machine activation lease as installation. Nonterminal activation journals,
+their exact candidate/rollback bytes, snapshots and inherited runtime references are preserved
+regardless of age. Distribution/uninstall recovery markers defer cleanup. Unknown files, unsupported
+records, symlinks/junctions and unrecognized transaction contents are preserved for inspection, not
+guessed at. Windows file locks produce a deferred-cleanup warning and are retried at the next install;
+housekeeping failure never converts an already verified installation into activation failure.
+
+To inspect legacy installation leftovers from a trusted source checkout, run:
+
+```sh
+node scripts/install-staged-artifacts.mjs cleanup --journal "$HOME/.singularity-flow/installations/activation-current.json"
+```
+
+The default is preview-only. Append `--apply on` to apply that same reference-based cleanup. On
+PowerShell, use `"$HOME/.singularity-flow/installations/activation-current.json"` for the same journal
+argument. This maintenance operation does not install a build, fetch Git, change workspace selection,
+purge session/configuration caches, remove toolchains or delete Story artifacts.
 
 The packaged runners can also be invoked directly as `sf-install --release-dir <DIRECTORY>
 --artifact-key <PUBLIC-KEY>` after

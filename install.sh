@@ -584,6 +584,23 @@ acquire_activation_lease() {
   INSTALL_ACTIVATION_HEARTBEAT_PID="$!"
 }
 
+# Only owned installation stores are swept. The helper holds our activation lease, pins exact
+# current/rollback artifacts and recovery roots, and never traverses a workspace or source clone.
+cleanup_installation_storage() {
+  local output
+  if ! output="$(node "$INSTALL_ARTIFACT_HELPER" cleanup \
+    --journal "$INSTALL_ACTIVATION_JOURNAL" --checkout "$PROJECT_DIR" --apply on \
+    --operation-id "$INSTALL_ACTIVATION_OPERATION_ID" --owner-pid "$INSTALL_ACTIVATION_OWNER_PID")"; then
+    printf '%s\n' 'WARNING: installation storage cleanup was deferred; recovery and product files were preserved.' >&2
+    return 0
+  fi
+  printf '%s\n' "$output" | node -e '
+    const result = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
+    console.log(`Installation storage: removed ${result.removed.length} superseded staging/artifact directories; retained ${result.preserved.length} referenced or unrecognized paths.`);
+    for (const warning of result.warnings) console.error(`WARNING: cleanup deferred for ${warning.path}: ${warning.code ?? "unknown"} ${warning.message}`);
+  '
+}
+
 release_activation_lease() {
   [[ "$INSTALL_ACTIVATION_LEASE_ACTIVE" == "on" ]] || return 0
   if [[ -n "$INSTALL_ACTIVATION_HEARTBEAT_PID" ]]; then
@@ -807,6 +824,7 @@ export NPM_CONFIG_REGISTRY="$REGISTRY"
 # staging, and active-surface replacement so two installers cannot mutate shared package outputs or
 # the activation journal concurrently.
 acquire_activation_lease create
+cleanup_installation_storage
 
 step_begin 'Installing locked dependencies'
 if [[ "$CLI_ONLY" == "on" ]]; then
@@ -1494,6 +1512,19 @@ node -e '
     },
     checkout,
     source: sourceCommit === "-" ? null : { commit: sourceCommit, tree: sourceTree },
+    rollbackArtifacts: {
+      tarball: journal.previous.cli ?? priorArtifacts.tarball ?? null,
+      vsix: journal.previous.vscode ?? priorArtifacts.vsix ?? null
+    },
+    runtimeRoots: {
+      copilot: journal.surfaceStates.copilot === "applied"
+        ? require("node:path").join(require("node:path").dirname(journalFile), "transactions", journal.operationId, "private-cli-candidate", "node_modules", "singularity-flow")
+        : previousManifest?.runtimeRoots?.copilot ?? (
+          journal.previous.copilotPresent && previousManifest?.activation?.operationId
+            ? require("node:path").join(require("node:path").dirname(journalFile), "transactions", previousManifest.activation.operationId, "private-cli-candidate", "node_modules", "singularity-flow")
+            : null
+        )
+    },
     artifacts: {
       tarball: journal.surfaceStates.cli === "applied"
         ? journal.artifacts.tarball : journal.previous.cli ?? priorArtifacts.tarball ?? null,
@@ -1518,6 +1549,7 @@ node -e '
 mv "$INSTALL_MANIFEST_TEMP" "$PREVIOUS_MANIFEST_TARGET"
 set_surface_state manifest applied activating manifest manifest
 write_activation_journal complete complete
+cleanup_installation_storage
 
 # Workspace Git refresh is deliberately outside product activation. If it is slow, interrupted, or
 # rejected, current.json remains a coherent installed-product receipt with an explicit pending flag.

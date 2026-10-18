@@ -19,7 +19,7 @@ import { verifyPluginInstallation } from './plugin.mjs';
 import { inspectDistributionBundle } from './distribution-bundle.mjs';
 import { readSecurePublicKey } from './secure-private-key.mjs';
 import {
-  acquireActivationLease, inspectNpmTarball, inspectVsix, releaseActivationLease
+  acquireActivationLease, cleanupInstallationStorage, inspectNpmTarball, inspectVsix, releaseActivationLease
 } from '../scripts/install-staged-artifacts.mjs';
 import {
   VSIX_SOURCE_MANIFEST_ENV,
@@ -1547,6 +1547,14 @@ async function writeCurrentInstallationReceipt(plan, verified, receipt, homeDire
     path.join(machineState, 'installations'), 'Singularity Flow installation directory'
   );
   const currentFile = path.join(installations, 'current.json');
+  const priorInfo = await lstat(currentFile).catch((error) => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (priorInfo && (!priorInfo.isFile() || priorInfo.isSymbolicLink())) {
+    throw new SingularityFlowError('Prior installation receipt is not an ordinary file.');
+  }
+  const previous = priorInfo ? JSON.parse(await readFile(currentFile, 'utf8')) : null;
   const artifacts = {
     tarball: await retainReinstallArtifact({
       source: plan.bundle.tarball,
@@ -1579,6 +1587,9 @@ async function writeCurrentInstallationReceipt(plan, verified, receipt, homeDire
     build: { cli: verified.cliBuild },
     checkout: plan.checkout,
     artifacts,
+    rollbackArtifacts: previous?.artifacts ?? null,
+    // A CLI-only install leaves the previously selected Copilot package untouched.
+    runtimeRoots: plan.cliOnly ? previous?.runtimeRoots ?? null : { copilot: null },
     surfaces,
     workspaceRefresh: 'skipped',
     activation: null,
@@ -2341,7 +2352,8 @@ export async function applyLocalReinstall(plan, {
   homeDirectory = os.homedir(),
   environment = process.env,
   installAliases = installDirectSkills,
-  beforeTelemetryProfileMutation = null
+  beforeTelemetryProfileMutation = null,
+  log = console.warn
 } = {}) {
   await validatePreparedPlan(plan);
   if (confirmation !== plan.confirmation) {
@@ -2631,7 +2643,17 @@ export async function applyLocalReinstall(plan, {
       await finishDistributionTransaction(distributionTransaction, 'complete');
       distributionTransaction = null;
     }
+    // Housekeeping is after the durable commit point, never a reason to roll a verified product
+    // back. Locked Windows files are reported and retried on the next install.
+    try {
+      result = { storageCleanup: await cleanupInstallationStorage({
+        journal: activationJournal, checkout: plan.checkout, apply: true, ...activationLease
+      }) };
+    } catch (error) {
+      log(`Warning: installation storage cleanup deferred: ${error.message}`);
+    }
     result = {
+      ...result,
       ...plan,
       completed: true,
       verified,

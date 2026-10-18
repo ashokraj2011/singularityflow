@@ -9019,7 +9019,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~680 body tokens</span>
+          <span class="pill">~691 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-resume</code></dd></div>
@@ -9052,7 +9052,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 2. The CLI activates the current phase&#39;s default governed agent automatically. Do not ask the contributor to select a role. Use `/sf-agent` only when they explicitly request an override.
 3. Read `workflow.json`, `STATUS.md`, source context, and approved artifacts from earlier phases.
 4. The Repository brief is guidance: never run a World Model check or rebuild, and never wait for one; phase prompts include it, and `singularity-flow wm brief --phase &lt;ACTIVE-PHASE&gt;` shows it when asked.
-5. Verify the returned branch matches the work ID; never judge it from the launch checkout.
+5. Verify the returned branch is the Story&#39;s own (`workItem.branch`; it need not be the work ID); never judge it from the launch checkout.
 6. Summarize the active governed agent, completed phases, active phase, rejection reason if present and required output. Keep the contributor&#39;s Git identity and approval authority separate.
 7. Continue only in the active phase with the drafting route resume returned; do not skip ahead.
 </code></pre>
@@ -10366,7 +10366,7 @@ Do not merge or force-push. After a Story merge, synchronize the stack again bef
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1143 body tokens</span>
+          <span class="pill">~1170 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-start</code></dd></div>
@@ -10400,7 +10400,7 @@ First require an explicit Work ID, then run `singularity-flow workspace branches
 3. The catalog and selected-base preflight check required members together; do not repeat a workspace-wide status scan. Repair a returned missing-member failure explicitly. Authority failure: Shell `singularity-flow workspace reinitialize --dry-run --json`, Copilot `/sf-admin`; never `init` for an absent local workflow file.
 4. Choose `&lt;BASE&gt;` explicitly. If `intake.workflowCatalogScope` is not `approved-configuration`, run step 6 without `--work-type`. Choose `&lt;WORKFLOW&gt;` from exact-base `intake.storyWorkflows`.
 5. Collect Jira/manual outcome, criteria, scope, risks, documents. References need ID, credential-free URL and branch: `--reference-repository ID=URL --reference-branch ID=BRANCH`. Pass `--jira`/`--story-file`; pair document inputs with their name flags. Never search for inputs.
-6. Choose baseline (`reuse`, optional reviewed `run`, `defer`), tests (`changed-and-affected`, `all-configured`) and gates (`hard`, `soft`) separately. Soft needs exact human coverage-risk review, reason/expiry; tests/integrity stay hard. Run `singularity-flow workspace branches --json --intake --preflight-story &lt;WORK-ID&gt; --from-branch &lt;BASE&gt; --work-type &lt;WORKFLOW&gt; --selected-base-only --mint-intake-receipt --readiness-baseline &lt;CHOICE&gt; --test-execution-mode &lt;MODE&gt; --gate-mode &lt;GATES&gt;`. Missing tests/setup never block creation or imply a pass. No implicit installs/tests; baselines use `/sf-ready`. World Model/AST/models/telemetry: advisory. Never upgrade configuration here.
+6. Choose baseline (`reuse`, optional reviewed `run`, `defer`), tests (`changed-and-affected`, `all-configured`) and gates (`hard`, `soft`) separately. Soft needs exact human coverage-risk review, reason/expiry; tests/integrity stay hard. Run `singularity-flow workspace branches --json --intake --preflight-story &lt;WORK-ID&gt; --from-branch &lt;BASE&gt; --work-type &lt;WORKFLOW&gt; --selected-base-only --mint-intake-receipt --readiness-baseline &lt;CHOICE&gt; --test-execution-mode &lt;MODE&gt; --gate-mode &lt;GATES&gt;`. Missing tests/setup never block creation or imply a pass. No implicit installs/tests; baselines use `/sf-ready`. World Model/AST/models/telemetry: advisory. Never upgrade configuration here. `preflight.storyBranch` is the branch start creates; a person&#39;s own name goes to both as `--ref &lt;BRANCH&gt;`.
 7. Start with identical base/workflow/baseline/test/gate flags; add returned `--intake-receipt`. `poc-workflow` needs `--target-url`. Without `ask_user`, use step 8 or stop; keep hard gates unless explicitly selected otherwise.
 8. Without `ask_user`, use pinned choices: `singularity-flow choices begin start &lt;WORK-ID&gt; --for-agent --json`, `singularity-flow choices answer &lt;TOKEN&gt;`, pass `--selection-receipt &lt;TOKEN&gt;` (15-minute, single-use).
 9. Show readiness; `/sf-next`. Pending tests: Copilot `/sf-test-setup`; Shell `singularity-flow capability test-setup --json`. Run tests later; require evidence at publish.

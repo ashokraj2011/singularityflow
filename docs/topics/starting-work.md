@@ -14,9 +14,19 @@ related:
   - pins
   - work-intervals
   - supporting-documents
-version: 29
+version: 30
 ---
 Three intake doors, one result: Jira, a manual description, or a Story released from an Epic breakdown. For every new Jira or manual Story, first run `sflow workspace branches --json` and explicitly choose a branch published by every required repository. `sflow start PAY-1234 --jira --from-branch main` then refreshes that remote base, verifies that the configured remote can accept `PAY-1234`, creates the canonical branch, pins its exact base commit, and pushes only `refs/heads/PAY-1234`. The selected base ref is never changed. Existing and Epic-materialized Stories keep their already-pinned lineage instead of choosing a second base.
+
+**Story branch names.** The Work ID is the Story's identity; its branch is chosen once, at start, and recorded in the Story (`workItem.branch`). By default the branch is the Work ID. A team that names branches its own way sets a pattern in `singularity/workflow.yml`:
+
+```yaml
+git:
+  branchNaming:
+    pattern: feature/{id}-{title}
+```
+
+`{id}` (required) is the Work ID and `{title}` a short lower-case slug of the title, so `PAY-1234` "Retry failed charges" starts on `feature/PAY-1234-retry-failed-charges`. A title not known at start (a Jira issue) is left out with its separator. Any other name the person wants is given with `--ref` and used as given, for example `sflow start PAY-1234 --from-branch main --ref bugfix/payments/retry-1`; Git's branch rules still apply, and `main`, `state` and `sflow/*` are never Story branches. A Story that already exists keeps its branch: starting it again resumes it on that branch. Resume, return, approvals and decisions with `--work-id` find the branch from the Story (or the Flow Ledger), never from its name. In VS Code, Start Work's **Story branch** field shows the name the pattern gives and accepts another.
 
 Native Copilot `/sf-start` begins with one pause-aware packet:
 `singularity-flow workspace branches --entry --intake --work-id <WORK-ID> --for-agent --json`.

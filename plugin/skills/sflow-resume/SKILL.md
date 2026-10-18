@@ -19,6 +19,6 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 2. The CLI activates the current phase's default governed agent automatically. Do not ask the contributor to select a role. Use `/sf-agent` only when they explicitly request an override.
 3. Read `workflow.json`, `STATUS.md`, source context, and approved artifacts from earlier phases.
 4. The Repository brief is guidance: never run a World Model check or rebuild, and never wait for one; phase prompts include it, and `singularity-flow wm brief --phase <ACTIVE-PHASE>` shows it when asked.
-5. Verify the returned branch matches the work ID; never judge it from the launch checkout.
+5. Verify the returned branch is the Story's own (`workItem.branch`; it need not be the work ID); never judge it from the launch checkout.
 6. Summarize the active governed agent, completed phases, active phase, rejection reason if present and required output. Keep the contributor's Git identity and approval authority separate.
 7. Continue only in the active phase with the drafting route resume returned; do not skip ahead.

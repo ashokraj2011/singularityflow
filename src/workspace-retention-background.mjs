@@ -20,7 +20,10 @@ export async function scheduleWorkspaceRetention(workspacePath, { protect = [], 
       stdio: ['ignore', 'ignore', 'ignore', 'ipc']
     });
     child.once('error', () => { /* Worker launch cannot fail the successful workspace/session operation. */ });
-    child.send({ workspacePath: path.resolve(workspacePath), protect }, () => {
+    // The worker's cwd is the workspace, not the terminal that launched it. Preserve the
+    // caller's actual directory too, even when this command selects another Story/window.
+    const protectedPaths = [...new Set([process.cwd(), ...protect])];
+    child.send({ workspacePath: path.resolve(workspacePath), protect: protectedPaths }, () => {
       if (child.connected) child.disconnect();
       child.unref();
     });

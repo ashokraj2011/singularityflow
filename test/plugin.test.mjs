@@ -448,7 +448,7 @@ test('recovery skill reviews a dirty consumed-generation rollover with an exact 
 test('generic phase skill reviews valid preparation context without a redundant human checkpoint', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-phase', 'SKILL.md'), 'utf8');
   assert.match(content, /Review diffs/);
-  assert.match(content, /preserve drafts\/managed blocks\/approvals/);
+  assert.match(content, /preserve drafts\/managed blocks\/approvals/i);
   assert.match(content, /Prepublish rechecks recovery; never accept draft holds/);
   assert.match(content, /stop for human\/protected\/unowned edits/);
 });
@@ -805,41 +805,40 @@ test('plugin hooks avoid session prompt tax and scope discovery guards to explic
 test('session skill synchronizes work-item state and activates the phase agent automatically', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-session', 'SKILL.md'), 'utf8');
   // One command does open-local, the remote fallback, the status check, context and nextsteps,
-  // so the skill makes two calls where it made seven; the rules live in `session open` itself.
+  // so the skill reuses one entry instead of seven lookups; rules live in `session open` itself.
   assert.match(content, /session candidates --json --diagnostics/);
-  assert.match(content, /workspace current --json[\s\S]*carries the active `workspacePath`\/`repositoryId` explicitly/);
-  assert.match(content, /old host cwd must not replace that scope/);
+  assert.match(content, /No separate pause\/workspace\/session lookups/);
+  assert.match(content, /reuse `open`'s explicit active scope; host cwd must not override it/);
   // The first packet is reused only within this invocation; a new /sf-session checks pause again.
-  assert.match(content, /Without an explicit work ID, reuse this invocation's initial `singularity-flow session open --for-agent --json` result[\s\S]*Relay its `table` verbatim/);
+  assert.match(content, /Without a Work ID, reuse the matching entry; relay `table` verbatim/);
   assert.ok(content.indexOf('session open --for-agent --json') < content.indexOf('session open <WORK-ID> --for-agent --json'));
-  assert.match(content, /current binding or first row is not selection/);
-  assert.match(content, /Stop without attaching if no choice exists/);
-  assert.match(content, /`ask_user` or plain chat/);
-  assert.match(content, /ask with `ask_user` or plain chat for an exact ID/i);
-  assert.match(content, /requires `ready`, the exact `workId` and the open\/attach result's `agent` as `activeAgent`/);
-  assert.match(content, /`null` for a completed Story/);
-  assert.match(content, /before reading brief `context` and `nextsteps`/);
-  assert.match(content, /Never manually merge, rebase, reset, force-checkout, stash, or discard work/);
+  assert.match(content, /Binding\/first row is not selection/);
+  assert.match(content, /Stop if no choice/);
+  assert.match(content, /ask for an exact ID via `ask_user` or chat/);
+  assert.match(content, /Require `ready`, exact `workId` and open\/attach `agent` matching `activeAgent`/);
+  assert.match(content, /`null` for completed Stories/);
+  assert.match(content, /before using `context`\/`nextsteps`/);
+  assert.match(content, /never merge, rebase, reset, force-checkout, stash or discard work/i);
   assert.match(content, /Session setup only: no raw Git, source reads, edits, or lifecycle work/);
   assert.match(content, /For each action preserve order, timing, reason/i);
   assert.match(content, /`Copilot: <copilotCommand>`.*`Shell: <command>`/s);
   assert.match(content, /from that same object/);
   assert.match(content, /Do not merge distinct actions or invent missing routes/);
-  assert.match(content, /only when no local Story or repository exists attaches/);
+  assert.match(content, /only a missing Story\/repository permits remote fallback/);
   assert.match(content, /End the turn; do not continue into Story work/);
 });
 
 test('session setup fences partial selectors, and one command checks the binding before context or next actions', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-session', 'SKILL.md'), 'utf8');
   for (const body of [content, renderDirectSkill(content, 'sflow-session')]) {
-    assert.match(body, /Partial selectors: resolve only within the explicit workspace or ask; never fill from active workspace\/cwd/);
-    assert.ok(body.indexOf('Partial selectors:') < body.indexOf('With none,'),
+    assert.match(body, /Resolve partial selectors within that workspace or ask; never fill from active workspace\/cwd/);
+    assert.ok(body.indexOf('Resolve partial selectors') < body.indexOf("Otherwise reuse `open`'s explicit active scope"),
       'a partial explicit scope cannot fall into the active-workspace fallback');
     const openStep = body.split(/\n3\. /)[1]?.split(/\n4\. /)[0];
     assert.ok(openStep, 'opening the chosen Story is its own step');
     assert.match(openStep, /session open <WORK-ID> --for-agent --json/);
-    assert.match(openStep, /requires `ready`, the exact `workId` and the open\/attach result's `agent` as `activeAgent`/);
-    assert.match(openStep, /Relay any refusal and stop/);
+    assert.match(openStep, /Require `ready`, exact `workId` and open\/attach `agent` matching `activeAgent`/);
+    assert.match(openStep, /Relay refusals and stop/);
     assert.doesNotMatch(body, /singularity-flow session status --json|singularity-flow nextsteps <WORK-ID>/,
       'the separate status, context and nextsteps round trips are gone');
   }

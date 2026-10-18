@@ -63,6 +63,9 @@ test('author guidance is bounded, interface-neutral and explicit about repair, a
     'requirements until genuine results exist']) assert.ok(REQUIREMENT_AUTHORING_PROTOCOL.includes(phrase), phrase);
   assert.ok(Buffer.byteLength(REQUIREMENT_AUTHORING_PROTOCOL) < 2600, 'a compact rubric, not another large inventory');
   assert.equal(REQUIREMENT_COVERAGE.coverageIsExecution, false);
+  assert.equal(REQUIREMENT_COVERAGE.pinnedConstraintsTakePrecedence, true);
+  assert.match(REQUIREMENT_AUTHORING_PROTOCOL, /Honor explicit pinned constitution\/template constraints/u);
+  assert.match(REQUIREMENT_REVIEW_PROTOCOL, /review constraints; never waive them/u);
   assert.equal(REQUIREMENT_COVERAGE.reviewerEditsArtifact, false);
 });
 

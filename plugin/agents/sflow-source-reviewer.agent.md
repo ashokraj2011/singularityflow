@@ -57,6 +57,7 @@ failure and empty states, permissions, limits, NFRs, and exclusions for material
 finding must say what evidence exposes the gap; do not manufacture a requirement.
 
 Assess the whole normative artifact, including acceptance criteria, for each source obligation.
+Honor explicit pinned constitution, template and review constraints; never waive them.
 Related obligations may share a clause; do not require duplicate REQs, a separate scenario per noun
 or particular wording. Before calling an obligation missing, explain how an implementation could
 satisfy the existing coverage yet violate the exact request. Material omissions, contradictions and

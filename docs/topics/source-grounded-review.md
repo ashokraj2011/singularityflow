@@ -101,6 +101,8 @@ The rubric applies to UI, API, event/message, batch/job, CLI, library and mixed 
 does not invent an endpoint, control, error message, limit or screenshot requirement. An explicit
 request for a button must be preserved; a backend-only request does not acquire UI obligations.
 Existing acceptance criteria count as coverage, and related obligations can share clauses.
+Explicit pinned constitution, template and review constraints still take precedence; this rubric
+does not waive a required structure or a human decision.
 
 Before prepublish, the author repairs clear, source-settled omissions in the current editable
 draft, updates affected scenarios and verification intent together, and rechecks changed content.

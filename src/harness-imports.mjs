@@ -101,6 +101,27 @@ function markdownSummary(text) {
   };
 }
 
+/** HTML comments outside fenced code: a template's authoring guidance, never approved evidence. */
+function withoutHtmlComments(text) {
+  return text.split(/(^(?:```|~~~)[^\n]*\n[\s\S]*?^(?:```|~~~)[ \t]*$)/mu)
+    .map((part, index) => (index % 2 ? part : part.replace(/<!--[\s\S]*?-->/gu, ''))).join('')
+    .replace(/[ \t]+$/gmu, '').replace(/\n{3,}/gu, '\n\n').trim();
+}
+
+/**
+ * What a later step's prompt shows of an approved Markdown artifact it does not take as an input.
+ * Its Agent brief is the summary its producer wrote for downstream steps, so that is all it shows
+ * when there is one; otherwise the authored text without template comments.
+ */
+function promptMarkdownPreview(text) {
+  const authored = withoutHtmlComments(text);
+  let brief = null;
+  try { brief = markdownSelection(authored, 'Agent brief'); } catch { /* none, or more than one */ }
+  return brief && brief.replace(/^#{1,6}\s+.+$/mu, '').trim()
+    ? { text: brief, projection: 'agent-brief' }
+    : { text: authored, projection: 'authored' };
+}
+
 function structureSummary(value) {
   const type = Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value;
   if (type === 'array') return { type, entries: value.length };
@@ -131,10 +152,13 @@ export function renderReferencePreview(bytesValue, mediaType = 'application/octe
   const managedBytesExcluded = Math.max(0, sourceBytes.length - projectedBytes.length);
   let selected = applyRange(projectedBytes, options.range);
   let renderer = 'binary-metadata'; let summary = { schemaVersion: 1, kind: 'binary-metadata' }; const warnings = [];
+  let projection = null;
   if (textual) {
     const raw = projectedBytes.toString('utf8');
     if (mediaType === 'text/markdown') {
-      renderer = 'markdown-outline'; summary = markdownSummary(raw); selected ??= markdownSelection(raw, options.section) ?? raw;
+      renderer = 'markdown-outline'; summary = markdownSummary(raw); selected ??= markdownSelection(raw, options.section);
+      if (selected == null && options.promptPreview === true) ({ text: selected, projection } = promptMarkdownPreview(raw));
+      selected ??= raw;
     } else if (['application/json', 'application/yaml', 'application/x-yaml'].includes(mediaType)) {
       renderer = mediaType === 'application/json' ? 'json-structure' : 'yaml-structure';
       let parsed;
@@ -157,6 +181,7 @@ export function renderReferencePreview(bytesValue, mediaType = 'application/octe
     source: { rawSha256: sha256(sourceBytes), rawBytes: sourceBytes.length },
     preview: { text: bounded.text, bytes: bounded.bytes, sha256: sha256(Buffer.from(bounded.text)), summary },
     truncated: bounded.truncated || (!textual && sourceBytes.length > 0),
+    ...(projection ? { projection } : {}),
     managedBytesExcluded,
     warnings
   };

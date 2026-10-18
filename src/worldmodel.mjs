@@ -166,7 +166,8 @@ async function renderApprovedReferenceContext(root, definition, workflow, active
       const resolved = await resolveReference(root, descriptor.handle, {
         maxBytes: policy?.previewTextBytes,
         totalEnvelopeBytes: policy?.totalEnvelopeBytes,
-        authoredMarkdown: true
+        authoredMarkdown: true,
+        promptPreview: true
       });
       const capturedReason = approvedReferenceCaptureReason({
         handle: descriptor.handle,
@@ -205,6 +206,7 @@ async function renderApprovedReferenceContext(root, definition, workflow, active
         renderer: resolved.renderer,
         truncated: resolved.truncated,
         managedBytesExcluded: resolved.managedBytesExcluded ?? 0,
+        projection: resolved.projection ?? null,
         text: resolved.preview.text
       });
     } catch (error) {
@@ -221,10 +223,9 @@ async function renderApprovedReferenceContext(root, definition, workflow, active
     ...previews.flatMap((preview) => [
       `## ${preview.phase} — ${preview.path}`,
       '',
-      `- Handle: \`${preview.handle}\``,
-      `- Source SHA-256: \`${preview.rawSha256}\``,
-      `- Preview SHA-256: \`${preview.previewSha256}\``,
-      `- Renderer: \`${preview.renderer.id}@${preview.renderer.version}\``,
+      preview.projection === 'agent-brief'
+        ? `- Shown: its Agent brief only. For exact wording use \`singularity-flow show ${preview.handle} --section "<heading>"\`.`
+        : `- Handle: \`${preview.handle}\``,
       '',
       preview.text,
       ''

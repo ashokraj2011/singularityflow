@@ -175,6 +175,31 @@ test('model-visible Markdown references exclude kernel metadata and recursive ap
   assert.ok(projected.managedBytesExcluded > 0);
 });
 
+test('a prompt preview shows the Agent brief without template comments; show keeps every byte', () => {
+  const source = Buffer.from([
+    '# Specification', '', '<!--', 'Scenarios come first: template guidance.', '-->', '',
+    '## Agent brief', '', '<!-- Summarize for downstream agents. -->', '', 'Users convert 123 to 0x7B.', '',
+    '## Requirements', '', '- The operation converts. [HEX-1:REQ-001]', '',
+    '```html', '<!-- an example inside code stays -->', '```'
+  ].join('\n'));
+  const prompt = renderReferencePreview(source, 'text/markdown', { promptPreview: true });
+  assert.equal(prompt.projection, 'agent-brief');
+  assert.match(prompt.preview.text, /## Agent brief\n\nUsers convert 123 to 0x7B\./);
+  assert.doesNotMatch(prompt.preview.text, /template guidance|Summarize for downstream|REQ-001/);
+  const exact = renderReferencePreview(source, 'text/markdown');
+  assert.equal(exact.projection, undefined);
+  assert.match(exact.preview.text, /template guidance/);
+  assert.match(exact.preview.text, /REQ-001/);
+
+  // Without a brief: the authored text, comments outside code removed and code left as written.
+  const noBrief = renderReferencePreview(Buffer.from(source.toString().replace('## Agent brief', '## Summary')),
+    'text/markdown', { promptPreview: true });
+  assert.equal(noBrief.projection, 'authored');
+  assert.match(noBrief.preview.text, /REQ-001/);
+  assert.match(noBrief.preview.text, /<!-- an example inside code stays -->/);
+  assert.doesNotMatch(noBrief.preview.text, /template guidance|Summarize for downstream/);
+});
+
 test('harness reports exact engine evidence and honest unavailable host coverage', async () => {
   const { root } = await repository();
   const started = beginHarnessInvocation({

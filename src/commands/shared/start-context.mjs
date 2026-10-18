@@ -241,7 +241,7 @@ export async function capabilityDoctorStoryPin(root) {
       try {
         const located = await secureRepositoryPath(root, relative, { label: 'Current Story workflow', type: 'file' });
         if (!located.exists) continue;
-        const state = JSON.parse(await readFile(located.absolute, 'utf8'));
+        const state = readRecord('story-workflow', await readFile(located.absolute)).record;
         if (state?.workItem?.branch === currentBranch || state?.lineage?.canonicalBranch === currentBranch) {
           candidates.push({ relative, absolute: located.absolute });
         }

@@ -703,7 +703,7 @@ export class IntakePanel {
 
   /** The fields this form will write. Anything else named by the page is refused. */
   private static readonly WRITABLE = Object.freeze([
-    'key', 'id', 'title', 'description', 'goal', 'acceptanceCriteria', 'targetUrl',
+    'key', 'id', 'title', 'description', 'goal', 'acceptanceCriteria', 'targetUrl', 'storyBranch',
     'testBaselineRecords', 'testBaselineReason', 'testBaselineOwner', 'testBaselineRemediation', 'testBaselineExpiresAt'
   ]);
 
@@ -976,7 +976,9 @@ export class IntakePanel {
         if (invalidatesEnhancement) this.invalidateEnhancement();
         this.formTouched = true;
         // Blur after a pause re-reports the value readiness is already checking or has checked.
-        const affectsPreflight = field === 'id' || field === 'key' || field.startsWith('testBaseline');
+        // The title too: a branch pattern may name the branch from it.
+        const affectsPreflight = field === 'id' || field === 'key' || field === 'title' || field === 'storyBranch'
+          || field.startsWith('testBaseline');
         const alreadyChecked = affectsPreflight && this.preflightKey !== null
           && this.preflightKey === JSON.stringify(storyPreflightCommand({ ...this.form, [field]: value }));
         const invalidatesPreflight = affectsPreflight && !alreadyChecked;
@@ -985,7 +987,7 @@ export class IntakePanel {
           [field]: value,
           ...(invalidatesEnhancement ? { enhanceError: null } : {}),
           ...(invalidatesPreflight ? {
-            ...emptyStoryPreflight()
+            ...emptyStoryPreflight(), suggestedStoryBranch: null
           } : {})
         } as Partial<IntakeForm>);
         if (invalidatesPreflight) return this.scheduleIdentifierPreflight();
@@ -1303,6 +1305,8 @@ export class IntakePanel {
           passed?: boolean; remote?: string; readiness?: StoryStartReadinessResult;
           testReadiness?: PreflightTestReadiness;
           testRecovery?: PreflightTestRecovery;
+          /** The branch Start will create: the name given with --ref, or the repository pattern's. */
+          storyBranch?: string;
           intakeReceipt?: { issued?: boolean; id?: string; expiresAt?: string; reason?: string };
         };
         intake?: EngineStoryWorkflowCatalog;
@@ -1378,6 +1382,7 @@ export class IntakePanel {
           workType: exactWorkType, workflowReason: null
         } : {}),
         basePreflightPassed: true, basePreflightChecking: false,
+        suggestedStoryBranch: typeof result.preflight?.storyBranch === 'string' ? result.preflight.storyBranch : null,
         basePreflightReason: result.readinessSnapshot?.source === 'cache'
           ? `Cached readiness checked at ${result.readinessSnapshot.checkedAt}.` : null,
         basePreflightWarnings: warnings,

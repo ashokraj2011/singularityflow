@@ -274,6 +274,10 @@ export interface IntakeForm extends TestRecoveryDraft {
   baseBranchReason: string | null;
   /** Branches left out because they share no history with the default branch (orphan branches). */
   baseBranchOrphans: string[];
+  /** The Story's branch as the person typed it, e.g. feature/ABC-1 or bugfix/profile/fix-1; empty uses the suggestion. */
+  storyBranch: string;
+  /** The branch the repository's naming pattern gives this Story, from the exact preflight; null until it answers. */
+  suggestedStoryBranch: string | null;
   /** True only after the engine has re-fetched every required repository and dry-run the push. */
   basePreflightPassed: boolean;
   basePreflightChecking: boolean;
@@ -358,6 +362,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   referenceRepositories: [],
   storyAttachments: emptyStoryAttachmentSlots(),
   baseBranch: null, baseBranchChoices: [], baseRemote: null, baseBranchReason: null, baseBranchOrphans: [],
+  storyBranch: '', suggestedStoryBranch: null,
   basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null,
   basePreflightWarnings: [], baseTestReadiness: null, basePreflightRefreshRecommended: false,
   readinessBaseline: 'reuse', baselinePolicy: 'choice', baselineScope: 'dependency-test',
@@ -382,6 +387,16 @@ export function intakeHasInput(form: IntakeForm): boolean {
 function storyWorkflowProblem(form: IntakeForm): string {
   return form.catalogStatus === 'loading' ? 'Reading the approved Story workflows…'
     : form.workflowReason ?? 'No Story workflow is configured in singularity/workflow.yml.';
+}
+
+/** The branch this Story will be created on: the name typed, else the engine's suggestion, else its ID. */
+export function storyBranchName(form: IntakeForm): string {
+  return form.storyBranch.trim() || form.suggestedStoryBranch || intakeIdentifier(form);
+}
+
+/** `--ref` only for a name the person typed; otherwise the engine names it from the repository pattern. */
+function storyBranchArguments(form: IntakeForm): string[] {
+  return form.storyBranch.trim() ? ['--ref', form.storyBranch.trim()] : [];
 }
 
 /** A read failure is terminal for this attempt, never another indefinite loading state. */
@@ -443,7 +458,7 @@ export function intakePlanInputKey(form: IntakeForm): string {
   return JSON.stringify([
     form.targetWorkspace, form.targetRepository, form.targetBranch, form.shape, form.tracker,
     form.key, form.id, form.title, form.description, form.goal, form.acceptanceCriteria,
-    form.targetUrl, form.profile, form.workType, form.baseBranch, form.readinessBaseline, form.qualityGateMode,
+    form.targetUrl, form.profile, form.workType, form.baseBranch, form.storyBranch, form.readinessBaseline, form.qualityGateMode,
     form.referenceRepositories.map(({ id, repository, branch }) => [id, repository, branch]),
     form.storyAttachments, form.testBaselineDisposition, form.testExecutionMode, form.testBaselineScope,
     form.testBaselineRecords, form.testBaselineReason, form.testBaselineOwner,
@@ -542,6 +557,7 @@ export function intakeProblems(form: IntakeForm): string[] {
         problems.push(`Document ${index + 1} (${entry.displayName}) was used only in phases this workflow does not have (${storyAttachmentPhases(form, entry).dropped.join(', ')}). Choose which phases use it.`);
       }
     });
+    if (/\s/u.test(form.storyBranch.trim())) problems.push('A Story branch name cannot contain spaces.');
     if (!form.baseBranch) {
       problems.push(form.baseBranchReason
         ?? (form.baseBranchChoices.length
@@ -618,14 +634,14 @@ export function intakeCommand(form: IntakeForm): string[] {
     ...(!form.testRecovery?.enabled ? ['--test-execution-mode', form.testExecutionMode] : []),
     ...testRecoveryArguments(form, true)];
   if (tracked) return ['story', 'start', identifier, '--json', '--fetch', '--work-type', form.workType!,
-    ...isolated, ...target, ...capabilityBase, ...references, ...attachments];
+    ...isolated, ...target, ...capabilityBase, ...storyBranchArguments(form), ...references, ...attachments];
   if (form.tracker === 'github') {
     return ['start', identifier, '--json', '--fetch', '--github', form.key.trim(),
-      '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase, ...references, ...attachments];
+      '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase, ...storyBranchArguments(form), ...references, ...attachments];
   }
   const args = ['start', identifier, '--json', '--fetch',
     '--title', form.title.trim(), '--description', form.description.trim(),
-    '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase, ...references, ...attachments];
+    '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase, ...storyBranchArguments(form), ...references, ...attachments];
   if (form.acceptanceCriteria.trim()) {
     args.push('--acceptance-criteria', form.acceptanceCriteria.trim());
   }
@@ -656,6 +672,9 @@ export function storyPreflightCommand(form: IntakeForm): string[] | null {
     '--readiness-baseline', form.readinessBaseline,
     '--gate-mode', form.qualityGateMode,
     ...(form.workType ? ['--work-type', form.workType, '--mint-intake-receipt'] : []),
+    // The same branch Start will use: the typed name, or the pattern's name, which may use the title.
+    ...storyBranchArguments(form),
+    ...(form.tracker === 'none' && form.title.trim() && !form.storyBranch.trim() ? ['--title', form.title.trim()] : []),
     ...references,
     // Discovery and choice evaluation happen in one read. These defaults never imply consent;
     // Start still requires the returned exact plan digest when the policy is enabled.
@@ -1000,13 +1019,19 @@ function baseBranchHtml(form: IntakeForm): string {
     </div>
     ${form.baseBranchChoices.length ? `<p class="meta" data-base-branch-empty hidden>No matching branches. Try another name or clear the search.</p>
     <p class="meta" data-base-branch-selected>${form.baseBranch ? `Selected base: ${escape(form.baseBranch)}.` : 'No base selected.'}</p>` : ''}
+    ${form.shape === 'story' ? `<label class="field"><span>Story branch</span><input type="text" value="${escape(form.storyBranch)}"
+      data-field="storyBranch" placeholder="${escape(form.suggestedStoryBranch ?? (intakeIdentifier(form) || 'feature/ABC-123'))}" size="48"
+      autocomplete="off" spellcheck="false"></label>
+    <p class="meta">Leave it empty to use ${form.suggestedStoryBranch || intakeIdentifier(form)
+      ? `<code>${escape(form.suggestedStoryBranch ?? intakeIdentifier(form))}</code>` : 'the name your repository gives it'}, or type the name your team uses,
+      for example <code>feature/ABC-123-short-title</code> or <code>bugfix/profile/fix-1</code>.</p>` : ''}
     ${baseStoryNoteHtml(form)}
     ${visibleOrphans.length ? `<p class="meta">Not offered: ${visibleOrphans.map((name) => `<code>${escape(name)}</code>`).join(', ')}
       — ${visibleOrphans.length === 1 ? 'it shares' : 'they share'} no history with the default branch, so no Story can start from ${visibleOrphans.length === 1 ? 'it' : 'them'}.</p>` : ''}
     ${form.baseBranch && form.basePreflightPassed ? `<p class="meta">Story-start readiness confirmed for
       workflow <code>${escape(form.workType ?? '')}</code>: create <code>${escape(intakeIdentifier(form) || '<Story ID>')}</code>
       from <code>${escape(form.baseRemote ?? 'remote')}/${escape(form.baseBranch)}</code> and publish only
-      <code>${escape(form.baseRemote ?? 'remote')}/refs/heads/${escape(intakeIdentifier(form) || '<Story ID>')}</code>.
+      <code>${escape(form.baseRemote ?? 'remote')}/refs/heads/${escape(storyBranchName(form) || '<Story ID>')}</code>.
       Publication access and changed inputs are checked on Start.</p>
       <button type="button" class="secondary" data-readiness-retry ${form.busy || form.basePreflightChecking ? 'disabled' : ''}>Refresh readiness</button>` : ''}
     ${form.basePreflightChecking ? '<p class="meta">Checking approved configuration, workflow agents, and selected branches. Publication access is checked on Start.</p>' : ''}
@@ -1386,7 +1411,8 @@ function storyReviewHtml(form: IntakeForm): string {
           <h4>Acceptance criteria</h4><p class="intake-review-prose" data-intake-review-field="acceptanceCriteria">${value(form.acceptanceCriteria)}</p>` : ''}${edit('details')}</article>
       <article><h3>Workflow & branch</h3><dl><dt>Workflow</dt><dd>${value(workflow?.label ?? form.workType)}</dd>
         <dt>Phases</dt><dd>${workflow ? value(workflow.phases.join(' → ')) : 'Not selected'}</dd>
-        <dt>Base branch</dt><dd>${value(form.baseBranch)}</dd><dt>Workspace</dt><dd>${value(form.targetWorkspace)}</dd>
+        <dt>Base branch</dt><dd>${value(form.baseBranch)}</dd><dt>Story branch</dt><dd>${value(storyBranchName(form))}</dd>
+        <dt>Workspace</dt><dd>${value(form.targetWorkspace)}</dd>
         <dt>Repository</dt><dd>${value(form.targetRepository)}</dd></dl>${edit('workflow')}</article>
       <article><h3>Documents & checks</h3><dl><dt>Documents</dt><dd>${documents.length ? documents.map(entry => {
         const effective = storyAttachmentPhases(form, entry);

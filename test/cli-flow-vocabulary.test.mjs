@@ -23,7 +23,6 @@ const KEPT = {
   // Agent prompts, contracts and boundaries composed into phase prompts. Their bytes are hashed
   // into prompt and contract receipts, so rewording them is a prompt change, not a copy edit.
   'src/agent-briefs.mjs': ['of a governed artifact'],
-  'src/agent-guidance.mjs': ['for governed Story reads'],
   'src/agent-packet-presentation.mjs': ['for governed outcomes'],
   'src/clarifications.mjs': ['from its governed evidence', 'publish the governed output', 'reading the governed evidence', 'and governed repository evidence'],
   'src/harness-imports.mjs': ['content is governed evidence'],

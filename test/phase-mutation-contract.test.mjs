@@ -561,7 +561,7 @@ test('every active authoring phase advertises and admits local tests and app ses
     assert.match(view.toolProtocol.terminal, /not a standalone-SFlow-only terminal/u);
     assert.match(view.toolProtocol.localVerification.guidance, /VS Code task is optional/u);
     assert.match(view.toolProtocol.localVerification.guidance, /stop only the process\/session you started/u);
-    assert.match(view.toolProtocol.localVerification.guidance, /do not replace fresh governed/u);
+    assert.match(view.toolProtocol.localVerification.guidance, /do not replace the fresh publication\/submission tests/u);
     for (const toolName of ['bash', 'powershell', 'run_in_terminal', 'exec_command']) {
       for (const command of ['npm test -- --run', 'npm run dev -- --host 127.0.0.1', 'node --test local.test.mjs']) {
         const call = { ...payload, toolName, toolArgs: { command, cwd: f.root } };

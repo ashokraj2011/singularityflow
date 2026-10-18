@@ -32,7 +32,7 @@ test('a configured runner is ready even though its arguments and arbitrary id ar
   assert.match(handoff.guidance, /hidden, not missing/u);
   assert.match(handoff.guidance, /Do not edit package scripts/u);
   assert.match(handoff.guidance, /Diagnostic development tests are allowed during admitted authoring/u);
-  assert.match(handoff.guidance, /never replace this fresh governed run/u);
+  assert.match(handoff.guidance, /never replace this fresh required run/u);
 });
 
 test('inferred runners expose their known arguments and continue the guarded operation', () => {

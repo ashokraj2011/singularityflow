@@ -30,6 +30,7 @@ import { createInitiative, initiativeDir, prepareInitiativePhase, saveInitiative
 import { createAutoFlightState, readAutoFlightState } from '../src/auto/auto-flight-store.mjs';
 import { publishOrganisationCapabilityMap } from '../src/organisation.mjs';
 import { run } from '../src/util.mjs';
+import { isolatedMachineEnvironment } from '../scripts/test-machine-state.mjs';
 
 process.env.NODE_ENV = 'test';
 process.env.SINGULARITY_FLOW_TEST_IDENTITY = 'Initiative Owner';
@@ -45,17 +46,18 @@ const EMAIL = 'initiative.owner@example.com';
  * developer happened to be working in.
  *
  * Redirected here rather than per-test on purpose. A test that forgets is a test that reads the
- * real machine, and it fails only for whoever has a workspace selected.
+ * real machine, and it fails only for whoever has a workspace selected. This file also runs on its
+ * own, outside the suite runner, so it applies the runner's whole list itself. Before it did, every
+ * session listing the extension asked for was cached in the developer's home.
  */
 const machineState = mkdtempSync(path.join(os.tmpdir(), 'sflow-host-machine-'));
-process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = path.join(machineState, 'active-workspace.json');
-process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY ??= path.join(machineState, 'registry.json');
-process.env.SINGULARITY_FLOW_LEAD_REGISTRY ??= path.join(machineState, 'leads.json');
-process.env.SINGULARITY_FLOW_VSCODE_RESET_MARKER = path.join(machineState, 'vscode-fresh-reset-pending.json');
-process.env.SINGULARITY_FLOW_AST_PREFERENCE_FILE = path.join(machineState, 'ast-preference.json');
+const {
+  SINGULARITY_FLOW_WORKSPACE_REGISTRY: registryFile, SINGULARITY_FLOW_LEAD_REGISTRY: leadRegistryFile, ...machineFiles
+} = isolatedMachineEnvironment(machineState);
+Object.assign(process.env, machineFiles);
+process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY ??= registryFile;
+process.env.SINGULARITY_FLOW_LEAD_REGISTRY ??= leadRegistryFile;
 process.env.SINGULARITY_FLOW_TRANSPORT_OUTBOX = path.join(machineState, 'transport-outbox');
-process.env.SINGULARITY_FLOW_PRESENTATION_PROFILE_FILE = path.join(machineState, 'presentation-profile.json');
-process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = path.join(machineState, 'copilot-mode.json');
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bundle = path.join(packageRoot, 'apps', 'vscode', 'dist', 'extension.cjs');

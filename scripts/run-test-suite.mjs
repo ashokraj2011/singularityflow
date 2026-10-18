@@ -9,6 +9,7 @@ import { signalProcessTree } from '../src/util.mjs';
 import {
   discoverTestSuite, parsePositiveInteger, parseShard, partitionTestFiles, TEST_SUITES, testRunId
 } from './test-suite-plan.mjs';
+import { isolatedMachineEnvironment } from './test-machine-state.mjs';
 import { nodeTypeScriptFlags } from './typescript-runtime.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -67,13 +68,7 @@ const concurrencyFlag = `--test-concurrency=${parsedConcurrency}`;
 
 /** Run against a throwaway machine-state root, never the developer's own. */
 const machineState = mkdtempSync(path.join(tmpdir(), 'sflow-test-machine-state-'));
-const isolated = {
-  ...process.env,
-  SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(machineState, 'workspaces.json'),
-  SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(machineState, 'active-workspace.json'),
-  SINGULARITY_FLOW_LEAD_REGISTRY: path.join(machineState, 'leads.json'),
-  SINGULARITY_FLOW_WMB_SHARED_CACHE: path.join(machineState, 'wmb-shared-cache')
-};
+const isolated = { ...process.env, ...isolatedMachineEnvironment(machineState) };
 delete isolated.FORCE_COLOR;
 delete isolated.SINGULARITY_FLOW_COLOR;
 // A contract test may invoke this runner from inside node:test. The new child owns an independent

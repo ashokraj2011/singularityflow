@@ -12,6 +12,8 @@
  * this substitution possible rather than a hack.
  */
 import test from 'node:test';
+import { appendLedgerIntent, createLedgerIntent, initializeLedger } from '../src/ledger.mjs';
+import { storyLifecycleProgress } from '../src/session-roster.mjs';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
@@ -6797,6 +6799,7 @@ test('Inbox opens another Story while the selected workspace points at a managed
   const workflowFile = path.join(source, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
   workflow.git = { ...(workflow.git ?? {}), publish: 'off' };
+  workflow.ledger = { ...workflow.ledger, enabled: true, pinTransport: 'none' };
   await writeFile(workflowFile, YAML.stringify(workflow));
   run('git', ['add', '.'], { cwd: source });
   run('git', ['commit', '-qm', 'Initialize Story workspace fixture'], { cwd: source });
@@ -6804,11 +6807,12 @@ test('Inbox opens another Story while the selected workspace points at a managed
   run('git', ['init', '--bare', '--initial-branch=main', remote], { cwd: base });
   run('git', ['remote', 'add', 'origin', remote], { cwd: source });
   run('git', ['push', '-q', '-u', 'origin', 'main'], { cwd: source });
+  await initializeLedger(source, workflow.ledger);
 
   const created = cli([
     'workspace', 'create', '--local', '--json', '--id', 'story-workspace',
     '--base', path.join(base, 'workspaces'), '--lead', 'finalui1',
-    '--repository', `finalui1=${source}`, '--confirm', 'story-workspace', '--clone'
+    '--repository', `finalui1=${remote}`, '--confirm', 'story-workspace', '--clone'
   ]);
   assert.equal(created.status, 0, created.stderr);
   const canonical = path.join(base, 'workspaces', 'story-workspace', 'repos', 'finalui1');
@@ -6826,6 +6830,16 @@ test('Inbox opens another Story while the selected workspace points at a managed
   const targetStory = makeStory('STORY-WORKTREE-TARGET');
   run('git', ['push', '-q', '-u', 'origin', 'STORY-WORKTREE-FIRST'], { cwd: currentStory });
   run('git', ['push', '-q', '-u', 'origin', 'STORY-WORKTREE-TARGET'], { cwd: targetStory });
+  // The fixture's publication-off starts are drafts until the explicit pushes above. Publish their
+  // exact state pointers too: opening a workspace must not discover unindexed application refs.
+  for (const [checkout, id] of [[currentStory, 'STORY-WORKTREE-FIRST'], [targetStory, 'STORY-WORKTREE-TARGET']]) {
+    const state = JSON.parse(await readFile(path.join(checkout, 'singularity/work-items', id, 'workflow.json'), 'utf8'));
+    await appendLedgerIntent(checkout, workflow.ledger, createLedgerIntent({ eventType: 'binding', capabilityId: 'fixture',
+      actor: { name: 'Fixture', email: 'fixture@example.invalid' },
+      subject: { kind: 'story', workId: id, branch: id, title: state.workItem.title, status: state.status,
+        currentPhase: state.currentPhase, progress: storyLifecycleProgress(state) }
+    }), run('git', ['rev-parse', 'HEAD'], { cwd: checkout }).stdout.trim());
+  }
   const selected = cli([
     'session', 'open-local', 'STORY-WORKTREE-FIRST', '--workspace',
     path.join(base, 'workspaces', 'story-workspace'), '--repository', 'finalui1', '--json'

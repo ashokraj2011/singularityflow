@@ -39,7 +39,11 @@ export async function run(positionals, options) {
     const change = {};
     for (const [flag, key] of Object.entries({ 'completed-days': 'completedDays', 'cancelled-days': 'cancelledDays',
       'unused-clone-days': 'unusedCloneDays', 'interval-minutes': 'intervalMinutes' })) {
-      if (options[flag] !== undefined) change[key] = Number(optionString(options, flag));
+      if (options[flag] !== undefined) {
+        const value = optionString(options, flag);
+        if (!/^(?:0|[1-9][0-9]*)$/u.test(value ?? '')) throw new SingularityFlowError(`--${flag} requires an explicit non-negative integer.`);
+        change[key] = Number(value);
+      }
     }
     if (options.enabled !== undefined) {
       const enabled = optionString(options, 'enabled');

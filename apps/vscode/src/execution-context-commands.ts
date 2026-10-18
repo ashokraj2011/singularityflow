@@ -38,8 +38,8 @@ export function registerExecutionContextCommands(context: vscode.ExtensionContex
       prompt: 'Completed days, cancelled days, unused clone days, check interval minutes. Zero days means immediate eligibility, not permission to discard work.',
       value: `${settings.completedDays},${settings.cancelledDays},${settings.unusedCloneDays},${settings.intervalMinutes}`,
       validateInput: text => {
-        const values = text.split(',').map(Number);
-        return values.length === 4 && values.every(Number.isInteger) && values.slice(0, 3).every(days => days >= 0 && days <= 3650)
+        const parts = text.split(',').map(part => part.trim()), values = parts.map(Number);
+        return values.length === 4 && parts.every(part => /^(?:0|[1-9][0-9]*)$/u.test(part)) && values.every(Number.isInteger) && values.slice(0, 3).every(days => days >= 0 && days <= 3650)
           && values[3]! >= 1 && values[3]! <= 10080 ? undefined : 'Enter three retention days (0–3650) and an interval (1–10080 minutes).';
       } });
     if (enabled === 'Enabled' && value === undefined) return;

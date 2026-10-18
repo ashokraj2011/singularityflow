@@ -7,10 +7,10 @@ questions:
   - How do I turn a tagged description into a workflow bundle?
 commands: [workflow]
 related: [workflow-intent, workflow-authoring, workflow-decisions, reusable-instructions]
-version: 8
+version: 9
 ---
 
-## What this does
+## Purpose and prerequisites
 
 Tagged authoring is a declarative XML subset, not executable HTML. It compiles to the same portable
 JSON bundle as Workflow Studio export. The existing importer handles collision choices, exact plan
@@ -31,48 +31,10 @@ catalog, supports asset reuse and preserves structural intent coverage. See
 `singularity-flow explain workflow-intent` before drafting. The selected workflow contract still
 owns its phase count, order and obligations; a family label never grants new runtime support.
 
-The compiler applies the selected workflow's phase overrides before remapping names. A shared
-phase's unused defaults cannot introduce foreign inputs or return routes into the derived
-workflow. Evidence producers remain single phase references, design-source capture/consumer
-references follow the new namespace, and sequential workflows return an empty decision list.
-Required approval groups and inherited repair limits remain enforced; changing names does not
-remove those obligations.
-
-## Version 2 catalog binding and reuse
-
-Get a fully bound, dependency-complete example with `singularity-flow workflow intent example
---source installed --json`. The checked-in `examples/demo-intent-workflow.xml` is its template;
-the command fills its digest and source placeholders from the exact captured owner.
-
-The root takes `version="2"`, `catalog="sha256:..."` and `catalog-source="approved"` or `installed`.
-`extends` names an exact workflow in that catalog. The compiler rechecks the entire catalog binding
-before writing a bundle; a changed source is a fresh-review condition, not a hash to auto-replace.
-
-- `<agent id="NEW-NAMESPACED-ID" from="CATALOG-AGENT-ID" />` derives a new agent with the exact
-  parent prompt and applicable skills. An optional description adds workflow-specific guidance;
-  optional tools may narrow, not expand, the parent's tools. Remote dependencies require the existing
-  reviewed authoring route. Independent testing and code repair cannot derive from the same parent.
-- `<skill id="NEW-NAMESPACED-ID" from="CATALOG-SKILL-ID" />` copies the exact procedure and
-  instruction references. `<instruction id="NEW-NAMESPACED-ID" from="CATALOG-INSTRUCTION-ID" />`
-  copies the exact guidance. Neither takes replacement body text; declare new content deliberately.
-- `<skill ref="EXISTING-LIBRARY-SKILL-ID" />` under an agent or phase selects existing retained
-  guidance. It is not a procedural `command-skill`. Ordinary bundle dependency closure includes the
-  selected instructions; no model needs to copy their bodies. A custom skill can place an existing
-  catalog instruction with `<instruction>EXISTING-ID</instruction>`.
-- One `<intent family="CATALOG-FAMILY">` contains a `<description>` with the exact original user
-  description, one or more `<requirement id="ID" maps-to="phase:ID decision:ID">statement</requirement>`
-  rows and explicit empty `<pattern ref="PATTERN-ID" />` elements. Each target must exist. Node
-  target prefixes include workflow, phase, agent, skill, instruction and decision. The VS Code
-  host compares the original description, not a model rewrite, before offering import.
-- `<attachment id="CAPTURE-ID" sha256="sha256:..." kind="agent|skill|instruction|reference"
-  maps-to="KIND:ID ..." />` maps an explicitly captured laptop file to declared or selected reused
-  objects. Agent/skill/instruction mappings must target their own object kind; references target
-  consuming nodes. The designer checks exact capture identity and selected type. The normal bundle
-  retains the proposed provenance as prose, not executable policy or an approval receipt.
-
-The mapping is structural only and requires human semantic review. Unsupported patterns report a
-capability requirement instead of silently becoming sequential. The existing version 1 syntax and
-repository-independent compiler remain supported for explicit manual authoring.
+Before you start, know which version you are writing. Version 1 needs the installed Story starter it
+extends. Version 2 binds the digest of an exact approved or installed catalog; `singularity-flow
+workflow intent example --source installed --json` prints a fully bound example. Checking and
+compiling need no model; only optional Copilot drafting uses one.
 
 ## Use it from each surface
 
@@ -124,7 +86,9 @@ without executing a Story or tests. An unknown phase is refused, never replaced 
 There is no dedicated `@sflow` markup command. VS Code Check and shell compilation are model-free;
 optional Copilot drafting uses the selected chat model.
 
-## Document shape
+## Guided workflow
+
+### Document shape (version 1)
 
 Use `examples/demo-tagged-workflow.xml` in the installed package or the example command. The root
 requires `version="1"`, `id`, `label`, and `extends="INSTALLED-STARTER-ID"`. New phase, agent, skill
@@ -151,7 +115,7 @@ Unmentioned starter decisions are retained with remapped targets. A phase's deci
 **replaces** its inherited decision. Explicit sequential `next` removes that inherited decision,
 subject to native route/obligation checks. No prose “if” silently creates executable behavior.
 
-## Decisions and loops
+### Decisions and loops
 
 Place a branch inside the deciding phase:
 
@@ -196,7 +160,52 @@ Test can select later Repair, while Repair has its own bounded return to Test.
 An ask is a human choice, not an automatic loop. Membership and exact question binding stay kernel
 enforced. Approvals, fresh evidence, independent review and integrity checks are unchanged.
 
-## Validation and preservation
+### Version 2 catalog binding and reuse
+
+Get a fully bound, dependency-complete example with `singularity-flow workflow intent example
+--source installed --json`. The checked-in `examples/demo-intent-workflow.xml` is its template;
+the command fills its digest and source placeholders from the exact captured owner.
+
+The root takes `version="2"`, `catalog="sha256:..."` and `catalog-source="approved"` or `installed`.
+`extends` names an exact workflow in that catalog. The compiler rechecks the entire catalog binding
+before writing a bundle; a changed source is a fresh-review condition, not a hash to auto-replace.
+
+- `<agent id="NEW-NAMESPACED-ID" from="CATALOG-AGENT-ID" />` derives a new agent with the exact
+  parent prompt and applicable skills. An optional description adds workflow-specific guidance;
+  optional tools may narrow, not expand, the parent's tools. Remote dependencies require the existing
+  reviewed authoring route. Independent testing and code repair cannot derive from the same parent.
+- `<skill id="NEW-NAMESPACED-ID" from="CATALOG-SKILL-ID" />` copies the exact procedure and
+  instruction references. `<instruction id="NEW-NAMESPACED-ID" from="CATALOG-INSTRUCTION-ID" />`
+  copies the exact guidance. Neither takes replacement body text; declare new content deliberately.
+- `<skill ref="EXISTING-LIBRARY-SKILL-ID" />` under an agent or phase selects existing retained
+  guidance. It is not a procedural `command-skill`. Ordinary bundle dependency closure includes the
+  selected instructions; no model needs to copy their bodies. A custom skill can place an existing
+  catalog instruction with `<instruction>EXISTING-ID</instruction>`.
+- One `<intent family="CATALOG-FAMILY">` contains a `<description>` with the exact original user
+  description, one or more `<requirement id="ID" maps-to="phase:ID decision:ID">statement</requirement>`
+  rows and explicit empty `<pattern ref="PATTERN-ID" />` elements. Each target must exist. Node
+  target prefixes include workflow, phase, agent, skill, instruction and decision. The VS Code
+  host compares the original description, not a model rewrite, before offering import.
+- `<attachment id="CAPTURE-ID" sha256="sha256:..." kind="agent|skill|instruction|reference"
+  maps-to="KIND:ID ..." />` maps an explicitly captured laptop file to declared or selected reused
+  objects. Agent/skill/instruction mappings must target their own object kind; references target
+  consuming nodes. The designer checks exact capture identity and selected type. The normal bundle
+  retains the proposed provenance as prose, not executable policy or an approval receipt.
+
+The mapping is structural only and requires human semantic review. Unsupported patterns report a
+capability requirement instead of silently becoming sequential. The existing version 1 syntax and
+repository-independent compiler remain supported for explicit manual authoring.
+
+## State and safety
+
+The compiler applies the selected workflow's phase overrides before remapping names. A shared
+phase's unused defaults cannot introduce foreign inputs or return routes into the derived
+workflow. Evidence producers remain single phase references, design-source capture/consumer
+references follow the new namespace, and sequential workflows return an empty decision list.
+Required approval groups and inherited repair limits remain enforced; changing names does not
+remove those obligations.
+
+### Validation and preservation
 
 Unknown tags/attributes, duplicates, unmatched tags, unsupported conditions and unresolved
 references fail with source lines. Quoted attributes, XML comments, CDATA and predefined/numeric
@@ -212,3 +221,29 @@ The result binds source SHA-256 and spans for explicit nodes/routes. Inherited c
 owned by the installed starter; they are not attributed to prose the user never wrote.
 The source hash includes its original BOM and line endings. Generated text assets use LF consistently,
 so Windows CRLF input cannot produce mixed-line-ending portable assets.
+
+## Troubleshooting
+
+- **Compilation fails with a source line:** an unknown tag or attribute, a duplicate, an unmatched
+  tag, an unsupported condition or an unresolved reference. Fix the named line. DTDs, external
+  entities, processing instructions, executable tags, includes, expressions and credential-shaped
+  content are refused outright; documents over 256 KiB, 2,048 nodes or depth 16 are too large.
+- **A declared agent, skill or instruction is refused:** every declared dependency must be used,
+  and new IDs begin with `<workflow-id>-`.
+- **A backward route is refused:** a backward rule route needs `max-attempts` from 1 to 20 on its
+  own decision; there is no global cycle counter.
+- **An approval is refused:** `authority` must name an installed human group, not an agent or the
+  generic word `human`.
+- **`--out` refuses:** it creates a new file and refuses replacement. Choose a new path. It cannot
+  be combined with `--inspect-phase`, and an unknown `--inspect-phase` phase is refused.
+- **The catalog binding no longer matches:** a changed source is a fresh-review condition, not a
+  hash to auto-replace. Review the draft against a fresh catalog.
+- **VS Code does not offer import:** the host compares the original description, not a model
+  rewrite; a draft that changed it is not offered.
+- **A requested pattern is refused:** unsupported patterns report a capability requirement instead
+  of silently becoming sequential. See `singularity-flow explain workflow-intent`.
+
+## Related topics
+
+Continue with `sflow explain workflow-intent`, `sflow explain workflow-authoring`,
+`sflow explain workflow-decisions`, or `sflow explain reusable-instructions`.

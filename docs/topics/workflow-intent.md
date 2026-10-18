@@ -7,27 +7,58 @@ questions:
   - Can different teams describe their own workflow instead of writing markup?
 commands: [workflow]
 related: [workflow-markup, workflow-authoring, reusable-instructions, sgos-governed-execution]
-version: 5
+version: 6
 ---
 
-## Purpose
+## Purpose and prerequisites
 
 People describe a process and review its canvas. Copilot selects exact reusable assets and creates
 an inert candidate; the native compiler, import review and human approval own its meaning and
 activation. This is authoring, not permission to execute the candidate or modify an active Story.
 
-## VS Code
+Before you start, choose the catalog the draft binds to: the repository's approved configuration
+(**Approved repository library**, `--source approved`) or the installed package's starters
+(**SFlow starters**, `--source installed`). Drafting needs a Copilot chat; browsing the catalog,
+loading guidance and compiling do not.
+
+## Use it from each surface
+
+**VS Code:** In Workflow Studio choose **Build with Copilot**, then **Other ways to start → Write it
+in workflow markup (earlier screen)…**, describe the steps, inputs, decisions, retry limits and
+human checkpoints, then choose **Approved repository library** or **SFlow starters**. The first
+reads the locally observed approved configuration, not dirty checkout edits; the second is
+explicitly starter-only, not a fallback silently selected after an error. The designer's steps are
+under **Guided workflow**.
+
+**Shell:** the catalog commands are read-only:
+
+```sh
+singularity-flow workflow intent catalog --source approved --kind skill --query angular --json
+singularity-flow workflow intent catalog --source installed --kind instruction --json
+singularity-flow workflow intent show skill <ID> --source approved --expected-source <CATALOG-SHA256> --json
+singularity-flow workflow intent example --source installed --json
+```
+
+Catalog filters include `--kind`, `--query`, one exact `--tag`, `--limit` (1..64) and `--cursor`.
+Later pages and `show` require the exact `--expected-source` from the preceding catalog. A stale
+binding preserves the draft and requires a fresh review; never silently replace its digest.
+Names are typed: an agent and skill can share a name without being interchangeable. Guidance from
+your laptop is captured with `workflow intent attachments`; see **Bring guidance from your laptop**.
+
+**Copilot:** Copilot equivalents preserve these arguments, for example `/sf-workflows intent catalog --source
+approved --kind skill --query angular --json`. No dedicated `@sflow` command is registered for this
+authoring flow. The VS Code catalog and shell operations themselves are model-free. No ACP or MCP
+connection is required: the handoff uses native chat, the optional extension tool and the available
+terminal tool. Native tool availability does not mean the model has invoked it or verified the intent.
+
+## Guided workflow
+
+### Describe the process
 
 The designer is a two-column workspace: a Markdown writing area with formatting tools and a
 read-only preview, and a searchable team library. Add a library item to the separate **Team
 knowledge** list instead of inserting machine tags into the description. Description starters are
 editable suggestions, not approved intent. Advanced source and file-loading controls stay collapsed.
-
-In Workflow Studio choose **Build with Copilot**, then **Other ways to start → Write it in workflow
-markup (earlier screen)…**, describe the steps, inputs, decisions, retry
-limits and human checkpoints, then choose **Approved repository library** or **SFlow starters**.
-The first reads the locally observed approved configuration, not dirty checkout
-edits; the second is explicitly starter-only, not a fallback silently selected after an error.
 
 The team library searches names, purposes and tags. **Add** selects a typed library reference in
 Team knowledge; it does not execute the skill or change approved configuration. Source
@@ -125,25 +156,7 @@ singularity-flow workflow intent attachments --file /path/to/SKILL.md --expected
 For exact retrieval, repeat the same selection arguments as the original capture. This creates no
 repository configuration, Story generation, approval, source edit or machine-wide instruction.
 
-## Read-only catalog commands
-
-```sh
-singularity-flow workflow intent catalog --source approved --kind skill --query angular --json
-singularity-flow workflow intent catalog --source installed --kind instruction --json
-singularity-flow workflow intent show skill <ID> --source approved --expected-source <CATALOG-SHA256> --json
-singularity-flow workflow intent example --source installed --json
-```
-
-Catalog filters include `--kind`, `--query`, one exact `--tag`, `--limit` (1..64) and `--cursor`.
-Later pages and `show` require the exact `--expected-source` from the preceding catalog. A stale
-binding preserves the draft and requires a fresh review; never silently replace its digest.
-Names are typed: an agent and skill can share a name without being interchangeable.
-
-Copilot equivalents preserve these arguments, for example `/sf-workflows intent catalog --source
-approved --kind skill --query angular --json`. No dedicated `@sflow` command is registered for this
-authoring flow. The VS Code catalog and shell operations themselves are model-free. No ACP or MCP
-connection is required: the handoff uses native chat, the optional extension tool and the available
-terminal tool. Native tool availability does not mean the model has invoked it or verified the intent.
+### What the catalog offers
 
 The catalog exposes agents, prompt-library skills, reusable instructions, procedural `command-skill`
 definitions, phases, workflows, templates, human authority names, registered constitutions, quality
@@ -156,13 +169,7 @@ the interpretation implementation; changing them requires a fresh capture. Disco
 neither membership nor host/tool permission. Bodies rejected by credential screening are unavailable
 for retrieval.
 
-Catalog discovery inspects only declared approved roots and the installed package. Personal/home
-directories, parents, application trees and all Git branches are not searched. External guidance
-enters only through explicit file/folder attachments above or the reviewed team-import route.
-URLs are not fetched. Constitution guidance
-does not become an ordinary optional skill or an authority override.
-
-## Tags and scope
+### Tags and scope
 
 Skills, reusable instructions and agent front matter may include discovery metadata:
 
@@ -185,7 +192,7 @@ attachments keep their use conditions and remapped steps without leaking to othe
 use the same phase. Inherited MCP policies intersect the original phase and agent restrictions;
 derivation does not grant the repair agent its independent tester's tools.
 
-## Workflow families and capabilities
+### Workflow families and capabilities
 
 The navigation vocabulary covers software changes, visual acceptance, research/documents,
 read-only reviews, migrations, parallel work, cross-repository programs, events and batches.
@@ -208,7 +215,7 @@ package route, then select that approved workflow contract. Do not fabricate emp
 phases for documentation or review workflows, or remove a responsibility without the existing
 explicit omission and human applicability policy.
 
-## Validation and next steps
+### Validation and next steps
 
 Compilation checks native definitions, startability, dependency closure and route simulation.
 Version 2 also checks exact catalog binding, target identities, finite loop declarations and the
@@ -220,5 +227,42 @@ keeps that authoring trace as prose, not a new executable policy field.
 Version 2 CLI compilation returns a summary, not a second full bundle in chat. Use an explicit
 `--out <NEW-BUNDLE.json>` when a portable file is wanted; direct API callers still receive the bundle.
 
-Each generated workflow still needs normal destination collision review and authorized approval.
-Required tests, source independence, integrity checks and active Story pins remain unchanged.
+## State and safety
+
+Catalog discovery inspects only declared approved roots and the installed package. Personal/home
+directories, parents, application trees and all Git branches are not searched. External guidance
+enters only through explicit file/folder attachments above or the reviewed team-import route.
+URLs are not fetched. Constitution guidance
+does not become an ordinary optional skill or an authority override.
+
+Laptop captures stay in the open designer's memory, within the limits under **Bring guidance from
+your laptop**. Each generated workflow still needs normal destination collision review and
+authorized approval. Required tests, source independence, integrity checks and active Story pins
+remain unchanged.
+
+## Troubleshooting
+
+- **A later catalog page or `show` is refused:** pass the exact `--expected-source` from the
+  preceding catalog. A stale binding preserves the draft and requires a fresh review; never
+  silently replace its digest.
+- **Draft checks stopped correcting:** correctable checks stop after the initial attempt plus two
+  corrections, or on an unchanged failure. Editing the description, source, selected assets or
+  attachments invalidates the old handoff; **Refine this phase with Copilot** prepares a new one.
+- **`WORKFLOW_MARKUP_COMPILER_FAILED`:** an internal compiler failure, not a design problem.
+  Corrections stop at once and the unchecked candidate stays in the designer's Advanced options.
+  Repair or align the CLI/extension, then request a fresh handoff before checking again.
+- **Copilot cannot reach `#sflowWorkflowAuthoring`:** use the request's CLI/file fallback, then
+  **Load Copilot draft…** for the saved XML file.
+- **The designer rejects a described draft:** it omitted or changed the original intent, or used
+  another catalog source.
+- **A parallel, foreach, subprocess, event-wait or compensation pattern is refused:** the markup
+  route does not support it. Use the existing workflow canvas or reviewed workflow-authoring package
+  route, then select that approved workflow contract.
+- **An attachment reference is listed as missing:** it is advisory. References resolve only
+  against the explicit capture, and linked files are never opened. Changed originals require
+  recapture; reattach originals when resuming a saved draft that still maps them.
+
+## Related topics
+
+Continue with `sflow explain workflow-markup`, `sflow explain workflow-authoring`,
+`sflow explain reusable-instructions`, or `sflow explain sgos-governed-execution`.

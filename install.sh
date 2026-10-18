@@ -588,6 +588,7 @@ acquire_activation_lease() {
 # current/rollback artifacts and recovery roots, and never traverses a workspace or source clone.
 cleanup_installation_storage() {
   local output
+  printf '%s\n' 'Checking installation storage; active recovery and workspace source are preserved...'
   if ! output="$(node "$INSTALL_ARTIFACT_HELPER" cleanup \
     --journal "$INSTALL_ACTIVATION_JOURNAL" --checkout "$PROJECT_DIR" --apply on \
     --operation-id "$INSTALL_ACTIVATION_OPERATION_ID" --owner-pid "$INSTALL_ACTIVATION_OWNER_PID")"; then
@@ -1520,7 +1521,7 @@ node -e '
       copilot: journal.surfaceStates.copilot === "applied"
         ? require("node:path").join(require("node:path").dirname(journalFile), "transactions", journal.operationId, "private-cli-candidate", "node_modules", "singularity-flow")
         : previousManifest?.runtimeRoots?.copilot ?? (
-          journal.previous.copilotPresent && previousManifest?.activation?.operationId
+          (journal.previous.copilotPresent || priorSurfaces.copilot) && previousManifest?.activation?.operationId
             ? require("node:path").join(require("node:path").dirname(journalFile), "transactions", previousManifest.activation.operationId, "private-cli-candidate", "node_modules", "singularity-flow")
             : null
         )

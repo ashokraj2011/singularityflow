@@ -87,7 +87,7 @@ test('repeated successful installs overwrite obsolete runtimes and bound retaine
     f.current.artifacts.tarball = artifact;
     f.current.rollbackArtifacts = { tarball: previous };
     await f.save();
-    await json(f.journal, { status: 'complete', operationId: tx.id, artifacts: { tarball: artifact } });
+    await json(f.journal, { schemaVersion: 4, status: 'complete', operationId: tx.id, artifacts: { tarball: artifact } });
     await f.clean({ apply: true });
     assert.equal((await readdir(f.transactions)).length, 1);
     assert.equal(await exists(path.join(tx.directory, 'npm-cache', 'bytes')), false);
@@ -111,7 +111,7 @@ for (const status of ['staged', 'activating', 'rolling-back', 'rolled-back', 'ro
     const old = await f.artifact(12);
     const snapshot = path.join(pending.directory, 'previous-current-manifest');
     await json(snapshot, { runtimeRoots: { copilot: path.join(inherited.directory, 'private-cli-candidate') } });
-    await json(f.journal, { status, operationId: lease.operationId,
+    await json(f.journal, { schemaVersion: 5, status, operationId: lease.operationId,
       artifacts: { tarball: candidate }, previous: { cli: rollback, manifest: { snapshot } } });
     await f.clean({ apply: true, ...lease });
     assert.equal(await exists(path.join(pending.directory, 'npm-cache', 'bytes')), true);
@@ -209,6 +209,18 @@ test('broad roots and non-managed layouts are rejected before deletion', async (
     journal: path.join(f.checkout, 'activation-current.json'), checkout: f.checkout, apply: true
   }), /exact .*layout/u);
   assert.equal(await readFile(path.join(f.checkout, 'source.txt'), 'utf8'), 'workspace source');
+});
+
+test('future recovery formats and invalid runtime references preserve all bytes', async (t) => {
+  const f = await fixture(t);
+  const old = await f.transaction();
+  await json(f.journal, { schemaVersion: 99, status: 'complete', operationId: operation() });
+  await assert.rejects(f.clean({ apply: true }), /unrecognized activation/u);
+  await rm(f.journal);
+  f.current.runtimeRoots = {};
+  await f.save();
+  await assert.rejects(f.clean({ apply: true }), /runtime references/u);
+  assert.equal(await exists(path.join(old.directory, 'npm-cache', 'bytes')), true);
 });
 
 test('Windows exclusive file locks defer cleanup and allow a later retry', { skip: process.platform !== 'win32' }, async (t) => {

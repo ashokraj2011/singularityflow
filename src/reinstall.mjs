@@ -1589,7 +1589,11 @@ async function writeCurrentInstallationReceipt(plan, verified, receipt, homeDire
     artifacts,
     rollbackArtifacts: previous?.artifacts ?? null,
     // A CLI-only install leaves the previously selected Copilot package untouched.
-    runtimeRoots: plan.cliOnly ? previous?.runtimeRoots ?? null : { copilot: null },
+    runtimeRoots: plan.cliOnly ? previous?.runtimeRoots ?? {
+      copilot: previous?.activation?.operationId
+        ? path.join(installations, 'transactions', previous.activation.operationId,
+          'private-cli-candidate', 'node_modules', 'singularity-flow') : null
+    } : { copilot: verified.copilotPlugins.length ? plan.bundle.source : null },
     surfaces,
     workspaceRefresh: 'skipped',
     activation: null,

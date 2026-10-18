@@ -1029,9 +1029,16 @@ export async function cleanupInstallationStorage({
           }
         }
       }
+      if (current.runtimeRoots != null && (typeof current.runtimeRoots !== 'object'
+          || Array.isArray(current.runtimeRoots) || !Object.hasOwn(current.runtimeRoots, 'copilot')
+          || (current.runtimeRoots.copilot !== null
+            && (typeof current.runtimeRoots.copilot !== 'string' || !path.isAbsolute(current.runtimeRoots.copilot))))) {
+        fail('runtime references are invalid; cleanup preserved all bytes.');
+      }
     }
     const activation = await optionalJson(journalFile, 'activation journal');
     if (activation && (typeof activation !== 'object'
+        || ![1, 2, 3, 4, 5].includes(activation.schemaVersion)
         || !['staged', 'activating', 'rolling-back', 'rolled-back', 'rollback-failed', 'complete'].includes(activation.status)
         || !OPERATION_ID.test(activation.operationId ?? ''))) {
       fail('unrecognized activation recovery state; cleanup preserved all bytes.');

@@ -542,6 +542,8 @@ fi`;
   ));
   assert.equal(cliOnlyReceipt.status, 'partial-by-request',
     'the durable receipt must agree with the explicit partial activation banner');
+  assert.equal(cliOnlyReceipt.runtimeRoots.copilot, installedReceipt.runtimeRoots.copilot);
+  await stat(cliOnlyReceipt.runtimeRoots.copilot);
   const environmentCommands = (await readFile(log, 'utf8')).split('\n').filter((line) => line.startsWith('npm '));
   assert.ok(environmentCommands.length >= 6);
   for (const command of environmentCommands) {
@@ -675,6 +677,9 @@ fi`;
 
   await writeFile(log, '');
   await rm(path.join(bin, 'copilot'));
+  const priorCopilotReceipt = JSON.parse(await readFile(
+    path.join(fixture, '.singularity-flow', 'installations', 'current.json'), 'utf8'
+  ));
   const withoutCopilot = spawnSync('bash', [
     path.join(fixture, 'install.sh'), '--skip-copilot', '--no-update', '--skip-tests',
     '--no-workspace-configuration-refresh'
@@ -742,6 +747,9 @@ fi`;
   assert.deepEqual(vscodeOnlyReceipt.build, {
     cli: `${version} (fixture-build-01234567)`
   }, 'VS Code-only activation must preserve the exact identity of the untouched CLI');
+  assert.equal(vscodeOnlyReceipt.runtimeRoots.copilot, priorCopilotReceipt.runtimeRoots.copilot,
+    'partial installs must preserve the package still serving the untouched Copilot plugin');
+  await stat(vscodeOnlyReceipt.runtimeRoots.copilot);
   await fake('copilot', 'if [[ "$*" == "plugin list" ]]; then printf "%s\\n" "Installed plugins: singularity-flow@singularity-flow"; fi');
 
   const journalPath = path.join(fixture, '.singularity-flow', 'installations', 'activation-current.json');

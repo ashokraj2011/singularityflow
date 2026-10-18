@@ -58,7 +58,6 @@ import { incrementCommandCounter, measureCommandSpan } from '../dx-timing-contex
 import { publishCapabilityRepositoriesDurably, retainCapabilityPublicationRecovery } from '../capability-publication-recovery.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
-import { automaticWorkspaceStoryCheckout, automaticStorySelection, rebaseAutomaticStoryFiles } from '../workspace-story-checkout.mjs';
 
 export async function run(argv, { positionals, options }) {
   if (Object.hasOwn(options, 'prepare-only') || Object.hasOwn(options, 'discard-prepared')) {
@@ -302,7 +301,8 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
     // Checked here, before any worktree exists, so a stale or foreign receipt refuses at once.
     const selectionToken = optionString(options, 'selection-receipt');
     const selectionHandoff = selectionToken && !durableLocalStory
-      ? options[ISOLATED_STORY_SELECTION_HANDOFF] ?? automaticStorySelection(options, id)
+      ? options[ISOLATED_STORY_SELECTION_HANDOFF]
+        ?? (await import('../workspace-story-checkout.mjs')).automaticStorySelection(options, id)
         ?? await readStartSelectionReceipt(sourceRoot, selectionToken, id) : null;
     const preparedBase = optionString(options, 'prepared-base');
     if (!durableLocalStory && preparedBase && preparedBase !== launchBaseCommit && !baselineTarget) {
@@ -392,6 +392,7 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
 
 export async function startCommand(positionals, options) {
   const previousDirectory = process.cwd();
+  const { automaticWorkspaceStoryCheckout, rebaseAutomaticStoryFiles } = await import('../workspace-story-checkout.mjs');
   const checkout = await automaticWorkspaceStoryCheckout('start', positionals, options);
   if (!checkout) return startCommandAtRoot(positionals, options);
   rebaseAutomaticStoryFiles(options, previousDirectory);
@@ -839,7 +840,8 @@ async function startCommandAtRoot(positionals, options) {
     }
   }
   const selectionHandoff = options[ISOLATED_STORY_SELECTION_HANDOFF]?.token === receiptToken
-    ? options[ISOLATED_STORY_SELECTION_HANDOFF] : automaticStorySelection(options, id);
+    ? options[ISOLATED_STORY_SELECTION_HANDOFF]
+    : (await import('../workspace-story-checkout.mjs')).automaticStorySelection(options, id);
   if (receiptToken) {
     const resolveReceipt = selectionHandoff
       ? async () => resolveHandedOffStartSelectionReceipt(selectionHandoff, config)

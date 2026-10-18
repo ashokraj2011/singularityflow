@@ -5,7 +5,7 @@ import {
   readActiveWorkspaceContext, workspacePromptLabel, workspaceRegistryFile
 } from '../workspace-context.mjs';
 import { mapLimit, optionBoolean, optionString, SingularityFlowError, table } from '../util.mjs';
-import { boundExecutionContextRoot, captureExecutionContext, findWorkspaceMembership } from '../execution-context.mjs';
+import { boundExecutionContextRoot } from '../execution-context-scope.mjs';
 
 const HOT_ACTIONS = new Set(['list', 'current', 'prompt', 'use', 'switch']);
 let legacy = null;
@@ -138,6 +138,7 @@ export async function run(argv, context = {}) {
   const gitShadow = action === 'current' && optionBoolean(options, 'git-shadow');
   const gitShadowObservations = [];
   const boundRoot = boundExecutionContextRoot();
+  const { captureExecutionContext, findWorkspaceMembership } = boundRoot ? await import('../execution-context.mjs') : {};
   const boundMember = boundRoot ? await findWorkspaceMembership(boundRoot) : null;
   const captured = boundMember ? await captureExecutionContext(boundRoot, { workspace: boundMember, fresh: true }) : null;
   const current = boundRoot ? boundMember ? { ...boundMember,

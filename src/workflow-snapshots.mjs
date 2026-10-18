@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { parseImmutableJson } from './immutable-json-read.mjs';
 import { readStoryPathHistory } from './story-path-history.mjs';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
-import { cachedRepositoryCheck } from './repository-check-cache.mjs';
 import { constants as fsConstants } from 'node:fs';
 import { lstat, mkdir, open, rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -2791,6 +2790,7 @@ export async function verifyWorkflowSnapshot(root, config, workflow, options = {
   // tied to unchanged Git visibility and Story bytes, never publication/approval authority.
   if (options.requireAccepted && !options[TEST_COMMAND_ORIGIN_INSPECTION]
       && !options[ACCEPTED_REVISION_AUTHORITY] && workflow.workflowSnapshot) {
+    const { cachedRepositoryCheck } = await import('./repository-check-cache.mjs');
     const result = await cachedRepositoryCheck(root, { kind: 'accepted-workflow',
       identity: { workflow, workItemRoot: config.workItemRoot },
       files: [path.join(root, storyRelative(config, workflow.workItem.id, 'workflow.json')),

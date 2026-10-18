@@ -209,12 +209,12 @@ test('a legacy fingerprint acknowledgement is stale rather than silently compara
 
 test('the key is per workspace and per actor', () => {
   assert.notEqual(
-    acknowledgementKey('local--calc', 'ada@example.com'),
-    acknowledgementKey('local--calc', 'grace@example.com')
+    acknowledgementKey('local--calc', 'first@example.com'),
+    acknowledgementKey('local--calc', 'second@example.com')
   );
   assert.notEqual(
-    acknowledgementKey('local--calc', 'ada@example.com'),
-    acknowledgementKey('local--other', 'ada@example.com')
+    acknowledgementKey('local--calc', 'first@example.com'),
+    acknowledgementKey('local--other', 'first@example.com')
   );
   // A missing half is named rather than collapsing two unknowns into one shared bucket silently.
   assert.match(acknowledgementKey(null, null), /unknown\.unknown$/);

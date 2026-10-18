@@ -38,11 +38,11 @@ test('every surface recognizes a started Story through any registered branch', (
 
   const result = homeOverviewResult({
     workspace: { id: 'calc-app', name: 'calc-app' }, records,
-    actor: { name: 'Ada Lovelace', email: 'ada@example.test' },
+    actor: { name: 'First Reviewer', email: 'first@example.test' },
     current: { repositoryId: 'calc', branch: 'WRK-890', repositoryScoped: false }
   });
   assert.deepEqual(result.data.personalization, {
-    schemaVersion: 1, source: 'git-identity', displayName: 'Ada Lovelace', replyName: 'Ada'
+    schemaVersion: 1, source: 'git-identity', displayName: 'First Reviewer', replyName: 'First'
   });
   assert.equal(result.data.activeWork?.id, 'WRK-890');
   assert.equal(result.next[0].id, 'home:work.continue');

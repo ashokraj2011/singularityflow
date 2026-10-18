@@ -79,7 +79,7 @@ test('configuration proposal clone failures never expose credential-shaped provi
 const { spawnSync } = require('node:child_process');
 const args = process.argv.slice(2);
 if (args[0] === 'clone') {
-  process.stderr.write("fatal: could not read Username for 'https://alice:supersecret@git.example.test/private.git': terminal prompts disabled\\n");
+  process.stderr.write("fatal: could not read Username for 'https://reviewerone:supersecret@git.example.test/private.git': terminal prompts disabled\\n");
   process.exit(128);
 }
 const result = spawnSync(${JSON.stringify(realGit)}, args, {
@@ -95,7 +95,7 @@ process.exit(result.status == null ? 1 : result.status);
       (error) => {
         assert.equal(error.code, 'CONFIGURATION_PROPOSAL_AUTHORITY_UNAVAILABLE');
         const serialized = JSON.stringify({ message: error.message, details: error.details });
-        assert.doesNotMatch(serialized, /alice|supersecret|private\.git/iu);
+        assert.doesNotMatch(serialized, /reviewerone|supersecret|private\.git/iu);
         assert.match(error.message, /Sign in to Git|credential helper/iu);
         return true;
       }

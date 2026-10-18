@@ -183,7 +183,7 @@ test('the outbox delivers once, retries with backoff, holds unavailable deliveri
   const root = await gitRepository(t);
   const integrations = normalizeIntegrations({ targets: { hook: { kind: 'webhook', url: 'https://hooks.example.com/sflow', signingSecret: 'SFLOW_SECRET_HOOK_KEY' } } });
   const workflow = storyWorkflow([{ id: 'announce', on: ['submitted', 'approved'], target: 'hook' }], integrations);
-  const event = { type: 'approval-requested', phaseId: 'intake', generation: 1, actor: 'ada', createdAt: '2026-10-03T10:00:00.000Z' };
+  const event = { type: 'approval-requested', phaseId: 'intake', generation: 1, actor: 'first', createdAt: '2026-10-03T10:00:00.000Z' };
   let now = Date.parse('2026-10-03T10:00:00.000Z');
   const clock = () => now;
   const sent = [];

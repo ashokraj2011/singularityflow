@@ -18,7 +18,7 @@ const W = 'RISK-1';
 const AC = `${W}:AC-001`;
 const NOW = '2026-10-03T10:00:00.000Z';
 const policy = { mode: 'required', minimum: 1, authorities: ['quality-reviewers'], requiredAuthorities: [] };
-const approval = { decision: 'approved', actor: { login: 'bob' }, authorityGroup: 'quality-reviewers', at: '2026-10-02T00:00:00Z' };
+const approval = { decision: 'approved', actor: { login: 'reviewertwo' }, authorityGroup: 'quality-reviewers', at: '2026-10-02T00:00:00Z' };
 
 function story() {
   return {

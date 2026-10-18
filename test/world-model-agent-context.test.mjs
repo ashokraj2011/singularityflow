@@ -57,12 +57,12 @@ test('actual phase composition injects pinned workflow and agent skills without 
   const workflowPath = path.join(root, 'singularity/work-items', id, 'workflow.json');
   const beforeWorkflow = await readFile(workflowPath);
   try {
-    process.env.SINGULARITY_FLOW_REPLY_NAME = 'Grace Hopper';
+    process.env.SINGULARITY_FLOW_REPLY_NAME = 'Second Reviewer';
     const first = await render();
-    process.env.SINGULARITY_FLOW_REPLY_NAME = 'Ada Lovelace';
+    process.env.SINGULARITY_FLOW_REPLY_NAME = 'First Reviewer';
     const second = await render();
-    assert.match(first, /Preferred name \(literal data\): "Grace"/);
-    assert.match(second, /Preferred name \(literal data\): "Ada"/);
+    assert.match(first, /Preferred name \(literal data\): "Second"/);
+    assert.match(second, /Preferred name \(literal data\): "First"/);
     assert.equal(first.split('# Reply personalization')[0], second.split('# Reply personalization')[0],
       'only the ephemeral overlay changes, not the composed governed phase');
     assert.deepEqual(await readFile(workflowPath), beforeWorkflow);
@@ -76,8 +76,8 @@ test('actual phase composition injects pinned workflow and agent skills without 
     const record = await readFile(recordFile);
     const afterCompose = git(root, 'status', '--porcelain=v1');
     assert.doesNotMatch(retained, /# Reply personalization/);
-    process.env.SINGULARITY_FLOW_REPLY_NAME = 'Grace Hopper';
-    assert.match(await compose(), /Preferred name \(literal data\): "Grace"/);
+    process.env.SINGULARITY_FLOW_REPLY_NAME = 'Second Reviewer';
+    assert.match(await compose(), /Preferred name \(literal data\): "Second"/);
     assert.equal(await readFile(promptFile, 'utf8'), retained);
     assert.deepEqual(await readFile(recordFile), record);
     assert.deepEqual(await readFile(workflowPath), beforeWorkflow);

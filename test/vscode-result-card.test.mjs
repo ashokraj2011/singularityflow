@@ -107,11 +107,11 @@ test('any phase read or refusal can address its reader and suggestions without m
   const result = blocked(['required-artifact-missing']);
   const before = structuredClone(result.next);
   const card = buildResultCard({ ...result, data: { ...result.data,
-    personalization: { source: 'vscode-profile', displayName: 'Grace Hopper', replyName: 'Grace' } } });
-  assert.equal(card.replyName, 'Grace');
+    personalization: { source: 'vscode-profile', displayName: 'Second Reviewer', replyName: 'Second' } } });
+  assert.equal(card.replyName, 'Second');
   const html = resultCardHtml(card);
-  assert.match(html, /Hello, Grace\./);
-  assert.match(html, /Grace, here are your next steps:/);
+  assert.match(html, /Hello, Second\./);
+  assert.match(html, /Second, here are your next steps:/);
   assert.deepEqual(result.next, before, 'presentation does not change action selectors or signed handles');
 });
 

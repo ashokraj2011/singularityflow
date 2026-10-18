@@ -1345,7 +1345,7 @@ test('existing installations receive Map a capability once and may still unpin i
 
 test('menu personas suggest pins without moving primary destinations or overriding personal choices', async (t) => {
   if (!requireBundle(t)) return;
-  const settings = new Map([['role', 'qa'], ['userName', 'Quinn Analyst']]);
+  const settings = new Map([['role', 'qa'], ['userName', 'Quality Analyst']]);
   const values = new Map();
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = undefined;
@@ -1515,7 +1515,7 @@ test('@sflow and Help Center share model-free cited resolution and only prefill 
 test('@sflow uses the current profile for guidance and never personalizes or runs actions while paused', async (t) => {
   if (!requireBundle(t)) return;
   const { api, registered } = stubVscode();
-  let displayName = 'Grace Hopper';
+  let displayName = 'Second Reviewer';
   api.workspace.workspaceFolders = undefined;
   api.workspace.getConfiguration = () => ({ get: (key) => key === 'userName' ? displayName : '' });
   const extension = loadExtension(api);
@@ -1524,7 +1524,7 @@ test('@sflow uses the current profile for guidance and never personalizes or run
   t.after(() => rm(process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE, { force: true }));
   await extension.activate(hostContext);
   assert.deepEqual(JSON.parse(await readFile(process.env.SINGULARITY_FLOW_PRESENTATION_PROFILE_FILE, 'utf8')),
-    { schemaVersion: 1, displayName: 'Grace Hopper' });
+    { schemaVersion: 1, displayName: 'Second Reviewer' });
   const participant = registered.chatParticipants[0];
   const invoke = async () => {
     const output = [];
@@ -1534,20 +1534,20 @@ test('@sflow uses the current profile for guidance and never personalizes or run
     { isCancellationRequested: false });
     return { output: output.join(''), answer };
   };
-  assert.match((await invoke()).output, /^Grace, here’s your SFlow guidance\./);
-  displayName = 'Ada Lovelace';
-  assert.match((await invoke()).output, /^Ada, here’s your SFlow guidance\./,
+  assert.match((await invoke()).output, /^Second, here’s your SFlow guidance\./);
+  displayName = 'First Reviewer';
+  assert.match((await invoke()).output, /^First, here’s your SFlow guidance\./,
     'an active chat reads this window setting, not another window’s mirrored name');
   displayName = '';
-  assert.doesNotMatch((await invoke()).output, /Grace,|Ada,/,
+  assert.doesNotMatch((await invoke()).output, /Second,|First,/,
     'clearing the setting must not restore an old profile name');
   await writeFile(process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE, '{"schemaVersion":1,"paused":true}');
   const before = registered.executedCommands.length;
-  displayName = 'Grace Hopper';
+  displayName = 'Second Reviewer';
   const paused = await invoke();
   assert.equal(paused.answer.metadata.intent, 'paused');
   assert.match(paused.output, /SFlow guidance is paused/);
-  assert.doesNotMatch(paused.output, /Grace|SFlow guidance\./);
+  assert.doesNotMatch(paused.output, /Second|SFlow guidance\./);
   assert.equal(registered.executedCommands.length, before);
   assert.equal(registered.terminals.length, 0);
 });
@@ -4821,7 +4821,7 @@ test('guided workspace creation prepares the deferred checkout before its single
   registered.pickedFolder = org.base;
   await panel.post({ type: 'choose', what: 'base' });
   await panel.post({ type: 'field', field: 'id', value: 'guided-fast' });
-  await panel.post({ type: 'field', field: 'profile-name', value: 'Casey Contributor' });
+  await panel.post({ type: 'field', field: 'profile-name', value: 'Developer Contributor' });
   await panel.post({ type: 'field', field: 'profile-role', value: 'developer' });
   await panel.post({ type: 'capability', id: 'payments', selected: true });
   await settle();
@@ -4899,7 +4899,7 @@ test('a workspace is chosen as capabilities, and its repositories follow', async
   registered.pickedFolder = org.base;
   await panel.post({ type: 'choose', what: 'base' });
   await panel.post({ type: 'field', field: 'id', value: 'commerce-platform' });
-  await panel.post({ type: 'field', field: 'profile-name', value: 'Casey Contributor' });
+  await panel.post({ type: 'field', field: 'profile-name', value: 'Developer Contributor' });
   await panel.post({ type: 'field', field: 'profile-role', value: 'developer' });
   await settle();
   assert.match(panel.webview.html, /1 repository is included/, 'what payments ships, and only that');
@@ -4923,7 +4923,7 @@ test('an activated map refreshes a retained workspace draft without hiding the r
   await panel.post({ type: 'choose', what: 'base' });
   await panel.post({ type: 'field', field: 'id', value: 'my-existing-draft' });
   await panel.post({ type: 'field', field: 'name', value: 'My existing draft' });
-  await panel.post({ type: 'field', field: 'profile-name', value: 'Casey Contributor' });
+  await panel.post({ type: 'field', field: 'profile-name', value: 'Developer Contributor' });
   await panel.post({ type: 'field', field: 'profile-role', value: 'developer' });
   await panel.post({ type: 'capability', id: 'storefront-web', selected: true });
   await until(() => panel.webview.html.includes('data-capability-remove="storefront-web"')
@@ -4960,7 +4960,7 @@ test('an activated map refreshes a retained workspace draft without hiding the r
   assert.match(panel.webview.html, /data-capability-remove="storefront-web"/);
   assert.match(panel.webview.html, /value="my-existing-draft"/);
   assert.match(panel.webview.html, /value="My existing draft"/);
-  assert.match(panel.webview.html, /value="Casey Contributor"/);
+  assert.match(panel.webview.html, /value="Developer Contributor"/);
   assert.match(panel.webview.html, /<option value="developer" selected>/);
   assert.match(panel.webview.html, new RegExp(escapeRegExp(org.base)));
 });
@@ -5001,7 +5001,7 @@ test('Refresh capabilities rereads the dropdown and keeps the workspace draft', 
   await panel.post({ type: 'choose', what: 'base' });
   await panel.post({ type: 'field', field: 'id', value: 'keep-my-draft' });
   await panel.post({ type: 'field', field: 'name', value: 'Keep my draft' });
-  await panel.post({ type: 'field', field: 'profile-name', value: 'Casey Contributor' });
+  await panel.post({ type: 'field', field: 'profile-name', value: 'Developer Contributor' });
   await panel.post({ type: 'capability', id: 'storefront-web', selected: true });
   await until(() => panel.webview.html.includes('data-capability-remove="storefront-web"')
     ? panel.webview.html : null, { attempts: 100 });
@@ -5023,7 +5023,7 @@ test('Refresh capabilities rereads the dropdown and keeps the workspace draft', 
   assert.match(html, /data-capability-remove="storefront-web"/);
   assert.match(html, /value="keep-my-draft"/);
   assert.match(html, /value="Keep my draft"/);
-  assert.match(html, /value="Casey Contributor"/);
+  assert.match(html, /value="Developer Contributor"/);
   assert.match(html, new RegExp(escapeRegExp(org.base)));
 });
 
@@ -5040,7 +5040,7 @@ test('a failed capability refresh keeps draft picks and lead until a verified re
   registered.pickedFolder = org.base;
   await panel.post({ type: 'choose', what: 'base' });
   await panel.post({ type: 'field', field: 'id', value: 'resilient-draft' });
-  await panel.post({ type: 'field', field: 'profile-name', value: 'Casey Contributor' });
+  await panel.post({ type: 'field', field: 'profile-name', value: 'Developer Contributor' });
   await panel.post({ type: 'field', field: 'profile-role', value: 'developer' });
   await panel.post({ type: 'capability', id: 'commerce', selected: true });
   await panel.post({ type: 'field', field: 'lead-capability', value: 'storefront-web' });
@@ -5064,7 +5064,7 @@ test('a failed capability refresh keeps draft picks and lead until a verified re
   assert.match(unavailable, /<button data-submit="create" disabled>/,
     'an unverified map cannot authorize workspace creation');
   assert.match(unavailable, /value="resilient-draft"/);
-  assert.match(unavailable, /value="Casey Contributor"/);
+  assert.match(unavailable, /value="Developer Contributor"/);
 
   await writeFile(map, validMap);
   run('git', ['add', 'singularity/capabilities.yml'], { cwd: update });
@@ -5077,7 +5077,7 @@ test('a failed capability refresh keeps draft picks and lead until a verified re
   assert.match(recovered, /<option value="storefront-web" selected>/,
     'the previously chosen lead is reconciled against the verified map');
   assert.match(recovered, /value="resilient-draft"/);
-  assert.match(recovered, /value="Casey Contributor"/);
+  assert.match(recovered, /value="Developer Contributor"/);
   assert.doesNotMatch(recovered, /Refresh the approved capability map before creating this workspace/);
 });
 
@@ -5263,7 +5263,7 @@ test('creating a workspace asks nothing through a prompt', async (t) => {
   registered.pickedFolder = org.base;
   await panel.post({ type: 'choose', what: 'base' });
   await panel.post({ type: 'field', field: 'id', value: 'commerce-platform' });
-  await panel.post({ type: 'field', field: 'profile-name', value: 'Casey Contributor' });
+  await panel.post({ type: 'field', field: 'profile-name', value: 'Developer Contributor' });
   await panel.post({ type: 'field', field: 'profile-role', value: 'developer' });
   await panel.post({ type: 'capability', id: 'payments', selected: true });
   await settle();
@@ -8800,7 +8800,7 @@ test('capability mapping refuses credential-bearing URLs before command logging'
   // become visible. This proves the guard lives before run(), not only in HTML validation.
   await panel.post({ type: 'field', field: 'repositoryUrl', value: 'https://git.example/payments.git' });
   await panel.post({ type: 'field', field: 'inspectionLeadUrl',
-    value: `https://alice:${authoritySecret}@git.example/platform.git?token=hidden` });
+    value: `https://reviewerone:${authoritySecret}@git.example/platform.git?token=hidden` });
   await panel.post({ type: 'inspectSelectedLead' });
   const authorityRefusal = await until(() => panel.webview.html.includes('was rejected')
     ? panel.webview.html : null);
@@ -8808,7 +8808,7 @@ test('capability mapping refuses credential-bearing URLs before command logging'
   assert.doesNotMatch(authorityRefusal, new RegExp(authoritySecret));
 
   await panel.post({ type: 'field', field: 'repositoryUrl',
-    value: `https://bob:${repositorySecret}@git.example/payments.git#hidden` });
+    value: `https://reviewertwo:${repositorySecret}@git.example/payments.git#hidden` });
   await panel.post({ type: 'inspectRepository' });
   const repositoryRefusal = await until(() => panel.webview.html.includes('Repository &#39;https://git.example/payments.git&#39; was rejected')
     ? panel.webview.html : null);

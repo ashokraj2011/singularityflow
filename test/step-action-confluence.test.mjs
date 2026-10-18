@@ -112,7 +112,7 @@ function confluenceRecord({ deployment = 'cloud', send = 'artifact', generation 
     action: { id: 'publish', on: ['approved'], target: 'wiki', send, targetSpec: targets.wiki },
     event: {
       story: { id: 'STORY-9', title: 'Checkout retry', branch: 'STORY-9' }, step: { id: 'intake', label: 'Intake', generation },
-      actor: 'ada', at: '2026-10-04T10:00:00.000Z', commit: { sha: 'c'.repeat(40), remote: null },
+      actor: 'first', at: '2026-10-04T10:00:00.000Z', commit: { sha: 'c'.repeat(40), remote: null },
       artifacts: [{ path: 'singularity/work-items/STORY-9/artifacts/intake/intake.md', sha256: 'b'.repeat(64) }],
       summary: send === 'summary' ? { title: 'Checkout retry', acceptanceCriteria: ['A failed charge is retried once.'] } : undefined
     },
@@ -134,7 +134,7 @@ test('a confluence target names its site, parent page, account and token secret,
 
 test('the page body escapes everything the artifact says and keeps its structure', () => {
   const body = confluencePageBody(confluenceRecord());
-  assert.match(body, /<strong>STORY-9<\/strong> — Checkout retry<br\/>Intake, generation 1, approved by ada at 2026-10-04T10:00:00.000Z/);
+  assert.match(body, /<strong>STORY-9<\/strong> — Checkout retry<br\/>Intake, generation 1, approved by first at 2026-10-04T10:00:00.000Z/);
   assert.match(body, /<h1>Intake<\/h1>\n<p>Approved scope with &lt;script&gt;alert\(1\)&lt;\/script&gt;\.<\/p>/);
   assert.doesNotMatch(body, /<script>/);
   assert.match(body, new RegExp(`delivery ${key(1)}</em>`));

@@ -29,12 +29,12 @@ process.env.SINGULARITY_FLOW_TEST_IDENTITY = 'Initiative Owner';
 const ACTOR_EMAIL = 'initiative.owner@example.com';
 
 test('managed clone root comparison accepts Windows Git spelling without accepting nested roots', () => {
-  assert.equal(sameManagedCloneRoot('C:/Users/Ashok/Repos/Engine',
-    'c:\\users\\ashok\\repos\\engine', { platform: 'win32' }), true);
-  assert.equal(sameManagedCloneRoot('C:/Users/Ashok/Repos/Engine/src',
-    'c:\\users\\ashok\\repos\\engine', { platform: 'win32' }), false);
-  assert.equal(sameManagedCloneRoot('D:/Users/Ashok/Repos/Engine',
-    'c:\\users\\ashok\\repos\\engine', { platform: 'win32' }), false);
+  assert.equal(sameManagedCloneRoot('C:/Users/FixtureUser/Repos/Engine',
+    'c:\\users\\fixtureuser\\repos\\engine', { platform: 'win32' }), true);
+  assert.equal(sameManagedCloneRoot('C:/Users/FixtureUser/Repos/Engine/src',
+    'c:\\users\\fixtureuser\\repos\\engine', { platform: 'win32' }), false);
+  assert.equal(sameManagedCloneRoot('D:/Users/FixtureUser/Repos/Engine',
+    'c:\\users\\fixtureuser\\repos\\engine', { platform: 'win32' }), false);
 });
 
 test('Initiative repository matching does not erase enterprise scheme or port', () => {

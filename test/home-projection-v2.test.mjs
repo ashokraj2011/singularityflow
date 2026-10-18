@@ -14,8 +14,8 @@ test('the kernel emits one bounded HomeProjectionV2 with sealed nested actions',
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-home-projection-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   run('git', ['init', '-q'], { cwd: root });
-  run('git', ['config', 'user.name', 'Ada Lovelace'], { cwd: root });
-  run('git', ['config', 'user.email', 'ada@example.test'], { cwd: root });
+  run('git', ['config', 'user.name', 'First Reviewer'], { cwd: root });
+  run('git', ['config', 'user.email', 'first@example.test'], { cwd: root });
   await writeFile(path.join(root, 'README.md'), 'projection fixture\n');
   run('git', ['add', 'README.md'], { cwd: root });
   run('git', ['commit', '-qm', 'fixture'], { cwd: root });

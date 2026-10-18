@@ -8,7 +8,7 @@ test('Jira doctor text separates workspace, policy, credentials, connection, pro
     workspace: { active: true, name: 'Payments', selectedRepository: 'api' },
     policy: { configured: true, enabled: true, writeMode: 'preview' },
     credentials: { missing: ['JIRA_API_TOKEN'], deployment: 'cloud' },
-    connection: { connected: true, baseUrl: 'https://example.atlassian.net', account: { displayName: 'Ada' } },
+    connection: { connected: true, baseUrl: 'https://example.atlassian.net', account: { displayName: 'First' } },
     projects: [{
       key: 'PAY',
       visible: true,
@@ -23,7 +23,7 @@ test('Jira doctor text separates workspace, policy, credentials, connection, pro
   assert.match(text, /Workspace: Payments \(api\)/);
   assert.match(text, /Policy: enabled · preview/);
   assert.match(text, /missing JIRA_API_TOKEN/);
-  assert.match(text, /Connection: Ada · https:\/\/example.atlassian.net/);
+  assert.match(text, /Connection: First · https:\/\/example.atlassian.net/);
   assert.match(text, /Project PAY: visible · permissions 1\/2 · boards 1 · epics 3/);
   assert.match(text, /Request Create Issues access/);
 });
@@ -34,7 +34,7 @@ test('Jira doctor text reports a ready configuration', () => {
     workspace: { active: true, name: 'Payments', selectedRepository: 'api' },
     policy: { configured: true, enabled: true, writeMode: 'approved' },
     credentials: { missing: [], deployment: 'data-center' },
-    connection: { connected: true, baseUrl: 'https://jira.example.com', account: { id: 'ada' } },
+    connection: { connected: true, baseUrl: 'https://jira.example.com', account: { id: 'first' } },
     projects: [],
     remediation: []
   });

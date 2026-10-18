@@ -1229,7 +1229,7 @@ test('workspace doctor CLI probes an explicit URL with no recorded session and l
 
   for (const scheme of ['https', 'ssh']) {
     const secret = `doctor-${scheme}-malformed-secret`;
-    const malformed = `${scheme}://alice:${secret}@[invalid/repo`;
+    const malformed = `${scheme}://reviewerone:${secret}@[invalid/repo`;
     const refused = run(process.execPath, [
       cli, 'workspace', 'doctor', '--network', '--repository', malformed, '--json'
     ], { cwd: fixture.root, env, allowFailure: true });

@@ -34,8 +34,8 @@ async function ordersWithHistory(t) {
   await cp(path.join(root, 'test', 'fixtures', 'knowledge', 'orders-spring'), repository, { recursive: true });
   git(repository, 'init', '-q', '-b', 'main');
   git(repository, 'add', '-A');
-  git(repository, '-c', 'user.name=Ana', '-c', 'user.email=ana@example.com', 'commit', '-qm', 'Fixture');
-  const commits = [['ana@example.com', 'Fix minimum order total'], ['Ana@Example.com', 'Add VIP note'], ['ana@example.com', 'Hotfix: cancel message'], ['bo@example.com', 'Tidy imports']];
+  git(repository, '-c', 'user.name=Analyst', '-c', 'user.email=analyst@example.com', 'commit', '-qm', 'Fixture');
+  const commits = [['analyst@example.com', 'Fix minimum order total'], ['Analyst@Example.com', 'Add VIP note'], ['analyst@example.com', 'Hotfix: cancel message'], ['bo@example.com', 'Tidy imports']];
   for (const [email, subject] of commits) {
     const file = path.join(repository, SERVICE);
     await writeFile(file, `${await readFile(file, 'utf8')}// ${subject}\n`);
@@ -139,7 +139,7 @@ test('impact: a large non-code change beside the code change does not hide the c
   const notes = path.join(repository, 'notes.txt');
   await writeFile(notes, `${'a line of notes\n'.repeat(16000)}`);
   git(repository, 'add', '-A');
-  git(repository, '-c', 'user.name=Ana', '-c', 'user.email=ana@example.com', 'commit', '-qm', 'Notes');
+  git(repository, '-c', 'user.name=Analyst', '-c', 'user.email=analyst@example.com', 'commit', '-qm', 'Notes');
   const base = git(repository, 'rev-parse', 'HEAD');
   await writeFile(notes, `${'another line\n'.repeat(16000)}`);
   await changeCancel(repository);

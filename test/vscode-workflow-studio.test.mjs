@@ -145,7 +145,7 @@ test('edits made in the page become one change set the engine accepts', async ()
   draft.phases.design.agent = 'product-owner';
   draft.steps['repo-feature'].verification.approval.minimum = 2;
   // A person joins an approval group.
-  draft.groups['architecture-reviewers'].members.push({ name: 'Ada Lovelace', email: 'ada@example.com', githubLogin: null });
+  draft.groups['architecture-reviewers'].members.push({ name: 'First Reviewer', email: 'first@example.com', githubLogin: null });
 
   const changeSet = logic.changeSetFrom(model, draft);
   assert.equal(changeSet.schema, 'sflow-studio-change-set@1');
@@ -1327,7 +1327,7 @@ test('discarding asks the host first, and a kept draft comes back only in the sh
   const state = logic.state();
   state.model = model;
   state.draft = logic.initialDraft(model);
-  state.draft.groups['architecture-reviewers'].members.push({ name: 'Ada', email: 'ada@example.com', githubLogin: null });
+  state.draft.groups['architecture-reviewers'].members.push({ name: 'First', email: 'first@example.com', githubLogin: null });
   state.adding = { label: 'Half typed', output: 'document', agent: '', after: null };
 
   let discarded = false;
@@ -1573,8 +1573,8 @@ test('a step can send rejected work back to several earlier steps, and rules int
 
 test('proposal versions group only matching workflow operations with known unequal creation times', () => {
   const { logic } = studioLogic();
-  const row = (suffix, time, id = 'test-ashok', op = 'create-workflow') => ({
-    branch: `sflow/config-change/workflow/${op}-test-ashok-${suffix}`, proposalCommit: suffix.repeat(5),
+  const row = (suffix, time, id = 'test-fixtureuser', op = 'create-workflow') => ({
+    branch: `sflow/config-change/workflow/${op}-test-fixtureuser-${suffix}`, proposalCommit: suffix.repeat(5),
     proposalCreatedAt: time, valid: true, merged: false, workflows: [{ id, governs: 'story' }]
   });
   const older = row('9ee51581', '2026-10-08T00:00:00.000Z');
@@ -1583,7 +1583,7 @@ test('proposal versions group only matching workflow operations with known unequ
   assert.deepEqual(groups, [{ current: [newer], earlier: [older] }]);
   assert.equal(logic.proposalGroups([older, { ...newer, proposalCreatedAt: null }]).length, 2);
   assert.equal(logic.proposalGroups([older, { ...newer, workflows: [{ id: 'other', governs: 'story' }] }]).length, 2);
-  assert.equal(logic.proposalGroups([older, row('cadd25fb', newer.proposalCreatedAt, 'test-ashok', 'edit-workflow')]).length, 2);
+  assert.equal(logic.proposalGroups([older, row('cadd25fb', newer.proposalCreatedAt, 'test-fixtureuser', 'edit-workflow')]).length, 2);
   assert.deepEqual(logic.proposalGroups([older, { ...newer, proposalCreatedAt: older.proposalCreatedAt }])[0],
     { current: [older, { ...newer, proposalCreatedAt: older.proposalCreatedAt }], earlier: [] }, 'ties do not invent a latest identity');
   assert.equal(logic.proposalGroups([older, { ...newer, merged: true }]).length, 2);
@@ -1597,7 +1597,7 @@ test('external configuration sync refreshes a clean page but preserves dirty pri
   state.model = model; state.draft = logic.initialDraft(model);
   reply({ type: 'studio.externalConfigurationChanged' });
   assert.equal(posted.at(-1).type, 'studio.reload');
-  state.draft.groups['architecture-reviewers'].members.push({ name: 'Ada', email: 'ada@example.com', githubLogin: null });
+  state.draft.groups['architecture-reviewers'].members.push({ name: 'First', email: 'first@example.com', githubLogin: null });
   const draft = structuredClone(state.draft);
   state.plan = { valid: true }; state.planKey = 'stale';
   const before = posted.length;
@@ -1646,7 +1646,7 @@ test('proposals waiting for review are listed in Changes, and reviewing one relo
   assert.equal(posted.filter((message) => message.type === 'studio.proposals').length, 1, 'one request at a time');
   reply({ type: 'studio.proposals', proposals: listed });
   assert.equal(state.proposals.list.length, 2);
-  state.draft.groups['architecture-reviewers'].members.push({ name: 'Ada', email: 'ada@example.com', githubLogin: null });
+  state.draft.groups['architecture-reviewers'].members.push({ name: 'First', email: 'first@example.com', githubLogin: null });
   logic.reviewProposal(listed[0].branch);
   assert.deepEqual(posted.at(-1), { type: 'studio.reviewProposal', branch: listed[0].branch, pending: 1 }, 'the host learns there are unpublished changes');
   reply({ type: 'studio.configurationChanged', reason: listed[0].branch + ' was activated' });

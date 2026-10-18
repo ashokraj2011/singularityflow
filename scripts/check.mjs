@@ -2,7 +2,7 @@ import { execFile, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { availableParallelism } from 'node:os';
+import { availableParallelism, homedir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -22,7 +22,9 @@ import { currentSchemaVersion, migrationRegistrySnapshot } from '../src/schema-m
 import { MCP_SCAFFOLD_VERSIONS } from '../src/mcp-host.mjs';
 import { releaseDependencyLockProblems, workspaceDependencyLockProblems } from '../src/release-dependency-lock.mjs';
 import { isModelRoutingSource, portableCheckPath, sourceReferenceGrepArgs } from './check-path-policy.mjs';
-import { documentationPrivacyProblems, isDocumentationPath } from './documentation-privacy.mjs';
+import {
+  configuredPersonalTerms, documentationPrivacyProblems, generatedPrivacyFiles, isDocumentationPath, sourcePrivacyProblems
+} from './documentation-privacy.mjs';
 import {
   CURRENT_PACKAGED_ASSET_SHA256,
   isCurrentPackagedAssetHash, isKnownPackagedAssetHash, packagedAssetSha256
@@ -202,10 +204,26 @@ if (!packageJson.files?.includes('RELEASE-EPIC-STORY-LINEAGE.md') || !existsSync
 checked.push('DISTRIBUTION.md', 'INITIATIVE-ORCHESTRATION.md', 'RELEASE-INITIATIVE-ORCHESTRATION.md');
 
 const allFiles = repositoryFiles();
+const identityConfig = spawnSync('git', ['config', '--null', '--get-regexp', '^user[.](name|email)$'], {
+  cwd: root, encoding: 'utf8', timeout: 10_000
+});
+if (![0, 1].includes(identityConfig.status)) fail('Unable to read local identity hints for source privacy checks.');
+const identityFields = Object.fromEntries(String(identityConfig.stdout ?? '').split('\0').filter(Boolean)
+  .map(entry => { const separator = entry.indexOf('\n'); return [entry.slice(0, separator), entry.slice(separator + 1)]; }));
+const personalTerms = configuredPersonalTerms({ name: identityFields['user.name'],
+  email: identityFields['user.email'], homeDirectory: homedir() });
 const documentationFiles = allFiles.filter(isDocumentationPath);
-for (const file of documentationFiles) {
-  failures.push(...documentationPrivacyProblems(path.relative(root, file), await readFile(file, 'utf8')));
+const generatedFiles = await generatedPrivacyFiles(root);
+const identityFiles = [...new Set([...allFiles, ...generatedFiles])];
+for (const file of identityFiles) {
+  const relative = path.relative(root, file);
+  const bytes = await readFile(file);
+  const text = bytes.includes(0) ? '' : bytes.toString('utf8');
+  failures.push(...(isDocumentationPath(relative)
+    ? documentationPrivacyProblems(relative, text, personalTerms)
+    : sourcePrivacyProblems(relative, text, personalTerms)));
 }
+checked.push(`source identity privacy (${identityFiles.length} files, including ${generatedFiles.length} build outputs)`);
 checked.push(`documentation privacy (${documentationFiles.length} files)`);
 
 // Story Auto is the dependency-free default profile. Keep that a mechanically enforced
@@ -261,22 +279,6 @@ const legacyReferenceCheck = spawnSync('git', sourceReferenceGrepArgs(legacyMode
 });
 if (legacyReferenceCheck.status === 0) fail(`Legacy model/vendor references remain:\n${legacyReferenceCheck.stdout.trim()}`);
 else if (legacyReferenceCheck.status !== 1) fail(`Unable to scan legacy model/vendor references: ${legacyReferenceCheck.stderr.trim() || `git exited ${legacyReferenceCheck.status}`}`);
-const personalSourceReferences = [
-  ['ashok', 'raj2011'].join(''),
-  ['ashok', '2011'].join(''),
-  ['ashok', 'raj'].join(''),
-  ['ashok', ' ', 'raj'].join(''),
-  ['a672', '090'].join('')
-];
-const personalSourcePattern = personalSourceReferences
-  .map((reference) => reference.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-  .join('|');
-const personalSourceCheck = spawnSync('git', sourceReferenceGrepArgs(personalSourcePattern), {
-  cwd: root,
-  encoding: 'utf8'
-});
-if (personalSourceCheck.status === 0) fail(`Personal source repository references remain:\n${personalSourceCheck.stdout.trim()}`);
-else if (personalSourceCheck.status !== 1) fail(`Unable to scan personal source repository references: ${personalSourceCheck.stderr.trim() || `git exited ${personalSourceCheck.status}`}`);
 const publicSourceReferences = [
   ['github', 'com'].join('\\.'),
   ['singularity', 'flow', 'contributors'].join('[[:space:]]+')

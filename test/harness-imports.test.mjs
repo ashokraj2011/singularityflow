@@ -206,7 +206,7 @@ test('harness reports redact verified legacy command capabilities at the read bo
   legacy.command = [
     'singularity-flow', 'choices', 'status', 'legacy-receipt-secret',
     '--authorization', 'legacy-authorization-secret',
-    '--repository=https://alice:legacy-url-secret@example.test/repo.git?signature=x'
+    '--repository=https://reviewerone:legacy-url-secret@example.test/repo.git?signature=x'
   ];
   await writeFile(completed.path, canonicalJson({ ...legacy, eventId: recordSha256(legacy) }));
 

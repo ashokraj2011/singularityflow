@@ -35,9 +35,9 @@ test('repair verification remains structured argv and is never shell-parsed', ()
 });
 
 test('fault rendering boundary removes host paths', () => {
-  assert.equal(publicFaultText('failed at /Users/ashok/secret/file.txt'), 'failed at [local path]');
-  assert.equal(publicFaultText('C:\\Users\\ashok\\secret.txt failed'), '[local path] failed');
-  assert.equal(publicVerificationArgv(['/opt/homebrew/bin/node', '/Users/ashok/project/test.mjs']), '["node","[local path]"]');
+  assert.equal(publicFaultText('failed at /Users/fixtureuser/secret/file.txt'), 'failed at [local path]');
+  assert.equal(publicFaultText('C:\\Users\\fixtureuser\\secret.txt failed'), '[local path] failed');
+  assert.equal(publicVerificationArgv(['/opt/homebrew/bin/node', '/Users/fixtureuser/project/test.mjs']), '["node","[local path]"]');
 });
 
 test('schema health exposes exact future and archive remedies', () => {

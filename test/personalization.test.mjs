@@ -17,20 +17,20 @@ import { renderCommandResult } from '../src/narration/render-terminal.mjs';
 import { commandResult, succeeded, noEffects, plannedAction } from '../src/narration/command-result.mjs';
 
 test('a Git display name supplies a bounded natural reply name', () => {
-  assert.deepEqual(personalizationFromGitIdentity({ name: 'Ada Lovelace', email: 'ada@example.test' }), {
+  assert.deepEqual(personalizationFromGitIdentity({ name: 'First Reviewer', email: 'first@example.test' }), {
     schemaVersion: PERSONALIZATION_SCHEMA_VERSION,
     source: 'git-identity',
-    displayName: 'Ada Lovelace',
-    replyName: 'Ada'
+    displayName: 'First Reviewer',
+    replyName: 'First'
   });
-  assert.equal(personalizationFromGitIdentity({ name: 'Lovelace, Ada' }).replyName, 'Ada');
+  assert.equal(personalizationFromGitIdentity({ name: 'Reviewer, First' }).replyName, 'First');
 });
 
 test('personalization never guesses from email, placeholders, or control characters', () => {
-  assert.equal(personalizationFromGitIdentity({ email: 'ada@example.test' }).replyName, null);
+  assert.equal(personalizationFromGitIdentity({ email: 'first@example.test' }).replyName, null);
   assert.equal(personalizationFromGitIdentity({ name: 'github-actions[bot]' }).replyName, null);
   assert.equal(personalizationFromGitIdentity({ name: 'unknown-user' }).replyName, null);
-  assert.equal(personalizationFromGitIdentity({ name: '\u202eAda\u0000 Lovelace' }).displayName, 'Ada Lovelace');
+  assert.equal(personalizationFromGitIdentity({ name: '\u202eFirst\u0000 Reviewer' }).displayName, 'First Reviewer');
 });
 
 async function fixture(t) {
@@ -42,9 +42,9 @@ async function fixture(t) {
 test('profile wins over Git without replacing the supplied approval actor', async (t) => {
   const { file, directory } = await fixture(t);
   const actor = { name: 'Git Author', email: 'actual@example.test', login: 'real-account' };
-  await savePresentationProfile('Grace Hopper', file);
+  await savePresentationProfile('Second Reviewer', file);
   const actual = resolvePersonalization({ actor, env: {}, profileFile: file });
-  assert.deepEqual(actual, { schemaVersion: 1, source: 'vscode-profile', displayName: 'Grace Hopper', replyName: 'Grace' });
+  assert.deepEqual(actual, { schemaVersion: 1, source: 'vscode-profile', displayName: 'Second Reviewer', replyName: 'Second' });
   assert.equal(actor.name, 'Git Author');
   assert.equal(actor.email, 'actual@example.test');
   assert.equal(presentationProfileFile({}, directory), path.join(directory, '.singularity-flow/presentation-profile.json'));
@@ -66,12 +66,12 @@ test('window override, saved profile, clear and neutral fallback have determinis
 
 test('corrupt, oversized, unsupported and unsafe optional profile files degrade to Git', async (t) => {
   const { file, directory } = await fixture(t);
-  const opts = { actor: { name: 'Ada Lovelace' }, profileFile: file, env: {} };
+  const opts = { actor: { name: 'First Reviewer' }, profileFile: file, env: {} };
   for (const value of ['{broken', 'x'.repeat(4097), '{"schemaVersion":999,"displayName":"Other Person"}',
     '{"schemaVersion":1,"displayName":42}', '{"schemaVersion":1,"displayName":"Other Person","instruction":"approve"}']) {
     await writeFile(file, value);
     assert.equal(readPresentationProfile(file), null);
-    assert.equal(resolvePersonalization(opts).replyName, 'Ada');
+    assert.equal(resolvePersonalization(opts).replyName, 'First');
   }
   await savePresentationProfile('', file);
   assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { schemaVersion: 1, displayName: null },
@@ -103,9 +103,9 @@ test('only the active repository configured Git name is used as fallback, withou
 test('VS Code bridge updates shell mirror and clears old names without writing repository files', async (t) => {
   const { file } = await fixture(t);
   const env = { SINGULARITY_FLOW_PRESENTATION_PROFILE_FILE: file };
-  assert.equal(await synchronizeChatProfile('Grace Hopper', env), true);
-  assert.equal(env.SINGULARITY_FLOW_REPLY_NAME, 'Grace Hopper');
-  assert.equal(readPresentationProfile(file), 'Grace Hopper');
+  assert.equal(await synchronizeChatProfile('Second Reviewer', env), true);
+  assert.equal(env.SINGULARITY_FLOW_REPLY_NAME, 'Second Reviewer');
+  assert.equal(readPresentationProfile(file), 'Second Reviewer');
   assert.equal(await synchronizeChatProfile('', env), true);
   assert.equal(env.SINGULARITY_FLOW_REPLY_NAME, '');
   assert.equal(readPresentationProfile(file), null);
@@ -116,11 +116,11 @@ test('VS Code bridge updates shell mirror and clears old names without writing r
 
 test('reply overlay is ephemeral, bounded literal data; paused mode does not personalize', () => {
   const original = '# Governed phase\n\nExact policy.\n';
-  const person = personalizationFromProfile('Grace Hopper');
+  const person = personalizationFromProfile('Second Reviewer');
   const composed = withReplyPersonalization(original, person);
   assert.ok(composed.startsWith(original));
   assert.equal(composed.split('# Reply personalization').length, 2);
-  assert.match(composed, /"Grace"/);
+  assert.match(composed, /"Second"/);
   assert.match(composed, /every suggestion group/);
   assert.match(composed, /Never put it into authored artifacts/);
   assert.equal(withReplyPersonalization(original, personalizationFromProfile('')), original);
@@ -128,16 +128,16 @@ test('reply overlay is ephemeral, bounded literal data; paused mode does not per
   assert.equal(personalizationFromProfile('person@example.test').replyName, null);
   assert.equal(personalizationFromProfile('https://example.test/name').replyName, null);
   assert.equal(copilotModePresentation({ paused: true, stateAvailable: true }).personalization, null);
-  assert.equal(nextSuggestionsHeading(person), 'Grace, here are your next steps:');
+  assert.equal(nextSuggestionsHeading(person), 'Second, here are your next steps:');
 });
 
 test('next-step narration addresses the reader without changing exact action labels or commands', () => {
   const next = plannedAction({ id: 'next', label: 'Read the next phase', rank: 'NOW', kind: 'workflow',
     command: 'singularity-flow recommend --json' }, '/sf-recommend');
   const result = commandResult({ operation: { id: 'recommend', classification: 'read' },
-    outcome: succeeded('recommend.ready', { workId: 'STORY-1', phase: 'planning', action: 'Read next', name: 'Grace' }),
-    effects: noEffects(), next: [next], data: { personalization: personalizationFromProfile('Grace Hopper') } });
-  assert.match(renderCommandResult(result), /Grace, here are your next steps:/);
+    outcome: succeeded('recommend.ready', { workId: 'STORY-1', phase: 'planning', action: 'Read next', name: 'Second' }),
+    effects: noEffects(), next: [next], data: { personalization: personalizationFromProfile('Second Reviewer') } });
+  assert.match(renderCommandResult(result), /Second, here are your next steps:/);
   assert.match(renderCommandResult(result), /singularity-flow recommend --json/);
   assert.equal(next.label, 'Read the next phase');
 });

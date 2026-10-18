@@ -131,11 +131,11 @@ test('VS Code: the World Model tab shows the Repository brief and edits only the
   const { configurationCenterView, updateWorldModelYaml } = await import(source('configuration-center-model.ts'));
   const { configurationCenterHtml } = await import(source('configuration-center-page.ts'));
   const snapshot = {
-    identities: { git: { name: 'Casey Dev', email: 'casey@example.com', login: 'caseydev' }, github: 'caseydev' },
+    identities: { git: { name: 'Developer Dev', email: 'developer@example.com', login: 'fixturedev' }, github: 'fixturedev' },
     configurationSource: { editor: 'effective', effective: null, candidate: null },
     definition: { worldModel: { sourceRoots: ['apps/payments'], sharedRoots: [] } }
   };
-  const view = configurationCenterView(snapshot, { name: 'Casey', role: 'architect' });
+  const view = configurationCenterView(snapshot, { name: 'Developer', role: 'architect' });
   assert.deepEqual(view.worldModel, { sourceRoots: ['apps/payments'], sharedRoots: [] });
   const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
   assert.match(html, /Repository brief/u);

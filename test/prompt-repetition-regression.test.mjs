@@ -228,14 +228,14 @@ test('actual phase composition delivers a stakeholder comment once with all boun
   const workflow = JSON.parse(await readFile(file, 'utf8'));
   const comment = 'STAKEHOLDER-EXACT-BODY café.\nSecond line. ' + 'Preserve approved constraints. '.repeat(90);
   workflow.changeRequests = [{ id: 'CR-001', status: 'open', sourcePhase: 'review', sourceGeneration: 2,
-    targetPhase: 'design', requestedBy: { name: 'Ana', email: 'ana@example.invalid' },
+    targetPhase: 'design', requestedBy: { name: 'Analyst', email: 'analyst@example.invalid' },
     requestedAt: '2026-10-09T01:00:00Z', clauseIds: ['REPEAT-1:AC-001'], comment }];
   await writeFile(file, JSON.stringify(workflow));
   const args = ['wm', 'compose', '--phase', 'design', '--work-id', fixture.workId, '--agent', 'developer', '--render-only'];
   const prompt = flow(fixture.root, args);
   assert.equal(occurrences(prompt, 'STAKEHOLDER-EXACT-BODY'), 1);
   assert.ok(prompt.includes(JSON.stringify(comment)));
-  assert.ok(prompt.includes('ana@example.invalid'));
+  assert.ok(prompt.includes('analyst@example.invalid'));
   assert.ok(prompt.includes('"sourceGeneration":2'));
   assert.ok(prompt.includes('"bodyIn":"stakeholder-change-requests"'));
   assert.equal(flow(fixture.root, args), prompt, 'new composition is deterministic');

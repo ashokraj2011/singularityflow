@@ -127,18 +127,18 @@ test('the binding names the repository and branch it was computed in', async (t)
 test('profile name changes affect replies, not signed binding or the Git decision actor', async (t) => {
   const root = await repository();
   t.after(() => rm(root, { recursive: true, force: true }));
-  let replyProfileName = 'Grace Hopper';
+  let replyProfileName = 'Second Reviewer';
   const host = createHostGateway({ root, hostSessionId: 'profile-session',
     planners: gatewayPlanners(), plannerContext: () => ({ replyProfileName }) });
   const before = host.binding();
   const selection = await host.kernel.resolve({ utterance: 'home' });
   const handle = selection.next[0].handle;
   const first = await host.kernel.read({ resolutionId: handle });
-  assert.equal(first.data.personalization.replyName, 'Grace');
-  replyProfileName = 'Ada Lovelace';
+  assert.equal(first.data.personalization.replyName, 'Second');
+  replyProfileName = 'First Reviewer';
   const second = await host.kernel.read({ resolutionId: handle });
   assert.equal(second.kind, 'read', 'a presentation change must not stale an existing read handle');
-  assert.equal(second.data.personalization.replyName, 'Ada');
+  assert.equal(second.data.personalization.replyName, 'First');
   assert.deepEqual(host.binding(), before);
   assert.equal(before.actorId, 'dev@example.test');
   assert.equal(run('git', ['config', 'user.name'], { cwd: root }).stdout.trim(), 'Dev');

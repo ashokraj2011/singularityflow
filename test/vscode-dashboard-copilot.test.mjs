@@ -53,7 +53,7 @@ function workflow() {
     },
     usage: { totalTokens: 0, records: 0, exactRecords: 0, unavailableRecords: 0, byPhase: {}, byAgent: {} },
     sequenceOverrides: [],
-    history: [{ at: at(40), actor: 'bob', agent: 'architect', event: 'phase_rejected', phase: 'design', detail: 'CR-001 returned to requirements: unclear scope' }]
+    history: [{ at: at(40), actor: 'reviewertwo', agent: 'architect', event: 'phase_rejected', phase: 'design', detail: 'CR-001 returned to requirements: unclear scope' }]
   };
 }
 

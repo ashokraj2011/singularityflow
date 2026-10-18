@@ -22,8 +22,8 @@ import YAML from 'yaml';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 
-const ALICE = { name: 'Alice Product', email: 'alice.product@example.com' };
-const BOB = { name: 'Bob Exec', email: 'bob.exec@example.com' };
+const REVIEWERONE = { name: 'ReviewerOne Product', email: 'reviewerone.product@example.com' };
+const REVIEWERTWO = { name: 'ReviewerTwo Exec', email: 'reviewertwo.exec@example.com' };
 const PACK = 'opportunity-investment-brief';
 const CONFIRM = `discover-define:pack:${PACK}`;
 
@@ -51,7 +51,7 @@ function as(actor, root, args, { allowFailure = false, confirm = null } = {}) {
 }
 
 /**
- * @param {boolean} aliceOnBothBodies Whether Alice also sits on Executive Decisioning — the overlap
+ * @param {boolean} aliceOnBothBodies Whether ReviewerOne also sits on Executive Decisioning — the overlap
  *   the chain has to defend against.
  */
 async function repository({ aliceOnBothBodies = false } = {}) {
@@ -63,16 +63,16 @@ async function repository({ aliceOnBothBodies = false } = {}) {
   const root = path.join(base, 'app');
   await mkdir(root);
   git(root, ['init', '-b', 'main']);
-  git(root, ['config', 'user.name', ALICE.name]);
-  git(root, ['config', 'user.email', ALICE.email]);
+  git(root, ['config', 'user.name', REVIEWERONE.name]);
+  git(root, ['config', 'user.email', REVIEWERONE.email]);
   await writeFile(path.join(root, 'README.md'), '# app\n');
-  as(ALICE, root, ['init']);
+  as(REVIEWERONE, root, ['init']);
 
   const portfolioFile = path.join(root, 'singularity/portfolio.yml');
   const portfolio = YAML.parse(await readFile(portfolioFile, 'utf8'));
-  for (const authority of Object.values(portfolio.approvalAuthorities)) authority.members = [ALICE];
-  portfolio.approvalAuthorities['product-approvers'].members = [ALICE];
-  portfolio.approvalAuthorities['executive-approvers'].members = aliceOnBothBodies ? [BOB, ALICE] : [BOB];
+  for (const authority of Object.values(portfolio.approvalAuthorities)) authority.members = [REVIEWERONE];
+  portfolio.approvalAuthorities['product-approvers'].members = [REVIEWERONE];
+  portfolio.approvalAuthorities['executive-approvers'].members = aliceOnBothBodies ? [REVIEWERTWO, REVIEWERONE] : [REVIEWERTWO];
   portfolio.repositories = { api: { url: remote, defaultBranch: 'main', required: true, lead: true } };
   portfolio.git = { ...(portfolio.git ?? {}), publish: 'off' };
   await writeFile(portfolioFile, YAML.stringify(portfolio));
@@ -84,9 +84,9 @@ async function repository({ aliceOnBothBodies = false } = {}) {
   git(root, ['add', '.']);
   git(root, ['commit', '-m', 'Initialize']);
 
-  as(ALICE, root, ['initiative', 'start', 'INIT-CHAIN', '--title', 'Chain verification']);
-  as(ALICE, root, ['initiative', 'phase']);
-  as(ALICE, root, ['initiative', 'phase', 'publish', 'discover-define']);
+  as(REVIEWERONE, root, ['initiative', 'start', 'INIT-CHAIN', '--title', 'Chain verification']);
+  as(REVIEWERONE, root, ['initiative', 'phase']);
+  as(REVIEWERONE, root, ['initiative', 'phase', 'publish', 'discover-define']);
   return root;
 }
 
@@ -106,15 +106,15 @@ async function approvals(root) {
  * failure is allowed and the report is read either way.
  */
 function packVerdict(root) {
-  const verify = JSON.parse(as(ALICE, root, ['initiative', 'verify', '--json'], { allowFailure: true }).stdout);
+  const verify = JSON.parse(as(REVIEWERONE, root, ['initiative', 'verify', '--json'], { allowFailure: true }).stdout);
   return [...(verify.errors ?? []), ...(verify.warnings ?? []), ...(verify.passes ?? [])]
     .find((line) => line.includes(PACK)) ?? null;
 }
 
 test('a chain step opens only once every earlier step has signed', async () => {
   const root = await repository();
-  // Bob sits on Executive Decisioning, which is step 2. Nobody has signed step 1.
-  const early = as(BOB, root, ['initiative', 'approve', `pack:${PACK}`], { allowFailure: true, confirm: CONFIRM });
+  // ReviewerTwo sits on Executive Decisioning, which is step 2. Nobody has signed step 1.
+  const early = as(REVIEWERTWO, root, ['initiative', 'approve', `pack:${PACK}`], { allowFailure: true, confirm: CONFIRM });
   assert.notEqual(early.status, 0);
   assert.match(early.stderr, /not authorized/);
   // The refusal names the body that must go first and where it sits in the chain — "not authorized"
@@ -124,14 +124,14 @@ test('a chain step opens only once every earlier step has signed', async () => {
 
 test('each decision records the body it signed for, and the next step is named', async () => {
   const root = await repository();
-  as(ALICE, root, ['initiative', 'approve', `pack:${PACK}`, '--acknowledge-self-approval'], { confirm: CONFIRM });
+  as(REVIEWERONE, root, ['initiative', 'approve', `pack:${PACK}`, '--acknowledge-self-approval'], { confirm: CONFIRM });
 
   const [first] = await approvals(root);
   assert.equal(first.subject.type, 'pack');
   assert.equal(first.subject.id, PACK);
   assert.equal(first.subject.chainStep, 0);
   assert.equal(first.subject.authorityGroup, 'product-approvers');
-  assert.equal(first.actor.email, ALICE.email);
+  assert.equal(first.actor.email, REVIEWERONE.email);
 
   // The pack is not approved yet, and the gate says exactly who it is waiting for.
   assert.match(packVerdict(root), /waiting on Executive Decisioning \(0\/1\)/);
@@ -140,28 +140,28 @@ test('each decision records the body it signed for, and the next step is named',
 test('a reviewer on two bodies cannot satisfy two steps with one decision', async () => {
   // The whole point of an ordered chain: without this, "three bodies approved" is a headcount.
   const root = await repository({ aliceOnBothBodies: true });
-  as(ALICE, root, ['initiative', 'approve', `pack:${PACK}`, '--acknowledge-self-approval'], { confirm: CONFIRM });
+  as(REVIEWERONE, root, ['initiative', 'approve', `pack:${PACK}`, '--acknowledge-self-approval'], { confirm: CONFIRM });
 
-  const again = as(ALICE, root, ['initiative', 'approve', `pack:${PACK}`, '--acknowledge-self-approval'],
+  const again = as(REVIEWERONE, root, ['initiative', 'approve', `pack:${PACK}`, '--acknowledge-self-approval'],
     { allowFailure: true, confirm: CONFIRM });
   assert.notEqual(again.status, 0);
   assert.match(again.stderr, /already approved this exact pack hash/);
 
-  // Still waiting on the second body, despite Alice being a member of it.
+  // Still waiting on the second body, despite ReviewerOne being a member of it.
   assert.match(packVerdict(root), /waiting on Executive Decisioning/);
   assert.equal((await approvals(root)).length, 1, 'no second record was written');
 });
 
 test('the pack passes once each body has signed its own step, in order', async () => {
   const root = await repository();
-  as(ALICE, root, ['initiative', 'approve', `pack:${PACK}`, '--acknowledge-self-approval'], { confirm: CONFIRM });
-  as(BOB, root, ['initiative', 'approve', `pack:${PACK}`], { confirm: CONFIRM });
+  as(REVIEWERONE, root, ['initiative', 'approve', `pack:${PACK}`, '--acknowledge-self-approval'], { confirm: CONFIRM });
+  as(REVIEWERTWO, root, ['initiative', 'approve', `pack:${PACK}`], { confirm: CONFIRM });
 
   const records = await approvals(root);
   assert.deepEqual(records.map((record) => record.subject.chainStep), [0, 1]);
   assert.deepEqual(records.map((record) => record.subject.authorityGroup),
     ['product-approvers', 'executive-approvers']);
-  assert.deepEqual(records.map((record) => record.actor.email), [ALICE.email, BOB.email]);
+  assert.deepEqual(records.map((record) => record.actor.email), [REVIEWERONE.email, REVIEWERTWO.email]);
 
   // Both steps signed the same pack hash, which is what makes the approvals mean one artifact set.
   assert.equal(new Set(records.map((record) => record.subject.sha256)).size, 1);

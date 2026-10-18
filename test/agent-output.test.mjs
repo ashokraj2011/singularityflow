@@ -337,7 +337,7 @@ test('an opened session keeps its commit, path and every next action in view, ho
     schemaVersion: 1, resultType: 'session-open', status: 'ready', workId: 'BIG-1', repositoryPath: root, localOnly: true, attachedFromRemote: false,
     open: { workId: 'BIG-1', branch: 'BIG-1', head: 'a'.repeat(40), repositoryPath: root, phase: 'step-3', status: 'in_progress', agent: 'developer',
       phases: Array.from({ length: 30 }, (_, index) => ({ id: `step-${index}`, label: `Step ${index}`, status: 'not_started', detail: 'x'.repeat(200) })) },
-    session: { ready: true, workId: 'BIG-1', activeAgent: 'developer', phase: 'step-3', personalization: { replyName: 'Sam' }, phases: 'y'.repeat(9000) },
+    session: { ready: true, workId: 'BIG-1', activeAgent: 'developer', phase: 'step-3', personalization: { replyName: 'Contributor' }, phases: 'y'.repeat(9000) },
     context: { text: 'Brief line.\n'.repeat(1500) },
     nextsteps: { resultType: 'sflow-nextsteps', state: 'active', currentPhase: 'step-3', evidence: { blob: 'z'.repeat(8000) },
       actions: Array.from({ length: 12 }, (_, index) => ({ id: `a${index}`, timing: index ? 'later' : 'now', reason: `Do step ${index}`, skill: '/sf-code',
@@ -345,7 +345,7 @@ test('an opened session keeps its commit, path and every next action in view, ho
   };
   const result = { ...raw, ...agentSessionView(raw), ready: true };
   assert.deepEqual(Object.keys(result.open).sort(), ['agent', 'branch', 'head', 'phase', 'repositoryPath', 'status', 'workId']);
-  assert.equal(result.session.personalization.replyName, 'Sam');
+  assert.equal(result.session.personalization.replyName, 'Contributor');
   assert.equal(result.nextsteps.actions.length, 12);
   assert.deepEqual(result.nextsteps.actions[0], { id: 'a0', timing: 'now', reason: 'Do step 0', skill: '/sf-code',
     commandGuidance: { command: 'singularity-flow phase prepublish step-0 --json', copilotCommand: '/sf-code', modelFreeCommand: null } },

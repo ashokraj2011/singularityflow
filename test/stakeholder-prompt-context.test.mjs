@@ -4,7 +4,7 @@ import { buildActiveClauseCapsule } from '../src/active-clause-capsule.mjs';
 import { stakeholderPromptContext } from '../src/stakeholder-prompt-context.mjs';
 
 const request = { id: 'CR-1', status: 'open', sourcePhase: 'verification', sourceGeneration: 2,
-  targetPhase: 'coding', requestedBy: { name: 'Ana', email: 'ana@example.invalid', login: 'ana' },
+  targetPhase: 'coding', requestedBy: { name: 'Analyst', email: 'analyst@example.invalid', login: 'analyst' },
   requestedAt: '2026-10-09T00:00:00Z', clauseIds: ['ST-1:AC-001'],
   comment: 'Preserve café and 未知.\nSecond line, "quoted". ' + 'Exact business instruction. '.repeat(100) };
 function fixture(requests = [request]) {

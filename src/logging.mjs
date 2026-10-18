@@ -224,7 +224,7 @@ function redactText(value) {
   text = text.replace(/\b(?:https?|ssh|git\+ssh|ssh\+git|git|file|ftp|ftps):(?!\/\/)[^\s<>"']+/gi,
     (match) => redactRemoteOperand(match));
   // Git/provider errors may prefix a malformed credential-bearing remote with a local directory
-  // (`/tmp/alice:password@host/repo`). It is a valid path to Git, but never safe durable prose.
+  // (`/tmp/fixture-user:password@host/repo`). It is a valid path to Git, but never safe durable prose.
   text = text.replace(/(^|[\s("'=])(?=[^\s<>"']*[\\/])(?=[^\s<>"']*[^/\\\s@:]+:[^/\\\s@]+@)[^\s<>"']+/g,
     '$1[redacted-remote]');
   text = redactSecretAssignments(text);

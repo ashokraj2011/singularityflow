@@ -90,7 +90,7 @@ export function lastMaterialEvent(workflow) {
 
 function actorMatches(actor, candidate) {
   if (!actor || !candidate) return false;
-  // A display name is presentation, not identity. Two people called "Alex Smith" must never be
+  // A display name is presentation, not identity. Two people sharing a display name must never be
   // treated as the same submitter on a screen that decides whether an approval is theirs to make.
   const values = [candidate.login, candidate.email].filter(Boolean).map((value) => String(value).toLowerCase());
   return [actor.login, actor.email].filter(Boolean)

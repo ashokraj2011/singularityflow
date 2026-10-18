@@ -69,7 +69,7 @@ test('each fulfillment type is checked for what it must name', () => {
 
 test('each row is implemented and reviewed by the code steps it is allocated to', () => {
   const policy = { mode: 'required', minimum: 1, authorities: ['reviewers'], requiredAuthorities: [] };
-  const approval = { decision: 'approved', actor: { login: 'bob' }, authorityGroup: 'reviewers', at: '2026-10-03T00:00:00Z' };
+  const approval = { decision: 'approved', actor: { login: 'reviewertwo' }, authorityGroup: 'reviewers', at: '2026-10-03T00:00:00Z' };
   const workflow = {
     workItem: { id: W, title: 'Two code steps' }, status: 'in_progress', currentPhase: 'hardening',
     phaseOrder: ['intake', 'implementation', 'hardening'],

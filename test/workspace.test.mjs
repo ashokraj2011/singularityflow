@@ -2931,23 +2931,23 @@ test('workspace adoption never persists credentials embedded in an origin URL', 
   await writeFile(path.join(repository, 'README.md'), '# repository\n');
   run('git', ['add', '.'], { cwd: repository });
   run('git', ['commit', '-m', 'initial'], { cwd: repository });
-  run('git', ['remote', 'add', 'origin', 'https://alice:office-token@example.com/acme/repository.git'], {
+  run('git', ['remote', 'add', 'origin', 'https://reviewerone:office-token@example.com/acme/repository.git'], {
     cwd: repository
   });
 
   const defaults = await workspaceRepositoryDefaults(repository);
   assert.equal(defaults.url, 'https://example.com/acme/repository.git');
   assert.equal(defaults.adoption.origin, defaults.url);
-  assert.doesNotMatch(JSON.stringify(defaults), /alice|office-token/);
+  assert.doesNotMatch(JSON.stringify(defaults), /reviewerone|office-token/);
   const adopted = await adoptWorkspaceConfiguration({
     cloneDirectory: repository,
     id: 'credential-safe',
     name: 'Credential safe',
     baseDirectory: path.join(root, 'workspaces')
   }, { confirmation: 'credential-safe' });
-  assert.doesNotMatch(JSON.stringify(adopted), /alice|office-token/);
+  assert.doesNotMatch(JSON.stringify(adopted), /reviewerone|office-token/);
   assert.doesNotMatch(await readFile(path.join(adopted.workspace.path, 'workspace.json'), 'utf8'),
-    /alice|office-token/);
+    /reviewerone|office-token/);
 });
 
 test('workspace adoption preserves literal query characters in a local Git authority', async (t) => {

@@ -274,7 +274,7 @@ test('publication redacts and bounds rejected push diagnostics before durable an
   const secret = 'office-secret-do-not-retain';
   const hook = path.join(remote, 'hooks/pre-receive');
   await writeFile(hook,
-    `#!/bin/sh\ncat >&2 <<'SFLOW_DIAGNOSTIC'\nhttps://alice:${secret}@corp.example/repository.git token=${secret}\n${'x'.repeat(12_000)}\nSFLOW_DIAGNOSTIC\nexit 1\n`);
+    `#!/bin/sh\ncat >&2 <<'SFLOW_DIAGNOSTIC'\nhttps://reviewerone:${secret}@corp.example/repository.git token=${secret}\n${'x'.repeat(12_000)}\nSFLOW_DIAGNOSTIC\nexit 1\n`);
   await chmod(hook, 0o755);
 
   const subject = { kind: 'story', id: 'STORY-REDACT-PUSH', branch: 'main' };

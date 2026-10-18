@@ -76,7 +76,7 @@ test('a stamped module still parses, and carries the commit it was built from', 
 
 test('stamping safely preserves backslashes, quotes, newlines, and replacement tokens', async () => {
   const source = await readFile(path.join(root, 'src', 'build-info.mjs'), 'utf8');
-  const branch = "feature/C:\\Users\\Ashok\\flow-$&-'quote'\nnext\u2028line";
+  const branch = "feature/C:\\Users\\FixtureUser\\flow-$&-'quote'\nnext\u2028line";
   const facts = {
     commit: '0123456789abcdef0123456789abcdef01234567',
     sourceSha256: null,

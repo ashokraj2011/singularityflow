@@ -45,18 +45,18 @@ test('reset path classification follows Windows case-insensitive filesystem iden
 
 test('fresh-install root identity accepts portable Windows drive and UNC spellings', async () => {
   const { resetPathIdentity, sameResetPathIdentity } = await import('../src/fresh-install-reset.mjs');
-  assert.equal(sameResetPathIdentity('C:/Users/Ashok/Flow', 'c:\\Users\\Ashok\\Flow\\', 'win32'), true);
-  assert.equal(sameResetPathIdentity('/c/Users/Ashok/Flow', 'C:\\Users\\Ashok\\Flow', 'win32'), true);
+  assert.equal(sameResetPathIdentity('C:/Users/FixtureUser/Flow', 'c:\\Users\\FixtureUser\\Flow\\', 'win32'), true);
+  assert.equal(sameResetPathIdentity('/c/Users/FixtureUser/Flow', 'C:\\Users\\FixtureUser\\Flow', 'win32'), true);
   assert.equal(sameResetPathIdentity('//SERVER/Share/Flow', '\\\\server\\share\\flow\\', 'win32'), true);
   assert.equal(sameResetPathIdentity('\\\\?\\UNC\\SERVER\\Share\\Flow', '//server/share/flow', 'win32'), true);
-  assert.equal(sameResetPathIdentity('C:/Users/Ashok/Flow', 'D:/Users/Ashok/Flow', 'win32'), false);
+  assert.equal(sameResetPathIdentity('C:/Users/FixtureUser/Flow', 'D:/Users/FixtureUser/Flow', 'win32'), false);
   assert.equal(resetPathIdentity('/', 'linux'), '/');
 });
 
 test('fresh-install workspace deletion refuses roots, protected roots, and their ancestors', async () => {
   const { assertNarrowWorkspaceRoot } = await import('../src/fresh-install-reset.mjs');
   const base = path.join(os.tmpdir(), 'sflow-narrow-workspace-contract');
-  const home = path.join(base, 'home', 'ashok');
+  const home = path.join(base, 'home', 'fixtureuser');
   const project = path.join(base, 'product', 'singularity-flow');
   const options = { homeDirectory: home, projectDirectory: project };
   for (const target of [

@@ -8,7 +8,7 @@ import { redactDiagnosticText } from '../src/git-remote-diagnostics.mjs';
 test('compact approval keeps receipt, identity warnings and final verdict without authoring instructions', () => {
   const result = commandResult({ operation: { id: 'approve', classification: 'mutation' }, subject: { kind: 'story', id: 'PMC-1' },
     outcome: succeeded('approve.succeeded', { phase: 'custom-step' }), effects: effects({ stateChanged: true }),
-    data: { commit: 'a'.repeat(40), pushed: false, reviewer: 'Ada', authorityGroup: 'engineers', selfApproval: true,
+    data: { commit: 'a'.repeat(40), pushed: false, reviewer: 'First', authorityGroup: 'engineers', selfApproval: true,
       reviewPacketSha256: 'b'.repeat(64), artifactSetSha256: 'c'.repeat(64), finalCheck: { verified: false, errors: ['visual evidence missing'] } } });
   const compact = approvalAgentResult(result);
   assert.equal(compact.turnBoundary, 'end');

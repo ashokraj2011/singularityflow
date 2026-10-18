@@ -161,7 +161,7 @@ test('workflow catalog validation reports the complete bundle and one requested 
 
 test('an advisory packaged catalog failure cannot suppress installed Story workflows', async () => {
   const result = await optionalWorkflowCatalog(async () => {
-    throw new Error(`Provider failed for https://alice:LEAKMARK@example.test/repo ${'x'.repeat(2_000)}`);
+    throw new Error(`Provider failed for https://reviewerone:LEAKMARK@example.test/repo ${'x'.repeat(2_000)}`);
   });
   assert.deepEqual(result.workflows, []);
   assert.match(result.reason, /Installed Story workflows remain available/);

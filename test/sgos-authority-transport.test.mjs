@@ -940,7 +940,7 @@ test('transport scans historical authorization fields for machine-local paths', 
       operation: 'pack.propose', authorityGroup: 'engineering-reviewers',
       actorId: 'git-email:transport-actor', identityAssurance: 'configured-local',
       configurationKind: 'approved-configuration-ref',
-      configurationRef: '/Users/alice/private/config',
+      configurationRef: '/Users/reviewerone/private/config',
       configurationCommit: 'a'.repeat(40),
       workflowSha256: platformSha256('workflow'),
       authoritySha256: platformSha256('authority'), authorizedAt: at

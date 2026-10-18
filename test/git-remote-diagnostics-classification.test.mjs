@@ -422,7 +422,7 @@ test('provider-controlled helper and organisation names do not override structur
 
   for (const repository of ['rate-limit', 'tls']) {
     const failure = classifyGitRemoteFailure(failed([
-      `remote: Permission to acme/${repository}.git denied to alice.`,
+      `remote: Permission to acme/${repository}.git denied to reviewerone.`,
       `fatal: unable to access 'https://git.example/acme/${repository}.git/': The requested URL returned error: 403`
     ].join('\n')));
     assert.equal(failure.classification, 'authorization-denied', repository);
@@ -498,11 +498,11 @@ test('canonical HTTP status diagnostics remain classified after remote operands 
 
 test('embedded credential URLs inside path-form remotes are rejected at the trust boundary', () => {
   for (const remote of [
-    './https://alice:LEAKMARK@example.test/repo',
-    '/tmp/https://alice:LEAKMARK@example.test/repo',
-    'safe/ssh://alice:LEAKMARK@example.test/repo',
-    './git+ssh://alice%3ALEAKMARK@example.test/repo',
-    '/tmp/alice:LEAKMARK@example.test/repo',
+    './https://reviewerone:LEAKMARK@example.test/repo',
+    '/tmp/https://reviewerone:LEAKMARK@example.test/repo',
+    'safe/ssh://reviewerone:LEAKMARK@example.test/repo',
+    './git+ssh://reviewerone%3ALEAKMARK@example.test/repo',
+    '/tmp/reviewerone:LEAKMARK@example.test/repo',
     './https://PRIVATEUSER@example.test/repo',
     '/tmp/git://PRIVATEUSER@example.test/repo',
     '/tmp/ftp://PRIVATEUSER@example.test/repo',
@@ -573,9 +573,9 @@ test('an ENOENT from a missing working directory is not reported as missing Git'
 
 test('malformed HTTP remotes cannot bypass credential redaction when URL parsing fails', () => {
   const secret = 'malformed-secret-value';
-  const remote = `https://alice:${secret}@[invalid/repo`;
+  const remote = `https://reviewerone:${secret}@[invalid/repo`;
   assert.doesNotMatch(sanitizeRemote(remote), new RegExp(secret));
-  assert.equal(sanitizeRemote(`https://alice:${secret}/path@invalid host/repo`),
+  assert.equal(sanitizeRemote(`https://reviewerone:${secret}/path@invalid host/repo`),
     'https://[invalid-remote]');
   assert.throws(() => assertCredentialFreeRemote(remote), (error) => {
     assert.equal(error.code, 'BOOTSTRAP_REMOTE_CONTAINS_CREDENTIAL');
@@ -600,7 +600,7 @@ test('malformed HTTP remotes cannot bypass credential redaction when URL parsing
 
   for (const scheme of ['ssh', 'git+ssh', 'ftp']) {
     const schemeSecret = `${scheme}-malformed-secret`;
-    const malformed = `${scheme}://alice:${schemeSecret}@[invalid/repo`;
+    const malformed = `${scheme}://reviewerone:${schemeSecret}@[invalid/repo`;
     assert.doesNotMatch(sanitizeRemote(malformed), new RegExp(schemeSecret));
     assert.throws(() => assertCredentialFreeRemote(malformed), (error) => {
       assert.equal(error.code, 'BOOTSTRAP_REMOTE_CONTAINS_CREDENTIAL');
@@ -609,11 +609,11 @@ test('malformed HTTP remotes cannot bypass credential redaction when URL parsing
     });
   }
   for (const malformed of [
-    'https:/alice:pass-secret@[invalid/repo',
-    'https:alice:pass-secret@[invalid/repo',
-    'http:\\alice:pass-secret@[invalid/repo',
-    'ssh:/alice:pass-secret@[invalid/repo',
-    'git+ssh:alice:pass-secret@[invalid/repo'
+    'https:/reviewerone:pass-secret@[invalid/repo',
+    'https:reviewerone:pass-secret@[invalid/repo',
+    'http:\\reviewerone:pass-secret@[invalid/repo',
+    'ssh:/reviewerone:pass-secret@[invalid/repo',
+    'git+ssh:reviewerone:pass-secret@[invalid/repo'
   ]) {
     assert.doesNotMatch(sanitizeRemote(malformed), /pass-secret/);
     assert.throws(() => assertCredentialFreeRemote(malformed), (error) => {
@@ -642,7 +642,7 @@ test('malformed HTTP remotes cannot bypass credential redaction when URL parsing
       return true;
     });
   }
-  const scpCredential = 'alice:office-secret@example.test:repository.git';
+  const scpCredential = 'reviewerone:office-secret@example.test:repository.git';
   assert.equal(sanitizeRemote(scpCredential), '[credential-redacted]');
   assert.throws(() => assertCredentialFreeRemote(scpCredential), (error) => {
     assert.equal(error.code, 'BOOTSTRAP_REMOTE_CONTAINS_CREDENTIAL');
@@ -653,7 +653,7 @@ test('malformed HTTP remotes cannot bypass credential redaction when URL parsing
     'git@example.test:repository.git');
   assert.equal(sanitizeRemote('Git.Example:team/repository.git'),
     'Git.Example:team/repository.git');
-  const protocolRelative = '//alice:office-secret@example.test/repository.git?access_token=secret';
+  const protocolRelative = '//reviewerone:office-secret@example.test/repository.git?access_token=secret';
   assert.equal(sanitizeRemote(protocolRelative), '[credential-redacted]');
   assert.throws(() => assertCredentialFreeRemote(protocolRelative), (error) => {
     assert.equal(error.code, 'BOOTSTRAP_REMOTE_CONTAINS_CREDENTIAL');
@@ -674,7 +674,7 @@ test('malformed HTTP remotes cannot bypass credential redaction when URL parsing
   assert.equal(sanitizeRemote('ext::LEAKMARK'), '[invalid-remote]');
   assert.equal(sanitizeRemote('--upload-pack=LEAKMARK'), '[invalid-remote]');
   for (const localSecret of [
-    '/tmp/alice:LEAKMARK@host/repo',
+    '/tmp/reviewerone:LEAKMARK@host/repo',
     '/tmp/cache/password=LEAKMARK',
     '/tmp/ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456'
   ]) assert.equal(sanitizeRemote(localSecret), '[credential-redacted]');
@@ -700,9 +700,9 @@ test('malformed HTTP remotes cannot bypass credential redaction when URL parsing
 
   for (const diagnostic of [
     'fatal: https://example.test/repo?signature=VERYSECRET#frag',
-    'fatal: https://alice:pass-secret@example.test/repo?anything=VERYSECRET#frag',
-    'fatal: //alice:pass-secret@example.test/repo?custom=VERYSECRET#frag',
-    'fatal: https:/alice:pass-secret@example.test/repo?signature=VERYSECRET#frag'
+    'fatal: https://reviewerone:pass-secret@example.test/repo?anything=VERYSECRET#frag',
+    'fatal: //reviewerone:pass-secret@example.test/repo?custom=VERYSECRET#frag',
+    'fatal: https:/reviewerone:pass-secret@example.test/repo?signature=VERYSECRET#frag'
   ]) {
     const redacted = redactDiagnosticText(diagnostic);
     assert.doesNotMatch(redacted, /VERYSECRET|pass-secret|signature=|anything=|custom=|#frag/);

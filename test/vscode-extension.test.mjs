@@ -168,6 +168,10 @@ const participantCommands = JSON.parse(await readFile(
 
 test('VS Code receipt parsing stays aligned with engine boolean options', () => {
   assert.deepEqual([...DISPLAY_BOOLEAN_OPTIONS].sort(), [...BOOLEAN_OPTIONS].sort());
+  for (const flag of ['heartbeat', 'purge']) {
+    assert.doesNotMatch(formatCliArgsForDisplay(['choices', 'status', `--${flag}`, 'private-receipt-value']),
+      /private-receipt-value/, 'boolean flags must not hide the following receipt from redaction');
+  }
 });
 
 test('VS Code Git environment rejects inherited execution overrides without losing connectivity', () => {
@@ -715,10 +719,10 @@ test('Story document paths are redacted and suppress timeout replay', async () =
 test('a timed-out invocation suppresses recovery for signed URLs and selection receipts', async () => {
   const capability = '9ac6d4a8-3c90-4bdb-9fed-43441dc3a79f';
   for (const args of [
-    ['evidence', 'add', '--url', 'https://alice:url-secret@example.test/evidence?signature=signed'],
+    ['evidence', 'add', '--url', 'https://reviewerone:url-secret@example.test/evidence?signature=signed'],
     ['workspace', 'doctor', '--repository', 'foo://host/password=scheme-secret'],
     ['workspace', 'doctor', '--repository', 'x://MARKER@host/one-letter-secret'],
-    ['workspace', 'doctor', '--repository', './https://alice:embedded-secret@example.test/repo?signature=signed'],
+    ['workspace', 'doctor', '--repository', './https://reviewerone:embedded-secret@example.test/repo?signature=signed'],
     ['workspace', 'doctor', '--repository', '/tmp/ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456'],
     ['workspace', 'doctor', '--repository', '/tmp/cache/password=path-secret'],
     ['workspace', 'doctor', '--repository', './x//protocol-relative-secret@host/repo'],
@@ -728,7 +732,7 @@ test('a timed-out invocation suppresses recovery for signed URLs and selection r
     ['action', 'execute', 'plan-1', '--authorization', '--repository', 'https://git.example/safe.git', 'actual-auth-secret'],
     ['action', 'execute', 'plan-1', '--authorization', '--title', 'SAFE', 'actual-auth-secret'],
     ['workspace', 'doctor', '--repository', '--ext::password=malformed-option-secret'],
-    ['status', '--x=https://alice:generic-secret@example.test/path?secret=x'],
+    ['status', '--x=https://reviewerone:generic-secret@example.test/path?secret=x'],
     ['status', 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456'],
     ['status', '--client-secret=client-secret-value'],
     ['status', '--jira-token', 'jira-secret-value'],
@@ -2570,7 +2574,7 @@ test('the journey rail selects any Story phase and exposes its artifacts and app
           id: 'specification', label: 'Specification', status: 'approved', generation: 1,
           requiredArtifact: { path: 'artifacts/specification/spec.md' }, artifacts: [],
           approvals: [{ decision: 'approved', at: '2026-08-20T08:00:00.000Z',
-            authorityGroup: 'product', actor: { name: 'Alex Reviewer', email: 'alex@example.test' } }]
+            authorityGroup: 'product', actor: { name: 'Contributor Reviewer', email: 'contributor@example.test' } }]
         },
         implementation: {
           id: 'implementation', label: 'Implementation', status: 'in_progress', generation: 1,
@@ -2598,9 +2602,9 @@ test('the journey rail selects any Story phase and exposes its artifacts and app
   assert.equal(selected.artifacts.length, 1);
   assert.equal(selected.artifacts[0].path,
     'singularity/work-items/WRK-42/artifacts/specification/spec.md');
-  assert.deepEqual(selected.artifacts[0].approvals.map((approval) => approval.actor), ['Alex Reviewer'],
+  assert.deepEqual(selected.artifacts[0].approvals.map((approval) => approval.actor), ['Contributor Reviewer'],
     'Story phase approval applies to every artifact in its submitted generation');
-  assert.deepEqual(selected.approvals.map((approval) => approval.actor), ['Alex Reviewer']);
+  assert.deepEqual(selected.approvals.map((approval) => approval.actor), ['Contributor Reviewer']);
   assert.equal(selected.stages[0].approved, true);
   assert.equal(selected.stages[1].current, true,
     'inspecting a completed phase never changes which phase is active');
@@ -2970,12 +2974,12 @@ test('suggested commands preserve quoted values and multi-word placeholders with
 
 test('suggested commands preserve Windows path separators', () => {
   assert.deepEqual(
-    commandArgv('singularity-flow documents upload --file "C:\\Users\\Ashok\\brief.md"'),
-    ['documents', 'upload', '--file', 'C:\\Users\\Ashok\\brief.md']
+    commandArgv('singularity-flow documents upload --file "C:\\Users\\FixtureUser\\brief.md"'),
+    ['documents', 'upload', '--file', 'C:\\Users\\FixtureUser\\brief.md']
   );
   assert.deepEqual(
-    commandArgv('singularity-flow documents upload --file C:\\Users\\Ashok\\brief.md'),
-    ['documents', 'upload', '--file', 'C:\\Users\\Ashok\\brief.md']
+    commandArgv('singularity-flow documents upload --file C:\\Users\\FixtureUser\\brief.md'),
+    ['documents', 'upload', '--file', 'C:\\Users\\FixtureUser\\brief.md']
   );
   assert.deepEqual(
     commandArgv('singularity-flow documents upload --file C:\\Program\\ Files\\brief.md'),
@@ -3052,7 +3056,7 @@ const REMOTE_REPOSITORIES = {
 const withMap = (selected = [], extra = {}) => ({
   ...EMPTY_WORKSPACE_FORM,
   base: '/work', id: 'checkout-platform', name: 'Checkout platform',
-  profileName: 'Casey Contributor', profileRole: 'developer',
+  profileName: 'Developer Contributor', profileRole: 'developer',
   organisations: ['https://example.com/platform.git'],
   organisation: 'https://example.com/platform.git',
   capabilities: capabilityChoices(REMOTE_TREE, REMOTE_REPOSITORIES),
@@ -3577,7 +3581,7 @@ test('the open chain step is read from the gate rather than recomputed', () => {
     ['Product Governance', true, false],
     ['Executive Decisioning', false, true]
   ]);
-  // Alice sits on product-approvers only, and the open step is the executive one.
+  // ReviewerOne sits on product-approvers only, and the open step is the executive one.
   assert.equal(approval.standing, 'others');
   assert.match(approval.reason, /Executive Decisioning \(0\/1\)/);
 });
@@ -4930,10 +4934,10 @@ test('repository inspection unlocks only safe outcomes and explains blocked outc
 });
 
 test('capability mapping rejects credential-bearing remotes without reflecting their secrets', () => {
-  const repository = 'https://alice:super-secret@git.example/payments.git?access_token=also-secret#frag';
+  const repository = 'https://reviewerone:super-secret@git.example/payments.git?access_token=also-secret#frag';
   const repositoryProblem = gitRemoteProblem(repository, 'Repository');
   assert.match(repositoryProblem, /Repository 'https:\/\/git\.example\/payments\.git' was rejected/);
-  assert.doesNotMatch(repositoryProblem, /alice|super-secret|also-secret|access_token/);
+  assert.doesNotMatch(repositoryProblem, /reviewerone|super-secret|also-secret|access_token/);
   assert.match(repositoryProblem, /credential-free Git URL/);
 
   const leadProblem = gitRemoteProblem('https://token@git.example/platform.git', 'Capability-map repository');
@@ -4951,7 +4955,7 @@ test('capability mapping rejects credential-bearing remotes without reflecting t
   for (const nonHttp of [
     'ssh://git@git.example/repository.git?access_token=ssh-secret',
     'git+ssh://git@git.example/repository.git#fragment-secret',
-    'ssh://alice:office-secret@[invalid/repository.git'
+    'ssh://reviewerone:office-secret@[invalid/repository.git'
   ]) {
     const problem = gitRemoteProblem(nonHttp, 'Repository');
     assert.match(problem, /was rejected/);
@@ -4959,10 +4963,10 @@ test('capability mapping rejects credential-bearing remotes without reflecting t
   }
 
   for (const malformed of [
-    'https:/alice:malformed-secret@[invalid/repository.git',
-    'https:alice:malformed-secret@[invalid/repository.git',
-    'http:\\alice:malformed-secret@[invalid/repository.git',
-    'ssh:/alice:malformed-secret@[invalid/repository.git'
+    'https:/reviewerone:malformed-secret@[invalid/repository.git',
+    'https:reviewerone:malformed-secret@[invalid/repository.git',
+    'http:\\reviewerone:malformed-secret@[invalid/repository.git',
+    'ssh:/reviewerone:malformed-secret@[invalid/repository.git'
   ]) {
     const problem = gitRemoteProblem(malformed, 'Repository');
     assert.match(problem, /was rejected/);
@@ -4972,8 +4976,8 @@ test('capability mapping rejects credential-bearing remotes without reflecting t
   for (const credentialShaped of [
     'git://private-login@git.example/repository.git',
     'ftp://private-login@git.example/repository.git',
-    'alice:office-secret@git.example:repository.git',
-    '//alice:office-secret@git.example/repository.git?access_token=secret'
+    'reviewerone:office-secret@git.example:repository.git',
+    '//reviewerone:office-secret@git.example/repository.git?access_token=secret'
   ]) {
     const problem = gitRemoteProblem(credentialShaped, 'Repository');
     assert.match(problem, /was rejected/);
@@ -5006,11 +5010,11 @@ test('capability mapping rejects credential-bearing remotes without reflecting t
     `/tmp/AIza${'A'.repeat(35)}`,
     '/tmp/eyJabcdefghijk.abcdefghijk.abcdefghijk',
     'https://git.example/password=LEAKMARK',
-    './https://alice:LEAKMARK@example.test/repository.git',
-    '/tmp/ssh://alice:LEAKMARK@example.test/repository.git',
-    './git+ssh://alice%3ALEAKMARK@example.test/repository.git',
-    './https:/alice:LEAKMARK@example.test/repository.git',
-    '/tmp//alice:LEAKMARK@example.test/repository.git'
+    './https://reviewerone:LEAKMARK@example.test/repository.git',
+    '/tmp/ssh://reviewerone:LEAKMARK@example.test/repository.git',
+    './git+ssh://reviewerone%3ALEAKMARK@example.test/repository.git',
+    './https:/reviewerone:LEAKMARK@example.test/repository.git',
+    '/tmp//reviewerone:LEAKMARK@example.test/repository.git'
   ]) {
     const screened = screenGitRemotes([embedded]);
     assert.deepEqual(screened.accepted, []);
@@ -5050,14 +5054,14 @@ test('capability mapping rejects credential-bearing remotes without reflecting t
 });
 
 test('VS Code command output and capability proposal discovery exclude unsafe registry remotes', () => {
-  const unsafe = 'https://alice:office-secret@git.example/platform.git';
+  const unsafe = 'https://reviewerone:office-secret@git.example/platform.git';
   const screened = screenGitRemotes([
     'https://git.example/safe.git', unsafe, 'https://git.example/safe.git'
   ]);
   assert.deepEqual(screened.accepted, ['https://git.example/safe.git']);
   assert.equal(screened.rejected.length, 1);
   assert.match(screened.rejected[0].fingerprint, /^[a-f0-9]{64}$/);
-  assert.doesNotMatch(JSON.stringify(screened), /alice|office-secret/);
+  assert.doesNotMatch(JSON.stringify(screened), /reviewerone|office-secret/);
 
   const displayed = formatCliArgsForDisplay([
     'capability', 'proposals', '--lead', unsafe, '--access-token=another-secret',
@@ -5065,7 +5069,7 @@ test('VS Code command output and capability proposal discovery exclude unsafe re
   ]);
   assert.equal(displayed,
     'capability proposals --lead https://git.example/platform.git --access-token=[redacted] --lead-repository=[redacted-remote] --json');
-  assert.doesNotMatch(displayed, /alice|office-secret|another-secret|lead-secret/);
+  assert.doesNotMatch(displayed, /reviewerone|office-secret|another-secret|lead-secret/);
   assert.equal(formatCliArgsForDisplay([
     'choices', 'answer', 'selection-receipt-secret', 'phase-confirmation', 'yes'
   ]), 'choices answer [redacted] phase-confirmation yes');
@@ -5868,17 +5872,17 @@ test('a failure shows the sentence, not the log line that carries it', () => {
     'Singularity Flow error: pass\u001b[31mword=LEAKMARK',
     'Singularity Flow error: password\\=LEAKMARK',
     'Singularity Flow error: password\\:LEAKMARK',
-    "Singularity Flow error: fatal https://alice:PREFIX'LEAKMARK@example.test/repo",
-    "Singularity Flow error: fatal https:alice:PREFIX'LEAKMARK@example.test/repo",
-    'Singularity Flow error: fatal ssh:alice:PREFIX<LEAKMARK@example.test/repo',
+    "Singularity Flow error: fatal https://reviewerone:PREFIX'LEAKMARK@example.test/repo",
+    "Singularity Flow error: fatal https:reviewerone:PREFIX'LEAKMARK@example.test/repo",
+    'Singularity Flow error: fatal ssh:reviewerone:PREFIX<LEAKMARK@example.test/repo',
     'Singularity Flow error: fatal remote "ext::sh -c echo LEAKMARK" failed',
-    'Singularity Flow error: fatal https:alice:LEAKMARK@host',
-    'Singularity Flow error: fatal alice:LEAKMARK@host:repo',
+    'Singularity Flow error: fatal https:reviewerone:LEAKMARK@host',
+    'Singularity Flow error: fatal reviewerone:LEAKMARK@host:repo',
     'Singularity Flow error: fatal ./x//LEAKMARK@host/repo',
     'Singularity Flow error: -----BEGIN PRIVATE KEY-----\nLEAKMARK'
   ]) assert.doesNotMatch(humanError(unsafe), /LEAKMARK|BEGIN PRIVATE KEY|ext::/);
   assert.doesNotMatch(humanError(
-    `Singularity Flow error: ${'A'.repeat(8100)} alice:LEAKMARK${'X'.repeat(1200)}@host:repo`
+    `Singularity Flow error: ${'A'.repeat(8100)} reviewerone:LEAKMARK${'X'.repeat(1200)}@host:repo`
   ), /LEAKMARK/);
 });
 
@@ -6245,7 +6249,7 @@ test('Story intake carries explicit read-only repository URLs and branches witho
   }] }).join(' '),
     /lower-case kebab case/);
   for (const repository of [
-    'https://alice:LEAKMARK@git.example.test/rules.git',
+    'https://reviewerone:LEAKMARK@git.example.test/rules.git',
     'https://git.example.test/rules.git?token=LEAKMARK',
     'ext::sh -c echo LEAKMARK'
   ]) {

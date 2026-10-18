@@ -170,7 +170,7 @@ test('VS Code: the Model routing tab marks the params sent to Copilot and says w
   const { configurationCenterView } = await import(path.join(views, 'configuration-center-model.ts'));
   const { configurationCenterHtml } = await import(path.join(views, 'configuration-center-page.ts'));
   const snapshot = {
-    identities: { git: { name: 'Casey Dev', email: 'casey@example.com', login: 'caseydev' }, github: 'caseydev' },
+    identities: { git: { name: 'Developer Dev', email: 'developer@example.com', login: 'fixturedev' }, github: 'fixturedev' },
     configurationSource: { editor: 'effective', effective: null, candidate: null },
     modelRouting: {
       configured: true, error: null, path: MODEL_TIERS_PATH, revision: 'a'.repeat(64), sendParameters: ['summarize'],
@@ -180,7 +180,7 @@ test('VS Code: the Model routing tab marks the params sent to Copilot and says w
       ]
     }
   };
-  const html = configurationCenterHtml(configurationCenterView(snapshot, { name: 'Casey', role: 'architect' }), 'models', null, null, null, []);
+  const html = configurationCenterHtml(configurationCenterView(snapshot, { name: 'Developer', role: 'architect' }), 'models', null, null, null, []);
   assert.match(html, /<code>effort=low<\/code> <span class="pill">sent<\/span>/u);
   assert.doesNotMatch(html, /<code>temperature=0<\/code> <span class="pill">sent/u);
   assert.doesNotMatch(html, /<code>effort=high<\/code> <span class="pill">sent/u);

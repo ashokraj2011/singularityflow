@@ -1316,7 +1316,7 @@ test('the machine lead registry never returns or newly stores credential-bearing
     schemaVersion: 1,
     leads: [
       { url: 'https://git.example/safe.git', usedAt: '2026-01-01T00:00:00.000Z' },
-      { url: `https://alice:${secret}@git.example/unsafe.git`, usedAt: '2026-01-01T00:00:00.000Z' }
+      { url: `https://reviewerone:${secret}@git.example/unsafe.git`, usedAt: '2026-01-01T00:00:00.000Z' }
     ]
   })}\n`);
   const {
@@ -1329,7 +1329,7 @@ test('the machine lead registry never returns or newly stores credential-bearing
   assert.equal((await listLeadRepositoryRegistryRecords(file)).length, 2,
     'the corrupt entry remains available to bounded integrity diagnosis');
   await assert.rejects(rememberLeadRepository(
-    `https://bob:${secret}@git.example/new.git`, file
+    `https://reviewertwo:${secret}@git.example/new.git`, file
   ), (error) => error.code === 'BOOTSTRAP_REMOTE_CONTAINS_CREDENTIAL');
   assert.doesNotMatch(JSON.stringify(await listSafeLeads(file)), new RegExp(secret));
 });
@@ -1980,7 +1980,7 @@ test('repository inspection never returns a rejected registered lead URL', async
   });
   const { rememberLeadRepository } = await import('../src/lead-repositories.mjs');
   await rememberLeadRepository(org.platform);
-  const rejected = 'https://alice:super-secret@example.test/private.git';
+  const rejected = 'https://reviewerone:super-secret@example.test/private.git';
   // Simulate a registry written by an older release. New writes reject this value at the boundary,
   // but inspection still has to diagnose a pre-existing corrupt entry without reflecting it.
   const registryPath = registry(org.base);
@@ -1996,7 +1996,7 @@ test('repository inspection never returns a rejected registered lead URL', async
   assert.equal(result.failures.length, 1);
   assert.match(result.failures[0].lead, /^registered-lead:sha256:[0-9a-f]{16}$/);
   assert.equal(result.failures[0].code, 'BOOTSTRAP_REMOTE_CONTAINS_CREDENTIAL');
-  assert.doesNotMatch(serialized, /alice|super-secret|private\.git/);
+  assert.doesNotMatch(serialized, /reviewerone|super-secret|private\.git/);
 });
 
 test('repository inspection without known authorities is explicitly inconclusive', async () => {

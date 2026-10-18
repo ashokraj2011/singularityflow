@@ -12,7 +12,7 @@ const REQ = `${W}:REQ-001`;
 const AC1 = `${W}:AC-001`;
 const AC2 = `${W}:AC-002`;
 const hash = (letter) => letter.repeat(64);
-const approval = { decision: 'approved', actor: { login: 'bob' }, authorityGroup: 'reviewers', at: '2026-10-03T00:00:00Z' };
+const approval = { decision: 'approved', actor: { login: 'reviewertwo' }, authorityGroup: 'reviewers', at: '2026-10-03T00:00:00Z' };
 const policy = { mode: 'required', minimum: 1, authorities: ['reviewers'], requiredAuthorities: [] };
 
 function story({ intakeGeneration = 1, implementationGeneration = 1 } = {}) {

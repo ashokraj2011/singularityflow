@@ -67,9 +67,9 @@ test('secrets are redacted by key and by shape, including inside free text', asy
     remote: 'https://example.test/repo?signature=legacy-query-secret',
     note: 'Provider failed for https://example.test/repo?signature=embedded-query-secret',
     relative: 'Provider failed //example.test/repo?signature=scheme-relative-secret',
-    malformed: 'Provider failed https:/alice:malformed-secret@example.test/repo',
-    combined: 'Provider failed https://alice:password@example.test/repo?signature=combined-secret#frag',
-    relativeCombined: 'Provider failed //alice:password@example.test/repo?signature=relative-combined-secret#frag'
+    malformed: 'Provider failed https:/reviewerone:malformed-secret@example.test/repo',
+    combined: 'Provider failed https://reviewerone:password@example.test/repo?signature=combined-secret#frag',
+    relativeCombined: 'Provider failed //reviewerone:password@example.test/repo?signature=relative-combined-secret#frag'
   });
   assert.equal(legacy.remote, 'https://example.test/repo');
   assert.match(legacy.note, /https:\/\/example\.test\/repo/);
@@ -91,7 +91,7 @@ test('secrets are redacted by key and by shape, including inside free text', asy
     'provider {\\\\\\"password\\\\\\":\\\\\\"LEAKMARK\\\\\\"}',
     'provider {"access_token":"LEAKMARK"}',
     'provider password="abc\\\"LEAKMARK" tail',
-    'fatal /tmp/alice:LEAKMARK@host/repo',
+    'fatal /tmp/reviewerone:LEAKMARK@host/repo',
     'fatal ./x//LEAKMARK@host/repo',
     'Cookie: sid=LEAKMARK; remember=LEAKMARK',
     'password\n=LEAKMARK',
@@ -107,9 +107,9 @@ test('secrets are redacted by key and by shape, including inside free text', asy
     'pass\u009b31mword=LEAKMARK',
     'password\\=LEAKMARK',
     'password\\:LEAKMARK',
-    "fatal https://alice:PREFIX'LEAKMARK@example.test/repo",
-    "fatal https:alice:PREFIX'LEAKMARK@example.test/repo",
-    'fatal ssh:alice:PREFIX<LEAKMARK@example.test/repo',
+    "fatal https://reviewerone:PREFIX'LEAKMARK@example.test/repo",
+    "fatal https:reviewerone:PREFIX'LEAKMARK@example.test/repo",
+    'fatal ssh:reviewerone:PREFIX<LEAKMARK@example.test/repo',
     'fatal remote "ext::sh -c echo LEAKMARK" failed',
     '-----BEGIN PRIVATE KEY-----\nLEAKMARK\n-----END PRIVATE KEY-----'
   ]) {
@@ -122,7 +122,7 @@ test('secrets are redacted by key and by shape, including inside free text', asy
   assert.doesNotMatch(bounded, /password=x/);
   const boundary = redact(`${'A'.repeat(1980)} ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789`);
   assert.doesNotMatch(boundary, /ghp_|ABCDEFGHIJ/);
-  const crossingRemote = redact(`${'A'.repeat(1980)} alice:LEAKMARK${'X'.repeat(700)}@host:repo`);
+  const crossingRemote = redact(`${'A'.repeat(1980)} reviewerone:LEAKMARK${'X'.repeat(700)}@host:repo`);
   assert.doesNotMatch(crossingRemote, /LEAKMARK/);
 });
 
@@ -130,7 +130,7 @@ test('CLI argv redaction removes rejected remote and option secrets before durab
   const projected = redactCommandArgv([
     'workspace', 'doctor', '--network',
     '--repository', 'ssh://git@example.test/repo?access_token=short-secret',
-    '--lead=https://alice:office-secret@example.test/platform.git',
+    '--lead=https://reviewerone:office-secret@example.test/platform.git',
     '--token', 'another-short-secret',
     '--access-token=access-secret',
     'git@example.test:team/repo#fragment-secret'
@@ -145,9 +145,9 @@ test('CLI argv redaction removes rejected remote and option secrets before durab
   assert.doesNotMatch(JSON.stringify(projected), /short-secret|office-secret|access-secret|fragment-secret/);
 
   for (const malformed of [
-    'https:/alice:malformed-secret@example.test/repo',
-    'https:alice:malformed-secret@example.test/repo',
-    'http:\\alice:malformed-secret@example.test/repo'
+    'https:/reviewerone:malformed-secret@example.test/repo',
+    'https:reviewerone:malformed-secret@example.test/repo',
+    'http:\\reviewerone:malformed-secret@example.test/repo'
   ]) {
     assert.doesNotMatch(JSON.stringify(redactCommandArgv([
       'workspace', 'doctor', '--repository', malformed
@@ -186,12 +186,12 @@ test('CLI argv redaction removes rejected remote and option secrets before durab
     '--repository', 'https://git.example'
   ]);
   for (const sensitivePath of [
-    './https://alice:office-secret@example.test/repo?signature=signed',
-    './https:/alice:office-secret@example.test/repo',
-    '/tmp/https:alice:office-secret@example.test/repo',
-    './http:\\alice:office-secret@example.test/repo',
-    './alice:office-secret@example.test/repo',
-    '/tmp/alice:office-secret@example.test/repo',
+    './https://reviewerone:office-secret@example.test/repo?signature=signed',
+    './https:/reviewerone:office-secret@example.test/repo',
+    '/tmp/https:reviewerone:office-secret@example.test/repo',
+    './http:\\reviewerone:office-secret@example.test/repo',
+    './reviewerone:office-secret@example.test/repo',
+    '/tmp/reviewerone:office-secret@example.test/repo',
     '/tmp/ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456',
     '/tmp/cache/password=office-secret',
     '/tmp/cache/cookie=office-secret',
@@ -240,7 +240,7 @@ test('CLI argv redaction removes rejected remote and option secrets before durab
     ['--pass\u0085word', 'LEAKMARK'],
     ['--pass\u202eword', 'LEAKMARK'],
     ['--pass\u001b[31mword', 'LEAKMARK'],
-    ['--repository', '--title', 'SAFE', '/tmp/alice:LEAKMARK@host/repo'],
+    ['--repository', '--title', 'SAFE', '/tmp/reviewerone:LEAKMARK@host/repo'],
     ['--repository', './x//LEAKMARK@host/repo'],
     ['--label={"password":"LEAKMARK"}'],
     ['--label={"access_token":"LEAKMARK"}'],
@@ -259,7 +259,7 @@ test('CLI argv redaction removes rejected remote and option secrets before durab
     '--repository', '/tmp/team:release@candidate.git'
   ]);
   for (const compound of [
-    'service=https:/alice:compound-secret@example.test/repo',
+    'service=https:/reviewerone:compound-secret@example.test/repo',
     'service=ext::password=compound-secret',
     'service=-password=compound-secret'
   ]) {
@@ -269,7 +269,7 @@ test('CLI argv redaction removes rejected remote and option secrets before durab
     ])), /compound-secret/);
   }
 
-  const scpCredential = 'alice:scp-secret@example.test:team/repo.git';
+  const scpCredential = 'reviewerone:scp-secret@example.test:team/repo.git';
   assert.equal(redactCommandArgv([
     'workspace', 'doctor', '--repository', scpCredential
   ]).at(-1), '[redacted-remote]');
@@ -287,7 +287,7 @@ test('CLI argv redaction removes rejected remote and option secrets before durab
 
   for (const [option, remote] of [
     ['--lead-repository', 'ext::password=lead-secret'],
-    ['--organisation', '//alice:organisation-secret@example.test/platform.git?token=x']
+    ['--organisation', '//reviewerone:organisation-secret@example.test/platform.git?token=x']
   ]) {
     const combined = redactCommandArgv(['capability', 'map', `${option}=${remote}`]);
     assert.doesNotMatch(JSON.stringify(combined), /lead-secret|organisation-secret|token=x/);
@@ -550,7 +550,7 @@ test('legacy log reads redact command capabilities that predate write-side prote
     argv: [
       'choices', 'status', 'legacy-receipt-secret',
       '--authorization', 'legacy-authorization-secret',
-      '--repository=https://alice:legacy-url-secret@example.test/repo.git?signature=x'
+      '--repository=https://reviewerone:legacy-url-secret@example.test/repo.git?signature=x'
     ]
   }));
   assert.equal(legacy[0].argv[2], REDACTED);

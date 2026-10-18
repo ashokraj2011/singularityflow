@@ -406,7 +406,7 @@ test('transport failure evidence redacts credentials and has a hard byte bound',
       ? {
           status: 1,
           stdout: '',
-          stderr: `fatal: https://alice:${secret}@corp.example/repo.git token=${secret}\n${'💥'.repeat(6000)}`,
+          stderr: `fatal: https://reviewerone:${secret}@corp.example/repo.git token=${secret}\n${'💥'.repeat(6000)}`,
           signal: null
         }
       : run(command, args, options)

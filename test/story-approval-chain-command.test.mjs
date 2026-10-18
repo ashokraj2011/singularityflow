@@ -58,7 +58,7 @@ function workflow() {
         approvalPolicy: { authorities: ['architecture-reviewers'], minimum: 2 },
         approvals: [
           {
-            decision: 'approved', actor: { name: 'Alex Architect' }, authorityGroup: 'architecture-reviewers',
+            decision: 'approved', actor: { name: 'Contributor Architect' }, authorityGroup: 'architecture-reviewers',
             at: '2026-08-17T02:00:00.000Z', generation: 2, selfApproval: true
           },
           {
@@ -88,7 +88,7 @@ test('approval chain joins phase documents, pinned authorities, and only active 
   assert.deepEqual(snapshot.phases[1].documents.map((entry) => entry.name), ['design.md', 'Decision log']);
   assert.equal(snapshot.phases[1].approval.state, 'awaiting-approval');
   assert.equal(snapshot.phases[1].approval.authorities[0].label, 'Architecture review');
-  assert.deepEqual(snapshot.phases[1].approval.approvedBy.map((entry) => entry.name), ['Alex Architect']);
+  assert.deepEqual(snapshot.phases[1].approval.approvedBy.map((entry) => entry.name), ['Contributor Architect']);
   assert.equal(snapshot.phases[1].approval.approvedBy[0].selfApproval, true);
   assert.equal(snapshot.phases[1].approval.decisions[1].active, false);
   assert.equal(snapshot.phases[2].approval.state, 'not-required');
@@ -105,7 +105,7 @@ test('a policy-mode phase reads as policy approved only when the waiver complete
     };
     return approvalChainSnapshot(story).phases[1].approval;
   };
-  const approver = { decision: 'approved', actor: { name: 'Alex Architect' }, authorityGroup: 'architecture-reviewers', at: '2026-08-17T02:00:00.000Z', generation: 2 };
+  const approver = { decision: 'approved', actor: { name: 'Contributor Architect' }, authorityGroup: 'architecture-reviewers', at: '2026-08-17T02:00:00.000Z', generation: 2 };
   const waived = state({ status: 'approved', approvalDisposition: 'policy_waived' });
   assert.deepEqual([waived.state, waived.minimum, waived.received], ['policy-approved', 0, 0]);
   assert.equal(state({ status: 'in_progress' }).state, 'policy-pending');
@@ -124,7 +124,7 @@ test('a policy-mode phase reads as policy approved only when the waiver complete
 
 test('a phase still waiting for a required group is not shown approved, and a cancelled Story is not complete', () => {
   const policy = { mode: 'required', minimum: 1, authorities: ['reviewers', 'security'], requiredAuthorities: ['security'] };
-  const approvals = [{ decision: 'approved', authorityGroup: 'reviewers', actor: { login: 'alice', name: 'Alice' }, at: '2026-10-01T00:00:00Z', generation: 1 }];
+  const approvals = [{ decision: 'approved', authorityGroup: 'reviewers', actor: { login: 'reviewerone', name: 'ReviewerOne' }, at: '2026-10-01T00:00:00Z', generation: 1 }];
   const story = (status, currentPhase, phaseStatus) => ({
     workItem: { id: 'CHAIN-9', title: 'Waiting for security', workType: 'feature', branch: 'CHAIN-9' }, status, currentPhase,
     phaseOrder: ['design'],
@@ -154,7 +154,7 @@ test('human rendering names documents, approval counts, authorities, approvers, 
   assert.match(output, /intake\.md/);
   assert.match(output, /design\.md, Decision log/);
   assert.match(output, /Architecture review/);
-  assert.match(output, /Alex Architect ⚠ self/);
+  assert.match(output, /Contributor Architect ⚠ self/);
   assert.match(output, /2\/3 required human approval\(s\) recorded; 1 remaining/);
   assert.match(output, /1 earlier decision\(s\) were invalidated/);
 });

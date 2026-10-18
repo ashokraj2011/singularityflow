@@ -39,8 +39,8 @@ test('Constitution has a first-class Configuration route into the reviewed Studi
 
 const snapshot = {
   identities: {
-    git: { name: 'Casey Dev', email: 'casey@example.com', login: 'caseydev' },
-    github: 'caseydev'
+    git: { name: 'Developer Dev', email: 'developer@example.com', login: 'fixturedev' },
+    github: 'fixturedev'
   },
   definition: {
     approvalSecurity: { profile: 'team' },
@@ -49,7 +49,7 @@ const snapshot = {
     approvalAuthorities: {
       'quality-reviewers': {
         label: 'Quality reviewers',
-        members: [{ name: 'Quinn', email: 'quinn@example.com', githubLogin: 'quinn' }]
+        members: [{ name: 'Quality', email: 'quality@example.com', githubLogin: 'quality' }]
       }
     }
   },
@@ -70,7 +70,7 @@ const snapshot = {
 };
 
 test('configuration center keeps human authorities distinct from governed agents', () => {
-  const view = configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' });
+  const view = configurationCenterView(snapshot, { name: 'FixtureUser', role: 'architect' });
   assert.deepEqual(view.agents.map((entry) => entry.id), ['developer', 'qa']);
   assert.deepEqual(view.authorities.map((entry) => `${entry.scope}:${entry.id}`), [
     'initiative:initiative-owners', 'story:quality-reviewers'
@@ -83,9 +83,9 @@ test('configuration center keeps human authorities distinct from governed agents
 test('people and approvals offers the resolved Git identity, group menu, solo mode, and governed publication', () => {
   const view = configurationCenterView(snapshot, { name: 'Local profile', role: 'architect' });
   assert.deepEqual(view.gitIdentity, {
-    name: 'Casey Dev',
-    email: 'casey@example.com',
-    githubLogin: 'caseydev'
+    name: 'Developer Dev',
+    email: 'developer@example.com',
+    githubLogin: 'fixturedev'
   });
   assert.equal(view.approvalSecurityProfile, 'team');
   assert.equal(view.approvalAllowSelfApproval, true);
@@ -106,24 +106,24 @@ test('people and approvals offers the resolved Git identity, group menu, solo mo
 });
 
 test('adding the current Git identity enriches matching members and never duplicates them', () => {
-  const identity = { name: 'Casey Dev', email: 'CASEY@EXAMPLE.COM', githubLogin: 'caseydev' };
+  const identity = { name: 'Developer Dev', email: 'DEVELOPER@EXAMPLE.COM', githubLogin: 'fixturedev' };
   const empty = authorityWithMember({
     id: 'product-approvers', label: 'Product approvers', scope: 'story',
     allowAnyGitIdentity: false, members: []
   }, identity);
   assert.equal(empty.changed, true);
   assert.deepEqual(empty.authority.members, [{
-    name: 'Casey Dev', email: 'casey@example.com', githubLogin: 'caseydev'
+    name: 'Developer Dev', email: 'developer@example.com', githubLogin: 'fixturedev'
   }]);
 
   const enriched = authorityWithMember({
     id: 'product-approvers', label: 'Product approvers', scope: 'story',
     allowAnyGitIdentity: false,
-    members: [{ name: 'Casey Dev', email: 'casey@example.com', githubLogin: '' }]
+    members: [{ name: 'Developer Dev', email: 'developer@example.com', githubLogin: '' }]
   }, identity);
   assert.equal(enriched.changed, true);
   assert.equal(enriched.authority.members.length, 1);
-  assert.equal(enriched.authority.members[0].githubLogin, 'caseydev');
+  assert.equal(enriched.authority.members[0].githubLogin, 'fixturedev');
 
   const unchanged = authorityWithMember(enriched.authority, identity);
   assert.equal(unchanged.changed, false);
@@ -184,7 +184,7 @@ test('Configuration Center exposes the complete three-layer Auto policy path', a
         bugfix: { label: 'Bug fix' }
       }
     }
-  }, { name: 'Ashok', role: 'developer' });
+  }, { name: 'FixtureUser', role: 'developer' });
   assert.equal(view.auto.enabled, true);
   assert.deepEqual(view.auto.workTypes.map(({ id, eligibility }) => [id, eligibility]), [
     ['bugfix', 'disabled'], ['feature', 'bounded']
@@ -204,7 +204,7 @@ test('Configuration Center exposes the complete three-layer Auto policy path', a
 });
 
 test('the World Model tab is the Repository brief plus the source scope it reads', async () => {
-  const view = configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' });
+  const view = configurationCenterView(snapshot, { name: 'FixtureUser', role: 'architect' });
   assert.deepEqual(view.worldModel, { sourceRoots: ['apps/payments'], sharedRoots: ['libs/contracts'] });
   const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
   assert.match(html, /Repository brief/);
@@ -242,7 +242,7 @@ test('the World Model tab is the Repository brief plus the source scope it reads
 });
 
 test('the World Model navigation item is the only World Model entry', () => {
-  const html = configurationCenterHtml(configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' }),
+  const html = configurationCenterHtml(configurationCenterView(snapshot, { name: 'FixtureUser', role: 'architect' }),
     'overview', null, null, null, []);
   assert.match(html, /data-tab="world-model"/);
   assert.doesNotMatch(html, /Rebuild capability World Model/);
@@ -253,7 +253,7 @@ test('configuration center reports staged checkout edits awaiting publication', 
     ...snapshot,
     repository: { configurationChanges: ['singularity/workflow.yml'] }
   };
-  const view = configurationCenterView(staged, { name: 'Ashok', role: 'architect' });
+  const view = configurationCenterView(staged, { name: 'FixtureUser', role: 'architect' });
   const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
   assert.match(html, /1 local configuration change awaiting publication/);
   assert.match(html, /Saving writes a validated local draft; review and publish it before it takes effect/);
@@ -279,7 +279,7 @@ test('configuration center reloads a valid candidate', () => {
     },
     repository: { configurationChanges: ['singularity/workflow.yml'] }
   };
-  const view = configurationCenterView(candidate, { name: 'Ashok', role: 'architect' });
+  const view = configurationCenterView(candidate, { name: 'FixtureUser', role: 'architect' });
   assert.deepEqual(view.worldModel.sourceRoots, ['apps/payments', 'apps/checkout']);
   assert.equal(view.configurationState.editor, 'candidate');
   const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
@@ -302,7 +302,7 @@ test('configuration center exposes an invalid candidate and keeps approved field
       }
     }
   };
-  const view = configurationCenterView(invalid, { name: 'Ashok', role: 'architect' });
+  const view = configurationCenterView(invalid, { name: 'FixtureUser', role: 'architect' });
   assert.deepEqual(view.worldModel, { sourceRoots: ['apps/payments'], sharedRoots: ['libs/contracts'] });
   const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
   assert.match(html, /Local configuration candidate was not loaded/);
@@ -408,7 +408,7 @@ test('configuration saves bind CAS to the authority they actually mutate', () =>
 });
 
 test('configuration center reports dirty edits and offers an explicit conflict decision', () => {
-  const view = configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' });
+  const view = configurationCenterView(snapshot, { name: 'FixtureUser', role: 'architect' });
   const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
   assert.match(html, /configuration-runtime-message/);
   assert.match(html, /Reload newer configuration/);
@@ -491,7 +491,7 @@ test('configuration save disposition and pending proposal follow actual authorit
 });
 
 test('configuration center marks an unmerged proposal read-only', () => {
-  const view = configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' });
+  const view = configurationCenterView(snapshot, { name: 'FixtureUser', role: 'architect' });
   const html = configurationCenterHtml(view, 'world-model', null, null, null, [], {
     branch: 'sflow/config-edit/example', baseBranch: 'sflow/config'
   });

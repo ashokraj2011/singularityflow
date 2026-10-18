@@ -29,15 +29,15 @@ function fixtureWorkflow() {
       requirements: {
         id: 'requirements', label: 'Requirements', status: 'approved', startedAt: at(0), approvedAt: at(120),
         generation: 1, usage: [usageRecord({ agent: 'product-owner' })], checks: [],
-        approvals: [{ decision: 'approved', at: at(120), actor: { name: 'Alice' }, agent: 'product-owner', selfApproval: false }]
+        approvals: [{ decision: 'approved', at: at(120), actor: { name: 'ReviewerOne' }, agent: 'product-owner', selfApproval: false }]
       },
       design: {
         id: 'design', label: 'Design', status: 'approved', startedAt: at(120), approvedAt: at(480), generation: 2,
         usage: [usageRecord(), usageRecord({ status: 'unavailable', inputTokens: null, outputTokens: null, totalTokens: null })],
         checks: [{ command: 'npm test', startedAt: at(395), completedAt: at(398), status: 'passed' }],
         approvals: [
-          { decision: 'rejected', at: at(200), actor: { name: 'Bob' }, agent: 'architect' },
-          { decision: 'approved', at: at(480), actor: { name: 'Bob' }, agent: 'architect', selfApproval: false }
+          { decision: 'rejected', at: at(200), actor: { name: 'ReviewerTwo' }, agent: 'architect' },
+          { decision: 'approved', at: at(480), actor: { name: 'ReviewerTwo' }, agent: 'architect', selfApproval: false }
         ]
       }
     },
@@ -52,16 +52,16 @@ function fixtureWorkflow() {
     sequenceOverrides: [{
       gate: 'phaseStatus', action: 'approve', requestedPhase: 'requirements',
       reason: 'Approval was requested before submission.', at: at(110),
-      actor: { name: 'Alice' }, agent: 'product-owner', before: { currentPhase: 'requirements' }
+      actor: { name: 'ReviewerOne' }, agent: 'product-owner', before: { currentPhase: 'requirements' }
     }],
     history: [
-      { at: at(480), actor: 'bob@example.com', agent: 'architect', event: 'phase_approved', phase: 'design', detail: 'complete' },
-      { at: at(0), actor: 'alice@example.com', agent: 'product-owner', event: 'phase_generated', phase: 'requirements' },
-      { at: at(60), actor: 'alice@example.com', agent: 'product-owner', event: 'phase_submitted', phase: 'requirements' },
-      { at: at(120), actor: 'alice@example.com', agent: 'product-owner', event: 'phase_approved', phase: 'requirements' },
-      { at: at(180), actor: 'bob@example.com', agent: 'developer', event: 'phase_submitted', phase: 'design' },
-      { at: at(200), actor: 'bob@example.com', agent: 'architect', event: 'phase_rejected', phase: 'design', detail: 'missing diagram' },
-      { at: at(400), actor: 'bob@example.com', agent: 'developer', event: 'phase_submitted', phase: 'design' }
+      { at: at(480), actor: 'reviewertwo@example.com', agent: 'architect', event: 'phase_approved', phase: 'design', detail: 'complete' },
+      { at: at(0), actor: 'reviewerone@example.com', agent: 'product-owner', event: 'phase_generated', phase: 'requirements' },
+      { at: at(60), actor: 'reviewerone@example.com', agent: 'product-owner', event: 'phase_submitted', phase: 'requirements' },
+      { at: at(120), actor: 'reviewerone@example.com', agent: 'product-owner', event: 'phase_approved', phase: 'requirements' },
+      { at: at(180), actor: 'reviewertwo@example.com', agent: 'developer', event: 'phase_submitted', phase: 'design' },
+      { at: at(200), actor: 'reviewertwo@example.com', agent: 'architect', event: 'phase_rejected', phase: 'design', detail: 'missing diagram' },
+      { at: at(400), actor: 'reviewertwo@example.com', agent: 'developer', event: 'phase_submitted', phase: 'design' }
     ]
   };
 }
@@ -255,7 +255,7 @@ function copilotWorkflow() {
     usage: { totalTokens: 0, records: 2, exactRecords: 0, unavailableRecords: 2, byPhase: {}, byAgent: {} },
     sequenceOverrides: [],
     history: [
-      { at: at(200), actor: 'bob@example.com', agent: 'architect', event: 'phase_rejected', phase: 'implementation', detail: 'CR-001 returned to design: the diagram is missing' }
+      { at: at(200), actor: 'reviewertwo@example.com', agent: 'architect', event: 'phase_rejected', phase: 'implementation', detail: 'CR-001 returned to design: the diagram is missing' }
     ]
   };
 }

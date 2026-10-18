@@ -136,7 +136,7 @@ test('problems name the step to fix, and a stale base is refused', async () => {
 test('people, sign-off and send-back rules are edited from the Studio', async () => {
   const root = await repository();
   const file = await changeSet(root, [
-    { op: 'group.update', id: 'architecture-reviewers', members: [{ name: 'Ada Lovelace', email: 'Ada@Example.com' }] },
+    { op: 'group.update', id: 'architecture-reviewers', members: [{ name: 'First Reviewer', email: 'First@Example.com' }] },
     { op: 'phase.update', id: 'design', workflow: 'repo-feature', approval: { group: 'architecture-reviewers', minimum: 1 } },
     { op: 'workflow.update', id: 'repo-feature', reworkLoops: [{ from: 'verification', to: 'implementation', maxAttempts: 2 }] }
   ]);
@@ -144,7 +144,7 @@ test('people, sign-off and send-back rules are edited from the Studio', async ()
   assert.equal(plan.valid, true, JSON.stringify(plan.problems));
   json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
   const workflow = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
-  assert.deepEqual(workflow.approvalAuthorities['architecture-reviewers'].members, [{ name: 'Ada Lovelace', email: 'ada@example.com', githubLogin: null }]);
+  assert.deepEqual(workflow.approvalAuthorities['architecture-reviewers'].members, [{ name: 'First Reviewer', email: 'first@example.com', githubLogin: null }]);
   assert.deepEqual(workflow.workTypes['repo-feature'].reworkLoops, [{ from: 'verification', to: 'implementation', maxAttempts: 2 }]);
   const model = json(root, ['workflow', 'studio']);
   assert.equal(model.groups.find((group) => group.id === 'architecture-reviewers').status, 'people');

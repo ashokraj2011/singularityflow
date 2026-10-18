@@ -185,7 +185,7 @@ function fixture({
     registrySnapshotSha256: registrySha256,
     storageProfileSha256: STORAGE_SHA,
     packetSha256: `sha256:${'4'.repeat(64)}`,
-    principal: { id: 'person:ashok', kind: 'human' },
+    principal: { id: 'person:fixtureuser', kind: 'human' },
     decidedAt: '2026-08-29T00:00:00.000Z',
     coverage: {
       clauses: {
@@ -318,7 +318,7 @@ test('contract-created Intent/Workflow/Ratification compile to a contract-valid 
     storageProfileSha256: STORAGE_SHA,
     packetSha256: `sha256:${'4'.repeat(64)}`,
     decision: 'ratified',
-    principal: { id: 'person:ashok', kind: 'human' },
+    principal: { id: 'person:fixtureuser', kind: 'human' },
     coverage,
     decidedAt: '2026-08-29T00:00:00.000Z'
   });

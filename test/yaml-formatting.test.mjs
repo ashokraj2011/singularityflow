@@ -103,10 +103,10 @@ const MAINTAINED = [
   'phases: [intake, design, build]',
   'reviewers:',
   '  # The lead reviews first.',
-  '  - name: Ada',
-  '    email: ada@example.test',
-  '  - name: Grace',
-  '    email: grace@example.test',
+  '  - name: First',
+  '    email: first@example.test',
+  '  - name: Second',
+  '    email: second@example.test',
   'repositories: {}',
   'retired: true',
   ''
@@ -127,11 +127,11 @@ test('plain data written back changes only what changed, keeping quoting, commen
   assert.deepEqual(patched(MAINTAINED, (data) => { data.phases[1] = 'architecture'; }), {
     removed: ['phases: [intake, design, build]'], added: ['phases: [intake, architecture, build]']
   });
-  assert.deepEqual(patched(MAINTAINED, (data) => { data.reviewers.push({ name: 'Linus', email: 'linus@example.test' }); }), {
-    removed: [], added: ['  - name: Linus', '    email: linus@example.test']
+  assert.deepEqual(patched(MAINTAINED, (data) => { data.reviewers.push({ name: 'Third', email: 'third@example.test' }); }), {
+    removed: [], added: ['  - name: Third', '    email: third@example.test']
   });
   assert.deepEqual(patched(MAINTAINED, (data) => { data.reviewers.splice(1, 1); }), {
-    removed: ['  - name: Grace', '    email: grace@example.test'], added: []
+    removed: ['  - name: Second', '    email: second@example.test'], added: []
   });
   assert.deepEqual(patched(MAINTAINED, (data) => { delete data.retired; data.owner = 'platform'; }), {
     removed: ['retired: true'], added: ['owner: platform']

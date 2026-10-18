@@ -16,7 +16,7 @@ const authorities = {
   'architecture-reviewers': {
     label: 'Architecture reviewers',
     members: [
-      { name: 'Asha Architect', email: 'ASHA@EXAMPLE.COM' },
+      { name: 'Architecture Architect', email: 'ARCHITECTURE@EXAMPLE.COM' },
       { name: 'GitHub reviewer', githubLogin: 'Flow-Reviewer' }
     ]
   },
@@ -35,7 +35,7 @@ test('approval authority matches real identity independently of governed agent',
   );
   const authorized = matchApprovalAuthority(authorities, policy, {
     name: 'Different display name',
-    email: 'asha@example.com'
+    email: 'architecture@example.com'
   });
   assert.equal(authorized.authorized, true);
   assert.equal(authorized.authorityGroup, 'architecture-reviewers');
@@ -157,11 +157,11 @@ test('required authority groups are allocated and covered independently', () => 
     requiredAuthorities: ['architecture-reviewers', 'git-contributors'],
     minimum: 2
   }, authorities, 'publication');
-  const first = requireApprovalAuthority(authorities, policy, { email: 'asha@example.com' }, {
+  const first = requireApprovalAuthority(authorities, policy, { email: 'architecture@example.com' }, {
     preferredAuthorities: remainingRequiredAuthorities(policy, [])
   });
   assert.equal(first.authorityGroup, 'architecture-reviewers');
-  const decisions = [{ decision: 'approved', actor: { email: 'asha@example.com' }, authorityGroup: first.authorityGroup }];
+  const decisions = [{ decision: 'approved', actor: { email: 'architecture@example.com' }, authorityGroup: first.authorityGroup }];
   assert.equal(approvalRequirementsMet(policy, decisions), false);
   assert.deepEqual(remainingRequiredAuthorities(policy, decisions), ['git-contributors']);
   const second = requireApprovalAuthority(authorities, policy, { email: 'second@example.com' }, {
@@ -181,7 +181,7 @@ test('an approval threshold cannot be pinned when too few distinct reviewers can
   const registry = {
     'architecture-reviewers': {
       label: 'Architecture reviewers', allowAnyGitIdentity: false,
-      members: [{ name: 'Asha', email: 'asha@example.com' }]
+      members: [{ name: 'Architecture', email: 'architecture@example.com' }]
     }
   };
   const policy = {
@@ -212,9 +212,9 @@ test('a policy approval still requires fallback reviewer capacity', () => {
 
 test('required groups need distinct reviewer assignments, not merely a large eligible union', () => {
   const registry = {
-    first: { members: [{ email: 'alice@example.test' }] },
-    second: { members: [{ email: 'ALICE@example.test' }] },
-    optional: { members: [{ email: 'bob@example.test' }] }
+    first: { members: [{ email: 'reviewerone@example.test' }] },
+    second: { members: [{ email: 'REVIEWERONE@example.test' }] },
+    optional: { members: [{ email: 'reviewertwo@example.test' }] }
   };
   const policy = {
     mode: 'required', authorities: ['first', 'second', 'optional'],
@@ -228,8 +228,8 @@ test('required groups need distinct reviewer assignments, not merely a large eli
     (error) => error.code === 'APPROVAL_POLICY_UNATTAINABLE'
       && /distinct eligible reviewers/.test(error.message));
   assert.equal(approvalRequirementsMet(policy, [
-    { decision: 'approved', actor: { email: 'alice@example.test' }, authorityGroup: 'first' },
-    { decision: 'approved', actor: { email: 'bob@example.test' }, authorityGroup: 'optional' }
+    { decision: 'approved', actor: { email: 'reviewerone@example.test' }, authorityGroup: 'first' },
+    { decision: 'approved', actor: { email: 'reviewertwo@example.test' }, authorityGroup: 'optional' }
   ]), false);
 
   // An unrestricted *optional* group cannot supply reviewers for restricted required groups.
@@ -239,17 +239,17 @@ test('required groups need distinct reviewer assignments, not merely a large eli
 
 test('required reviewer matching reassigns earlier choices and detects deficient subsets', () => {
   const registry = {
-    first: { members: [{ email: 'alice@example.test' }, { email: 'bob@example.test' }] },
-    second: { members: [{ email: 'alice@example.test' }] },
-    third: { members: [{ email: 'alice@example.test' }, { email: 'bob@example.test' }] },
-    optional: { members: [{ email: 'charlie@example.test' }] }
+    first: { members: [{ email: 'reviewerone@example.test' }, { email: 'reviewertwo@example.test' }] },
+    second: { members: [{ email: 'reviewerone@example.test' }] },
+    third: { members: [{ email: 'reviewerone@example.test' }, { email: 'reviewertwo@example.test' }] },
+    optional: { members: [{ email: 'reviewerthree@example.test' }] }
   };
   const policy = {
     mode: 'required', authorities: Object.keys(registry),
     requiredAuthorities: ['first', 'second'], minimum: 3
   };
   assert.equal(approvalPolicyCapacity(registry, policy).attainable, true,
-    'Alice must be reserved for second while Bob covers first and Charlie fills the threshold');
+    'ReviewerOne must be reserved for second while ReviewerTwo covers first and ReviewerThree fills the threshold');
   const capacity = approvalPolicyCapacity(registry, { ...policy,
     requiredAuthorities: ['third', 'second', 'first'] });
   assert.equal(capacity.eligibleIdentities, 3);
@@ -259,8 +259,8 @@ test('required reviewer matching reassigns earlier choices and detects deficient
 
 test('unrestricted required groups have structural capacity without fabricating human approvals', () => {
   const registry = {
-    first: { members: [{ githubLogin: 'alice' }] },
-    second: { members: [{ githubLogin: 'ALICE' }], allowAnyGitIdentity: true },
+    first: { members: [{ githubLogin: 'reviewerone' }] },
+    second: { members: [{ githubLogin: 'REVIEWERONE' }], allowAnyGitIdentity: true },
     third: { members: [], allowAnyGitIdentity: true }
   };
   const policy = { mode: 'policy', authorities: Object.keys(registry),

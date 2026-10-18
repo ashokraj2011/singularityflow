@@ -34,7 +34,7 @@ test('pilot coverage risk is excepted, never a verification pass, and cannot ove
   assert.equal(evaluateEvidence(graph).rows.find(entry => entry.id === REQ).result, 'inconclusive');
 });
 
-function story({ code = 'approved', status = 'in_progress', currentPhase = 'testing', codeApprovals = [approval('bob')], ids = {} } = {}) {
+function story({ code = 'approved', status = 'in_progress', currentPhase = 'testing', codeApprovals = [approval('reviewertwo')], ids = {} } = {}) {
   const intake = ids.intake ?? 'intake';
   const implementation = ids.implementation ?? 'implementation';
   const testing = ids.testing ?? 'testing';
@@ -44,7 +44,7 @@ function story({ code = 'approved', status = 'in_progress', currentPhase = 'test
     phaseOrder: [intake, implementation, testing],
     resolution: { plannedClaims: { mode: 'required', clausePhases: [intake], owners: { [implementation]: intake } } },
     phases: {
-      [intake]: { id: intake, label: 'Intake', status: 'approved', generation: 1, approvalPolicy: policy, approvals: [approval('alice')], requiredArtifact: { kind: 'requirements' } },
+      [intake]: { id: intake, label: 'Intake', status: 'approved', generation: 1, approvalPolicy: policy, approvals: [approval('reviewerone')], requiredArtifact: { kind: 'requirements' } },
       [implementation]: {
         id: implementation, label: 'Code', status: code, generation: 1, approvalPolicy: policy, approvals: codeApprovals,
         generationPolicy: { task: 'code' }, requiredArtifact: { kind: 'implementation-summary' }
@@ -134,7 +134,7 @@ test('a test-only requirement has linked delivery trace without counting that tr
 });
 
 test('approved inspection must cite the exact criterion, not another Story or a longer identifier', () => {
-  const phase = id => ({ id, status: 'approved', generation: 1, approvalPolicy: policy, approvals: [approval('alice')] });
+  const phase = id => ({ id, status: 'approved', generation: 1, approvalPolicy: policy, approvals: [approval('reviewerone')] });
   const workflow = { workItem: { id: W }, status: 'closed', currentPhase: null,
     phaseOrder: ['spec', 'build', 'review'], phases: { spec: phase('spec'), build: phase('build'), review: phase('review') },
     resolution: { obligationGraph: { nodes: [
@@ -240,7 +240,7 @@ test('only a decision-mode terminal evaluation that allows the end can produce t
 });
 
 test('self-approval is shown on the review facet, and evidence that cannot be trusted makes every row inconclusive', () => {
-  const self = evaluate({ workflow: story({ codeApprovals: [approval('bob', { selfApproval: true })] }), records: records(), deliveries: [delivery()] });
+  const self = evaluate({ workflow: story({ codeApprovals: [approval('reviewertwo', { selfApproval: true })] }), records: records(), deliveries: [delivery()] });
   assert.equal(row(self, AC1).obligations.find((entry) => entry.responsibility === 'review').facets.review, 'self-approved');
 
   const untrusted = evaluate({

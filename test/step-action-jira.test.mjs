@@ -74,7 +74,7 @@ function jiraRecord({ target = { kind: 'jira', transition: { approved: 'Done' } 
       schema: 'sflow-step-action@1', delivery: { key: KEY, action: 'tell-jira', target: 'team-jira', trigger, send },
       story: { id: 'STORY-9', title: 'Checkout retry', workflow: 'feature', branch: 'STORY-9', jiraKey },
       step: { id: 'intake', label: 'Intake', generation: 1, status: 'approved' },
-      actor: 'ada', at: '2026-10-03T10:00:00.000Z', commit: { sha: 'c'.repeat(40), remote: null },
+      actor: 'first', at: '2026-10-03T10:00:00.000Z', commit: { sha: 'c'.repeat(40), remote: null },
       artifacts: [{ path: 'singularity/work-items/STORY-9/artifacts/intake/intake.md', sha256: 'b'.repeat(64) }], decision: null,
       summary: send === 'summary' ? { title: 'Checkout retry', acceptanceCriteria: ['A failed charge is retried once.'] } : undefined
     },
@@ -199,7 +199,7 @@ test('an artifact action records the approved bytes when the step moves, and the
     phases: { intake: { status: 'approved', generation: 1, artifacts: [{ path: relative, sha256 }] } }
   });
   const sha256 = createHash('sha256').update(bytes).digest('hex');
-  const event = { type: 'phase-approved', phaseId: 'intake', generation: 1, actor: 'ada', createdAt: '2026-10-03T10:00:00.000Z' };
+  const event = { type: 'phase-approved', phaseId: 'intake', generation: 1, actor: 'first', createdAt: '2026-10-03T10:00:00.000Z' };
   const [queued] = await enqueueStepActions(root, workflow(sha256), { event, commit: 'c'.repeat(40) });
   assert.equal(queued.event.story.jiraKey, 'OPS-12', 'the Story\'s issue travels with the event');
   assert.equal(Buffer.from(queued.artifact.base64, 'base64').toString(), bytes.toString());

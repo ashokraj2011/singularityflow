@@ -155,6 +155,15 @@ test('actual immutable packet handoff ignores altered local reports; source chan
   assert.match(renderExecutionEvidence(evidence), /IDE "No tests found"/);
   assert.match(renderExecutionEvidence(evidence), /preserve approved reports/i);
   assert.doesNotMatch(renderExecutionEvidence(evidence), /SECRET-STDOUT|vitest not found/);
+  // A step that retained no tests is one line in the prompt; the read model keeps its entry.
+  const withUntested = { ...evidence, entries: [{ ...evidence.entries[0], phase: 'specification', generation: 2,
+    status: 'no-governed-tests-in-this-packet', checks: [], executions: [] }, ...evidence.entries] };
+  const rendered = renderExecutionEvidence(withUntested);
+  assert.match(rendered, /Retained no test results: specification generation 2\./);
+  assert.equal(JSON.parse(rendered.match(/```json\n(.+)\n```/u)[1]).entries.length, 1);
+  const nothing = renderExecutionEvidence({ ...evidence, entries: [], diagnostics: [], omittedPackets: 0 });
+  assert.match(nothing, /No earlier step retained test results\./);
+  assert.doesNotMatch(nothing, /```json/);
   assert.equal(git(item.root, 'status', '--porcelain=v1'), before, 'projection writes nothing');
   await writeFile(path.join(item.root, item.submission.path), '{"checks":[{"status":"failed"}]}');
   const uncommitted = await phaseExecutionEvidence(item.root, item.config, item.workflow, item.phase);

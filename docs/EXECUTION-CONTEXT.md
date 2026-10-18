@@ -133,3 +133,11 @@ platform suites, 72 latest-main integration tests, and all 2,726 repository chec
 isolated remotes and workspaces: no real Story was approved or advanced and no user clone was
 deleted. This is automated integration qualification, not a claim of complete native Copilot Story
 latency measurements or execution of every repository test.
+
+Automatic-retention qualification used native Node 22 runs `39095279965` (broad regression) and
+`39095967695` (final lifecycle-lock, caller protection and rotating-batch delta). Both hosts passed
+the final 26 retention/context tests and five window-integration tests, plus typecheck, build and
+process-boundary audit. The broad run passed 100 tests on macOS and 99 on Windows, with one
+POSIX-only inaccessible-directory case skipped on Windows. Local Mac testing passed nine retention
+tests, 73 worktree/registry/snapshot/bundle regressions, five window tests and 2,730 repository checks.
+All deletions occurred in disposable fixtures; no real workspace or Story was cleaned or approved.

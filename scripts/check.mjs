@@ -16,7 +16,7 @@ import { copilotHookCommand } from '../src/copilot-hook-commands.mjs';
 import { BOOLEAN_OPTIONS, defaultTimeoutFor, run } from '../src/util.mjs';
 import { SOURCE_LINE_BUDGETS, sourceSizeFailures } from './source-size-policy.mjs';
 import { validatePortfolio } from '../src/initiative-config.mjs';
-import { auditSkillPolicy } from './skill-policy.mjs';
+import { auditSkillPolicy, cliPathContractErrors } from './skill-policy.mjs';
 import { validateNarrationMigrationStatus } from '../src/narration/migration-status.mjs';
 import { currentSchemaVersion, migrationRegistrySnapshot } from '../src/schema-migrations.mjs';
 import { MCP_SCAFFOLD_VERSIONS } from '../src/mcp-host.mjs';
@@ -498,7 +498,13 @@ if (!agentFiles.length) fail('plugin must contain at least one bundled agent');
 for (const entry of agentFiles) {
   const file = path.join(agentRoot, entry.name); const text = await readFile(file, 'utf8'); const frontmatter = parseFrontmatter(text, path.relative(root, file));
   if (!frontmatter.name || !frontmatter.description || !frontmatter.tools) fail(`${entry.name}: agent frontmatter requires name, description, and tools`);
+  for (const message of cliPathContractErrors(text)) fail(`${entry.name}: ${message}`);
   checked.push(path.relative(root, file));
+}
+for (const entry of await readdir(path.join(root, 'templates/agents'))) {
+  if (!entry.endsWith('.agent.md')) continue;
+  const text = await readFile(path.join(root, 'templates/agents', entry), 'utf8');
+  for (const message of cliPathContractErrors(text)) fail(`templates/agents/${entry}: ${message}`);
 }
 
 const extensionRoot = path.join(root, 'plugin', 'extensions');

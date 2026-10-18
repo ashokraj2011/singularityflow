@@ -4,13 +4,14 @@ import { randomUUID } from 'node:crypto';
 import { lstat, open, realpath, rename, rm } from 'node:fs/promises';
 import { gitDir } from './git.mjs';
 import { safeSidecarTreeDirectory } from './private-sidecar.mjs';
-import { safeCommandGuidance } from './safe-command-guidance.mjs';
+import { CLI_PATH_CONTRACT, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const SOURCE_REVIEW_STAGE_MAXIMUM_BYTES = 65536;
 
 export function sourceReviewStagingProtocol(phaseId, stagingPath) {
   return { readTool: 'native-file-read', writeTool: 'file-edit', path: stagingPath,
+    pathRule: CLI_PATH_CONTRACT,
     terminal: 'standalone-sflow-command', shellWritersAllowed: false,
     maximumReportJsonBytes: SOURCE_REVIEW_STAGE_MAXIMUM_BYTES,
     kernelStage: safeCommandGuidance({ argv: ['review-source', 'stage', phaseId, '--report-json', '<REPORT-JSON>', '--json'] }),

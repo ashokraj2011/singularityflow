@@ -16,6 +16,9 @@ import {
   copilotCommandForCommand, directCopilotSkill, directCopilotSkillId
 } from './copilot-guidance.mjs';
 
+/** Shared host/skill rule; paths are data, never permission or a checkout-relative guess. */
+export const CLI_PATH_CONTRACT = 'Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.';
+
 const SAFE_EXECUTABLE = /^(?:singularity-flow|sflow)(?:\s|$)/u;
 const SECRET_SHAPE = /(?:--(?:token|secret|password|credential|authorization|cookie|api[-_]?key|private[-_]?key|selection[-_]?receipt)\b|:\/\/[^\s/@:]+:[^\s/@]+@)/iu;
 const FORBIDDEN_SHELL_SYNTAX = /[;&|`$()*?![\]{}#~<>]/u;

@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ARTIFACT_PRESENTATION_CONTRACT, artifactPresentationContractErrors, auditSkillPolicy, bareOperationalCommands, loadSkillPolicy, skillDelegationErrors } from '../scripts/skill-policy.mjs';
+import { ARTIFACT_PRESENTATION_CONTRACT, artifactPresentationContractErrors, auditSkillPolicy, bareOperationalCommands, cliPathContractErrors, loadSkillPolicy, skillDelegationErrors } from '../scripts/skill-policy.mjs';
+import { CLI_PATH_CONTRACT } from '../src/safe-command-guidance.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -47,14 +48,14 @@ test('every public skill has a bounded class and output contract', async () => {
   assert.deepEqual(result.errors, []);
   assert.equal(result.rows.length, Object.keys(policy.skills ?? {}).length);
   assert.ok(result.rows.every((row) => row.class
-    && row.bodyTokens - row.commandPresentationTokens - row.artifactPresentationTokens - (row.refusalHandlingTokens ?? 0) - (row.applicabilityTokens ?? 0) - (row.approvedInputsTokens ?? 0) - row.pauseGuardTokens <= (policy.skills[row.name]?.maximumTokenOverride ?? 800)));
+    && row.bodyTokens - row.pathContractTokens - row.commandPresentationTokens - row.artifactPresentationTokens - (row.refusalHandlingTokens ?? 0) - (row.applicabilityTokens ?? 0) - (row.approvedInputsTokens ?? 0) - row.pauseGuardTokens <= (policy.skills[row.name]?.maximumTokenOverride ?? 800)));
   // Code generation, the specialised skills a step may choose (they follow that step's contract),
   // the two skills that relay a step routed elsewhere, and the skills whose single
   // `prepublish --publish-if-ready` or `--submit-if-ready` call must say when not to act again, and
   // the skills whose JSON reads carry `--for-agent` (a bounded result with `act` first).
   const overridden = ['sflow-appeal', 'sflow-code', 'sflow-converge', 'sflow-design', 'sflow-phase',
     'sflow-plan', 'sflow-recover', 'sflow-reject', 'sflow-release', 'sflow-requirements', 'sflow-scenario-check', 'sflow-submit'];
-  assert.deepEqual(result.rows.filter((row) => row.bodyTokens - row.commandPresentationTokens - row.artifactPresentationTokens - (row.refusalHandlingTokens ?? 0) - (row.applicabilityTokens ?? 0) - (row.approvedInputsTokens ?? 0) - row.pauseGuardTokens > 800).map((row) => row.name), overridden);
+  assert.deepEqual(result.rows.filter((row) => row.bodyTokens - row.pathContractTokens - row.commandPresentationTokens - row.artifactPresentationTokens - (row.refusalHandlingTokens ?? 0) - (row.applicabilityTokens ?? 0) - (row.approvedInputsTokens ?? 0) - row.pauseGuardTokens > 800).map((row) => row.name), overridden);
   for (const name of overridden) assert.ok(policy.skills[name].exception, `${name} explains its token override`);
   assert.ok(result.rows.every((row) => ['never', 'conditional'].includes(row.kernelModelPolicy)));
   // `wm ensure` reads registered-v4 views without a model; skills that only offer it stay model-free.
@@ -63,6 +64,27 @@ test('every public skill has a bounded class and output contract', async () => {
     'sflow-workflow-rules', 'sflow-workspace', 'sflow-workspace-impact', 'sflow-worldmodel'
   ]);
   assert.ok(result.rows.filter((row) => row.kernelModelPolicy === 'never').every((row) => row.modelOperations.length === 0));
+});
+
+test('all skill classes and bundled agents preserve CLI-issued paths without conflicting confinement', async () => {
+  const { policy } = await loadSkillPolicy(root);
+  for (const name of Object.keys(policy.skills)) {
+    const text = await readFile(path.join(root, 'plugin/skills', name, 'SKILL.md'), 'utf8');
+    assert.equal(text.split(CLI_PATH_CONTRACT).length, 2, name);
+    assert.doesNotMatch(text, /cwd for every shell and file tool/, name);
+  }
+  for (const agent of ['sflow-workflow', 'sflow-utility', 'sflow-source-reviewer']) {
+    const text = await readFile(path.join(root, 'plugin/agents', `${agent}.agent.md`), 'utf8');
+    assert.ok(text.includes(CLI_PATH_CONTRACT), agent);
+    assert.doesNotMatch(text, /cwd for every shell and file tool|Never search.*outside that repository/, agent);
+  }
+});
+
+test('the install-time path audit refuses missing, duplicate and contradictory future guidance', () => {
+  assert.deepEqual(cliPathContractErrors(CLI_PATH_CONTRACT), []);
+  assert.match(cliPathContractErrors('').join(), /exactly one/);
+  assert.match(cliPathContractErrors(`${CLI_PATH_CONTRACT}\n${CLI_PATH_CONTRACT}`).join(), /exactly one/);
+  assert.match(cliPathContractErrors(`${CLI_PATH_CONTRACT}\nUse repositoryPath as cwd for every shell and file tool.`).join(), /file-path prefix/);
 });
 
 test('skill policy rejects executable bare SFlow command fragments but permits concepts and full commands', () => {

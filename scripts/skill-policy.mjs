@@ -6,6 +6,7 @@ import { REMOVED_WORLD_MODEL_SUBCOMMANDS } from '../src/removed-features.mjs';
 import { AUTHORING_SKILL_DECLARATION, parseAuthoringSkills } from '../src/authoring-skills.mjs';
 import { copilotPauseGuardForSkill, COPILOT_PAUSE_MARKER, PHASE_ENTRY_SKILLS } from '../src/copilot-mode.mjs';
 import { mutationTurnMode } from '../src/phase-mutation-contract.mjs';
+import { CLI_PATH_CONTRACT } from '../src/safe-command-guidance.mjs';
 
 export const COMMAND_PRESENTATION_CONTRACT = 'For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say "not available for this action". Missing Copilot: "no verified equivalent". Never invent routes.';
 /**
@@ -46,6 +47,14 @@ export const approvedInputsContractApplies = (contract) => contract === 'clarifi
  * skills as the applicability contract.
  */
 export const COMPLETE_OUTPUT_CONTRACT = 'Act on a result\'s `act` first: its state, `do` routes and any `ask`. A bounded result lists `omittedFields` with exact line ranges in `agentOutput.path`; read only those you need with your file tool. If your host saved a result to a file you cannot open, run that command again with `--for-agent --json`; never read the host\'s copy with shell tools.';
+
+export function cliPathContractErrors(body) {
+  const text = String(body ?? '');
+  return [
+    ...(text.split(CLI_PATH_CONTRACT).length !== 2 ? ['exactly one engine CLI path contract is required'] : []),
+    ...(/cwd for every shell and file tool/u.test(text) ? ['command cwd must not be presented as a file-path prefix'] : [])
+  ];
+}
 
 export function applicabilityContractApplies(rule) {
   return (rule?.executionBoundary ?? 'story') === 'story' && rule?.class !== 'delegation';
@@ -350,8 +359,8 @@ function executionBoundary(kind = 'story', name = '') {
   }
   // A relative artifact path is not a usable boundary after Copilot `/clear`: the host can retain
   // its process cwd while the model loses the conversational repository hint. Resolve the selected
-  // Story checkout on every skill invocation and make its absolute path the cwd of every shell/file
-  // tool. `ready` and `workId` are checked before mutation so a stale workspace lead cannot silently
+  // Story checkout on every skill invocation and make its absolute path the command cwd, not a
+  // prefix for CLI-issued file paths. `ready` and `workId` are checked before mutation so a stale workspace lead cannot silently
   // replace the Story selected before `/clear`. Keeping this generated makes the rule catalog-wide.
   if (kind === 'story') {
     return '**Boundary:** reuse entry `ready`/`workId`, cwd=`repositoryPath`; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup.';
@@ -405,7 +414,7 @@ function withOutputContract(text, contract, kernelModelPolicy, file, executionBo
   const marker = `<!-- sflow-output-contract: ${contract} -->`;
   const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]}${approvedInputsContractApplies(contract) ? ` ${APPROVED_INPUTS_CONTRACT}` : ''} ${ARTIFACT_PRESENTATION_CONTRACT} ${COMMAND_PRESENTATION_CONTRACT}${refusalHandling ? ` ${REFUSAL_HANDLING_CONTRACT}` : ''}${applicability ? ` ${APPLICABILITY_CONTRACT} ${COMPLETE_OUTPUT_CONTRACT}` : ''}`;
   const boundaryMarker = '<!-- sflow-execution-boundary -->';
-  const boundaryText = executionBoundary(executionBoundaryKind, path.basename(path.dirname(file)));
+  const boundaryText = `${executionBoundary(executionBoundaryKind, path.basename(path.dirname(file)))} ${CLI_PATH_CONTRACT}`;
   if (!CONTRACT_TEXT[contract]) throw new Error(`${file}: unknown output contract '${contract}'`);
   const existing = /<!-- sflow-output-contract: [^>]+ -->\r?\n(?:\*\*Output contract:\*\*[^\n]*\r?\n?)?(?:<!-- sflow-execution-boundary -->\r?\n)?(?:\*\*(?:Execution boundary|Boundary):\*\*[^\n]*\r?\n?)*/;
   const rendered = `${marker}\n${contractText}\n${boundaryMarker}\n${boundaryText}\n`;
@@ -616,6 +625,9 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     const skill = splitSkill(text, file);
     for (const message of skillDelegationErrors(name, skill.body, policy.skills)) errors.push(`${name}: ${message}`);
     const bodyTokens = estimatedTokens(skill.body);
+    const pathContractText = ` ${CLI_PATH_CONTRACT}`;
+    const domainBody = skill.body.replace(pathContractText, '');
+    const domainBodyTokens = estimatedTokens(domainBody);
     const descriptionTokens = estimatedTokens(skill.frontmatter.description);
     // The shared command-presentation requirement is fixed engine-owned overhead, not an
     // allowance to grow per-skill prose. Report both budgets and keep the existing domain cap.
@@ -627,15 +639,17 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     // Measured in this body like the approved-inputs contract, so a longer shared contract never
     // moves a skill's own prose count by rounding.
     const applicabilityText = ` ${APPLICABILITY_CONTRACT} ${COMPLETE_OUTPUT_CONTRACT}`;
-    const applicabilityTokens = !applicability ? 0 : skill.body.includes(applicabilityText)
-      ? bodyTokens - estimatedTokens(skill.body.replace(applicabilityText, '')) : estimatedTokens(applicabilityText);
+    const applicabilityTokens = !applicability ? 0 : domainBody.includes(applicabilityText)
+      ? domainBodyTokens - estimatedTokens(domainBody.replace(applicabilityText, '')) : estimatedTokens(applicabilityText);
     const approvedInputs = approvedInputsContractApplies(classPolicy.outputContract);
     // Measured in this body, so rounding a separate estimate never moves the skill's own prose count.
-    const approvedInputsTokens = approvedInputs && skill.body.includes(` ${APPROVED_INPUTS_CONTRACT}`)
-      ? bodyTokens - estimatedTokens(skill.body.replace(` ${APPROVED_INPUTS_CONTRACT}`, '')) : 0;
+    const approvedInputsTokens = approvedInputs && domainBody.includes(` ${APPROVED_INPUTS_CONTRACT}`)
+      ? domainBodyTokens - estimatedTokens(domainBody.replace(` ${APPROVED_INPUTS_CONTRACT}`, '')) : 0;
     const pauseGuard = copilotPauseGuardForSkill(name, executionBoundaryKind);
     const pauseGuardTokens = pauseGuardRequired ? estimatedTokens(`${COPILOT_PAUSE_MARKER}\n${pauseGuard}\n\n`) : 0;
-    const maximum = (rule.maximumTokenOverride ?? classPolicy.maximumTokens) + commandPresentationTokens + artifactPresentationTokens + refusalHandlingTokens + applicabilityTokens + approvedInputsTokens + pauseGuardTokens;
+    // Fixed engine-owned path safety, not permission to expand domain-specific skill prose.
+    const pathContractTokens = skill.body.includes(pathContractText) ? bodyTokens - domainBodyTokens : 0;
+    const maximum = (rule.maximumTokenOverride ?? classPolicy.maximumTokens) + commandPresentationTokens + artifactPresentationTokens + refusalHandlingTokens + applicabilityTokens + approvedInputsTokens + pauseGuardTokens + pathContractTokens;
     const marker = `<!-- sflow-output-contract: ${classPolicy.outputContract} -->`;
     const boundaryMarker = '<!-- sflow-execution-boundary -->';
     const boundaryText = executionBoundary(executionBoundaryKind, name);
@@ -675,6 +689,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     }
     for (const message of artifactPresentationContractErrors(skill.body)) errors.push(`${name}: ${message}`);
     if (!skill.body.includes(boundaryMarker) || !skill.body.includes(boundaryText)) errors.push(`${name}: missing generated execution boundary`);
+    for (const message of cliPathContractErrors(skill.body)) errors.push(`${name}: ${message}`);
     if (skill.body.split(boundaryMarker).length !== 2) errors.push(`${name}: exactly one generated execution boundary is required`);
     if (skill.body.includes('singularity/work-items/<WORK-ID>')) {
       errors.push(`${name}: hard-codes the default Story root instead of using immutable workflow.resolution.workItemRoot or a CLI-returned path`);
@@ -719,6 +734,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       applicabilityTokens,
       approvedInputsTokens,
       pauseGuardTokens,
+      pathContractTokens,
       warningTokens: classPolicy.warningTokens,
       maximumTokens: maximum,
       previewBytes: classPolicy.previewBytes,

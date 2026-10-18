@@ -21,7 +21,7 @@ import { readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { observeFindingStreak } from './finding-escalation.mjs';
 import { gitDir } from './git-execution.mjs';
-import { safeCommandGuidance, validateSafeSflowCommand } from './safe-command-guidance.mjs';
+import { CLI_PATH_CONTRACT, safeCommandGuidance, validateSafeSflowCommand } from './safe-command-guidance.mjs';
 import { validateAgentEntryRequest } from './agent-entry-options.mjs';
 import { interpretsForAgent } from './cli-json-output.mjs';
 import { parseArgs, writeAtomic } from './util.mjs';
@@ -366,7 +366,10 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
   const locate = () => (located ??= repositoryOf(result, cwd) ?? false) || null;
   const derived = result.act ?? agentAct(result);
   const counted = derived && !UNCOUNTED_STATES.has(derived.state) && (derived.do || derived.ask);
-  const act = counted && locate() ? observeAgentLoop(locate().root, result, derived, { now: now.getTime() }) : derived;
+  const observed = counted && locate() ? observeAgentLoop(locate().root, result, derived, { now: now.getTime() }) : derived;
+  // Put the rule in the mandatory first field, never an omitted long instruction or catalog body.
+  // Presentation only: no new filesystem/Git lookup, path rewriting or permission is introduced.
+  const act = observed && !result.paused ? { ...observed, paths: CLI_PATH_CONTRACT } : observed;
   const ordered = await withAgentRoutes(act ? { act, ...Object.fromEntries(Object.entries(result).filter(([key]) => key !== 'act')) } : result);
   const whole = agentJson(ordered);
   const { catalogAgentView } = await import('./agent-catalog-presentation.mjs');
@@ -444,7 +447,7 @@ export async function boundedAgentText(text, { cwd = process.cwd(), budget = age
   if (lines.at(-1) === '') lines.pop();
   const relative = path.relative(target.root, file).split(path.sep).join('/');
   const footer = (shown) => `\n[Output continues] Lines 1-${shown} of ${lines.length} are above. The complete output is `
-    + `${file} (${relative}); read lines ${shown + 1}-${lines.length} there with your file-reading tool, not shell tools. `
+    + `${file} (${relative}); use that exact absolute path, never prefix it with the checkout. Read lines ${shown + 1}-${lines.length} there with your file-reading tool, not shell tools. `
     + 'Nothing was truncated.\n';
   const reserve = bytes(footer(lines.length));
   let shown = 0;

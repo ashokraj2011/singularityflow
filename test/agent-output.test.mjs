@@ -15,9 +15,30 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { agentAct, agentOutputGoverned, boundedAgentOutput, DEFAULT_AGENT_OUTPUT_BYTES, LOOP_THRESHOLD, observeAgentLoop, withAgentRoutes } from '../src/agent-output.mjs';
+import { CLI_PATH_CONTRACT } from '../src/safe-command-guidance.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const digest = `sha256:${'e'.repeat(64)}`;
+
+test('every agent command preserves issued path bytes and presents the path rule before material', async () => {
+  for (const returned of ['/workspace clone/.git/worktrees/Story Ω/singularity-flow/review.json',
+    'C:\\workspace clone\\.git\\worktrees\\Story Ω\\singularity-flow\\review.json',
+    '\\\\server\\workspace clone\\.git\\worktrees\\Story Ω\\singularity-flow\\review.json',
+    'team/stories/CUSTOM/artifacts/result.md']) {
+    const original = { resultType: 'custom-phase', status: 'authoring-entry', repositoryPath: '/different/checkout',
+      stagingPath: returned, stagingProtocol: { path: returned }, artifact: { path: returned } };
+    const copy = structuredClone(original);
+    const view = JSON.parse(await boundedAgentOutput(JSON.stringify(original)));
+    assert.equal(view.act.paths, CLI_PATH_CONTRACT);
+    assert.equal(Object.keys(view)[0], 'act');
+    assert.equal(view.stagingPath, returned);
+    assert.equal(view.stagingProtocol.path, returned);
+    assert.equal(view.artifact.path, returned);
+    assert.deepEqual(original, copy, 'host presentation cannot change paths or bound records');
+  }
+  const paused = JSON.parse(await boundedAgentOutput(JSON.stringify({ paused: true })));
+  assert.equal(paused.act.paths, undefined, 'pause remains native Copilot, without workflow instructions');
+});
 
 test('act reads each result by its own fields and never invents a next action', () => {
   assert.equal(agentAct({ paused: true }).state, 'paused');
@@ -147,6 +168,7 @@ test('a small result keeps every field with act first; a large one is written wh
   assert.deepEqual(Object.keys(view).slice(0, 3), ['act', 'agentOutput', 'omittedFields']);
   assert.equal(view.act.state, 'ask-person');
   assert.equal(view.act.complete, false);
+  assert.equal(view.act.paths, CLI_PATH_CONTRACT, 'the rule is inline even when phase instructions are externalized');
   assert.deepEqual(view.clarification, large.clarification, 'the field act reads stays in the view');
   assert.equal(view.workId, 'W', 'small fields stay');
   // The complete result lives inside the repository's Git directory, readable by line range.

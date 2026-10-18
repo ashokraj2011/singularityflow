@@ -13,6 +13,7 @@ import { safeCommandGuidance, validateSflowExecutionCommand } from './safe-comma
 
 const MAX_AGE = 30 * 60 * 1000;
 const TERMINALS = new Set(['bash', 'powershell', 'run_in_terminal', 'execute', 'exec_command', 'write_stdin']);
+const FILE_READS = new Set(['read', 'read_file', 'readfile', 'read_text_file', 'view', 'get_file']);
 const DECIDE_SKILL_MUTATIONS = Object.freeze(['choose', 'applicability', 'scope', 'completeness', 'plan']);
 // An agent may raise an issue or propose an amendment; only an approver decides or revalidates.
 const UPSTREAM_ISSUE_DECISIONS = Object.freeze(['decide', 'decide-amendment', 'revalidate']);
@@ -140,6 +141,7 @@ export async function captureMutationTurn(payload, record, {
     const presented = mutationContractPresentation(value.contract);
     return { additionalContext: [
       `SFlow turn boundary (${value.skill}): ${presented.summary}`,
+      presented.toolProtocol.paths,
       `Binding readiness is not source-edit permission. Code authoring ready: ${presented.codeAuthoringReady}.`,
       presented.sourceEditPrerequisite
         ? `Before source edits: ${presented.sourceEditPrerequisite.command}. Re-enter the phase after that operation to verify fresh permissions; never auto-adopt or discard edits.` : null,
@@ -188,6 +190,31 @@ function targets(args) {
     for (const match of patch.matchAll(/^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$/gmu)) found.push(match[1]);
   }
   return [...new Set(found)];
+}
+
+/** A correction hint, never automatic retargeting or a broader private-directory grant. */
+function stagingPathMismatch(contract, paths, cwd, operation) {
+  const issued = contract.allow.staging ?? [];
+  const corrections = [];
+  for (const target of paths) {
+    const absolute = editTarget(target, cwd);
+    if (!absolute || issued.includes(absolute)) continue;
+    const matches = issued.filter(file => {
+      if (operation === 'write') return path.basename(absolute) === path.basename(file);
+      // Reads are otherwise unrestricted by this mutation guard. Correct only an exact reserved
+      // staging suffix rebuilt below this checkout, not arbitrary files sharing a basename.
+      const suffix = file.split(path.sep).lastIndexOf('singularity-flow');
+      if (suffix < 0) return false;
+      const tail = file.split(path.sep).slice(suffix);
+      return [path.join(contract.repositoryRoot, ...tail), path.join(contract.repositoryRoot, '.git', ...tail)].includes(absolute);
+    });
+    if (matches.length === 1) corrections.push({ attemptedPath: target, issuedPath: matches[0], operation });
+  }
+  if (!corrections.length) return null;
+  return { permissionDecision: 'deny', next: [], pathCorrections: corrections,
+    permissionDecisionReason: `PHASE_MUTATION_STAGING_PATH_MISMATCH: ${corrections.map(entry =>
+      `${operation === 'read' ? 'read' : 'write'} the issued staging file at exactly ${entry.issuedPath}.`).join(' ')} `
+      + 'Copy the CLI-returned path verbatim; repositoryPath is command cwd, not a file prefix. Correct only the tool target in this turn; do not recreate or move files, restart the phase or repeat human questions. No operation was retargeted or executed.' };
 }
 function scopedShellCommand(call, value) {
   let command = call.args.command ?? call.args.cmd ?? call.args.script;
@@ -431,7 +458,19 @@ export async function mutationToolGuard(payload = {}) {
   if (!record) return {};
   const toolCalls = calls(payload);
   const guarded = toolCalls.filter(call => TERMINALS.has(call.name) || DELEGATION.has(call.name) || isEdit(call.name));
-  if (!guarded.length) return {};
+  const stagingReads = toolCalls.filter(call => FILE_READS.has(call.name)
+    && targets(call.args).some(target => /(?:^|[\\/])singularity-flow[\\/]/u.test(target)));
+  if (!guarded.length) {
+    if (!stagingReads.length) return {}; // Ordinary file reads keep the existing no-policy-load path.
+    const current = await currentContract(payload, record).catch(() => null);
+    if (!current) return {}; // An expired/missing contract never creates a new read restriction.
+    for (const call of stagingReads) {
+      const correction = stagingPathMismatch(current.contract, targets(call.args),
+        call.args.cwd ?? payload.cwd ?? current.contract.repositoryRoot, 'read');
+      if (correction) return correction;
+    }
+    return {};
+  }
   if (mutationTurnMode(record.skill) === 'import-team') return importTeamGuard(payload, record, toolCalls);
   if (mutationTurnMode(record.skill) === 'build-workflow') return buildWorkflowGuard(payload, record, toolCalls);
   let value;
@@ -447,6 +486,11 @@ export async function mutationToolGuard(payload = {}) {
   const contract = value.contract;
   value.skill = record.skill;
   for (const call of toolCalls) {
+    if (stagingReads.includes(call)) {
+      const correction = stagingPathMismatch(contract, targets(call.args),
+        call.args.cwd ?? payload.cwd ?? contract.repositoryRoot, 'read');
+      if (correction) return correction;
+    }
     if (DELEGATION.has(call.name) && contract.turnMode !== 'authoring') return mutationDenial(contract, 'PHASE_MUTATION_DELEGATION_NOT_ALLOWED');
     if (TERMINALS.has(call.name)) {
       const kernel = shellAllowed(call, contract.turnMode, value);
@@ -482,13 +526,9 @@ export async function mutationToolGuard(payload = {}) {
     const paths = targets(call.args);
     if (!paths.length) return mutationDenial(contract, 'PHASE_MUTATION_TARGET_UNKNOWN');
     const denied = paths.filter(target => !mutationPathDecision(contract, target, call.args.cwd ?? payload.cwd ?? contract.repositoryRoot).allowed);
-    // An author that rebuilt an issued staging path (a linked worktree keeps it under the main
-    // repository's .git/worktrees, not the worktree) was refused with only the phase's routes and
-    // stopped. Name the exact issued file so it corrects the target in this turn; never grant it.
-    const issued = (contract.allow.staging ?? []).filter(file => denied.some(target => path.basename(target) === path.basename(file)));
-    if (issued.length) return { permissionDecision: 'deny', next: [], permissionDecisionReason:
-      `PHASE_MUTATION_STAGING_PATH_MISMATCH (${denied.join(', ')}): write the issued staging file at exactly ${issued.join(', ')}. `
-      + 'Copy the path from the entry; do not rebuild it from the worktree. Correct the target in this turn; the human replies stay valid and need not be asked again.' };
+    const correction = stagingPathMismatch(contract, denied,
+      call.args.cwd ?? payload.cwd ?? contract.repositoryRoot, 'write');
+    if (correction) return correction;
     if (denied.length) return mutationDenial(contract, 'PHASE_MUTATION_PATH_DENIED', denied);
   }
   return {};

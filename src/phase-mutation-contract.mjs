@@ -8,7 +8,7 @@ import { isTestAutomationPath } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { phaseNeedsGeneration } from './phase-generation-need.mjs';
 import { sourceReviewKind } from './phase-roles.mjs';
-import { safeCommandGuidance } from './safe-command-guidance.mjs';
+import { CLI_PATH_CONTRACT, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
 import { phasePublicationContract } from './manual-authorship.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
@@ -195,7 +195,8 @@ export function mutationContractPresentation(contract) {
 
 /** Tool-form errors are recoverable in the same bound turn, not lifecycle failures. */
 export function mutationToolProtocol(contract) {
-  return { read: 'Use native file-read tools for captured CLI output; do not run shell parsers or wrappers in a restricted turn.',
+  return { paths: CLI_PATH_CONTRACT,
+    read: 'Use native file-read tools at the exact issued path, including Git-private files outside the checkout; do not run shell parsers or wrappers in a restricted turn.',
     staging: 'Use a file-edit tool only at an exact kernel-issued staging path. No shell writers, mkdir or arbitrary temporary paths.',
     terminal: 'Run one standalone registered SFlow command with cwd=repositoryPath; no pipes, redirects, substitutions or command chains.',
     retry: 'Correct the tool form without re-asking settled questions or changing lifecycle state.',

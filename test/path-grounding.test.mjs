@@ -17,6 +17,7 @@ import { saveStoryDraft } from '../src/state-stores.mjs';
 import { buildSpecIndex, canonicalJson, derivePlannedClaimMap } from '../src/specifications.mjs';
 import { removeTemporaryTree, snapshot } from '../src/util.mjs';
 import { PHASE_ENTRY_SKILLS } from '../src/copilot-mode.mjs';
+import { CLI_PATH_CONTRACT } from '../src/safe-command-guidance.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(root, 'bin', 'singularity-flow.mjs');
@@ -67,12 +68,12 @@ test('every packaged and template agent rebinds tools to the active repository a
     for (const name of names) {
       const content = await readFile(path.join(directory, name), 'utf8');
       assert.match(content, new RegExp(boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), name);
-      assert.match(content, /Require `ready`, bind `workId`, and use its absolute `repositoryPath` as cwd for every shell and file tool/, name);
+      assert.match(content, /Require `ready`, bind `workId`, and use its absolute `repositoryPath` as command cwd/, name);
       // Without a skill entry the agent resolves the Story once, pause-aware (one call, not pause then session).
       assert.match(content, /Without a skill entry, run `singularity-flow session current --for-agent --json` once and obey `paused`/, name);
-      assert.match(content, /Never search `\$HOME`, a parent directory, or outside that repository/, name);
-      assert.match(content, /Use CLI-returned `workItemRoot` and artifact or packet paths for governed Story reads and writes/, name);
-      assert.match(content, /keep them within the bound `workId`/, name);
+      assert.match(content, /Never discover repositories by searching `\$HOME`, parents or unrelated directories/, name);
+      assert.match(content, /Use the CLI's exact artifact, packet and staging paths for this binding/, name);
+      assert.ok(content.includes(CLI_PATH_CONTRACT), name);
       assert.doesNotMatch(content, /singularity\/work-items\/<WORK-ID>/, `${name} must honor custom artifact roots`);
     }
   }

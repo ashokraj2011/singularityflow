@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { isConformancePhase, isConvergencePhase, isTestEvidencePhase, stepResponsibilities } from './phase-roles.mjs';
+import { CLI_PATH_CONTRACT } from './safe-command-guidance.mjs';
 
 /** Resolve responsibilities from the accepted workflow, never from a packaged phase name. */
 export function plannedDeliveryCodeSteps(workflow, phase) {
@@ -73,6 +74,7 @@ export const UPSTREAM_DISCREPANCY_PROTOCOL = '- Upstream discrepancies: approved
 export function phaseAuthoringContractLines(contract, { deterministicOnly = false } = {}) {
   if (!contract) return [];
   return [
+    `- Paths: ${CLI_PATH_CONTRACT}`,
     '- Repair boundary: the configured producer repairs this open draft in place; regenerate kernel-owned artifacts, never hand-edit them. Draft defects do not forbid repairs. Preserve prior approved artifacts and decisions; never re-author an earlier phase to satisfy a new template. Publication and any configured approvals remain separate checks.',
     '- Readiness: advisories are not current blockers. Documentation comments need no human approval; unplanned-path advice names work to account for before approval. When prepublish is ready and returns commands.publish, continue that publication attempt; required tests still run there. A resolved runner does not require editing package scripts just to emit its configured report.',
     ...(deterministicOnly ? [] : [UPSTREAM_DISCREPANCY_PROTOCOL]),

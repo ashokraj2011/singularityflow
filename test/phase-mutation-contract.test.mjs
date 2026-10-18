@@ -16,6 +16,7 @@ import YAML from 'yaml';
 import { resolveWorkType } from '../src/config.mjs';
 import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
 import { readCopilotStoryFollow } from '../src/copilot-story-follow.mjs';
+import { gitDir } from '../src/git-execution.mjs';
 import { recordCopilotSession } from '../src/session.mjs';
 
 async function fixture(t, phaseOverrides = {}) {
@@ -747,6 +748,50 @@ test('a rebuilt staging path is refused with the exact issued path, not the phas
   assert.doesNotMatch(decision.permissionDecisionReason, /prepare/u);
   assert.deepEqual(await mutationToolGuard({ sessionId: payload.sessionId, cwd: payload.cwd,
     toolCalls: [{ id: 'c2', name: 'apply_patch', args: patch.replace(guessed, staging) }] }), {});
+});
+
+test('linked-worktree reads correct only the exact issued private path, never recreate or retarget it', async t => {
+  const f = await fixture(t);
+  const checkout = path.join(path.dirname(f.root), 'Story Ω checkout');
+  f.git(['worktree', 'add', '-qb', 'linked-story', checkout, 'HEAD']);
+  const payload = { cwd: checkout, sessionId: 'linked-review', prompt: '/sf-review-source' };
+  await recordRepositoryBoundaryTurn(payload, { captureMutation: (payload, record) => captureMutationTurn(payload, record,
+    { resolveRoot: async () => checkout, load: async () => f.accepted }) });
+  const staging = path.join(gitDir(checkout), 'singularity-flow', 'source-reviews', 'PMC-1-custom-step-gen1.json');
+  await issueMutationStaging(checkout, staging, 'source-review');
+  await writeFile(staging, '{"review":"preserved"}');
+  const guessed = path.join(checkout, 'singularity-flow', 'source-reviews', path.basename(staging));
+  for (const toolName of ['read_file', 'Read', 'view', 'mcp.files.read_text_file']) {
+    const read = toolArgs => mutationToolGuard({ ...payload, toolName, toolArgs });
+    const correction = await read({ path: guessed });
+    assert.equal(correction.permissionDecision, 'deny', toolName);
+    assert.deepEqual(correction.pathCorrections, [{ attemptedPath: guessed, issuedPath: staging, operation: 'read' }]);
+    assert.deepEqual(correction.next, [], 'no prepare/review restart loop');
+    assert.deepEqual(await read({ filePath: staging }), {}, 'exact Git-private path remains readable');
+    assert.deepEqual(await read({ path: pathToFileURL(staging).href }), {});
+    assert.deepEqual(await read({ path: path.join(checkout, 'docs', path.basename(staging)) }), {}, 'same basename is not a private-path match');
+    assert.deepEqual(await read({ path: `${staging}.missing` }), {}, 'native reader preserves real ENOENT errors');
+  }
+  await assert.rejects(readFile(guessed), { code: 'ENOENT' });
+  assert.equal(await readFile(staging, 'utf8'), '{"review":"preserved"}');
+  assert.equal((await mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: `${staging}.other` } })).permissionDecision, 'deny');
+  await endRepositoryBoundaryTurn(payload);
+  assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'read_file', toolArgs: { path: guessed } }), {},
+    'an ended SFlow turn must not intercept native Copilot reads');
+});
+
+test('issued clarification paths stay authoritative in every seeded and custom authoring phase', async t => {
+  for (const id of ['specification', 'planning', 'implementation', 'convergence', 'verification', 'release', 'team-intake', 'team-repair']) {
+    const f = await fixture(t, { id });
+    const payload = await f.enter('/sf-phase', id);
+    const staging = path.join(gitDir(f.root), 'singularity-flow', 'clarification-responses', `${id}-gen1.json`);
+    await issueMutationStaging(f.root, staging, 'clarification');
+    const guessed = path.join(f.root, 'singularity-flow', 'clarification-responses', path.basename(staging));
+    const correction = await mutationToolGuard({ ...payload, toolName: 'read_file', toolArgs: { filePath: guessed } });
+    assert.equal(correction.pathCorrections[0].issuedPath, staging, id);
+    assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'read_file', toolArgs: { path: staging } }), {}, id);
+    assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: staging } }), {}, id);
+  }
 });
 
 test('literal answer punctuation and PowerShell argv do not become shell operators', async t => {

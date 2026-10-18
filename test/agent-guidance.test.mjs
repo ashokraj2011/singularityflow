@@ -12,6 +12,7 @@ import {
 import { parseAgentDependencies } from '../src/agents.mjs';
 import { initializeDefinition, loadDefinition } from '../src/config.mjs';
 import { planStudioChangeSet, STUDIO_CHANGE_SET_SCHEMA } from '../src/workflow-studio.mjs';
+import { CLI_PATH_CONTRACT } from '../src/safe-command-guidance.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const storyOnly = new Set([
@@ -74,6 +75,7 @@ test('Studio-created agents preserve a custom work-item root and defer the clari
   assert.equal(definition.workItemRoot, 'governed/team-stories');
   const reviewer = definition.agents['custom-root-reviewer'];
   assert.ok(reviewer.prompt.includes(REPOSITORY_AGENT_BOUNDARY));
+  assert.ok(reviewer.prompt.includes(CLI_PATH_CONTRACT), 'future Studio-created agents inherit the exact-path rule');
   assert.ok(reviewer.prompt.includes(AGENT_CLARIFICATION_GUIDANCE));
   assert.doesNotMatch(reviewer.prompt, /singularity\/work-items|clarification record|For `(?:off|required|when-needed)`/);
   assert.deepEqual(reviewer.dependencies, []);

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { phaseAuthoringContract, phaseAuthoringContractLines, phasePlansDelivery, scaffoldPlanningRows } from '../src/phase-authoring-contract.mjs';
+import { CLI_PATH_CONTRACT } from '../src/safe-command-guidance.mjs';
 import { inspectPlannedClaimMap, derivePlannedClaimMap } from '../src/specifications.mjs';
 import { phaseFindingPolicy } from '../src/phase-finding-policy.mjs';
 import { phaseContextAdmission } from '../src/phase-entry-admission.mjs';
@@ -32,6 +33,8 @@ test('installed contracts follow capabilities across all phases, renamed workflo
       assert.equal(contract.draftDefectsPreventRepair, false);
       assert.equal(contract.repairIsApproval, false);
       assert.equal(contract.revision, 'phase-authoring-v7');
+      assert.ok(phaseAuthoringContractLines(contract).includes(`- Paths: ${CLI_PATH_CONTRACT}`));
+      assert.ok(phaseAuthoringContractLines(contract, { deterministicOnly: true }).includes(`- Paths: ${CLI_PATH_CONTRACT}`));
       assert.deepEqual(contract.configuration, { productSource: false, sourceTagsRequired: false,
         apiDocumentationRequired: false, scopeAccountingRequired: true, candidateAndTestInput: true, protectedPathsEnforced: true });
       assert.match(phaseAuthoringContractLines(contract).join('\n'), /configuration, never product code/);

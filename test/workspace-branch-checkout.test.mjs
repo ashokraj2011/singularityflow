@@ -329,7 +329,7 @@ test('readiness and direct Story start automatically use the branch checkout wit
     const executed = spawnSync(process.execPath, [path.join(packageRoot, 'bin/singularity-flow.mjs'), ...args], {
       cwd: f.original, env, encoding: 'utf8', timeout: 90_000, maxBuffer: 16 * 1024 * 1024
     });
-    assert.equal(executed.status, 0, executed.stderr || executed.stdout);
+    assert.equal(executed.status, 0, `${executed.stderr}\n${executed.stdout}`);
     return JSON.parse(executed.stdout);
   };
   const preflight = cli(['workspace', 'branches', '--intake', '--preflight-story', 'FRESH-STORY',

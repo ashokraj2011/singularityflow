@@ -194,6 +194,16 @@ test('private kernel staging refuses stale bindings, malformed JSON, conflicts a
     await assert.rejects(stageSourceReviewReport(root, config, workflow, 'specification', value), { code: 'SOURCE_REVIEW_REPORT_INVALID' });
     assert.deepEqual(await readFile(staged.stagingPath), bytes);
   }
+  const badCitation = structuredClone(report);
+  badCitation.rows[0].line = 999;
+  await assert.rejects(stageSourceReviewReport(root, config, workflow, 'specification', JSON.stringify(badCitation)), error => {
+    assert.equal(error.code, 'SOURCE_REVIEW_REPORT_INVALID');
+    assert.equal(error.details.repair.status, 'repair-packet');
+    assert.equal(error.details.repair.citations[0].field, 'rows[0]');
+    assert.equal(error.details.repair.citations[0].proposedEdit.value, report.rows[0].line);
+    return true;
+  });
+  assert.deepEqual(await readFile(staged.stagingPath), bytes, 'refused citation repair cannot change the previous draft');
   workflow.phases.specification.generatedAgent = 'sflow-source-reviewer';
   workflow.resolution.sourceReview = { mode: 'enforce', phases: ['specification'], reviewerAgent: 'sflow-source-reviewer' };
   await assert.rejects(stageSourceReviewReport(root, config, workflow, 'specification', JSON.stringify(report)), { code: 'SOURCE_REVIEW_STAGING_NOT_REVIEWABLE' });

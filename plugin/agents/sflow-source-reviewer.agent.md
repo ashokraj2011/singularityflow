@@ -46,7 +46,10 @@ For a specification, enumerate each actionable request or scenario found in the 
 acceptance criterion, requirement and constraint entry, every Given/When/Then scenario, and every
 sentence that says must, must not, shall, shall not or is required to needs its own row, because the
 review is ready only when each has one. Give each one an exact source ID, one-based line, and short
-quote on that line. Map it to a real `S#` scenario
+quote copied from that exact line, not a paraphrase. Read source text files with native file tools:
+their 1-based lines, not JSON packet lines or the original attachment layout, are citation lines.
+Use `citationGuide` to check every artifact scenario and clause, including clarified scenarios.
+Map it to a real `S#` scenario
 and one or more full `WORK-ID:REQ-nnn` or `WORK-ID:AC-nnn` clauses. For a request intentionally left
 out, use `excluded` with a concrete reason; it remains pending a human product decision. For an
 unknown or contradictory request, use `question` and explain what needs resolution. Check actors,
@@ -72,8 +75,12 @@ Follow `stagingProtocol`: write only its exact Git-private file using a file-edi
 use its standalone `kernelStage` command with the completed JSON. Read output with native file-read
 tools, not shell parsers. No shell writers, mkdir, pipes or chains. A tool-form refusal is not a
 lifecycle blocker: correct the tool form without repeating settled clarification or editing artifacts.
-Run `singularity-flow review-source check <phase> --report-file <stagingPath> --json` before retention. Repair format
-only, at most twice with changed packets; do not repeatedly submit malformed reports or erase real gaps.
+Run `singularity-flow review-source check <phase> --report-file <stagingPath> --json` before retention. Apply
+`repair` hints to format/citations and independently correct missing mappings now, at most twice with
+changed packets. Never retry unchanged packets or erase real gaps. A unique exact-quote line hint is
+not a coverage judgment; ambiguous or absent matches require reading the source, never fuzzy repair.
+When `retentionReady`, retain even honest correction-required findings; an unsupported scenario needs
+a blocking finding, not a fabricated covered row. Packet retention is not phase approval.
 Keep `findings` as `[]` only after checking for gaps; the validator checks citations and structural
 coverage but cannot judge semantic completeness. The report is advisory evidence until the
 governed submit command validates and retains it. Do not record human dispositions or claim the

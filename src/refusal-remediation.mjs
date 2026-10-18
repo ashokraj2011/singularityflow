@@ -1193,6 +1193,23 @@ export function refusalDetails(details) {
   }
   // Located workflow.yml problems, so every surface can point at the exact line and its fix.
   const position = (value) => (Number.isSafeInteger(value) && value > 0 ? value : null);
+  // Stage/retain refuses the same invalid packet that check explains. Do not discard its precise
+  // repair fields at the process boundary and send the reviewer back to generic diagnostics.
+  const repair = details.repair;
+  if (repair && ['repair-packet', 'reload-context'].includes(repair.status)) projected.repair = compact({
+    status: repair.status, instruction: text(repair.instruction), reportSha256: text(repair.reportSha256),
+    citations: list(repair.citations, entry => entry && typeof entry === 'object' ? compact({
+      field: field(entry.field), sourceId: text(entry.sourceId), textSha256: text(entry.textSha256),
+      instruction: text(entry.instruction), matchCount: Number.isSafeInteger(entry.matchCount) && entry.matchCount >= 0 ? entry.matchCount : null,
+      matchingLines: list(entry.matchingLines, position).slice(0, 10),
+      proposedEdit: field(entry.proposedEdit?.field) && position(entry.proposedEdit?.value)
+        ? { field: field(entry.proposedEdit.field), value: entry.proposedEdit.value } : null
+    }) : null).slice(0, 25),
+    mappingTasks: list(repair.mappingTasks, entry => entry && typeof entry === 'object' ? compact({
+      code: text(entry.code), sourceId: text(entry.sourceId), scenarioId: text(entry.scenarioId),
+      clauseId: text(entry.clauseId), line: position(entry.line), message: text(entry.message)
+    }) : null).slice(0, 25)
+  });
   const configurationProblems = list(details.configurationProblems, (problem) => (problem && typeof problem === 'object' ? compact({
     code: text(problem.code), file: text(problem.file), line: position(problem.line), column: position(problem.column),
     path: Array.isArray(problem.path) ? problem.path.slice(0, 32).map((part) => (typeof part === 'number' ? part : text(String(part)))) : null,

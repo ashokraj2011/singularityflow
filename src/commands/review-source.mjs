@@ -12,7 +12,8 @@ import { sourceReviewRequired } from '../source-review-policy.mjs';
 import path from 'node:path';
 import { sourceReviewContext, readSourceReviewStatus, sourceReviewInput, checkSourceReviewReport, scopedSourceReviewerSession, evaluateSubmittedSourceReview, retainSourceReview, retainSourceReviewDecision } from '../source-review-lifecycle.mjs';
 import { sourceReviewContextText } from '../source-review-context-display.mjs';
-import { commandRouteLines } from '../safe-command-guidance.mjs';
+import { sourceReviewStagingProtocol } from '../source-review-staging.mjs';
+import { commandRouteLines, safeCommandGuidance } from '../safe-command-guidance.mjs';
 import { lstat, readFile } from 'node:fs/promises';
 import { loadSession } from '../session.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
@@ -130,13 +131,25 @@ export async function reviewSourceCommand(positionals, options) {
     }); }
     if (action === 'check') {
       const checked = checkSourceReviewReport(report, input);
+      const protocol = sourceReviewStagingProtocol(phaseId, stagingPath);
+      const commandGuidance = checked.evaluation?.status === 'stale'
+        ? safeCommandGuidance({ argv: ['review-source', 'context', phaseId, '--json'] })
+        : checked.retentionReady ? protocol.retain : protocol.check;
+      const guidance = { commandGuidance, command: commandGuidance.command, skill: commandGuidance.skill };
       const result = { schemaVersion: 1, resultType: 'source-review-check', // schema-transient
         workId: workflow.workItem.id, phase: phaseId, generation: phase.generation,
         status: checked.format.status !== 'ready' ? checked.format.status : checked.evaluation.status,
-        ...checked, findings: [...checked.format.findings, ...(checked.evaluation?.findings ?? [])] };
+        ...checked, findings: [...checked.format.findings, ...(checked.evaluation?.findings ?? [])],
+        stagingPath, stagingProtocol: protocol,
+        continuation: { automaticAdvance: false,
+          nextAction: { ...guidance, reason: checked.repair.instruction },
+          actions: [{ ...guidance, reason: checked.repair.instruction }] } };
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
       console.log(`Source review check: ${result.status}; format ${result.format.status}; retention ${result.retentionReady ? 'ready' : 'blocked'} (no changes).`);
       for (const finding of result.findings) console.log(`- ${finding.field ?? finding.code}: ${finding.message}`);
+      console.log(result.repair.instruction);
+      for (const citation of result.repair.citations) console.log(`- ${citation.field}: ${citation.instruction}${citation.proposedEdit ? ` ${citation.proposedEdit.field} = ${citation.proposedEdit.value}` : ''}`);
+      console.log(commandRouteLines(commandGuidance).join('\n'));
       return emitReview('check', noop('source-review.checked', {
         workId: workflow.workItem.id, phase: phaseId, retentionReady: result.retentionReady
       }), false, result);

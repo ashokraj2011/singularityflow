@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "2542d1687f7086542766652fc71922cc55dd94ef",
+  "sourceCommit": "60be3ea7919d737b99be61405b710cab82622cb8",
   "topicCount": 84,
-  "contentSha256": "cc02e58a575fdbc743856c235b2a8d4b47c00cedc7445eaf8e82ad0a28f09b37",
+  "contentSha256": "84ddcc63bd2acb657ffc0429ef149474459fbf508fe6ae6128558228217510ff",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -544,9 +544,9 @@
     {
       "id": "source-grounded-review",
       "title": "Independent source-grounded review",
-      "version": 5,
-      "sha256": "a038d6de501c22765056a456d101b10f86a4afec5cb0c462e9e31872f834fad8",
-      "routingSha256": "0c3fb5640f1493f14d8795c3e77b63917c630b28fba11bb13f20bb2add4d808c",
+      "version": 6,
+      "sha256": "abbe6a9b3c8d2a44fcb327a9d1ba4da5fdc1909cf02aa870c2415ce181d5674d",
+      "routingSha256": "e77ee80d09f1f5227898dfe4b6820e44db3739a2c5fb16344e62e1a413e1f265",
       "file": "source-grounded-review.md"
     },
     {

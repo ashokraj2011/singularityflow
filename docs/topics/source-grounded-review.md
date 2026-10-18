@@ -5,9 +5,10 @@ aliases: [review-source, source-review, specification-review, planning-review]
 questions:
   - Why does source review ask a question I already answered?
   - What human clarification does the reviewer read?
+  - How do I repair rejected source line and quote citations?
 commands: [review-source]
 related: [approvals, workflow-authoring, story-lifecycle]
-version: 5
+version: 6
 ---
 
 ## Purpose and prerequisites
@@ -60,6 +61,8 @@ Story. The phase must have a published generation; a private draft is never revi
 3. Fill `reportTemplate` against `reportSchema`, keeping its exact binding, and stage it at the
    returned Git-private path.
 4. Run `singularity-flow review-source check <phase> --report-file <stagingPath> --json`.
+   Repair packet errors in this review turn, at most twice with changed packets. Use the returned
+   `repair` fields; never repeat an unchanged failure.
 5. Retain the packet with `singularity-flow review-source submit <phase> --report-file <stagingPath>`,
    including any honest gaps.
 6. Follow the returned `continuation`, described below.
@@ -85,6 +88,30 @@ and cite phase, generation and question ID in the rationale. For example, if plu
 was explicitly clarified as one positive-value test, plural wording alone is not a new gap.
 
 ## Correction and human decisions
+
+### Exact citations without a review dead end
+
+`citationGuide` lists every specification scenario and clause, including clarified scenarios such
+as S2. Citation line numbers are **1-based lines of the pinned extracted `sources[].text`**, not the
+JSON packet, original attachment layout, specification, or clarification record. Quotes must be exact
+non-empty substrings of one source line, at most 1024 characters. Do not paraphrase or combine lines.
+Copilot's bounded agent view puts even short source texts in Git-private, native-readable text files
+without changing their bytes. Read those files using the native file tool's line numbers. The
+ordinary JSON context retains its original text fields; the agent view references each text once.
+
+`check` returns exact row/finding field paths and a bounded `repair` guide. A quote found on exactly
+one source line gets a proposed line-number edit, bound to the checked report and source digest.
+Nothing is edited automatically. Multiple matches require independent selection; absent matches
+require rereading the source, never fuzzy replacement. Stage/retain refusals preserve these hints.
+Changed inputs require a fresh context, not citation transplantation.
+
+For an unmapped scenario, independently reconcile its source and pinned answers. Add a covered row
+only if they genuinely support it; acknowledge clarification IDs separately. Otherwise retain a
+blocking finding, not fabricated coverage. `retentionReady: true` permits retaining an honest
+`correction-required` review: it does not approve the phase. The check returns the exact retain
+route, or the recheck route to use **after** repairing the private packet. No source/artifact edits,
+human dispositions or approval are performed by citation repair. These rules follow review
+responsibilities across seeded, renamed and custom workflows, not particular phase names.
 
 If the artifact already follows a recorded answer, retain a corrected independent review of
 the same generation; earlier reports remain in append-only history. A real artifact gap needs
@@ -132,8 +159,11 @@ contract, including copied, renamed and future custom phases, rather than built-
   publishes it; then review the new generation.
 - **Check or retention refuses the packet as old.** Read `context` again and review the current
   published generation.
-- **`check` reports `retentionReady: false`.** Correct the packet's format and check it again; do
-  not retain it until it passes.
+- **`check` reports `retentionReady: false`.** Follow `repair` for exact format/citation fields;
+  repair and recheck in the same review turn within the two-repair budget. Do not retain invalid
+  citations, restart authoring, or ask the person to invent a quote. If still invalid, report the
+  precise remaining fields and match ambiguity. A genuine semantic gap is retainable evidence,
+  not a reason to falsify a covered row.
 - **`decide` refuses the finding.** Only IDs returned in `pendingDispositions` can be decided.
   Questions and reviewer blockers need an answer or an author correction instead.
 - **Pinned bytes are missing or altered.** The review fails explicitly; do not cite a source that

@@ -1024,7 +1024,10 @@ test('source review follows the returned schema and a bounded read-only format c
   assert.match(skill, /`retentionReady` is false.*stop without commit\/push/s);
   assert.match(agent, /never examples from other Stories/);
   assert.match(agent, /Test-only rows need tests, not product paths/);
-  assert.match(agent, /Repair format\s+only, at most twice/);
+  assert.match(agent, /Apply\s+`repair` hints to format\/citations/u);
+  assert.match(agent, /at most twice with\s+changed packets/u);
+  assert.match(agent, /never fuzzy repair/u);
+  assert.match(skill, /source text-file lines, not JSON; exact single-line quotes/u);
   assert.match(skill, /no agent setup\/selection/);
   assert.match(skill, /Compare authored-content hashes/);
   assert.match(skill, /`canReview: false`: relay `continuation.actions`, stop/);

@@ -151,20 +151,20 @@ function clauseCaseHint(id, known) {
   return canonical && canonical !== id ? canonical : null;
 }
 
-function citedSource(row, sources, findings, label) {
+function citedSource(row, sources, findings, label, field) {
   const source = sources.get(row?.sourceId);
   if (!source) {
-    findings.push(finding('source-unknown', `${label} cites unknown source '${row?.sourceId ?? ''}'.`));
+    findings.push(finding('source-unknown', `${label} cites unknown source '${row?.sourceId ?? ''}'.`, { field: `${field}.sourceId` }));
     return null;
   }
   const lines = source.text.split(/\r?\n/u);
   if (!Number.isSafeInteger(row?.line) || row.line < 1 || row.line > lines.length) {
-    findings.push(finding('citation-line-invalid', `${label} has no valid line in source '${source.id}'.`));
+    findings.push(finding('citation-line-invalid', `${label} has no valid line in source '${source.id}'.`, { field, sourceId: source.id }));
     return source;
   }
   if (typeof row.quote !== 'string' || !row.quote.trim() || row.quote.length > 1024
       || !lines[row.line - 1].includes(row.quote)) {
-    findings.push(finding('citation-quote-invalid', `${label} quote does not occur on ${source.id}:${row.line}.`));
+    findings.push(finding('citation-quote-invalid', `${label} quote does not occur on ${source.id}:${row.line}.`, { field, sourceId: source.id }));
   }
   return source;
 }
@@ -179,7 +179,7 @@ function rowCitesStatement(row, statement) {
   return shorter.length >= 12 && (quote.includes(wanted) || wanted.includes(quote));
 }
 
-function scenarioIds(markdown) {
+export function sourceReviewScenarioIds(markdown) {
   return new Set(String(markdown).split(/\r?\n/u)
     .map((line) => line.match(/^\s{0,3}#{2,6}\s+(S\d+)\b/u)?.[1])
     .filter(Boolean));
@@ -208,7 +208,7 @@ function evaluateSpecificationRows(report, context, binding, findings, pendingDi
   }
   const sources = new Map(context.sources.map((source) => [source.id, source]));
   const unreadable = new Map((context.unreadableSources ?? []).map((entry) => [entry.id, entry]));
-  const scenarios = scenarioIds(context.artifact.text);
+  const scenarios = sourceReviewScenarioIds(context.artifact.text);
   const clauses = extractClauses(context.artifact.text, { sourcePath: context.artifact.path });
   const authoritative = new Set(clauses.map((clause) => clause.id));
   const mappedScenarios = new Set();
@@ -234,7 +234,7 @@ function evaluateSpecificationRows(report, context, binding, findings, pendingDi
       } else pendingDispositions.push({ id: `attested:${row.id}`, kind: 'attested-coverage', rowId: row.id,
         documentId: uncitable.id, reason: row.attestation.trim() });
     } else {
-      const source = citedSource(row, sources, findings, label);
+      const source = citedSource(row, sources, findings, label, `rows[${index}]`);
       if (source) mappedSources.add(source.id);
     }
     if (row.outcome === 'covered') {
@@ -259,7 +259,7 @@ function evaluateSpecificationRows(report, context, binding, findings, pendingDi
     } else findings.push(finding('row-outcome-invalid', `${label} outcome must be covered, excluded, or question.`));
   }
   for (const source of binding.sources) if (!mappedSources.has(source.id)) findings.push(finding('source-unmapped',
-    `Pinned source '${source.id}' has no cited mapping or proposed exclusion.`));
+    `Pinned source '${source.id}' has no cited mapping or proposed exclusion.`, { sourceId: source.id }));
   // D-14: a source counts as reviewed only when every requirement statement in it has a row. One row
   // on one line of a document never stands for the rest of it [E2G-006].
   const MAX_LISTED = 25;
@@ -274,9 +274,9 @@ function evaluateSpecificationRows(report, context, binding, findings, pendingDi
       `${uncovered.length - MAX_LISTED} more requirement statements in '${source.id}' have no row.`, { sourceId: source.id }));
   }
   for (const scenario of scenarios) if (!mappedScenarios.has(scenario)) findings.push(finding('scenario-unmapped',
-    `Scenario '${scenario}' has no cited source-to-clause mapping. Add a covered row citing the source line it refines, also when a clarification answer shaped it (acknowledge that record in clarificationsReviewed; never edit it). If no source line supports it, it is new scope: report a blocking finding.`));
+    `Scenario '${scenario}' has no cited source-to-clause mapping. Add a covered row citing the source line it refines, also when a clarification answer shaped it (acknowledge that record in clarificationsReviewed; never edit it). If no source line supports it, it is new scope: report a blocking finding.`, { scenarioId: scenario }));
   for (const clause of authoritative) if (!mappedClauses.has(clause)) findings.push(finding('clause-unmapped',
-    `Clause '${clause}' has no cited source-to-scenario mapping.`));
+    `Clause '${clause}' has no cited source-to-scenario mapping.`, { clauseId: clause }));
 }
 
 function sameArray(left, right) {
@@ -343,7 +343,7 @@ function evaluatePlanningRows(report, context, findings, pendingDispositions) {
     });
   }
   for (const id of ids) if (!byId.has(id)) findings.push(finding('clause-unreviewed',
-    `Approved clause '${id}' has no independent plan review row.`));
+    `Approved clause '${id}' has no independent plan review row.`, { clauseId: id }));
 }
 
 /**
@@ -396,7 +396,7 @@ export function evaluateSourceGroundedReview(report, context) {
     findings.push(finding('review-findings-invalid', `Reviewer findings must be an array of at most ${MAX_FINDINGS} entries.`));
   } else {
     const ids = new Set();
-    for (const entry of report.findings) {
+    for (const [index, entry] of report.findings.entries()) {
       if (!ID.test(String(entry?.id ?? '')) || ids.has(entry.id)
           || !['blocking', 'advisory'].includes(entry.severity)
           || !String(entry.message ?? '').trim()) {
@@ -405,7 +405,7 @@ export function evaluateSourceGroundedReview(report, context) {
       }
       ids.add(entry.id);
       if (entry.sourceId) citedSource(entry, new Map(context.sources.map((source) => [source.id, source])), findings,
-        `Reviewer finding '${entry.id}'`);
+        `Reviewer finding '${entry.id}'`, `findings[${index}]`);
       if (entry.severity === 'blocking') findings.push(finding('reviewer-blocker',
         `Reviewer finding '${entry.id}': ${entry.message}`, { reviewFindingId: entry.id }));
     }

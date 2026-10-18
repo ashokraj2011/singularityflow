@@ -144,6 +144,9 @@ export function agentAct(result) {
           ? ' Say that the remote could not be reached, so the local checkout was opened as it is and may be behind.' : ''} Report story, relay its next actions in order and end the session-only turn; do not repeat context or nextsteps lookups.` };
     }
   }
+  if (result.error?.code === 'SOURCE_REVIEW_REPORT_INVALID' && result.error.details?.repair?.status === 'repair-packet') return {
+    state: 'correct', do: null, read: ['error.details.repair', 'error.details.findings'],
+    said: 'The packet was not retained. Repair its exact format/citation fields using the returned hints and this invocation\'s stagingProtocol; check changed bytes within the two-repair budget. Do not restart the phase, run generic diagnostics, or invent coverage.' };
   if (result.error && result.remediationPlan) {
     const plan = result.remediationPlan;
     const step = (plan.steps ?? []).find((entry) => entry?.command) ?? null;
@@ -171,6 +174,18 @@ export function agentAct(result) {
     const count = Array.isArray(result.findings) ? result.findings.length : null;
     return { state: 'correct', do: null, read: ['findings', 'correction', 'traceabilityRepair', 'repairLoop'],
       said: oneLine(`${result.status}${count == null ? '' : ` with ${count} finding${count === 1 ? '' : 's'}`}: ${result.correction?.guidance ?? 'fix the listed findings in this draft, then recheck once.'}`),
+      ...correctionList(result.findings) };
+  }
+  if (result.resultType === 'source-review-agent-context' && result.canReview) return {
+    state: 'review', do: null, read: ['reviewGuide', 'citationGuide', 'sources', 'clarifications', 'artifact', 'reportTemplate', 'stagingProtocol'],
+    said: 'Perform the independent review now. Read pinned source text files with native file tools; their 1-based lines are citation lines. Stage, check, repair the changed packet within the bounded budget, then retain. Do not stop at a repairable packet error or invent coverage.' };
+  if (result.resultType === 'source-review-check') {
+    if (result.repair?.status === 'reload-context') return withRoute({ state: 'next', do: null,
+      read: ['repair'], said: result.repair.instruction }, result.continuation?.nextAction);
+    if (result.retentionReady) return withRoute({ state: 'retain', do: null,
+      read: ['repair', 'evaluation'], said: 'Packet valid: retain it now, including honest correction-required findings. Retention is not approval.' }, result.continuation?.nextAction);
+    return { state: 'correct', do: null, read: ['repair', 'findings', 'stagingProtocol'],
+      said: 'Repair this staged packet now using exact citation fields and pinned text, then check the changed packet. At most two changed-packet repair attempts; never retry unchanged bytes or invent coverage.',
       ...correctionList(result.findings) };
   }
   const action = genericAction(result);
@@ -225,17 +240,18 @@ export function observeAgentLoop(root, result, act, { now = Date.now() } = {}) {
 }
 
 /** Write a long text as its own line-readable file; the full JSON keeps a reference to it. */
-async function externalize(value, directory, base, trail, written) {
-  if (typeof value === 'string' && bytes(value) > LARGE_TEXT_BYTES) {
+async function externalize(value, directory, base, trail, written, reviewSources = false) {
+  const citationText = reviewSources && trail.length === 3 && trail[0] === 'sources' && trail[2] === 'text';
+  if (typeof value === 'string' && (citationText || bytes(value) > LARGE_TEXT_BYTES)) {
     const file = path.join(directory, `${base}.${trail.join('.').replace(/[^A-Za-z0-9_.-]/gu, '_').slice(0, 80)}.txt`);
     await writeAtomic(file, value, { mode: 0o600 });
     const entry = { textFile: file, bytes: bytes(value), lines: value.split('\n').length, sha256: sha256(value) };
     written.push({ field: trail.join('.'), ...entry });
     return entry;
   }
-  if (Array.isArray(value)) return Promise.all(value.map((child, index) => externalize(child, directory, base, [...trail, String(index)], written)));
+  if (Array.isArray(value)) return Promise.all(value.map((child, index) => externalize(child, directory, base, [...trail, String(index)], written, reviewSources)));
   if (!value || typeof value !== 'object') return value;
-  const entries = await Promise.all(Object.entries(value).map(async ([key, child]) => [key, await externalize(child, directory, base, [...trail, key], written)]));
+  const entries = await Promise.all(Object.entries(value).map(async ([key, child]) => [key, await externalize(child, directory, base, [...trail, key], written, reviewSources)]));
   return Object.fromEntries(entries);
 }
 
@@ -352,12 +368,16 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
   const whole = agentJson(ordered);
   const { catalogAgentView } = await import('./agent-catalog-presentation.mjs');
   const catalog = catalogAgentView(ordered);
-  if ((!catalog && bytes(whole) <= budget) || !locate()) return `${whole}\n`;
+  // JSON packet lines are not source citation lines. Keep exact bytes once in a native-readable
+  // file even for short review sources, rather than duplicating them as numbered prompt text.
+  const reviewSources = ['source-review-agent-context', 'source-review-context'].includes(result.resultType)
+    && result.canReview && Array.isArray(result.sources) && result.sources.length > 0;
+  if ((!catalog && !reviewSources && bytes(whole) <= budget) || !locate()) return `${whole}\n`;
   const target = locate();
   const kind = String(result.resultType ?? (result.error ? 'refusal' : 'result')).replace(/[^A-Za-z0-9-]/gu, '-').slice(0, 48);
   const base = `${kind}-${now.toISOString().replace(/[:.]/gu, '-')}-${sha256(whole).slice(7, 15)}`;
   const texts = [];
-  const full = await externalize(ordered, target.directory, base, [], texts);
+  const full = await externalize(ordered, target.directory, base, [], texts, reviewSources);
   const fullText = `${JSON.stringify(full, null, 2)}\n`;
   const file = path.join(target.directory, `${base}.json`);
   await writeAtomic(file, fullText, { mode: 0o600 });

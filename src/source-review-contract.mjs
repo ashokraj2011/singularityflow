@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { derivePlannedClaimMap, extractClauses, FULFILLMENT_TYPES } from './specifications.mjs';
+import { sourceReviewScenarioIds } from './source-grounded-review.mjs';
 
 const id = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/u);
 const text = (maximum = 4096) => z.string().trim().min(1).max(maximum);
@@ -97,4 +98,68 @@ export function sourceReviewReportTemplate(input) {
     sourcesReviewed: input.sources.map((source) => source.id),
     ...(input.clarifications?.length ? { clarificationsReviewed: [] } : {}), rows, findings: []
   };
+}
+
+/** Citation mechanics only: never infer coverage, rewrite quotes, or make reviewer judgments. */
+export function sourceReviewCitationGuide(input) {
+  let clauses = {};
+  if (input.kind === 'specification') {
+    try { clauses = { clauseIds: extractClauses(input.artifact.text, { sourcePath: input.artifact.path }).map(clause => clause.id) }; }
+    catch (error) { clauses = { clauseInventoryError: error.message }; }
+  }
+  return {
+    lineBasis: '1-based lines of sources[].text, not the JSON packet, original attachment, artifact or clarification record. In the agent view, read each source textFile with the native file tool; its line numbers are citation line numbers.',
+    quoteRule: 'Copy an exact non-empty substring of that single line, at most 1024 characters. Do not paraphrase, normalize whitespace, include a line-number prefix, or combine lines.',
+    ...(input.kind === 'specification' ? {
+      scenarioIds: [...sourceReviewScenarioIds(input.artifact.text)],
+      ...clauses,
+      mappingRule: 'Independently map every scenario and clause, including scenarios refined by pinned answers. Reuse a source line only when it genuinely supports that scenario. Acknowledge the clarification ID separately. If unsupported, retain a blocking finding instead of inventing coverage.'
+    } : {})
+  };
+}
+
+/** Bounded proposals bound to the already checked input/report; no bytes or assessments change. */
+export function sourceReviewRepairGuide(report, input, checked) {
+  if (checked.evaluation?.status === 'stale') return {
+    status: 'reload-context', instruction: 'Inputs changed. Read a fresh context and independently review it; do not transplant citations or judgments from the stale packet.',
+    citations: [], mappingTasks: []
+  };
+  const sources = new Map(input.sources.map(source => [source.id, source]));
+  const candidates = (checked.findings ?? []).filter(entry => ['citation-line-invalid', 'citation-quote-invalid'].includes(entry.code));
+  const citations = candidates.slice(0, 25).map(entry => {
+    const match = /^(rows|findings)\[(\d+)\]$/u.exec(entry.field ?? '');
+    const row = match ? report?.[match[1]]?.[Number(match[2])] : null;
+    const source = sources.get(entry.sourceId);
+    const lines = source.text.split(/\r?\n/u);
+    const quote = row?.quote;
+    const validQuote = typeof quote === 'string' && Boolean(quote.trim()) && quote.length <= 1024;
+    const matches = [];
+    let matchCount = 0;
+    if (validQuote) for (let index = 0; index < lines.length; index++) {
+      if (lines[index].includes(quote)) {
+        matchCount++;
+        if (matches.length < 10) matches.push(index + 1);
+      }
+    }
+    const current = Number.isSafeInteger(row?.line) ? lines[row.line - 1] : undefined;
+    return { field: entry.field, sourceId: source.id, textSha256: checked.evaluation.binding.sources.find(bound => bound.id === source.id).textSha256,
+      matchCount, matchingLines: matches,
+      ...(matchCount === 1 ? { proposedEdit: { field: `${entry.field}.line`, value: matches[0] },
+        instruction: 'The unchanged quote occurs on one exact pinned source line. Verify it, change only this line field, then check the changed packet.' }
+        : { instruction: matchCount > 1
+          ? 'The quote occurs on multiple lines. Independently select the supporting line; no automatic choice is safe.'
+          : 'No exact single-line match. Read the pinned source and independently recite it; no paraphrase or fuzzy replacement is allowed.' }),
+      ...(current !== undefined ? { suppliedLineText: current.slice(0, 1024), suppliedLineTruncated: current.length > 1024 } : {}) };
+  });
+  const mappingTasks = (checked.evaluation?.findings ?? []).filter(entry => [
+    'scenario-unmapped', 'clause-unmapped', 'source-unmapped', 'source-statement-unmapped', 'source-statements-unmapped', 'clause-unreviewed'
+  ].includes(entry.code));
+  return { status: checked.retentionReady ? 'retain' : 'repair-packet',
+    reportSha256: checked.evaluation?.reportSha256 ?? null,
+    instruction: checked.retentionReady
+      ? 'Retain this valid packet, including honest semantic gaps. Correction-required is not a packet failure or approval; the retained review routes real gaps to the author.'
+      : 'Repair this private packet in the same review turn, then check it. At most two changed-packet repair attempts; never retry unchanged bytes. Preserve binding, sources, judgments and human decisions.',
+    citations, omittedCitations: Math.max(0, candidates.length - citations.length),
+    mappingTasks: mappingTasks.slice(0, 25), omittedMappingTasks: Math.max(0, mappingTasks.length - 25),
+    mappingRule: 'Add a covered row only when the pinned source genuinely supports the scenario/clause, reconciling pinned answers. Otherwise retain a blocking finding; an unmapped scenario alone does not prevent retention. Never mark a gap supported to pass.' };
 }

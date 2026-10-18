@@ -18,7 +18,7 @@ import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
 import { effectiveDocumentMimeType, extractSourceText, isTextualSource } from './source-text.mjs';
 import { evaluateSourceGroundedReview, sourceReviewBinding } from './source-grounded-review.mjs';
-import { sourceReviewReportSchema, sourceReviewReportTemplate, validateSourceReviewReport } from './source-review-contract.mjs';
+import { sourceReviewReportSchema, sourceReviewReportTemplate, validateSourceReviewReport, sourceReviewCitationGuide, sourceReviewRepairGuide } from './source-review-contract.mjs';
 import { ensureSecureRepositoryDirectory, exists, nowIso, posix, run, secureRepositoryPath, SingularityFlowError, writeJson } from './util.mjs';
 
 const REVIEW_AGENT = 'sflow-source-reviewer';
@@ -678,6 +678,7 @@ export async function sourceReviewContext(root, config, workflow, phaseId, stagi
     ...(input.unreadableSources?.length ? { unreadableSources: input.unreadableSources } : {}),
     artifact: hashView(input.artifact, input.binding.artifact),
     ...(input.upstreamSpec ? { upstreamSpec: hashView(input.upstreamSpec, input.binding.upstreamSpec) } : {}),
+    citationGuide: sourceReviewCitationGuide(input),
     reportSchema: sourceReviewReportSchema(input.kind), reportTemplate, stagingPath,
     stagingProtocol: !conflict && stagingPath
       ? (await import('./source-review-staging.mjs')).sourceReviewStagingProtocol(phaseId, stagingPath) : null
@@ -716,10 +717,11 @@ export function checkSourceReviewReport(report, input) {
     'review-finding-invalid', 'review-findings-invalid', 'sources-reviewed-invalid', 'sources-not-all-reviewed',
     'clarifications-reviewed-invalid', 'clarifications-not-all-reviewed']);
   const bindingAndCitationFindings = evaluation?.findings.filter((entry) => invalid.has(entry.code) || entry.code === 'review-binding-stale') ?? [];
-  return { format, evaluation,
+  const checked = { format, evaluation,
     retentionReady: format.status === 'ready' && evaluation.status !== 'stale' && !bindingAndCitationFindings.length,
     findings: [...format.findings, ...bindingAndCitationFindings],
     disclaimer: 'This read-only check grants no reviewer provenance, human disposition, phase submission or approval.' };
+  return { ...checked, repair: sourceReviewRepairGuide(report, input, checked) };
 }
 
 /** Validate reviewer session provenance before an immutable sidecar is written. */

@@ -18,7 +18,7 @@ import { SingularityFlowError } from './util.mjs';
  */
 const FIRST_FIELDS = ['schemaVersion', 'resultType', 'paused', 'personalization', 'ready', 'repositoryPath', 'workItemRoot',
   'workId', 'story', 'phase', 'phaseStatus', 'generation', 'kind', 'canReview', 'status', 'reason', 'continuation', 'recovery',
-  'reviewGuide', 'bindingPath', 'reportTemplate', 'stagingPath', 'stagingProtocol', 'authorAgentId', 'requiredReviewerAgentId',
+  'reviewGuide', 'citationGuide', 'bindingPath', 'reportTemplate', 'stagingPath', 'stagingProtocol', 'authorAgentId', 'requiredReviewerAgentId',
   'reviewer', 'clarifications', 'clarificationGuidance', 'unreadableSources', 'sources', 'upstreamSpec', 'artifact', 'reportSchema'];
 
 /** Lossless review projection: one authoritative binding, no duplicated inventory. */
@@ -35,10 +35,10 @@ export function compactSourceReviewContext(packet, binding) {
       role: packet.canReview
         ? 'You are this operation\'s reviewer: activation is automatic, so act under reviewer.instructions yourself in this conversation; no other agent, setup or selection is needed. Do the whole review now: fill reportTemplate, stage it at stagingPath, check it, then retain it. This packet is complete: a bounded copy lists omittedFields with their line ranges in agentOutput.path; read those ranges with your file tool before concluding anything is missing.'
         : 'No review can be prepared here; relay continuation.actions and stop.',
-      readOrder: ['reviewer.instructions', 'clarifications', 'sources', 'upstreamSpec', 'artifact', 'reportTemplate', 'reportSchema'],
+      readOrder: ['reviewer.instructions', 'clarifications', 'citationGuide', 'sources', 'upstreamSpec', 'artifact', 'reportTemplate', 'reportSchema'],
       exactTexts: true, bindingCopies: packet.reportTemplate ? 1 : 0,
       verification: 'Specification: assess declared verification intent against pinned source obligations, not tool availability. Planning: preserve approved methods and exact verificationCriterion; primary visual/inspection proof is not a test exemption. A real omitted-test exemption still needs a pending human disposition. Neither a contract nor file presence establishes a visual pass.',
-      next: 'Start from reportTemplate; preserve binding/metadata and supply independent assessments/citations. Use stagingProtocol: exact file-edit staging or the standalone kernel stage command, then check and retain. Read captured output with native file-read tools, not shell parsers. Do not enumerate JSON keys or reread inventories; exact material is already in this packet.' } };
+      next: 'Start from reportTemplate; preserve binding/metadata and supply independent assessments/citations. Read the exact source text files; their 1-based lines, not packet JSON lines, are citation lines. Use citationGuide to check all scenarios/clauses. Stage, check, repair format/citations using repair hints in this turn (at most two changed packets), then retain when retentionReady, even with honest semantic gaps. Use stagingProtocol; native file-read tools, not shell parsers or duplicate inventories.' } };
   const ordered = {};
   for (const key of FIRST_FIELDS) if (Object.hasOwn(merged, key)) ordered[key] = merged[key];
   for (const [key, value] of Object.entries(merged)) if (!Object.hasOwn(ordered, key)) ordered[key] = value;

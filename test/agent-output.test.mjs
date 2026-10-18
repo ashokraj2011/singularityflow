@@ -7,7 +7,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -57,6 +57,52 @@ test('a returned confirmation becomes an ask with its exact value, and its Copil
   assert.equal(act.ask.value, digest);
   assert.match(act.ask.how, /ask the person in this chat, and only on an explicit yes run do\.shell once/u);
   assert.ok(act.do.copilot.includes(digest), act.do.copilot);
+});
+
+test('source-review checks distinguish packet repair from retaining genuine reviewer findings', () => {
+  assert.equal(agentAct({ resultType: 'source-review-agent-context', canReview: true }).state, 'review');
+  const invalid = agentAct({ resultType: 'source-review-check', retentionReady: false,
+    repair: { status: 'repair-packet' }, findings: [{ code: 'citation-line-invalid', field: 'rows[0]' }] });
+  assert.equal(invalid.state, 'correct');
+  assert.equal(invalid.do, null, 'do not recheck unchanged bytes automatically');
+  assert.ok(invalid.read.includes('repair'));
+  const refused = agentAct({ error: { code: 'SOURCE_REVIEW_REPORT_INVALID', details: {
+    repair: { status: 'repair-packet' } } }, remediationPlan: { steps: [{ command: 'singularity-flow doctor --json' }] } });
+  assert.equal(refused.state, 'correct');
+  assert.equal(refused.do, null, 'stage refusal cannot replace packet correction with generic diagnostics');
+  assert.ok(refused.read.includes('error.details.repair'));
+  const valid = agentAct({ resultType: 'source-review-check', retentionReady: true,
+    status: 'correction-required', continuation: { nextAction: {
+      command: 'singularity-flow review-source submit specification --report-file /private/review.json --json', skill: '/sf-review-source'
+    } } });
+  assert.equal(valid.state, 'retain');
+  assert.match(valid.do.copilot, /^\/sf-review-source submit specification/u);
+  assert.match(valid.said, /not approval/u);
+  const stale = agentAct({ resultType: 'source-review-check', retentionReady: false,
+    repair: { status: 'reload-context', instruction: 'Inputs changed.' }, continuation: { nextAction: {
+      command: 'singularity-flow review-source context specification --json', skill: '/sf-review-source'
+    } } });
+  assert.equal(stale.state, 'next');
+  assert.match(stale.do.shell, /context specification/u);
+});
+
+test('even short pinned review sources get exact line-readable files, not JSON line-number citations', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-source-lines-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const source = '# Converter\r\nAdd a converter.\r\n\r\nProvide screenshot and testcases.\r\n';
+  const result = { resultType: 'source-review-agent-context', workId: 'CONVERTER', canReview: true,
+    sources: [{ id: 'story', path: 'USER-STORY.md', text: source }] };
+  const output = await boundedAgentOutput(JSON.stringify(result), { cwd: root });
+  assert.ok(Buffer.byteLength(output) <= DEFAULT_AGENT_OUTPUT_BYTES);
+  const view = JSON.parse(output);
+  assert.equal(view.act.state, 'review');
+  const full = JSON.parse(await readFile(view.agentOutput.path, 'utf8'));
+  const sourceFile = full.sources[0].text;
+  assert.equal(await readFile(sourceFile.textFile, 'utf8'), source, 'do not normalize or prefix pinned bytes');
+  assert.equal(sourceFile.lines, 5);
+  assert.ok(path.relative(await realpath(root), sourceFile.textFile).startsWith('.git'));
+  assert.ok(view.omittedFields.find(entry => entry.field === 'sources').textFiles[0].path === sourceFile.textFile);
 });
 
 test('a composed step reads its result whole; only the command a person or agent ran is bounded', () => {

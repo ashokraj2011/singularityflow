@@ -244,6 +244,10 @@ test('future recovery formats and invalid runtime references preserve all bytes'
   f.current.runtimeRoots = {};
   await f.save();
   await assert.rejects(f.clean({ apply: true }), /runtime references/u);
+  f.current.runtimeRoots = { copilot: null };
+  f.current.activation = { operationId: '../unrecognized' };
+  await f.save();
+  await assert.rejects(f.clean({ apply: true }), /activation reference/u);
   assert.equal(await exists(path.join(old.directory, 'npm-cache', 'bytes')), true);
 });
 

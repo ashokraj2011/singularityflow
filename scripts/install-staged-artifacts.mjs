@@ -1013,6 +1013,10 @@ export async function cleanupInstallationStorage({
     }
     const current = await optionalJson(path.join(installations, 'current.json'), 'current installation receipt');
     if (current && ![1, 2].includes(current.schemaVersion)) fail('unsupported current installation receipt; cleanup preserved all bytes.');
+    if (current?.activation != null && (typeof current.activation !== 'object'
+        || !OPERATION_ID.test(current.activation.operationId ?? ''))) {
+      fail('current activation reference is invalid; cleanup preserved all bytes.');
+    }
     if (current?.schemaVersion === 2) {
       if (!current.artifacts || typeof current.artifacts !== 'object' || Array.isArray(current.artifacts)
           || !Object.hasOwn(current.artifacts, 'tarball') || !Object.hasOwn(current.artifacts, 'vsix')) {

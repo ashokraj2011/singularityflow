@@ -128,9 +128,15 @@ export async function captureMutationTurn(payload, record, {
     // A verified native Copilot turn may be rooted in the canonical workspace while its Story
     // lives in a linked checkout. Tell only that launch folder's window, never every open window.
     const follow = await import('./copilot-story-follow.mjs');
-    if (follow.copilotStoryFollowSkill(record.skill)) await follow.recordCopilotStoryFollow({
-      originPath: payload.cwd, repositoryPath: root, workId: value.contract.workId
-    }).catch(() => {});
+    if (follow.copilotStoryFollowSkill(record.skill)) {
+      const copilot = await (await import('./session.mjs')).loadCopilotSession(root).catch(() => null);
+      // An accepted checkout alone is not this conversation's selection. Do not follow another
+      // chat's retained session, a branch candidate, or a workspace-only selection gate.
+      if (copilot?.sessionId === record.sessionId && copilot.workId === value.contract.workId
+          && copilot.workItemSelectionRequired === false) await follow.recordCopilotStoryFollow({
+        originPath: payload.cwd, repositoryPath: root, workId: value.contract.workId
+      }).catch(() => {});
+    }
     const presented = mutationContractPresentation(value.contract);
     return { additionalContext: [
       `SFlow turn boundary (${value.skill}): ${presented.summary}`,

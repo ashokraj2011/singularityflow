@@ -16,6 +16,7 @@ import YAML from 'yaml';
 import { resolveWorkType } from '../src/config.mjs';
 import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
 import { readCopilotStoryFollow } from '../src/copilot-story-follow.mjs';
+import { recordCopilotSession } from '../src/session.mjs';
 
 async function fixture(t, phaseOverrides = {}) {
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'sflow-pmc-'));
@@ -114,6 +115,17 @@ test('native Copilot binds its launch window to the accepted Story without chang
   const payload = { cwd: origin, sessionId: 'follow-window', prompt: '/sf-phase' };
   const capture = (value, record) => captureMutationTurn(value, record, {
     resolveRoot: async () => f.root, load: async () => f.accepted
+  });
+  for (const record of [null,
+    { sessionId: 'another-window', workId: 'PMC-1', workItemSelectionRequired: false },
+    { sessionId: payload.sessionId, workId: 'PMC-1', workItemSelectionRequired: true },
+    { sessionId: payload.sessionId, workId: 'OTHER-1', workItemSelectionRequired: false }]) {
+    if (record) await recordCopilotSession(f.root, record);
+    await recordRepositoryBoundaryTurn(payload, { captureMutation: capture });
+    assert.equal(await readCopilotStoryFollow(origin), null, 'a candidate or another chat cannot select this window');
+  }
+  await recordCopilotSession(f.root, {
+    sessionId: payload.sessionId, workId: 'PMC-1', workItemSelectionRequired: false
   });
   const result = await recordRepositoryBoundaryTurn(payload, { captureMutation: capture });
   assert.match(result.additionalContext, /SFlow turn boundary/);

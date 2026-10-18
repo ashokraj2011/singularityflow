@@ -106,6 +106,25 @@ export async function canonicalFilesystemPath(
     : canonical;
 }
 
+/**
+ * The entries that name `target`, an already canonical path, through any of their paths. Intake
+ * and Copilot hand over canonical checkouts, while the registry or a window can name the same
+ * directory through a symlink: the macOS /var → /private/var temporary root, or a linked folder.
+ */
+export async function entriesAtCanonicalPath<T>(
+  entries: readonly T[],
+  target: string,
+  pathsOf: (entry: T) => readonly (string | null | undefined)[]
+): Promise<T[]> {
+  const matches = await Promise.all(entries.map(async (entry) => {
+    for (const candidate of pathsOf(entry)) {
+      if (candidate && await canonicalFilesystemPath(candidate) === target) return true;
+    }
+    return false;
+  }));
+  return entries.filter((_entry, index) => matches[index]);
+}
+
 export async function repositoryRefreshTargetForPath(
   repositoryPath: string,
   workspacePath: string | null,

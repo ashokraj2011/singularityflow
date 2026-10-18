@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
-  canonicalFilesystemPath, gitRepositoryComparisonKey, repositoryRefreshCommand, repositoryRefreshTargetForPath,
-  repositoryRefreshTargets, sameGitRepository
+  canonicalFilesystemPath, entriesAtCanonicalPath, gitRepositoryComparisonKey, repositoryRefreshCommand,
+  repositoryRefreshTargetForPath, repositoryRefreshTargets, sameGitRepository
 } = await import(path.join(root, 'apps/vscode/src/repository-refresh-model.ts'));
 
 const workspace = { id: 'payments', name: 'Payments', path: '/work/payments', anchorKey: 'PAY' };
@@ -208,6 +208,29 @@ test('a local refresh handoff compares filesystem identity instead of symlink sp
     actualRepository, actualWorkspace, [{ workspace: { ...workspace, path: workspaceAlias }, status: aliasedStatus }]
   );
   assert.equal(result?.repositoryPath, repositoryAlias);
+});
+
+test('open folders and registry rows match a canonical checkout through any symlink spelling', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-entries-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const actual = path.join(root, 'projects', 'ledger');
+  const other = path.join(root, 'projects', 'other');
+  const linkedProjects = path.join(root, 'linked-projects');
+  await mkdir(actual, { recursive: true });
+  await mkdir(other, { recursive: true });
+  await symlink(path.join(root, 'projects'), linkedProjects, process.platform === 'win32' ? 'junction' : 'dir');
+  const target = await canonicalFilesystemPath(actual);
+  const rows = [
+    { id: 'aliased', paths: [path.join(linkedProjects, 'ledger')] },
+    { id: 'second-path', paths: [null, other, `${actual}${path.sep}.`] },
+    { id: 'elsewhere', paths: [other, undefined] },
+    { id: 'missing', paths: [path.join(root, 'projects', 'missing')] }
+  ];
+  assert.deepEqual(
+    (await entriesAtCanonicalPath(rows, target, (row) => row.paths)).map((row) => row.id),
+    ['aliased', 'second-path']
+  );
+  assert.deepEqual(await entriesAtCanonicalPath([], target, () => [actual]), []);
 });
 
 test('canonical repository matching treats equivalent Windows path spelling as one checkout', async () => {

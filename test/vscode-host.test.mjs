@@ -6436,6 +6436,9 @@ test('a verified Copilot Story binding from this window\'s launch folder rebinds
   assert.equal(windowValues.get('singularityFlow.executionRoot'), storyRoot,
     'the window binding moves to the verified Story checkout');
   const rebinds = () => registered.output.filter((line) => String(line).startsWith(`Repository: ${storyRoot} (`)).length;
+  // The shared selection callback announces the rebind only after its screens refresh, which is
+  // after Lifecycle already shows the Story.
+  await until(() => rebinds() || null, { what: 'the shared selection callback to announce the rebind' });
   assert.equal(rebinds(), 1, 'every repository-bound screen was re-pointed through the shared selection callback');
   assert.equal(registered.executedCommands.some((entry) => entry.id === 'vscode.openFolder'), false,
     'the Story checkout is already open in this window, so it rebinds in place');

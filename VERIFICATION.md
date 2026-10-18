@@ -88,6 +88,43 @@ The current packaged diagnostic tutorials are `sflow explain diagnostics-and-reg
 - VS Code labels say “agent” only for software execution contracts;
   people are shown as contributors, reviewers, and authority members.
 
+## Windows and OneDrive (needs a real Windows machine with OneDrive)
+
+The OneDrive folder rules are unit-tested with Windows paths on every platform. These points have not
+been observed on Windows yet, so the Git-read placeholder check (`SINGULARITY_FLOW_GIT_STORAGE_CHECK`)
+stays off on Windows unless set to `always`:
+
+- **Placeholder signal.** In libuv 1.51 (Node 22), `lstat` of a file whose reparse point is not a link
+  (a cloud placeholder) is retried as `stat`: `CreateFileW(FILE_READ_ATTRIBUTES,
+  FILE_FLAG_BACKUP_SEMANTICS)` without `FILE_FLAG_OPEN_REPARSE_POINT`, and `blocks` is
+  `AllocationSize >> 9`. Confirm, for an online-only file in OneDrive (cloud icon), that
+  `node -e "const s=require('fs').lstatSync(process.argv[1]);console.log(s.isFile(),s.size,s.blocks)" <file>`
+  prints `true <size> 0`, and that afterwards the file is still online-only (`attrib <file>` still
+  shows the online-only state and Explorer still shows the cloud icon): the stat must not download it.
+- **Local files are not mistaken for placeholders.** NTFS keeps files of up to about 700 bytes inside the
+  MFT record. Confirm that a downloaded small file (for example a repository's `.git/HEAD`, and a
+  "Always keep on this device" file) reports `blocks > 0`. If it reports 0, every small loose object
+  and ref would count as a placeholder and the check would read them all on every command.
+- **OneDrive not running.** With OneDrive quit, record what `lstat` and a one-byte read of an online-only
+  file do (error code and how long they take). A read is expected to fail rather than wait
+  (`ERROR_CLOUD_FILE_PROVIDER_NOT_RUNNING`); `unreadableGitFiles` skips a file whose `lstat` throws.
+- **Forced check end to end.** In a repository inside OneDrive with "Free up space" applied to `.git`,
+  run `session candidates` with `SINGULARITY_FLOW_GIT_STORAGE_CHECK=always`: it should find the
+  placeholders, download them within 15 s, and continue, or refuse with `GIT_STORAGE_UNAVAILABLE` naming
+  the OneDrive folder.
+- **Registry read.** `reg query HKCU\Software\Microsoft\OneDrive\Accounts /s /v UserFolder` and
+  `reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"` are read
+  with a 3 s bound during workspace creation and `workspace doctor`. Confirm the output layout the parser
+  expects (four-space separated name, type, value) and how a folder name with non-ASCII characters (for
+  example "OneDrive - Société") comes through: a garbled name only means that account's folder is not
+  recognised; the environment variables still are.
+- **Creation refusal.** With Known Folder Move on, `sflow workspace create --local --id x --lead app
+  --repository app=<URL> --base "$([Environment]::GetFolderPath('MyDocuments'))\ws" --dry-run` in
+  PowerShell, and the same folder in Git Bash (`--base "$(cygpath -u "$OneDriveCommercial")/Documents/ws"`),
+  refuses with `WORKSPACE_SYNCED_FOLDER` naming Documents; the default base under `%USERPROFILE%` is
+  accepted. Also note what is left at `%USERPROFILE%\Documents` (Git Bash's `~/Documents`) after the
+  move: it is not the redirected folder, so a workspace there is accepted as local.
+
 ## Release commands
 
 For a developer POC packaged-smoke check, run:

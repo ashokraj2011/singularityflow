@@ -270,6 +270,39 @@ document are still explicit governed actions.
 authoritative evidence. Jira and storage secrets entered in VS Code remain in
 `SecretStorage`; headless users provide the corresponding environment variables.
 
+### Keep workspaces out of synced folders
+
+Choose a `<workspace-base>` that no sync app manages. Git keeps each repository as thousands of small
+files under `.git` and rewrites them constantly. OneDrive and iCloud Drive replace uploaded files with
+online-only placeholders that Git must wait for, hold files open while uploading so Git cannot replace
+or delete them, and keep conflict copies when two changes meet.
+
+`workspace create`, `prepare`, `adopt` and `duplicate` therefore refuse (code `WORKSPACE_SYNCED_FOLDER`,
+and in `prepare` the preflight blocker `workspace.base.synced-folder`) a workspace or adopted clone in:
+
+- Windows: the OneDrive folders (`%OneDrive%`, `%OneDriveCommercial%`, `%OneDriveConsumer%`, and the
+  folder of every account Windows records for OneDrive). That includes Desktop, Documents and Pictures
+  when Known Folder Move has redirected them into OneDrive.
+- macOS: iCloud Drive, Desktop and Documents when iCloud's "Desktop & Documents Folders" is on, and
+  the File Provider folders under `~/Library/CloudStorage` (OneDrive, Google Drive, Dropbox, Box).
+
+The default base, `<home>/Singularity Workspaces` (or `SINGULARITY_FLOW_WORKSPACE_ROOT`), is not in any
+of them: Known Folder Move redirects only Desktop, Documents and Pictures, and iCloud only Desktop and
+Documents, so the home folder itself stays on the computer. `--dry-run` shows the same refusal.
+`--allow-synced-folder` creates the workspace there anyway, and `prepare` records that choice in its plan.
+
+`workspace status` and `workspace doctor` warn, without failing, about a workspace or repository that
+is already in a synced folder. A workspace cannot be moved, so the way out is a new one:
+
+```bash
+sflow workspace prepare <REPOSITORY-URL> --id payments --base "$HOME/Singularity Workspaces"
+# Open each Story in the new workspace from the remote (/sf-session, or sflow session attach <ID>), then:
+sflow workspace archive-status "<OLD-WORKSPACE>" --fetch
+sflow workspace archive "<OLD-WORKSPACE>" --confirm <WORKSPACE-ID>
+```
+
+Archive the old workspace only once `archive-status` reports nothing unpublished in it.
+
 ## Common commands
 
 ```bash

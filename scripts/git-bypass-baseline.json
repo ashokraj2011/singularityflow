@@ -948,9 +948,9 @@
     },
     "src/git-storage-availability.mjs": {
       "counts": {
-        "command-runCommand": 1
+        "command-runCommand": 2
       },
-      "digest": "088f68bb668a134c46792d33e326fc8380c8e9ea018ed6939e7133ffa178338e"
+      "digest": "65978f722e522281730d89da29fc64371130f8071296d29eaaebd00a9c8a1bd4"
     },
     "src/git.mjs": {
       "counts": {

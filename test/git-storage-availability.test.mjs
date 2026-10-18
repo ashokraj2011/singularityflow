@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { mkdtemp, rename, rm, truncate, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm, symlink, truncate, writeFile } from 'node:fs/promises';
 import { lstatSync, realpathSync } from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
-  cloudSyncedFolder, downloadGitFiles, gitStorageUnavailable, locateGitDirectories,
-  resetGitStorageAvailability, unreadableGitFiles
+  cloudSyncedFolder, downloadGitFiles, gitStorageUnavailable, iCloudSyncedHomeFolders, localWorkspaceBase,
+  locateGitDirectories, parseRegistryQuery, resetGitStorageAvailability, syncedFolderAdvice, syncedFolderOf,
+  syncedFolderRefusal, syncedFolderWarning, syncedLocations, unreadableGitFiles, windowsSyncedLocations
 } from '../src/git-storage-availability.mjs';
 import { runRemoteGitAsync } from '../src/git-execution.mjs';
 
@@ -200,3 +201,144 @@ test('a Git child is ended when the process that started it is stopped', { skip:
   assert.equal(alive, false, 'the detached Git process group did not outlive its parent');
 });
 
+
+// Windows: what the OneDrive client and Known Folder Move leave behind on an office laptop.
+const windowsHome = 'C:\\Users\\someone';
+const business = 'C:\\Users\\someone\\OneDrive - Contoso';
+const windows = (extra = {}) => ({
+  platform: 'win32', homeDirectory: windowsHome,
+  env: { OneDriveCommercial: business, OneDriveConsumer: 'C:\\Users\\someone\\OneDrive', USERPROFILE: windowsHome },
+  ...extra
+});
+
+test('Windows: a path inside any OneDrive folder is synced, whatever its case or separators', () => {
+  const facts = windows();
+  for (const target of [
+    `${business}\\work\\repo`, 'c:/users/SOMEONE/onedrive - contoso/work', `${business}\\`, business,
+    '\\\\?\\C:\\Users\\someone\\OneDrive - Contoso\\repo'
+  ]) assert.deepEqual(syncedFolderOf(target, facts), { folder: business, provider: 'OneDrive', knownFolder: null }, target);
+  assert.equal(syncedFolderOf('C:\\Users\\someone\\OneDrive\\notes', facts).folder, 'C:\\Users\\someone\\OneDrive');
+  // Only the folders themselves: a sibling that starts with the same letters is local, and so is home.
+  assert.equal(syncedFolderOf('C:\\Users\\someone\\OneDrive - Contoso Archive\\repo', facts), null);
+  assert.equal(syncedFolderOf('C:\\Users\\someone\\Singularity Workspaces\\payments', facts), null);
+  assert.equal(syncedFolderOf('D:\\work\\repo', facts), null);
+  // A copied environment keeps whatever case Windows reported the name in.
+  assert.equal(syncedFolderOf(`${business}\\repo`, windows({ env: { ONEDRIVE: business } })).folder, business);
+  assert.equal(syncedFolderOf(`${business}\\repo`, windows({ env: { OneDrive: 'relative\\path' } })), null);
+  // Folders the registry knows about count too: a second business account sets no variable.
+  const second = 'C:\\Users\\someone\\OneDrive - Fabrikam';
+  assert.equal(syncedFolderOf(`${second}\\repo`, windows({ oneDriveFolders: [second] })).folder, second);
+  // The same rules hold without OneDrive's variables on a machine that has none.
+  assert.equal(syncedFolderOf(`${business}\\repo`, windows({ env: {} })), null);
+});
+
+test('Windows: Desktop and Documents moved into OneDrive are named as Known Folders', () => {
+  const documents = `${business}\\Documents`;
+  const facts = windows({ knownFolders: { Documents: documents, Desktop: `${business}\\Desktop`, Pictures: 'C:\\Users\\someone\\Pictures' } });
+  assert.deepEqual(syncedFolderOf(`${documents}\\code\\payments`, facts), { folder: documents, provider: 'OneDrive', knownFolder: 'Documents' });
+  assert.equal(syncedFolderOf(`${business}\\Desktop\\x`, facts).knownFolder, 'Desktop');
+  // A Known Folder Known Folder Move did not redirect stays local.
+  assert.equal(syncedFolderOf('C:\\Users\\someone\\Pictures\\repo', facts), null);
+  assert.equal(syncedFolderOf(`${business}\\Projects\\repo`, facts).knownFolder, null);
+});
+
+test('macOS: iCloud Drive, CloudStorage providers, and Desktop and Documents only when iCloud syncs them', () => {
+  const home = '/Users/someone';
+  const synced = { platform: 'darwin', homeDirectory: home, env: {}, iCloudHomeFolders: ['Desktop', 'Documents'] };
+  assert.deepEqual(syncedFolderOf('/Users/someone/Documents/code/repo', synced), { folder: '/Users/someone/Documents', provider: 'iCloud Drive', knownFolder: 'Documents' });
+  assert.equal(syncedFolderOf('/Users/someone/documents/code', synced).folder, '/Users/someone/Documents', 'APFS ignores case by default');
+  assert.equal(syncedFolderOf('/Users/someone/DocumentsArchive/repo', synced), null);
+  assert.equal(syncedFolderOf('/Users/someone/Documents/repo', { ...synced, iCloudHomeFolders: [] }), null);
+  assert.equal(syncedFolderOf('/Users/someone/Library/Mobile Documents/com~apple~CloudDocs/repo', synced).provider, 'iCloud Drive');
+  assert.deepEqual(syncedFolderOf('/Users/someone/Library/CloudStorage/OneDrive-Contoso/repo', synced),
+    { folder: '/Users/someone/Library/CloudStorage/OneDrive-Contoso', provider: 'OneDrive', knownFolder: null });
+  assert.equal(syncedFolderOf('/Users/someone/Library/CloudStorage/GoogleDrive-someone@example.test/My Drive/r', synced).provider, 'Google Drive');
+  assert.equal(syncedFolderOf('/Users/someone/Singularity Workspaces/payments', synced), null);
+  assert.equal(syncedFolderOf('/home/someone/Documents/repo', { platform: 'linux', homeDirectory: '/home/someone', env: {} }), null);
+});
+
+test('macOS: Desktop and Documents sync when iCloud links them into iCloud Drive', { skip: !posix }, async (t) => {
+  // The real path: macOS keeps temporary folders under /var, a link to /private/var.
+  const home = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'sflow-icloud-home-')));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  assert.deepEqual(iCloudSyncedHomeFolders(home), [], 'no iCloud Drive at all');
+  const drive = path.join(home, 'Library', 'Mobile Documents', 'com~apple~CloudDocs');
+  await mkdir(path.join(home, 'Documents'), { recursive: true });
+  await mkdir(path.join(drive, 'Desktop'), { recursive: true });
+  await symlink(path.join(home, 'Documents'), path.join(drive, 'Documents'));
+  assert.deepEqual(iCloudSyncedHomeFolders(home), ['Documents'], 'a real folder in iCloud Drive is what stays behind when the option is off');
+  const denied = () => { throw Object.assign(new Error('denied'), { code: 'EPERM' }); };
+  assert.deepEqual(iCloudSyncedHomeFolders(home, { lstat: denied }), ['Desktop', 'Documents'], 'unexaminable counts as synced');
+  // A link into a synced folder puts Git there too, and so does a folder that does not exist yet.
+  const facts = { platform: process.platform, homeDirectory: home, env: {}, iCloudHomeFolders: ['Documents'] };
+  await symlink(path.join(home, 'Documents'), path.join(home, 'code'));
+  if (process.platform === 'darwin') {
+    const [found] = syncedLocations([{ subject: 'workspace', path: path.join(home, 'code', 'later', 'demo') }], { facts });
+    assert.equal(found?.knownFolder, 'Documents');
+    assert.deepEqual(syncedLocations([{ subject: 'workspace', path: path.join(home, 'local', 'demo') }], { facts }), []);
+  }
+});
+
+test('Windows registry answers are parsed, expanded, and never required', () => {
+  const accounts = [
+    '', 'HKEY_CURRENT_USER\\Software\\Microsoft\\OneDrive\\Accounts\\Business1',
+    '    UserFolder    REG_SZ    C:\\Users\\someone\\OneDrive - Contoso', '',
+    'HKEY_CURRENT_USER\\Software\\Microsoft\\OneDrive\\Accounts\\Personal',
+    '    UserFolder    REG_SZ    C:\\Users\\someone\\OneDrive', '', 'End of search: 2 match(es) found.', ''
+  ].join('\r\n');
+  const shellFolders = [
+    'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders',
+    '    Desktop    REG_EXPAND_SZ    %USERPROFILE%\\OneDrive - Contoso\\Desktop',
+    '    Personal    REG_EXPAND_SZ    C:\\Users\\someone\\OneDrive - Contoso\\Documents',
+    '    My Pictures    REG_EXPAND_SZ    %USERPROFILE%\\Pictures',
+    '    Favorites    REG_EXPAND_SZ    %USERPROFILE%\\Favorites'
+  ].join('\r\n');
+  assert.deepEqual(parseRegistryQuery(accounts).map((row) => row.value), ['C:\\Users\\someone\\OneDrive - Contoso', 'C:\\Users\\someone\\OneDrive']);
+  assert.equal(parseRegistryQuery(shellFolders).find((row) => row.name === 'My Pictures').type, 'REG_EXPAND_SZ');
+  const calls = [];
+  const runCommand = (command, args) => {
+    calls.push([command, ...args]);
+    return { status: 0, stdout: args.includes('/s') ? accounts : shellFolders };
+  };
+  const found = windowsSyncedLocations({ env: { USERPROFILE: windowsHome, SystemRoot: 'C:\\WINDOWS' }, runCommand });
+  assert.deepEqual(found, {
+    oneDriveFolders: ['C:\\Users\\someone\\OneDrive - Contoso', 'C:\\Users\\someone\\OneDrive'],
+    knownFolders: { Desktop: `${business}\\Desktop`, Documents: `${business}\\Documents`, Pictures: 'C:\\Users\\someone\\Pictures' }
+  });
+  assert.equal(calls[0][0], 'C:\\WINDOWS\\System32\\reg.exe', 'reg.exe is named in full, not looked up on PATH');
+  assert.deepEqual(windowsSyncedLocations({ runCommand: () => ({ status: 1, stdout: '' }) }), { oneDriveFolders: [], knownFolders: {} });
+  assert.deepEqual(windowsSyncedLocations({ runCommand: () => { throw new Error('spawn failed'); } }), { oneDriveFolders: [], knownFolders: {} });
+});
+
+test('the refusal names the folder, why Git breaks there, where to go instead, and the override', () => {
+  const facts = windows({ knownFolders: { Documents: `${business}\\Documents` } });
+  const found = syncedLocations([{ subject: 'workspace', path: `${business}\\Documents\\ws\\payments` }], { facts });
+  const error = syncedFolderRefusal(found, facts);
+  assert.equal(error.code, 'WORKSPACE_SYNCED_FOLDER');
+  assert.match(error.message, /is in Documents \(C:\\Users\\someone\\OneDrive - Contoso\\Documents\), which OneDrive syncs/);
+  assert.match(error.message, /online-only\s+placeholders/);
+  assert.match(error.message, /holds files open while it uploads/);
+  assert.match(error.message, /conflict copy/);
+  assert.match(error.message, /under C:\\Users\\someone\\Singularity Workspaces instead/);
+  assert.match(error.message, /Known Folder Move redirects only Desktop, Documents and Pictures/);
+  assert.match(error.message, /add --allow-synced-folder\.$/);
+  assert.equal(error.details.suggestedBase, 'C:\\Users\\someone\\Singularity Workspaces');
+  // The configured root is suggested unless it is synced itself.
+  assert.equal(localWorkspaceBase({ ...facts, env: { ...facts.env, SINGULARITY_FLOW_WORKSPACE_ROOT: 'D:\\Workspaces' } }), 'D:\\Workspaces');
+  assert.equal(localWorkspaceBase({ ...facts, env: { ...facts.env, SINGULARITY_FLOW_WORKSPACE_ROOT: `${business}\\ws` } }),
+    'C:\\Users\\someone\\Singularity Workspaces');
+  const mac = { platform: 'darwin', homeDirectory: '/Users/someone', env: {}, iCloudHomeFolders: ['Documents'] };
+  const clone = syncedFolderAdvice([{ subject: 'repository', path: '/Users/someone/Documents/app', ...syncedFolderOf('/Users/someone/Documents/app', mac) }], mac);
+  assert.match(clone.remedy, /^Clone the repository again under \/Users\/someone\/Singularity Workspaces/);
+  assert.match(clone.remedy, /iCloud syncs only Desktop and Documents/);
+  const warning = syncedFolderWarning(found[0], { workspacePath: `${business}\\Documents\\ws\\payments`, confirmation: 'payments' }, facts);
+  assert.match(warning, /workspace archive-status "C:\\Users\\someone\\OneDrive - Contoso\\Documents\\ws\\payments" --fetch/);
+  assert.match(warning, /workspace archive "[^"]+" --confirm payments for this one\.$/);
+});
+
+test('the Git-read check stays opt-in on Windows and names the OneDrive folder when forced on', () => {
+  const facts = windows();
+  assert.equal(cloudSyncedFolder(`${business}\\repo\\.git`, facts), null);
+  assert.equal(cloudSyncedFolder(`${business}\\repo\\.git`, { ...facts, env: { ...facts.env, SINGULARITY_FLOW_GIT_STORAGE_CHECK: 'always' } }), business);
+  assert.equal(cloudSyncedFolder('D:\\repo\\.git', { ...facts, env: { ...facts.env, SINGULARITY_FLOW_GIT_STORAGE_CHECK: 'always' } }), '');
+});

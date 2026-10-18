@@ -13,9 +13,9 @@ import {
 import { workspaceRegistryFile } from './workspace-context.mjs';
 import {
   atomicJson, createWorkspaceConfiguration, previewWorkspaceConfiguration, readWorkspace,
-  rehydrateWorkspaceCapabilityValidation, rememberWorkspace,
-  validateWorkspaceCapabilityRegistration, workspaceRemoteCapabilities, workspaceRepositoryPath,
-  workspaceStatus
+  readWorkspaceRegistry, rehydrateWorkspaceCapabilityValidation, rememberWorkspace,
+  syncedFolderWarnings, validateWorkspaceCapabilityRegistration, workspaceRemoteCapabilities,
+  workspaceRepositoryPath, workspaceStatus
 } from './workspace.mjs';
 import { gitWorkerCount, mapLimit, removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
@@ -542,7 +542,8 @@ function probeCredentialFree(url) {
 }
 
 function planFromInput(input, {
-  initialize = false, stateBranch = 'state', inferDefaultRepositories = [], checkout = true
+  initialize = false, stateBranch = 'state', inferDefaultRepositories = [], checkout = true,
+  allowSyncedFolder = false
 } = {}) {
   const { createInput, preview } = normalizeCreateInput(input);
   return {
@@ -567,7 +568,9 @@ function planFromInput(input, {
     createInput,
     inferDefaultRepositories: [...new Set(inferDefaultRepositories)],
     initialization: { enabled: initialize === true, stateBranch: String(stateBranch || 'state') },
-    checkout: { enabled: checkout === true }
+    checkout: { enabled: checkout === true },
+    // Recorded only when a person chose a synced folder anyway, so earlier plans hash unchanged.
+    ...(allowSyncedFolder === true ? { storage: { allowSyncedFolder: true } } : {})
   };
 }
 
@@ -577,7 +580,8 @@ export async function prepareWorkspaceBootstrap({
   initialize = false,
   stateBranch = 'state',
   inferDefaultRepositories = [],
-  checkout = true
+  checkout = true,
+  allowSyncedFolder = false
 }, { env = process.env, home = os.homedir(), runCommand = run } = {}) {
   if (initialize && !checkout) {
     throw new SingularityFlowError('State initialization requires an application checkout. Use --clone with --initialize, or initialize when work starts.', {
@@ -586,7 +590,9 @@ export async function prepareWorkspaceBootstrap({
   }
   const root = workspaceBootstrapRoot(env, home);
   await assertStateRoot(root);
-  const plan = planFromInput(createInput, { initialize, stateBranch, inferDefaultRepositories, checkout });
+  const plan = planFromInput(createInput, {
+    initialize, stateBranch, inferDefaultRepositories, checkout, allowSyncedFolder
+  });
   const bootstrapId = `bst_${randomUUID()}`;
   const createdAt = nowIso();
   const record = await writeSession(root, {
@@ -878,6 +884,28 @@ async function machinePreflight(plan, { env = process.env, home = os.homedir(), 
     checks.push({ id: 'workspace-target', status: 'pass', observed: 'absent' });
   }
 
+  // A synced folder blocks setup unless the plan records that a person chose it anyway.
+  const storage = await import('./git-storage-availability.mjs');
+  const facts = storage.syncedFolderFacts({ env, homeDirectory: home, registry: true, runCommand });
+  const synced = storage.syncedLocations([{ subject: 'workspace', path: target }], { facts });
+  const syncedAllowed = plan.storage?.allowSyncedFolder === true;
+  checks.push({
+    id: 'workspace-storage', status: !synced.length ? 'pass' : syncedAllowed ? 'warn' : 'fail',
+    observed: synced[0] ? { folder: synced[0].folder, provider: synced[0].provider } : 'local'
+  });
+  if (synced.length) {
+    const advice = storage.syncedFolderAdvice(synced, facts);
+    findings.push(finding({
+      id: 'workspace.base.synced-folder', scope: 'workspace', severity: syncedAllowed ? 'warning' : 'blocker',
+      classification: 'cloud-synced-folder',
+      // The whole remedy is in the message: VS Code's setup panel shows a blocker's message only.
+      message: syncedAllowed ? advice.message : `${advice.message} ${advice.remedy}`,
+      action: syncedAllowed ? `This plan was prepared with ${storage.SYNCED_FOLDER_OVERRIDE}.`
+        : `Prepare the workspace again with --base "${storage.localWorkspaceBase(facts)}".`,
+      evidence: { folder: synced[0].folder, provider: synced[0].provider, knownFolder: synced[0].knownFolder }
+    }));
+  }
+
   let availableBytes = null;
   try {
     const disk = await statfs(ancestor);
@@ -923,7 +951,8 @@ function rebuiltPlan(plan, branchUpdates) {
     initialize: plan.initialization.enabled,
     stateBranch: plan.initialization.stateBranch,
     inferDefaultRepositories: [],
-    checkout: plan.checkout?.enabled ?? true
+    checkout: plan.checkout?.enabled ?? true,
+    allowSyncedFolder: plan.storage?.allowSyncedFolder === true
   });
 }
 
@@ -1341,7 +1370,8 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
         clone: session.plan.checkout?.enabled ?? true,
         bootstrapId,
         env: gitEnv,
-        capabilityValidation
+        capabilityValidation,
+        allowSyncedFolder: session.plan.storage?.allowSyncedFolder === true
       });
       const journalPath = path.join(
         materialized.workspace.path, materialized.workspace.directories.logs, 'workspace-materialization.json'
@@ -1676,6 +1706,27 @@ export async function abandonWorkspaceBootstrap(bootstrapId, {
   });
 }
 
+/** Registered workspaces in cloud-synced folders, as warnings: they still work until a sync app interferes. */
+async function registeredSyncedFolderFindings({ env, home, runCommand }) {
+  const { syncedFolderFacts } = await import('./git-storage-availability.mjs');
+  const facts = syncedFolderFacts({ env, homeDirectory: home, registry: true, runCommand });
+  const findings = [];
+  for (const entry of await readWorkspaceRegistry(workspaceRegistryFile(env, home)).catch(() => [])) {
+    if (entry.archivedAt) continue;
+    const workspace = await readWorkspace(entry.path).catch(() => null);
+    if (!workspace) continue;
+    for (const warning of await syncedFolderWarnings(workspace, { facts })) {
+      findings.push(finding({
+        id: 'workspace.synced-folder', scope: 'workspace', severity: 'warning',
+        classification: 'cloud-synced-folder', repository: warning.repository ?? null,
+        message: `Workspace ${workspace.name}: ${warning.message}`, action: null,
+        evidence: { path: warning.path, folder: warning.folder, provider: warning.provider }
+      }));
+    }
+  }
+  return findings;
+}
+
 export async function workspaceBootstrapDoctor({
   network = false, repositoryUrls = [], env = process.env, home = os.homedir(),
   runCommand = run, runAsyncCommand = runRemoteGitAsync, signal = null
@@ -1702,6 +1753,7 @@ export async function workspaceBootstrapDoctor({
     initialization: { enabled: false }
   };
   const machine = await machinePreflight(synthetic, { env, home, runCommand });
+  machine.findings.push(...await registeredSyncedFolderFindings({ env, home, runCommand }));
   const remotes = [];
   let gitConfigurationFailure = null;
   if (network) {

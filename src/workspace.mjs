@@ -242,6 +242,29 @@ export function previewWorkspace({
   };
 }
 
+let gitStorageModule = null;
+const gitStorage = () => (gitStorageModule ??= import('./git-storage-availability.mjs'));
+
+/**
+ * Refuse a planned workspace whose Git data would live in a cloud-synced folder: its directory, or
+ * an adopted clone outside it. With `allowSyncedFolder` the folders are only recorded on the
+ * preview (`syncedFolders`), so a dry run shows them either way.
+ */
+export async function assertWorkspaceLocationLocal(preview, {
+  allowSyncedFolder = false, env = process.env, facts = null
+} = {}) {
+  const storage = await gitStorage();
+  const known = facts ?? storage.syncedFolderFacts({ env, registry: true });
+  const found = storage.syncedLocations([
+    { subject: 'workspace', path: preview.root },
+    ...preview.operations.filter((operation) => operation.adoption?.canonicalPath)
+      .map((operation) => ({ subject: 'repository', repository: operation.repository, path: operation.target }))
+  ], { facts: known });
+  if (found.length && !allowSyncedFolder) throw storage.syncedFolderRefusal(found, known);
+  if (found.length) preview.syncedFolders = found;
+  return found;
+}
+
 /**
  * Git's answer to a read an adoption or receipt proof rests on, or a refusal when it gave none.
  *
@@ -1052,7 +1075,7 @@ export function createWorkspaceConfiguration(options, settings = {}) {
  */
 export async function adoptWorkspaceConfiguration({
   cloneDirectory, id, name = null, baseDirectory, dirtyConfirmation = null
-}, { confirmation, dryRun = false } = {}) {
+}, { confirmation, dryRun = false, allowSyncedFolder = false } = {}) {
   const defaults = await workspaceRepositoryDefaults(cloneDirectory);
   const workspaceId = safeId(id, 'Workspace ID');
   const repository = {
@@ -1090,6 +1113,7 @@ export async function adoptWorkspaceConfiguration({
     preserved: ['existing-repository-bytes', 'branch', 'HEAD', 'worktree', 'remotes'],
     confirmation: workspaceId
   };
+  await assertWorkspaceLocationLocal(preview, { allowSyncedFolder });
   if (dryRun) return { plan, preview };
   if (defaults.adoption.dirty && dirtyConfirmation !== defaults.adoption.worktreeStatusHash) {
     throw new SingularityFlowError(
@@ -1097,7 +1121,7 @@ export async function adoptWorkspaceConfiguration({
       { code: 'WORKSPACE_ADOPTION_DIRTY_CONFIRMATION_REQUIRED', details: { plan } }
     );
   }
-  const created = await createWorkspaceConfiguration(input, { confirmation, clone: true });
+  const created = await createWorkspaceConfiguration(input, { confirmation, clone: true, allowSyncedFolder });
   return { ...created, plan };
 }
 
@@ -3878,10 +3902,13 @@ export async function createWorkspace(options, {
   capabilityValidation = null,
   env = process.env,
   cloneOperation = cloneIntoWorkspace,
-  adoptionOperation = verifyAdoptionOperation
+  adoptionOperation = verifyAdoptionOperation,
+  allowSyncedFolder = false
 } = {}) {
   const preview = previewWorkspace(options);
   const { root, manifest } = preview;
+  // Only a new workspace is refused; workspace status warns about one already there.
+  if (!(await stat(root).catch(() => null))) await assertWorkspaceLocationLocal(preview, { allowSyncedFolder, env });
   // Snapshot one office-safe Git environment for validation and every clone in this creation. Each
   // later CLI command takes a fresh snapshot, while repositories in this bounded wave share proxy,
   // CA, credential-helper and executable-isolation semantics without repeated config subprocesses.
@@ -4254,6 +4281,7 @@ export async function workspaceStatus(workspacePath, {
     conflictingRepository: repository.pathAlias.conflictingRepository,
     message: `${repository.error} Rename or move one checkout before using it.`
   })));
+  if (level !== 'readiness') warnings.push(...await syncedFolderWarnings(workspace, { env }));
   return {
     workspace,
     level,
@@ -4269,6 +4297,29 @@ export async function workspaceStatus(workspacePath, {
       stagedDocuments: staged.length
     }
   };
+}
+
+/**
+ * A workspace, or a repository outside it, that sits in a cloud-synced folder. Warned about, never
+ * refused: the workspace exists and its Stories are on the remote. No registry read, so status
+ * stays cheap; the environment names the OneDrive folders.
+ */
+export async function syncedFolderWarnings(workspace, { env = process.env, facts = null } = {}) {
+  const storage = await gitStorage();
+  const known = facts ?? storage.syncedFolderFacts({ env });
+  const found = storage.syncedLocations([
+    { subject: 'workspace', path: workspace.path },
+    ...Object.values(workspace.repositories ?? {}).map((repository) => ({
+      subject: 'repository', repository: repository.id, path: workspaceRepositoryPath(workspace, repository)
+    }))
+  ], { facts: known });
+  const workspaceFolder = found.find((entry) => entry.subject === 'workspace')?.folder;
+  return found.filter((entry) => entry.subject === 'workspace' || entry.folder !== workspaceFolder).map((entry) => ({
+    code: 'workspace-synced-folder',
+    ...(entry.repository ? { repository: entry.repository } : {}),
+    path: entry.path, folder: entry.folder, provider: entry.provider,
+    message: storage.syncedFolderWarning(entry, { workspacePath: workspace.path, confirmation: workspace.anchor.key }, known)
+  }));
 }
 
 async function assertInside(root, target) {

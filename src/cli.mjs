@@ -133,7 +133,7 @@ import { copyToClipboard } from './clipboard.mjs';
 import { epicCheckStory, epicReviewDecision, epicReviewStory, listEpicReviewInbox } from './epic-review.mjs';
 import { assertEpicCompletionAuthorized, completeEpicDelivery, epicCompletionAuthorizationStatus, epicDeliveryReadiness } from './epic-completion.mjs';
 import { currentLocalEpicReservation, reserveLocalEpicBranch, syncLocalEpicReservation } from './local-identity.mjs';
-import { adoptWorkspaceConfiguration, archiveWorkspace, changeWorkspaceCapability, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace, previewWorkspaceCapabilityChange, previewWorkspaceConfiguration, previewWorkspaceUpdate, readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace, duplicateWorkspaceConfiguration, isCloneTarget, stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteCapabilities, workspaceRemoteDefaults, workspaceRepositoryDefaults, workspaceArchiveReadiness, workspaceRepositoryPath, workspaceStatus } from './workspace.mjs';
+import { adoptWorkspaceConfiguration, archiveWorkspace, assertWorkspaceLocationLocal, changeWorkspaceCapability, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace, previewWorkspaceCapabilityChange, previewWorkspaceConfiguration, previewWorkspaceUpdate, readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace, duplicateWorkspaceConfiguration, isCloneTarget, stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteCapabilities, workspaceRemoteDefaults, workspaceRepositoryDefaults, workspaceArchiveReadiness, workspaceRepositoryPath, workspaceStatus } from './workspace.mjs';
 import { CONFIGURATION_BRANCH, loadStoryConfigurationSnapshot, resolveStoryConfigurationAuthority, withStoryConfigurationSnapshotRead } from './configuration-branch.mjs';
 import { fosStoryConfigurationAuthority, readFosAttachment } from './onboard.mjs';
 
@@ -9127,6 +9127,7 @@ function renderWorkspaceStatus(status) {
     { key: 'dirty', label: 'DIRTY' }
   ]));
   console.log(`Staged documents: ${status.counts.stagedDocuments} (not in a Story yet)`);
+  for (const warning of status.warnings ?? []) console.log(`Warning: ${warning.message}`);
 }
 
 function renderWorkspaceMaterialization(result) {
@@ -9370,7 +9371,8 @@ async function workspaceCommand(positionals, options) {
       ...input,
       initialize,
       checkout,
-      stateBranch: optionString(options, 'state-branch', 'state')
+      stateBranch: optionString(options, 'state-branch', 'state'),
+      allowSyncedFolder: optionBoolean(options, 'allow-synced-folder')
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(session, null, 2));
     renderWorkspaceBootstrap(session);
@@ -9426,7 +9428,7 @@ async function workspaceCommand(positionals, options) {
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Workspace reliability: ${result.healthy ? 'healthy' : 'needs attention'}`);
-    for (const item of result.machine.findings) console.log(`  ${item.severity}: ${item.message}`);
+    for (const item of result.machine.findings) console.log(`  ${item.severity}: ${item.message}${item.action ? `\n    ${item.action}` : ''}`);
     for (const item of result.remotes) {
       const subject = item.repository ?? item.remote;
       const branch = item.branch ? ` [${item.branch}]` : '';
@@ -9792,12 +9794,14 @@ async function workspaceCommand(positionals, options) {
           }]))
       };
       const localPreview = previewWorkspaceConfiguration(localInput);
+      const allowSyncedFolder = optionBoolean(options, 'allow-synced-folder');
+      await assertWorkspaceLocationLocal(localPreview, { allowSyncedFolder });
       if (optionBoolean(options, 'dry-run')) return console.log(JSON.stringify(localPreview, null, 2));
       let localResult;
       try {
         localResult = await createWorkspaceConfiguration(localInput, {
           confirmation: optionString(options, 'confirm'),
-          clone: optionBoolean(options, 'clone', false)
+          clone: optionBoolean(options, 'clone', false), allowSyncedFolder
         });
       } catch (error) {
         // A required clone can fail after the recoverable workspace shell and journal exist. Keep
@@ -9904,11 +9908,13 @@ async function workspaceCommand(positionals, options) {
       hierarchySnapshot: hierarchy
     };
     const preview = previewWorkspace(input);
+    const allowSyncedFolder = optionBoolean(options, 'allow-synced-folder');
+    await assertWorkspaceLocationLocal(preview, { allowSyncedFolder });
     if (optionBoolean(options, 'dry-run')) return console.log(JSON.stringify(preview, null, 2));
     const confirmation = optionString(options, 'confirm');
     let result;
     try {
-      result = await createWorkspace(input, { confirmation, clone: optionBoolean(options, 'clone', false) });
+      result = await createWorkspace(input, { confirmation, clone: optionBoolean(options, 'clone', false), allowSyncedFolder });
     } catch (error) {
       try {
         const retained = await readWorkspace(preview.root);
@@ -10162,7 +10168,8 @@ async function workspaceCommand(positionals, options) {
       dirtyConfirmation: optionString(options, 'confirm-dirty')
     }, {
       confirmation: optionString(options, 'confirm'),
-      dryRun: optionBoolean(options, 'dry-run')
+      dryRun: optionBoolean(options, 'dry-run'),
+      allowSyncedFolder: optionBoolean(options, 'allow-synced-folder')
     });
     if (!optionBoolean(options, 'dry-run')) {
       await rememberWorkspace(registry, result.workspace, result.status);
@@ -10191,7 +10198,7 @@ async function workspaceCommand(positionals, options) {
       id: newId,
       name: optionString(options, 'name'),
       baseDirectory: optionString(options, 'base')
-    }, { clone: optionBoolean(options, 'clone', false) });
+    }, { clone: optionBoolean(options, 'clone', false), allowSyncedFolder: optionBoolean(options, 'allow-synced-folder') });
     await rememberWorkspace(registry, copied.workspace, copied.status);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(copied, null, 2));
     console.log(`Workspace ${newId} copied from ${sourcePath} to ${copied.workspace.path}.`);

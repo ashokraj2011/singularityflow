@@ -513,6 +513,18 @@ const KNOWN = Object.freeze({
       ?? 'Download the repository folder and keep it downloaded, or move the workspace out of the synced folder.', null, 'remediation'),
     retry && step('retry-after-download', 'Once the folder is downloaded, run the same command again.', retry.command, 'diagnostic')];
   },
+  // A new workspace would keep Git in a cloud-synced folder: the same command under the local base.
+  WORKSPACE_SYNCED_FOLDER: (argv, error) => {
+    const base = error?.details?.suggestedBase;
+    const index = argv.indexOf('--base');
+    const clone = (error?.details?.locations ?? []).some((entry) => entry.subject === 'repository');
+    const local = base && !clone ? safeCommandGuidance({
+      argv: index >= 0 ? argv.map((entry, at) => (at === index + 1 ? base : entry)) : [...argv, '--base', base]
+    }) : null;
+    return [clone ? step('clone-outside-synced-folder', `Clone the repository again under ${base}, which is not synced, and adopt that clone.`, null, 'remediation')
+      : local && step('create-outside-synced-folder', `Create it under ${base}, which is not synced.`, local.command, 'remediation'),
+    step('allow-synced-folder', `Or keep the synced folder: run the same command with ${error?.details?.override ?? '--allow-synced-folder'}.`, null, 'remediation')];
+  },
   WORKFLOW_CONFIGURATION_MISSING: missingConfigurationSteps,
   PHASE_INPUTS_NOT_READY: upstreamInputSteps,
   SPECIFICATION_INDEX_UNTRUSTED: upstreamInputSteps,

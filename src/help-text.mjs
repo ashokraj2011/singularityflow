@@ -992,17 +992,18 @@ Usage:
   singularity-flow story finalize [--json]
   singularity-flow finalize [--json]
   singularity-flow workspace create --jira KEY --base DIRECTORY --lead REPOSITORY
-    --repository ID=URL [--repository ID=URL] [--confirm KEY] [--clone]
+    --repository ID=URL [--repository ID=URL] [--confirm KEY] [--clone] [--allow-synced-folder]
   singularity-flow workspace create --local --id ID [--name TEXT]
     --organisation LEAD-URL --capability ID [--capability ID] [--lead-capability ID]
-    [--base DIRECTORY] [--confirm ID] [--clone] [--dry-run]
+    [--base DIRECTORY] [--confirm ID] [--clone] [--dry-run] [--allow-synced-folder]
   singularity-flow workspace create --local --id ID --lead REPOSITORY --repository ID=URL
-    [--base DIRECTORY] [--confirm ID] [--clone]           (no capability map yet)
+    [--base DIRECTORY] [--confirm ID] [--clone] [--allow-synced-folder]   (no capability map yet)
   singularity-flow workspace prepare <REMOTE-OR-MANIFEST> --id ID [--name TEXT] [--base DIRECTORY]
     [--branch BRANCH] [--repository-id ID] [--clone-mode full|blobless|blobless-sparse]
-    [--sparse-cone PATH]... [--clone-fallback refuse|full] [--clone] [--initialize] [--state-branch NAME] [--json]
+    [--sparse-cone PATH]... [--clone-fallback refuse|full] [--clone] [--initialize] [--state-branch NAME]
+    [--allow-synced-folder] [--json]
   singularity-flow workspace prepare <LEAD-URL> --id ID --capability ID...
-    [--lead-capability ID] [--base DIRECTORY] [--clone] [--initialize] [--json]
+    [--lead-capability ID] [--base DIRECTORY] [--clone] [--initialize] [--allow-synced-folder] [--json]
     (default: register approved repository paths without cloning application code;
      --clone checks out now; --initialize implies a checkout and initializes state)
   singularity-flow workspace bootstrap status [BOOTSTRAP-ID] [--json]
@@ -1034,10 +1035,10 @@ Usage:
   singularity-flow repositories select <SELECTION-REF> [--action inspect|copy-url] [--json]
   singularity-flow repositories cache status|clear [--json]
   singularity-flow workspace adopt <DIRECTORY> --id ID [--name TEXT] [--base DIRECTORY]
-    [--confirm-dirty SHA256] [--confirm ID] [--dry-run] [--json]
+    [--confirm-dirty SHA256] [--confirm ID] [--dry-run] [--allow-synced-folder] [--json]
   singularity-flow workspace capabilities <LEAD-URL> [--json]
   singularity-flow workspace duplicate <DIRECTORY> --id NEW-ID [--name TEXT] [--base DIRECTORY]
-    [--clone] [--json]
+    [--clone] [--allow-synced-folder] [--json]
   singularity-flow capability [tree] [--json]
   singularity-flow capability show [PATH] [--verbose] [--git-shadow] [--json]
   singularity-flow why [PATH] [--verbose] [--json]

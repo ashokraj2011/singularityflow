@@ -57,7 +57,7 @@ function completeRepository(root) {
  * claim and must `consume()` it once a durable Story commit exists, or `release()` it.
  */
 export async function admitStoryIntakeReceipt(root, id, {
-  inputs, workId, remote, baseBranch, configurationAuthority = null, now = Date.now()
+  inputs, workId, storyBranch = workId, remote, baseBranch, configurationAuthority = null, now = Date.now()
 }) {
   const claimed = await claimStoryIntakeReceipt(root, id, { inputs, now });
   if (claimed.status !== 'claimed') return claimed;
@@ -68,7 +68,7 @@ export async function admitStoryIntakeReceipt(root, id, {
     if (receipt.repositories.length !== 1) return refuse('capability');
     const [repository] = receipt.repositories;
     if (repository.remote !== remote || repository.baseBranch !== baseBranch
-        || repository.destinationRef !== `refs/heads/${workId}`
+        || repository.destinationRef !== `refs/heads/${storyBranch}`
         || receipt.authority.branch !== CONFIGURATION_BRANCH) return refuse('inputs');
     // A sealed onboarding pin is compatible only with this exact receipt authority. The pin remains
     // immutable; a newer intake catalog cannot silently replace it. The subsequent wave still
@@ -81,8 +81,8 @@ export async function admitStoryIntakeReceipt(root, id, {
       return refuse('configuration');
     }
     // These refs are read together, not memoized across the start's writes or across invocations.
-    const storyRef = `refs/heads/${workId}`;
-    const trackingStory = `refs/remotes/${remote}/${workId}`;
+    const storyRef = `refs/heads/${storyBranch}`;
+    const trackingStory = `refs/remotes/${remote}/${storyBranch}`;
     const baseRef = `refs/remotes/${remote}/${baseBranch}`;
     let refs;
     try {
@@ -120,11 +120,11 @@ export async function admitStoryIntakeReceipt(root, id, {
  * start stages reuse, or the reason to take the full path. The admission's claim is not settled here.
  */
 export async function verifyStoryIntakeWave(root, admission, {
-  workId, references = [], session = new GitRemoteSession({ cwd: root }), runGit = runRemoteGitAsync,
+  workId, storyBranch = workId, references = [], session = new GitRemoteSession({ cwd: root }), runGit = runRemoteGitAsync,
   now = () => Date.now()
 }) {
   const { receipt, repository } = admission;
-  const storyRef = `refs/heads/${workId}`;
+  const storyRef = `refs/heads/${storyBranch}`;
   const baseRef = `refs/heads/${repository.baseBranch}`;
   const stateRef = repository.state ? `refs/heads/${repository.state.branch}` : null;
   const authorityRefs = [`refs/heads/${CONFIGURATION_BRANCH}`, `refs/heads/${STATE_CONFIGURATION_BRANCH}`];

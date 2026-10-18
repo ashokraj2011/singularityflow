@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { assertStoryBranchNaming } from './story-branch-name.mjs';
 import { readConfigurationSource } from './configuration-source.mjs';
 import { validateTokenReportingPolicy } from './token-reporting-policy.mjs';
 import { normalizeSessionPolicy } from './session-policy.mjs';
@@ -960,6 +961,7 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   }
   definition.workItemRoot = normalizeWorkItemRoot(definition.workItemRoot);
   assertRelative(definition.templatesRoot, 'templatesRoot');
+  assertStoryBranchNaming(definition.git?.branchNaming);
   /**
    * The catalog, and then every reference against it. Existence is checked here rather than in
    * `assertTemplate` because a phase is validated before the file is necessarily whole — a

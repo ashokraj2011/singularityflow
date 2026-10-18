@@ -772,6 +772,12 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
   if (definition.name === 'start' || definition.name === 'story' && ['start', 'prepare-worktree'].includes(positionals[1])
       || definition.name === 'workspace' && positionals[1] === 'branches' && optionString(options, 'preflight-story')) {
     resolveOperation({ requestedCommand: requested, positionals, options });
+    // A new Story's branch follows the repository's naming pattern unless the person named one
+    // (--ref). Chosen before the checkout below, which is keyed by that branch.
+    const storyWorkId = definition.name === 'start' ? positionals[1]
+      : definition.name === 'workspace' ? optionString(options, 'preflight-story')
+        : positionals[1] === 'start' ? positionals[2] : optionString(options, 'work-id');
+    await withCommandTiming(timer, async () => (await import('./story-branch-name.mjs')).applyStoryBranchNaming(storyWorkId, options));
     const { automaticWorkspaceStoryCheckout, rebaseAutomaticStoryFiles, withAutomaticStoryCheckout } = await import('./workspace-story-checkout.mjs');
     automaticIntake = await withCommandTiming(timer, () => automaticWorkspaceStoryCheckout(definition.name, positionals, options));
     if (automaticIntake) {

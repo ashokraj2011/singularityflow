@@ -24,15 +24,16 @@ export async function prepareIntakeWorktree(root, workId, options) {
   const receipt = optionString(options, 'intake-receipt');
   const baseBranch = optionString(options, 'from-branch');
   const remote = optionString(options, 'remote', 'origin');
+  // The Story's branch: --ref when the person or the repository's pattern named one. The receipt binds it.
+  const storyBranch = optionString(options, 'ref', workId);
   if (!receipt || !baseBranch || optionStrings(options, 'from-branch').length !== 1
-      || optionString(options, 'ref', workId) !== workId
       || optionString(options, 'readiness-baseline', 'reuse') === 'run') {
     return { status: 'unavailable', reason: 'inputs' };
   }
   const references = parseReferenceRepositoryOptions(optionStrings(options, 'reference-repository'),
     optionStrings(options, 'reference-branch'));
   const admission = await admitStoryIntakeReceipt(root, receipt, {
-    workId, remote, baseBranch,
+    workId, storyBranch, remote, baseBranch,
     inputs: { workId, workType: optionString(options, 'work-type'), baseBranch, remote,
       capabilityId: optionString(options, 'capability') ?? null,
       readinessBaseline: optionString(options, 'readiness-baseline', 'reuse'),
@@ -45,7 +46,7 @@ export async function prepareIntakeWorktree(root, workId, options) {
     const baseCommit = admission.repository.baseCommit;
     const existing = await preparedStoryWorktreePath(root, workId, { baseCommit });
     if (existing) return { status: 'prepared', workId, baseCommit, owned: false };
-    const prepared = await prepareStoryWorktree(root, workId, { base: baseCommit });
+    const prepared = await prepareStoryWorktree(root, workId, { base: baseCommit, storyBranch });
     return { status: 'prepared', workId, baseCommit, owned: prepared.created };
   } finally { await admission.release(); }
 }
@@ -54,5 +55,5 @@ export async function discardIntakeWorktree(root, workId, options) {
   const baseCommit = optionString(options, 'prepared-base');
   if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(baseCommit ?? '')) throw new SingularityFlowError(
     'Prepared cleanup requires the exact initial base commit.', { code: 'STORY_WORKTREE_INVALID' });
-  return discardPreparedStoryWorktree(root, workId, { baseCommit });
+  return discardPreparedStoryWorktree(root, workId, { baseCommit, storyBranch: optionString(options, 'ref', workId) });
 }

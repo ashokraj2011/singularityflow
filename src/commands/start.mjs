@@ -177,7 +177,8 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
   ) : [];
   try {
     if (intakeReceiptId) {
-      if (!requestedBase || optionString(options, 'ref', id) !== id) intake.reason = 'inputs';
+      // The receipt binds the Story's branch (its destination ref); admission compares it with this one.
+      if (!requestedBase) intake.reason = 'inputs';
       else if (durableLocalStory) intake.reason = 'story-exists';
       else {
         const admission = await admitStoryIntakeReceipt(sourceRoot, intakeReceiptId, {
@@ -190,7 +191,7 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
             references: intakeReferences
               .map((request) => ({ id: request.id, url: request.repository, branch: request.requestedBranch }))
           },
-          workId: id, remote: requestedRemote, baseBranch: requestedBase,
+          workId: id, storyBranch: canonicalBranch, remote: requestedRemote, baseBranch: requestedBase,
           configurationAuthority: sealedConfiguration ? {
             remote: sealedConfiguration.authority.remote,
             branch: sealedConfiguration.authority.branch,
@@ -203,7 +204,7 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
           intakeAdmission = admission;
           const wave = await measureCommandSpan('start.intake-verification', () =>
             verifyStoryIntakeWave(sourceRoot, admission, {
-              workId: id, references: intakeReferences, session: intakeSession
+              workId: id, storyBranch: canonicalBranch, references: intakeReferences, session: intakeSession
             }));
           if (wave.ok) {
             intakeProof = wave.proof;
@@ -308,14 +309,14 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
     const preparedBase = optionString(options, 'prepared-base');
     if (!durableLocalStory && preparedBase && preparedBase !== launchBaseCommit && !baselineTarget) {
       const { discardPreparedStoryWorktree } = await import('../story-worktree.mjs');
-      const discarded = await discardPreparedStoryWorktree(sourceRoot, id, { baseCommit: preparedBase });
+      const discarded = await discardPreparedStoryWorktree(sourceRoot, id, { baseCommit: preparedBase, storyBranch: canonicalBranch });
       if (!['removed', 'absent'].includes(discarded.status)) throw new SingularityFlowError(
         'The prepared checkout changed; its files are preserved. Review it before starting on the new base.',
         { code: 'STORY_WORKTREE_RECOVERY_REQUIRED' });
     }
     const prepared = await measureCommandSpan('start.worktree', () =>
       prepareStoryWorktree(sourceRoot, id, {
-        base: durableLocalStory ? 'HEAD' : launchBaseCommit
+        base: durableLocalStory ? 'HEAD' : launchBaseCommit, storyBranch: canonicalBranch
       }));
     const previousDirectory = process.cwd();
     let result;

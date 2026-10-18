@@ -258,13 +258,16 @@ export async function preparedStoryWorktreePath(root, workId, { baseCommit = nul
 }
 
 /** Discard only the exact, unchanged, unpublished staging checkout. Never force or clean files. */
-export async function discardPreparedStoryWorktree(root, workId, { baseCommit } = {}) {
+export async function discardPreparedStoryWorktree(root, workId, { baseCommit, storyBranch = workId } = {}) {
   const id = portableId(workId);
   if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(baseCommit ?? '')) throw new SingularityFlowError(
     'Prepared cleanup requires an exact base commit.', { code: 'STORY_WORKTREE_INVALID' });
   // A caller-supplied commit is only a selection. Namespace, common directory, branch, actual
   // HEAD and dirty/ignored files are independently observed. A durable Story is never cleanup.
-  if (refExists(root, `refs/heads/${id}`)) return { status: 'retained', reason: 'story-exists' };
+  // The Story's branch need not be named after its ID (a naming pattern or a name the person gave).
+  if (refExists(root, `refs/heads/${id}`) || refExists(root, `refs/heads/${storyBranch}`)) {
+    return { status: 'retained', reason: 'story-exists' };
+  }
   const target = await preparedStoryWorktreePath(root, id, { baseCommit });
   if (!target) return { status: 'absent' };
   if (!storyWorktreeChanges(target).clean) return { status: 'retained', reason: 'worktree-changes' };
@@ -330,7 +333,7 @@ async function prepareStoryWorktreeInLease(root, workId, { base = 'HEAD', storyB
     });
     if (managedParent) {
       for (const entry of inventory) {
-        if (entry.branch !== id && !olderStagingName.test(entry.branch ?? '')) continue;
+        if (entry.branch !== id && entry.branch !== storyBranch && !olderStagingName.test(entry.branch ?? '')) continue;
         // An unrelated registered checkout can be stale or inaccessible. That is not evidence
         // that it owns this Story's legacy path; the target itself is still checked below.
         const existing = await realpath(entry.path).catch(() => null);
@@ -359,7 +362,7 @@ async function prepareStoryWorktreeInLease(root, workId, { base = 'HEAD', storyB
         { code: 'STORY_WORKTREE_RECOVERY_REQUIRED' }
       );
     }
-    if (registered.branch !== id && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(base)) {
+    if (registered.branch !== id && registered.branch !== storyBranch && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(base)) {
       // A prepared baseline/background checkout may outlive the selected base. Never silently
       // create a Story whose worktree contains the old tree while recording the new base.
       await preparedStoryWorktreePath(root, id, { baseCommit: base });
@@ -368,7 +371,7 @@ async function prepareStoryWorktreeInLease(root, workId, { base = 'HEAD', storyB
       schemaVersion: 1, workId: id, sourceRepository: path.resolve(root), repositoryPath: registered.path,
       stagingBranch: stagingBranches.includes(registered.branch) || provenOlderStage
         ? registered.branch : stagingBranch,
-      created: false, resumed: true, initialHead: registered.head, preparedAt: nowIso()
+      created: false, resumed: true, initialHead: registered.head, preparedAt: nowIso(), storyBranch
     };
   }
   const stagingExists = localRefHeads(root, stagingBranches.map(candidate => `refs/heads/${candidate}`)).size > 0;
@@ -392,7 +395,7 @@ async function prepareStoryWorktreeInLease(root, workId, { base = 'HEAD', storyB
     schemaVersion: 1, workId: id, sourceRepository: path.resolve(root), repositoryPath: target,
     stagingBranch, created: true, resumed: false,
     initialHead: run('git', ['rev-parse', '--verify', 'HEAD'], { cwd: target }).stdout.trim(),
-    preparedAt: nowIso()
+    preparedAt: nowIso(), storyBranch
   };
 }
 
@@ -411,8 +414,8 @@ export function completeStoryWorktree(prepared) {
   return { ...prepared, completedAt: nowIso(), cleanupPending: null };
 }
 
-function durableStoryWorkflowOnBranch(root, id) {
-  const definition = run('git', ['show', `${id}:singularity/workflow.yml`], {
+function durableStoryWorkflowOnBranch(root, id, storyBranch = id) {
+  const definition = run('git', ['show', `${storyBranch}:singularity/workflow.yml`], {
     cwd: root, allowFailure: true
   });
   let workItemRoot = DEFAULT_WORK_ITEM_ROOT;
@@ -426,7 +429,7 @@ function durableStoryWorkflowOnBranch(root, id) {
     }
   }
   return run('git', [
-    'cat-file', '-e', `${id}:${workItemWorkflowRelative(id, workItemRoot)}`
+    'cat-file', '-e', `${storyBranch}:${workItemWorkflowRelative(id, workItemRoot)}`
   ], { cwd: root, allowFailure: true }).status === 0;
 }
 
@@ -476,9 +479,11 @@ export function rollbackStoryWorktree(prepared, {
 } = {}) {
   const root = prepared.sourceRepository;
   const id = prepared.workId;
-  const workflowAtBranch = durableStoryWorkflowOnBranch(root, id);
+  // The branch the start was creating, which need not be named after the ID.
+  const storyBranch = prepared.storyBranch ?? id;
+  const workflowAtBranch = durableStoryWorkflowOnBranch(root, id, storyBranch);
   const published = remoteNames(root).some((remote) => (
-    refExists(root, `refs/remotes/${remote}/${id}`)
+    refExists(root, `refs/remotes/${remote}/${storyBranch}`)
   ));
   if (workflowAtBranch || published) {
     return { removed: false, retained: true, repositoryPath: prepared.repositoryPath };
@@ -527,7 +532,7 @@ export function rollbackStoryWorktree(prepared, {
     );
   }
   const cleanupPending = [];
-  for (const branch of new Set([id, prepared.stagingBranch].filter(Boolean))) {
+  for (const branch of new Set([storyBranch, prepared.stagingBranch].filter(Boolean))) {
     const branchRef = `refs/heads/${branch}`;
     const branchHead = run('git', ['rev-parse', '--verify', branchRef], {
       cwd: root, allowFailure: true

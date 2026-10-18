@@ -50,6 +50,8 @@ async function readAtRoot(options, root) {
   // already name those tips. Nothing is listed that resolution would not list.
   const intakeSession = new GitRemoteSession({ cwd: root });
   const unionStory = optionString(options, 'preflight-story');
+  // The Story's branch: the name the person gave or the repository pattern named (--ref), else its ID.
+  const unionStoryBranch = optionString(options, 'ref', unionStory);
   const unionBases = optionStrings(options, 'from-branch');
   let originTips = null;
   if (unionStory && unionBases.length === 1 && !unionBases[0].includes('=')) {
@@ -59,7 +61,7 @@ async function readAtRoot(options, root) {
       includeHead: false,
       refs: [
         `refs/heads/${CONFIGURATION_BRANCH}`, 'refs/heads/state',
-        `refs/heads/${unionBases[0]}`, `refs/heads/${unionStory}`
+        `refs/heads/${unionBases[0]}`, `refs/heads/${unionStoryBranch}`
       ]
     }).catch(() => null) : null;
     if (observation?.ok) originTips = { url: originUrl, observation };
@@ -126,6 +128,7 @@ async function readAtRoot(options, root) {
         workflowReason: null
       } : null;
     const storyId = optionString(options, 'preflight-story');
+    const storyBranch = optionString(options, 'ref', storyId);
     const selectedBaseValues = optionStrings(options, 'from-branch');
     // The editor already loaded the complete branch catalog before a person selected a base.
     // Its readiness request needs a fresh fetch of that selected base, not another all-heads
@@ -247,7 +250,7 @@ async function readAtRoot(options, root) {
       }
       const publishRequired = (definition.git?.publish ?? 'required') !== 'off';
       const repositories = await measureCommandSpan('intake.preflight.repositories', () => preflightStoryRepositories(
-        selected.workspaceRoot, selected.plan, storyId,
+        selected.workspaceRoot, selected.plan, storyBranch,
         {
           remote: selected.remote,
           publishRequired,
@@ -284,7 +287,7 @@ async function readAtRoot(options, root) {
       if (!approvedConfigurationSnapshot) {
         assertBaseCarriesGovernance(root, {
           config: definition,
-          branchName: storyId,
+          branchName: storyBranch,
           base: selected.localBase,
           remote: selected.remote,
           currentBranch: branch(root),
@@ -337,9 +340,9 @@ async function readAtRoot(options, root) {
         ) : [];
       preflight = {
         passed: readiness.ready,
-        storyBranch: storyId,
+        storyBranch,
         remote: selected.remote,
-        destinationRef: `refs/heads/${storyId}`,
+        destinationRef: `refs/heads/${storyBranch}`,
         repositories: repositories.map((entry) => ({
           repository: entry.repository,
           remote: entry.remote,
@@ -386,7 +389,8 @@ async function readAtRoot(options, root) {
       orphaned: catalog.orphaned ?? {},
       ...(catalog.localMetadata ? { localMetadata: catalog.localMetadata } : {}),
       preflight,
-      ...(existingWorkId ? { existingWork: await intakeExistingWork(root, existingWorkId, catalog) } : {}),
+      ...(existingWorkId ? { existingWork: await intakeExistingWork(root, existingWorkId, catalog,
+        existingWorkId === storyId ? storyBranch : existingWorkId) } : {}),
       ...(intake ? { intake: {
         ...intake,
         // With approved shared configuration the workflows are the same whichever base is chosen,
@@ -407,18 +411,18 @@ async function readAtRoot(options, root) {
 }
 
 /** Reuse this catalog's observations. Unread repositories mean unknown, never a new ID. */
-async function intakeExistingWork(root, workId, catalog) {
-  const localRef = `refs/heads/${workId}`;
+async function intakeExistingWork(root, workId, catalog, branchName = workId) {
+  const localRef = `refs/heads/${branchName}`;
   let local = null;
   if (refExists(root, localRef)) {
-    if (await durableLocalStoryOnBranch(root, workId, workId)) local = 'story';
+    if (await durableLocalStoryOnBranch(root, workId, branchName)) local = 'story';
     else if (fileAtRef(root, localRef, posix(path.join('singularity', 'seeds', `${workId}.yml`))) !== null) local = 'seed';
     else local = 'ungoverned';
   }
   const unread = new Set((catalog.unreachable ?? []).map((entry) => entry.repository));
   const publishedBy = (catalog.repositories ?? [])
     .filter((repository) => !unread.has(repository.id)
-      && (catalog.published?.[repository.id] ?? []).includes(workId))
+      && (catalog.published?.[repository.id] ?? []).includes(branchName))
     .map((repository) => repository.id);
   const status = local === 'story' ? 'local-story'
     : local === 'seed' ? 'local-seed'

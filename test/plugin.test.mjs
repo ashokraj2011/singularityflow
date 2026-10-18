@@ -1595,8 +1595,8 @@ test('plugin verification prefers modern flat inventories and verifies both inst
     `warning: ${path.join(fixture.targetRoot, 'personal-unrelated', 'SKILL.md')} has invalid frontmatter`
   ]);
   assert.deepEqual(directVerification, {
-    sourceRoot: fixture.sourceRoot,
-    targetRoot: fixture.targetRoot,
+    sourceRoot: process.platform === 'win32' ? fixture.sourceRoot.toLowerCase() : fixture.sourceRoot,
+    targetRoot: process.platform === 'win32' ? fixture.targetRoot.toLowerCase() : fixture.targetRoot,
     expectedNames: ['sf-about', 'sf-submit']
   });
   assert.deepEqual(calls.map((call) => call.args), [
@@ -1798,8 +1798,9 @@ test('plugin verification falls back to bounded legacy inventories only for unsu
     directSourceRoot: '/package/plugin/skills',
     env,
     verifyDirectContents: ({ sourceRoot, targetRoot, expectedNames }) => {
-      assert.equal(sourceRoot, '/package/plugin/skills');
-      assert.equal(targetRoot, '/users/test/.copilot/skills');
+      const normalize = value => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
+      assert.equal(sourceRoot, normalize('/package/plugin/skills'));
+      assert.equal(targetRoot, normalize('/users/test/.copilot/skills'));
       assert.deepEqual(expectedNames, ['sf-about', 'sf-submit']);
       return { verified: 2 };
     }

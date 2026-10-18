@@ -129,8 +129,8 @@ test('direct skill uninstall removes only Singularity-managed aliases', async ()
 test('Copilot skill directory supports an explicit corporate location', () => {
   assert.equal(
     copilotSkillsDirectory({ env: { SINGULARITY_FLOW_COPILOT_SKILLS_DIR: '/company/copilot/skills' }, homeDirectory: '/users/test' }),
-    '/company/copilot/skills'
+    path.resolve('/company/copilot/skills')
   );
-  assert.equal(copilotSkillsDirectory({ env: { COPILOT_HOME: '/company/copilot' }, homeDirectory: '/users/test' }), '/company/copilot/skills');
-  assert.equal(copilotSkillsDirectory({ env: {}, homeDirectory: '/users/test' }), '/users/test/.copilot/skills');
+  assert.equal(copilotSkillsDirectory({ env: { COPILOT_HOME: '/company/copilot' }, homeDirectory: '/users/test' }), path.resolve('/company/copilot/skills'));
+  assert.equal(copilotSkillsDirectory({ env: {}, homeDirectory: '/users/test' }), path.resolve('/users/test/.copilot/skills'));
 });

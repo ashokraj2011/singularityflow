@@ -5,12 +5,8 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const { phasePrepublishDecision } = await import(path.join(
-  root, 'apps/vscode/src/views/phase-prepublish.ts'
-));
-const { phaseGenerationChatPrefill } = await import(path.join(
-  root, 'apps/vscode/src/views/submission-presentation.ts'
-));
+const { phasePrepublishDecision } = await import(new URL('../apps/vscode/src/views/phase-prepublish.ts', import.meta.url));
+const { phaseGenerationChatPrefill } = await import(new URL('../apps/vscode/src/views/submission-presentation.ts', import.meta.url));
 
 const expected = { workId: 'STORY-1', phaseId: 'implementation' };
 const ready = {

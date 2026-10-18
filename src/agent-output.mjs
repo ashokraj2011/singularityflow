@@ -267,8 +267,9 @@ async function prune(directory) {
 
 function repositoryOf(result, cwd) {
   const candidate = typeof result.repositoryPath === 'string' && path.isAbsolute(result.repositoryPath) ? result.repositoryPath : cwd;
-  // Real paths on both sides, so a relative path survives /tmp → /private/tmp and similar links.
-  try { return { root: realpathSync(candidate), directory: path.join(realpathSync(gitDir(candidate)), 'singularity-flow', 'agent-results') }; }
+  // Native real paths also expand Windows 8.3 aliases (e.g. a short TEMP path versus Git's long
+  // path). Both sides must name the same physical root before computing a workspace-relative file.
+  try { return { root: realpathSync.native(candidate), directory: path.join(realpathSync.native(gitDir(candidate)), 'singularity-flow', 'agent-results') }; }
   catch { return null; }
 }
 

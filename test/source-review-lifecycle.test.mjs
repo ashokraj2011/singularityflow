@@ -32,7 +32,12 @@ const SPEC = `# Specification
 `;
 
 function sha(bytes) { return createHash('sha256').update(bytes).digest('hex'); }
-function git(root, ...args) { return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim(); }
+function git(root, ...args) {
+  // Production Git children already enable long paths. The raw fixture writer must do the same
+  // when committing deeply nested, hash-bound review decisions; no global configuration writes.
+  const flags = process.platform === 'win32' ? ['-c', 'core.longpaths=true'] : [];
+  return execFileSync('git', [...flags, ...args], { cwd: root, encoding: 'utf8' }).trim();
+}
 async function put(root, relative, data) {
   const file = path.join(root, relative);
   await mkdir(path.dirname(file), { recursive: true });

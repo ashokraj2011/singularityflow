@@ -110,7 +110,7 @@ async function fixture(t, { planningInputs = false, customPhase = null, clarific
   // into a human import and failed three of them.
   delete env.SINGULARITY_FLOW_NO_MODEL;
   const invoke = (...args) => spawnSync(process.execPath, [cli, ...args], {
-    cwd: root, env, encoding: 'utf8', timeout: 30_000
+    cwd: root, env, encoding: 'utf8', timeout: process.platform === 'win32' ? 180_000 : 30_000
   });
   return { root, workflow, config, invoke, env };
 }
@@ -495,7 +495,7 @@ test('nextsteps agent entry returns one verified binding without changing the cu
   assert.equal(packet.resultType, 'sflow-nextsteps');
   assert.equal(packet.ready, true);
   assert.equal(packet.phaseAgent.valid, true);
-  assert.equal(packet.repositoryPath, git(item.root, 'rev-parse', '--show-toplevel'));
+  assert.equal(await realpath(packet.repositoryPath), await realpath(git(item.root, 'rev-parse', '--show-toplevel')));
   assert.equal(packet.workItemRoot, 'team/stories');
   assert.equal(packet.actions.find(action => action.timing === 'now').copilotCommand, '/sf-phase');
   assert.equal(packet.actions.some(action => action.timing === 'then'), false);

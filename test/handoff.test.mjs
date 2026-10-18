@@ -107,7 +107,8 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
   assert.match(JSON.parse(started.stdout).additionalContext, /work-item selection is required/);
   const candidates = JSON.parse(flow(second, ['session', 'candidates', '--json']).stdout);
   assert.ok(candidates.some((item) => item.id === 'HAND-101' && item.phase === 'requirements'));
-  const discovered = JSON.parse(flow(second, ['session', 'candidates', '--json', '--diagnostics']).stdout);
+  // The listing above may be a cached advisory snapshot (36a721d9); force the remote check this proves.
+  const discovered = JSON.parse(flow(second, ['session', 'candidates', '--refresh', '--json', '--diagnostics']).stdout);
   assert.ok(discovered.items.some((item) => item.id === 'HAND-101'));
   const progress = discovered.items.find((item) => item.id === 'HAND-101').progress;
   assert.equal(progress.available, true);
@@ -308,9 +309,10 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
   assert.ok(separateDiscovery.items.some((item) => item.id === 'BOOT-101'));
   assert.equal(separateDiscovery.unavailable.some((entry) => entry.claimedId === 'BROKEN'), false);
   run('git', ['config', 'uploadpack.allowFilter', 'false'], delivery);
+  // A successful URL listing is a cached advisory snapshot; probing the remote again needs --refresh.
   const unsupportedDelivery = spawnSync(process.execPath, [
     bin, 'session', 'candidates', '--repository-url', pathToFileURL(delivery).href,
-    '--configuration-url', pathToFileURL(remote).href, '--json', '--diagnostics'
+    '--configuration-url', pathToFileURL(remote).href, '--refresh', '--json', '--diagnostics'
   ], { cwd: base, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
   assert.equal(unsupportedDelivery.status, 1);
   assert.match(unsupportedDelivery.stdout, /SESSION_REMOTE_FILTER_UNSUPPORTED/);
@@ -318,7 +320,7 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
   run('git', ['config', 'uploadpack.allowFilter', 'false'], remote);
   const unsupportedFilter = spawnSync(process.execPath, [
     bin, 'session', 'candidates', '--repository-url', pathToFileURL(remote).href,
-    '--json', '--diagnostics'
+    '--refresh', '--json', '--diagnostics'
   ], { cwd: base, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
   assert.equal(unsupportedFilter.status, 1);
   assert.match(unsupportedFilter.stdout, /SESSION_REMOTE_FILTER_UNSUPPORTED/);

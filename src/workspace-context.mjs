@@ -529,8 +529,9 @@ export async function activateWorkspaceStoryContext(
  * Resolve the checkout a lifecycle command must use.
  *
  * A linked Story worktree containing the caller wins so independent VS Code windows cannot steal
- * one another's Story. Otherwise the last explicitly attached checkout wins over the canonical
- * launch clone. A stale Story selection fails closed instead of silently routing to another Story.
+ * one another's Story, and so does a canonical clone already on a Story's branch. Otherwise the last
+ * explicitly attached checkout wins over a canonical clone without a Story. A stale Story selection
+ * fails closed instead of silently routing to another Story.
  */
 export async function resolveWorkspaceExecutionContext(
   selectionFile, registryFile, { cwd = process.cwd() } = {}

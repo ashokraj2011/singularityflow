@@ -101,6 +101,12 @@ This is a regression gate for new static sites. It catches direct Git calls, gen
 
 When the gate fails, inspect the reported file with `node scripts/git-bypass-audit.mjs --print-sites path/to/file`. Migrate the new call through GAL when possible. If a legacy site has deliberately changed or been removed, review its effect/trust owner and update the baseline from `--print-baseline` in the same change. Review the baseline diff rather than treating a regenerated digest as an automatic waiver. Adding a registered owner is an architectural decision, not a way to suppress a call-site failure.
 
+The missing-installation-receipt repair adds one reviewed shell process site in `install.sh`:
+`exec node` enters the product-only repair helper for a full, explicitly test-skipped install.
+It releases the normal activation lease before the helper reacquires the shared lease and
+rechecks receipt absence. This adds no Git lookup or workspace mutation; partial installs
+and active recovery are not widened or discarded. Build and artifact checks remain required.
+
 The Story-intake performance change extends the existing `test:platform:windows` Node test command
 with Git-fact invalidation and intake receipt/start suites. Its reviewed package-script digest changes
 only because those test paths are added; it adds no production Git owner or launcher.

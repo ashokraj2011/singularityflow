@@ -1312,7 +1312,8 @@ async function reinstallCommand(options) {
     confirmation,
     registry: optionString(options, 'registry'),
     cliOnly,
-    telemetry
+    telemetry,
+    skipTests: optionBoolean(options, 'skip-tests')
   });
   // No confirmation is a preview even when --dry-run was omitted. A local product uninstall must
   // never be the accidental result of forgetting a safety flag.

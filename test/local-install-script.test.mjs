@@ -238,7 +238,7 @@ test('single installer supports Artifactory without accepting credentials in URL
   assert.match(script, /https:/);
 });
 
-test('clean reinstall delegates before any Git requirement or repository operation', async () => {
+test('clean reinstall delegates skip-tests before any Git requirement or repository operation', async () => {
   const fixture = await mkdtemp(path.join(os.tmpdir(), 'sflow-clean-reinstall-script-'));
   const bin = path.join(fixture, 'bin');
   const log = path.join(fixture, 'commands.log');
@@ -249,7 +249,7 @@ test('clean reinstall delegates before any Git requirement or repository operati
     await chmod(file, 0o755);
   }
   const registry = 'https://artifacts.example.test/api/npm/npm-virtual/';
-  const result = spawnSync('bash', [path.join(root, 'install.sh'), '--clean-reinstall', '--registry', registry], {
+  const result = spawnSync('bash', [path.join(root, 'install.sh'), '--clean-reinstall', '--skip-tests', '--registry', registry], {
     cwd: fixture,
     encoding: 'utf8',
     env: { ...process.env, PATH: `${bin}:/bin:/usr/bin`, INSTALL_TEST_LOG: log }
@@ -260,6 +260,45 @@ test('clean reinstall delegates before any Git requirement or repository operati
   assert.match(commands, /node .*bin\/singularity-flow\.mjs reinstall --checkout/);
   assert.match(commands, new RegExp(`--registry ${registry.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.match(commands, /--dry-run/);
+  assert.match(commands, /--skip-tests/);
+});
+
+test('full skip-tests source install automatically hands missing receipt repair to the isolated product service', async t => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), 'sflow-missing-receipt-install-'));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  const bin = path.join(fixture, 'bin');
+  const log = path.join(fixture, 'commands.log');
+  await mkdir(bin, { recursive: true });
+  await mkdir(path.join(fixture, 'scripts'));
+  await mkdir(path.join(fixture, '.singularity-flow'));
+  const workspace = path.join(fixture, '.singularity-flow/workspaces.json');
+  await writeFile(workspace, 'preserve workspace registrations');
+  await copyFile(path.join(root, 'install.sh'), path.join(fixture, 'install.sh'));
+  await copyFile(path.join(root, 'scripts/install-staged-artifacts.mjs'), path.join(fixture, 'scripts/install-staged-artifacts.mjs'));
+  for (const name of ['git', 'npm', 'copilot', 'singularity-flow', 'node']) {
+    const file = path.join(bin, name);
+    const body = name === 'node' ? `
+if [[ "\${1:-}" == */repair-unreceipted-installation.mjs ]]; then
+  [[ ! -e "$HOME/.singularity-flow/installations/activation-current.json.lock" ]] || exit 92
+  exit 0
+fi
+exec ${JSON.stringify(process.execPath)} "$@"`
+      : name === 'npm' ? 'if [[ "$*" == "config get registry" ]]; then echo https://registry.npmjs.org/; fi'
+        : name === 'git' ? 'if [[ "$*" == "show -s --format=%ct HEAD" ]]; then echo 946684800; fi' : '';
+    await writeFile(file, `#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' "${name} $*" >> "$INSTALL_TEST_LOG"\n${body}\n`);
+    await chmod(file, 0o755);
+  }
+  const result = spawnSync('bash', [path.join(fixture, 'install.sh'), '--skip-tests', '--no-update'], {
+    cwd: fixture, encoding: 'utf8', env: { ...process.env, HOME: fixture,
+      PATH: `${bin}:/bin:/usr/bin`, INSTALL_TEST_LOG: log }
+  });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /switching to full product-only repair/);
+  const commands = await readFile(log, 'utf8');
+  assert.match(commands, /repair-unreceipted-installation\.mjs --checkout .* --registry .* --skip-tests/);
+  assert.match(commands, /npm run check/);
+  assert.doesNotMatch(commands, /npm (?:test|run test:|install --global)|code --install-extension|workspace refresh-configuration/);
+  assert.equal(await readFile(workspace, 'utf8'), 'preserve workspace registrations');
 });
 
 test('standalone install script executes the complete workflow with one invocation', async () => {
@@ -623,6 +662,8 @@ fi`;
   });
   assert.equal(recoveredUnstampedCandidate.status, 0,
     `${recoveredUnstampedCandidate.stdout}\n${recoveredUnstampedCandidate.stderr}`);
+  assert.equal(JSON.parse(await readFile(path.join(fixture, '.singularity-flow/installations/current.json'),
+    'utf8')).validation.tests, 'not-reexecuted-during-recovery');
 
   await writeFile(log, '');
   const skipped = spawnSync('bash', [
@@ -649,6 +690,8 @@ fi`;
   assert.match(skippedCommands, /npm run vscode:build/);
   assert.doesNotMatch(skippedCommands, /^npm test(?:\s|$)/m);
   assert.doesNotMatch(skippedCommands, /npm run test:cli/);
+  assert.equal(JSON.parse(await readFile(path.join(fixture, '.singularity-flow/installations/current.json'),
+    'utf8')).validation.tests, 'skipped-by-request');
 
   await writeFile(log, '');
   const largePackManifest = spawnSync('bash', [
@@ -1407,14 +1450,12 @@ test('fresh-install recovery reconstructs its validator before mutable helper co
     'working-tree helper bytes never execute');
 });
 
-test('--skip-tests is refused for destructive or isolated reinstall modes', () => {
-  for (const mode of ['--factory-reset', '--clean-reinstall']) {
-    const result = spawnSync('bash', [path.join(root, 'install.sh'), mode, '--skip-tests'], {
+test('--skip-tests remains refused for factory reset', () => {
+    const result = spawnSync('bash', [path.join(root, 'install.sh'), '--factory-reset', '--skip-tests'], {
       cwd: root, encoding: 'utf8'
     });
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /valid only for a normal non-destructive install/);
-  }
+    assert.match(result.stderr, /not supported by factory-reset/);
 });
 
 test('--vscode-only refuses overlapping product-surface modes', () => {

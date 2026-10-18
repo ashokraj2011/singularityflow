@@ -192,9 +192,9 @@
     },
     "install.sh": {
       "counts": {
-        "shell-process": 41
+        "shell-process": 42
       },
-      "digest": "57a6dded8f68eb7640a0699daf74f93042ecfd170c665860a8855f0d16ab661d"
+      "digest": "99c1ee6994a9b7885cb79195db7d58d3be6f78909960a3c39a4a7dc0b5afd1c2"
     },
     "plugin/extensions/documents/extension.mjs": {
       "counts": {

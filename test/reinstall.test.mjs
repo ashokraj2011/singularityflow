@@ -13,7 +13,8 @@ import {
   prepareLocalReinstall,
   reinstallSourceDigest,
   reinstallPlanText,
-  resolveReinstallPlan
+  resolveReinstallPlan,
+  repairMissingInstallationReceipt
 } from '../src/reinstall.mjs';
 import {
   VSIX_SOURCE_MANIFEST_ENV,
@@ -60,8 +61,9 @@ test('reinstall requires a valid Node 20 or newer runtime', () => {
   assert.throws(() => assertReinstallNodeVersion('unknown'), /Could not determine/);
 });
 
-async function fixture() {
+async function fixture(t = null) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-reinstall-test-'));
+  t?.after(() => fs.promises.rm(root, { recursive: true, force: true }));
   const checkout = path.join(root, 'checkout');
   const home = path.join(root, 'home');
   const temp = path.join(root, 'tmp');
@@ -252,6 +254,145 @@ test('reinstall preview renders reviewed values as argv rather than shell source
   const rendered = reinstallPlanText(hostile);
   assert.ok(rendered.includes(`Shell: ${expected}`));
   assert.doesNotMatch(rendered, /Shell: .*"\$\(/u);
+});
+
+test('skip-tests bypasses only the reinstall test suite, never builds or artifact preparation', async t => {
+  for (const cliOnly of [false, true]) {
+    const context = await fixture(t);
+    const calls = [], warnings = [];
+    const execute = (command, args, options) => {
+      calls.push({ command, args });
+      if (args.join(' ') === 'run test:reinstall') return { status: 1, stderr: 'deliberately failing tests' };
+      if (command === 'npm' && args[0] === 'pack') fs.writeFileSync(
+        path.join(args[args.indexOf('--pack-destination') + 1], 'fixture.tgz'), 'candidate');
+      if (args.join(' ') === 'run vscode:package') fs.writeFileSync(
+        path.join(options.cwd, 'apps/vscode/fixture.vsix'), 'candidate vsix');
+      return ok();
+    };
+    const options = { checkout: context.checkout, registry: 'https://registry.npmjs.org/',
+      cliOnly, execute, tempRoot: context.temp, log: value => warnings.push(value) };
+    await assert.rejects(buildReinstallBundle(options), /deliberately failing tests/);
+    calls.length = 0;
+    await buildReinstallBundle({ ...options, skipTests: true });
+    assert.equal(calls.some(call => call.args.join(' ') === 'run test:reinstall'), false);
+    assert.equal(calls.some(call => call.command === 'npm' && call.args[0] === 'ci'), true);
+    assert.equal(calls.some(call => call.args.join(' ') === 'run vscode:typecheck'), !cliOnly);
+    assert.equal(calls.some(call => call.args[0] === 'pack'), true);
+    assert.equal(calls.some(call => call.args.join(' ') === 'run vscode:package'), !cliOnly);
+    assert.match(warnings.join('\n'), /tests skipped by request/);
+    if (!cliOnly) await assert.rejects(buildReinstallBundle({ ...options, skipTests: true,
+      execute: (command, args, input) => args.join(' ') === 'run vscode:typecheck'
+        ? { status: 1, stderr: 'broken typecheck' } : execute(command, args, input)
+    }), /broken typecheck/);
+  }
+});
+
+test('test opt-out is bound into confirmation, cache, recovery guidance, and installation receipts', async t => {
+  const context = await fixture(t);
+  const harness = commandHarness({ installed: true });
+  const tested = await preview(context, harness);
+  const skipped = await preview(context, harness, { skipTests: true });
+  assert.notEqual(skipped.fingerprint, tested.fingerprint, 'identical artifact bytes cannot hide different test modes');
+  assert.equal(skipped.skipTests, true);
+  assert.match(reinstallPlanText(skipped), /--skip-tests/);
+  assert.doesNotMatch(reinstallPlanText(skipped), /reinstall safety tests,.*completed/);
+  await assert.rejects(resolveReinstallPlan({ checkout: context.checkout, confirmation: skipped.confirmation,
+    cliOnly: false, telemetry: true, skipTests: false, tempRoot: context.temp, ...harness
+  }), /different reinstall options/);
+  const loaded = await resolveReinstallPlan({ checkout: context.checkout, confirmation: skipped.confirmation,
+    cliOnly: false, telemetry: true, skipTests: true, tempRoot: context.temp, ...harness });
+  assert.equal(loaded.skipTests, true);
+  await assert.rejects(applyLocalReinstall({ ...loaded, skipTests: false }, {
+    confirmation: loaded.confirmation, homeDirectory: context.home, environment: {}, ...harness
+  }), /does not match its fingerprint/);
+  const npmRoot = path.join(context.root, 'global');
+  await mkdir(npmRoot, { recursive: true });
+  await cp(skipped.bundle.source, path.join(npmRoot, 'singularity-flow'), { recursive: true });
+  const applied = await applyLocalReinstall(loaded, { confirmation: loaded.confirmation,
+    homeDirectory: context.home, environment: {},
+    ...commandHarness({ installed: true, npmRoot, homeDirectory: context.home }) });
+  assert.match(reinstallPlanText(applied), /TESTS SKIPPED/);
+  assert.equal(JSON.parse(await readFile(applied.receipt, 'utf8')).validation.reinstallTests, 'skipped-by-request');
+  assert.equal(JSON.parse(await readFile(applied.installationManifest, 'utf8')).validation.reinstallTests, 'skipped-by-request');
+});
+
+test('missing-receipt repair replaces the full product and preserves workspace and repository bytes', async t => {
+  const context = await fixture(t);
+  const npmRoot = path.join(context.root, 'global');
+  await mkdir(npmRoot, { recursive: true });
+  await cp(context.checkout, path.join(npmRoot, 'singularity-flow'), { recursive: true });
+  const files = [path.join(context.home, '.singularity-flow/workspaces.json'),
+    path.join(context.home, '.singularity-flow/active-workspace.json'),
+    path.join(context.checkout, 'singularity/workflow.yml'), path.join(context.checkout, '.git/singularity-flow/session.json')];
+  const before = await Promise.all(files.map(file => readFile(file, 'utf8')));
+  const result = await repairMissingInstallationReceipt({ checkout: context.checkout, skipTests: true,
+    registry: 'https://registry.npmjs.org/', homeDirectory: context.home, tempRoot: context.temp,
+    environment: {}, build: fakeBuild, log: () => {},
+    ...commandHarness({ installed: true, npmRoot, homeDirectory: context.home }) });
+  assert.equal(result.completed, true);
+  const receipt = JSON.parse(await readFile(result.receipt, 'utf8'));
+  assert.equal(receipt.repairReason, 'missing-installation-receipt');
+  const current = JSON.parse(await readFile(result.installationManifest, 'utf8'));
+  assert.equal(current.build.cli, BUILD);
+  assert.equal(current.validation.reinstallTests, 'skipped-by-request');
+  assert.equal(current.workspaceRefresh, 'skipped');
+  assert.deepEqual(await Promise.all(files.map(file => readFile(file, 'utf8'))), before);
+});
+
+test('test opt-out still refuses changed package bytes before product mutation', async t => {
+  const context = await fixture(t);
+  const harness = commandHarness({ installed: true });
+  const plan = await preview(context, harness, { skipTests: true });
+  await writeFile(plan.bundle.tarball, 'changed after preview');
+  harness.calls.length = 0;
+  await assert.rejects(applyLocalReinstall(plan, { confirmation: plan.confirmation,
+    homeDirectory: context.home, environment: {}, ...harness }), /bundle changed after validation/);
+  assert.equal(harness.calls.length, 0);
+});
+
+test('automatic receipt repair rechecks absence under the activation lease', async t => {
+  const context = await fixture(t);
+  const harness = commandHarness({ installed: true });
+  const current = path.join(context.home, '.singularity-flow/installations/current.json');
+  await assert.rejects(repairMissingInstallationReceipt({ checkout: context.checkout,
+    skipTests: true, homeDirectory: context.home, tempRoot: context.temp,
+    registry: 'https://registry.npmjs.org/', environment: {}, log: () => {}, ...harness,
+    build: async options => {
+      const bundle = await fakeBuild(options);
+      await mkdir(path.dirname(current), { recursive: true });
+      await writeFile(current, 'concurrent receipt must survive');
+      return bundle;
+    }
+  }), /Existing receipts are preserved/);
+  assert.equal(await readFile(current, 'utf8'), 'concurrent receipt must survive');
+  assert.equal(harness.calls.some(call => call.command === 'npm'
+    && ['install', 'uninstall'].includes(call.args[0]) && call.args.includes('--global')), false);
+});
+
+test('automatic repair never expands partial installs or overwrites receipts and active recovery', async t => {
+  const context = await fixture(t);
+  const harness = commandHarness({ installed: true });
+  const options = { checkout: context.checkout, skipTests: true, homeDirectory: context.home,
+    tempRoot: context.temp, registry: 'https://registry.npmjs.org/', environment: {}, build: fakeBuild,
+    log: () => {}, ...harness };
+  await assert.rejects(repairMissingInstallationReceipt({ ...options, skipTests: false }), /explicit --skip-tests/);
+  await assert.rejects(repairMissingInstallationReceipt({ ...options, cliOnly: true }), /full source install/);
+  const installations = path.join(context.home, '.singularity-flow/installations');
+  await mkdir(installations, { recursive: true });
+  for (const name of ['current.json', 'distribution-install-pending.json', 'uninstall-pending.json']) {
+    const file = path.join(installations, name);
+    await writeFile(file, 'preserved recovery bytes');
+    await assert.rejects(repairMissingInstallationReceipt(options), /preserved|Existing receipts/);
+    assert.equal(await readFile(file, 'utf8'), 'preserved recovery bytes');
+    await fs.promises.unlink(file);
+  }
+  const journal = path.join(installations, 'activation-current.json');
+  const lease = await acquireActivationLease({ journal, checkout: context.checkout, mode: 'create' });
+  try {
+    await assert.rejects(repairMissingInstallationReceipt(options), /another installer.*active/);
+    assert.equal(harness.calls.some(call => call.command === 'npm'
+      && ['install', 'uninstall'].includes(call.args[0]) && call.args.includes('--global')), false);
+  } finally { await releaseActivationLease({ journal, ...lease }); }
 });
 
 test('full reinstall carries sealed source authority into Git-less VSIX packaging', async () => {
@@ -579,6 +720,9 @@ test('CLI-only reinstall refuses an installed VSIX without trusted rollback auth
     }
   }), /CLI-only clean reinstall cannot preserve rollback authority.*full clean reinstall/su);
   assert.equal(built, false, 'an uncovered installed VSIX is refused before packaging');
+  await assert.rejects(preview(context, previewHarness, { cliOnly: true, skipTests: true }),
+    error => /CLI-only clean reinstall cannot preserve rollback authority/.test(error.message)
+      && /--skip-tests/.test(error.message), 'full-repair guidance preserves the explicit test opt-out');
 
   const bytes = storedZip('extension/package.json', Buffer.from(JSON.stringify({
     publisher: 'singularityflow', name: 'singularity-flow-vscode', version: VERSION

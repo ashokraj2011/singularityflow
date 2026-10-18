@@ -437,6 +437,7 @@ export async function buildReinstallBundle({
   checkout,
   registry,
   cliOnly = false,
+  skipTests = false,
   sourceSha256 = null,
   execute = run,
   tempRoot = os.tmpdir(),
@@ -466,7 +467,8 @@ export async function buildReinstallBundle({
   // The product reinstall contract forbids Git access. The full project test/check
   // commands inspect Git metadata, so this transaction runs a focused safety suite
   // that covers its package, plugin, and direct-skill surfaces without invoking Git.
-  executeOrThrow(execute, 'npm', ['run', 'test:reinstall'], { cwd: source, env, stdio: 'inherit' });
+  if (skipTests) log('WARNING: reinstall safety tests skipped by request (--skip-tests); build and artifact checks remain enabled.');
+  else executeOrThrow(execute, 'npm', ['run', 'test:reinstall'], { cwd: source, env, stdio: 'inherit' });
   const buildInfoFile = path.join(source, 'src', 'build-info.mjs');
   const buildInfo = await lstat(buildInfoFile).catch(() => null);
   if (buildInfo) {
@@ -522,8 +524,10 @@ export async function buildReinstallBundle({
   return { stagingParent, source, artifacts, tarball, vsix };
 }
 
-function reinstallFingerprint({ checkout, version, tarballSha256, vsixSha256 }) {
-  return sha256(JSON.stringify({ checkout, version, tarballSha256, vsixSha256 })).slice(0, 16);
+function reinstallFingerprint({ checkout, version, tarballSha256, vsixSha256, skipTests = false }) {
+  // Preserve existing tested-plan fingerprints; never let an opt-out share their confirmation.
+  return sha256(JSON.stringify({ checkout, version, tarballSha256, vsixSha256,
+    ...(skipTests ? { skipTests: true } : {}) })).slice(0, 16);
 }
 
 function distributionInstallFingerprint({
@@ -726,11 +730,46 @@ async function persistDistributionPlan(plan, tempRoot) {
   }
 }
 
+async function assertMissingInstallationReceipt(homeDirectory) {
+  const installations = path.join(homeDirectory, '.singularity-flow', 'installations');
+  for (const file of ['current.json', 'distribution-install-pending.json', 'uninstall-pending.json']) {
+    const found = await lstat(path.join(installations, file)).catch(error => {
+      if (error?.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (found) throw new SingularityFlowError(
+      file === 'current.json'
+        ? 'Automatic receipt repair is only available when current.json is absent. Existing receipts are preserved.'
+        : 'An existing product recovery transaction must be resolved before receipt repair. Recovery was preserved.',
+      { code: 'INSTALL_RECEIPT_REPAIR_NOT_ADMITTED' }
+    );
+  }
+}
+
+/** Full normal-install consent, not a factory reset or a general confirmation bypass. */
+export async function repairMissingInstallationReceipt(options = {}) {
+  if (options.skipTests !== true || options.cliOnly) throw new SingularityFlowError(
+    'Automatic receipt repair requires a full source install with explicit --skip-tests.',
+    { code: 'INSTALL_RECEIPT_REPAIR_NOT_ADMITTED' }
+  );
+  const homeDirectory = options.homeDirectory ?? os.homedir();
+  await assertMissingInstallationReceipt(homeDirectory);
+  const plan = await prepareLocalReinstall({ ...options, cliOnly: false, homeDirectory });
+  if (!plan.installed.npmVersion) throw new SingularityFlowError(
+    'Automatic receipt repair requires an existing installed CLI; use a normal first installation instead.',
+    { code: 'INSTALL_RECEIPT_REPAIR_NOT_ADMITTED' }
+  );
+  // apply acquires the shared lease and checks receipt absence again before any product write.
+  return applyLocalReinstall(plan, { ...options, homeDirectory, confirmation: plan.confirmation,
+    repairMissingReceipt: true });
+}
+
 export async function prepareLocalReinstall({
   checkout: requestedCheckout,
   registry,
   cliOnly = false,
   telemetry = true,
+  skipTests = false,
   execute = run,
   exists = commandExists,
   homeDirectory = os.homedir(),
@@ -740,6 +779,7 @@ export async function prepareLocalReinstall({
   log = console.log
 }) {
   assertReinstallNodeVersion();
+  if (typeof skipTests !== 'boolean') throw new SingularityFlowError('skipTests must be a boolean.');
   const validated = await validateReinstallCheckout(requestedCheckout);
   if (!exists('npm') || !exists('node')) throw new SingularityFlowError('Reinstall requires the existing node and npm commands on PATH.');
   if (!cliOnly && !exists('copilot')) {
@@ -750,13 +790,14 @@ export async function prepareLocalReinstall({
     : configuredRegistry(execute, environment);
   const installed = inspectLocalProduct({ execute, exists, homeDirectory, environment, strict: true });
   await assertCliOnlyVsixRollbackAuthority({
-    cliOnly, installed, homeDirectory, checkout: validated.checkout
+    cliOnly, installed, homeDirectory, checkout: validated.checkout, skipTests
   });
   const sourceSha256 = await reinstallSourceDigest(validated.checkout);
   const bundle = await build({
     checkout: validated.checkout,
     registry: effectiveRegistry,
     cliOnly,
+    skipTests,
     sourceSha256,
     execute,
     tempRoot,
@@ -764,7 +805,7 @@ export async function prepareLocalReinstall({
   });
   const tarballSha256 = await fileHash(bundle.tarball);
   const vsixSha256 = await fileHash(bundle.vsix);
-  const fingerprint = reinstallFingerprint({ checkout: validated.checkout, version: validated.version, tarballSha256, vsixSha256 });
+  const fingerprint = reinstallFingerprint({ checkout: validated.checkout, version: validated.version, tarballSha256, vsixSha256, skipTests });
   const plan = {
     schemaVersion: PLAN_SCHEMA_VERSION,
     operation: 'local-product-reinstall',
@@ -775,6 +816,7 @@ export async function prepareLocalReinstall({
     registry: effectiveRegistry,
     cliOnly,
     telemetry,
+    skipTests,
     fingerprint,
     confirmation: `${CONFIRMATION_PREFIX}${fingerprint}`,
     createdAt: new Date().toISOString(),
@@ -1037,6 +1079,9 @@ async function validatePreparedPlan(plan) {
     throw new SingularityFlowError('The prepared reinstall plan is not supported. Create a new --dry-run preview.');
   }
   if (plan.operation === 'local-product-reinstall') {
+    if (plan.skipTests !== undefined && typeof plan.skipTests !== 'boolean') {
+      throw new SingularityFlowError('The reinstall test-selection record is invalid. Preview again.');
+    }
     if (await reinstallSourceDigest(plan.checkout) !== plan.sourceSha256) {
       throw new SingularityFlowError('The source checkout changed after the preview. Run reinstall --dry-run again and use its new confirmation.');
     }
@@ -1142,7 +1187,8 @@ async function validatePreparedPlan(plan) {
       checkout: plan.checkout,
       version: plan.version,
       tarballSha256: plan.artifacts.tarballSha256,
-      vsixSha256: plan.artifacts.vsixSha256
+      vsixSha256: plan.artifacts.vsixSha256,
+      skipTests: plan.skipTests
     });
   const confirmation = plan.operation === 'distribution-product-install'
     ? `INSTALL SINGULARITY FLOW ${fingerprint}`
@@ -1356,7 +1402,9 @@ function recoveryText(plan) {
   }
   const retry = [
     'sf-reinstall', '--checkout', plan.checkout, '--confirm', plan.confirmation,
-    ...(plan.cliOnly ? ['--cli-only'] : [])
+    ...(plan.cliOnly ? ['--cli-only'] : []),
+    ...(plan.skipTests ? ['--skip-tests'] : []),
+    ...(!plan.telemetry && !plan.cliOnly ? ['--no-copilot-telemetry'] : [])
   ];
   const lines = [
     'Validated recovery bundle retained locally. Retry the complete transaction with:',
@@ -1522,13 +1570,13 @@ async function distributionRollbackAuthority({ installed, homeDirectory, checkou
   return { tarball, vsix };
 }
 
-async function assertCliOnlyVsixRollbackAuthority({ cliOnly, installed, homeDirectory, checkout }) {
+async function assertCliOnlyVsixRollbackAuthority({ cliOnly, installed, homeDirectory, checkout, skipTests = false }) {
   if (!cliOnly || !installed.vscodeVersion) return;
   const installations = path.join(homeDirectory, '.singularity-flow', 'installations');
   const currentFile = path.join(installations, 'current.json');
   if (await trustedCurrentVsix(currentFile, installations, installed.vscodeVersion)) return;
   const fullReinstall = renderedShellLines([
-    'sf-reinstall', '--checkout', checkout, '--dry-run'
+    'sf-reinstall', '--checkout', checkout, '--dry-run', ...(skipTests ? ['--skip-tests'] : [])
   ], '  ', { posixLabel: 'Shell' }).join('\n');
   throw new SingularityFlowError(
     `CLI-only clean reinstall cannot preserve rollback authority for the installed VS Code extension `
@@ -1599,6 +1647,9 @@ async function writeCurrentInstallationReceipt(plan, verified, receipt, homeDire
     workspaceRefresh: 'skipped',
     activation: null,
     reinstall: { fingerprint: plan.fingerprint, receipt },
+    ...(plan.operation === 'local-product-reinstall' ? {
+      validation: { reinstallTests: plan.skipTests ? 'skipped-by-request' : 'passed' }
+    } : {}),
     installedAt: new Date().toISOString()
   };
   const existing = await lstat(currentFile).catch((error) => {
@@ -2358,9 +2409,15 @@ export async function applyLocalReinstall(plan, {
   environment = process.env,
   installAliases = installDirectSkills,
   beforeTelemetryProfileMutation = null,
+  repairMissingReceipt = false,
   log = console.warn
 } = {}) {
   await validatePreparedPlan(plan);
+  if (repairMissingReceipt && (plan.operation !== 'local-product-reinstall' || plan.cliOnly
+      || plan.skipTests !== true || !plan.installed.npmVersion)) {
+    throw new SingularityFlowError('Automatic receipt repair requires a full explicitly test-skipped source install.',
+      { code: 'INSTALL_RECEIPT_REPAIR_NOT_ADMITTED' });
+  }
   if (confirmation !== plan.confirmation) {
     throw new SingularityFlowError(`Reinstall requires exact confirmation '${plan.confirmation}'. Run with --dry-run first.`);
   }
@@ -2404,6 +2461,7 @@ export async function applyLocalReinstall(plan, {
     for (const [signal, handler] of signalHandlers) process.once(signal, handler);
   }
   try {
+    if (repairMissingReceipt) await assertMissingInstallationReceipt(homeDirectory);
     if (plan.operation === 'distribution-product-install') {
       const interrupted = await loadDistributionTransaction({ homeDirectory, environment: env });
       if (interrupted) {
@@ -2463,7 +2521,7 @@ export async function applyLocalReinstall(plan, {
         execute, exists, homeDirectory, environment: env, strict: true
       });
       await assertCliOnlyVsixRollbackAuthority({
-        cliOnly: true, installed, homeDirectory, checkout: plan.checkout
+        cliOnly: true, installed, homeDirectory, checkout: plan.checkout, skipTests: plan.skipTests
       });
     }
     // Reconstruct the executable and plugin inputs from the exact retained tarball immediately
@@ -2632,6 +2690,10 @@ export async function applyLocalReinstall(plan, {
       version: plan.version,
       registry: plan.registry,
       cliOnly: plan.cliOnly,
+      ...(repairMissingReceipt ? { repairReason: 'missing-installation-receipt' } : {}),
+      ...(plan.operation === 'local-product-reinstall' ? {
+        validation: { reinstallTests: plan.skipTests ? 'skipped-by-request' : 'passed' }
+      } : {}),
       completedAt: new Date().toISOString(),
       artifacts: plan.artifacts,
       verified
@@ -2715,10 +2777,12 @@ export async function resolveReinstallPlan({
   registry,
   cliOnly,
   telemetry,
+  skipTests = false,
   tempRoot = os.tmpdir(),
   ...dependencies
 }) {
   const supplied = String(confirmation ?? '');
+  if (typeof skipTests !== 'boolean') throw new SingularityFlowError('skipTests must be a boolean.');
   if (supplied) {
     if (!supplied.startsWith(CONFIRMATION_PREFIX)) {
       throw new SingularityFlowError('The reinstall confirmation is not valid. Run --dry-run and copy its exact confirmation.');
@@ -2738,12 +2802,13 @@ export async function resolveReinstallPlan({
     if (registry && normalizeReinstallRegistry(registry) !== cached.registry) {
       throw new SingularityFlowError('The confirmation belongs to a different npm registry. Run --dry-run with the requested registry.');
     }
-    if (Boolean(cliOnly) !== Boolean(cached.cliOnly) || Boolean(telemetry) !== Boolean(cached.telemetry)) {
+    if (Boolean(cliOnly) !== Boolean(cached.cliOnly) || Boolean(telemetry) !== Boolean(cached.telemetry)
+        || Boolean(skipTests) !== Boolean(cached.skipTests)) {
       throw new SingularityFlowError('The confirmation belongs to different reinstall options. Run --dry-run with the requested options.');
     }
     return validatePreparedPlan(cached);
   }
-  return prepareLocalReinstall({ checkout, registry, cliOnly, telemetry, tempRoot, ...dependencies });
+  return prepareLocalReinstall({ checkout, registry, cliOnly, telemetry, skipTests, tempRoot, ...dependencies });
 }
 
 export async function resolveDistributionInstallPlan({
@@ -2843,6 +2908,7 @@ function applyCommandArgv(plan, executable) {
     '--confirm', plan.confirmation
   );
   if (plan.cliOnly) parts.push('--cli-only');
+  if (plan.skipTests) parts.push('--skip-tests');
   if (!plan.telemetry && !plan.cliOnly) parts.push('--no-copilot-telemetry');
   return parts;
 }
@@ -2871,9 +2937,10 @@ export function reinstallPlanText(plan) {
     ...plan.preserve.map((item) => `- ${item}`)
   ];
   if (!plan.completed) {
+    const tests = plan.skipTests ? '' : 'reinstall safety tests, ';
     const artifacts = plan.cliOnly
-      ? 'The isolated CLI build, reinstall safety tests, and npm tarball completed before this preview.'
-      : 'The isolated CLI and VS Code builds, reinstall safety tests, npm tarball, and VSIX completed before this preview.';
+      ? `The isolated CLI build, ${tests}and npm tarball completed before this preview.`
+      : `The isolated CLI and VS Code builds, ${tests}npm tarball, and VSIX completed before this preview.`;
     lines.push('', artifacts,
       'Candidate artifacts are staged only; product activation has not started.',
       'No Git command was run and no installed product or repository was changed.',
@@ -2895,9 +2962,10 @@ export function reinstallPlanText(plan) {
       'Selected product surfaces and their exact build identity were verified after activation.',
       'Repository and workspace data were preserved.',
       '',
-      `Singularity Flow product activation — ${completedActivationOutcome(plan)}`
+      `Singularity Flow product activation — ${completedActivationOutcome(plan)}${plan.skipTests ? ' (TESTS SKIPPED)' : ''}`
     );
   }
+  if (plan.skipTests) lines.push('WARNING: reinstall safety tests were skipped by request (--skip-tests); no passing test result is claimed.');
   return lines.join('\n');
 }
 

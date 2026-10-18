@@ -102,7 +102,7 @@ usage() {
   printf '%s\n' \
     'Usage: ./install.sh [--registry URL] [--no-copilot-telemetry] [--cli-only | --vscode-only | --skip-vscode | --skip-copilot] [--no-update] [--skip-tests] [--refresh-vsce-toolchain] [--no-workspace-configuration-refresh]' \
     '       ./install.sh --from-staged-artifacts' \
-    '       ./install.sh --clean-reinstall [--dry-run | --confirm "REINSTALL SINGULARITY FLOW <fingerprint>"] [--registry URL] [--cli-only]' \
+    '       ./install.sh --clean-reinstall [--dry-run | --confirm "REINSTALL SINGULARITY FLOW <fingerprint>"] [--registry URL] [--cli-only] [--skip-tests]' \
     '       singularity-flow fresh-install [--checkout DIRECTORY] [--yes] [--registry URL] [--cli-only]' \
     '' \
     'Pull, build, test, package, and globally install the Singularity Flow CLI,' \
@@ -118,8 +118,8 @@ usage() {
     'only the installed CLI, VS Code extension, Copilot plugin/direct skills, and' \
     'managed telemetry wrapper. It never reads or changes Git repositories or workspaces.' \
     '' \
-    '--skip-tests keeps npm run check and all requested builds, but skips npm test' \
-    'or test:cli. Use it only when this exact commit has already passed its tests.' \
+    '--skip-tests keeps build and artifact checks, but skips the selected test suite, including test:reinstall.' \
+    'A full normal install also repairs a missing installation receipt in this mode; workspaces are preserved.' \
     '--vscode-only builds, packages, installs, and verifies only the VS Code extension' \
     '--skip-vscode installs the CLI, Copilot plugin, skills, and telemetry without replacing the VS Code extension' \
     '--skip-copilot installs the CLI and VS Code extension without requiring or replacing standalone Copilot assets' \
@@ -267,8 +267,8 @@ if [[ "$VSCODE_ONLY" == "on" && ( "$FACTORY_RESET" == "on" || "$CLEAN_REINSTALL"
   exit 1
 fi
 
-if [[ "$SKIP_TESTS" == "on" && ( "$FACTORY_RESET" == "on" || "$CLEAN_REINSTALL" == "on" ) ]]; then
-  printf '%s\n' 'Error: --skip-tests is valid only for a normal non-destructive install.' >&2
+if [[ "$SKIP_TESTS" == "on" && "$FACTORY_RESET" == "on" ]]; then
+  printf '%s\n' 'Error: --skip-tests is not supported by factory-reset.' >&2
   exit 1
 fi
 
@@ -306,6 +306,7 @@ if [[ "$CLEAN_REINSTALL" == "on" ]]; then
   REINSTALL_ARGS=(reinstall --checkout "$PROJECT_DIR")
   [[ -n "$REGISTRY_OVERRIDE" ]] && REINSTALL_ARGS+=(--registry "$REGISTRY_OVERRIDE")
   [[ "$CLI_ONLY" == "on" ]] && REINSTALL_ARGS+=(--cli-only)
+  [[ "$SKIP_TESTS" == "on" ]] && REINSTALL_ARGS+=(--skip-tests)
   [[ "$ENABLE_COPILOT_TELEMETRY" == "off" ]] && REINSTALL_ARGS+=(--no-copilot-telemetry)
   if [[ -n "$REINSTALL_CONFIRM" ]]; then
     REINSTALL_ARGS+=(--confirm "$REINSTALL_CONFIRM")
@@ -838,6 +839,22 @@ step_end
 step_begin 'Compiling and validating the project'
 npm run check
 step_end
+
+# An unreceipted legacy product cannot pass the normal exact-rollback admission. With an
+# explicit test opt-out, a full source install may use the established product-only repair
+# transaction instead. Never expand a partial install or discard an existing recovery journal.
+if [[ "$SKIP_TESTS" == "on" && "$CLI_ONLY" == "off" && "$VSCODE_ONLY" == "off" \
+  && "$SKIP_VSCODE" == "off" && "$SKIP_COPILOT" == "off" \
+  && ! -e "$INSTALL_MANIFEST_DIR/current.json" && ! -L "$INSTALL_MANIFEST_DIR/current.json" ]] \
+  && command -v singularity-flow >/dev/null 2>&1; then
+  printf '%s\n' 'Installation receipt is missing; switching to full product-only repair (--skip-tests).'
+  printf '%s\n' 'Workspaces and Stories are preserved. A verified candidate is retained for roll-forward recovery.'
+  release_activation_lease
+  trap - EXIT
+  REPAIR_ARGS=(--checkout "$PROJECT_DIR" --registry "$REGISTRY" --skip-tests)
+  [[ "$ENABLE_COPILOT_TELEMETRY" == "off" ]] && REPAIR_ARGS+=(--no-copilot-telemetry)
+  exec node "$PROJECT_DIR/scripts/repair-unreceipted-installation.mjs" "${REPAIR_ARGS[@]}"
+fi
 if [[ "$CLI_ONLY" == "on" ]]; then
   if [[ "$SKIP_TESTS" == "on" ]]; then
     printf '%s\n' 'WARNING: CLI tests skipped by request; run npm run test:cli locally before distributing this build.' >&2
@@ -1487,9 +1504,15 @@ fi
 STEP_LABEL='Committing the installation receipt'
 set_surface_state manifest applying activating manifest-started
 INSTALL_MANIFEST_TEMP="$(mktemp "$INSTALL_MANIFEST_DIR/current.json.XXXXXX")"
+INSTALL_TEST_VALIDATION='passed'
+if [[ "$FROM_STAGED_ARTIFACTS" == "on" ]]; then
+  INSTALL_TEST_VALIDATION='not-reexecuted-during-recovery'
+elif [[ "$SKIP_TESTS" == "on" ]]; then
+  INSTALL_TEST_VALIDATION='skipped-by-request'
+fi
 node -e '
   const fs = require("node:fs");
-  const [file, version, checkout, sourceCommit, sourceTree, cliBuild, journalFile, workspaceRefresh, previousManifestFile, previousManifestExisted] = process.argv.slice(1);
+  const [file, version, checkout, sourceCommit, sourceTree, cliBuild, journalFile, workspaceRefresh, previousManifestFile, previousManifestExisted, testValidation] = process.argv.slice(1);
   const journal = JSON.parse(fs.readFileSync(journalFile, "utf8"));
   const previousManifest = previousManifestExisted === "on"
     ? JSON.parse(fs.readFileSync(previousManifestFile, "utf8"))
@@ -1544,13 +1567,14 @@ node -e '
       manifest: true
     },
     workspaceRefresh,
+    validation: { tests: testValidation },
     activation: { journal: journalFile, operationId: journal.operationId },
     installedAt: new Date().toISOString()
   }, null, 2) + "\n", {mode: 0o600});
 ' "$INSTALL_MANIFEST_TEMP" "$PACKAGE_VERSION" "$INSTALL_RECEIPT_CHECKOUT" \
   "${INSTALL_RECEIPT_SOURCE_COMMIT:--}" "${INSTALL_RECEIPT_SOURCE_TREE:--}" "${INSTALLED_CLI_BUILD:--}" "$INSTALL_ACTIVATION_JOURNAL" \
   "$([[ "$RECOVERY_WORKSPACE_CONFIGURATION_REFRESH" == "on" ]] && printf pending || printf skipped)" \
-  "${PREVIOUS_MANIFEST_SNAPSHOT:--}" "$PREVIOUS_MANIFEST_EXISTED"
+  "${PREVIOUS_MANIFEST_SNAPSHOT:--}" "$PREVIOUS_MANIFEST_EXISTED" "$INSTALL_TEST_VALIDATION"
 mv "$INSTALL_MANIFEST_TEMP" "$PREVIOUS_MANIFEST_TARGET"
 set_surface_state manifest applied activating manifest manifest
 write_activation_journal complete complete

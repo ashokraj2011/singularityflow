@@ -290,6 +290,19 @@ singularity-flow reinstall --checkout /absolute/path/to/sflow-source \
 sf-reinstall --checkout /absolute/path/to/sflow-source --dry-run
 ```
 
+If tests are failing, add `--skip-tests` to both preview and the exact confirmation command.
+This skips `test:reinstall`, not dependency installation, typechecking, packaging, artifact hashes,
+source freshness, product identity, or active-recovery checks. The preview, result, and installation
+receipt explicitly record the test opt-out; no successful test execution is claimed.
+
+For a full source install, `./install.sh --skip-tests` automatically enters product-only repair when
+an installed CLI exists but `~/.singularity-flow/installations/current.json` is absent. This rebuilds
+the receipt and replaces the selected product surfaces without touching workspaces or Stories.
+Partial installs are never silently expanded. Existing receipts (including malformed ones), active
+activation journals, and pending product-install or uninstall recovery are not discarded. As with the first clean
+reinstall of a legacy product, no missing old rollback archive is fabricated: a verified candidate
+is retained and exact roll-forward recovery is printed if activation fails.
+
 Add `--registry https://artifacts.company.example/api/npm/npm-virtual/` for a
 company registry; authentication remains in `.npmrc`. Reinstall never invokes Git,
 does not search the home directory for repositories, and does not alter
@@ -2914,6 +2927,7 @@ any repository/workspace mutation—use:
 
 ```bash
 ./install.sh --clean-reinstall --dry-run
+./install.sh --clean-reinstall --dry-run --skip-tests
 ./install.sh --clean-reinstall --registry https://artifacts.company.com/artifactory/api/npm/npm-virtual/ \
   --confirm "REINSTALL SINGULARITY FLOW <fingerprint>"
 ```
@@ -3364,8 +3378,8 @@ singularity-flow local-reset [--dry-run | --confirm "RESET LOCAL"] [--json]
 sf-local-reset [--dry-run | --confirm "RESET LOCAL"] [--json]
 singularity-flow local-reset --forget-only [--dry-run | --confirm "FORGET LOCAL"] [--json]
 sf-local-reset --forget-only [--dry-run | --confirm "FORGET LOCAL"] [--json]
-singularity-flow reinstall --checkout DIRECTORY [--dry-run | --confirm TEXT] [--registry URL] [--cli-only] [--no-copilot-telemetry]
-sf-reinstall --checkout DIRECTORY [--dry-run | --confirm TEXT] [--registry URL] [--cli-only] [--no-copilot-telemetry]
+singularity-flow reinstall --checkout DIRECTORY [--dry-run | --confirm TEXT] [--registry URL] [--cli-only] [--no-copilot-telemetry] [--skip-tests]
+sf-reinstall --checkout DIRECTORY [--dry-run | --confirm TEXT] [--registry URL] [--cli-only] [--no-copilot-telemetry] [--skip-tests]
 singularity-flow product status|align|reviews [--dry-run] [--json]
 singularity-flow fresh-install [--checkout DIRECTORY] [--yes] [--registry URL] [--cli-only] [--no-copilot-telemetry]
 singularity-flow choices begin|answer|status ...

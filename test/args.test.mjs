@@ -15,3 +15,10 @@ test('parseArgs supports repeated options', () => {
   assert.deepEqual(parsed.options.tag, ['one', 'two']);
   assert.equal(optionString(parsed.options, 'tag'), 'two');
 });
+
+test('skip-tests is an explicit boolean and never consumes a following positional', () => {
+  const parsed = parseArgs(['reinstall', '--skip-tests', 'preserved-positional']);
+  assert.equal(optionBoolean(parsed.options, 'skip-tests'), true);
+  assert.deepEqual(parsed.positionals, ['reinstall', 'preserved-positional']);
+  assert.equal(optionBoolean(parseArgs(['reinstall']).options, 'skip-tests'), false);
+});

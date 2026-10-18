@@ -350,8 +350,11 @@ async function previewChatAttachment(
       command: 'workbench.action.chat.open', title: 'Prepare registration review',
       arguments: [{ query: '/sf-revision-attachments ', isPartialQuery: true }]
     });
-  } catch {
+  } catch (error) {
     stream.markdown('The selected Story attachment could not be previewed safely. Check `/sf-session` and use `/sf-revision-attachments` with the same local file. No attachment set was registered.\n');
+    // Keep the kernel's bounded refusal/deadline, as other participant actions do. A generic
+    // attachment failure must not hide a real context or transport error behind another retry.
+    if (error instanceof CliError) stream.markdown(renderParticipantRefusal(error).markdown);
   }
 }
 

@@ -5288,7 +5288,7 @@ test('a workspace can be renamed and copied from the editor, and never onto anot
       encoding: 'utf8',
       env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry }
     });
-    assert.equal(result.status, 0, `${args.join(' ')}\n${result.stderr}`);
+    assert.equal(result.status, 0, `${args.join(' ')}\n${result.stderr}\n${result.stdout}`);
     return result.stdout;
   };
   cli(['workspace', 'create', '--local', '--json', '--id', 'commerce', '--base', workspaces,

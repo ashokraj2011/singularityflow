@@ -1294,6 +1294,12 @@
       },
       "digest": "9696a7c67506ee426f3feefe8c17dd0f23ea777b877c9523685703712bb4eae1"
     },
+    "src/session-state-index.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "9c5918767a441747e6f95f715fa359a3399107f1cdcca5fd03456a10adeeb3f6"
+    },
     "src/session.mjs": {
       "counts": {
         "command-run": 1

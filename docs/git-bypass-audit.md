@@ -120,3 +120,10 @@ The bundled Java semantic AST adapter, `src/ast-packs/java-semantic-adapter.mjs`
 The bundled Python semantic AST adapter, `src/ast-packs/python-semantic-adapter.mjs`, has one reviewed process import and one launch: it starts Singularity Flow's own Pyright language server (`node_modules/pyright/langserver.index.js`, digest-bound by the pack manifest) on the Node that runs the adapter, over stdio, with no `PATH`, so Pyright never runs a Python interpreter, pip, Git, or repository code. Like the Java adapter it is an out-of-process pack under the bounded adapter runner and must stay self-contained for replay. It is a frozen site, not a registered owner.
 
 `src/git-hook-effects.mjs` has one reviewed local `git status` observation site. It uses the hardened process primitive, disables filesystem-monitor hooks and optional index writes, and caps time, output, and path count. It observes Git-visible paths and metadata before and after actual publication, not during intake. An unavailable observation never blocks publication or attests that the checkout was unchanged; ignored files and byte-exact integrity are outside this observation. No files are deleted. This is a frozen site, not a new registered process owner.
+
+`src/session-state-index.mjs` has one reviewed local `git ls-tree` observation site. It enumerates
+only `ledger/head.json` and `ledger/entries` at an already verified immutable state commit, with
+lazy fetch and replacement objects disabled and explicit time/output/record bounds. It does not
+ask for blob sizes during tree enumeration. Missing blobs are fetched separately by the existing
+deadline-aware ledger transport, only by tree-proven object ID; hash verification and byte bounds
+still apply. It never scans application branches or history, changes a checkout, or initializes state.

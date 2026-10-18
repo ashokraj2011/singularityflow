@@ -56,6 +56,20 @@ export async function resolveSessionRepository({
   }
 
   let context = explicit;
+  if (explicit) {
+    // Intake can materialize a branch-local clone while the manifest still points to the original
+    // (possibly blobless) clone. Reuse only a verified selection of this exact workspace member.
+    const selected = await readActiveWorkspaceContext(activeWorkspaceFile(), workspaceRegistryFile(), { refresh: false }).catch(() => null);
+    if (selected?.branchCheckout && selected.workspaceId === explicit.workspaceId
+        && selected.repositoryId === explicit.repositoryId && selected.workspacePath
+        && path.resolve(selected.workspacePath) === path.resolve(explicit.workspacePath)) {
+      const active = await readActiveWorkspaceContext(activeWorkspaceFile(), workspaceRegistryFile()).catch(() => null);
+      if (active?.selectionStatus === 'ready' && active.branchCheckout) {
+        context = { ...explicit, ...active, repositoryPath: active.canonicalRepositoryPath,
+          repositoryState: 'ready' };
+      }
+    }
+  }
   if (!context) {
     try {
       context = await readActiveWorkspaceContext(activeWorkspaceFile(), workspaceRegistryFile());

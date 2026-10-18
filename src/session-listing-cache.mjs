@@ -25,9 +25,13 @@ export async function sessionListingSnapshot(positionals, options, read) {
     if (workspacePath) {
       files.push(path.join(workspacePath, 'workspace.json'));
       const workspace = await readWorkspace(workspacePath);
-      const member = workspace.repositories[optionString(options, 'repository') ?? active?.repositoryId ?? workspace.leadRepository];
+      const repositoryId = optionString(options, 'repository') ?? active?.repositoryId ?? workspace.leadRepository;
+      const member = workspace.repositories[repositoryId];
       if (member) { settingsRoot = workspaceRepositoryPath(workspace, member); roots.add(settingsRoot); }
-      if (!selector && active?.repositoryPath) roots.add(active.repositoryPath);
+      if (active?.workspacePath && path.resolve(active.workspacePath) === path.resolve(workspacePath)
+          && active.repositoryId === repositoryId) {
+        for (const root of [active.repositoryPath, active.canonicalRepositoryPath, active.checkoutPath]) if (root) roots.add(root);
+      }
     }
   } catch { /* The original command diagnoses invalid/ambiguous selection, never the cache. */ }
   for (const root of roots) {

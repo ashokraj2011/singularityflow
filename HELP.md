@@ -8,6 +8,15 @@ or `snapshot --include executionContext --json`. `session open <ID> --refresh --
 the exact Story; `session takeover <ID> --workspace <PATH> --repository <ID> --json` also restores
 required delivery and pinned reference checkouts. Neither operation approves or advances work.
 
+`/sf-session` lists Stories from the configured Flow Ledger branch (`state` by default), never an
+application-branch inventory or Git history scan. It reuses the verified branch-local clone for the
+selected workspace member when available. In blobless clones, a present `origin/state` reference
+does not guarantee the ledger files are local: session listing explicitly fetches only missing
+ledger blobs from that exact state commit. It does not check out, reset, initialize, or merge state.
+The configurable 30-minute advisory listing cache remains available; `/sf-session --refresh` or
+`singularity-flow session candidates --refresh --json` forces a fresh remote check. A genuinely
+missing state branch, invalid ledger, or transport timeout remains an error, not an empty roster.
+
 `workspace checkouts <WORKSPACE> --json` shows the clone/worktree graph. `workspace cleanup
 <WORKSPACE> --json` previews recoverable retirement. Repeat with `--apply --confirm <DIGEST>`;
 for permanent removal, use `--purge` in both preview and application. Only verified unused owned

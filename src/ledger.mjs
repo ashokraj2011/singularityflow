@@ -25,6 +25,7 @@ import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { storyPointersFromLedger } from './story-state-index.mjs';
 import { compactCanonicalJson } from './records.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
+import { inheritEnterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import {
   configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport,
   safeGitDiagnosticReference, stateRefreshError
@@ -3666,10 +3667,33 @@ export async function ledgerLog(root, rawConfig, { limit = 20, offline = false }
 /** Read the complete reachable Story roster from one exact state authority, not all code refs. */
 export async function ledgerStoryPointers(root, rawConfig, { offline = false, runGit = runRemoteGitAsync } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
-  return ledgerRefSnapshot(root, config, (snapshot) => ({
-    ref: snapshot.ref,
-    items: storyPointersFromLedger(snapshot.head, snapshot.tree('ledger/entries'))
-  }), { offline, requireFresh: true, runGit });
+  const remoteView = await ensureRemoteBranchFetchedAsync(root, config, { offline, requireFresh: true, runGit });
+  if (!offline && remoteView !== LEDGER_REMOTE_VIEW.REFRESHED) throw new SingularityFlowError(
+    'The remote Story state index could not be refreshed. Cached state was not presented as fresh.',
+    { code: 'SESSION_STATE_REFRESH_UNAVAILABLE' });
+  const ref = ledgerHead(root, config);
+  if (!ref) throw new SingularityFlowError(`Story discovery requires the '${config.branch}' state branch.`, {
+    code: 'SESSION_STATE_INDEX_UNAVAILABLE'
+  });
+  const commit = directRefObservation(root, ref).commit;
+  const { readSessionStateIndex } = await import('./session-state-index.mjs');
+  const snapshot = await readSessionStateIndex(root, commit, { ref, hydrate: offline ? null : async oids => {
+    const transport = ledgerFetchTransport(root, config);
+    if (!transport) throw new SingularityFlowError('The state metadata remote is unavailable.', {
+      code: 'SESSION_STATE_INDEX_OBJECTS_UNAVAILABLE'
+    });
+    const frozen = frozenRemoteTransport(transport.remote, { env: transport.env });
+    const started = performance.now();
+    const fetched = await runGit(['fetch', '--no-tags', '--no-write-fetch-head', '--refmap=', frozen.remote, ...oids], {
+      cwd: root, operation: 'remote-configuration',
+      env: inheritEnterpriseGitEnvironment(frozen.env, { ...frozen.env, GIT_NO_LAZY_FETCH: '1' })
+    });
+    if (!processResultSucceeded(fetched)) throw stateRefreshError(config, 'metadata', fetched, {
+      elapsedMs: performance.now() - started
+    });
+  } });
+  return { ref, commitOid: commit,
+    items: storyPointersFromLedger(readRecord('ledger-entry', snapshot.head).record, snapshot.files) };
 }
 
 export async function ledgerShow(root, rawConfig, hashOrEventId) {

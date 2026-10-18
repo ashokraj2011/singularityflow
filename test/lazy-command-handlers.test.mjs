@@ -44,8 +44,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
 
 test('root dispatch stays small and orchestration entrypoints load their handlers lazily', async () => {
   const root = await graph('cli-entry.mjs');
-  assert.ok(root.files.size <= 38, `root dispatch loads ${root.files.size} local files`);
-  assert.ok(root.bytes <= 750_000, `root dispatch loads ${root.bytes} source bytes`);
+  // 39: cli-entry.mjs parses --context-root for every command through execution-context-scope.mjs (f62c3107).
+  assert.ok(root.files.size <= 39, `root dispatch loads ${root.files.size} local files`);
+  // 770,000 (next 5,000 boundary): 747,457 at 3fd3db0b grew to 768,310 across utility-entry.mjs (7e50d127, decided
+  // before repository discovery), execution-context-scope.mjs (f62c3107) and small additions to cli-entry and Git transport.
+  assert.ok(root.bytes <= 770_000, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   for (const entry of ['commands/session-entry.mjs', 'commands/choices-entry.mjs']) {

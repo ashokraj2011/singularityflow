@@ -107,6 +107,9 @@ test('setup turns without a Story can correct generated reads, while real missin
   await assert.rejects(readFile(exact), { code: 'ENOENT' });
   await endRepositoryBoundaryTurn(payload);
   assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'Read', toolArgs: { path: wrong } }), {});
+  const issuedCache = path.join(path.dirname(process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE), 'copilot-boundaries',
+    `${createHash('sha256').update(payload.sessionId).digest('hex')}.mutation.json.issued`);
+  await assert.rejects(readdir(issuedCache), { code: 'ENOENT' });
 });
 
 async function fixture(t, phaseOverrides = {}) {

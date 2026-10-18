@@ -1,6 +1,6 @@
 /** Explicit-turn discovery and mutation interception; not a filesystem sandbox. */
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { copilotModeFile, readCopilotMode } from './copilot-mode.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -52,6 +52,13 @@ async function removeRecord(file) {
   if (file) await unlink(file).catch(error => { if (error.code !== 'ENOENT') throw error; });
 }
 
+async function removeMutationRecord(file) {
+  if (!file) return;
+  const mutation = file.replace(/\.json$/u, '.mutation.json');
+  await removeRecord(mutation);
+  await rm(`${mutation}.issued`, { recursive: true, force: true });
+}
+
 /** Reset on EVERY prompt, including native turns; never retain the prompt or its attachments. */
 export async function recordRepositoryBoundaryTurn(payload = {}, { now = Date.now(), captureMutation = null } = {}) {
   await removeRecord(path.join(path.dirname(copilotModeFile()), 'copilot-boundaries', RUNTIME_UNAVAILABLE_MARKER))
@@ -62,7 +69,7 @@ export async function recordRepositoryBoundaryTurn(payload = {}, { now = Date.no
   const skill = mode.paused ? null : explicitSflowSkill(payload.prompt);
   if (!skill || ['sf-pause', 'sflow-pause'].includes(skill)) {
     await removeRecord(file);
-    await removeRecord(file.replace(/\.json$/u, '.mutation.json'));
+    await removeMutationRecord(file);
     return {};
   }
   const directory = path.dirname(file);
@@ -84,7 +91,7 @@ export async function recordRepositoryBoundaryTurn(payload = {}, { now = Date.no
 export async function endRepositoryBoundaryTurn(payload = {}) {
   await removeRecord(recordPath(payload));
   const file = recordPath(payload);
-  if (file) await removeRecord(file.replace(/\.json$/u, '.mutation.json'));
+  await removeMutationRecord(file);
   return {};
 }
 

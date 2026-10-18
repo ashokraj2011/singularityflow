@@ -105,6 +105,10 @@ export async function prepareWorkspaceBranch(workspace, repositoryId, branch, {
     if (after.dev !== owner.dev || after.ino !== owner.ino || after.isSymbolicLink()) {
       throw new SingularityFlowError('The download directory changed; no checkout was registered.', { code: 'WORKSPACE_BRANCH_PATH_UNSAFE' });
     }
+    // Ownership receipt and selection become visible under the same fence used by cleanup.
+    // Otherwise cleanup could retire a clean clone after its receipt but before its pointer.
+    const { withCheckoutLifecycleLease } = await import('./story-worktree.mjs');
+    return withCheckoutLifecycleLease(target, async () => {
     const record = { schemaVersion: currentSchemaVersion('workspace-branch-checkout'), workspaceId: workspace.id, workspacePath, repositoryId,
       originalRepositoryPath: repository.path, repositoryUrl: repository.url, branch, retry,
       baseCommit: commit, createdAt: new Date().toISOString() };
@@ -117,5 +121,6 @@ export async function prepareWorkspaceBranch(workspace, repositoryId, branch, {
     await writeAtomic(pointer, JSON.stringify({ schemaVersion: currentSchemaVersion('workspace-branch-pointer'), retry }), { mode: 0o600 });
     return { status: 'ready', reused: false, repositoryPath: target, repositoryId, branch,
       baseCommit: commit, originalRepositoryPath: original, originalPreserved: true };
+    });
   }, { timeoutMs: 5 * 60_000 });
 }

@@ -22,7 +22,7 @@ async function loadLegacy() {
 
 /** Keep timing attribution accurate for non-hot workspace commands that still use the monolith. */
 export async function load(context = {}) {
-  if (['context', 'checkouts', 'cleanup'].includes(subcommand(context))) return import('./workspace-context.mjs');
+  if (['context', 'checkouts', 'cleanup', 'retention'].includes(subcommand(context))) return import('./workspace-context.mjs');
   if (subcommand(context) === 'prepare-branch') return import('./workspace-prepare-branch.mjs');
   if (subcommand(context) === 'branches') return context.options?.entry === true
     ? import('./intake-entry.mjs') : import('./workspace-branches.mjs');
@@ -31,7 +31,7 @@ export async function load(context = {}) {
 
 export async function run(argv, context = {}) {
   const action = subcommand(context);
-  if (['context', 'checkouts', 'cleanup'].includes(action)) return (await import('./workspace-context.mjs')).run(context.positionals, context.options);
+  if (['context', 'checkouts', 'cleanup', 'retention'].includes(action)) return (await import('./workspace-context.mjs')).run(context.positionals, context.options);
   if (action === 'prepare-branch') return (await import('./workspace-prepare-branch.mjs')).run(context.positionals, context.options);
   if (action === 'branches') {
     if (context.options?.entry === true) return (await import('./intake-entry.mjs')).run(context.options);
@@ -63,6 +63,8 @@ export async function run(argv, context = {}) {
       repositoryId: optionString(options, 'repository'),
       storyId: optionString(options, 'story')
     });
+    await (await import('../workspace-retention-background.mjs')).scheduleWorkspaceRetention(activeContext.workspacePath,
+      { protect: [activeContext.repositoryPath].filter(Boolean) });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(activeContext, null, 2));
     console.log(`\nActive context: ${workspacePromptLabel(activeContext)}`);
     console.log(`Repository: ${activeContext.repositoryPath}`);

@@ -246,7 +246,7 @@ export const ENV_SUBCOMMANDS = Object.freeze([...ENV_READ_SUBCOMMANDS, ...ENV_MU
  */
 export const PRODUCT_SUBCOMMANDS = Object.freeze(['status', 'align', 'reviews']);
 const WORKSPACE_NEVER_OPERATIONS = new Set([
-  'context', 'checkouts', 'cleanup',
+  'context', 'checkouts', 'cleanup', 'retention',
   'branches', 'prune', 'list', 'current', 'prompt', 'create', 'adopt', 'open', 'archive-status', 'rename', 'archive',
   'restore', 'inspect', 'duplicate', 'capabilities', 'update', 'attach-capability', 'detach-capability',
   'status', 'sync', 'repair', 'documents', 'forget', 'use',
@@ -1192,7 +1192,9 @@ function resolveNextOperation(definition) {
 function resolveWorkspaceOperation(definition, positionals, options) {
   const requested = positionals[1] ?? 'list';
   const subcommand = WORKSPACE_SUBCOMMAND_ALIASES.get(requested) ?? requested;
-  if (subcommand === 'cleanup') return optionBoolean(options, 'apply')
+  if (subcommand === 'retention') return never('workspace.retention', definition,
+    Object.keys(options).some(key => ['enabled', 'completed-days', 'cancelled-days', 'unused-clone-days', 'interval-minutes', 'heartbeat'].includes(key)) ? 'mutation' : 'read');
+  if (subcommand === 'cleanup') return optionBoolean(options, 'apply') || optionBoolean(options, 'automatic')
     ? never('workspace.cleanup', definition, 'mutation') : never('workspace.cleanup.preview', definition, 'read');
   if (subcommand === 'copilot') {
     return optionBoolean(options, 'dry-run')

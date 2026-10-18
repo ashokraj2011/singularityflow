@@ -288,6 +288,14 @@
         "title": "Singularity Flow: Clean Up Verified Unused Clones"
       },
       {
+        "command": "singularityFlow.cleanupRetention",
+        "title": "Singularity Flow: Configure Automatic Workspace Cleanup"
+      },
+      {
+        "command": "singularityFlow.runRetention",
+        "title": "Singularity Flow: Run Retention Cleanup Now"
+      },
+      {
         "command": "singularityFlow.takeoverStory",
         "title": "Singularity Flow: Synchronize and Take Over Story"
       },

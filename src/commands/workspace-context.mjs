@@ -27,6 +27,34 @@ export async function run(positionals, options) {
     return console.log(JSON.stringify(await captureExecutionContext(root, { workspace: member, fresh: true }), null, 2));
   }
   if (!selected?.workspacePath) throw new SingularityFlowError('Select a workspace or pass its directory.', { code: 'WORKSPACE_SELECTION_REQUIRED' });
+  if (action === 'retention') {
+    const retention = await import('../workspace-retention.mjs');
+    if (optionBoolean(options, 'heartbeat')) {
+      const root = boundExecutionContextRoot() ?? repoRoot(process.cwd());
+      await retention.touchWorkspaceCheckout(selected.workspacePath, root, {
+        surface: optionString(options, 'surface'), pid: Number(optionString(options, 'pid')) });
+      await (await import('../workspace-retention-background.mjs')).scheduleWorkspaceRetention(selected.workspacePath, { protect: [root] });
+      return console.log(JSON.stringify({ status: 'registered', repositoryPath: root }));
+    }
+    const change = {};
+    for (const [flag, key] of Object.entries({ 'completed-days': 'completedDays', 'cancelled-days': 'cancelledDays',
+      'unused-clone-days': 'unusedCloneDays', 'interval-minutes': 'intervalMinutes' })) {
+      if (options[flag] !== undefined) change[key] = Number(optionString(options, flag));
+    }
+    if (options.enabled !== undefined) {
+      const enabled = optionString(options, 'enabled');
+      if (!['true', 'false'].includes(enabled)) throw new SingularityFlowError('--enabled must be true or false.');
+      change.enabled = enabled === 'true';
+    }
+    const settings = Object.keys(change).length ? await retention.saveWorkspaceRetention(selected.workspacePath, change)
+      : await retention.workspaceRetentionSettings(selected.workspacePath);
+    return console.log(JSON.stringify({ workspacePath: selected.workspacePath, settings }, null, 2));
+  }
+  if (action === 'cleanup' && optionBoolean(options, 'automatic')) {
+    if (options.apply || options.confirm || options.purge) throw new SingularityFlowError('Automatic cleanup uses retention policy, not manual apply/purge flags.');
+    return console.log(JSON.stringify(await (await import('../workspace-retention.mjs')).runWorkspaceRetention(
+      selected.workspacePath, { force: optionBoolean(options, 'refresh'), protect: [boundExecutionContextRoot() ?? process.cwd()] }), null, 2));
+  }
   const result = action === 'checkouts' ? await workspaceCheckoutInventory(selected.workspacePath)
     : optionBoolean(options, 'apply') ? await applyWorkspaceCheckoutCleanup(selected.workspacePath, optionString(options, 'confirm'), { purge: optionBoolean(options, 'purge') })
     : await planWorkspaceCheckoutCleanup(selected.workspacePath, { purge: optionBoolean(options, 'purge') });

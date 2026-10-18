@@ -112,6 +112,8 @@ export async function run({ positionals, options }) {
     executionContext: projection?.executionContext ?? await (await import('../execution-context.mjs')).captureExecutionContext(checkout, { fresh: true }),
     repositoryChecks: (await import('../repository-check-cache.mjs')).repositoryCheckStatus(checkout)
   };
+  await (await import('../workspace-retention-background.mjs')).scheduleWorkspaceRetention(result.executionContext?.workspace?.path,
+    { protect: [checkout] });
   if (options['for-agent']) Object.assign(result, agentSessionView(result), { ready: true,
     agentInstruction: 'Reuse the verified open/session binding, brief and nextsteps in this result. Do not repeat pause, workspace, session, context or nextsteps lookups merely to obtain the same fields. Selection changes and later operation-specific readiness/consent still require fresh checks.' });
   if (json) return console.log(JSON.stringify(result, null, 2));

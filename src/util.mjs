@@ -134,6 +134,7 @@ export { displayWidth, padDisplay, terminalWidth, truncateDisplay };
  * guessing wrong would swallow a real value, which is the worse failure.
  */
 export const BOOLEAN_OPTIONS = Object.freeze(new Set([
+  'heartbeat',
   'purge',
   'review-only', 'review-ui', 'send-test', 'compose', 'for-agent', 'publish-if-ready', 'submit-if-ready', 'review-packet', 'background-sync',
   'commit-reviewed', 'set-aside',

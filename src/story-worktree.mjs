@@ -162,12 +162,12 @@ async function safeNewPath(root, candidate) {
  * Legacy paths remain recognized by prepareStoryWorktree so an upgrade never abandons a
  * registered checkout or creates a second checkout for the same branch.
  */
-async function storyWorktreeLocations(root, id) {
+export async function storyWorktreeLocations(root, id, { context: suppliedContext = undefined } = {}) {
   const common = gitCommonDir(root);
   const canonicalCommon = await realpath(common);
-  const context = await workspaceMemberContextForRepository(
+  const context = suppliedContext === undefined ? await workspaceMemberContextForRepository(
     root, activeWorkspaceFile(), workspaceRegistryFile(), { strict: true }
-  );
+  ) : suppliedContext;
   if (context?.workspacePath && context?.repositoryId) {
     const parent = path.join(context.workspacePath, '.singularity-flow', 'story-worktrees');
     return {

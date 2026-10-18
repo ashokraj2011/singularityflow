@@ -93,12 +93,13 @@ export async function workspaceCheckoutInventory(workspacePath) {
 }
 
 /** A preview proves clean/published history using the same strict proof as capability detach. */
-export async function planWorkspaceCheckoutCleanup(workspacePath, { purge = false } = {}) {
+export async function planWorkspaceCheckoutCleanup(workspacePath, { purge = false, onlyPaths = null } = {}) {
   const inventory = await workspaceCheckoutInventory(workspacePath);
   const workspace = await readWorkspace(workspacePath);
   const { workspaceRepositoryDropProof } = await import('./workspace.mjs');
   const candidates = [], preserved = [];
   for (const clone of inventory.clones) {
+    if (onlyPaths && !onlyPaths.includes(clone.root)) continue;
     if (!clone.cleanupEligible) { preserved.push({ path: clone.root, reason: clone.state !== 'ready' ? clone.state
       : clone.current ? 'selected-branch-checkout' : clone.privateState ? 'private-or-recovery-state'
       : clone.worktrees.length > 1 ? 'dependent-worktrees' : 'retained-canonical-or-adopted-checkout' }); continue; }
@@ -114,10 +115,10 @@ export async function planWorkspaceCheckoutCleanup(workspacePath, { purge = fals
 }
 
 /** Retire into workspace-owned quarantine; no recursive deletion or lifecycle/remote mutation. */
-export async function applyWorkspaceCheckoutCleanup(workspacePath, confirmation, { purge = false } = {}) {
+export async function applyWorkspaceCheckoutCleanup(workspacePath, confirmation, { purge = false, onlyPaths = null, beforeRetire = null } = {}) {
   const { withRegistryFileLease } = await import('./file-lease.mjs');
   return withRegistryFileLease(path.join(workspacePath, 'workspace.json'), async () => {
-    const plan = await planWorkspaceCheckoutCleanup(workspacePath, { purge });
+    const plan = await planWorkspaceCheckoutCleanup(workspacePath, { purge, onlyPaths });
     if (confirmation !== plan.confirmation) throw new SingularityFlowError(
       'Checkout cleanup changed. Review a new cleanup preview; nothing was retired.', { code: 'CHECKOUT_CLEANUP_STALE' });
     const retired = [];
@@ -126,7 +127,7 @@ export async function applyWorkspaceCheckoutCleanup(workspacePath, confirmation,
       await withCheckoutLifecycleLease(candidate.path, () => withRepositoryMutationLease(candidate.path, 'workspace.cleanup', async () => {
       // The proof is re-observed immediately before each move. No clone with a new dependent
       // worktree, source change, recovery file or moved pointer may be retired from an old plan.
-      const fresh = await planWorkspaceCheckoutCleanup(workspacePath, { purge });
+      const fresh = await planWorkspaceCheckoutCleanup(workspacePath, { purge, onlyPaths });
       const same = fresh.candidates.find(item => item.path === candidate.path);
       if (!same || hash(same) !== hash(candidate)) throw new SingularityFlowError(
         'Checkout changed during cleanup. Earlier retirements remain recoverable.', {
@@ -138,6 +139,7 @@ export async function applyWorkspaceCheckoutCleanup(workspacePath, confirmation,
           && currentSubjectLockOwner(candidate.path, lock.owner.subject)?.lockToken === lock.owner.lockToken)
         .map(lock => lock.owner.lockToken));
       const handover = await prepareHeldLockRemoval(candidate.path);
+      await beforeRetire?.();
       await rename(candidate.path, target);
       const retirement = { from: candidate.path, to: target, recovery: 'rename-back-after-inspection', removed: false };
       retired.push(retirement);
@@ -152,6 +154,7 @@ export async function applyWorkspaceCheckoutCleanup(workspacePath, confirmation,
             || proof.worktreeSha256 !== candidate.worktreeSha256
             || await checkoutPrivateState(target, path.join(target, '.git'), permittedTokens)) throw new SingularityFlowError(
           'Retired checkout changed; its recoverable directory was preserved.', { code: 'CHECKOUT_CLEANUP_STALE', details: { retired } });
+        await beforeRetire?.();
         await removeTemporaryTree(target);
         retirement.removed = true;
         retirement.recovery = 'published-git-history';

@@ -71,6 +71,45 @@ branch-checkout receipt/pointer publication shares that fence too. Uncertain or 
 stay recoverable. External Git/editing processes must not modify a cleanup target concurrently.
 No remote branch or Story history is deleted.
 
+## Automatic retention
+
+Automatic maintenance defaults to seven days for completed Stories, seven days for cancelled
+Stories, and seven days after an owned superseded clone is first observed unused. The default
+scan interval is 1,440 minutes (daily). Settings are local to each workspace/laptop, not approved
+workflow policy. Zero days explicitly allows immediate eligibility; it never bypasses safety.
+
+```sh
+singularity-flow workspace retention <WORKSPACE> --json
+singularity-flow workspace retention <WORKSPACE> --completed-days 14 --cancelled-days 7 --unused-clone-days 7 --interval-minutes 1440 --json
+singularity-flow workspace retention <WORKSPACE> --enabled false --json
+singularity-flow workspace cleanup <WORKSPACE> --automatic --refresh --json
+```
+
+VS Code offers Configure Automatic Workspace Cleanup and Run Retention Cleanup Now. Window
+heartbeats protect their opened checkout and request interval-gated background maintenance.
+`workspace use` and `session open` also request a bounded background pass. There is no installed
+OS daemon: a closed application/unused CLI does not run maintenance. Publication and approval
+never wait for cleanup. `SINGULARITY_FLOW_AUTOMATIC_CLEANUP=off` stops background launches.
+
+A Story worktree must have accepted `closed` or `cancelled` state, an elapsed terminal retention,
+and an exact current remote Story tip matching its local HEAD. Unknown/legacy ownership,
+unpublished commits, dirty/hidden/ignored files (including dependency folders), active operations,
+private refs, pending publication or unresolved recovery preserve the checkout. Remote failure
+also preserves it; a deleted remote Story branch is not proof of safe cleanup.
+
+Normal private session/audit metadata is copied and verified into
+`<WORKSPACE>/.singularity-flow/retained-worktree-metadata/` before a no-force Git worktree removal.
+These small archives are retained for inspection, not automatically purged. Worktree cleanup does
+not delete local or remote Story branches. Canonical/adopted clones and selected branch pointers
+remain protected. Unused-clone deletion reuses the manual cleanup proof and leases.
+
+Policy lives in `.singularity-flow/retention-policy.json`; last-pass removals, preservation reasons,
+and unused clocks live in `cleanup-state.json`. A background failure is recorded in
+`cleanup-error.json`. Invalid records suspend cleanup rather than becoming permission to delete.
+Maintenance is bounded to 128 worktree inspections and 32 clone candidates per pass, with a
+two-minute between-item budget and bounded individual Git stages. Earlier verified removals remain
+reported if a later candidate fails. Do not run external Git/file writers on a cleanup target.
+
 On Windows, SFlow's Git children receive `core.longpaths=true` so nested retained snapshot paths
 can be indexed. This is process-local configuration; installation does not change global Git
 settings or the repository's saved Git configuration.
@@ -80,7 +119,7 @@ one invocation; mutations still run their existing fresh identity, lifecycle and
 
 ## Qualification
 
-The [native macOS and Windows qualification run](https://github.com/ashokraj2011/singularityflow/actions/runs/39092914507)
+Native macOS and Windows qualification run `39092914507`
 passed on Node 22 after integrating main through `78f7ba5b`. It covers all 17 shared-context cases,
 window selection and attachment diagnostics, Git child configuration, takeover, cleanup, and the
 latest session/refusal integration. macOS passed 86 tests with one Windows-only case skipped;

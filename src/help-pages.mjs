@@ -1613,6 +1613,8 @@ const PAGES = Object.freeze({
     description: [
       'Every repository command accepts --context-root <ABSOLUTE-CHECKOUT> for an explicit surface binding.',
       'workspace context --json shows that binding; workspace checkouts lists the clone/worktree dependency graph.',
+      'workspace retention <WORKSPACE> configures local automatic cleanup (default: 7-day retention, daily scans).',
+      'workspace cleanup <WORKSPACE> --automatic --refresh --json runs a safety-checked retention pass now.',
       'workspace cleanup previews recoverable retirement; --apply --confirm <DIGEST> applies it. Use --purge',
       'in both preview and application for verified permanent removal. Selected, adopted, canonical and recovery checkouts remain protected.',
       'session takeover <ID> --workspace <PATH> --repository <ID> --json synchronizes a published Story across its required repositories.',

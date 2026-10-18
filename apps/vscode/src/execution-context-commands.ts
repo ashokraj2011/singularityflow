@@ -1,8 +1,22 @@
 /** Thin UI ports: the kernel owns context, takeover, inventory and cleanup decisions. */
 import * as vscode from 'vscode';
+import { randomUUID } from 'node:crypto';
 import type { SingularityFlowClient } from './cli/client.ts';
 
 export function registerExecutionContextCommands(context: vscode.ExtensionContext, client: SingularityFlowClient): void {
+  const surface = randomUUID();
+  let maintenancePending = false;
+  const heartbeat = async (): Promise<void> => {
+    if (maintenancePending) return;
+    maintenancePending = true;
+    try { await client.run(['workspace', 'retention', '--heartbeat', '--surface', surface, '--pid', String(process.pid), '--json']); }
+    catch { /* Unmapped/offline/invalid contexts never become cleanup authority. Explicit commands show diagnostics. */ }
+    finally { maintenancePending = false; }
+  };
+  const initial = setTimeout(() => { void heartbeat(); }, 10000);
+  const interval = setInterval(() => { void heartbeat(); }, 60000);
+  initial.unref(); interval.unref();
+  context.subscriptions.push({ dispose: () => { clearTimeout(initial); clearInterval(interval); } });
   const show = async (value: unknown): Promise<void> => {
     const document = await vscode.workspace.openTextDocument({ language: 'json', content: `${JSON.stringify(value, null, 2)}\n` });
     await vscode.window.showTextDocument(document, { preview: true });
@@ -15,6 +29,25 @@ export function registerExecutionContextCommands(context: vscode.ExtensionContex
   };
   register('singularityFlow.executionContext', async () => show(await client.run(['workspace', 'context', '--json'])));
   register('singularityFlow.checkoutInventory', async () => show(await client.run(['workspace', 'checkouts', '--json'])));
+  register('singularityFlow.cleanupRetention', async () => {
+    const current = await client.run<{ settings: { enabled: boolean; completedDays: number; cancelledDays: number; unusedCloneDays: number; intervalMinutes: number } }>(['workspace', 'retention', '--json']);
+    const enabled = await vscode.window.showQuickPick(['Enabled', 'Disabled'], { title: 'Automatic workspace cleanup' });
+    if (!enabled) return;
+    const settings = current.settings;
+    const value = enabled === 'Disabled' ? null : await vscode.window.showInputBox({ title: 'Cleanup retention',
+      prompt: 'Completed days, cancelled days, unused clone days, check interval minutes. Zero days means immediate eligibility, not permission to discard work.',
+      value: `${settings.completedDays},${settings.cancelledDays},${settings.unusedCloneDays},${settings.intervalMinutes}`,
+      validateInput: text => {
+        const values = text.split(',').map(Number);
+        return values.length === 4 && values.every(Number.isInteger) && values.slice(0, 3).every(days => days >= 0 && days <= 3650)
+          && values[3]! >= 1 && values[3]! <= 10080 ? undefined : 'Enter three retention days (0–3650) and an interval (1–10080 minutes).';
+      } });
+    if (enabled === 'Enabled' && value === undefined) return;
+    const days = value?.split(',').map(item => item.trim());
+    await show(await client.run(['workspace', 'retention', '--enabled', String(enabled === 'Enabled'),
+      ...(days ? ['--completed-days', days[0]!, '--cancelled-days', days[1]!, '--unused-clone-days', days[2]!, '--interval-minutes', days[3]!] : []), '--json']));
+  });
+  register('singularityFlow.runRetention', async () => show(await client.run(['workspace', 'cleanup', '--automatic', '--refresh', '--json'])));
   register('singularityFlow.cleanupCheckouts', async () => {
     const plan = await client.run<{ candidates: unknown[]; confirmation: string }>(['workspace', 'cleanup', '--purge', '--json']);
     await show(plan);

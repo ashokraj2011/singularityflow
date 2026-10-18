@@ -874,6 +874,7 @@ Every public operation is classified before its implementation module is importe
 | workspace.rename | mutation | never | — | — |
 | workspace.repair | mutation | never | — | — |
 | workspace.restore | mutation | never | — | — |
+| workspace.retention | mutation | never | — | — |
 | workspace.status | read | never | — | — |
 | workspace.sync | mutation | never | — | — |
 | workspace.update | mutation | never | — | — |

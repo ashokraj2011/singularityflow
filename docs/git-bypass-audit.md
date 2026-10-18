@@ -1,5 +1,14 @@
 # GAL Git bypass regression gate
 
+Workspace retention adds one bounded maintenance launcher for a shipped, fixed Node worker;
+its message accepts only an absolute workspace and protected paths. It never runs a model,
+publication or approval. The foreground skips disabled/not-due work, and the worker rechecks
+policy and owns the maintenance lease. The retention proof uses the existing isolated Git
+environment, local configuration checks, exhaustive worktree fingerprint, bounded Git reads and
+exact remote advertisement. Its only destructive Git form is `worktree remove -- <owned-path>`
+without force. Clone retirement/purge remains with the existing drop-proof owner. These two
+reviewed site fingerprints are frozen; no new general Git/process owner is registered.
+
 Shared execution context adds no Git/process owner. The existing bounded CLI-step launcher now
 passes the kernel-returned checkout to its child process when a surface is explicitly bound; it
 does not accept a profile replacement or broaden its argv. Story-worktree calls are unchanged but

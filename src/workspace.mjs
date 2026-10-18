@@ -1567,7 +1567,7 @@ export function workspaceDropGitConfigurationOverrides(platform = process.platfo
   ]);
 }
 
-function workspaceDropGitEnvironment(env = null) {
+export function workspaceDropGitEnvironment(env = null) {
   const base = env ?? enterpriseGitEnvironment();
   if (workspaceDropGitEnvironments.has(base)) return base;
   // A deletion proof is read-only and must never hydrate a partial clone merely to inspect its
@@ -1603,12 +1603,17 @@ async function workspaceDropLstat(target, options = undefined) {
   }
 }
 
-async function assertWorkspaceDropLocalGitConfiguration(repository, target, {
-  env = null
+export async function assertWorkspaceDropLocalGitConfiguration(repository, target, {
+  env = null, worktreeGitDirectory = null
 } = {}) {
   const gitEnv = workspaceDropGitEnvironment(env);
   const keys = [];
   for (const scope of ['local', 'worktree']) {
+    // A linked checkout may enable worktreeConfig without ever creating config.worktree.
+    // The shared local configuration was still inspected; only a proven absent private file
+    // may skip the redundant private scope. Present/unreadable configuration remains fatal.
+    if (scope === 'worktree' && worktreeGitDirectory
+        && !await workspaceDropLstat(path.join(worktreeGitDirectory, 'config.worktree'))) continue;
     const result = run('git', [
       'config', `--${scope}`, '--includes', '--name-only', '--null', '--list'
     ], { cwd: target, env: gitEnv, allowFailure: true });
@@ -1640,7 +1645,7 @@ async function assertWorkspaceDropLocalGitConfiguration(repository, target, {
   }
 }
 
-async function gitWriterLocks(gitDirectory) {
+export async function gitWriterLocks(gitDirectory) {
   const locks = [];
   const rootEntries = await readdir(gitDirectory, { withFileTypes: true });
   for (const entry of rootEntries) {

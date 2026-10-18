@@ -179,15 +179,16 @@ export async function phaseExecutionEvidence(root, definition, workflow, phase) 
 /** Bounded, machine-derived facts; command/log strings never enter the model's instruction stream. */
 export function renderExecutionEvidence(evidence) {
   if (!evidence) return '';
-  // An approved step that retained no governed tests has nothing to reuse or cite: name it in one
-  // line. Its packet, commits and tree hash stay in the read model and the composition record.
+  // An approved step that retained no governed tests has no results to reuse: name it in one line
+  // with its packet path, which carries the packet digest a release evidence index cites. Its commits
+  // and tree hash stay in the read model and the composition record.
   const untested = (evidence.entries ?? []).filter(entry => !entry.checks?.length && !entry.executions?.length);
   const tested = (evidence.entries ?? []).filter(entry => !untested.includes(entry));
   const facts = tested.length || evidence.diagnostics?.length || evidence.omittedPackets;
   return ['# Governed execution evidence', '', EXECUTION_EVIDENCE_INSTRUCTION, '',
     `Projection: ${evidence.projectionSha256}. Read-only facts; not publication, submission or human approval.`,
     'Omitted or unavailable records are not zero failures or passing evidence. Inspect the linked immutable packet if more detail is needed.',
-    ...(untested.length ? ['', `Retained no test results: ${untested.map(entry => `${entry.phase} generation ${entry.generation}`).join(', ')}.`] : []),
+    ...(untested.length ? ['', `Retained no test results: ${untested.map(entry => `${entry.phase} generation ${entry.generation}${entry.path ? ` (\`${entry.path}\`)` : ''}`).join(', ')}.`] : []),
     ...(facts ? ['', '```json', JSON.stringify({ current: evidence.current, entries: tested,
       diagnostics: evidence.diagnostics, omittedPackets: evidence.omittedPackets }), '```']
       : untested.length ? [] : ['', 'No earlier step retained test results.']),

@@ -159,7 +159,8 @@ test('actual immutable packet handoff ignores altered local reports; source chan
   const withUntested = { ...evidence, entries: [{ ...evidence.entries[0], phase: 'specification', generation: 2,
     status: 'no-governed-tests-in-this-packet', checks: [], executions: [] }, ...evidence.entries] };
   const rendered = renderExecutionEvidence(withUntested);
-  assert.match(rendered, /Retained no test results: specification generation 2\./);
+  assert.match(rendered, new RegExp(`Retained no test results: specification generation 2 \\(\`${evidence.entries[0].path}\`\\)`),
+    'the packet path (with its digest) stays citable');
   assert.equal(JSON.parse(rendered.match(/```json\n(.+)\n```/u)[1]).entries.length, 1);
   const nothing = renderExecutionEvidence({ ...evidence, entries: [], diagnostics: [], omittedPackets: 0 });
   assert.match(nothing, /No earlier step retained test results\./);

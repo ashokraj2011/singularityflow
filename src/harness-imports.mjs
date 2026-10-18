@@ -109,14 +109,17 @@ function withoutHtmlComments(text) {
 }
 
 /**
- * What a later step's prompt shows of an approved Markdown artifact it does not take as an input.
- * Its Agent brief is the summary its producer wrote for downstream steps, so that is all it shows
- * when there is one; otherwise the authored text without template comments.
+ * What a later step's prompt shows of an approved Markdown artifact it does not take as an input:
+ * the authored text without template comments. With `briefOnly` (the step has its own approved
+ * inputs, so this is background), just the Agent brief, the summary its producer wrote for downstream
+ * steps, when there is one.
  */
-function promptMarkdownPreview(text) {
+function promptMarkdownPreview(text, { briefOnly = false } = {}) {
   const authored = withoutHtmlComments(text);
   let brief = null;
-  try { brief = markdownSelection(authored, 'Agent brief'); } catch { /* none, or more than one */ }
+  if (briefOnly) {
+    try { brief = markdownSelection(authored, 'Agent brief'); } catch { /* none, or more than one */ }
+  }
   return brief && brief.replace(/^#{1,6}\s+.+$/mu, '').trim()
     ? { text: brief, projection: 'agent-brief' }
     : { text: authored, projection: 'authored' };
@@ -157,7 +160,9 @@ export function renderReferencePreview(bytesValue, mediaType = 'application/octe
     const raw = projectedBytes.toString('utf8');
     if (mediaType === 'text/markdown') {
       renderer = 'markdown-outline'; summary = markdownSummary(raw); selected ??= markdownSelection(raw, options.section);
-      if (selected == null && options.promptPreview === true) ({ text: selected, projection } = promptMarkdownPreview(raw));
+      if (selected == null && options.promptPreview === true) {
+        ({ text: selected, projection } = promptMarkdownPreview(raw, { briefOnly: options.briefOnly === true }));
+      }
       selected ??= raw;
     } else if (['application/json', 'application/yaml', 'application/x-yaml'].includes(mediaType)) {
       renderer = mediaType === 'application/json' ? 'json-structure' : 'yaml-structure';

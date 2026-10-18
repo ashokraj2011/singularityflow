@@ -393,8 +393,9 @@ export function inputReadinessLines(phase, report) {
 }
 
 /**
- * `compact` is for a prompt only (renderPromptInputsBlock): the metadata names the source, status
- * and projection, and the expansion handle appears once. The durable block, which artifacts and
+ * `compact` is for a prompt only (renderPromptInputsBlock): the metadata names the source, its one
+ * approved-input digest (a release evidence index cites it), status and projection, and the expansion
+ * handle appears once. The durable block, which artifacts and
  * generation receipts pin by hash, is always the full form.
  */
 export function renderInputsBlock(result, { compact = false } = {}) {
@@ -403,7 +404,7 @@ export function renderInputsBlock(result, { compact = false } = {}) {
     const header = `## Approved phase input: ${entry.phase}${entry.skp ? `/${entry.skp.output}` : ''}`;
     const projection = entry.projection?.kind ?? 'full';
     const metadata = compact
-      ? `<!-- source=${entry.repositoryPath ?? entry.path ?? 'missing'} status=${entry.status} projection=${projection}${entry.skp?.receipt ? ` producer-generation=${entry.skp.receipt.generation}` : ''} -->`
+      ? `<!-- source=${entry.repositoryPath ?? entry.path ?? 'missing'} sha256=${entry.sha256 ?? 'unavailable'} status=${entry.status} projection=${projection}${entry.skp?.receipt ? ` producer-generation=${entry.skp.receipt.generation}` : ''} -->`
       : `<!-- source=${entry.repositoryPath ?? entry.path ?? 'missing'} sha256=${entry.sha256 ?? 'unavailable'} status=${entry.status} projection=${projection}${entry.skp?.receipt ? ` producer-generation=${entry.skp.receipt.generation} receipt=${entry.skp.receipt.packetSha256}` : ''}${entry.representation?.sha256 ? ` representation-sha256=${entry.representation.sha256}` : ''}${entry.projection?.briefSha256 ? ` brief-sha256=${entry.projection.briefSha256}` : ''}${entry.representation?.expansionHandle ? ` expansion=${entry.representation.expansionHandle}` : ''} -->`;
     if (entry.status !== 'captured') return `${header}\n\n${metadata}\n\n> ${inputMessage({ id: 'This phase' }, entry) ?? `Input is ${entry.status}.`}`;
     const suffix = entry.truncated ? '\n\n> Input truncated at its configured byte limit.' : '';

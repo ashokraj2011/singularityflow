@@ -175,14 +175,19 @@ test('model-visible Markdown references exclude kernel metadata and recursive ap
   assert.ok(projected.managedBytesExcluded > 0);
 });
 
-test('a prompt preview shows the Agent brief without template comments; show keeps every byte', () => {
+test('a prompt preview drops template comments, shows only the Agent brief as background, and show keeps every byte', () => {
   const source = Buffer.from([
     '# Specification', '', '<!--', 'Scenarios come first: template guidance.', '-->', '',
     '## Agent brief', '', '<!-- Summarize for downstream agents. -->', '', 'Users convert 123 to 0x7B.', '',
     '## Requirements', '', '- The operation converts. [HEX-1:REQ-001]', '',
     '```html', '<!-- an example inside code stays -->', '```'
   ].join('\n'));
-  const prompt = renderReferencePreview(source, 'text/markdown', { promptPreview: true });
+  // For a step with no inputs of its own, the preview is its view of earlier work: all authored text.
+  const only = renderReferencePreview(source, 'text/markdown', { promptPreview: true });
+  assert.equal(only.projection, 'authored');
+  assert.match(only.preview.text, /Users convert 123 to 0x7B[\s\S]*REQ-001/);
+  assert.doesNotMatch(only.preview.text, /template guidance|Summarize for downstream/);
+  const prompt = renderReferencePreview(source, 'text/markdown', { promptPreview: true, briefOnly: true });
   assert.equal(prompt.projection, 'agent-brief');
   assert.match(prompt.preview.text, /## Agent brief\n\nUsers convert 123 to 0x7B\./);
   assert.doesNotMatch(prompt.preview.text, /template guidance|Summarize for downstream|REQ-001/);
@@ -193,7 +198,7 @@ test('a prompt preview shows the Agent brief without template comments; show kee
 
   // Without a brief: the authored text, comments outside code removed and code left as written.
   const noBrief = renderReferencePreview(Buffer.from(source.toString().replace('## Agent brief', '## Summary')),
-    'text/markdown', { promptPreview: true });
+    'text/markdown', { promptPreview: true, briefOnly: true });
   assert.equal(noBrief.projection, 'authored');
   assert.match(noBrief.preview.text, /REQ-001/);
   assert.match(noBrief.preview.text, /<!-- an example inside code stays -->/);

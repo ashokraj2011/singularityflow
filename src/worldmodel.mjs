@@ -167,7 +167,10 @@ async function renderApprovedReferenceContext(root, definition, workflow, active
         maxBytes: policy?.previewTextBytes,
         totalEnvelopeBytes: policy?.totalEnvelopeBytes,
         authoredMarkdown: true,
-        promptPreview: true
+        promptPreview: true,
+        // A step with no approved inputs of its own sees earlier work only here, so it keeps the
+        // authored text; a step with inputs gets the other steps' Agent briefs as background.
+        briefOnly: inputRecords.some((entry) => entry.status === 'captured')
       });
       const capturedReason = approvedReferenceCaptureReason({
         handle: descriptor.handle,

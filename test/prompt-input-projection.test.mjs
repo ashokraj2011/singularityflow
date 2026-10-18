@@ -49,8 +49,8 @@ test('verified summary duplicate clauses become capsule references without alter
   assert.match(projected.text, /Export behavior is unchanged/);
   assert.match(projected.text, /src\/export.js \| export.test.js/);
   assert.equal(projected.text.split('sfref:approved-source').length - 1, 1, 'the prompt names the handle once');
-  assert.doesNotMatch(projected.text, new RegExp(sourceSha256), 'digests stay in the record, not the prompt');
-  assert.doesNotMatch(projected.text, /representation-sha256=|brief-sha256=/);
+  assert.equal(projected.text.split(sourceSha256).length - 1, 1, 'one approved-input digest, which a step may cite');
+  assert.doesNotMatch(projected.text, /representation-sha256=|brief-sha256=/, 'the other digests stay in the record');
   assert.equal(projected.projection.inputs.length, 1);
   assert.equal(projected.projection.inputs[0].deduplicatedClauseIds.length, 3);
   assert.equal(projected.projection.inputs[0].sourceSha256, sourceSha256);

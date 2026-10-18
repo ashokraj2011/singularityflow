@@ -7008,6 +7008,9 @@ test('choosing a workspace is what scopes the rest', async () => {
   const windowRoot = extension.indexOf("const windowRoot = context.workspaceState.get<string>('singularityFlow.executionRoot');");
   assert.ok(windowRoot > 0 && folder > windowRoot && active > folder,
     'window selection, opened folder, then profile default');
+  const rebind = extension.slice(extension.indexOf('workspaceSelected.push(async (selected) => {'));
+  assert.ok(rebind.indexOf('await validateRepositoryDirectory') < rebind.indexOf("workspaceState.update('singularityFlow.executionRoot'"),
+    'failed validation must not persist an unavailable selection for the next window reload');
 
   // And it reads the shape the CLI emits. Ordering two lines correctly is worth nothing if the
   // first one reads a field that does not exist: this looked for `workspace.path` in a flat object

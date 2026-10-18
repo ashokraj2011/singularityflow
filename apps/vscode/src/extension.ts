@@ -5503,7 +5503,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * rather than switched to, and the previous workspace stays selected in the editor.
    */
   workspaceSelected.push(async (selected) => {
-    await context.workspaceState.update('singularityFlow.executionRoot', selected.repositoryPath);
     const target = path.resolve(selected.repositoryPath);
     let canonicalTarget: string;
     let targetGitCommonDirectory: string | null;
@@ -5519,6 +5518,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
     const leadRepositoryPath = await workspaceLeadDirectory(selected.workspacePath) ?? canonicalTarget;
+    if (selected.navigationIsCurrent && !await selected.navigationIsCurrent()) return;
+    await context.workspaceState.update('singularityFlow.executionRoot', canonicalTarget);
     if (selected.navigationIsCurrent && !await selected.navigationIsCurrent()) return;
     repositoryEpoch.moved(canonicalTarget);
     const selectionEpoch = repositoryEpoch.capture();

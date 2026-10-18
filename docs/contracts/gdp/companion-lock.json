@@ -4,17 +4,17 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "364c902fb4a31c310481e3dfb5d897f0a90d1c5a",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-18-BRANCH-CHECKOUTS.md",
+    "reviewedAtCommit": "e40a7e4b408800c00948e34e557ba5fedaff3e67",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-18-LEDGER-DEFAULT.md",
     "companionIds": [
-      "migration-registry"
+      "workflow-configuration"
     ]
   },
   "companions": [
     {
       "id": "workflow-configuration",
       "path": "templates/workflow.yml",
-      "sha256": "sha256:f179fc6d6e5b7a171f10fa503d5f5657a7a95b1be727c70fbd10ebaffc665365"
+      "sha256": "sha256:ac191216bf8558499df0476034a9164131e1ee04e4ffa9074c300309c7b1c5a8"
     },
     {
       "id": "sgos-portable-schema",

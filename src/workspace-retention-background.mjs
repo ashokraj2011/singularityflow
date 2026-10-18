@@ -14,6 +14,9 @@ export async function scheduleWorkspaceRetention(workspacePath, { protect = [], 
     const state = JSON.parse(await readFile(path.join(workspacePath, '.singularity-flow', 'cleanup-state.json'), 'utf8').catch(() => '{}'));
     const age = Date.now() - Date.parse(state.checkedAt);
     if (age >= 0 && age < settings.intervalMinutes * 60000) return false;
+    // Capture before spawning: a removed caller cwd must not leave an idle IPC child behind.
+    const protectedPaths = [...new Set([process.cwd(), ...protect])];
+    if (protectedPaths.length > 32) return false;
     // The shipped source worker is intentionally not part of the foreground cold bundle closure.
     const child = fork(fileURLToPath(new URL('../src/workspace-retention-worker.mjs', import.meta.url)), [], {
       cwd: workspacePath, env: { ...env }, execArgv: [], windowsHide: true,
@@ -22,7 +25,6 @@ export async function scheduleWorkspaceRetention(workspacePath, { protect = [], 
     child.once('error', () => { /* Worker launch cannot fail the successful workspace/session operation. */ });
     // The worker's cwd is the workspace, not the terminal that launched it. Preserve the
     // caller's actual directory too, even when this command selects another Story/window.
-    const protectedPaths = [...new Set([process.cwd(), ...protect])];
     child.send({ workspacePath: path.resolve(workspacePath), protect: protectedPaths }, () => {
       if (child.connected) child.disconnect();
       child.unref();

@@ -87,3 +87,13 @@ qualification workflow. Both hosts also passed VS Code typechecking, build and u
 limits. Local checks passed 2,752 install/release checks, including the generated skill catalog and
 package upgrade provenance. Shared path guidance has separately accounted fixed overhead; existing
 domain-specific skill caps are unchanged. The temporary workflows are never merged into production.
+
+Latest main was refreshed before merging and integrated through `330a6bde`, preserving its Windows
+maintenance-path spelling, Copilot rebind observation and test-machine isolation changes. Integration
+qualification `39139519543` exercised revision `f970b165`: both hosts passed 14 path/isolation tests
+and three built-host publication, Copilot rebind and maintenance-routing cases, with no failures or
+skips. The incoming POSIX case-distinction assertion now resolves its expected paths using the native
+host syntax, retaining both distinct keys instead of skipping the test on Windows. Both hosts also
+passed typechecking, build and unchanged bundle budgets. Local install/release checking passed
+2,754 checks after this integration. The CI revision `da67555f` differs only by its temporary workflow;
+closing documentation does not change the qualified runtime or assertions.

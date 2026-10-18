@@ -466,7 +466,7 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
     `- Work-item directory: \`${itemRelative}\``,
     `- Required artifact: \`${requiredArtifact}\``,
     ...artifactContentContractLines(phase.requiredArtifact),
-    '- Path boundary: Resolve every named path inside the work-item directory or repository root. Never search the filesystem outside this repository.',
+    '- Path boundary: Repository discovery stays within the selected checkout. Keep CLI-issued absolute paths unchanged, including exact private/external files; writes still require phase authorization.',
     `- Write scope: \`${phase.writeScope ?? 'artifact-only'}\``,
     `- Intelligence: world-model=\`${pinnedIntelligence.worldModel ?? 'inherit'}\`, AST=\`${astContract}\`, agent-briefs=\`${pinnedIntelligence.agentBriefs ?? 'inherit'}\``,
     ...(worldModelDisabledForWorkflow(workflow)

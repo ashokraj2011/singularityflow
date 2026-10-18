@@ -316,8 +316,9 @@ test('an active Story session hook injects the repository and governed work-item
   const result = await sessionStartAgentHook(repository, definition, workflow, { sessionId: 'path-hook' });
   assert.match(result.additionalContext, new RegExp(`Working repository: ${repository.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.match(result.additionalContext, /Artifacts for GROUND-1 live under singularity\/work-items\/GROUND-1\//);
-  assert.match(result.additionalContext, /Use this exact repository as the cwd for every shell and file tool/);
-  assert.match(result.additionalContext, /Never search \$HOME, a parent directory, or outside this repository/);
+  assert.match(result.additionalContext, /Use this exact repository as command cwd/);
+  assert.ok(result.additionalContext.includes(CLI_PATH_CONTRACT));
+  assert.match(result.additionalContext, /Never discover repositories by searching \$HOME, parents or unrelated directories/);
 });
 
 test('an active Story session hook uses the immutable non-default work-item root', async () => {
@@ -499,6 +500,9 @@ test('prepare, inputs, and compose replay complete repository-rooted paths witho
   const composed = sflow(repository, 'wm', 'compose', '--phase', 'implementation', '--agent', 'developer', '--render-only', '--out', promptRelative);
   assert.equal(composed.status, 0, composed.stderr);
   const prompt = await readFile(path.join(repository, promptRelative), 'utf8');
+  assert.ok(prompt.includes(CLI_PATH_CONTRACT));
+  assert.match(prompt, /Keep CLI-issued absolute paths unchanged, including exact private\/external files/);
+  assert.doesNotMatch(prompt, /Resolve every named path inside|Paths in Flow output are relative to one of these two roots/);
   const canonicalRepository = git(repository, 'rev-parse', '--show-toplevel');
   assert.match(prompt, /Repository root: `\.` \(the verified current repository checkout\)/);
   assert.doesNotMatch(prompt, new RegExp(canonicalRepository.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));

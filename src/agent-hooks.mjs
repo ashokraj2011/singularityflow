@@ -25,6 +25,7 @@ import { readCopilotMode } from './copilot-mode.mjs';
 import { pendingContextBoundary } from './context-policy.mjs';
 import { parseArgs } from './util.mjs';
 import { resolveOperation } from './command-registry.mjs';
+import { CLI_PATH_CONTRACT } from './safe-command-guidance.mjs';
 
 // An initiative branch is a governed context in its own right: the branch name IS the initiative
 // ID, the profile and agent were pinned when it was started, and every phase output is
@@ -61,9 +62,9 @@ function pathGroundingContext(root, workId = null, workItemRoot = DEFAULT_WORK_I
     ? path.posix.dirname(workItemWorkflowRelative(workId, workItemRoot))
     : null;
   const workItem = workId
-    ? ` Artifacts for ${workId} live under ${governedDirectory}/. Paths in Flow output are relative to one of these two roots.`
-    : ' Paths in Flow output are relative to this repository root.';
-  return ` Working repository: ${root}.${workItem} Use this exact repository as the cwd for every shell and file tool. Never search $HOME, a parent directory, or outside this repository.`;
+    ? ` Artifacts for ${workId} live under ${governedDirectory}/. Relative artifact paths use the base named by the CLI.`
+    : '';
+  return ` Working repository: ${root}.${workItem} Use this exact repository as command cwd. ${CLI_PATH_CONTRACT} Never discover repositories by searching $HOME, parents or unrelated directories.`;
 }
 
 /**

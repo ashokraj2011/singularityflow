@@ -109,7 +109,8 @@ and unused clocks live in `cleanup-state.json`. A background failure is recorded
 `cleanup-error.json`. Invalid records suspend cleanup rather than becoming permission to delete.
 Maintenance is bounded to 128 worktree inspections and 32 clone candidates per pass, with a
 two-minute between-item budget and bounded individual Git stages. Earlier verified removals remain
-reported if a later candidate fails. Do not run external Git/file writers on a cleanup target.
+reported if a later candidate fails. Worktree batches rotate so a protected first page cannot starve
+later completed Stories. Do not run external Git/file writers on a cleanup target.
 
 On Windows, SFlow's Git children receive `core.longpaths=true` so nested retained snapshot paths
 can be indexed. This is process-local configuration; installation does not change global Git

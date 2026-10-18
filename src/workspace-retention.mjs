@@ -100,6 +100,14 @@ export function terminalRetentionTimestamp(workflow) {
   return dates.length ? Math.max(...dates) : NaN;
 }
 
+/** A local cursor is only a fair scheduling hint, never a deletion proof. */
+export function retentionWorktreePage(entries, cursor = null, limit = 128) {
+  const ordered = [...entries].sort((left, right) => left.entry.path < right.entry.path ? -1 : left.entry.path > right.entry.path ? 1 : 0);
+  const found = cursor ? ordered.findIndex(item => item.entry.path > cursor) : 0;
+  const start = found < 0 ? 0 : found;
+  return [...ordered.slice(start), ...ordered.slice(0, start)].slice(0, limit);
+}
+
 /** Preserve local session/audit bytes outside the disposable clone, without moving recovery. */
 async function retainWorktreeMetadata(workspacePath, root, workId) {
   const { gitDir } = await (await import('./repo-context.mjs')).createRepoContext(root).observe('repository.paths');
@@ -249,13 +257,13 @@ export async function runWorkspaceRetention(workspacePath, { force = false, now 
     const unchangedPolicy = async () => {
       if (digest(await workspaceRetentionSettings(workspace.path)) !== digest(settings)) fail('Retention policy changed during maintenance.');
     };
-    let inspected = 0;
     const deadline = Date.now() + 120000;
-    for (const clone of inventory.clones) {
-      if (clone.state !== 'ready') continue;
-      for (const entry of worktreeInventory(clone.root)) {
-        if (++inspected > 128 || Date.now() > deadline) { result.preserved.push({ path: clone.root, reason: 'maintenance-budget' }); break; }
-        if (entry.path === clone.root) continue;
+    const entries = inventory.clones.filter(clone => clone.state === 'ready').flatMap(clone =>
+      worktreeInventory(clone.root).filter(entry => entry.path !== clone.root).map(entry => ({ clone, entry })));
+    result.worktreeCursor = state.worktreeCursor ?? null;
+    for (const { clone, entry } of retentionWorktreePage(entries, state.worktreeCursor)) {
+        if (Date.now() > deadline) { result.preserved.push({ path: clone.root, reason: 'maintenance-budget' }); break; }
+        result.worktreeCursor = entry.path;
         let retainedMetadata = null;
         try {
           await withRegistryFileLease(path.join(workspace.path, 'workspace.json'), () => withCheckoutLifecycleLease(clone.root,
@@ -281,7 +289,6 @@ export async function runWorkspaceRetention(workspacePath, { force = false, now 
             })));
         } catch (error) { result.preserved.push({ path: entry.path, reason: error.code ?? 'unverified', message: error.message,
           ...(retainedMetadata ? { retainedMetadata } : {}) }); }
-      }
     }
     const after = await workspaceCheckoutInventory(workspace.path);
     for (const clone of after.clones.filter(item => item.cleanupEligible).slice(0, 32)) {

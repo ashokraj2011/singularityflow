@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { DEFAULT_WORKSPACE_RETENTION, normalizeWorkspaceRetention, workspaceRetentionSettings,
-  saveWorkspaceRetention, runWorkspaceRetention, terminalRetentionTimestamp, touchWorkspaceCheckout } from '../src/workspace-retention.mjs';
+  saveWorkspaceRetention, runWorkspaceRetention, terminalRetentionTimestamp, touchWorkspaceCheckout, retentionWorktreePage } from '../src/workspace-retention.mjs';
 import { prepareWorkspaceBranch } from '../src/workspace-branch-checkout.mjs';
 import { readWorkspace, rememberWorkspace } from '../src/workspace.mjs';
 import { withRepositoryMutationLease } from '../src/subject-lock.mjs';
@@ -81,6 +81,14 @@ test('terminal timestamps distinguish approved completion, cancellation and nont
   assert.equal(terminalRetentionTimestamp({ status: 'cancelled', cancellation: { cancelledAt: '2026-01-01T00:00:00Z' } }), Date.parse('2026-01-01'));
   assert.equal(terminalRetentionTimestamp({ status: 'closed', phases: { a: { approvedAt: '2026-01-02T00:00:00Z' }, b: { approvedAt: '2026-01-03T00:00:00Z' } } }), Date.parse('2026-01-03'));
   assert.ok(Number.isNaN(terminalRetentionTimestamp({ status: 'in_progress' })));
+});
+
+test('bounded maintenance rotates past protected entries instead of starving later worktrees', () => {
+  const entries = Array.from({ length: 300 }, (_, index) => ({ entry: { path: `checkout-${String(index).padStart(3, '0')}` } }));
+  const first = retentionWorktreePage(entries), second = retentionWorktreePage(entries, first.at(-1).entry.path);
+  assert.equal(first.length, 128); assert.equal(second[0].entry.path, 'checkout-128');
+  const third = retentionWorktreePage(entries, second.at(-1).entry.path);
+  assert.equal(third[0].entry.path, 'checkout-256'); assert.ok(third.some(item => item.entry.path === 'checkout-000'));
 });
 
 test('published completed lifecycle fixtures use completion retention, not cancellation retention', { timeout: 180000 }, async t => {

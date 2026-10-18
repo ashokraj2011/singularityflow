@@ -77,6 +77,8 @@ async function publishedSpecificationStory(t, { copied = false, humanAnswers = f
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-source-cli-'));
   t.after(async () => rm(root, { recursive: true, force: true }));
   git(root, 'init', '-b', 'main');
+  git(root, 'config', 'core.autocrlf', 'false');
+  git(root, 'config', 'core.longpaths', 'true');
   git(root, 'config', 'user.name', ACTOR.name);
   git(root, 'config', 'user.email', ACTOR.email);
   await writeFile(path.join(root, 'README.md'), '# Review fixture\n');
@@ -402,7 +404,7 @@ test('compact review entry binds once and preserves every exact review material 
   assert.equal(compact.ready, true);
   assert.equal(compact.workId, WORK_ID);
   assert.equal(compact.phase, phaseId);
-  assert.equal(compact.repositoryPath, git(root, 'rev-parse', '--show-toplevel'));
+  assert.equal(path.resolve(compact.repositoryPath), path.resolve(git(root, 'rev-parse', '--show-toplevel')));
   assert.equal(compact.bindingPath, 'reportTemplate.binding');
   assert.equal(Object.hasOwn(compact, 'binding'), false);
   assert.deepEqual(compact.reportTemplate.binding, full.binding);

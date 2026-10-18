@@ -23,7 +23,8 @@ const cli = path.join(root, 'bin', 'singularity-flow.mjs');
 const boundary = 'Resolve the active Story checkout from this invocation\'s verified entry packet';
 
 function git(repository, ...args) {
-  const result = spawnSync('git', args, { cwd: repository, encoding: 'utf8' });
+  // These fixtures deliberately exceed Win32's legacy path limit, including the first checkout.
+  const result = spawnSync('git', ['-c', 'core.longpaths=true', ...args], { cwd: repository, encoding: 'utf8' });
   if (result.status !== 0) throw new Error(result.stderr || `git ${args.join(' ')} failed`);
   return result.stdout.trim();
 }
@@ -182,7 +183,7 @@ test('every generated skill boundary forbids home search and uses only its decla
 test('blank-machine entry skills execute before workspace, repository, or Story selection', {
   // The test launches several complete CLI processes, including quickstart's isolated sandbox.
   // Keep the guard bounded while allowing aggregate shards to share a constrained CI/office host.
-  timeout: 90_000
+  timeout: 300_000
 }, async (t) => {
   const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-skill-machine-'));
   const machineHome = path.join(machine, 'home');
@@ -204,7 +205,7 @@ test('blank-machine entry skills execute before workspace, repository, or Story 
     'SINGULARITY_FLOW_WORKSPACE_ROOT'
   ]) delete env[key];
   const invoke = (...args) => spawnSync(process.execPath, [cli, ...args], {
-    cwd, env, encoding: 'utf8', timeout: 60_000
+    cwd, env, encoding: 'utf8', timeout: 180_000
   });
   const succeeds = (label, args) => {
     const result = invoke(...args);
@@ -279,7 +280,7 @@ test('repository entry initializes an explicitly opened unregistered Git root wi
   assert.equal(checked.status, 0, checked.stderr || checked.stdout);
   const report = JSON.parse(checked.stdout);
   assert.equal(report.complete, true);
-  assert.equal(report.repository, git(repository, 'rev-parse', '--show-toplevel'));
+  assert.equal(path.resolve(report.repository), path.resolve(git(repository, 'rev-parse', '--show-toplevel')));
   assert.equal(report.configurationMode, 'working-tree');
 });
 

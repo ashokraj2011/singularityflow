@@ -176,6 +176,10 @@ test('the CLI bounds a real phase entry, and the bytes it leaves out are in the 
     return result.stdout;
   };
   must('git', ['init', '-q', '-b', 'main', root], base);
+  // Publication intentionally drops process-only Git config overrides. Use a real fixture-local
+  // identity, as a repository would, rather than inheriting this machine's global Git identity.
+  must('git', ['config', 'user.name', 'Agent Tester']);
+  must('git', ['config', 'user.email', 'agent.tester@example.invalid']);
   await writeFile(path.join(root, 'README.md'), '# Agent output\n');
   must(process.execPath, [cli, '--no-model', 'init']);
   const configPath = path.join(root, 'singularity/workflow.yml');
@@ -334,6 +338,8 @@ test('every route form given --for-agent is accepted, fits the host, and a pause
     assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
   };
   must('git', ['init', '-q', '-b', 'main', root], base);
+  must('git', ['config', 'user.name', 'Agent Tester']);
+  must('git', ['config', 'user.email', 'agent.tester@example.invalid']);
   await writeFile(path.join(root, 'package.json'), '{"type":"module","private":true}\n');
   must(process.execPath, [cli, '--no-model', 'init']);
   const configPath = path.join(root, 'singularity/workflow.yml');

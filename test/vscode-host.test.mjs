@@ -6049,7 +6049,7 @@ test('an open Workspaces panel follows the active workspace instead of retaining
     const result = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args], {
       encoding: 'utf8', env: process.env
     });
-    assert.equal(result.status, 0, `${args.join(' ')}\n${result.stderr}`);
+    assert.equal(result.status, 0, `${args.join(' ')}\n${result.stderr}\n${result.stdout}`);
     return result.stdout;
   };
   for (const id of ['alpha', 'beta']) {

@@ -4751,8 +4751,8 @@ async function organisation() {
   await writeFile(path.join(lead.seed, 'singularity/portfolio.yml'), [
     'version: 1',
     'repositories:',
-    `  api: { url: "${api.dir}", defaultBranch: main }`,
-    `  web: { url: "${web.dir}", defaultBranch: trunk }`,
+    `  api: { url: ${JSON.stringify(api.dir)}, defaultBranch: main }`,
+    `  web: { url: ${JSON.stringify(web.dir)}, defaultBranch: trunk }`,
     ''
   ].join('\n'));
   run('git', ['add', '-A'], { cwd: lead.seed });

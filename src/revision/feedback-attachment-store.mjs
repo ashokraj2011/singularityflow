@@ -96,8 +96,11 @@ async function privateFile(file, { platform, windowsAcl, apply = false }) {
   return info;
 }
 
-async function flushFile(file) {
-  const handle = await open(file, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+async function flushFile(file, platform) {
+  // Windows FlushFileBuffers requires write access even when no bytes are being changed.
+  // Keep real flush errors fatal; this is not a permission/durability bypass.
+  const mode = platform === 'win32' ? fsConstants.O_RDWR : fsConstants.O_RDONLY;
+  const handle = await open(file, mode | (fsConstants.O_NOFOLLOW ?? 0));
   try { await handle.sync(); }
   finally { await handle.close(); }
 }
@@ -118,7 +121,7 @@ async function flushDirectory(directory, platform) {
 
 async function flushPublishedFile(file, runtime) {
   await privateFile(file, runtime);
-  await flushFile(file);
+  await flushFile(file, runtime.platform);
   await flushDirectory(path.dirname(file), runtime.platform);
 }
 

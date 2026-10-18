@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { cp, mkdir, mkdtemp, readFile, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -1531,7 +1531,7 @@ test('the lazy snapshot path returns exactly what the legacy path returned', asy
   assert.equal(viaCommand.status, 0, viaCommand.stderr);
 
   const viaLegacy = spawnSync(process.execPath, ['--input-type=module', '-e',
-    `const m = await import(${JSON.stringify(path.join(packageRoot, 'src/commands/legacy.mjs'))});`
+    `const m = await import(${JSON.stringify(pathToFileURL(path.join(packageRoot, 'src/commands/legacy.mjs')).href)});`
     + " await m.run(['snapshot','--json'], { positionals: ['snapshot'], options: { json: true } });"
   ], {
     cwd: root, encoding: 'utf8', maxBuffer: FULL_SNAPSHOT_MAX_BUFFER,

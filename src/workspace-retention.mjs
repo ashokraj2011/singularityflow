@@ -244,7 +244,7 @@ export async function runWorkspaceRetention(workspacePath, { force = false, now 
       removed: [], preserved: [], unused: {} };
     const { workspaceCheckoutInventory, planWorkspaceCheckoutCleanup, applyWorkspaceCheckoutCleanup } = await import('./workspace-checkout-inventory.mjs');
     const { withCheckoutLifecycleLease, worktreeInventory } = await import('./story-worktree.mjs');
-    const { withRepositoryMutationLease } = await import('./subject-lock.mjs');
+    const { withRepositoryMutationLease, withSubjectLock } = await import('./subject-lock.mjs');
     const inventory = await workspaceCheckoutInventory(workspace.path);
     const unchangedPolicy = async () => {
       if (digest(await workspaceRetentionSettings(workspace.path)) !== digest(settings)) fail('Retention policy changed during maintenance.');
@@ -263,6 +263,9 @@ export async function runWorkspaceRetention(workspacePath, { force = false, now 
               await unchangedPolicy();
               const roots = await protectedRoots(workspace.path, protect);
               const proof = await terminalStoryWorktreeProof(workspace, clone, entry, { settings, now, protect: roots });
+              // Share the lifecycle owner's lease: a concurrent reopen/publication must not
+              // begin between the last terminal-state observation and no-force removal.
+              await withSubjectLock(clone.root, { kind: 'story', id: proof.workId }, async () => {
               retainedMetadata = await retainWorktreeMetadata(workspace.path, proof.root, proof.workId);
               // Recheck bytes/identity/presence immediately before Git's own no-force dirty check.
               const fresh = await terminalStoryWorktreeProof(workspace, clone, entry,
@@ -274,6 +277,7 @@ export async function runWorkspaceRetention(workspacePath, { force = false, now 
                 env: (await import('./workspace.mjs')).workspaceDropGitEnvironment(), timeoutMs: 30000 });
               result.removed.push({ kind: 'story-worktree', ...proof, recovery: 'published-story-ref', retainedMetadata, branchDeleted: false });
               await writeAtomic(stateFile, JSON.stringify({ ...result, status: 'running' }), { mode: 0o600 });
+              });
             })));
         } catch (error) { result.preserved.push({ path: entry.path, reason: error.code ?? 'unverified', message: error.message,
           ...(retainedMetadata ? { retainedMetadata } : {}) }); }

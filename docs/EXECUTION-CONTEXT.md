@@ -102,6 +102,7 @@ Normal private session/audit metadata is copied and verified into
 These small archives are retained for inspection, not automatically purged. Worktree cleanup does
 not delete local or remote Story branches. Canonical/adopted clones and selected branch pointers
 remain protected. Unused-clone deletion reuses the manual cleanup proof and leases.
+Final worktree removal also holds the ordinary Story subject lease, fencing reopen/publication.
 
 Policy lives in `.singularity-flow/retention-policy.json`; last-pass removals, preservation reasons,
 and unused clocks live in `cleanup-state.json`. A background failure is recorded in

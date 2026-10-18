@@ -1,4 +1,5 @@
 import { capabilityDoctorStoryPin, resumeCommand } from './commands/shared/start-context.mjs';
+import { checkoutStoryBranch, workIdForBranch } from './story-branch-name.mjs';
 import { withReadScope } from './read-scope.mjs';
 import { preparedPhaseNextActions } from './commands/shared/prepared-phase-next-actions.mjs';
 import { acceptedStoryExecutionIfPresent } from './commands/shared/accepted-story-execution-if-present.mjs';
@@ -4115,14 +4116,8 @@ async function decisionApplicabilityCommand(positionals, options) {
   const root = repoRoot();
   const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
   let config = await loadConfig(root);
-  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
-    await checkout(root, requestedId, {
-      base: config.defaultBaseBranch,
-      fetch: optionBoolean(options, 'fetch'),
-      existingOnly: true,
-      remote: config.git?.remote ?? 'origin'
-    });
-  }
+  // The Story's own branch, which need not be named after its ID.
+  if (requestedId) await checkoutStoryBranch(root, config, requestedId, { fetch: optionBoolean(options, 'fetch') });
   const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
   config = accepted.definition;
   const workflow = accepted.workflow;
@@ -4209,11 +4204,8 @@ async function decisionScopeCommand(positionals, options) {
   const root = repoRoot();
   const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
   let config = await loadConfig(root);
-  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
-    await checkout(root, requestedId, {
-      base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true, remote: config.git?.remote ?? 'origin'
-    });
-  }
+  // The Story's own branch, which need not be named after its ID.
+  if (requestedId) await checkoutStoryBranch(root, config, requestedId, { fetch: optionBoolean(options, 'fetch') });
   const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
   config = accepted.definition;
   const workflow = accepted.workflow;
@@ -4298,11 +4290,8 @@ async function decisionRiskCommand(positionals, options) {
   const root = repoRoot();
   const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
   let config = await loadConfig(root);
-  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
-    await checkout(root, requestedId, {
-      base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true, remote: config.git?.remote ?? 'origin'
-    });
-  }
+  // The Story's own branch, which need not be named after its ID.
+  if (requestedId) await checkoutStoryBranch(root, config, requestedId, { fetch: optionBoolean(options, 'fetch') });
   const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
   config = accepted.definition;
   const workflow = accepted.workflow;
@@ -4398,11 +4387,8 @@ async function decisionWitnessCommand(positionals, options) {
   const root = repoRoot();
   const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
   let config = await loadConfig(root);
-  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
-    await checkout(root, requestedId, {
-      base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true, remote: config.git?.remote ?? 'origin'
-    });
-  }
+  // The Story's own branch, which need not be named after its ID.
+  if (requestedId) await checkoutStoryBranch(root, config, requestedId, { fetch: optionBoolean(options, 'fetch') });
   const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
   config = accepted.definition;
   const workflow = accepted.workflow;
@@ -4501,11 +4487,8 @@ async function decisionPlanCommand(positionals, options) {
   const root = repoRoot();
   const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
   let config = await loadConfig(root);
-  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
-    await checkout(root, requestedId, {
-      base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true, remote: config.git?.remote ?? 'origin'
-    });
-  }
+  // The Story's own branch, which need not be named after its ID.
+  if (requestedId) await checkoutStoryBranch(root, config, requestedId, { fetch: optionBoolean(options, 'fetch') });
   const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
   config = accepted.definition;
   const workflow = accepted.workflow;
@@ -4591,11 +4574,8 @@ async function decisionCompletenessCommand(positionals, options) {
   const root = repoRoot();
   const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
   let config = await loadConfig(root);
-  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
-    await checkout(root, requestedId, {
-      base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true, remote: config.git?.remote ?? 'origin'
-    });
-  }
+  // The Story's own branch, which need not be named after its ID.
+  if (requestedId) await checkoutStoryBranch(root, config, requestedId, { fetch: optionBoolean(options, 'fetch') });
   const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
   config = accepted.definition;
   const workflow = accepted.workflow;
@@ -4668,14 +4648,8 @@ async function decisionChooseCommand(positionals, options) {
   const root = repoRoot();
   const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
   let config = await loadConfig(root);
-  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
-    await checkout(root, requestedId, {
-      base: config.defaultBaseBranch,
-      fetch: optionBoolean(options, 'fetch'),
-      existingOnly: true,
-      remote: config.git?.remote ?? 'origin'
-    });
-  }
+  // The Story's own branch, which need not be named after its ID.
+  if (requestedId) await checkoutStoryBranch(root, config, requestedId, { fetch: optionBoolean(options, 'fetch') });
   const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
   config = accepted.definition;
   const workflow = accepted.workflow;
@@ -4774,14 +4748,8 @@ async function reopenCommand(positionals, options) {
   const root = repoRoot();
   const requestedId = positionals[1];
   let config = await loadConfig(root);
-  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
-    await checkout(root, requestedId, {
-      base: config.defaultBaseBranch,
-      fetch: optionBoolean(options, 'fetch'),
-      existingOnly: true,
-      remote: config.git?.remote ?? 'origin'
-    });
-  }
+  // The Story's own branch, which need not be named after its ID.
+  if (requestedId) await checkoutStoryBranch(root, config, requestedId, { fetch: optionBoolean(options, 'fetch') });
   config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config, requestedId);
   let gateRecovery = null;
@@ -4885,14 +4853,8 @@ async function cancelCommand(positionals, options) {
   const root = repoRoot();
   const requestedId = positionals[1];
   let config = await loadConfig(root);
-  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
-    await checkout(root, requestedId, {
-      base: config.defaultBaseBranch,
-      fetch: optionBoolean(options, 'fetch'),
-      existingOnly: true,
-      remote: config.git?.remote ?? 'origin'
-    });
-  }
+  // The Story's own branch, which need not be named after its ID.
+  if (requestedId) await checkoutStoryBranch(root, config, requestedId, { fetch: optionBoolean(options, 'fetch') });
   config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config, requestedId);
   if (optionBoolean(options, 'release')) {
@@ -4979,7 +4941,7 @@ async function cancelCommand(positionals, options) {
 async function syncCommand(positionals = [], options = {}) {
   const root = repoRoot();
   const config = await loadConfig(root);
-  const requestedId = positionals[1] ?? branch(root);
+  const requestedId = positionals[1] ?? await workIdForBranch(root, config, branch(root)) ?? branch(root);
   if (optionBoolean(options, 'replay')) return syncReplayCommand(root, config, requestedId, options);
   const direct = await recoverPreparedPublicationBySubject(root, { kind: 'story', id: requestedId });
   if (direct.status === 'active') {

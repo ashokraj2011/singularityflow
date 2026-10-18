@@ -539,7 +539,8 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
     if (!selected) throw new SingularityFlowError('No active workspace is selected.');
     const canonicalRoot = selected.canonicalRepositoryPath ?? selected.repositoryPath;
     const { storyWorktreeForBranch } = await import('../story-worktree.mjs');
-    const managed = storyWorktreeForBranch(canonicalRoot, workId);
+    const { storyBranchForWorkId } = await import('../story-branch-name.mjs');
+    const managed = storyWorktreeForBranch(canonicalRoot, await storyBranchForWorkId(canonicalRoot, {}, workId) ?? workId);
     if (!managed) {
       throw new SingularityFlowError(
         `No managed checkout currently owns Story '${workId}'. Reattach it with 'singularity-flow session attach ${workId} --json'.`,

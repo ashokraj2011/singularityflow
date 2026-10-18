@@ -8,9 +8,10 @@
  * Only a recorded run that failed or was blocked before any test executed can be accepted. The
  * Copilot guard refuses this command, like approve: an agent may name the route, never decide it.
  */
+import { checkoutStoryBranch } from '../story-branch-name.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { requireApprovalAuthority } from '../approval-authority.mjs';
-import { branch, checkout, repoRoot } from '../git.mjs';
+import { repoRoot } from '../git.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { commandResult, effects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
@@ -68,11 +69,8 @@ export async function decisionTestRiskCommand(positionals, options) {
   const root = repoRoot();
   const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
   let config = await loadConfig(root);
-  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
-    await checkout(root, requestedId, {
-      base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true, remote: config.git?.remote ?? 'origin'
-    });
-  }
+  // The Story's own branch, which need not be named after its ID.
+  if (requestedId) await checkoutStoryBranch(root, config, requestedId, { fetch: optionBoolean(options, 'fetch') });
   const accepted = await loadAcceptedStoryExecution(root, requestedId ?? undefined);
   config = accepted.definition;
   const workflow = accepted.workflow;

@@ -1,6 +1,7 @@
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
+import { checkoutStoryBranch } from './story-branch-name.mjs';
 import { loadDefinition } from './config.mjs';
-import { branch, checkout } from './git.mjs';
+import { branch } from './git.mjs';
 import { optionBoolean, optionString, SingularityFlowError } from './util.mjs';
 
 export function storyDecisionArguments(phaseIds, positionals, options, action) {
@@ -37,10 +38,8 @@ export async function loadStoryDecisionExecution(root, positionals, options, act
   if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
     const bootstrap = await loadDefinition(root, { storyBootstrap: true });
     try {
-      await checkout(root, requestedId, {
-        base: bootstrap.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'),
-        existingOnly: true, remote: bootstrap.git?.remote ?? 'origin'
-      });
+      // The Story's own branch, which need not be named after its ID.
+      await checkoutStoryBranch(root, bootstrap, requestedId, { fetch: optionBoolean(options, 'fetch') });
     } catch (error) {
       if (implicitLegacyWorkId && /Branch .* does not exist/.test(error?.message ?? '')) {
         throw new SingularityFlowError(`'${requestedId}' is not a configured phase or an available Work ID. Use '${action} <PHASE>' for the current Story, or '${action} <PHASE> --work-id <WORK-ID>' for another Story.`);

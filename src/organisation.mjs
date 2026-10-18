@@ -5596,14 +5596,18 @@ export async function capabilityFsck(url, {
           );
         }
         const storyBranch = executeGitQuery(canonicalRoot, 'repository.branch') ?? '';
-        if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(storyBranch)) {
+        const localConfig = await loadDefinition(canonicalRoot);
+        // The Story this branch belongs to; its branch need not be named after its ID.
+        const { workIdForBranch } = await import('./story-branch-name.mjs');
+        const storyId = storyBranch ? await workIdForBranch(canonicalRoot, localConfig, storyBranch)
+          ?? (/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(storyBranch) ? storyBranch : null) : null;
+        if (!storyId) {
           throw new SingularityFlowError('Pinned configuration is not checked out on a Story branch.');
         }
-        const localConfig = await loadDefinition(canonicalRoot);
         const workflowFile = path.join(
           canonicalRoot,
           localConfig.workItemRoot ?? 'singularity/work-items',
-          storyBranch,
+          storyId,
           'workflow.json'
         );
         const workflow = await readJson(workflowFile);

@@ -80,7 +80,10 @@ export async function capabilityDoctor(root, { capabilityId = null, offline = fa
 
   let lifecycle = null;
   const current = executeGitQuery(root, 'repository.branch') ?? '';
-  const story = definition ? path.join(root, definition.workItemRoot ?? 'singularity/work-items', current, 'workflow.json') : null;
+  // The Story this branch belongs to; its branch need not be named after its ID.
+  const { workIdForBranch } = await import('./story-branch-name.mjs');
+  const storyId = definition ? await workIdForBranch(root, definition, current) ?? current : current;
+  const story = definition ? path.join(root, definition.workItemRoot ?? 'singularity/work-items', storyId, 'workflow.json') : null;
   const portfolio = await loadPortfolio(root, { required: false }).catch(() => null);
   const initiative = path.join(
     root,

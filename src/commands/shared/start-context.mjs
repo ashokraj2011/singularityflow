@@ -231,6 +231,23 @@ export async function capabilityDoctorStoryPin(root) {
       }
     }
   }
+  // A Story whose branch is not named after its ID (a naming pattern or a name the person gave).
+  // Only a checkout carrying a configuration source can be one, so ordinary branches pay nothing.
+  if (!candidates.length && currentBranch && sourcePresent && tracked.status === 0) {
+    for (const relative of tracked.stdout.split('\0').filter(Boolean)) {
+      const workItemRoot = [...roots].find((candidate) => relative.startsWith(`${candidate}/`)
+        && relative.slice(candidate.length + 1).split('/').length === 2);
+      if (!workItemRoot) continue;
+      try {
+        const located = await secureRepositoryPath(root, relative, { label: 'Current Story workflow', type: 'file' });
+        if (!located.exists) continue;
+        const state = JSON.parse(await readFile(located.absolute, 'utf8'));
+        if (state?.workItem?.branch === currentBranch || state?.lineage?.canonicalBranch === currentBranch) {
+          candidates.push({ relative, absolute: located.absolute });
+        }
+      } catch { /* not this branch's Story */ }
+    }
+  }
   if (candidates.length > 1) {
     workflowError = new SingularityFlowError(
       `Current branch '${currentBranch}' has multiple canonical Story records: `

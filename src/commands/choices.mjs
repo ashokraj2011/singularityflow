@@ -1,6 +1,7 @@
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
+import { checkoutStoryBranch } from '../story-branch-name.mjs';
 import { requirePositional, optionBoolean, SingularityFlowError } from '../util.mjs';
-import { repoRoot, branch, checkout } from '../git.mjs';
+import { repoRoot } from '../git.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { sessionDiscoveryConfiguration } from './shared/session-discovery-configuration.mjs';
 import { sessionRepositoryAuthority } from './shared/session-repository-authority.mjs';
@@ -45,12 +46,8 @@ export async function choicesCommand(positionals, options) {
       let workflow = null;
       if (action === 'approve') {
         assertLifecycleWorktreeClean(root, config, null, { workId });
-        if (workId !== branch(root) || optionBoolean(options, 'fetch')) await checkout(root, workId, {
-          base: config.defaultBaseBranch,
-          fetch: optionBoolean(options, 'fetch'),
-          existingOnly: true,
-          remote: config.git?.remote ?? 'origin'
-        });
+        // The Story's own branch, which need not be named after its ID.
+        await checkoutStoryBranch(root, config, workId, { fetch: optionBoolean(options, 'fetch') });
         config = await loadConfig(root);
         workflow = await loadStoryAggregate(root, config, workId);
         await assertNoPendingPublication(root, config, workflow, 'prepare an approval selection');

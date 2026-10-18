@@ -1373,13 +1373,14 @@ test('recreate writes the packaged starters as written and changes only what it 
       run('git', ['show', `${result.proposal.branch}:singularity/${name}`], { cwd: fixture.remote }).stdout
     );
     const member = /^ {4}members:$|^ {6}- name: |^ {8}email: /;
-    // The starters' commentary and layout survive; the ledger switch and the carried-forward
-    // approval members are the only workflow lines that differ from the packaged starter.
+    // The starters' commentary and layout survive. The packaged starter already enables the ledger,
+    // so the carried-forward approval members are the only workflow lines that differ from it.
     const workflow = await change('workflow.yml');
-    const storyGroups = Object.keys(YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'))
-      .approvalAuthorities);
-    assert.deepEqual(workflow.removed, ['  enabled: false', ...storyGroups.map(() => '    members: []')]);
-    assert.deepEqual(workflow.added.filter((line) => !member.test(line)), ['  enabled: true']);
+    const starter = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
+    assert.equal(starter.ledger.enabled, true);
+    const storyGroups = Object.keys(starter.approvalAuthorities);
+    assert.deepEqual(workflow.removed, storyGroups.map(() => '    members: []'));
+    assert.deepEqual(workflow.added.filter((line) => !member.test(line)), []);
     // In the portfolio: each approval group's members and the repository declaration.
     const portfolio = await change('portfolio.yml');
     const initiativeGroups = Object.keys(YAML.parse(await readFile(new URL('../templates/portfolio.yml', import.meta.url), 'utf8'))

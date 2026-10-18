@@ -557,7 +557,10 @@ test('pilot risk unlocks only the reviewed editable candidate, still runs tests 
     accept(preview);
     assert.equal(await readFile(path.join(f.root, 'src/value.mjs'), 'utf8'), source);
     const paths = f.git('diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD').stdout.trim().split('\n');
-    assert.deepEqual(paths.sort(), [`${f.item}/STATUS.md`, `${f.item}/workflow.json`].sort());
+    // The acceptance is one lifecycle commit: Story state plus, with the ledger on (the starter default), its own intent.
+    const intents = paths.filter((file) => file.startsWith(`${f.item}/context/ledger-intents/`));
+    assert.equal(intents.length, 1, paths.join(', '));
+    assert.deepEqual(paths.filter((file) => !intents.includes(file)).sort(), [`${f.item}/STATUS.md`, `${f.item}/workflow.json`].sort());
     let preflight = completeAgentResult(f.cli('appeal', 'preflight', '--phase', 'implementation', '--json').stdout).data;
     assert.equal(preflight.quality.status, 'ready-with-accepted-risk');
     await f.write('src/value.mjs', source.replace('value = 2', 'value = 3'));

@@ -26,12 +26,14 @@ import {
 } from '../util.mjs';
 import { recordSha256 } from '../records.mjs';
 import { workspaceRepositoryPath } from '../workspace.mjs';
+import { resolveSessionRepository } from './shared/session-repository-selection.mjs';
+import { stateStorySubjectIndex } from '../session-story-discovery.mjs';
 
 function terminalStatus(state) {
   return ['closed', 'complete', 'completed', 'cancelled', 'archived'].includes(String(state ?? '').toLowerCase());
 }
 
-function repositoryFor(context, repositoryId) {
+async function repositoryFor(context, repositoryId) {
   const id = String(repositoryId ?? context.selected.repositoryId).trim();
   const configured = context.workspace.repositories[id];
   if (!configured) {
@@ -39,7 +41,9 @@ function repositoryFor(context, repositoryId) {
       code: 'GOAL_REPOSITORY_REQUIRED', details: { repositoryId: id }
     });
   }
-  const root = repoRoot(workspaceRepositoryPath(context.workspace, configured));
+  const selected = await resolveSessionRepository({ workspaceReference: context.workspace.path,
+    repositoryId: id, remoteProbe: false });
+  const root = repoRoot(selected.root ?? workspaceRepositoryPath(context.workspace, configured));
   return { id, root };
 }
 
@@ -61,15 +65,19 @@ function combinedIndex(working, references) {
   return index;
 }
 
-async function subjectIndex(root) {
+async function subjectIndex(root, kind) {
   const config = await loadConfig(root).catch(() => null);
+  const working = await buildRepositorySubjectIndex(root);
+  if (kind === 'story') return config?.ledger?.enabled
+    ? combinedIndex(working, await stateStorySubjectIndex(root, config, { fetch: false })) : working;
+  // Initiative lookup is separate from Story discovery and retains its existing explicit policy.
   const remote = config?.git?.remote ?? 'origin';
   const refs = [
     ...remoteBranches(root, remote).map((branch) => ({ branch, ref: `${remote}/${branch}` })),
     ...localBranches(root).map((branch) => ({ branch, ref: branch }))
   ];
   return combinedIndex(
-    await buildRepositorySubjectIndex(root),
+    working,
     await buildRepositorySubjectIndexFromRefs(root, { refs })
   );
 }
@@ -82,11 +90,12 @@ export async function resolveGovernedWork(context, {
       code: 'GOAL_SUBJECT_KIND_INVALID'
     });
   }
-  const repository = repositoryFor(context, repositoryId);
-  let indexed = indexCache?.get(repository.root);
+  const repository = await repositoryFor(context, repositoryId);
+  const cacheKey = `${repository.root}\0${kind}`;
+  let indexed = indexCache?.get(cacheKey);
   if (!indexed) {
-    indexed = subjectIndex(repository.root);
-    indexCache?.set(repository.root, indexed);
+    indexed = subjectIndex(repository.root, kind);
+    indexCache?.set(cacheKey, indexed);
   }
   const index = await indexed;
   const matches = index.matches(reference, { kind });

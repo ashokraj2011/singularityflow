@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "ae3f4991929533e5a8ebd74895dd342d1a207ec4",
+  "sourceCommit": "961b2c937e3e8e7296e23ca2f1d3f5d0ba85644c",
   "topicCount": 84,
-  "contentSha256": "7a925b749b03a92bdb9d95264b063b80898be78656311470aabad3e522c8a61d",
+  "contentSha256": "754cace042c867ee75333dc345b5c4f692ae0dcda03f03221cbb5d0eb2bfa6ac",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -304,8 +304,8 @@
     {
       "id": "inbox-and-review",
       "title": "The inbox and review packets",
-      "version": 3,
-      "sha256": "a413cf97e5bd0431f43c81fe04833d2f971e10cad89aec963fa6c2a9547e39e6",
+      "version": 4,
+      "sha256": "a7ab5c65927baf79f25e3323eb27a842f49d648b899d3a4aa8ca9776d1bdceb4",
       "routingSha256": "ee049c941ea80528ef46f9ae9ff9a24567c52a42eac69656acd0b997457c219a",
       "file": "inbox-and-review.md"
     },

@@ -10,8 +10,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import {
   admitGovernedPublication, assertNotDefaultBranch, branch, changedFiles, commitIsolated,
-  fileAtRef, GITHUB_LOOKUP, head, identity, localBranches, exactRemoteHeadsObservationAsync,
-  remoteBranches
+  fileAtRef, GITHUB_LOOKUP, head, identity, exactRemoteHeadsObservationAsync
 } from './git.mjs';
 import { createTransportIntent, retryTransportIntent } from './transport-intents.mjs';
 import {
@@ -74,8 +73,9 @@ import { jiraSnapshotSource, listEpicSources } from './epic-sources.mjs';
 import { epicDeliveryReadiness } from './epic-completion.mjs';
 import { ledgerStatus } from './ledger.mjs';
 import {
-  buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext
+  buildRepositorySubjectIndex, resolveContext
 } from './repository-subject-index.mjs';
+import { discoverRemoteStoryCandidates } from './session-story-discovery.mjs';
 import {
   FAST_PATH_VERBS, fastPathProfile, nextVerb, planFastPath, verbForPhase
 } from './fast-path.mjs';
@@ -373,31 +373,20 @@ async function workItems(root, definition) {
     source
   });
 
-  // Completed Stories normally live on sibling branches, not in the currently checked-out tree.
-  // Enumerate the refs already present locally; a read-model refresh must never perform network I/O.
-  const remote = definition.git?.remote ?? 'origin';
-  const refs = [
-    ...remoteBranches(root, remote).map((name) => ({ branch: name, ref: `${remote}/${name}` })),
-    ...localBranches(root).map((name) => ({ branch: name, ref: name }))
-  ];
-  const refIndex = await buildRepositorySubjectIndexFromRefs(root, { definition, refs });
-  for (const subject of refIndex.list('story')) {
-    results.set(subject.id, summarize(
-      subject.state,
-      subject.id,
-      subject.location.ref ?? subject.location.branch ?? 'git-ref'
-    ));
-  }
-  for (const diagnostic of [...refIndex.unreadable, ...(refIndex.conflicts ?? [])]) {
-    if (!diagnostic.claimedId) continue;
-    results.set(diagnostic.claimedId, {
-      id: diagnostic.claimedId,
-      title: diagnostic.claimedId,
-      status: 'invalid',
-      source: diagnostic.ref ?? diagnostic.branch ?? 'git-ref',
-      code: diagnostic.code,
-      error: diagnostic.reason
-    });
+  // Snapshot reads are offline. Published siblings come from the retained state index, never
+  // every local/remote application ref. Remote refresh belongs to the workspace Story catalog.
+  let discovery;
+  try {
+    const roster = await discoverRemoteStoryCandidates(root, definition, { fetch: false });
+    discovery = { source: 'state-ledger', stateRef: roster.stateRef ?? null,
+      complete: roster.unavailableCount === 0, unavailable: roster.unavailable };
+    for (const row of roster.items) results.set(row.id, { id: row.id, title: row.title,
+      workType: row.workType ?? 'legacy', status: row.status, currentPhase: row.phase,
+      branch: row.branch, createdAt: row.createdAt ?? null, updatedAt: row.updatedAt ?? row.createdAt ?? null,
+      source: 'state-ledger' });
+  } catch (error) {
+    discovery = { source: 'state-ledger', complete: false,
+      unavailable: [{ code: error.code ?? 'SESSION_STATE_INDEX_UNAVAILABLE', reason: error.message }] };
   }
 
   // The working tree wins for the checked-out Story, including governed edits not yet committed.
@@ -415,8 +404,8 @@ async function workItems(root, definition) {
       }
     }
   }
-  return [...results.values()].sort((left, right) =>
-    String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? '')));
+  return { items: [...results.values()].sort((left, right) =>
+    String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? ''))), discovery };
 }
 
 function configurationChangeScope(root, definition, portfolio, changes) {
@@ -592,7 +581,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
   const workflowFile = await secureRepositoryPath(root, WORKFLOW_PATH, {
     label: 'Workflow configuration', type: 'file', mustExist: true
   });
-  const items = await workItems(root, definition);
+  const { items, discovery: storyDiscovery } = await workItems(root, definition);
   const initiatives = portfolio ? await listInitiatives(root, portfolio) : [];
   const subjectIndex = await buildRepositorySubjectIndex(root, { definition, portfolio });
   const changes = revision?.changedFiles ?? changedFiles(root);
@@ -787,6 +776,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     agentsLock: { path: AGENT_LOCK_PATH, exists: lockExists, content: lockExists ? await readFile(agentLock.absolute, 'utf8') : '# No remote agents are trusted yet.\n' },
     mcp: await mcpConfigurationStatus(root, definition),
     workItems: items,
+    storyDiscovery,
     initiatives,
     selectedInitiativeId,
     initiative: await initiativeEditorSnapshot(root, portfolio, selectedInitiativeId),
@@ -898,7 +888,7 @@ async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId, revi
   const referenceRepositories = await storyReferenceRepositoryStatus(root, definition, workflow);
   const submission = await storySubmissionReadiness(root, definition, workflow, revision?.changedFiles ?? null);
   return {
-    workItems: await workItems(root, definition),
+    ...await workItems(root, definition).then(({ items, discovery }) => ({ workItems: items, storyDiscovery: discovery })),
     initiatives: portfolio ? await listInitiatives(root, portfolio) : [],
     selectedWorkId,
     storyExecutionClosure: acceptedStory ? {

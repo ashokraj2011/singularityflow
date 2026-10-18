@@ -1,9 +1,10 @@
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
-import { repoRoot } from '../git.mjs';
 import { approvalInbox, approvalInboxText } from '../inbox.mjs';
-import { loadConfig } from '../state-stores.mjs';
-import { optionBoolean } from '../util.mjs';
+import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
+import { resolveSessionRepository } from './shared/session-repository-selection.mjs';
+import { sessionDiscoveryConfiguration } from './shared/session-discovery-configuration.mjs';
+import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 
 export async function run(argv, { positionals, options }) {
   return withCommandObservability(positionals[0], argv, options,
@@ -11,8 +12,14 @@ export async function run(argv, { positionals, options }) {
 }
 
 export async function inboxCommand(options) {
-  const root = repoRoot();
-  const config = await loadConfig(root);
+  const selected = await resolveSessionRepository({ workspaceReference: optionString(options, 'workspace'),
+    repositoryId: optionString(options, 'repository'), remoteProbe: !optionBoolean(options, 'offline') });
+  const root = selected.root;
+  if (!root) throw new SingularityFlowError(selected.detail ?? 'Select a readable workspace repository.', {
+    code: 'SESSION_REPOSITORY_UNAVAILABLE'
+  });
+  const { definition: config } = await withApprovedConfigurationRead(root,
+    () => sessionDiscoveryConfiguration(root, selected.authority));
   const snapshot = await approvalInbox(root, config, { fetch: !optionBoolean(options, 'offline') });
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(snapshot, null, 2));
   process.stdout.write(approvalInboxText(snapshot));

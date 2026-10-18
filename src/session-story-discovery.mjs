@@ -120,7 +120,8 @@ export function validatedRemoteStoryDefinition(root, remoteRef, subject, { files
  */
 export async function discoverRemoteStoryCandidates(root, definition, {
   fetch = true,
-  remote = definition?.git?.remote ?? 'origin'
+  remote = definition?.git?.remote ?? 'origin',
+  includeState = false
 } = {}) {
   if (!root || !hasRemote(root, remote)) {
     throw new SingularityFlowError(
@@ -148,8 +149,8 @@ export async function discoverRemoteStoryCandidates(root, definition, {
   for (const pointer of roster.items.filter(item => isStoryDiscoveryBranch(item.branch))) {
     const summarized = ledgerSummaryCandidate(definition, pointer);
     const known = summarized ? null : cache.rows.get(provenKey(pointer));
-    if (summarized) items.push(summarized);
-    else if (known) { items.push(known); kept.set(provenKey(known), known); }
+    if (summarized && !includeState) items.push(summarized);
+    else if (known && !includeState) { items.push(known); kept.set(provenKey(known), known); }
     else pointers.push(pointer);
   }
   const definitions = new Map();
@@ -190,7 +191,7 @@ export async function discoverRemoteStoryCandidates(root, definition, {
     files.set(key, bytes.toString('utf8'));
     const subject = { id: pointer.id, location: { commit: pointer.commitOid, ref: pointer.commitOid, path: relative } };
     try {
-      const { workflow, retainedWorkflow } = validatedRemoteStoryDefinition(root, subject.location.ref, subject,
+      const { definition: pinnedDefinition, workflow, retainedWorkflow } = validatedRemoteStoryDefinition(root, subject.location.ref, subject,
         { files, definitions });
       const canonicalBranch = workflow.lineage?.canonicalBranch ?? workflow.workItem.branch ?? workflow.workItem.id;
       if (canonicalBranch !== pointer.branch || !workflow.phases || !Array.isArray(workflow.phaseOrder)) throw new Error('Story ownership does not match its state-ledger location.');
@@ -204,6 +205,7 @@ export async function discoverRemoteStoryCandidates(root, definition, {
         progress: storyLifecycleProgress(retainedWorkflow),
         commit: subject.location.commit?.slice(0, 8) ?? '',
         commitOid: subject.location.commit,
+        ...(includeState ? { state: workflow, definition: pinnedDefinition, path: relative } : {}),
         aliases: [workflow.lineage?.planId, workflow.lineage?.jiraIssueId, workflow.lineage?.sourceStableId,
           workflow.workItem?.source?.stableId, workflow.lineage?.initialJiraKey, workflow.lineage?.currentJiraKey,
           ...(workflow.lineage?.aliases ?? []).map(entry => typeof entry === 'string' ? entry : entry?.value ?? entry?.key)].filter(Boolean)
@@ -235,7 +237,7 @@ export async function discoverRemoteStoryCandidates(root, definition, {
       const recovered = await discoverRemoteStoryCandidatesByUrl(identity.url, {
         // The caller loaded this through its selected approved configuration authority. A
         // delivery repository can be separate from that lead and need not own sflow/config.
-        approvedDefinition: definition
+        approvedDefinition: definition, includeState
       });
       const restoredBranches = new Set(recovered.items.map((item) => item.branch));
       const merged = new Map(items.map((item) => [item.id, item]));
@@ -267,4 +269,20 @@ export async function discoverRemoteStoryCandidates(root, definition, {
     count: items.length, items: items.sort((left, right) => left.id.localeCompare(right.id)),
     unavailableCount: unavailable.length, unavailable
   };
+}
+
+/** Published Story subjects come only from exact commits named by the state ledger. */
+export async function stateStorySubjectIndex(root, definition, options = {}) {
+  const roster = await discoverRemoteStoryCandidates(root, definition, { ...options, includeState: true });
+  if (roster.unavailableCount) throw new SingularityFlowError(
+    'State-indexed Story metadata is incomplete. Refresh or repair the named records before selecting a Story; application branches were not scanned.',
+    { code: 'SESSION_STATE_INDEX_UNAVAILABLE', details: { unavailable: roster.unavailable } });
+  const { RepositorySubjectIndex } = await import('./repository-subject-index.mjs');
+  const index = new RepositorySubjectIndex();
+  for (const row of roster.items) index.add({ kind: 'story', id: row.id,
+    canonicalBranch: row.branch, branches: [row.branch, ...(row.state.lineage?.childBranches ?? []).map(item => item.name)],
+    aliases: row.aliases ?? [], state: row.state,
+    location: { source: 'state-ledger', ref: row.commitOid, commit: row.commitOid, branch: row.branch,
+      directory: row.id, path: row.path } });
+  return index;
 }

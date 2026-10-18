@@ -1,9 +1,6 @@
-import YAML from 'yaml';
-import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import path from 'node:path';
-import { fetchRemote, fileAtRef, remoteBranches } from './git.mjs';
 import { table } from './util.mjs';
-import { buildRepositorySubjectIndexFromRefs } from './repository-subject-index.mjs';
+import { discoverRemoteStoryCandidates } from './session-story-discovery.mjs';
 import { copilotCommandForCommand } from './copilot-guidance.mjs';
 
 function activeApprovals(phase) {
@@ -33,18 +30,14 @@ function submittedEvent(workflow, phaseId) {
 
 export async function approvalInbox(root, definition, { fetch = true, now = new Date() } = {}) {
   const remote = definition.git?.remote ?? 'origin';
-  if (fetch) await fetchRemote(root, remote);
   const items = [];
-  const refs = remoteBranches(root, remote).map((branch) => ({ branch, ref: `${remote}/${branch}` }));
-  const index = await buildRepositorySubjectIndexFromRefs(root, { definition, refs });
-  const unavailable = [...index.unreadable, ...(index.conflicts ?? [])];
+  const roster = await discoverRemoteStoryCandidates(root, definition, { remote, fetch, includeState: true });
+  const unavailable = roster.unavailable;
   const unavailableSubjects = new Set(unavailable.map((entry) => entry.claimedId).filter(Boolean));
-  for (const subject of index.list('story')) {
+  for (const subject of roster.items) {
     if (unavailableSubjects.has(subject.id)) continue;
     try {
       const workflow = subject.state;
-      const ref = subject.location.ref;
-      validateDefinition(YAML.parse(fileAtRef(root, ref, WORKFLOW_PATH) ?? ''));
       const phaseId = workflow.currentPhase;
       const phase = phaseId ? workflow.phases?.[phaseId] : null;
       const pending = workflow.pendingDecision;
@@ -77,7 +70,7 @@ export async function approvalInbox(root, definition, { fetch = true, now = new 
           artifact: null,
           selfApprovalWarning: false,
           remote,
-          commit: subject.location.commit ?? null,
+          commit: subject.commitOid,
           commands: {
             attach: `singularity-flow session attach ${subject.id}`,
             review: `singularity-flow decision show ${subject.id}`,
@@ -91,7 +84,7 @@ export async function approvalInbox(root, definition, { fetch = true, now = new 
       const required = phase.approvalPolicy?.minimum ?? 1;
       const submitted = submittedEvent(workflow, phaseId);
       const minutes = waitingMinutes(phase.submittedAt, now);
-      const workDirectory = path.posix.dirname(subject.location.path);
+      const workDirectory = path.posix.dirname(subject.path);
       items.push({
         id: subject.id,
         title: workflow.workItem?.title ?? subject.id,
@@ -112,7 +105,7 @@ export async function approvalInbox(root, definition, { fetch = true, now = new 
         artifact: phase.requiredArtifact?.path ? `${workDirectory}/${phase.requiredArtifact.path}` : null,
         selfApprovalWarning: approvals.some((item) => item.selfApproval === true),
         remote,
-        commit: subject.location.commit ?? null,
+        commit: subject.commitOid,
         commands: {
           attach: `singularity-flow session attach ${subject.id}`,
           review: `singularity-flow phase show ${phaseId}`,
@@ -120,11 +113,15 @@ export async function approvalInbox(root, definition, { fetch = true, now = new 
           reject: `singularity-flow reject ${phaseId} --work-id ${subject.id} --fetch --reason <REASON>`
         }
       });
-    } catch { /* Malformed or mismatched remote branches never enter the reviewer inbox. */ }
+    } catch (error) {
+      unavailable.push({ code: 'SESSION_STORY_INVALID', claimedId: subject.id,
+        branch: subject.branch, ref: subject.commitOid, path: subject.path, reason: error.message });
+    }
   }
   items.sort((left, right) => String(left.submittedAt ?? '').localeCompare(String(right.submittedAt ?? '')) || left.id.localeCompare(right.id));
   return {
-    remote, fetched: fetch, generatedAt: now.toISOString(), count: items.length, items,
+    remote, fetched: fetch, source: 'state-ledger', stateRef: roster.stateRef ?? null,
+    repositoryPath: path.resolve(root), generatedAt: now.toISOString(), count: items.length, items,
     unavailableCount: unavailable.length,
     unavailable
   };
@@ -134,7 +131,7 @@ export function approvalInboxText(snapshot) {
   const warning = snapshot.unavailableCount
     ? `\nWarning: ${snapshot.unavailableCount} lifecycle state record(s) are unavailable or conflicting; they were not treated as absent.\nCopilot: ${copilotCommandForCommand('singularity-flow doctor')}\nShell: singularity-flow doctor\nVS Code (model-free): not available for this action\n`
     : '';
-  if (!snapshot.items.length) return `Pending approval inbox — ${snapshot.remote}\n\nNo phases are awaiting approval on readable committed remote work-item branches.${warning}\n`;
+  if (!snapshot.items.length) return `Pending approval inbox — ${snapshot.remote}\n\nNo phases are awaiting approval in readable state-indexed Story commits.${warning}\n`;
   const rows = snapshot.items.map((item) => ({
     id: item.id,
     title: item.title,

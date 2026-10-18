@@ -23,6 +23,8 @@ import {
 import { exactRemoteHeadsObservationAsync } from '../src/git.mjs';
 import { readTransportIntent, retryTransportIntent } from '../src/transport-intents.mjs';
 import { changedLines, foldYamlFile } from './helpers/folded-yaml.mjs';
+import { appendLedgerIntent, createLedgerIntent, initializeLedger } from '../src/ledger.mjs';
+import { storyLifecycleProgress } from '../src/session-roster.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -456,8 +458,16 @@ test('lifecycle snapshots keep generated phase artifacts regardless of lifecycle
   assert.equal(scoped.lifecycle.documents.filter((document) => document.type === 'system').length, 5);
 });
 
-test('lifecycle catalog includes a completed Story stored on a sibling branch', async () => {
+test('lifecycle catalog includes a state-indexed completed Story stored on a sibling branch', async () => {
   const root = await repository();
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.ledger.enabled = true;
+  definition.ledger.pinTransport = 'none';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  run('git', ['add', definitionPath], root);
+  run('git', ['commit', '-m', 'Enable indexed Story discovery'], root);
+  await initializeLedger(root, definition.ledger);
   run(process.execPath, [bin, 'start', 'ARCHIVE-1', '--from-branch', 'main', '--title', 'Archived delivery'], root);
   const statePath = path.join(root, 'singularity/work-items/ARCHIVE-1/workflow.json');
   const state = JSON.parse(await readFile(statePath, 'utf8'));
@@ -468,13 +478,19 @@ test('lifecycle catalog includes a completed Story stored on a sibling branch', 
   await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
   run('git', ['add', statePath], root);
   run('git', ['commit', '-m', 'Complete archived Story'], root);
+  run('git', ['push', 'origin', 'ARCHIVE-1'], root);
+  await appendLedgerIntent(root, definition.ledger, createLedgerIntent({ eventType: 'binding', capabilityId: 'fixture',
+    actor: { name: 'Fixture', email: 'fixture@example.invalid' },
+    subject: { kind: 'story', workId: 'ARCHIVE-1', branch: 'ARCHIVE-1', title: state.workItem.title,
+      status: state.status, currentPhase: null, progress: storyLifecycleProgress(state) }
+  }), run('git', ['rev-parse', 'HEAD'], root).stdout.trim());
   run('git', ['switch', 'main'], root);
 
   const scoped = await repositorySnapshot(root, null, null, { included: ['lifecycle'] });
   const archived = scoped.lifecycle.workItems.find((item) => item.id === 'ARCHIVE-1');
   assert.equal(archived.status, 'closed');
   assert.equal(archived.branch, 'ARCHIVE-1');
-  assert.equal(archived.source, 'ARCHIVE-1');
+  assert.equal(archived.source, 'state-ledger');
   assert.equal(scoped.lifecycle.selectedWorkId, null);
 });
 

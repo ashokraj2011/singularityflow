@@ -12,9 +12,14 @@ commands:
 related:
   - approvals
   - epics-and-planning
-version: 3
+version: 4
 ---
-`sflow inbox` lists every phase awaiting approval in the repository, labeled by authority group — computed from remote branches, so it needs only a clone: no workspace, no local setup. (`sflow workspace` aggregates a capability's repositories for multi-repo reviewers — a convenience, never a prerequisite.)
+`sflow inbox` lists phases awaiting approval, labeled by authority group, from exact Story commits
+named by the configured Flow Ledger (`state` by default). It never fetches or scans every application
+branch. A standalone governed clone is sufficient; workspace users can select an exact member with
+`--workspace <PATH> --repository <ID>`, using the same verified clone resolver as session listing.
+An absent or unreadable ledger is an explicit error, not an empty approval inbox. (`sflow workspace`
+aggregates a capability's repositories for multi-repo reviewers — a convenience, never a prerequisite.)
 
 ## Purpose and prerequisites
 

@@ -169,7 +169,8 @@ test('a blobless clone lists summarized Stories with no Story read, and older en
   rows.items[0].title = '';
   await writeFile(remembered, JSON.stringify(rows));
   const repaired = candidatesIn(base, older.partial);
-  assert.equal(repaired.discovery.source, 'materialized-metadata-recovery');
+  assert.ok(['state-ledger', 'materialized-metadata-recovery'].includes(repaired.discovery.source),
+    'repair may use already-local exact metadata; otherwise it uses bounded state-indexed recovery');
   assert.deepEqual(comparable(repaired.discovery.items), comparable(summarized.discovery.items));
   assert.equal(candidatesIn(base, older.partial).recoveryTransfers, 0);
 });

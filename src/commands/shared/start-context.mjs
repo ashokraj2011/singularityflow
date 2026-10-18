@@ -7,8 +7,9 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { SingularityFlowError, optionBoolean, optionString, requirePositional, run, secureRepositoryPath } from '../../util.mjs';
-import { assertClean, branch, checkout, fetchRemote, fileAtRef, localBranches, refExists, remoteBranches, repoRoot } from '../../git.mjs';
-import { buildRepositorySubjectIndexFromRefs, resolveContext } from '../../repository-subject-index.mjs';
+import { assertClean, branch, checkout, fetchRemote, fileAtRef, refExists, repoRoot } from '../../git.mjs';
+import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from '../../repository-subject-index.mjs';
+import { stateStorySubjectIndex } from '../../session-story-discovery.mjs';
 import { currentPhase } from '../../phase-generation.mjs';
 import { resolveWorkItem, validateId } from '../../state-stores.mjs';
 import { phasePreparationCommandLines } from '../../phase-preparation-guidance.mjs';
@@ -88,15 +89,19 @@ export async function resumeCommand(positionals, options, { selectedBranch = nul
   const initialConfig = discovery.definition;
   const fetch = optionBoolean(options, 'fetch');
   const remote = discovery.remote;
-  if (fetch) await fetchRemote(root, remote, selectedBranch
-    ? { branches: [selectedBranch], respectPartialClone: true } : {});
-  const refs = selectedBranch ? [{ branch: selectedBranch, ref: `${remote}/${selectedBranch}` }] : [
-    { branch: branch(root), ref: branch(root) },
-    ...localBranches(root).map((branchName) => ({ branch: branchName, ref: branchName })),
-    ...(fetch ? remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` })) : [])
-  ];
-  const refIndex = await buildRepositorySubjectIndexFromRefs(root, { definition: initialConfig, refs });
-  const refSubject = resolveContext(refIndex, { reference, kind: 'story', required: false });
+  if (fetch && selectedBranch) await fetchRemote(root, remote,
+    { branches: [selectedBranch], respectPartialClone: true });
+  // An explicit selected branch was already resolved by session attachment. Otherwise consult
+  // current local drafts, then the state roster; never inventory all local or remote code refs.
+  const local = !selectedBranch
+    ? resolveContext(await buildRepositorySubjectIndex(root, { definition: initialConfig }), {
+      reference, kind: 'story', required: false
+    }) : null;
+  const refIndex = selectedBranch
+    ? await buildRepositorySubjectIndexFromRefs(root, {
+      definition: initialConfig, refs: [{ branch: selectedBranch, ref: `${remote}/${selectedBranch}` }]
+    }) : local ? null : await stateStorySubjectIndex(root, initialConfig, { remote, fetch });
+  const refSubject = local ?? resolveContext(refIndex, { reference, kind: 'story', required: false });
   if (selectedBranch && !refSubject) throw new SingularityFlowError(
     `The refreshed Story branch '${selectedBranch}' does not prove Work ID '${reference}'. No session was selected.`,
     { code: 'STORY_SOURCE_CONFLICT' }
@@ -105,6 +110,9 @@ export async function resumeCommand(positionals, options, { selectedBranch = nul
     ? { workId: refSubject.id, branch: refSubject.canonicalBranch, selectedBranch: refSubject.selectedBranch, workflow: refSubject.state, source: refSubject.source }
     : await resolveWorkItem(root, initialConfig, reference, { mutation: true });
   const targetBranch = resolved.selectedBranch ?? resolved.branch;
+  if (fetch && !selectedBranch) await fetchRemote(root, remote, {
+    branches: [targetBranch], respectPartialClone: true
+  });
   // An isolated Story branch is already checked out in its managed worktree. Git correctly
   // refuses to check the same branch out in the launch clone, so resume must enter the checkout
   // that owns the branch instead of mutating (or requiring a clean) unrelated launch work.

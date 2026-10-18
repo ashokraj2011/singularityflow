@@ -139,6 +139,9 @@ test('explicit workspace listing uses its verified active branch clone, not the 
   const first = await f.invoke();
   assert.equal(first.child.status, 0, first.child.stdout + first.child.stderr);
   assert.equal(first.packet.repositoryPath, await realpath(branch.repositoryPath));
+  const inbox = await f.invoke({ command: ['inbox'] });
+  assert.equal(inbox.child.status, 0, inbox.child.stdout + inbox.child.stderr);
+  assert.equal(inbox.packet.repositoryPath, await realpath(branch.repositoryPath), 'approval listing shares the same clone resolver');
   await f.invoke();
   const cached = await f.invoke();
   assert.equal(cached.packet.listingSnapshot.source, 'cache');

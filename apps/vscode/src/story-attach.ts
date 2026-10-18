@@ -15,12 +15,25 @@ interface ActiveWorkspaceSelection {
   repositoryPath?: string;
   canonicalRepositoryPath?: string;
   selectionStatus?: string;
+  branchCheckout?: { branch?: string } | null;
 }
 
 export function sameStoryAttachPath(left: string, right: string): boolean {
   const canonical = (value: string) => process.platform === 'win32'
     ? path.resolve(value).toLowerCase() : path.resolve(value);
   return canonical(left) === canonical(right);
+}
+
+/** Project only the kernel-verified selected clone; the manifest still owns member IDs and URLs. */
+export function storyListingWorkspaceStatus(current: ActiveWorkspaceSelection, status: WorkspaceStatus): WorkspaceStatus {
+  if (!current.active || current.selectionStatus !== 'ready' || !current.workspaceId
+      || current.workspaceId !== status.workspace.id || !current.workspacePath
+      || !sameStoryAttachPath(current.workspacePath, status.workspace.path)
+      || !current.repositoryId || !current.repositoryPath || !current.canonicalRepositoryPath
+      || !current.branchCheckout?.branch
+      || status.repositories.filter(entry => entry.id === current.repositoryId).length !== 1) return status;
+  return { ...status, repositories: status.repositories.map(entry => entry.id === current.repositoryId
+    ? { ...entry, absolutePath: current.canonicalRepositoryPath, state: 'ready' } : entry) };
 }
 
 /** Only a selected, ready workspace member sharing Git metadata may identify a snapshot. */
@@ -30,6 +43,7 @@ export function verifiedInboxRepositoryBinding(
   checkoutPath: string,
   commonDirectories?: { checkout: string; mapped: string }
 ): InboxRepositoryBinding | null {
+  status = storyListingWorkspaceStatus(current, status);
   if (!checkoutPath || !current.active || !current.workspaceId || !current.workspacePath
     || current.workspaceId !== status.workspace.id
     || !sameStoryAttachPath(current.workspacePath, status.workspace.path)
@@ -72,6 +86,7 @@ export function verifiedWorkspaceStoryRepository(
   current: ActiveWorkspaceSelection,
   status: WorkspaceStatus
 ): { workspacePath: string; repositoryId: string; repositoryPath: string } {
+  status = storyListingWorkspaceStatus(current, status);
   if (!story.repositoryPath && !story.repositoryUrl) {
     throw new Error('This Story has no mapped repository path or URL. Refresh Stories and try again.');
   }

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  selectedCatalogStory, verifiedInboxRepositoryBinding, verifiedWorkspaceStoryRepository
+  selectedCatalogStory, storyListingWorkspaceStatus, verifiedInboxRepositoryBinding, verifiedWorkspaceStoryRepository
 } from '../apps/vscode/src/story-attach.ts';
 
 const catalog = [
@@ -21,6 +21,28 @@ const status = {
     { id: 'beta', state: 'missing', url: 'file:///team/beta.git', absolutePath: '/work/team/repos/beta' }
   ]
 };
+
+test('Story listing and attach reuse only the verified selected branch-local clone', () => {
+  const canonical = '/work/team/repos/main--digest/alpha';
+  const checkoutPath = '/work/team/story-worktrees/current';
+  const selected = { ...current, repositoryId: 'alpha', repositoryPath: checkoutPath,
+    canonicalRepositoryPath: canonical, selectionStatus: 'ready', branchCheckout: { branch: 'main' } };
+  const projected = storyListingWorkspaceStatus(selected, status);
+  assert.equal(projected.repositories[0].absolutePath, canonical);
+  assert.equal(projected.repositories[0].state, 'ready');
+  assert.equal(projected.repositories[1], status.repositories[1], 'another member is not redirected');
+  assert.equal(status.repositories[0].state, 'missing', 'the approved manifest projection is not mutated');
+  const common = { checkout: canonical + '/.git', mapped: canonical + '/.git' };
+  assert.deepEqual(verifiedInboxRepositoryBinding(selected, status, checkoutPath, common), {
+    checkoutPath, repositoryPath: canonical, repositoryId: 'alpha'
+  });
+  assert.equal(verifiedWorkspaceStoryRepository({ ...catalog[0], repositoryPath: canonical }, selected, status).repositoryPath,
+    canonical);
+  for (const wrong of [{ ...selected, workspaceId: 'other' }, { ...selected, workspacePath: '/other' },
+    { ...selected, selectionStatus: 'stale' }, { ...selected, branchCheckout: null }]) {
+    assert.equal(storyListingWorkspaceStatus(wrong, status), status);
+  }
+});
 
 test('same-ID Stories select only the exact mapped repository', () => {
   const selected = selectedCatalogStory(catalog, { workId: 'SAME', repositoryId: 'beta' });

@@ -239,17 +239,12 @@ export function hasLocalGovernanceAuthority(root) {
 
   // A lifecycle branch is self-contained after Story creation. Its immutable configuration
   // snapshot remains authoritative even when the shared configuration/state branches are
-  // temporarily unavailable. Batch-check every local branch tip in one Git process.
-  const lifecycleRefs = routingGitRead(root, [
-    'for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes'
-  ], 'Local and remote branches')
-    .split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
-  if (lifecycleRefs.length) {
-    const checked = routingGitRead(root, ['cat-file', '--batch-check'], 'Lifecycle configuration snapshots', {
-      input: `${lifecycleRefs.map((ref) => `${ref}:singularity/workflow.yml`).join('\n')}\n`
-    });
-    if (checked.split(/\r?\n/).some((line) => /\sblob\s\d+$/.test(line.trim()))) return true;
-  }
+  // temporarily unavailable. Only the current checkout can make that claim; a sibling branch's
+  // configuration must not turn repository routing into an all-branch Story discovery fallback.
+  const checked = routingGitRead(root, ['cat-file', '--batch-check'], 'Current lifecycle configuration snapshot', {
+    input: 'HEAD:singularity/workflow.yml\n'
+  });
+  if (checked.split(/\r?\n/).some((line) => /\sblob\s\d+$/.test(line.trim()))) return true;
   // A checked-out lifecycle aggregate is itself an unambiguous repository claim. Recovery and
   // read-only review commands must stay with it even if its configuration snapshot is damaged or
   // absent; redirecting those commands to the machine's last selected workspace makes the Story

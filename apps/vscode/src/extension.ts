@@ -51,7 +51,7 @@ import type { ApprovalsMessage } from './views/approvals.ts';
 import type { InboxMessage } from './views/inbox.ts';
 import { buildInbox, buildInboxTree, type InboxRepositoryBinding, type WorkspaceStoryCatalogRow } from './views/inbox-model.ts';
 import { discoverWorkspaceStoryRows, settleIndependentStoryRead, StoryRefreshGate, type StoryRepository } from './story-discovery.ts';
-import { sameStoryAttachPath, selectedCatalogStory, verifiedInboxRepositoryBinding, verifiedWorkspaceStoryRepository } from './story-attach.ts';
+import { sameStoryAttachPath, selectedCatalogStory, storyListingWorkspaceStatus, verifiedInboxRepositoryBinding, verifiedWorkspaceStoryRepository } from './story-attach.ts';
 import {
   storyCheckoutNeedsWindowSwitch, storyStartHandoffFromResult, storyStartHandoffMatches,
   STORY_START_HANDOFF_KEY, STORY_START_DISCOVERY_IDLE_MS
@@ -5167,7 +5167,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         const current = await activeSelectionClient.run<{
           active?: boolean; workspaceId?: string; workspacePath?: string; repositoryId?: string; repositoryPath?: string;
-          canonicalRepositoryPath?: string; selectionStatus?: string;
+          canonicalRepositoryPath?: string; selectionStatus?: string; branchCheckout?: { branch?: string } | null;
         }>(['workspace', 'current', '--json']);
         const selectedHere = current.active && current.repositoryPath
           && path.resolve(current.repositoryPath) === path.resolve(scope.repository);
@@ -5187,10 +5187,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           const status = await activeSelectionClient.run<WorkspaceStatus>([
             'workspace', 'status', current.workspacePath, '--level', 'readiness', '--json'
           ]);
-          workspaceStatus = status;
-          repositories = status.repositories.map((entry) => ({
+          workspaceStatus = storyListingWorkspaceStatus(current, status);
+          repositories = workspaceStatus.repositories.map((entry) => ({
             id: entry.id,
-            // Catalog identity is the mapped clone, not the open Story worktree.
+            // Catalog identity is the verified canonical clone, not the original manifest clone
+            // or the open Story worktree. The kernel rechecks explicit member selectors below.
             absolutePath: entry.absolutePath ?? '',
             state: entry.state ?? 'unknown',
             url: entry.url ?? null,
@@ -5243,7 +5244,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             items: Array<{ id: string; title: string; status: string; phase: string | null; branch: string | null }>;
             unavailableCount: number;
             unavailable: Array<{ code?: string; branch?: string | null; ref?: string | null; reason?: string }>;
-          }>(['session', 'candidates', '--json', '--diagnostics', ...(force ? ['--refresh'] : [])]);
+          }>(['session', 'candidates', ...(workspaceStatus && current.workspacePath
+            ? ['--workspace', current.workspacePath, '--repository', entry.id] : []),
+            '--json', '--diagnostics', ...(force ? ['--refresh'] : [])]);
         });
         if (!repositoryEpoch.isCurrent(scope)) return;
         workspaceStoryCatalog = catalog.stories;

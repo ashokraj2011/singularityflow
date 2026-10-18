@@ -248,7 +248,7 @@ async function cloneBloblessBranch(transport, branch, expectedCommit, {
  * configuration/Story blobs. No application checkout or workspace repository is created.
  */
 export async function discoverRemoteStoryCandidatesByUrl(url, {
-  env = process.env, configurationUrl = null, approvedDefinition = null
+  env = process.env, configurationUrl = null, approvedDefinition = null, includeState = false
 } = {}) {
   const selectedUrl = remoteUrl(url);
   const transport = frozenRemoteTransport(selectedUrl, { env });
@@ -385,7 +385,7 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
     for (const pointer of pointers) {
       if (!isStoryDiscoveryBranch(pointer.branch)) continue;
       const summarized = ledgerSummaryCandidate(effectiveApprovedDefinition, pointer);
-      if (summarized) items.set(summarized.id, summarized);
+      if (summarized && !includeState) items.set(summarized.id, summarized);
       else proven.push(pointer);
     }
     // Fetch only immutable commits named by this verified state chain, never a wildcard head set.
@@ -459,6 +459,7 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
               createdAt: workflow.workItem.createdAt ?? null,
               status: workflow.status, phase: workflow.currentPhase,
               commit: commit.slice(0, 8), commitOid: commit,
+              ...(includeState ? { state: workflow, definition, path: entry.file } : {}),
               progress: storyLifecycleProgress(rawWorkflow),
               aliases: [workflow.lineage?.planId, workflow.lineage?.jiraIssueId, workflow.lineage?.sourceStableId,
                 workflow.workItem?.source?.stableId, workflow.lineage?.initialJiraKey, workflow.lineage?.currentJiraKey,

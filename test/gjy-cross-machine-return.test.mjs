@@ -1,14 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import YAML from 'yaml';
 import { fileURLToPath } from 'node:url';
 
 import { initializeDefinition } from '../src/config.mjs';
 import { readReturnLocator, readReturnLocatorAtRef, writeReturnLocator } from '../src/return-locator.mjs';
 import { manualStorySource, startStory } from '../src/story-start.mjs';
 import { run } from '../src/util.mjs';
+import { initializeLedger } from '../src/ledger.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -64,9 +66,14 @@ test('return previews and reconstructs a published Story in a fresh clone withou
   git(first, ['config', 'user.email', 'machine-a@example.com']);
   await writeFile(path.join(first, 'README.md'), '# Return command fixture\n');
   await initializeDefinition(first);
+  const definitionPath = path.join(first, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.ledger.enabled = true;
+  await writeFile(definitionPath, YAML.stringify(definition));
   git(first, ['add', '.']);
   git(first, ['commit', '-q', '-m', 'initialize']);
   git(first, ['push', '-q', '-u', 'origin', 'main']);
+  await initializeLedger(first, definition.ledger);
   const started = await startStory(first, {
     id: 'WRK-RETURN-2',
     source: manualStorySource('WRK-RETURN-2', { title: 'Resume on another machine' }),

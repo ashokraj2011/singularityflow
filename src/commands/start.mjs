@@ -9,8 +9,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { readFile, realpath } from 'node:fs/promises';
 import YAML from 'yaml';
 import { SingularityFlowError, nowIso, optionBoolean, optionString, optionStrings, posix, readJson, requirePositional } from '../util.mjs';
-import { assertClean, branch, changes, checkout, fetchRemote, fileAtRef, gitCommonDir, head, localBranches, localRefHeads, preflightPushBranch, refExists, refHead, remoteBranches, remoteNames, repoRoot, validBranch } from '../git.mjs';
-import { buildRepositorySubjectIndexFromRefs, resolveContext } from '../repository-subject-index.mjs';
+import { assertClean, branch, changes, checkout, fetchRemote, fileAtRef, gitCommonDir, head, localRefHeads, preflightPushBranch, refExists, refHead, remoteNames, repoRoot, validBranch } from '../git.mjs';
+import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from '../repository-subject-index.mjs';
 import { worldModelStateAuthority } from '../state-authority.mjs';
 import { STORY_INTAKE_AUTHORITY_REUSE_MS, admitStoryIntakeReceipt, isStoryIntakeProof, verifyStoryIntakeWave } from '../story-intake-verification.mjs';
 import { validatePortableWorkId } from '../work-id.mjs';
@@ -858,11 +858,7 @@ async function startCommandAtRoot(positionals, options) {
   // the shared state index next; never fetch every application branch to discover an identity.
   const requestedExternalSource = await externalSource();
   if (requestedExternalSource?.stableId) {
-    const refs = [
-      ...localBranches(root).map((branchName) => ({ branch: branchName, ref: branchName })),
-      ...remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` }))
-    ];
-    const sourceIndex = await buildRepositorySubjectIndexFromRefs(root, { definition: config ?? {}, refs });
+    const sourceIndex = await buildRepositorySubjectIndex(root, { definition: config ?? {} });
     let existing = resolveContext(sourceIndex, {
       reference: requestedExternalSource.stableId, kind: 'story', required: false
     });

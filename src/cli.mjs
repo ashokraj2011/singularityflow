@@ -1340,13 +1340,11 @@ async function returnCommand(positionals, options) {
   const initialConfig = discovery.definition;
   const remote = discovery.remote;
   const offline = optionBoolean(options, 'offline');
-  if (!offline) await fetchRemote(root, remote);
-  const refs = remoteBranches(root, remote).map((branchName) => ({
-    branch: branchName, ref: `${remote}/${branchName}`
-  }));
-  const index = await buildRepositorySubjectIndexFromRefs(root, { definition: initialConfig, refs });
+  const { stateStorySubjectIndex } = await import('./session-story-discovery.mjs');
+  const index = await stateStorySubjectIndex(root, initialConfig, { remote, fetch: !offline });
   const subject = resolveContext(index, { reference, kind: 'story' });
   const targetBranch = subject.canonicalBranch;
+  if (!offline) await fetchRemote(root, remote, { branches: [targetBranch], respectPartialClone: true });
   const remoteRef = `${remote}/${targetBranch}`;
   const sourceCommit = refHead(root, remoteRef);
   if (!sourceCommit) {

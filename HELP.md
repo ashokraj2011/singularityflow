@@ -17,6 +17,16 @@ The configurable 30-minute advisory listing cache remains available; `/sf-sessio
 `singularity-flow session candidates --refresh --json` forces a fresh remote check. A genuinely
 missing state branch, invalid ledger, or transport timeout remains an error, not an empty roster.
 
+The approval inbox, Story resume/return discovery, external-source identity lookup, Goal Story
+links, and VS Code Story catalogs use the same state-indexed published Story locations. Local
+unpublished drafts remain local records; they are not evidence of remote publication. VS Code
+snapshots read the retained index offline and expose `storyDiscovery.complete` and `unavailable`
+diagnostics when it cannot be read. Refresh Stories owns remote refresh. Snapshot, Inbox and
+attachment joins use the verified selected branch-local clone, not an obsolete manifest checkout;
+another workspace window or repository cannot substitute its navigation selection. Choosing a
+base branch and explicitly requested Git history/cleanup audits are separate operations, not
+Story discovery fallbacks.
+
 `workspace checkouts <WORKSPACE> --json` shows the clone/worktree graph. `workspace cleanup
 <WORKSPACE> --json` previews recoverable retirement. Repeat with `--apply --confirm <DIGEST>`;
 for permanent removal, use `--purge` in both preview and application. Only verified unused owned

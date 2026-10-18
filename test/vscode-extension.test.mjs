@@ -6077,6 +6077,8 @@ test('a Story is the one shape that asks how it will be judged done', () => {
     '--isolated-worktree',
     '--from-branch', 'main', '--selected-base-only',
     '--readiness-baseline', 'reuse', '--gate-mode', 'hard', '--work-type', 'feature', '--mint-intake-receipt',
+    // The title Start will send: a branch pattern may name the Story's branch from it.
+    '--title', 'Retry a failed charge',
     '--test-baseline-disposition', 'fix',
     '--test-execution-mode', 'changed-and-affected', '--test-baseline-scope', 'reuse',
   ]);
@@ -6450,7 +6452,7 @@ test('Story intake refuses to fall through to an interactive workflow prompt', (
     'workspace', 'branches', '--json', '--intake', '--preflight-story', 'checkout-retry',
     '--isolated-worktree',
     '--from-branch', 'main', '--selected-base-only',
-    '--readiness-baseline', 'reuse', '--gate-mode', 'hard', '--test-baseline-disposition', 'fix',
+    '--readiness-baseline', 'reuse', '--gate-mode', 'hard', '--title', 'Retry checkout', '--test-baseline-disposition', 'fix',
     '--test-execution-mode', 'changed-and-affected', '--test-baseline-scope', 'reuse'
   ], 'the selected base can recover its exact workflow catalog without a launch-checkout choice');
 

@@ -758,7 +758,10 @@ test('exact-diff appeal preserves source/drafts/index, blocks transitions, and h
     const submitted = await submitPhaseAppeal(f.root, definition, workflow, { ...request, confirm: prepared.packetSha256 });
     assert.equal(submitted.status, 'submitted');
     const committedPaths = f.git('diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD').stdout.trim().split('\n');
-    assert.ok(committedPaths.every(file => file === `${f.item}/workflow.json` || file === `${f.item}/STATUS.md` || file.startsWith(`${f.item}/appeals/`)), committedPaths.join('\n'));
+    // With the ledger on (the starter default) the commit also carries exactly one ledger intent of its own.
+    assert.equal(committedPaths.filter(file => file.startsWith(`${f.item}/context/ledger-intents/`)).length, 1, committedPaths.join('\n'));
+    assert.ok(committedPaths.every(file => file === `${f.item}/workflow.json` || file === `${f.item}/STATUS.md` || file.startsWith(`${f.item}/appeals/`)
+      || file.startsWith(`${f.item}/context/ledger-intents/`)), committedPaths.join('\n'));
     assert.equal(await readFile(path.join(f.root, f.summary), 'utf8'), draft);
     assert.equal(f.git('diff', '--cached').stdout, index, 'existing staged application edits preserved');
     ({ definition, workflow } = await f.load());

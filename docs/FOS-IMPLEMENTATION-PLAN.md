@@ -43,8 +43,10 @@ are measured and retained:
 
 `FOS:AC-035`.
 
-A first immutable local slice is retained at
-`benchmarks/fos/evidence/darwin-arm64-ashok-m4-local-5430fd35a351.json`. On the named Apple M4,
+A first local slice is retained at
+`benchmarks/fos/evidence/darwin-arm64-m4-local-5430fd35a351.json`. Its runner label is anonymized
+and the report digest reflects that metadata-only change; measurements and implementation binding
+are unchanged. On the Apple M4,
 Node 22.14.0, Git 2.54.0, APFS/battery runner, the 10k dirty-reference warm p95 was 3.68 ms with
 zero warm Git requests and spawns; existing-local-authority onboarding p95 was 306.63 ms and its
 first-feedback p95 was 190.3 ms. All registered local budgets passed. AC-035 remains deliberately

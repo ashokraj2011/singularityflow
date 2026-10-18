@@ -15,7 +15,7 @@ import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 const sourceManifest = new URL('../benchmarks/fos/benchmark-manifest.json', import.meta.url);
 const repositoryRoot = fileURLToPath(new URL('..', import.meta.url));
 const registeredDarwinEvidence = new URL(
-  '../benchmarks/fos/evidence/darwin-arm64-ashok-m4-local-5430fd35a351.json', import.meta.url
+  '../benchmarks/fos/evidence/darwin-arm64-m4-local-5430fd35a351.json', import.meta.url
 );
 const digest = `sha256:${'a'.repeat(64)}`;
 
@@ -125,4 +125,5 @@ test('registered Darwin FOS evidence remains verifiable against its historical m
     .summary.optimizedWarmGitRequests[0], 0);
   assert.ok(report.coverage.notMeasured.includes('office-remote'));
   assert.equal(report.claimsAuthorized, false);
+  assert.equal(report.runner.identity, 'm4-local');
 });

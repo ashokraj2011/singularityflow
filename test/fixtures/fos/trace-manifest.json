@@ -9,7 +9,7 @@
     "localDeterministicSuites": "executed",
     "hashBoundImplementationReport": "darwin-arm64-5430fd35a351",
     "controlledPerformanceRunner": "darwin-arm64-passed-other-lanes-pending",
-    "localPerformanceRunner": "ashok-m4-local",
+    "localPerformanceRunner": "m4-local",
     "executableWitnessInventory": "available-incomplete",
     "cachedNoCacheComparison": "implemented",
     "macosLinuxWindowsMatrix": "pending",

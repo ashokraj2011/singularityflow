@@ -22,6 +22,7 @@ import { currentSchemaVersion, migrationRegistrySnapshot } from '../src/schema-m
 import { MCP_SCAFFOLD_VERSIONS } from '../src/mcp-host.mjs';
 import { releaseDependencyLockProblems, workspaceDependencyLockProblems } from '../src/release-dependency-lock.mjs';
 import { isModelRoutingSource, portableCheckPath, sourceReferenceGrepArgs } from './check-path-policy.mjs';
+import { documentationPrivacyProblems, isDocumentationPath } from './documentation-privacy.mjs';
 import {
   CURRENT_PACKAGED_ASSET_SHA256,
   isCurrentPackagedAssetHash, isKnownPackagedAssetHash, packagedAssetSha256
@@ -201,6 +202,11 @@ if (!packageJson.files?.includes('RELEASE-EPIC-STORY-LINEAGE.md') || !existsSync
 checked.push('DISTRIBUTION.md', 'INITIATIVE-ORCHESTRATION.md', 'RELEASE-INITIATIVE-ORCHESTRATION.md');
 
 const allFiles = repositoryFiles();
+const documentationFiles = allFiles.filter(isDocumentationPath);
+for (const file of documentationFiles) {
+  failures.push(...documentationPrivacyProblems(path.relative(root, file), await readFile(file, 'utf8')));
+}
+checked.push(`documentation privacy (${documentationFiles.length} files)`);
 
 // Story Auto is the dependency-free default profile. Keep that a mechanically enforced
 // architecture boundary: optional SGOS modules may reuse neutral core primitives, but an Auto

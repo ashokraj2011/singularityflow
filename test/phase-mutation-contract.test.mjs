@@ -584,7 +584,8 @@ test('native authoring verification runs a real test and starts/stops only its o
   const check = { ...payload, toolName: 'bash', toolArgs: { command: 'node --test local.test.mjs', cwd: f.root } };
   assert.deepEqual(await mutationToolGuard(check), {});
   const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
-  const result = spawnSync(process.execPath, ['--test', 'local.test.mjs'], { cwd: f.root, encoding: 'utf8', env });
+  // Name the reporter: Node 23 made spec the default even when stdout is not a terminal.
+  const result = spawnSync(process.execPath, ['--test', '--test-reporter=tap', 'local.test.mjs'], { cwd: f.root, encoding: 'utf8', env });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /# pass 1/u);
   assert.deepEqual(await mutationPostToolGuard(check), {});

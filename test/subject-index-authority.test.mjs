@@ -8,6 +8,7 @@ import {
   buildRepositorySubjectIndexFromRefs, resolveContext
 } from '../src/repository-subject-index.mjs';
 import { resolveGovernedWork } from '../src/commands/goal.mjs';
+import { readWorkspace, rememberWorkspace } from '../src/workspace.mjs';
 import { run } from '../src/util.mjs';
 
 function story(id, status) {
@@ -36,7 +37,9 @@ function initiative(id, status) {
 }
 
 async function repository() {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-subject-authority-'));
+  // A workspace-shaped layout, so the Goal tests can save the workspace that holds it.
+  const root = path.join(await mkdtemp(path.join(os.tmpdir(), 'sflow-subject-authority-')), 'repos', 'app');
+  await mkdir(root, { recursive: true });
   run('git', ['init', '-q', '-b', 'main'], { cwd: root });
   run('git', ['config', 'user.name', 'Subject Authority'], { cwd: root });
   run('git', ['config', 'user.email', 'subject@example.invalid'], { cwd: root });
@@ -50,6 +53,30 @@ async function repository() {
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-qm', 'state'], { cwd: root });
   return root;
+}
+
+/**
+ * The Goal context for `root`, saved in a registry of this test's own, as `goal` reads it: the
+ * oracle resolves its repository through the saved workspace (d60eb51e).
+ */
+async function savedWorkspaceContext(t, root) {
+  const workspacePath = path.resolve(root, '..', '..');
+  const now = new Date().toISOString();
+  await writeFile(path.join(workspacePath, 'workspace.json'), JSON.stringify({
+    version: 1, id: 'subject-authority', name: 'Subject Authority', createdAt: now, updatedAt: now,
+    anchor: { provider: 'workspace', key: 'subject-authority', title: 'Subject Authority', fetchedAt: now },
+    leadRepository: 'app', capabilities: [],
+    repositories: { app: { url: `${root}.git`, path: 'repos/app', defaultBranch: 'main', capabilities: [] } }
+  }));
+  const previous = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = path.join(workspacePath, 'workspaces.json');
+  t.after(() => {
+    if (previous === undefined) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previous;
+  });
+  const workspace = await readWorkspace(workspacePath);
+  await rememberWorkspace(process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY, workspace);
+  return { workspace, selected: { repositoryId: 'app' } };
 }
 
 test('ref subject authority is canonical-path bound regardless of tree order', async () => {
@@ -73,17 +100,9 @@ test('ref subject authority is canonical-path bound regardless of tree order', a
   assert.equal(resolved.location.path, 'singularity/work-items/STORY-1/workflow.json');
 });
 
-test('noncanonical ref state can never satisfy a governed Goal oracle', async () => {
+test('noncanonical ref state can never satisfy a governed Goal oracle', async (t) => {
   const root = await repository();
-  const context = {
-    workspace: {
-      id: 'workspace', name: 'Workspace', path: path.dirname(root),
-      repositories: {
-        app: { id: 'app', path: 'unused', adoption: { mode: 'existing-clone', canonicalPath: root } }
-      }
-    },
-    selected: { repositoryId: 'app' }
-  };
+  const context = await savedWorkspaceContext(t, root);
   const observed = await resolveGovernedWork(context, {
     reference: 'STORY-1', kind: 'story', repositoryId: 'app', required: false
   });
@@ -149,7 +168,7 @@ test('branch-selected resolution preserves the canonical path on that branch', a
   assert.equal(resolved.location.path, 'singularity/work-items/STORY-1/workflow.json');
 });
 
-test('bad JSON and unknown schema remain explicit unreadable ref evidence', async () => {
+test('bad JSON and unknown schema remain explicit unreadable ref evidence', async (t) => {
   const root = await repository();
   await mkdir(path.join(root, 'singularity/work-items/BAD'), { recursive: true });
   await mkdir(path.join(root, 'singularity/work-items/FUTURE'), { recursive: true });
@@ -166,15 +185,7 @@ test('bad JSON and unknown schema remain explicit unreadable ref evidence', asyn
   assert.equal(bad.every((entry) => entry.code === 'SUBJECT_STATE_UNREADABLE'), true);
   assert.equal(bad.every((entry) => entry.ref === 'main' && entry.commit), true);
 
-  const context = {
-    workspace: {
-      id: 'workspace', name: 'Workspace', path: path.dirname(root),
-      repositories: {
-        app: { id: 'app', path: 'unused', adoption: { mode: 'existing-clone', canonicalPath: root } }
-      }
-    },
-    selected: { repositoryId: 'app' }
-  };
+  const context = await savedWorkspaceContext(t, root);
   const unavailable = await resolveGovernedWork(context, {
     reference: 'BAD', kind: 'story', repositoryId: 'app', required: false
   });

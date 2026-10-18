@@ -199,25 +199,32 @@ test('FIX:AC-605 complete public review-remediation path survives a second check
   assert.equal(started.outcome.status, 'succeeded');
   assert.equal(started.data.currentPhase, 'planning');
   assert.equal(started.data.publication.pushed, true);
+  // A workspace Story starts in its own worktree beside the selected checkout (8f58d079), and the
+  // first machine continues there.
+  const story = started.data.repositoryPath;
+  assert.equal(started.data.worktree?.isolated, true);
+  // That checkout is a clone of its own, and this machine has no global Git identity.
+  git(story, ['config', 'user.name', 'POC Operator']);
+  git(story, ['config', 'user.email', 'poc.operator@example.invalid']);
 
-  let accepted = await loadAcceptedStoryExecution(first, workId);
+  let accepted = await loadAcceptedStoryExecution(story, workId);
   assert.equal(accepted.workflow.workflowSnapshot?.revision, 1);
   const firstExecution = await resolveStoryExecutionContext(
-    first, accepted.definition, accepted.workflow,
+    story, accepted.definition, accepted.workflow,
     { agentId: 'architect', phaseId: 'planning', executionCatalog: accepted.executionCatalog }
   );
   assert.equal(firstExecution.identity.mode, 'workflow-snapshot');
   assert.match(firstExecution.identity.snapshotHash, /^sha256:[a-f0-9]{64}$/);
 
   await writePhaseArtifact(
-    first, accepted, 'planning',
+    story, accepted, 'planning',
     'The reviewed plan adds an exact, reviewed change to the POC service.'
   );
-  invoke(env, first, [
+  invoke(env, story, [
     'phase', 'publish', 'planning', '--authored', 'human', '--channel', 'manual-in-place'
   ]);
-  invoke(env, first, ['submit', 'planning', '--skip-checks']);
-  invoke(env, first, ['approve', 'planning', '--yes']);
+  invoke(env, story, ['submit', 'planning', '--skip-checks']);
+  invoke(env, story, ['approve', 'planning', '--yes']);
 
   const second = path.join(base, 'machine-b');
   git(base, ['clone', '-q', '--branch', workId, delivery.remote, second]);

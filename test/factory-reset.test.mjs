@@ -26,6 +26,20 @@ function git(root, ...args) {
   return command('git', args, root).stdout.trim();
 }
 
+/**
+ * Fresh install requires the Copilot CLI unless it runs with --cli-only. These tests exercise
+ * checkout admission, which never runs Copilot, so a stub on PATH stands in for it on machines
+ * where it is not installed.
+ */
+async function copilotOnPath(t, env = {}) {
+  const bin = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-copilot-'));
+  t.after(() => rm(bin, { recursive: true, force: true }));
+  await writeFile(path.join(bin, 'copilot'), '#!/bin/sh\nexit 0\n');
+  await chmod(path.join(bin, 'copilot'), 0o755);
+  await writeFile(path.join(bin, 'copilot.cmd'), '@exit /b 0\r\n');
+  return { ...env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` };
+}
+
 async function missing(file) {
   try { await access(file); return false; } catch (error) {
     if (error?.code === 'ENOENT') return true;
@@ -2846,11 +2860,11 @@ test('fresh-install CLI delegates preview and confirmed reinstall to a validated
   const sourceTree = git(checkout, 'rev-parse', 'HEAD^{tree}');
 
   const preview = command(process.execPath, [cli, 'fresh-install', '--checkout', checkout], packageRoot, {
-    env: {
+    env: await copilotOnPath(t, {
       HOME: home,
       GIT_DIR: path.join(home, 'ambient-wrong.git'),
       GIT_INDEX_FILE: path.join(home, 'ambient-wrong.index')
-    }
+    })
   });
   assert.match(preview.stdout, /fresh-install reset — preview/);
   assert.match(preview.stdout, /Generated state in this installer checkout/);
@@ -2955,13 +2969,16 @@ test('fresh-install CLI refuses an arbitrary checkout with untracked trust ancho
   git(checkout, 'init', '-b', 'main');
   await writeFile(path.join(checkout, 'package.json'), '{"name":"singularity-flow"}\n');
   await writeFile(path.join(checkout, 'install.sh'), '#!/usr/bin/env bash\nexit 0\n');
-  const result = command(process.execPath, [cli, 'fresh-install', '--checkout', checkout], packageRoot, { ok: false });
+  const result = command(process.execPath, [cli, 'fresh-install', '--checkout', checkout], packageRoot, {
+    ok: false, env: await copilotOnPath(t)
+  });
   assert.match(result.stderr, /package\.json is not a regular file tracked at HEAD/);
   assert.match(result.stderr, /install\.sh is not a regular stage-0 file in the Git index/);
   assert.match(result.stderr, /Commit the reviewed versions, or stash\/restore changes/);
 });
 
 test('fresh-install CLI never runs modified, staged, or symbolic-link trust anchors', async (t) => {
+  const env = await copilotOnPath(t);
   async function fixture(label) {
     const checkout = await mkdtemp(path.join(os.tmpdir(), `sflow-fresh-cli-trust-${label}-`));
     t.after(() => rm(checkout, { recursive: true, force: true }));
@@ -2979,7 +2996,7 @@ test('fresh-install CLI never runs modified, staged, or symbolic-link trust anch
   }
 
   async function refused(checkout, pattern) {
-    const result = command(process.execPath, [cli, 'fresh-install', '--checkout', checkout], packageRoot, { ok: false });
+    const result = command(process.execPath, [cli, 'fresh-install', '--checkout', checkout], packageRoot, { ok: false, env });
     assert.match(result.stderr, /before running install\.sh, including reset preview/);
     assert.match(result.stderr, pattern);
     assert.equal(await missing(path.join(checkout, 'invoked.log')), true, 'untrusted installer bytes must never run');
@@ -3043,7 +3060,9 @@ test('fresh-install CLI refuses dirty tracked reset source before invoking the r
   git(checkout, 'commit', '-m', 'reviewed fresh-install source');
   await writeFile(path.join(checkout, 'scripts', 'fresh-install-reset.mjs'), 'throw new Error("unreviewed source ran");\n');
 
-  const result = command(process.execPath, [cli, 'fresh-install', '--checkout', checkout], packageRoot, { ok: false });
+  const result = command(process.execPath, [cli, 'fresh-install', '--checkout', checkout], packageRoot, {
+    ok: false, env: await copilotOnPath(t)
+  });
   assert.match(result.stderr, /checkout has staged, modified, or unreviewed untracked files/);
   assert.match(result.stderr, /scripts\/fresh-install-reset\.mjs/);
   assert.match(result.stderr, /Commit, stash, or remove the reviewed source changes/);
@@ -3064,7 +3083,9 @@ test('fresh-install CLI refuses untracked checkout input before the verified ins
   git(checkout, 'commit', '-m', 'reviewed fresh-install source');
   await writeFile(path.join(checkout, 'scripts', 'fresh-install-reset.mjs'), 'throw new Error("unreviewed source ran");\n');
 
-  const result = command(process.execPath, [cli, 'fresh-install', '--checkout', checkout], packageRoot, { ok: false });
+  const result = command(process.execPath, [cli, 'fresh-install', '--checkout', checkout], packageRoot, {
+    ok: false, env: await copilotOnPath(t)
+  });
   assert.match(result.stderr, /checkout has staged, modified, or unreviewed untracked files/);
   assert.match(result.stderr, /\?\? scripts\/fresh-install-reset\.mjs/);
   assert.equal(await missing(path.join(checkout, 'invoked.log')), true);

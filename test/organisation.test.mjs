@@ -7019,7 +7019,9 @@ test('choosing a workspace is what scopes the rest', async () => {
   assert.ok(windowRoot > 0 && folder > windowRoot && active > folder,
     'window selection, opened folder, then profile default');
   const rebind = extension.slice(extension.indexOf('workspaceSelected.push(async (selected) => {'));
-  assert.ok(rebind.indexOf('await validateRepositoryDirectory') < rebind.indexOf("workspaceState.update('singularityFlow.executionRoot'"),
+  // An intake selection validates as a factory-reset target, any other as a repository.
+  const validated = rebind.search(/await \(selected\.forIntake\s*\?\s*validateFactoryResetRepositoryDirectory\s*:\s*validateRepositoryDirectory\)\(target/u);
+  assert.ok(validated >= 0 && validated < rebind.indexOf("workspaceState.update('singularityFlow.executionRoot'"),
     'failed validation must not persist an unavailable selection for the next window reload');
 
   // And it reads the shape the CLI emits. Ordering two lines correctly is worth nothing if the

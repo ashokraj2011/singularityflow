@@ -346,7 +346,9 @@ test('missing Story configuration has exact-repository recovery actions and a ma
   const intake = await readFile(view('intake-panel.ts'), 'utf8');
   assert.match(intake, /const startRepository = this\.client\.repository/u);
   assert.match(intake, /this\.disposed \|\| this\.client\.repository !== startRepository/u);
-  assert.match(intake, /showRefusal\(failure, \{\s*headline: 'Story intake needs recovery', repositoryRoot: startRepository/su);
+  // Recovery names the checkout the Story start ran in, which may be a branch-named workspace
+  // checkout rather than the window's repository (8f58d079).
+  assert.match(intake, /showRefusal\(failure, \{\s*headline: 'Story intake needs recovery', repositoryRoot: executionClient\.repository/su);
 });
 
 test('manual recovery instructions render without crowding safe actions out of the VS Code card', () => {
@@ -478,14 +480,25 @@ test('VS Code accepts a registered policy-selected generation skill without wide
     '/sf-code'
   ));
   assert.deepEqual(commandGuidance({
-    command: 'singularity-flow phase publish convergence --authored deterministic',
+    command: 'singularity-flow prepare convergence',
     skill: '/sf-converge',
     copilotCommand: '/sf-converge'
+  }), expectedGuidance('singularity-flow prepare convergence', ['prepare', 'convergence'], '/sf-converge'));
+  // Publication has its own route whichever skill generated the step (e759274f): the asserted skill
+  // is accepted and presented as /sf-publish, and a Copilot route that contradicts it is refused.
+  assert.deepEqual(commandGuidance({
+    command: 'singularity-flow phase publish convergence --authored deterministic',
+    skill: '/sf-converge'
   }), expectedGuidance(
     'singularity-flow phase publish convergence --authored deterministic',
     ['phase', 'publish', 'convergence', '--authored', 'deterministic'],
-    '/sf-converge', '/sf-converge', '@sflow /publish convergence'
+    '/sf-publish', '/sf-publish convergence', '@sflow /publish convergence'
   ));
+  assert.equal(commandGuidance({
+    command: 'singularity-flow phase publish convergence --authored deterministic',
+    skill: '/sf-converge',
+    copilotCommand: '/sf-converge'
+  }), null);
   assert.equal(commandGuidance({
     command: 'singularity-flow status --json',
     skill: '/sf-code',

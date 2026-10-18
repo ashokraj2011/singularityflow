@@ -390,10 +390,13 @@ test('workflow is the only noun for a named list of phases', async () => {
   assert.match(authoring, /scaffold: \(\{ id, label, agents/);
   assert.match(authoring, /scaffold: \(\{ label, lanes, agents/);
 
-  // One list, both kinds, with the level as a column rather than a separate vocabulary.
-  assert.match(cli, /governs: 'story'/);
-  assert.match(cli, /listWorkflows\(root, 'initiative'\)/);
-  assert.match(cli, /\{ key: 'governs', label: 'GOVERNS' \}/);
+  // One list, both kinds, with the level as a column rather than a separate vocabulary. The list
+  // has its own command module, so catalog reads do not load the authoring dispatcher.
+  const list = await readFile(new URL('../src/commands/workflow-list.mjs', import.meta.url), 'utf8');
+  assert.match(cli, /import\('\.\/commands\/workflow-list\.mjs'\)\)\.listWorkflowCatalog\(/);
+  assert.match(list, /governs: 'story'/);
+  assert.match(list, /listWorkflows\(root, 'initiative'\)/);
+  assert.match(list, /\{ key: 'governs', label: 'GOVERNS' \}/);
 
   // And the catalog lists what the repository actually runs, not only what shipped with the
   // product: `workflow create quick-fix` used to report success and then not appear in the list.

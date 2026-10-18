@@ -143,7 +143,8 @@ test('Benchmark B composes a generic governed prompt without a world-model snaps
   assert.doesNotMatch(composed, new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.match(composed, /Work-item directory: `singularity\/work-items\/BENCH-B-1`/);
   assert.match(composed, /Required artifact: `singularity\/work-items\/BENCH-B-1\/artifacts\/intake\/intake\.md`/);
-  assert.match(composed, /Never search the filesystem outside this repository/);
+  // The path boundary since a906fe90: discovery stays in the checkout, issued paths stay exact.
+  assert.match(composed, /Repository discovery stays within the selected checkout/);
   assert.doesNotMatch(composed, /required repository world-model grounding/i);
   assert.doesNotMatch(composed, /Bounded repository structural context/);
 });

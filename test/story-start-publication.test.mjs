@@ -285,8 +285,9 @@ test('resume fetches once and fast-forwards from the exact refreshed remote ref 
     env: { SINGULARITY_FLOW_SUBPROCESS_PROBE: '1' }
   });
   assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), expected);
-  assert.match(resumed.stderr, /\b1x\s+\d+ ms\s+git fetch --prune\b/,
-    'resume should perform exactly one explicit remote refresh');
+  // One fetch, scoped to the Story's branch (4eead37a), so the profile lists it by --no-tags.
+  assert.deepEqual(resumed.stderr.match(/^\s*\d+x\s+\d+ ms\s+git fetch\b.*$/gmu)?.map(line => line.trim().split(/\s+/u)[0]),
+    ['1x'], 'resume should perform exactly one explicit remote refresh');
   assert.doesNotMatch(resumed.stderr, /git pull --ff-only/,
     'the refreshed remote-tracking ref is sufficient for the fast-forward');
 });
@@ -963,7 +964,8 @@ test('the intake catalog says whether its workflows depend on the chosen base, a
     'a repository without approved configuration takes its workflows from the chosen base');
   git(root, 'push', 'origin', 'main:refs/heads/sflow/config');
   flow(root, ['workspace', 'branches', '--json', '--intake']);
-  const warm = flow(root, ['workspace', 'branches', '--json', '--intake', '--timings']);
+  // A repeated catalog is served from its advisory snapshot (9dd17bc1); refresh it to measure the read.
+  const warm = flow(root, ['workspace', 'branches', '--json', '--intake', '--refresh-readiness', '--timings']);
   assert.equal(JSON.parse(warm.stdout).intake.workflowCatalogScope, 'approved-configuration');
   if (process.platform === 'win32') {
     assert.match(warm.stderr, /configuration\.object-cache-declined=1(?:\s|$)/,

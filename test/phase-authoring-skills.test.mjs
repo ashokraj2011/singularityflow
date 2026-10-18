@@ -8,12 +8,12 @@ test('code author opens the exact generation before composition and verifies per
   const code = await skill('sflow-code');
   const begin = code.indexOf('singularity-flow phase begin <phase> --json');
   const compose = code.indexOf('rerun it once with `<phase> --work-id <WORK-ID> --compose`');
-  const permission = code.indexOf('Source edits require `codeAuthoringReady: true`');
+  const permission = code.indexOf('Source edits need `codeAuthoringReady: true`');
   const edit = code.indexOf('6. Native file-edit tool:');
   assert.ok(begin > 0 && begin < compose);
   assert.ok(permission > compose && permission < edit);
   assert.match(code, /binding is not source permission/);
-  assert.match(code, /kernel-only `\/sf-next` cannot inline authoring/);
+  assert.match(code, /kernel-only `\/sf-next` cannot author/);
   assert.match(code, /adoption\/confirmation before edits\/composition; never auto-adopt/);
   assert.match(code, /Successful begin: refresh entry once/);
   assert.match(code, /Consumed intent requires `\/sf-recover`/);
@@ -25,16 +25,15 @@ test('code author opens the exact generation before composition and verifies per
 test('existing implementation is completed through summary, planned assertions and publication, not discarded or inferred complete', async () => {
   const code = await skill('sflow-code');
   assert.match(code, /Preserve code\/tests; prepare missing artifact via `authoringProgress`/);
-  assert.match(code, /Repair missing summary\/planned bindings in this draft/);
-  assert.match(code, /finish behavior\/tests\/artifact\/Agent brief/);
-  assert.match(code, /Planned test files cannot be replaced by utility tests/);
-  assert.match(code, /verify assertions, never fabricate tags/);
+  assert.match(code, /finish behavior\/tests\/artifact\/Agent brief and planned bindings/);
+  assert.match(code, /Keep planned test files; assert behavior, never fabricate tags/);
   assert.match(code, /`argvWithheld: true` means configured, not missing/);
-  assert.match(code, /Publication runs fresh tests, no pre-run/);
+  // Development test runs are allowed while authoring (d6074584); they never replace publication's.
+  assert.match(code, /Development tests are allowed during authoring/);
+  assert.match(code, /Publication still runs fresh governed tests; manual passes never advance/);
   assert.match(code, /commands\.publish` once when ready/);
   assert.match(code, /successful required tests continue publication/);
-  assert.match(code, /Finish summary\/traceability\/prepublish\/publication/);
-  assert.match(code, /Published: relay `publishIfReady\.next`\./);
+  assert.match(code, /Relay `publishIfReady\.next` after publication\./);
   assert.match(code, /Never submit\/approve/);
 });
 

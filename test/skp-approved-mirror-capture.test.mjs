@@ -80,7 +80,8 @@ async function fixture(t) {
 
 test('ordinary verified recovery-mirror reads omit authoring capture while explicit fresh authoring uses one bounded private capture', async (t) => {
   const value = await fixture(t); const counts = new Map();
-  const timer = { increment(name, amount) { counts.set(name, (counts.get(name) ?? 0) + amount); } };
+  const timer = { increment(name, amount) { counts.set(name, (counts.get(name) ?? 0) + amount); },
+    measure: (_name, action) => action(), feedback() {} };
   const refs = git(value.checkout, 'show-ref'); const status = git(value.checkout, 'status', '--porcelain');
   await withCommandTiming(timer, () => withApprovedConfigurationRead(value.checkout, () => {
     const snapshot = configurationReadSnapshot(value.checkout);
@@ -98,7 +99,8 @@ test('ordinary verified recovery-mirror reads omit authoring capture while expli
 
 test('an ordinary retained mirror snapshot cannot be promoted to authoring bytes without another exact verified owner read', async (t) => {
   const value = await fixture(t); const counts = new Map();
-  const timer = { increment(name, amount) { counts.set(name, (counts.get(name) ?? 0) + amount); } };
+  const timer = { increment(name, amount) { counts.set(name, (counts.get(name) ?? 0) + amount); },
+    measure: (_name, action) => action(), feedback() {} };
   await withCommandTiming(timer, async () => {
     const authority = await resolveStoryConfigurationAuthority(value.checkout);
     const ordinary = await loadStoryConfigurationSnapshot(authority);

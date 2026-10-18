@@ -763,9 +763,9 @@ function observationPatternsCover(available, requested) {
   return requested.every((pattern) => held.has(pattern)
     || (pattern.startsWith('refs/heads/') && pattern !== 'refs/heads/*' && held.has('refs/heads/*'))
     || [...held].some((broad) => {
-      // Only a literal branch namespace ending in /* proves completeness for a descendant.
+      // Only a literal branch or tag namespace ending in /* proves completeness for a descendant.
       // Other glob shapes (including wildcards in an ancestor component) are not containment.
-      if (!broad.startsWith('refs/heads/') || !broad.endsWith('/*')) return false;
+      if (!/^refs\/(?:heads|tags)\//u.test(broad) || !broad.endsWith('/*')) return false;
       const prefix = broad.slice(0, -1);
       return !/[?*\[\]]/u.test(prefix) && pattern.startsWith(prefix);
     }));

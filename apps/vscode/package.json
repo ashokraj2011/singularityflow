@@ -321,6 +321,11 @@
         "icon": "$(sync)"
       },
       {
+        "command": "singularityFlow.about",
+        "title": "Singularity Flow: About — Versions & Build Dates",
+        "icon": "$(info)"
+      },
+      {
         "command": "singularityFlow.reinitializeWorkspaces",
         "title": "Singularity Flow: Upgrade Framework Seeds (Safe Preview)",
         "icon": "$(sync)"

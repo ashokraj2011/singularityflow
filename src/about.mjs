@@ -22,7 +22,7 @@ Command namespace:
   Terminal: sflow-<action>     Example: sflow-next, sflow-about
   Compatibility: singularity-flow <action>
 
-Workflow state lives in committed work-item branches, so another person or
-terminal can fetch the branch and continue without a separate workflow database.
+Workflow records are indexed by the Git-backed Flow Ledger alongside Story code
+branches, so another laptop can select the Story and continue without a separate workflow database.
 
 Run /sf-help in Copilot or singularity-flow help in a terminal for the full guide.`;

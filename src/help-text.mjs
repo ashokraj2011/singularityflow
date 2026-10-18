@@ -37,7 +37,7 @@ Usage:
   singularity-flow appeal evidence-accept [same selectors as evidence-prepare] --confirm PACKET_SHA256 [--review-ui] [--json]
   singularity-flow [--no-model] <command> [options]
     --no-model disables every kernel-owned model invocation. Equivalent: SINGULARITY_FLOW_NO_MODEL=1.
-  singularity-flow about
+  singularity-flow about [--markdown | --json] [--extension-path DIRECTORY]
   singularity-flow --version | --build
     (--version is a bare semver for scripts; --build adds the commit or validated source digest)
   singularity-flow --warm-runtime

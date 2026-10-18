@@ -85,13 +85,25 @@ The role filters local guidance only. Agents come from the selected workflow pha
 
 ## About and command namespace
 
+Open **Singularity Flow: About — Versions & Build Dates** in the VS Code Command Palette,
+or choose **Help & diagnostics → About / Build information**. It shows the loaded window UI,
+installed VS Code engine, and terminal/Copilot CLI separately, with versions, build identities,
+UTC build dates, paths, and explicit mismatch/unknown states. It works without a repository or
+installation receipt and never fetches, repairs, installs, or switches workspaces automatically.
+The **After install** page links to the same view. Refresh and Copy diagnostics are read-only.
+
+`/sf-about` renders the build table directly in Copilot. `singularity-flow about` and `sflow-about`
+render it in the shell; `--json` supplies structured data, and `--extension-path DIRECTORY` selects
+an extension in a custom location. Shell extension rows describe installed files, not a loaded window.
+Build dates are recorded stamps, not installation dates; equal version numbers do not prove alignment.
+
 **Singularity Flow** is the product under the **Singularity** brand. It is a
 Git-native, configurable SDLC orchestration system that carries requirements,
 designs, implementation specifications, evidence, approvals, and reports through
 reviewable work-item branches.
 
 Run `/sf-about` in Copilot or `sflow-about` in a terminal for the concise
-installed-version summary. Installer-managed personal Copilot skills use the
+version/build summary. Installer-managed personal Copilot skills use the
 short, collision-safe `/sf-<action>` form without a plugin namespace. The packaged
 `sflow-*` skill IDs remain available through qualified compatibility invocations
 such as `/singularity-flow/sflow-help`. Terminal shortcuts use

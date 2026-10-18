@@ -23,6 +23,7 @@ const ACTION_COMMANDS: Record<string, string> = {
   'configuration-approvals': 'singularityFlow.openConfigurationApprovals',
   'configuration-sync': 'singularityFlow.recreateAndSyncConfiguration',
   'after-install': 'singularityFlow.afterInstall',
+  about: 'singularityFlow.about',
   'favorites-manage': 'singularityFlow.manageFavorites',
   'persona-manage': 'singularityFlow.choosePersona',
   'my-work': 'singularityFlow.myWork',
@@ -81,6 +82,7 @@ interface FavoriteMenu {
  * confirmation, repository check, or lifecycle gate.
  */
 export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
+  { id: 'about', label: 'About / Build information', description: 'CLI and VS Code versions, dates and build mismatches', icon: 'help', command: ACTION_COMMANDS.about! },
   { id: 'my-work', label: 'My Work', description: 'current work and next actions', icon: 'home', command: ACTION_COMMANDS['my-work']! },
   { id: 'artifacts', label: 'Artifacts', description: 'documents each phase produced', icon: 'document', command: ACTION_COMMANDS.artifacts! },
   { id: 'story-analytics', label: 'Story Analytics', description: 'progress, gates and time across Stories', icon: 'impact', command: ACTION_COMMANDS['story-analytics']! },
@@ -401,7 +403,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     const groups: Record<string, { title: string; ids: string[] }> = {
       'work-tools': { title: 'Work tools', ids: ['current-work-actions', 'story-intake', 'artifacts', 'story-analytics', 'understand-changes', 'adhoc-work', 'goals', 'impact-form', 'epic-stories', 'command-center', 'flow-impact'] },
       'understand-changes': { title: 'Understand changes', ids: ['change-explorer', 'code-explainer', 'repository-knowledge', 'code-explanation', 'comprehension-center'] },
-      'help-tools': { title: 'Help & diagnostics', ids: ['help-open', 'diagnostics', 'fault-repairs', 'after-install', 'local-reset'] },
+      'help-tools': { title: 'Help & diagnostics', ids: ['about', 'help-open', 'diagnostics', 'fault-repairs', 'after-install', 'local-reset'] },
       'activity-tools': { title: 'Activity & logs', ids: ['logs-open', 'activity-log', 'prompt-audit', 'journal'] }
     };
     const selected = groups[group];

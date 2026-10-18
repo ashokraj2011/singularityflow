@@ -15,6 +15,7 @@ export class AfterInstallPanel {
     this.journey = new AfterInstallJourney(host, () => this.render());
     const router = registerMessageRouter('singularityFlow.afterInstall', {
       recheck: () => this.journey.load(),
+      about: () => navigateTo('singularityFlow.about'),
       select: message => {
         const path = stringField(message, 'path');
         if (path) return this.journey.select(path);

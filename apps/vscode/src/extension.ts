@@ -287,7 +287,7 @@ async function firstRunChecks(extensionPath: string, location: { executable: str
   };
   const [git, cli] = await Promise.all([
     gitVersion(repository ?? os.tmpdir()).catch(() => null),
-    probe(location.executable, [location.cli, 'about'], { cwd: repository ?? os.tmpdir(), timeout: 10_000 })
+    probe(location.executable, [location.cli, '--version'], { cwd: repository ?? os.tmpdir(), timeout: 10_000 })
   ]);
   const bundle = await lstat(path.join(extensionPath, 'dist', 'extension.cjs')).catch(() => null);
   const machineDirectory = path.resolve(process.env.SINGULARITY_FLOW_HOME
@@ -2980,6 +2980,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }, details, refreshConfiguration, runFosAction,
     requestedWorkspacePath || workspacePathOf(node) || node?.path || null,
     upgradeScope, attachScope, requestedRepositoryId);
+  }));
+
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.about', async () => {
+    try {
+      const registry = new SingularityFlowClient({ location: resolveCli({ extensionPath: context.extensionPath }),
+        repository: os.tmpdir(), environment: cliEnvironment, onOutput: text => output.append(text) });
+      lazyPanels().AboutPanel.show(context, {
+        read: () => registry.run(['about', '--json', '--extension-path', context.extensionPath]),
+        window: () => ({ version: String(context.extension.packageJSON.version), build: loadedBuild,
+          editorVersion: vscode.version, reloadRequired: loadedBundle.replaced() })
+      });
+    } catch (error) { showRefusal(error, { headline: 'Build information is unavailable' }); }
   }));
 
   /** One post-install entry point: review the build and upgrade an explicitly selected workspace. */

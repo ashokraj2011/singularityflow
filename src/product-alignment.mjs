@@ -22,7 +22,8 @@ import {
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { buildDescription } from './build-info.mjs';
+import { stampedBuildLine, parseBuildLine, compareBuilds } from './build-stamp-reader.mjs';
+export { parseStampedBuildInfo, parseVersionSource, stampedBuildLine, parseBuildLine, compareBuilds } from './build-stamp-reader.mjs';
 import { PRODUCT_ALIGNMENT_SWITCH } from './product-alignment-gate.mjs';
 import { inspectLocalProduct, REINSTALL_SURFACES } from './reinstall.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -39,7 +40,6 @@ const RETAINED_ARTIFACT_NAMES = Object.freeze({
   vsix: 'singularity-flow.vsix'
 });
 const SHA256_HEX = /^[a-f0-9]{64}$/u;
-const BUILD_FIELDS = Object.freeze(['commit', 'sourceSha256', 'branch', 'dirty', 'builtAt']);
 const READ_TIMEOUT_MS = 30_000;
 const MUTATION_TIMEOUT_MS = 300_000;
 const RECEIPT_BUILDS = 8;
@@ -55,64 +55,6 @@ export const PRODUCT_SURFACE_STATES = Object.freeze({
   'not-installed': 'Not installed on this machine.',
   unavailable: 'Its manager command is not on PATH.'
 });
-
-// ------------------------------------------------------------------------------------------
-// Build identities
-
-/**
- * The exact inverse of `src/build-info-stamp.mjs`: each field is one JSON-compatible literal on its
- * own line. Anything else is not a stamp this product wrote, so it is rejected rather than guessed.
- */
-export function parseStampedBuildInfo(source) {
-  if (typeof source !== 'string') return null;
-  const info = {};
-  for (const key of BUILD_FIELDS) {
-    const match = new RegExp(
-      `^\\s*${key}:\\s*(null|true|false|"(?:[^"\\\\\\n]|\\\\.)*")\\s*,?\\s*$`, 'mu'
-    ).exec(source);
-    if (!match) return null;
-    try { info[key] = JSON.parse(match[1]); }
-    catch { return null; }
-  }
-  const text = (value) => value === null || typeof value === 'string';
-  if (!text(info.commit) || !text(info.sourceSha256) || !text(info.branch) || !text(info.builtAt)
-      || !(info.dirty === null || typeof info.dirty === 'boolean')) return null;
-  return Object.freeze(info);
-}
-
-export function parseVersionSource(source) {
-  const match = /^export const VERSION = '([^'\n]{1,64})';$/mu.exec(String(source ?? ''));
-  return match ? match[1] : null;
-}
-
-/** The `--build` line a package with these version and build-information sources prints. */
-export function stampedBuildLine(versionSource, buildInfoSource) {
-  const version = parseVersionSource(versionSource);
-  const info = parseStampedBuildInfo(buildInfoSource);
-  if (!version || !info) return null;
-  return parseBuildLine(`${version} (${buildDescription(info)})`);
-}
-
-/** A `--build` line, with the instant its stamp was written when it has one. */
-export function parseBuildLine(value) {
-  const line = String(value ?? '').trim();
-  const match = /^([^\s()]+) \((.+)\)$/u.exec(line);
-  if (!match || /[\r\n]/u.test(line)) return null;
-  const description = match[2];
-  const stamped = !/development checkout|not a stamped package/iu.test(description);
-  const builtAt = /(?:^| · )built (\S+)$/u.exec(description)?.[1] ?? null;
-  return Object.freeze({ line, version: match[1], stamped, builtAt });
-}
-
-/** -1, 0 or 1 when two stamped builds can be ordered by their stamp instant; otherwise null. */
-export function compareBuilds(left, right) {
-  if (!left || !right) return null;
-  if (left.line === right.line) return 0;
-  const leftTime = Date.parse(left.builtAt ?? '');
-  const rightTime = Date.parse(right.builtAt ?? '');
-  if (!Number.isFinite(leftTime) || !Number.isFinite(rightTime) || leftTime === rightTime) return null;
-  return leftTime < rightTime ? -1 : 1;
-}
 
 // ------------------------------------------------------------------------------------------
 // Observation

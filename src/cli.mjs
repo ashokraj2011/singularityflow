@@ -180,7 +180,6 @@ import { evaluateSpecificationGate } from './specification-gate.mjs';
 import { advisoryTaskPath, approvedSource, deriveAdvisoryTasks, renderAdvisoryTasks } from './advisory-tasks.mjs';
 import { assistedPrompt, assistedRecordRelative, buildAssistedRecord, parseAssistedCandidates, reusableAssistedRecord, serializeAssistedRecord, unknownCitations } from './assisted-quality.mjs';
 import { buildConstitutionException, constitutionIndex, constitutionPolicy, generateConstitution, loadConstitution } from './constitution.mjs';
-import { ABOUT } from './about.mjs';
 import { VERSION } from './version.mjs';
 import { HELP } from './help-text.mjs';
 
@@ -11765,7 +11764,7 @@ export async function main(argv) {
 
 async function dispatch(command, positionals, options, argv) {
   const handlers = validateCommandHandlers({
-    about: () => console.log(ABOUT),
+    about: async () => (await import('./commands/about.mjs')).run(argv, { positionals, options }),
     help: async () => (await import('./commands/help.mjs')).helpCommand(positionals, options),
     show: () => showCommand(positionals, options),
     harness: () => harnessCommand(positionals, options),

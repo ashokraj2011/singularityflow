@@ -349,6 +349,14 @@ platform/package receipts; those distinct cells remain open.
 
 ### Bundle and module-closure budget
 
+The About build-information feature adds two deliberate, on-demand panel modules: its pure
+renderer/validator and webview host. The measured candidate lazy-panels runtime is 3,102,151 bytes
+and 251 modules. Its byte ceiling moves only to the next 5,000-byte boundary (3,105,000), and its
+module ceiling to exactly 251. Activation remains at 143 modules; all other byte/module limits
+and the aggregate ceiling are unchanged. The startup health probe uses the existing lightweight
+`--version` route rather than running the new About inventory. About itself reads local metadata
+and one bounded PATH CLI `--build` response, without Git or package-manager enumeration.
+
 Every emitted CommonJS entry has a reviewed byte and source-module ceiling in
 `benchmarks/dx/vscode-bundle-budgets.json`. The gate builds the extension, reads only `.cjs` sizes
 and unique source counts from its source maps, refuses a missing or unbudgeted entry, and emits no

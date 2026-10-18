@@ -1,6 +1,6 @@
 ---
 name: sflow-about
-description: Explain what Singularity Flow is, its current version, Git-native workflow model, main capabilities, and collision-safe sflow command namespace.
+description: Show CLI and VS Code versions, build identities, build dates and mismatches, and explain Singularity Flow.
 disable-model-invocation: true
 
 ---
@@ -14,9 +14,9 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 <!-- sflow-execution-boundary -->
 **Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
-1. Run `sflow-about`. If that executable is unavailable, run `singularity-flow about`.
-2. Return the command output faithfully and concisely. Explain that **Singularity Flow** is the product under the **Singularity** brand, while `sflow-` is its short public command prefix.
+1. Run `sflow-about --markdown`. If that executable is unavailable, run `singularity-flow about --markdown`.
+2. Render the build-information table visibly in Copilot, not just in tool output, a file link or a completion notice. Keep running-command, PATH CLI and VS Code rows separate; retain versions, build identities, UTC dates, mismatches, errors and unknowns. Never infer alignment from equal versions. Explain briefly that **Singularity Flow** is the product under the **Singularity** brand.
 3. Make the command convention clear: Copilot uses `/sf-<action>`; terminal shortcuts use `sflow-<action>` when packaged; `singularity-flow <action>` remains the compatible full CLI form.
-4. Mention the installed version, Git-native state transfer, configurable workflows and prompt-only governed agents, human approval authorities, world-model grounding, artifacts, conformance reporting, and token/model reporting.
+4. Summarize capabilities briefly. Build dates are not installation times. The VS Code About view also shows its loaded UI build; shell extension rows describe installed bytes, not a running window.
 5. Direct detailed usage questions to `/sf-help`.
 6. Keep this operation read-only. Do not initialize a repository, modify workflow state, generate artifacts, commit, or push.

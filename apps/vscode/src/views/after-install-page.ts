@@ -14,6 +14,7 @@ export function afterInstallHtml(view: AfterInstallView): string {
     ${view.busy ? `<p class="notice" role="status" aria-live="polite">${icon('wait')}${escape(view.busy)}</p>` : ''}
     ${view.error ? `<section class="notice warning" role="alert"><strong>Action needs attention</strong><p>${escape(view.error)}</p><p>Preserved work is not discarded. Recheck after resolving the reported issue.</p></section>` : ''}
     <section class="plain"><h2>1. Check the installed build ${productReady ? '<span class="pill ok">aligned</span>' : ''}</h2>
+      <p><button class="secondary" data-after-action="about">About / Build information</button></p>
       <p class="muted">The terminal, VS Code and Copilot should run the same installed build—not just the same version number.</p>
       ${view.product ? `<div class="table-scroll"><table><thead><tr><th>Surface</th><th>Status</th><th>Running build</th></tr></thead><tbody>
         ${view.product.surfaces.map(surface => `<tr><td>${escape(surface.id)}</td><td>${escape(surface.state)}</td><td><code>${escape(surface.live ?? 'not reported')}</code>${surface.reason ? `<p class="muted">${escape(surface.reason)}</p>` : ''}</td></tr>`).join('')}

@@ -590,7 +590,7 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
   const effectiveArgv = stripGlobalModelOptions(argv);
   // Product reinstall and product alignment are intentionally not repository operations. Resolving
   // a root would invoke Git before the command even reached its strict no-repository boundary.
-  const localOnlyRequest = ['reinstall', 'product', 'pause'].includes(effectiveArgv[0])
+  const localOnlyRequest = ['about', 'reinstall', 'product', 'pause'].includes(effectiveArgv[0])
     || (effectiveArgv[0] === 'skill'
       && parseArgs(effectiveArgv).positionals[1] === 'inspect');
   let root = null;

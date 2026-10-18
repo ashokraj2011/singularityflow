@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { main } from '../src/cli.mjs';
+import { main } from '../src/cli-entry.mjs';
 import { reportCliFailure } from '../src/cli-failure.mjs';
 
 const argv = ['about', ...process.argv.slice(2)];

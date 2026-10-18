@@ -23,6 +23,7 @@ import {
   withStoryConfigurationSnapshotRead, withStoryConfigurationTransaction, takeStoryConfigurationCheckout
 } from '../src/configuration-branch.mjs';
 import { GitRemoteSession } from '../src/git-execution.mjs';
+import { publishToStateBranch } from '../src/ledger.mjs';
 import { gitRepositoryComparisonKey } from '../src/git-repository-identity.mjs';
 import { loadDefinition } from '../src/config.mjs';
 import { recordSha256 } from '../src/records.mjs';
@@ -100,14 +101,16 @@ async function repositoryFixture({ branch = 'main' } = {}) {
 }
 
 async function publishStateConfigurationMirror(fixture) {
+  // Build the state branch the way configuration refresh does: publishToStateBranch creates the
+  // canonical ledger root (README.md + ledger/head.json) when no state branch exists, then commits
+  // the configuration mirror on top. Story start can then append to that ledger, and resume reads
+  // its state index, while the mirror remains the configuration authority on the same branch.
   const approved = path.join(fixture.root, 'state-mirror-source');
   const publisher = path.join(fixture.root, 'state-mirror-publisher');
   run('git', ['clone', '-q', '-b', CONFIGURATION_BRANCH, fixture.remote, approved], { cwd: fixture.root });
-  run('git', ['init', '-q', '-b', 'state', publisher], { cwd: fixture.root });
+  run('git', ['clone', '-q', '--single-branch', '--branch', 'main', fixture.remote, publisher], { cwd: fixture.root });
   run('git', ['config', 'user.name', 'Configuration Mirror'], { cwd: publisher });
   run('git', ['config', 'user.email', 'mirror@example.com'], { cwd: publisher });
-  await cp(path.join(approved, 'singularity'), path.join(publisher, 'singularity'), { recursive: true });
-  await cp(path.join(approved, '.github'), path.join(publisher, '.github'), { recursive: true });
   const sourceCommit = run('git', ['rev-parse', 'HEAD'], { cwd: approved }).stdout.trim();
   const files = {};
   const sourceEntries = new Map(run('git', [
@@ -121,8 +124,10 @@ async function publishStateConfigurationMirror(fixture) {
     }];
   }));
   const assets = {};
-  for (const relative of await configurationAssetPaths(publisher)) {
-    files[relative] = createHash('sha256').update(await readFile(path.join(publisher, relative))).digest('hex');
+  const mirrored = {};
+  for (const relative of await configurationAssetPaths(approved)) {
+    mirrored[relative] = await readFile(path.join(approved, relative));
+    files[relative] = createHash('sha256').update(mirrored[relative]).digest('hex');
     assets[relative] = { sha256: files[relative], ...sourceEntries.get(relative) };
   }
   const manifest = {
@@ -138,16 +143,24 @@ async function publishStateConfigurationMirror(fixture) {
     files,
     assets
   };
-  await mkdir(path.join(publisher, 'configuration'), { recursive: true });
-  await writeFile(path.join(publisher, STATE_CONFIGURATION_MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`);
-  run('git', ['add', '-A'], { cwd: publisher });
-  run('git', ['commit', '-qm', 'Mirror approved configuration'], { cwd: publisher });
-  run('git', ['remote', 'add', 'origin', fixture.remote], { cwd: publisher });
-  run('git', ['push', '-q', 'origin', 'state'], { cwd: publisher });
-  return {
-    sourceCommit,
-    stateCommit: run('git', ['rev-parse', 'HEAD'], { cwd: publisher }).stdout.trim()
-  };
+  mirrored[STATE_CONFIGURATION_MANIFEST] = `${JSON.stringify(manifest, null, 2)}\n`;
+  const published = await publishToStateBranch(
+    publisher, { enabled: true, branch: STATE_CONFIGURATION_BRANCH, remote: 'origin' }, mirrored,
+    `[configuration][source:${sourceCommit.slice(0, 12)}] mirror approved configuration`
+  );
+  assert.equal(published.changed, true, 'the mirror is committed onto the state branch');
+  const stateCommit = run('git', ['rev-parse', `refs/heads/${STATE_CONFIGURATION_BRANCH}`], {
+    cwd: fixture.remote
+  }).stdout.trim();
+  assert.equal(stateCommit, published.commit, 'the published mirror is the remote state tip');
+  const rootCommit = run('git', ['rev-list', '--max-parents=0', stateCommit], {
+    cwd: fixture.remote
+  }).stdout.trim();
+  assert.deepEqual(run('git', ['ls-tree', '-r', '--name-only', rootCommit], {
+    cwd: fixture.remote
+  }).stdout.trim().split('\n').sort(), ['README.md', 'ledger/head.json'],
+  'the state branch begins at the canonical ledger root');
+  return { sourceCommit, stateCommit };
 }
 
 test('configuration authority pins a non-main application default branch', async () => {
@@ -1583,6 +1596,16 @@ test('Story start recovers from a verified state mirror when sflow/config is una
     assert.equal(run('git', ['cat-file', '-e', 'CFG-STATE:singularity/configuration-source.json'], {
       cwd: fixture.remote, allowFailure: true
     }).status, 0, 'the Story publishes hash-bound state-mirror provenance');
+    const stateAfterStart = run('git', ['rev-parse', 'refs/heads/state'], { cwd: fixture.remote }).stdout.trim();
+    assert.notEqual(stateAfterStart, mirrored.stateCommit, 'Story start appends to the Flow Ledger');
+    assert.equal(run('git', ['merge-base', '--is-ancestor', mirrored.stateCommit, stateAfterStart], {
+      cwd: fixture.remote, allowFailure: true
+    }).status, 0, 'the ledger append builds on the configuration mirror');
+    assert.equal(run('git', ['rev-parse', `${stateAfterStart}:${STATE_CONFIGURATION_MANIFEST}`], {
+      cwd: fixture.remote
+    }).stdout.trim(), run('git', ['rev-parse', `${mirrored.stateCommit}:${STATE_CONFIGURATION_MANIFEST}`], {
+      cwd: fixture.remote
+    }).stdout.trim(), 'the configuration mirror survives the ledger append');
 
     const narrowResume = path.join(fixture.root, 'narrow-state-story-resume-checkout');
     run('git', ['clone', '-q', '--single-branch', '--branch', 'main', fixture.remote, narrowResume], {
@@ -1615,9 +1638,11 @@ test('Story start recovers from a verified state mirror when sflow/config is una
     assert.equal(duringStory.status, 0, duringStory.stderr || duringStory.stdout);
     assert.equal(JSON.parse(duringStory.stdout).workId, 'CFG-STATE');
 
-    // A second machine can re-enter from the published lifecycle branch even if the shared mirror
-    // is temporarily unavailable. Resume first discovers the Story ref, then switches to and uses
-    // that ref's pinned files; it never recreates or substitutes configuration.
+    // Another machine finds Stories only through the Flow Ledger state index on the state branch.
+    // With that branch gone from the remote, resume refuses and names the unavailable index; it
+    // never falls back to scanning application branches, so the published CFG-STATE lifecycle
+    // branch is not adopted. (A state branch that exists without ledger/head.json is
+    // SESSION_STATE_INDEX_INVALID instead; an absent one is SESSION_STATE_INDEX_UNAVAILABLE.)
     const resumedCheckout = path.join(fixture.root, 'state-story-resume-checkout');
     run('git', ['clone', '-q', fixture.remote, resumedCheckout], { cwd: fixture.root });
     run('git', ['config', 'user.name', 'Resume Tester'], { cwd: resumedCheckout });
@@ -1625,8 +1650,13 @@ test('Story start recovers from a verified state mirror when sflow/config is una
     const resumed = spawnSync(process.execPath, [
       cli, 'resume', 'CFG-STATE', '--fetch', '--agent', 'developer', '--json'
     ], { cwd: resumedCheckout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
-    assert.equal(resumed.status, 0, resumed.stderr || resumed.stdout);
-    assert.equal(run('git', ['branch', '--show-current'], { cwd: resumedCheckout }).stdout.trim(), 'CFG-STATE');
+    assert.notEqual(resumed.status, 0, resumed.stderr || resumed.stdout);
+    const refusal = JSON.parse(resumed.stdout.trim() || resumed.stderr.trim()).error;
+    assert.equal(refusal.code, 'SESSION_STATE_INDEX_UNAVAILABLE', refusal.message);
+    assert.match(refusal.message, /Flow Ledger state index on 'state'/);
+    assert.match(refusal.message, /no application branches were scanned/);
+    assert.notEqual(run('git', ['branch', '--show-current'], { cwd: resumedCheckout }).stdout.trim(), 'CFG-STATE',
+      'a refused resume does not switch the checkout to the Story branch');
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

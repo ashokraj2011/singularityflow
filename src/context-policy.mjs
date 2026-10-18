@@ -87,7 +87,7 @@ export function contextBoundaryPresentation(handoff) {
   if (!handoff || handoff.mode === 'keep') return null;
   return { ...handoff, condition: 'conversation-worked-on-earlier-phase',
     instruction: handoff.instruction ?? (handoff.complete
-      ? `The Story is complete. End this approval turn; ${handoff.commands.join(', then ')} is a chat cleanup action, not another phase.`
+      ? `The Story is closed. End this approval turn; ${handoff.commands.join(', then ')} is a chat cleanup action, not another phase.`
       : `End this approval turn. Run ${handoff.commands.join(', then ')} before next-phase authoring.`),
     commandGuidance: { copilotCommand: handoff.commands.join(', then '), command: null,
       modelFreeCommand: null, copyable: false,

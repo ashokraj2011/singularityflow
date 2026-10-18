@@ -148,6 +148,12 @@ test('unpushed, active, dirty, ignored, recovery and open-window Story worktrees
     await writeFile(path.join(privateGit, 'index.lock'), 'busy'); await check('writer'); await rm(path.join(privateGit, 'index.lock'));
   });
   await writeFile(path.join(target, 'local.txt'), 'not pushed'); git(target, ['add', '.']); git(target, ['commit', '-qm', 'private']); await check('unpushed');
+  // Reset away, that commit survives only in this worktree's own HEAD reflog, which still protects it.
+  git(target, ['reset', '-q', '--hard', 'HEAD~1']);
+  await rm(path.join(privateGit, 'COMMIT_EDITMSG'), { force: true });
+  const reflogged = await runWorkspaceRetention(f.workspacePath, { force: true });
+  assert.ok(reflogged.preserved.some(item => item.message === 'Private reflog retains unpublished history.'), JSON.stringify(reflogged));
+  assert.ok(await lstat(target));
   const active = await f.story('ACTIVE', { cancel: false });
   await check('nonterminal'); assert.ok(await lstat(active));
 });

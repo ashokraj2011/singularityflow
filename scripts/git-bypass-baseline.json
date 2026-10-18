@@ -13,8 +13,8 @@
   ],
   "sites": {
     "src/workspace-retention.mjs": {
-      "counts": { "command-git": 7, "command-run": 4 },
-      "digest": "cf7d559acc5c73599968c5d4fd39bb077dcaa3d840aab06781191fb1af9b242e"
+      "counts": { "command-git": 7, "command-run": 5 },
+      "digest": "effe11585e329d5029a14663b37bcf7343505ef6b8cff9e3db67e2ace86678f6"
     },
     "src/workspace-retention-background.mjs": {
       "counts": { "process-import": 1, "process-launch": 1 },

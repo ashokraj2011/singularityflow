@@ -212,7 +212,12 @@ export async function terminalStoryWorktreeProof(workspace, clone, entry, { sett
   await assertWorkspaceDropLocalGitConfiguration({ id: clone.repositoryId }, root, { env, worktreeGitDirectory: privateGit });
   const head = git(['rev-parse', 'HEAD']), branch = git(['symbolic-ref', '--short', 'HEAD']);
   if (head !== entry.head || branch !== entry.branch) fail('Story checkout changed.');
-  if (git(['rev-list', '--max-count=1', '--reflog', 'HEAD', '--not', head])) fail('Private reflog retains unpublished history.');
+  // This worktree's own HEAD reflog. `--reflog` also walked every shared branch reflog, such as the
+  // Flow Ledger's local `state` branch, whose commits never join a Story branch, so no Story
+  // worktree could be cleaned up once the ledger was on.
+  const visited = [...new Set(git(['reflog', 'show', '--format=%H', 'HEAD']).split('\n').filter(Boolean))];
+  if (visited.length && run('git', ['rev-list', '--max-count=1', '--stdin'], { cwd: entry.path, env, timeoutMs: 30000,
+    input: `${visited.join('\n')}\n^${head}\n` }).stdout.trim()) fail('Private reflog retains unpublished history.');
   const original = run('git', ['rev-parse', '--verify', 'ORIG_HEAD'], { cwd: root, env, allowFailure: true });
   if (original.status === 0 && run('git', ['merge-base', '--is-ancestor', original.stdout.trim(), head],
     { cwd: root, env, allowFailure: true }).status !== 0) fail('ORIG_HEAD retains unmerged history.');

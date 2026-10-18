@@ -91,6 +91,14 @@ async function forEachConcurrent(count, worker, width = Math.min(8, os.available
   await Promise.all(Array.from({ length: Math.min(count, Math.max(1, width)) }, run));
 }
 
+/** Every fixture's bare `origin` lives beside it, so removing one removes both. */
+const fixtureOrigin = (root) => `${root}-origin.git`;
+
+async function removeFixture(root) {
+  await rm(root, { recursive: true, force: true });
+  await rm(fixtureOrigin(root), { recursive: true, force: true });
+}
+
 /**
  * The reference repository, at whatever size the caller's topology declares.
  *
@@ -201,6 +209,31 @@ async function createFixture(topology = fixtureManifest.topology) {
   git(root, ['commit', '-q', '-m', 'Reference fixture']);
   git(root, ['branch', 'DX-001']);
   for (let index = 1; index < topology.localBranches - 1; index += 1) git(root, ['branch', `fixture-${index}`]);
+
+  /**
+   * A local bare `origin` holding an initialised Flow Ledger, because `inbox` reads nothing else.
+   *
+   * `inbox` lists Stories only from the exact commits the ledger's state index names, and a
+   * repository with no remote or no `state` branch is an explicit refusal, not an empty inbox. A
+   * fixture with neither benchmarked that refusal, which exits non-zero and stopped every tier.
+   * Both snapshot shapes read the same index for Story discovery, and on that fixture they
+   * quietly measured `storyDiscovery.complete: false` instead of the read.
+   *
+   * Built by `initializeLedger`, the function behind `ledger init` and bootstrap, called in-process
+   * so no CLI activity log lands under `.git/singularity-flow` before `verifyTopology` checks it is
+   * absent. Shaped like a clone of an initialised repository: only `state` is published, and the
+   * local `state` branch `initializeLedger` leaves behind is deleted, so `localBranches` still
+   * counts application branches only. The minimal definition has no `ledger` key, so the ledger
+   * stays disabled (the packaged template enables it): `inbox` reads the state index either way,
+   * and enabling it would move every snapshot onto the ledger read that the connected tier measures. All of this happens before any
+   * measured command runs.
+   */
+  const origin = fixtureOrigin(root);
+  git(root, ['init', '-q', '--bare', '-b', 'main', origin]);
+  git(root, ['remote', 'add', 'origin', `file://${origin}`]);
+  const { initializeLedger } = await import('../src/ledger.mjs');
+  await initializeLedger(root, {});
+  git(root, ['branch', '-q', '-D', 'state']);
   git(root, ['switch', '-q', 'DX-001']);
   await forEachConcurrent(topology.untrackedFiles, (index) =>
     writeFile(path.join(root, `untracked-${index}.txt`), 'untracked\n', 'utf8'));
@@ -264,7 +297,7 @@ async function createIgnoredBuildFixture(declared) {
     return { root, topology: { ignoredFiles: declared.ignoredFiles, directories: declared.directories,
       ignoredStatusEntries: ignored.length } };
   } catch (error) {
-    await rm(root, { recursive: true, force: true });
+    await removeFixture(root);
     throw error;
   }
 }
@@ -291,7 +324,7 @@ async function createSubmoduleFixture(declared) {
     }
     return { root, module, topology: { submodules: rows.length, clean: true } };
   } catch (error) {
-    if (root) await rm(root, { recursive: true, force: true });
+    if (root) await removeFixture(root);
     await rm(module, { recursive: true, force: true });
     throw error;
   }
@@ -344,7 +377,7 @@ async function createLinkedWorktreeFixture(declared) {
   } catch (error) {
     if (added) spawnSync('git', ['worktree', 'remove', '--force', linked], { cwd: root, encoding: 'utf8' });
     await rm(container, { recursive: true, force: true });
-    await rm(root, { recursive: true, force: true });
+    await removeFixture(root);
     throw error;
   }
 }
@@ -390,9 +423,8 @@ function verifyWorkingTreeTopology(root, declared) {
 async function createConnectedFixture() {
   const root = await createFixture();
   const declared = fixtureManifest.connected.topology;
-  const remote = await mkdtemp(path.join(os.tmpdir(), 'sflow-dx-remote-'));
-  git(remote, ['init', '-q', '--bare', '-b', 'main']);
-  git(root, ['remote', 'add', 'origin', `file://${remote}`]);
+  // The reference fixture already has this remote, holding nothing but its empty `state` index.
+  const remote = fixtureOrigin(root);
 
   /**
    * The ledger has to be *enabled*, not merely present.
@@ -463,7 +495,8 @@ async function createConnectedFixture() {
    * Enabling it in configuration is not enough: with no `state` branch `ledgerStatus` returns at
    * `if (!ref)` and never reaches `verifyLedger` or `ledgerLog` — the two queries that read the
    * ledger tree. The tier exercised the intent scan and nothing else, and reported zero repository
-   * writes for a read path that had not performed the read.
+   * writes for a read path that had not performed the read. The reference fixture now publishes
+   * that root itself, so this joins it under the enabled configuration rather than creating it.
    */
   const initialised = spawnSync(process.execPath,
     [path.join(projectRoot, 'bin/singularity-flow.mjs'), 'ledger', 'init', '--json'],
@@ -703,7 +736,12 @@ const commands = {
    * around the benchmark.
    */
   help: ['help'],
-  inbox: ['inbox'],
+  /**
+   * The retained state index, read offline. Without `--offline` the inbox requires a fresh remote
+   * observation of `state` and refuses cached state, which is right for a reviewer and impossible
+   * under this tier's disabled network.
+   */
+  inbox: ['inbox', '--offline'],
   guide: ['guide'],
   logs: ['logs']
 };
@@ -786,8 +824,7 @@ try {
         networkCalls: network.calls, repositoryWrites: mutating.calls
       };
     } finally {
-      await rm(connected.root, { recursive: true, force: true });
-      await rm(connected.remote, { recursive: true, force: true });
+      await removeFixture(connected.root);
     }
   }
 
@@ -825,14 +862,14 @@ try {
     try {
       measure('ignoredBuildTree', ignored.root, ignored.topology);
     } finally {
-      await rm(ignored.root, { recursive: true, force: true });
+      await removeFixture(ignored.root);
     }
 
     const submodule = await createSubmoduleFixture(tail.cleanSubmodule);
     try {
       measure('cleanSubmodule', submodule.root, submodule.topology);
     } finally {
-      await rm(submodule.root, { recursive: true, force: true });
+      await removeFixture(submodule.root);
       await rm(submodule.module, { recursive: true, force: true });
     }
 
@@ -842,7 +879,7 @@ try {
     } finally {
       git(linked.root, ['worktree', 'remove', '--force', linked.linked]);
       await rm(linked.container, { recursive: true, force: true });
-      await rm(linked.root, { recursive: true, force: true });
+      await removeFixture(linked.root);
     }
     tailFixtureResults = { command: tail.command, coverage: { ...tail.coverage }, results };
   }
@@ -943,7 +980,7 @@ try {
       }
       scaleResults = { topology: scaleTopology, commands: scaled };
     } finally {
-      await rm(scaleRoot, { recursive: true, force: true });
+      await removeFixture(scaleRoot);
     }
   }
 
@@ -1022,5 +1059,5 @@ try {
   }
   if (enforce && failures.length) process.exitCode = 1;
 } finally {
-  await rm(fixture, { recursive: true, force: true });
+  await removeFixture(fixture);
 }

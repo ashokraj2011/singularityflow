@@ -235,11 +235,11 @@
     },
     "scripts/dx-benchmark.mjs": {
       "counts": {
-        "command-git": 43,
+        "command-git": 44,
         "process-import": 1,
         "process-launch": 7
       },
-      "digest": "a1786490015b3a462e6ef13eb956ee1356ce3ef4afc61c12dedf5def60ebfa70"
+      "digest": "12766a84d01dec669d3f04855b0525477092cefbce2112e1ecdfd874e1d14ab9"
     },
     "scripts/fos-benchmark.mjs": {
       "counts": {

@@ -197,7 +197,8 @@
   },
   "connected": {
     "why": [
-      "The tier above has no remote, no ledger and one Story, so the entire cost centre that made",
+      "The tier above has one Story and no enabled ledger -- its local origin holds only the empty",
+      "state index inbox requires, and is never contacted -- so the entire cost centre that made",
       "snapshot --json take 12.6s on a real repository was invisible to it: 975 subprocesses, of",
       "which 6 were fetches worth 4.5s. It also runs with SINGULARITY_FLOW_NO_NETWORK=1, which",
       "blocks a fetch rather than performing one -- so even a fixture with a remote would have",

@@ -168,9 +168,11 @@ to lower is the module load, and lowering it is what should lower these.
 
 The fixture topology and runtime are declared in
 `benchmarks/dx/reference-fixture.json`: Node 22, Linux x64 on `ubuntu-latest`, 500 tracked files,
-four untracked files, four local branches, one Story, and no prebuilt local subject index. The
-protocol discards one warm-up and measures at least 30 fresh processes. Network and model calls
-are disabled.
+four untracked files, four local branches, one Story, and no prebuilt local subject index. A local
+bare `origin` holds only an empty Flow Ledger `state` index, created by `initializeLedger` before
+measurement, because `inbox` and snapshot Story discovery read nothing else; `inbox` is measured
+with `--offline`. The protocol discards one warm-up and measures at least 30 fresh processes.
+Network and model calls are disabled.
 
 ## The growth tier
 

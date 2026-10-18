@@ -20,7 +20,7 @@ import {
 } from './map-capability-form.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
 import { formatCliArgsForDisplay } from '../cli/runner.ts';
-import { commandGuidance } from '../copilot-command.ts';
+import { commandGuidance, modelFreeRouteText } from '../copilot-command.ts';
 import { sameGitRepository } from '../repository-refresh-model.ts';
 import {
   clearMapCapabilityOperation, LEGACY_MAP_CAPABILITY_OPERATION_KEY,
@@ -1709,7 +1709,7 @@ export class BootstrapPanel {
       const message = failure?.message ?? failure?.code ?? 'Capability-map authority could not be inspected.';
       const guidance = commandGuidance(failure?.diagnosticAction);
       const action = guidance
-        ? ` Copilot: ${guidance.copilotCommand} Shell: ${guidance.command} VS Code (model-free): ${guidance.modelFreeCommand ?? 'not available for this action'}` : '';
+        ? ` Copilot: ${guidance.copilotCommand} Shell: ${guidance.command} VS Code (model-free): ${modelFreeRouteText(guidance.modelFreeCommand)}` : '';
       return `${failure?.lead ? `${failure.lead}: ` : ''}${message}${action}`;
     });
     const recoveryGuidance = (inspected.failures ?? [])

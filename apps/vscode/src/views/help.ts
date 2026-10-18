@@ -10,6 +10,7 @@ import {
 import { resolveHelp } from '../../../../src/help-service.mjs';
 import { helpMetricsStatus, recordHelpMetric } from '../../../../src/help-metrics.mjs';
 import { activeRepositoryContext } from '../gateway-runtime-client.ts';
+import { onChatModelsChanged } from '../copilot-command.ts';
 
 export class HelpPanel {
   private static current: HelpPanel | null = null;
@@ -29,7 +30,8 @@ export class HelpPanel {
       if (navigation) return void navigateTo(navigation);
       this.router.route(raw);
     });
-    panel.onDidDispose(() => { HelpPanel.current = null; });
+    const chatModels = onChatModelsChanged(() => this.render());
+    panel.onDidDispose(() => { chatModels.dispose(); HelpPanel.current = null; });
     this.render();
     void this.refreshMetrics();
   }

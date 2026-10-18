@@ -8,10 +8,12 @@ aliases:
 questions:
   - How can I ask Singularity Flow a natural-language question?
   - What can sf-help answer?
+  - Why does @sflow say Language model unavailable?
 keywords:
   - natural language
   - cited answer
   - help intent
+  - language model unavailable
 commands:
   - nextsteps
   - doctor
@@ -21,7 +23,7 @@ commands:
 related:
   - getting-started
   - nextsteps
-version: 7
+version: 8
 ---
 Every command supports `--help` (without executing). `sflow nextsteps` answers "what should I do here" from state; `sflow doctor` answers "why is my machine unhappy" with named fixes. Product questions in Copilot are answered from these packaged topics — grounded in the served text with the topic cited, never from model memory; questions with no matching topic say so and list the nearest topics. Judgment questions ("should I escalate?") are for `nextsteps` and the humans your pinned configuration names.
 
@@ -43,6 +45,13 @@ choose one legal model-free lifecycle action. They never auto-loop or turn prose
 SFlow disables model invocation in their CLI environment. Copilot guidance and VS Code panels
 show **VS Code (model-free): @sflow /…** only for supported commands. Install the new extension
 and reload VS Code. See [the complete participant boundary](../CPT-CHAT-PARTICIPANT.md).
+
+VS Code delivers an `@sflow` request only after it finds a chat model: Copilot signed in, or a
+model picked in the chat model picker. `@sflow` never sends that model anything, but with none
+available VS Code itself answers **Language model unavailable** and `@sflow` never runs. When no
+chat model is registered, SFlow panels mark each **VS Code (model-free)** route as unavailable,
+drop **Copy @sflow**, and Help Center says so. Use Help Center for the same reviewed answers, or
+the Shell route for the action.
 
 ## Purpose and prerequisites
 
@@ -72,6 +81,7 @@ The commands mapped to this topic are read-only. They may inspect local files an
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.
 - If a Copilot or VS Code action is unavailable, use the displayed CLI fallback; do not guess a command from the label.
+- If chat answers `@sflow` with **Language model unavailable**, VS Code has no chat model (Copilot is signed out or turned off). Sign in to Copilot or pick a model, or use Help Center and the Shell routes, which need none.
 
 ## Related topics
 

@@ -5,7 +5,7 @@
  * terminal user can review; declaration construction and every safety check remain in the engine.
  */
 import path from 'node:path';
-import { commandGuidance } from './copilot-command.ts';
+import { commandGuidance, modelFreeRouteText } from './copilot-command.ts';
 
 export type SgosWorkflowCreateSelection = {
   readonly intentPath: string;
@@ -237,7 +237,7 @@ export function sgosWorkflowCreateReview(selection: SgosWorkflowCreateSelection)
     'Exact command:',
     guidance ? `Copilot: ${guidance.copilotCommand}` : 'Copilot: not displayed because the payload has no safe command route',
     guidance ? `Shell: ${guidance.command}` : 'Shell: not displayed because the payload has no safe command route',
-    `VS Code (model-free): ${guidance?.modelFreeCommand ?? 'not available for this action'}`,
+    `VS Code (model-free): ${modelFreeRouteText(guidance?.modelFreeCommand)}`,
     '',
     'This creates two reviewable files. It does not ratify, compile, approve, or run the Workflow.'
   ].join('\n');

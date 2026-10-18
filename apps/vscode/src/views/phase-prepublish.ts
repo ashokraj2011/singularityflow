@@ -1,3 +1,5 @@
+import { modelFreeRouteText } from '../copilot-command.ts';
+
 /** Keep the editor's Publish button on the same read-only phase gate as the CLI. */
 export interface PhasePrepublishDecision {
   ready: boolean;
@@ -125,7 +127,7 @@ export function phasePrepublishDecision(
   const next = line(commands?.next, 500);
   if (next?.startsWith('singularity-flow ')) details.push(`Next in Shell: ${next}`);
   const modelFree = line(nextGuidance?.modelFreeCommand, 500);
-  if (modelFree?.startsWith('@sflow /')) details.push(`VS Code (model-free): ${modelFree}`);
+  if (modelFree?.startsWith('@sflow /')) details.push(`VS Code (model-free): ${modelFreeRouteText(modelFree)}`);
   details.push(`Shell: singularity-flow phase prepublish ${expected.phaseId} --json`);
   return {
     ready: false,

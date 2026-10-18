@@ -10,6 +10,7 @@
  * is still intact, what is safe next — and the last two are the ones a red error box drops.
  */
 import { escape, icon } from './webview.ts';
+import { modelFreeRouteHtml } from '../copilot-command.ts';
 import { message } from './result-messages.ts';
 import type { CardAction, ChecklistRow, HomeAttentionView, ResultCardView } from './result-card-model.ts';
 
@@ -242,7 +243,7 @@ function actionRoutes(action: CardAction): string {
     ${action.copilotCommand || action.skill
       ? `<span>Copilot: <code>${escape(action.copilotCommand ?? action.skill ?? '')}</code></span>` : ''}
     ${action.command ? `<span>Shell: <code>${escape(action.command)}</code></span>
-    <span>VS Code (model-free): ${action.modelFreeCommand ? `<code>${escape(action.modelFreeCommand)}</code>` : 'not available for this action'}</span>` : ''}
+    <span>VS Code (model-free): ${modelFreeRouteHtml(action.modelFreeCommand, escape)}</span>` : ''}
   </details>`;
 }
 
@@ -408,8 +409,7 @@ function guidanceHtml(view: ResultCardView): string {
       <p class="sf-guidance-command"><b>Shell</b><code>${escape(guidance.recommendation.command)}</code>
         ${guidance.recommendation.copyable
     ? `<button type="button" data-copy-route="${escape(guidance.recommendation.command)}">Copy shell</button>` : ''}</p>
-      <p class="sf-guidance-command"><b>VS Code (model-free)</b>${guidance.recommendation.modelFreeCommand
-    ? `<code>${escape(guidance.recommendation.modelFreeCommand)}</code>` : 'not available for this action'}</p>
+      <p class="sf-guidance-command"><b>VS Code (model-free)</b>${modelFreeRouteHtml(guidance.recommendation.modelFreeCommand, escape)}</p>
       ${guidance.recommendation.copyable ? '' : '<p class="muted">Replace the shown placeholders before running this command.</p>'}
     </details>` : '';
   const preflight = guidance.preflight.length ? `<details><summary>Before you continue</summary>
@@ -450,7 +450,7 @@ function autoHtml(view: ResultCardView): string {
           <button type="button" data-auto-action-id="${escape(action.id)}">${escape(action.label)}</button>
           <span>Copilot: <code>${escape(action.copilotCommand)}</code></span>
           <span>Shell: <code>${escape(action.command)}</code></span>
-          <span>VS Code (model-free): ${action.modelFreeCommand ? `<code>${escape(action.modelFreeCommand)}</code>` : 'not available for this action'}</span>
+          <span>VS Code (model-free): ${modelFreeRouteHtml(action.modelFreeCommand, escape)}</span>
         </span>`).join('')}</div>` : ''}
     </article>`).join('')}</section>`;
 }

@@ -1,7 +1,7 @@
 /** Searchable, offline rendering of the canonical Singularity Flow manual. */
 import {
   brandLockup, escape, icon } from './webview.ts';
-import { commandGuidance } from '../copilot-command.ts';
+import { chatModelsMissing, commandGuidance, modelFreeRouteHtml } from '../copilot-command.ts';
 
 export interface HelpTopic {
   id: string;
@@ -175,7 +175,7 @@ function answerHtml(answer: HelpAnswerView | null): string {
       <button class="secondary" data-prefill-help="${escape(handoff.skill)}" data-prefill-topic="${escape(answer.topic.id)}">Prepare ${escape(handoff.skill)}</button>` : ''}</p>
     <p><strong>Shell:</strong> <code>${escape(handoff.command)}</code>
       ${handoff.copyable ? `<button class="secondary" data-copy="${escape(handoff.command)}" data-help-copy-topic="${escape(answer.topic.id)}">Copy Shell</button>` : ''}</p>
-    <p><strong>VS Code (model-free):</strong> ${handoff.modelFreeCommand ? `<code>${escape(handoff.modelFreeCommand)}</code>` : 'not available for this action'}</p>
+    <p><strong>VS Code (model-free):</strong> ${modelFreeRouteHtml(handoff.modelFreeCommand, escape)}</p>
     ${handoff.copyable ? '' : '<p class="muted">Replace the shown placeholders before running this command.</p>'}
   </div>` : '';
   const actions = `<div class="form-actions">
@@ -224,6 +224,7 @@ export function helpCenterHtml(
     </form>
     <div class="help-question-examples">${QUESTION_EXAMPLES.map((question) => `<button class="link" data-question="${escape(question)}" data-question-origin="example">${escape(question)}</button>`).join('')}</div>
   </header>
+  ${chatModelsMissing() ? `<p class="notice" data-no-chat-model>@sflow cannot run right now: VS Code chat has no language model (Copilot is signed out or turned off). @sflow never uses one, but VS Code needs one before it delivers any chat request. Ask here instead: the answers come from the same reviewed topics.</p>` : ''}
   ${answerHtml(answer)}
   <div class="help-layout">
     <aside class="help-nav" aria-label="Help topics">

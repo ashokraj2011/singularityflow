@@ -19,7 +19,7 @@ import { contextStrip, heroHeader, infoNote, stepHeading, tag } from './theme.ts
 import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts';
 import { intakeWizardActions, intakeWizardLayout, intakeWizardNavigation, INTAKE_WIZARD_SCRIPT } from './intake-wizard.ts';
 import { gitRemoteProblem } from './map-capability-form.ts';
-import { commandGuidance } from '../copilot-command.ts';
+import { commandGuidance, modelFreeRouteHtml } from '../copilot-command.ts';
 import { CATALOG_SEARCH_SCRIPT, SAMPLE_STORY_WORKFLOWS } from './catalog-search.ts';
 import {
   EMPTY_TEST_RECOVERY_DRAFT, testRecoveryArguments, testRecoveryPreviewArguments, testRecoveryEnabled,
@@ -1501,7 +1501,7 @@ export function intakeRegions(form: IntakeForm, journey: StartWizardProgress | n
       ${recoveryRoute.copyable ? `<button type="button" class="secondary" data-copy-command="${escape(recoveryRoute.copilotCommand)}">Copy Copilot</button>` : ''}
       <p><strong>Shell:</strong></p><pre class="terminal-command"><code>${escape(form.recoveryCommand)}</code></pre>
       ${recoveryRoute.copyable ? `<button type="button" class="secondary" data-copy-command="${escape(form.recoveryCommand)}">Copy Shell</button>` : ''}
-      <p><strong>VS Code (model-free):</strong> ${recoveryRoute.modelFreeCommand ? `<code>${escape(recoveryRoute.modelFreeCommand)}</code>` : 'not available for this action'}</p>
+      <p><strong>VS Code (model-free):</strong> ${modelFreeRouteHtml(recoveryRoute.modelFreeCommand, escape)}</p>
       ${recoveryRoute.copyable ? '' : '<p>Replace the shown placeholders before running this command.</p>'}
       ${form.shape === 'story' ? '<button type="button" class="secondary" data-submit="recover-start">Check and open created Story</button>' : ''}</div>` : ''}
   </section>`;

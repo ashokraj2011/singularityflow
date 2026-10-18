@@ -12,7 +12,7 @@
  * branch either — it is `state`, and it is created when a workspace is initialised.
  */
 import { createHash } from 'node:crypto';
-import { commandGuidance } from '../copilot-command.ts';
+import { commandGuidance, modelFreeRouteHtml } from '../copilot-command.ts';
 import { CAPABILITY_KINDS } from './capability-model.ts';
 import {
   repositoryOnboardingCanDeferStateRefresh,
@@ -773,7 +773,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
                     ${inspectionRecovery
                       ? `<div class="command-pair"><p>Copilot: <code>${escape(inspectionRecovery.copilotCommand)}</code></p>
                           <p>Shell: <code>${escape(inspectionRecovery.command)}</code></p>
-                          <p>VS Code (model-free): ${inspectionRecovery.modelFreeCommand ? `<code>${escape(inspectionRecovery.modelFreeCommand)}</code>` : 'not available for this action'}</p>
+                          <p>VS Code (model-free): ${modelFreeRouteHtml(inspectionRecovery.modelFreeCommand, escape)}</p>
                           ${inspectionRecovery.copyable ? `<p><button type="button" class="secondary" data-map-copy-command="${escape(inspectionRecovery.command)}">Copy shell command</button>
                             <button type="button" class="secondary" data-map-copy-copilot="${escape(inspectionRecovery.copilotCommand)}">Copy Copilot command</button></p>`
     : '<p class="muted">Replace the shown placeholders before running this command.</p>'}</div>`

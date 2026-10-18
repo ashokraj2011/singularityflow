@@ -6,7 +6,7 @@ import {
 import { navigateTo } from './navigate.ts';
 import { integerField, registerMessageRouter } from './messages.ts';
 import { gitRemoteProblem, screenGitRemotes } from './map-capability-form.ts';
-import { commandGuidance } from '../copilot-command.ts';
+import { commandGuidance, modelFreeRouteHtml } from '../copilot-command.ts';
 import { SetupProposalPanel } from './setup-proposal.ts';
 import {
   forgetSetupReviewRepository, rememberCapabilityProposalCheck, rememberSetupReviewRepository, setupReviewRepositories
@@ -81,7 +81,7 @@ function commandPair(label: string, value: unknown): string {
   return `<small><strong>${escape(label)}</strong></small>
     <small>Copilot: <code>${escape(guidance.copilotCommand)}</code></small>
     <small>Shell: <code>${escape(guidance.command)}</code></small>
-    <small>VS Code (model-free): ${guidance.modelFreeCommand ? `<code>${escape(guidance.modelFreeCommand)}</code>` : 'not available for this action'}</small>`;
+    <small>VS Code (model-free): ${modelFreeRouteHtml(guidance.modelFreeCommand, escape)}</small>`;
 }
 
 function remediation(value: unknown): string {

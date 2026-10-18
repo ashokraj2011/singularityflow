@@ -1,5 +1,5 @@
 /** Shared, fail-closed presentation for an engine-supplied SFlow continuation. */
-import { commandGuidance, type CommandGuidance } from '../copilot-command.ts';
+import { chatModelsMissing, commandGuidance, modelFreeRouteHtml, modelFreeRouteText, type CommandGuidance } from '../copilot-command.ts';
 import { escape } from './webview.ts';
 
 export function safeCommandPair(value: unknown): CommandGuidance | null {
@@ -24,8 +24,8 @@ export function commandGuidanceHtml(value: unknown, options: {
       ${copilotButton}</p>
     <p><strong>${escape(options.shellLabel ?? 'Shell')}:</strong> <code>${escape(guidance.command)}</code>
       ${shellButton}</p>
-    ${guidance.modelFreeCommand ? `<p><strong>VS Code (model-free):</strong> <code>${escape(guidance.modelFreeCommand)}</code>
-      <button type="button" class="secondary" data-copy-command="${escape(guidance.modelFreeCommand)}">Copy @sflow</button></p>` : '<p class="muted">VS Code (model-free): not available for this action.</p>'}
+    ${guidance.modelFreeCommand ? `<p><strong>VS Code (model-free):</strong> ${modelFreeRouteHtml(guidance.modelFreeCommand, escape)}
+      ${chatModelsMissing() ? '' : `<button type="button" class="secondary" data-copy-command="${escape(guidance.modelFreeCommand)}">Copy @sflow</button>`}</p>` : '<p class="muted">VS Code (model-free): not available for this action.</p>'}
     ${guidance.copyable ? '' : '<p class="muted">Replace the shown placeholders before running this command.</p>'}
   </div>`;
 }
@@ -34,7 +34,7 @@ export function commandGuidanceHtml(value: unknown, options: {
 export function commandGuidanceText(value: unknown): string | null {
   const guidance = safeCommandPair(value);
   return guidance
-    ? `Copilot: ${guidance.copilotCommand}\nShell: ${guidance.command}\nVS Code (model-free): ${guidance.modelFreeCommand ?? 'not available for this action'}`
+    ? `Copilot: ${guidance.copilotCommand}\nShell: ${guidance.command}\nVS Code (model-free): ${modelFreeRouteText(guidance.modelFreeCommand)}`
     : null;
 }
 

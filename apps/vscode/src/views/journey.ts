@@ -13,6 +13,7 @@ import * as vscode from 'vscode';
 import { buildJourney, type Journey } from './journey-model.ts';
 import { journeyLineageHtml } from './journey-lineage.ts';
 import { contentSecurityPolicy, escape, navigationTarget, nonce, page, icon } from './webview.ts';
+import { modelFreeRouteHtml } from '../copilot-command.ts';
 import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField } from './messages.ts';
 import { decisionTargetText } from '../decisions.ts';
@@ -217,8 +218,7 @@ export function journeyBodyHtml(journey: Journey, deliveries: JourneyDeliveries 
         <p><b>Shell:</b> <code>${escape(journey.nextAction.command)}</code>
           ${journey.nextAction.copyable
     ? `<button type="button" class="secondary" data-copy-route="${escape(journey.nextAction.command)}">Copy shell</button>` : ''}</p>
-        <p><b>VS Code (model-free):</b> ${journey.nextAction.modelFreeCommand
-    ? `<code>${escape(journey.nextAction.modelFreeCommand)}</code>` : 'not available for this action'}</p>
+        <p><b>VS Code (model-free):</b> ${modelFreeRouteHtml(journey.nextAction.modelFreeCommand, escape)}</p>
       </div>
     </section>` : ''}
 

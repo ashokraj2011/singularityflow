@@ -19,9 +19,10 @@ route and does not ask a model to decide which Singularity Flow command to run.
 - Slash commands dispatch by their declared ID. Free text after `@sflow` is matched locally only
   to a declared exact keyword, or to that keyword followed by arguments when the command permits
   them. An unknown or ambiguous request shows help instead of invoking a model.
-- Participant code does not call the VS Code language-model API. Metrics emitted for the declared
-  CLI-command path therefore record `modelInvocations: 0` when the optional local metrics log is
-  enabled.
+- Participant code never sends a request through the VS Code language-model API. Metrics emitted
+  for the declared CLI-command path therefore record `modelInvocations: 0` when the optional local
+  metrics log is enabled. The extension only lists chat models (`vscode.lm.selectChatModels`,
+  metadata only) to tell whether VS Code can deliver `@sflow` requests at all; see below.
 - CLI arguments are passed as an argument vector, not assembled as a shell command. The participant
   does not execute a displayed follow-up merely because it rendered a button or command.
 - Commands returned by CLI result or remediation envelopes cross the shared command-guidance
@@ -38,6 +39,28 @@ approval command uses the existing guarded approval experience. Submit, publish 
 execute one engine-owned action only after human review. Model invocation is disabled in the CLI
 environment (`SINGULARITY_FLOW_NO_MODEL=1`), including nested actions. No command selects a chat
 model or guesses a route from prose.
+
+## VS Code needs a chat model before it reaches `@sflow`
+
+Zero-model means `@sflow` uses no model. It does not mean VS Code delivers chat without one. In
+VS Code 1.142 the extension host's `$invokeAgent` awaits `getLanguageModelForRequest` before it
+calls any participant handler. Without a model picked in the chat model picker, that takes only a
+default model whose vendor is `copilot`; with none it throws **Language model unavailable**,
+which chat shows as the reply. So when Copilot is signed out or turned off, no `@sflow` command
+runs, `/help` included. A host test that calls the handler directly cannot see this.
+
+The extension cannot change it. A contributed model provider becomes a default only through the
+proposed `chatProvider` API, and even then only for the `copilot` vendor; one the person must pick
+by hand would also appear as a model for every other chat. `registerLanguageModelChatProvider` is
+not in the supported 1.90 API either. Hiding `@sflow` with a `when` clause would send the typed
+text to Copilot's sign-in flow instead.
+
+Instead the extension lists chat models at activation and on `vscode.lm.onDidChangeChatModels`.
+While none is registered, every panel, dialog and output line marks its **VS Code (model-free)**
+route as unavailable and points to Shell, **Copy @sflow** buttons disappear, and Help Center shows
+a notice (it gives the same reviewed answers without chat). With a model available, or when VS Code
+has no language-model API, routes render as before. Listing models sends no request and asks for
+no consent.
 
 ## Implemented commands
 
@@ -110,7 +133,7 @@ four local lifecycle adapters are separate closed handlers, not a generic mutati
 ## Discovering the model-free alternative in Copilot
 
 Guidance includes `modelFreeCommand` and a **VS Code (model-free)** line for supported operations,
-alongside Shell and `/sf-*` routes. Panels offer **Copy @sflow**; `@sflow /help` and Copilot's
+alongside Shell and `/sf-*` routes. Panels offer **Copy @sflow** while VS Code has a chat model; `@sflow /help` and Copilot's
 participant command menu list the adapters. Unsupported flags, imports, authoring/model work and
 arbitrary targets are not advertised as equivalent commands. Select another Story before using its
 phase or Work ID. Lifecycle commands reject bypass flags, raw shell text and private receipts in

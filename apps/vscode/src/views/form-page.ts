@@ -17,7 +17,7 @@
  * needs a marker it can see without knowing which schema it is restoring.
  */
 import { escape } from './webview.ts';
-import { commandGuidance } from '../copilot-command.ts';
+import { commandGuidance, modelFreeRouteHtml } from '../copilot-command.ts';
 
 /** The shape `formModel()` returns. Declared here so the page can be typed against the model. */
 export type FormField = {
@@ -157,7 +157,7 @@ export function formHtml(view: FormView, {
       <button type="button" data-copy-terminal="copilot" ${guidance.copyable ? '' : 'hidden'}>Copy Copilot</button>
       <strong>Shell</strong><pre data-terminal>${escape(guidance.command)}</pre>
       <button type="button" data-copy-terminal="shell" ${guidance.copyable ? '' : 'hidden'}>Copy Shell</button>
-      <strong>VS Code (model-free)</strong><p>${guidance.modelFreeCommand ? `<code>${escape(guidance.modelFreeCommand)}</code>` : 'not available for this action'}</p>
+      <strong>VS Code (model-free)</strong><p>${modelFreeRouteHtml(guidance.modelFreeCommand, escape)}</p>
       <p data-terminal-placeholders ${guidance.copyable ? 'hidden' : ''}>Replace the shown placeholders before running this command.</p>
     </details>`
     : '';

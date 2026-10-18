@@ -1522,6 +1522,51 @@ test('@sflow and Help Center share model-free cited resolution and only prefill 
   assert.deepEqual(latest.args, [{ query: '/sf-worldmodel ', isPartialQuery: true }]);
 });
 
+test('with no chat model VS Code never reaches @sflow, so panels say so and recover when a model appears', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const models = [];
+  const modelChanges = new api.EventEmitter();
+  api.lm = { selectChatModels: async () => [...models], onDidChangeChatModels: modelChanges.event };
+  const extensionContext = context();
+  t.after(() => { for (const entry of extensionContext.subscriptions) entry.dispose?.(); });
+  const extension = loadExtension(api);
+  await extension.activate(extensionContext);
+  const participant = registered.chatParticipants[0];
+  let handled = 0;
+  const handler = participant.handler;
+  participant.handler = (...args) => { handled += 1; return handler(...args); };
+
+  // VS Code 1.142's extension host resolves a model before it calls any participant: $invokeAgent
+  // awaits getLanguageModelForRequest, which throws "Language model unavailable" without one.
+  const invokeLikeVsCode = async (request) => {
+    const [model] = await api.lm.selectChatModels();
+    if (!model) return { errorDetails: { message: 'Language model unavailable' } };
+    const reply = { markdown: [] };
+    await participant.handler({ references: [], ...request, model }, {}, {
+      markdown: (value) => reply.markdown.push(String(value)), button() {}, reference() {}, progress() {}
+    }, { isCancellationRequested: false });
+    return reply;
+  };
+  const refused = await invokeLikeVsCode({ command: 'help', prompt: '' });
+  assert.equal(refused.errorDetails?.message, 'Language model unavailable');
+  assert.equal(handled, 0, 'the model-free handler never ran, so /help cannot be the only route');
+
+  await registered.commands.get('singularityFlow.openHelp')({ id: 'help:all' });
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.helpCenter');
+  await until(() => panel.webview.html.includes('data-no-chat-model'));
+  assert.match(panel.webview.html, /@sflow cannot run right now: VS Code chat has no language model/);
+  assert.match(panel.webview.html, /Ask here instead/, 'Help Center offers itself as the route that still works');
+
+  models.push({ id: 'copilot-default', vendor: 'copilot', family: 'default' });
+  modelChanges.fire();
+  await until(() => !panel.webview.html.includes('data-no-chat-model'));
+  const answered = await invokeLikeVsCode({ command: 'help', prompt: '' });
+  assert.equal(handled, 1);
+  assert.match(answered.markdown.join(''), /\/help/, 'with a model available the handler answers again');
+});
+
 test('@sflow uses the current profile for guidance and never personalizes or runs actions while paused', async (t) => {
   if (!requireBundle(t)) return;
   const { api, registered } = stubVscode();

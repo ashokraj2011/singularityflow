@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { commandGuidanceHtml, commandGuidanceText, safeCommandPair } = await import(
   path.join(root, 'apps', 'vscode', 'src', 'views', 'command-guidance.ts'));
+const { modelFreeRouteHtml, modelFreeRouteText, setChatModelsAvailable } = await import(
+  path.join(root, 'apps', 'vscode', 'src', 'copilot-command.ts'));
 
 test('shared VS Code continuation presentation renders and copies both validated routes', () => {
   const html = commandGuidanceHtml({
@@ -72,4 +74,30 @@ test('shared VS Code continuation presentation fails closed for hostile and mism
     command: 'singularity-flow not-a-command --json',
     copilotCommand: '/sf-doctor'
   }), '');
+});
+
+test('with no chat model, VS Code (model-free) routes say @sflow cannot run and offer no Copy @sflow', (t) => {
+  // VS Code resolves a chat model before it calls any participant, so with none @sflow never runs.
+  t.after(() => setChatModelsAvailable(undefined));
+  const command = 'singularity-flow approve poc-review-v2 --work-id STORY-17 --fetch';
+  const route = '@sflow /approve poc-review-v2 --work-id STORY-17';
+  const plain = commandGuidanceText(command);
+  assert.match(commandGuidanceHtml(command), /Copy @sflow/);
+
+  setChatModelsAvailable(false);
+  assert.equal(commandGuidanceText(command), plain.replace(`VS Code (model-free): ${route}`,
+    `VS Code (model-free): ${route} (VS Code chat has no language model now, so it cannot reach @sflow; use Shell)`));
+  const html = commandGuidanceHtml(command);
+  assert.match(html, /<code>@sflow \/approve poc-review-v2 --work-id STORY-17<\/code> <span class="muted">\(VS Code chat has no language model now/);
+  assert.doesNotMatch(html, /Copy @sflow/, 'a route that cannot run is not offered for copying');
+  assert.match(html, /Copy Shell/);
+  assert.equal(modelFreeRouteText(null), 'not available for this action',
+    'actions without a model-free route keep their wording');
+  assert.equal(modelFreeRouteHtml(undefined, String), 'not available for this action');
+
+  setChatModelsAvailable(true);
+  assert.equal(commandGuidanceText(command), plain);
+  assert.match(commandGuidanceHtml(command), /Copy @sflow/);
+  setChatModelsAvailable(undefined);
+  assert.equal(commandGuidanceText(command), plain, 'unknown availability keeps the plain route');
 });

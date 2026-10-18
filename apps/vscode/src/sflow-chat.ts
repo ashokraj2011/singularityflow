@@ -9,7 +9,7 @@ import { recordHelpMetric } from './support-runtime-client.ts';
 import { PACKAGE_ROOT } from '../../../src/package-root.mjs';
 import { planDeveloperConversation } from '../../../src/gateway/conversation.mjs';
 import { activeRepositoryContext, gatewaySession, type GatewayRepositoryContext } from './gateway-runtime-client.ts';
-import { commandGuidance } from './copilot-command.ts';
+import { commandGuidance, setChatModelsAvailable } from './copilot-command.ts';
 import { commandClass, resolveCli, SingularityFlowClient } from './cli/client.ts';
 import { CliError } from './cli/runner.ts';
 import {
@@ -1567,4 +1567,24 @@ export function registerSflowChat(
     }
   };
   context.subscriptions.push(participant);
+  watchChatModels(context);
+}
+
+/**
+ * VS Code delivers a chat request only after it resolves a model, so with none @sflow never runs.
+ * Listing models reads metadata only; it sends no request and asks for no consent.
+ */
+function watchChatModels(context: vscode.ExtensionContext): void {
+  const lm = vscode.lm;
+  if (typeof lm?.selectChatModels !== 'function') return;
+  let generation = 0;
+  const refresh = () => {
+    const current = ++generation;
+    Promise.resolve(lm.selectChatModels()).then(
+      (models) => { if (current === generation) setChatModelsAvailable(models.length > 0); },
+      () => { if (current === generation) setChatModelsAvailable(undefined); });
+  };
+  if (typeof lm.onDidChangeChatModels === 'function') context.subscriptions.push(lm.onDidChangeChatModels(refresh));
+  context.subscriptions.push({ dispose: () => { generation++; setChatModelsAvailable(undefined); } });
+  refresh();
 }

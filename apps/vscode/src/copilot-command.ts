@@ -39,3 +39,48 @@ export function commandGuidance(value: unknown): CommandGuidance | null {
     platformCommands: guidance.platformCommands
   });
 }
+
+/**
+ * VS Code resolves a chat model before it delivers any participant request (1.142: `$invokeAgent`
+ * awaits `getLanguageModelForRequest`), so with no model `@sflow` never runs, model-free or not.
+ * sflow-chat.ts records whether any chat model is registered. Each bundle has its own copy of this
+ * module, so the answer lives in one process-wide slot. Unknown keeps the plain route.
+ */
+const CHAT_MODELS = Symbol.for('singularityFlow.chatModels');
+type ChatModelState = { available?: boolean; listeners: Set<() => void> };
+
+function chatModelState(): ChatModelState {
+  const slot = globalThis as unknown as Record<symbol, ChatModelState | undefined>;
+  return slot[CHAT_MODELS] ??= { listeners: new Set() };
+}
+
+export function chatModelsMissing(): boolean {
+  return chatModelState().available === false;
+}
+
+export function setChatModelsAvailable(available: boolean | undefined): void {
+  const state = chatModelState();
+  if (state.available === available) return;
+  state.available = available;
+  for (const listener of state.listeners) listener();
+}
+
+export function onChatModelsChanged(listener: () => void): { dispose(): void } {
+  const { listeners } = chatModelState();
+  listeners.add(listener);
+  return { dispose: () => { listeners.delete(listener); } };
+}
+
+export const NO_CHAT_MODEL_NOTE = 'VS Code chat has no language model now, so it cannot reach @sflow; use Shell';
+
+/** The value after a "VS Code (model-free):" label. */
+export function modelFreeRouteText(command: string | null | undefined): string {
+  if (!command) return 'not available for this action';
+  return chatModelsMissing() ? `${command} (${NO_CHAT_MODEL_NOTE})` : command;
+}
+
+/** HTML form of `modelFreeRouteText`; `escape` is the page's own escaper. */
+export function modelFreeRouteHtml(command: string | null | undefined, escape: (value: string) => string): string {
+  if (!command) return 'not available for this action';
+  return `<code>${escape(command)}</code>${chatModelsMissing() ? ` <span class="muted">(${escape(NO_CHAT_MODEL_NOTE)})</span>` : ''}`;
+}

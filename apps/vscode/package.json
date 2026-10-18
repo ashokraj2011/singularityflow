@@ -86,7 +86,7 @@
         "id": "singularity-flow.sflow",
         "name": "sflow",
         "fullName": "Singularity Flow",
-        "description": "Ask about Singularity Flow workflows, blockers, recovery, commands, AST, and workspaces.",
+        "description": "Ask about Singularity Flow workflows, blockers, recovery, commands, AST, and workspaces. SFlow uses no model, but VS Code chat needs one to reach @sflow.",
         "isSticky": true,
         "commands": [
           { "name": "help", "description": "Show model-free participant commands or answer from reviewed help" },

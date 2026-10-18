@@ -20,7 +20,7 @@ import { showRefusal } from './views/result-panel.ts';
 import type {
   ApprovalChecklistDecision, WitnessMappingDecision
 } from './views/approval-review.ts';
-import { commandGuidance } from './copilot-command.ts';
+import { commandGuidance, modelFreeRouteText } from './copilot-command.ts';
 import { phasePublicationSummary, phasePublicationProgressLabel } from './phase-publication.ts';
 
 /** Arguments that must be answered by a human before the command is allowed to run. */
@@ -246,7 +246,7 @@ export async function runGovernedAction(
           `The published ${rolloverPhase} generation changed. Start generation ${preview.toGeneration} with the exact current bytes?`,
           {
             modal: true,
-            detail: `Copilot: ${guidance.copilotCommand}\nShell: ${guidance.command}\nVS Code (model-free): ${guidance.modelFreeCommand ?? 'not available for this action'}\n\nGeneration ${preview.fromGeneration} remains preserved. No code is discarded, stashed, or rewritten.`
+            detail: `Copilot: ${guidance.copilotCommand}\nShell: ${guidance.command}\nVS Code (model-free): ${modelFreeRouteText(guidance.modelFreeCommand)}\n\nGeneration ${preview.fromGeneration} remains preserved. No code is discarded, stashed, or rewritten.`
           },
           'Start new generation'
         );
@@ -362,7 +362,7 @@ export async function runPlannedAction(
     `Run the exact action “${choice.action.reason}”?`,
     {
       modal: true,
-      detail: `Copilot: ${choice.guidance.copilotCommand}\nShell: ${choice.guidance.command}\nVS Code (model-free): ${choice.guidance.modelFreeCommand ?? 'not available for this action'}\n\nPlan ${plan.planId} is bound to ${plan.revision.branch}@${plan.revision.head.slice(0, 12)}. Any repository or lifecycle change invalidates it.`
+      detail: `Copilot: ${choice.guidance.copilotCommand}\nShell: ${choice.guidance.command}\nVS Code (model-free): ${modelFreeRouteText(choice.guidance.modelFreeCommand)}\n\nPlan ${plan.planId} is bound to ${plan.revision.branch}@${plan.revision.head.slice(0, 12)}. Any repository or lifecycle change invalidates it.`
     },
     'Run action'
   );

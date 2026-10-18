@@ -6,7 +6,6 @@ import { repositoryGitDirectory } from './git-directory.mjs';
 import { activeWorkspaceFile, readActiveWorkspaceContext, workspaceRegistryFile } from './workspace-context.mjs';
 import { readWorkspace, workspaceRepositoryPath } from './workspace-manifest.mjs';
 import { capabilityRepositories, parseBaseSelection, assertStoryBaseSelection } from './capability-branches.mjs';
-import { prepareWorkspaceBranch } from './workspace-branch-checkout.mjs';
 import { workspaceBranchFolder, workspaceBranchMember } from './workspace-branch-locations.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from './util.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
@@ -76,7 +75,7 @@ export function automaticStorySelection(options, workId) {
 }
 
 export async function automaticWorkspaceStoryCheckout(command, positionals, options, {
-  cwd = process.cwd(), env = process.env, prepareBranch = prepareWorkspaceBranch
+  cwd = process.cwd(), env = process.env, prepareBranch = null
 } = {}) {
   const request = automaticStoryCheckoutRequest(command, positionals, options);
   if (!request) return null;
@@ -148,7 +147,10 @@ export async function automaticWorkspaceStoryCheckout(command, positionals, opti
         workspaceBranchFolder(branch);
         if (recovered?.repositoryId === member.id && recovered.record.branch === branch) {
           locations.push({ repositoryId: member.id, repositoryPath: recovered.repositoryPath, branch, reused: true });
-        } else locations.push(await prepareBranch(workspace, member.id, branch, { reuse: true, env, signal: controller.signal }));
+        } else {
+          prepareBranch ??= (await import('./workspace-branch-checkout.mjs')).prepareWorkspaceBranch;
+          locations.push(await prepareBranch(workspace, member.id, branch, { reuse: true, env, signal: controller.signal }));
+        }
       }
       return locations;
     });

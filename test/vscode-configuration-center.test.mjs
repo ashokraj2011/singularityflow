@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import YAML from 'yaml';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const source = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name);
+const source = (name) => pathToFileURL(path.join(root, 'apps', 'vscode', 'src', 'views', name));
 const {
   authorityWithMember,
   configurationCenterView,

@@ -146,6 +146,12 @@ export function renderStoryRoster(result, {
   if (text(scope?.repositoryUrl)) add(`Repository URL selector: ${literal(scope.repositoryUrl)}`);
   add(`Discovery source: ${literal(result.source, text(scope?.repositoryUrl) ? 'remote URL metadata' : 'materialized remote refs')}`);
   add(`Scanned repository: ${literal(result.repositoryPath)}`);
+  // The clone could not be read, so these rows came from the remote alone (commands/session.mjs).
+  const cloneUnavailable = object(result.localClone) && result.localClone.available === false;
+  if (cloneUnavailable) {
+    add(`Local clone: unavailable. ${literal(result.localClone.reason)}`);
+    add('These Stories were read from the remote state branch; nothing in the local clone was used.');
+  }
   add(`Story remote: ${literal(result.remote)}`);
   add(`Verified Story rows: ${result.items.length}`);
   add('Progress is approved phases / retained configured phases, not estimated code completion.');
@@ -194,7 +200,12 @@ export function renderStoryRoster(result, {
     }
   }
   add('');
-  add('Choose an exact Story ID explicitly, then use the existing safe session attach command. Listing this roster does not activate or mutate a Story.');
+  if (cloneUnavailable) {
+    add(`Blocked: ${literal(result.localClone.blocked)}`);
+    add(`To unblock: ${literal(result.localClone.remedy)}`);
+    add('');
+  }
+  add(`${cloneUnavailable ? 'Once the clone is readable, choose' : 'Choose'} an exact Story ID explicitly, then use the existing safe session attach command. Listing this roster does not activate or mutate a Story.`);
   add('Copilot: `/sf-session` — supply the exact chosen Story ID and preserve the scope shown above.');
   const scoped = text(scope?.workspaceReference) || text(scope?.repositoryUrl);
   const selectorPlaceholders = scoped

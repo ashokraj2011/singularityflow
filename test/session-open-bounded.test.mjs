@@ -110,6 +110,8 @@ test('session open refuses within its bounds when Git cannot read the repository
       assert.ok(opened.result, opened.stdout);
       assert.equal(opened.result.error.code, 'GIT_STORAGE_UNAVAILABLE');
       assert.ok(opened.result.error.message.includes(path.join(copy.root, '.git')), opened.result.error.message);
+      // This remote has no approved configuration branch, so the Stories cannot be listed from it either.
+      assert.match(opened.result.error.message, /Listing the Stories from the remote instead also failed/);
       assert.equal(opened.result.act.state, 'refused');
     });
 

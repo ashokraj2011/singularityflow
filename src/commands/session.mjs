@@ -5,7 +5,7 @@ import { workspaceRegistryFile, activeWorkspaceFile, activateWorkspaceContext, w
 import path from 'node:path';
 import { sessionRepositoryAuthority } from './shared/session-repository-authority.mjs';
 import { sessionDiscoveryConfiguration } from './shared/session-discovery-configuration.mjs';
-import { existsSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync } from 'node:fs';
 import { WORKFLOW_PATH, validateDefinition } from '../config.mjs';
 import { loadStoryAggregate } from '../story-aggregate-read.mjs';
 import { loadConfig, validateId } from '../state-stores.mjs';
@@ -37,12 +37,71 @@ export async function run(argv, { positionals, options }) {
 
 /**
  * Every Git read of a repository whose own files are undownloaded cloud placeholders waits with
- * no limit, so the scanned repository is checked once, before the first of them.
+ * no limit, so the scanned repository is checked once, before the first of them. null when Git can
+ * read it (or the check does not apply), else why it cannot.
  */
-async function requireReadableGitStorage(root) {
+export async function unreadableGitStorage(root) {
   const mode = String(process.env.SINGULARITY_FLOW_GIT_STORAGE_CHECK ?? '').trim().toLowerCase();
-  if (mode === 'off' || (process.platform !== 'darwin' && mode !== 'always')) return;
-  (await import('../git-storage-availability.mjs')).assertGitStorageAvailable(root);
+  if (mode === 'off' || (process.platform !== 'darwin' && mode !== 'always')) return null;
+  return (await import('../git-storage-availability.mjs')).gitStorageUnavailable(root);
+}
+
+/** `url` of `[remote "origin"]` in a config file that is itself readable now, else null. */
+function readableOriginUrl(commonDirectory) {
+  const file = path.join(commonDirectory, 'config');
+  try {
+    const stat = lstatSync(file);
+    if (!stat.isFile() || (stat.size > 0 && stat.blocks === 0)) return null;
+    let origin = false;
+    for (const line of readFileSync(file, 'utf8').split(/\r?\n/u)) {
+      const section = /^\s*\[\s*([^\]]+?)\s*\]/u.exec(line);
+      if (section) { origin = /^remote\s+"origin"$/u.test(section[1]); continue; }
+      const url = origin && /^\s*url\s*=\s*(.+?)\s*$/u.exec(line);
+      if (url) return url[1].replace(/^"(.*)"$/u, '$1');
+    }
+  } catch { /* unreadable: no remote listing */ }
+  return null;
+}
+
+// The last Story listing read from the remote because its local clone was unreadable. `session
+// open` runs the listing in this process and reports it; a listing in its own process is still
+// labelled in its table.
+let listedWithoutLocalClone = null;
+export function takeListingWithoutLocalClone() {
+  const value = listedWithoutLocalClone;
+  listedWithoutLocalClone = null;
+  return value;
+}
+
+/**
+ * The Stories of a repository whose local clone Git cannot read, read from its remote instead: the
+ * state branch and Story metadata go into temporary bare stores outside the clone, under the usual
+ * deadlines and non-interactive credentials. Opening, attaching or resuming still needs the clone.
+ */
+async function remoteListingWithoutLocalClone(root, resolved, storage) {
+  const { gitStorageError } = await import('../git-storage-availability.mjs');
+  const authority = resolved.workspaceContext ? await selectedSessionRemote(resolved.workspaceContext).catch(() => null) : null;
+  const url = authority?.url ?? readableOriginUrl(storage.gitDirectory);
+  if (!url) throw gitStorageError(storage);
+  let discovered;
+  try {
+    discovered = await discoverRemoteStoryCandidatesByUrl(url, { configurationUrl: authority?.configurationUrl ?? null });
+  } catch (error) {
+    // The unreadable clone is still the cause to fix; the remote attempt is what else was tried.
+    const refusal = gitStorageError(storage);
+    refusal.message = `${refusal.message} Listing the Stories from the remote instead also failed: ${error.message}`;
+    refusal.details = { ...refusal.details, remoteListing: { code: error.code ?? null } };
+    throw refusal;
+  }
+  const localClone = Object.freeze({
+    available: false, repositoryPath: storage.repository, gitDirectory: storage.gitDirectory,
+    unreadableFiles: storage.files, sample: storage.sample, cloudFolder: storage.cloudFolder,
+    reason: storage.advice,
+    blocked: 'Opening, attaching or resuming a Story needs this clone; only the listing was read from the remote.',
+    remedy: `Download ${storage.repository} and keep it downloaded (in Finder: Control-click the folder, then Download Now), or move or clone the workspace again outside ${storage.cloudFolder || 'the synced folder'}; then run /sf-session again.`
+  });
+  listedWithoutLocalClone = localClone;
+  return { ...discovered, repositoryPath: root, localClone };
 }
 
 export async function selectedSessionRemote(context) {
@@ -156,6 +215,8 @@ export async function exactStoryMetadataAtRef(root, remote, item, expectedCommit
 }
 
 export async function printSessionCandidateResult(discovered, options, scope = {}) {
+  if (discovered.localClone?.available === false && !optionBoolean(options, 'table')) console.error(
+    `Listed from the remote: the local clone ${discovered.localClone.repositoryPath} cannot be read. ${discovered.localClone.blocked} ${discovered.localClone.remedy}`);
   if (['cache', 'local'].includes(discovered.listingSnapshot?.source) && !optionBoolean(options, 'table')) console.error(
     `Using ${discovered.listingSnapshot.source} Story listing checked at ${discovered.listingSnapshot.checkedAt}; `
     + `remote checked at ${discovered.listingSnapshot.remoteCheckedAt ?? 'unavailable'}. `
@@ -497,7 +558,17 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
   }
   let resolved = await resolveSessionRepository({ workspaceReference, repositoryId: selectedRepositoryId, remoteProbe: !localListing && subcommand !== 'context' });
   let root = resolved.root;
-  if (root) await requireReadableGitStorage(root);
+  const unreadable = root ? await unreadableGitStorage(root) : null;
+  if (unreadable) {
+    // Attaching needs this clone; it is left exactly as it is (session-storage-refusal.mjs).
+    if (subcommand === 'attach') throw (await import('./shared/session-storage-refusal.mjs')).offloadedRepositoryRefusal(
+      unreadable, { workId: positionals[2] ?? null, workspaceContext: resolved.workspaceContext ?? null });
+    if (subcommand !== 'candidates' || localListing) throw (await import('../git-storage-availability.mjs')).gitStorageError(unreadable);
+    return renderCandidates(await remoteListingWithoutLocalClone(root, resolved, unreadable), options, {
+      workspaceReference: workspaceReference ?? resolved.workspaceContext?.workspacePath ?? null,
+      repositoryId: selectedRepositoryId ?? resolved.workspaceContext?.repositoryId ?? null
+    });
+  }
   if (localListing && !root) throw new SingularityFlowError('No materialized local Story state index.', { code: 'SESSION_LOCAL_INDEX_UNAVAILABLE' });
   let preflightStory = null;
   if (!root && resolved.workspaceContext && ['candidates', 'attach'].includes(subcommand)) {
@@ -534,7 +605,9 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
       { code: 'SESSION_REMOTE_CHANGED' }
     );
     root = refreshed.repositoryPath;
-    await requireReadableGitStorage(root);
+    const materialized = await unreadableGitStorage(root);
+    if (materialized) throw (await import('./shared/session-storage-refusal.mjs')).offloadedRepositoryRefusal(
+      materialized, { workId: preflightStory.id, workspaceContext: refreshed });
     // A deferred clone may initially track only its default branch. Fetch the reviewed delivery
     // remote before resolving its Story-carried configuration; do not mistake that for an
     // ungoverned repository merely because the Story ref is not yet locally advertised.

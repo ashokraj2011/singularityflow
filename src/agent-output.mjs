@@ -123,6 +123,9 @@ export function agentAct(result) {
     result.commandGuidance ? { commandGuidance: result.commandGuidance } : null);
   }
   if (result.resultType === 'session-open') {
+    if (result.status === 'choose' && result.localClone?.available === false) return { state: 'ask-person', do: null,
+      read: ['table', 'localClone', 'selectors'],
+      said: 'Show the returned candidates; they were read from the remote because the local clone cannot be read. Say that opening a Story is blocked and relay localClone.remedy; do not open one until the person has done it.' };
     if (result.status === 'choose') return { state: 'ask-person', do: null, read: ['table', 'selectors'],
       said: 'Show the returned candidates and ask for the exact Story ID. Reuse this packet; do not list them again without a selection change.' };
     if (result.status === 'ready') {

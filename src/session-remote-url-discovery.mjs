@@ -140,7 +140,8 @@ function unavailable(code, branch, relative, reason, claimedId = null) {
 async function probeHeads(transport, label, branches = [CONFIGURATION_BRANCH]) {
   const advertised = await runRemoteGitAsync([
     'ls-remote', '--heads', '--', transport.remote, ...branches.map(branch => `refs/heads/${branch}`)
-  ], { operation: 'remote-probe', env: transport.env, maxBuffer: MAX_TREE_OUTPUT_BYTES });
+  // A URL probe needs no repository; the one around cwd may be unreadable (git-storage-availability.mjs).
+  ], { cwd: os.tmpdir(), operation: 'remote-probe', env: transport.env, maxBuffer: MAX_TREE_OUTPUT_BYTES });
   if (advertised.status !== 0) throw new SingularityFlowError(
     `Could not inspect the ${label} remote. ${advertised.failure?.advice ?? 'Git access failed.'}`,
     { code: advertised.failure?.code ?? 'SESSION_REMOTE_UNAVAILABLE' }

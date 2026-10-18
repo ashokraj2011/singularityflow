@@ -1,5 +1,6 @@
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
 import { existsSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { WORKFLOW_PATH } from '../../config.mjs';
 import { CONFIGURATION_SOURCE_PATH, CONFIGURATION_BRANCH } from '../../configuration-branch.mjs';
@@ -38,7 +39,8 @@ export async function sessionRepositoryAuthority(root, { remoteProbe = true } = 
     const available = await runRemoteGitAsync([
       'ls-remote', '--heads', '--', transport.remote, `refs/heads/${CONFIGURATION_BRANCH}`
     ], {
-      cwd: root, operation: 'remote-probe', env: transport.env
+      // The frozen transport carries the URL; the clone itself may be unreadable (git-storage-availability.mjs).
+      cwd: os.tmpdir(), operation: 'remote-probe', env: transport.env
     });
     if (available.status === 0 && available.stdout.trim()) {
       return { source: 'configuration-remote', remote, ref: `${remote}/${CONFIGURATION_BRANCH}` };

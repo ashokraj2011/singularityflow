@@ -149,7 +149,9 @@ export async function cachedSessionListing(root, { identity, files = [], env = p
     storageDirectory: path.join(path.dirname(repositoryCheckPreferencesFile(env)), 'cache', 'session-listings'),
     partition: repositoryCheckKey(identity), firstReadLocal: true,
     accept: value => Array.isArray(value?.discovered?.items) && value.discovered.count === value.discovered.items.length
-      && !value.discovered.unavailableCount && !value.discovered.unavailable?.length }, verify);
+      && !value.discovered.unavailableCount && !value.discovered.unavailable?.length
+      // Read from the remote only because the clone was unreadable: never reused once it is readable.
+      && value.discovered.localClone?.available !== false }, verify);
 }
 
 async function cachedCheck(root, { kind, identity, files, env, settingsRoot = root, accept = () => true,

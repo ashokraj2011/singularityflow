@@ -37,6 +37,10 @@ export async function openLocalSessionCommand(positionals, options) {
     { code: 'SESSION_LOCAL_REPOSITORY_UNAVAILABLE' }
   );
   const root = resolved.workspaceContext?.canonicalRepositoryPath ?? resolved.root;
+  // Every Story checkout below reads this repository's objects; offloaded ones block with no limit.
+  const unreadable = await (await import('./session.mjs')).unreadableGitStorage(root);
+  if (unreadable) throw (await import('./shared/session-storage-refusal.mjs')).offloadedRepositoryRefusal(
+    unreadable, { workId, workspaceContext: resolved.workspaceContext ?? null, operation: 'open' });
   const { listStoryWorktrees } = await import('../story-worktree.mjs');
   const commonDir = gitCommonDir(root);
   const matches = [];

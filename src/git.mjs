@@ -975,8 +975,20 @@ export function hasUpstream(root) {
     git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], { cwd: root, allowFailure: true }).status === 0);
 }
 
-export async function pullFastForward(root) {
+export async function pullFastForward(root, { fetchedRemote = null } = {}) {
   if (hasUpstream(root)) {
+    // Its caller has just fetched this remote: fast-forward to the tracking ref locally instead of
+    // asking the remote again with `pull`. Nothing is merged; a diverged branch fails as pull would.
+    const upstream = fetchedRemote
+      ? git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], { cwd: root, allowFailure: true }).stdout?.trim()
+      : null;
+    if (upstream?.startsWith(`${fetchedRemote}/`)) {
+      const merged = git(['merge', '--ff-only', '--quiet', '@{upstream}'], { cwd: root, allowFailure: true });
+      if (merged.status !== 0) throw new SingularityFlowError(
+        `Git fast-forward failed. ${safeGitDiagnosticReference(merged, 'Fast-forward to the fetched upstream failed')}`,
+        { code: 'LOCAL_FAST_FORWARD_FAILED' });
+      return;
+    }
     const result = await runRemoteGitAsync(['pull', '--ff-only'], {
     cwd: root, operation: 'remote-configuration', allowFailure: false
     });

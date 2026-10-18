@@ -97,9 +97,27 @@ test('attach clones an absent workspace repository, fast-forwards a present one,
     const attach = (extra = env) => spawnSync(process.execPath, [bin, 'session', 'attach', 'ATT-101', ...selector, '--json'],
       { cwd: base, env: extra, encoding: 'utf8', timeout: 180_000 });
 
-    await t.test('absent: the Story branch is cloned into the workspace', () => {
+    await t.test('absent: the Story branch is cloned into the workspace, fetching it once', async () => {
       assert.equal(spawnSync('git', ['-C', repository, 'rev-parse'], { encoding: 'utf8' }).status, 128, 'not cloned yet');
-      const attached = attach();
+      // Count the Git fetches that name the Story branch, without retaining any other argument.
+      const fetches = path.join(base, 'story-fetches.log');
+      const hook = path.join(base, 'story-fetch-hook.mjs');
+      await writeFile(hook, `import cp from 'node:child_process';
+import { appendFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+for (const name of ['spawn', 'spawnSync']) {
+  const original = cp[name];
+  cp[name] = function(command, args, ...rest) {
+    if (/(^|[\\\\/])git(\\.exe)?$/.test(String(command)) && Array.isArray(args) && args.includes('fetch')
+        && args.some((arg) => String(arg).includes('refs/heads/${storyBranch}:'))) appendFileSync(${JSON.stringify(fetches)}, 'fetch\\n');
+    return Reflect.apply(original, this, [command, args, ...rest]);
+  };
+}
+syncBuiltinESMExports();
+`);
+      await writeFile(fetches, '');
+      const attached = attach({ ...env, NODE_OPTIONS: `--import=${pathToFileURL(hook).href}` });
+      assert.equal(readFileSync(fetches, 'utf8').split('\n').filter(Boolean).length, 1, 'the Story branch is fetched once');
       assert.equal(attached.status, 0, `${attached.stdout}\n${attached.stderr}`);
       const result = JSON.parse(attached.stdout);
       assert.equal(realpathSync(result.repositoryPath), realpathSync(repository));

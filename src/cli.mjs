@@ -6035,7 +6035,7 @@ async function watchCommand(positionals, options) {
     if (optionBoolean(options, 'fetch') && branch(root) === workflow.workItem.branch
         && hasUpstream(root) && !changes(root).trim()) {
       await fetchOrigin(root);
-      await pullFastForward(root);
+      await pullFastForward(root, { fetchedRemote: 'origin' });
     }
     accepted = await loadAcceptedStoryExecution(root, workflow.workItem.id);
     workflow = accepted.workflow;

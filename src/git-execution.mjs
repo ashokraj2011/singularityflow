@@ -240,6 +240,7 @@ const storageCheckWanted = (env, platform, args) => {
 };
 let storageModule = null;
 let groupsModule = null;
+
 const gitStorageUnavailable = async (cwd, options) =>
   (await (storageModule ??= import('./git-storage-availability.mjs'))).gitStorageUnavailable(cwd, options);
 
@@ -431,15 +432,16 @@ export async function runRemoteGitAsync(args, {
   // Its bounded download attempt is part of this operation and consumes the same deadline.
   const storage = !signal?.aborted && storageCheckWanted(env, platform, args)
     ? await gitStorageUnavailable(cwd, { env, platform }) : null;
-  // Only a real detached child: an injected double's pid names no process group of ours.
-  const groups = spawnCommand === spawn && platform !== 'win32'
-    ? await (groupsModule ??= import('./git-child-groups.mjs')) : null;
+  // Only a real child: an injected double's pid names no process group of ours (git-child-groups.mjs).
+  const childWatch = spawnCommand === spawn ? await (groupsModule ??= import('./git-child-groups.mjs')) : null;
+  const probe = childWatch && operation === 'remote-probe' ? childWatch.unansweredProbe(args, env) : null;
   const result = signal?.aborted
     // Abort reasons are caller-owned values and may contain credentials, URLs, or UI text. The
     // closed-vocabulary cancellation classification below is the complete public diagnosis; never
     // copy an arbitrary AbortSignal reason into a result, log, receipt, or JSON response.
     ? { status: 1, stdout: '', stderr: '', error: undefined, timedOut: false, aborted: true }
     : storage ? { status: 1, stdout: '', stderr: '', error: undefined, timedOut: false, aborted: false, storageUnavailable: storage }
+    : probe?.agoMs != null ? { status: 1, stdout: '', stderr: '', error: undefined, timedOut: true, aborted: false, unanswered: true }
     : performance.now() >= operationDeadlineAt
       // System/global Git configuration is read synchronously. It cannot be pre-empted by an
       // event-loop timer, but its elapsed time still consumes the operation budget: do not start a
@@ -475,7 +477,9 @@ export async function runRemoteGitAsync(args, {
       resolve({ status: 1, stdout: '', stderr: '', error, timedOut: false });
       return;
     }
-    const untrackGroup = groups ? groups.trackGitGroup(child.pid) : () => {};
+    const untrackGroup = childWatch && platform !== 'win32' ? childWatch.trackGitGroup(child.pid) : () => {};
+    const stopWaitReport = childWatch && !localRead
+      ? childWatch.reportGitWait({ args, cwd, env, deadlineMs: operationDeadlineAt - serviceStarted }) : () => {};
     // Local byte-exact Git descriptors can opt into raw stdout. Keep remote callers' text
     // contract unchanged, and never decode a pathname before its strict parser sees it.
     let stdout = encoding === 'buffer' ? Buffer.alloc(0) : '';
@@ -520,6 +524,7 @@ export async function runRemoteGitAsync(args, {
       settled = true;
       cleanup();
       untrackGroup();
+      stopWaitReport();
       if (terminationReason) destroyPipes();
       if (stdoutDecoder) stdout += stdoutDecoder.end();
       stderr += stderrDecoder.end();
@@ -651,6 +656,7 @@ export async function runRemoteGitAsync(args, {
   const serviceMs = performance.now() - serviceStarted;
   incrementCommandCounter('git.service-ms', Math.max(0, Math.round(serviceMs)));
   if (probeStarted) recordSubprocessTiming('git', args, serviceMs);
+  if (probe?.url && result.timedOut && !result.unanswered) childWatch.recordUnanswered(probe.url);
   const succeeded = processResultSucceeded(result);
   let classified = succeeded
     ? null
@@ -670,6 +676,7 @@ export async function runRemoteGitAsync(args, {
       evidence: failureEvidence(result)
     };
   }
+  if (classified && result.unanswered) classified = { ...classified, advice: `${childWatch.UNANSWERED_ADVICE} ${classified.advice}` };
   const failure = result.aborted
       ? {
         code: 'REMOTE_OPERATION_ABORTED', classification: 'cancelled', retryable: true,

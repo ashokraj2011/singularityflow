@@ -23,6 +23,7 @@ import { configuredRemoteIdentity } from '../git-remote-diagnostics.mjs';
 import { renderChangeDirectoryCommand } from '../safe-command-guidance.mjs';
 import { acceptedStoryExecutionIfPresent } from './shared/accepted-story-execution-if-present.mjs';
 import { runRemoteGitAsync } from '../git-execution.mjs';
+import { withUnansweredRemoteReuse } from '../git-child-groups.mjs';
 import YAML from 'yaml';
 import { readRecord } from '../schema-migrations.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
@@ -32,7 +33,8 @@ export { resolveSessionRepository };
 
 export async function run(argv, { positionals, options }) {
   return withCommandObservability(positionals[0], argv, options,
-    () => withCommandConfirmation(options, () => sessionCommand(positionals, options)));
+    // A remote that left one probe unanswered is not probed again by the same session command.
+    () => withCommandConfirmation(options, () => withUnansweredRemoteReuse(() => sessionCommand(positionals, options))));
 }
 
 /**
@@ -571,6 +573,8 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
   }
   if (localListing && !root) throw new SingularityFlowError('No materialized local Story state index.', { code: 'SESSION_LOCAL_INDEX_UNAVAILABLE' });
   let preflightStory = null;
+  // The Story branch a just-materialized clone already fetched; attach does not ask the remote twice.
+  let preflightFetched = null;
   if (!root && resolved.workspaceContext && ['candidates', 'attach'].includes(subcommand)) {
     const context = resolved.workspaceContext;
     const authority = await selectedSessionRemote(context);
@@ -612,6 +616,7 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
     // remote before resolving its Story-carried configuration; do not mistake that for an
     // ungoverned repository merely because the Story ref is not yet locally advertised.
     await fetchRemote(root, 'origin', { respectPartialClone: true, branches: [preflightStory.branch] });
+    preflightFetched = { remote: 'origin', branch: preflightStory.branch };
     resolved = {
       root, workspaceId: refreshed.workspaceId, workspaceContext: refreshed,
       resolvedFrom: workspaceReference ? 'explicit-workspace' : 'active-workspace',
@@ -711,7 +716,9 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
     const discovered = preflightStory ? { items: [preflightStory] }
       : await discoverRemoteStoryCandidates(root, config, { remote });
     const item = exactDiscoveredStory(discovered, reference);
-    await fetchRemote(root, remote, { respectPartialClone: true, branches: [item.branch] });
+    if (preflightFetched?.remote !== remote || preflightFetched.branch !== item.branch) {
+      await fetchRemote(root, remote, { respectPartialClone: true, branches: [item.branch] });
+    }
     const subject = await exactStoryMetadataAtRef(root, remote, item);
     if (preflightStory && (subject.id !== preflightStory.id
         || subject.selectedBranch !== preflightStory.branch)) throw new SingularityFlowError(

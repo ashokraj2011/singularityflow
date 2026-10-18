@@ -1,4 +1,8 @@
 /**
+ * Remote Git children: they end with the process that started them, a long wait says so, and a
+ * session command does not probe a remote again that just left a probe unanswered. Loaded only for
+ * real spawns (git-execution.mjs), so none of it is in the root dispatch closure.
+ *
  * Detached Git children end when the process that started them ends.
  *
  * Remote Git runs in its own process group so a deadline can reach its credential helpers and
@@ -10,6 +14,11 @@
  * Live groups are therefore ended on exit and on SIGTERM, SIGINT and SIGHUP. A termination signal
  * nothing else handles still terminates the process, by re-raising it once the groups are gone.
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { writeSync } from 'node:fs';
+import path from 'node:path';
+import { isatty } from 'node:tty';
+
 const live = new Set();
 const SIGNALS = ['SIGTERM', 'SIGINT', 'SIGHUP'];
 let installed = false;
@@ -39,3 +48,86 @@ export function trackGitGroup(pid) {
   }
   return () => { live.delete(pid); };
 }
+
+/*
+ * A Git child that is still waiting says so. A person or an agent watching a terminal saw nothing
+ * for two minutes while a fetch waited out its deadline, and Copilot's shell tool reported only
+ * "hasn't produced output yet". After 10 seconds, and every 30 after that, one line goes to the
+ * terminal: what is waiting, for how long, and that it stops on its own at its deadline. It is
+ * written to file descriptor 2 directly, so a composed command's captured step output and every
+ * `--json` stdout stay exactly as they were, and only when that descriptor is a terminal (or
+ * SINGULARITY_FLOW_GIT_PROGRESS=always): VS Code's piped CLI calls see nothing new.
+ */
+const PROGRESS_FIRST_MS = 10_000;
+const PROGRESS_EVERY_MS = 30_000;
+
+function progressWanted(env) {
+  const mode = String(env?.SINGULARITY_FLOW_GIT_PROGRESS ?? '').trim().toLowerCase();
+  if (mode === 'off') return false;
+  if (mode === 'always') return true;
+  try { return isatty(2); } catch { return false; }
+}
+
+/** The URL a remote command names: a frozen transport's alias (url.<URL>.insteadOf), or a URL argument. */
+export function probedRemoteUrl(args, env) {
+  const aliases = new Map();
+  for (let index = 0; index < Number(env?.GIT_CONFIG_COUNT ?? 0); index += 1) {
+    const key = /^url\.(.+)\.insteadof$/iu.exec(String(env[`GIT_CONFIG_KEY_${index}`] ?? ''));
+    if (key) aliases.set(env[`GIT_CONFIG_VALUE_${index}`], key[1]);
+  }
+  for (const arg of args) {
+    if (aliases.has(arg)) return aliases.get(arg);
+    if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(String(arg))) return String(arg);
+  }
+  return null;
+}
+
+// What a waiting line names: the remote's host, a local remote's folder, else the working folder.
+function waitTarget(args, env, cwd) {
+  const url = probedRemoteUrl(args, env);
+  if (!url) return path.basename(cwd);
+  try { const parsed = new URL(url); return parsed.host || path.basename(parsed.pathname); } catch { return path.basename(url); }
+}
+const gitVerb = (args) => args.find((arg, index) => !String(arg).startsWith('-') && args[index - 1] !== '-c' && args[index - 1] !== '-C') ?? 'git';
+
+/** Report a long wait for one Git child until the returned function is called. */
+export function reportGitWait({ args, cwd, deadlineMs, env = process.env, write = (text) => writeSync(2, text) }) {
+  if (!progressWanted(env)) return () => {};
+  const verb = gitVerb(args);
+  const target = waitTarget(args, env, cwd);
+  const first = Number(env?.SINGULARITY_FLOW_GIT_PROGRESS_AFTER_MS);
+  const firstMs = Number.isFinite(first) && first > 0 ? first : PROGRESS_FIRST_MS;
+  const started = Date.now();
+  const seconds = (ms) => Math.round(ms / 1000);
+  const say = () => {
+    try {
+      write(`sflow: still waiting for Git ${verb}${target ? ` (${target})` : ''} after ${seconds(Date.now() - started)} s`
+        + `${Number.isFinite(deadlineMs) ? ` (it stops by itself at ${seconds(deadlineMs)} s)` : ''}.\n`);
+    } catch { /* a closed terminal must not fail the Git operation */ }
+  };
+  let repeat = null;
+  const initial = setTimeout(() => { say(); repeat = setInterval(say, PROGRESS_EVERY_MS); repeat.unref?.(); }, firstMs);
+  initial.unref?.();
+  return () => { clearTimeout(initial); if (repeat) clearInterval(repeat); };
+}
+
+/*
+ * A remote that just left a probe unanswered is not asked again within the same session command:
+ * an unreachable remote cost two 30-second probes back to back when /sf-session refreshed. Only
+ * callers inside withUnansweredRemoteReuse get the remembered answer; elsewhere (publication,
+ * retries) every probe still goes to the remote.
+ */
+const unanswered = new Map();
+const unansweredScope = new AsyncLocalStorage();
+const UNANSWERED_MS = 60_000;
+export const UNANSWERED_ADVICE = 'This remote did not answer a probe earlier in this command, so it was not asked again.';
+export const withUnansweredRemoteReuse = (action) => unansweredScope.run(true, action);
+
+/** The probe's remote, and how long ago it went unanswered in the current session command (else null). */
+export function unansweredProbe(args, env) {
+  const url = probedRemoteUrl(args, env);
+  const at = url && unansweredScope.getStore() === true ? unanswered.get(url) : undefined;
+  return { url, agoMs: at != null && Date.now() - at < UNANSWERED_MS ? Date.now() - at : null };
+}
+
+export function recordUnanswered(url) { unanswered.set(url, Date.now()); }

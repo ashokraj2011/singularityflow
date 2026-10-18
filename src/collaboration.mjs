@@ -462,7 +462,7 @@ export async function applyRecovery(root, config, workflow, plan, { confirm = nu
     }
     if (action.id === 'fast-forward') {
       await fetchOrigin(root);
-      await pullFastForward(root);
+      await pullFastForward(root, { fetchedRemote: 'origin' });
       completed.push({ id: action.id, result: 'fast-forward complete' });
     }
   }

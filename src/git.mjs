@@ -1402,6 +1402,10 @@ export function preserveCommitRef(root, ref, commit) {
  */
 export function moveCheckedOutBranch(root, commit) {
   invariant(/^[0-9a-f]{40,64}$/u.test(String(commit ?? '')), 'Branch target commit ID is invalid.');
+  // A file rewritten with identical bytes (STATUS.md is re-rendered) keeps a stale index stat, and the
+  // lock-free status that proved the tree clean never writes the refresh back; reset --keep then calls
+  // the file "not uptodate". Refresh stat information only: a real change is still refused below.
+  git(['update-index', '-q', '--refresh'], { cwd: root, allowFailure: true });
   git(['reset', '--keep', commit], { cwd: root });
   return head(root);
 }

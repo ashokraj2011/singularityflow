@@ -23,6 +23,7 @@ import {
   validatedRepositoryGitCommonDirectory
 } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
+import { registerExecutionContextCommands } from './execution-context-commands.ts';
 import { synchronizeChatProfile } from './personalization.ts';
 import { saveRepositoryCheckSettings } from '../../../src/repository-check-settings.mjs';
 import { StepActionDeliveryMonitor } from './step-action-deliveries.ts';
@@ -1225,7 +1226,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     try { location = resolveCli({ extensionPath: context.extensionPath }); }
     catch (error) { showRefusal(error, { headline: 'Could not start work' }); return true; }
     const registry = new SingularityFlowClient({
-      location, repository: process.cwd(), onOutput: (value) => output.append(value)
+      location, repository: process.cwd(), surfaceBinding: false, onOutput: (value) => output.append(value)
     });
     const navigationGeneration = workspaceNavigationGeneration;
     const selectionRevision = await machineSelectionRevision(workspaceSelectionFile);
@@ -1424,7 +1425,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return showRefusal(error, { headline: 'Guided start is unavailable' });
     }
     const registry = new SingularityFlowClient({
-      location, repository: process.cwd(), environment: cliEnvironment,
+      location, repository: process.cwd(), surfaceBinding: false, environment: cliEnvironment,
       onOutput: (text) => output.append(text)
     });
     const prior = context.globalState.get<PendingStartWizard | null>(START_WIZARD_KEY, null);
@@ -3755,7 +3756,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         const chooser = new SingularityFlowClient({
           location: resolveCli({ extensionPath: context.extensionPath }),
-          repository: process.cwd(), onOutput: (text) => output.append(text)
+          repository: process.cwd(), surfaceBinding: false, onOutput: (text) => output.append(text)
         });
         const current = await chooser.run<{
           active?: boolean; workspaceId?: string; workspaceName?: string; workspacePath?: string;
@@ -3900,7 +3901,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     try {
       const client = new SingularityFlowClient({
         location: resolveCli({ extensionPath: context.extensionPath }),
-        repository: process.cwd(), onOutput: (text) => output.append(text)
+        repository: process.cwd(), surfaceBinding: false, onOutput: (text) => output.append(text)
       });
       const current = await client.run<{
         active?: boolean; workspacePath?: string; workspaceName?: string;
@@ -4634,10 +4635,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const activeSelectionClient = new SingularityFlowClient({
     location: client.location,
     repository: process.cwd(),
+    surfaceBinding: false,
     environment: () => cliEnvironment,
     onOutput: (text) => output.append(text)
   });
   output.appendLine(`Using CLI (${client.location.source}): ${client.location.cli}`);
+  registerExecutionContextCommands(context, client);
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.checkRepository', async () => {
     try {
       const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
@@ -5500,6 +5503,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * rather than switched to, and the previous workspace stays selected in the editor.
    */
   workspaceSelected.push(async (selected) => {
+    await context.workspaceState.update('singularityFlow.executionRoot', selected.repositoryPath);
     const target = path.resolve(selected.repositoryPath);
     let canonicalTarget: string;
     let targetGitCommonDirectory: string | null;
@@ -5619,19 +5623,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (!current.repositoryPath || !current.workspacePath) return false;
         const target = path.resolve(current.repositoryPath);
         if (target === path.resolve(repository)) return false;
-        const selected: SelectedWorkspace = {
-          workspaceId: current.workspaceId ?? current.workspacePath,
-          workspaceName: current.workspaceName ?? current.workspaceId ?? path.basename(current.workspacePath),
-          repositoryId: current.repositoryId ?? null,
-          repositoryPath: target,
-          workspacePath: current.workspacePath
-        };
-        output.appendLine(`Active selection changed outside VS Code${current.storyId ? ` to Story ${current.storyId}` : ''}; following ${target}.`);
+        output.appendLine(`The profile selection changed elsewhere to ${target}; this window retains ${repository}. Use Select Story or Select Workspace here to switch.`);
         await refreshWorkspaceTree();
-        const { WorkspacesPanel } = lazyPanels();
-        await WorkspacesPanel.activeWorkspaceChanged(current.workspacePath);
-        for (const follow of workspaceSelected) await follow(selected);
-        return path.resolve(repository) === target;
+        return false;
       } catch (error) {
         // A background synchronization failure must not interrupt editing. The explicit Refresh
         // action remains available, and the output channel keeps the exact diagnostic.
@@ -9155,21 +9149,25 @@ type Resolved =
  * the place people actually start, and answered with "open the repository that contains
  * singularity/workflow.yml", which is a demand rather than an explanation.
  *
- * So three sources, in authority order: the explicitly selected active workspace repository;
- * otherwise
- * the open folder when it is governed; otherwise the lead named by an opened workspace directory.
- * The first is what makes the product usable from a window with something else entirely open.
+ * Resolve this window's explicit checkout first, then its opened repository/workspace lead.
+ * The machine profile is only a default for a window without its own usable selection.
  */
 async function resolveGovernedRepository(
   context: vscode.ExtensionContext,
   output: vscode.OutputChannel
 ): Promise<Resolved> {
-  // The active workspace leads. Choosing one is an explicit act — it says which capabilities are
-  // being worked on and where — and everything else in the product is scoped by it, so it cannot be
-  // a fallback for whatever folder happens to be open. The open folder answers only when no
-  // workspace has been chosen.
-  const active = await activeWorkspaceRepository(context, output);
-  if (active) return active;
+  // Explicit selection is local to this window, never inferred from another window's profile.
+  const windowRoot = context.workspaceState.get<string>('singularityFlow.executionRoot');
+  if (windowRoot) {
+    try {
+      const repository = await validateRepositoryDirectory(windowRoot, { signal: extensionLifetime.signal });
+      return { repository, root: repository, origin: 'this window’s selected execution context',
+        workspaceId: null, workspaceName: null, repositoryId: null };
+    } catch (error) {
+      return { label: 'Selected checkout is unavailable', reason: (error as Error).message,
+        contextValue: 'sflow.workspace.repositoryUnavailable', lead: windowRoot };
+    }
+  }
 
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (folder) {
@@ -9209,6 +9207,8 @@ async function resolveGovernedRepository(
     }
   }
 
+  const active = await activeWorkspaceRepository(context, output);
+  if (active) return active;
   return {
     label: 'No workspace is active',
     reason: 'Choose a workspace to work in, or create one. Everything else is scoped to it.'
@@ -9236,6 +9236,7 @@ async function activeWorkspaceRepository(
     const client = new SingularityFlowClient({
       location: resolveCli({ extensionPath: context.extensionPath }),
       repository: process.cwd(),
+      surfaceBinding: false,
       onOutput: () => {}
     });
     // The shape `workspace current --json` actually emits: flat, and it already names the lead

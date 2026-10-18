@@ -827,6 +827,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
 }
 
 const SNAPSHOT_SLICES = new Set([
+  'executionContext',
   'repository',
   'lifecycle',
   'configuration',
@@ -1396,7 +1397,13 @@ async function repositorySnapshotInScope(root, requestedWorkId, requestedInitiat
   }
   const result = {};
   for (const slice of requested) {
-    if (slice === 'repository') result.repository = await repositorySlice(root, revision);
+    if (slice === 'executionContext') {
+      const { captureExecutionContext } = await import('./execution-context.mjs');
+      // The coordinator revision already identifies when this read happened. A wall-clock field
+      // here would invalidate every conditional snapshot even when all facts stayed unchanged.
+      result.executionContext = await captureExecutionContext(root, { fresh: true, observedAt: null, revision });
+    }
+    else if (slice === 'repository') result.repository = await repositorySlice(root, revision);
     else if (slice === 'lifecycle') {
       result.lifecycle = await lifecycleSlice(root, requestedWorkId, requestedInitiativeId, revision);
     }

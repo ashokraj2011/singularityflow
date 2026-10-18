@@ -601,6 +601,7 @@ Every public operation is classified before its implementation module is importe
 | session.open-local | mutation | never | — | — |
 | session.repair-selection | mutation | never | — | — |
 | session.status | read | never | — | — |
+| session.takeover | mutation | never | — | — |
 | session.workspace | mutation | never | — | — |
 | show | read | never | — | — |
 | skill.approved | read | never | — | — |
@@ -839,6 +840,10 @@ Every public operation is classified before its implementation module is importe
 | workspace.bootstrap.status | read | never | — | — |
 | workspace.branches | read | never | — | — |
 | workspace.capabilities | read | never | — | — |
+| workspace.checkouts | read | never | — | — |
+| workspace.cleanup | mutation | never | — | — |
+| workspace.cleanup.preview | read | never | — | — |
+| workspace.context | read | never | — | — |
 | workspace.copilot | mutation | required | — | copilot-cli |
 | workspace.copilot.preview | read | never | — | — |
 | workspace.create | mutation | never | — | — |

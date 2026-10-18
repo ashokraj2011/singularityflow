@@ -604,7 +604,7 @@
         "process-import": 1,
         "process-launch": 1
       },
-      "digest": "c1626d6215831929d799607deeee257ea26378573feddc72ee056895e0a4b3fc"
+      "digest": "4baf188a980094cc958ab6df5c2048e2d6ccfd284f2d42754136a6aeea77bdec"
     },
     "src/cli.mjs": {
       "counts": {
@@ -1422,7 +1422,7 @@
         "command-run": 15,
         "command-runCommand": 1
       },
-      "digest": "302bc0ca0cb2a4debadc8f979d939e8fd13a86e81e769bca445028f61d7d74f9"
+      "digest": "797a951938652ee8892faa08fee76a0a1406e8b152ef5a7fac571741617e1d97"
     },
     "src/transport-intents.mjs": {
       "counts": {

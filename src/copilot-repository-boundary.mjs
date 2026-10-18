@@ -151,6 +151,24 @@ async function repoRootFor(cwd) { return (await import('./git.mjs')).repoRoot(cw
 
 async function selectedContext(cwd) {
   const context = await import('./workspace-context.mjs');
+  // A retained session in this checkout is window-local selection, not another window's profile.
+  // Validate its aggregate/ref before choosing it; a stale session on main remains only a hint.
+  let root;
+  try { root = await repoRootFor(cwd); } catch { /* Neutral host folder: use the profile below. */ }
+  if (root) {
+    const session = await (await import('./session.mjs')).loadSession(root, { required: false });
+    if (session?.workId) {
+      let accepted;
+      try { accepted = await (await import('./accepted-story-execution.mjs')).loadAcceptedStoryExecution(root, session.workId); }
+      catch (error) { if (error.code !== 'STORY_NOT_FOUND') throw error; }
+      if (accepted && (await import('./story-paths.mjs')).workflowBranchAllowed(accepted.workflow,
+        (await import('./git.mjs')).branch(root))) {
+        const { withExecutionContextScope } = await import('./execution-context-scope.mjs');
+        return withExecutionContextScope(root, () => context.resolveWorkspaceExecutionContext(
+          context.activeWorkspaceFile(), context.workspaceRegistryFile(), { cwd: root }), { boundRoot: root });
+      }
+    }
+  }
   return context.resolveWorkspaceExecutionContext(context.activeWorkspaceFile(), context.workspaceRegistryFile(), { cwd });
 }
 

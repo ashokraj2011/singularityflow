@@ -12,6 +12,7 @@
  */
 import { step, stop as stopStep } from '../cli-steps.mjs';
 import { SingularityFlowError } from '../util.mjs';
+import { boundExecutionContextRoot } from '../execution-context-scope.mjs';
 
 const LOCAL_FALLBACK = new Set(['SESSION_LOCAL_STORY_UNAVAILABLE', 'SESSION_LOCAL_REPOSITORY_UNAVAILABLE']);
 const OPTIONS = new Set(['workspace', 'repository', 'json', 'for-agent', 'timings', 'refresh']);
@@ -40,7 +41,8 @@ export async function run({ positionals, options }) {
   validateSessionOpenRequest({ positionals, options });
   const json = options.json === true;
   const workId = positionals[2] ?? null;
-  const cwd = process.cwd();
+  const boundRoot = boundExecutionContextRoot();
+  const cwd = boundRoot ?? process.cwd();
   const pause = await step(['pause', 'status', '--json'], cwd);
   if (!pause.ok) stop(pause, 'pause status');
   if (typeof pause.value?.data?.paused !== 'boolean') throw new SingularityFlowError(
@@ -53,7 +55,7 @@ export async function run({ positionals, options }) {
   let selectors = [];
   if (options.workspace || options.repository) {
     selectors = [...(options.workspace ? ['--workspace', options.workspace] : []), ...(options.repository ? ['--repository', options.repository] : [])];
-  } else {
+  } else if (!boundRoot) {
     const current = await step(['workspace', 'current', '--json'], cwd);
     if (current.ok && current.value?.active && current.value.workspacePath && current.value.repositoryId) {
       selectors = ['--workspace', current.value.workspacePath, '--repository', current.value.repositoryId];
@@ -68,9 +70,14 @@ export async function run({ positionals, options }) {
     console.log(result.table);
     return console.log(`\nChoose a Story, then run: ${result.nextAction}`);
   }
-  let opened = await step(['session', 'open-local', workId, ...selectors, '--json'], cwd);
-  let attached = false;
+  // Refresh with an exact Story means synchronize it, not merely refresh a chooser that is not
+  // being shown. Never hide an explicit remote failure behind a successful local open.
+  let opened = options.refresh
+    ? await step(['session', 'attach', workId, ...selectors, '--json'], cwd)
+    : await step(['session', 'open-local', workId, ...selectors, '--json'], cwd);
+  let attached = options.refresh === true;
   if (!opened.ok) {
+    if (options.refresh) stop(opened, 'session attach');
     if (!LOCAL_FALLBACK.has(opened.value?.error?.code)) stop(opened, 'session open-local');
     opened = await step(['session', 'attach', workId, ...selectors, '--json'], cwd);
     if (!opened.ok) stop(opened, 'session attach');
@@ -97,6 +104,7 @@ export async function run({ positionals, options }) {
     schemaVersion: 1, resultType: 'session-open', status: 'ready', workId, repositoryPath: checkout,
     localOnly: !attached, attachedFromRemote: attached, open: opened.value, session: status.value,
     context: context.value, nextsteps: next.value,
+    executionContext: projection?.executionContext ?? await (await import('../execution-context.mjs')).captureExecutionContext(checkout, { fresh: true }),
     repositoryChecks: (await import('../repository-check-cache.mjs')).repositoryCheckStatus(checkout)
   };
   if (options['for-agent']) Object.assign(result, agentSessionView(result), { ready: true,
@@ -136,6 +144,7 @@ export function agentSessionView(result) {
   };
   const next = result.nextsteps;
   return {
+    executionContext: result.executionContext ?? null,
     open: pick(result.open, ['workId', 'branch', 'head', 'repositoryPath', 'phase', 'status', 'agent', 'localOnly', 'attachedFromRemote', 'warnings']),
     session: pick(result.session, ['ready', 'workId', 'activeAgent', 'phase', 'status', 'repositoryPath', 'personalization', 'paused']),
     nextsteps: next && typeof next === 'object' ? {

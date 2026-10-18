@@ -835,6 +835,16 @@ export interface StoryReferenceRepositoryStatus {
 }
 
 export interface RepositorySnapshot {
+  executionContext?: {
+    schemaVersion: number;
+    contextId: string;
+    workspace: { id: string; path: string; manifestSha256: string | null } | null;
+    repository: { id: string | null; logicalId: string | null; remote: string | null };
+    clone: { id: string; commonDirectory: string };
+    worktree: { id: string; path: string; gitDirectory: string; branch: string | null; head: string | null; detached: boolean; bare: boolean };
+    story: { id: string; phase: string | null; status: string; revision: string; repositoryBindings: unknown[]; configurationPin: unknown; binding: unknown } | null;
+    observation: { observedAt: string | null; remoteCheckedAt: null; remoteStatus: 'not-checked'; mutationAuthority: false };
+  };
   /** Read-model slices currently present in this projection. */
   included?: SnapshotSlice[];
   /** True when the requested slice revision already matched and no payload was serialized. */
@@ -1122,7 +1132,7 @@ export interface RepositorySnapshot {
   [key: string]: unknown;
 }
 
-export type SnapshotSlice = 'repository' | 'lifecycle' | 'configuration' | 'capabilities' | 'integrations' | 'diagnostics' | 'sgos' | 'comprehension';
+export type SnapshotSlice = 'repository' | 'lifecycle' | 'configuration' | 'capabilities' | 'integrations' | 'diagnostics' | 'sgos' | 'comprehension' | 'executionContext';
 
 export interface ComprehensionRegion {
   regionId: string;

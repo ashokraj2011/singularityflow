@@ -1,5 +1,11 @@
 # Project workspaces
 
+The [shared execution-context contract](docs/EXECUTION-CONTEXT.md) defines workspace, logical
+repository, physical clone, worktree, Story bindings and per-surface selection. Inspect it with
+`workspace context --json` or `workspace checkouts <WORKSPACE> --json`. Use `session takeover <ID>`
+for synchronized cross-laptop continuation. Unused owned branch clones have an exact cleanup
+preview/confirmation; selected checkouts, dependent worktrees and private recovery are protected.
+
 A Singularity Flow workspace is a machine-local working directory plus a governed
 capability selection. It is not a new Jira level and it is not lifecycle state.
 The selected capabilities determine the participating repositories, their Jira

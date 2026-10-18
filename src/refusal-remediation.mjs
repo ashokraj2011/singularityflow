@@ -1134,7 +1134,21 @@ export function refusalDetails(details) {
     timedOut: typeof details.execution.timedOut === 'boolean' ? details.execution.timedOut : null,
     exitCode: Number.isInteger(details.execution.exitCode) ? details.execution.exitCode : null
   });
-  for (const key of ['workId', 'phase', 'currentPhase', 'operation']) if (text(details[key])) projected[key] = text(details[key]);
+  for (const key of ['workId', 'phase', 'currentPhase', 'operation', 'repositoryPath', 'preservation']) if (text(details[key])) projected[key] = text(details[key]);
+  const completed = list(details.completedRepositoryPaths, text);
+  if (completed.length) projected.completedRepositoryPaths = completed;
+  const retired = list(details.retired, item => item && typeof item === 'object' ? compact({
+    from: text(item.from), to: text(item.to), recovery: text(item.recovery),
+    removed: typeof item.removed === 'boolean' ? item.removed : null
+  }) : null);
+  if (retired.length) projected.retired = retired;
+  const unavailableDocuments = list(details.unavailableDocuments, item => item && typeof item === 'object'
+    ? compact({ id: text(item.id), name: text(item.name) }) : null);
+  if (unavailableDocuments.length) projected.unavailableDocuments = unavailableDocuments;
+  if (details.cause && typeof details.cause === 'object') projected.cause = compact({
+    code: text(details.cause.code), message: text(details.cause.message),
+    execution: refusalDetails({ execution: details.cause.details?.execution })?.execution ?? null
+  });
   const paths = list(details.paths, text);
   if (paths.length) projected.paths = paths;
   // The earlier phases that own the cause, so no surface mistakes them for the phase to repair.

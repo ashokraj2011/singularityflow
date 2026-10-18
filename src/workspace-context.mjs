@@ -384,7 +384,7 @@ export async function readActiveWorkspaceContext(selectionFile, registryFile, {
   let context = await branchCheckoutSelectionContext(selected, selected.checkoutPath ?? selected.repositoryPath,
     selectionFile, registryFile);
   try {
-    context ??= await buildWorkspaceContext(registryFile, selected.workspaceId, {
+    context ??= await buildWorkspaceContext(registryFile, selected.workspacePath ?? selected.workspaceId, {
       repositoryId: selected.repositoryId,
       // The selected checkout, not the canonical clone's current branch, proves the Story below.
       storyId: null,
@@ -484,7 +484,7 @@ export async function activateWorkspaceStoryContext(
     const selected = await readActiveWorkspaceContext(selectionFile, registryFile, { refresh: false });
     if (!selected) return null;
     const base = await branchCheckoutSelectionContext(selected, checkout, selectionFile, registryFile, true)
-      ?? await buildWorkspaceContext(registryFile, selected.workspaceId, {
+      ?? await buildWorkspaceContext(registryFile, selected.workspacePath ?? selected.workspaceId, {
       repositoryId: selected.repositoryId,
       storyId: null
     });
@@ -534,6 +534,21 @@ export async function activateWorkspaceStoryContext(
 export async function resolveWorkspaceExecutionContext(
   selectionFile, registryFile, { cwd = process.cwd() } = {}
 ) {
+  const bound = (await import('./execution-context-scope.mjs')).boundExecutionContextRoot();
+  if (bound) {
+    // All lifecycle/entry readers use the surface's checkout, even when another window changes
+    // the profile. This selector never supplies approval, phase or configuration authority.
+    const root = repoRoot(bound);
+    if (await canonical(root) !== await canonical(bound)) throw new SingularityFlowError(
+      'The bound location is not its own Git worktree.', { code: 'EXECUTION_CONTEXT_ROOT_MISMATCH' });
+    const member = await (await import('./workspace-membership.mjs')).findWorkspaceMembership(root, { registryFile });
+    const currentBranch = branch(root);
+    const current = { ...member, repositoryPath: root, checkoutPath: root,
+      canonicalRepositoryPath: member?.canonicalRepositoryPath ?? root,
+      branch: currentBranch, head: head(root), storyId: await detectedStory(root, currentBranch),
+      storyWorktree: gitDir(root) !== gitCommonDir(root), selectionSource: 'surface-context', selectionStatus: 'ready' };
+    return { ...current, prompt: workspacePromptLabel(current) };
+  }
   const selected = await readActiveWorkspaceContext(selectionFile, registryFile);
   if (!selected) return null;
   const canonicalRepositoryPath = selected.canonicalRepositoryPath ?? selected.repositoryPath;
@@ -637,6 +652,9 @@ export async function workspaceContextForRepository(repositoryRoot, selectionFil
 export async function workspaceMemberContextForRepository(
   repositoryRoot, selectionFile, registryFile, { strict = false } = {}
 ) {
+  const execution = await import('./execution-context-scope.mjs');
+  if (execution.boundExecutionContextRoot()) return (await import('./workspace-membership.mjs'))
+    .findWorkspaceMembership(repositoryRoot, { registryFile });
   let selected;
   try {
     selected = await storedActiveWorkspaceContext(selectionFile);

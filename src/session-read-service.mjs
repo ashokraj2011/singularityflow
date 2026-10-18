@@ -46,7 +46,7 @@ function readOperation(root, positionals, callback) {
 export async function readOpenedSession(root, { workId, signal = null } = {}) {
   root = path.resolve(root);
   const privateRoot = gitDir(root), common = gitCommonDir(root);
-  let observedHead = null;
+  let observedHead = null, observedBranch = null;
   const files = [...new Set([
     path.join(root, 'singularity/workflow.yml'), path.join(root, 'singularity/portfolio.yml'),
     path.join(root, 'singularity/configuration-source.json'), path.join(privateRoot, 'index'),
@@ -73,6 +73,7 @@ export async function readOpenedSession(root, { workId, signal = null } = {}) {
           throw new SingularityFlowError('The repository identity changed while opening this session.', { code: 'READ_SNAPSHOT_STALE' });
         }
         observedHead = values[2];
+        observedBranch = values[3] || null;
         return JSON.stringify({ root, values, build: BUILD_INFO, environment: createHash('sha256')
           .update(JSON.stringify(Object.entries(process.env).sort(([a], [b]) => a.localeCompare(b)))).digest('hex') });
       }
@@ -128,7 +129,14 @@ export async function readOpenedSession(root, { workId, signal = null } = {}) {
         return resolveStorySnapshot(root, accepted, { observeFile: observeRelative, publicationPending: false });
       });
       incrementCommandCounter('session.snapshot.projections', 3);
-      return { session: { ...session, repositoryPath: root, resolvedFrom: 'working-directory', workspaceId: null }, context, nextsteps };
+      const { repositoryInstanceIdentity } = await import('./repo-context.mjs');
+      const { captureExecutionContext } = await import('./execution-context.mjs');
+      const executionContext = await captureExecutionContext(root, { workflow, fresh: true,
+        configurationPin: workflow.resolution?.configurationSource ?? null,
+        identity: { root, commonDir: common, gitDir: privateRoot, head: observedHead,
+          branch: observedBranch, detached: !observedBranch,
+          ...await repositoryInstanceIdentity({ commonDir: common, gitDir: privateRoot }) } });
+      return { session: { ...session, repositoryPath: root, resolvedFrom: 'working-directory', workspaceId: null }, context, nextsteps, executionContext };
     })));
   } catch (error) {
     if (error.code !== 'READ_SNAPSHOT_UNAVAILABLE') {

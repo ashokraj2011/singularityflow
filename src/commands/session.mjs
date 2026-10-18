@@ -351,7 +351,8 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
     const authority = await sessionRepositoryAuthority(executionRoot);
     const { definition } = await sessionDiscoveryConfiguration(executionRoot, authority);
     let workflow = null;
-    try { workflow = await loadStoryAggregate(executionRoot, definition); } catch { /* No Story is a valid workspace context. */ }
+    try { workflow = await loadStoryAggregate(executionRoot, definition); }
+    catch (error) { if (error.code !== 'STORY_NOT_FOUND') throw error; }
     const actualWorkId = workflow?.workItem?.id ?? null;
     if (context.storyId && actualWorkId !== context.storyId) {
       throw new SingularityFlowError(
@@ -392,6 +393,9 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
       selectionSource: context.selectionSource ?? null,
       selectionStatus: context.selectionStatus ?? 'ready'
     };
+    result.executionContext = await (await import('../execution-context.mjs')).captureExecutionContext(executionRoot, {
+      workflow, configurationPin: workflow?.resolution?.configurationSource ?? null, fresh: true
+    });
     if (agentEntry) return console.log(JSON.stringify(agentEntry.sessionAgentResult(result, definition.workItemRoot)));
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Repository: ${result.repositoryPath}`);
@@ -516,7 +520,7 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
       repositoryIds: [context.repositoryId], returnIfSelectedReady: true,
       statusLevel: 'readiness'
     });
-    const refreshed = await buildWorkspaceContext(workspaceRegistryFile(), context.workspaceId, {
+    const refreshed = await buildWorkspaceContext(workspaceRegistryFile(), context.workspacePath ?? context.workspaceId, {
       repositoryId: context.repositoryId, detectStory: false
     });
     if (refreshed.repositoryState !== 'ready') throw new SingularityFlowError(
@@ -676,8 +680,8 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
     // A normal canonical clone keeps its historical clean-checkout attach behavior.
     let preparedWorktree = null;
     let attachmentRoot = managedWorktree?.repositoryPath ?? root;
-    if (!managedWorktree && !samePlatformPath(gitDir(root), gitCommonDir(root))
-        && branch(root) !== targetBranch) {
+    if (!managedWorktree && branch(root) !== targetBranch
+        && (!samePlatformPath(gitDir(root), gitCommonDir(root)) || optionBoolean(options, 'isolated-worktree'))) {
       // A linked Story checkout is nested under story-worktrees; using it as the worktree path
       // anchor would nest another story-worktrees directory inside Story A. Anchor on the shared
       // repository's canonical checkout instead, while leaving A's branch/index untouched.
@@ -686,7 +690,7 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
         'Cannot locate the canonical checkout for this linked Story worktree.',
         { code: 'STORY_WORKTREE_RECOVERY_REQUIRED' }
       );
-      preparedWorktree = await prepareStoryWorktree(path.dirname(commonDir), id, { base: remoteSha });
+      preparedWorktree = await prepareStoryWorktree(path.dirname(commonDir), id, { base: remoteSha, storyBranch: targetBranch });
       attachmentRoot = preparedWorktree.repositoryPath;
     }
     let materialization;
@@ -726,7 +730,7 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
     const workflow = await loadStoryAggregate(attachmentRoot, attachedConfig, id);
     const session = await activateWorkItemSession(attachmentRoot, attachedConfig, workflow);
     if (workspaceReference && resolved.workspaceContext) await activateWorkspaceContext(
-      workspaceRegistryFile(), activeWorkspaceFile(), resolved.workspaceContext.workspaceId,
+      workspaceRegistryFile(), activeWorkspaceFile(), resolved.workspaceContext.workspacePath ?? resolved.workspaceContext.workspaceId,
       { repositoryId: resolved.workspaceContext.repositoryId, detectStory: false }
     );
     await activateWorkspaceStoryContext(

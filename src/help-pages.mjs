@@ -1611,6 +1611,12 @@ const PAGES = Object.freeze({
   workspace: {
     summary: 'Manage the set of repositories you work across, and which one is active.',
     description: [
+      'Every repository command accepts --context-root <ABSOLUTE-CHECKOUT> for an explicit surface binding.',
+      'workspace context --json shows that binding; workspace checkouts lists the clone/worktree dependency graph.',
+      'workspace cleanup previews recoverable retirement; --apply --confirm <DIGEST> applies it. Use --purge',
+      'in both preview and application for verified permanent removal. Selected, adopted, canonical and recovery checkouts remain protected.',
+      'session takeover <ID> --workspace <PATH> --repository <ID> --json synchronizes a published Story across its required repositories.',
+      '',
       '`workspace branches --entry --intake --work-id ID --for-agent --json` combines pause,',
       'selected workspace, installed build, clean-tree and canonical branch/workflow choices.',
       'It is an advisory intake preview, not permission to create work. Explicit choices and fresh',

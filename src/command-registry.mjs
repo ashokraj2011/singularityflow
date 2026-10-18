@@ -227,6 +227,7 @@ const WM_KNOWLEDGE_REVIEW_ACTIONS = new Set(['confirm', 'correct', 'reject']);
  * pass of their own; calling them mutations is the wrong-but-safe direction in the meantime.
  */
 const WORKSPACE_READ_OPERATIONS = new Set([
+  'context', 'checkouts',
   'branches', 'list', 'current', 'prompt', 'archive-status', 'inspect', 'capabilities', 'status', 'documents', 'doctor',
   'migrate-schemas'
 ]);
@@ -245,6 +246,7 @@ export const ENV_SUBCOMMANDS = Object.freeze([...ENV_READ_SUBCOMMANDS, ...ENV_MU
  */
 export const PRODUCT_SUBCOMMANDS = Object.freeze(['status', 'align', 'reviews']);
 const WORKSPACE_NEVER_OPERATIONS = new Set([
+  'context', 'checkouts', 'cleanup',
   'branches', 'prune', 'list', 'current', 'prompt', 'create', 'adopt', 'open', 'archive-status', 'rename', 'archive',
   'restore', 'inspect', 'duplicate', 'capabilities', 'update', 'attach-capability', 'detach-capability',
   'status', 'sync', 'repair', 'documents', 'forget', 'use',
@@ -398,7 +400,7 @@ const STORY_SUBCOMMANDS = Object.freeze([
   ...STORY_READ_SUBCOMMANDS, ...STORY_MUTATION_SUBCOMMANDS
 ]);
 const SESSION_READ_SUBCOMMANDS = Object.freeze(['current', 'doctor', 'context', 'candidates', 'status']);
-const SESSION_MUTATION_SUBCOMMANDS = Object.freeze(['workspace', 'attach', 'open-local', 'open', 'repair-selection']);
+const SESSION_MUTATION_SUBCOMMANDS = Object.freeze(['workspace', 'attach', 'takeover', 'open-local', 'open', 'repair-selection']);
 const SESSION_SUBCOMMANDS = Object.freeze([...SESSION_READ_SUBCOMMANDS, ...SESSION_MUTATION_SUBCOMMANDS]);
 const CAPABILITY_READ_SUBCOMMANDS = Object.freeze([
   'tree', 'show', 'of', 'proposals', 'proposal', 'fsck', 'world-model', 'organisation', 'leads',
@@ -1190,6 +1192,8 @@ function resolveNextOperation(definition) {
 function resolveWorkspaceOperation(definition, positionals, options) {
   const requested = positionals[1] ?? 'list';
   const subcommand = WORKSPACE_SUBCOMMAND_ALIASES.get(requested) ?? requested;
+  if (subcommand === 'cleanup') return optionBoolean(options, 'apply')
+    ? never('workspace.cleanup', definition, 'mutation') : never('workspace.cleanup.preview', definition, 'read');
   if (subcommand === 'copilot') {
     return optionBoolean(options, 'dry-run')
       ? never('workspace.copilot.preview', definition, 'read')
@@ -1589,6 +1593,7 @@ export function operationCatalog() {
       ? required('workspace.impact.analyze')
       : never(`workspace.impact.${name}`, commandDefinition('workspace'), WORKSPACE_IMPACT_READ_OPERATIONS.has(name) ? 'read' : 'mutation')));
   workspace.push(never('workspace.impact.analyze.preview', commandDefinition('workspace'), 'read'));
+  workspace.push(never('workspace.cleanup.preview', commandDefinition('workspace'), 'read'));
   workspace.push(never('workspace.refresh-configuration', commandDefinition('workspace'), 'mutation'));
   workspace.push(never('workspace.refresh-configuration.preview', commandDefinition('workspace'), 'read'));
   workspace.push(never('workspace.reinitialize', commandDefinition('workspace'), 'mutation'));

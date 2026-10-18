@@ -276,6 +276,22 @@
         "icon": "$(list-unordered)"
       },
       {
+        "command": "singularityFlow.executionContext",
+        "title": "Singularity Flow: Inspect Current Execution Context"
+      },
+      {
+        "command": "singularityFlow.checkoutInventory",
+        "title": "Singularity Flow: Inspect Workspace Clones and Worktrees"
+      },
+      {
+        "command": "singularityFlow.cleanupCheckouts",
+        "title": "Singularity Flow: Clean Up Verified Unused Clones"
+      },
+      {
+        "command": "singularityFlow.takeoverStory",
+        "title": "Singularity Flow: Synchronize and Take Over Story"
+      },
+      {
         "command": "singularityFlow.upgradeOrRepair",
         "title": "Singularity Flow: Upgrade or Repair…",
         "icon": "$(sync)"

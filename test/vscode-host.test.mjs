@@ -617,10 +617,16 @@ const section = (registered, name) =>
 
 function context(values = new Map()) {
   const root = path.join(packageRoot, 'apps', 'vscode');
+  const windowValues = new Map();
   return {
     subscriptions: [],
     extensionPath: root,
     extensionUri: { fsPath: root },
+    workspaceState: {
+      get: (key, fallback) => windowValues.has(key) ? windowValues.get(key) : fallback,
+      update: async (key, value) => { windowValues.set(key, value); },
+      keys: () => [...windowValues.keys()]
+    },
     globalState: {
       get: (key, fallback) => values.has(key) ? values.get(key) : fallback,
       update: async (key, value) => { values.set(key, value); },

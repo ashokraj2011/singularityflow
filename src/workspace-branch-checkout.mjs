@@ -10,6 +10,7 @@ import { currentSchemaVersion } from './schema-migrations.mjs';
 import { measureCommandSpan } from './dx-timing-context.mjs';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
 import { workspaceRepositoryPath } from './workspace-manifest.mjs';
+import { cloneStrategyArguments, normalizeCloneStrategy, partialCloneFallbackDecision } from './clone-strategy.mjs';
 import {
   BRANCH_CHECKOUT_RECORD, preparedWorkspaceBranch, workspaceBranchFolder, workspaceBranchPath,
   workspaceBranchPointer
@@ -76,13 +77,24 @@ export async function prepareWorkspaceBranch(workspace, repositoryId, branch, {
     const commit = observed.refs.get(`refs/heads/${branch}`);
     if (!commit) throw new SingularityFlowError(`Selected branch '${branch}' is not published.`, { code: 'STORY_BASE_INVALID' });
     // --no-local also prevents hardlink/alternate borrowing for local-path remotes in tests or offices.
-    await measureCommandSpan('start.branch-download', () => invoke(['clone', '--no-local', '--no-tags', '--single-branch', '--no-checkout',
-      '--no-recurse-submodules', '--branch', branch, '--', transport.remote, target]));
+    const strategy = normalizeCloneStrategy(repository.clone);
+    const cloned = await measureCommandSpan('start.branch-download', () => invoke(['clone', '--no-local', '--no-tags', '--single-branch', '--no-checkout',
+      '--no-recurse-submodules', ...cloneStrategyArguments(strategy), '--branch', branch, '--', transport.remote, target]));
+    if (strategy.mode !== 'full') {
+      const promisor = await invoke(['config', '--local', '--get', 'remote.origin.promisor'], target);
+      const filter = await invoke(['config', '--local', '--get', 'remote.origin.partialclonefilter'], target);
+      const decision = partialCloneFallbackDecision(cloned, { fallback: strategy.fallback,
+        configured: promisor.stdout.trim() === 'true' && filter.stdout.trim() === 'blob:none' });
+      if (!decision.retain) throw new SingularityFlowError(
+        'The selected branch did not establish the approved partial-clone policy. The unselected attempt was preserved; no full-clone retry was performed.',
+        { code: 'WORKSPACE_BRANCH_CLONE_POLICY_REFUSED', details: { partialRepositoryPath: target, decision } });
+    }
     await invoke(['remote', 'set-url', 'origin', repository.url], target);
     const tip = (await invoke(['rev-parse', `refs/remotes/origin/${branch}^{commit}`], target)).stdout.trim();
     if (tip !== commit) throw new SingularityFlowError(
       'The selected branch moved during the download. The download and original repository are preserved; retry for its new revision.',
       { code: 'STORY_BASE_INVALID' });
+    if (strategy.mode === 'blobless-sparse') await invoke(['sparse-checkout', 'set', '--cone', '--', ...strategy.sparseCone], target);
     await invoke(['checkout', branch], target);
     if ((await invoke(['rev-parse', 'HEAD'], target)).stdout.trim() !== commit) {
       throw new SingularityFlowError('The fresh checkout no longer matches the downloaded revision. It was preserved, not selected.',

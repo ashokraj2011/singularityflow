@@ -1774,7 +1774,7 @@ async function workspaceRepositoryReferenceProof(repository, target, {
  * remote-tracking ref is local work too. Adopted repositories are never owned by the workspace and
  * therefore can never be dropped through this operation.
  */
-async function workspaceRepositoryDropProof(workspace, repository, status, {
+export async function workspaceRepositoryDropProof(workspace, repository, status, {
   targetPath = null,
   env = null
 } = {}) {

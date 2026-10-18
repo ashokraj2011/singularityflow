@@ -7001,11 +7001,13 @@ test('choosing a workspace is what scopes the rest', async () => {
   assert.match(handoff, /executeCommand\('vscode\.openFolder', vscode\.Uri\.file\(target\), false\)/,
     'a different selected root replaces this window rather than creating another one');
 
-  // Resolution consults the active workspace before the open folder, not after it.
+  // A window's checkout wins; changing the profile default must not retarget another window.
   const active = extension.indexOf('const active = await activeWorkspaceRepository(context, output);');
   const folder = extension.indexOf('const folder = vscode.workspace.workspaceFolders?.[0];',
     extension.indexOf('async function resolveGovernedRepository'));
-  assert.ok(active > 0 && folder > active, 'the active workspace is consulted first');
+  const windowRoot = extension.indexOf("const windowRoot = context.workspaceState.get<string>('singularityFlow.executionRoot');");
+  assert.ok(windowRoot > 0 && folder > windowRoot && active > folder,
+    'window selection, opened folder, then profile default');
 
   // And it reads the shape the CLI emits. Ordering two lines correctly is worth nothing if the
   // first one reads a field that does not exist: this looked for `workspace.path` in a flat object

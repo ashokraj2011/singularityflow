@@ -314,7 +314,7 @@ test('a leased SGOS slice loads lazily and is released when Command Center close
   });
   assert.equal(result.status, 0, `child failed: ${result.stderr}`);
   const value = JSON.parse(result.stdout);
-  assert.deepEqual(value.beforeLease.sort(), ['capabilities', 'lifecycle', 'repository']);
+  assert.deepEqual(value.beforeLease.sort(), ['capabilities', 'executionContext', 'lifecycle', 'repository']);
   assert.ok(value.duringLease.includes('sgos'));
   assert.equal(value.loaded, true);
   assert.equal(value.released, true);

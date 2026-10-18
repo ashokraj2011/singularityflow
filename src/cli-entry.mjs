@@ -24,6 +24,7 @@ import { agentViewRequested, interpretsForAgent, withCliJsonOutput, withoutAgent
 import { copilotModeFile, copilotModePresentation, readCopilotMode } from './copilot-mode.mjs';
 import { scopedUtilityRead, validateUtilityEntry, withoutUtilityEntry } from './utility-entry.mjs';
 import { withCommandReadScope } from './read-scope.mjs';
+import { executionContextArguments, surfaceContext, withExecutionContextScope } from './execution-context-scope.mjs';
 
 // These commands promise to remove machine-local Singularity state. Recording their own duration
 // after they finish would immediately recreate `.git/singularity-flow/` and make that promise false.
@@ -561,6 +562,8 @@ export async function withExplicitRepositoryMutationLeases(roots, operationId, c
 }
 
 export async function main(argv) {
+  const contextRequest = executionContextArguments(argv);
+  argv = contextRequest.argv;
   // Git answers earlier commands in this session already proved; see git-fact-store.mjs.
   installGitFactStore();
   const uninstall = installFileLeaseSignalHandlers();
@@ -581,13 +584,13 @@ export async function main(argv) {
     }
     const commandArgv = utilityEntry ? withoutUtilityEntry(argv) : argv;
     return await withCliJsonOutput(optionBoolean(options, 'json'),
-      () => runMain(agentFlag && !ownsFlag ? withoutAgentFlag(commandArgv) : commandArgv, utilityEntry),
+      () => runMain(agentFlag && !ownsFlag ? withoutAgentFlag(commandArgv) : commandArgv, utilityEntry, contextRequest.root),
       { forAgent: agentViewRequested(options), kind: positionals[0], utilityEntry });
   }
   finally { uninstall(); }
 }
 
-async function runMain(argv, utilityEntry = null) {
+async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
   const modelMode = resolveModelMode(argv);
   const effectiveArgv = stripGlobalModelOptions(argv);
   // Product reinstall and product alignment are intentionally not repository operations. Resolving
@@ -709,7 +712,11 @@ async function runMain(argv, utilityEntry = null) {
   }
   const phaseEntry = definition.name === 'phase' && positionals[1] === 'enter';
   if (phaseEntry) (await import('./commands/phase.mjs')).validatePhaseEntryRequest({ positionals, options });
-  if (definition.name === 'session' && positionals[1] !== 'open' && options['for-agent'] !== undefined) {
+  if (definition.name === 'session' && positionals[1] === 'takeover') {
+    (await import('./commands/session-takeover.mjs')).validateSessionTakeoverRequest({ positionals, options });
+    if (options['for-agent'] && readCopilotMode().paused) return console.log(JSON.stringify(copilotModePresentation(readCopilotMode())));
+  }
+  if (definition.name === 'session' && !['open', 'takeover'].includes(positionals[1]) && options['for-agent'] !== undefined) {
     const paused = (await import('./session-agent-entry.mjs')).sessionAgentEntryGuard(positionals, options);
     if (paused) return console.log(JSON.stringify(paused));
   }
@@ -740,6 +747,28 @@ async function runMain(argv, utilityEntry = null) {
     commandClass: 'unknown', operationId: null, mode: timingMode(options)
   };
   const timer = commandTimer(definition.name, timingInput);
+  // An explicit window/chat binding beats the profile default. It is only a selector: the
+  // existing command still verifies Git, accepted Story, permissions and publication freshness.
+  const contextRoutingExcluded = excludesActiveWorkspaceRouting(definition.name,
+    positionals[1] ?? null, options, positionals[2] ?? null);
+  const boundRoot = contextRoutingExcluded ? null
+    : explicitContextRoot ?? surfaceContext()?.repositoryPath ?? null;
+  if (boundRoot) {
+    let selectedRoot;
+    try { selectedRoot = repoRoot(boundRoot); }
+    catch (error) {
+      throw new SingularityFlowError(`The bound checkout is unavailable: ${error.message}. Another workspace was not selected.`, {
+        code: 'EXECUTION_CONTEXT_ROOT_UNAVAILABLE', details: { repositoryPath: boundRoot,
+          cause: { code: error.code ?? null, message: error.message, details: error.details ?? null } }
+      });
+    }
+    if (!selectedRoot || !sameWorkspaceRepositoryPath(selectedRoot, boundRoot)) {
+      throw new SingularityFlowError('The bound checkout is unavailable. Reopen or repair that checkout; another workspace was not selected.', {
+        code: 'EXECUTION_CONTEXT_ROOT_UNAVAILABLE', details: { repositoryPath: boundRoot }
+      });
+    }
+    process.chdir(selectedRoot);
+  }
   // Selected-base intake owns an independent workspace checkout. Choose it before generic
   // workspace repair, status, authority or fetch can open the original (possibly cloud-only) objects.
   let automaticIntake = null;
@@ -766,7 +795,7 @@ async function runMain(argv, utilityEntry = null) {
   );
   await withCommandTiming(timer, async () => {
     const opened = Boolean(automaticIntake) || Boolean(root) && readsOpenedRepository(definition.name, subcommand);
-    if (!routingExcluded && !opened && (!root || !hasLocalGovernanceAuthority(root))) {
+    if (!boundRoot && !routingExcluded && !opened && (!root || !hasLocalGovernanceAuthority(root))) {
       const selectedRoot = await activeWorkspaceRepositoryRoot(definition.name, {
         subcommand, action, options
       });
@@ -895,7 +924,7 @@ async function runMain(argv, utilityEntry = null) {
     }));
     timer.stage('module-load');
     const startedAt = new Date().toISOString();
-    const execute = () => automaticScope(() => withOperationContext({
+    const execute = () => automaticScope(() => withExecutionContextScope(root, () => withOperationContext({
       operation,
       modelMode,
       root,
@@ -907,7 +936,7 @@ async function runMain(argv, utilityEntry = null) {
     }, () => module.run(effectiveArgv, {
       positionals: [definition.name, ...positionals.slice(1)], options, definition,
       operation, requestedOperation, modelMode
-    })));
+    })), { boundRoot: explicitContextRoot ?? surfaceContext()?.repositoryPath ?? (!routingExcluded ? root : null) }));
     // Keep the complete mutating handler visible to factory reset. The reset barrier and this
     // short-lived, uniquely named lease form a two-way exclusion boundary: a reset refuses while
     // any current-build mutation is active, and a mutation refuses once reset has begun. Loading

@@ -89,7 +89,7 @@ export async function openLocalSessionCommand(positionals, options) {
     { code: 'SESSION_LOCAL_AGENT_UNAVAILABLE' }
   );
   if (workspaceReference && resolved.workspaceContext) await activateWorkspaceContext(
-    workspaceRegistryFile(), activeWorkspaceFile(), resolved.workspaceContext.workspaceId,
+    workspaceRegistryFile(), activeWorkspaceFile(), resolved.workspaceContext.workspacePath ?? resolved.workspaceContext.workspaceId,
     { repositoryId: resolved.workspaceContext.repositoryId, detectStory: false }
   );
   const selection = await activateWorkspaceStoryContext(

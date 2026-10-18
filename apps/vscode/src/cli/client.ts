@@ -21,7 +21,7 @@ import type { RepositorySnapshot, SnapshotSlice } from './snapshot.ts';
 import { recordHostBackgroundProcessStarted, recordHostBackgroundProcessCompleted } from '../host-performance.ts';
 
 export const CORE_SNAPSHOT_SLICES: readonly SnapshotSlice[] = Object.freeze([
-  'repository', 'lifecycle', 'capabilities'
+  'repository', 'lifecycle', 'capabilities', 'executionContext'
 ]);
 const READ_RESULT_CACHE_TTL_MS = 250;
 /** Bounds supervised invocations across clients, not attested living native processes. */
@@ -184,6 +184,7 @@ interface ClientRead {
 }
 
 interface SnapshotEnvelope {
+  executionContext?: RepositorySnapshot['executionContext'];
   included?: SnapshotSlice[];
   notModified?: boolean;
   revision?: RepositorySnapshot['revision'];
@@ -219,6 +220,7 @@ function flattenSnapshot(envelope: SnapshotEnvelope): RepositorySnapshot {
   const capability = envelope.capabilities;
   return {
     workItems: [], initiatives: [], selectedWorkId: null, selectedInitiativeId: null,
+    ...(envelope.executionContext ? { executionContext: envelope.executionContext } : {}),
     initiative: null, workflow: null,
     ...(envelope.lifecycle ?? {}),
     ...(envelope.configuration ?? {}),
@@ -454,7 +456,8 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
       ? 'read'
       : 'mutation';
   }
-  if (args[0] === 'workspace' && ['current', 'list', 'status', 'doctor', 'branches'].includes(args[1] ?? 'list')) return 'read';
+  if (args[0] === 'workspace' && ['current', 'list', 'status', 'doctor', 'branches', 'context', 'checkouts'].includes(args[1] ?? 'list')) return 'read';
+  if (args[0] === 'workspace' && args[1] === 'cleanup' && !enabledBooleanOption(args, 'apply')) return 'read';
   if (args[0] === 'workspace' && args[1] === 'bootstrap') {
     return args[2] === 'status' ? 'read' : 'mutation';
   }
@@ -614,6 +617,8 @@ export interface ClientOptions {
   onTiming?: (event: CliCommandTiming) => void;
   /** A bounded private worker for compatible read-only routes; never used for mutations. */
   warmReads?: boolean;
+  /** Machine-level selectors opt out; repository clients remain bound to their own window. */
+  surfaceBinding?: boolean;
 }
 
 /** Per-call options. Priority only orders reads in the shared pool; writes never queue. */
@@ -775,6 +780,10 @@ export class SingularityFlowClient {
     if (classification !== 'read') this.invalidateReadResults();
     const cacheable = json && input == null && classification === 'read' && cacheableRead(args);
     const env = { ...((typeof this.options.environment === 'function' ? this.options.environment() : this.options.environment) ?? process.env) };
+    // The client belongs to one window/repository. A different window's workspace selection must
+    // never retarget its background reads or mutations. The kernel verifies this selector.
+    if (this.options.surfaceBinding !== false) env.SINGULARITY_FLOW_SURFACE_CONTEXT = JSON.stringify({ schemaVersion: 1, repositoryPath: path.resolve(repository) });
+    else delete env.SINGULARITY_FLOW_SURFACE_CONTEXT;
     const environmentDigest = createHash('sha256').update(JSON.stringify(
       Object.entries(env).filter(([, value]) => value !== undefined).sort(([a], [b]) => a.localeCompare(b))
     )).digest('hex');

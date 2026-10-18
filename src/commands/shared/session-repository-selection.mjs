@@ -6,6 +6,7 @@ import { WORKFLOW_PATH } from '../../config.mjs';
 import { readWorkspace } from '../../workspace.mjs';
 import { workspaceRegistryFile, activeWorkspaceFile, buildWorkspaceContext, readActiveWorkspaceContext } from '../../workspace-context.mjs';
 import { sessionRepositoryAuthority } from './session-repository-authority.mjs';
+import { boundExecutionContextRoot } from '../../execution-context-scope.mjs';
 
 export async function resolveSessionRepository({
   workspaceReference = null, repositoryId = null, localStoryOnly = false, remoteProbe = true
@@ -37,9 +38,19 @@ export async function resolveSessionRepository({
 
   let cwdRoot = null;
   if (!explicit) {
-    try { cwdRoot = repoRoot(); } catch { /* Not inside a Git repository at all. */ }
+    const bound = boundExecutionContextRoot() ? { repositoryPath: boundExecutionContextRoot() } : null;
+    try { cwdRoot = repoRoot(bound?.repositoryPath); }
+    catch (error) {
+      if (bound) throw new SingularityFlowError('The surface checkout is unavailable. Repair it before opening a Story.', {
+        code: 'EXECUTION_CONTEXT_ROOT_UNAVAILABLE'
+      });
+    }
+    const actual = cwdRoot ? await (await import('node:fs/promises')).realpath(cwdRoot) : null;
+    if (bound && actual !== await (await import('node:fs/promises')).realpath(bound.repositoryPath)) {
+      throw new SingularityFlowError('The surface checkout identity changed.', { code: 'EXECUTION_CONTEXT_ROOT_MISMATCH' });
+    }
     const cwdAuthority = await governed(cwdRoot);
-    if (cwdAuthority) {
+    if (cwdAuthority || bound && localStoryOnly) {
       return { root: cwdRoot, resolvedFrom: 'working-directory', workspaceId: null, authority: cwdAuthority };
     }
   }

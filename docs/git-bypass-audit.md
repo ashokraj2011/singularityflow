@@ -1,5 +1,12 @@
 # GAL Git bypass regression gate
 
+Shared execution context adds no Git/process owner. The existing bounded CLI-step launcher now
+passes the kernel-returned checkout to its child process when a surface is explicitly bound; it
+does not accept a profile replacement or broaden its argv. Story-worktree calls are unchanged but
+now sit inside a clone-lifecycle lease (`prepareStoryWorktreeInLease`). Their two reviewed site
+digests change without increasing the process/Git call counts. Inventory reuses the existing
+worktree reader and strict capability-drop proof; VS Code remains a thin CLI client.
+
 Capability history optimization reuses the existing bounded, private configuration-object owner.
 Its two new `update-ref --stdin` sites install freshly advertised exact proposal OIDs in bounded
 pages, one transaction in the retention pool and one in the disposable checkout. Ref names cannot

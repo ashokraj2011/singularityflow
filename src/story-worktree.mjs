@@ -20,6 +20,7 @@ import {
 } from './workspace-context.mjs';
 import { nowIso, run, SingularityFlowError } from './util.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
+import { withRegistryFileLease } from './file-lease.mjs';
 import { measureCommandSpan } from './dx-timing-context.mjs';
 import {
   DEFAULT_WORK_ITEM_ROOT, workItemRootFromDefinitionText, workItemWorkflowRelative
@@ -110,7 +111,7 @@ function legacyStoryPath(parent, candidate, id, repositoryId = null) {
     : parts.length === 2 && /^[0-9a-f]{12}$/i.test(parts[0]) && equal(parts[1], id);
 }
 
-function worktreeInventory(root) {
+export function worktreeInventory(root) {
   const output = run('git', ['worktree', 'list', '--porcelain'], { cwd: root }).stdout;
   const records = [];
   let current = null;
@@ -285,7 +286,18 @@ export async function discardPreparedStoryWorktree(root, workId, { baseCommit } 
  * Create (or resume) the disposable launch checkout. The temporary branch exists only so Git can
  * register the worktree; the normal Story transaction switches it to the canonical Story branch.
  */
-export async function prepareStoryWorktree(root, workId, { base = 'HEAD' } = {}) {
+/** A checkout's retirement and new linked worktrees must not race. The lease lives outside it. */
+export async function withCheckoutLifecycleLease(root, action) {
+  const common = await realpath(gitCommonDir(root));
+  const owner = path.dirname(common);
+  return withRegistryFileLease(path.join(path.dirname(owner), `.sflow-checkout-${digest(common).slice(0, 24)}`), action);
+}
+
+export async function prepareStoryWorktree(root, workId, options = {}) {
+  return withCheckoutLifecycleLease(root, () => prepareStoryWorktreeInLease(root, workId, options));
+}
+
+async function prepareStoryWorktreeInLease(root, workId, { base = 'HEAD', storyBranch = workId } = {}) {
   const id = portableId(workId);
   const locations = await storyWorktreeLocations(root, id);
   const target = path.resolve(locations.compact);
@@ -341,7 +353,7 @@ export async function prepareStoryWorktree(root, workId, { base = 'HEAD' } = {})
           && registered.branch === `sflow-start-${digest(`${registeredCommon}\0${id}`).slice(0, 16)}`;
       } catch { /* An unverifiable old staging branch is never adopted. */ }
     }
-    if (![id, ...stagingBranches].includes(registered.branch) && !provenOlderStage) {
+    if (![id, storyBranch, ...stagingBranches].includes(registered.branch) && !provenOlderStage) {
       throw new SingularityFlowError(
         `Managed path ${registered.path} is registered for branch '${registered.branch ?? 'detached HEAD'}', not Story '${id}'.`,
         { code: 'STORY_WORKTREE_RECOVERY_REQUIRED' }

@@ -17,6 +17,7 @@
     "sf-uninstall": "bin/sf-uninstall.mjs"
   },
   "exports": {
+    "./execution-context": "./src/execution-context.mjs",
     "./src/api.mjs": "./src/api.mjs",
     "./fos": "./src/fos-api.mjs",
     "./gal/async-read": "./src/gal-async-read.mjs",

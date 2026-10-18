@@ -88,6 +88,15 @@ export function compatibleWorktreeInstanceIds(identity) {
   ])];
 }
 
+/** One filesystem identity algorithm for contexts, snapshots, inventory and linked worktrees. */
+export async function repositoryInstanceIdentity(paths, options = {}) {
+  const [common, worktree] = await Promise.all([
+    canonicalFilesystemIdentityPath(paths.commonDir, options),
+    canonicalFilesystemIdentityPath(paths.gitDir, options)
+  ]);
+  return { repositoryInstanceId: localId('repo', common), worktreeInstanceId: localId('worktree', worktree) };
+}
+
 // A context only joins a shared repository group after Git has identified its common directory.
 // Weak references keep invocation-scoped contexts from becoming process-lifetime cache entries.
 const sharedContexts = new Map();
@@ -404,14 +413,9 @@ export class RepoContext {
       this.observe('repository.object-format'), this.observe('repository.bare'),
       this.observe('repository.head'), this.observe('repository.branch')
     ]);
-    const [commonFilesystemIdentity, worktreeFilesystemIdentity] = await Promise.all([
-      canonicalFilesystemIdentityPath(paths.commonDir, {
-        platform: this.#platform, canonicalize: this.#canonicalize
-      }),
-      canonicalFilesystemIdentityPath(paths.gitDir, {
-        platform: this.#platform, canonicalize: this.#canonicalize
-      })
-    ]);
+    const localIdentity = await repositoryInstanceIdentity(paths, {
+      platform: this.#platform, canonicalize: this.#canonicalize
+    });
     return cloneFrozen({
       root,
       gitDir: paths.gitDir,
@@ -422,8 +426,7 @@ export class RepoContext {
       detached: head != null && branch == null,
       head,
       branch,
-      repositoryInstanceId: localId('repo', commonFilesystemIdentity),
-      worktreeInstanceId: localId('worktree', worktreeFilesystemIdentity)
+      ...localIdentity
     });
   }
 }

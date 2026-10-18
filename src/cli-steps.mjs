@@ -14,6 +14,7 @@ import { withoutReadScope } from './read-scope.mjs';
 import { withoutConfigurationReadScope } from './configuration-read-scope.mjs';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 import { capturedStepResult, stepFailureSummary, stepRefusal } from './cli-step-result.mjs';
+import { boundExecutionContextRoot, SURFACE_CONTEXT_ENV } from './execution-context-scope.mjs';
 
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../bin/singularity-flow.mjs');
 
@@ -23,7 +24,9 @@ function processStep(args, cwd) {
   const model = operationContext()?.modelMode?.enabled === false && !args.includes('--no-model') ? ['--no-model'] : [];
   // A step's result is read whole by the command that ran it; only that command's own output is bounded.
   const child = spawnSync(process.execPath, [CLI, ...model, ...args], {
-    cwd, env: { ...process.env, SINGULARITY_FLOW_AGENT_OUTPUT: 'raw', SINGULARITY_FLOW_REFUSAL_ENVELOPE: 'stderr-v1' }, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 30 * 60 * 1000
+    cwd, env: { ...process.env,
+      ...(boundExecutionContextRoot() ? { [SURFACE_CONTEXT_ENV]: JSON.stringify({ schemaVersion: 1, repositoryPath: path.resolve(cwd) }) } : {}),
+      SINGULARITY_FLOW_AGENT_OUTPUT: 'raw', SINGULARITY_FLOW_REFUSAL_ENVELOPE: 'stderr-v1' }, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 30 * 60 * 1000
   });
   return capturedStepResult(child);
 }
@@ -50,7 +53,7 @@ async function readStep(args, cwd) {
   const previousStarted = globalThis.__SINGULARITY_FLOW_PROCESS_STARTED_AT;
   const previousDepth = globalThis.__SINGULARITY_FLOW_CLI_STEP_DEPTH ?? 0;
   const out = process.stdout.write, err = process.stderr.write;
-  const presentation = Object.fromEntries(['SINGULARITY_FLOW_AGENT_OUTPUT', 'SINGULARITY_FLOW_REFUSAL_ENVELOPE']
+  const presentation = Object.fromEntries(['SINGULARITY_FLOW_AGENT_OUTPUT', 'SINGULARITY_FLOW_REFUSAL_ENVELOPE', SURFACE_CONTEXT_ENV]
     .map(key => [key, process.env[key]]));
   const chunks = { stdout: [], stderr: [] }, sizes = { stdout: 0, stderr: 0 };
   const capture = name => function(chunk, encoding, callback) {
@@ -64,6 +67,7 @@ async function readStep(args, cwd) {
   };
   let status = 0;
   try {
+    if (boundExecutionContextRoot()) process.env[SURFACE_CONTEXT_ENV] = JSON.stringify({ schemaVersion: 1, repositoryPath: path.resolve(cwd) });
     process.chdir(cwd); process.exitCode = undefined;
     process.env.SINGULARITY_FLOW_AGENT_OUTPUT = 'raw';
     process.env.SINGULARITY_FLOW_REFUSAL_ENVELOPE = 'stderr-v1';

@@ -1,5 +1,18 @@
 # Singularity Flow Help
 
+## Execution context and Story takeover
+
+Every repository command accepts `--context-root <ABSOLUTE-CHECKOUT>` to bind it to one verified
+location without depending on another window's profile selection. Inspect `workspace context --json`
+or `snapshot --include executionContext --json`. `session open <ID> --refresh --json` synchronizes
+the exact Story; `session takeover <ID> --workspace <PATH> --repository <ID> --json` also restores
+required delivery and pinned reference checkouts. Neither operation approves or advances work.
+
+`workspace checkouts <WORKSPACE> --json` shows the clone/worktree graph. `workspace cleanup
+<WORKSPACE> --json` previews recoverable retirement. Repeat with `--apply --confirm <DIGEST>`;
+for permanent removal, use `--purge` in both preview and application. Only verified unused owned
+branch clones qualify. See [the execution-context contract](docs/EXECUTION-CONTEXT.md).
+
 ## MCP and visual assurance
 
 MCP remains host-managed: Singularity Flow records which agent, phase, and tool may use it. `sflow mcp doctor` is offline by default; `sflow mcp doctor --network` only probes registry or endpoint reachability and does not cache a package. `sflow mcp warm playwright --network` installs the exact reviewed package under Git-local machine state, verifies its registry integrity, and starts the resolved local executable with npm offline before writing a warm receipt. Use `sflow mcp smoke playwright --url <AUTHORIZED-URL>` for a live browser/tool smoke receipt. Capture local output with `sflow mcp record`; remote output requires an explicit public HTTPS `--output-url` and is copied, size-limited, hashed, and committed as evidence.

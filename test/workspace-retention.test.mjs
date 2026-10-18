@@ -150,6 +150,7 @@ test('CLI policy updates and automatic run are distinct from manual deletion con
   assert.equal(settings.settings.completedDays, 21);
   const result = JSON.parse(f.flow(['workspace', 'cleanup', f.workspacePath, '--automatic', '--json']).stdout);
   assert.equal(result.status, 'disabled');
+  assert.notEqual(f.flow(['workspace', 'retention', f.workspacePath, '--completed-days', '', '--json'], { fail: true }).status, 0);
   assert.notEqual(f.flow(['workspace', 'cleanup', f.workspacePath, '--automatic', '--purge', '--json'], { fail: true }).status, 0);
 });
 

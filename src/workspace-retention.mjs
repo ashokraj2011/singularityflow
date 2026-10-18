@@ -33,7 +33,7 @@ async function readLocal(file, fallback, limit = 512 * 1024) {
 }
 export function normalizeWorkspaceRetention(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)
-      || Object.keys(value).some(key => !(key in DEFAULT_WORKSPACE_RETENTION))) fail('Unknown retention setting.', 'WORKSPACE_RETENTION_SETTINGS_INVALID');
+      || Object.keys(value).some(key => !Object.hasOwn(DEFAULT_WORKSPACE_RETENTION, key))) fail('Unknown retention setting.', 'WORKSPACE_RETENTION_SETTINGS_INVALID');
   const settings = { ...DEFAULT_WORKSPACE_RETENTION, ...value };
   if (typeof settings.enabled !== 'boolean' || ['completedDays', 'cancelledDays', 'unusedCloneDays']
     .some(key => !Number.isInteger(settings[key]) || settings[key] < 0 || settings[key] > 3650)

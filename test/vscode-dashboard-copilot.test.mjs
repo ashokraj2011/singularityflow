@@ -6,11 +6,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { deriveReport } from '../src/report.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const views = (name) => path.join(root, 'apps/vscode/src/views', name);
+const views = (name) => pathToFileURL(path.join(root, 'apps/vscode/src/views', name));
 const {
   buildLifecycleAnalytics, copilotCountLabel, copilotEventSentence, premiumLabel, promptSizeNote
 } = await import(views('dashboard-model.ts'));

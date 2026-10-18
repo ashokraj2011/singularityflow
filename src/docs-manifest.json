@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "a9ebd57bbde1094289917a1e23456759b7bb5dcd",
+  "sourceCommit": "827c7288031ba86181e924bb394429a052735180",
   "topicCount": 84,
-  "contentSha256": "11f52c8eda0f7c42d6c7de2e058f05f8b98c1fa97a891ea4cf2f461db0a0ff99",
+  "contentSha256": "b8c55007f9a4184920bdeea6ed63b78eca90b9c29d8e55e53eaa1a1317de12a5",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -584,8 +584,8 @@
     {
       "id": "telemetry-and-cost",
       "title": "Telemetry, tokens, and cost",
-      "version": 11,
-      "sha256": "2438dca42ea5770d5d5c5ecbd71e7df7c271237c9d49858c8419991e0cab5fef",
+      "version": 12,
+      "sha256": "2a13bc73e30d3fb255f154ee3384db65b5424dc4bf8e79bf4fd7a74bb9bc2311",
       "routingSha256": "ef471b8311113be4dd0cd1e937ad735f38012f471772a3d639b1ffdf20c0f4e2",
       "file": "telemetry-and-cost.md"
     },

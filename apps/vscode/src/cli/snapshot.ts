@@ -548,11 +548,23 @@ export interface StoryPhaseCopilot {
   failedModelCalls: CopilotCount;
   failedToolCalls: CopilotCount;
   premiumRequests: CopilotPremiumEstimate;
+  /** The usage Copilot Chat reports for its model calls, in AI units. Absent from older CLIs. */
+  billedAiu?: CopilotCount;
   events: CopilotEvent[];
   /** Event occurrences: a line listing two substituted calls counts two. */
   eventCount: number;
   omittedEvents: number;
   prompt: CopilotPromptSize | null;
+}
+
+/** What this computer counted of Copilot Chat in VS Code for the Story. */
+export interface StoryCopilotChat {
+  counted: boolean;
+  since: string | null;
+  syncedAt: string | null;
+  requests: number;
+  /** Share of input tokens read from Copilot's cache, where both counts were reported. */
+  cachedShare: number | null;
 }
 
 export interface StoryCopilotSummary {
@@ -568,6 +580,12 @@ export interface StoryCopilotSummary {
   failedToolCalls: CopilotCount;
   premiumRequests: CopilotPremiumEstimate;
   premiumMultipliersConfigured: boolean;
+  /** Whether any metered session reported quota and model events. Absent from older CLIs. */
+  eventsObserved?: boolean;
+  /** Absent from older CLIs. */
+  billedAiu?: CopilotCount;
+  /** Absent from older CLIs. */
+  chat?: StoryCopilotChat;
   events: CopilotEvent[];
   /** Event occurrences: a line listing two substituted calls counts two. */
   eventCount: number;

@@ -609,7 +609,11 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
       ? acceptedStory.workflow
       : await loadStoryAggregate(root, definition, selectedId);
     progress = progressSnapshot(workflow);
-    report = deriveReport(workflow, { pricing: definition.tokens?.pricing ?? null, premiumMultipliers: definition.tokens?.premiumMultipliers ?? null });
+    report = deriveReport(workflow, {
+      pricing: definition.tokens?.pricing ?? null, premiumMultipliers: definition.tokens?.premiumMultipliers ?? null,
+      // Only the records already written for this Story's branch: a snapshot never reads Copilot's file.
+      copilotChat: await (await import('./copilot-chat-usage.mjs')).storyCopilotChat(root, workflow)
+    });
     const completeDocumentCatalog = await documentCatalog(root, definition, workflow, { includeDetached: true });
     documents = completeDocumentCatalog.filter(evidenceIsActive);
     detachedDocuments = completeDocumentCatalog.filter((document) => document.status === 'detached');
@@ -878,7 +882,11 @@ async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId, revi
       ? acceptedStory.workflow
       : await loadStoryAggregate(root, definition, selectedWorkId);
     progress = progressSnapshot(workflow);
-    report = deriveReport(workflow, { pricing: definition.tokens?.pricing ?? null, premiumMultipliers: definition.tokens?.premiumMultipliers ?? null });
+    report = deriveReport(workflow, {
+      pricing: definition.tokens?.pricing ?? null, premiumMultipliers: definition.tokens?.premiumMultipliers ?? null,
+      // Only the records already written for this Story's branch: a snapshot never reads Copilot's file.
+      copilotChat: await (await import('./copilot-chat-usage.mjs')).storyCopilotChat(root, workflow)
+    });
     const completeDocumentCatalog = await documentCatalog(root, definition, workflow, { includeDetached: true });
     documents = completeDocumentCatalog.filter(evidenceIsActive);
     detachedDocuments = completeDocumentCatalog.filter((document) => document.status === 'detached');

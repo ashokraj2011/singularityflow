@@ -3,6 +3,9 @@ import { automaticApprovalDisposition } from './lifecycle-transitions.mjs';
 import { estimatePremiumRequests } from './copilot-activity.mjs';
 
 const DECISION_EVENTS = new Set(['phase_approved', 'phase_self_approved', 'phase_rejected', 'phase-approval-waived']);
+const COMPLETION_EVENTS = new Set(['phase_approved', 'phase_self_approved', 'phase-approval-waived', 'phase_completed_without_approval']);
+// Recorded about a phase without anyone working on it then: they do not move the work.
+const BOOKKEEPING_EVENTS = new Set(['phase_telemetry_reconciled', 'phase_assigned', 'phase_retained']);
 
 function timestamp(value) {
   const parsed = value ? Date.parse(value) : NaN;
@@ -211,20 +214,98 @@ function uncapturedReason(entry) {
 const plural = (count, one, many = `${one}s`) => (count === 1 ? one : many);
 
 const CAPTURE_NOTES = [
-  ['pending', (count) => `${count} ${plural(count, 'generation')} ${plural(count, 'is', 'are')} waiting for Copilot to export the finished turn; the next submit reconciles ${plural(count, 'it', 'them')}.`],
-  ['unconfirmed', (count) => `${count} ${plural(count, 'generation')} ${plural(count, 'has', 'have')} no Copilot activity. Work in a session started with \`singularity-flow copilot\` is reconciled on the next submit; native Copilot Chat sends SFlow nothing, so those counts stay unavailable.`],
+  ['pending', (count) => `${count} ${plural(count, 'generation')} ${plural(count, 'is', 'are')} waiting to be recorded; run \`singularity-flow telemetry reconcile\` once Copilot has finished the turn.`],
+  ['unconfirmed', (count) => `${count} ${plural(count, 'generation')} ${plural(count, 'has', 'have')} no Copilot activity. For work in a session started with \`singularity-flow copilot\`, run \`singularity-flow telemetry reconcile\`; Copilot Chat in VS Code is counted only on a computer where counting is on.`],
   ['disabled', (count) => `${count} ${plural(count, 'generation')} ran with local capture turned off; run \`singularity-flow telemetry enable\` to accept it.`],
   ['conflict', (count) => `${count} ${plural(count, 'generation')} found an OpenTelemetry setup SFlow would not override; see \`singularity-flow telemetry probe\`.`],
-  ['not-metered', (count) => `${count} ${plural(count, 'generation')} ran without a metered Copilot session. Copilot reports requests, turns and calls to SFlow only for sessions started with \`singularity-flow copilot\` (in VS Code, Continue with Copilot CLI) after \`singularity-flow telemetry enable\`; native Copilot Chat sends SFlow nothing.`],
+  ['not-metered', (count) => `${count} ${plural(count, 'generation')} ran without a metered Copilot session. Copilot reports requests, turns and calls to SFlow for sessions started with \`singularity-flow copilot\` (in VS Code, Continue with Copilot CLI) after \`singularity-flow telemetry enable\`, and for Copilot Chat in VS Code on a computer where counting is on.`],
   ['older-record', (count) => `${count} ${plural(count, 'generation')} ${plural(count, 'was', 'were')} published before SFlow counted Copilot activity.`]
 ];
 
+const CHAT_NOT_COUNTED = 'Copilot Chat in VS Code is not counted on this computer. Turn it on with "Singularity Flow: Count Copilot Chat Usage"; requests made before then cannot be recovered.';
+
 /** One sentence per reason, with what to do about it, for every surface that shows the counts. */
-function copilotCaptureNotes(uncaptured) {
-  return CAPTURE_NOTES.filter(([reason]) => uncaptured[reason]).map(([reason, note]) => note(uncaptured[reason]));
+function copilotCaptureNotes(uncaptured, { chatCounted = false } = {}) {
+  const notes = CAPTURE_NOTES.filter(([reason]) => uncaptured[reason]).map(([reason, note]) => note(uncaptured[reason]));
+  return !chatCounted && (uncaptured['not-metered'] || uncaptured.unconfirmed) ? [...notes, CHAT_NOT_COUNTED] : notes;
 }
 
-function phaseCopilot(phase, premiumMultipliers) {
+/**
+ * Which phase each Copilot Chat request was made in: the phase the Story's history says was being
+ * worked on at that moment. A completed phase hands work to the next one, and a send-back to the
+ * phase it names. Requests before the Story began or after its last phase completed belong to none.
+ */
+function copilotChatByPhase(workflow, history, requests) {
+  const order = workflow.phaseOrder;
+  const timeline = [];
+  const begun = timestamp(history[0]?.at);
+  if (begun != null && order.length) timeline.push({ at: begun, phase: order[0] });
+  for (const event of history) {
+    const at = timestamp(event.at);
+    if (at == null || !order.includes(event.phase) || BOOKKEEPING_EVENTS.has(event.event)) continue;
+    const phase = COMPLETION_EVENTS.has(event.event) ? order[order.indexOf(event.phase) + 1] ?? null
+      : event.event === 'phase_rejected' ? (order.includes(rejectionTarget(event.detail)) ? rejectionTarget(event.detail) : event.phase)
+        : event.phase;
+    timeline.push({ at, phase });
+  }
+  const phases = new Map();
+  for (const request of requests ?? []) {
+    const at = timestamp(request.at);
+    if (at == null) continue;
+    const phase = timeline.findLast((entry) => entry.at <= at)?.phase;
+    if (!phase) continue;
+    const entry = phases.get(phase) ?? {
+      requests: 0, failedRequests: 0, modelCalls: 0, inputTokens: null, outputTokens: null,
+      cachedInputTokens: null, cacheWriteInputTokens: null, nanoAiu: null, models: new Map()
+    };
+    entry.requests += 1;
+    entry.failedRequests += request.failed ? 1 : 0;
+    entry.modelCalls += request.modelCalls ?? 0;
+    for (const field of ['inputTokens', 'outputTokens', 'cachedInputTokens', 'cacheWriteInputTokens', 'nanoAiu']) {
+      if (Number.isFinite(request[field])) entry[field] = (entry[field] ?? 0) + request[field];
+    }
+    const model = request.model ?? 'unknown';
+    entry.models.set(model, (entry.models.get(model) ?? 0) + 1);
+    phases.set(phase, entry);
+  }
+  return new Map([...phases].map(([phase, entry]) => [phase, {
+    ...entry, models: undefined,
+    requestsByModel: [...entry.models].map(([model, count]) => ({ model, requests: count }))
+  }]));
+}
+
+/**
+ * What this computer counted of Copilot Chat for the Story: whether it counts at all, since when, and
+ * the share of input tokens read from Copilot's cache (where both counts were reported).
+ */
+function copilotChatSummary(copilotChat, phases) {
+  if (!copilotChat?.since) return { counted: false, since: null, syncedAt: null, requests: 0, cachedShare: null };
+  const chats = phases.map((phase) => phase.copilot.chat).filter(Boolean);
+  const input = chats.reduce((sum, chat) => sum + (chat.inputTokens ?? 0), 0);
+  const cached = chats.reduce((sum, chat) => sum + (chat.cachedInputTokens ?? 0), 0);
+  return {
+    counted: true,
+    since: copilotChat.since,
+    syncedAt: copilotChat.syncedAt ?? null,
+    requests: chats.reduce((sum, chat) => sum + chat.requests, 0),
+    cachedShare: input && chats.some((chat) => chat.cachedInputTokens != null) ? Math.round((cached / input) * 100) : null
+  };
+}
+
+/** A count with Copilot Chat's share added: what Copilot Chat recorded is observed, never estimated. */
+function withChatCount(metric, chat, field) {
+  if (!chat?.requests) return metric;
+  const value = chat[field] ?? 0;
+  if (metric.status === 'none' || metric.value == null) return { value, status: 'observed' };
+  return { value: metric.value + value, status: metric.status };
+}
+
+/** Copilot's billed usage in AI units, from the nano-AIU it reports per model call. */
+function aiuMetric(nanoAiu) {
+  return nanoAiu == null ? { value: null, status: 'none' } : { value: Math.round(nanoAiu / 1e7) / 100, status: 'observed' };
+}
+
+function phaseCopilot(phase, premiumMultipliers, chat = null) {
   const generations = (phase.telemetry ?? [])
     .filter((entry) => entry.status !== 'not-invoked')
     .toSorted((left, right) => left.generation - right.generation);
@@ -241,33 +322,45 @@ function phaseCopilot(phase, premiumMultipliers) {
     return spans.length && spans.every(Number.isSafeInteger) && spans.some((count) => count > 0)
       ? spans.reduce((sum, count) => sum + count, 0) : null;
   }));
-  const premiumRequests = combinePremium(generations.map((entry) => (entry.activity?.requestsByModel?.length
-    ? estimatePremiumRequests(entry.activity.requestsByModel, premiumMultipliers)
-    : { value: null, status: 'unavailable', missingModels: [] })));
+  // With Copilot Chat counted, a generation that has no session activity was worked in Copilot Chat:
+  // its requests are already in Copilot Chat's count, so it does not make the estimate partial.
+  const premiumRequests = combinePremium([
+    ...generations.filter((entry) => !chat?.requests || entry.activity).map((entry) => (entry.activity?.requestsByModel?.length
+      ? estimatePremiumRequests(entry.activity.requestsByModel, premiumMultipliers)
+      : { value: null, status: 'unavailable', missingModels: [] })),
+    ...(chat?.requests ? [estimatePremiumRequests(chat.requestsByModel, premiumMultipliers)] : [])
+  ]);
   const prompts = generations.filter((entry) => entry.prompt?.bytes != null);
   const latest = prompts.at(-1) ?? null;
   const limits = (latest?.activity?.promptLimits ?? []).map((entry) => entry.maxPromptTokens).filter(Number.isSafeInteger);
   const limitTokens = limits.length ? Math.min(...limits) : null;
   return {
-    status: !generations.length ? 'none'
-      : generations.every((entry) => entry.activity) ? 'observed'
-        : generations.some((entry) => entry.activity) ? 'partial' : 'unavailable',
+    status: chat?.requests ? 'observed'
+      : !generations.length ? 'none'
+        : generations.every((entry) => entry.activity) ? 'observed'
+          : generations.some((entry) => entry.activity) ? 'partial' : 'unavailable',
     generations: generations.length,
     capturedGenerations: generations.filter((entry) => entry.activity).length,
-    uncaptured: generations.filter((entry) => !entry.activity).reduce((counts, entry) => {
+    uncaptured: chat?.requests ? {} : generations.filter((entry) => !entry.activity).reduce((counts, entry) => {
       const reason = uncapturedReason(entry);
       return { ...counts, [reason]: (counts[reason] ?? 0) + 1 };
     }, {}),
-    requests: metric('requests'),
+    requests: withChatCount(metric('requests'), chat, 'requests'),
     turns: metric('turns'),
     // Whether any generation counted turns from model calls rather than Copilot's own turn count.
     turnsDerived: generations.some((entry) => entry.activity?.turnsAssurance === 'derived-from-model-calls'),
-    modelCalls: metric('modelCalls'),
+    modelCalls: withChatCount(metric('modelCalls'), chat, 'modelCalls'),
     toolCalls: metric('toolCalls'),
-    failedRequests: metric('failedRequests'),
+    failedRequests: withChatCount(metric('failedRequests'), chat, 'failedRequests'),
     failedModelCalls: metric('failedModelCalls'),
     failedToolCalls: metric('failedToolCalls'),
     premiumRequests,
+    billedAiu: aiuMetric(chat?.nanoAiu ?? null),
+    chat: chat?.requests ? {
+      requests: chat.requests, modelCalls: chat.modelCalls, inputTokens: chat.inputTokens,
+      outputTokens: chat.outputTokens, cachedInputTokens: chat.cachedInputTokens,
+      cacheWriteInputTokens: chat.cacheWriteInputTokens
+    } : null,
     events: generations.flatMap((entry) => (entry.activity?.events ?? [])
       .map((event) => ({ generation: entry.generation, ...event }))),
     // Occurrences, not groups: two substituted calls are two events listed on one line.
@@ -296,9 +389,12 @@ function rejectionTarget(detail) {
   return /\breturned to ([A-Za-z0-9_.-]+):/.exec(String(detail ?? ''))?.[1] ?? null;
 }
 
-export function deriveReport(workflow, { pricing = null, premiumMultipliers = null, now = nowIso() } = {}) {
+export function deriveReport(workflow, {
+  pricing = null, premiumMultipliers = null, now = nowIso(), copilotChat = null
+} = {}) {
   const reportTime = timestamp(now);
   const history = [...(workflow.history ?? [])].sort(compareEvents);
+  const chatByPhase = copilotChatByPhase(workflow, history, copilotChat?.requests);
   const phases = workflow.phaseOrder.map((id) => {
     const phase = workflow.phases[id];
     const events = phaseEvents(history, id);
@@ -366,7 +462,7 @@ export function deriveReport(workflow, { pricing = null, premiumMultipliers = nu
       costStatus: !pricedRecords ? 'unavailable' : fullyPricedRecords === usage.length ? 'exact' : 'partial',
       checks,
       cycles: wait.cycles,
-      copilot: phaseCopilot(phase, premiumMultipliers)
+      copilot: phaseCopilot(phase, premiumMultipliers, chatByPhase.get(id) ?? null)
     };
   });
 
@@ -403,7 +499,12 @@ export function deriveReport(workflow, { pricing = null, premiumMultipliers = nu
     turnsDerived: phases.some((phase) => phase.copilot.turnsDerived),
     premiumRequests: combinePremium(phases.map((phase) => phase.copilot.premiumRequests)),
     premiumMultipliersConfigured: Boolean(premiumMultipliers && Object.keys(premiumMultipliers).length),
+    billedAiu: aiuMetric([...chatByPhase.values()].some((chat) => chat.nanoAiu != null)
+      ? [...chatByPhase.values()].reduce((sum, chat) => sum + (chat.nanoAiu ?? 0), 0) : null),
+    chat: copilotChatSummary(copilotChat, phases),
     events: phases.flatMap((phase) => phase.copilot.events.map((event) => ({ phase: phase.id, ...event }))),
+    // Quota and model events come from metered sessions only; Copilot Chat's counts carry none.
+    eventsObserved: phases.some((phase) => phase.copilot.capturedGenerations > 0),
     eventCount: phases.reduce((sum, phase) => sum + phase.copilot.eventCount, 0),
     omittedEvents: phases.reduce((sum, phase) => sum + phase.copilot.omittedEvents, 0),
     largestPrompt: largestPrompt ? {
@@ -413,7 +514,7 @@ export function deriveReport(workflow, { pricing = null, premiumMultipliers = nu
     } : null,
     promptsOverBudget: prompted.filter((phase) => phase.copilot.prompt.overBudget).map((phase) => phase.id),
     uncaptured,
-    captureNotes: copilotCaptureNotes(uncaptured)
+    captureNotes: copilotCaptureNotes(uncaptured, { chatCounted: Boolean(copilotChat?.since) })
   };
   const bottleneck = phases
     .filter((phase) => phase.waitingMs != null && phase.waitingMs > 0)
@@ -547,6 +648,18 @@ function toolCell(phase) {
   return failed ? `${cell} (${failed} failed)` : cell;
 }
 
+function aiuCell(metric) {
+  return metric?.value == null ? '—' : metric.value.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
+/** Where this computer's Copilot Chat counts come from, or how to start counting them. */
+function copilotChatLine(chat) {
+  if (!chat?.counted) return null;
+  const parts = [`Copilot Chat on this computer: ${chat.requests} request${chat.requests === 1 ? '' : 's'} for this Story, counted since ${chat.since}`];
+  if (chat.cachedShare != null) parts.push(`${chat.cachedShare}% of their input tokens read from Copilot's cache`);
+  return `${parts.join('; ')}. Other people's Copilot Chat use is not included.`;
+}
+
 function hasCopilotSection(report) {
   return Boolean(report.copilot) && (report.copilot.status !== 'none'
     || report.phases.some((phase) => phase.copilot?.prompt || phase.sentBack));
@@ -562,7 +675,7 @@ function copilotEventLine(event) {
   return `${where}: ${calls} failed (${event.errorType ?? 'error'}).`;
 }
 
-const COPILOT_SOURCES = 'Requests, turns, model calls and tool calls are counted from the spans Copilot exports for launches through `singularity-flow copilot`; native IDE chat sends SFlow none. A turn is one model round trip; where Copilot does not report the count, it is the model calls under the request. Premium requests are estimated as requests times `tokens.premiumMultipliers`; GitHub\'s billing is authoritative. The phase prompt is the prompt sflow composed for the latest generation: exact bytes, tokens estimated as bytes ÷ 4. Copilot adds its own instructions, tools and history to it.';
+const COPILOT_SOURCES = 'Requests, turns, model calls and tool calls are counted from the spans Copilot exports for launches through `singularity-flow copilot`, and for Copilot Chat in VS Code from the local file it writes on a computer where counting is on. A turn is one model round trip; where Copilot does not report the count, it is the model calls under the request. Premium requests are estimated as requests times `tokens.premiumMultipliers`; GitHub\'s billing is authoritative. Billed (AIU) is the usage Copilot Chat reports for its model calls. The phase prompt is the prompt sflow composed for the latest generation: exact bytes, tokens estimated as bytes ÷ 4. Copilot adds its own instructions, tools and history to it.';
 
 export function renderMarkdown(report) {
   const item = report.workItem;
@@ -592,17 +705,20 @@ export function renderMarkdown(report) {
     const totals = [
       copilot.requests.value != null ? `${countCell(copilot.requests)} requests` : null,
       copilot.premiumRequests.value != null ? `${premiumCell(copilot.premiumRequests)} premium requests (estimated)` : null,
+      copilot.billedAiu?.value != null ? `${aiuCell(copilot.billedAiu)} AIU billed (Copilot-reported)` : null,
       copilot.turns.value != null ? `${countCell(copilot.turns)} turns` : null,
       copilot.eventCount ? `${copilot.eventCount} quota or model event${copilot.eventCount === 1 ? '' : 's'}` : null,
       copilot.largestPrompt ? `largest phase prompt ${sizeLabel(copilot.largestPrompt.bytes)} in \`${copilot.largestPrompt.phase}\`` : null
     ].filter(Boolean);
     if (totals.length) lines.push(totals.join(' · '), '');
-    lines.push('| Phase | Gens | Sent back | Requests | Turns | Model calls | Tool calls | Premium requests | Phase prompt |');
-    lines.push('|-------|------|-----------|----------|-------|-------------|------------|------------------|-----------------|');
+    lines.push('| Phase | Gens | Sent back | Requests | Turns | Model calls | Tool calls | Premium requests | Billed (AIU) | Phase prompt |');
+    lines.push('|-------|------|-----------|----------|-------|-------------|------------|------------------|--------------|-----------------|');
     for (const phase of report.phases) {
-      lines.push(`| ${phase.label} (\`${phase.id}\`) | ${phase.generations} | ${phase.sentBack} | ${countCell(phase.copilot.requests)} | ${countCell(phase.copilot.turns)} | ${countCell(phase.copilot.modelCalls)} | ${toolCell(phase)} | ${premiumCell(phase.copilot.premiumRequests)} | ${promptCell(phase.copilot.prompt)} |`);
+      lines.push(`| ${phase.label} (\`${phase.id}\`) | ${phase.generations} | ${phase.sentBack} | ${countCell(phase.copilot.requests)} | ${countCell(phase.copilot.turns)} | ${countCell(phase.copilot.modelCalls)} | ${toolCell(phase)} | ${premiumCell(phase.copilot.premiumRequests)} | ${aiuCell(phase.copilot.billedAiu)} | ${promptCell(phase.copilot.prompt)} |`);
     }
     lines.push('');
+    const chatLine = copilotChatLine(copilot.chat);
+    if (chatLine) lines.push(`_${chatLine}_`, '');
     if (copilot.events.length) {
       lines.push('**Quota and model events:**', '');
       for (const event of copilot.events) lines.push(`- ${copilotEventLine(event)}`);
@@ -760,7 +876,8 @@ function copilotHtml(report) {
     note: (row) => (row.promptBudget == null ? '' : `of ${sizeLabel(row.promptBudget)} budget${row.copilot.prompt?.overBudget ? ', over it' : ''}`),
     missing: () => 'no composed prompt'
   });
-  const tableRows = report.phases.map((phase) => `<tr><td>${escapeHtml(phase.label)}</td><td>${phase.generations}</td><td>${phase.sentBack}</td><td>${escapeHtml(countCell(phase.copilot.requests))}</td><td>${escapeHtml(countCell(phase.copilot.turns))}</td><td>${escapeHtml(countCell(phase.copilot.modelCalls))}</td><td>${escapeHtml(toolCell(phase))}</td><td>${escapeHtml(premiumCell(phase.copilot.premiumRequests))}</td><td>${escapeHtml(promptCell(phase.copilot.prompt))}</td></tr>`).join('');
+  const tableRows = report.phases.map((phase) => `<tr><td>${escapeHtml(phase.label)}</td><td>${phase.generations}</td><td>${phase.sentBack}</td><td>${escapeHtml(countCell(phase.copilot.requests))}</td><td>${escapeHtml(countCell(phase.copilot.turns))}</td><td>${escapeHtml(countCell(phase.copilot.modelCalls))}</td><td>${escapeHtml(toolCell(phase))}</td><td>${escapeHtml(premiumCell(phase.copilot.premiumRequests))}</td><td>${escapeHtml(aiuCell(phase.copilot.billedAiu))}</td><td>${escapeHtml(promptCell(phase.copilot.prompt))}</td></tr>`).join('');
+  const chatLine = copilotChatLine(copilot.chat);
   const events = copilot.events.length
     ? `<h3>Quota and model events</h3><ul>${copilot.events.map((event) => `<li>${escapeHtml(copilotEventLine(event))}</li>`).join('')}${copilot.omittedEvents ? `<li>${copilot.omittedEvents} more event group${copilot.omittedEvents === 1 ? '' : 's'} not listed.</li>` : ''}</ul>` : '';
   const captureNotes = copilot.captureNotes.length
@@ -768,7 +885,8 @@ function copilotHtml(report) {
   const missing = copilot.premiumRequests.missingModels.length
     ? `<p class="note">Premium requests are ${copilot.premiumRequests.value == null ? 'unavailable' : 'partial'}: no <code>tokens.premiumMultipliers</code> entry for ${escapeHtml(copilot.premiumRequests.missingModels.join(', '))}.</p>` : '';
   return `<h2>Copilot activity by phase</h2>
-<table><thead><tr><th>Phase</th><th>Gens</th><th>Sent back</th><th>Requests</th><th>Turns</th><th>Model calls</th><th>Tool calls</th><th>Premium requests</th><th>Phase prompt</th></tr></thead><tbody>${tableRows}</tbody></table>
+<table><thead><tr><th>Phase</th><th>Gens</th><th>Sent back</th><th>Requests</th><th>Turns</th><th>Model calls</th><th>Tool calls</th><th>Premium requests</th><th>Billed (AIU)</th><th>Phase prompt</th></tr></thead><tbody>${tableRows}</tbody></table>
+${chatLine ? `<p class="note">${escapeHtml(chatLine)}</p>` : ''}
 <h3>Requests, turns, model and tool calls</h3>
 ${activityChart}
 <h3>Estimated premium requests</h3>

@@ -261,6 +261,11 @@ tokens:
   # No pricing is assumed when this map is omitted.
   # pricing:
   #   provider-model-name: { input: 3, output: 15, cachedInput: 0.3 }
+  # Optional Copilot premium-request multipliers, keyed by model name, for the report's estimate
+  # (requests times multiplier). GitHub publishes and changes them; none are assumed.
+  # premiumMultipliers:
+  #   premium-model-name: 1
+  #   included-model-name: 0
 
 # Closed-loop context accounting starts in observe mode: packets and local metadata are measured,
 # but the host's agent context is not changed until a repository explicitly selects assist/enforce.

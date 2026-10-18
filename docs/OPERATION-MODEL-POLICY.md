@@ -709,6 +709,7 @@ Every public operation is classified before its implementation module is importe
 | task.retry | mutation | never | — | — |
 | task.retry.plan | mutation | never | — | — |
 | task.show | read | never | — | — |
+| telemetry.chat | read | never | — | — |
 | telemetry.disable | mutation | never | — | — |
 | telemetry.enable | mutation | never | — | — |
 | telemetry.probe | read | never | — | — |

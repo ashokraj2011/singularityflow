@@ -60,7 +60,10 @@ export async function reportCommand(positionals, options) {
   const format = optionString(options, 'format', 'md').toLowerCase();
   if (!['md', 'html', 'json'].includes(format)) throw new SingularityFlowError(`Unknown report format: ${format}. Use md, html, or json.`);
   const preferences = await readReportPreferences(root);
-  const report = await timer.measure('derive', async () => deriveReport(workflow, preferences));
+  // A report is not work: it may read what Copilot Chat wrote on this computer since the last sync.
+  const { storyCopilotChat } = await import('../copilot-chat-usage.mjs');
+  const copilotChat = await timer.measure('copilot-chat', () => storyCopilotChat(root, workflow, { sync: true }));
+  const report = await timer.measure('derive', async () => deriveReport(workflow, { ...preferences, copilotChat }));
   let rendered = await timer.measure('render', async () => format === 'json'
     ? `${JSON.stringify(report, null, 2)}\n`
     : format === 'html' ? renderHtml(report) : renderMarkdown(report));
@@ -113,5 +116,6 @@ export async function reviewCommand(positionals, options) {
 /** Same informational JSON derivation used by the CLI, without console capture. */
 export async function readReport(root, workId = null) {
   const workflow = await readStoryState(root, workId);
-  return deriveReport(workflow, await readReportPreferences(root));
+  const { storyCopilotChat } = await import('../copilot-chat-usage.mjs');
+  return deriveReport(workflow, { ...await readReportPreferences(root), copilotChat: await storyCopilotChat(root, workflow) });
 }

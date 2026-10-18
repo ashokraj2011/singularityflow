@@ -303,9 +303,9 @@ test('the report counts Copilot requests, turns, calls, premium requests and pro
   assert.match(markdown, /1 rework cycle · 1 send-back · tokens unavailable/);
   assert.match(markdown, /\| github \| model-alpha-1\.5 \| 1 \| 0 \| 1 \| unavailable \|/);
   assert.match(markdown, /## Copilot activity by phase/);
-  assert.match(markdown, /\| Design \(`design`\) \| 2 \| 1 \| 1\* \| 4\* \| 7 \| 2\* \| unavailable \| 78\.1 KB \(~20,000 tokens\), over its 64\.0 KB budget \|/);
-  assert.match(markdown, /\| Requirements \(`requirements`\) \| 1 \| 0 \| 2 \| 5 \| 5 \| 8 \(1 failed\) \| ~2 \| 20\.0 KB \(~5,120 tokens\), 5% of the model's prompt limit \|/);
-  assert.match(markdown, /\| Implementation \(`implementation`\) \| 1 \| 0 \| — \| — \| — \| — \| — \| — \|/);
+  assert.match(markdown, /\| Design \(`design`\) \| 2 \| 1 \| 1\* \| 4\* \| 7 \| 2\* \| unavailable \| — \| 78\.1 KB \(~20,000 tokens\), over its 64\.0 KB budget \|/);
+  assert.match(markdown, /\| Requirements \(`requirements`\) \| 1 \| 0 \| 2 \| 5 \| 5 \| 8 \(1 failed\) \| ~2 \| — \| 20\.0 KB \(~5,120 tokens\), 5% of the model's prompt limit \|/);
+  assert.match(markdown, /\| Implementation \(`implementation`\) \| 1 \| 0 \| — \| — \| — \| — \| — \| — \| — \|/);
   assert.match(markdown, /Copilot answered 2 model calls for model-premium-2 with gpt-4\.1/);
   assert.match(markdown, /design generation 2, from 2026-07-01T12:05:00\.000Z: 1 model call was rate limited \(429\)\./);
   assert.match(markdown, /3 quota or model events/, 'two substituted calls and one rate-limited call');
@@ -372,13 +372,17 @@ test('a generation Copilot sent nothing for says why, with what to do, and never
   assert.deepEqual(report.phases[2].copilot.uncaptured, {}, 'a manual generation sent nothing, and needs no reason');
   assert.equal(report.copilot.status, 'unavailable');
   assert.deepEqual(report.copilot.captureNotes, [
-    '1 generation is waiting for Copilot to export the finished turn; the next submit reconciles it.',
-    '1 generation has no Copilot activity. Work in a session started with `singularity-flow copilot` is reconciled on the next submit; native Copilot Chat sends SFlow nothing, so those counts stay unavailable.',
+    '1 generation is waiting to be recorded; run `singularity-flow telemetry reconcile` once Copilot has finished the turn.',
+    '1 generation has no Copilot activity. For work in a session started with `singularity-flow copilot`, run `singularity-flow telemetry reconcile`; Copilot Chat in VS Code is counted only on a computer where counting is on.',
     '1 generation ran with local capture turned off; run `singularity-flow telemetry enable` to accept it.',
     '1 generation found an OpenTelemetry setup SFlow would not override; see `singularity-flow telemetry probe`.',
-    '1 generation ran without a metered Copilot session. Copilot reports requests, turns and calls to SFlow only for sessions started with `singularity-flow copilot` (in VS Code, Continue with Copilot CLI) after `singularity-flow telemetry enable`; native Copilot Chat sends SFlow nothing.',
-    '1 generation was published before SFlow counted Copilot activity.'
+    '1 generation ran without a metered Copilot session. Copilot reports requests, turns and calls to SFlow for sessions started with `singularity-flow copilot` (in VS Code, Continue with Copilot CLI) after `singularity-flow telemetry enable`, and for Copilot Chat in VS Code on a computer where counting is on.',
+    '1 generation was published before SFlow counted Copilot activity.',
+    'Copilot Chat in VS Code is not counted on this computer. Turn it on with "Singularity Flow: Count Copilot Chat Usage"; requests made before then cannot be recovered.'
   ]);
+  const counting = deriveReport(workflow, { now: at(60), copilotChat: { since: at(0), syncedAt: at(60), requests: [] } });
+  assert.ok(!counting.copilot.captureNotes.some((note) => note.startsWith('Copilot Chat in VS Code is not counted')),
+    'a computer that counts Copilot Chat is not told to turn it on');
 
   const markdown = renderMarkdown(report);
   assert.match(markdown, /\*\*Why some counts are unavailable:\*\*\n\n- 1 generation is waiting/);
@@ -386,4 +390,61 @@ test('a generation Copilot sent nothing for says why, with what to do, and never
   const html = renderHtml(report);
   assert.match(html, /<h3>Why some counts are unavailable<\/h3>/);
   assert.match(html, /started with <code>singularity-flow copilot<\/code>/);
+});
+
+test('Copilot Chat requests count in the phase being worked on when they were made, with premium and billed usage', () => {
+  const chatRequest = (minutes, fields = {}) => ({
+    trace: `t${minutes}`, at: at(minutes), model: 'gpt-5', modelCalls: 3, inputTokens: 1000, outputTokens: 100,
+    cachedInputTokens: 900, cacheWriteInputTokens: null, nanoAiu: 250_000_000, failed: false, ...fields
+  });
+  const workflow = {
+    ...copilotWorkflow(),
+    history: [
+      { at: at(0), event: 'phase_generated', phase: 'requirements' },
+      { at: at(60), event: 'phase_approved', phase: 'requirements' },
+      { at: at(150), event: 'phase_telemetry_reconciled', phase: 'requirements' },
+      { at: at(200), event: 'phase_rejected', phase: 'implementation', detail: 'CR-001 returned to design: the diagram is missing' },
+      { at: at(300), event: 'phase_approved', phase: 'design' }
+    ]
+  };
+  const copilotChat = {
+    since: at(0), syncedAt: at(400),
+    requests: [
+      chatRequest(-5), // before the Story began: counted nowhere
+      chatRequest(30, { model: 'gpt-5-mini', nanoAiu: null, cachedInputTokens: null }),
+      chatRequest(90), chatRequest(160), // after requirements completed: design, despite the reconcile at 150
+      chatRequest(250, { failed: true }), // returned to design at 200
+      chatRequest(320) // design completed at 300: implementation
+    ]
+  };
+  const report = deriveReport(workflow, { now: at(400), premiumMultipliers: { 'gpt-5': 1, 'gpt-5-mini': 0 }, copilotChat });
+  const [requirements, design, implementation] = report.phases;
+  assert.deepEqual(requirements.copilot.requests, { value: 3, status: 'observed' }, 'two from the session plus one in Copilot Chat');
+  assert.deepEqual(design.copilot.requests, { value: 4, status: 'partial' });
+  assert.deepEqual(implementation.copilot.requests, { value: 1, status: 'observed' });
+  assert.deepEqual(design.copilot.failedRequests, { value: 1, status: 'partial' });
+  assert.deepEqual(implementation.copilot.premiumRequests, { value: 1, status: 'estimated', missingModels: [] });
+  assert.deepEqual(design.copilot.premiumRequests, { value: 3, status: 'partial', missingModels: ['model-premium-2'] },
+    'Copilot Chat makes design\'s session generation 1 no longer missing, but model-premium-2 still has no multiplier');
+  assert.deepEqual(requirements.copilot.billedAiu, { value: null, status: 'none' }, 'gpt-5-mini reported no billed usage');
+  assert.deepEqual(design.copilot.billedAiu, { value: 0.75, status: 'observed' });
+  assert.deepEqual(report.copilot.billedAiu, { value: 1, status: 'observed' });
+  assert.deepEqual(report.copilot.chat, { counted: true, since: at(0), syncedAt: at(400), requests: 5, cachedShare: 72 });
+  assert.equal(design.copilot.status, 'observed');
+  assert.deepEqual(design.copilot.uncaptured, {});
+  assert.equal(report.copilot.eventsObserved, true, 'the metered sessions reported events');
+  assert.equal(deriveReport({ ...workflow, phases: Object.fromEntries(Object.entries(workflow.phases)
+    .map(([id, phase]) => [id, { ...phase, telemetry: [] }])) }, { now: at(400), copilotChat }).copilot.eventsObserved, false,
+  'Copilot Chat alone observes no quota events');
+
+  const markdown = renderMarkdown(report);
+  assert.match(markdown, /1 AIU billed \(Copilot-reported\)/);
+  assert.match(markdown, /\| Premium requests \| Billed \(AIU\) \| Phase prompt \|/);
+  assert.match(markdown, /Copilot Chat on this computer: 5 requests for this Story, counted since .*; 72% of their input tokens read from Copilot's cache\. Other people's Copilot Chat use is not included\./);
+  assert.match(renderHtml(report), /<th>Billed \(AIU\)<\/th>/);
+
+  // Nothing counted on this computer is different from counting nothing.
+  const uncounted = deriveReport(workflow, { now: at(400), premiumMultipliers: { 'gpt-5': 1 } });
+  assert.deepEqual(uncounted.copilot.chat, { counted: false, since: null, syncedAt: null, requests: 0, cachedShare: null });
+  assert.equal(uncounted.phases[2].copilot.status, 'none');
 });

@@ -11,6 +11,11 @@ import {
 } from './dashboard-model.ts';
 import { escape, icon } from './webview.ts';
 
+/** Copilot's billed usage in AI units, or a dash when nothing reported it. */
+function aiuLabel(metric: { value: number | null } | null | undefined): string {
+  return metric?.value == null ? '—' : metric.value.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
 /** The engine writes commands as `code` spans; shown as code once the text is escaped. */
 function codeSpans(escaped: string): string {
   return escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
@@ -48,7 +53,7 @@ export function copilotActivityHtml(analytics: LifecycleAnalytics): string {
       : copilot.premiumRequests.status === 'partial' ? 'Estimated; some models have no multiplier' : 'Estimated from configured multipliers';
   // A count of events is only as good as the capture behind it: nothing captured is not zero events.
   const eventValue = copilot.status === 'none' ? '—'
-    : copilot.status === 'unavailable' ? 'Unavailable'
+    : copilot.status === 'unavailable' || copilot.eventsObserved === false ? 'Unavailable'
       : `${copilot.eventCount}${copilot.status === 'partial' ? ' (partial)' : ''}`;
   const captureNotes = copilot.captureNotes?.length
     ? `<ul class="sources">${copilot.captureNotes.map((note) => `<li class="warning-text">${codeSpans(escape(note))}</li>`).join('')}</ul>`
@@ -62,26 +67,32 @@ export function copilotActivityHtml(analytics: LifecycleAnalytics): string {
     <td>${escape(copilotCountLabel(phase.copilot?.modelCalls))}</td>
     <td>${escape(copilotCountLabel(phase.copilot?.toolCalls))}${failed ? ` <span class="warning-text">(${failed} failed)</span>` : ''}</td>
     <td>${escape(premiumLabel(phase.copilot?.premiumRequests))}${phase.copilot?.eventCount ? ` <span class="warning-text" title="Quota or model events">⚠ ${phase.copilot.eventCount}</span>` : ''}</td>
+    <td>${escape(aiuLabel(phase.copilot?.billedAiu))}</td>
     <td class="duration-cell">${promptBarHtml(phase, scale)}</td>
   </tr>`;
   }).join('');
   const events = copilot.events.length
     ? `<h3>Quota and model events</h3><ul class="sources">${copilot.events.map((event) => `<li class="warning-text">${escape(copilotEventSentence(event))}</li>`).join('')}${copilot.omittedEvents ? `<li class="muted">${copilot.omittedEvents} more not listed.</li>` : ''}</ul>`
     : '';
+  const chat = copilot.chat?.counted
+    ? `<p class="muted">Copilot Chat on this computer: ${copilot.chat.requests} request${copilot.chat.requests === 1 ? '' : 's'} for this Story, counted since ${escape(copilot.chat.since ?? '')}${copilot.chat.cachedShare != null ? `; ${copilot.chat.cachedShare}% of their input tokens read from Copilot's cache` : ''}. Other people's Copilot Chat use is not included.</p>`
+    : '';
   return `<section>
     <h2>${icon('impact')}Copilot activity</h2>
-    <p class="muted">Counted from the spans Copilot exports for launches through <code>singularity-flow copilot</code>; native chat sends SFlow none. Premium requests are estimated as requests × <code>tokens.premiumMultipliers</code>, and GitHub's billing is authoritative. The prompt is what sflow composed for the latest generation (bytes exact, tokens ≈ bytes ÷ 4); Copilot adds its own instructions, tools and history.</p>
+    <p class="muted">Counted from the spans Copilot exports for launches through <code>singularity-flow copilot</code>, and for Copilot Chat in VS Code from the local file it writes on a computer where counting is on. Premium requests are estimated as requests × <code>tokens.premiumMultipliers</code>, and GitHub's billing is authoritative. The prompt is what sflow composed for the latest generation (bytes exact, tokens ≈ bytes ÷ 4); Copilot adds its own instructions, tools and history.</p>
     <div class="summary-grid lifecycle-kpis">
       <div class="summary-card"><strong>${escape(copilotCountLabel(copilot.requests))}</strong><span>Requests you sent</span></div>
       <div class="summary-card${copilot.events.some((event) => event.kind !== 'failed') ? ' governance-warning' : ''}"><strong>${escape(premiumLabel(copilot.premiumRequests))}</strong><span>Premium requests · ${escape(premiumNote)}</span></div>
+      ${copilot.billedAiu?.value != null ? `<div class="summary-card"><strong>${escape(aiuLabel(copilot.billedAiu))}</strong><span>Billed usage (AIU) · reported by Copilot Chat</span></div>` : ''}
       <div class="summary-card"><strong>${escape(copilotCountLabel(copilot.turns))}</strong><span>Agent turns${copilot.turnsDerived ? ' · some counted from model calls' : ''}</span></div>
       <div class="summary-card"><strong>${escape(copilotCountLabel(copilot.toolCalls))}</strong><span>Tool calls</span></div>
       <div class="summary-card${copilot.eventCount ? ' governance-warning' : ''}"><strong>${escape(eventValue)}</strong><span>Quota and model events</span></div>
       <div class="summary-card${copilot.promptsOverBudget.length ? ' governance-warning' : ''}"><strong>${copilot.largestPrompt ? escape(sizeLabel(copilot.largestPrompt.bytes)) : '—'}</strong><span>Largest governed prompt${copilot.largestPrompt ? ` · ${escape(copilot.largestPrompt.phase)}` : ''}${copilot.promptsOverBudget.length ? ` · ${copilot.promptsOverBudget.length} over budget` : ''}</span></div>
     </div>
+    ${chat}
     ${captureNotes}
     <div class="table-wrap"><table class="analytics-table">
-      <thead><tr><th>Phase</th><th>Requests</th><th>Turns</th><th>Model calls</th><th>Tool calls</th><th>Premium (est.)</th><th>Prompt</th></tr></thead>
+      <thead><tr><th>Phase</th><th>Requests</th><th>Turns</th><th>Model calls</th><th>Tool calls</th><th>Premium (est.)</th><th>Billed (AIU)</th><th>Prompt</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
     ${events}

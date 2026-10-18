@@ -144,6 +144,9 @@ import {
 import { GatewayStatusWorker } from './gateway-status-worker-client.ts';
 import { commandGuidanceText, safeCommandPair } from './views/command-guidance.ts';
 import { modelFreeRouteText } from './copilot-command.ts';
+import {
+  offerCopilotChatCounting, startCopilotChatCounting, turnOffCopilotChatCounting, turnOnCopilotChatCounting
+} from './copilot-chat-counting.ts';
 import { configuredGitRemoteUrls, configuredGitRemotes, gitVersion } from './cli/git-observations.ts';
 import {
   alignProductSurfaces, codeLauncher, LoadedBundle, openConfigurationReviews, type ProductAlignmentHost
@@ -161,6 +164,8 @@ const REPOSITORY_SETUP_CHANGED_MESSAGE =
 
 type LazyPanelsRuntime = typeof import('./lazy-panels-runtime.ts');
 let lazyPanelsRuntime: LazyPanelsRuntime | null = null;
+// Repository runtimes can be bound more than once per activation; Copilot Chat counting starts once.
+let copilotChatCountingStarted = false;
 function lazyPanels(): LazyPanelsRuntime {
   if (lazyPanelsRuntime) return lazyPanelsRuntime;
   const started = performance.now();
@@ -967,6 +972,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openWorkspaceLogs', 'singularityFlow.refreshWorkspaceLogs', 'singularityFlow.openSpecificationTrace',
     'singularityFlow.inspectCompositionCache', 'singularityFlow.checkLedgerDeployment',
     'singularityFlow.openCopilot', 'singularityFlow.openMeteredCopilot',
+    'singularityFlow.countCopilotChatUsage', 'singularityFlow.stopCountingCopilotChatUsage',
     'singularityFlow.openVisualAssurance',
     'singularityFlow.openConfigurationCenter', 'singularityFlow.configureTests', 'singularityFlow.configureAuto', 'singularityFlow.configureWorldModel',
     'singularityFlow.configureAstIntelligence',
@@ -4686,6 +4692,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   output.appendLine(`Using CLI (${client.location.source}): ${client.location.cli}`);
   for (const [id, handler] of Object.entries(executionContextHandlers(context, client))) handlers.set(id, handler);
+  handlers.set('singularityFlow.countCopilotChatUsage', () => turnOnCopilotChatCounting(client));
+  handlers.set('singularityFlow.stopCountingCopilotChatUsage', () => turnOffCopilotChatCounting(client));
+  if (!copilotChatCountingStarted && vscode.env?.appHost) {
+    copilotChatCountingStarted = true;
+    startCopilotChatCounting(context, client, (line) => output.appendLine(line));
+    context.subscriptions.push({ dispose: () => { copilotChatCountingStarted = false; } });
+  }
   handlers.set('singularityFlow.checkRepository', async () => {
     try {
       const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
@@ -9036,13 +9049,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     'singularityFlow.openCopilot': async () => {
       try {
-        const nativeUsageNotice = 'singularityFlow.nativeCopilotUsageUnavailableNotice';
-        if (!context.globalState.get<boolean>(nativeUsageNotice, false)) {
-          void showCompactInformationMessage(
-            'Usage unavailable for native Copilot Chat in this build. Your work can continue. Use “Continue with Copilot CLI” for consented local usage capture.'
-          );
-          await context.globalState.update(nativeUsageNotice, true);
-        }
+        // Copilot Chat is counted only with the person's consent, asked once per computer.
+        void offerCopilotChatCounting(context, client, (line) => output.appendLine(line))
+          .catch((error) => output.appendLine(`Copilot Chat counting could not be offered: ${(error as Error).message}`));
         const target = path.resolve(client.repository);
         const workId = store.current.snapshot?.workflow?.workItem.id ?? null;
         const targetIsOpen = vscode.workspace.workspaceFolders?.some(

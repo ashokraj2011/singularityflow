@@ -472,8 +472,16 @@
         "icon": "$(play-circle)"
       },
       {
+        "command": "singularityFlow.countCopilotChatUsage",
+        "title": "Singularity Flow: Count Copilot Chat Usage"
+      },
+      {
+        "command": "singularityFlow.stopCountingCopilotChatUsage",
+        "title": "Singularity Flow: Stop Counting Copilot Chat Usage"
+      },
+      {
         "command": "singularityFlow.openCopilot",
-        "title": "Singularity Flow: Open Native Copilot Chat (Usage Unavailable)",
+        "title": "Singularity Flow: Open Native Copilot Chat",
         "icon": "$(comment-discussion)"
       },
       {

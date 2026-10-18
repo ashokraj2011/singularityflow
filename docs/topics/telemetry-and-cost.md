@@ -1,7 +1,7 @@
 ---
 id: telemetry-and-cost
 title: Telemetry, tokens, and cost
-version: 11
+version: 12
 aliases:
   - tokens
   - cost
@@ -16,7 +16,7 @@ related:
   - model-independence
   - reference-previews
 ---
-Token accounting is exact where the provider supplies it and labeled `unavailable` where it does not—never converted to zero. `sflow copilot` and `sflow workspace copilot` provision a separate metadata-only file stream for each SFlow-owned Copilot CLI process after one machine-local disclosure. Manual Copilot and native IDE chat remain usable but are not attributed to that launch. `sflow telemetry status` shows captured, partial, unavailable, conflict, and disabled coverage; `sflow telemetry reconcile` compares completed provider events against a phase. `sflow context xray` and `sflow tokens status|report|compare` read the resulting content-free observations without reconciling or mutating them. `sflow context compile|expand` use the same deterministic kernel and write only sealed handles and content-free accounting under the Git common directory.
+Token accounting is exact where the provider supplies it and labeled `unavailable` where it does not—never converted to zero. `sflow copilot` and `sflow workspace copilot` provision a separate metadata-only file stream for each SFlow-owned Copilot CLI process after one machine-local disclosure. Manual Copilot and native IDE chat remain usable but are not attributed to that launch; Copilot Chat in VS Code is counted separately, on a computer where counting is on (below). `sflow telemetry status` shows captured, partial, unavailable, conflict, and disabled coverage; `sflow telemetry reconcile` compares completed provider events against a phase. `sflow context xray` and `sflow tokens status|report|compare` read the resulting content-free observations without reconciling or mutating them. `sflow context compile|expand` use the same deterministic kernel and write only sealed handles and content-free accounting under the Git common directory.
 
 ## Purpose and prerequisites
 
@@ -26,7 +26,7 @@ Use this topic when the current goal matches **telemetry and cost**. Start in a 
 
 - **Shell:** launch with `sflow copilot`; inspect or control capture with `sflow telemetry`. Read the current phase with `sflow context xray`, or the whole-Story ledger with `sflow tokens report`. Run `singularity-flow telemetry --help` for exact forms.
 - **Copilot:** `/sf-telemetry`. The skill must preserve the CLI result and ask before it changes anything.
-- **VS Code:** **Continue with Copilot CLI** opens the metered SFlow launcher in an integrated terminal. **Open Native Copilot Chat** remains available with an honest “usage unavailable” qualification.
+- **VS Code:** **Continue with Copilot CLI** opens the metered SFlow launcher in an integrated terminal. **Count Copilot Chat Usage** turns on counting for Copilot Chat in VS Code (see below); **Stop Counting Copilot Chat Usage** turns it off.
 
 ## Guided workflow
 
@@ -60,9 +60,30 @@ tokens:
     model-alpha-mini: 0
 ```
 
-A name also matches dated builds of that model: `model-alpha-1.5` matches `model-alpha-1-5-20250929`, but `model-alpha` does not match `model-alpha-mini`. No multipliers are bundled, because GitHub changes them. A model without one makes the estimate partial or unavailable, and GitHub's billing stays authoritative.
+The starter `workflow.yml` carries this block commented out. A name also matches dated builds of that model: `model-alpha-1.5` matches `model-alpha-1-5-20250929`, but `model-alpha` does not match `model-alpha-mini`. No multipliers are bundled, because GitHub changes them. A model without one makes the estimate partial or unavailable, and GitHub's billing stays authoritative.
 
-Native IDE chat exports no spans to SFlow, so its phases show generations and prompt size but no requests, turns or quota events.
+## Copilot Chat in VS Code
+
+Copilot Chat sends SFlow nothing until it writes its own OpenTelemetry file. VS Code asks once per
+computer whether to count Copilot Chat requests; **Turn on** (or **Singularity Flow: Count Copilot
+Chat Usage**) sets Copilot Chat's `github.copilot.chat.otel.enabled` and `outfile` user settings so
+it writes `~/.singularity-flow/copilot-chat-otel.jsonl`, and the window reloads. Content capture
+stays off: the file holds request counts, model names, token counts and Copilot's billed usage,
+never prompts, code or replies. If Copilot Chat's OpenTelemetry is already configured, in settings
+or in the environment, SFlow leaves it alone and does not count.
+
+While counting is on, VS Code runs `sflow telemetry chat sync` in the background, and `sflow
+report` runs it too. It records, beside this repository's Git directory, one content-free record per
+Copilot Chat request whose window was on one of this repository's remotes: when, on which branch,
+which model, model calls, tokens, cache reads and Copilot's billed usage. Nothing is committed.
+A report attaches each request on the Story's branch to the phase being worked on at that moment,
+and adds it to that phase's requests, model calls and premium-request estimate. **Billed (AIU)** is
+the usage Copilot Chat reports for its model calls, which needs no multipliers. Counts are this
+computer's only: another person's Copilot Chat use appears in their report, not yours, and requests
+made before counting was turned on cannot be recovered. `sflow telemetry chat` shows where the
+file is and how far this repository has read it.
+
+IntelliJ's native chat still exports no spans to SFlow, so its phases show generations and prompt size but no requests, turns or quota events.
 
 When a phase has no activity, the report, Story Analytics and `phase publish` say why and what to do. Publication records the reason from the generation's own launches: no session started through SFlow ran, capture was turned off, an existing OpenTelemetry setup was kept, or a launch has not exported its finished turn yet. Counts that were not captured read "Unavailable", never 0.
 

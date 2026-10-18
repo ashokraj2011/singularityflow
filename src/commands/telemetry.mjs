@@ -32,10 +32,35 @@ export async function run(argv, { positionals, options }) {
     () => withCommandConfirmation(options, () => telemetryCommand(positionals, options)));
 }
 
+/**
+ * Copilot Chat in VS Code: where it writes its usage when counting is on, and (`sync`) recording
+ * this repository's requests from it. VS Code runs the sync in the background; nothing is committed.
+ */
+async function copilotChatCommand(positionals, options, root) {
+  const action = positionals[2] ?? 'status';
+  if (!['status', 'sync'].includes(action)) {
+    throw new SingularityFlowError(`Unknown telemetry chat action: ${action}. Use status or sync.`);
+  }
+  if (action === 'sync' && !root) {
+    throw new SingularityFlowError('Recording Copilot Chat usage requires a repository.', { code: 'TELEMETRY_ROOT_REQUIRED' });
+  }
+  const { copilotChatUsageStatus, syncCopilotChatUsage } = await import('../copilot-chat-usage.mjs');
+  const sync = action === 'sync' ? await syncCopilotChatUsage(root) : null;
+  const status = await copilotChatUsageStatus(root);
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ schemaVersion: 1, ...status, sync }, null, 2));
+  console.log(`Copilot Chat usage file: ${status.file} (${status.exists ? `${status.bytes} bytes` : 'not written yet'})`);
+  if (!status.exists) {
+    console.log('Copilot Chat writes it only after counting is turned on in VS Code (Singularity Flow: Count Copilot Chat Usage) and the window is reloaded.');
+  }
+  if (sync?.status === 'synced') console.log(`Recorded ${sync.added} new Copilot Chat request${sync.added === 1 ? '' : 's'} for this repository.`);
+  if (status.following) console.log(`This repository has counted it since ${status.since}; last read ${status.syncedAt}.`);
+}
+
 export async function telemetryCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
   let root = null;
   try { root = repoRoot(); } catch { /* Machine-local telemetry controls are intentionally rootless. */ }
+  if (subcommand === 'chat') return copilotChatCommand(positionals, options, root);
   const status = await copilotTelemetryStatus(root, { countSpans: subcommand === 'status' });
   if (subcommand === 'status') {
     let workflow = null;

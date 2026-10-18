@@ -391,7 +391,8 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     return (args[2] ?? 'list') === 'materialize' ? 'mutation' : 'read';
   }
   if (args[0] === 'report' || args[0] === 'review') return hasOption(args, 'out') ? 'mutation' : 'read';
-  if (args[0] === 'telemetry') return (args[1] ?? 'status') === 'status' ? 'read' : 'mutation';
+  // `telemetry chat sync` records this computer's Copilot Chat usage only; no Story state changes.
+  if (args[0] === 'telemetry') return ['status', 'chat'].includes(args[1] ?? 'status') ? 'read' : 'mutation';
   if (args[0] === 'help-metrics') return (args[1] ?? 'status') === 'status' ? 'read' : 'mutation';
   if (args[0] === 'repositories') {
     return args[1] === 'cache' && (args[2] ?? 'status') === 'clear' ? 'mutation' : 'read';

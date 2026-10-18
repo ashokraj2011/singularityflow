@@ -280,6 +280,7 @@ function stubVscode() {
       fs: {}
     },
     window: {
+      onDidChangeWindowState: new EventEmitter().event,
       createOutputChannel: () => ({
         append: (text) => registered.output.push(text),
         appendLine: (text) => registered.output.push(text),

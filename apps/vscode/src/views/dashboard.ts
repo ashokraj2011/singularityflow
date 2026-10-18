@@ -13,6 +13,7 @@ import {
   type Check, type Dashboard, type LifecycleAnalytics, type LifecyclePhaseMetric
 } from './dashboard-model.ts';
 import { copilotActivityHtml } from './dashboard-copilot.ts';
+import { phaseDetailId, storyPhaseFlowHtml, STORY_PHASE_FLOW_STYLE } from './dashboard-phase-flow.ts';
 import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import type { IconName } from './webview.ts';
@@ -21,10 +22,6 @@ import { RetainedPanelRenderGate } from '../single-flight.ts';
 
 const PILL: Record<string, string> = { fail: 'bad', warn: 'wait', pass: 'ok', skip: '' };
 const GLYPH: Record<string, IconName> = { fail: 'bad', warn: 'wait', pass: 'ok', skip: 'wait' };
-
-const PHASE_GLYPH: Record<string, IconName> = {
-  approved: 'ok', in_progress: 'phase', awaiting_approval: 'wait', rejected: 'blocked', stale: 'stale'
-};
 
 function label(value: string): string {
   return value.replaceAll('_', ' ').replace(/\b\w/g, (character) => character.toUpperCase());
@@ -38,22 +35,11 @@ function money(value: number | null): string {
   return value == null ? 'Unavailable' : `$${value.toFixed(2)}`;
 }
 
-function phaseRailHtml(phase: LifecyclePhaseMetric, currentPhase: string | null): string {
-  const state = phase.status === 'approved' ? 'done'
-    : phase.id === currentPhase ? 'current'
-      : ['rejected', 'stale'].includes(phase.status) ? 'attention' : 'future';
-  return `<li class="phase-node ${state}">
-    <span class="phase-marker">${icon(PHASE_GLYPH[phase.status] ?? 'phase', { size: 14 })}</span>
-    <span class="phase-name">${escape(phase.label)}</span>
-    <span class="phase-state">${escape(label(phase.status))}</span>
-  </li>`;
-}
-
-function durationBarHtml(phase: LifecyclePhaseMetric): string {
+function durationBarHtml(phase: LifecyclePhaseMetric, index: number): string {
   const activeWidth = Math.round(phase.activeShare * 2.4);
   const waitingWidth = Math.round(phase.waitingShare * 2.4);
   const accessible = `${phase.label}: ${humanizeDuration(phase.activeMs)} active, ${humanizeDuration(phase.waitingMs)} waiting`;
-  return `<tr>
+  return `<tr id="${phaseDetailId(index)}" class="story-phase-detail" tabindex="-1">
     <td><strong>${escape(phase.label)}</strong><small>${escape(label(phase.status))}</small></td>
     <td class="duration-cell">
       <svg class="duration-bar" viewBox="0 0 240 16" preserveAspectRatio="none" role="img" aria-label="${escape(accessible)}">
@@ -113,7 +99,7 @@ function analyticsHtml(analytics: LifecycleAnalytics | null): string {
       <div class="summary-card"><strong>${escape(usageValue)}</strong><span>Tokens · ${escape(usageNote)}</span></div>
       <div class="summary-card"><strong>${money(analytics.cost)}</strong><span>Cost · ${escape(costNote)}</span></div>
     </div>
-    <ol class="phase-rail" aria-label="Story phase progress">${analytics.phases.map((phase) => phaseRailHtml(phase, analytics.currentPhase)).join('')}</ol>
+    ${storyPhaseFlowHtml(analytics)}
   </section>
 
   <section>
@@ -307,7 +293,8 @@ export class DashboardPanel {
       bodyHtml(buildDashboard(this.store.current.snapshot)),
       contentSecurityPolicy(this.panel.webview, token),
       token,
-      SCRIPT
+      SCRIPT,
+      { styles: STORY_PHASE_FLOW_STYLE }
     );
   }
 

@@ -181,7 +181,10 @@ function usageStatus(report: StoryWorkflowReport): UsageStatus {
 }
 
 /** A display-oriented view over the engine's report. It never derives lifecycle facts itself. */
-export function buildLifecycleAnalytics(report: StoryWorkflowReport | null | undefined): LifecycleAnalytics | null {
+export function buildLifecycleAnalytics(
+  report: StoryWorkflowReport | null | undefined,
+  currentPhase?: string | null
+): LifecycleAnalytics | null {
   if (!report) return null;
   const maximumElapsed = Math.max(...report.phases.map((phase) => phase.elapsedMs ?? 0), 1);
   const completedPhases = report.phases.filter((phase) => phase.status === 'approved').length;
@@ -195,7 +198,9 @@ export function buildLifecycleAnalytics(report: StoryWorkflowReport | null | und
     completedPhases,
     totalPhases: report.phases.length,
     completionPercent: report.phases.length ? Math.round((completedPhases / report.phases.length) * 100) : 0,
-    currentPhase: current?.id ?? null,
+    currentPhase: report.completedAt || ['closed', 'cancelled'].includes(report.workItem.status ?? '') ? null
+      : currentPhase === undefined ? current?.id ?? null
+        : report.phases.some((phase) => phase.id === currentPhase) ? currentPhase : null,
     elapsedMs: report.elapsedMs,
     activeMs: report.activeMs,
     waitingMs: report.waitingMs,
@@ -300,7 +305,9 @@ export function buildDashboard(snapshot: RepositorySnapshot | null): Dashboard |
     failing,
     passing: checks.filter((check) => check.status === 'pass').length,
     sections,
-    analytics: buildLifecycleAnalytics(snapshot.report),
+    analytics: buildLifecycleAnalytics(snapshot.report,
+      snapshot.workflow?.workItem.id === snapshot.report?.workItem.id
+        ? snapshot.workflow?.currentPhase : undefined),
     quiet: !failing.some((check) => check.status === 'fail')
       && sections.every((section) => section.status !== 'warn')
   };

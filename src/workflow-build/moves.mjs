@@ -13,6 +13,7 @@ import { SingularityFlowError } from '../util.mjs';
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const OUTPUTS = ['document', 'analysis', 'code', 'none'];
 const TRIGGERS = ['submitted', 'approved', 'rejected'];
+const SIGN_OFF_FIELDS = ['groups', 'minimum', 'sendBackTo'];
 const ITEM_AS = ['step', 'agent', 'skill', 'instruction', 'prompt', 'document', 'api-call', 'tool', 'link', 'command', 'checkpoint', 'script'];
 
 export const MOVES = Object.freeze({
@@ -38,7 +39,7 @@ export const MOVES = Object.freeze({
 export function movesGuide() {
   return {
     moves: Object.fromEntries(Object.entries(MOVES).map(([name, fields]) => [name, fields])),
-    values: { output: OUTPUTS, on: TRIGGERS, as: ITEM_AS, signOff: "'none' or { groups: [group IDs], minimum }" },
+    values: { output: OUTPUTS, on: TRIGGERS, as: ITEM_AS, signOff: "'none' or { groups: [group IDs], minimum, sendBackTo: [step IDs] }" },
     examples: [
       { move: 'step.add', id: 'pay-pci-review', label: 'PCI review', after: 'pay-build', agent: 'pay-reviewer', output: 'document',
         reads: ['pay-build'], signOff: { groups: ['payments-security'], minimum: 1 }, purpose: 'Checks the change against the PCI rules before release.' },
@@ -62,6 +63,7 @@ export function movesGuide() {
       'Moves apply in order: step.add places the step after `after`, or last. A group, agent, skill or instruction the proposal adds can be used by any of its moves.',
       'A step that writes code (output code) needs a step that defines the requirements at or before the step just before it: reuse one the repository has that defines requirements (such as requirements or implementation-spec), as it is or copied with `from`. No move declares a workflow without requirements, so never offer that choice.',
       'action.add runs an integration target the repository has registered; a command found in the material is kept with item.classify (command) or item.prerequisite, never invented as a target.',
+      "signOff.sendBackTo (optional) names the steps an approver may send rejected work back to: the step itself or steps before it in this workflow. A reused step keeps its own; when the check says rejecting it returns to a step this workflow does not have before it, that finding's fix gives the step.change that repoints it.",
       'Approval groups are created empty; people are added in Workflow Studio, never by a move.',
       'Cite the lines you relied on in the proposal evidence; say what you inferred in `why`.'
     ]
@@ -97,6 +99,9 @@ export function validateMoves(moves, { model, draft }) {
     if (declared[kind] && typeof move.id === 'string' && ID.test(move.id)) declared[kind].add(move.id);
   }
   const steps = new Set(draft.workflow.phases);
+  // The order the proposal leaves the workflow in: a send-back target must come at or before its step.
+  let order = null;
+  try { if (moves.every(plain)) order = applyMoves(draft, moves.slice(0, 50)).workflow.phases; } catch { order = null; }
   moves.slice(0, 50).forEach((move, index) => {
     const at = `moves[${index}]`;
     if (!plain(move) || typeof move.move !== 'string' || !MOVES[move.move]) {
@@ -121,9 +126,21 @@ export function validateMoves(moves, { model, draft }) {
     const signOff = (field) => {
       const value = move[field];
       if (value == null || value === 'none') return;
-      if (!plain(value) || !Array.isArray(value.groups) || !value.groups.length || value.groups.length > 10) { add(`${at}.${field}`, 'BUILD_MOVE_SIGNOFF', "signOff is 'none' or { groups: [1 to 10 group IDs], minimum }."); return; }
+      if (!plain(value) || !Array.isArray(value.groups) || !value.groups.length || value.groups.length > 10) { add(`${at}.${field}`, 'BUILD_MOVE_SIGNOFF', "signOff is 'none' or { groups: [1 to 10 group IDs], minimum, sendBackTo }."); return; }
+      for (const key of Object.keys(value)) if (!SIGN_OFF_FIELDS.includes(key)) add(`${at}.${field}.${key}`, 'BUILD_MOVE_SIGNOFF', `signOff has no field '${key}'; it takes ${SIGN_OFF_FIELDS.join(', ')}.`);
       value.groups.forEach((group) => known(field, 'group', group));
       if (value.minimum != null && (!Number.isInteger(value.minimum) || value.minimum < 1 || value.minimum > 20)) add(`${at}.${field}.minimum`, 'BUILD_MOVE_SIGNOFF', 'minimum is a whole number from 1 to 20.');
+      const targets = value.sendBackTo;
+      if (targets == null) return;
+      if (!Array.isArray(targets) || !targets.length || targets.length > 10 || targets.some((target) => typeof target !== 'string' || !ID.test(target))) {
+        add(`${at}.${field}.sendBackTo`, 'BUILD_MOVE_SIGNOFF', 'sendBackTo lists 1 to 10 step IDs.'); return;
+      }
+      // The step itself, or a step of this workflow (one an earlier move adds too) that comes before it.
+      for (const target of targets) {
+        if (target === move.id) continue;
+        if ((!steps.has(target) && !added.step.has(target)) || (order && !order.includes(target))) add(`${at}.${field}.sendBackTo`, 'BUILD_MOVE_REFERENCE', `Step '${target}' is not in this workflow.`);
+        else if (order?.includes(move.id) && order.indexOf(target) > order.indexOf(move.id)) add(`${at}.${field}.sendBackTo`, 'BUILD_MOVE_SEND_BACK', `Step '${target}' comes after '${move.id}'; rejected work goes back only to the step itself or an earlier step.`);
+      }
     };
     const stepList = (field) => {
       if (move[field] == null) return;
@@ -270,7 +287,10 @@ export function applyMoves(draft, moves) {
       case 'step.change': {
         const own = next.steps[move.id];
         const target = own?.new ? own : (next.overrides[move.id] ??= {});
+        const earlier = target.signOff;
         for (const field of ['label', 'purpose', 'agent', 'output', 'reads', 'signOff']) if (move[field] !== undefined) target[field] = move[field];
+        // A sign-off that does not name send-back targets keeps the ones an earlier move gave it, as Studio does.
+        if (plain(move.signOff) && move.signOff.sendBackTo == null && plain(earlier) && earlier.sendBackTo) target.signOff = { ...move.signOff, sendBackTo: earlier.sendBackTo };
         break;
       }
       case 'step.remove':
@@ -306,7 +326,8 @@ export function applyMoves(draft, moves) {
   return next;
 }
 
-const approvalChange = (signOff) => (signOff === 'none' ? 'none' : { groups: [...signOff.groups], minimum: signOff.minimum ?? 1 });
+const approvalChange = (signOff) => (signOff === 'none' ? 'none'
+  : { groups: [...signOff.groups], minimum: signOff.minimum ?? 1, ...(signOff.sendBackTo ? { rejectTo: [...signOff.sendBackTo] } : {}) });
 
 /**
  * The Studio change set for a draft. `model` supplies source texts for `from` copies and the base

@@ -137,7 +137,7 @@ const ROUTE_TITLES = Object.freeze({
   WORKFLOW_ROUTE_UNREACHABLE: ({ decision }) => `A route of "${decision}" can never be taken`,
   WORKFLOW_ROUTE_PAUSE_UNOWNED: ({ decision }) => `Nobody decides what happens when "${decision}" runs out of rounds`,
   WORKFLOW_AUTHORITY_UNKNOWN: ({ decision, step }) => `${decision ? `"${decision}"` : step} names an approval group that does not exist`,
-  WORKFLOW_REJECTION_TARGET: ({ step }) => `Rejecting ${step} sends work forward instead of back`
+  WORKFLOW_REJECTION_TARGET: ({ step }) => `Rejecting ${step} sends work to a step that does not come before it`
 });
 const RESPONSIBILITY_WORDS = Object.freeze({ scope: 'requirements', plan: 'a plan', implement: 'the change itself', verify: 'verification', review: "a person's review" });
 const OBLIGATION_TITLES = Object.freeze({
@@ -155,7 +155,8 @@ const ROUTE_FIXES = Object.freeze({
   WORKFLOW_PHASE_UNREACHABLE: 'Route a decision to the step, or remove it from the workflow.',
   WORKFLOW_ROUTE_UNREACHABLE: 'Reorder the routes or change the earlier rule, so each route has a case of its own.',
   WORKFLOW_ROUTE_PAUSE_UNOWNED: 'Name the group that decides when the rounds run out.',
-  WORKFLOW_AUTHORITY_UNKNOWN: 'Choose an existing approval group, or create the group first.'
+  WORKFLOW_AUTHORITY_UNKNOWN: 'Choose an existing approval group, or create the group first.',
+  WORKFLOW_REJECTION_TARGET: "Send rejected work back only to the step itself or an earlier step: change the step's send-back targets (approval rejectTo)."
 });
 
 /** Check one workflow of the model; returns its findings. */

@@ -952,6 +952,64 @@ test('a step signed off by several groups keeps all of them, and the groups that
   assert.match(refused.problems[0].message, /at least 2, one for each group that must approve/);
 });
 
+test('a sign-off change can say where rejected work goes back to: the step or earlier ones, for one workflow on a shared step', async () => {
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  const file = path.join(root, 'singularity/workflow.yml');
+  const before = YAML.parse(await readFile(file, 'utf8'));
+  const plan = (changes, options) => planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', changes }, options);
+  const refusal = async (changes) => {
+    const result = await plan(changes);
+    assert.equal(result.valid, false, JSON.stringify(changes));
+    return [result.problems[0].code, result.problems[0].message];
+  };
+  const stepIn = (model, workflowId, phaseId) => model.workflows.find((workflow) => workflow.id === workflowId).steps.find((step) => step.id === phaseId);
+  const chore = before.workTypes['repo-chore'];
+  assert.deepEqual(chore.phases, ['intake', 'implementation', 'verification', 'conformance']);
+
+  // Implementation is shared, so a send-back change named for Chore is Chore's own.
+  const scoped = { op: 'phase.update', id: 'implementation', workflow: 'repo-chore', approval: { group: 'engineering-reviewers', minimum: 1, rejectTo: ['intake', 'implementation'] } };
+  const applied = await plan([{ ...scoped, approval: { ...scoped.approval, rejectTo: ['implementation'] } }], { write: true });
+  assert.equal(applied.valid, true, JSON.stringify(applied.problems));
+  assert.ok(applied.summary.some((line) => /^Implementation: sign-off and send-back targets changed for .+ only\.$/u.test(line)), applied.summary.join('\n'));
+  const after = YAML.parse(await readFile(file, 'utf8'));
+  assert.deepEqual(after.phases.implementation, before.phases.implementation, 'the step itself, so every other workflow, is unchanged');
+  assert.deepEqual(after.workTypes['repo-chore'].phaseOverrides.implementation.approval.rejectTo, ['implementation']);
+  const model = await buildStudioModel(root);
+  assert.deepEqual(stepIn(model, 'repo-chore', 'implementation').sendBackTo, ['implementation']);
+  assert.deepEqual(stepIn(model, 'repo-feature', 'implementation').sendBackTo, before.workTypes['repo-feature'].phaseOverrides.implementation.approval.rejectTo);
+
+  // Each target is the step or a step before it in the workflow the setting reaches: 1 to 10 of them.
+  for (const [rejectTo, code, message] of [
+    [['verification'], 'STUDIO_SEND_BACK_INVALID', /^Implementation can send rejected work back only to itself or an earlier step; in .+, 'verification' comes after it\.$/u],
+    [['requirements'], 'STUDIO_SEND_BACK_INVALID', /in .+, 'requirements' is not a step\.$/u],
+    [['nowhere'], 'STUDIO_SEND_BACK_INVALID', /^There is no step 'nowhere' for Implementation to send rejected work back to\.$/u],
+    [[], 'STUDIO_SEND_BACK_INVALID', /^Implementation sends rejected work back to 1 to 10 steps\.$/u],
+    [Array.from({ length: 11 }, () => 'intake'), 'STUDIO_SEND_BACK_INVALID', /1 to 10 steps/u],
+    [['Not Kebab'], 'STUDIO_ID_INVALID', /lower-case kebab-case/u]
+  ]) {
+    const [actualCode, actualMessage] = await refusal([{ ...scoped, approval: { ...scoped.approval, rejectTo } }]);
+    assert.equal(actualCode, code, JSON.stringify(rejectTo));
+    assert.match(actualMessage, message);
+  }
+
+  // A new step is checked against every workflow that uses it once the change set is applied, so
+  // a workflow added in the same change set counts; a copy's targets replace the ones it copied.
+  const added = (rejectTo) => [
+    { op: 'phase.create', id: 'pay-review', label: 'Payment review', agent: 'architect', approval: { group: 'quality-reviewers', minimum: 1, rejectTo } },
+    { op: 'phase.create', id: 'chore-check', label: 'Chore check', copyOf: 'verification', copyFromWorkflow: 'repo-chore', approval: { group: 'quality-reviewers', minimum: 1, rejectTo: ['chore-check'] } },
+    { op: 'workflow.update', id: 'repo-chore', phases: ['intake', 'implementation', 'pay-review', 'verification', 'chore-check', 'conformance'] },
+    { op: 'workflow.update', id: 'repo-quick-fix', phases: ['intake', 'pay-review', 'implement', 'verify'] }
+  ];
+  const [code, message] = await refusal(added(['implementation', 'pay-review']));
+  assert.equal(code, 'STUDIO_SEND_BACK_INVALID');
+  assert.match(message, /^Payment review can send rejected work back only to itself or an earlier step; in .+, 'implementation' is not a step\.$/u);
+  const created = await plan(added(['intake', 'pay-review']), { write: true });
+  assert.equal(created.valid, true, JSON.stringify(created.problems));
+  const written = YAML.parse(await readFile(file, 'utf8')).phases;
+  assert.deepEqual([written['pay-review'].approval.rejectTo, written['chore-check'].approval.rejectTo], [['intake', 'pay-review'], ['chore-check']]);
+});
+
 test('planned claims are named in the Studio, refused for a step that defines no clauses, and worked out again on request', async () => {
   const root = await repository();
   const model = json(root, ['workflow', 'studio']);

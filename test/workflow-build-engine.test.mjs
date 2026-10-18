@@ -233,6 +233,63 @@ test('later decisions: a step other workflows share is copied, not changed; a pr
   assert.match(missing.stderr + missing.stdout, /captured no file '\.\.\/secrets\.txt'/u);
 });
 
+test('a reused step keeps its send-back targets; the check names the one move that repoints them, and the build is ready after it', async () => {
+  const { run, flow, json, engineEnv } = await harness();
+  const root = await repository(run, flow);
+  const build = json(root, ['workflow', 'build', 'start', '--describe', 'A short payments release', '--name', 'Payments release']).build;
+  const mine = (title, moves) => json(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-', '--by', 'you', '--accept'], { input: JSON.stringify({ title, why: 'The team asked for it.', moves }) });
+  // Live Copilot run 2026-10-18: the stock Release sends rejected work back to steps this workflow does not have.
+  mine('Four steps the repository has', [{ move: 'step.add', id: 'intake', after: null }, { move: 'step.add', id: 'requirements' }, { move: 'step.add', id: 'implementation' }, { move: 'step.add', id: 'release' }]);
+  const stuck = json(root, ['workflow', 'build', 'check', '--build', build.id]);
+  assert.deepEqual(stuck.draft.workflow.phases, ['intake', 'requirements', 'implementation', 'release']);
+  assert.equal(stuck.ready, false);
+  const targets = stuck.findings.filter((entry) => entry.severity === 'problem');
+  assert.deepEqual(targets.map((entry) => [entry.code, entry.subject.step, entry.detail.match(/returns to '([^']+)'/u)[1]]),
+    ['specification', 'planning', 'convergence', 'verification'].map((target) => ['WORKFLOW_REJECTION_TARGET', 'release', target]));
+  const fix = { move: 'step.change', id: 'release', signOff: { groups: ['quality-reviewers'], minimum: 1, sendBackTo: ['implementation', 'release'] } };
+  for (const entry of targets) {
+    assert.deepEqual(entry.fix.move, fix, 'the targets that still fit, with the sign-off as this workflow runs it');
+    assert.equal(entry.fix.text, 'Send rejected work back to Implementation or Release instead, with one move: step.change release with signOff { groups: [quality-reviewers], minimum: 1, sendBackTo: [implementation, release] }.');
+  }
+
+  // sendBackTo names the step itself or steps before it in this workflow; one an earlier move adds counts.
+  const { proposeToBuild } = await import('../src/workflow-build/engine.mjs');
+  const refused = async (moves) => (await proposeToBuild(build.id, { title: 'Send back', why: 'Wrong targets.', moves }, { root, ...engineEnv })
+    .then(() => assert.fail('recorded'), (error) => error)).details.findings.map((entry) => [entry.at, entry.code]);
+  const gate = { move: 'step.add', id: 'pay-gate', label: 'Payment gate', after: 'implementation', agent: 'architect', output: 'document',
+    signOff: { groups: ['quality-reviewers'], minimum: 1, sendBackTo: ['implementation', 'pay-gate'] } };
+  const repoint = (sendBackTo, extra = {}) => ({ ...fix, signOff: { ...fix.signOff, sendBackTo, ...extra } });
+  assert.deepEqual(await refused([{ ...repoint(['release']), id: 'requirements' }]), [['moves[0].signOff.sendBackTo', 'BUILD_MOVE_SEND_BACK']]);
+  assert.deepEqual(await refused([repoint(['nowhere'])]), [['moves[0].signOff.sendBackTo', 'BUILD_MOVE_REFERENCE']]);
+  assert.deepEqual(await refused([repoint([])]), [['moves[0].signOff.sendBackTo', 'BUILD_MOVE_SIGNOFF']]);
+  assert.deepEqual(await refused([repoint(['release'], { rejectTo: ['release'] })]), [['moves[0].signOff.rejectTo', 'BUILD_MOVE_SIGNOFF']]);
+  assert.deepEqual(await refused([repoint(['pay-gate']), gate]), [['moves[0].signOff.sendBackTo', 'BUILD_MOVE_REFERENCE']], 'a step a later move adds is not in the workflow yet');
+  const pending = json(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-'], { input: JSON.stringify({ title: 'A gate before release', why: 'Rejected releases go back to the gate.', moves: [gate, repoint(['pay-gate', 'release'])] }) }).build.proposals.at(-1);
+  const included = json(root, ['workflow', 'build', 'check', '--build', build.id, '--include', pending.id]);
+  assert.deepEqual(included.changeSet.changes.find((change) => change.op === 'phase.create' && change.id === 'pay-gate').approval, { groups: ['quality-reviewers'], minimum: 1, rejectTo: ['implementation', 'pay-gate'] });
+  assert.deepEqual(included.changeSet.changes.find((change) => change.op === 'phase.update' && change.id === 'release').approval.rejectTo, ['pay-gate', 'release']);
+  json(root, ['workflow', 'build', 'decide', '--build', build.id, '--proposal', pending.id, '--decline']);
+
+  // The fix's move, as it is: one move, and the build is ready. The step itself is untouched; the setting is this workflow's own.
+  mine('Release sends rejected work back here', [targets[0].fix.move]);
+  const ready = json(root, ['workflow', 'build', 'check', '--build', build.id]);
+  assert.deepEqual([ready.ready, ready.counts.problem], [true, 0], JSON.stringify(ready.findings.filter((entry) => entry.severity === 'problem')));
+  assert.deepEqual(ready.changeSet.changes.filter((change) => change.op === 'phase.update'),
+    [{ op: 'phase.update', id: 'release', workflow: 'payments-release', approval: { groups: ['quality-reviewers'], minimum: 1, rejectTo: ['implementation', 'release'] } }]);
+  assert.ok(ready.plan.summary.includes('Release: sign-off and send-back targets changed for Payments release only.'), ready.plan.summary.join('\n'));
+  // A later sign-off change that does not name them keeps them, as Studio does.
+  mine('Two approvals for a release', [{ move: 'step.change', id: 'release', signOff: { groups: ['quality-reviewers'], minimum: 2 } }]);
+  const kept = json(root, ['workflow', 'build', 'check', '--build', build.id]);
+  assert.deepEqual(kept.changeSet.changes.find((change) => change.op === 'phase.update').approval, { groups: ['quality-reviewers'], minimum: 2, rejectTo: ['implementation', 'release'] });
+  assert.equal(kept.ready, true);
+  assert.equal(run('git', ['status', '--porcelain'], root).stdout, '');
+
+  const { movesGuide } = await import('../src/workflow-build/moves.mjs');
+  const guide = movesGuide();
+  assert.match(guide.values.signOff, /sendBackTo: \[step IDs\]/u);
+  assert.ok(guide.rules.some((rule) => /^signOff\.sendBackTo .*the step itself or steps before it in this workflow/u.test(rule)));
+});
+
 test('starting from a workflow copies it; finishing writes a bundle that imports, or one reviewed proposal on the approved configuration', async () => {
   const { run, flow, json } = await harness();
   const { initializeDefinition } = await import('../src/config.mjs');

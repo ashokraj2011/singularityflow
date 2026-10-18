@@ -431,6 +431,8 @@ export async function buildStudioModel(root, { authority = null } = {}) {
           description: typeof phases[phase.id]?.description === 'string' ? phases[phase.id].description : '',
           agent: phase.defaultAgent ?? defaultAgentOf(phase.id),
           approval: approvalSummary(phase.approval), inputs: inputIds(phase.inputs),
+          // Where an approver may send rejected work back to, as this workflow runs the step.
+          sendBackTo: approvalSummary(phase.approval).mode === 'none' ? [] : [...(phase.approval?.rejectTo ?? [phase.id])],
           optionalInputs: optionalInputIds(phase.inputs),
           // This workflow's own template for the step, when it sets one over the step's.
           template: typeof type.templateOverrides?.[phase.id] === 'string' ? type.templateOverrides[phase.id] : null,
@@ -829,9 +831,11 @@ class StudioCandidate {
   /**
    * A sign-off as written: every group the change names, how many approvals it needs, and the groups
    * that must each approve. A group taken off the step is taken off the groups that must approve too;
-   * every other setting the step's approval has (send-back targets, self-approval) stays.
+   * every other setting the step's approval has (send-back targets, self-approval) stays, unless the
+   * change names its send-back targets (`rejectTo`): then those replace the step's, each checked
+   * against every workflow in `reaches` (see sendBackTargets).
    */
-  approvalNode(approval, existing = null) {
+  approvalNode(approval, existing = null, { phaseId = null, name = null, reaches = [] } = {}) {
     if (approval == null) return undefined;
     if (approval === 'none') return 'none';
     const listed = approvalGroups(approval);
@@ -851,7 +855,45 @@ class StudioCandidate {
     }
     const node = { ...base, authorities: groups, minimum };
     if (required.length) node.requiredAuthorities = required; else delete node.requiredAuthorities;
+    if (approval.rejectTo != null) node.rejectTo = this.sendBackTargets(approval.rejectTo, phaseId, reaches, name ?? this.phaseLabel(phaseId));
     return node;
+  }
+
+  /**
+   * The steps an approver may send a step's rejected work back to: 1 to 10 step IDs, each the step
+   * itself or a step before it in every workflow the setting reaches, as the change set leaves their
+   * lists. A target later in the workflow, or one it does not have, would send work forward or
+   * nowhere (the check's WORKFLOW_REJECTION_TARGET), so it is refused here.
+   */
+  sendBackTargets(value, phaseId, reaches, name) {
+    if (!Array.isArray(value) || !value.length || value.length > 10) {
+      throw new SingularityFlowError(`${name} sends rejected work back to 1 to 10 steps.`, { code: 'STUDIO_SEND_BACK_INVALID' });
+    }
+    const targets = [...new Set(value.map((id) => requireId(id, 'A step to send rejected work back to')))];
+    for (const target of targets) {
+      if (target !== phaseId && !this.phase(target) && !this.pendingPhases.has(target)) {
+        throw new SingularityFlowError(`There is no step '${target}' for ${name} to send rejected work back to.`, { code: 'STUDIO_SEND_BACK_INVALID' });
+      }
+      for (const workflowId of reaches) {
+        const phases = this.finalPhases?.get(workflowId) ?? this.content.workTypes?.[workflowId]?.phases ?? [];
+        const at = phases.indexOf(target);
+        if (target !== phaseId && (at < 0 || at > phases.indexOf(phaseId))) {
+          throw new SingularityFlowError(`${name} can send rejected work back only to itself or an earlier step; in ${this.content.workTypes?.[workflowId]?.label ?? workflowId}, '${target}' ${at < 0 ? 'is not a step' : 'comes after it'}.`, { code: 'STUDIO_SEND_BACK_INVALID' });
+        }
+      }
+    }
+    return targets;
+  }
+
+  /**
+   * The workflows a step's own send-back targets reach once the change set is applied: each that
+   * uses it, except one whose own sign-off for it is none or names targets of its own.
+   */
+  ownSendBackReach(phaseId) {
+    return this.usedByAtEnd(phaseId).filter((workflowId) => {
+      const own = this.content.workTypes?.[workflowId]?.phaseOverrides?.[phaseId]?.approval;
+      return !(typeof own === 'string' || (isObject(own) && Object.hasOwn(own, 'rejectTo')));
+    });
   }
 
   setOutput(id, output) {
@@ -2099,7 +2141,7 @@ class StudioCandidate {
         artifact: { path: `artifacts/${phaseId}/${phaseId}.md`, kind: phaseId, minimumBytes: 200 },
         defaultTemplate: `common/${phaseId}.md`,
         writeScope: 'artifact-only',
-        approval: approval === 'none' ? 'none' : this.approvalNode(approval ?? { group: firstGroup })
+        approval: approval === 'none' ? 'none' : this.approvalNode(approval ?? { group: firstGroup }, null, { phaseId, name, reaches: this.ownSendBackReach(phaseId) })
       };
     }
     if (description !== undefined) {
@@ -2127,8 +2169,11 @@ class StudioCandidate {
       const unchanged = approval === 'none' ? current.mode === 'none'
         : current.mode !== 'none' && JSON.stringify(approvalGroups(approval)) === JSON.stringify(current.authorities)
           && Number(approval.minimum ?? 1) === current.minimum
-          && (!Array.isArray(approval.required) || JSON.stringify(approval.required) === JSON.stringify(current.requiredAuthorities));
-      if (!unchanged) this.document.setIn(['phases', phaseId, 'approval'], this.document.createNode(this.approvalNode(approval, node.approval)));
+          && (!Array.isArray(approval.required) || JSON.stringify(approval.required) === JSON.stringify(current.requiredAuthorities))
+          && (approval.rejectTo == null || JSON.stringify(approval.rejectTo) === JSON.stringify(node.approval?.rejectTo ?? null));
+      if (!unchanged) {
+        this.document.setIn(['phases', phaseId, 'approval'], this.document.createNode(this.approvalNode(approval, node.approval, { phaseId, name, reaches: this.ownSendBackReach(phaseId) })));
+      }
     }
     if (authoringSkill !== undefined) {
       if (authoringSkill === null) this.document.deleteIn(['phases', phaseId, 'authoringSkill']);
@@ -2233,8 +2278,11 @@ class StudioCandidate {
     if (approval != null) {
       const scope = scopeFor('approval');
       const existing = valueAt(scope, 'approval') ?? this.phase(phaseId).approval;
-      this.document.setIn([...scope, 'approval'], this.document.createNode(this.approvalNode(approval, existing === 'none' ? null : existing)));
-      changed.push('sign-off');
+      // Send-back targets set for one workflow are checked against that workflow; the step's own
+      // against every workflow they reach.
+      const reaches = scope === override ? [workflow] : this.ownSendBackReach(phaseId);
+      this.document.setIn([...scope, 'approval'], this.document.createNode(this.approvalNode(approval, existing === 'none' ? null : existing, { phaseId, reaches })));
+      changed.push(approval !== 'none' && approval.rejectTo != null ? 'sign-off and send-back targets' : 'sign-off');
     }
     // Step World Model views belonged to the removed registered World Model; nothing is written.
     if (authoringSkill !== undefined) {

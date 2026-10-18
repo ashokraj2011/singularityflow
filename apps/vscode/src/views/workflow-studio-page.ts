@@ -6046,14 +6046,15 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
 
   /** One move, in plain words, as the conversation shows it. */
   function moveText(move) {
-    var signOff = function (value) { return !value ? '' : value === 'none' ? ', no sign-off' : ', signed off by ' + (value.groups || []).map(function (id) { return buildName('group', id); }).join(', '); };
+    var sendBack = function (value) { return value && value !== 'none' && value.sendBackTo && value.sendBackTo.length ? 'if rejected, back to ' + value.sendBackTo.map(buildStepLabel).join(' or ') : ''; };
+    var signOff = function (value) { return !value ? '' : value === 'none' ? ', no sign-off' : ', signed off by ' + (value.groups || []).map(function (id) { return buildName('group', id); }).join(', ') + (sendBack(value) ? '; ' + sendBack(value) : ''); };
     switch (move.move) {
       case 'step.add': return Object.keys(move).length <= 3 && state.draft.phases[move.id] && !move.label
         ? 'Use the existing step ' + buildStepLabel(move.id) + (move.after === undefined ? '' : move.after ? ' after ' + buildStepLabel(move.after) : ' at the start')
         : 'Add the step ' + (move.label || move.id) + (move.from ? ' (a copy of ' + buildStepLabel(move.from) + ')' : '') + (move.after ? ' after ' + buildStepLabel(move.after) : move.after === null ? ' at the start' : '')
           + (move.agent ? ', drafted by ' + buildName('agent', move.agent) : '') + (move.output ? ', ' + (BUILD_OUTPUT_WORDS[move.output] || move.output) : '') + signOff(move.signOff);
       case 'step.change': return 'Change ' + buildStepLabel(move.id) + ': ' + ['label', 'purpose', 'agent', 'output', 'reads', 'signOff'].filter(function (key) { return move[key] !== undefined; })
-        .map(function (key) { return key === 'purpose' ? 'what it is for' : key === 'signOff' ? 'sign-off' : key; }).join(', ');
+        .map(function (key) { return key === 'purpose' ? 'what it is for' : key === 'signOff' ? 'sign-off' + (sendBack(move.signOff) ? ' (' + sendBack(move.signOff) + ')' : '') : key; }).join(', ');
       case 'step.remove': return 'Remove ' + buildStepLabel(move.id) + ' from this workflow';
       case 'step.move': return 'Move ' + buildStepLabel(move.id) + (move.after ? ' after ' + buildStepLabel(move.after) : ' to the start');
       case 'agent.add': return 'Add the agent ' + move.label + (move.from ? ', starting from ' + buildName('agent', move.from) : '');

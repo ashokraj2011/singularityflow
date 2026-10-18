@@ -283,6 +283,23 @@ async function landedCheck(record, { landed, preview, check }) {
   };
 }
 
+/**
+ * A send-back target the workflow does not have before its step, with the one move that repoints
+ * it: the step's sign-off as this workflow runs it, sent back to the targets that still fit, or to
+ * the step itself when none does.
+ */
+function withSendBackMove(finding, workflow) {
+  const step = finding.code === 'WORKFLOW_REJECTION_TARGET' ? workflow?.steps.find((entry) => entry.id === finding.subject?.step) : null;
+  if (!step || step.approval?.mode === 'none') return finding;
+  const before = workflow.phases.slice(0, workflow.phases.indexOf(step.id) + 1);
+  const kept = (step.sendBackTo ?? []).filter((id) => before.includes(id));
+  const move = { move: 'step.change', id: step.id, signOff: { groups: [...step.approval.authorities], minimum: step.approval.minimum, sendBackTo: kept.length ? kept : [step.id] } };
+  const names = move.signOff.sendBackTo.map((id) => workflow.steps.find((entry) => entry.id === id)?.label ?? id);
+  const { groups, minimum, sendBackTo } = move.signOff;
+  return { ...finding, fix: { move, text: `Send rejected work back to ${names.join(' or ')} instead, with one move: step.change ${step.id}`
+    + ` with signOff { groups: [${groups.join(', ')}], minimum: ${minimum}, sendBackTo: [${sendBackTo.join(', ')}] }.` } };
+}
+
 /** Found items that are not used or left out yet, as one onboarding finding. */
 function onboardingFindings(record) {
   const open = record.items.filter((entry) => entry.foundBy !== 'workflow' && entry.status === 'open' && entry.kind !== 'withheld');
@@ -344,7 +361,8 @@ export async function checkBuild(id, { root = null, include = null, env = proces
   const { draft, accepted, changeSet, plan } = result;
   const inspection = plan.inspection?.check ?? null;
   const onboarding = onboardingFindings(record);
-  const findings = [...(inspection?.workflows?.[0]?.findings ?? []), ...onboarding];
+  const built = plan.inspection?.preview?.workflows?.[0] ?? null;
+  const findings = [...(inspection?.workflows?.[0]?.findings ?? []).map((entry) => withSendBackMove(entry, built)), ...onboarding];
   const counts = Object.fromEntries(['problem', 'warning', 'note'].map((severity) => [severity, findings.filter((entry) => entry.severity === severity).length
     + (severity === 'problem' ? plan.problems.length : 0)]));
   const openQuestions = record.questions.filter((question) => !question.answer);

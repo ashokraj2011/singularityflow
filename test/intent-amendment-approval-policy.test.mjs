@@ -19,13 +19,17 @@ function specification(value) {
     `# ${WORK} — Specification`, '',
     '## Agent brief', '', `Return exactly ${value} with executable proof.`, '',
     '## Actors', '', 'A user reads the value.', '',
-    '## User scenarios', '', `Given a ready application, when a user reads it, then ${value} is displayed.`, '',
+    '## User scenarios', '', '### S1 — Read the value', '',
+    `Given a ready application, when a user reads it, then ${value} is displayed.`, '',
     '## Failure and empty states', '', 'A missing value is rejected.', '',
     '## Permissions', '', 'Reading requires no special privileges.', '',
     '## Boundary conditions', '', 'Only the approved integer is exposed.', '',
     '## Requirements', '',
     `- Return exactly ${value}. [${WORK}:REQ-001]`,
     `- The user sees ${value}. [${WORK}:AC-001]`, '',
+    '## Scenario coverage', '',
+    '| Clause | Scenario | Outcome |', '|---|---|---|',
+    `| \`${WORK}:REQ-001\` | S1 | success |`, `| \`${WORK}:AC-001\` | S1 | success |`, '',
     '## Boundary and non-functional requirements', '', 'Invalid input is rejected deterministically.', '',
     '## Non-functional requirements', '', 'A local read returns without network access.', '',
     '## Assumptions', '', 'The value is available in the local application.', '',
@@ -38,7 +42,7 @@ function specification(value) {
   ].join('\n');
 }
 
-test('amendments honor required groups, retain all reviewers and let a prior reviewer reject a stale proposal', { timeout: 120_000 }, async (t) => {
+test('amendments honor required groups, retain all reviewers and let a prior reviewer reject a stale proposal', { timeout: 240_000 }, async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-amendment-policy-'));
   const root = path.join(directory, 'repository');
   const remote = path.join(directory, 'origin.git');

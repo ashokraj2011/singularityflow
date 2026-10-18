@@ -494,6 +494,12 @@ function repairBudgetSteps(_argv, error) {
   ].filter(Boolean);
 }
 
+function localSyncSteps(argv, error) {
+  const retry = safeCommandGuidance({ argv });
+  return [step('preserve-local-story-work', error?.message ?? 'Preserve the local work yourself; nothing was changed.', null, 'remediation'),
+    retry && step('retry-after-preserving', 'Then open the Story again.', retry.command, 'diagnostic')];
+}
+
 const KNOWN = Object.freeze({
   SESSION_STATE_REFRESH_UNAVAILABLE: (argv, error) => {
     const { options } = parseArgs(argv);
@@ -531,6 +537,9 @@ const KNOWN = Object.freeze({
       : local && step('create-outside-synced-folder', `Create it under ${base}, which is not synced.`, local.command, 'remediation'),
     step('allow-synced-folder', `Or keep the synced folder: run the same command with ${error?.details?.override ?? '--allow-synced-folder'}.`, null, 'remediation')];
   },
+  // The Story's own checkout could not be fast-forwarded without touching local work (session-open-local.mjs).
+  SESSION_LOCAL_SYNC_DIRTY: localSyncSteps,
+  SESSION_LOCAL_SYNC_DIVERGED: localSyncSteps,
   WORKFLOW_CONFIGURATION_MISSING: missingConfigurationSteps,
   PHASE_INPUTS_NOT_READY: upstreamInputSteps,
   SPECIFICATION_INDEX_UNTRUSTED: upstreamInputSteps,

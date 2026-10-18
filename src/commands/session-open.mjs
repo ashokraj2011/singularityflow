@@ -117,7 +117,8 @@ export async function run({ positionals, options }) {
   if (options['for-agent']) Object.assign(result, agentSessionView(result), { ready: true,
     agentInstruction: 'Reuse the verified open/session binding, brief and nextsteps in this result. Do not repeat pause, workspace, session, context or nextsteps lookups merely to obtain the same fields. Selection changes and later operation-specific readiness/consent still require fresh checks.' });
   if (json) return console.log(JSON.stringify(result, null, 2));
-  console.log(`${workId} is ready at ${checkout} (${attached ? 'attached from the remote' : 'local checkout, no remote sync'}).`);
+  console.log(`${workId} is ready at ${checkout} (${attached ? 'attached from the remote' : opened.value.remoteSync?.status === 'unavailable'
+    ? 'local checkout; the remote could not be reached' : 'local checkout, synchronized with the remote'}).`);
   console.log(`Agent: ${agent ?? 'none (Story complete)'} · phase: ${opened.value.phase ?? status.value.phase ?? '—'} · commit: ${String(opened.value.head ?? '').slice(0, 8) || '—'}`);
   console.log(`Work there with: cd ${JSON.stringify(checkout)}`);
   const actions = next.value?.actions ?? next.value?.data?.actions ?? [];
@@ -152,7 +153,7 @@ export function agentSessionView(result) {
   const next = result.nextsteps;
   return {
     executionContext: result.executionContext ?? null,
-    open: pick(result.open, ['workId', 'branch', 'head', 'repositoryPath', 'phase', 'status', 'agent', 'localOnly', 'attachedFromRemote', 'warnings']),
+    open: pick(result.open, ['workId', 'branch', 'head', 'repositoryPath', 'phase', 'status', 'agent', 'localOnly', 'attachedFromRemote', 'remoteSync', 'warnings']),
     session: pick(result.session, ['ready', 'workId', 'activeAgent', 'phase', 'status', 'repositoryPath', 'personalization', 'paused']),
     nextsteps: next && typeof next === 'object' ? {
       ...pick(next, ['resultType', 'state', 'currentPhase', 'subject']),

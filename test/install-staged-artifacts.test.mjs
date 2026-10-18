@@ -252,9 +252,14 @@ test('prior managed surfaces require exact current.json rollback artifacts befor
   assert.equal(record.previous.vscode.path, retainedVsix);
   assert.equal(record.previous.copilotPresent, true);
   assert.equal(record.previous.manifest.existed, true);
-  assert.equal(record.previous.manifest.mode, 0o640);
+  assert.equal(record.previous.manifest.mode, (await stat(currentManifest)).mode & 0o777,
+    'recovery must retain the mode actually exposed by this filesystem, including Windows');
   assert.equal(record.previous.telemetry.envFile.existed, true);
-  assert.equal(record.previous.telemetry.envFile.mode, 0o600);
+  assert.equal(record.previous.telemetry.envFile.mode, (await stat(telemetry)).mode & 0o777);
+  if (process.platform !== 'win32') {
+    assert.equal(record.previous.manifest.mode, 0o640);
+    assert.equal(record.previous.telemetry.envFile.mode, 0o600);
+  }
   assert.deepEqual(await readFile(record.previous.manifest.snapshot), await readFile(currentManifest));
   await writeFile(retainedTarball, Buffer.from('tampered'));
   await assert.rejects(loadActivationRecovery({

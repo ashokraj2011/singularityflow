@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-18",
+  "baselineCommit": "a8027d1611709c41db431700bd258381766ec9ac",
+  "implementationCommit": "c481242",
+  "nativeCiRunId": 39084092967,
+  "nativeCiCommit": "5905029d1ba53ee24db4161958d1c3c4c147948c",
+  "ciProductionTreeDifference": "Only the temporary CI workflow; production source matches implementationCommit.",
+  "localMac": {
+    "node": "22.14.0",
+    "architecture": "arm64",
+    "tests": 98,
+    "passed": 97,
+    "failed": 0,
+    "skipped": 1,
+    "skipReason": "Windows-exclusive file-lock test; exercised natively on Windows instead.",
+    "durationMs": 104161.972708
+  },
+  "nativeCi": [
+    { "os": "macos", "nodeMajor": 22, "tests": 98, "passed": 97, "failed": 0, "skipped": 1 },
+    { "os": "windows", "nodeMajor": 20, "tests": 83, "passed": 83, "failed": 0, "skipped": 0 },
+    { "os": "windows", "nodeMajor": 22, "tests": 83, "passed": 83, "failed": 0, "skipped": 0 }
+  ],
+  "hostCoverage": "Native Node storage, staging, distribution install, reinstall and uninstall suites run on every host. The legacy Bash fixture harness sets POSIX PATHs and executable bits and runs on macOS. Both wrappers receive Bash syntax checks on Windows. Recovery mode assertions compare native filesystem metadata, with exact Unix permission assertions retained on Unix.",
+  "productCheck": { "passed": true, "checks": 2715 },
+  "safetyCases": [
+    "Preview defaults to no deletion; repeated apply is idempotent.",
+    "Twelve successive installs retain bounded runtime/artifact roots instead of twelve generations.",
+    "Current and previous artifacts remain pinned by exact digest references.",
+    "All five nonterminal/retryable activation states preserve their recovery bytes.",
+    "Partial and legacy partial upgrades preserve inherited Copilot package roots.",
+    "The shared activation lease excludes concurrent installers and cleanup.",
+    "Changes to current, activation, distribution-recovery or uninstall-recovery records stop cleanup and retain partial effects.",
+    "Unknown contents, malformed/future records, symlinks and Windows junctions are not deletion targets.",
+    "Real Windows exclusive locks defer deletion; a later sweep retries successfully.",
+    "Interrupted retirement is resumable; workspace source and registries are preserved."
+  ],
+  "limits": [
+    "Qualification uses isolated fixture products and external-command stubs; it does not activate a real product or consume Copilot quota.",
+    "Live obsolete-installation cleanup is separate from these qualification runs.",
+    "Session/configuration caches, packaging toolchains, repositories, Story artifacts and pending transport records are not purged."
+  ]
+}

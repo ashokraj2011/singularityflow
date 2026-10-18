@@ -1422,6 +1422,13 @@ test('@sflow and Help Center share model-free cited resolution and only prefill 
   assert.equal(registered.chatParticipants.length, 1, 'one explicit SFlow participant is registered');
   const participant = registered.chatParticipants[0];
   assert.equal(participant.id, 'singularity-flow.sflow');
+  // Chat draws the avatar as an <img>, where activity.svg's currentColor would paint black.
+  const extensionRoot = path.join(packageRoot, 'apps', 'vscode');
+  assert.deepEqual(participant.iconPath, {
+    light: { fsPath: `${extensionRoot}/media/chat-light.svg` },
+    dark: { fsPath: `${extensionRoot}/media/chat-dark.svg` }
+  });
+  for (const icon of Object.values(participant.iconPath)) assert.ok(existsSync(icon.fsPath), icon.fsPath);
   let modelRead = false;
   const request = {
     command: 'help', prompt: 'What is project binding?', references: [],

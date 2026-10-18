@@ -1554,7 +1554,12 @@ export function registerSflowChat(
   };
 
   const participant = vscode.chat.createChatParticipant(PARTICIPANT_ID, handler);
-  participant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'activity.svg');
+  // Chat shows a URI icon as an <img>, where activity.svg's currentColor is black: these two carry
+  // fixed inks, dark green on light themes and light green on dark ones.
+  participant.iconPath = {
+    light: vscode.Uri.joinPath(context.extensionUri, 'media', 'chat-light.svg'),
+    dark: vscode.Uri.joinPath(context.extensionUri, 'media', 'chat-dark.svg')
+  };
   participant.followupProvider = {
     provideFollowups(result) {
       const metadata = (result as vscode.ChatResult & { metadata?: SflowChatMetadata }).metadata;

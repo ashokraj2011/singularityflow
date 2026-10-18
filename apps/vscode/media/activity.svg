@@ -9,7 +9,9 @@
   <desc id="desc">The Singularity Flow mark: an f with infinity above it and zero below it.</desc>
 
   <!--
-    Theme-safe VS Code activity-bar and chat mark, drawn in currentColor on a 24 px grid.
+    Theme-safe VS Code activity-bar mark, drawn in currentColor on a 24 px grid. The activity bar
+    uses it as a mask. The chat participant shows fixed-ink copies, chat-light.svg and
+    chat-dark.svg, because chat draws its icon as an <img>, which paints currentColor black.
     The brand sheet's f∞₀ redrawn for 16–24 px: the ∞ and the 0 are larger than on the sheet and no
     stroke is under 1.4 units, so the three parts stay separate shapes. brandMark() and brandSymbol()
     in src/views/webview.ts draw the same geometry.

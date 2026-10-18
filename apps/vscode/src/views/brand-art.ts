@@ -17,8 +17,9 @@
 /**
  * The f with ∞ above and 0 below, in the sheet's coordinates (bounding box 83,86 → 246,294).
  * `media/brand.svg` and `media/lockup.svg` carry the same geometry. Below about 30 px it does not
- * hold up, so the activity bar, sidebar header and page lockups use the 24-unit redraw in
- * `media/activity.svg` and webview.ts instead.
+ * hold up, so the activity bar, chat avatar, sidebar header and page lockups use the 24-unit redraw
+ * in `media/activity.svg` (the chat avatar in its fixed-ink copies `media/chat-light.svg` and
+ * `media/chat-dark.svg`) and webview.ts instead.
  */
 function integralMark(gradient: string): string {
   return `<g fill="none" stroke="url(#${gradient})" stroke-linecap="round" stroke-linejoin="round">

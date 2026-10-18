@@ -32,21 +32,64 @@ test('brand geometry and gradient remain independent of the new muted accent', (
   assert.ok(sidebar.includes(symbol));
 });
 
+const media = (name) => readFileSync(new URL(`../apps/vscode/media/${name}`, import.meta.url), 'utf8');
+const shapes = (svg) => [...svg.matchAll(/<(path|ellipse)\b[^>]*>/g)].map(([element]) => element
+  .replace(/\s+/g, ' ').match(/(?:stroke-width|d|cx|cy|rx|ry)="[^"]*"/g).join(' '));
+
 /**
- * The activity bar and the chat participant show media/activity.svg; the sidebar header and the page
- * lockups draw the mark inline. All of them are the same f∞₀, so one redraw cannot leave another
- * surface on an older mark.
+ * The activity bar shows media/activity.svg, the chat participant its fixed-ink copies
+ * media/chat-light.svg and media/chat-dark.svg, and the sidebar header and the page lockups draw the
+ * mark inline. All of them are the same f∞₀, so one redraw cannot leave another surface on an older
+ * mark.
  */
-test('the activity-bar icon and the inline marks draw one geometry in currentColor', () => {
-  const shapes = (svg) => [...svg.matchAll(/<(path|ellipse)\b[^>]*>/g)].map(([element]) => element
-    .replace(/\s+/g, ' ').match(/(?:stroke-width|d|cx|cy|rx|ry)="[^"]*"/g).join(' '));
-  const activity = readFileSync(new URL('../apps/vscode/media/activity.svg', import.meta.url), 'utf8');
+test('the activity-bar icon, the chat avatars and the inline marks draw one geometry', () => {
+  const activity = media('activity.svg');
   assert.match(activity, /viewBox="0 0 24 24"/);
   assert.deepEqual([...new Set(activity.match(/(?:stroke|fill)="[^"]*"/g))].sort(), ['fill="none"', 'stroke="currentColor"']);
   assert.equal(shapes(activity).length, 3);
   assert.deepEqual(shapes(brandMark(20)), shapes(activity));
   assert.deepEqual(shapes(brandSymbol(25)), shapes(activity));
+  assert.deepEqual(shapes(media('chat-light.svg')), shapes(activity));
+  assert.deepEqual(shapes(media('chat-dark.svg')), shapes(activity));
   assert.match(brandMark(20), /stroke="currentColor"/);
+});
+
+/**
+ * VS Code draws a participant's URI icon as a 24 px `<img>` cropped to a circle over the chat list's
+ * background, choosing `dark` for dark and high-contrast dark themes and `light` otherwise. In an
+ * `<img>` currentColor is black, so each copy needs a fixed ink that reads on every default
+ * background of its themes, and room around the mark for the crop.
+ */
+test('the chat avatar pair carries fixed inks that read on their themes and fit the circular crop', () => {
+  const luminance = (hex) => {
+    const [r, g, b] = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255)
+      .map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contrast = (a, b) => {
+    const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return (high + 0.05) / (low + 0.05);
+  };
+  // Editor, sidebar and panel backgrounds of VS Code's built-in themes (2026, Modern, Plus, high contrast).
+  const surfaces = {
+    'chat-light.svg': ['#ffffff', '#fafafd', '#f8f8f8', '#f3f3f3'],
+    'chat-dark.svg': ['#000000', '#121314', '#191a1b', '#181818', '#1f1f1f', '#1e1e1e', '#252526']
+  };
+  for (const [name, backgrounds] of Object.entries(surfaces)) {
+    const svg = media(name);
+    const inks = [...new Set(svg.match(/stroke="[^"]*"/g))];
+    assert.equal(inks.length, 1, `${name} draws in one ink`);
+    const ink = inks[0].slice('stroke="'.length, -1);
+    assert.match(ink, /^#[0-9a-f]{6}$/, `${name} needs a fixed ink, not currentColor`);
+    for (const background of backgrounds) {
+      assert.ok(contrast(ink, background) >= 4.5, `${name} ${ink} on ${background}: ${contrast(ink, background).toFixed(2)}`);
+    }
+    // Measured along the stroked outlines, the mark reaches 14.25 units from (12, 12), the centre of
+    // its 24-unit grid; a box that ends at the grid would crop the ∞ and the 0.
+    const [x, y, width, height] = svg.match(/viewBox="([^"]+)"/)[1].split(' ').map(Number);
+    assert.deepEqual([x + width / 2, y + height / 2, width], [12, 12, height]);
+    assert.ok(width / 2 >= 14.25 + 1, `${name} leaves at least one unit between the mark and the crop`);
+  }
 });
 
 test('grouped action buttons wrap with one shared gap and no extra child margin', () => {

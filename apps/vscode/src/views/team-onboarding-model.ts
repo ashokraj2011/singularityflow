@@ -150,6 +150,8 @@ export interface TeamOnboardingView {
   teamId: string;
   teamIdEdited: boolean;
   jiraProject: string;
+  /** The organisation's application identifier for the team collection; optional. */
+  appId: string;
   authorities: TeamOnboardingAuthority[];
   selectedAuthorityId: string | null;
   repositories: TeamOnboardingRepositoryRow[];
@@ -190,7 +192,7 @@ export interface TeamOnboardingProposalExcluded {
 }
 
 export interface TeamOnboardingProposalPreview {
-  team: { id: string; name: string; jiraProject: string | null };
+  team: { id: string; name: string; jiraProject: string | null; appId: string | null };
   authority: TeamOnboardingAuthority | null;
   members: TeamOnboardingProposalMember[];
   links: TeamOnboardingProposalLink[];
@@ -209,6 +211,7 @@ export interface CapabilityTeamRequestDocument {
   lead: string;
   name: string;
   jiraProject: string | null;
+  appId?: string;
   members: Array<{
     capabilityId: string;
     repositoryUrl: string;
@@ -286,6 +289,7 @@ export function emptyTeamOnboardingView(
     teamId: '',
     teamIdEdited: false,
     jiraProject: '',
+    appId: '',
     authorities,
     selectedAuthorityId: authorities.length === 1 ? authorities[0]?.id ?? null : null,
     repositories,
@@ -647,6 +651,9 @@ function baseProblems(view: TeamOnboardingView, validateRows = true): string[] {
   if (!TEAM_ONBOARDING_ID.test(view.teamId.trim())) {
     problems.push('The team ID must be lower-case kebab-case.');
   }
+  if (/\s/u.test(view.appId.trim()) || [...view.appId.trim()].length > 64) {
+    problems.push('An App ID cannot contain spaces and has at most 64 characters.');
+  }
   if (!selectedAuthority(view)) problems.push('Choose the exact capability-map authority.');
   if (!selected.length) problems.push('Choose at least one repository.');
   if (selected.length > TEAM_ONBOARDING_MAX_SELECTED) {
@@ -753,7 +760,8 @@ export function teamOnboardingProposalPreview(view: TeamOnboardingView): TeamOnb
     team: {
       id: view.teamId.trim(),
       name: view.teamName.trim(),
-      jiraProject: view.jiraProject.trim() || null
+      jiraProject: view.jiraProject.trim() || null,
+      appId: view.appId.trim() || null
     },
     authority: selectedAuthority(view),
     members,
@@ -779,6 +787,8 @@ export function mapTeamRequest(view: TeamOnboardingView): CapabilityTeamRequestD
     lead: authority.leadUrl.trim(),
     name: preview.team.name,
     jiraProject: preview.team.jiraProject,
+    // Only when given, so a request without one stays readable by a CLI that predates App IDs.
+    ...(preview.team.appId ? { appId: preview.team.appId } : {}),
     members: preview.members.map((member) => ({
       capabilityId: member.capabilityId,
       repositoryUrl: member.locator,
@@ -797,6 +807,7 @@ export function mapTeamCommand(view: TeamOnboardingView): string[] {
     '--name', request.name
   ];
   if (request.jiraProject) args.push('--jira-project', request.jiraProject);
+  if (request.appId) args.push('--app-id', request.appId);
   for (const member of request.members) {
     args.push('--member', `${member.capabilityId}=${member.repositoryUrl}`);
   }

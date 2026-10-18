@@ -166,6 +166,7 @@ export function buildCapabilityTree(
           ? `Ships from ${repositories.join(', ')}.`
           : 'Groups the capabilities beneath it.',
         capability.jira?.projectKey ? `Jira ${capability.jira.projectKey}` : null,
+        capability.appId ? `App ID ${capability.appId}` : null,
         capability.teams?.length ? `Teams: ${capability.teams.join(', ')}` : null
       ].filter(Boolean).join('\n'),
       icon: capability.kind === 'delivery' ? 'delivery' : 'collection',

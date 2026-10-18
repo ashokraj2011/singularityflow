@@ -46,13 +46,15 @@ export interface CapabilityNode {
   sharedRoots?: string[];
   sourceHashExcludedRoots?: string[];
   testConfigurationPaths?: string[];
-  /** Organisation-defined key/value attributes such as application ID or cost centre. */
+  /** Organisation-defined key/value attributes such as cost centre or service tier. */
   metadata?: Record<string, string>;
   /** Named links to whatever describes this capability — Confluence pages, briefs, runbooks. */
   documentation?: Record<string, string>;
   /** Named links to whatever it runs on — an AWS account, a dashboard, a queue. */
   resources?: Record<string, string>;
   jira?: { projectKey?: string; board?: string; component?: string } | null;
+  /** The organisation's application identifier, when one is recorded. */
+  appId?: string | null;
   teams?: string[];
   owns?: string[];
   /** What this capability's own entry declares. */

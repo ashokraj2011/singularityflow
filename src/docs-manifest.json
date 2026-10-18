@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "f499bc8d26765d01aed55b7e9aa7aa4a0cff06b0",
+  "sourceCommit": "a2b1f1bbd113c72bbe685f670428d926b86d469a",
   "topicCount": 84,
-  "contentSha256": "fb2354215f9bf189886f62e09f11bdbd627829c4ba5c450c46416000d94918f9",
+  "contentSha256": "b3008e4da404791512bce57139bdd87b0c4ac3fa0584a270ce8fadd8423e5587",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -80,8 +80,8 @@
     {
       "id": "capability-management",
       "title": "Capability mapping and activation",
-      "version": 24,
-      "sha256": "65c39a3fafcfbdc2d4d05f381f35a0ee3374966cb5d6db246c5435b286a1fac9",
+      "version": 25,
+      "sha256": "e59cabb90f8ba3012bce9959a1d38bb0573c58115421c05c1e44e84c3a7cbae2",
       "routingSha256": "34335f7f4930297cb596fd5e42a87bb80b3b74eb7842f8a5bb3801bdf0fa144b",
       "file": "capability-management.md"
     },

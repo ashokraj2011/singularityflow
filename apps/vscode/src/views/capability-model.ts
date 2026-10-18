@@ -1,5 +1,5 @@
 /**
- * The capability editor's model: structure, delivery, Jira, teams, and policy as it will apply.
+ * The capability editor's model: structure, delivery, Jira, App ID, teams, and policy as it will apply.
  *
  * Policy folds from the root toward each child and every fold is monotonic — the stricter severity,
  * the larger minimum, the smaller budget, the intersection of allowlists, the union of obligations.
@@ -47,6 +47,7 @@ export interface CapabilityDetail {
   testConfigurationPaths: string[];
   metadata: Record<string, string>;
   jira: { projectKey?: string; board?: string; component?: string } | null;
+  appId: string | null;
   teams: string[];
   owns: string[];
   policy: PolicyField[];
@@ -182,6 +183,7 @@ export function capabilityDetail(tree: CapabilityNode[], capabilityId: string): 
     testConfigurationPaths: row.testConfigurationPaths ?? [],
     metadata: row.metadata ?? {},
     jira: row.jira ?? null,
+    appId: row.appId ?? null,
     teams: row.teams ?? [],
     owns: row.owns ?? [],
     policy,
@@ -212,7 +214,8 @@ const EDIT_FLAGS: Array<[string, string]> = [
   ['sourceRoots', '--source-roots'], ['sharedRoots', '--shared-roots'],
   ['sourceHashExcludedRoots', '--source-hash-excluded-roots'],
   ['testConfigurationPaths', '--test-configuration-paths'],
-  ['jira.projectKey', '--jira-project'], ['jira.board', '--jira-board'], ['teams', '--teams'],
+  ['jira.projectKey', '--jira-project'], ['jira.board', '--jira-board'], ['appId', '--app-id'],
+  ['teams', '--teams'],
   ['autoEligibility', '--auto-eligibility'], ['autoProtectedScope', '--auto-protected-scope'],
   ['autoMaximumTouchedPaths', '--auto-maximum-touched-paths'],
   ['autoMaximumConcurrentFlights', '--auto-maximum-concurrent-flights']

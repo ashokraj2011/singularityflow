@@ -377,6 +377,23 @@ export const CAPABILITY_KINDS = Object.freeze(['collection', 'delivery']);
 /** Optional domain classification, separate from the structural kind. */
 export const CAPABILITY_TYPES = Object.freeze(['tech', 'business']);
 
+/**
+ * A capability's App ID: the organisation's own application identifier (an app registry or CMDB
+ * entry). Optional, and recorded and shown only: nothing routes, authorizes or names a branch by it.
+ */
+export const CAPABILITY_APP_ID_MAX_CHARACTERS = 64;
+
+/** Text without spaces or control characters, at most 64 characters; anything else is refused. */
+export function assertCapabilityAppId(value, label = 'App ID') {
+  if (typeof value !== 'string' || !/^[^\s\p{Cc}]+$/u.test(value)
+      || [...value].length > CAPABILITY_APP_ID_MAX_CHARACTERS) {
+    throw new SingularityFlowError(
+      `${label} must be text without spaces, at most ${CAPABILITY_APP_ID_MAX_CHARACTERS} characters, for example APP-1234.`,
+      { code: 'CAPABILITY_APP_ID_INVALID' });
+  }
+  return value;
+}
+
 /** Fields that are sets of named links, where an edit changes entries rather than replacing all. */
 const MERGED_MAPS = Object.freeze(['metadata', 'documentation', 'resources']);
 
@@ -471,6 +488,11 @@ function validateCapabilityDelivery(id, capability, capabilities, portfolio) {
         throw new SingularityFlowError(`Capability '${id}'.jira.${field} must be text.`);
       }
     }
+  }
+
+  // A hand-written `appId: 12345` reads as a number; it is the same ID, so it is read as text.
+  if (capability.appId != null && !(Number.isSafeInteger(capability.appId) && capability.appId >= 0)) {
+    assertCapabilityAppId(capability.appId, `Capability '${id}'.appId`);
   }
 
   if (capability.teams != null) uniqueStrings(capability.teams, `Capability '${id}'.teams`);
@@ -877,6 +899,7 @@ export function capabilityTree(definition) {
       documentation: capability.documentation ?? {},
       resources: capability.resources ?? {},
       jira: capability.jira ?? null,
+      appId: capability.appId == null ? null : String(capability.appId),
       // Normalized here rather than stored back: uniqueStrings trims and de-duplicates, which is the
       // convention `owns` already follows, and the reader should see the tidied list.
       teams: uniqueStrings(capability.teams, 'teams') ?? [],

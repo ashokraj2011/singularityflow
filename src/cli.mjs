@@ -6834,6 +6834,7 @@ function capabilityChanges(options) {
   put('jira-project', 'jira.projectKey');
   put('jira-board', 'jira.board');
   put('jira-component', 'jira.component');
+  put('app-id', 'appId', (value) => value.trim());
   put('teams', 'teams', list);
   put('owns', 'owns', list);
   put('description', 'description');
@@ -7098,6 +7099,7 @@ async function capabilityCommand(positionals, options) {
           fallback: optionString(options, 'clone-fallback', 'refuse')
         } : null,
       jiraProject: optionString(options, 'jira-project'),
+      appId: optionString(options, 'app-id'),
       teams: (optionString(options, 'teams') ?? '').split(',').map((team) => team.trim()).filter(Boolean),
       supersedeBranch: optionString(options, 'supersede-branch'),
       supersedeCommit: optionString(options, 'supersede-commit')
@@ -7594,6 +7596,7 @@ async function bootstrapCommand(positionals, options) {
     capabilityName: optionString(options, 'name'),
     kind: optionString(options, 'kind', 'collection'),
     jiraProject: optionString(options, 'jira-project'),
+    appId: optionString(options, 'app-id'),
     teams: (optionString(options, 'teams') ?? '').split(',').map((team) => team.trim()).filter(Boolean),
     into: optionString(options, 'into'),
     base: optionString(options, 'base'),

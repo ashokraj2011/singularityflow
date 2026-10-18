@@ -166,6 +166,7 @@ function proposalPreview(view: TeamOnboardingView): string {
     ? `<strong>${escape(preview.authority.label)}</strong><br><code>${escape(preview.authority.leadUrl)}</code>`
     : '<span class="muted">Not chosen</span>'}</dd>
       ${preview.team.jiraProject ? `<dt>Jira</dt><dd><code>${escape(preview.team.jiraProject)}</code></dd>` : ''}
+      ${preview.team.appId ? `<dt>App ID</dt><dd><code>${escape(preview.team.appId)}</code></dd>` : ''}
     </dl>
     <h3>Repository children</h3>
     ${selected.length ? `<ul class="resource-status">${selected.map((row) => {
@@ -200,6 +201,9 @@ function teamAndRepositories(view: TeamOnboardingView): string {
             <small>Derived until edited; permanent lower-case kebab-case.</small></label>
           <label class="field" for="team-jira"><span>Jira project <span class="muted">optional</span></span>
             <input id="team-jira" type="text" data-team-field="jiraProject" value="${escape(view.jiraProject)}" placeholder="PAY" spellcheck="false" autocomplete="off"></label>
+          <label class="field" for="team-app-id"><span>App ID <span class="muted">optional</span></span>
+            <input id="team-app-id" type="text" data-team-field="appId" value="${escape(view.appId)}" placeholder="APP-1234" spellcheck="false" autocomplete="off">
+            <small>Your organisation's application identifier, recorded on the team.</small></label>
           ${authorityField(view)}
         </div>
       </section>
@@ -414,7 +418,7 @@ export const TEAM_ONBOARDING_SCRIPT = `
 
   document.addEventListener('input', (event) => {
     const field = event.target.dataset?.teamField;
-    if (field === 'name' || field === 'id' || field === 'jiraProject') {
+    if (field === 'name' || field === 'id' || field === 'jiraProject' || field === 'appId') {
       post('team-field', { field, value: event.target.value });
     }
   });

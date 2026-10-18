@@ -232,6 +232,25 @@ test('eligible and set-aside semantics let good rows proceed around one failure'
   assert.equal(teamOnboardingProposalPreview(view).excluded.length, 2);
 });
 
+test('an optional team App ID reaches the preview, request and command only when one is given', () => {
+  let view = beginTeamRepositoryInspection(selectedView(1));
+  view = recordTeamRepositoryOutcome(view, view.repositories[0].id, { status: 'will-add' });
+  view = { ...view, inspection: { ...view.inspection, running: false } };
+  assert.match(teamOnboardingHtml(selectedView(1)), /data-team-field="appId"/);
+  assert.equal(Object.hasOwn(mapTeamRequest(view), 'appId'), false,
+    'a request without an App ID stays readable by a CLI that predates the field');
+  assert.equal(mapTeamCommand(view).includes('--app-id'), false);
+
+  view = { ...view, appId: ' APP-77 ' };
+  assert.equal(teamOnboardingProposalPreview(view).team.appId, 'APP-77');
+  assert.equal(mapTeamRequest(view).appId, 'APP-77');
+  const command = mapTeamCommand(view);
+  assert.equal(command[command.indexOf('--app-id') + 1], 'APP-77');
+
+  view = { ...view, appId: 'APP 77' };
+  assert.ok(teamOnboardingProblems(view).includes('An App ID cannot contain spaces and has at most 64 characters.'));
+});
+
 test('proposal preview and map-team transports include eligible adds and links exactly once', () => {
   let view = beginTeamRepositoryInspection(selectedView(3));
   view = { ...view, jiraProject: 'PAY' };

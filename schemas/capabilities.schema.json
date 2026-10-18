@@ -192,8 +192,15 @@
             "description": "Repository-relative shared directories included with this capability and inherited additively from ancestors.",
             "$ref": "#/$defs/sourceRoots"
           },
+          "appId": {
+            "description": "The organisation's own application identifier (an app registry or CMDB entry). Recorded and shown only; nothing routes, approves or names a branch by it.",
+            "oneOf": [
+              { "type": "string", "pattern": "^\\S{1,64}$" },
+              { "type": "integer", "minimum": 0 }
+            ]
+          },
           "metadata": {
-            "description": "Organisation-defined key/value attributes such as application ID, cost centre, owner code, or service tier.",
+            "description": "Organisation-defined key/value attributes such as cost centre, owner code, or service tier.",
             "type": "object",
             "propertyNames": { "minLength": 1 },
             "additionalProperties": {

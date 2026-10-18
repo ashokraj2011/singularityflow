@@ -53,6 +53,7 @@ interface OrganisationCapability {
   testConfigurationPaths?: string[];
   metadata?: Record<string, unknown>;
   jira?: { projectKey?: string | null } | null;
+  appId?: string | number | null;
   teams?: string[];
   children: OrganisationCapability[];
 }
@@ -173,6 +174,7 @@ interface SavedMapRequest {
   testConfigurationPaths: string[] | null;
   metadata: Record<string, string>;
   jiraProject: string | null;
+  appId: string | null;
   teams: string[] | null;
   clone: {
     mode: string;
@@ -185,7 +187,7 @@ interface SavedMapRequest {
 const MAP_SINGLE_VALUE_OPTIONS = new Set([
   '--lead', '--kind', '--name', '--parent', '--repository', '--source-roots', '--shared-roots',
   '--source-hash-excluded-roots', '--test-configuration-paths',
-  '--clone-mode', '--clone-fallback', '--sparse-cone', '--jira-project', '--teams',
+  '--clone-mode', '--clone-fallback', '--sparse-cone', '--jira-project', '--app-id', '--teams',
   '--supersede-branch', '--supersede-commit'
 ]);
 
@@ -275,6 +277,7 @@ function savedMapRequest(operation: Pick<MapCapabilityOperation, 'argv' | 'capab
       ? csv(values.get('--test-configuration-paths')?.[0]) : null,
     metadata,
     jiraProject: values.get('--jira-project')?.[0] ?? null,
+    appId: values.get('--app-id')?.[0] ?? null,
     teams: values.has('--teams') ? csv(values.get('--teams')?.[0]) : null,
     clone
   };
@@ -344,6 +347,7 @@ export function compareApprovedCapability(operation: MapCapabilityOperation, org
   if (request.jiraProject != null && capability.jira?.projectKey !== request.jiraProject) {
     differences.push('Jira project');
   }
+  if (request.appId != null && String(capability.appId ?? '') !== request.appId) differences.push('App ID');
   if (request.teams != null
     && JSON.stringify(normalizedList(capability.teams ?? [])) !== JSON.stringify(request.teams)) {
     differences.push('teams');
@@ -1797,7 +1801,7 @@ export class BootstrapPanel {
       const field = message.field;
       if (field === 'lead' || field === 'capabilityId' || field === 'name' || field === 'kind'
         || field === 'parent' || field === 'repositoryUrl' || field === 'jiraProject'
-        || field === 'teams' || field === 'sourceRoots' || field === 'sharedRoots'
+        || field === 'appId' || field === 'teams' || field === 'sourceRoots' || field === 'sharedRoots'
         || field === 'sourceHashExcludedRoots' || field === 'testConfigurationPaths'
         || field === 'sparseCone' || field === 'cloneMode' || field === 'cloneFallback'
         || field === 'inspectionLeadUrl') {

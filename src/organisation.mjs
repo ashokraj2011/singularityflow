@@ -28,7 +28,7 @@ import {
 } from './util.mjs';
 import { renderDataPreservingFormatting, renderPreservingFormatting } from './yaml-formatting.mjs';
 import {
-  CAPABILITIES_PATH, capabilityRepositories, editCapability, loadCapabilities,
+  assertCapabilityAppId, CAPABILITIES_PATH, capabilityRepositories, editCapability, loadCapabilities,
   validateCapabilities, capabilityTree, flattenCapabilityTree, capabilityPath, foldCapabilityPolicy,
   materializeImplicitCapability, normalizeCapabilityOwnership, resolveCapabilityOwner,
   resolveImplicitCapability
@@ -186,7 +186,7 @@ function capabilityTeamMutationError(message, code, remote, details = {}) {
 
 /** Normalize and bound an atomic team request before authorship or remote Git discovery. */
 export function normalizeCapabilityTeamRequest(leadUrl, {
-  teamId, name, jiraProject = null, members = [], links = []
+  teamId, name, jiraProject = null, appId = null, members = [], links = []
 } = {}) {
   const id = String(teamId ?? '').trim();
   const teamName = String(name ?? '').trim();
@@ -217,6 +217,8 @@ export function normalizeCapabilityTeamRequest(leadUrl, {
     capabilityTeamInputError('A Jira project key must begin with an upper-case letter and contain only upper-case letters, digits, underscore, or hyphen.',
       'CAPABILITY_TEAM_JIRA_PROJECT_INVALID');
   }
+  const app = requestedAppId(appId,
+    (message) => capabilityTeamInputError(message, 'CAPABILITY_TEAM_APP_ID_INVALID'));
 
   const seenCapabilityIds = new Set([id]);
   const seenUrls = new Set();
@@ -268,12 +270,12 @@ export function normalizeCapabilityTeamRequest(leadUrl, {
     seenLinks.add(capabilityId);
     scalarInputBytes(capabilityId, 'links');
   }
-  for (const [field, value] of Object.entries({ lead, teamId: id, name: teamName, jiraProject: project })) {
+  for (const [field, value] of Object.entries({ lead, teamId: id, name: teamName, jiraProject: project, appId: app })) {
     scalarInputBytes(value, field);
   }
   let serialized;
   try {
-    serialized = JSON.stringify({ lead, teamId: id, name: teamName, jiraProject: project,
+    serialized = JSON.stringify({ lead, teamId: id, name: teamName, jiraProject: project, appId: app,
       members: normalizedMembers, links: normalizedLinks });
   } catch {
     capabilityTeamInputError('Team mapping request must be serializable.');
@@ -285,8 +287,15 @@ export function normalizeCapabilityTeamRequest(leadUrl, {
   }
   return Object.freeze({
     leadUrl: assertCredentialFreeRemote(lead), teamId: id, name: teamName,
-    jiraProject: project, members: Object.freeze(normalizedMembers), links: Object.freeze(normalizedLinks)
+    jiraProject: project, appId: app, members: Object.freeze(normalizedMembers), links: Object.freeze(normalizedLinks)
   });
+}
+
+/** A requested App ID, trimmed; empty is no request. Refused before any Git is touched. */
+function requestedAppId(value, refuse) {
+  const text = value == null ? '' : String(value).trim();
+  if (!text) return null;
+  try { return assertCapabilityAppId(text); } catch (error) { return refuse(error.message); }
 }
 
 /** Refuse unbounded API input before identity discovery, enterprise setup, or any Git observation. */
@@ -301,7 +310,7 @@ function validateCapabilityMapRequest(input) {
     leadUrl: input.leadUrl, capabilityId: input.capabilityId, name: input.name,
     kind: input.kind, type: input.type, parent: input.parent,
     repositoryUrl: input.repositoryUrl, leadRepositoryUrl: input.leadRepositoryUrl,
-    jiraProject: input.jiraProject, cloneMode: input.clone?.mode,
+    jiraProject: input.jiraProject, appId: input.appId, cloneMode: input.clone?.mode,
     cloneFallback: input.clone?.fallback
   })) scalarInputBytes(value, field);
 
@@ -3544,6 +3553,7 @@ export async function mapCapability(leadUrl, {
   testConfigurationPaths = [],
   clone = null,
   jiraProject = null,
+  appId = null,
   teams = [],
   supersedeBranch = null,
   supersedeCommit = null,
@@ -3586,8 +3596,10 @@ export async function mapCapability(leadUrl, {
     leadUrl, capabilityId, name, kind, type, parent, repositoryUrl, repositoryUrls,
     leadRepositoryUrl, metadata, documentation, resources, sourceRoots, sharedRoots,
     sourceHashExcludedRoots, testConfigurationPaths,
-    clone, jiraProject, teams
+    clone, jiraProject, appId, teams
   });
+  const appIdRequest = requestedAppId(appId,
+    (message) => capabilityMapInputError(message, 'CAPABILITY_APP_ID_INVALID'));
   // Capture caller authorship before the enterprise environment below intentionally isolates Git
   // from repository/global configuration. This identity is commit data, never transport authority.
   const authorIdentity = requireCapabilityProposalAuthor(
@@ -3815,6 +3827,7 @@ export async function mapCapability(leadUrl, {
       if (jiraProject != null && existingCapability.jira?.projectKey !== jiraProject) {
         differences.push('jira.projectKey');
       }
+      if (appIdRequest != null && String(existingCapability.appId ?? '') !== appIdRequest) differences.push('appId');
       const normalizedStrings = (values) => [...new Set(values
         .map((value) => String(value).trim()).filter(Boolean))].sort();
       if (teams.length
@@ -3926,6 +3939,7 @@ export async function mapCapability(leadUrl, {
     if (sourceHashExcludedRoots.length) set('sourceHashExcludedRoots', sourceHashExcludedRoots);
     if (testConfigurationPaths.length) set('testConfigurationPaths', testConfigurationPaths);
     if (jiraProject) set('jira.projectKey', jiraProject);
+    if (appIdRequest) set('appId', appIdRequest);
     if (teams.length) set('teams', teams);
 
     // Validated against the portfolio in the same checkout, so a repository the map names is one
@@ -3963,6 +3977,7 @@ export async function mapCapabilityTeam(leadUrl, {
   teamId,
   name,
   jiraProject = null,
+  appId = null,
   members = [],
   links = [],
   initiatingRoot = process.cwd(),
@@ -3971,7 +3986,7 @@ export async function mapCapabilityTeam(leadUrl, {
   runRemoteCommand = runRemoteGitAsync
 } = {}) {
   const request = normalizeCapabilityTeamRequest(leadUrl, {
-    teamId, name, jiraProject, members, links
+    teamId, name, jiraProject, appId, members, links
   });
   const authorIdentity = requireCapabilityProposalAuthor(
     await captureCapabilityProposalAuthor(initiatingRoot, initiatingEnv)
@@ -4120,6 +4135,7 @@ export async function mapCapabilityTeam(leadUrl, {
       const existingTeam = approvedCapabilities[request.teamId] ?? null;
       let teamNeedsName = false;
       let teamNeedsJira = false;
+      let teamNeedsAppId = false;
       if (existingTeam) {
         const differences = [];
         if (existingTeam.kind !== 'collection') differences.push('kind');
@@ -4127,6 +4143,8 @@ export async function mapCapabilityTeam(leadUrl, {
         if (existingTeam.name != null && existingTeam.name !== request.name) differences.push('name');
         if (request.jiraProject != null && existingTeam.jira?.projectKey != null
             && existingTeam.jira.projectKey !== request.jiraProject) differences.push('jira.projectKey');
+        if (request.appId != null && existingTeam.appId != null
+            && String(existingTeam.appId) !== request.appId) differences.push('appId');
         if (differences.length) {
           capabilityTeamMutationError(
             `Capability '${request.teamId}' already exists but is not the requested matching team collection.`,
@@ -4136,9 +4154,12 @@ export async function mapCapabilityTeam(leadUrl, {
         }
         teamNeedsName = existingTeam.name == null;
         teamNeedsJira = request.jiraProject != null && existingTeam.jira?.projectKey == null;
+        teamNeedsAppId = request.appId != null && existingTeam.appId == null;
       }
       const effectiveJiraProject = request.jiraProject
         ?? existingTeam?.jira?.projectKey ?? null;
+      const effectiveAppId = request.appId
+        ?? (existingTeam?.appId == null ? null : String(existingTeam.appId));
 
       const newMembers = [];
       for (const member of request.members) {
@@ -4220,7 +4241,7 @@ export async function mapCapabilityTeam(leadUrl, {
         linksToAdd.push(capabilityId);
       }
 
-      const changed = !existingTeam || teamNeedsName || teamNeedsJira
+      const changed = !existingTeam || teamNeedsName || teamNeedsJira || teamNeedsAppId
         || newMembers.length > 0 || linksToAdd.length > 0;
       const memberResults = request.members.map((member) => ({
         capabilityId: member.capabilityId,
@@ -4237,7 +4258,7 @@ export async function mapCapabilityTeam(leadUrl, {
         return {
           status: 'already-mapped', alreadyMapped: true,
           lead: leadKey, capabilityId: request.teamId, teamId: request.teamId,
-          team: { id: request.teamId, name: request.name, jiraProject: effectiveJiraProject },
+          team: { id: request.teamId, name: request.name, jiraProject: effectiveJiraProject, appId: effectiveAppId },
           members: memberResults, links: linkResults,
           memberIds: request.members.map((member) => member.capabilityId),
           linkedCapabilityIds: [...request.links],
@@ -4251,7 +4272,8 @@ export async function mapCapabilityTeam(leadUrl, {
           name: request.name,
           kind: 'collection',
           parent: null,
-          ...(request.jiraProject ? { jira: { projectKey: request.jiraProject } } : {})
+          ...(request.jiraProject ? { jira: { projectKey: request.jiraProject } } : {}),
+          ...(request.appId ? { appId: request.appId } : {})
         }));
       } else {
         if (teamNeedsName) capabilities.setIn(
@@ -4259,6 +4281,9 @@ export async function mapCapabilityTeam(leadUrl, {
         );
         if (teamNeedsJira) capabilities.setIn(
           ['capabilities', request.teamId, 'jira', 'projectKey'], request.jiraProject
+        );
+        if (teamNeedsAppId) capabilities.setIn(
+          ['capabilities', request.teamId, 'appId'], request.appId
         );
       }
 
@@ -4305,6 +4330,7 @@ export async function mapCapabilityTeam(leadUrl, {
             teamId: request.teamId,
             name: request.name,
             jiraProject: request.jiraProject,
+            ...(request.appId ? { appId: request.appId } : {}),
             members: request.members.map((member) => ({
               capabilityId: member.capabilityId,
               repositoryId: member.repositoryId,
@@ -4323,7 +4349,7 @@ export async function mapCapabilityTeam(leadUrl, {
       return {
         status: 'proposal-created', alreadyMapped: false,
         lead: leadKey, capabilityId: request.teamId, teamId: request.teamId,
-        team: { id: request.teamId, name: request.name, jiraProject: effectiveJiraProject },
+        team: { id: request.teamId, name: request.name, jiraProject: effectiveJiraProject, appId: effectiveAppId },
         members: memberResults.map((member) => ({
           ...member, status: member.status === 'will-add' ? 'added' : member.status
         })),

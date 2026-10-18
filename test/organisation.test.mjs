@@ -995,7 +995,7 @@ test('team mapping creates one atomic proposal with safe members and an explicit
   }).stdout.trim();
 
   const proposal = await mapCapabilityTeam(org.platform, {
-    teamId: 'checkout-team', name: 'Checkout Team', jiraProject: 'SHOP',
+    teamId: 'checkout-team', name: 'Checkout Team', jiraProject: 'SHOP', appId: 'APP-77',
     members: [
       { capabilityId: 'checkout-api', name: 'Checkout API', repositoryUrl: org.service },
       { capabilityId: 'checkout-web', name: 'Checkout Web', repositoryUrl: org.web }
@@ -1023,8 +1023,10 @@ test('team mapping creates one atomic proposal with safe members and an explicit
     'show', `${proposal.branch}:singularity/capabilities.yml`
   ], { cwd: org.platform }).stdout).capabilities;
   assert.deepEqual(capabilities['checkout-team'], {
-    name: 'Checkout Team', kind: 'collection', parent: null, jira: { projectKey: 'SHOP' }
+    name: 'Checkout Team', kind: 'collection', parent: null, jira: { projectKey: 'SHOP' }, appId: 'APP-77'
   });
+  assert.equal(proposal.team.appId, 'APP-77');
+  assert.equal(capabilities['checkout-api'].appId, undefined, 'the App ID belongs to the team, not its children');
   assert.deepEqual(capabilities['checkout-api'].sourceRoots, []);
   assert.equal(capabilities['checkout-api'].parent, 'checkout-team');
   assert.equal(capabilities['checkout-api'].repository, 'service');
@@ -1043,7 +1045,7 @@ test('team mapping creates one atomic proposal with safe members and an explicit
 
   await mergeProposal(org.platform, proposal);
   const exactRetry = await mapCapabilityTeam(org.platform, {
-    teamId: 'checkout-team', name: 'Checkout Team', jiraProject: 'SHOP',
+    teamId: 'checkout-team', name: 'Checkout Team', jiraProject: 'SHOP', appId: 'APP-77',
     members: [
       { capabilityId: 'checkout-api', name: 'Checkout API', repositoryUrl: org.service },
       { capabilityId: 'checkout-web', name: 'Checkout Web', repositoryUrl: org.web }
@@ -1054,6 +1056,10 @@ test('team mapping creates one atomic proposal with safe members and an explicit
   assert.equal(exactRetry.changed, false);
   assert.equal(exactRetry.branch, null);
   assert.equal(exactRetry.commit, null);
+  assert.equal(exactRetry.team.appId, 'APP-77');
+  await assert.rejects(mapCapabilityTeam(org.platform, {
+    teamId: 'checkout-team', name: 'Checkout Team', appId: 'APP-78', links: ['existing-service']
+  }), (error) => error.code === 'CAPABILITY_TEAM_CONFLICT' && error.details?.differences?.includes('appId'));
 
   const later = await mapCapabilityTeam(org.platform, {
     teamId: 'checkout-team', name: 'Checkout Team',
@@ -1066,6 +1072,7 @@ test('team mapping creates one atomic proposal with safe members and an explicit
     'show', `${later.branch}:singularity/capabilities.yml`
   ], { cwd: org.platform }).stdout).capabilities;
   assert.equal(laterCapabilities['checkout-worker'].parent, 'checkout-team');
+  assert.equal(laterCapabilities['checkout-team'].appId, 'APP-77', 'a later proposal keeps the team App ID');
   assert.equal(Object.keys(laterCapabilities).filter((id) => id === 'checkout-team').length, 1);
 });
 
@@ -2145,9 +2152,12 @@ test('approved mapping retries compare every explicitly requested capability and
     resources: { service: 'payments' },
     sourceRoots: ['src/service'], sharedRoots: ['src/shared'],
     clone: { mode: 'blobless', fallback: 'refuse' },
-    jiraProject: 'PAY', teams: ['Payments', 'Platform']
+    jiraProject: 'PAY', appId: 'APP-100', teams: ['Payments', 'Platform']
   });
   const before = proposalRefs(org.platform);
+  assert.equal(YAML.parse(run('git', ['show', 'refs/heads/sflow/config:singularity/capabilities.yml'], {
+    cwd: org.platform
+  }).stdout).capabilities['payment-routing'].appId, 'APP-100');
 
   const repeated = await mapCapability(org.platform, {
     capabilityId: 'payment-routing', name: 'Payment routing', kind: 'delivery', type: 'tech',
@@ -2157,7 +2167,7 @@ test('approved mapping retries compare every explicitly requested capability and
     resources: { service: 'payments' },
     sourceRoots: ['./src/service/'], sharedRoots: ['./src/shared/'],
     clone: { mode: 'blobless', fallback: 'refuse' },
-    jiraProject: 'PAY', teams: ['Platform', 'Payments']
+    jiraProject: 'PAY', appId: ' APP-100 ', teams: ['Platform', 'Payments']
   });
   assert.equal(repeated.status, 'already-mapped');
 
@@ -2170,12 +2180,12 @@ test('approved mapping retries compare every explicitly requested capability and
     resources: { service: 'replacement' },
     sourceRoots: ['src/replacement'], sharedRoots: ['shared/replacement'],
     clone: { mode: 'full' },
-    jiraProject: 'NEW', teams: ['Replacement']
+    jiraProject: 'NEW', appId: 'APP-200', teams: ['Replacement']
   }), (error) => {
     assert.equal(error.code, 'CAPABILITY_ALREADY_MAPPED');
     assert.deepEqual(error.details.differences, [
       'kind', 'name', 'type', 'parent', 'metadata', 'documentation', 'resources',
-      'sourceRoots', 'sharedRoots', 'jira.projectKey', 'teams', 'leadRepository', 'clone'
+      'sourceRoots', 'sharedRoots', 'jira.projectKey', 'appId', 'teams', 'leadRepository', 'clone'
     ]);
     return true;
   });

@@ -29,7 +29,7 @@ import YAML from 'yaml';
 import { gitReadOutput, portableIdentifier, SingularityFlowError, run } from './util.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
 
-import { CAPABILITIES_PATH, CAPABILITY_KINDS, validateCapabilities } from './capabilities.mjs';
+import { assertCapabilityAppId, CAPABILITIES_PATH, CAPABILITY_KINDS, validateCapabilities } from './capabilities.mjs';
 import { initializeLedger } from './ledger.mjs';
 import { advertisedDefaultBranch } from './workspace.mjs';
 import { gitCommitIdentity } from './git.mjs';
@@ -208,7 +208,7 @@ export async function setDefaultBaseBranch(root, defaultBranch) {
  * additional top-level capabilities may be added later.
  */
 export async function describeCapability(root, {
-  capabilityId, capabilityName, kind, repositoryId, jiraProject, teams
+  capabilityId, capabilityName, kind, repositoryId, jiraProject, appId = null, teams
 }) {
   const capability = {
     name: capabilityName ?? capabilityId,
@@ -216,6 +216,7 @@ export async function describeCapability(root, {
     parent: null,
     ...(kind === 'delivery' ? { repository: repositoryId } : {}),
     ...(jiraProject ? { jira: { projectKey: jiraProject } } : {}),
+    ...(appId ? { appId } : {}),
     ...(teams.length ? { teams } : {})
   };
   const document = YAML.stringify({ version: 1, capabilities: { [capabilityId]: capability } });
@@ -257,6 +258,7 @@ export async function bootstrapRepository(url, {
   capabilityName = null,
   kind = 'collection',
   jiraProject = null,
+  appId = null,
   teams = [],
   into = null,
   base = null,
@@ -269,6 +271,7 @@ export async function bootstrapRepository(url, {
   if (!CAPABILITY_KINDS.includes(kind)) {
     throw new SingularityFlowError(`Capability kind must be one of: ${CAPABILITY_KINDS.join(', ')}.`);
   }
+  const app = String(appId ?? '').trim() ? assertCapabilityAppId(String(appId).trim()) : null;
 
   const repositoryId = repositoryIdFromUrl(remote);
   const root = into
@@ -376,13 +379,13 @@ export async function bootstrapRepository(url, {
     const wrote = await initializeDefinition(root);
     if (wrote.includes('singularity/workflow.yml')) await setDefaultBaseBranch(root, branch);
     await describeRepository(root, repositoryId, remote, branch, actor);
-    await describeCapability(root, { capabilityId, capabilityName, kind, repositoryId, jiraProject, teams });
+    await describeCapability(root, { capabilityId, capabilityName, kind, repositoryId, jiraProject, appId: app, teams });
     if (stateBranch) await enableLedger(root, stateBranch);
   }
   if (push) {
     const { ensureConfigurationBranch } = await import('./configuration-branch.mjs');
     configuration = await ensureConfigurationBranch(remote, {
-      capability: { capabilityId, capabilityName, kind, repositoryId, jiraProject, teams },
+      capability: { capabilityId, capabilityName, kind, repositoryId, jiraProject, appId: app, teams },
       env: gitEnv
     });
     published.configuration = true;

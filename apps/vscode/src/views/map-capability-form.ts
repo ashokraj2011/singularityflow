@@ -201,6 +201,8 @@ export interface MapCapabilityForm {
   cloneFallback: 'refuse' | 'full';
   metadata: Array<{ key: string; value: string }>;
   jiraProject: string;
+  /** The organisation's application identifier; optional, recorded and shown only. */
+  appId: string;
   teams: string;
   /** Null until the lead has been read; the map is what the parent list is made of. */
   loaded: boolean;
@@ -237,7 +239,7 @@ export const EMPTY_MAP_FORM: MapCapabilityForm = {
   repositorySetupMode: 'auto', repositorySetupResolved: false,
   repositorySetupMaintenance: false, repositorySetupApplying: false, repositorySetupNotice: null,
   collectionWithoutRepository: false,
-  cloneMode: 'blobless', sparseCone: '', cloneFallback: 'refuse', metadata: [], jiraProject: '', teams: '',
+  cloneMode: 'blobless', sparseCone: '', cloneFallback: 'refuse', metadata: [], jiraProject: '', appId: '', teams: '',
   loaded: false, busy: false, operation: null, otherOperations: [], notice: null, error: null
 };
 
@@ -339,6 +341,14 @@ export function capabilityIdentifierProblem(form: MapCapabilityForm): string | n
   return null;
 }
 
+const APP_ID_PROBLEM = 'An App ID cannot contain spaces and has at most 64 characters.';
+
+/** The App ID's problem, if any. The page applies the same rule as it is typed. */
+export function appIdProblem(value: string): string | null {
+  const text = value.trim();
+  return /\s/u.test(text) || [...text].length > 64 ? APP_ID_PROBLEM : null;
+}
+
 export function mapProblems(form: MapCapabilityForm): string[] {
   const problems: string[] = [];
   if (form.operation && ['running', 'inspecting', 'cancelling'].includes(form.operation.status)) {
@@ -417,6 +427,8 @@ export function mapProblems(form: MapCapabilityForm): string[] {
       problems.push(`Metadata row ${index + 1} requires both a key and a value.`);
     }
   }
+  const appId = appIdProblem(form.appId);
+  if (appId) problems.push(appId);
   return problems;
 }
 
@@ -438,6 +450,7 @@ export function mapCommand(form: MapCapabilityForm): string[] {
     if (entry.key.trim() && entry.value.trim()) args.push('--metadata', `${entry.key.trim()}=${entry.value.trim()}`);
   }
   if (form.jiraProject.trim()) args.push('--jira-project', form.jiraProject.trim());
+  if (form.appId.trim()) args.push('--app-id', form.appId.trim());
   if (form.teams.trim()) args.push('--teams', form.teams.trim());
   return args;
 }
@@ -696,7 +709,8 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
   const detailsVisible = form.collectionWithoutRepository
     || (form.inspectionComplete && (!form.repositorySetupPlan || form.repositorySetupResolved));
   const identifierProblem = detailsVisible ? capabilityIdentifierProblem(form) : null;
-  const staticProblems = problems.filter((problem) => problem !== identifierProblem);
+  const liveAppIdProblem = detailsVisible ? appIdProblem(form.appId) : null;
+  const staticProblems = problems.filter((problem) => problem !== identifierProblem && problem !== liveAppIdProblem);
   const parents = form.parents;
   const repository = form.repositoryUrl.trim();
   const lead = form.lead.trim();
@@ -912,14 +926,14 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
   <section>
     <div class="card-head">
       <div><h2>${icon('configuration')}Additional metadata</h2>
-        <p class="muted">Organisation-specific key/value pairs such as application ID, cost centre, owner code, or service tier.</p></div>
+        <p class="muted">Organisation-specific key/value pairs such as cost centre, owner code, or service tier.</p></div>
       <span class="grow"></span>
       <button type="button" class="secondary" data-map-metadata-add>Add key/value pair</button>
     </div>
     <div class="metadata-list">${form.metadata.length ? form.metadata.map((entry, index) => `
       <div class="metadata-row" data-map-metadata-index="${index}">
-        <label class="field"><span>Key</span><input type="text" data-map-metadata-field="key" value="${escape(entry.key)}" placeholder="applicationId"></label>
-        <label class="field"><span>Value</span><input type="text" data-map-metadata-field="value" value="${escape(entry.value)}" placeholder="APP-1001"></label>
+        <label class="field"><span>Key</span><input type="text" data-map-metadata-field="key" value="${escape(entry.key)}" placeholder="costCentre"></label>
+        <label class="field"><span>Value</span><input type="text" data-map-metadata-field="value" value="${escape(entry.value)}" placeholder="CC-42"></label>
         <button type="button" class="icon-button danger" data-map-metadata-remove="${index}" title="Remove metadata" aria-label="Remove metadata pair">${icon('remove')}</button>
       </div>`).join('') : '<p class="muted">No additional metadata yet.</p>'}</div>
     <p class="remedy">Stored in <code>singularity/capabilities.yml</code> on the lead repository's approved <code>sflow/config</code> branch ${fieldInfo('Approved map', 'This branch is the authority for capability membership. Review proposals do not become active until they are merged and acknowledged.')}.
@@ -987,11 +1001,14 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
     <p>
       <label>Jira <input type="text" value="${escape(form.jiraProject)}" data-map="jiraProject" size="12"
         placeholder="PAY"></label>
+      <label>App ID <input type="text" value="${escape(form.appId)}" data-map="appId" size="16"
+        placeholder="APP-1234" spellcheck="false" autocomplete="off"></label>
       <label>Teams <input type="text" value="${escape(form.teams)}" data-map="teams" size="36"
         placeholder="comma separated"></label>
     </p>
-    <p class="muted">Both belong to the capability rather than to a workspace: they stay true
-      regardless of who has cloned what.</p>
+    <p class="muted">All three belong to the capability rather than to a workspace: they stay true
+      regardless of who has cloned what. The App ID is your organisation's application identifier;
+      it is recorded and shown, and all three are optional.</p>
   </section>
   </div>
 
@@ -1000,6 +1017,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
       <h2>${icon('bad')}Before this can be mapped</h2>
       <ul class="blockers">
         <li data-map-identifier-problem${identifierProblem ? '' : ' hidden'}>${escape(identifierProblem ?? '')}</li>
+        <li data-map-app-id-problem${liveAppIdProblem ? '' : ' hidden'}>${escape(liveAppIdProblem ?? '')}</li>
         ${staticProblems.map((problem) => `<li data-map-static-problem>${escape(problem)}</li>`).join('')}
       </ul>
     </div>
@@ -1117,15 +1135,25 @@ export const MAP_CAPABILITY_SCRIPT = `
         : existing.includes(value)
           ? "'" + value + "' is already in this map."
           : '';
-    const identifierProblem = document.querySelector('[data-map-identifier-problem]');
+    showLiveProblem('[data-map-identifier-problem]', problem);
+  };
+  const syncAppIdValidation = (input) => {
+    const value = input.value.trim();
+    showLiveProblem('[data-map-app-id-problem]',
+      /\\s/u.test(value) || [...value].length > 64 ? 'An App ID cannot contain spaces and has at most 64 characters.' : '');
+  };
+  // A problem the page checks as it is typed; the blocked/ready state follows every such problem.
+  const showLiveProblem = (selector, problem) => {
+    const item = document.querySelector(selector);
     const blocked = document.querySelector('[data-map-blocked]');
     const ready = document.querySelector('[data-map-ready]');
     const submit = document.querySelector('[data-map-submit]');
-    if (!identifierProblem || !blocked || !ready || !submit) return;
-    identifierProblem.textContent = problem;
-    identifierProblem.hidden = !problem;
-    const hasStaticProblems = Boolean(document.querySelector('[data-map-static-problem]'));
-    const hasProblems = Boolean(problem) || hasStaticProblems;
+    if (!item || !blocked || !ready || !submit) return;
+    item.textContent = problem;
+    item.hidden = !problem;
+    const live = [...document.querySelectorAll('[data-map-identifier-problem], [data-map-app-id-problem]')]
+      .some((entry) => !entry.hidden);
+    const hasProblems = live || Boolean(document.querySelector('[data-map-static-problem]'));
     blocked.hidden = !hasProblems;
     ready.hidden = hasProblems;
     submit.disabled = hasProblems || submit.dataset.mapBusy === 'true';
@@ -1138,6 +1166,7 @@ export const MAP_CAPABILITY_SCRIPT = `
     }
     report(event);
     if (event.target.dataset?.map === 'capabilityId') syncIdentifierValidation(event.target);
+    if (event.target.dataset?.map === 'appId') syncAppIdValidation(event.target);
   });
   document.addEventListener('change', (event) => {
     report(event);

@@ -1100,22 +1100,24 @@ function assertRequestedCapability(capabilities, capability, remote, { exactBoot
       `${CONFIGURATION_BRANCH} already exists on '${remote}' but does not define requested capability '${id}'. `
       + 'Propose the capability through the capability-map workflow instead of re-running bootstrap.');
   }
-  // Existing approved values win. Name, kind, repositories, Jira and teams can all evolve through
-  // reviewed capability proposals; repeating an old bootstrap request on a new laptop must not turn
-  // that legitimate evolution into an initialization blocker. This guard exists only to prove that
-  // a create race did not publish a *different capability ID*.
+  // Existing approved values win. Name, kind, repositories, Jira, App ID and teams can all evolve
+  // through reviewed capability proposals; repeating an old bootstrap request on a new laptop must
+  // not turn that legitimate evolution into an initialization blocker. This guard exists only to
+  // prove that a create race did not publish a *different capability ID*.
   if (!exactBootstrap) return;
   const expected = {
     name: capability.capabilityName ?? id,
     kind: capability.kind,
     repository: capability.kind === 'delivery' ? capability.repositoryId : undefined,
     jiraProject: capability.jiraProject ?? null,
+    appId: capability.appId ?? null,
     teams: capability.teams ?? []
   };
   const matches = configured.name === expected.name
     && configured.kind === expected.kind
     && configured.repository === expected.repository
     && (configured.jira?.projectKey ?? null) === expected.jiraProject
+    && (configured.appId == null ? null : String(configured.appId)) === expected.appId
     && sameStrings(configured.teams ?? [], expected.teams);
   if (!matches) {
     throw new SingularityFlowError(

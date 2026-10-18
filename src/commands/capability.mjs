@@ -25,7 +25,7 @@ const DIRECT = new Set([
 export const CAPABILITY_TEAM_REQUEST_FILE_MAX_BYTES = 512 * 1024;
 
 const CAPABILITY_TEAM_REQUEST_FIELDS = new Set([
-  'teamId', 'lead', 'name', 'jiraProject', 'members', 'links'
+  'teamId', 'lead', 'name', 'jiraProject', 'appId', 'members', 'links'
 ]);
 const CAPABILITY_TEAM_REQUEST_MEMBER_FIELDS = new Set([
   'capabilityId', 'repositoryUrl', 'name'
@@ -234,6 +234,7 @@ function validateCapabilityTeamRequestDocument(value) {
   if (typeof value.teamId !== 'string' || typeof value.lead !== 'string'
       || typeof value.name !== 'string'
       || (value.jiraProject != null && typeof value.jiraProject !== 'string')
+      || (value.appId != null && typeof value.appId !== 'string')
       || (value.members != null && !Array.isArray(value.members))
       || (value.links != null && !Array.isArray(value.links))) {
     capabilityTeamRequestError('The capability team request has invalid field types.');
@@ -257,6 +258,7 @@ function validateCapabilityTeamRequestDocument(value) {
     teamId: value.teamId,
     name: value.name,
     jiraProject: value.jiraProject ?? null,
+    appId: value.appId ?? null,
     members,
     links
   };
@@ -338,7 +340,7 @@ export async function resolveMapTeamInput(context = {}) {
         'CAPABILITY_TEAM_REQUEST_ARGUMENT_CONFLICT'
       );
     }
-    if (['lead', 'name', 'jira-project', 'member', 'member-name', 'link']
+    if (['lead', 'name', 'jira-project', 'app-id', 'member', 'member-name', 'link']
       .some((key) => Object.hasOwn(options, key))) {
       capabilityTeamRequestError(
         'capability map-team --request cannot be combined with team mapping flags.',
@@ -381,6 +383,7 @@ export async function resolveMapTeamInput(context = {}) {
     teamId,
     name,
     jiraProject: optionString(options, 'jira-project'),
+    appId: optionString(options, 'app-id'),
     members: [...memberUrls].map(([capabilityId, repositoryUrl]) => ({
       capabilityId,
       repositoryUrl,
@@ -392,12 +395,13 @@ export async function resolveMapTeamInput(context = {}) {
 
 async function runMapTeam(context) {
   const options = context.options ?? {};
-  const { lead, teamId, name, jiraProject, members, links } = await resolveMapTeamInput(context);
+  const { lead, teamId, name, jiraProject, appId, members, links } = await resolveMapTeamInput(context);
   const { capabilityProposalCommands, mapCapabilityTeam } = await loadOrganisation();
   let result = await mapCapabilityTeam(lead, {
     teamId,
     name,
     jiraProject,
+    appId,
     members,
     links
   });

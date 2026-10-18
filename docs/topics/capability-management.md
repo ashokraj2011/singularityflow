@@ -16,9 +16,20 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 24
+version: 25
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
+
+## App ID
+
+A capability may record its **App ID**: the organisation's own application identifier, such as
+its entry in an application registry or CMDB. It is optional and sits beside the Jira project and
+teams. It is recorded and shown only; nothing routes, approves or names a branch by it. Set it in
+**Map a capability** (Tracking), on the capability's page, in **Onboard a team** (where it belongs
+to the team collection), or with `--app-id` on `capability map`, `capability add|set`,
+`capability map-team` and `bootstrap`. It is text without spaces, at most 64 characters, and
+`capability set <ID> --app-id ''` clears it. Mapping a capability that already exists with a
+different App ID is refused like any other differing attribute; change it on the capability's page.
 
 ## Source exclusions and test configuration
 
@@ -213,7 +224,7 @@ Before mutation, review the exact proposed tree, safe defaults, set-aside result
 
 ```bash
 singularity-flow capability map-team <TEAM-ID> --lead <LEAD-URL> --name <TEAM-NAME> \
-  [--jira-project KEY] \
+  [--jira-project KEY] [--app-id ID] \
   [--member <CHILD-ID>=<GIT-URL>]... \
   [--member-name <CHILD-ID>=<FRIENDLY-NAME>]... \
   [--link <EXISTING-CAPABILITY-ID>]... --json

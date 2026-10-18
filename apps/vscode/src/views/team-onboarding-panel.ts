@@ -458,11 +458,12 @@ export class TeamOnboardingPanel {
   }
 
   private teamField(message: InboundMessage): void {
-    const field = enumField(message, 'field', ['name', 'id', 'jiraProject'] as const);
+    const field = enumField(message, 'field', ['name', 'id', 'jiraProject', 'appId'] as const);
     const value = typeof message.value === 'string' ? message.value.slice(0, 512) : null;
     if (!field || value == null) return;
     if (field === 'name') this.view = changeTeamName(this.view, value);
     else if (field === 'id') this.view = changeTeamId(this.view, value);
+    else if (field === 'appId') this.view = { ...this.view, appId: value, error: null };
     else this.view = { ...this.view, jiraProject: value.toLocaleUpperCase(), error: null };
     this.render();
   }

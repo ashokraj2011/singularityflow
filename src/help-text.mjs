@@ -58,7 +58,7 @@ Usage:
     [--max-bytes N] [--json]
   singularity-flow harness report [--json]
   singularity-flow bootstrap <REPOSITORY-URL> --capability ID [--name TEXT] [--kind collection|delivery]
-    [--jira-project KEY] [--teams A,B] [--into DIRECTORY] [--base DIRECTORY]
+    [--jira-project KEY] [--app-id ID] [--teams A,B] [--into DIRECTORY] [--base DIRECTORY]
     [--state-branch NAME | --no-state-branch] [--no-push] [--json]
   singularity-flow init [--repair] [--work-id WORK-ID] [--base BRANCH] [--fetch]
   singularity-flow init --check [--json]
@@ -1052,7 +1052,7 @@ Usage:
   singularity-flow capability of <REPOSITORY-ID> [--json]
   singularity-flow capability add|set <CAPABILITY-ID> [--name TEXT] [--kind collection|delivery] [--parent ID]
     [--repository ID] [--metadata KEY=VALUE]... [--jira-project KEY] [--jira-board TEXT]
-    [--teams A,B] [--owns A,B] [--json]
+    [--app-id ID] [--teams A,B] [--owns A,B] [--json]
   singularity-flow capability remove <CAPABILITY-ID> [--reparent-children-to ID] [--json]
     (add, set, and remove author only the checkout; use map or remote edit to publish)
   singularity-flow capability map <CAPABILITY-ID> [--lead URL] [--repository URL]... [--name TEXT]
@@ -1060,12 +1060,12 @@ Usage:
     [--source-roots DIR,...] [--shared-roots DIR,...]
     [--clone-mode full|blobless|blobless-sparse] [--sparse-cone DIR,...] [--clone-fallback refuse|full]
     [--metadata KEY=VALUE]... [--doc KEY=VALUE]... [--resource KEY=VALUE]...
-    [--jira-project KEY] [--teams A,B] [--json]
+    [--jira-project KEY] [--app-id ID] [--teams A,B] [--json]
     (--repository is repeatable and required for delivery; omit it for collection. --lead-repository
      says which delivery repository holds lifecycle state when there are several. Remote mapping
      pushes a review branch against sflow/config and never writes an application branch.)
   singularity-flow capability map-team <TEAM-ID> --lead <LEAD-URL> --name <TEAM-NAME>
-    [--jira-project KEY] [--member <CHILD-ID>=<GIT-URL>]...
+    [--jira-project KEY] [--app-id ID] [--member <CHILD-ID>=<GIT-URL>]...
     [--member-name <CHILD-ID>=<FRIENDLY-NAME>]... [--link <EXISTING-CAPABILITY-ID>]... [--json]
   singularity-flow capability map-team --request <JSON-FILE> [--json]
     (creates or extends one team collection with at most 20 combined members and links. New members

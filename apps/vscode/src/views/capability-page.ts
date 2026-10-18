@@ -25,7 +25,7 @@ function repositoryCell(id: string, repositories: RepositoryDeclarations): strin
 const FIELDS = [
   'name', 'kind', 'parent', 'repository', 'sourceRoots', 'sharedRoots',
   'sourceHashExcludedRoots', 'testConfigurationPaths', 'metadata',
-  'jira.projectKey', 'jira.board', 'teams', 'autoEligibility', 'autoProtectedScope',
+  'jira.projectKey', 'jira.board', 'appId', 'teams', 'autoEligibility', 'autoProtectedScope',
   'autoMaximumTouchedPaths', 'autoMaximumConcurrentFlights'
 ] as const;
 
@@ -44,9 +44,9 @@ function testSetupMenu(id = ''): string {
 function metadataRow(key = '', value = ''): string {
   return `<div class="metadata-row" data-metadata-row data-original-key="${escape(key)}">
     <label class="field"><span>Key</span><input type="text" data-metadata-key value="${escape(key)}"
-      placeholder="applicationId"></label>
+      placeholder="costCentre"></label>
     <label class="field"><span>Value</span><input type="text" data-metadata-value value="${escape(value)}"
-      placeholder="APP-1001"></label>
+      placeholder="CC-42"></label>
     <button type="button" class="icon-button danger" data-metadata-remove title="Remove metadata"
       aria-label="Remove metadata pair">${icon('remove')}</button>
   </div>`;
@@ -57,7 +57,7 @@ function metadataEditor(metadata: Record<string, string> = {}): string {
   return `<div class="subsection metadata-editor">
     <div class="card-head">
       <div><h2>${icon('configuration')}Additional metadata</h2>
-        <p class="muted">Organisation-specific attributes such as application ID, cost centre, owner code, or service tier.</p></div>
+        <p class="muted">Organisation-specific attributes such as cost centre, owner code, or service tier.</p></div>
       <span class="grow"></span>
       <button type="button" class="secondary" data-metadata-add>Add key/value pair</button>
     </div>
@@ -78,7 +78,7 @@ function treeHtml(tree: CapabilityNode[], selected: string | null, repositories:
   }
   return `
     <table>
-      <thead><tr><th>Capability</th><th>Kind</th><th>Delivers from</th><th>Jira</th><th>Teams</th></tr></thead>
+      <thead><tr><th>Capability</th><th>Kind</th><th>Delivers from</th><th>Jira</th><th>App ID</th><th>Teams</th></tr></thead>
       <tbody>${rows.map((row) => `
         <tr${row.id === selected ? ' class="drift"' : ''}>
           <td style="padding-left:${row.depth * 1.2}rem">
@@ -87,6 +87,7 @@ function treeHtml(tree: CapabilityNode[], selected: string | null, repositories:
           <td class="muted">${escape(row.kind)}</td>
           <td>${row.repository ? `${icon('repository')}${repositoryCell(row.repository, repositories)}` : '<span class="muted">—</span>'}</td>
           <td class="muted">${row.jira?.projectKey ? `${icon('jira')}${escape(row.jira.projectKey)}` : '—'}</td>
+          <td class="muted">${row.appId ? `<code>${escape(row.appId)}</code>` : '—'}</td>
           <td class="muted">${escape((row.teams ?? []).join(', ') || '—')}</td>
         </tr>`).join('')}</tbody>
     </table>`;
@@ -333,6 +334,10 @@ function detailHtml(tree: CapabilityNode[], selected: string, repositories: Repo
       <label class="field"><span>Jira board</span>
         <input type="text" value="${escape(detail.jira?.board ?? '')}" data-field="jira.board" placeholder="Payments board">
       </label>
+      <label class="field"><span>App ID</span>
+        <input type="text" value="${escape(detail.appId ?? '')}" data-field="appId" placeholder="APP-1234" spellcheck="false" autocomplete="off">
+        <small>Your organisation's application identifier. Optional; recorded and shown only.</small>
+      </label>
       <label class="field span-2"><span>Teams</span>
         <input type="text" value="${escape(detail.teams.join(', '))}" data-field="teams" placeholder="Payments squad, Platform">
         <small>Separate multiple teams with commas.</small>
@@ -413,7 +418,7 @@ export function bodyHtml(
   return `
   <header>
     <h1>${icon('capability', { size: 20 })}Capabilities</h1>
-    <p class="meta">What this organisation builds, as one or more capability trees of any depth. Jira and teams belong to a
+    <p class="meta">What this organisation builds, as one or more capability trees of any depth. Jira, App ID and teams belong to a
       capability rather than to a workspace: they stay true regardless of who has cloned what.</p>
   </header>
   ${error ? `<section class="plain"><p class="blockers">${escape(error)}</p></section>` : ''}
@@ -441,7 +446,7 @@ export function bodyHtml(
  * adding one included — and the page still renders perfectly, which is why it read as "the buttons
  * do nothing" rather than as a broken build. `JSON.stringify` escapes whatever the icon contains.
  */
-const METADATA_ROW_HTML = `<div class="metadata-row" data-metadata-row data-original-key=""><label class="field"><span>Key</span><input type="text" data-metadata-key placeholder="applicationId"></label><label class="field"><span>Value</span><input type="text" data-metadata-value placeholder="APP-1001"></label><button type="button" class="icon-button danger" data-metadata-remove title="Remove metadata" aria-label="Remove metadata pair">${icon('remove')}</button></div>`;
+const METADATA_ROW_HTML = `<div class="metadata-row" data-metadata-row data-original-key=""><label class="field"><span>Key</span><input type="text" data-metadata-key placeholder="costCentre"></label><label class="field"><span>Value</span><input type="text" data-metadata-value placeholder="CC-42"></label><button type="button" class="icon-button danger" data-metadata-remove title="Remove metadata" aria-label="Remove metadata pair">${icon('remove')}</button></div>`;
 
 export const SCRIPT = `
   const vscode = window.__sfVscode;

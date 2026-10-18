@@ -166,8 +166,15 @@ async function historicalAuthorityWorkflow(root, authority, sourceCommit, revisi
         });
         requireRemoteObservation(observed, 'retained configuration history');
         namedRef = retainedConfigurationHistoryRef(observed.refs, sourceCommit);
+        // Name what to restore, as the fetch refusal below does; without details the remedy was prose only.
         if (!namedRef) fail('Pinned configuration history is missing; restore its retained branch or archive tag.',
-          'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED');
+          'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED', {
+            policyAuthorityRevision: revision,
+            approvedConfigurationCommit: sourceCommit,
+            configurationHistoryBranch: namedBranch,
+            configurationHistoryArchive: refs.archive,
+            legacyStateMirror: false
+          });
       } catch (error) {
         await rm(temporary, { recursive: true, force: true });
         throw error;

@@ -104,6 +104,9 @@ one source line gets a proposed line-number edit, bound to the checked report an
 Nothing is edited automatically. Multiple matches require independent selection; absent matches
 require rereading the source, never fuzzy replacement. Stage/retain refusals preserve these hints.
 Changed inputs require a fresh context, not citation transplantation.
+The read-only `check` also accepts `--for-agent --json`, and the returned staging protocol uses it,
+so Copilot receives an inline action and exact private-file references even in a non-terminal shell.
+This is output shaping only; it does not relax the context entry or mutation permissions.
 
 For an unmapped scenario, independently reconcile its source and pinned answers. Add a covered row
 only if they genuinely support it; acknowledge clarification IDs separately. Otherwise retain a

@@ -86,6 +86,16 @@ test('source-review checks distinguish packet repair from retaining genuine revi
   assert.match(stale.do.shell, /context specification/u);
 });
 
+test('review check accepts output-only agent shaping without relaxing review context or mutations', async () => {
+  const { interpretsForAgent } = await import('../src/cli-json-output.mjs');
+  assert.equal(interpretsForAgent(['review-source', 'check']), false);
+  for (const action of ['context', 'stage', 'submit', 'decide']) assert.equal(interpretsForAgent(['review-source', action]), true);
+  const result = await withAgentRoutes({ next: [{
+    command: 'singularity-flow review-source check custom-scope --report-file /private/report.json --json'
+  }] });
+  assert.equal(result.next[0].command, 'singularity-flow review-source check custom-scope --report-file /private/report.json --for-agent --json');
+});
+
 test('even short pinned review sources get exact line-readable files, not JSON line-number citations', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-source-lines-'));
   t.after(() => rm(root, { recursive: true, force: true }));

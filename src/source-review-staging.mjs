@@ -14,7 +14,7 @@ export function sourceReviewStagingProtocol(phaseId, stagingPath) {
     terminal: 'standalone-sflow-command', shellWritersAllowed: false,
     maximumReportJsonBytes: SOURCE_REVIEW_STAGE_MAXIMUM_BYTES,
     kernelStage: safeCommandGuidance({ argv: ['review-source', 'stage', phaseId, '--report-json', '<REPORT-JSON>', '--json'] }),
-    check: safeCommandGuidance({ argv: ['review-source', 'check', phaseId, '--report-file', stagingPath, '--json'] }),
+    check: safeCommandGuidance({ argv: ['review-source', 'check', phaseId, '--report-file', stagingPath, '--for-agent', '--json'] }),
     retain: safeCommandGuidance({ argv: ['review-source', 'submit', phaseId, '--report-file', stagingPath, '--json'] }),
     repositoryEditsAllowed: false, stagingIsRetention: false, retentionIsApproval: false };
 }

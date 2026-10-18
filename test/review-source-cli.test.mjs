@@ -263,7 +263,12 @@ test('kernel review staging preserves published bytes and proceeds through check
     badCitation.rows[0].line = 999;
     // Simulate a native file-edit staging error, then repair without restarting the review skill.
     await writeFile(staged.stagingPath, JSON.stringify(badCitation));
-    const needsRepair = await guarded(['review-source', 'check', phaseId, '--report-file', staged.stagingPath, '--json']);
+    const repairArgs = ['review-source', 'check', phaseId, '--report-file', staged.stagingPath, '--for-agent', '--json'];
+    const repairOutput = cli(root, ...repairArgs);
+    const repairView = JSON.parse(repairOutput);
+    assert.equal(repairView.act.state, 'correct');
+    assert.ok(Buffer.byteLength(repairOutput) <= 7500);
+    const needsRepair = await guarded(repairArgs);
     assert.equal(needsRepair.retentionReady, false);
     assert.equal(needsRepair.repair.status, 'repair-packet');
     assert.deepEqual(needsRepair.repair.citations[0].proposedEdit, { field: 'rows[0].line', value: report.rows[0].line });
@@ -274,7 +279,7 @@ test('kernel review staging preserves published bytes and proceeds through check
     assert.equal(git(root, 'rev-parse', 'HEAD'), headBefore, 'citation check is not a lifecycle write');
     badCitation.rows[0].line = needsRepair.repair.citations[0].proposedEdit.value;
     await guarded(['review-source', 'stage', phaseId, '--report-json', JSON.stringify(badCitation), '--json']);
-    const checked = await guarded(['review-source', 'check', phaseId, '--report-file', staged.stagingPath, '--json'], 'powershell');
+    const checked = await guarded(['review-source', 'check', phaseId, '--report-file', staged.stagingPath, '--for-agent', '--json'], 'powershell');
     assert.equal(checked.retentionReady, true);
     assert.equal(checked.continuation.nextAction.command, packet.stagingProtocol.retain.command);
     const retained = await guarded(['review-source', 'submit', phaseId, '--report-file', staged.stagingPath, '--json']);

@@ -507,6 +507,7 @@ export async function activateWorkspaceStoryContext(
     }
     const context = {
       ...base,
+      schemaVersion: ACTIVE_WORKSPACE_SCHEMA_VERSION,
       repositoryPath: checkoutPath,
       canonicalRepositoryPath,
       checkoutPath,

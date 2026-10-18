@@ -428,7 +428,14 @@ test('session agent entry retains the verified custom-root binding with no Story
   const agent = item.invoke('session', 'current', '--for-agent', '--json');
   assert.equal(agent.status, 0, agent.stdout + agent.stderr);
   const packet = completeAgentResult(agent.stdout);
-  for (const [key, value] of Object.entries(completeAgentResult(full.stdout))) assert.deepEqual(packet[key], value, key);
+  for (const [key, value] of Object.entries(completeAgentResult(full.stdout))) {
+    if (key === 'executionContext') {
+      assert.equal(packet[key].contextId, value.contextId, 'the observed execution identity is stable');
+      const left = structuredClone(packet[key]), right = structuredClone(value);
+      left.observation.observedAt = right.observation.observedAt = null;
+      assert.deepEqual(left, right, key);
+    } else assert.deepEqual(packet[key], value, key);
+  }
   assert.equal(packet.resultType, 'sflow-session-entry');
   assert.equal(packet.paused, false);
   assert.equal(packet.workItemRoot, 'team/stories');

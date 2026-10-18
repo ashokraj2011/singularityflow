@@ -43,6 +43,7 @@ export async function findWorkspaceMembership(root, { identity = null, workspace
         throw new SingularityFlowError('The checkout does not match its workspace repository identity.', { code: 'WORKSPACE_REPOSITORY_IDENTITY_MISMATCH' });
       }
       const context = { workspaceId: workspace.id, workspaceName: workspace.name, workspacePath: workspace.path,
+        anchorKey: workspace.anchor.key, capabilities: [...(workspace.capabilities ?? [])],
         repositoryId: id, repositoryPath: actual, checkoutPath: actual,
         canonicalRepositoryPath: branchMember?.repositoryPath ?? original,
         repositoryState: 'ready', repositoryCapabilities: repository.capabilities ?? [],

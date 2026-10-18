@@ -19,7 +19,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { mkdtemp, mkdir, readdir, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -3125,6 +3125,10 @@ test('an Epic can be started and its first source pinned entirely from the edito
   await intakePanel.post({ type: 'workType', value: 'spec-driven-standard' });
   assert.match(intakePanel.webview.html, /data-work-type="feature"[^>]*checked/,
     'an unavailable catalog row bypassed the installed-workflow allowlist');
+  // The refresh route finds this window's own repository even when the window names it through a
+  // symlink (the macOS temporary root does), and offers its reviewed recovery choices. Dismissing
+  // them runs nothing.
+  registered.pickedLens = null;
   await intakePanel.post({ type: 'workflowRefresh' });
   const canonicalRoot = await realpath(root);
   assert.ok(registered.executedCommands.some((entry) =>
@@ -3132,6 +3136,14 @@ test('an Epic can be started and its first source pinned entirely from the edito
       && entry.args[0]?.repositoryPath === canonicalRoot
       && entry.args[0]?.workspacePath === undefined),
   `workflow refresh route was not invoked: ${JSON.stringify(registered.executedCommands.slice(-8))}`);
+  // The panel awaits the whole route, so its picker has already been shown.
+  assert.equal(registered.warnings.some((message) => /No registered workspace or open folder/.test(message)), false,
+    'the open repository was reported as not found');
+  const recovery = registered.quickPicks.find((pick) => pick.options?.title === 'Open repository · platform');
+  assert.ok(recovery, `no recovery picker: ${JSON.stringify(registered.quickPicks.map((pick) => pick.options?.title))}`);
+  assert.match(recovery.options.placeHolder, /Choose a reviewed recovery path/);
+  registered.pickedLens = 'first';
+  const picksBeforeStart = registered.quickPicks.length;
   assert.match(storyForm, /implementation/);
 
   await intakePanel.post({ type: 'shape', value: 'epic' });
@@ -3146,7 +3158,7 @@ test('an Epic can be started and its first source pinned entirely from the edito
 
   assert.deepEqual(registered.errors, [], 'starting an Epic raised no error');
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
-  assert.equal(registered.quickPicks.length, 0, 'nothing was asked through a picker');
+  assert.equal(registered.quickPicks.length, picksBeforeStart, 'nothing was asked through a picker');
 
   const roots = provider.getChildren();
   const initiative = roots.find((node) => node.kind === 'initiative');
@@ -9943,6 +9955,44 @@ test('Git URL maintenance cancellation stops lookup without opening a recovery a
   assert.equal(registered.executedCommands.some((entry) =>
     ['singularityFlow.openWorkspaces', 'singularityFlow.refreshAuthorityPin',
       'singularityFlow.reinitialize'].includes(entry.id)), false);
+});
+
+for (const opened of ['alias', 'canonical']) test(`repository maintenance finds a checkout open through a symlink (${opened} folder)`, async (t) => {
+  if (!requireBundle(t)) return;
+  // Intake hands over a canonical checkout, while a window can open the same folder through a
+  // symlink: macOS's /var is one, and so is a linked projects folder. Each spelling must reach the
+  // one open checkout, as one target rather than a chooser between two copies of it.
+  const machine = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-symlink-')));
+  t.after(() => removeFixture(machine));
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = path.join(machine, 'registry.json');
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+  });
+  const checkout = path.join(machine, 'projects', 'ledger');
+  await mkdir(checkout, { recursive: true });
+  run('git', ['init', '-q', '-b', 'main', checkout], { cwd: machine });
+  const linkedProjects = path.join(machine, 'linked-projects');
+  await symlink(path.join(machine, 'projects'), linkedProjects, process.platform === 'win32' ? 'junction' : 'dir');
+  const alias = path.join(linkedProjects, 'ledger');
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { scheme: 'file', fsPath: opened === 'alias' ? alias : checkout } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  registered.pickedLens = null;
+  await registered.commands.get('singularityFlow.refreshRepositorySetup')({
+    repositoryPath: opened === 'alias' ? checkout : alias
+  });
+
+  assert.equal(registered.warnings.some((message) => /No registered workspace or open folder/.test(message)), false,
+    JSON.stringify({ warnings: registered.warnings, output: registered.output.slice(-10) }, null, 2));
+  assert.deepEqual(registered.quickPicks.map((pick) => pick.options?.title), ['Open repository · ledger'],
+    'one checkout reached through two spellings is one target, with no chooser');
+  assert.equal(registered.executedCommands.some((entry) =>
+    ['singularityFlow.openWorkspaces', 'singularityFlow.refreshAuthorityPin',
+      'singularityFlow.reinitialize'].includes(entry.id)), false, 'dismissing the choices runs nothing');
 });
 
 test('Git URL maintenance cancellation also stops bounded local fallback discovery', async (t) => {

@@ -20,7 +20,7 @@ themes; color is not the only state indicator.
 ## Bundle review
 
 The dedicated renderer adds one module to the on-demand panels bundle. The
-measured candidate is 3,110,881 bytes and 253 modules on Node 22/macOS; the reviewed
+measured candidate is 3,110,886 bytes and 253 modules on Node 22/macOS; the reviewed
 panel ceiling is 3,120,000 bytes and 253 modules. The previous ceiling was
 3,110,000 bytes and 252 modules. No startup, gateway, other entry or total-byte
 ceiling changes. This is a size measurement, not a command-latency claim.

@@ -37,8 +37,8 @@ export const STORY_PHASE_FLOW_STYLE = `
   .story-phase-flow > p { margin: 0 0 .7rem; font-size: .8rem; }
   .story-phase-scroll { max-width: 100%; overflow-x: auto; padding: .2rem .2rem .7rem; }
   .story-phase-flow ol { display: flex; width: max-content; min-width: 100%; padding: 0; margin: 0; list-style: none; }
-  .story-phase-node { display: flex; align-items: center; flex: 1 0 10rem; gap: .6rem; }
-  .story-phase-card { display: flex; align-items: center; gap: .65rem; flex: 1; width: 10rem; min-height: 5rem;
+  .story-phase-node { display: flex; align-items: center; flex: 1 0 10.75rem; gap: .4rem; }
+  .story-phase-card { display: flex; align-items: center; gap: .65rem; flex: 1; width: 10.75rem; min-height: 5rem;
     padding: .8rem; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--sf-surface);
     color: var(--vscode-foreground); text-decoration: none; box-sizing: border-box; }
   .story-phase-card:hover { background: var(--vscode-list-hoverBackground); border-color: var(--vscode-focusBorder); }
@@ -48,7 +48,7 @@ export const STORY_PHASE_FLOW_STYLE = `
   .story-phase-copy { display: grid; gap: .35rem; min-width: 0; overflow-wrap: anywhere; }
   .story-phase-copy strong { font-size: .85rem; }
   .story-phase-status { color: var(--sf-dim); font-size: .72rem; }
-  .story-phase-arrow { display: inline-flex; flex: 0 0 auto; margin-right: .6rem; color: var(--sf-dim); font-size: 1.35rem; line-height: 1; }
+  .story-phase-arrow { display: inline-flex; flex: 0 0 auto; margin-right: .4rem; color: var(--sf-dim); font-size: 1.2rem; line-height: 1; }
   .story-phase-node.done .story-phase-number { color: var(--sf-on-accent); background: var(--sf-accent); border-color: var(--sf-accent); }
   .story-phase-node.current .story-phase-card { border: 2px solid var(--sf-accent); background: var(--sf-accent-quiet); }
   .story-phase-node.current .story-phase-status { color: var(--vscode-foreground); font-weight: 600; }

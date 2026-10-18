@@ -266,7 +266,7 @@ test('POSIX maintenance candidates keep case-distinct checkouts apart', async ()
   const candidates = repositoryCandidates({ platform: 'linux', canonicalize: noFilesystemLookup });
   await candidates.add('/work/Ledger', 'upper');
   await candidates.add('/work/ledger', 'lower', true);
-  assert.deepEqual([...candidates.entries.keys()], ['/work/Ledger', '/work/ledger']);
+  assert.deepEqual([...candidates.entries.keys()], ['/work/Ledger', '/work/ledger'].map(candidate => path.resolve(candidate)));
 });
 
 test('each reviewed maintenance choice has one bounded existing command route', () => {

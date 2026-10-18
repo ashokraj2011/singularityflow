@@ -14,7 +14,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -127,15 +127,35 @@ test('Windows spellings are read case-insensitively and replaced by one canonica
   }, { platform: 'win32' });
   const counts = Object.keys(env).filter((key) => key.toUpperCase() === 'GIT_CONFIG_COUNT');
   assert.deepEqual(counts, ['GIT_CONFIG_COUNT']);
-  assert.equal(env.GIT_CONFIG_COUNT, '3');
+  assert.equal(env.GIT_CONFIG_COUNT, '4');
   assert.equal(env.git_config_key_0, 'http.proxy');
   assert.deepEqual(Object.keys(env).filter((key) => key.toUpperCase() === 'GIT_CONFIG_KEY_1'), ['GIT_CONFIG_KEY_1']);
   assert.equal(env.GIT_CONFIG_KEY_1, 'maintenance.auto');
+  assert.equal(env.GIT_CONFIG_KEY_3, 'core.longpaths');
+  assert.equal(env.GIT_CONFIG_VALUE_3, 'true');
+  assert.equal(withoutAutomaticGitMaintenance(env, { platform: 'win32' }), env);
 
   // POSIX Git never reads a lower-case spelling, so it is neither a count nor something to remove.
   const posix = withoutAutomaticGitMaintenance({ git_config_count: 'junk' }, { platform: 'linux' });
   assert.equal(posix.git_config_count, 'junk');
   assert.equal(posix.GIT_CONFIG_COUNT, '2');
+});
+
+test('Windows Git indexes nested snapshot paths without changing repository or global configuration', {
+  skip: process.platform !== 'win32'
+}, async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-long-path-'));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+  run('git', ['init', '-q', '-b', 'main'], { cwd: root, env: plainEnvironment });
+  const directory = path.join(root, 'nested-'.repeat(18), 'singularity', 'work-items', 'STORY', 'config', 'wfa', 'blobs', 'sha256');
+  await mkdir(directory, { recursive: true });
+  const target = path.join(directory, 'a'.repeat(64));
+  assert.ok(target.length > 260);
+  await writeFile(target, 'snapshot bytes\n');
+  run('git', ['add', '--', path.relative(root, target)], { cwd: root, env: plainEnvironment });
+  assert.equal(run('git', ['ls-files', '-z'], { cwd: root, env: plainEnvironment }).stdout.split('\0').filter(Boolean).length, 1);
+  const local = run('git', ['config', '--local', '--get', 'core.longpaths'], { cwd: root, env: plainEnvironment, allowFailure: true });
+  assert.equal(local.status, 1, 'the product must not persist the child-only setting');
 });
 
 test('a local Git command Singularity Flow runs starts no automatic maintenance', async (t) => {

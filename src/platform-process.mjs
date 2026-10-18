@@ -587,7 +587,7 @@ export function withoutOptionalStatusLocks(env = process.env, args = [], { platf
   return { ...source, GIT_OPTIONAL_LOCKS: '0' };
 }
 
-/** A copy of `env` whose Git child cannot start automatic maintenance. */
+/** Child-only Git defaults: no auto-maintenance; Windows can index nested Story snapshots. */
 export function withoutAutomaticGitMaintenance(env = process.env, { platform = process.platform } = {}) {
   const source = env ?? {};
   const winIndex = platform === 'win32' ? windowsUppercaseKeyIndex(source) : null;
@@ -600,15 +600,17 @@ export function withoutAutomaticGitMaintenance(env = process.env, { platform = p
   const count = countText ? Number(countText.trim()) : 0;
   if (!Number.isSafeInteger(count) || count * 2 > Object.keys(source).length) return source;
   const effective = new Map();
+  const childConfiguration = platform === 'win32'
+    ? [...AUTOMATIC_MAINTENANCE_OFF, ['core.longpaths', 'true']] : AUTOMATIC_MAINTENANCE_OFF;
   for (let index = 0; index < count; index += 1) {
     const key = gitEnvironmentValue(source, `GIT_CONFIG_KEY_${index}`, platform, winIndex);
     if (typeof key === 'string') effective.set(key.toLowerCase(), gitEnvironmentValue(source, `GIT_CONFIG_VALUE_${index}`, platform, winIndex));
   }
-  if (AUTOMATIC_MAINTENANCE_OFF.every(([key, value]) => effective.get(key) === value)) return source;
+  if (childConfiguration.every(([key, value]) => effective.get(key) === value)) return source;
   const result = { ...source };
   for (const key of gitEnvironmentSpellings(source, GIT_CONFIG_COUNT, platform, winIndex)) delete result[key];
   let index = count;
-  for (const [key, value] of AUTOMATIC_MAINTENANCE_OFF) {
+  for (const [key, value] of childConfiguration) {
     for (const name of [`GIT_CONFIG_KEY_${index}`, `GIT_CONFIG_VALUE_${index}`]) {
       for (const spelling of gitEnvironmentSpellings(source, name, platform, winIndex)) delete result[spelling];
     }

@@ -2,7 +2,7 @@
 import * as vscode from 'vscode';
 import { randomUUID } from 'node:crypto';
 export { workflowIntentPrompt } from './views/workflow-intent-prompt.ts';
-import { WORKFLOW_BUILDER_TOOL, answerBuilderTool, builderToolInput, type BuilderRunner, type BuilderToolInput } from './views/workflow-builder-tool.ts';
+import { WORKFLOW_BUILDER_TOOL, answerBuilderTool, builderInvocationMessage, builderToolInput, type BuilderRunner, type BuilderToolInput } from './views/workflow-builder-tool.ts';
 
 export const WORKFLOW_INTENT_TOOL = 'singularityFlow_workflowAuthoring';
 interface Input { action: string; session: string; revision: number; source?: string; kind?: string; id?: string; query?: string; cursor?: number }
@@ -61,7 +61,7 @@ export function attachWorkflowBuilderTool(build: string, runner: BuilderRunner):
   const host = vscode as unknown as OptionalTools;
   if (typeof host.lm?.registerTool !== 'function' || typeof host.LanguageModelTextPart !== 'function' || typeof host.LanguageModelToolResult !== 'function') return { available: false, dispose() {} };
   if (!builderRegistration) builderRegistration = host.lm.registerTool(WORKFLOW_BUILDER_TOOL, {
-    prepareInvocation: () => ({ invocationMessage: 'Reading the workflow build, or recording a proposal for a person to accept in Workflow Studio.' }),
+    prepareInvocation: (options: { input?: unknown }) => ({ invocationMessage: builderInvocationMessage(options?.input) }),
     invoke: async (options: { input: unknown }) => {
       if (vscode.workspace.getConfiguration('singularityFlow').get<string>('modelMode', 'auto') === 'disabled'
           || vscode.workspace.getConfiguration('chat').get<boolean>('disableAIFeatures', false)) throw new Error('Model features are disabled. Build in Workflow Studio by hand, or with the workflow build commands.');

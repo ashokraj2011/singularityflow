@@ -63,7 +63,7 @@ export function builderCatalog(model: StudioModelLike | null, kind?: string, que
     catalog[MODEL_KEYS[name]] = {
       total: entries.length,
       entries: entries.slice(0, CATALOG_LIMIT).map((entry) => ({ id: entry.id, label: entry.label ?? entry.id, ...(entry.description ? { description: String(entry.description).slice(0, 300) } : {}),
-        ...(name === 'step' ? { output: entry.output, usedBy: entry.usedBy } : {}), ...(name === 'agent' ? { phases: entry.phases } : {}) }))
+        ...(name === 'step' ? { output: entry.output, usedBy: entry.usedBy, ...(entry.definesClauses ? { definesRequirements: true } : {}) } : {}), ...(name === 'agent' ? { phases: entry.phases } : {}) }))
     };
   }
   return { catalog, note: 'Use these IDs as they are in moves; give `from` to start a new one from one of them.' };
@@ -97,12 +97,48 @@ export function builderState(view: BuildView, check: BuildCheck): Record<string,
   };
 }
 
+/**
+ * The line chat shows while one request runs. One line for every action told the person nothing:
+ * fifteen calls in a live run all read "Reading the workflow build, or recording a proposal…".
+ */
+const KIND_WORDS: Record<typeof KINDS[number], string> = { agent: 'agents', skill: 'skills', instruction: 'instructions', step: 'steps', group: 'approval groups', workflow: 'workflows' };
+
+export function builderInvocationMessage(input: unknown): string {
+  const request = plain(input) ? input : {};
+  const clip = (value: unknown, max = 80): string => { const text = String(value ?? '').replace(/\s+/gu, ' ').trim(); return text.length > max ? `${text.slice(0, max - 1)}…` : text; };
+  const kind = typeof request.kind === 'string' && KINDS.includes(request.kind as typeof KINDS[number]) ? request.kind : null;
+  switch (request.action) {
+    case 'state': return 'Reading the workflow build: what was found, proposed and asked, and how the workflow checks.';
+    case 'source': return typeof request.path === 'string' && request.path ? `Reading ${clip(request.path, 120)}${Number.isSafeInteger(request.from) && Number(request.from) > 1 ? ` from line ${request.from}` : ''}, as the build captured it.` : 'Reading a captured file.';
+    case 'catalog': return `Searching what the repository has${kind ? `: ${KIND_WORDS[kind as typeof KINDS[number]]}` : ''}${typeof request.query === 'string' && request.query.trim() ? ` matching "${clip(request.query, 60)}"` : ''}.`;
+    case 'asset': return kind && typeof request.id === 'string' ? `Reading the repository's ${kind} ${clip(request.id, 80)}.` : 'Reading one thing the repository has.';
+    case 'propose': {
+      const title = plain(request.proposal) ? clip(request.proposal.title) : '';
+      return `Recording ${title ? `the proposal "${title}"` : 'a proposal'} for you to accept or decline in Workflow Studio.`;
+    }
+    case 'ask': {
+      const count = Array.isArray(request.questions) ? request.questions.length : 0;
+      return `Asking you ${count === 1 ? 'a question' : `${count || 'some'} questions`} in Workflow Studio.`;
+    }
+    default: return 'Reading the workflow build, or recording a proposal for a person to accept in Workflow Studio.';
+  }
+}
+
+/** What Workflow Studio says when Copilot recorded something: a proposal, questions, or both. */
+export function builderRecordedStatus(recorded: { proposal?: { title: string } | null; questions?: unknown[] }): string {
+  const asked = recorded.questions?.length ?? 0;
+  const questions = asked === 1 ? 'a question' : `${asked} questions`;
+  if (recorded.proposal && asked) return `Copilot proposed "${recorded.proposal.title}" and asked ${questions}. Accept or decline it, and answer, here.`;
+  if (recorded.proposal) return `Copilot proposed "${recorded.proposal.title}". Accept or decline it here.`;
+  return `Copilot asked ${questions}. Answer here.`;
+}
+
 export interface BuilderRunner {
   run<T>(args: string[]): Promise<T>;
   runWithInput<T>(args: string[], input: string): Promise<T>;
   model(): StudioModelLike | null;
-  /** Workflow Studio redraws the build after a proposal or question is recorded. */
-  recorded(view: unknown): void;
+  /** Workflow Studio redraws the build after a proposal or question is recorded, saying which. */
+  recorded(view: unknown, status: string): void;
 }
 
 /** Answer one tool request for the open build. */
@@ -119,12 +155,13 @@ export async function answerBuilderTool(request: BuilderToolInput, runner: Build
     default: {
       const payload = request.action === 'ask' ? { questions: request.questions } : request.proposal;
       const view = await runner.runWithInput<BuildView>(command('propose', build, ['--proposal', '-', '--by', 'copilot']), JSON.stringify(payload));
-      runner.recorded(view);
       const proposal = request.action === 'propose' ? view.build.proposals.at(-1) : null;
       const count = request.action === 'ask' ? request.questions!.length : ((request.proposal?.questions as unknown[] | undefined)?.length ?? 0);
       const asked = count ? view.build.questions.slice(-count) : [];
+      const recorded = { ...(proposal ? { proposal: { id: String(proposal.id), title: String(proposal.title) } } : {}), questions: asked.map((question) => ({ id: question.id, question: question.question })) };
+      runner.recorded(view, builderRecordedStatus(recorded));
       return {
-        recorded: { ...(proposal ? { proposal: { id: proposal.id, title: proposal.title } } : {}), questions: asked.map((question) => ({ id: question.id, question: question.question })) },
+        recorded,
         next: 'A person accepts or declines it in Workflow Studio. Read state again before proposing what depends on it.'
       };
     }

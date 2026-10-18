@@ -107,8 +107,26 @@ test('a proposal is checked move by move, each finding located, and nothing is r
     { move: 'step.add', id: 'pay-solo', label: 'Build alone', agent: 'developer', output: 'code', signOff: { groups: ['engineering-reviewers'] } }
   ] });
   assert.equal(unsaveable.details.findings[0].at, 'workflow', 'the whole draft must still make a configuration Studio can save');
+  // Live Copilot run 2026-10-18: the planned-claims refusal spoke of "authoritative clause phases"
+  // and a "resolvable mode required topology"; it now says what to add and names the steps.
+  assert.equal(unsaveable.details.findings[0].code, 'STUDIO_PLANNED_CLAIMS');
+  assert.match(unsaveable.details.findings[0].message, /^A step that writes code needs a step that defines the requirements at or before the step just before it\. Add one the repository has \([^)]*\brequirements\b[^)]*\), as it is or copied with from, before it\. No move declares a workflow without requirements\./u);
+  assert.doesNotMatch(unsaveable.details.findings[0].message, /resolvable mode required topology|omits for scope/u);
+  const { movesGuide } = await import('../src/workflow-build/moves.mjs');
+  const guide = movesGuide();
+  assert.match(guide.proposal.evidence, /^\[\{ path, startLine, endLine \}\]/u, 'the proposal shape is in the guide, not only in refusals');
+  for (const rule of [/^Moves apply in order/u, /^A step that writes code \(output code\) needs a step that defines the requirements/u, /^action\.add runs an integration target the repository has registered/u]) {
+    assert.ok(guide.rules.some((entry) => rule.test(entry)), String(rule));
+  }
   const { readWorkflowBuild } = await import('../src/workflow-build/store.mjs');
   assert.deepEqual((await readWorkflowBuild(build.id, engineEnv)).proposals, [], 'refused proposals leave nothing behind');
+  // A group the same proposal adds further down can sign off a step above it (Copilot's second try was refused for the order alone).
+  const ordered = await refused({ title: 'Group last', why: 'The group is listed after the step it signs off.', moves: [
+    { move: 'step.add', id: 'intake' },
+    { move: 'step.add', id: 'pay-review', label: 'Review', after: 'intake', agent: 'architect', output: 'document', signOff: { groups: ['pay-late-group'], minimum: 1 } },
+    { move: 'group.add', id: 'pay-late-group', label: 'Late group' }
+  ] });
+  assert.equal(ordered, null, `refused: ${ordered?.message}`);
 });
 
 test('propose, accept, answer and check: the workflow as the accepted moves leave it, explained and checked, with nothing written', async () => {

@@ -959,7 +959,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
           run: (args) => this.client.run(args),
           runWithInput: (args, input) => this.client.runWithInput(args, input),
           model: () => this.model as StudioModelLike | null,
-          recorded: (view) => { if (this.build === watched) void this.buildShow(view as StudioBuildView, 'Copilot recorded a proposal.'); }
+          recorded: (view, status) => { if (this.build === watched) void this.buildShow(view as StudioBuildView, status); }
         });
         watched.tool = attached.available ? attached : null;
       } catch { watched.tool = null; }

@@ -87,7 +87,7 @@ import {
   repositoryOnboardingFailureCode
 } from './views/repository-onboarding-model.ts';
 import {
-  canonicalFilesystemPath, entriesAtCanonicalPath, repositoryRefreshCommand,
+  canonicalFilesystemPath, entriesAtCanonicalPath, repositoryCandidates, repositoryRefreshCommand,
   repositoryRefreshTargetForPath, repositoryRefreshTargets, sameGitRepository,
   type RepositoryRefreshTarget, type WorkspaceRefreshObservation
 } from './repository-refresh-model.ts';
@@ -3405,21 +3405,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 if (cancellation.signal.aborted) return [];
                 // Keyed by canonical path. Intake sends a canonical checkout, while this window or
                 // the registry may name the same folder through a symlink (macOS /var is one), and
-                // one checkout reached two ways must stay one target rather than a chooser.
-                const candidateOwners = new Map<string, WorkspaceRefreshObservation | null>();
+                // one checkout reached two ways must stay one target rather than a chooser. Each
+                // entry is opened through its own spelling: the Windows key is lowercased.
+                const candidateOwners = repositoryCandidates<WorkspaceRefreshObservation | null>();
                 // A partially readable legacy status can expose the checkout path but omit or
                 // stale its remote URL. Include those exact registered paths in the bounded local
                 // fallback as well; otherwise the healthier half of a damaged record would
                 // paradoxically make it unrecoverable by URL.
                 for (const observation of observations) {
+                  if (cancellation.signal.aborted) return [];
                   for (const repository of observation.status?.repositories ?? []) {
                     const repositoryPath = repository.absolutePath ?? repository.path;
-                    if (repositoryPath) candidateOwners.set(await canonicalFilesystemPath(repositoryPath), observation);
+                    if (repositoryPath) await candidateOwners.add(repositoryPath, observation);
                   }
                 }
                 for (const observation of unreadable) {
                   if (observation.workspace.leadRepositoryPath) {
-                    candidateOwners.set(await canonicalFilesystemPath(observation.workspace.leadRepositoryPath), observation);
+                    await candidateOwners.add(observation.workspace.leadRepositoryPath, observation);
                   }
                 }
                 // Very old registry entries did not persist `leadRepositoryPath`, and a moved
@@ -3445,7 +3447,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                       const relative = path.relative(workspaceBoundary, candidate);
                       if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`)
                         || path.isAbsolute(relative)) continue;
-                      candidateOwners.set(await canonicalFilesystemPath(candidate), observation);
+                      await candidateOwners.add(candidate, observation);
                     }
                   } catch {
                     // A missing or unreadable conventional directory is just another disclosed damaged
@@ -3456,11 +3458,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 for (const folder of vscode.workspace.workspaceFolders ?? []) {
                   if (cancellation.signal.aborted) return [];
                   if (folder.uri?.scheme !== 'file' && folder.uri?.scheme != null) continue;
-                  const folderPath = await canonicalFilesystemPath(folder.uri.fsPath);
-                  openFolders.add(folderPath);
-                  if (!candidateOwners.has(folderPath)) {
-                    candidateOwners.set(folderPath, null);
-                  }
+                  openFolders.add(await candidateOwners.add(folder.uri.fsPath, null, true));
                 }
                 const requestedPath = suppliedRepositoryPath ? await canonicalFilesystemPath(suppliedRepositoryPath) : null;
                 if (requestedPath) {
@@ -3468,18 +3466,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                     (observation) => [observation.workspace.leadRepositoryPath,
                       ...(observation.status?.repositories ?? []).map((repository) =>
                         repository.absolutePath ?? repository.path)]);
-                  if (registeredOwner || openFolders.has(requestedPath)) candidateOwners.set(requestedPath, registeredOwner);
+                  if (registeredOwner || openFolders.has(requestedPath)) {
+                    await candidateOwners.add(suppliedRepositoryPath, registeredOwner);
+                  }
                 }
 
                 // One local `git config` invocation yields every remote URL; it never contacts the
                 // network or opens a credential prompt. Four probes at a time and 24 paths are
                 // deliberate safety ceilings for a damaged machine registry.
-                const candidates = [...candidateOwners.entries()].slice(0, 24);
+                const candidates = [...candidateOwners.entries].slice(0, 24);
                 const discovered: RepositoryRefreshTarget[] = [];
                 const inspect = async (
-                  candidate: string, owner: WorkspaceRefreshObservation | null
+                  key: string, { path: candidate, owner }: { path: string; owner: WorkspaceRefreshObservation | null }
                 ): Promise<RepositoryRefreshTarget | null> => {
-                  if (cancellation.signal.aborted || (requestedPath && candidate !== requestedPath)) return null;
+                  if (cancellation.signal.aborted || (requestedPath && key !== requestedPath)) return null;
                   let canonical: string;
                   try {
                     canonical = await validateFactoryResetRepositoryDirectory(candidate, {
@@ -3504,7 +3504,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                     ? urls.find((url) => sameGitRepository(requestedUrl, url)) ?? null
                     : urls[0] ?? null;
                   if (requestedUrl && !matchingUrl) return null;
-                  const [repository] = await entriesAtCanonicalPath(owner?.status?.repositories ?? [], candidate,
+                  const [repository] = await entriesAtCanonicalPath(owner?.status?.repositories ?? [], key,
                     (entry) => [entry.absolutePath ?? entry.path]);
                   return {
                     workspaceId: owner?.workspace.id ?? null,
@@ -3519,7 +3519,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 for (let index = 0; index < candidates.length; index += 4) {
                   if (cancellation.signal.aborted) return [];
                   const batch = candidates.slice(index, index + 4);
-                  const inspected = await Promise.all(batch.map(([candidate, owner]) => inspect(candidate, owner)));
+                  const inspected = await Promise.all(batch.map(([key, entry]) => inspect(key, entry)));
                   if (cancellation.signal.aborted) return [];
                   discovered.push(...inspected.filter(
                     (target): target is RepositoryRefreshTarget => Boolean(target)

@@ -7,8 +7,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
-  canonicalFilesystemPath, entriesAtCanonicalPath, gitRepositoryComparisonKey, repositoryRefreshCommand,
-  repositoryRefreshTargetForPath, repositoryRefreshTargets, sameGitRepository
+  canonicalFilesystemPath, entriesAtCanonicalPath, gitRepositoryComparisonKey, repositoryCandidates,
+  repositoryRefreshCommand, repositoryRefreshTargetForPath, repositoryRefreshTargets, sameGitRepository
 } = await import(pathToFileURL(path.join(root, 'apps/vscode/src/repository-refresh-model.ts')).href);
 
 const workspace = { id: 'payments', name: 'Payments', path: '/work/payments', anchorKey: 'PAY' };
@@ -243,6 +243,30 @@ test('canonical repository matching treats equivalent Windows path spelling as o
       platform: 'win32', canonicalize: noFilesystemLookup
     })
   );
+});
+
+test('Windows maintenance candidates compare lowercased keys but open the spelling they were given', async () => {
+  // The lowercased key can name no folder at all: `İ` lowercases to two characters, and a
+  // case-sensitive directory holds `Ledger` and `ledger` apart. Only the key may be compared.
+  const noFilesystemLookup = async (candidate) => candidate;
+  const candidates = repositoryCandidates({ platform: 'win32', canonicalize: noFilesystemLookup });
+  const registered = await candidates.add('C:\\Work\\İstanbul\\Ledger', 'registered');
+  const opened = await candidates.add('c:/work/İSTANBUL/ledger/.', 'open folder', true);
+  assert.equal(opened, registered, 'one checkout spelled two ways is one candidate');
+  assert.notEqual(registered.length, 'C:\\Work\\İstanbul\\Ledger'.length, 'the key is not a path to open');
+  assert.deepEqual([...candidates.entries.values()], [{ path: 'C:\\Work\\İstanbul\\Ledger', owner: 'registered' }]);
+
+  await candidates.add('C:\\WORK\\İstanbul\\Ledger', 'requested');
+  assert.deepEqual([...candidates.entries.values()], [{ path: 'C:\\WORK\\İstanbul\\Ledger', owner: 'requested' }],
+    'an explicit owner replaces the entry, together with a spelling that opens it');
+});
+
+test('POSIX maintenance candidates keep case-distinct checkouts apart', async () => {
+  const noFilesystemLookup = async (candidate) => candidate;
+  const candidates = repositoryCandidates({ platform: 'linux', canonicalize: noFilesystemLookup });
+  await candidates.add('/work/Ledger', 'upper');
+  await candidates.add('/work/ledger', 'lower', true);
+  assert.deepEqual([...candidates.entries.keys()], ['/work/Ledger', '/work/ledger']);
 });
 
 test('each reviewed maintenance choice has one bounded existing command route', () => {

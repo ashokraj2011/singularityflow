@@ -85,7 +85,10 @@ export function repositoryRefreshTargets(
       || left.repositoryId.localeCompare(right.repositoryId));
 }
 
-/** Resolve an already-selected local repository without trusting an arbitrary command argument. */
+/**
+ * Resolve an already-selected local repository without trusting an arbitrary command argument.
+ * On Windows the result is a lowercased comparison key, never a path to open.
+ */
 export async function canonicalFilesystemPath(
   value: string,
   {
@@ -104,6 +107,30 @@ export async function canonicalFilesystemPath(
   return platform === 'win32'
     ? path.win32.normalize(canonical).toLocaleLowerCase('en-US')
     : canonical;
+}
+
+/**
+ * Local checkouts to inspect, one per filesystem identity. The identity key only compares: on
+ * Windows it is lowercased, which can name another folder (a case-sensitive directory) or none
+ * (`İ` lowercases to two characters). So each entry keeps the spelling it was added with, for the
+ * filesystem and Git to open.
+ */
+export function repositoryCandidates<Owner>(
+  options: Parameters<typeof canonicalFilesystemPath>[1] = {}
+): {
+  readonly entries: ReadonlyMap<string, { path: string; owner: Owner }>;
+  /** Adds or replaces a checkout and returns its identity key; `keep` leaves an existing entry. */
+  add(candidatePath: string, owner: Owner, keep?: boolean): Promise<string>;
+} {
+  const entries = new Map<string, { path: string; owner: Owner }>();
+  return {
+    entries,
+    async add(candidatePath, owner, keep = false) {
+      const key = await canonicalFilesystemPath(candidatePath, options);
+      if (!keep || !entries.has(key)) entries.set(key, { path: candidatePath, owner });
+      return key;
+    }
+  };
 }
 
 /**

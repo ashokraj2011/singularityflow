@@ -3369,15 +3369,18 @@ test('the Publish button uses the exact ready route, acknowledges its receipt an
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
   const host = context();
+  let extension;
   t.after(async () => {
-    for (const subscription of host.subscriptions) subscription.dispose?.();
-    await rm(base, { recursive: true, force: true });
+    // Stop fixture-owned refresh/worker activity before deleting its cwd on Windows.
+    extension?.deactivate?.();
+    for (const subscription of [...host.subscriptions].reverse()) await subscription.dispose?.();
+    await removeFixture(base);
   });
   const stages = [];
   api.window.withProgress = async (_options, task) => task({ report: value => stages.push(value.message) }, {
     isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} })
   });
-  const extension = loadExtension(api);
+  extension = loadExtension(api);
   await extension.activate(host);
   await registered.commands.get('singularityFlow.runAction')({ kind: 'action', label: 'Publish intake',
     command: ['phase', 'publish', 'intake'] });

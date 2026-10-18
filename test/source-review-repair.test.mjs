@@ -116,7 +116,7 @@ test('a real unsupported scenario is retainable as correction-required, never si
   assert.equal(checked.retentionReady, true);
   assert.equal(checked.evaluation.status, 'correction-required');
   assert.ok(checked.evaluation.findings.some(entry => entry.code === 'reviewer-blocker'));
-  assert.match(checked.repair.instruction, /including honest semantic gaps/u);
+  assert.match(checked.repair.instruction, /retain already-reviewed genuine gaps/u);
   assert.equal(report.rows.length, 1);
 });
 

@@ -157,7 +157,9 @@ export function sourceReviewRepairGuide(report, input, checked) {
   return { status: checked.retentionReady ? 'retain' : 'repair-packet',
     reportSha256: checked.evaluation?.reportSha256 ?? null,
     instruction: checked.retentionReady
-      ? 'Retain this valid packet, including honest semantic gaps. Correction-required is not a packet failure or approval; the retained review routes real gaps to the author.'
+      ? mappingTasks.length
+        ? 'Independently resolve the listed missing mappings now: add genuinely supported rows and recheck changed bytes within the repair budget, or retain already-reviewed genuine gaps with blocking findings. Never invent coverage or require an author successor for a reviewer mapping omission. Retention is not approval.'
+        : 'Retain this valid packet, including honest semantic gaps. Correction-required is not a packet failure or approval; the retained review routes real gaps to the author.'
       : 'Repair this private packet in the same review turn, then check it. At most two changed-packet repair attempts; never retry unchanged bytes. Preserve binding, sources, judgments and human decisions.',
     citations, omittedCitations: Math.max(0, candidates.length - citations.length),
     mappingTasks: mappingTasks.slice(0, 25), omittedMappingTasks: Math.max(0, mappingTasks.length - 25),

@@ -182,6 +182,9 @@ export function agentAct(result) {
   if (result.resultType === 'source-review-check') {
     if (result.repair?.status === 'reload-context') return withRoute({ state: 'next', do: null,
       read: ['repair'], said: result.repair.instruction }, result.continuation?.nextAction);
+    if (result.retentionReady && result.repair?.mappingTasks?.length) return {
+      state: 'review', do: null, read: ['repair', 'evaluation', 'stagingProtocol'],
+      said: 'Review missing scenario/clause mappings now. Add only genuinely supported rows and recheck within the repair budget; otherwise retain reviewed genuine gaps using stagingProtocol.retain. Do not invent coverage or require a new author generation for a reviewer omission.' };
     if (result.retentionReady) return withRoute({ state: 'retain', do: null,
       read: ['repair', 'evaluation'], said: 'Packet valid: retain it now, including honest correction-required findings. Retention is not approval.' }, result.continuation?.nextAction);
     return { state: 'correct', do: null, read: ['repair', 'findings', 'stagingProtocol'],

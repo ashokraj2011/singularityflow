@@ -78,6 +78,11 @@ test('source-review checks distinguish packet repair from retaining genuine revi
   assert.equal(valid.state, 'retain');
   assert.match(valid.do.copilot, /^\/sf-review-source submit specification/u);
   assert.match(valid.said, /not approval/u);
+  const mapping = agentAct({ resultType: 'source-review-check', retentionReady: true,
+    repair: { mappingTasks: [{ code: 'scenario-unmapped', scenarioId: 'S2' }] } });
+  assert.equal(mapping.state, 'review');
+  assert.equal(mapping.do, null, 'a missing reviewer row needs assessment before automatic retain/author handoff');
+  assert.match(mapping.said, /otherwise retain reviewed genuine gaps/u);
   const stale = agentAct({ resultType: 'source-review-check', retentionReady: false,
     repair: { status: 'reload-context', instruction: 'Inputs changed.' }, continuation: { nextAction: {
       command: 'singularity-flow review-source context specification --json', skill: '/sf-review-source'

@@ -82,7 +82,8 @@ test('approval inbox, legacy subject lookup and snapshots discover only state-in
   assert.equal(before.lifecycle.storyDiscovery.complete, true);
   const measure = async () => {
     const timer = commandTimer('inbox', { commandClass: 'read' });
-    const result = await withCommandTiming(timer, () => approvalInbox(f.original, f.definition));
+    const result = await withCommandTiming(timer, () => approvalInbox(f.original, f.definition,
+      { now: new Date('2026-10-18T01:00:00Z') }));
     return { result, spawns: timer.finish().counters['git.spawns'] };
   };
   const small = await measure();

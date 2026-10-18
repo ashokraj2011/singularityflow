@@ -3,7 +3,8 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { optionBoolean, optionString, requirePositional, SingularityFlowError } from '../util.mjs';
 import { workspaceRegistryFile, activeWorkspaceFile, readActiveWorkspaceContext, activateWorkspaceContext, activateWorkspaceStoryContext } from '../workspace-context.mjs';
-import { gitCommonDir, branch, head } from '../git.mjs';
+import { gitCommonDir, branch, head, changes, fastForwardTo, fetchRemote, hasRemote, isAncestor, refHead } from '../git.mjs';
+import { gitAnswer } from './shared/git-answer.mjs';
 import { samePlatformPath } from '../story-worktree.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { activateWorkItemSession, agentSessionStatus } from '../session.mjs';
@@ -14,6 +15,47 @@ import { withCommandConfirmation } from '../command-confirmation.mjs';
 export async function run(argv, { positionals, options }) {
   return withCommandObservability(positionals[0], argv, options,
     () => withCommandConfirmation(options, () => openLocalSessionCommand(positionals, options)));
+}
+
+/**
+ * Bring the Story's own checkout up to date before it is used: fetch its branch and fast-forward
+ * when it is behind and clean. Nothing is merged, rebased, reset, stashed or discarded. Behind with
+ * uncommitted changes, or diverged, stops with the next step. A remote that cannot be reached does
+ * not hide a readable checkout: it opens as it is, and the result says it was not synchronized.
+ */
+async function synchronizeLocalStory(checkout, workId) {
+  const storyBranch = branch(checkout);
+  const configured = storyBranch ? gitAnswer(checkout, ['config', '--get', `branch.${storyBranch}.remote`], 'Story branch remote', { absentStatus: 1 })?.trim() : null;
+  const remote = configured && configured !== '.' ? configured : 'origin';
+  if (!storyBranch || !hasRemote(checkout, remote)) return { status: 'no-remote', remote: null };
+  try {
+    await fetchRemote(checkout, remote, { respectPartialClone: true, branches: [storyBranch] });
+  } catch (error) {
+    return { status: 'unavailable', remote, code: error.code ?? null,
+      reason: `The remote could not be reached, so ${workId} was opened as it is and may be behind ${remote}/${storyBranch}: ${error.message}` };
+  }
+  const remoteRef = `${remote}/${storyBranch}`;
+  const remoteHead = refHead(checkout, `refs/remotes/${remoteRef}`);
+  const localHead = head(checkout);
+  if (!remoteHead) return { status: 'not-on-remote', remote, head: localHead };
+  if (remoteHead === localHead) return { status: 'current', remote, head: localHead };
+  const [ahead, behind] = (gitAnswer(checkout, ['rev-list', '--left-right', '--count', `HEAD...${remoteRef}`], 'Story checkout divergence') ?? '0 0').trim().split(/\s+/u).map(Number);
+  if (isAncestor(checkout, remoteHead, localHead)) return { status: 'ahead', remote, head: localHead, ahead };
+  const unchanged = 'Nothing was merged, rebased, reset, stashed or discarded.';
+  if (!isAncestor(checkout, localHead, remoteHead)) throw new SingularityFlowError(
+    `The local checkout of ${workId} at ${checkout} and ${remoteRef} have diverged (${ahead} local, ${behind} remote commits). ${unchanged} `
+    + `Compare them with \`git -C ${JSON.stringify(checkout)} log --oneline --left-right HEAD...${remoteRef}\`, publish or preserve the local commits, then run /sf-session ${workId} again.`,
+    { code: 'SESSION_LOCAL_SYNC_DIVERGED', details: { workId, repositoryPath: checkout, remote, ahead, behind } });
+  if (changes(checkout).trim()) throw new SingularityFlowError(
+    `The local checkout of ${workId} at ${checkout} is ${behind} commit(s) behind ${remoteRef} and has uncommitted changes. ${unchanged} `
+    + `Commit or set the changes aside yourself, then run /sf-session ${workId} again.`,
+    { code: 'SESSION_LOCAL_SYNC_DIRTY', details: { workId, repositoryPath: checkout, remote, behind } });
+  let moved = null;
+  try { moved = fastForwardTo(checkout, remoteRef); } catch { /* reported below */ }
+  if (moved !== remoteHead) throw new SingularityFlowError(
+    `The local checkout of ${workId} could not fast-forward to ${remoteRef}. ${unchanged}`,
+    { code: 'SESSION_LOCAL_SYNC_DIVERGED', details: { workId, repositoryPath: checkout, remote } });
+  return { status: 'fast-forwarded', remote, from: localHead, head: remoteHead, behind };
 }
 
 export async function openLocalSessionCommand(positionals, options) {
@@ -72,7 +114,8 @@ export async function openLocalSessionCommand(positionals, options) {
       : `No verified managed checkout owns local Story '${workId}'. Use session attach to synchronize or materialize it.`,
     { code: matches.length ? 'SESSION_LOCAL_STORY_AMBIGUOUS' : 'SESSION_LOCAL_STORY_UNAVAILABLE' }
   );
-  const { checkout, accepted } = matches[0];
+  const { checkout } = matches[0];
+  let { accepted } = matches[0];
   // A repository-local caller may win resolution even while the machine's selected workspace
   // points at another repository. Refuse that ambiguity before changing phase session metadata.
   if (!workspaceReference) {
@@ -85,6 +128,13 @@ export async function openLocalSessionCommand(positionals, options) {
       `Local Story '${workId}' belongs to a different repository than the active workspace. Select its exact workspace and repository before opening it.`,
       { code: 'SESSION_LOCAL_WORKSPACE_MISMATCH' }
     );
+  }
+  const remoteSync = await synchronizeLocalStory(checkout, workId);
+  // A fast-forward can move the Story's phase; read it again from the bytes now checked out.
+  if (remoteSync.status === 'fast-forwarded') {
+    accepted = await loadAcceptedStoryExecution(checkout);
+    if (accepted.workflow.workItem?.id !== workId) throw new SingularityFlowError(
+      `After fast-forwarding, the checkout at ${checkout} no longer holds Story '${workId}'.`, { code: 'SESSION_LOCAL_STORY_UNAVAILABLE' });
   }
   const session = await activateWorkItemSession(checkout, accepted.definition, accepted.workflow);
   const readiness = await agentSessionStatus(checkout, accepted.definition, accepted.workflow);
@@ -110,15 +160,24 @@ export async function openLocalSessionCommand(positionals, options) {
     );
   }
   const result = {
-    ready: true, localOnly: true, remoteSynchronized: false,
+    ready: true, localOnly: true,
+    remoteSynchronized: ['current', 'fast-forwarded', 'ahead'].includes(remoteSync.status), remoteSync,
     workId, branch: branch(checkout), head: head(checkout), repositoryPath: checkout,
     workspaceId: selection?.workspaceId ?? resolved.workspaceId ?? null,
     repositoryId: selection?.repositoryId ?? null,
     phase: accepted.workflow.currentPhase, status: accepted.workflow.status,
     agent: session.selectedAgent ?? readiness.activeAgent ?? null,
-    materialization: 'opened-existing-managed-story-worktree'
+    materialization: remoteSync.status === 'fast-forwarded' ? 'fast-forwarded-managed-story-worktree' : 'opened-existing-managed-story-worktree'
   };
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-  console.log(`Opened local Story ${workId} at ${checkout}. Remote synchronization was not attempted.`);
+  const synced = {
+    current: `It matches ${remoteSync.remote}/${result.branch}.`,
+    'fast-forwarded': `Fast-forwarded ${remoteSync.behind} commit(s) from ${remoteSync.remote}/${result.branch}.`,
+    ahead: `It has ${remoteSync.ahead} local commit(s) not yet on ${remoteSync.remote}/${result.branch}.`,
+    'not-on-remote': `${remoteSync.remote} has no ${result.branch} branch yet.`,
+    'no-remote': 'It has no remote to synchronize with.',
+    unavailable: remoteSync.reason
+  }[remoteSync.status];
+  console.log(`Opened local Story ${workId} at ${checkout}. ${synced}`);
   return result;
 }

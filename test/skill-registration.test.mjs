@@ -96,6 +96,7 @@ test('/sf-session is user-invoked and tells the model it is already loaded', () 
   const declared = frontmatter(path.join(skillRoot, 'sflow-session', 'SKILL.md'));
   assert.equal(declared['disable-model-invocation'], true, 'Story selection stays the person’s decision');
   const body = readFileSync(path.join(skillRoot, 'sflow-session', 'SKILL.md'), 'utf8');
-  assert.match(body, /Already loaded: never call the `skill` tool for this skill \("Skill not found" is expected\)/);
+  assert.match(body, /Already loaded: never call the `skill` tool for it \("Skill not found" is expected\)/);
+  assert.match(body, /Managed local open fast-forwards \(`remoteSync`; `unavailable` = opened as-is, maybe behind\)/);
   assert.match(body, /Wait for each command to exit/);
 });

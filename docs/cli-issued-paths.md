@@ -6,6 +6,11 @@ repository's `.git/worktrees/<name>/singularity-flow/` directory. Joining that s
 checkout creates a different, nonexistent path. The review packet is not missing merely because a
 read of that reconstructed path fails.
 
+The CLI already supplied the correct absolute staging path. Conflicting guidance existed at more
+than one layer: standalone agent boundaries, the session hook's claim that output paths were
+relative, and the composed phase prompt's instruction to resolve every named path under the
+checkout. All of these handoffs now distinguish command cwd from exact returned file locations.
+
 ## One maintained rule
 
 Every packaged skill and every bundled or template agent carries the shared `CLI_PATH_CONTRACT`.
@@ -44,12 +49,41 @@ Update the CLI and Copilot/VS Code integration together so the skills, agents, p
 Old package-managed agent digests remain registered for safe refresh; customized agents are not
 overwritten or silently re-pinned. Existing Stories retain their approved inputs and authority.
 Runtime prompt/tool guidance supplies the path rule without rewriting approved artifacts or reviews.
+Cached prompt bytes and recorded clarification answers are not invalidated just to change path
+guidance; current CLI tool protocols provide the exact-file exception and staging corrections.
 This change does not stage, retain, approve or modify the user's actual review file.
 
 ## Qualification
 
-Regression coverage includes all 179 skill classes, 31 bundled/template agents, Studio-created
+Regression coverage includes all 179 packaged skills, 31 bundled/template agents, Studio-created
 agents, all six standard responsibilities and custom repair/intake phases; linked worktrees;
 private review and clarification staging; POSIX, Windows drive and UNC path bytes; spaces, Unicode,
 file URIs, native read aliases, bounded output and genuine missing-file errors. Native macOS and
-Windows results are recorded after qualification.
+Windows qualification used Node 22 with isolated fixtures, not a production Story or a model call.
+
+Broad qualification `39136961250` exercised source/test revision `6a61cf8a`:
+
+| Group | macOS passed | Windows passed | Windows skipped |
+| --- | ---: | ---: | ---: |
+| Skill, agent, phase, mutation and provenance contracts | 234 | 233 | 1 |
+| Real CLI phase entry, captured output and custom roots | 73 | 73 | 0 |
+| Independent review and native CLI lifecycle | 72 | 72 | 0 |
+
+The one Windows skip is the existing POSIX pause-file symlink case, exercised on macOS. No new path
+case was skipped. A prior qualification found a test invoking `/bin/sh` on Windows; that test now
+executes its native PowerShell renderer instead of omitting argument-quoting assertions. Unrelated
+full-host jobs in the broad run were superseded by focused host qualification, not counted as passes.
+
+After removing the remaining session-hook and composer conflicts, follow-up `39138069650` exercised
+runtime revision `a906fe90`: 28 hook/path checks and 13 composition/clarification replay checks passed
+on each host. Its 14 built-host/parity cases all passed on macOS. Windows passed 13; the remaining
+publication case completed its assertions but teardown hit an `EBUSY` fixture-directory lock.
+Revision `1daa9181` deactivates that test host, disposes its subscriptions and uses the existing bounded
+fixture-removal helper. Run `39139098506` then passed the unchanged publication assertions and cleanup
+on both hosts, with no skips. No production permission or test assertion was weakened.
+
+These CI revisions differ from their corresponding source/test revisions only by the temporary
+qualification workflow. Both hosts also passed VS Code typechecking, build and unchanged bundle
+limits. Local checks passed 2,752 install/release checks, including the generated skill catalog and
+package upgrade provenance. Shared path guidance has separately accounted fixed overhead; existing
+domain-specific skill caps are unchanged. The temporary workflows are never merged into production.

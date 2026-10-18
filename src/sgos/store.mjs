@@ -9,6 +9,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { constants as FS_CONSTANTS, realpathSync } from 'node:fs';
 import { link, lstat, mkdir, open, readFile, readdir, rename, rm } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 import { branch, gitCommonDir, gitDir, head, repoRoot } from '../git.mjs';
@@ -67,6 +68,11 @@ const MAX_PROCESS_RECORD_BYTES = SGOS_INSTALLED_LIMITS.maximumProcessRecordBytes
 const MAX_PROCESS_RECORDS = SGOS_INSTALLED_LIMITS.maximumProcessRecords;
 const INDEXED_RECORD_FAMILIES = new Set(SGOS_RECORD_INDEX_FAMILIES);
 const PROCESS_LOCK_CONTEXT = new AsyncLocalStorage();
+// A Process lock owned by this live Node process belongs to a sibling in the same bounded parallel
+// wave (a terminal publication, heartbeat, or stop monitor). It always releases, so waiting on it is
+// ordinary coordination. A loaded host can keep such holders ahead of a waiter for longer than the
+// cross-process acquisition window; failing then turns an authenticated execution into a failure.
+const SIBLING_PROCESS_LOCK_WAIT_MS = 60_000;
 const RECORD_DELTA_CONTEXT = new AsyncLocalStorage();
 const RECORD_INDEX_MEMBERSHIP_CACHE = new Map();
 const RECORD_RESERVATION_DIRECTORY = 'record-reservations';
@@ -1989,7 +1995,7 @@ async function withProcessLock(root, processId, callback, timeoutMs = 2_000, {
   await safeSgosDirectory(root, sgosProcessDirectory(root, processId), {
     create: createDirectory
   });
-  const deadline = Date.now() + timeoutMs;
+  const startedAt = Date.now();
   for (;;) {
     try {
       return await withSubjectLock(root, { kind: 'sgos-process', id: processId }, async () => {
@@ -2002,7 +2008,15 @@ async function withProcessLock(root, processId, callback, timeoutMs = 2_000, {
         });
       });
     } catch (error) {
-      if (error?.code !== 'SUBJECT_LOCK_BUSY' || Date.now() >= deadline) throw error;
+      if (error?.code !== 'SUBJECT_LOCK_BUSY') throw error;
+      // A busy acquisition of this Process lock never ran the callback, so waiting longer cannot
+      // repeat a mutation. An owner still being published (null) is a transient acquisition.
+      const holder = error.details?.owner ?? null;
+      const sibling = error.details?.subject?.kind === 'sgos-process'
+        && error.details.subject.id === processId
+        && (holder === null || (holder.pid === process.pid && holder.host === os.hostname()));
+      const waitMs = sibling ? Math.max(timeoutMs, SIBLING_PROCESS_LOCK_WAIT_MS) : timeoutMs;
+      if (Date.now() - startedAt >= waitMs) throw error;
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
   }

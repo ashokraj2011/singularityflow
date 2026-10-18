@@ -30,7 +30,8 @@ acceptance criteria and baseline runs have not become new mandatory gates.
 ## Size and qualification
 
 The wizard adds one on-demand panel module, no new runtime dependency, CLI command
-or process. The Node 22/macOS build measures 3,122,601 bytes / 254 modules for the
+or process. After integrating main through `a80d85c7`, the Node 22/macOS build
+measures 3,122,862 bytes / 254 modules for the
 panels bundle, compared with 3,110,886 bytes / 253 modules before this feature.
 Its reviewed ceiling is 3,130,000 bytes / 254 modules. All startup, gateway, other
 entry and total-byte ceilings remain unchanged. This is a bundle-size review,

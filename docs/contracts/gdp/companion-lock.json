@@ -4,13 +4,10 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "21842018cd8ba2de507ce2d9719aad4d0f1f6b14",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-17-WORKFLOW-BUILDS.md",
+    "reviewedAtCommit": "364c902fb4a31c310481e3dfb5d897f0a90d1c5a",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-18-BRANCH-CHECKOUTS.md",
     "companionIds": [
-      "candidate-custody",
-      "migration-registry",
-      "publication-unit-of-work",
-      "sgos-record-contracts"
+      "migration-registry"
     ]
   },
   "companions": [
@@ -97,7 +94,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:2ed65ecee765ba3fcec3c7f259f970f51992dd376776b00a94ed8ffc3aa70a1d"
+      "sha256": "sha256:b010402f5395514566ae22e7a1d2cc9793588c51f19b305e671ea010e113fcfc"
     },
     {
       "id": "smart-initialization-v1",

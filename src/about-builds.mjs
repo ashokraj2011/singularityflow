@@ -23,7 +23,7 @@ function surface(id, label, build, extra = {}) {
   return { id, label, status: build ? (build.stamped ? 'available' : 'development') : 'unavailable',
     version: build?.version ?? null, build: build?.line ?? null,
     identity: build?.stamped ? build.line.slice(build.line.indexOf('(') + 1, -1).split(' · ')[0] : null,
-    builtAt: build?.builtAt && Number.isFinite(Date.parse(build.builtAt)) ? build.builtAt : null,
+    builtAt: build?.builtAt && Number.isFinite(Date.parse(build.builtAt)) ? new Date(build.builtAt).toISOString() : null,
     ...extra };
 }
 
@@ -65,9 +65,13 @@ async function extensionDirectories(homeDirectory, environment, warnings) {
       if (error.code !== 'ENOENT') warnings.push(`Cannot read VS Code extension index: ${error.message}`);
       // Only this conventional extension directory is listed; never search the home or repositories.
       try {
+        let found = false;
         for (const entry of (await readdir(root, { withFileTypes: true }))) {
-          if (entry.isDirectory() && entry.name.startsWith(`${EXTENSION}-`)) directories.add(path.join(root, entry.name));
+          if (entry.isDirectory() && entry.name.startsWith(`${EXTENSION}-`)) {
+            directories.add(path.join(root, entry.name)); found = true;
+          }
         }
+        if (found) warnings.push('The VS Code index is missing or unreadable; showing detected extension files, not a verified running window.');
       } catch (readError) {
         if (readError.code !== 'ENOENT') warnings.push(`Cannot inspect VS Code extension directory: ${readError.message}`);
       }

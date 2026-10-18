@@ -22,6 +22,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { BUILD_INFO, buildDescription, versionLine } from '../src/build-info.mjs';
 import { buildInfoFacts, stamp } from '../scripts/stamp-build-info.mjs';
 import { buildReinstallBundle, reinstallSourceDigest } from '../src/reinstall.mjs';
+import { run as runProcess } from '../src/util.mjs';
 import { VERSION } from '../src/version.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -117,7 +118,7 @@ test('the no-Git reinstall packager stamps the validated source digest into the 
   const sourceSha256 = await reinstallSourceDigest(checkout);
   const execute = (command, args, options = {}) => {
     if (command === 'npm' && args[0] === 'pack') {
-      return spawnSync(command, args, {
+      return runProcess(command, args, {
         ...options,
         encoding: 'utf8',
         env: { ...process.env, ...options.env, NODE_ENV: 'test' }

@@ -48,6 +48,9 @@ test('About reports exact builds and dates without a receipt, Git or package-man
   assert.match(markdown, /\| Surface \| Version \| Build identity \| Build date \(UTC\) \|/);
   assert.match(markdown, /mismatch/);
   assert.match(markdown, /2026-10-18T01:02:03/);
+  const offset = await aboutBuilds({ ...f.options, extensionPath: f.extension,
+    execute: () => ({ status: 0, stdout: versionLine({ ...current, builtAt: '2026-10-18T08:00:00+05:30' }) }) });
+  assert.equal(offset.cli.builtAt, '2026-10-18T02:30:00.000Z');
 });
 
 test('About discovers indexed and conventional installations without executing extension sources', async t => {

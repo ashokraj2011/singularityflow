@@ -798,7 +798,9 @@ export function classifyGitRemoteFailure(result, { branch = null, cwdAvailable =
   // A process may reach its supervisor deadline after already printing a conclusive provider
   // refusal. Preserve `timedOut` in evidence, but use the explicit diagnosis above for remediation.
   else if (sshNetworkFailure(output)) classification = 'network-transient';
-  else if (/connection timed? out|temporary failure|connection (?:reset|closed)|could not resolve host|name or service not known|network is unreachable|failed to connect|early eof|unexpected (?:disconnect|eof)|remote end hung up unexpectedly|rpc failed|broken pipe/i.test(output)) classification = 'network-transient';
+  else if (/connection timed? out|temporary failure|could not resolve host|name or service not known|network is unreachable|failed to connect|rpc failed/i.test(output)
+    // A lost connection after a deadline is the supervisor's SIGTERM.
+    || !result?.timedOut && /connection (?:reset|closed)|early eof|unexpected (?:disconnect|eof)|remote end hung up unexpectedly|broken pipe/i.test(output)) classification = 'network-transient';
   // Git adds this generic receive-pack trailer to many server-side failures. Use it only after
   // stronger transport diagnostics have had a chance to explain the actual failure.
   else if (receiveHookRejected(output)) classification = 'policy-rejected';

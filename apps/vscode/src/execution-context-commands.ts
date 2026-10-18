@@ -2,6 +2,7 @@
 import * as vscode from 'vscode';
 import { randomUUID } from 'node:crypto';
 import type { SingularityFlowClient } from './cli/client.ts';
+import { showCompactInformationMessage, showCompactWarningMessage } from './compact-message.ts';
 
 /** Registered with every window's repository commands, so a window without a repository explains why. */
 export const EXECUTION_CONTEXT_COMMANDS = [
@@ -56,8 +57,8 @@ export function executionContextHandlers(context: vscode.ExtensionContext, clien
     'singularityFlow.cleanupCheckouts': handle(async () => {
       const plan = await client.run<{ candidates: unknown[]; confirmation: string }>(['workspace', 'cleanup', '--purge', '--json']);
       await show(plan);
-      if (!plan.candidates.length) { await vscode.window.showInformationMessage('No verified unused clones are eligible for cleanup.'); return; }
-      const answer = await vscode.window.showWarningMessage(
+      if (!plan.candidates.length) { await showCompactInformationMessage('No verified unused clones are eligible for cleanup.'); return; }
+      const answer = await showCompactWarningMessage(
         `Remove ${plan.candidates.length} verified unused clone(s)?`, { modal: true,
           detail: 'The kernel rechecks publication, local edits, private recovery state, and dependent worktrees. Selected, canonical and adopted checkouts are retained.' }, 'Remove unused clones');
       if (answer !== 'Remove unused clones') return;

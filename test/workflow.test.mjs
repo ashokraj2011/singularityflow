@@ -697,18 +697,19 @@ test('feature profile publishes generations, records tokens, approvals, and conf
     flow(root, ['resume', workId], { selection: selection('feature', agents[phaseId]) });
     const completedArtifact = await completeArtifact(root, workflow, phaseId);
     if (phaseId === 'implementation-spec') {
-      await writeFile(completedArtifact, `${await readFile(completedArtifact, 'utf8')}
-
-## Reviewed exact planned evidence
-
-| Clause | Expected paths | Planned tests |
-|---|---|---|
-| \`${workId}:AC-001\` | \`src/feature.mjs\` | \`tests/feature.test.mjs\` |
-| \`${workId}:CON-001\` | \`src/feature.mjs\` | \`tests/feature.test.mjs\` |
-| \`${workId}:CON-002\` | \`src/feature.mjs\` | \`tests/feature.test.mjs\` |
-| \`${workId}:IFC-001\` | \`src/feature.mjs\` | \`tests/feature.test.mjs\` |
-| \`${workId}:REQ-001\` | \`src/feature.mjs\` | \`tests/feature.test.mjs\` |
-`);
+      // Preparation scaffolds one planned-evidence row per upstream clause. Fill that table with
+      // exact rows, this step's own clauses included, rather than adding a competing table.
+      const lines = (await readFile(completedArtifact, 'utf8')).split('\n');
+      const header = lines.findIndex((line) => /^\| Clause \| Expected paths \| Planned tests \|/u.test(line));
+      assert.ok(header > 0, 'the implementation specification has a planned-evidence table');
+      let end = header + 2;
+      while (lines[end]?.startsWith('|')) end += 1;
+      const cells = { 'Expected paths': '`src/feature.mjs`', 'Planned tests': '`tests/feature.test.mjs`',
+        Fulfillment: 'new', 'Observable result': 'The exported feature value is true.' };
+      const columns = lines[header].split('|').slice(1, -1).map((value) => value.trim());
+      lines.splice(header + 2, end - header - 2, ...['AC-001', 'CON-001', 'CON-002', 'IFC-001', 'REQ-001'].map((clause) =>
+        `| ${columns.map((column) => column === 'Clause' ? `\`${workId}:${clause}\`` : cells[column]).join(' | ')} |`));
+      await writeFile(completedArtifact, lines.join('\n'));
     }
     flow(root, ['wm', 'compose', '--phase', phaseId]);
     workflow = JSON.parse(await readFile(workflowFile, 'utf8'));

@@ -73,8 +73,9 @@ test('a familiar phase name grants no planning or source permission; explicit of
 test('new template scaffolds contain all exact clauses, including every AC, without fabricated paths or proof', async () => {
   const template = await readFile(new URL('../templates/artifacts/spec-driven/plan.md', import.meta.url), 'utf8');
   const rendered = scaffoldPlanningRows(template, [...ids, ids[0].toLowerCase()]);
-  assert.equal((rendered.match(/^\| \[TEAM-1:/gmu) ?? []).length, ids.length);
-  for (const id of ids) assert.ok(rendered.includes(`| [${id}] | - | TODO | - | TODO |`));
+  assert.equal((rendered.match(/^\| `TEAM-1:/gmu) ?? []).length, ids.length);
+  // Cited, never bracketed: an earlier phase defines each clause.
+  for (const id of ids) assert.ok(rendered.includes(`| \`${id}\` | - | TODO | - | TODO |`));
   assert.ok(rendered.includes('TODO: State the implementation order'));
   assert.equal(inspectPlannedClaimMap(rendered, { clauseIds: ids, evidenceRoot }).claimMap, null,
     'a scaffold is an unfinished draft, not passing planned evidence');

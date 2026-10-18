@@ -403,6 +403,13 @@ test('a supervisor timeout does not invent DNS failure or hide an explicit netwo
     assert.equal(classifyGitRemoteFailure(failed(stderr, { timedOut: true })).classification,
       'network-transient');
   }
+  // Git prints these when the deadline's SIGTERM ends a transfer: the termination's symptom.
+  for (const stderr of ['send-pack: unexpected disconnect while reading sideband packet',
+    'fatal: the remote end hung up unexpectedly', 'fatal: early EOF', 'write error: Broken pipe']) {
+    assert.equal(classifyGitRemoteFailure(failed(stderr, { timedOut: true })).classification,
+      'operation-timeout', stderr);
+    assert.equal(classifyGitRemoteFailure(failed(stderr)).classification, 'network-transient', stderr);
+  }
 });
 
 test('provider-controlled helper and organisation names do not override structural failures', () => {

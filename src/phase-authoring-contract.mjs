@@ -108,7 +108,9 @@ export function scaffoldPlanningRows(markdown, clauseIds) {
   let end = header + 2;
   while (/^\|/u.test(lines[end] ?? '')) end += 1;
   if (lines.slice(header + 2, end).some(line => !/TODO|TBD|<[^>]+>/iu.test(line))) return markdown;
-  const rows = ids.map(id => `| ${columns.map(column => column === 'Clause' ? `[${id}]`
+  // Cite each clause as the templates do. A bracketed anchor would define it again, and an earlier
+  // phase already defines it (SPEC_CLAUSE_REDEFINED).
+  const rows = ids.map(id => `| ${columns.map(column => column === 'Clause' ? `\`${id}\``
     : column === 'Expected paths' || column === 'Fulfillment' || column === 'Steps' ? '-'
       : 'TODO').join(' | ')} |`);
   lines.splice(header + 2, end - header - 2, ...rows);

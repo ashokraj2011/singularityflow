@@ -219,9 +219,9 @@ test('preparing a new plan scaffolds verified clauses while repeat preparation p
   const result = await preparePhaseInputs(item.root, item.config, item.workflow, 'planning');
   const file = path.join(item.root, result.path);
   const first = await readFile(file, 'utf8');
-  for (const id of ['ENTRY-1:REQ-001', 'ENTRY-1:AC-001']) assert.ok(first.includes(`| [${id}] | - | TODO | - | TODO |`));
-  const privateDraft = first.replace('| [ENTRY-1:REQ-001] | - | TODO | - | TODO |',
-    '| [ENTRY-1:REQ-001] | `src/pay.js` | `test/pay.test.js` | modified | Preserves exact identity. |');
+  for (const id of ['ENTRY-1:REQ-001', 'ENTRY-1:AC-001']) assert.ok(first.includes(`| \`${id}\` | - | TODO | - | TODO |`));
+  const privateDraft = first.replace('| `ENTRY-1:REQ-001` | - | TODO | - | TODO |',
+    '| `ENTRY-1:REQ-001` | `src/pay.js` | `test/pay.test.js` | modified | Preserves exact identity. |');
   await writeFile(file, privateDraft);
   await preparePhaseInputs(item.root, item.config, item.workflow, 'planning');
   assert.ok((await readFile(file, 'utf8')).includes('`src/pay.js`'));

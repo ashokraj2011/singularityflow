@@ -7,7 +7,7 @@ import { activeWorkspaceFile, readActiveWorkspaceContext, workspaceRegistryFile 
 import { readWorkspace, workspaceRepositoryPath } from './workspace-manifest.mjs';
 import { capabilityRepositories, parseBaseSelection, assertStoryBaseSelection } from './capability-branches.mjs';
 import { workspaceBranchFolder, workspaceBranchMember } from './workspace-branch-locations.mjs';
-import { optionBoolean, optionString, optionStrings, SingularityFlowError } from './util.mjs';
+import { isGitRefName, optionBoolean, optionString, optionStrings, SingularityFlowError } from './util.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
 import { measureCommandSpan } from './dx-timing-context.mjs';
 
@@ -39,6 +39,8 @@ export function automaticStoryCheckoutRequest(command, positionals, options) {
   assertStoryBaseSelection(selection, { stateBranch: 'state' });
   for (const value of [selection.all, ...Object.values(selection.overrides)].filter(Boolean)) workspaceBranchFolder(value);
   const ref = optionString(options, 'ref', id);
+  // --ref names the Story's own branch, not an application base: refuse it as Story start does.
+  if (ref.startsWith('-') || !isGitRefName(`refs/heads/${ref}`)) throw new SingularityFlowError(`Invalid Git branch name: ${ref}`);
   workspaceBranchFolder(ref);
   return { id, start, values, selection, ref };
 }

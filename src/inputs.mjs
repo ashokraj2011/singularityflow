@@ -392,17 +392,24 @@ export function inputReadinessLines(phase, report) {
   ];
 }
 
-export function renderInputsBlock(result) {
+/**
+ * `compact` is for a prompt only (renderPromptInputsBlock): the metadata names the source, status
+ * and projection, and the expansion handle appears once. The durable block, which artifacts and
+ * generation receipts pin by hash, is always the full form.
+ */
+export function renderInputsBlock(result, { compact = false } = {}) {
   if (result.mode === 'off' || !result.records.length) return { text: '', sha256: null };
   const sections = result.records.map((entry) => {
     const header = `## Approved phase input: ${entry.phase}${entry.skp ? `/${entry.skp.output}` : ''}`;
     const projection = entry.projection?.kind ?? 'full';
-    const metadata = `<!-- source=${entry.repositoryPath ?? entry.path ?? 'missing'} sha256=${entry.sha256 ?? 'unavailable'} status=${entry.status} projection=${projection}${entry.skp?.receipt ? ` producer-generation=${entry.skp.receipt.generation} receipt=${entry.skp.receipt.packetSha256}` : ''}${entry.representation?.sha256 ? ` representation-sha256=${entry.representation.sha256}` : ''}${entry.projection?.briefSha256 ? ` brief-sha256=${entry.projection.briefSha256}` : ''}${entry.representation?.expansionHandle ? ` expansion=${entry.representation.expansionHandle}` : ''} -->`;
+    const metadata = compact
+      ? `<!-- source=${entry.repositoryPath ?? entry.path ?? 'missing'} status=${entry.status} projection=${projection}${entry.skp?.receipt ? ` producer-generation=${entry.skp.receipt.generation}` : ''} -->`
+      : `<!-- source=${entry.repositoryPath ?? entry.path ?? 'missing'} sha256=${entry.sha256 ?? 'unavailable'} status=${entry.status} projection=${projection}${entry.skp?.receipt ? ` producer-generation=${entry.skp.receipt.generation} receipt=${entry.skp.receipt.packetSha256}` : ''}${entry.representation?.sha256 ? ` representation-sha256=${entry.representation.sha256}` : ''}${entry.projection?.briefSha256 ? ` brief-sha256=${entry.projection.briefSha256}` : ''}${entry.representation?.expansionHandle ? ` expansion=${entry.representation.expansionHandle}` : ''} -->`;
     if (entry.status !== 'captured') return `${header}\n\n${metadata}\n\n> ${inputMessage({ id: 'This phase' }, entry) ?? `Input is ${entry.status}.`}`;
     const suffix = entry.truncated ? '\n\n> Input truncated at its configured byte limit.' : '';
-    const expansion = entry.representation?.expansionHandle
-      ? `\n\n> Exact source expansion: \`${entry.representation.expansionHandle}\`. Use \`singularity-flow show ${entry.representation.expansionHandle} --section "<heading>"\` only when exact wording is needed.`
-      : '';
+    const expansion = !entry.representation?.expansionHandle ? ''
+      : compact ? `\n\n> Exact wording, only when needed: \`singularity-flow show ${entry.representation.expansionHandle} --section "<heading>"\`.`
+        : `\n\n> Exact source expansion: \`${entry.representation.expansionHandle}\`. Use \`singularity-flow show ${entry.representation.expansionHandle} --section "<heading>"\` only when exact wording is needed.`;
     return `${header}\n\n${metadata}\n\n${entry.content.trimEnd()}${expansion}${suffix}`;
   });
   const text = `${INPUTS_START}\n\n# Approved phase inputs\n\n${sections.join('\n\n')}\n\n${INPUTS_END}`;

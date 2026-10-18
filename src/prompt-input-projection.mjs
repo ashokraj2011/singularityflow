@@ -1,11 +1,11 @@
-/** Lossless prompt-only projection. Never rewrites approved inputs or their durable receipts. */
+/** Prompt-only projection. Never rewrites approved inputs or their durable receipts; what it leaves out of the prompt stays in the composition record. */
 import { createHash } from 'node:crypto';
 import { renderInputsBlock } from './inputs.mjs';
 import { parseMarkdownStructure } from './markdown-structure.mjs';
 import { extractClauses } from './specifications.mjs';
 import { recordSha256 } from './records.mjs';
 
-export const PROMPT_INPUT_RENDERER = 'approved-inputs-v2';
+export const PROMPT_INPUT_RENDERER = 'approved-inputs-v3';
 const CLAUSE_HEADINGS = new Set(['requirements', 'acceptance criteria']);
 const digest = (value) => String(value ?? '').replace(/^sha256:/, '');
 const hash = (value) => createHash('sha256').update(value).digest('hex');
@@ -81,6 +81,16 @@ function projectSummary(entry, capsule) {
   return { content, clauses: replacements.flatMap((entry) => entry.ids) };
 }
 
+// The header agent-briefs.mjs writes on every approved brief. In a prompt the section intro already
+// says inputs are evidence, not instructions; the work item and consumer are this prompt's own, and the
+// source digest is in the composition record. Producer, generation and source path remain.
+const BRIEF_HEADER = /^(# Approved agent brief — [^\n]+)\n\n> This is a deterministic projection of a governed artifact\.[^\n]*\n\n- Work item: `[^`\n]+`\n- Producer: `([^`\n]+)` generation (\d+)\n- Consumer: `[^`\n]+`\n- Source: `([^`\n]+)`\n- Source SHA-256: `[^`\n]+`\n/u;
+
+function compactBriefHeader(content) {
+  return content.replace(BRIEF_HEADER, (_, title, producer, generation, source) =>
+    `${title}\n\n- Producer: \`${producer}\` generation ${generation}; source \`${source}\`\n`);
+}
+
 /** Call only after collectInputs and activeClauseCapsule have verified their approval bindings. */
 export function renderPromptInputsBlock(result, capsule) {
   const original = renderInputsBlock(result);
@@ -88,6 +98,9 @@ export function renderPromptInputsBlock(result, capsule) {
   const valid = Boolean(original.text) && verifiedCapsule(capsule);
   const records = result.records.map((entry) => {
     const projected = valid ? projectSummary(entry, capsule) : { content: entry.content, clauses: [] };
+    if (entry.status === 'captured' && entry.projection?.kind === 'approved-summary' && typeof projected.content === 'string') {
+      projected.content = compactBriefHeader(projected.content);
+    }
     if (projected.content === entry.content) return entry;
     projections.push({
       phase: entry.phase, path: entry.repositoryPath ?? entry.path,
@@ -107,7 +120,12 @@ export function renderPromptInputsBlock(result, capsule) {
       }
     };
   });
-  const rendered = projections.length ? renderInputsBlock({ ...result, records }) : original;
+  const rendered = original.text ? renderInputsBlock({ ...result, records }, { compact: true }) : original;
+  const contentBytes = (block, entries) => block.text ? entries.reduce((total, entry) =>
+    total + (entry.status === 'captured' ? Buffer.byteLength(entry.content ?? '') : 0), 0) : 0;
+  const originalContentBytes = contentBytes(original, result.records);
+  const renderedContentBytes = contentBytes(rendered, records);
+  const savedBytes = originalContentBytes - renderedContentBytes;
   return {
     ...rendered,
     projection: {
@@ -115,11 +133,11 @@ export function renderPromptInputsBlock(result, capsule) {
       capsuleSha256: valid ? capsule.capsuleSha256 : null,
       originalSha256: original.sha256, renderedSha256: rendered.sha256,
       originalBytes: Buffer.byteLength(original.text), renderedBytes: Buffer.byteLength(rendered.text),
-      originalContentBytes: original.text ? result.records.reduce((total, entry) =>
-        total + (entry.status === 'captured' ? Buffer.byteLength(entry.content ?? '') : 0), 0) : 0,
-      renderedContentBytes: rendered.text ? records.reduce((total, entry) =>
-        total + (entry.status === 'captured' ? Buffer.byteLength(entry.content ?? '') : 0), 0) : 0,
-      savedBytes: Buffer.byteLength(original.text) - Buffer.byteLength(rendered.text),
+      originalContentBytes, renderedContentBytes,
+      // Input content left out (capsule clauses, brief headers), and separately the shorter
+      // per-input metadata of the compact prompt wrapper.
+      savedBytes,
+      metadataBytesSaved: Buffer.byteLength(original.text) - Buffer.byteLength(rendered.text) - savedBytes,
       inputs: projections
     }
   };

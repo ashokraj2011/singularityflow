@@ -204,11 +204,15 @@ test('platform command rendering keeps substitutions, quotes, and spaces inside 
   const adversarial = [
     '$(printf SUBSTITUTED)', '`printf BACKTICK`', "single'quote", 'two words', '"double"'
   ];
+  const nativeWindows = process.platform === 'win32';
   const command = renderPlatformCommand([
     process.execPath, '-e', 'process.stdout.write(JSON.stringify(process.argv.slice(1)))',
     ...adversarial
-  ], 'linux');
-  const result = spawnSync('/bin/sh', ['-c', command], { encoding: 'utf8' });
+  ], nativeWindows ? 'win32' : 'linux');
+  // Windows qualification executes the native PowerShell 7 renderer, not a nonexistent /bin/sh.
+  const result = nativeWindows
+    ? spawnSync('pwsh.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8' })
+    : spawnSync('/bin/sh', ['-c', command], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), adversarial);
 

@@ -160,7 +160,7 @@ export async function clearMutationTurn(payload) {
   const file = recordFile(payload);
   if (file) {
     await unlink(file).catch(error => { if (error.code !== 'ENOENT') throw error; });
-    await rm(`${file}.issued`, { recursive: true, force: true });
+    await rm(`${file}.issued`, { recursive: true, force: true }).catch(() => {});
   }
 }
 

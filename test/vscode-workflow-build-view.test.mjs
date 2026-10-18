@@ -426,6 +426,7 @@ test('state of a build like the live run is read inline, with everything Copilot
   // Findings that differ only in detail are one, with each detail.
   const rejection = state.findings.find((finding) => finding.code === 'WORKFLOW_REJECTION_TARGET');
   assert.deepEqual([rejection.subject, rejection.details.length], [{ step: 'release' }, 4]);
+  assert.deepEqual(rejection.fixMove, { move: 'step.change', id: 'release', signOff: { groups: ['quality-reviewers'], minimum: 1, sendBackTo: ['implementation', 'release'] } }, 'the one move that fixes it, to propose as it is');
   assert.equal(state.findings.filter((finding) => finding.code === 'WORKFLOW_REJECTION_TARGET').length, 1);
   assert.deepEqual(state.counts, { problem: 4, warning: 1, note: 1 });
   assert.equal(state.ready, false);

@@ -148,7 +148,8 @@ function stateStep(step: Entry, index: number, steps: Entry[]): Entry {
 }
 
 /**
- * Findings with their fix in words. Ones that differ only in detail (one per rejection target, say)
+ * Findings with their fix in words, and the move that makes it when there is one (`fixMove`, to
+ * propose as it is). Ones that differ only in detail (one per rejection target, say)
  * become one with each detail; the open-items warning's detail repeats `items`, so it is left out.
  */
 function stateFindings(findings: Entry[], workflow: unknown): Entry[] {
@@ -156,8 +157,9 @@ function stateFindings(findings: Entry[], workflow: unknown): Entry[] {
   for (const finding of findings) {
     const subject = plain(finding.subject) ? kept(Object.fromEntries(Object.entries(finding.subject).filter(([key, value]) => !(key === 'workflow' && value === workflow)))) : {};
     const fix = plain(finding.fix) ? finding.fix.text : finding.fix;
-    const key = JSON.stringify([finding.code, finding.severity, finding.title, subject, fix]);
-    if (!grouped.has(key)) grouped.set(key, { ...kept({ code: finding.code, severity: finding.severity, title: finding.title, subject: Object.keys(subject).length ? subject : null, fix }), details: [] });
+    const fixMove = plain(finding.fix) ? finding.fix.move : null;
+    const key = JSON.stringify([finding.code, finding.severity, finding.title, subject, fix, fixMove]);
+    if (!grouped.has(key)) grouped.set(key, { ...kept({ code: finding.code, severity: finding.severity, title: finding.title, subject: Object.keys(subject).length ? subject : null, fix, fixMove }), details: [] });
     if (finding.detail && finding.code !== 'BUILD_ITEMS_OPEN') grouped.get(key)!.details.push(String(finding.detail));
   }
   return [...grouped.values()].map(({ details, ...finding }) => ({ ...finding, ...(details.length === 1 ? { detail: details[0] } : details.length ? { details } : {}) }));

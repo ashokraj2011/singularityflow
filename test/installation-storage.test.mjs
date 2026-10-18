@@ -133,9 +133,33 @@ test('partial installs preserve inherited Copilot roots and legacy current trans
   assert.equal(await exists(path.join(inherited.directory, 'private-cli-candidate', 'bytes')), true);
   delete f.current.runtimeRoots;
   f.current.activation = { operationId: inherited.id };
+  f.current.status = 'complete';
   await f.save();
   await f.clean({ apply: true });
   assert.equal(await exists(path.join(inherited.directory, 'private-cli-previous', 'bytes')), true);
+});
+
+test('legacy partial upgrades retain the older full install serving Copilot until replacement', async (t) => {
+  const f = await fixture(t);
+  const full = await f.transaction();
+  const partial = await f.transaction();
+  await json(path.join(partial.directory, 'previous-current-manifest'), {
+    schemaVersion: 2, status: 'complete', activation: { operationId: full.id }
+  });
+  f.current.status = 'partial-by-request';
+  f.current.activation = { operationId: partial.id };
+  f.current.runtimeRoots = { copilot: path.join(partial.directory, 'private-cli-candidate'), legacyCopilot: true };
+  await f.save();
+  await f.clean({ apply: true });
+  assert.equal(await exists(path.join(full.directory, 'private-cli-candidate', 'bytes')), true);
+  const replacement = await f.transaction();
+  f.current.status = 'complete';
+  f.current.activation = { operationId: replacement.id };
+  f.current.runtimeRoots = { copilot: path.join(replacement.directory, 'private-cli-candidate'), legacyCopilot: false };
+  await f.save();
+  await f.clean({ apply: true });
+  assert.equal(await exists(path.join(full.directory, 'private-cli-candidate', 'bytes')), false);
+  assert.equal(await exists(path.join(partial.directory, 'private-cli-candidate', 'bytes')), false);
 });
 
 test('cleanup cannot compete with a live installer or release its lease', async (t) => {

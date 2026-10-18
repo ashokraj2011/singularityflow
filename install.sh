@@ -1518,6 +1518,10 @@ node -e '
       vsix: journal.previous.vscode ?? priorArtifacts.vsix ?? null
     },
     runtimeRoots: {
+      legacyCopilot: journal.surfaceStates.copilot !== "applied" && Boolean(
+        previousManifest?.runtimeRoots?.legacyCopilot || (!previousManifest?.runtimeRoots
+          && (journal.previous.copilotPresent || priorSurfaces.copilot) && previousManifest?.activation?.operationId)
+      ),
       copilot: journal.surfaceStates.copilot === "applied"
         ? require("node:path").join(require("node:path").dirname(journalFile), "transactions", journal.operationId, "private-cli-candidate", "node_modules", "singularity-flow")
         : previousManifest?.runtimeRoots?.copilot ?? (

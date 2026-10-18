@@ -1031,6 +1031,7 @@ export async function cleanupInstallationStorage({
       }
       if (current.runtimeRoots != null && (typeof current.runtimeRoots !== 'object'
           || Array.isArray(current.runtimeRoots) || !Object.hasOwn(current.runtimeRoots, 'copilot')
+          || (current.runtimeRoots.legacyCopilot != null && typeof current.runtimeRoots.legacyCopilot !== 'boolean')
           || (current.runtimeRoots.copilot !== null
             && (typeof current.runtimeRoots.copilot !== 'string' || !path.isAbsolute(current.runtimeRoots.copilot))))) {
         fail('runtime references are invalid; cleanup preserved all bytes.');
@@ -1051,6 +1052,31 @@ export async function cleanupInstallationStorage({
     const currentOperation = current?.activation?.operationId;
     if (OPERATION_ID.test(currentOperation ?? '') && !current.runtimeRoots) {
       roots.add(path.join(transactions, currentOperation));
+    }
+    // Before runtime roots were recorded, a CLI-/VS Code-only receipt could inherit a Copilot
+    // package from more than one install ago. Follow owned receipt snapshots conservatively until
+    // a known full install, rather than guessing that the latest candidate served every surface.
+    if (current && (!current.runtimeRoots || current.runtimeRoots.legacyCopilot === true)) {
+      const runtime = current.runtimeRoots?.copilot;
+      let candidate = typeof runtime === 'string' && inside(transactions, path.resolve(runtime))
+        ? path.relative(transactions, path.resolve(runtime)).split(path.sep)[0] : currentOperation;
+      let receipt = current;
+      const seen = new Set();
+      while (OPERATION_ID.test(candidate ?? '')) {
+        if (seen.has(candidate)) fail('legacy runtime receipt cycle; all bytes preserved.');
+        if (seen.size >= 1024) fail('legacy runtime history exceeds the cleanup bound; all bytes preserved.');
+        seen.add(candidate);
+        const directory = path.join(transactions, candidate);
+        roots.add(directory);
+        if (receipt.status === 'complete' && !receipt.runtimeRoots?.legacyCopilot) break;
+        await managedDirectory(transactions, 'legacy runtime transaction parent');
+        await managedDirectory(directory, 'legacy runtime transaction');
+        receipt = await optionalJson(path.join(directory, 'previous-current-manifest'), 'legacy runtime receipt');
+        if (!receipt) break;
+        if (![1, 2].includes(receipt.schemaVersion)) fail('legacy runtime receipt format is unknown; all bytes preserved.');
+        storageReferences(receipt.runtimeRoots, installations, transactions, roots);
+        candidate = receipt.activation?.operationId;
+      }
     }
     const recoveryPending = activation && activation.status !== 'complete';
     if (activation && (recoveryPending || activation.operationId === currentOperation)) {

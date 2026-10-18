@@ -1590,6 +1590,7 @@ async function writeCurrentInstallationReceipt(plan, verified, receipt, homeDire
     rollbackArtifacts: previous?.artifacts ?? null,
     // A CLI-only install leaves the previously selected Copilot package untouched.
     runtimeRoots: plan.cliOnly ? previous?.runtimeRoots ?? {
+      legacyCopilot: Boolean(previous?.activation?.operationId),
       copilot: previous?.activation?.operationId
         ? path.join(installations, 'transactions', previous.activation.operationId,
           'private-cli-candidate', 'node_modules', 'singularity-flow') : null
@@ -2653,6 +2654,9 @@ export async function applyLocalReinstall(plan, {
       result = { storageCleanup: await cleanupInstallationStorage({
         journal: activationJournal, checkout: plan.checkout, apply: true, ...activationLease
       }) };
+      for (const warning of result.storageCleanup.warnings) {
+        log(`Warning: cleanup deferred for ${warning.path}: ${warning.code ?? 'unknown'} ${warning.message}`);
+      }
     } catch (error) {
       log(`Warning: installation storage cleanup deferred: ${error.message}`);
     }

@@ -3558,6 +3558,7 @@ singularity-flow repair attempt <REPAIR-ID> --patch PATCH-FILE [--json]
 singularity-flow repair cancel <REPAIR-ID> --reason TEXT [--json]
 singularity-flow cockpit
 singularity-flow doctor [WORK-ID] [--offline] [--performance] [--json]
+singularity-flow check [--for-agent] [--json]
 singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out FILE]
 singularity-flow pr describe [WORK-ID] [--format markdown|json] [--clipboard] [--write] [--yes]
 singularity-flow workflow list|validate|simulate|diff|add|upgrade

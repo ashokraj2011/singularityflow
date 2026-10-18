@@ -239,10 +239,13 @@ test('the editor can list the branches, because it cannot answer a prompt', asyn
   assert.match(cli, /subcommand === 'branches'/, 'there is no way for a webview to fetch the choices');
   const registry = await source('src/command-registry.mjs');
   // Listing branches reads remotes and must never be classified as a model operation.
-  assert.match(registry, /WORKSPACE_NEVER_OPERATIONS = new Set\(\[\s*\n\s*'branches'/);
+  const neverStart = registry.indexOf('const WORKSPACE_NEVER_OPERATIONS = new Set([');
+  assert.ok(neverStart >= 0, 'the never-model workspace operations are no longer one set');
+  assert.match(registry.slice(neverStart, registry.indexOf(']);', neverStart)), /'branches'/);
 
   const panel = await source('apps/vscode/src/views/intake-panel.ts');
-  assert.match(panel, /\['workspace', 'branches', '--json', '--intake'\]/,
+  // An explicit catalog refresh appends --refresh-readiness to the same call (9dd17bc1).
+  assert.match(panel, /\['workspace', 'branches', '--json', '--intake'(?:\]|,\s*\.\.\.\(refresh \? \['--refresh-readiness'\] : \[\]\)\])/,
     'the intake panel never asks for the aggregate choices');
   const load = panel.slice(panel.indexOf('private async load('), panel.indexOf('private async loadTracker()'));
   assert.equal((load.match(/this\.client\.run/g) ?? []).length, 1,

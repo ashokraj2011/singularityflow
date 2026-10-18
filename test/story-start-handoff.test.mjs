@@ -94,7 +94,7 @@ test('the window opens a started Story unless one of its own folders already is 
   await mkdir(launch);
   await mkdir(story);
   const linked = path.join(base, 'linked-story');
-  await symlink(story, linked);
+  await symlink(story, linked, process.platform === 'win32' ? 'junction' : 'dir');
   assert.equal(await storyCheckoutNeedsWindowSwitch(story, [launch]), true,
     'a window showing the launch checkout opens the Story, whatever the extension currently follows');
   assert.equal(await storyCheckoutNeedsWindowSwitch(story, []), true, 'an empty window opens it');

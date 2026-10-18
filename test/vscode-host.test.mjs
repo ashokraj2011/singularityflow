@@ -3112,7 +3112,9 @@ test('Story intake remains available when another checkout has uncommitted work'
   assert.equal(await readFile(path.join(root, 'unfinished-change.txt'), 'utf8'), 'not ready to govern\n');
 });
 
-test('a manual Story is submitted end to end from the editor', async (t) => {
+for (const deferredWorkspace of [false, true]) test(deferredWorkspace
+  ? 'a deferred workspace Story starts in place and switches only once after creation'
+  : 'a manual Story is submitted end to end from the editor', async (t) => {
   if (!requireBundle(t)) return;
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-intake-'));
   t.after(() => removeFixture(base));
@@ -3141,15 +3143,62 @@ test('a manual Story is submitted end to end from the editor', async (t) => {
   run('git', ['remote', 'add', 'origin', remote], { cwd: root });
   run('git', ['push', '-u', 'origin', 'main'], { cwd: root });
 
+  let launchFolder = root;
+  if (deferredWorkspace) {
+    const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = path.join(base, 'workspace-registry.json');
+    process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = path.join(base, 'workspace-selection.json');
+    t.after(() => {
+      process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+      process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+    });
+    const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
+    const created = spawnSync(process.execPath, [cli, 'workspace', 'create', '--local', '--json',
+      '--id', 'intake', '--base', path.join(base, 'workspaces'), '--lead', 'service',
+      '--repository', `service=${remote}`, '--no-clone', '--confirm', 'intake'], {
+      encoding: 'utf8', env: process.env
+    });
+    assert.equal(created.status, 0, created.stderr);
+    launchFolder = path.join(base, 'workspaces', 'intake');
+    const selected = spawnSync(process.execPath, [cli, 'workspace', 'use', launchFolder, '--json'], {
+      encoding: 'utf8', env: process.env
+    });
+    assert.equal(selected.status, 0, selected.stderr);
+    assert.equal(existsSync(path.join(launchFolder, 'repos', 'service', '.git')), false);
+  }
   const { api, registered } = stubVscode();
-  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  api.workspace.workspaceFolders = [{ uri: { fsPath: launchFolder } }];
+  let preparations = 0;
+  const originalProgress = api.window.withProgress;
+  api.window.withProgress = (options, task) => {
+    if (options.title.startsWith('Preparing ')) preparations += 1;
+    return originalProgress(options, task);
+  };
   const extension = loadExtension(api);
   await extension.activate(context());
 
-  await registered.commands.get('singularityFlow.startWork')();
-  const intakePanel = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
+  await Promise.all([
+    registered.commands.get('singularityFlow.startWork')(),
+    registered.commands.get('singularityFlow.startWork')()
+  ]);
+  assert.equal(preparations, deferredWorkspace ? 1 : 0, 'repeated clicks share preparation');
+  let intakePanel = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
   assert.ok(intakePanel, 'a clean repository opens Story intake');
+  assert.equal(api.workspace.workspaceFolders[0].uri.fsPath, launchFolder);
+  assert.equal(registered.executedCommands.some((entry) =>
+    entry.id === 'vscode.openFolder' || entry.id === 'workbench.action.reloadWindow'), false,
+  'opening intake never navigates or reloads an already usable repository');
   t.after(() => intakePanel.dispose());
+  if (deferredWorkspace) {
+    await intakePanel.post({ type: 'cancel' });
+    assert.equal(registered.executedCommands.some((entry) =>
+      entry.id === 'vscode.openFolder' || entry.id === 'workbench.action.reloadWindow'), false,
+    'cancelling prepared intake leaves the native workspace open');
+    await registered.commands.get('singularityFlow.startWork')();
+    intakePanel = registered.panels.filter((entry) => entry.id === 'singularityFlow.intake').at(-1);
+    assert.equal(preparations, 1, 'reopening intake reuses the prepared workspace');
+  }
   await intakePanel.post({ type: 'shape', value: 'story' });
   await until(() => intakePanel.webview.html.includes('data-work-type="feature"') ? true : null);
   assert.match(intakePanel.webview.html, /data-base-branch="main"/);
@@ -3174,6 +3223,9 @@ test('a manual Story is submitted end to end from the editor', async (t) => {
   ) ?? null, { what: 'the isolated Story checkout to open' });
   const storyRoot = openFolder.args[0].fsPath;
   assert.equal(openFolder.args[1], false, 'the Story checkout replaces the launch folder in this window');
+  assert.equal(registered.executedCommands.filter((entry) => entry.id === 'vscode.openFolder').length, 1,
+    'successful creation owns the only native folder handoff');
+  assert.equal(registered.executedCommands.some((entry) => entry.id === 'workbench.action.reloadWindow'), false);
   await until(() => registered.infos.find((message) => /Story STORY-UI started/.test(message)) ?? null,
     { what: 'the editor to report the started Story' });
   assert.deepEqual(registered.errors, []);
@@ -4798,7 +4850,7 @@ test('guided start skips completed capability setup and opens workspace creation
   assert.match(html, /Start work/);
 });
 
-test('guided workspace creation prepares the deferred checkout before its single native folder handoff', async (t) => {
+test('guided workspace creation prepares intake in place without a base-folder handoff or reload', async (t) => {
   if (!requireBundle(t)) return;
   const org = await organisation();
   const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
@@ -4827,9 +4879,13 @@ test('guided workspace creation prepares the deferred checkout before its single
   await settle();
   assert.match(panel.webview.html, /<button data-submit="create" >/);
   await panel.post({ type: 'create' });
-  await until(() => registered.executedCommands.some((entry) =>
-    entry.id === 'vscode.openFolder') || registered.errors.length || panel.webview.html.includes('Setup '),
-  { what: 'guided checkout preparation to hand off the native folder or report its refusal' });
+  const intake = await until(() => {
+    assert.deepEqual(registered.errors, []);
+    assert.doesNotMatch(panel.webview.html, /<p class="blockers">/,
+      panel.webview.html.match(/<p class="blockers">(.*?)<\/p>/s)?.[1]);
+    return registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
+  }, { what: 'guided checkout preparation to open intake without navigating' });
+  t.after(() => intake.dispose());
   assert.equal(registered.executedCommands.filter((entry) =>
     entry.id === 'workbench.action.reloadWindow').length, 0,
   'do not reload the old empty native scope between selection and checkout preparation');
@@ -4837,12 +4893,15 @@ test('guided workspace creation prepares the deferred checkout before its single
   const createdDirectory = (await readdir(org.base)).find((name) => name.startsWith('guided-fast--'));
   assert.ok(createdDirectory, 'the guided workspace is registered');
   assert.equal(existsSync(path.join(org.base, createdDirectory, 'repos', 'api', '.git')), true,
-    'the selected delivery is materialized before the native handoff');
+    'the selected delivery is materialized before intake');
   const opened = registered.executedCommands.filter((entry) => entry.id === 'vscode.openFolder');
-  assert.equal(opened.length, 1, 'selection and preparation share one exact native handoff');
-  assert.equal(path.resolve(opened[0].args[0].fsPath),
-    await realpath(path.join(org.base, createdDirectory, 'repos', 'api')));
-  assert.equal(opened[0].args[1], false);
+  assert.equal(opened.length, 0, 'registration and preparation must not change the native folder');
+  assert.match(intake.webview.html, /Step 3 of 3/);
+  await registered.commands.get('singularityFlow.startWork')({ guidedStart: true });
+  assert.equal(registered.panels.filter((entry) => entry.id === 'singularityFlow.intake').length, 1,
+    'a repeated click reveals the same intake without registering a second repository runtime');
+  assert.equal(registered.executedCommands.some((entry) =>
+    entry.id === 'vscode.openFolder' || entry.id === 'workbench.action.reloadWindow'), false);
 });
 
 test('a workspace is chosen as capabilities, and its repositories follow', async (t) => {
@@ -9338,6 +9397,32 @@ test('a slow older explicit workspace selection cannot navigate after a newer ch
     [await realpath(fixture.nodes.newer.openPath)],
     'an older result cannot open B after C became the selected native destination');
   assert.equal(opened[0].args[1], false);
+});
+
+test('Start Work preserves a review-required checkout without intake, navigation or reload', async (t) => {
+  if (!requireBundle(t)) return;
+  const fixture = await workspaceSelectionRaceFixture(t, { deferredOlder: true });
+  const selected = spawnSync(process.execPath, [fixture.cli, 'workspace', 'use', 'older', '--json'], {
+    encoding: 'utf8', env: process.env
+  });
+  assert.equal(selected.status, 0, selected.stderr);
+  await mkdir(fixture.nodes.older.openPath, { recursive: true });
+  const privateFile = path.join(fixture.nodes.older.openPath, 'unfinished.txt');
+  await writeFile(privateFile, 'Preserve unrelated local work.\n');
+  const values = new Map([['singularityFlow.pendingStartWizard.v1', {
+    schemaVersion: 1, step: 'work', workspaceId: fixture.workspaceIds.older,
+    resumeOnActivation: false
+  }]]);
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: fixture.nodes.older.path } }];
+  await loadExtension(api).activate(context(values));
+  await registered.commands.get('singularityFlow.startWork')();
+  assert.equal(registered.panels.some((entry) => entry.id === 'singularityFlow.intake'), false);
+  assert.equal(registered.executedCommands.some((entry) =>
+    entry.id === 'vscode.openFolder' || entry.id === 'workbench.action.reloadWindow'), false);
+  assert.ok(registered.warnings.some((message) => /needs review/.test(message)));
+  assert.equal(await readFile(privateFile, 'utf8'), 'Preserve unrelated local work.\n');
+  assert.equal(existsSync(path.join(fixture.nodes.older.openPath, '.git')), false);
 });
 
 test('deferred Start Work completion cannot restore a workspace selected before a newer choice', async (t) => {

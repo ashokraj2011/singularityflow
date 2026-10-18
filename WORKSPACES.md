@@ -13,6 +13,18 @@ routing, and which repository leads shared Initiative artifacts.
 
 The installed tutorials are `sflow explain workspaces-and-sessions`, `sflow explain capability-management`, and `sflow explain initiative-lifecycle`.
 
+## Start Work without reopening the workspace
+
+**Start new work** keeps the current VS Code folders open. If a required repository has not been
+downloaded, SFlow prepares it and binds the intake screen in the same extension host. Guided
+workspace creation follows the same route; neither preparation nor opening intake reloads VS Code.
+Cancelling intake or a preparation/start failure leaves the native folders unchanged.
+
+After successful Story creation, SFlow opens the isolated Story checkout once in the same window
+so Explorer, new terminals and native Copilot share the correct source directory. If that checkout
+is already an open folder, it refreshes SFlow in place instead. There is no extra window-reload
+command. Explicitly choosing a different workspace remains a separate navigation action.
+
 ## Automatic branch-local Story preparation
 
 New-Story readiness and Story start automatically use `workspace/repos/<branch-folder>/<repository-id>`

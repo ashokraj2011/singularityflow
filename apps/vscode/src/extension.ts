@@ -1166,15 +1166,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const handlers = new Map<string, (...args: never[]) => unknown>();
   let unavailableReason = 'Open the repository that contains singularity/workflow.yml.';
-  const reloadAfterBlockedPreparation = async (): Promise<void> => {
-    // The reload binds Lifecycle to the newly selected workspace, but must not silently retry the
-    // failed clone during activation. Keep the checkpoint visible for a person to repair explicitly.
-    const pending = context.globalState.get<PendingStartWizard | null>(START_WIZARD_KEY, null);
-    if (pending?.step === 'work') {
-      await context.globalState.update(START_WIZARD_KEY, { ...pending, resumeOnActivation: false });
-    }
-    await vscode.commands.executeCommand('workbench.action.reloadWindow');
-  };
+  // The repository may be materialized after activation returned its unavailable view. Start Work
+  // can bind the repository runtime in this same host instead of reopening the base checkout.
+  let repositoryRuntime: Promise<void> | null = null;
+  const ensureRepositoryRuntime = (resolved: Extract<Resolved, { repository: string }>): Promise<void> =>
+    repositoryRuntime ??= bindRepositoryRuntime(resolved);
   /**
    * Align this window's native root with an explicit workspace choice. Rebinding the SFlow
    * client alone leaves terminals and native Copilot in the previous repository. Deferred
@@ -1221,7 +1217,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(target), false);
     return true;
   };
-  const prepareDeferredWorkspaceForWork = async (reloadWhenBlocked = false): Promise<boolean> => {
+  const prepareDeferredWorkspaceForWork = async (): Promise<boolean> => {
     let location;
     try { location = resolveCli({ extensionPath: context.extensionPath }); }
     catch (error) { showRefusal(error, { headline: 'Could not start work' }); return true; }
@@ -1236,7 +1232,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     try {
       const current = await registry.run<{
         active?: boolean; workspaceId?: string; workspaceName?: string; workspacePath?: string;
-        repositoryId?: string; repositoryState?: string; repositoryCapabilities?: string[];
+        repositoryId?: string; repositoryPath?: string; repositoryState?: string; repositoryCapabilities?: string[];
       }>(['workspace', 'current', '--json']);
       if (!current.active || !current.workspacePath) return false;
       if (!await selectionIsCurrent()) return true;
@@ -1244,74 +1240,99 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         repositories: Array<{ id: string; required?: boolean; state: string; capabilities?: string[] }>;
       }>(['workspace', 'status', current.workspacePath, '--level', 'readiness', '--json']);
       const previous = context.globalState.get<PendingStartWizard | null>(START_WIZARD_KEY, null);
+      if (previous?.step === 'work' && previous.workspaceId === current.workspaceId && previous.resumeOnActivation) {
+        // Consume legacy reload continuations before preparation, including a failed attempt.
+        await context.globalState.update(START_WIZARD_KEY, { ...previous, resumeOnActivation: false });
+      }
       const selectedCapability = previous?.workspaceId === current.workspaceId
         ? previous?.capabilityId : null;
       const pending = deferredWorkspaceRepositories(status.repositories, current, selectedCapability);
       if (!await selectionIsCurrent()) return true;
-      if (!pending.length) return false;
+      if (!pending.length && repositoryRuntime && current.repositoryPath
+          && sameStoryAttachPath(activeRepositoryContext()?.root ?? '', current.repositoryPath)) return false;
       if (pending.some((entry) => !['missing', 'empty'].includes(entry.state))) {
         void showCompactWarningMessage(
           'The selected workspace has a repository that needs review before work can start. Open Workspace details to inspect it.');
-        if (reloadWhenBlocked) await reloadAfterBlockedPreparation();
         return true;
       }
-      const args = [
-        'workspace', 'repair', current.workspacePath,
-        ...pending.flatMap((entry) => ['--repository', entry.id]),
-        '--level', 'readiness', '--json'
-      ];
-      const materialized = await vscode.window.withProgress({
-        location: vscode.ProgressLocation.Notification,
-        title: `Preparing ${pending.length} ${pending.length === 1 ? 'repository' : 'repositories'} for work…`
-      }, () => registry.run<{ status: { repositories: Array<{ id: string; state: string }> } }>(args));
-      if (pending.some((entry) => materialized.status.repositories
-        .find((observed) => observed.id === entry.id)?.state !== 'ready')) {
-        throw new Error('A required workspace repository is still unavailable. Open Workspace details for its repair status.');
-      }
-      if (!await selectionIsCurrent()) {
-        void showCompactInformationMessage('Workspace selection changed while its repository was being prepared. The prepared checkout was kept; start work again in your selected workspace.');
-        return true;
+      if (pending.length) {
+        const args = [
+          'workspace', 'repair', current.workspacePath,
+          ...pending.flatMap((entry) => ['--repository', entry.id]),
+          '--level', 'readiness', '--json'
+        ];
+        const materialized = await vscode.window.withProgress({
+          location: vscode.ProgressLocation.Notification,
+          title: `Preparing ${pending.length} ${pending.length === 1 ? 'repository' : 'repositories'} for work…`
+        }, () => registry.run<{ status: { repositories: Array<{ id: string; state: string }> } }>(args));
+        if (pending.some((entry) => materialized.status.repositories
+          .find((observed) => observed.id === entry.id)?.state !== 'ready')) {
+          throw new Error('A required workspace repository is still unavailable. Open Workspace details for its repair status.');
+        }
+        if (!await selectionIsCurrent()) {
+          void showCompactInformationMessage('Workspace selection changed while its repository was being prepared. The prepared checkout was kept; start work again in your selected workspace.');
+          return true;
+        }
       }
       const selected = await registry.run<{
-        workspaceName: string; workspacePath: string; repositoryPath: string; repositoryState: string;
+        workspaceId: string; workspaceName: string; workspacePath: string;
+        repositoryId: string | null; repositoryPath: string; repositoryState: string;
       }>(['workspace', 'current', '--json']);
       if (!await selectionIsCurrent()) return true;
-      await context.globalState.update(START_WIZARD_KEY, startWizardState('work', {
-        capabilityId: previous?.capabilityId ?? null,
-        organisation: previous?.organisation ?? null,
-        workspaceId: current.workspaceId ?? null,
-        workspaceName: current.workspaceName ?? null,
-        workspacePath: current.workspacePath,
-        resumeOnActivation: true
-      }));
-      await openSelectedWorkspaceFolder(selected, true, selectionIsCurrent);
-      return true;
+      // Only SFlow's intake context moves here. Native folders, terminals and Copilot stay put
+      // until a Story has actually been created, when the one checkout handoff below owns them.
+      if (repositoryRuntime) {
+        await repositoryRuntime;
+        for (const follow of workspaceSelected) {
+          if (!await selectionIsCurrent()) return true;
+          await follow({ ...selected, forIntake: true, navigationIsCurrent: selectionIsCurrent });
+        }
+      } else {
+        // The selected delivery may use its workspace's shared configuration authority rather
+        // than store workflow.yml in its application branch. Intake checks that authority itself.
+        const repository = await validateFactoryResetRepositoryDirectory(selected.repositoryPath, { signal: extensionLifetime.signal });
+        if (!await selectionIsCurrent()) return true;
+        await context.workspaceState.update('singularityFlow.executionRoot', repository);
+        await ensureRepositoryRuntime({
+          ...selected, repository, root: repository,
+          leadRepositoryPath: await workspaceLeadDirectory(selected.workspacePath) ?? repository,
+          origin: 'the selected workspace repository prepared for intake'
+        });
+      }
+      return !await selectionIsCurrent()
+        || !sameStoryAttachPath(activeRepositoryContext()?.root ?? '', selected.repositoryPath)
+        || !handlers.has('singularityFlow.startWork');
     } catch (error) {
       if (!await selectionIsCurrent()) return true;
       showRefusal(error, { headline: 'Could not prepare the workspace for work' });
-      if (reloadWhenBlocked) await reloadAfterBlockedPreparation();
       return true;
     }
   };
+  let openingIntake: Promise<unknown> | null = null;
   for (const id of REPOSITORY_COMMANDS) {
     context.subscriptions.push(vscode.commands.registerCommand(id, async (...args: never[]) => {
-      if (id === 'singularityFlow.startWork' && await prepareDeferredWorkspaceForWork()) return;
-      const handler = handlers.get(id);
-      if (handler) return handler(...args);
-      // Capability/setup reviews are machine-wide and must remain reachable before a workspace
-      // exists. Phase decisions still require the repository-bound Reviews screen above.
-      if (id === 'singularityFlow.openReviews') {
-        return vscode.commands.executeCommand('singularityFlow.reviewCapabilityProposals');
-      }
-      void showCompactWarningMessage(
-        `Singularity Flow: ${unavailableReason}`,
-        'Map a capability', 'Find a workspace'
-      ).then((chosen) => {
-        if (chosen === 'Map a capability') return vscode.commands.executeCommand('singularityFlow.mapCapability');
-        if (chosen === 'Find a workspace') return vscode.commands.executeCommand('singularityFlow.openWorkspaces');
+      const dispatch = async (): Promise<unknown> => {
+        if (id === 'singularityFlow.startWork' && await prepareDeferredWorkspaceForWork()) return;
+        const handler = handlers.get(id);
+        if (handler) return handler(...args);
+        // Capability/setup reviews are machine-wide and must remain reachable before a workspace
+        // exists. Phase decisions still require the repository-bound Reviews screen above.
+        if (id === 'singularityFlow.openReviews') {
+          return vscode.commands.executeCommand('singularityFlow.reviewCapabilityProposals');
+        }
+        void showCompactWarningMessage(
+          `Singularity Flow: ${unavailableReason}`,
+          'Map a capability', 'Find a workspace'
+        ).then((chosen) => {
+          if (chosen === 'Map a capability') return vscode.commands.executeCommand('singularityFlow.mapCapability');
+          if (chosen === 'Find a workspace') return vscode.commands.executeCommand('singularityFlow.openWorkspaces');
+          return undefined;
+        });
         return undefined;
-      });
-      return undefined;
+      };
+      if (id !== 'singularityFlow.startWork') return dispatch();
+      // Repeated clicks share preparation and one form instead of cloning or binding twice.
+      return openingIntake ??= dispatch().finally(() => { openingIntake = null; });
     }));
   }
 
@@ -1387,7 +1408,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    *
    * Existing organisations and active workspaces are respected rather than duplicated: a person
    * who already completed a step advances to the next one. The only persisted value is an ephemeral
-   * continuation marker for the window reload required after the first workspace selection; all
+   * continuation marker for the guided setup; all
    * capability, workspace, repository and lifecycle authority remains in the CLI's durable records.
    */
   /**
@@ -1530,9 +1551,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Registration is intentionally checkout-free. Start Work performs the explicit repair before
       // any intake reads source or workflow configuration from the selected repositories.
       void showCompactInformationMessage(`Workspace registered. Now working in ${created.name}.`);
-      // Guided Start can prepare the selected checkout with the early-registered command before
-      // reloading. Otherwise selection would reload once for the planned path and again after
-      // repair, even though the intermediate activation has no useful work to show.
+      // Guided Start prepares and binds intake in this host. Only a successfully created Story
+      // opens another native folder; registration and checkout preparation never reload the window.
       if (guidedStart) {
         await context.globalState.update(START_WIZARD_KEY, startWizardState('work', {
           capabilityId: request?.capabilityId ?? null,
@@ -1540,7 +1560,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           workspaceId: created.id,
           workspaceName: created.name,
           workspacePath: created.directory,
-          resumeOnActivation: true
+          resumeOnActivation: false
         }));
       }
       const selected = await selectWorkspace(
@@ -1552,8 +1572,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           organisation: request?.organisation ?? null
         }));
       } else if (selected && guidedStart) {
-        const handled = await prepareDeferredWorkspaceForWork(true);
-        if (!handled) await vscode.commands.executeCommand('workbench.action.reloadWindow');
+        await vscode.commands.executeCommand('singularityFlow.startWork', {
+          guidedStart: true, workspaceName: created.name
+        });
       }
     }, async (options?: { chooseRepository?: boolean }) => {
       // Keep the workspace draft open. Capability setup creates a review proposal; the proposal
@@ -3635,6 +3656,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     repositoryId: string | null;
     repositoryPath: string;
     workspacePath: string;
+    /** The workspace CLI verified membership; intake still resolves its approved configuration. */
+    forIntake?: boolean;
     navigationIsCurrent?: () => Promise<boolean>;
   };
   const workspaceSelected: Array<(selected: SelectedWorkspace) => void | Promise<void>> = [];
@@ -4577,6 +4600,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     { location: vscode.ProgressLocation.Window, title: 'Singularity Flow: finding the repository…' },
     () => resolveGovernedRepository(context, output)
   );
+  // Start Work may have prepared and bound the selected workspace while initial resolution ran.
+  // Its confirmed context wins over an older unavailable result; never register services twice.
+  if (repositoryRuntime) return repositoryRuntime;
   if ('reason' in resolved) {
     const result = unavailable(resolved.label, resolved.reason, resolved.contextValue, resolved.lead);
     const pendingStart = context.globalState.get<PendingStartWizard | null>(START_WIZARD_KEY, null);
@@ -4586,6 +4612,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     return result;
   }
+  await ensureRepositoryRuntime(resolved);
+
+  /** Register repository-bound services once, including after deferred preparation, without reload. */
+  async function bindRepositoryRuntime(resolved: Extract<Resolved, { repository: string }>): Promise<void> {
   markHostPerformance('repositoryResolved');
   // `repository` is rebound when a different workspace is chosen. Every closure below captures the
   // binding rather than the value, so they all follow — which is the point: choosing a workspace
@@ -5507,7 +5537,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     let canonicalTarget: string;
     let targetGitCommonDirectory: string | null;
     try {
-      canonicalTarget = await validateRepositoryDirectory(target, { signal: extensionLifetime.signal });
+      canonicalTarget = await (selected.forIntake
+        ? validateFactoryResetRepositoryDirectory : validateRepositoryDirectory)(target, { signal: extensionLifetime.signal });
       targetGitCommonDirectory = await validatedRepositoryGitCommonDirectory(canonicalTarget, {
         signal: extensionLifetime.signal
       });
@@ -9051,6 +9082,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   } else {
     await completeInitialRepositoryRead();
     markHostPerformance('activationComplete');
+  }
   }
 }
 

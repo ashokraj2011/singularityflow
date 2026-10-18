@@ -31,6 +31,16 @@ test('dependency warnings remain visible advisories and never become publication
   assert.deepEqual(decision.advisories, ['Approved input is advisory.', 'The recorded grounding is stale under warn policy.']);
 });
 
+test('early scope repair and human-choice advice stays visible without blocking the VS Code Publish action', () => {
+  const warning = 'Scope advisory: repair a clear draft gap or record an authorized human scope decision.';
+  const decision = phasePrepublishDecision({ ...ready, scopeReview: {
+    blocking: false, status: 'repair-or-human-decision', unresolvedCount: 1
+  }, warnings: [warning] }, expected);
+  assert.equal(decision.ready, true);
+  assert.deepEqual(decision.advisories, [warning]);
+  assert.ok(decision.publishArgv);
+});
+
 test('all field diagnostics remain visible and next-action surfaces come from one command binding', () => {
   const decision = phasePrepublishDecision({ ...ready, status: 'correction-required',
     findings: Array.from({ length: 12 }, (_, index) => ({ message: `Fix witness field ${index}.`, line: index + 10,

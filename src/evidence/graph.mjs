@@ -26,7 +26,7 @@ import { witnessContextBinding, witnessRecordResults } from '../verification/wit
 import { applicabilityStatus } from './applicability.mjs';
 import { pinnedStorySource } from '../story-epic-sources.mjs';
 import {
-  isSpecificationDefinitionPhase, loadActiveSpecRecords, loadSpecRecords, readBoundSpecificationClaimMap, readSubmittedSpecificationIndex,
+  extractClauses, isSpecificationDefinitionPhase, loadActiveSpecRecords, loadSpecRecords, readBoundSpecificationClaimMap, readSubmittedSpecificationIndex,
   readBoundSpecificationIndex, selectActiveSpecRecords, plannedClaimsForObservedPhase
 } from '../specifications.mjs';
 
@@ -310,9 +310,9 @@ async function loadScopeInventory(root, definition, workflow, directory, records
  * submitted index supplies its clauses, so a statement its clauses carry is not shown as open.
  * A preview for the people who decide scope; never evidence. Null when it cannot be built.
  */
-export async function previewScopeInventory(root, definition, workflow) {
+export async function previewScopeInventory(root, definition, workflow, { draftPhase = null, diagnostics = [] } = {}) {
   const directory = itemDirectory(root, { workItemRoot: workflow.resolution?.workItemRoot ?? definition?.workItemRoot }, workflow.workItem.id);
-  const findings = [];
+  const findings = diagnostics;
   const indexes = [...((await loadProjectedSpecRecords(root, directory, workflow, findings)).records.indexes ?? [])];
   for (const id of workflow.phaseOrder ?? []) {
     const phase = workflow.phases?.[id];
@@ -320,6 +320,20 @@ export async function previewScopeInventory(root, definition, workflow) {
       || indexes.some((index) => index.phase === id)) continue;
     // An index that fails its own binding is reported by the trusted read; the preview omits it.
     try { indexes.push(await readSubmittedSpecificationIndex(root, directory, workflow, phase)); } catch { /* omitted */ }
+  }
+  if (draftPhase?.id === workflow.currentPhase && draftPhase.status === 'in_progress'
+      && isSpecificationDefinitionPhase(draftPhase) && draftPhase.requiredArtifact?.path) {
+    // A successor's missing or invalid draft must not borrow coverage from its retained generation.
+    const predecessors = indexes.filter(index => index.phase !== draftPhase.id);
+    indexes.splice(0, indexes.length, ...predecessors);
+    try {
+      const relative = path.relative(root, path.join(directory, draftPhase.requiredArtifact.path));
+      const file = await secureRepositoryPath(root, relative, { label: 'Scope authoring draft', mustExist: true, type: 'file' });
+      const clauses = extractClauses(await readFile(file.absolute, 'utf8'), {
+        sourcePath: relative, externalClauses: predecessors.flatMap(index => index.clauses ?? [])
+      });
+      indexes.push({ phase: draftPhase.id, clauses });
+    } catch { /* Missing/invalid drafts remain unresolved in this advisory preview, never trusted. */ }
   }
   return loadScopeInventory(root, definition, workflow, directory, { indexes }, findings);
 }

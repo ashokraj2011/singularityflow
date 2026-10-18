@@ -138,6 +138,8 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
   const references = await measureCommandSpan('phase-entry.references', async () => verifyReferenceRepositories(root,
     await storyReferenceRepositories(root, definition, workflow)));
   const retainedExecutionEvidence = await measureCommandSpan('phase-entry.execution-evidence', () => phaseExecutionEvidence(root, definition, workflow, phase));
+  const scopeReview = await measureCommandSpan('phase-entry.scope-review', async () =>
+    (await import('./scope/authoring.mjs')).scopeAuthoringCheckpoint(root, definition, workflow, phase));
   // What earlier steps left open, and at the closing step the final evaluation's preview [A7, B5].
   const upstream = await measureCommandSpan('phase-entry.upstream', async () => upstreamEntrySummary(root, definition, workflow, phase, {
     evaluateTerminalReadiness: endsStory(workflow, phase)
@@ -278,7 +280,7 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
   }));
   // A retest step names the step whose Code evidence it re-checks; skills read this, never a step name.
   const testEvidenceFrom = workflow.resolution?.phases?.find((entry) => entry.id === phase.id)?.testEvidenceFrom ?? null;
-  return { ...base, repositoryChecks: repositoryCheckStatus(root), status, upstream, testEvidenceFrom, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
+  return { ...base, repositoryChecks: repositoryCheckStatus(root), status, upstream, scopeReview, testEvidenceFrom, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
     ...(preparationAdmitted ? { successor: { targetGeneration: authoring.entry.targetGeneration,
       preparation: authoring.entry.preparation, automatic: false } } : {}),
     authoring, recovery, retainedExecutionEvidence, references, clarification, context,

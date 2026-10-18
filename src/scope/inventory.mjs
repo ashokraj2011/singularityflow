@@ -5,8 +5,9 @@
  * record, its active documents and its answered clarifications) becomes one item, and every item
  * carries a disposition:
  *
- * - included: a clause states it (its normalized text equals or contains the statement, or a
- *   person linked the clauses), so the clause's own row carries its evidence;
+ * - included: a clause states it (its normalized text equals or contains the statement, an
+ *   authored source reference links it, or a person linked the clauses), so the clause's own row
+ *   carries its evidence; a link is never a test result or an approval;
  * - existing: behaviour that already exists, linked to the clauses that verify it;
  * - excluded, deferred: a scope decision a person recorded with a reason, never an exception;
  * - informative, duplicate, superseded: not a requirement of this Story, said by a person (or, for a
@@ -21,7 +22,7 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { extractNormativeStatements, normalizeStatement, scopeItemId, storySourceStatements } from './extract.mjs';
+import { clauseScopeItems, extractNormativeStatements, normalizeStatement, scopeItemId, storySourceStatements } from './extract.mjs';
 import { extractSourceText, isTextualSource } from '../source-text.mjs';
 
 export const SCOPE_INVENTORY_VERSION = 'scope-inventory/v1';
@@ -93,11 +94,14 @@ async function scopeSources(root, directory, workflow, source) {
 }
 
 /** The clauses whose statement is this one, by normalized equality or clear containment. */
-function matchingClauses(text, clauses) {
+function matchingClauses(text, clauses, itemId) {
   const wanted = normalizeStatement(text);
   return clauses.filter((clause) => {
-    const body = normalizeStatement(clause.body);
+    const body = normalizeStatement(String(clause.body ?? '').replace(/\[scope:SRI-[0-9a-f]{12}\]/gu, ''));
     if (!body || !wanted) return false;
+    // A short request such as "test cases" needs an explicit authored coverage claim, not a
+    // lowered substring threshold that would silently satisfy unrelated short requirements.
+    if (clauseScopeItems(clause.body).includes(itemId) && body.length >= MIN_CONTAINMENT) return true;
     if (body === wanted) return true;
     const shorter = body.length < wanted.length ? body : wanted;
     const longer = shorter === body ? wanted : body;
@@ -115,6 +119,12 @@ function decisionsByItem(workflow) {
   return decided;
 }
 
+function decisionIsCurrent(decision, statementSha, knownClauses) {
+  return decision && (decision.statementSha256 ?? null) === (statementSha ?? null)
+    && (!CLAUSE_LINKED_DISPOSITIONS.includes(decision.disposition)
+      || decision.clauseIds?.length > 0 && decision.clauseIds.every(id => knownClauses.has(id)));
+}
+
 /**
  * Build the inventory from the Story's sources and clauses. `clauses` are the clause records of the
  * Story's active specification indexes.
@@ -122,24 +132,27 @@ function decisionsByItem(workflow) {
 export async function buildScopeInventory(root, directory, workflow, { source, clauses, scopeNotApplicable = false }) {
   const sources = await scopeSources(root, directory, workflow, source);
   const decided = decisionsByItem(workflow);
+  const knownClauses = new Set(clauses.map(clause => clause.id));
   const firstSeen = new Map();
   const items = [];
   for (const entry of sources) {
     if (!entry.readable) {
       const decision = decided.get(entry.id);
+      const current = decisionIsCurrent(decision, entry.sha256, knownClauses);
       items.push({
         id: entry.id, kind: 'source', sourceId: entry.id, line: null,
         text: `${entry.name ?? entry.id} could not be read (${entry.reason})`, statementSha256: entry.sha256 ?? null,
-        disposition: decision && (decision.statementSha256 ?? null) === (entry.sha256 ?? null) ? decision.disposition : 'unresolved',
-        clauseIds: decision?.clauseIds ?? [], decision: decision ?? null, reason: entry.reason
+        disposition: current ? decision.disposition : 'unresolved',
+        clauseIds: current ? decision.clauseIds ?? [] : [], decision: current ? decision : null,
+        ...(decision && !current ? { staleDecision: true } : {}), reason: entry.reason
       });
       continue;
     }
     for (const statement of entry.statements) {
       const id = scopeItemId(entry.id, statement.text);
       const decision = decided.get(id);
-      const current = decision && decision.statementSha256 === statement.statementSha256 ? decision : null;
-      const matched = matchingClauses(statement.text, clauses);
+      const current = decisionIsCurrent(decision, statement.statementSha256, knownClauses) ? decision : null;
+      const matched = matchingClauses(statement.text, clauses, id);
       let disposition = 'unresolved';
       let clauseIds = [];
       let duplicateOf = null;

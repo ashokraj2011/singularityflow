@@ -363,6 +363,7 @@ async function staticPublicationBlockers(root, config, workflow, phase, { retain
  */
 export async function phasePrepublish(root, config, workflow, phase, options = {}) {
   const draft = await phaseDraftCheck(root, config, workflow, phase, options);
+  const scopeReview = await (await import('./scope/authoring.mjs')).scopeAuthoringCheckpoint(root, config, workflow, phase);
   const retained = workflow.currentPhase === phase.id && phase.status === 'in_progress'
     && hasPublishedPhaseGeneration(phase) && !requiresProspectivePhaseInspection(workflow, phase);
   // Publication prerequisites belong to authoring, not to a retained generation awaiting tests or
@@ -575,6 +576,7 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
       deferredFindingCodes: ['PLAN_EVIDENCE_CORRECTION_REVIEW_REQUIRED'] } } : {}),
     // Carried through unchanged: advisories never enter findings or readiness.
     advisories: draft.advisories,
+    scopeReview,
     documentation: draft.documentation,
     coverage: draft.coverage,
     traceabilityRepair: draft.traceabilityRepair ? Object.freeze({
@@ -606,7 +608,7 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
         line: entry.line ?? null, field: entry.details?.field ?? null, code: entry.details?.sourceCode ?? entry.code }))
     }) : null,
     grounding: Object.freeze(dependencies.grounding),
-    warnings: Object.freeze(dependencies.warnings),
+    warnings: Object.freeze([...dependencies.warnings, ...(scopeReview?.message ? [scopeReview.message] : [])]),
     readiness: Object.freeze({
       lifecycle: lifecycleReady,
       authoring: draft.status === 'ready',

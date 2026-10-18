@@ -23,7 +23,7 @@ related:
   - story-lifecycle
   - workflow-decisions
   - rejection-and-rework
-version: 29
+version: 30
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -124,13 +124,19 @@ Approving the step accepts every binding it submitted, as a batch over their exa
 
 Every requirement statement found in the Story's sources must reach a disposition. The sources are the Story's pinned source (each acceptance criterion, requirement and constraint, and any sentence with must, must not, shall, shall not or is required to), its active documents (list items and table rows under requirements, acceptance criteria or constraints headings, Given/When/Then scenarios, and strong-modal sentences) and its answered clarifications. "Should" and "may" are not requirements here.
 
-- **included:** a clause states it (its text equals or contains the statement), or a person linked the clauses; the clause's row carries its evidence.
+- **included:** a clause states it (its text equals or contains the statement), a substantive authored clause links its exact source item, or a person linked the clauses; the clause's row carries its evidence.
 - **existing:** behaviour that already exists, linked to the clauses that verify it.
 - **excluded** or **deferred:** a scope decision with a reason, shown as not applicable and never as an exception.
 - **informative**, **duplicate** or **superseded:** not a requirement of this Story. A statement repeated verbatim in another source is a duplicate automatically.
 - **unresolved:** nobody has said yet. It appears as a pending SCOPE row and blocks completion.
 
 A document the inventory cannot read (an HTTPS link, a file kept on one machine, a PDF without a text layer) is listed as unreadable and stays unresolved until someone records a decision for it. A decision binds the statement's text: if the statement changes, it is a new item. Someone in the group that approves the step defining the Story's scope records each decision; when the workflow leaves scope out and that group decided scope does not apply, the decision covers every undisposed statement and the inventory says so.
+
+Scope-owning phases receive an early `scopeReview` in phase entry and prepublish, including renamed, custom and skill-based workflows. It previews the current editable draft against the pinned source, documents and answered clarifications, before the author hands it on. This is repair guidance, not a new readiness blocker: publication and approval keep their existing gates. Repair a clear omission in the current draft. For genuine ambiguity or an exclusion or deferral, the scope authority can record the exact choice and reason through `/sf-decide` or `decision scope`; ordinary phase approval does not silently dispose of the item.
+
+Short requests and paraphrases need explicit linkage rather than weaker substring matching. For example, after reviewing the actual intent behind "test cases", the author can add the exact `scopeReview.items[].repair.sourceReference` (such as `[scope:SRI-0123456789ab]`) inside a real acceptance clause describing the required regression coverage. Never copy this example ID: use the returned source item's ID. A token by itself cannot claim coverage. The link is an authored coverage claim, not evidence that tests ran or an approval. Only the published and approved clause index supplies later evidence; the draft preview never does.
+
+Unchanged recorded human choices carry forward without repeated questions. Linked choices require their referenced clauses to remain present; a changed statement or removed clause needs reconciliation, not silent reuse. Later phases do not edit earlier approved artifacts to satisfy this checkpoint. No source is automatically excluded, deferred or marked passed to make progress.
 
 ### Scope revisions
 

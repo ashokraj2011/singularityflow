@@ -297,6 +297,9 @@ test('entry bundles a custom-root Story without changing files, HEAD, index or l
   assert.equal(entry.contextComposition, 'not-requested');
   assert.equal(entry.contextAdmission.allowed, true);
   assert.deepEqual(entry.contextAdmission.blockers, []);
+  assert.equal(entry.scopeReview.status, 'repair-or-human-decision');
+  assert.equal(entry.scopeReview.blocking, false, 'scope repair advice never changes entry admission');
+  assert.ok(entry.scopeReview.items.some(item => item.text === 'The phase entry operation never advances the Story.'));
   assert.equal(entry.modelInvocations, 0);
   assert.equal(entry.effects.testsRun, false);
   assert.equal(entry.effects.storyAdvanced, false);

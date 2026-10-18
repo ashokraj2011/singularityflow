@@ -57,7 +57,7 @@ export function agentPacketPresentation(packet, platform = process.platform) {
  */
 const ENTRY_CONTROL_ORDER = ['contextBoundary', 'ready', 'workId', 'phase', 'phaseStatus', 'status',
   'authoringAllowed', 'codeAuthoringReady', 'authoring', 'clarification', 'mutationContract',
-  'authoringProgress', 'contextAdmission', 'next', 'testEvidenceFrom', 'upstream'];
+  'authoringProgress', 'scopeReview', 'contextAdmission', 'next', 'testEvidenceFrom', 'upstream'];
 
 export function phaseEntryAgentPresentation(packet) {
   if (packet.paused) return packet;

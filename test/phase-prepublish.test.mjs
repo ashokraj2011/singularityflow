@@ -33,6 +33,33 @@ async function fixture(t) {
   return { root, absolute, config: { workItemRoot: 'singularity/work-items' }, workflow, phase, session };
 }
 
+test('scope-owning prepublish offers early draft repair but retains ready publication and human decision routes', async t => {
+  const item = await fixture(t);
+  item.phase.requiredArtifact.kind = 'requirements';
+  item.phase.approvalPolicy = { mode: 'required', authorities: ['scope-reviewers'] };
+  item.workflow.phaseOrder = [item.phase.id];
+  item.workflow.resolution.obligationGraph = { nodes: [{ id: item.phase.id, responsibilities: ['scope'] }] };
+  await writeFile(path.join(item.root, 'singularity/work-items/PRE-1/source.json'), JSON.stringify({ acceptanceCriteria: ['test cases'] }));
+  await writeFile(item.absolute, '# Plan\n\n[PRE-1:AC-001] Executable regression coverage verifies the requested behavior.\n');
+  const before = structuredClone(item.workflow);
+  const ready = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
+  assert.equal(ready.status, 'ready', JSON.stringify(ready.findings));
+  assert.equal(ready.scopeReview.status, 'repair-or-human-decision');
+  assert.equal(ready.scopeReview.blocking, false);
+  assert.equal(ready.scopeReview.unresolvedCount, 1);
+  assert.match(ready.warnings.join('\n'), /Scope advisory/u);
+  assert.match(ready.commands.publish, /phase publish planning/u);
+  assert.ok(ready.scopeReview.items[0].humanDecision.commandGuidance.command);
+  assert.deepEqual(item.workflow, before);
+  const marker = ready.scopeReview.items[0].repair.sourceReference;
+  await writeFile(item.absolute, `# Plan\n\n[PRE-1:AC-001] Executable regression coverage verifies the requested behavior. ${marker}\n`);
+  const repaired = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
+  assert.equal(repaired.scopeReview.status, 'covered');
+  assert.equal(repaired.status, 'ready');
+  assert.ok(repaired.warnings.every(message => !message.includes('Scope advisory')));
+  assert.deepEqual(item.workflow, before, 'neither prepublish nor clause repair records approval');
+});
+
 test('a prior approval is not re-linted under later template rules, for any current phase name', async t => {
   for (const id of ['specification', 'planning', 'verification', 'release', 'custom-team-phase']) {
     const item = await fixture(t);

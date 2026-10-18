@@ -156,7 +156,7 @@ export function agentAct(result) {
     do: done.commandGuidance ? { reason: oneLine(done.reason), copilot: done.commandGuidance.copilotCommand ?? null,
       shell: done.commandGuidance.command ?? null, vscode: done.commandGuidance.modelFreeCommand ?? null } : null };
   if (result.resultType === 'sflow-phase-entry') {
-    if (result.status === 'authoring-entry') return { state: 'author', do: null, read: ['mutationContract', 'authoringProgress', 'context'],
+    if (result.status === 'authoring-entry') return { state: 'author', do: null, read: ['mutationContract', 'authoringProgress', 'scopeReview', 'context'],
       said: `Authoring ${result.phase ?? 'this step'} is admitted: do this step's own drafting now, inside mutationContract. It is not a next action to relay.` };
     if (result.status === 'clarification-required') return { state: 'ask-person', do: null, read: ['clarification', 'context'],
       said: oneLine(`Ask the unanswered questions now, as clarification.checkpoint says${result.context ? '' : ' after composing the context once'}; this is this skill's own step.`) };
@@ -165,7 +165,7 @@ export function agentAct(result) {
   if (result.resultType === 'sflow-phase-prepublish') {
     if (result.repairLoop?.status === 'escalate') return { state: 'escalate', do: null,
       said: oneLine(result.repairLoop.instruction ?? 'The same finding keeps returning; stop repairing and hand it on.') };
-    if (result.status === 'ready' && result.commands?.publish) return withRoute({ state: 'publish', do: null,
+    if (result.status === 'ready' && result.commands?.publish) return withRoute({ state: 'publish', do: null, read: ['scopeReview'],
       said: 'Ready: publish once with the returned command; it runs the required tests.' },
       { command: result.commands.publish, ...(result.commandGuidance?.publish ? { commandGuidance: result.commandGuidance.publish } : {}), reason: 'Publish this draft.' });
     const count = Array.isArray(result.findings) ? result.findings.length : null;

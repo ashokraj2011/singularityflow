@@ -40,6 +40,11 @@ export function scopeItemId(sourceId, text) {
   return `SRI-${createHash('sha256').update(`${sourceId}\u0000${normalizeStatement(text)}`).digest('hex').slice(0, 12)}`;
 }
 
+/** Explicit source links inside an authored clause; not a disposition, test result or approval. */
+export function clauseScopeItems(text) {
+  return [...new Set([...String(text ?? '').matchAll(/\[scope:(SRI-[0-9a-f]{12})\]/gu)].map(match => match[1]))];
+}
+
 function sentences(text) {
   return String(text).split(/(?<=[.!?])\s+(?=[A-Z0-9"'(])/u).map((entry) => entry.trim()).filter(Boolean);
 }

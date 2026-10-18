@@ -31,6 +31,12 @@ test('act reads each result by its own fields and never invents a next action', 
   const prepublish = agentAct({ resultType: 'sflow-phase-prepublish', status: 'ready', commands: { publish: 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host' } });
   assert.equal(prepublish.state, 'publish');
   assert.equal(prepublish.do.shell, 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host');
+  assert.ok(prepublish.read.includes('scopeReview'), 'early scope advice is an explicit read, never a fabricated command');
+  const scopeAdvice = agentAct({ resultType: 'sflow-phase-prepublish', status: 'ready',
+    scopeReview: { status: 'repair-or-human-decision', blocking: false },
+    commands: { publish: 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host' } });
+  assert.equal(scopeAdvice.state, 'publish', 'an advisory cannot silently become a publication gate');
+  assert.equal(scopeAdvice.do.shell, prepublish.do.shell);
   assert.equal(agentAct({ resultType: 'sflow-phase-prepublish', status: 'correction-required', findings: [{}, {}] }).state, 'correct');
   assert.equal(agentAct({ resultType: 'sflow-phase-prepublish', repairLoop: { status: 'escalate', instruction: 'Stop.' } }).state, 'escalate');
   const published = agentAct({ publishIfReady: { published: true, next: { instruction: 'Published. End the reply.', reason: 'Submit it.',

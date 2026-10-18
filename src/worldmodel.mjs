@@ -377,6 +377,10 @@ export function phasePromptExecutionContract(definition, workflow, phase) {
   const mutation = deriveMutationContract({ definition, workflow, phase: effectivePhase });
   const lines = [
     `- Changes allowed: ${mutation.summary}`,
+    ...(stepResponsibilities(workflow, phase.id).includes('scope') ? [
+      '- Scope repair first: inspect phase-entry scopeReview against every pinned source, document and answered clarification while this draft is still editable. Cover each source statement with a substantive observable clause using its exact scopeReview.items[].repair.sourceReference inside that clause. This preserves short requests and paraphrases without substring guessing.',
+      '- Scope gaps are advisory, not a blanket phase blocker. Repair clear omissions in the current draft. For ambiguous intent or changed/excluded/deferred scope, ask the authorized person through the returned decision scope route; never record a human disposition yourself. A normal phase approval is not blanket acceptance of unresolved scope. Do not edit earlier phases or re-ask unchanged recorded decisions.'
+    ] : []),
     ...(mutation.policy.requiresOpenGeneration ? [
       `- Code-edit prerequisite: ${mutation.policy.openGeneration ? 'the exact generation is open; verify the entry mutationContract before edits' : `follow \`${mutation.next[0].command}\` before any application edit, then refresh phase entry once. Review any adoption/confirmation or successor boundary; never infer or auto-accept it`}. Binding \`ready\` is not code-edit permission.`,
       '- Code completion: preserve existing implementation and tests on resume. Complete the configured implementation summary and Agent brief, reconcile exact planned source/test paths and traceability, then prepublish. Passing a manual test command does not publish the phase or justify ending with no next action.'

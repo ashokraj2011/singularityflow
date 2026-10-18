@@ -136,6 +136,52 @@ test('a scope decision disposes of an item while its statement is unchanged, and
   assert.equal(changed.items.find((entry) => entry.text === 'The API must stay stable for a year.').disposition, 'unresolved');
 });
 
+test('short or paraphrased scope uses exact substantive clause links, not substring guesses or token-only claims', async t => {
+  const { root, directory } = await storyDirectory(t);
+  const source = { acceptanceCriteria: ['test cases'] };
+  const id = scopeItemId('story', 'test cases');
+  const clause = { id: 'W-1:AC-001', body: 'Executable regression cases verify valid conversion and rejected inputs.' };
+  const disposition = async (body, acceptedSource = source) => {
+    const inventory = await buildScopeInventory(root, directory, workflow(), { source: acceptedSource, clauses: [{ ...clause, body }] });
+    return inventory.items.find(entry => entry.sourceId === 'story');
+  };
+  assert.equal((await disposition(`${clause.body} covering test cases.`)).disposition, 'unresolved', 'short containment remains conservative');
+  const linked = await disposition(`${clause.body} [scope:${id}]`);
+  assert.equal(linked.disposition, 'included');
+  assert.deepEqual(linked.clauseIds, [clause.id]);
+  assert.equal(linked.decision, null, 'authored coverage never impersonates a human decision');
+  for (const body of [`[scope:${id}]`, `${clause.body} [scope:SRI-000000000000]`, clause.body]) {
+    assert.equal((await disposition(body)).disposition, 'unresolved', body);
+  }
+  assert.equal((await disposition(`${clause.body} [scope:${id}]`, { acceptanceCriteria: ['performance test cases'] })).disposition, 'unresolved',
+    'a changed source needs its own exact reference');
+  const otherSource = scopeItemId('DOC-001', 'test cases');
+  assert.equal((await disposition(`${clause.body} [scope:${otherSource}]`)).disposition, 'unresolved', 'references are source-specific');
+});
+
+test('included human choices carry while source and linked clauses exist; removed links are not silently accepted', async t => {
+  const { root, directory } = await storyDirectory(t);
+  const source = { acceptanceCriteria: ['test cases'] };
+  const clauses = [{ id: 'W-1:AC-001', body: 'Executable regressions verify supported and unsupported input.' }];
+  const story = workflow();
+  const inventory = await buildScopeInventory(root, directory, story, { source, clauses });
+  const targets = [inventory.items.find(entry => entry.sourceId === 'story'), inventory.items.find(entry => entry.id === 'DOC-002')];
+  for (const item of targets) recordScopeDecision(story, {
+    item: item.id, disposition: 'included', clauseIds: [clauses[0].id], inventory,
+    knownClauseIds: [clauses[0].id], reason: 'The reviewer confirms this clause carries the supplied scope.',
+    actor: 'reviewer@example.invalid', authorityGroup: 'product-approvers', at: '2026-10-18T10:00:00Z'
+  });
+  const carried = await buildScopeInventory(root, directory, story, { source, clauses });
+  const removed = await buildScopeInventory(root, directory, story, { source, clauses: [] });
+  for (const target of targets) {
+    assert.equal(carried.items.find(entry => entry.id === target.id).disposition, 'included');
+    const missing = removed.items.find(entry => entry.id === target.id);
+    assert.equal(missing.disposition, 'unresolved');
+    assert.equal(missing.staleDecision, true);
+    assert.deepEqual(missing.clauseIds, []);
+  }
+});
+
 test('a decision that scope does not apply covers every undisposed statement, visibly', async (t) => {
   const { root, directory } = await storyDirectory(t);
   const inventory = await buildScopeInventory(root, directory, workflow(), {

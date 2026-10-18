@@ -5896,12 +5896,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         argv.splice(0, argv.length, ...gate.publishArgv!);
         publication = { workId: workflow.workItem.id, phaseId };
-        // Advisories never block: publish, and say what the documentation check found.
+        // Advisories never block: publish, and surface scope, dependency and documentation advice.
         if (gate.advisories.length) {
-          output.appendLine(`\nDocumentation advisories for ${phaseId} (never block publication):`);
+          output.appendLine(`\nPublication advisories for ${phaseId} (never block publication):`);
           for (const advisory of gate.advisories) output.appendLine(`- ${advisory}`);
           void showCompactInformationMessage(
-            `Publishing ${phaseId}. Documentation: ${gate.advisories[0]}${gate.advisories.length > 1 ? ` (+${gate.advisories.length - 1} more)` : ''}`,
+            `Publishing ${phaseId}. Advisory: ${gate.advisories[0]}${gate.advisories.length > 1 ? ` (+${gate.advisories.length - 1} more)` : ''}`,
             'Show advisories'
           ).then((choice) => { if (choice === 'Show advisories') output.show(true); });
         }

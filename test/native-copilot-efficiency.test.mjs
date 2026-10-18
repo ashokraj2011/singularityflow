@@ -14,7 +14,8 @@ import { copilotPauseGuardForSkill, SESSION_ENTRY_PAUSE_GUARD, SESSION_OPEN_PAUS
 
 test('session setup uses its pause-aware entry without an extra host lookup', async () => {
   assert.equal(copilotPauseGuardForSkill('sflow-session', 'repository'), SESSION_OPEN_PAUSE_GUARD);
-  assert.match(SESSION_OPEN_PAUSE_GUARD, /Do not precede it with separate pause\/workspace\/session lookups/);
+  // Pins the rule (no separate pause/workspace/session lookups), not one phrasing of it: skill text gets compressed.
+  assert.match(SESSION_OPEN_PAUSE_GUARD, /\b(?:no|not|never)\b[^.]*\bseparate pause\/workspace\/session lookups/i);
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const { readFile } = await import('node:fs/promises');
   const skill = await readFile(path.join(root, 'plugin/skills/sflow-session/SKILL.md'), 'utf8');

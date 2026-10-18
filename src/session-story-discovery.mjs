@@ -252,7 +252,7 @@ export async function discoverRemoteStoryCandidates(root, definition, {
       const restored = [...merged.values()].sort((left, right) => left.id.localeCompare(right.id));
       rememberProvenSummaries(cache, kept, pointers, restored, [...remaining, ...recovered.unavailable]);
       return {
-        source: 'materialized-metadata-recovery', repositoryPath: path.resolve(root),
+        source: 'materialized-metadata-recovery', stateRef: roster.ref, repositoryPath: path.resolve(root),
         remote, fetched: fetch,
         count: merged.size, items: restored,
         unavailableCount: remaining.length + recovered.unavailable.length,

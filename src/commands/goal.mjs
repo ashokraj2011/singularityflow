@@ -29,6 +29,8 @@ import { workspaceRepositoryPath } from '../workspace.mjs';
 import { resolveSessionRepository } from './shared/session-repository-selection.mjs';
 import { stateStorySubjectIndex } from '../session-story-discovery.mjs';
 import { localStorySubjectIndex } from '../local-story-subject-index.mjs';
+import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
+import { sessionDiscoveryConfiguration } from './shared/session-discovery-configuration.mjs';
 
 function terminalStatus(state) {
   return ['closed', 'complete', 'completed', 'cancelled', 'archived'].includes(String(state ?? '').toLowerCase());
@@ -45,7 +47,7 @@ async function repositoryFor(context, repositoryId) {
   const selected = await resolveSessionRepository({ workspaceReference: context.workspace.path,
     repositoryId: id, remoteProbe: false });
   const root = repoRoot(selected.root ?? workspaceRepositoryPath(context.workspace, configured));
-  return { id, root };
+  return { id, root, authority: selected.authority ?? null };
 }
 
 function combinedIndex(working, references) {
@@ -66,8 +68,11 @@ function combinedIndex(working, references) {
   return index;
 }
 
-async function subjectIndex(root, kind) {
-  const config = await loadConfig(root).catch(() => null);
+async function subjectIndex(root, kind, authority = null) {
+  const config = kind === 'story' && authority
+    ? await withApprovedConfigurationRead(root, async () =>
+      (await sessionDiscoveryConfiguration(root, authority, { storyBootstrap: true })).definition)
+    : await loadConfig(root).catch(() => null);
   const working = kind === 'story' ? await localStorySubjectIndex(root, { definition: config ?? {} })
     : await buildRepositorySubjectIndex(root);
   if (kind === 'story') return config?.ledger?.enabled
@@ -96,7 +101,7 @@ export async function resolveGovernedWork(context, {
   const cacheKey = `${repository.root}\0${kind}`;
   let indexed = indexCache?.get(cacheKey);
   if (!indexed) {
-    indexed = subjectIndex(repository.root, kind);
+    indexed = subjectIndex(repository.root, kind, repository.authority);
     indexCache?.set(cacheKey, indexed);
   }
   const index = await indexed;

@@ -70,6 +70,7 @@ test('approval inbox, legacy subject lookup and snapshots discover only state-in
   assert.equal(inbox.unavailableCount, 0, JSON.stringify(inbox));
   assert.deepEqual(inbox.items.map(row => [row.id, row.commit, row.approvalsRemaining]), [[f.id, f.commit, 1]]);
   assert.equal(inbox.source, 'state-ledger');
+  assert.equal(inbox.stateRef, 'refs/remotes/origin/state', 'metadata recovery retains the state authority');
   const index = await stateStorySubjectIndex(f.original, f.definition, { fetch: true });
   const resolved = resolveContext(index, { reference: 'external-review', kind: 'story' });
   assert.equal(resolved.canonicalBranch, f.branch);
@@ -97,6 +98,21 @@ test('approval inbox, legacy subject lookup and snapshots discover only state-in
   }).status, 0, 'inbox must not fetch wildcard heads');
   const after = await repositorySnapshot(f.original, null, null, { included: ['lifecycle'] });
   assert.deepEqual(after.lifecycle.workItems, before.lifecycle.workItems);
+});
+
+test('Goal Story lookup reads approved configuration from state-only application checkouts', async t => {
+  const f = await fixture(t);
+  f.git(f.original, 'fetch', '--quiet', 'origin', `refs/heads/${f.branch}:refs/remotes/origin/${f.branch}`,
+    'refs/heads/state:refs/remotes/origin/state');
+  f.git(f.original, 'switch', '--quiet', '--orphan', 'application-only');
+  await writeFile(path.join(f.original, 'README.md'), '# Application only\n');
+  f.git(f.original, 'add', '.');
+  f.git(f.original, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+    'commit', '--quiet', '-m', 'application only');
+  const result = await f.invoke({ command: ['goal', 'propose', 'Observe indexed work',
+    '--success', 'The linked Story is visible', '--work-id', f.id], selectors: false });
+  assert.equal(result.child.status, 0, result.child.stdout + result.child.stderr);
+  assert.equal(result.packet.data.proposal.linkedWork[0].id, f.id);
 });
 
 test('an absent state index stays an explicit error for inbox and incomplete discovery for snapshots', async t => {

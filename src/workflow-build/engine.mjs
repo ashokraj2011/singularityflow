@@ -111,6 +111,23 @@ function validateProposal(payload, record) {
   return findings;
 }
 
+/**
+ * The Studio's problems as build findings. The planned-claims refusal speaks the engine's terms
+ * ("authoritative clause phase", "mode required topology"); a build says what to add, and which.
+ */
+function planFindings(problems, model) {
+  return problems.map((problem) => {
+    const topology = problem.code === 'STUDIO_PLANNED_CLAIMS' && /authoritative|clause phase/u.test(problem.message ?? '');
+    if (!topology) return { at: 'workflow', code: problem.code, message: problem.message };
+    const steps = model.phases.filter((phase) => phase.definesClauses).map((phase) => phase.id);
+    const details = String(problem.message).split('\n').filter((line) => line.startsWith('- ')).map((line) => line.slice(2)).join('; ');
+    return { at: 'workflow', code: problem.code,
+      message: 'A step that writes code needs a step that defines the requirements at or before the step just before it. '
+        + `${steps.length ? `Add one the repository has (${steps.slice(0, 6).join(', ')}), as it is or copied with from, before it.` : 'This repository has no step that defines requirements; add one in Workflow Studio first.'} `
+        + `No move declares a workflow without requirements.${details ? ` (${details})` : ''}` };
+  });
+}
+
 /** The plan for a draft, refused with the Studio's own problems when it could not be saved. */
 async function planFor(root, draft, model, { inspect = null } = {}) {
   const { planStudioChangeSet } = await import('../workflow-studio.mjs');
@@ -142,7 +159,7 @@ export async function proposeToBuild(id, payload, { root = null, by = 'copilot',
     if (findings.length) throw invalidMoves(findings);
     if (moves.some((move) => !move.move.startsWith('item.'))) {
       const { plan } = await planFor(repository, applyMoves(draft, moves), model);
-      if (!plan.valid) throw invalidMoves(plan.problems.map((problem) => ({ at: 'workflow', code: problem.code, message: problem.message })));
+      if (!plan.valid) throw invalidMoves(planFindings(plan.problems, model));
     }
   });
   const proposal = moves.length ? {
@@ -187,7 +204,7 @@ export async function decideInBuild(id, proposalId, { accept, reason = null, roo
     const findings = validateMoves(proposal.moves, { model, draft });
     if (!findings.length && proposal.moves.some((move) => !move.move.startsWith('item.'))) {
       const { plan } = await planFor(repository, applyMoves(draft, proposal.moves), model);
-      if (!plan.valid) findings.push(...plan.problems.map((problem) => ({ at: 'workflow', code: problem.code, message: problem.message })));
+      if (!plan.valid) findings.push(...planFindings(plan.problems, model));
     }
     if (findings.length) stale = findings;
   });

@@ -177,6 +177,36 @@ test('the same actionable result a third time in a row says it is a loop and nam
   for (let index = 0; index < 4; index += 1) assert.equal(observeAgentLoop(root, authoring, agentAct(authoring)).loop, undefined);
 });
 
+test('the pause read every skill starts with is never an action, however often it repeats', async (t) => {
+  // Live Copilot run 2026-10-18: the third `pause status --json` in a terminal came back
+  // "Repeated 3 times … Do act.do now", act.do being `pause on`, and Copilot asked to pause SFlow.
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-pause-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1',
+    SINGULARITY_FLOW_FINDING_STREAKS: path.join(base, 'streaks'), SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(base, 'copilot-mode.json') };
+  assert.equal(spawnSync('git', ['init', '-q', path.join(base, 'repo')]).status, 0);
+  const status = () => {
+    const result = spawnSync(process.execPath, [cli, 'pause', 'status', '--for-agent', '--json'], { cwd: path.join(base, 'repo'), env, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout);
+  };
+  for (let index = 0; index < LOOP_THRESHOLD + 1; index += 1) {
+    const { act, next, data } = status();
+    assert.equal(data.paused, false);
+    assert.equal(next[0].kind, 'informational', 'the offer to pause stays in next for the person');
+    assert.deepEqual([act.state, act.do, act.loop], ['read', null, undefined], `call ${index + 1}: ${JSON.stringify(act)}`);
+    assert.equal(act.said, data.agentInstruction);
+  }
+  await writeFile(env.SINGULARITY_FLOW_COPILOT_MODE_FILE, JSON.stringify({ schemaVersion: 1, paused: true, changedAt: '2026-10-18T00:00:00.000Z' }));
+  for (let index = 0; index < LOOP_THRESHOLD + 1; index += 1) {
+    const { act } = status();
+    assert.deepEqual([act.state, act.do, act.loop], ['paused', null, undefined], 'a paused SFlow is never resumed for the person');
+  }
+  // Any other informational offer is not the one thing to do now either.
+  const offered = agentAct({ resultType: 'command-result', next: [{ label: 'Read it', command: 'singularity-flow explain x', kind: 'informational' }] });
+  assert.deepEqual([offered.state, offered.do], ['read', null]);
+});
+
 test('JSON written to a terminal is an agent view; JSON read through a pipe or file stays whole', async () => {
   const { agentViewRequested } = await import('../src/cli-json-output.mjs');
   const terminal = { isTTY: true }, pipe = { isTTY: false };

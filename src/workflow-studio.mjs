@@ -491,6 +491,8 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       views: [...(phase.worldModel?.views ?? [])], clarification: phase.clarification?.mode ?? 'off',
       template: phase.defaultTemplate ?? null, artifact: phase.artifact?.path ?? null,
       artifactSet: typeof phase.artifactSet === 'string' ? phase.artifactSet : null,
+      // Whether the step writes requirement clauses: a code step needs one before it (planned claims).
+      definesClauses: definesClauses(phase),
       optionalInputs: optionalInputIds(phase.inputs),
       usedBy: usedBy(id), agent: defaultAgentOf(id),
       eligibleAgents: discovered.filter((agent) => !agent.phases.length || agent.phases.includes(id)).map((agent) => agent.id)

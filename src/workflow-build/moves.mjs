@@ -47,10 +47,21 @@ export function movesGuide() {
       { move: 'skill.attach', skill: 'pci-check', agent: 'pay-reviewer', steps: ['pay-pci-review'] },
       { move: 'item.leaveOut', item: 'i-0123456789ab', reason: 'CI already scans every change.' }
     ],
+    proposal: {
+      title: 'the piece in one line, at most 120 characters',
+      why: 'in plain words, why this piece belongs in the workflow and what you inferred',
+      moves: 'the moves above, at most 50',
+      evidence: "[{ path, startLine, endLine }]: lines of a captured file (the path as an item's evidence names it) that you relied on",
+      items: '[item IDs] of what was found that this piece uses',
+      questions: '[{ question, choices: [2 to 8 concrete choices], blocking }]: what you cannot infer'
+    },
     rules: [
       'Reuse what the repository has: a step, agent, skill or instruction ID that exists is used as it is; give `from` to start a new one from it.',
       'A new step needs an agent: one the repository has, or one an agent.add in the build adds.',
       'A step that other workflows use keeps its name, output, agent and purpose; add a copy with step.add and `from` to change those.',
+      'Moves apply in order: step.add places the step after `after`, or last. A group, agent, skill or instruction the proposal adds can be used by any of its moves.',
+      'A step that writes code (output code) needs a step that defines the requirements at or before the step just before it: reuse one the repository has that defines requirements (such as requirements or implementation-spec), as it is or copied with `from`. No move declares a workflow without requirements, so never offer that choice.',
+      'action.add runs an integration target the repository has registered; a command found in the material is kept with item.classify (command) or item.prerequisite, never invented as a target.',
       'Approval groups are created empty; people are added in Workflow Studio, never by a move.',
       'Cite the lines you relied on in the proposal evidence; say what you inferred in `why`.'
     ]
@@ -78,6 +89,13 @@ export function validateMoves(moves, { model, draft }) {
     target: (id) => (model.integrations?.targets ?? []).some((target) => target.id === id)
   };
   const added = { step: new Set(), agent: new Set(), skill: new Set(), instruction: new Set(), group: new Set() };
+  // Groups, agents, skills and instructions become their own Studio changes ahead of every step
+  // (lowerDraft), so a move may use one the same proposal adds further down. Steps keep their order.
+  const declared = { agent: new Set(), skill: new Set(), instruction: new Set(), group: new Set() };
+  for (const move of moves.slice(0, 50)) {
+    const kind = plain(move) && typeof move.move === 'string' && move.move.endsWith('.add') ? move.move.slice(0, -4) : null;
+    if (declared[kind] && typeof move.id === 'string' && ID.test(move.id)) declared[kind].add(move.id);
+  }
   const steps = new Set(draft.workflow.phases);
   moves.slice(0, 50).forEach((move, index) => {
     const at = `moves[${index}]`;
@@ -94,7 +112,11 @@ export function validateMoves(moves, { model, draft }) {
     };
     const known = (field, kind, value = move[field]) => {
       if (value == null) return;
-      if (!has[kind](value) && !added[kind]?.has(value)) add(`${at}.${field}`, 'BUILD_MOVE_REFERENCE', `There is no ${kind === 'target' ? 'integration target' : kind} '${value}' in this repository or this build.`);
+      if (!has[kind](value) && !added[kind]?.has(value) && !declared[kind]?.has(value)) {
+        add(`${at}.${field}`, 'BUILD_MOVE_REFERENCE', kind === 'target'
+          ? `There is no integration target '${value}' in this repository. Targets are registered in Workflow Studio's Integrations; keep a found command with item.classify or item.prerequisite instead.`
+          : `There is no ${kind} '${value}' in this repository or this build.`);
+      }
     };
     const signOff = (field) => {
       const value = move[field];

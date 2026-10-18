@@ -269,7 +269,7 @@ test('the chat tool reads and records for the open build only, and has nothing t
   const view = json(root, ['workflow', 'build', 'start', '--folder', team, '--json']);
   const recorded = [];
   const runner = {
-    run: async (args) => json(root, args), runWithInput: async (args, input) => json(root, args, input), model: () => model, recorded: (value) => recorded.push(value)
+    run: async (args) => json(root, args), runWithInput: async (args, input) => json(root, args, input), model: () => model, recorded: (value, status) => recorded.push([value, status])
   };
   const ask = (input) => tool.answerBuilderTool(tool.builderToolInput({ build: view.build.id, ...input }), runner);
   const state = await ask({ action: 'state' });
@@ -280,13 +280,32 @@ test('the chat tool reads and records for the open build only, and has nothing t
   assert.ok(catalog.catalog.agents.entries.some((entry) => entry.id === 'architect'));
   assert.ok(catalog.catalog.agents.entries.every((entry) => /architect/i.test(`${entry.id} ${entry.label} ${entry.description}`)));
   assert.deepEqual(Object.keys(catalog.catalog), ['agents'], 'one kind, when asked for one');
+  // A code step needs one of these before it; Copilot could not tell which steps they were.
+  const steps = (await ask({ action: 'catalog', kind: 'step' })).catalog.phases.entries;
+  assert.equal(steps.find((entry) => entry.id === 'requirements')?.definesRequirements, true);
+  assert.equal(steps.find((entry) => entry.id === 'intake')?.definesRequirements, undefined);
   assert.equal((await ask({ action: 'asset', kind: 'agent', id: 'architect' })).asset.id, 'architect');
   await assert.rejects(ask({ action: 'asset', kind: 'agent', id: 'nobody' }), /has no agent 'nobody'/);
   const answer = await ask({ action: 'propose', proposal: FIRST });
   assert.deepEqual(answer.recorded, { proposal: { id: 'p-1', title: 'Four steps from release-captain' }, questions: [{ id: 'q-1', question: 'Who signs off the PCI review?' }] });
   assert.equal(recorded.length, 1, 'Workflow Studio redraws the build');
+  assert.equal(recorded[0][1], 'Copilot proposed "Four steps from release-captain" and asked a question. Accept or decline it, and answer, here.');
   const questions = await ask({ action: 'ask', questions: [{ question: 'Is release notes a step?', choices: ['yes', 'no'], blocking: false }] });
   assert.deepEqual(questions.recorded, { questions: [{ id: 'q-2', question: 'Is release notes a step?' }] });
+  // Live run 2026-10-18: questions alone were announced as "Copilot recorded a proposal."
+  assert.equal(recorded[1][1], 'Copilot asked a question. Answer here.');
+  assert.equal(tool.builderRecordedStatus({ proposal: { title: 'PCI gate' }, questions: [] }), 'Copilot proposed "PCI gate". Accept or decline it here.');
+  assert.equal(tool.builderRecordedStatus({ questions: [{}, {}] }), 'Copilot asked 2 questions. Answer here.');
+  // Each request says what it does while it runs, from its own input; a malformed one still gets a line.
+  for (const [input, line] of [
+    [{ action: 'state', build: view.build.id }, /^Reading the workflow build/u],
+    [{ action: 'source', build: view.build.id, path: 'docs/runbook.md', from: 3 }, /^Reading docs\/runbook\.md from line 3, as the build captured it\.$/u],
+    [{ action: 'catalog', build: view.build.id, kind: 'step', query: 'release' }, /^Searching what the repository has: steps matching "release"\.$/u],
+    [{ action: 'asset', build: view.build.id, kind: 'agent', id: 'architect' }, /^Reading the repository's agent architect\.$/u],
+    [{ action: 'propose', build: view.build.id, proposal: { title: 'PCI gate' } }, /^Recording the proposal "PCI gate" for you to accept or decline in Workflow Studio\.$/u],
+    [{ action: 'ask', build: view.build.id, questions: [{}, {}] }, /^Asking you 2 questions in Workflow Studio\.$/u],
+    [null, /^Reading the workflow build, or recording a proposal/u]
+  ]) assert.match(tool.builderInvocationMessage(input), line, JSON.stringify(input));
   assert.equal(json(root, ['workflow', 'build', 'status', '--build', view.build.id, '--json']).build.proposals[0].status, 'pending', 'nothing the tool does accepts');
 
   const manifest = JSON.parse(await readFile(path.join(packageRoot, 'apps/vscode/package.json'), 'utf8'));

@@ -77,8 +77,11 @@ function confirmation(route) {
     how: 'Show what it confirms, ask the person in this chat, and only on an explicit yes run do.shell once; a changed value needs a fresh review.' } : null;
 }
 
+// An informational next action is an offer for the person, never the one thing to do now: a
+// `pause status` read offered "Pause SFlow guidance", and the loop guard told Copilot to do it.
 const firstNow = (actions) => Array.isArray(actions)
-  ? actions.find((action) => action && typeof action === 'object' && (action.timing == null || ['now', 'blocked'].includes(action.timing))) ?? null
+  ? actions.find((action) => action && typeof action === 'object' && action.kind !== 'informational'
+    && (action.timing == null || ['now', 'blocked'].includes(action.timing))) ?? null
   : null;
 
 function genericAction(result) {
@@ -105,6 +108,10 @@ export function agentAct(result) {
   }
   if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
   if (result.paused === true) return { state: 'paused', said: 'SFlow is paused for this conversation; answer as native Copilot and offer only /sf-pause off.', do: null };
+  // Every skill reads the pause state first, so the same answer repeats all day: it is a read to
+  // follow, never an action (pausing or resuming is only ever the person's explicit request).
+  const mode = result.resultType === 'sflow-copilot-mode' ? result : result.data?.resultType === 'sflow-copilot-mode' ? result.data : null;
+  if (mode) return mode.paused === true ? agentAct({ paused: true }) : { state: 'read', said: oneLine(mode.agentInstruction ?? '') || null, do: null };
   if (result.resultType === 'intake-entry') {
     if (result.status === 'preflight-ready') return { state: 'next', do: null, read: ['preflight', 'intake'],
       said: 'The exact selected-base preview passed. Continue this invocation\'s Start step with identical explicit choices and the returned receipt, if any. Do not repeat preflight; creation still validates live authority.' };

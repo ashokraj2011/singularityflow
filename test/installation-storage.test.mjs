@@ -172,6 +172,27 @@ test('cleanup cannot compete with a live installer or release its lease', async 
   assert.equal(await exists(path.join(`${f.journal}.lock`, 'owner.json')), true);
 });
 
+for (const record of ['current.json', 'activation-current.json', 'distribution-install-pending.json', 'uninstall-pending.json']) {
+  test(`a legacy process changing ${record} stops the sweep with a partial effects report`, async (t) => {
+    const f = await fixture(t);
+    await f.transaction();
+    await f.transaction();
+    const result = await f.clean({ apply: true, onProgress: async () => {
+      if (record === 'current.json') {
+        f.current.reinstalledByAnotherProcess = true;
+        await f.save();
+      } else await json(path.join(f.installations, record), { schemaVersion: 5, status: 'staged' });
+    } });
+    assert.equal(result.stopped, true);
+    assert.equal(result.removed.length, 1);
+    assert.equal(result.warnings[0].code, 'INSTALLATION_STORAGE_CHANGED');
+    const remaining = await readdir(f.transactions);
+    assert.equal(remaining.length, 1);
+    assert.equal(await exists(path.join(f.transactions, remaining[0], 'private-cli-candidate', 'bytes')), true);
+    assert.equal(await exists(path.join(`${f.journal}.lock`, 'owner.json')), false);
+  });
+}
+
 for (const name of ['distribution-install-pending.json', 'uninstall-pending.json']) {
   test(`${name} defers GC rather than discarding other product recovery`, async (t) => {
     const f = await fixture(t);

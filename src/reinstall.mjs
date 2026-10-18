@@ -2655,7 +2655,7 @@ export async function applyLocalReinstall(plan, {
         journal: activationJournal, checkout: plan.checkout, apply: true, ...activationLease
       }) };
       for (const warning of result.storageCleanup.warnings) {
-        log(`Warning: cleanup deferred for ${warning.path}: ${warning.code ?? 'unknown'} ${warning.message}`);
+        log(`Warning: cleanup deferred for ${warning.path ?? 'installation records'}: ${warning.code ?? 'unknown'} ${warning.message}`);
       }
     } catch (error) {
       log(`Warning: installation storage cleanup deferred: ${error.message}`);

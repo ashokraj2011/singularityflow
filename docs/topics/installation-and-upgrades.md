@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 38
+version: 39
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing application history.
 
@@ -124,6 +124,10 @@ regardless of age. Distribution/uninstall recovery markers defer cleanup. Unknow
 records, symlinks/junctions and unrecognized transaction contents are preserved for inspection, not
 guessed at. Windows file locks produce a deferred-cleanup warning and are retried at the next install;
 housekeeping failure never converts an already verified installation into activation failure.
+The sweep also rechecks exact installation/recovery record bytes before each deletion. If a legacy
+process bypasses the activation lease and replaces those records, cleanup stops with a partial
+effects report instead of continuing from stale references. Interrupted retirement directories can
+be retried safely by the next sweep.
 
 To inspect legacy installation leftovers from a trusted source checkout, run:
 

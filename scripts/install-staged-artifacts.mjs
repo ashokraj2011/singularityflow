@@ -983,7 +983,8 @@ function storageReferences(value, installations, transactions, roots) {
  * Keep this built-in-only implementation here so pinned, single-file recovery remains runnable.
  */
 export async function cleanupInstallationStorage({
-  journal, checkout, apply = false, operationId: id = null, ownerPid = process.pid
+  journal, checkout, apply = false, operationId: id = null, ownerPid = process.pid,
+  onProgress = null
 }) {
   const journalFile = path.resolve(text(journal, 'activation journal path'));
   const installations = path.dirname(journalFile);
@@ -1000,6 +1001,28 @@ export async function cleanupInstallationStorage({
     : await acquireActivationLease({ journal: journalFile, checkout, mode: 'cleanup', ownerPid });
   const result = { applied: apply, removed: [], eligible: [], preserved: [], warnings: [] };
   try {
+    const authorityFiles = ['current.json', path.basename(journalFile),
+      'distribution-install-pending.json', 'uninstall-pending.json'];
+    const observeAuthority = async () => Promise.all(authorityFiles.map(async (name) => {
+      const file = path.join(installations, name);
+      const info = await lstat(file).catch((error) => {
+        if (error.code === 'ENOENT') return null;
+        throw error;
+      });
+      return info ? sha256((await regularBytes(file, 'cleanup authority record', { maxBytes: MAX_JOURNAL_BYTES })).bytes) : null;
+    }));
+    const admittedAuthority = JSON.stringify(await observeAuthority());
+    const assertAuthority = async () => {
+      let observed;
+      let cause;
+      try { observed = JSON.stringify(await observeAuthority()); } catch (error) { cause = error; }
+      if (observed !== admittedAuthority) {
+        const error = new Error('Installation/recovery records changed during cleanup; stopped before deleting further bytes.');
+        error.code = 'INSTALLATION_STORAGE_CHANGED';
+        if (cause) error.message += ` ${cause.message}`;
+        throw error;
+      }
+    };
     // Other product operations share the activation lease. Their durable recovery marker is
     // conservatively a stop for GC, including terminal markers left behind by Windows file locks.
     for (const name of ['distribution-install-pending.json', 'uninstall-pending.json']) {
@@ -1115,6 +1138,7 @@ export async function cleanupInstallationStorage({
       result.eligible.push(target);
       if (!apply) return;
       await assertActivationLease(journalFile, lease.operationId, lease.ownerPid);
+      await assertAuthority();
       if (!await inspectDirectory(parent)) fail('cleanup parent is no longer an ordinary owned directory.');
       const before = await lstat(target);
       if (!before.isDirectory() || before.isSymbolicLink()
@@ -1124,6 +1148,11 @@ export async function cleanupInstallationStorage({
         ? path.join(parent, `.retired-install-${randomUUID()}`) : target;
       try {
         if (tombstone !== target) await rename(target, tombstone);
+        try { await assertAuthority(); }
+        catch (error) {
+          if (tombstone !== target) await rename(tombstone, target);
+          throw error;
+        }
         const retired = await lstat(tombstone);
         if (!retired.isDirectory() || retired.isSymbolicLink()
             || (before.ino && retired.ino && (before.ino !== retired.ino || before.dev !== retired.dev))) {
@@ -1132,7 +1161,9 @@ export async function cleanupInstallationStorage({
         // rm does not follow child symlinks. Root/parent checks above also reject Windows junctions.
         await rm(tombstone, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
         result.removed.push(target);
+        await onProgress?.({ removed: result.removed.length, path: target });
       } catch (error) {
+        if (error.code === 'INSTALLATION_STORAGE_CHANGED') throw error;
         result.warnings.push({ path: tombstone, code: error.code, message: error.message });
       }
     };
@@ -1185,6 +1216,12 @@ export async function cleanupInstallationStorage({
         await retire(directory, digests, info);
       }
     }
+    await assertAuthority();
+    return result;
+  } catch (error) {
+    if (error.code !== 'INSTALLATION_STORAGE_CHANGED') throw error;
+    result.stopped = true;
+    result.warnings.push({ code: error.code, message: error.message });
     return result;
   } finally {
     if (!id) await releaseActivationLease({ journal: journalFile, ...lease });
@@ -1450,7 +1487,10 @@ async function commandLine() {
     const result = await cleanupInstallationStorage({
       journal: args['--journal'], checkout: args['--checkout'] ?? process.cwd(),
       apply: switchValue(args['--apply'] ?? 'off', '--apply'),
-      operationId: args['--operation-id'] ?? null, ownerPid: args['--owner-pid'] ?? process.pid
+      operationId: args['--operation-id'] ?? null, ownerPid: args['--owner-pid'] ?? process.pid,
+      onProgress: args['--progress'] === 'on'
+        ? ({ removed }) => { if (removed % 25 === 0) console.error(`Installation storage: reclaimed ${removed} obsolete directories...`); }
+        : null
     });
     process.stdout.write(`${JSON.stringify(result)}\n`);
     return;

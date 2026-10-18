@@ -598,7 +598,7 @@ cleanup_installation_storage() {
   printf '%s\n' "$output" | node -e '
     const result = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
     console.log(`Installation storage: removed ${result.removed.length} superseded staging/artifact directories; retained ${result.preserved.length} referenced or unrecognized paths.`);
-    for (const warning of result.warnings) console.error(`WARNING: cleanup deferred for ${warning.path}: ${warning.code ?? "unknown"} ${warning.message}`);
+    for (const warning of result.warnings) console.error(`WARNING: cleanup deferred for ${warning.path ?? "installation records"}: ${warning.code ?? "unknown"} ${warning.message}`);
   '
 }
 

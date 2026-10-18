@@ -119,11 +119,14 @@ git:
   remote: origin
   publish: required
 
-# Optional capability ledger. When enabled, every lifecycle commit carries a
-# durable intent on the work branch and is then appended to the unrelated
-# state orphan branch. A fresh clone can replay missing appends.
+# Flow Ledger. Every lifecycle commit carries a durable intent on the work
+# branch and is then appended to the unrelated state orphan branch. A fresh
+# clone can replay missing appends. Story discovery, resume and return on
+# another machine, and the approval inbox read Stories from it and never scan
+# application branches, so it is on by default; with it off they refuse and
+# name `ledger init`.
 ledger:
-  enabled: false
+  enabled: true
   branch: state
   remote: origin
   publication: warn

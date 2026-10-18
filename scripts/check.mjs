@@ -1039,7 +1039,8 @@ checked.push(`package seed provenance (${packagedAssetSources.size} assets, ${
   ['workTypes', 'phases', 'artifactSets', 'mcpServers']
     .reduce((total, section) => total + Object.keys(packagedWorkflowSource[section] ?? {}).length, 0)
 } workflow nodes)`);
-if (workflowTemplate.ledger?.enabled !== false || workflowTemplate.ledger?.branch !== 'state') fail('workflow template must ship the opt-in orphan capability-ledger configuration.');
+// Story discovery, resume, return and the inbox read only the ledger state index, so the starter enables it.
+if (workflowTemplate.ledger?.enabled !== true || workflowTemplate.ledger?.branch !== 'state') fail('workflow template must ship the orphan Flow Ledger enabled on the state branch.');
 if (workflowTemplate.ledger?.publication !== 'warn') fail('workflow template must ship warning-only state publication by default.');
 if (workflowTemplate.tokenEconomy?.enabled !== true || workflowTemplate.tokenEconomy?.mode !== 'observe') {
   fail('workflow template must enable token economy in non-intervening observe mode by default.');

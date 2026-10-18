@@ -373,8 +373,11 @@ test('a disabled ledger refuses remote discovery by naming ledger.enabled, not a
   git(seed, ['config', 'user.name', 'Roster Fixture']);
   git(seed, ['config', 'user.email', 'roster@example.invalid']);
   await initializeDefinition(seed);
+  // The starter configuration enables the ledger; a repository that turned it off is the case here.
+  const workflowFile = path.join(seed, 'singularity/workflow.yml');
+  await writeFile(workflowFile, (await readFile(workflowFile, 'utf8')).replace(/^ledger:\n  enabled: true$/mu, 'ledger:\n  enabled: false'));
   const definition = await loadDefinition(seed);
-  assert.equal(definition.ledger.enabled, false, 'the starter configuration ships with the ledger disabled');
+  assert.equal(definition.ledger.enabled, false, 'this repository turned the ledger off');
   git(seed, ['add', '.']);
   git(seed, ['commit', '-m', 'retain configured workflow']);
   git(seed, ['remote', 'add', 'origin', remote]);

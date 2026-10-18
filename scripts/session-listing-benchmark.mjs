@@ -16,9 +16,12 @@ export async function createSessionListingFixture({ cliRoot = packageRoot } = {}
     fixture.git(fixture.remote, 'config', 'uploadpack.allowAnySHA1InWant', 'true');
     const file = path.join(fixture.source, 'singularity/workflow.yml');
     const definition = YAML.parse(await readFile(file, 'utf8'));
-    definition.ledger.enabled = true;
-    await writeFile(file, YAML.stringify(definition));
-    fixture.git(fixture.source, 'add', '.'); fixture.git(fixture.source, 'commit', '--quiet', '-m', 'enable fixture ledger');
+    // The packaged template enables the ledger; an older one is switched on (and committed) here.
+    if (definition.ledger.enabled !== true) {
+      definition.ledger.enabled = true;
+      await writeFile(file, YAML.stringify(definition));
+      fixture.git(fixture.source, 'add', '.'); fixture.git(fixture.source, 'commit', '--quiet', '-m', 'enable fixture ledger');
+    }
     fixture.git(fixture.source, 'push', '--quiet', 'origin', 'main', 'main:refs/heads/sflow/config');
     fixture.git(fixture.original, 'pull', '--quiet', '--ff-only');
     fixture.git(fixture.original, 'fetch', '--quiet', 'origin', 'refs/heads/sflow/config:refs/remotes/origin/sflow/config');

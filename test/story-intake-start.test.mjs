@@ -453,7 +453,9 @@ test('a Story started with a receipt is the Story started without one', intakePl
   // their number is compared; every other path must match exactly.
   const files = (id) => git(root, 'ls-tree', '-r', '--name-only', `origin/${id}`)
     .split('\n').map((name) => name.replaceAll(id, '<ID>')
-      .replace(/\/blobs\/sha256\/[0-9a-f]{64}$/u, '/blobs/sha256/<digest>')).sort();
+      .replace(/\/blobs\/sha256\/[0-9a-f]{64}$/u, '/blobs/sha256/<digest>')
+      // With the ledger on, each start records its durable intent under a fresh intent ID.
+      .replace(/\/ledger-intents\/[0-9a-f-]{36}\.json$/u, '/ledger-intents/<intent>.json')).sort();
   assert.deepEqual(files('STORY-RECEIPT'), files('STORY-PLAIN'));
   assert.equal(git(root, 'rev-parse', 'origin/STORY-RECEIPT^'), git(root, 'rev-parse', 'origin/main'));
   assert.equal(git(root, 'rev-parse', 'origin/STORY-PLAIN^'), git(root, 'rev-parse', 'origin/main'));
@@ -533,7 +535,9 @@ test('whatever the wave cannot confirm runs the ordinary start, which still succ
 test('a state tip that moved on is brought up to date by fetching that ref alone', intakePlatforms, async (t) => {
   const { base, root } = await repository(t);
   const stateRef = 'refs/remotes/origin/state';
-  git(root, 'push', '-q', 'origin', 'main:refs/heads/state');
+  // With the ledger on (the starter default) the state branch already exists; create it only if not.
+  if (!git(root, 'ls-remote', 'origin', 'refs/heads/state')) git(root, 'push', '-q', 'origin', 'main:refs/heads/state');
+  git(root, 'fetch', '-q', 'origin', `refs/heads/state:${stateRef}`);
   const receipt = preflight(root, 'STORY-STATE');
   const seen = git(root, 'rev-parse', stateRef);
   // Another machine publishes to the state branch after the preview; this tracking ref is behind.
@@ -550,7 +554,9 @@ test('a state tip that moved on is brought up to date by fetching that ref alone
   assert.equal(data(started).intakeReceipt.status, 'verified', JSON.stringify(data(started).intakeReceipt));
   assert.equal(counter(started.stderr, 'story.intake-receipt-state-fetch'), 1);
   assert.equal(counter(started.stderr, 'git.remote.command.fetch'), 1, 'one ref, not the whole remote');
-  assert.equal(git(root, 'rev-parse', stateRef), moved);
+  // The ledger (on by default) then appends this Story's binding directly on the fetched tip.
+  assert.equal(git(root, 'rev-parse', `${stateRef}^`), moved, 'the binding builds on the commit published elsewhere');
+  assert.match(git(root, 'log', '-1', '--format=%s', stateRef), /^\[ledger:\d+\] binding STORY-STATE$/u);
 });
 
 test('a receipt is issued only for a request start can verify, and says why not otherwise', intakePlatforms, async (t) => {

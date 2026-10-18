@@ -18,7 +18,7 @@ import {
 } from '../src/state.mjs';
 import { recordRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
 import { captureMutationTurn, mutationToolGuard } from '../src/copilot-mutation-guard.mjs';
-import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
+import { renderPlatformCommand, withAgentPathProtocol } from '../src/safe-command-guidance.mjs';
 import { completeAgentResult, withAgentRoutes } from '../src/agent-output.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -409,10 +409,15 @@ test('compact review entry binds once and preserves every exact review material 
   assert.equal(Object.hasOwn(compact, 'binding'), false);
   assert.deepEqual(compact.reportTemplate.binding, full.binding);
   for (const key of ['sources', 'clarifications', 'clarificationGuidance', 'artifact', 'upstreamSpec',
-    'reviewer', 'reportTemplate', 'reportSchema', 'stagingPath', 'continuation']) {
+    'reportTemplate', 'reportSchema', 'stagingPath', 'continuation']) {
     // The same review material; the continuation routes an agent runs carry --for-agent.
     assert.deepEqual(compact[key], await withAgentRoutes(full[key]), `compact entry lost ${key}`);
   }
+  const { effectiveInstructions, instructionsNote, ...pinnedReviewer } = compact.reviewer;
+  assert.deepEqual(pinnedReviewer, full.reviewer, 'pinned reviewer bytes, hash, identity and authority are unchanged');
+  assert.equal(effectiveInstructions, withAgentPathProtocol(full.reviewer.instructions));
+  assert.match(instructionsNote, /changes no authority or review binding/u);
+  assert.equal(compact.reviewGuide.readOrder[0], 'reviewer.effectiveInstructions');
   assert.equal(compact.reviewer.setupRequired, false);
   assert.equal(compact.canReview, true);
   assert.equal(completeAgentResult(cli(root, 'review-source', 'context', phaseId, '--for-agent', '--json')).phase, phaseId);

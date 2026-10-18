@@ -290,7 +290,7 @@ test('entry bundles a custom-root Story without changing files, HEAD, index or l
   assert.equal(entry.ready, true);
   assert.equal(entry.workId, 'ENTRY-1');
   assert.equal(entry.workItemRoot, 'team/stories');
-  assert.equal(entry.repositoryPath, git(item.root, 'rev-parse', '--show-toplevel'));
+  assert.equal(await realpath(entry.repositoryPath), await realpath(git(item.root, 'rev-parse', '--show-toplevel')));
   assert.equal(entry.phase, item.workflow.currentPhase);
   assert.equal(entry.phaseAgent.valid, true);
   assert.equal(entry.context, null);

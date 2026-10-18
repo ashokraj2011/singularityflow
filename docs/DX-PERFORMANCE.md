@@ -9,10 +9,16 @@ watcher bursts coalesce, and an applied event is not replayed. The existing Stor
 still owns creation. Already-open Story folders do not reload.
 
 The small shared `copilot-story-follow.mjs` protocol adds one activation module (143 → 144).
-The first measured extension bundle was 1,414,584 bytes / 144 modules; the existing 1,420,000-byte
+The qualified extension bundle was 1,414,798 bytes / 144 modules; the existing 1,420,000-byte
 limit remains unchanged. No configuration, policy, model-provider or gateway graph was added to
 activation. Notifications are advisory only; the fresh accepted Story/workspace projection, not
 the notification, verifies the navigation target.
+
+Qualification on Node 22 passed 84 cases on Windows and 83 on macOS, with one Windows-only case
+skipped on macOS. Both hosts passed VS Code typechecking and bundle budgets. The local broader
+VS Code suite passed all 336 cases; source validation passed 2,745 checks across 179 skills.
+These are protocol, CLI, guard and window-handoff regression tests, not a live Copilot conversation
+or an installed desktop UI qualification. No model invocation or Copilot quota was used.
 
 Singularity Flow treats command latency as a release property. The repository fast-path commands
 are `about`, `status`, `nextsteps`, and a repository-only `snapshot` slice. The machine-state reads

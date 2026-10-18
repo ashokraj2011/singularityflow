@@ -669,9 +669,15 @@ export async function workspaceContextForRepository(repositoryRoot, selectionFil
 export async function workspaceMemberContextForRepository(
   repositoryRoot, selectionFile, registryFile, { strict = false } = {}
 ) {
-  const execution = await import('./execution-context-scope.mjs');
-  if (execution.boundExecutionContextRoot()) return (await import('./workspace-membership.mjs'))
-    .findWorkspaceMembership(repositoryRoot, { registryFile });
+  // A bound invocation (a window's surface selector or --context-root) proves membership from the
+  // clone itself, not from the profile selection. VS Code's in-process runtimes are never bound:
+  // the extension hands each window's binding only to the CLI children its client spawns. Their
+  // build defines this flag, so esbuild drops the branch and never ships Help, Support and the
+  // gateway the scope and membership modules it would load.
+  if (!globalThis.__SFLOW_EXTENSION_HOST__
+      && (await import('./execution-context-scope.mjs')).boundExecutionContextRoot()) {
+    return (await import('./workspace-membership.mjs')).findWorkspaceMembership(repositoryRoot, { registryFile });
+  }
   let selected;
   try {
     selected = await storedActiveWorkspaceContext(selectionFile);

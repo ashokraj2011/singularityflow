@@ -88,7 +88,9 @@ const options = {
   minifyWhitespace: true,
   minifySyntax: true,
   external: ['vscode'],
-  define: { __SFLOW_BUILD__: JSON.stringify(BUILD) },
+  // The extension host never runs a bound CLI invocation; core drops those branches from these
+  // bundles when it sees this flag (workspaceMemberContextForRepository).
+  define: { __SFLOW_BUILD__: JSON.stringify(BUILD), 'globalThis.__SFLOW_EXTENSION_HOST__': 'true' },
   plugins: [packageRootPlugin, siblingGatewayRuntimePlugin],
   sourcemap: true,
   logLevel: 'info'

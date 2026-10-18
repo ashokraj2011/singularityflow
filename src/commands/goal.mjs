@@ -28,6 +28,7 @@ import { recordSha256 } from '../records.mjs';
 import { workspaceRepositoryPath } from '../workspace.mjs';
 import { resolveSessionRepository } from './shared/session-repository-selection.mjs';
 import { stateStorySubjectIndex } from '../session-story-discovery.mjs';
+import { localStorySubjectIndex } from '../local-story-subject-index.mjs';
 
 function terminalStatus(state) {
   return ['closed', 'complete', 'completed', 'cancelled', 'archived'].includes(String(state ?? '').toLowerCase());
@@ -67,7 +68,8 @@ function combinedIndex(working, references) {
 
 async function subjectIndex(root, kind) {
   const config = await loadConfig(root).catch(() => null);
-  const working = await buildRepositorySubjectIndex(root);
+  const working = kind === 'story' ? await localStorySubjectIndex(root, { definition: config ?? {} })
+    : await buildRepositorySubjectIndex(root);
   if (kind === 'story') return config?.ledger?.enabled
     ? combinedIndex(working, await stateStorySubjectIndex(root, config, { fetch: false })) : working;
   // Initiative lookup is separate from Story discovery and retains its existing explicit policy.

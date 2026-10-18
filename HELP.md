@@ -19,7 +19,10 @@ missing state branch, invalid ledger, or transport timeout remains an error, not
 
 The approval inbox, Story resume/return discovery, external-source identity lookup, Goal Story
 links, and VS Code Story catalogs use the same state-indexed published Story locations. Local
-unpublished drafts remain local records; they are not evidence of remote publication. VS Code
+unpublished drafts remain local records; they are not evidence of remote publication. Local
+resume and source-identity checks can read registered managed Story worktree HEADs, never all
+branch refs. A never-published local draft remains resumable even though no remote branch exists;
+authentication errors, timeouts, and missing previously-known remote branches still stop. VS Code
 snapshots read the retained index offline and expose `storyDiscovery.complete` and `unavailable`
 diagnostics when it cannot be read. Refresh Stories owns remote refresh. Snapshot, Inbox and
 attachment joins use the verified selected branch-local clone, not an obsolete manifest checkout;
@@ -2104,7 +2107,7 @@ Starter repositories use soft gates for phase-status and document-phase mistakes
 
 ## Approval, rejection, and self-approval
 
-Use `/sf-inbox` or `singularity-flow inbox` before choosing a work item when reviewing across a team. It fetches the configured remote and lists only valid committed work-item branches whose current phase is `awaiting_approval`, oldest first. Each row includes the work/Jira ID, phase, generation, approvals received/required, waiting time, authority groups, artifact path, self-approval warning, and remote commit. `singularity-flow inbox --offline` reads cached remote refs without network access.
+Use `/sf-inbox` or `singularity-flow inbox` before choosing a work item when reviewing across a team. It refreshes only the configured state branch and reads exact state-indexed Story commits whose current phase is `awaiting_approval`, oldest first. It never inventories application branches or Git history. Each row includes the work/Jira ID, phase, generation, approvals received/required, waiting time, authority groups, artifact path, self-approval warning, and remote commit. `singularity-flow inbox --offline` reads the retained state index without network access.
 
 Use `singularity-flow approvals [WORK-ID]` (alias `approval-chain`) for the complete read-only Story
 approval chain. It lists each phase with its document or artifact-set members, phase status,

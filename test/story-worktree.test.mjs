@@ -284,6 +284,7 @@ test('resume reuses the managed Story worktree without switching or cleaning the
   assert.equal(resumed.outcome.status, 'succeeded');
   assert.equal(resumed.data.repositoryPath, worktree);
   assert.equal(resumed.data.materialization, 'reused-managed-story-worktree');
+  assert.equal(resumed.data.remoteRefresh, 'unpublished-local-draft');
   assert.equal(git(worktree, ['branch', '--show-current']), id);
   assert.equal(git(root, ['branch', '--show-current']), 'main');
   assert.equal(git(root, ['rev-parse', 'HEAD']), launchHead);

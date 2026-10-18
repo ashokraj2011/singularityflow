@@ -8,7 +8,8 @@ import { readFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { SingularityFlowError, optionBoolean, optionString, requirePositional, run, secureRepositoryPath } from '../../util.mjs';
 import { assertClean, branch, checkout, fetchRemote, fileAtRef, refExists, repoRoot } from '../../git.mjs';
-import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from '../../repository-subject-index.mjs';
+import { buildRepositorySubjectIndexFromRefs, resolveContext } from '../../repository-subject-index.mjs';
+import { localStorySubjectIndex } from '../../local-story-subject-index.mjs';
 import { stateStorySubjectIndex } from '../../session-story-discovery.mjs';
 import { currentPhase } from '../../phase-generation.mjs';
 import { resolveWorkItem, validateId } from '../../state-stores.mjs';
@@ -94,7 +95,7 @@ export async function resumeCommand(positionals, options, { selectedBranch = nul
   // An explicit selected branch was already resolved by session attachment. Otherwise consult
   // current local drafts, then the state roster; never inventory all local or remote code refs.
   const local = !selectedBranch
-    ? resolveContext(await buildRepositorySubjectIndex(root, { definition: initialConfig }), {
+    ? resolveContext(await localStorySubjectIndex(root, { definition: initialConfig, reference }), {
       reference, kind: 'story', required: false
     }) : null;
   const refIndex = selectedBranch
@@ -110,9 +111,22 @@ export async function resumeCommand(positionals, options, { selectedBranch = nul
     ? { workId: refSubject.id, branch: refSubject.canonicalBranch, selectedBranch: refSubject.selectedBranch, workflow: refSubject.state, source: refSubject.source }
     : await resolveWorkItem(root, initialConfig, reference, { mutation: true });
   const targetBranch = resolved.selectedBranch ?? resolved.branch;
-  if (fetch && !selectedBranch) await fetchRemote(root, remote, {
-    branches: [targetBranch], respectPartialClone: true
-  });
+  let refreshed = fetch && Boolean(selectedBranch);
+  let unpublishedLocal = false;
+  if (fetch && !selectedBranch) {
+    const knownRemote = refExists(root, `refs/remotes/${remote}/${targetBranch}`);
+    try {
+      await fetchRemote(root, remote, { branches: [targetBranch], respectPartialClone: true });
+      refreshed = true;
+    } catch (error) {
+      // A registered, never-published local draft has no remote branch to refresh. Only that
+      // precise absence is optional; authentication, network, timeout and previously-known branch
+      // failures must keep their original diagnostic and stop the operation.
+      if (!['working-tree', 'managed-worktree'].includes(local?.source) || knownRemote
+          || !refExists(root, `refs/heads/${targetBranch}`) || error.code !== 'REMOTE_BRANCH_NOT_FOUND') throw error;
+      unpublishedLocal = true;
+    }
+  }
   // An isolated Story branch is already checked out in its managed worktree. Git correctly
   // refuses to check the same branch out in the launch clone, so resume must enter the checkout
   // that owns the branch instead of mutating (or requiring a clean) unrelated launch work.
@@ -125,7 +139,7 @@ export async function resumeCommand(positionals, options, { selectedBranch = nul
   // Discovery has already refreshed the selected remote ref. Reuse that observation for the local
   // fast-forward; asking `checkout` to fetch again used to add a second fetch and then a pull.
   await checkout(executionRoot, targetBranch, {
-    base: initialConfig.defaultBaseBranch, fetch: false, fetched: fetch, existingOnly: true, remote
+    base: initialConfig.defaultBaseBranch, fetch: false, fetched: refreshed, existingOnly: true, remote
   });
   const accepted = await loadAcceptedStoryExecution(executionRoot, resolved.workId);
   const config = accepted.definition;
@@ -163,6 +177,7 @@ export async function resumeCommand(positionals, options, { selectedBranch = nul
     effects: effects({ filesChanged: true }),
     data: {
       repositoryPath: executionRoot,
+      ...(unpublishedLocal ? { remoteRefresh: 'unpublished-local-draft' } : {}),
       materialization: managedWorktree ? 'reused-managed-story-worktree' : 'current-checkout',
       ...(managedWorktree ? { sourceRepositoryPath: root } : {})
     }

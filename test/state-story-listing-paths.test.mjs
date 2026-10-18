@@ -7,6 +7,7 @@ import { appendLedgerIntent, createLedgerIntent } from '../src/ledger.mjs';
 import { approvalInbox } from '../src/inbox.mjs';
 import { stateStorySubjectIndex } from '../src/session-story-discovery.mjs';
 import { resolveContext } from '../src/repository-subject-index.mjs';
+import { localStorySubjectIndex } from '../src/local-story-subject-index.mjs';
 import { storyLifecycleProgress } from '../src/session-roster.mjs';
 import { repositorySnapshot } from '../src/editor.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
@@ -35,8 +36,33 @@ async function fixture(t) {
     subject: { kind: 'story', workId: id, branch, workType: 'feature', title: state.workItem.title, status: state.status,
       currentPhase: state.currentPhase, aliases: ['external-review'], progress: storyLifecycleProgress(state) }
   }), commit);
-  return { ...f, id, branch, commit };
+  return { ...f, id, branch, commit, state };
 }
+
+test('unpublished managed drafts resolve locally without admitting inherited or unrelated branch metadata', async t => {
+  const f = await fixture(t);
+  const checkout = path.join(f.original, '.singularity-flow/story-worktrees/local-draft');
+  const draftBranch = 'team/local-draft';
+  f.git(f.original, 'worktree', 'add', '--quiet', '-b', draftBranch, checkout, 'HEAD');
+  const draft = { ...f.state, workItem: { ...f.state.workItem, id: 'LOCAL-DRAFT', branch: draftBranch },
+    lineage: { canonicalBranch: draftBranch, sourceStableId: 'framework:local-draft' } };
+  for (const state of [f.state, draft]) {
+    const file = path.join(checkout, f.definition.workItemRoot, state.workItem.id, 'workflow.json');
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, JSON.stringify(state));
+  }
+  f.git(checkout, 'add', '.');
+  f.git(checkout, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'local draft');
+  const index = await localStorySubjectIndex(f.original, { definition: f.definition });
+  const resolved = resolveContext(index, { reference: 'framework:local-draft', kind: 'story' });
+  assert.equal(resolved.id, 'LOCAL-DRAFT');
+  assert.equal(resolved.source, 'managed-worktree');
+  assert.equal(resolved.canonicalBranch, draftBranch);
+  assert.equal(resolveContext(index, { reference: f.id, required: false }), null,
+    'inherited published metadata is not a local draft owned by this checkout');
+  const snapshot = await repositorySnapshot(f.original, null, null, { included: ['lifecycle'] });
+  assert.equal(snapshot.lifecycle.workItems.some(item => item.id === 'LOCAL-DRAFT'), false);
+});
 
 test('approval inbox, legacy subject lookup and snapshots discover only state-indexed Stories', async t => {
   const f = await fixture(t);
@@ -97,7 +123,8 @@ test('CLI routing never searches sibling branches for governance', async t => {
 
 test('Story listing adapters do not regress to wildcard fetches, branch inventories or history walks', async () => {
   for (const relative of ['src/inbox.mjs', 'src/session-story-discovery.mjs', 'src/session-remote-url-discovery.mjs',
-    'src/commands/shared/start-context.mjs', 'src/commands/start.mjs', 'apps/vscode/src/story-discovery.ts']) {
+    'src/commands/shared/start-context.mjs', 'src/commands/start.mjs', 'src/local-story-subject-index.mjs',
+    'apps/vscode/src/story-discovery.ts']) {
     const source = await readFile(new URL('../' + relative, import.meta.url), 'utf8');
     assert.doesNotMatch(source, /\b(?:localBranches|remoteBranches)\s*\(|['"](?:rev-list|log|--all)['"]/u, relative);
   }

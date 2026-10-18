@@ -14,7 +14,7 @@
 import test from 'node:test';
 import { appendLedgerIntent, createLedgerIntent, initializeLedger } from '../src/ledger.mjs';
 import { storyLifecycleProgress } from '../src/session-roster.mjs';
-import { copilotStoryFollowDirectory } from '../src/copilot-story-follow.mjs';
+import { copilotStoryFollowDirectory, copilotStoryFollowFile, recordCopilotStoryFollow } from '../src/copilot-story-follow.mjs';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
@@ -247,6 +247,7 @@ function stubVscode() {
     static parse(value) { return new Uri(value, String(value).split(':')[0]); }
   }
 
+  const windowState = new EventEmitter();
   const api = {
     EventEmitter,
     TreeItem,
@@ -281,7 +282,10 @@ function stubVscode() {
       fs: {}
     },
     window: {
-      onDidChangeWindowState: new EventEmitter().event,
+      // A focused window, as the one a person is working in. The Copilot Story follower acts only
+      // while its window is focused; `registered.setWindowFocused` moves focus away and back.
+      state: { focused: true },
+      onDidChangeWindowState: windowState.event,
       createOutputChannel: () => ({
         append: (text) => registered.output.push(text),
         appendLine: (text) => registered.output.push(text),
@@ -399,6 +403,10 @@ function stubVscode() {
       return registered.pickedFavorites ?? (items[0] ? [items[0]] : []);
     }
     return registered.pickedLens === null ? undefined : (items[0] ?? undefined);
+  };
+  registered.setWindowFocused = (focused) => {
+    api.window.state = { focused };
+    windowState.fire(api.window.state);
   };
   registered.warningActions = [];
   api.window.showWarningMessage = async (message, ...rest) => {
@@ -6321,6 +6329,113 @@ test('a selection changed outside VS Code leaves this window until the workspace
     { what: 'the leased Comprehension Center to follow the selected repository' });
   assert.doesNotMatch(comprehension.webview.html, /Alpha-only comprehension marker/,
     'a prior repository patch cannot survive the shared store revision fence');
+});
+
+test('a verified Copilot Story binding from this window\'s launch folder rebinds it in place once focused', async (t) => {
+  if (!requireBundle(t)) return;
+  const base = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-copilot-follow-host-')));
+  // `start` moves the machine profile to its new checkout. Keep that move inside this test.
+  const keys = {
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(base, 'registry.json'),
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(base, 'active-workspace.json'),
+    SINGULARITY_FLOW_LEAD_REGISTRY: path.join(base, 'leads.json'),
+    SINGULARITY_FLOW_STORY_CONFIGURATION_CACHE: path.join(base, 'configuration-cache')
+  };
+  const previous = Object.fromEntries(Object.keys(keys).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, keys);
+  let hostContext = null;
+  t.after(async () => {
+    for (const disposable of hostContext?.subscriptions ?? []) disposable.dispose?.();
+    for (const [key, value] of Object.entries(previous)) {
+      if (value == null) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await removeFixture(base);
+  });
+  const cli = (args, cwd) => {
+    const result = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args], {
+      cwd, encoding: 'utf8', env: process.env
+    });
+    assert.equal(result.status, 0, `${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+    return JSON.parse(result.stdout);
+  };
+  const git = (cwd, ...args) => run('git', args, { cwd }).stdout.trim();
+  const source = path.join(base, 'source');
+  await mkdir(source);
+  git(source, 'init', '-b', 'main');
+  git(source, 'config', 'user.name', 'Initiative Owner');
+  git(source, 'config', 'user.email', EMAIL);
+  await writeFile(path.join(source, 'README.md'), '# Copilot follow fixture\n');
+  await initializeDefinition(source);
+  const workflowFile = path.join(source, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.approvalSecurity.autoEnrollNewIdentities = false;
+  for (const authority of Object.values(workflow.approvalAuthorities)) {
+    authority.members = [{ name: 'Initiative Owner', email: EMAIL }];
+  }
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  git(source, 'add', '.');
+  git(source, 'commit', '-m', 'Copilot follow fixture');
+  const remote = path.join(base, 'remote.git');
+  run('git', ['init', '--bare', '-b', 'main', remote], { cwd: base });
+  git(source, 'remote', 'add', 'origin', remote);
+  git(source, 'push', '-u', 'origin', 'main');
+  git(source, 'push', 'origin', 'main:refs/heads/sflow/config');
+  const { workspace } = cli(['workspace', 'create', '--local', '--json', '--id', 'follow',
+    '--base', path.join(base, 'workspaces'), '--lead', 'app', '--repository', `app=${remote}`,
+    '--default-branch', 'app=main', '--confirm', 'follow', '--clone'], base);
+  const clone = await realpath(path.join(workspace.path, workspace.repositories.app.path));
+  git(clone, 'config', 'user.name', 'Initiative Owner');
+  git(clone, 'config', 'user.email', EMAIL);
+  const started = cli(['start', 'FOLLOW-1', '--json', '--isolated-worktree', '--from-branch', 'main',
+    '--work-type', 'feature', '--title', 'Followed Story', '--description', 'Bound by Copilot from the clone'], clone).data;
+  const storyRoot = await realpath(started.repositoryPath);
+  assert.notEqual(storyRoot, clone, 'the Story has its own isolated worktree');
+
+  // Copilot was launched in the workspace clone, the window's first folder. The Story's worktree is
+  // already this window's second folder, so following it rebinds in place rather than reopening.
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: clone } }, { uri: { fsPath: storyRoot } }];
+  const windowValues = new Map([['singularityFlow.executionRoot', clone]]);
+  hostContext = context(new Map(), windowValues);
+  await loadExtension(api).activate(hostContext);
+  const lifecycle = section(registered, 'lifecycle');
+  const showsStory = () => lifecycle.getChildren().some((node) => node.id === 'active-story:FOLLOW-1');
+  assert.equal(showsStory(), false, 'the window starts on the clone, which has no Story');
+  const followDirectory = copilotStoryFollowDirectory();
+  const followWatcher = registered.watchers.find((watcher) =>
+    watcher.pattern.pattern === `${path.basename(followDirectory)}/*.json`);
+  assert.ok(followWatcher, 'Copilot Story follow records are watched');
+
+  // Only the window a person is working in follows. A record seen while unfocused waits for focus.
+  registered.setWindowFocused(false);
+  const followFile = await copilotStoryFollowFile(clone);
+  t.after(() => rm(followFile, { force: true }));
+  const notice = await recordCopilotStoryFollow({ originPath: clone, repositoryPath: storyRoot, workId: 'FOLLOW-1' });
+  assert.ok(notice, 'the follow record is written for the clone Copilot was launched in');
+  followWatcher.create.fire({ fsPath: followFile });
+  await settle();
+  assert.equal(windowValues.get('singularityFlow.executionRoot'), clone, 'an unfocused window keeps its binding');
+  assert.equal(showsStory(), false);
+
+  registered.setWindowFocused(true);
+  await until(() => showsStory() || null,
+    { what: 'Lifecycle to show the Story Copilot bound from this window\'s launch folder' });
+  assert.equal(windowValues.get('singularityFlow.executionRoot'), storyRoot,
+    'the window binding moves to the verified Story checkout');
+  const rebinds = () => registered.output.filter((line) => String(line).startsWith(`Repository: ${storyRoot} (`)).length;
+  assert.equal(rebinds(), 1, 'every repository-bound screen was re-pointed through the shared selection callback');
+  assert.equal(registered.executedCommands.some((entry) => entry.id === 'vscode.openFolder'), false,
+    'the Story checkout is already open in this window, so it rebinds in place');
+  assert.equal(registered.output.some((line) => String(line).includes('Following Copilot Story')), false);
+
+  // A repeated delivery of the same record is already applied.
+  followWatcher.change.fire({ fsPath: followFile });
+  await settle();
+  assert.equal(rebinds(), 1, 'one follow record rebinds once');
+  assert.equal(registered.output.some((line) => String(line).includes("Could not follow Copilot's Story")), false,
+    registered.output.join('\n'));
+  assert.deepEqual(registered.errors, []);
 });
 
 /** Every command package.json contributes. The palette offers all of them, always. */

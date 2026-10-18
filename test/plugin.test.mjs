@@ -39,24 +39,23 @@ test('SGOS creation is an explicit proposal-only Copilot journey', async () => {
 test('workflow skill governs dependency-complete transfer and linked duplication', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-workflows', 'SKILL.md'), 'utf8');
   assert.match(content, /workflow export --workflow <ID> \[--workflow <ID>\.\.\.\] --out <FILE> --json/);
-  assert.match(content, /complete dependency closure/);
+  assert.match(content, /Relay dependency closure\/locks and prerequisites/);
   assert.match(content, /workflow import <FILE> --dry-run --propose --json/);
   assert.match(content, /workflow import <FILE> --confirm <PLAN-SHA256> --propose --json/);
-  assert.match(content, /Skill invocation is not confirmation/);
-  assert.match(content, /`duplicate` aliases `copy`/);
-  assert.match(content, /Linked dependencies stay shared/);
-  assert.match(content, /later edits affect both/);
-  assert.match(content, /never overwrite, bypass review, commit, activate, merge or refresh automatically/);
-  assert.match(content, /show\|preview\|catalog\|where-used\|op-status` is read-only/);
+  assert.match(content, /Invocation is not confirmation/);
+  assert.match(content, /`duplicate` = `copy`/);
+  assert.match(content, /dependencies stay shared; edits affect both/);
+  assert.match(content, /never overwrite, bypass review, commit, activate, merge or auto-refresh/);
+  assert.match(content, /show\|preview\|catalog\|where-used\|op-status`: read-only/);
   assert.match(content, /author where-used <SKILL-ID> --json/);
   assert.match(content, /reads approved configuration; `--story <ID>` selects\s+one accepted local Story/);
-  assert.match(content, /Preserve exact ref\/commit\/revision selectors; never fetch or infer/);
-  assert.match(content, /`--story-refs` selects local first-parent windows; `--repository-story-refs` selects up to\s+four explicit local roots/);
+  assert.match(content, /Preserve ref\/commit\/revision selectors; never fetch or infer/);
+  assert.match(content, /`--story-refs` selects local first-parent windows; `--repository-story-refs` selects up to\s+four explicit roots/);
   assert.match(content, /No provider scan, invented selectors, or repairs/);
   assert.match(content, /unavailable history never means empty usage/);
   assert.match(content, /`--input @approved-starter\/<ID>` reads the verified authority, not the app checkout/);
   assert.match(content, /--expected-source/);
-  assert.match(content, /stale destination plans/);
+  assert.match(content, /Never substitute digests, overwrite or retry stale plans/);
   assert.match(content, /Headless `author submit <WFD-ID> --revision N` or `author delete` only hands off/);
   assert.match(content, /never supply receipts, answers or tokens/);
   assert.match(content, /Submit creates only an exact review proposal; no approval, activation or execution/);
@@ -68,11 +67,13 @@ test('session and progress skills ground every follow-up command in the resolved
   assert.match(session, /singularity-flow session open --for-agent --json/);
   assert.match(session, /--workspace <WORKSPACE> --repository <REPOSITORY-ID>/);
   assert.match(session, /singularity-flow session open <WORK-ID> --for-agent --json/);
-  assert.match(session, /attaches and synchronizes the remote Story/);
+  assert.match(session, /Managed local open fast-forwards \(`remoteSync`/);
+  assert.match(session, /only a missing Story\/repository permits remote fallback/);
   assert.match(session, /tell shell users to `cd` to `repositoryPath`/);
-  assert.match(progress, /session current --json/);
+  assert.match(progress, /singularity-flow progress <WORK-ID> --utility-entry --for-agent --json/);
   assert.match(progress, /explicit Work ID[\s\S]*do not require or change the active Story/i);
-  assert.match(progress, /Without an ID[\s\S]*session current --json[\s\S]*exact `repositoryPath`/i);
+  assert.match(progress, /Without an ID, let the utility entry resolve the attached Story; never infer selection/i);
+  assert.match(progress, /no separate pause\/session\/workspace lookup/i);
 });
 
 test('plugin can audit and safely repair branch initialization before a work session exists', async () => {
@@ -1095,7 +1096,7 @@ test('report skill is read-only and preserves unavailable usage disclosure', asy
 
 test('nextsteps skill delegates to the read-only deterministic action planner', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-nextsteps', 'SKILL.md'), 'utf8');
-  assert.match(content, /singularity-flow nextsteps <WORK-ID> --for-agent --json[\s\S]*singularity-flow nextsteps --for-agent --json/);
+  assert.match(content, /singularity-flow nextsteps <WORK-ID> --utility-entry --for-agent --json[\s\S]*otherwise omit the ID/);
   assert.match(content, /Present returned actions in order, preserving labels, routes and reasons/);
   assert.match(content, /never add one the CLI did not return/);
   assert.match(content, /Keep this operation read-only/);
@@ -1212,12 +1213,12 @@ test('phase skills summarize linked Markdown and keep source code out of chat', 
   assert.match(alias, /must not publish.*again/i);
 });
 
-test('progress renders its deterministic Markdown visibly in Copilot', async () => {
+test('progress renders its deterministic utility data visibly without redundant document lookups', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-progress', 'SKILL.md'), 'utf8');
-  assert.match(content, /singularity-flow progress <WORK-ID> --markdown/);
-  assert.match(content, /complete returned Markdown in the visible Copilot response/i);
-  assert.match(content, /collapsed Shell\/tool block does not count/i);
-  assert.match(content, /do not wrap the Markdown in a code fence/i);
+  assert.match(content, /singularity-flow progress <WORK-ID> --utility-entry --for-agent --json/);
+  assert.match(content, /Render the returned `data` as a concise journey and phase table/i);
+  assert.match(content, /Do not fetch Markdown or other documents for display/i);
+  assert.match(content, /Do not forward user-supplied formatting flags/i);
   assert.match(content, /exact deterministic percentage and approved\/total phase count/i);
   assert.match(content, /Do not change files or lifecycle state/i);
 });

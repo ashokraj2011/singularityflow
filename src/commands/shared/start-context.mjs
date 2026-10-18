@@ -84,7 +84,7 @@ export async function resumeCommand(positionals, options, { selectedBranch = nul
   const json = optionBoolean(options, 'json');
   const discovery = await withApprovedConfigurationRead(
     root, async () => sessionDiscoveryConfiguration(
-      root, await sessionRepositoryAuthority(root), { storyBootstrap: true }
+      root, await sessionRepositoryAuthority(root, { storyRef: selectedBranch ?? reference }), { storyBootstrap: true }
     )
   );
   const initialConfig = discovery.definition;

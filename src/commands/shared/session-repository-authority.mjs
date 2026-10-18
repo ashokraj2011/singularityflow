@@ -5,7 +5,7 @@ import path from 'node:path';
 import { WORKFLOW_PATH } from '../../config.mjs';
 import { CONFIGURATION_SOURCE_PATH, CONFIGURATION_BRANCH } from '../../configuration-branch.mjs';
 import { sessionRepositoryRemotes } from './session-repository-remotes.mjs';
-import { refExists } from '../../git.mjs';
+import { fileAtRef, refExists } from '../../git.mjs';
 import { configuredRemoteIdentity, frozenRemoteTransport } from '../../git-remote-diagnostics.mjs';
 import { runRemoteGitAsync } from '../../git-execution.mjs';
 
@@ -15,7 +15,7 @@ import { runRemoteGitAsync } from '../../git-execution.mjs';
  * proof that the checkout is governed; requiring a working-tree copy made every fresh clone look
  * uninitialised until somebody manually checked out the Story branch.
  */
-export async function sessionRepositoryAuthority(root, { remoteProbe = true } = {}) {
+export async function sessionRepositoryAuthority(root, { remoteProbe = true, storyRef = null } = {}) {
   if (!root) return null;
   const workingTreeDefinition = existsSync(path.join(root, WORKFLOW_PATH));
   // An active Story carries its own immutable configuration source. Application branches can
@@ -46,5 +46,16 @@ export async function sessionRepositoryAuthority(root, { remoteProbe = true } = 
       return { source: 'configuration-remote', remote, ref: `${remote}/${CONFIGURATION_BRANCH}` };
     }
   }
-  return workingTreeDefinition ? { source: 'working-tree', remote: null } : null;
+  if (workingTreeDefinition) return { source: 'working-tree', remote: null };
+  // Re-entering a named Story while sflow/config and its state mirror are unavailable: the Story's
+  // published branch carries its own pinned definition. Only that named ref is read, never a scan of
+  // every branch (Story discovery has no fallback scan); 5be0d63e dropped this route entirely.
+  const named = typeof storyRef === 'string' && /^[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(storyRef) ? storyRef : null;
+  for (const remote of named ? sessionRepositoryRemotes(root) : []) {
+    const ref = `${remote}/${named}`;
+    if (refExists(root, `refs/remotes/${ref}`) && fileAtRef(root, ref, WORKFLOW_PATH) !== null) {
+      return { source: 'lifecycle-branch', remote, ref };
+    }
+  }
+  return null;
 }

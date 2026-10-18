@@ -403,11 +403,13 @@ test('state of a build like the live run is read inline, with everything Copilot
   assert.equal(state.moreItems, undefined, 'every found item is in state');
   assert.doesNotMatch(JSON.stringify(state), /sha256|createdAt|"at":/, 'no hashes or times');
 
-  // Found items: open ones first, each with the lines source reads; a settled one says how it was settled.
+  // Found items: the accepted proposal used or settled each one, so none is open. A used one keeps the lines
+  // source reads; a settled one says how it was settled.
   assert.equal(state.items.length, found.length);
-  const open = state.items.filter((item) => item.status === 'open');
-  assert.deepEqual(state.items.slice(0, open.length), open);
-  for (const item of open) assert.deepEqual(item.evidence, found.find((entry) => entry.id === item.id).evidence.map(({ path, startLine, endLine }) => ({ path, startLine, endLine })));
+  assert.deepEqual(state.items.filter((item) => item.status === 'open'), [], 'a classified item the proposal lists is used');
+  const used = state.items.filter((item) => item.status === 'confirmed');
+  assert.equal(used.length, found.length - 2);
+  for (const item of used) assert.deepEqual(item.evidence, found.find((entry) => entry.id === item.id).evidence.map(({ path, startLine, endLine }) => ({ path, startLine, endLine })));
   assert.deepEqual(state.items.find((item) => item.id === captain.id), { id: captain.id, kind: 'agent', name: 'release-captain', status: 'left-out',
     reason: 'The steps come from its numbered list; the repository agents draft them, so release-captain is not added as an agent.' });
   // A decided proposal is its title and status: its moves are the workflow now.
@@ -428,7 +430,8 @@ test('state of a build like the live run is read inline, with everything Copilot
   assert.deepEqual([rejection.subject, rejection.details.length], [{ step: 'release' }, 4]);
   assert.deepEqual(rejection.fixMove, { move: 'step.change', id: 'release', signOff: { groups: ['quality-reviewers'], minimum: 1, sendBackTo: ['implementation', 'release'] } }, 'the one move that fixes it, to propose as it is');
   assert.equal(state.findings.filter((finding) => finding.code === 'WORKFLOW_REJECTION_TARGET').length, 1);
-  assert.deepEqual(state.counts, { problem: 4, warning: 1, note: 1 });
+  assert.equal(state.findings.find((finding) => finding.code === 'BUILD_ITEMS_OPEN'), undefined, 'nothing found is left to propose about');
+  assert.deepEqual(state.counts, { problem: 4, warning: 0, note: 1 });
   assert.equal(state.ready, false);
 
   // The guide and the items are each one inline answer too.

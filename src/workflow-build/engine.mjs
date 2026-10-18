@@ -225,7 +225,8 @@ function acceptProposal(record, proposal) {
   for (const item of record.items) {
     const change = applyMoves({ items: {}, workflow: { phases: [], decisions: [] }, steps: {}, overrides: {}, actions: {} }, proposal.moves.filter((move) => move.item === item.id)).items[item.id];
     if (change) Object.assign(item, change);
-    else if (used.has(item.id) && item.status === 'open') item.status = 'confirmed';
+    // item.classify changes only the kind; leave out, keep as a link and prerequisite set their own status.
+    if (used.has(item.id) && item.status === 'open') item.status = 'confirmed';
   }
   record.conversation.push(turn('you', 'decision', `Accepted ${proposal.title}.`, { proposal: proposal.id }));
 }

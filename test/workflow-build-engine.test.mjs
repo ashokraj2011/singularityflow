@@ -185,6 +185,26 @@ test('propose, accept, answer and check: the workflow as the accepted moves leav
   assert.match(text, /^Ready to finish: singularity-flow workflow build finish --build wb_[a-f0-9]{16} --propose$/mu);
 });
 
+test('an accepted proposal uses what it lists after its moves: a classified item is confirmed, a link it keeps stays a link', async () => {
+  const { run, flow, json } = await harness();
+  const root = await repository(run, flow);
+  const folder = await teamFolder();
+  const build = json(root, ['workflow', 'build', 'start', '--folder', folder]).build;
+  const of = (kind) => build.items.find((entry) => entry.kind === kind);
+  const jira = of('api-call');
+  const runbook = of('document');
+  const proposal = { ...FIRST, items: build.items.map((entry) => entry.id), moves: [...FIRST.moves,
+    { move: 'item.classify', item: jira.id, as: 'command' }, { move: 'item.keepAsLink', item: runbook.id }] };
+  json(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-'], { input: JSON.stringify(proposal) });
+  const accepted = json(root, ['workflow', 'build', 'decide', '--build', build.id, '--proposal', 'p-1', '--accept']).build;
+  const item = (id) => accepted.items.find((entry) => entry.id === id);
+  assert.deepEqual([item(jira.id).status, item(jira.id).kind], ['confirmed', 'command'], 'a classified item the proposal uses is used');
+  assert.equal(item(runbook.id).status, 'kept-as-link', 'a move that settles an item wins over the list');
+  assert.deepEqual(accepted.items.filter((entry) => entry.status === 'open'), []);
+  const result = json(root, ['workflow', 'build', 'check', '--build', build.id]);
+  assert.equal(result.findings.find((entry) => entry.code === 'BUILD_ITEMS_OPEN'), undefined, JSON.stringify(result.findings));
+});
+
 test('later decisions: a step other workflows share is copied, not changed; a proposal an earlier one overtook goes stale; items can be left out', async () => {
   const { run, flow, json, engineEnv } = await harness();
   const root = await repository(run, flow);

@@ -36,7 +36,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 71
+version: 72
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -206,7 +206,11 @@ resources (lock them for the new agent). The Studio's "Or start from an existing
 `workflow` named on `phase.update` must use the step once the whole change set is applied
 (`STUDIO_PHASE_UNKNOWN` otherwise), and a setting for it stays that workflow's own even when the same
 change set adds the step to it. `inputs` left out or `null` means unchanged; a value that
-is not a list is refused (`STUDIO_PHASE_UNKNOWN`). A step's `views` is ignored.
+is not a list is refused (`STUDIO_PHASE_UNKNOWN`). A step's `views` is ignored. An `approval` on
+`phase.create` or `phase.update` may name `rejectTo`, the steps an approver may send rejected work
+back to: 1 to 10 step IDs, each the step itself or a step before it in every workflow the sign-off
+reaches once the change set is applied (`STUDIO_SEND_BACK_INVALID` otherwise). Named with a
+`workflow` on a shared step, it is that workflow's own; left out, the step keeps the targets it has.
 
 ## Which skill drafts a step
 
@@ -1323,13 +1327,21 @@ singularity-flow workflow build finish --build <ID> --out payments-release.sflow
 | Move | What it does |
 |---|---|
 | `step.add` | Adds a step: one the repository has, as it is; a new one with its agent, output, reads, sign-off and purpose; or a copy of one (`from`) |
-| `step.change`, `step.move`, `step.remove` | Changes, moves or removes a step in this workflow. A step other workflows use keeps its name, output, agent and purpose; add a copy instead |
+| `step.change`, `step.move`, `step.remove` | Changes, moves or removes a step in this workflow. A step other workflows use keeps its name, output, agent and purpose; add a copy instead. Its sign-off changes for this workflow only |
 | `agent.add`, `skill.add`, `instruction.add` | Adds an agent, skill or instruction, new or starting from one the repository has (`from`) |
 | `skill.attach` | Attaches a skill to an agent, or to this workflow, for some or all steps |
 | `decision.add`, `decision.remove` | Adds or removes a decision after a step |
 | `group.add` | Adds an approval group, empty; people are added in Workflow Studio |
 | `action.add` | Tells an existing integration target when a step is submitted, approved or rejected |
 | `item.classify`, `item.leaveOut`, `item.keepAsLink`, `item.prerequisite` | Says what a found item is or becomes, or leaves it out with a reason |
+
+A sign-off is `none` or `{ groups, minimum, sendBackTo }`. `sendBackTo` (optional) names the steps
+an approver may send rejected work back to: the step itself or steps before it in this workflow,
+including one an earlier move of the same proposal adds. A step the repository has keeps its own
+targets, which may name steps this workflow does not have; the check then reports
+`WORKFLOW_REJECTION_TARGET`, and its fix is the one `step.change` that repoints them (the step's
+sign-off as this workflow runs it, sent back to the targets that still fit, or to the step itself).
+A later sign-off change that does not name `sendBackTo` keeps the targets an earlier one set.
 
 Every move is checked when it is proposed, and each finding names the move and field
 (`moves[2].agent`). The draft with the proposal must still make a configuration Workflow Studio can

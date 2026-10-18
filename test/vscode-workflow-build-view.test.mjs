@@ -240,6 +240,13 @@ test('every move reads as a plain sentence', async () => {
   assert.equal(said({ move: 'step.remove', id: 'design' }), `Remove ${design} from this workflow`);
   assert.equal(said({ move: 'step.move', id: 'design', after: null }), `Move ${design} to the start`);
   assert.equal(said({ move: 'step.change', id: 'design', purpose: 'x', signOff: 'none' }), `Change ${design}: what it is for, sign-off`);
+  // Where rejected work goes back to is said in the step's own words.
+  const requirements = page.state().draft.phases.requirements.label;
+  const architects = page.state().draft.groups['architecture-reviewers'].label;
+  assert.equal(said({ move: 'step.change', id: 'design', signOff: { groups: ['architecture-reviewers'], minimum: 1, sendBackTo: ['requirements', 'design'] } }),
+    `Change ${design}: sign-off (if rejected, back to ${requirements} or ${design})`);
+  assert.equal(said({ move: 'step.add', id: 'pay-review', label: 'Review', after: 'design', agent: 'architect', signOff: { groups: ['architecture-reviewers'], sendBackTo: ['design'] } }),
+    `Add the step Review after ${design}, drafted by Architect, signed off by ${architects}; if rejected, back to ${design}`);
   assert.equal(said({ move: 'step.add', id: 'pr-triage', label: 'Triage', from: 'intake', after: null }), 'Add the step Triage (a copy of Intake) at the start');
   assert.equal(said({ move: 'agent.add', id: 'pay-reviewer', label: 'Payments reviewer', description: 'x', from: 'architect' }), 'Add the agent Payments reviewer, starting from Architect');
   assert.equal(said({ move: 'skill.attach', skill: 'pci-check', agent: 'architect', steps: ['design'] }), `Attach the skill pci-check to Architect for ${design}`);

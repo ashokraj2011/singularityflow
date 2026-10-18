@@ -122,6 +122,14 @@ test('membership resolves the actual workspace without changing the profile sele
   await assert.rejects(findWorkspaceMembership(f.root, { workspacePath: f.workspacePath }), { code: 'WORKSPACE_REPOSITORY_IDENTITY_MISMATCH' });
 });
 
+test('an explicit workspace context needs neither registration nor a machine profile', async t => {
+  const f = await fixture(t);
+  const result = JSON.parse(f.flow(['workspace', 'context', f.workspacePath, '--json']).stdout);
+  assert.equal(result.workspace.id, 'context');
+  assert.equal(result.repository.id, 'app');
+  assert.equal(result.worktree.path, await (await import('node:fs/promises')).realpath(f.root));
+});
+
 test('explicit shell and window contexts refuse missing locations instead of routing elsewhere', async t => {
   const f = await fixture(t);
   const missing = path.join(f.base, 'missing');

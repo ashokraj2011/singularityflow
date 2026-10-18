@@ -24,8 +24,10 @@ No new mutable lifecycle database or duplicate checkout registry is introduced.
 ## Commands and surfaces
 
 All repository-scoped commands accept `--context-root <ABSOLUTE-CHECKOUT>` before their existing
-option validation. A missing/replaced explicit location is a refusal, never permission to operate
-on another workspace. Repository-independent commands retain their explicit targets.
+option validation. A missing location or a path that is not its own worktree root is a refusal,
+never permission to operate on another workspace. Clone/worktree identity is observed from Git;
+selection alone does not attest that a checkout is unchanged. Repository-independent commands
+retain their explicit targets.
 
 VS Code clients send the same location selector using `SINGULARITY_FLOW_SURFACE_CONTEXT`; internal
 CLI steps rebind it only to their kernel-returned execution location. Each window persists its own
@@ -65,8 +67,13 @@ Only unselected, owned branch clones with no dependent worktrees, hidden changes
 unpublished refs/reflogs, private document bytes or recovery state may qualify. Canonical/adopted
 checkouts and active branch pointers are retained. Cleanup reuses the capability-drop proof and
 serializes with SFlow worktree preparation. Purge re-verifies the retired clone before deletion;
-uncertain or locked retirements stay recoverable. External Git/editing processes must not modify
-a cleanup target concurrently. No remote branch or Story history is deleted.
+branch-checkout receipt/pointer publication shares that fence too. Uncertain or locked retirements
+stay recoverable. External Git/editing processes must not modify a cleanup target concurrently.
+No remote branch or Story history is deleted.
+
+On Windows, SFlow's Git children receive `core.longpaths=true` so nested retained snapshot paths
+can be indexed. This is process-local configuration; installation does not change global Git
+settings or the repository's saved Git configuration.
 
 The usual 30-minute advisory cache settings remain unchanged. Context scope coalescing is only for
 one invocation; mutations still run their existing fresh identity, lifecycle and authorization gates.

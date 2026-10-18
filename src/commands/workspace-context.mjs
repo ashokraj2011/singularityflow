@@ -23,7 +23,8 @@ export async function run(positionals, options) {
     : await readActiveWorkspaceContext(activeWorkspaceFile(), workspaceRegistryFile(), { refresh: false });
   if (action === 'context') {
     const root = reference ? selected?.repositoryPath : boundExecutionContextRoot() ?? repoRoot(process.cwd());
-    return console.log(JSON.stringify(await captureExecutionContext(root, { fresh: true }), null, 2));
+    const member = await findWorkspaceMembership(root, { workspacePath: selected?.workspacePath });
+    return console.log(JSON.stringify(await captureExecutionContext(root, { workspace: member, fresh: true }), null, 2));
   }
   if (!selected?.workspacePath) throw new SingularityFlowError('Select a workspace or pass its directory.', { code: 'WORKSPACE_SELECTION_REQUIRED' });
   const result = action === 'checkouts' ? await workspaceCheckoutInventory(selected.workspacePath)

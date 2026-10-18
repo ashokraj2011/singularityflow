@@ -28,6 +28,10 @@ export async function run(positionals, options) {
   }
   if (!selected?.workspacePath) throw new SingularityFlowError('Select a workspace or pass its directory.', { code: 'WORKSPACE_SELECTION_REQUIRED' });
   if (action === 'retention') {
+    const allowed = new Set(['json', 'for-agent', 'timings', 'workspace', 'repository',
+      ...(optionBoolean(options, 'heartbeat') ? ['heartbeat', 'surface', 'pid']
+        : ['enabled', 'completed-days', 'cancelled-days', 'unused-clone-days', 'interval-minutes'])]);
+    if (Object.keys(options).some(key => !allowed.has(key))) throw new SingularityFlowError('Do not mix retention settings with heartbeat or unknown options.');
     const retention = await import('../workspace-retention.mjs');
     if (optionBoolean(options, 'heartbeat')) {
       const root = boundExecutionContextRoot() ?? repoRoot(process.cwd());
@@ -55,7 +59,8 @@ export async function run(positionals, options) {
     return console.log(JSON.stringify({ workspacePath: selected.workspacePath, settings }, null, 2));
   }
   if (action === 'cleanup' && optionBoolean(options, 'automatic')) {
-    if (options.apply || options.confirm || options.purge) throw new SingularityFlowError('Automatic cleanup uses retention policy, not manual apply/purge flags.');
+    const allowed = new Set(['automatic', 'refresh', 'json', 'for-agent', 'timings', 'workspace', 'repository']);
+    if (Object.keys(options).some(key => !allowed.has(key))) throw new SingularityFlowError('Automatic cleanup uses retention policy, not manual apply/purge or unknown flags.');
     return console.log(JSON.stringify(await (await import('../workspace-retention.mjs')).runWorkspaceRetention(
       selected.workspacePath, { force: optionBoolean(options, 'refresh'), protect: [boundExecutionContextRoot() ?? process.cwd()] }), null, 2));
   }

@@ -152,6 +152,7 @@ export async function applyWorkspaceCheckoutCleanup(workspacePath, confirmation,
           { state: 'ready', dirty: false }, { targetPath: target });
         if (proof.head !== candidate.head || proof.refsSha256 !== candidate.refsSha256
             || proof.worktreeSha256 !== candidate.worktreeSha256
+            || hash(proof.directoryIdentity) !== hash(candidate.directoryIdentity)
             || await checkoutPrivateState(target, path.join(target, '.git'), permittedTokens)) throw new SingularityFlowError(
           'Retired checkout changed; its recoverable directory was preserved.', { code: 'CHECKOUT_CLEANUP_STALE', details: { retired } });
         await beforeRetire?.();

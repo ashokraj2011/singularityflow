@@ -152,6 +152,8 @@ test('CLI policy updates and automatic run are distinct from manual deletion con
   assert.equal(result.status, 'disabled');
   assert.notEqual(f.flow(['workspace', 'retention', f.workspacePath, '--completed-days', '', '--json'], { fail: true }).status, 0);
   assert.notEqual(f.flow(['workspace', 'cleanup', f.workspacePath, '--automatic', '--purge', '--json'], { fail: true }).status, 0);
+  assert.notEqual(f.flow(['workspace', 'cleanup', f.workspacePath, '--automatic', '--enabled', 'false', '--json'], { fail: true }).status, 0);
+  assert.notEqual(f.flow(['workspace', 'retention', f.workspacePath, '--heartbeat', '--enabled', 'false', '--json'], { fail: true }).status, 0);
 });
 
 test('background worker finishes independently and repeat foreground launches are throttled', { timeout: 120000 }, async t => {

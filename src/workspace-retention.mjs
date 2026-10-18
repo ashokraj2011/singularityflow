@@ -82,7 +82,8 @@ async function protectedRoots(workspacePath, supplied) {
   for (const file of files) {
     if (!/^[a-zA-Z0-9-]{1,80}\.json$/u.test(file)) fail('Unknown checkout presence record.');
     const record = await readLocal(path.join(directory, file), null, 16384);
-    if (record?.format !== 1 || !path.isAbsolute(record.root ?? '') || !Number.isInteger(record.pid) || record.pid < 1) fail('Invalid checkout presence record.');
+    if (record?.format !== 1 || typeof record.root !== 'string' || record.root.includes('\0')
+        || !path.isAbsolute(record.root) || !Number.isInteger(record.pid) || record.pid < 1) fail('Invalid checkout presence record.');
     try { process.kill(record.pid, 0); roots.push(record.root); }
     catch (error) {
       if (error.code === 'EPERM') roots.push(record.root);

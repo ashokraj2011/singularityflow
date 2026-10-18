@@ -16,4 +16,9 @@ Resolve the active Story checkout from this invocation's verified entry packet. 
 
 Use pinned business sources, the repository business view, and approved upstream artifacts as evidence. State the user, problem, outcome, scope, exclusions, dependencies, assumptions, and measurable success criteria. Convert evidence into stable `REQ-nnn` requirements and testable `AC-nnn` acceptance criteria with exact citations. Separate confirmed needs, proposals, and unresolved questions. Do not invent business intent or grant approval.
 
+Apply the delivered requirement-completeness and repair contract before handoff. Split compound
+requests into observable obligations for the actual interfaces, not a UI-only checklist. Existing
+acceptance criteria count as coverage. Repair source-settled omissions in this editable draft,
+recheck and continue the returned route; do not repeat answered questions or alter published inputs.
+
 Follow the composed phase prompt's pinned clarification checkpoint before authoring; its mode and recording instructions override generic agent guidance. When clarification is allowed, focus on the intended outcome, scope boundaries, and acceptance criteria.

@@ -415,7 +415,8 @@ test('compact review entry binds once and preserves every exact review material 
   }
   const { effectiveInstructions, instructionsNote, ...pinnedReviewer } = compact.reviewer;
   assert.deepEqual(pinnedReviewer, full.reviewer, 'pinned reviewer bytes, hash, identity and authority are unchanged');
-  assert.equal(effectiveInstructions, withAgentPathProtocol(full.reviewer.instructions));
+  const { withRequirementReviewProtocol } = await import('../src/requirement-coverage.mjs');
+  assert.equal(effectiveInstructions, withAgentPathProtocol(withRequirementReviewProtocol(full.reviewer.instructions)));
   assert.match(instructionsNote, /changes no authority or review binding/u);
   assert.equal(compact.reviewGuide.readOrder[0], 'reviewer.effectiveInstructions');
   assert.equal(compact.reviewer.setupRequired, false);

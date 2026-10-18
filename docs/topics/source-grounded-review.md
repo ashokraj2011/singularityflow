@@ -8,7 +8,7 @@ questions:
   - How do I repair rejected source line and quote citations?
 commands: [review-source]
 related: [approvals, workflow-authoring, story-lifecycle]
-version: 6
+version: 7
 ---
 
 ## Purpose and prerequisites
@@ -88,6 +88,36 @@ and cite phase, generation and question ID in the rationale. For example, if plu
 was explicitly clarified as one positive-value test, plural wording alone is not a new gap.
 
 ## Correction and human decisions
+
+### Requirement completeness and repair before publication
+
+Scope-producing phases receive a shared obligation-first rubric, including renamed/custom steps
+and legacy requirements artifacts. Initiative requirement producers receive it through their
+declared outputs. The author splits compound requests into independently observable obligations
+and records source → REQ/AC → assertion → verification intent in the existing artifact sections.
+This is not a new mandatory table, semantic pass certificate or extra publication gate.
+
+The rubric applies to UI, API, event/message, batch/job, CLI, library and mixed interfaces. It
+does not invent an endpoint, control, error message, limit or screenshot requirement. An explicit
+request for a button must be preserved; a backend-only request does not acquire UI obligations.
+Existing acceptance criteria count as coverage, and related obligations can share clauses.
+
+Before prepublish, the author repairs clear, source-settled omissions in the current editable
+draft, updates affected scenarios and verification intent together, and rechecks changed content.
+The returned repair-loop policy and configured budget still apply: no unchanged retries or budget
+reset. Exhaustion stops automation, not authorized manual repair. Material ambiguity and scope
+changes use the pinned clarification or human-decision route; settled answers are not asked again.
+Neither this guidance nor a requirements-only turn grants application-code editing permission.
+
+The reviewer assesses the whole normative artifact. A blocking omission must explain how an
+implementation could satisfy the existing coverage yet violate the exact source commitment.
+Pure wording improvements are advisory; genuine omissions, contradictions and unverifiable
+obligations remain blocking. Specified tests or screenshots are not execution evidence.
+Reviewers repair their own packet/citations, not the author's artifact. Real published defects
+still use the authorized successor route, preserving existing publications and decisions.
+
+Previously composed prompts and pinned reviewer instructions receive current guidance at
+delivery; their stored bytes, digests, generation and approval history are not rewritten.
 
 ### Exact citations without a review dead end
 

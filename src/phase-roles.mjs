@@ -66,6 +66,14 @@ export function stepResponsibilities(workflow, phaseId) {
     ?? workflow?.resolution?.obligationGraph?.nodes?.find((node) => node.id === phaseId)?.responsibilities ?? [];
 }
 
+/** Scope guidance follows verified responsibilities, with the same explicit legacy fallback. */
+export function phaseOwnsScope(workflow, phase) {
+  if (stepResponsibilities(workflow, phase?.id).includes('scope')) return true;
+  return !workflow?.resolution?.obligationGraph
+    && phase?.kind !== 'skill' && phase?.skillBinding == null
+    && ['requirements', 'implementation-spec'].includes(artifactKindOf(phase));
+}
+
 /** The latest step before `phaseId` in the Story's order that passes `test`, or null. */
 export function latestStepBefore(workflow, phaseId, test) {
   const order = workflow?.phaseOrder ?? [];

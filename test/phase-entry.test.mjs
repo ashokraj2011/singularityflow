@@ -20,6 +20,7 @@ import { agentPacketPresentation } from '../src/agent-packet-presentation.mjs';
 import { completeAgentResult, withAgentRoutes } from '../src/agent-output.mjs';
 import { librarySkillText } from '../src/skill-library.mjs';
 import { readCopilotStoryFollow, copilotStoryFollowDirectory } from '../src/copilot-story-follow.mjs';
+import { REQUIREMENT_AUTHORING_PROTOCOL } from '../src/requirement-coverage.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin/singularity-flow.mjs');
@@ -709,6 +710,9 @@ test('explicit entry composition returns the governed prompt once and reuses imm
   assert.equal(entry.next[0].copilotCommand, '/sf-phase');
   assert.equal(entry.next[0].modelFreeCommand, null);
   assert.match(entry.context.text, /Bundle verified phase context/);
+  assert.ok(entry.context.text.includes(REQUIREMENT_AUTHORING_PROTOCOL));
+  assert.equal(entry.context.text.split(REQUIREMENT_AUTHORING_PROTOCOL).length, 2, 'one shared requirement rubric, not duplicate inventories');
+  assert.equal(entry.authoringContract.requirementCoverage.acceptanceCriteriaCount, true);
   assert.equal(entry.mutationContract.toolProtocol.localVerification.allowed, true);
   assert.match(entry.context.text, /Local verification is allowed in this admitted authoring turn/u);
   assert.match(entry.context.text, /VS Code task is optional, not a prerequisite/u);

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -9,9 +10,11 @@ import { composeInitiativeContext, verifyInitiativeContext } from '../src/initia
 import { approveInitiative, publishInitiativePhase } from '../src/initiative-evidence.mjs';
 import { createInitiative, loadInitiative, prepareInitiativePhase } from '../src/initiative-state.mjs';
 import { run } from '../src/util.mjs';
+import { REQUIREMENT_AUTHORING_PROTOCOL } from '../src/requirement-coverage.mjs';
 
-async function binaryInputRepository() {
+async function binaryInputRepository(t, { requirements = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-initiative-context-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
   run('git', ['init', '-b', 'main'], { cwd: root });
   run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: root });
   run('git', ['config', 'user.email', 'owner@example.com'], { cwd: root });
@@ -29,9 +32,10 @@ async function binaryInputRepository() {
   portfolio.initiativePhases['binary-source'] = {
     label: 'Binary source',
     outputs: [{
-      id: 'research-bundle',
-      kind: 'binary-bundle',
-      path: 'research.zip',
+      id: requirements ? 'requirements' : 'research-bundle',
+      kind: requirements ? 'markdown' : 'binary-bundle',
+      path: requirements ? 'requirements.md' : 'research.zip',
+      ...(requirements ? { template: 'initiative-context/summary.md' } : {}),
       approval: { mode: 'none' }
     }],
     bundleApproval: { authorities: ['owners'] }
@@ -43,7 +47,7 @@ async function binaryInputRepository() {
       kind: 'markdown',
       path: 'summary.md',
       template: 'initiative-context/summary.md',
-      consumes: ['binary-source/research-bundle'],
+      consumes: requirements ? [] : ['binary-source/research-bundle'],
       approval: { mode: 'none' }
     }],
     bundleApproval: { authorities: ['owners'] }
@@ -68,8 +72,8 @@ async function binaryInputRepository() {
   return root;
 }
 
-test('initiative prompt records binary inputs by hash without embedding their bytes', async () => {
-  const root = await binaryInputRepository();
+test('initiative prompt records binary inputs by hash without embedding their bytes', async t => {
+  const root = await binaryInputRepository(t);
   await prepareInitiativePhase(root, 'INIT-BINARY-CONTEXT', 'binary-source', { agent: 'developer' });
   const binary = path.join(
     root,
@@ -112,6 +116,7 @@ test('initiative prompt records binary inputs by hash without embedding their by
   );
   assert.match(composed.rendered, /Binary bundle is not embedded in the prompt/);
   assert.doesNotMatch(composed.rendered, /MUST_NOT_BE_INLINED/);
+  assert.ok(!composed.rendered.includes(REQUIREMENT_AUTHORING_PROTOCOL), 'a summary consumer does not redefine requirements');
 
   const loaded = await loadInitiative(root, 'INIT-BINARY-CONTEXT');
   const verification = await verifyInitiativeContext(
@@ -121,4 +126,29 @@ test('initiative prompt records binary inputs by hash without embedding their by
     'binary-consumer'
   );
   assert.equal(verification.valid, true);
+});
+
+test('new and cached Initiative requirement prompts receive one rubric without rewriting old receipts', async t => {
+  const root = await binaryInputRepository(t, { requirements: true });
+  const first = await composeInitiativeContext(root, 'INIT-BINARY-CONTEXT', 'binary-source', { agent: 'developer' });
+  assert.ok(first.rendered.includes(REQUIREMENT_AUTHORING_PROTOCOL));
+  assert.equal(first.rendered.split(REQUIREMENT_AUTHORING_PROTOCOL).length, 2);
+  const stored = path.join(root, first.record.promptPath);
+  const recordPath = path.join(root, 'singularity/initiatives/INIT-BINARY-CONTEXT/context/prompt-context-binary-source-gen1.json');
+  // A valid pre-upgrade cache: the old canonical prompt and its corresponding receipt lack the
+  // new guidance. Delivery must adapt it without revising either file or the phase generation.
+  const oldText = first.rendered.replace(REQUIREMENT_AUTHORING_PROTOCOL, '');
+  const oldRecord = { ...first.record, renderedSha256: createHash('sha256').update(oldText).digest('hex'), renderedBytes: Buffer.byteLength(oldText) };
+  await writeFile(stored, oldText);
+  const recordBytes = `${JSON.stringify(oldRecord, null, 2)}\n`;
+  await writeFile(recordPath, recordBytes);
+  const again = await composeInitiativeContext(root, 'INIT-BINARY-CONTEXT', 'binary-source', { agent: 'developer' });
+  assert.equal(again.reused, true);
+  assert.ok(again.rendered.includes(REQUIREMENT_AUTHORING_PROTOCOL));
+  assert.equal(again.rendered.split(REQUIREMENT_AUTHORING_PROTOCOL).length, 2);
+  assert.equal(await readFile(stored, 'utf8'), oldText);
+  assert.equal(await readFile(recordPath, 'utf8'), recordBytes);
+  const loaded = await loadInitiative(root, 'INIT-BINARY-CONTEXT');
+  assert.equal(loaded.initiative.phases['binary-source'].generation, 0);
+  assert.equal((await verifyInitiativeContext(root, loaded.portfolio, loaded.initiative, 'binary-source')).valid, true);
 });

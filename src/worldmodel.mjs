@@ -31,7 +31,7 @@ import { assertPhaseSequence } from './sequence.mjs';
 import { resolveLifecycleCapability } from './capability-context.mjs';
 import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
 import { artifactContentContractLines } from './publication-preflight.mjs';
-import { stepResponsibilities } from './phase-roles.mjs';
+import { phaseOwnsScope, stepResponsibilities } from './phase-roles.mjs';
 import { deriveMutationContract, mutationToolProtocol } from './phase-mutation-contract.mjs';
 import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
 import { recordPromptAudit } from './prompt-audit.mjs';
@@ -60,6 +60,7 @@ import { compilePromptSections } from './prompt-budget.mjs';
 import { tokenEconomyDigest } from './token-economy.mjs';
 import { activeClauseCapsule, CLAUSE_CAPSULE_RENDERER } from './active-clause-capsule.mjs';
 import { phaseAuthoringContract, phaseAuthoringContractLines } from './phase-authoring-contract.mjs';
+import { withRequirementAuthoringProtocol } from './requirement-coverage.mjs';
 import { stakeholderPromptContext, stakeholderRequestDrift } from './stakeholder-prompt-context.mjs';
 import {
   fwmReadCommand, fwmReadContractCommand, fwmReadViewsCommand
@@ -382,7 +383,7 @@ export function phasePromptExecutionContract(definition, workflow, phase) {
   const mutation = deriveMutationContract({ definition, workflow, phase: effectivePhase });
   const lines = [
     `- Changes allowed: ${mutation.summary}`,
-    ...(stepResponsibilities(workflow, phase.id).includes('scope') ? [
+    ...(phaseOwnsScope(workflow, phase) ? [
       '- Scope repair first: inspect phase-entry scopeReview against every pinned source, document and answered clarification while this draft is still editable. Cover each source statement with a substantive observable clause using its exact scopeReview.items[].repair.sourceReference inside that clause. This preserves short requests and paraphrases without substring guessing.',
       '- Scope gaps are advisory, not a blanket phase blocker. Repair clear omissions in the current draft. For ambiguous intent or changed/excluded/deferred scope, ask the authorized person through the returned decision scope route; never record a human disposition yourself. A normal phase approval is not blanket acceptance of unresolved scope. Do not edit earlier phases or re-ask unchanged recorded decisions.'
     ] : []),
@@ -410,6 +411,17 @@ export function phasePromptExecutionContract(definition, workflow, phase) {
     deterministicOnly,
     command,
     lines: Object.freeze(lines)
+  });
+}
+
+/** Same delivery-only corrections for fresh and cached prompts; never persist over their receipts. */
+export function withPhasePromptRuntimeGuidance(text, definition, workflow, phase) {
+  const bound = Boolean(workflow && phase);
+  const verification = bound && mutationToolProtocol(deriveMutationContract({ definition, workflow, phase })).localVerification.allowed;
+  const requirements = bound && phaseOwnsScope(workflow, phase)
+    && !phasePromptExecutionContract(definition, workflow, phase).deterministicOnly;
+  return withAgentPathProtocol(withRequirementAuthoringProtocol(text, Boolean(requirements)), {
+    normalizeLegacy: false, authoringVerification: Boolean(verification)
   });
 }
 
@@ -706,11 +718,8 @@ async function compose(root, options, {
       console.error(`Grounding composition reused: ${existing.file}`);
       const executionEvidence = await phaseExecutionEvidence(root, definition, workflow, phase);
       const replyPrompt = withReplyPersonalization(
-        withAgentPathProtocol(withExecutionEvidenceRefresh(existing.text, existing.record, executionEvidence), {
-          normalizeLegacy: false,
-          authoringVerification: Boolean(workflow && phase
-            && mutationToolProtocol(deriveMutationContract({ definition, workflow, phase })).localVerification.allowed)
-        }), resolvePersonalization({ root }));
+        withPhasePromptRuntimeGuidance(withExecutionEvidenceRefresh(existing.text, existing.record, executionEvidence), definition, workflow, phase),
+        resolvePersonalization({ root }));
       if (!renderOnly && options['skip-prompt-audit'] !== true) {
         await recordCompositionPromptAudit(root, {
           text: replyPrompt,
@@ -1126,11 +1135,7 @@ async function compose(root, options, {
     console.error(`Grounding composition recorded: ${file}`);
   }
   // Retained grounding stays canonical; the audit describes the exact host-delivered prompt.
-  const replyPrompt = withReplyPersonalization(withAgentPathProtocol(composedText, {
-    normalizeLegacy: false,
-    authoringVerification: Boolean(workflow && phase
-      && mutationToolProtocol(deriveMutationContract({ definition, workflow, phase })).localVerification.allowed)
-  }), resolvePersonalization({ root }));
+  const replyPrompt = withReplyPersonalization(withPhasePromptRuntimeGuidance(composedText, definition, workflow, phase), resolvePersonalization({ root }));
   if (!renderOnly && options['skip-prompt-audit'] !== true) {
     await recordCompositionPromptAudit(root, {
       text: replyPrompt,

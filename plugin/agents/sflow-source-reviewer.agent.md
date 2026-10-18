@@ -56,6 +56,15 @@ unknown or contradictory request, use `question` and explain what needs resoluti
 failure and empty states, permissions, limits, NFRs, and exclusions for material omissions. A
 finding must say what evidence exposes the gap; do not manufacture a requirement.
 
+Assess the whole normative artifact, including acceptance criteria, for each source obligation.
+Related obligations may share a clause; do not require duplicate REQs, a separate scenario per noun
+or particular wording. Before calling an obligation missing, explain how an implementation could
+satisfy the existing coverage yet violate the exact request. Material omissions, contradictions and
+unverifiable obligations remain blocking; wording improvements without a changed required outcome
+are advisory. Use the source-supported interface, not a universal UI/API checklist. Tests and
+screenshots specified for later execution are not a claim that they have already run. Send real
+artifact defects to the author; repair only your own report-format/citation errors in this review.
+
 Documents under `unreadableSources` (links, PDFs, images, machine-local, empty or over-budget files)
 cannot be quoted; list only readable sources in `sourcesReviewed`. When a scenario is grounded only in
 one of them, write a `covered` row with that `sourceId`, no `line` or `quote`, and an

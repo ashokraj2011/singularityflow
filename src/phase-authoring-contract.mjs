@@ -1,7 +1,8 @@
 import path from 'node:path';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
-import { isConformancePhase, isConvergencePhase, isTestEvidencePhase, stepResponsibilities } from './phase-roles.mjs';
+import { isConformancePhase, isConvergencePhase, isTestEvidencePhase, phaseOwnsScope, stepResponsibilities } from './phase-roles.mjs';
 import { CLI_PATH_CONTRACT } from './safe-command-guidance.mjs';
+import { REQUIREMENT_COVERAGE, REQUIREMENT_AUTHORING_PROTOCOL } from './requirement-coverage.mjs';
 
 /** Resolve responsibilities from the accepted workflow, never from a packaged phase name. */
 export function plannedDeliveryCodeSteps(workflow, phase) {
@@ -26,6 +27,7 @@ export function phasePlansDelivery(workflow, phase) {
 export function phaseAuthoringContract(definition, workflow, phase) {
   if (!phase) return null;
   const roles = new Set(stepResponsibilities(workflow, phase.id));
+  if (phaseOwnsScope(workflow, phase)) roles.add('scope');
   const plans = phasePlansDelivery(workflow, phase);
   if (plans) roles.add('plan');
   if (phaseRequiresCodeDelivery(phase)) roles.add('code');
@@ -33,7 +35,7 @@ export function phaseAuthoringContract(definition, workflow, phase) {
   if (isTestEvidencePhase(phase)) roles.add('verification');
   if (isConformancePhase(phase)) roles.add('closure');
   const evidenceRoot = path.posix.join(definition.workItemRoot ?? 'singularity/work-items', workflow?.workItem?.id ?? '<WORK-ID>', 'evidence');
-  return Object.freeze({ revision: 'phase-authoring-v7', phase: phase.id, roles: [...roles].sort(),
+  return Object.freeze({ revision: 'phase-authoring-v8', phase: phase.id, roles: [...roles].sort(),
     priorApprovalsImmutable: true, revalidatePriorDraftQuality: false,
     executionEvidence: { authority: 'immutable-submission-packets', discoveryIsExecution: false,
       commandSuccessIsCriterionAcceptance: false, priorReportsMutable: false },
@@ -42,7 +44,7 @@ export function phaseAuthoringContract(definition, workflow, phase) {
     configuration: { productSource: false, sourceTagsRequired: false, apiDocumentationRequired: false,
       scopeAccountingRequired: true, candidateAndTestInput: true, protectedPathsEnforced: true },
     clauseAuthority: 'approved-active-clause-capsule', evidenceRoot,
-    ...(roles.has('scope') ? { verificationIntent: {
+    ...(roles.has('scope') ? { requirementCoverage: REQUIREMENT_COVERAGE, verificationIntent: {
       table: 'Clause | Methods | Criterion', methods: ['test', 'visual', 'inspection'],
       combination: 'all', oneRowPerDeclaredClause: true, nonTestRequirementCriterion: 'exact-declared-AC'
     }, scenarioCoverage: { table: 'Clause | Scenario | Outcome', outcomes: ['success', 'failure', 'boundary', 'empty'],
@@ -79,6 +81,7 @@ export function phaseAuthoringContractLines(contract, { deterministicOnly = fals
     '- Readiness: advisories are not current blockers. Documentation comments need no human approval; unplanned-path advice names work to account for before approval. When prepublish is ready and returns commands.publish, continue that publication attempt; required tests still run there. A resolved runner does not require editing package scripts just to emit its configured report.',
     ...(deterministicOnly ? [] : [UPSTREAM_DISCREPANCY_PROTOCOL]),
     '- Configuration: manifests, lockfiles and build/test/CI/runtime settings are configuration, never product code or executable test declarations. Do not add code traceability tags or API documentation to them. Account for tooling under Supporting files with a reason, or use fulfillment configuration for a requirement changing runtime settings. Keep these bytes in scope review, candidate hashes and required tests; governed configuration still uses its separate authority.',
+    ...(contract.requirementCoverage && !deterministicOnly ? [REQUIREMENT_AUTHORING_PROTOCOL] : []),
     ...(contract.verificationIntent ? [
       '- Scenario coverage: author S-number situations with substantive Given/When/Then acceptance cases and a `## Scenario coverage` table: Clause | Scenario | Outcome (success/failure/boundary/empty). Cover every behavior and acceptance clause; repeat rows for multiple outcomes. Approved rejection/error behavior needs a distinct invalid-input case with an observable error, not only failure-state prose. Use pinned request/clarification facts, not invented error wording or extra scope. Lexical hints are advisory; independent source review still judges semantic completeness.',
       '- Specification: author a `## Verification intent` table with Clause | Methods | Criterion, one row per declared clause. Methods = test, visual, inspection, or a comma-separated combination (all required). AC Criterion is its own ID; a visual/inspection requirement names the AC proving it. Test-only requirements may use -. Choose from pinned source obligations: screenshot/visual acceptance is not an executable-test exemption. Resolve material ambiguity here, not in Planning.'

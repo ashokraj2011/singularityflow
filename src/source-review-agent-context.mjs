@@ -6,6 +6,7 @@ import { branch, gitDir } from './git.mjs';
 import { workflowBranchAllowed } from './story-paths.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { withAgentPathProtocol } from './safe-command-guidance.mjs';
+import { withRequirementReviewProtocol, REQUIREMENT_REVIEW_PROTOCOL } from './requirement-coverage.mjs';
 
 /**
  * What a reviewer must act on comes first. `[review-packet-order]`
@@ -32,8 +33,9 @@ export function compactSourceReviewContext(packet, binding) {
   }
   const merged = { ...binding, ...context, resultType: 'source-review-agent-context',
     ...(typeof packet.reviewer?.instructions === 'string' ? { reviewer: { ...packet.reviewer,
-      effectiveInstructions: withAgentPathProtocol(packet.reviewer.instructions),
-      instructionsNote: 'instructions and sha256 preserve the pinned agent. effectiveInstructions adds only the current runtime path protocol; it changes no authority or review binding.' } } : {}),
+      effectiveInstructions: withAgentPathProtocol(packet.kind === 'specification'
+        ? withRequirementReviewProtocol(packet.reviewer.instructions) : packet.reviewer.instructions),
+      instructionsNote: 'instructions and sha256 preserve the pinned agent. effectiveInstructions adds current runtime path and applicable requirement-review guidance; it changes no authority or review binding.' } } : {}),
     bindingPath: packet.reportTemplate ? 'reportTemplate.binding' : null,
     reviewGuide: {
       role: packet.canReview
@@ -41,6 +43,9 @@ export function compactSourceReviewContext(packet, binding) {
         : 'No review can be prepared here; relay continuation.actions and stop.',
       readOrder: [typeof packet.reviewer?.instructions === 'string' ? 'reviewer.effectiveInstructions' : 'reviewer.instructions', 'clarifications', 'citationGuide', 'sources', 'upstreamSpec', 'artifact', 'reportTemplate', 'reportSchema'],
       exactTexts: true, bindingCopies: packet.reportTemplate ? 1 : 0,
+      ...(packet.kind === 'specification' ? { requirementCoverage: typeof packet.reviewer?.instructions === 'string'
+        ? 'Apply the requirement-review calibration in reviewer.effectiveInstructions; existing acceptance criteria count as coverage.'
+        : REQUIREMENT_REVIEW_PROTOCOL } : {}),
       verification: 'Specification: assess declared verification intent against pinned source obligations, not tool availability. Planning: preserve approved methods and exact verificationCriterion; primary visual/inspection proof is not a test exemption. A real omitted-test exemption still needs a pending human disposition. Neither a contract nor file presence establishes a visual pass.',
       next: 'Start from reportTemplate; preserve binding/metadata and supply independent assessments/citations. Read the exact source text files; their 1-based lines, not packet JSON lines, are citation lines. Use citationGuide to check all scenarios/clauses. Stage, check, repair format/citations using repair hints in this turn (at most two changed packets), then retain when retentionReady, even with honest semantic gaps. Use stagingProtocol; native file-read tools, not shell parsers or duplicate inventories.' } };
   const ordered = {};

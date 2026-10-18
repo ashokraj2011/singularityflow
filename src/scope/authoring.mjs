@@ -1,16 +1,10 @@
 /** Early repair guidance, never a new publication/approval gate or an automatic scope decision. */
 import path from 'node:path';
-import { stepResponsibilities } from '../phase-roles.mjs';
+import { phaseOwnsScope } from '../phase-roles.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import { scopeAuthorities } from './decisions.mjs';
 
-/** Use the pinned responsibility, not a phase name; preserve explicit legacy definition outputs. */
-export function phaseOwnsScope(workflow, phase) {
-  if (stepResponsibilities(workflow, phase?.id).includes('scope')) return true;
-  return !workflow.resolution?.obligationGraph
-    && phase?.kind !== 'skill' && phase?.skillBinding == null
-    && ['requirements', 'implementation-spec'].includes(phase?.requiredArtifact?.kind ?? phase?.artifact?.kind);
-}
+export { phaseOwnsScope };
 
 /** Read the actual current draft while it is still repairable, not only its later submitted index. */
 export async function scopeAuthoringCheckpoint(root, definition, workflow, phase) {

@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="256"
+     height="256"
+     viewBox="519 758 160 160"
+     fill="none"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     role="img"
+     aria-labelledby="title desc">
+  <title id="title">Singularity Flow</title>
+  <desc id="desc">The Singularity Flow app icon: an integral f between S and F, from 0 to infinity, inside flowing braces.</desc>
+
+  <!--
+    Source of icon.png, the extension icon (VS Code accepts only a PNG there): render this file at
+    256 x 256 with a transparent background. Coordinates are the brand sheet's pixels, so the
+    drawing can be overlaid on the sheet.
+  -->
+  <defs>
+    <linearGradient id="plate" x1="530" y1="760" x2="668" y2="916" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22503a"/>
+      <stop offset="0.55" stop-color="#173827"/>
+      <stop offset="1" stop-color="#0c2318"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="600" y1="776" x2="590" y2="906" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8ccf9f"/>
+      <stop offset="0.5" stop-color="#5daa78"/>
+      <stop offset="1" stop-color="#2f7d52"/>
+    </linearGradient>
+    <linearGradient id="infinity" x1="621" y1="793" x2="657" y2="793" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2f7350"/>
+      <stop offset="1" stop-color="#78bd8e"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="520" y="759" width="158" height="158" rx="27" fill="url(#plate)"/>
+  <rect x="520.6" y="759.6" width="156.8" height="156.8" rx="26.4" stroke="#6fae86" stroke-opacity="0.38" stroke-width="1.2"/>
+
+  <g stroke="url(#ink)">
+    <!-- Braces, each ending in an arrow; two flow lines. -->
+    <g stroke-width="4.2">
+      <path d="M572 785H546.5C542.8 785 540.5 787.3 540.5 791V826C540.5 832 538.5 836 533.5 838.3C538.5 840.6 540.5 844.6 540.5 850.6V859.5C540.5 863.2 542.8 865.5 546.5 865.5M566 778.5L572.5 785L566 791.5"/>
+      <path d="M650 812.5C654.2 812.5 656.7 814.8 656.7 818.5V832.5C656.7 836.5 658.7 838.7 663.7 839.6C658.7 840.5 656.7 842.7 656.7 846.7V887C656.7 890.8 654.4 893.3 650.6 893.3H624.5M631 886.8L624.5 893.3L631 899.8"/>
+      <path d="M607.5 810.8C614 810.8 618.5 812.5 623 816.5C628 821 633 824.2 642.5 824.2"/>
+      <path d="M605.8 819.5C612 819.5 617 822.5 621.5 827C626.5 832 632 839.2 650 839.2M644.5 832.6L651.2 839.2L644.5 845.8"/>
+    </g>
+    <!-- Orbit fragments around the f. -->
+    <g stroke-width="3.6" stroke-opacity="0.55">
+      <path d="M558.9 811.9A43 43 0 0 1 586.3 799.2"/>
+      <path d="M570.7 816.4A32 32 0 0 1 584.4 810.5"/>
+      <path d="M577.3 871.4A32 32 0 0 1 568.7 866.1"/>
+      <path d="M617.4 836.2A28 28 0 0 1 617.6 846.9"/>
+      <path d="M581.5 901.5C590 895 595.5 884 597.5 872.5M598.5 901.5L603 896.5M583.5 785H592.5"/>
+    </g>
+    <!-- The integral f, its bar, S, F and 0. -->
+    <path stroke-width="9" d="M611.5 790C609.5 788.4 607.5 788 605.6 788.2C601.5 788.4 599.7 793 599 798L587.4 882C586.85 886 584 891.4 579 891.4C575.8 891.4 573.4 890.6 571.6 889.4"/>
+    <path stroke-width="9" stroke-linecap="butt" d="M576 833.5H608.5"/>
+    <path stroke-width="9.4" stroke-linecap="butt" d="M568.8 832.2C567.4 829 564.4 827.2 560.4 827.2C555.6 827.2 552.4 829.9 552.4 833.8C552.4 838 555.9 839.6 560.4 841.1C565.3 842.7 568.8 844.6 568.8 849.3C568.8 854 565 857 560.2 857C555.6 857 552.5 855.1 551.2 851.6"/>
+    <path stroke-width="9" stroke-linecap="butt" stroke-linejoin="miter" d="M634.2 858.5H612V890M612 872.5H630"/>
+    <ellipse stroke-width="6.2" cx="550.4" cy="886.3" rx="7.3" ry="12.35"/>
+  </g>
+  <path stroke="url(#infinity)" stroke-width="6.4" d="M639.2 793C636 788.5 632.8 784.65 628.8 784.65C624.3 784.65 621.25 788.4 621.25 793S624.3 801.35 628.8 801.35C632.8 801.35 636 797.5 639.2 793S645.6 784.65 649.6 784.65C654.1 784.65 657.15 788.4 657.15 793S654.1 801.35 649.6 801.35C645.6 801.35 642.4 797.5 639.2 793Z"/>
+</svg>

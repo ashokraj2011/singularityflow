@@ -157,6 +157,19 @@ test('the activity view opens as one compact enterprise navigation surface', () 
     'a contributed view gated on a condition nothing sets is a view nobody can open');
 });
 
+test('the extension icon is a square PNG the packager accepts, drawn from its tracked SVG source', async () => {
+  // vsce refuses an SVG `icon`, and the Marketplace wants at least 128 px (256 for Retina screens).
+  assert.equal(manifest.icon, 'media/icon.png');
+  const png = await readFile(path.join(extensionRoot, manifest.icon));
+  assert.equal(png.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', 'icon is not a PNG');
+  assert.equal(png.subarray(12, 16).toString('latin1'), 'IHDR');
+  assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [256, 256]);
+  assert.equal(png[25], 6, 'icon needs an alpha channel for its rounded corners');
+  const source = await readFile(path.join(extensionRoot, 'media', 'icon.svg'), 'utf8');
+  assert.match(source, /<svg[^>]*width="256"[^>]*height="256"/);
+  assert.match(source, /Source of icon\.png/);
+});
+
 test('every contributed view can wake the extension', () => {
   // VS Code fires onView only for views that are actually visible. A view without its own event
   // means a person who collapsed the others sees a sidebar of empty views and no way to fill them —

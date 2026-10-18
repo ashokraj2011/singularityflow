@@ -15,6 +15,7 @@
  */
 import * as vscode from 'vscode';
 
+import { BRAND_ART_STYLE, brandBanner } from './brand-art.ts';
 import { registerMessageRouter, stringField } from './messages.ts';
 import { RESULT_CARD_SCRIPT, RESULT_CARD_STYLE, resultCardHtml } from './result-card-page.ts';
 import { navigateTo } from './navigate.ts';
@@ -148,7 +149,8 @@ function render(target: vscode.WebviewPanel, view: ResultCardView, note: string 
     <button type="button" data-result-nav="journal">Local Journal</button>
     ${helpTopic ? '<button type="button" data-result-nav="help">Explain this error</button>' : ''}
   </nav>`;
-  const body = `<style nonce="${token}">${RESULT_CARD_STYLE}
+  // My Work is the product's main page, so it alone carries the brand banner.
+  const body = `<style nonce="${token}">${RESULT_CARD_STYLE}${isHome ? BRAND_ART_STYLE : ''}
 .sf-fidelity { margin: 12px 2px 0; color: var(--vscode-descriptionForeground); font-size: .92em; }
 .sf-result-main { padding: 24px; max-width: ${isHome ? '1180px' : '760px'}; margin: 0 auto; }
 .sf-result-nav { display:flex; align-items:center; gap:8px; margin:0 0 16px; padding:0 0 12px;
@@ -158,7 +160,7 @@ function render(target: vscode.WebviewPanel, view: ResultCardView, note: string 
 .sf-result-nav button:hover { background:var(--vscode-list-hoverBackground); }
 .sf-result-nav span { color:var(--vscode-descriptionForeground); font-weight:600; }
 </style>
-<main class="sf-result-main">${contextNavigation}${resultCardHtml(view)}${footnote}</main>`;
+<main class="sf-result-main">${isHome ? brandBanner() : ''}${contextNavigation}${resultCardHtml(view)}${footnote}</main>`;
   /**
    * The standard footer, not an opt-out.
    *

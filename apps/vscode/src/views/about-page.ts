@@ -1,5 +1,6 @@
 /** Pure read-only About view; all installed-build observations come from the CLI. */
-import { brandLockup, escape } from './webview.ts';
+import { BRAND_ART_STYLE, brandCard } from './brand-art.ts';
+import { escape } from './webview.ts';
 
 export interface AboutSurface {
   id: string; label: string; status: string; version: string | null; build: string | null;
@@ -40,7 +41,7 @@ export function isAboutInfo(value: unknown): value is AboutInfo {
 
 export function aboutHtml(info: AboutInfo | null, window: AboutWindow, error: string | null = null): string {
   const loadedDate = / (\d{4}-\d\d-\d\dT\S+Z)$/u.exec(window.build)?.[1] ?? 'unknown';
-  return `<header class="page-header">${brandLockup()}<h1>About Singularity Flow</h1>
+  return `<header class="page-header">${brandCard()}<h1>About Singularity Flow</h1>
     <p class="muted">Versions and build dates for this window and the CLI on PATH. No repository check, install or repair is performed.</p></header>
     <p><button data-about="refresh" class="secondary">Refresh build information</button>
       <button data-about="copy" class="secondary"${info ? '' : ' disabled'}>Copy diagnostics</button></p>
@@ -65,5 +66,5 @@ export function aboutHtml(info: AboutInfo | null, window: AboutWindow, error: st
     <p><button data-about="after-install" class="secondary">Open After install</button></p>`;
 }
 
-export const ABOUT_STYLE = '.about-table{overflow-x:auto}.about-table code{overflow-wrap:anywhere;white-space:normal}.about-facts{display:grid;grid-template-columns:minmax(9rem,auto) 1fr;gap:.6rem 1.2rem}.about-facts dd{margin:0;overflow-wrap:anywhere}';
+export const ABOUT_STYLE = BRAND_ART_STYLE + '.about-table{overflow-x:auto}.about-table code{overflow-wrap:anywhere;white-space:normal}.about-facts{display:grid;grid-template-columns:minmax(9rem,auto) 1fr;gap:.6rem 1.2rem}.about-facts dd{margin:0;overflow-wrap:anywhere}';
 export const ABOUT_SCRIPT = `document.addEventListener('click',event=>{const button=event.target.closest('[data-about]');if(button&&!button.disabled)window.__sfVscode.postMessage({type:button.dataset.about})});`;

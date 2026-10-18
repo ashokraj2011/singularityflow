@@ -3391,10 +3391,13 @@ test('active workspace context resolves friendly references and adds governed St
   assert.equal(selectedStory.repositoryPath, await realpath(storyCheckout));
   assert.equal(selectedStory.canonicalRepositoryPath, await realpath(lead));
   assert.equal(selectedStory.storyWorktree, true);
-  const execution = await resolveWorkspaceExecutionContext(selection, registry, { cwd: lead });
+  const boundExecution = await resolveWorkspaceExecutionContext(selection, registry, { cwd: lead });
+  assert.equal(boundExecution.storyId, 'MOB-123', 'a checkout already bound to another Story is not redirected by global navigation');
+  assert.equal(boundExecution.repositoryPath, await realpath(lead));
+  const execution = await resolveWorkspaceExecutionContext(selection, registry, { cwd: root });
   assert.equal(execution.storyId, 'MOB-999');
   assert.equal(execution.repositoryPath, await realpath(storyCheckout),
-    'the selected Story checkout wins over the canonical clone in the next Copilot turn');
+    'a neutral host follows the selected Story checkout in the next Copilot turn');
   assert.equal(execution.selectionStatus, 'ready');
   await assert.rejects(() => buildWorkspaceContext(registry, created.workspace.id, { repositoryId: 'missing' }), /not part of workspace/);
 });

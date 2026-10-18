@@ -1171,33 +1171,47 @@ ${scripts}
  * words — `SINGULARITY FLOW`, `SINGULARITY Flow`, `Singularity Flow`, and a bare `Flow`. The brand
  * lockup settles it: small-caps SINGULARITY above a full-weight Flow.
  *
- * The mark is drawn in `currentColor` rather than the brand gradient. `media/lockup.svg` carries the
- * gradient on its own dark card, which is right for a README and wrong inside an editor that may be
- * in a light or high-contrast theme — a dark plate would sit in the header like a sticker. The
- * geometry is the same curve; only the paint defers to the theme.
+ * The mark is drawn in `currentColor` rather than the brand greens. `media/lockup.svg` carries the
+ * greens on the navy documentation card, which is right for a README and wrong inside an editor that
+ * may be in a light or high-contrast theme — a plate would sit in the header like a sticker. The
+ * geometry is the same f∞₀; only the paint defers to the theme.
  */
 export function brandLockup({ compact = false } = {}): string {
   return `<div class="brand-lockup">${brandMark(compact ? 16 : 20)}<span class="brand-words">SINGULARITY <span>Flow</span></span></div>`;
 }
 
 /**
- * The mark in the brand's own green, for the one place that is product chrome rather than document
+ * The brand sheet's f∞₀ — an f with ∞ above-right and 0 below-left — redrawn for 16–30 px on the
+ * 24-unit grid of `media/activity.svg`, which draws the same three shapes.
+ *
+ * The sheet's own proportions (`integralMark` in brand-art.ts) do not survive this size: its ∞ would
+ * be five units wide with strokes under one unit. Here the ∞ and the 0 are larger than on the sheet,
+ * every stroke is at least 1.4 units (about one pixel at 16 px), and the f's hook stops short of the
+ * ∞ so the three parts stay separate shapes.
+ */
+const SMALL_MARK = `<path stroke-width="1.6" d="M13.2 4.7C13 3.35 12.5 2.6 11.85 2.6C11.1 2.6 10.75 3.4 10.65 4.4L9.7 17.6C9.55 19.75 8.85 21.1 7.9 21.1C7.75 21.1 7.62 21.07 7.5 21.02M8.3 10.6H12.1"/>
+    <path stroke-width="1.4" d="M18.85 3.45C18.33 2.62 17.81 1.85 17.17 1.85C16.42 1.85 15.9 2.55 15.9 3.45S16.42 5.05 17.17 5.05C17.81 5.05 18.33 4.28 18.85 3.45S19.89 1.85 20.53 1.85C21.28 1.85 21.8 2.55 21.8 3.45S21.28 5.05 20.53 5.05C19.89 5.05 19.37 4.28 18.85 3.45Z"/>
+    <ellipse stroke-width="1.4" cx="3.55" cy="19" rx="1.55" ry="2.45"/>`;
+
+/**
+ * The mark in the brand's own greens, for the one place that is product chrome rather than document
  * content: the sidebar header.
  *
  * `brandMark` defers to `currentColor` because it sits inside prose whose colour the theme owns.
- * This is the logo, in the gradient the brand assets use — the same three stops as
- * `media/brand.svg`. The gradient id is suffixed per call: two of these in one document with the
- * same id would leave the second referring to the first's definition, and a mark that renders in a
- * sibling's colour is the kind of bug nobody thinks to look for.
+ * This is the logo, in the sheet's gradient: dark green at the 0, light at the ∞. The stops carry the
+ * dark-theme greens of the My Work banner; `SIDEBAR_STYLE` swaps in the light-card greens for light
+ * themes and the editor foreground for high contrast. The gradient id is suffixed per call: two of
+ * these in one document with the same id would leave the second referring to the first's
+ * definition, and a mark that renders in a sibling's colour is the kind of bug nobody thinks to look
+ * for.
  */
 export function brandSymbol(size = 30, id = 'sf-brand-flow'): string {
   return `<svg class="brand-symbol" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none"
-    role="img" aria-label="Singularity Flow" stroke-linecap="round" stroke-linejoin="round">
-    <defs><linearGradient id="${id}" x1="5" y1="20" x2="20" y2="4" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#419458"/><stop offset="0.52" stop-color="#5CAE5F"/><stop offset="1" stop-color="#83CC6D"/>
+    role="img" aria-label="Singularity Flow" stroke="url(#${id})" stroke-linecap="round" stroke-linejoin="round">
+    <defs><linearGradient id="${id}" x1="2" y1="23.5" x2="21.5" y2="2" gradientUnits="userSpaceOnUse">
+      <stop offset="0" class="sf-mark-low" stop-color="#1b6a43"/><stop offset=".5" class="sf-mark-mid" stop-color="#3f9462"/><stop offset="1" class="sf-mark-high" stop-color="#72b98a"/>
     </linearGradient></defs>
-    <path stroke="url(#${id})" stroke-width="2.1" d="M14.85 4.18C12.18 3.72 11.28 5.34 11.02 8.36L10.48 14.78C10.18 18.32 9.10 20.10 6.82 20.10C6.04 20.10 5.42 19.78 5.02 19.18"/>
-    <g stroke="url(#${id})" stroke-width="0.85"><circle cx="17.18" cy="4.28" r="1.08"/><circle cx="19.78" cy="4.28" r="1.08"/><circle cx="12.62" cy="19.78" r="1.42"/></g>
+    ${SMALL_MARK}
   </svg>`;
 }
 
@@ -1205,7 +1219,6 @@ export function brandSymbol(size = 30, id = 'sf-brand-flow'): string {
 export function brandMark(size = 20): string {
   return `<svg class="brand-mark" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" aria-hidden="true"
     stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-    <path stroke-width="2.1" d="M14.85 4.18C12.18 3.72 11.28 5.34 11.02 8.36L10.48 14.78C10.18 18.32 9.10 20.10 6.82 20.10C6.04 20.10 5.42 19.78 5.02 19.18"/>
-    <g stroke-width="0.85"><circle cx="17.18" cy="4.28" r="1.08"/><circle cx="19.78" cy="4.28" r="1.08"/><circle cx="12.62" cy="19.78" r="1.42"/></g>
+    ${SMALL_MARK}
   </svg>`;
 }

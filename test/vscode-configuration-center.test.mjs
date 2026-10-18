@@ -736,8 +736,8 @@ test('the sidebar header shows the brand mark, not the old tile', async () => {
 
   const { brandSymbol } = await import(source('webview.ts'));
   const svg = brandSymbol(30);
-  // The brand green, matching media/brand.svg rather than an approximation.
-  for (const stop of ['#419458', '#5CAE5F', '#83CC6D']) assert.ok(svg.includes(stop), `${stop} is missing`);
+  // The brand sheet's greens, matching media/brand.svg and brand-art.ts rather than an approximation.
+  for (const stop of ['#1b6a43', '#3f9462', '#72b98a']) assert.ok(svg.includes(stop), `${stop} is missing`);
   assert.match(svg, /aria-label="Singularity Flow"/);
 
   /**
@@ -746,7 +746,8 @@ test('the sidebar header shows the brand mark, not the old tile', async () => {
    * gradient — or with nothing, if the first is ever removed.
    */
   assert.notEqual(brandSymbol(20, 'one').match(/id="([^"]+)"/)[1], brandSymbol(20, 'two').match(/id="([^"]+)"/)[1]);
-  assert.equal((brandSymbol(20, 'one').match(/url\(#one\)/g) ?? []).length, 2);
+  assert.equal((brandSymbol(20, 'one').match(/url\(#one\)/g) ?? []).length, 1);
+  assert.doesNotMatch(brandSymbol(20, 'one'), /url\(#sf-brand-flow\)/);
 });
 
 /**

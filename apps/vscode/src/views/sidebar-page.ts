@@ -100,6 +100,10 @@ export const SIDEBAR_STYLE = `${CALM_PALETTE_STYLE}
   button:disabled { cursor:default; opacity:.6; }
   button:focus-visible,summary:focus-visible { outline:2px solid var(--vscode-focusBorder); outline-offset:-2px; }
   .brand { display:flex; align-items:center; gap:8px; padding:16px 14px; font-weight:500; flex:none; }
+  body.vscode-light .brand-symbol .sf-mark-low { stop-color:#145a3a; }
+  body.vscode-light .brand-symbol .sf-mark-mid { stop-color:#2b7a52; }
+  body.vscode-light .brand-symbol .sf-mark-high { stop-color:#4f9b70; }
+  body:is(.vscode-high-contrast,.vscode-high-contrast-light) .brand-symbol stop[class] { stop-color:var(--vscode-foreground); }
   .profile-button,.unpin { display:grid; place-items:center; border:0; background:transparent; border-radius:4px; width:28px; height:28px; flex:none; }
   .profile-button { margin-left:auto; }
   .context { padding:4px 14px 16px; border-bottom:1px solid var(--sf-border-color); flex:none; }

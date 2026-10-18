@@ -14,7 +14,12 @@
  * The extension icon (`media/icon.png`, drawn from `media/icon.svg`) is the third.
  */
 
-/** The f with ∞ above and 0 below, in the sheet's coordinates (bounding box 83,86 → 246,294). */
+/**
+ * The f with ∞ above and 0 below, in the sheet's coordinates (bounding box 83,86 → 246,294).
+ * `media/brand.svg` and `media/lockup.svg` carry the same geometry. Below about 30 px it does not
+ * hold up, so the activity bar, sidebar header and page lockups use the 24-unit redraw in
+ * `media/activity.svg` and webview.ts instead.
+ */
 function integralMark(gradient: string): string {
   return `<g fill="none" stroke="url(#${gradient})" stroke-linecap="round" stroke-linejoin="round">
     <path stroke-width="9" d="M178 107.5C176.8 103.2 173.8 101.2 170.2 101.4C165 101.6 159.5 108 158.8 114L141.6 266C141 271 137 274.8 131.8 274.8C129.4 274.8 127.3 274.3 125.5 273.4M134.5 176H169.5"/>

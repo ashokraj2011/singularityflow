@@ -1,34 +1,29 @@
 <svg xmlns="http://www.w3.org/2000/svg"
      width="512"
      height="512"
-     viewBox="0 0 512 512"
+     viewBox="44.5 70 240 240"
      fill="none"
      role="img"
      aria-labelledby="title desc">
   <title id="title">Singularity Flow</title>
-  <desc id="desc">The Singularity Flow brand mark: a flowing integral curve with connected singularity and output nodes.</desc>
+  <desc id="desc">The Singularity Flow brand mark: an f with infinity above it and zero below it.</desc>
 
+  <!--
+    Transparent, scalable brand mark, in the brand sheet's own pixel coordinates (the same geometry
+    and greens as integralMark() in src/views/brand-art.ts): dark green at the 0, light at the ∞.
+  -->
   <defs>
-    <linearGradient id="flow" x1="118" y1="416" x2="410" y2="82" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#3F8F57"/>
-      <stop offset="0.52" stop-color="#58A65C"/>
-      <stop offset="1" stop-color="#82C66A"/>
+    <linearGradient id="ink" x1="105" y1="290" x2="235" y2="90" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1b6a43"/>
+      <stop offset="0.5" stop-color="#3f9462"/>
+      <stop offset="1" stop-color="#72b98a"/>
     </linearGradient>
   </defs>
-
-  <!-- Transparent, scalable brand mark. -->
-  <path stroke="url(#flow)"
-        stroke-width="42"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        d="M300 89
-           C243 79 224 114 218 178
-           L207 315
-           C201 391 177 429 128 429
-           C111 429 98 422 89 409"/>
-  <g stroke="url(#flow)" stroke-width="16">
-    <circle cx="350" cy="91" r="23"/>
-    <circle cx="406" cy="91" r="23"/>
-    <circle cx="253" cy="422" r="31"/>
+  <g stroke="url(#ink)" stroke-linecap="round" stroke-linejoin="round">
+    <path stroke-width="9"
+          d="M178 107.5C176.8 103.2 173.8 101.2 170.2 101.4C165 101.6 159.5 108 158.8 114L141.6 266C141 271 137 274.8 131.8 274.8C129.4 274.8 127.3 274.3 125.5 273.4M134.5 176H169.5"/>
+    <path stroke-width="7"
+          d="M217 102C212.5 95.5 208 89.5 202.5 89.5C196 89.5 191.5 95 191.5 102S196 114.5 202.5 114.5C208 114.5 212.5 108.5 217 102S226 89.5 231.5 89.5C238 89.5 242.5 95 242.5 102S238 114.5 231.5 114.5C226 114.5 221.5 108.5 217 102Z"/>
+    <ellipse stroke-width="7" cx="98" cy="271" rx="11.5" ry="19.5"/>
   </g>
 </svg>

@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { CALM_PALETTE_STYLE, THEME_STYLE } from '../apps/vscode/src/views/theme.ts';
-import { brandLockup, brandSymbol } from '../apps/vscode/src/views/webview.ts';
+import { brandLockup, brandMark, brandSymbol } from '../apps/vscode/src/views/webview.ts';
 import { sidebarBody, SIDEBAR_STYLE } from '../apps/vscode/src/views/sidebar-page.ts';
 import { configurationCenterView } from '../apps/vscode/src/views/configuration-center-model.ts';
 import { configurationCenterHtml } from '../apps/vscode/src/views/configuration-center-page.ts';
@@ -18,14 +19,34 @@ test('editor pages and sidebar share calm surfaces, while high contrast uses hos
 
 test('brand geometry and gradient remain independent of the new muted accent', () => {
   const symbol = brandSymbol(25);
-  for (const stop of ['#419458', '#5CAE5F', '#83CC6D']) assert.ok(symbol.includes(stop));
-  assert.match(symbol, /d="M14\.85 4\.18C12\.18 3\.72 11\.28 5\.34/);
+  // The brand sheet's greens (brand-art.ts), not the UI accent; light and high-contrast themes swap them in CSS.
+  for (const stop of ['#1b6a43', '#3f9462', '#72b98a']) assert.ok(symbol.includes(stop));
+  assert.match(symbol, /d="M13\.2 4\.7C13 3\.35 12\.5 2\.6/);
+  assert.match(SIDEBAR_STYLE, /body\.vscode-light \.brand-symbol \.sf-mark-low \{ stop-color:#145a3a; \}/);
+  assert.match(SIDEBAR_STYLE, /vscode-high-contrast-light\) \.brand-symbol stop\[class\] \{ stop-color:var\(--vscode-foreground\); \}/);
   assert.match(brandLockup(), /SINGULARITY <span>Flow<\/span>/);
   assert.match(THEME_STYLE, /\.brand-lockup[^}]*color: var\(--sf-brand\)/);
   assert.match(CALM_PALETTE_STYLE, /--sf-brand: #3d8e10/);
   const sidebar = sidebarBody({ navigation: { workspace: null, next: null }, freshness: null,
     loading: false, pending: null, active: null, favorites: [] });
   assert.ok(sidebar.includes(symbol));
+});
+
+/**
+ * The activity bar and the chat participant show media/activity.svg; the sidebar header and the page
+ * lockups draw the mark inline. All of them are the same f∞₀, so one redraw cannot leave another
+ * surface on an older mark.
+ */
+test('the activity-bar icon and the inline marks draw one geometry in currentColor', () => {
+  const shapes = (svg) => [...svg.matchAll(/<(path|ellipse)\b[^>]*>/g)].map(([element]) => element
+    .replace(/\s+/g, ' ').match(/(?:stroke-width|d|cx|cy|rx|ry)="[^"]*"/g).join(' '));
+  const activity = readFileSync(new URL('../apps/vscode/media/activity.svg', import.meta.url), 'utf8');
+  assert.match(activity, /viewBox="0 0 24 24"/);
+  assert.deepEqual([...new Set(activity.match(/(?:stroke|fill)="[^"]*"/g))].sort(), ['fill="none"', 'stroke="currentColor"']);
+  assert.equal(shapes(activity).length, 3);
+  assert.deepEqual(shapes(brandMark(20)), shapes(activity));
+  assert.deepEqual(shapes(brandSymbol(25)), shapes(activity));
+  assert.match(brandMark(20), /stroke="currentColor"/);
 });
 
 test('grouped action buttons wrap with one shared gap and no extra child margin', () => {

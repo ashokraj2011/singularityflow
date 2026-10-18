@@ -6,24 +6,19 @@
      role="img"
      aria-labelledby="title desc">
   <title id="title">Singularity Flow</title>
-  <desc id="desc">A flowing integral curve connecting singularity and output nodes.</desc>
+  <desc id="desc">The Singularity Flow mark: an f with infinity above it and zero below it.</desc>
 
   <!--
-    Theme-safe VS Code activity-bar mark.
-    Geometry is intentionally aligned to a 24 px grid and avoids fine detail.
+    Theme-safe VS Code activity-bar and chat mark, drawn in currentColor on a 24 px grid.
+    The brand sheet's f∞₀ redrawn for 16–24 px: the ∞ and the 0 are larger than on the sheet and no
+    stroke is under 1.4 units, so the three parts stay separate shapes. brandMark() and brandSymbol()
+    in src/views/webview.ts draw the same geometry.
   -->
-  <path stroke="currentColor"
-        stroke-width="2.1"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        d="M14.85 4.18
-           C12.18 3.72 11.28 5.34 11.02 8.36
-           L10.48 14.78
-           C10.18 18.32 9.10 20.10 6.82 20.10
-           C6.04 20.10 5.42 19.78 5.02 19.18"/>
-  <g stroke="currentColor" stroke-width="0.85">
-    <circle cx="17.18" cy="4.28" r="1.08"/>
-    <circle cx="19.78" cy="4.28" r="1.08"/>
-    <circle cx="12.62" cy="19.78" r="1.42"/>
+  <g stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+    <path stroke-width="1.6"
+          d="M13.2 4.7C13 3.35 12.5 2.6 11.85 2.6C11.1 2.6 10.75 3.4 10.65 4.4L9.7 17.6C9.55 19.75 8.85 21.1 7.9 21.1C7.75 21.1 7.62 21.07 7.5 21.02M8.3 10.6H12.1"/>
+    <path stroke-width="1.4"
+          d="M18.85 3.45C18.33 2.62 17.81 1.85 17.17 1.85C16.42 1.85 15.9 2.55 15.9 3.45S16.42 5.05 17.17 5.05C17.81 5.05 18.33 4.28 18.85 3.45S19.89 1.85 20.53 1.85C21.28 1.85 21.8 2.55 21.8 3.45S21.28 5.05 20.53 5.05C19.89 5.05 19.37 4.28 18.85 3.45Z"/>
+    <ellipse stroke-width="1.4" cx="3.55" cy="19" rx="1.55" ry="2.45"/>
   </g>
 </svg>

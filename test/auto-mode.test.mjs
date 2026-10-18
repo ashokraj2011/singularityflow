@@ -1576,6 +1576,20 @@ test('phase pacing accepts only one governed transition and external approval re
   await assert.rejects(() => resumeAutoFlight(root, phaseBoundary.flightId, phaseBoundary.checkpointSha256),
     (error) => error.code === 'AUTO_CHECKPOINT_STALE');
   run('git', ['reset', '-q', '--hard', 'HEAD~1'], phaseBoundary.worktree);
+  // The starter configuration enables the ledger, so each decision also adds its own ledger intent.
+  // It is adopted with the decision only while its bytes are exactly the intent the decision recorded.
+  const decided = run('git', ['rev-parse', 'HEAD'], phaseBoundary.worktree).stdout.trim();
+  const [intentPath, ...otherIntents] = run('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD'], phaseBoundary.worktree)
+    .stdout.split('\n').filter((file) => file.includes('/context/ledger-intents/'));
+  assert.ok(intentPath && !otherIntents.length, 'the decision commit adds exactly its own ledger intent');
+  const intentFile = path.join(phaseBoundary.worktree, intentPath);
+  const intent = JSON.parse(await readFile(intentFile, 'utf8'));
+  await writeFile(intentFile, `${JSON.stringify({ ...intent, agent: 'someone-else' })}\n`);
+  run('git', ['add', intentPath], phaseBoundary.worktree);
+  run('git', ['commit', '-q', '--amend', '--no-verify', '--no-edit'], phaseBoundary.worktree);
+  await assert.rejects(() => resumeAutoFlight(root, phaseBoundary.flightId, phaseBoundary.checkpointSha256),
+    (error) => error.code === 'AUTO_CHECKPOINT_STALE');
+  run('git', ['reset', '-q', '--hard', decided], phaseBoundary.worktree);
   let running = await resumeAutoFlight(root, phaseBoundary.flightId, phaseBoundary.checkpointSha256);
   assert.deepEqual(running.operations.at(-1).operation, 'adopt-human-decisions');
   const waiting = await runFlightStep(root, running);

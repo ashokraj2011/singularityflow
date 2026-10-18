@@ -17,7 +17,7 @@ import {
   validateGitCommitIdentity, validateGitCommitSigning
 } from './git.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
-import { LIFECYCLE_EVENT_TYPES } from './lifecycle-event.mjs';
+import { LEDGER_INTENT_DIRECTORY, LIFECYCLE_EVENT_TYPES } from './lifecycle-event.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { GitRemoteSession, runRemoteGitAsync, gitRemoteProbeTimeout } from './git-execution.mjs';
 import { observePublicationHookEffects } from './git-hook-effects.mjs';
@@ -32,7 +32,7 @@ import {
 } from './git-remote-diagnostics.mjs';
 
 export const LEDGER_SCHEMA_VERSION = currentSchemaVersion('ledger-entry');
-export const LEDGER_INTENT_DIRECTORY = 'context/ledger-intents';
+export { LEDGER_INTENT_DIRECTORY };
 export const LEDGER_EVENT_TYPES = Object.freeze([
   ...LIFECYCLE_EVENT_TYPES,
   'retention-expired',

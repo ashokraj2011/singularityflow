@@ -5,6 +5,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import os from 'node:os';
 import path from 'node:path';
 import { canonicalJson } from './records.mjs';
+import { projectedLedgerIntentFile } from './lifecycle-event.mjs';
 import { assertClean, exactChangedPathsBetweenObjects, exactFileAtObject, exactRemoteBranchObservationAsync, gitDir, governedCommitIdentity, head } from './git.mjs';
 import { appendTrpRecord, loadTrpRecords, loadTrpAuthorityVerifier } from './test-recovery-store.mjs';
 import { evaluateTestRecoveryGate, sealTrpRecord, trpDigest, validateTrpRecord } from './test-recovery-policy.mjs';
@@ -561,10 +562,14 @@ export async function verifiedStoryTestRiskReviewCommits(root, config, workflow,
         || !context.verifyAuthority(record, { policy: context.policy })) continue;
       const recordPath = `${relative}/context/test-recovery/${families[record.kind]}/${record.kind === 'story-test-recovery-agreement' ? `revision-${record.revision}` : record.id}.json`;
       const receiptPath = `${relative}/context/test-recovery/authorizations/${receipt.id}.json`;
-      const permitted = new Set([workflowPath, `${relative}/STATUS.md`, recordPath, receiptPath]);
+      // With the ledger on, the review commit also adds the ledger intent of its own event.
+      const intentFile = projectedLedgerIntentFile(relative, after.publicationProjections?.at(-1));
+      const permitted = new Set([workflowPath, `${relative}/STATUS.md`, recordPath, receiptPath, ...(intentFile ? [intentFile.path] : [])]);
       const changed = exactChangedPathsBetweenObjects(root, identity.parents[0], commit);
       if (changed.some(filename => !permitted.has(filename))) continue;
-      for (const [filename, expected] of [[recordPath, record], [receiptPath, receipt]]) {
+      if (intentFile && changed.includes(intentFile.path) && exactFileAtObject(root, identity.parents[0], intentFile.path)) continue;
+      for (const [filename, expected] of [[recordPath, record], [receiptPath, receipt],
+        ...(intentFile && changed.includes(intentFile.path) ? [[intentFile.path, intentFile.intent]] : [])]) {
         const bytes = exactFileAtObject(root, commit, filename, { maximumBytes: MAX_BYTES });
         if (!bytes || canonicalJson(JSON.parse(bytes.toString())) !== canonicalJson(expected)) throw new Error('review bytes differ');
       }

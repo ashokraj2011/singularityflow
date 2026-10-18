@@ -6,6 +6,20 @@ import {
 
 export { LIFECYCLE_EVENT, LIFECYCLE_EVENT_VOCABULARY };
 export const LIFECYCLE_EVENT_TYPES = LIFECYCLE_EVENT_VOCABULARY.values;
+/** Where a governed commit keeps the ledger intent of its own event, beside the subject's state. */
+export const LEDGER_INTENT_DIRECTORY = 'context/ledger-intents';
+
+/**
+ * The ledger intent file a governed commit adds for the projection it appends, or null when that
+ * event carries none (the ledger is off). A check that adopts a commit by the exact paths it
+ * changes admits this one file with it, when its bytes are exactly the recorded intent.
+ */
+export function projectedLedgerIntentFile(subjectRelative, projection) {
+  const intent = projection?.ledgerIntent;
+  const eventId = projection?.event?.eventId;
+  if (!intent || !eventId || intent.eventId !== eventId) return null;
+  return { path: `${subjectRelative}/${LEDGER_INTENT_DIRECTORY}/${eventId}.json`, intent };
+}
 
 export function lifecycleEvent({
   type,

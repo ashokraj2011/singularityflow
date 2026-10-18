@@ -150,7 +150,7 @@ import {
 import { configuredRemoteAuthority, redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { prefetchRemoteBranchObservation, takeRemoteBranchObservation } from './remote-observation-prefetch.mjs';
 import { executeGitQuery } from './git-query.mjs';
-import { LIFECYCLE_EVENT, lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
+import { LIFECYCLE_EVENT, lifecycleEvent, projectedLedgerIntentFile, recordPublicationProjection } from './lifecycle-event.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
 import { captureAggregateRecovery, restoreAggregateRecovery } from './aggregate-recovery.mjs';
 import { validateDocumentPublicationTree } from './document-publication.mjs';
@@ -588,10 +588,9 @@ function applicabilityDecisionCommit(root, config, workflow, commit) {
   const [parent] = identity.parents;
   const item = workDirRelative(config, workflow.workItem.id);
   const stateFile = `${item}/workflow.json`;
-  const allowedPaths = new Set([stateFile, `${item}/STATUS.md`]);
   let changed;
   try { changed = exactChangedPathsBetweenObjects(root, parent, identity.commit); } catch { return false; }
-  if (!changed.length || changed.some((file) => !allowedPaths.has(file)) || !changed.includes(stateFile)) return false;
+  if (!changed.includes(stateFile)) return false;
   let before;
   let after;
   try {
@@ -599,6 +598,17 @@ function applicabilityDecisionCommit(root, config, workflow, commit) {
     after = JSON.parse(exactFileAtObject(root, identity.commit, stateFile)?.toString('utf8') ?? 'null');
   } catch { return false; }
   if (!before || !after) return false;
+  // With the ledger on, the decision also adds the ledger intent of its own event.
+  const intentFile = projectedLedgerIntentFile(item, after.publicationProjections?.at(-1));
+  const allowedPaths = new Set([stateFile, `${item}/STATUS.md`, ...(intentFile ? [intentFile.path] : [])]);
+  if (changed.some((file) => !allowedPaths.has(file))) return false;
+  if (intentFile && changed.includes(intentFile.path)) {
+    try {
+      if (exactFileAtObject(root, parent, intentFile.path)
+        || recordSha256(JSON.parse(exactFileAtObject(root, identity.commit, intentFile.path)?.toString('utf8') ?? 'null'))
+          !== recordSha256(intentFile.intent)) return false;
+    } catch { return false; }
+  }
   // An applicability decision or a scope disposition: each appends to its own list only.
   const changedList = (key) => recordSha256(before[key] ?? null) !== recordSha256(after[key] ?? null);
   const kind = changedList('scopeDispositions') ? { list: 'scopeDispositions', event: 'scope_decided', decision: 'scope' }

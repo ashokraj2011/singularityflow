@@ -32,7 +32,9 @@ retain their explicit targets.
 VS Code clients send the same location selector using `SINGULARITY_FLOW_SURFACE_CONTEXT`; internal
 CLI steps rebind it only to their kernel-returned execution location. Each window persists its own
 explicit selection. Another window or terminal changing the profile does not retarget it. A window
-without an explicit binding first uses its opened folder, then the profile default.
+without an explicit binding first uses its opened folder, then the profile default. An opened folder
+that is neither a Flow repository nor a workspace directory is not a selection, so the profile
+default still applies there.
 
 `workspace context --json` and `snapshot --include executionContext --json` expose the same model.
 VS Code's core snapshot includes it. The Command Palette offers Inspect Current Execution Context,

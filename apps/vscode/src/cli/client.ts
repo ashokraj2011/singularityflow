@@ -457,7 +457,15 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
       : 'mutation';
   }
   if (args[0] === 'workspace' && ['current', 'list', 'status', 'doctor', 'branches', 'context', 'checkouts'].includes(args[1] ?? 'list')) return 'read';
-  if (args[0] === 'workspace' && args[1] === 'cleanup' && !enabledBooleanOption(args, 'apply')) return 'read';
+  // Automatic cleanup removes eligible worktrees and clones, so only a manual preview is a read.
+  if (args[0] === 'workspace' && args[1] === 'cleanup') {
+    return enabledBooleanOption(args, 'apply') || enabledBooleanOption(args, 'automatic') ? 'mutation' : 'read';
+  }
+  // Retention shows its settings unless a setting or heartbeat (even a negated one) is named.
+  if (args[0] === 'workspace' && args[1] === 'retention') {
+    return ['enabled', 'completed-days', 'cancelled-days', 'unused-clone-days', 'interval-minutes', 'heartbeat']
+      .some((name) => hasOption(args, name) || args.includes(`--no-${name}`)) ? 'mutation' : 'read';
+  }
   if (args[0] === 'workspace' && args[1] === 'bootstrap') {
     return args[2] === 'status' ? 'read' : 'mutation';
   }

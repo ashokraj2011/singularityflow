@@ -95,6 +95,29 @@ test('every complete literal argv issued by the extension matches the CLI operat
   }
 });
 
+test('workspace retention and cleanup argv classify exactly as the CLI resolves them', () => {
+  // The heartbeat argv carries a runtime pid, so the literal audit above never sees it.
+  const expected = [
+    [['workspace', 'retention', '--json'], 'read'],
+    [['workspace', 'retention', 'WS', '--json'], 'read'],
+    [['workspace', 'retention', '--heartbeat', '--surface', 'window', '--pid', '42', '--json'], 'mutation'],
+    [['workspace', 'retention', '--heartbeat=false', '--json'], 'mutation'],
+    [['workspace', 'retention', '--enabled', 'false', '--json'], 'mutation'],
+    [['workspace', 'retention', '--no-enabled', '--json'], 'mutation'],
+    [['workspace', 'retention', '--completed-days', '14', '--json'], 'mutation'],
+    [['workspace', 'retention', '--interval-minutes=60', '--json'], 'mutation'],
+    [['workspace', 'cleanup', '--json'], 'read'],
+    [['workspace', 'cleanup', '--purge', '--json'], 'read'],
+    [['workspace', 'cleanup', '--no-automatic', '--json'], 'read'],
+    [['workspace', 'cleanup', '--automatic', '--refresh', '--json'], 'mutation'],
+    [['workspace', 'cleanup', '--purge', '--apply', '--confirm', 'digest', '--json'], 'mutation']
+  ];
+  for (const [args, classification] of expected) {
+    assert.equal(resolved(args).classification, classification, `CLI ${args.join(' ')}`);
+    assert.equal(commandClass(args), classification, `VS Code ${args.join(' ')}`);
+  }
+});
+
 test('dynamic read routes and unknown commands retain explicit read versus conservative write semantics', () => {
   const reads = [
     ['adhoc', 'status'], ['impact', 'status'], ['impact', 'doctor'], ['goal', 'inspect', 'GOAL-1'],

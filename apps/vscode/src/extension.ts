@@ -23,7 +23,7 @@ import {
   validatedRepositoryGitCommonDirectory
 } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
-import { registerExecutionContextCommands } from './execution-context-commands.ts';
+import { EXECUTION_CONTEXT_COMMANDS, executionContextHandlers } from './execution-context-commands.ts';
 import { synchronizeChatProfile } from './personalization.ts';
 import { saveRepositoryCheckSettings } from '../../../src/repository-check-settings.mjs';
 import { StepActionDeliveryMonitor } from './step-action-deliveries.ts';
@@ -973,7 +973,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.configurePeople', 'singularityFlow.configureMcp',
     'singularityFlow.configureTemplates', 'singularityFlow.openSkills', 'singularityFlow.openReusableInstructions', 'singularityFlow.openConstitution', 'singularityFlow.configureModels',
     'singularityFlow.reopenCompleted', 'singularityFlow.rollForwardRework', 'singularityFlow.cancelWork',
-    'singularityFlow.expandReference', 'singularityFlow.openHarnessReport'
+    'singularityFlow.expandReference', 'singularityFlow.openHarnessReport',
+    'singularityFlow.checkRepository', ...EXECUTION_CONTEXT_COMMANDS
   ];
   /** Workspaces are machine-wide and remain available whatever folder is open. */
   const workspaceTree = new NodeTreeProvider();
@@ -4687,8 +4688,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onOutput: (text) => output.append(text)
   });
   output.appendLine(`Using CLI (${client.location.source}): ${client.location.cli}`);
-  registerExecutionContextCommands(context, client);
-  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.checkRepository', async () => {
+  for (const [id, handler] of Object.entries(executionContextHandlers(context, client))) handlers.set(id, handler);
+  handlers.set('singularityFlow.checkRepository', async () => {
     try {
       const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
         title: 'Checking repository now', cancellable: false }, () => client.run<any>(['check', '--json']));
@@ -4696,7 +4697,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       output.appendLine(`Repository checks: ${report.status} · checked ${report.repositoryChecks?.checkedAt ?? 'now'} · mode ${report.repositoryChecks?.mode ?? 'unknown'}`);
       showResultCard(buildResultCard(result));
     } catch (error) { showRefusal(error, { headline: 'Repository check needs attention' }); }
-  }));
+  });
   // Begin after activation yields, ahead of the first menu click. This only prepares owned code;
   // it does not scan the repository, execute a handler, or claim readiness/approval.
   const readPreparation = setTimeout(() => {
@@ -9320,14 +9321,17 @@ async function resolveGovernedRepository(
           if (leadError instanceof RepositoryAuthorityUnavailableError) repositoryError = leadError;
         }
       }
-      return {
-        label: repositoryError instanceof RepositoryAuthorityUnavailableError
-          ? 'Singularity Flow authority is unavailable'
-          : 'Not a Singularity Flow repository',
-        reason: repositoryError.message,
-        contextValue: repositoryError instanceof RepositoryAuthorityUnavailableError
-          ? 'sflow.authorityUnavailable'
-          : 'sflow.uninitialized'
+      if (repositoryError instanceof RepositoryAuthorityUnavailableError) {
+        return {
+          label: 'Singularity Flow authority is unavailable', reason: repositoryError.message,
+          contextValue: 'sflow.authorityUnavailable'
+        };
+      }
+      // A folder that is not a Flow repository is no selection of its own, so the profile default
+      // still applies; only without one does the window describe the folder.
+      return await activeWorkspaceRepository(context, output) ?? {
+        label: 'Not a Singularity Flow repository', reason: repositoryError.message,
+        contextValue: 'sflow.uninitialized'
       };
     }
   }

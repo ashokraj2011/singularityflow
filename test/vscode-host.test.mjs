@@ -14,6 +14,7 @@
 import test from 'node:test';
 import { appendLedgerIntent, createLedgerIntent, initializeLedger } from '../src/ledger.mjs';
 import { storyLifecycleProgress } from '../src/session-roster.mjs';
+import { copilotStoryFollowDirectory } from '../src/copilot-story-follow.mjs';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
@@ -618,9 +619,9 @@ async function demoRepository({ approvedConfigurationAuthority = false, sessionI
 const section = (registered, name) =>
   registered.webviewViews.get('singularityFlow.navigation')?.provider?.sourceFor(name) ?? null;
 
-function context(values = new Map()) {
+/** `windowValues` is this window's workspaceState, e.g. an explicit execution-context binding. */
+function context(values = new Map(), windowValues = new Map()) {
   const root = path.join(packageRoot, 'apps', 'vscode');
-  const windowValues = new Map();
   return {
     subscriptions: [],
     extensionPath: root,
@@ -1133,7 +1134,9 @@ test('My Work resolves an active workspace when no editor folder is open', async
 
 test('a selected workspace with a missing lead repository offers repair instead of claiming no workspace is active', async (t) => {
   if (!requireBundle(t)) return;
-  const unrelated = await demoRepository();
+  // A folder that is not a Flow repository is no selection of its own, so the profile default
+  // applies. (An open governed repository would be this window's own selection and would win.)
+  const unrelated = await mkdtemp(path.join(os.tmpdir(), 'sflow-plain-window-'));
   const org = await organisation();
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-missing-lead-'));
   const registryFile = path.join(base, 'registry.json');
@@ -2348,13 +2351,16 @@ test('AST Intelligence selects one repository from a multi-repository workspace 
   });
 
   const { api, registered } = stubVscode();
-  // Native editing is already rooted at the destination member, while SFlow still selects api.
-  // This is the in-place reconciliation case; a different native folder is covered separately.
+  // Native editing is already rooted at the destination member, while this window's own SFlow
+  // selection is still api: an explicit window binding outranks the open folder. This is the
+  // in-place reconciliation case; a different native folder is covered separately.
   api.workspace.workspaceFolders = [{ uri: {
     fsPath: path.join(base, 'workspaces', 'multi-repo', 'repos', 'web')
   } }];
   const extension = loadExtension(api);
-  await extension.activate(context());
+  await extension.activate(context(new Map(), new Map([
+    ['singularityFlow.executionRoot', path.join(base, 'workspaces', 'multi-repo', 'repos', 'api')]
+  ])));
   await registered.commands.get('singularityFlow.configureAstIntelligence')();
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.astIntelligence');
   assert.ok(panel);
@@ -6212,7 +6218,7 @@ test('an open Workspaces panel follows the active workspace instead of retaining
   assert.match(panel.webview.html, /<h3>[\s\S]*?alpha<\/h3>[\s\S]*?active/);
 });
 
-test('Lifecycle follows a Story or workspace selection changed outside VS Code', async (t) => {
+test('a selection changed outside VS Code leaves this window until the workspace is chosen here', async (t) => {
   if (!requireBundle(t)) return;
   const source = await demoRepository();
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-external-selection-'));
@@ -6252,7 +6258,7 @@ test('Lifecycle follows a Story or workspace selection changed outside VS Code',
   const portfolio = YAML.parse(await readFile(path.join(betaRoot, 'singularity/portfolio.yml'), 'utf8'));
   const betaStateFile = path.join(initiativeDir(betaRoot, portfolio, 'INIT-CHECKOUT'), 'state.json');
   const betaState = JSON.parse(await readFile(betaStateFile, 'utf8'));
-  betaState.initiative.title = 'Externally selected checkout';
+  betaState.initiative.title = 'Checkout chosen in this window';
   await saveInitiative(betaRoot, portfolio, betaState);
   run('git', ['add', '.'], { cwd: betaRoot });
   run('git', ['-c', `user.email=${EMAIL}`, '-c', 'user.name=Initiative Owner',
@@ -6264,9 +6270,11 @@ test('Lifecycle follows a Story or workspace selection changed outside VS Code',
 
   cli(['workspace', 'use', 'alpha', '--json']);
   const { api, registered } = stubVscode();
-  api.workspace.workspaceFolders = undefined;
+  // This window's own binding is alpha while native editing is already rooted at beta, so choosing
+  // beta here later rebinds in place instead of replacing the window.
+  api.workspace.workspaceFolders = [{ uri: { fsPath: betaRoot } }];
   const extension = loadExtension(api);
-  await extension.activate(context());
+  await extension.activate(context(new Map(), new Map([['singularityFlow.executionRoot', alphaRoot]])));
 
   const lifecycle = section(registered, 'lifecycle');
   assert.equal(lifecycle.getTreeItem(lifecycle.getChildren()[0]).description, 'One-tap checkout');
@@ -6283,17 +6291,30 @@ test('Lifecycle follows a Story or workspace selection changed outside VS Code',
   await until(() => comprehension.webview.html.includes('Alpha-only comprehension marker') ? true : null);
   assert.doesNotMatch(comprehension.webview.html, /Beta-only comprehension marker/);
 
-  // Reproduce Copilot `/sf-session` or a terminal `session attach`: the CLI changes the durable
-  // selection without invoking the extension's Workspaces callback.
+  // Another window or a terminal changes the machine profile without invoking this window's
+  // Workspaces callback. The profile is only a default, so this window keeps its own selection.
   cli(['workspace', 'use', 'beta', '--json']);
   selectionWatcher.change.fire({ fsPath: selection });
   await until(() => registered.output.some((line) =>
-    line.includes('Active selection changed outside VS Code') && line.includes(path.resolve(betaRoot))) || null,
+    line.includes('The profile selection changed elsewhere') && line.includes(path.resolve(betaRoot))
+      && line.includes('this window retains')) || null,
   { what: 'the extension to observe the external active-workspace update' });
+  await settle();
+  assert.equal(lifecycle.getTreeItem(lifecycle.getChildren()[0]).description, 'One-tap checkout',
+    'another window or terminal cannot retarget this window');
+  assert.match(comprehension.webview.html, /Alpha-only comprehension marker/);
+  assert.equal(registered.output.some((line) => line.includes(`Repository: ${path.resolve(betaRoot)}`)), false);
+
+  // Choosing the workspace here is explicit, and re-points every repository-bound screen.
+  await registered.commands.get('singularityFlow.switchWorkspace')({
+    path: beta.workspace.path, openPath: betaRoot, label: 'beta'
+  });
   await until(() => {
     const root = lifecycle.getChildren()[0];
-    return lifecycle.getTreeItem(root).description === 'Externally selected checkout' ? root : null;
-  }, { what: 'Lifecycle to refresh from the externally selected repository' });
+    return lifecycle.getTreeItem(root).description === 'Checkout chosen in this window' ? root : null;
+  }, { what: 'Lifecycle to refresh from the repository chosen in this window' });
+  assert.equal(registered.executedCommands.some((entry) => entry.id === 'vscode.openFolder'), false,
+    'native editing was already rooted at beta, so the window rebinds in place');
   assert.ok(registered.output.some((line) => line.includes(`Repository: ${path.resolve(betaRoot)}`)),
     'all repository-bound screens were re-pointed through the shared selection callback');
   await until(() => comprehension.webview.html.includes('Beta-only comprehension marker') ? true : null,
@@ -6740,6 +6761,8 @@ test('clicking an ahead local Story opens its checkout and resumes Copilot there
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
   workflow.git = { ...(workflow.git ?? {}), publish: 'off' };
+  // Inbox Story discovery reads the state ledger, never a branch scan (d60eb51e).
+  workflow.ledger = { ...(workflow.ledger ?? {}), enabled: true };
   await writeFile(workflowFile, YAML.stringify(workflow));
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-qm', 'Initialize governed Story click fixture'], { cwd: root });
@@ -9013,7 +9036,8 @@ test('a schema-v2 local reset marker clears all extension-owned global state but
     'singularityFlow.storage.index', 'singularityFlow.storage.design'
   ]) assert.equal(values.get(`secret:${key}`), undefined, `${key} is cleared from SecretStorage`);
   assert.deepEqual(updates.map(({ key, target }) => ({ key, target })), [
-    'cliPath', 'nodePath', 'modelMode', 'userName', 'role', 'warmReads'
+    'cliPath', 'nodePath', 'modelMode', 'userName', 'role', 'warmReads',
+    'repositoryCheckMode', 'repositoryCheckIntervalMinutes'
   ].map((key) => ({ key, target: api.ConfigurationTarget.Global })));
   assert.equal(await readFile(process.env.SINGULARITY_FLOW_VSCODE_RESET_MARKER, 'utf8').catch(() => null), null);
   assert.ok(registered.output.some((line) => String(line).includes('cleared Singularity Flow credentials, personalization')));
@@ -9039,8 +9063,11 @@ test('a future reset marker refuses safely and preserves extension-owned state',
 test('terminal lifecycle and Git-common Auto writes refresh VS Code through bounded watchers', async (t) => {
   if (!requireBundle(t)) return;
   const { root, registered } = await activated();
-  assert.equal(registered.watchers.length, 4,
-    'governed state, narrow Git state, repository-private Auto state, and active Story selection are each watched once');
+  assert.equal(registered.watchers.length, 5,
+    'governed state, narrow Git state, repository-private Auto state, active Story selection, and Copilot Story follow records are each watched once');
+  const followDirectory = copilotStoryFollowDirectory();
+  assert.ok(registered.watchers.some((watcher) => path.resolve(watcher.pattern.base.fsPath) === path.dirname(followDirectory)
+    && watcher.pattern.pattern === `${path.basename(followDirectory)}/*.json`), 'Copilot Story follow records are watched');
   assert.ok(registered.watchers.some(watcher => watcher.pattern.pattern
     === '{HEAD,index,config,packed-refs,refs/**/*,worktrees/*/{HEAD,index}}'), 'Git/config changes invalidate read reuse');
   const repositoryWatcher = registered.watchers.find((watcher) =>

@@ -2,7 +2,7 @@
 import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { readFile, lstat } from 'node:fs/promises';
 
 export async function scheduleWorkspaceRetention(workspacePath, { protect = [], env = process.env } = {}) {
   if (!workspacePath || env.SINGULARITY_FLOW_AUTOMATIC_CLEANUP === 'off' || env.NODE_ENV === 'test') return false;
@@ -11,7 +11,10 @@ export async function scheduleWorkspaceRetention(workspacePath, { protect = [], 
     const settings = await workspaceRetentionSettings(workspacePath);
     if (!settings.enabled) return false;
     // This is only a launch throttle. The worker revalidates policy, records, identity and proofs.
-    const state = JSON.parse(await readFile(path.join(workspacePath, '.singularity-flow', 'cleanup-state.json'), 'utf8').catch(() => '{}'));
+    const stateFile = path.join(workspacePath, '.singularity-flow', 'cleanup-state.json');
+    const info = await lstat(stateFile).catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));
+    if (info && (!info.isFile() || info.isSymbolicLink() || info.size > 4 * 1024 * 1024)) return false;
+    const state = info ? JSON.parse(await readFile(stateFile, 'utf8')) : {};
     const age = Date.now() - Date.parse(state.checkedAt);
     if (age >= 0 && age < settings.intervalMinutes * 60000) return false;
     // Capture before spawning: a removed caller cwd must not leave an idle IPC child behind.

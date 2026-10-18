@@ -24,7 +24,7 @@ async function localDirectory(workspacePath) {
   if (!info.isDirectory() || info.isSymbolicLink()) fail('Unsafe workspace maintenance directory.');
   return directory;
 }
-async function readLocal(file, fallback, limit = 512 * 1024) {
+async function readLocal(file, fallback, limit = 4 * 1024 * 1024) {
   const info = await lstat(file).catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));
   if (!info) return fallback;
   if (!info.isFile() || info.isSymbolicLink() || info.size > limit) fail('Unsafe workspace retention record.');
@@ -291,8 +291,13 @@ export async function runWorkspaceRetention(workspacePath, { force = false, now 
           ...(retainedMetadata ? { retainedMetadata } : {}) }); }
     }
     const after = await workspaceCheckoutInventory(workspace.path);
-    for (const clone of after.clones.filter(item => item.cleanupEligible).slice(0, 32)) {
+    const eligible = after.clones.filter(item => item.cleanupEligible);
+    const eligibleKeys = new Set(eligible.map(clone => digest([clone.root, clone.clone.id, clone.createdAt])));
+    result.unused = Object.fromEntries(Object.entries(state.unused).filter(([key]) => eligibleKeys.has(key)));
+    result.cloneCursor = state.cloneCursor ?? null;
+    for (const { clone } of retentionWorktreePage(eligible.map(clone => ({ clone, entry: { path: clone.root } })), state.cloneCursor, 32)) {
       if (Date.now() > deadline) { result.preserved.push({ path: clone.root, reason: 'maintenance-budget' }); break; }
+      result.cloneCursor = clone.root;
       const key = digest([clone.root, clone.clone.id, clone.createdAt]), previous = state.unused[key];
       const since = typeof previous === 'string' && Number.isFinite(Date.parse(previous)) && Date.parse(previous) <= now ? previous : new Date(now).toISOString();
       result.unused[key] = since;

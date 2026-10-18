@@ -26,6 +26,7 @@ import { CliError, CliTimeoutError, STORY_READINESS_TIMEOUT_MS, redactCliArgsFor
 import { startProgressLabel } from '../cli/progress.ts';
 import { canonicalFilesystemPath } from '../repository-refresh-model.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
+import { INTAKE_WIZARD_STYLE } from './intake-wizard.ts';
 import type { IntakeCatalogCacheBinding } from '../intake-catalog-cache.ts';
 import { IntakePreflightScheduler } from '../intake-preflight-scheduler.ts';
 import type { IntakeWorktreePreparation } from '../intake-worktree-preparation.ts';
@@ -405,7 +406,7 @@ export class IntakePanel {
     const token = nonce();
     this.panel.webview.html = page(
       this.journey ? 'Guided start' : 'Start new work', intakeHtml(this.form, this.journey),
-      contentSecurityPolicy(this.panel.webview, token), token, INTAKE_SCRIPT
+      contentSecurityPolicy(this.panel.webview, token), token, INTAKE_SCRIPT, { styles: INTAKE_WIZARD_STYLE }
     );
     this.renderedRegions = regions;
   }

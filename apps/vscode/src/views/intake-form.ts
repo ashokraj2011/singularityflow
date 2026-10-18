@@ -17,6 +17,7 @@ import path from 'node:path';
 import { escape, icon } from './webview.ts';
 import { contextStrip, heroHeader, infoNote, stepHeading, tag } from './theme.ts';
 import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts';
+import { intakeWizardActions, intakeWizardLayout, intakeWizardNavigation, INTAKE_WIZARD_SCRIPT } from './intake-wizard.ts';
 import { gitRemoteProblem } from './map-capability-form.ts';
 import { commandGuidance } from '../copilot-command.ts';
 import { CATALOG_SEARCH_SCRIPT, SAMPLE_STORY_WORKFLOWS } from './catalog-search.ts';
@@ -805,7 +806,7 @@ function fieldsHtml(form: IntakeForm): string {
   if (form.tracker === 'github') {
     return `
     <div class="sf-field-row">
-      <label class="field"><span>Story ID ${REQUIRED}</span><input type="text" value="${escape(form.id)}" data-field="id" required aria-required="true"
+      <label class="field"><span>Story ID ${REQUIRED}</span><input type="text" value="${escape(form.id)}" data-field="id" required aria-required="true" pattern="[A-Za-z0-9][A-Za-z0-9._\\-]*"
         placeholder="GH-checkout-142" size="24"></label>
       <label class="field"><span>GitHub Issue ${REQUIRED}</span><input type="text" value="${escape(form.key)}" data-field="key" required aria-required="true"
         placeholder="owner/repository#142" size="56"></label>
@@ -818,7 +819,7 @@ function fieldsHtml(form: IntakeForm): string {
     <p class="muted">${icon('branch')}The identifier is minted when the Epic reserves its branch, so
       there is nothing to choose here.</p>` : ''}
     <div class="sf-field-row">${mintsIdentifier(form) ? '' : `
-      <label class="field"><span>Identifier ${REQUIRED}</span><input type="text" value="${escape(form.id)}" data-field="id" required aria-required="true"
+      <label class="field"><span>Identifier ${REQUIRED}</span><input type="text" value="${escape(form.id)}" data-field="id" required aria-required="true" pattern="[A-Za-z0-9][A-Za-z0-9._\\-]*"
         placeholder="${form.shape === 'story' ? 'checkout-retry' : 'faster-checkout'}" size="24"></label>`}
       <label class="field"><span>${escape(noun)} title ${REQUIRED}</span><input type="text" value="${escape(form.title)}" data-field="title" required aria-required="true"
         placeholder="What this is called" size="42"></label>
@@ -1018,6 +1019,15 @@ function baseBranchHtml(form: IntakeForm): string {
       <strong>Ready with advisory information</strong>
       <ul>${form.basePreflightWarnings.map((warning) => `<li>${escape(warning)}</li>`).join('')}</ul>
     </div>` : ''}
+    ${form.basePreflightRefreshRecommended ? `<p><button type="button" class="secondary" data-workflow-refresh>
+      Refresh or reinitialize repository configuration</button></p>` : ''}
+  </section>`;
+}
+
+/** The same testing choices, separated from branch selection for the wizard's inputs step. */
+function storyChecksHtml(form: IntakeForm): string {
+  if (form.shape !== 'story') return '';
+  return `<section><h2>${icon('gate')}Testing & quality gates</h2>
     ${preflightTestReadinessHtml(form.baseTestReadiness)}
     <fieldset ${form.busy || form.baselineRunning ? 'disabled' : ''}><legend>Quality gates</legend>
       <label><input type="radio" name="quality-gate-mode" data-quality-gate-mode value="hard" ${form.qualityGateMode === 'hard' ? 'checked' : ''}> Hard — repair missing coverage before advancing</label>
@@ -1037,8 +1047,6 @@ function baseBranchHtml(form: IntakeForm): string {
       <label><input type="radio" name="story-test-scope" data-story-test-scope value="all-configured" ${form.testExecutionMode === 'all-configured' ? 'checked' : ''}> All configured tests</label>
       <p class="meta">Existing failures are repaired in this Story by default. Accepting known failures requires an exact observed baseline and an authorized risk decision; deferral is not acceptance.</p>
     </fieldset>` : ''}` : ''}
-    ${form.basePreflightRefreshRecommended ? `<p><button type="button" class="secondary" data-workflow-refresh>
-      Refresh or reinitialize repository configuration</button></p>` : ''}
   </section>`;
 }
 
@@ -1356,26 +1364,49 @@ function inFlightHtml(form: IntakeForm): string {
   </section>` : ''}`;
 }
 
-/**
- * Optional sections, folded behind one disclosure so the first screen holds what a start needs.
- * They stay ordinary regions inside it, so a patch still finds and replaces each by id.
- */
-const MORE_OPTIONS_REGIONS: ReadonlySet<string> = new Set(['attachments', 'references', 'recovery']);
-
 export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null = null): string {
-  const entries = Object.entries(intakeRegions(form, journey));
-  const first = entries.findIndex(([id]) => MORE_OPTIONS_REGIONS.has(id));
-  const last = entries.map(([id]) => MORE_OPTIONS_REGIONS.has(id)).lastIndexOf(true);
-  return `<div class="intake-view" aria-busy="${form.busy ? 'true' : 'false'}">${entries
-    .map(([id, html], index) => `${index === first ? `<details class="sf-more-options" data-more-options>
-      <summary>More options <span class="muted">— documents, reference repositories and quality gates. The defaults are fine.</span></summary>` : ''}<div data-intake-region="${id}">${html}</div>${index === last ? '</details>' : ''}`).join('')}</div>`;
+  return `<div class="intake-view" data-intake-wizard-root aria-busy="${form.busy ? 'true' : 'false'}">${
+    intakeWizardLayout(intakeRegions(form, journey), form.shape === 'story')}</div>`;
+}
+
+/** A preview of existing choices, never a readiness result or an implicit confirmation. */
+function storyReviewHtml(form: IntakeForm): string {
+  if (form.shape !== 'story') return '';
+  const workflow = form.storyWorkflows.find(entry => entry.id === form.workType);
+  const documents = form.storyAttachments.filter((entry): entry is StoryAttachmentDraft => Boolean(entry));
+  const value = (text: string | null | undefined) => escape(text?.trim() || 'Not provided');
+  const edit = (step: string) => `<p><button type="button" class="link" data-intake-wizard-go="${step}" aria-label="Edit ${step === 'details' ? 'Story details' : step === 'workflow' ? 'workflow and branch' : 'documents and checks'}">Edit</button></p>`;
+  return `<section class="sf-panel"><h2>${icon('story')}Review your Story</h2>
+    <p class="muted">Nothing is created until you choose Start Story. Publication access and changed inputs are checked on Start.</p>
+    <div class="intake-review-grid">
+      <article><h3>Details</h3><dl><dt>Identifier</dt><dd data-intake-review-field="${form.tracker === 'jira' ? 'key' : 'id'}">${value(intakeIdentifier(form))}</dd>
+        <dt>Tracker</dt><dd>${escape(form.tracker === 'none' ? 'No tracker' : form.tracker === 'jira' ? 'Jira' : 'GitHub Issue')}${form.tracker !== 'none' ? ` · ${value(form.key)}` : ''}</dd>
+        <dt>Title</dt><dd${form.tracker === 'none' ? ' data-intake-review-field="title"' : ''}>${form.tracker === 'none' ? value(form.title) : 'Fetched from the issue on Start'}</dd></dl>
+        ${form.tracker === 'none' ? `<h4>Description</h4><p class="intake-review-prose" data-intake-review-field="description">${value(form.description)}</p>
+          <h4>Acceptance criteria</h4><p class="intake-review-prose" data-intake-review-field="acceptanceCriteria">${value(form.acceptanceCriteria)}</p>` : ''}${edit('details')}</article>
+      <article><h3>Workflow & branch</h3><dl><dt>Workflow</dt><dd>${value(workflow?.label ?? form.workType)}</dd>
+        <dt>Phases</dt><dd>${workflow ? value(workflow.phases.join(' → ')) : 'Not selected'}</dd>
+        <dt>Base branch</dt><dd>${value(form.baseBranch)}</dd><dt>Workspace</dt><dd>${value(form.targetWorkspace)}</dd>
+        <dt>Repository</dt><dd>${value(form.targetRepository)}</dd></dl>${edit('workflow')}</article>
+      <article><h3>Documents & checks</h3><dl><dt>Documents</dt><dd>${documents.length ? documents.map(entry => {
+        const effective = storyAttachmentPhases(form, entry);
+        const phases = effective.emptied ? 'No eligible phases — review required' : effective.phases?.join(', ') || 'all workflow phases';
+        return `${value(storyAttachmentName(entry))} — ${storyAttachmentStore(form, entry) === 'git' ? 'kept in Git' : 'on this machine only'} · ${value(phases)}`;
+      }).join('<br>') : 'None selected'}</dd>
+        <dt>References</dt><dd>${form.referenceRepositories.length ? form.referenceRepositories.map(entry => `${value(entry.id)} · ${value(entry.branch)}`).join('<br>') : 'None selected'}</dd>
+        <dt>Quality gates</dt><dd>${form.qualityGateMode === 'soft' ? 'Pilot soft — eligible exceptions require human review' : 'Hard'}</dd>
+        <dt>Test selection</dt><dd>${value(form.testExecutionMode)}</dd><dt>Baseline</dt><dd>${value(form.readinessBaseline)}</dd></dl>${edit('inputs')}</article>
+    </div></section>`;
 }
 
 /** Where a problem can be fixed, so its line in the list can take the reader there. */
 function problemTarget(problem: string): string | null {
-  if (/^Document \d/u.test(problem)) return 'region:attachments';
+  if (/\bdocument\b/iu.test(problem)) return 'region:attachments';
   if (/^Reference repositor/u.test(problem)) return 'region:references';
   if (/base branch/iu.test(problem)) return 'base';
+  if (/workflow|configuration|publication/iu.test(problem)) return 'region:workflow';
+  if (/baseline|testing|coverage/iu.test(problem)) return 'region:checks';
+  if (/POC|authorized URL/iu.test(problem)) return 'targetUrl';
   if (/identifier|Story ID/iu.test(problem)) return 'id';
   if (/\btitle\b/iu.test(problem)) return 'title';
   if (/asked for/iu.test(problem)) return 'description';
@@ -1400,33 +1431,38 @@ export function intakeRegions(form: IntakeForm, journey: StartWizardProgress | n
     ? problems.filter((problem) => problem !== workflowProblem && problem !== branchProblem)
     : problems;
   const noun = form.shape === 'initiative' ? 'Initiative' : form.shape === 'epic' ? 'Epic' : 'Story';
+  const heading = (step: number, title: string, lede = '') => form.shape === 'story'
+    ? `<h2>${escape(title)}</h2>${lede ? `<p class="sf-lede">${escape(lede)}</p>` : ''}`
+    : stepHeading(step, title, lede);
   const recoveryRoute = commandGuidance(form.recoveryRouteCommand);
   const regions: Record<string, string> = {
     progress: startWizardProgress(journey),
     heading: heroHeader({
     title: 'Start new work',
     status: problems.length ? 'Needs input' : 'Gates ready',
-    subtitle: 'Work arrives in three shapes and with or without a tracker. Both are answered here, and the rest of the form follows from the answers.'
+    subtitle: form.shape === 'story' ? 'Describe the change, choose its workflow and branch, add supporting inputs, then review and start.'
+      : 'Work arrives in three shapes and with or without a tracker. Both are answered here, and the rest of the form follows from the answers.'
   }),
     context: contextStrip([
     { key: 'Workspace', value: form.targetWorkspace ?? '', chip: true },
     { key: 'Repository', value: form.targetRepository ?? '' },
     { key: 'Checked out', value: form.targetBranch ?? '', accent: true }
   ]) + (form.shape === 'story' ? infoNote('This Story gets a dedicated Git checkout. The target branch, index, and uncommitted files stay unchanged; the editor opens the new checkout only after its start succeeds.') : ''),
+    wizard: intakeWizardNavigation(form.shape === 'story'),
 
-    scope: `<div class="sf-panels">
+    scope: `${form.shape === 'story' ? `<details class="sf-panel"><summary>Story · ${form.tracker === 'none' ? 'No tracker' : form.tracker === 'jira' ? 'Jira' : 'GitHub Issue'} <span class="muted">— change work type or source</span></summary>` : ''}<div class="sf-panels">
     <section class="sf-panel">
-      ${stepHeading(1, 'What scope are you starting?', 'Choose by what happens afterwards: an Initiative breaks into Epics, an Epic into Stories, and a Story delivers one reviewed change.')}
+      ${heading(1, 'What scope are you starting?', 'Choose by what happens afterwards: an Initiative breaks into Epics, an Epic into Stories, and a Story delivers one reviewed change.')}
       ${shapeHtml(form)}
     </section>
     <section class="sf-panel">
-      ${stepHeading(2, 'Where is it tracked?', 'A tracker is optional. Without one, the work is described here and recorded in Git commits.')}
+      ${heading(2, 'Where is it tracked?', 'A tracker is optional. Without one, the work is described here and recorded in Git commits.')}
       ${trackerHtml(form)}
     </section>
-  </div>`,
+  </div>${form.shape === 'story' ? '</details>' : ''}`,
 
     identification: `<section class="sf-panel">
-    <div class="sf-panel-head">${stepHeading(3, `${noun} specification & identification`)}${form.shape === 'story' ? '<span class="sf-format">Format: Markdown GFM</span>' : ''}</div>
+    <div class="sf-panel-head">${heading(3, form.shape === 'story' ? 'Describe your Story' : `${noun} specification & identification`)}${form.shape === 'story' ? '<span class="sf-format">Format: Markdown GFM</span>' : ''}</div>
     ${fieldsHtml(form)}
   </section>`
   };
@@ -1435,12 +1471,14 @@ export function intakeRegions(form: IntakeForm, journey: StartWizardProgress | n
   for (const [id, html] of Object.entries({
     profile: profileHtml(form), workflow: storyWorkflowHtml(form), base: baseBranchHtml(form),
     poc: pocReadinessHtml(form), attachments: storyAttachmentsHtml(form), references: referenceRepositoriesHtml(form),
-    recovery: form.shape === 'story' ? testRecoveryHtml(form) : '',
+    checks: storyChecksHtml(form), recovery: form.shape === 'story' ? testRecoveryHtml(form) : '',
     inFlight: inFlightHtml(form)
   })) {
-    regions[id] = numberedSections(html, nextSection);
+    regions[id] = form.shape === 'story' ? html.replaceAll('<section>', '<section class="sf-panel">') : numberedSections(html, nextSection);
     nextSection += [...regions[id].matchAll(/class="sf-step"/gu)].length;
   }
+
+  regions.review = storyReviewHtml(form);
 
   // A read still in flight is progress, not a blocker: it is shown as checking, never in red.
   const checking = summaryProblems.filter((problem) => problem.endsWith('…'));
@@ -1476,10 +1514,11 @@ export function intakeRegions(form: IntakeForm, journey: StartWizardProgress | n
     : needed
       ? `<button type="button" class="link" data-focus-field="region:status">${needed === 1 ? '1 thing' : `${needed} things`} still needed</button>`
       : problems.length ? 'Checking…' : `${icon('ok')}Ready to start`}</p>
-      <button type="button" data-submit="start" ${problems.length || form.busy || form.enhancing ? 'disabled' : ''}>
+      ${intakeWizardActions(form.shape === 'story')}
+      <span data-intake-wizard-final${form.shape === 'story' ? ' hidden' : ''}><button type="button" data-submit="start" ${problems.length || form.busy || form.enhancing ? 'disabled' : ''}>
         ${form.busy ? 'Starting…' : form.shape === 'story' && testRecoveryNeedsTerminalReview(form)
           ? 'Prepare exact human review in terminal' : `Start ${escape(noun)}`}
-      </button>
+      </button></span>
       <button type="button" class="secondary" data-intake-cancel ${form.busy ? 'disabled' : ''}>Cancel</button>
   </div>`;
   return regions;
@@ -1497,7 +1536,7 @@ function numberedSections(html: string, first: number): string {
 }
 
 /** The page reports intent; every value is re-validated before it reaches the CLI. */
-export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + `
+export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + INTAKE_WIZARD_SCRIPT + `
   const vscode = window.__sfVscode;
   // Search only the already-offered catalog. It never selects a base or asks the host/Git to read.
   let branchSearch = document.querySelector('[data-base-branch-search]');
@@ -1585,6 +1624,7 @@ export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + `
         : name === 'base' ? document.querySelector('[data-base-branch-search]')
         : document.querySelector('[data-field="' + name + '"]');
       const folded = target && target.closest('details');
+      intakeWizard.reveal(target);
       if (folded && !folded.open) folded.open = true;
       if (target) { target.scrollIntoView({ block: 'center' }); if (target.focus) target.focus({ preventScroll: true }); }
       return;
@@ -1639,7 +1679,7 @@ export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + `
     if (testRecoveryRefresh) return vscode.postMessage({ type: 'testRecoveryRefresh' });
     if (event.target.closest('[data-intake-cancel]')) return vscode.postMessage({ type: 'cancel' });
     const target = event.target.closest('[data-submit]');
-    if (target) vscode.postMessage({ type: target.dataset.submit === 'recover-start' ? 'recover-start' : 'start' });
+    if (target && !target.disabled && intakeWizard.canStart()) vscode.postMessage({ type: target.dataset.submit === 'recover-start' ? 'recover-start' : 'start' });
   });
   /**
    * A shape or tracker change redraws, because it changes which fields exist. A keystroke does not,
@@ -1713,6 +1753,7 @@ export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + `
     const key = intakeFocusKey(el);
     const state = (vscode.getState && vscode.getState()) || {};
     state.intakeView = {
+      wizardStep: intakeWizard.step,
       key: key,
       branchSearch: branchSearch ? branchSearch.value : (state.intakeView?.branchSearch || ''),
       branchExact: branchExact ? branchExact.checked : state.intakeView?.branchExact === true,
@@ -1742,6 +1783,7 @@ export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + `
         : '[data-reference-index="' + parts[1] + '"][data-reference-field="' + parts[2] + '"]';
     const el = document.querySelector(selector);
     if (!el || typeof el.focus !== 'function' || el.disabled) return;
+    intakeWizard.reveal(el);
     el.focus({ preventScroll: true });
     if (saved.start !== null && typeof el.setSelectionRange === 'function') {
       try { el.setSelectionRange(saved.start, saved.end === null ? saved.start : saved.end); } catch (error) { /* not a text control */ }
@@ -1795,6 +1837,7 @@ export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + `
       if (el) el.value = draft.value;
     }
     intakePatchSequence = patch.sequence;
+    intakeWizard.refresh();
     restoreIntakeView();
   });
   vscode.postMessage({ type: 'intakeReady' });

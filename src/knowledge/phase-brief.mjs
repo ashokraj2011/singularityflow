@@ -14,8 +14,9 @@ import { ruleStatusWords } from './records/rules.mjs';
 export const PHASE_BRIEF_RENDERER = Object.freeze({ id: 'repository-brief', version: 1 });
 
 /**
- * Per-phase reader, budget and section order, matched on the phase ID, first match wins. The
- * budgets are defaults: `worldModel.knowledge.maxBytes` replaces them for every phase.
+ * Per-phase reader, budget and section order, matched on the phase ID, first match wins; a phase
+ * that only the catch-all matches is profiled by its declared task (TASK_PROFILES). The budgets are
+ * defaults: `worldModel.knowledge.maxBytes` replaces them for every phase.
  */
 export const PHASE_BRIEF_PROFILES = Object.freeze([
   Object.freeze({ id: 'reproduction', reader: 'developer', pattern: '(reproduc|fix-spec)', budget: 3072, order: Object.freeze(['rules', 'impact', 'risks', 'contracts']) }),
@@ -35,9 +36,20 @@ const SECTION_TITLES = Object.freeze({
 const EXPLANATIONS_TITLE = 'In plain words (inferred: model-written, checked against the cited code)';
 const BULLET_CHARACTERS = 320;
 
-export function phaseBriefProfile(phase, { maxBytes = null } = {}) {
+/**
+ * The catch-all is a developer's brief for a code step. A step whose name matches none of the
+ * profiles above (a user-defined workflow's own steps, typically) is profiled by the generation task
+ * it declares instead, so a document-only analysis or summary step is not handed "What a change
+ * touches" first. A matching name, a code task or no task keeps the profile it had.
+ */
+const TASK_PROFILES = Object.freeze({ clarify: 'intake', analyze: 'verification', reason: 'design', summarize: 'release' });
+
+export function phaseBriefProfile(phase, { maxBytes = null, task = null } = {}) {
   const id = String(phase ?? '').toLowerCase();
-  const profile = PHASE_BRIEF_PROFILES.find((entry) => new RegExp(entry.pattern, 'u').test(id));
+  let profile = PHASE_BRIEF_PROFILES.find((entry) => new RegExp(entry.pattern, 'u').test(id));
+  if (profile.pattern === '.*' && Object.hasOwn(TASK_PROFILES, task ?? '')) {
+    profile = PHASE_BRIEF_PROFILES.find((entry) => entry.id === TASK_PROFILES[task]);
+  }
   return { ...profile, budget: Number.isInteger(maxBytes) ? maxBytes : profile.budget };
 }
 

@@ -43,3 +43,18 @@ test('a brief is ranked by the Story, ordered for the phase, cited, and fits the
   assert.equal(phaseBriefProfile('fix-design').id, 'implementation-spec');
   assert.equal(phaseBriefProfile('intake', { maxBytes: 5000 }).budget, 5000, 'worldModel.knowledge.maxBytes replaces the default');
 });
+
+test('a step whose name matches no profile is profiled by the task it declares', () => {
+  // User-defined step names: before, all of these got the developer's implementation brief.
+  assert.equal(phaseBriefProfile('root-cause', { task: 'analyze' }).id, 'verification');
+  assert.equal(phaseBriefProfile('fix-proposal', { task: 'reason' }).id, 'design');
+  assert.equal(phaseBriefProfile('handoff', { task: 'summarize' }).id, 'release');
+  assert.equal(phaseBriefProfile('collect-facts', { task: 'clarify' }).id, 'intake');
+  assert.equal(phaseBriefProfile('handoff', { task: 'summarize', maxBytes: 5000 }).budget, 5000);
+  // Unchanged: a code task, no task, an unknown task, and any name a profile already matches.
+  assert.equal(phaseBriefProfile('apply-change', { task: 'code' }).id, 'implementation');
+  assert.equal(phaseBriefProfile('handoff').id, 'implementation');
+  assert.equal(phaseBriefProfile('handoff', { task: 'toString' }).id, 'implementation');
+  assert.equal(phaseBriefProfile('triage-intake', { task: 'analyze' }).id, 'intake');
+  assert.equal(phaseBriefProfile('design', { task: 'summarize' }).id, 'design');
+});

@@ -419,6 +419,23 @@ test('editing one capability field changes only its line in a map folded at 80 c
   }
 });
 
+test('clearing a field inside a map the capability does not have changes nothing', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-clear-'));
+  try {
+    await mkdir(path.join(root, 'singularity'), { recursive: true });
+    const original = 'version: 1\ncapabilities:\n  platform:\n    name: Platform\n    kind: collection\n    parent: null\n';
+    await writeFile(path.join(root, CAPABILITIES_PATH), original, 'utf8');
+    // The capability page sends every field on save: Jira board empty and Auto inherited. A mapped
+    // capability usually has no `jira` or `policy` map, and clearing inside one used to throw.
+    await editCapability(root, 'platform', { name: 'Platform', 'jira.board': '', 'policy.auto': null });
+    assert.equal(await readFile(path.join(root, CAPABILITIES_PATH), 'utf8'), original);
+    await editCapability(root, 'platform', { name: 'Platform', 'jira.projectKey': 'PLAT', 'jira.board': '', 'policy.auto': null });
+    assert.match(await readFile(path.join(root, CAPABILITIES_PATH), 'utf8'), /jira:\n {6}projectKey: PLAT\n/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('a refused capability edit leaves the file exactly as it was', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-refuse-'));
   try {

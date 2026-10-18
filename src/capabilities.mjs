@@ -698,8 +698,12 @@ export async function editCapability(root, capabilityId, changes = {}, {
 
       const empty = value === null || value === '' || (Array.isArray(value) && !value.length);
       // `parent: null` is meaningful — it is the root — so it is written rather than deleted.
-      if (empty && !(key === 'parent' && value === null)) document.deleteIn(['capabilities', capabilityId, ...key.split('.')]);
-      else document.setIn(['capabilities', capabilityId, ...key.split('.')], value);
+      const at = ['capabilities', capabilityId, ...key.split('.')];
+      // Clearing a field that is not there changes nothing. The capability page clears Jira board
+      // and Auto on every save, and a capability with no `jira` or `policy` map has neither.
+      if (empty && !(key === 'parent' && value === null)) {
+        if (document.hasIn(at)) document.deleteIn(at);
+      } else document.setIn(at, value);
     }
   }
 

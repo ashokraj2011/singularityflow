@@ -143,6 +143,8 @@ export async function captureMutationTurn(payload, record, {
     return { additionalContext: [
       `SFlow turn boundary (${value.skill}): ${presented.summary}`,
       presented.toolProtocol.paths,
+      presented.toolProtocol.terminal,
+      presented.toolProtocol.localVerification.allowed ? presented.toolProtocol.localVerification.guidance : null,
       `Binding readiness is not source-edit permission. Code authoring ready: ${presented.codeAuthoringReady}.`,
       presented.sourceEditPrerequisite
         ? `Before source edits: ${presented.sourceEditPrerequisite.command}. Re-enter the phase after that operation to verify fresh permissions; never auto-adopt or discard edits.` : null,

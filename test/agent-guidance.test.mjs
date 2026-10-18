@@ -12,7 +12,7 @@ import {
 import { parseAgentDependencies } from '../src/agents.mjs';
 import { initializeDefinition, loadDefinition } from '../src/config.mjs';
 import { planStudioChangeSet, STUDIO_CHANGE_SET_SCHEMA } from '../src/workflow-studio.mjs';
-import { CLI_PATH_CONTRACT } from '../src/safe-command-guidance.mjs';
+import { AUTHORING_VERIFICATION_PROTOCOL, CLI_PATH_CONTRACT } from '../src/safe-command-guidance.mjs';
 import { injectAgentPrompt } from '../src/inject.mjs';
 import { compactSourceReviewContext } from '../src/source-review-agent-context.mjs';
 
@@ -59,6 +59,16 @@ test('pinned and overridden legacy agents get compatible delivery while exact pi
   assert.doesNotMatch(projected.reviewer.effectiveInstructions, /cwd for every shell and file tool/u);
   assert.equal(projected.reviewGuide.readOrder[0], 'reviewer.effectiveInstructions');
   assert.deepEqual(projected.reportTemplate.binding, binding);
+});
+
+test('cached authoring prompts receive local verification guidance without rewriting old policy or evidence', () => {
+  const pinned = '# Existing phase prompt\nRun one standalone registered SFlow command with cwd=repositoryPath; no pipes, redirects, substitutions or command chains.\nPublication runs fresh tests, no pre-run.\n# Pinned source\nThe user quoted the same standalone-only rule.';
+  const delivered = withAgentPathProtocol(pinned, { normalizeLegacy: false, authoringVerification: true });
+  assert.ok(delivered.startsWith(pinned), 'retained prompt and source bytes remain canonical');
+  assert.ok(delivered.endsWith(`${AUTHORING_VERIFICATION_PROTOCOL}\n`));
+  assert.match(delivered, /overrides older generic standalone-SFlow-only or no-pre-run wording/u);
+  assert.equal(withAgentPathProtocol(delivered, { normalizeLegacy: false, authoringVerification: true }), delivered);
+  assert.ok(!withAgentPathProtocol(pinned, { normalizeLegacy: false }).includes(AUTHORING_VERIFICATION_PROTOCOL), 'reviewers do not receive an authoring grant');
 });
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');

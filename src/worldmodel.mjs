@@ -32,7 +32,7 @@ import { resolveLifecycleCapability } from './capability-context.mjs';
 import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
 import { artifactContentContractLines } from './publication-preflight.mjs';
 import { stepResponsibilities } from './phase-roles.mjs';
-import { deriveMutationContract } from './phase-mutation-contract.mjs';
+import { deriveMutationContract, mutationToolProtocol } from './phase-mutation-contract.mjs';
 import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
 import { recordPromptAudit } from './prompt-audit.mjs';
 import {
@@ -702,7 +702,11 @@ async function compose(root, options, {
       console.error(`Grounding composition reused: ${existing.file}`);
       const executionEvidence = await phaseExecutionEvidence(root, definition, workflow, phase);
       const replyPrompt = withReplyPersonalization(
-        withAgentPathProtocol(withExecutionEvidenceRefresh(existing.text, existing.record, executionEvidence), { normalizeLegacy: false }), resolvePersonalization({ root }));
+        withAgentPathProtocol(withExecutionEvidenceRefresh(existing.text, existing.record, executionEvidence), {
+          normalizeLegacy: false,
+          authoringVerification: Boolean(workflow && phase
+            && mutationToolProtocol(deriveMutationContract({ definition, workflow, phase })).localVerification.allowed)
+        }), resolvePersonalization({ root }));
       if (!renderOnly && options['skip-prompt-audit'] !== true) {
         await recordCompositionPromptAudit(root, {
           text: replyPrompt,
@@ -1118,7 +1122,11 @@ async function compose(root, options, {
     console.error(`Grounding composition recorded: ${file}`);
   }
   // Retained grounding stays canonical; the audit describes the exact host-delivered prompt.
-  const replyPrompt = withReplyPersonalization(withAgentPathProtocol(composedText, { normalizeLegacy: false }), resolvePersonalization({ root }));
+  const replyPrompt = withReplyPersonalization(withAgentPathProtocol(composedText, {
+    normalizeLegacy: false,
+    authoringVerification: Boolean(workflow && phase
+      && mutationToolProtocol(deriveMutationContract({ definition, workflow, phase })).localVerification.allowed)
+  }), resolvePersonalization({ root }));
   if (!renderOnly && options['skip-prompt-audit'] !== true) {
     await recordCompositionPromptAudit(root, {
       text: replyPrompt,

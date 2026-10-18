@@ -21,6 +21,7 @@ export function projectTestExecutionCommand(command, { configuredIndex = -1, tes
 /**
  * Runner availability is not test success or phase readiness. Execution stays in the existing
  * publication/submission transaction, which owns freshness, isolation and failure handling.
+ * This ownership does not prohibit diagnostic development runs during admitted authoring.
  * A caller may supply a command only after the corresponding lifecycle readiness check passes.
  */
 export function testExecutionHandoff(testExecution, { published = false, command = null } = {}) {
@@ -50,6 +51,6 @@ export function testExecutionHandoff(testExecution, { published = false, command
     executionOwner: owner, command, onSuccess: `continue-${owner}`,
     guidance: `The runner is resolved. Do not edit package scripts or test configuration merely to add reporter flags already supplied by the resolved command; no repository edit is required for this handoff. argv: null with argvWithheld: true means approved arguments are hidden, not missing; do not request configuration adoption for this. ${published
       ? 'Use the returned submit route only when submission readiness permits it; do not republish an unchanged generation.'
-      : 'Use returned commands.publish when prepublish is ready.'} ${owner === 'publication' ? 'Publication' : 'Submission'} runs the exact resolved command and validates fresh results, then continues automatically when required tests pass. Do not stop for runner adoption or repeat a separate test run merely because arguments are withheld. Tests do not waive other findings or required human approval.`
+      : 'Use returned commands.publish when prepublish is ready.'} ${owner === 'publication' ? 'Publication' : 'Submission'} runs the exact resolved command and validates fresh results, then continues automatically when required tests pass. Diagnostic development tests are allowed during admitted authoring; they never replace this fresh governed run. Do not stop for runner adoption or repeat a separate test run merely because arguments are withheld. Tests do not waive other findings or required human approval.`
   };
 }

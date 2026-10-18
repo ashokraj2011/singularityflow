@@ -709,8 +709,13 @@ test('explicit entry composition returns the governed prompt once and reuses imm
   assert.equal(entry.next[0].copilotCommand, '/sf-phase');
   assert.equal(entry.next[0].modelFreeCommand, null);
   assert.match(entry.context.text, /Bundle verified phase context/);
+  assert.equal(entry.mutationContract.toolProtocol.localVerification.allowed, true);
+  assert.match(entry.context.text, /Local verification is allowed in this admitted authoring turn/u);
+  assert.match(entry.context.text, /VS Code task is optional, not a prerequisite/u);
   const promptPath = path.join(item.root, 'team/stories/ENTRY-1/context/prompts', `${entry.phase}-gen1.md`);
   const initial = await readFile(promptPath, 'utf8');
+  assert.doesNotMatch(initial, /Local verification is allowed in this admitted authoring turn/u,
+    'the runtime correction does not rewrite the canonical prompt receipt');
   const again = item.invoke('phase', 'enter', '--compose', '--for-agent', '--json');
   assert.equal(again.status, 0, again.stderr || again.stdout);
   const reused = completeAgentResult(again.stdout);

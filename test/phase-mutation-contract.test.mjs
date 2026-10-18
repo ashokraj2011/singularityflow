@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import { mkdtemp, mkdir, readdir, readFile, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
-import { deriveMutationContract, mutationPathDecision, mutationTurnMode } from '../src/phase-mutation-contract.mjs';
+import { deriveMutationContract, mutationContractPresentation, mutationPathDecision, mutationTurnMode } from '../src/phase-mutation-contract.mjs';
 import { recordRepositoryBoundaryTurn, endRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
 import { captureMutationTurn, mutationToolGuard, mutationPostToolGuard, issueMutationStaging, issueImportTeamStaging, issueBuildStaging, refreshMutationContracts, endMutationDecisionTurns } from '../src/copilot-mutation-guard.mjs';
 import { createHash } from 'node:crypto';
@@ -544,6 +545,78 @@ test('post-shell content checks detect edits to a path that was already dirty; u
   assert.match(result.additionalContext, /Stop this SFlow authoring turn/);
   assert.equal((await mutationToolGuard(shell)).permissionDecision, 'deny');
   assert.equal(await readFile(path.join(f.root, 'src/App.jsx'), 'utf8'), 'changed again, same porcelain status');
+});
+
+test('every active authoring phase advertises and admits local tests and app sessions, not only SFlow commands', async t => {
+  const f = await fixture(t);
+  for (const id of ['specification', 'planning', 'implementation', 'convergence', 'verification', 'release', 'custom-check', 'custom-repair']) {
+    f.phase = { ...f.phase, id };
+    f.workflow.currentPhase = id;
+    f.workflow.phaseOrder = [id];
+    f.workflow.phases = { [id]: f.phase };
+    await writeFile(f.workflowFile, JSON.stringify(f.workflow));
+    const payload = await f.enter('/sf-phase', `verification-${id}`);
+    const view = mutationContractPresentation(deriveMutationContract({ root: f.root, ...f.accepted, phase: f.phase }));
+    assert.equal(view.toolProtocol.localVerification.allowed, true, id);
+    assert.match(view.toolProtocol.terminal, /not a standalone-SFlow-only terminal/u);
+    assert.match(view.toolProtocol.localVerification.guidance, /VS Code task is optional/u);
+    assert.match(view.toolProtocol.localVerification.guidance, /stop only the process\/session you started/u);
+    assert.match(view.toolProtocol.localVerification.guidance, /do not replace fresh governed/u);
+    for (const toolName of ['bash', 'powershell', 'run_in_terminal', 'exec_command']) {
+      for (const command of ['npm test -- --run', 'npm run dev -- --host 127.0.0.1', 'node --test local.test.mjs']) {
+        const call = { ...payload, toolName, toolArgs: { command, cwd: f.root } };
+        assert.deepEqual(await mutationToolGuard(call), {}, `${id}/${toolName}/${command}`);
+        assert.deepEqual(await mutationPostToolGuard(call), {}, `${id}/${toolName}/post`);
+      }
+    }
+    const stop = { ...payload, toolName: 'write_stdin', toolArgs: { session_id: 'owned-app-session', chars: '\u0003' } };
+    assert.deepEqual(await mutationToolGuard(stop), {}, id);
+    assert.deepEqual(await mutationPostToolGuard(stop), {}, `${id}/stop`);
+  }
+});
+
+test('native authoring verification runs a real test and starts/stops only its own loopback app', { timeout: 30000 }, async t => {
+  const f = await fixture(t);
+  await writeFile(path.join(f.root, 'local.test.mjs'), "import test from 'node:test'; import assert from 'node:assert/strict'; test('local diagnostic',()=>assert.equal(255..toString(16),'ff'));\n");
+  await writeFile(path.join(f.root, 'dev-server.mjs'), "import {createServer} from 'node:http'; createServer((req,res)=>res.end('local-app')).listen(0,'127.0.0.1',function(){console.log(this.address().port)});\n");
+  f.git(['add', 'local.test.mjs', 'dev-server.mjs']); f.git(['commit', '-qm', 'repository verification commands']);
+  const payload = await f.enter('/sf-code');
+  const check = { ...payload, toolName: 'bash', toolArgs: { command: 'node --test local.test.mjs', cwd: f.root } };
+  assert.deepEqual(await mutationToolGuard(check), {});
+  const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
+  const result = spawnSync(process.execPath, ['--test', 'local.test.mjs'], { cwd: f.root, encoding: 'utf8', env });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /# pass 1/u);
+  assert.deepEqual(await mutationPostToolGuard(check), {});
+  const start = { ...payload, toolName: 'run_in_terminal', toolArgs: { command: 'node dev-server.mjs', cwd: f.root, isBackground: true } };
+  assert.deepEqual(await mutationToolGuard(start), {});
+  const child = spawn(process.execPath, ['dev-server.mjs'], { cwd: f.root, stdio: ['pipe', 'pipe', 'pipe'] });
+  t.after(() => { if (child.exitCode === null) child.kill(); });
+  const port = Number(String((await once(child.stdout, 'data'))[0]).trim());
+  assert.ok(port > 0);
+  assert.equal(await (await fetch(`http://127.0.0.1:${port}`)).text(), 'local-app');
+  assert.deepEqual(await mutationPostToolGuard(start), {});
+  const stop = { ...payload, toolName: 'write_stdin', toolArgs: { session_id: String(child.pid), chars: '\u0003' } };
+  assert.deepEqual(await mutationToolGuard(stop), {});
+  const exited = once(child, 'exit');
+  child.kill(); // Exact test-owned child only; portable on Windows, never kill by process name/port.
+  await exited;
+  await assert.rejects(fetch(`http://127.0.0.1:${port}`));
+  assert.deepEqual(await mutationPostToolGuard(stop), {});
+});
+
+test('local verification does not widen review, publication, decision, read or kernel-only turns', async t => {
+  const f = await fixture(t);
+  for (const skill of ['/sf-review-source', '/sf-publish', '/sf-approve', '/sf-next', '/sf-inspect']) {
+    const payload = await f.enter(skill, `restricted-${skill}`);
+    const contract = deriveMutationContract({ root: f.root, ...f.accepted, turnMode: mutationTurnMode(skill) });
+    const protocol = mutationContractPresentation(contract).toolProtocol;
+    assert.equal(protocol.localVerification.allowed, false, skill);
+    assert.match(protocol.terminal, /one standalone registered SFlow command/u);
+    for (const command of ['npm test', 'npm run dev', 'node dev-server.mjs']) {
+      assert.equal((await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } })).permissionDecision, 'deny', `${skill}/${command}`);
+    }
+  }
 });
 
 test('native, pause, session end are inert; explicit missing contracts are not an edit permission', async t => {

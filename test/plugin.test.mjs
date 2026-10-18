@@ -337,7 +337,11 @@ test('initial phase skills require interactive clarification instead of silently
   assert.match(epicRequirements, /epic sources answer/);
   assert.match(code, /runner repair requires `CODE_DELIVERY_TEST_COMMAND_REQUIRED`/);
   assert.match(code, /never edit protected config, disable hooks or fabricate results/i);
-  assert.match(code, /Publication runs fresh tests, no pre-run/);
+  assert.match(code, /Development tests are allowed during authoring/u);
+  assert.match(code, /Publication still runs fresh governed tests/u);
+  assert.match(code, /No VS Code task is required/u);
+  assert.match(code, /toolProtocol.localVerification/u);
+  assert.doesNotMatch(code, /Publication runs fresh tests, no pre-run/u);
   assert.match(code, /No skip\/list\/dry-run\/no-tests/);
   assert.match(code, /No adoption\/amendment for redaction\/inference/);
 });

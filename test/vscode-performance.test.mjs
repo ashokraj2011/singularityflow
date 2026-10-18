@@ -167,7 +167,8 @@ test('automatic Story discovery does not repeat the initial snapshot or load a c
   const auxiliary = extension.slice(extension.indexOf('const startAuxiliaryReadsAfterConfirmedSnapshot'),
     extension.indexOf('context.subscriptions.push(store.onDidChange',
       extension.indexOf('const startAuxiliaryReadsAfterConfirmedSnapshot')));
-  assert.match(auxiliary, /refreshRemoteStories\(\{ refreshSnapshot: false \}\)/);
+  // Automatic discovery neither refreshes the snapshot nor forces past the advisory roster (36a721d9).
+  assert.match(auxiliary, /refreshRemoteStories\(\{ refreshSnapshot: false, force: false \}\)/);
   assert.doesNotMatch(auxiliary, /refreshWorkspaceLogsTree\(\)/,
     'collapsed Logs still scans 500 entries on cold start');
   const logsRefresh = extension.slice(extension.indexOf("'singularityFlow.refreshWorkspaceLogs': async () =>"),

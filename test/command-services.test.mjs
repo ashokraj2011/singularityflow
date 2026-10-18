@@ -81,15 +81,18 @@ test('every nested command helper is reached from a command service', async () =
  * `story test-policy amend` loads `story-test-amendment.mjs`. Only reached services count as
  * loaders, so a service that only an unreached service loads is still dead.
  */
-function reachedServices({ cli, registry, sources }) {
+function reachedServices({ cli, registry, sources, entries = [] }) {
+  // cli-entry.mjs validates some requests before the router loads; it is a dispatcher root too.
+  const roots = [cli, registry, ...entries];
   const reached = new Set([...sources.keys()].filter((name) =>
-    cli.includes(`./commands/${name}`) || registry.includes(`./commands/${name}`)));
+    roots.some((root) => root.includes(`./commands/${name}`))));
   for (let grew = true; grew;) {
     grew = false;
     for (const name of sources.keys()) {
       if (reached.has(name)) continue;
+      // Loaded on demand, or statically by a service that is itself reached.
       if ([...reached].some((loader) => sources.get(loader).includes(`import('./${name}')`)
-          || sources.get(loader).includes(`import("./${name}")`))) {
+          || sources.get(loader).includes(`import("./${name}")`) || sources.get(loader).includes(`from './${name}'`))) {
         reached.add(name);
         grew = true;
       }
@@ -106,12 +109,13 @@ function reachedServices({ cli, registry, sources }) {
 test('every command service is reached from the dispatcher', async () => {
   const cli = withoutComments(await readFile(path.join(SRC, 'cli.mjs'), 'utf8'));
   const registry = withoutComments(await readFile(path.join(SRC, 'command-registry.mjs'), 'utf8'));
+  const entry = withoutComments(await readFile(path.join(SRC, 'cli-entry.mjs'), 'utf8'));
   const sources = new Map(await Promise.all((await services()).map(async (file) =>
     [path.basename(file), withoutComments(await readFile(file, 'utf8'))])));
   // The kernel is shared spine rather than a service, so it is imported, not dispatched.
   assert.match(cli, /from '\.\/commands\/kernel\.mjs'/, 'the router no longer uses the shared kernel');
   sources.delete('kernel.mjs');
-  const reached = reachedServices({ cli, registry, sources });
+  const reached = reachedServices({ cli, registry, sources, entries: [entry] });
   const unreached = [...sources.keys()].filter((name) => !reached.has(name));
   assert.deepEqual(unreached, [], `${unreached.join(', ')} ${unreached.length === 1 ? 'is' : 'are'} reachable `
     + 'from neither the dispatcher, the command registry, nor a reached service');

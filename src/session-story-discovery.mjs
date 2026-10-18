@@ -42,7 +42,9 @@ function provenRow(item) {
   return {
     id: item.id, branch: item.branch, title: item.title, createdAt: item.createdAt ?? null,
     status: item.status, phase: item.phase ?? null, progress: item.progress,
-    commit: item.commitOid.slice(0, 8), commitOid: item.commitOid, aliases: item.aliases
+    commit: item.commitOid.slice(0, 8), commitOid: item.commitOid, aliases: item.aliases,
+    workType: typeof item.workType === 'string' ? item.workType : null,
+    updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : item.createdAt ?? null
   };
 }
 
@@ -202,6 +204,8 @@ export async function discoverRemoteStoryCandidates(root, definition, {
         createdAt: workflow.workItem.createdAt ?? null,
         status: workflow.status,
         phase: workflow.currentPhase,
+        workType: workflow.workItem.workType ?? null,
+        updatedAt: workflow.history?.at(-1)?.at ?? workflow.workItem.createdAt ?? null,
         progress: storyLifecycleProgress(retainedWorkflow),
         commit: subject.location.commit?.slice(0, 8) ?? '',
         commitOid: subject.location.commit,

@@ -61,7 +61,8 @@ export function ledgerSummaryCandidate(definition, pointer) {
   return {
     id: story.id, branch: story.branch, title: story.title, createdAt: story.createdAt ?? null,
     status: story.status, phase: story.phase, progress: story.progress,
-    commit: story.commit, commitOid: story.commitOid, aliases: story.aliases
+    commit: story.commit, commitOid: story.commitOid, aliases: story.aliases,
+    workType: story.workType ?? null, updatedAt: story.updatedAt ?? story.createdAt ?? null
   };
 }
 
@@ -458,6 +459,8 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
               id: claimedId, branch: canonical, title: workflow.workItem.title,
               createdAt: workflow.workItem.createdAt ?? null,
               status: workflow.status, phase: workflow.currentPhase,
+              workType: workflow.workItem.workType ?? null,
+              updatedAt: workflow.history?.at(-1)?.at ?? workflow.workItem.createdAt ?? null,
               commit: commit.slice(0, 8), commitOid: commit,
               ...(includeState ? { state: workflow, definition, path: entry.file } : {}),
               progress: storyLifecycleProgress(rawWorkflow),

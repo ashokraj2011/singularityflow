@@ -16,7 +16,7 @@ import { run } from '../src/util.mjs';
 async function fixture(t) {
   const f = await createSessionListingFixture(); t.after(f.cleanup);
   const id = 'REVIEW-1', branch = 'team/custom-review';
-  const state = { schemaVersion: 11, workItem: { id, title: 'Indexed review', branch,
+  const state = { schemaVersion: 11, workItem: { id, title: 'Indexed review', branch, workType: 'feature',
     createdAt: '2026-10-18T00:00:00Z' }, lineage: { canonicalBranch: branch, aliases: ['external-review'] },
     status: 'in_progress', currentPhase: 'specification', phaseOrder: ['specification'],
     phases: { specification: { id: 'specification', label: 'Specification', status: 'awaiting_approval',
@@ -32,7 +32,7 @@ async function fixture(t) {
   const commit = f.git(f.source, 'rev-parse', 'HEAD');
   await appendLedgerIntent(f.source, { ...f.definition.ledger, pinTransport: 'none' }, createLedgerIntent({
     eventType: 'binding', capabilityId: 'fixture', actor: { name: 'Fixture', email: 'fixture@example.invalid' },
-    subject: { kind: 'story', workId: id, branch, title: state.workItem.title, status: state.status,
+    subject: { kind: 'story', workId: id, branch, workType: 'feature', title: state.workItem.title, status: state.status,
       currentPhase: state.currentPhase, aliases: ['external-review'], progress: storyLifecycleProgress(state) }
   }), commit);
   return { ...f, id, branch, commit };
@@ -51,6 +51,7 @@ test('approval inbox, legacy subject lookup and snapshots discover only state-in
   assert.equal(resolved.state.currentPhase, 'specification');
   const before = await repositorySnapshot(f.original, null, null, { included: ['lifecycle'] });
   assert.deepEqual(before.lifecycle.workItems.map(row => row.id), [f.id]);
+  assert.equal(before.lifecycle.workItems[0].workType, 'feature', 'state projections retain useful catalog metadata');
   assert.equal(before.lifecycle.storyDiscovery.complete, true);
   const measure = async () => {
     const timer = commandTimer('inbox', { commandClass: 'read' });

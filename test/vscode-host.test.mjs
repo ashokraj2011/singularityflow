@@ -30,7 +30,7 @@ import { createInitiative, initiativeDir, prepareInitiativePhase, saveInitiative
 import { createAutoFlightState, readAutoFlightState } from '../src/auto/auto-flight-store.mjs';
 import { publishOrganisationCapabilityMap } from '../src/organisation.mjs';
 import { run } from '../src/util.mjs';
-import { isolatedMachineEnvironment } from '../scripts/test-machine-state.mjs';
+import { isolatedHomeEnvironment, isolatedMachineEnvironment } from '../scripts/test-machine-state.mjs';
 
 process.env.NODE_ENV = 'test';
 process.env.SINGULARITY_FLOW_TEST_IDENTITY = 'Initiative Owner';
@@ -47,14 +47,17 @@ const EMAIL = 'initiative.owner@example.com';
  *
  * Redirected here rather than per-test on purpose. A test that forgets is a test that reads the
  * real machine, and it fails only for whoever has a workspace selected. This file also runs on its
- * own, outside the suite runner, so it applies the runner's whole list itself. Before it did, every
- * session listing the extension asked for was cached in the developer's home.
+ * own, outside the suite runner, so it applies the runner's whole list and its throwaway home
+ * itself. Before it did, every session listing the extension asked for was cached in the
+ * developer's home.
  */
 const machineState = mkdtempSync(path.join(os.tmpdir(), 'sflow-host-machine-'));
 const {
   SINGULARITY_FLOW_WORKSPACE_REGISTRY: registryFile, SINGULARITY_FLOW_LEAD_REGISTRY: leadRegistryFile, ...machineFiles
 } = isolatedMachineEnvironment(machineState);
-Object.assign(process.env, machineFiles);
+const testHome = isolatedHomeEnvironment(machineState);
+for (const name of testHome.unset) delete process.env[name];
+Object.assign(process.env, machineFiles, testHome.set);
 process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY ??= registryFile;
 process.env.SINGULARITY_FLOW_LEAD_REGISTRY ??= leadRegistryFile;
 process.env.SINGULARITY_FLOW_TRANSPORT_OUTBOX = path.join(machineState, 'transport-outbox');

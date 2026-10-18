@@ -4,16 +4,22 @@
  * scripts/test-machine-state.mjs lists the variable that redirects every machine-wide location. The
  * sweep below finds each `~/.singularity-flow` default in the shipped sources and requires one of
  * those variables to guard it, so a new default cannot quietly send test fixtures home. The child
- * run proves the redirect where the leak was seen: a session listing under a sentinel HOME.
+ * run proves the redirect where the leak was seen: a session listing under a sentinel HOME. The
+ * run's own home covers what Singularity Flow does not own (~/.copilot, npm, Git's global config).
  */
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { isolatedMachineEnvironment, MACHINE_STATE_LOCATIONS } from '../scripts/test-machine-state.mjs';
+import { configuredPersonalTerms } from '../scripts/documentation-privacy.mjs';
+import {
+  isolatedMachineEnvironment, isolatedTestEnvironment, MACHINE_STATE_LOCATIONS
+} from '../scripts/test-machine-state.mjs';
 import { createSessionListingFixture } from '../scripts/session-listing-benchmark.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -77,10 +83,42 @@ test('every redirect variable is still read by the shipped sources', async () =>
   assert.deepEqual(unread, []);
 });
 
-test('the suite runner and the VS Code host tests apply the whole list', async () => {
-  for (const relative of ['scripts/run-test-suite.mjs', 'test/vscode-host.test.mjs']) {
-    assert.match(await readFile(path.join(root, relative), 'utf8'), /isolatedMachineEnvironment\(machineState\)/u, relative);
+test('the suite runner and the VS Code host tests apply the whole list and a home of their own', async () => {
+  assert.match(await readFile(path.join(root, 'scripts/run-test-suite.mjs'), 'utf8'), /isolatedTestEnvironment\(machineState\)/u);
+  const host = await readFile(path.join(root, 'test/vscode-host.test.mjs'), 'utf8');
+  assert.match(host, /isolatedMachineEnvironment\(machineState\)/u);
+  assert.match(host, /isolatedHomeEnvironment\(machineState\)/u);
+});
+
+test('a test run gets a home of its own, and nothing points back into the developer\'s', async (t) => {
+  const state = await mkdtemp(path.join(os.tmpdir(), 'sflow-test-home-'));
+  t.after(() => rm(state, { recursive: true, force: true }));
+  const developer = path.join(state, 'developer');
+  const env = isolatedTestEnvironment(path.join(state, 'run'), {
+    PATH: process.env.PATH, HOME: developer, npm_config_cache: path.join(developer, '.npm'),
+    npm_config_userconfig: path.join(developer, '.npmrc'), npm_config_prefix: path.join(state, 'prefix'),
+    npm_config_user_agent: 'npm/11', XDG_CONFIG_HOME: path.join(developer, '.config'),
+    COPILOT_HOME: path.join(developer, '.copilot'), SINGULARITY_FLOW_TEST_IDENTITY: 'Kept'
+  });
+  const home = path.join(state, 'run', 'test-home');
+  assert.equal(env.HOME, home);
+  assert.equal(env.USERPROFILE, home);
+  for (const name of ['npm_config_cache', 'npm_config_userconfig', 'XDG_CONFIG_HOME', 'COPILOT_HOME']) {
+    assert.equal(Object.hasOwn(env, name), false, `${name} still points into the developer's home`);
   }
+  assert.equal(env.npm_config_prefix, path.join(state, 'prefix'));
+  assert.equal(env.npm_config_user_agent, 'npm/11');
+  assert.equal(env.SINGULARITY_FLOW_TEST_IDENTITY, 'Kept');
+  assert.equal(env.SINGULARITY_FLOW_REPOSITORY_CHECK_PREFERENCES, path.join(state, 'run', 'repository-checks.json'));
+
+  // Children see it: Node's home directory and Git's global identity both come from the new home.
+  const child = spawnSync(process.execPath, ['-e', 'process.stdout.write(require("node:os").homedir())'], { env, encoding: 'utf8' });
+  assert.equal(child.stdout, home);
+  const identity = Object.fromEntries(['user.name', 'user.email'].map((key) => [key,
+    spawnSync('git', ['config', '--global', key], { env, encoding: 'utf8' }).stdout.trim()]));
+  assert.deepEqual(identity, { 'user.name': 'Singularity Flow Test', 'user.email': 'test@example.invalid' });
+  // A check run inside the suite therefore finds no personal terms, rather than flagging the fixture.
+  assert.deepEqual(configuredPersonalTerms({ name: identity['user.name'], email: identity['user.email'], homeDirectory: home }), []);
 });
 
 test('a session listing under the runner\'s machine state writes nothing into the home directory', async (t) => {

@@ -9761,7 +9761,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1076 body tokens</span>
+          <span class="pill">~1082 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-session</code></dd></div>
@@ -9782,7 +9782,7 @@ disable-model-invocation: true
 # Attach the Copilot session to durable Git state
 
 &lt;!-- sflow-copilot-pause --&gt;
-Start with `singularity-flow session open --for-agent --json` once; for explicit takeover with an exact ID use `singularity-flow session takeover &lt;WORK-ID&gt; --for-agent --json` instead. Carry exact workspace/repository selectors and requested `--refresh`; with an ID refresh synchronizes, not local-open. Both entries check pause before Git. If paused, only offer `/sf-pause off`. Reuse the matching result; no duplicate lookups. Without an ID show candidates and ask for an exact choice; never infer selection.
+Start with `singularity-flow session open --for-agent --json` once; for explicit takeover with an exact ID use `singularity-flow session takeover &lt;WORK-ID&gt; --for-agent --json` instead. Carry exact workspace/repository selectors and requested `--refresh`; with an ID refresh synchronizes, not local-open. Both entries check pause before Git. If paused, only offer `/sf-pause off`. Reuse the matching result. No separate pause/workspace/session lookups. Without an ID show candidates and ask for an exact choice; never infer selection.
 
 &lt;!-- sflow-output-contract: explicit-selection --&gt;
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say &quot;not available for this action&quot;. Missing Copilot: &quot;no verified equivalent&quot;. Never invent routes.

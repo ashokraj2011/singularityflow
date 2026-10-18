@@ -77,3 +77,18 @@ settings or the repository's saved Git configuration.
 
 The usual 30-minute advisory cache settings remain unchanged. Context scope coalescing is only for
 one invocation; mutations still run their existing fresh identity, lifecycle and authorization gates.
+
+## Qualification
+
+The [native macOS and Windows qualification run](https://github.com/ashokraj2011/singularityflow/actions/runs/39092914507)
+passed on Node 22 after integrating main through `78f7ba5b`. It covers all 17 shared-context cases,
+window selection and attachment diagnostics, Git child configuration, takeover, cleanup, and the
+latest session/refusal integration. macOS passed 86 tests with one Windows-only case skipped;
+Windows passed 78 with three POSIX cloud-placeholder cases skipped. The macOS run exercises those
+cloud-placeholder cases. Both hosts also passed VS Code typechecking and build.
+
+Local Mac qualification additionally passed the 44 phase-entry tests, attachment durability and
+platform suites, 72 latest-main integration tests, and all 2,726 repository checks. Fixtures use
+isolated remotes and workspaces: no real Story was approved or advanced and no user clone was
+deleted. This is automated integration qualification, not a claim of complete native Copilot Story
+latency measurements or execution of every repository test.

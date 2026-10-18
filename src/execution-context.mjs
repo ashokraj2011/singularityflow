@@ -117,4 +117,3 @@ export async function captureExecutionContext(root, { workspace = undefined, wor
   if (cacheable && scope) scope.pending.set(selected, pending);
   return pending;
 }
-

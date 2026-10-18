@@ -751,8 +751,8 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
   // existing command still verifies Git, accepted Story, permissions and publication freshness.
   const contextRoutingExcluded = excludesActiveWorkspaceRouting(definition.name,
     positionals[1] ?? null, options, positionals[2] ?? null);
-  const boundRoot = contextRoutingExcluded ? null
-    : explicitContextRoot ?? surfaceContext()?.repositoryPath ?? null;
+  const boundRoot = explicitContextRoot
+    ?? (contextRoutingExcluded ? null : surfaceContext()?.repositoryPath ?? null);
   if (boundRoot) {
     let selectedRoot;
     try { selectedRoot = repoRoot(boundRoot); }

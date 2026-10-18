@@ -1839,8 +1839,8 @@ test('@sflow previews only a verified local file in the exact selected Story che
   assert.equal(run('git', ['status', '--porcelain'], { cwd: root }).stdout.trim(), '');
 
   // After the editor has selected the Story checkout, a machine-wide workspace selection can
-  // change independently. `session current` then points at another clone; the participant must
-  // not treat that clone as the editor's active Story or stage another plan for it.
+  // change independently. The participant must keep this window's actual Story, not retarget to
+  // the other clone or reject valid work merely because a different window changed the profile.
   const create = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
     'workspace', 'create', '--local', '--json', '--id', 'other-chat-checkout',
     '--base', path.join(machine, 'workspaces'), '--lead', 'lead',
@@ -1850,11 +1850,12 @@ test('@sflow previews only a verified local file in the exact selected Story che
   const use = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
     'workspace', 'use', 'other-chat-checkout', '--json'], { encoding: 'utf8', env: process.env });
   assert.equal(use.status, 0, use.stderr);
-  const refused = response();
-  await participant.handler(request, {}, refused.stream, { isCancellationRequested: false });
-  assert.match(refused.messages.join(''), /does not match the ready Story session\/worktree/);
-  assert.doesNotMatch(refused.messages.join(''), /Staged feedback attachment preview/);
-  assert.equal(refused.buttons.length, 0);
+  const retained = response();
+  await participant.handler(request, {}, retained.stream, { isCancellationRequested: false });
+  assert.match(retained.messages.join(''), /Staged feedback attachment preview/);
+  assert.match(retained.messages.join(''), /STORY\\-CHAT/);
+  assert.doesNotMatch(retained.messages.join(''), /does not match the ready Story session\/worktree/);
+  assert.ok(retained.buttons.length > 0);
 });
 
 test('clicking an offline topic renders the engine-served bytes inside Help Center', async (t) => {

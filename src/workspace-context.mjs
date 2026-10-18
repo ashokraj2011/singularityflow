@@ -535,7 +535,8 @@ export async function activateWorkspaceStoryContext(
 export async function resolveWorkspaceExecutionContext(
   selectionFile, registryFile, { cwd = process.cwd() } = {}
 ) {
-  const bound = (await import('./execution-context-scope.mjs')).boundExecutionContextRoot();
+  const scope = await import('./execution-context-scope.mjs');
+  const bound = scope.boundExecutionContextRoot();
   if (bound) {
     // All lifecycle/entry readers use the surface's checkout, even when another window changes
     // the profile. This selector never supplies approval, phase or configuration authority.
@@ -549,6 +550,21 @@ export async function resolveWorkspaceExecutionContext(
       branch: currentBranch, head: head(root), storyId: await detectedStory(root, currentBranch),
       storyWorktree: gitDir(root) !== gitCommonDir(root), selectionSource: 'surface-context', selectionStatus: 'ready' };
     return { ...current, prompt: workspacePromptLabel(current) };
+  }
+  // A caller already in a Story is not a neutral launcher. Keep it even if another terminal
+  // selected a different workspace. A canonical/main checkout without a Story still uses the
+  // normal explicit profile selection, so native Copilot need not change its host directory.
+  let callerRoot = null;
+  try { callerRoot = repoRoot(cwd); } catch { /* A neutral host may use the profile default. */ }
+  if (callerRoot) {
+    let callerStory = null;
+    try { callerStory = await detectedStory(callerRoot, branch(callerRoot)); }
+    catch (error) {
+      if (error.code !== 'WORKFLOW_CONFIGURATION_MISSING'
+          && !(error.code === 'ENOENT' && String(error.path).endsWith(`${path.sep}workflow.yml`))) throw error;
+    }
+    if (callerStory) return scope.withExecutionContextScope(callerRoot,
+      () => resolveWorkspaceExecutionContext(selectionFile, registryFile, { cwd: callerRoot }), { boundRoot: callerRoot });
   }
   const selected = await readActiveWorkspaceContext(selectionFile, registryFile);
   if (!selected) return null;

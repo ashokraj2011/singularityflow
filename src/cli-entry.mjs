@@ -936,7 +936,7 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
     }, () => module.run(effectiveArgv, {
       positionals: [definition.name, ...positionals.slice(1)], options, definition,
       operation, requestedOperation, modelMode
-    })), { boundRoot: explicitContextRoot ?? surfaceContext()?.repositoryPath ?? (!routingExcluded ? root : null) }));
+    })), { boundRoot: explicitContextRoot ?? surfaceContext()?.repositoryPath ?? null }));
     // Keep the complete mutating handler visible to factory reset. The reset barrier and this
     // short-lived, uniquely named lease form a two-way exclusion boundary: a reset refuses while
     // any current-build mutation is active, and a mutation refuses once reset has begun. Loading

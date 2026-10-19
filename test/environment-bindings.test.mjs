@@ -335,6 +335,12 @@ test('env CLI accepts binding values only on bounded stdin and emits secret-free
   assert.equal(output.status, 'bound');
   assert.deepEqual(output.environment.secretsPresent, ['DB_CONN']);
   assert.equal(output.processEnvironment, undefined);
+  // The text answer names the environment and its status, never an object or a value.
+  const text = spawnSync(process.execPath, [CLI, 'env', 'bind', 'qa', '--stdin'], {
+    cwd: root, input: payload, encoding: 'utf8', env: { ...process.env }
+  });
+  assert.equal(text.status, 0, text.stderr);
+  assert.equal(text.stdout.trim(), "Environment 'qa': bound");
 
   const rejectedSecret = 'rejected-legacy-private-value';
   const unsafe = spawnSync(process.execPath, [

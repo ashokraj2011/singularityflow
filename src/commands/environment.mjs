@@ -230,6 +230,9 @@ function emit(value, json) {
     for (const entry of value.environments) {
       console.log(`- ${entry.environment.name}: ${entry.status}${entry.missing.length ? ` · missing ${entry.missing.join(', ')}` : ''}`);
     }
+  } else if (value.environment && typeof value.environment === 'object') {
+    // A bind answers with the binding's public status, never its values.
+    console.log(`Environment '${value.environment.name}': ${value.status}${value.missing?.length ? ` · missing ${value.missing.join(', ')}` : ''}`);
   } else {
     console.log(`Environment '${value.environment}': ${value.removed ? 'private binding removed' : 'no private binding existed'}`);
   }

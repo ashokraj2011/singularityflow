@@ -10,6 +10,9 @@ export default async function* reporter(events) {
   const stacks = new Map();
   const files = new Map();
   const occurrences = [];
+  // Each failed case's error message, aligned with occurrences, on a line of its own: the occurrences
+  // (and so every attempt that keeps them) are exactly what they were; only the test summary reads it.
+  const messages = [];
   const incomplete = new Set();
   async function* observe() {
     for await (const event of events) {
@@ -38,9 +41,12 @@ export default async function* reporter(events) {
         if (ancestors.length !== data.nesting || ancestors.some((name) => typeof name !== 'string')) issues.push('ancestry-mismatch');
         if (occurrences.length >= 100_000) issues.push('occurrence-limit');
         if (issues.length) for (const issue of issues) incomplete.add(issue);
-        else occurrences.push({ file, line: data.line, name: data.name, ancestorTitles: ancestors,
-          outcome: data.skip || data.todo ? 'skipped' : event.type === 'test:pass' ? 'passed' : 'failed',
-          durationMs: data.details?.duration_ms ?? null });
+        else {
+          const outcome = data.skip || data.todo ? 'skipped' : event.type === 'test:pass' ? 'passed' : 'failed';
+          occurrences.push({ file, line: data.line, name: data.name, ancestorTitles: ancestors, outcome, durationMs: data.details?.duration_ms ?? null });
+          const cause = data.details?.error?.cause ?? data.details?.error;
+          messages.push(outcome === 'failed' && cause != null ? String(typeof cause?.message === 'string' ? cause.message : cause).slice(0, 2_000) : null);
+        }
       }
       yield event;
     }
@@ -48,6 +54,7 @@ export default async function* reporter(events) {
   if (process.env.SINGULARITY_FLOW_NODE_TEST_TAP === '0') {
     for await (const _event of observe()) { /* The configured reporter emits TAP. */ }
   } else yield* tap(observe());
+  if (messages.some((message) => message != null)) yield `# sflow-node-messages-v1 ${JSON.stringify({ messages })}\n`;
   yield `# sflow-node-observation-v1 ${JSON.stringify({ complete: incomplete.size === 0, occurrences,
     ...(incomplete.size ? { issues: [...incomplete] } : {}) })}\n`;
 }

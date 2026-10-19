@@ -6,6 +6,9 @@
  * occurrences, listed up to 5,000. A case's requirement tags come from the same `@ac:` scanners
  * and join the evidence matrix uses: an exact JavaScript declaration joined to its occurrence, or,
  * for a report that names each case's file and line, the comment tags directly above that line.
+ * A failed case carries `message`: a short failure message (test-case-messages.mjs) when its
+ * command's report gives one, else null. Passing and skipped cases carry none, which keeps a
+ * 5,000-case answer within the size its readers take.
  */
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -108,7 +111,8 @@ function durationOf(receipt) {
 
 /**
  * Build the summary. Each entry is one command's receipt with its run metadata:
- * `{ receipt, kind, clauses, environment, evidenceClass, countsForStep, label, note }`.
+ * `{ receipt, kind, clauses, environment, evidenceClass, countsForStep, label, note, messages }`, where
+ * `messages` (already redacted) is aligned with the receipt's occurrences.
  */
 export function buildTestSummary({ scope, run, entries, history = [] }) {
   const totals = { discovered: 0, passed: 0, failed: 0, skipped: 0, flaky: 0, durationMs: 0 };
@@ -150,7 +154,8 @@ export function buildTestSummary({ scope, run, entries, history = [] }) {
         line: Number.isInteger(occurrence.line) ? occurrence.line : entry.locations?.[index]?.line ?? null,
         outcome: outcomeOf(occurrence),
         durationMs: occurrence.durationMs ?? null,
-        clauses
+        clauses,
+        ...(occurrence.outcome === 'failed' ? { message: typeof entry.messages?.[index] === 'string' ? entry.messages[index] : null } : {})
       });
     }
   }

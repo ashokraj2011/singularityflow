@@ -72,7 +72,7 @@ test('a capability-scope run is a private local preview and its summary lists ca
   assert.match(karma.note, /karma-text reports give totals only\. A junit-xml, node-tap, jest-json or vitest-json report lists each test case/u);
   assert.deepEqual(summary.cases, [
     { command: 'module-junit', suite: 'tests.test_pay', name: 'test_refund', file: 'tests/test_pay.py', line: 4, outcome: 'passed', durationMs: 10, clauses: ['PAY-1:AC-002'] },
-    { command: 'module-junit', suite: 'tests.test_pay', name: 'test_round', file: 'tests/test_pay.py', line: 8, outcome: 'failed', durationMs: 20, clauses: [] }
+    { command: 'module-junit', suite: 'tests.test_pay', name: 'test_round', file: 'tests/test_pay.py', line: 8, outcome: 'failed', durationMs: 20, clauses: [], message: 'off by one\nexpected 2' }
   ]);
   assert.deepEqual(summary.totals, { discovered: 5, passed: 4, failed: 1, skipped: 0, flaky: 0, durationMs: summary.totals.durationMs });
   assert.equal(summary.untagged, 1);

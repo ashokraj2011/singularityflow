@@ -14,7 +14,7 @@ related:
 commands:
   - app
   - tests
-version: 3
+version: 4
 ---
 A delivery capability can say how its application starts and which quality commands are its tests, in `singularity/capabilities.yml`. VS Code, Copilot and the Shell then start it, check it and stop it with the same model-free commands, and a person never has to guess a dev command or paste a value.
 
@@ -102,7 +102,7 @@ start:
 2. Bind a missing environment from your own secret helper: `your-approved-secret-helper --format sflow-env-json qa | singularity-flow env bind qa --stdin`.
 3. Run `singularity-flow app start web --environment qa`. It prints `Ready at <url>` when the URL answers below 500 (or the log text appears), and stops the whole process tree if it does not become ready in time.
 4. Check it with `singularity-flow app status`, and stop it with Ctrl+C or `singularity-flow app stop web`.
-5. Run the tests with `singularity-flow tests run` (the code step's commands, or the capability's `application.tests`), then read every test case with `singularity-flow tests summary`. With `--work-id` the run is staged for that Story step instead; publication and submission still run their own.
+5. Run the tests with `singularity-flow tests run` (the code step's commands, or the capability's `application.tests`), then read every test case with `singularity-flow tests summary`. A failed case carries `message`, its short failure message (about 2,000 characters at most, redacted like the run's output when an environment was bound): the JUnit `<failure>`/`<error>` message and its first lines, the node:test error, or Jest's and Vitest's `failureMessages`; it is null when the report gives none, and passing cases carry none. With `--work-id` the run is staged for that Story step instead; publication and submission still run their own.
 
 ## State and safety
 

@@ -37,12 +37,17 @@ configuration authority; never edit protected workflow policy on the Story branc
 
 ## Planned implementation evidence
 
-If current behavior fails, plan the bounded repair against these approved clauses and actual paths.
-Do not presume code is broken before the initial scenario check.
+Do not presume code is broken before the initial scenario check, but plan now the exact paths a
+repair would most likely change: a later repair may change only the paths these approved rows
+claim. List exact repository-relative product source and executable test paths in backticks.
+Use fulfillment `modified` for product source a repair may change, or `test-only` with an
+unquoted dash (-) under Expected paths when only tests would change. A repair that needs any
+other path hands back to intake: the repair reviewer rejects it to this step (`document-intake`)
+for a revised, re-approved plan; it never changes an unplanned path.
 
-| Clause | Expected paths | Planned tests | Change kind | Expected behavior |
+| Clause | Expected paths | Planned tests | Fulfillment | Observable result |
 |---|---|---|---|---|
-| `{{work.id}}:AC-001` | TODO: Product path | TODO: Executable test path | update | TODO: The observable repair |
+| `{{work.id}}:AC-001` | TODO: Product path | TODO: Executable test path | modified | TODO: The observable repair |
 
 ## Repair and acceptance agreement
 

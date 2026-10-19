@@ -467,7 +467,7 @@ test('applicability policies are pinned into the resolution and covered by its h
     root, portfolio, resolveInitiativeProfile(portfolio, 'enterprise-delivery'));
 
   assert.deepEqual(Object.keys(resolution.applicabilityPolicies).sort(),
-    ['ai-use-case', 'domain-review-required', 'security-review-required', 'ux-required']);
+    ['ai-use-case', 'domain-review-required', 'production-deployment', 'security-review-required', 'ux-required']);
   assert.equal(resolution.applicabilityPolicies['ux-required'].label, 'UX design required');
 
   const edited = structuredClone(portfolio);

@@ -7,6 +7,8 @@ Summarize approved behavior, users, exclusions, and the exact clause-to-test pla
 Playwright review. Do not claim that a browser observation or a drafted test proves the behavior.
 -->
 
+TODO: Write the Agent brief here as visible text; text inside the comment above is not read.
+
 ## Actors
 
 TODO: Identify who uses the feature and which actions each actor may perform.
@@ -64,8 +66,8 @@ visual/inspection Verification contract. Browser observations never replace appr
 
 | Clause | Expected paths | Planned tests | Fulfillment | Observable result |
 |---|---|---|---|---|
-| `{{work.id}}:REQ-001` | TODO: `src/example.js` | TODO: `test/example.test.js` | new | TODO: what a person can observe when it works |
-| `{{work.id}}:AC-001` | TODO: `src/example.js` | TODO: `test/example.test.js` | new | TODO: what a person can observe when it works |
+| `{{work.id}}:REQ-001` | TODO: replace with exact backticked repository-relative source paths | TODO: replace with exact backticked repository-relative test paths | new | TODO: what a person can observe when it works |
+| `{{work.id}}:AC-001` | TODO: replace with exact backticked repository-relative source paths | TODO: replace with exact backticked repository-relative test paths | new | TODO: what a person can observe when it works |
 
 <!-- Fulfillment: new, modified, existing (behaviour already at the listed paths), removed, test-only (tests are the whole delivery; Expected paths is -), document, configuration, or evidence (retained files under this Story's evidence/ directory). Do not put screenshots in Planned tests or product-source rows. An evidence AC needs a primary visual/inspection Verification contract; file presence is not a visual pass. Observable result states what is observed. Multi-code-step plans add Steps to allocate each row. -->
 

@@ -41,6 +41,12 @@ export const BUILT_IN_APPLICABILITY_POLICIES = Object.freeze({
   'domain-review-required': {
     label: 'Domain architecture review required',
     question: 'Does this initiative change a shared domain model or cross-domain contract?'
+  },
+  // Asked by initiative-lite's release checks: a package, SDK or app-store release has no
+  // production environment of its own to deploy or watch.
+  'production-deployment': {
+    label: 'Operated production deployment',
+    question: 'Does this release deploy to a production environment the team operates and monitors, rather than publish a package, SDK, app build or other artifact that others install and run?'
   }
 });
 
@@ -441,7 +447,7 @@ export function validatePortfolio(value) {
   // a conditional check blocked until somebody hand-waived it and a typo went unnoticed. Declaring
   // policies here makes the question explicit, answerable, and auditable.
   //
-  // The four the product's own phases ask about are declared here rather than only in the starter
+  // The policies the product's own phases ask about are declared here rather than only in the starter
   // template. A repository initialized before the block existed still has the checklists that name
   // them, and requiring the declaration turned every one of those repositories into a portfolio
   // that will not load at all — no screen, no command, nothing but the message. A repository is

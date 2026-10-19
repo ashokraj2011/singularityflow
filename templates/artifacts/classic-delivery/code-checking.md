@@ -5,6 +5,8 @@
 TODO: Cite the exact approved Code generation, its immutable review evidence commit, and the
 passing structured test-execution receipt paths and digests. The kernel re-verifies them before
 publication, submission, and approval; this narrative is not a substitute for that proof.
+If no test could run, cite the active test-run risk decision (ID, cause, expiry) instead
+of a passing receipt, and never call it a pass.
 
 ## Traceability comparison
 
@@ -31,5 +33,6 @@ test receipt before approving Code checking.
 
 ## Final conclusion
 
-TODO: State whether the changed code meets Intake and whether the passing test receipts support
-the delivery decision. Review and approval remain human actions.
+TODO: State whether the changed code meets Intake and whether the passing test receipts, or an
+active test-run risk decision that is not a pass, support the delivery decision. Review and
+approval remain human actions.

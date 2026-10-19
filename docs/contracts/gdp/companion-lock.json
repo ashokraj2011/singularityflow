@@ -4,8 +4,8 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "f7da75cce3155452211590853a028d0275772083",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-19-PREMIUM-MULTIPLIERS.md",
+    "reviewedAtCommit": "279443295ac30c4866a0eb418b432619b84da91c",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-19-TYPESCRIPT-PLAYWRIGHT.md",
     "companionIds": [
       "workflow-configuration"
     ]
@@ -14,7 +14,7 @@
     {
       "id": "workflow-configuration",
       "path": "templates/workflow.yml",
-      "sha256": "sha256:cacf4584ba99ccd05f86f003958c35ea42a038793658de3c15b34b9c2a13ea03"
+      "sha256": "sha256:2c1629170aea3e0ae5511cfd021899b35eb7120d2d61d1ca600605afda761b4a"
     },
     {
       "id": "sgos-portable-schema",

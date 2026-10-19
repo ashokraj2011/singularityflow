@@ -18,6 +18,11 @@ marker is unresolved, and a marker is only resolved when a later generation remo
 the answer `[SPK:REQ-067]` — deleting the text alone is an integrity failure, not an answer.
 -->
 
+Keep every section of this template. When one does not fit this change (for example Permissions
+for a library or command-line tool with no roles), write `Not applicable: <reason>` under it
+rather than deleting it: later steps carry Actors, Failure and empty states, Permissions,
+Boundary conditions and the other sections forward, and stop when one is missing.
+
 ## Agent brief
 
 <!--
@@ -26,6 +31,8 @@ problem, intended outcome, principal actors, most important scenarios, hard cons
 exclusions. Do not introduce claims that are absent from the sections below. Exact requirements and
 boundary conditions are preserved separately by the governed projection.
 -->
+
+TODO: Write the Agent brief here as visible text; text inside the comment above is not read.
 
 ## Actors
 

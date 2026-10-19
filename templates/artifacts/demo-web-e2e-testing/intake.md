@@ -36,11 +36,17 @@ test execution, secrets, production access or implicit screenshot-baseline updat
 
 ## Planned implementation evidence
 
-Plan repairs only if the first test finds a defect; do not presume existing code is wrong.
+Do not presume existing code is wrong, but plan now the exact paths a repair would most likely
+change: a later repair may change only the paths these approved rows claim. List exact
+repository-relative product source and executable E2E/regression test paths in backticks.
+Use fulfillment `modified` for product source a repair may change, or `test-only` with an
+unquoted dash (-) under Expected paths when only tests would change. A repair that needs any
+other path hands back to intake: the repair reviewer rejects it to this step (`demo-web-intake`)
+for a revised, re-approved plan; it never changes an unplanned path.
 
-| Clause | Expected paths | Planned tests | Change kind | Expected behavior |
+| Clause | Expected paths | Planned tests | Fulfillment | Observable result |
 |---|---|---|---|---|
-| `{{work.id}}:AC-001` | TODO: Actual product paths | TODO: Executable E2E/regression paths | update | TODO: Observable repair |
+| `{{work.id}}:AC-001` | TODO: Actual product paths | TODO: Executable E2E/regression paths | modified | TODO: Observable repair |
 
 ## Repair and acceptance agreement
 

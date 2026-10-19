@@ -29,6 +29,54 @@ const route = (kind, owner, argv, detail, skill = '/sf-recover') => {
     commandGuidance, copilotCommand: commandGuidance?.copilotCommand ?? null };
 };
 
+// Test findings an approved test command fixes: the runner cannot be inferred or would be a guess.
+const TEST_CONFIGURATION_CODES = new Set(['test_module_ambiguous', 'test_module_uncovered', 'gradle_test_target_required',
+  'xcode_test_target_required', 'rust_test_adapter_required']);
+// A configured command's own result or suppression problem, when the refusal says configuration owns it.
+const TEST_POLICY_CODES = new Set(['code_test_result_required', 'code_test_suppressed']);
+const SAFE_ARGUMENT = /^[A-Za-z0-9._:/-]+$/u;
+
+/**
+ * Where a test finding goes. Observed-risk inspection exists only under a test-recovery agreement;
+ * elsewhere a run in which no test executed goes to the step approvers' test-run risk decision, a
+ * runner that cannot be inferred to test setup and a reviewed policy amendment, and a test that ran
+ * and failed back to its author. No route marks a test passed.
+ */
+function testFindingRoute(workflow, phase, finding, code) {
+  const workId = workflow.workItem.id;
+  if (workflow.testRecovery || workflow.resolution?.testRecovery?.enabled === true) {
+    return route('risk-inspection', 'validation-approval-authority',
+      ['story', 'test-policy', 'risks', '--phase', phase.id, '--operation', 'publish', '--json'],
+      'Inspect eligible, exact observed risks and runner repair. Unsupported or stale evidence is not a pass.', '/sf-recover');
+  }
+  const runRisk = finding.details?.testRunRisk;
+  const renewal = (finding.details?.testRunRiskRenewals ?? [])[0];
+  const decided = runRisk?.eligible === true ? runRisk : renewal;
+  const argvSha256 = String(decided?.command ?? '').match(/--argv-sha256 ([a-f0-9]{64})/u)?.[1] ?? null;
+  if (decided && SAFE_ARGUMENT.test(String(decided.phase ?? '')) && SAFE_ARGUMENT.test(String(decided.commandId ?? ''))) {
+    return route('test-run-risk', 'phase-approval-authority',
+      ['decision', 'test-risk', workId, '--phase', decided.phase, '--command', decided.commandId,
+        '--cause', '<cause>', '--reason', '<reason>', '--expires', '<YYYY-MM-DD>', ...(argvSha256 ? ['--argv-sha256', argvSha256] : [])],
+      `No test executed in this run, so the environment may be what stopped it${renewal && decided === renewal ? ', and the decision that let it through lapsed' : ''}. `
+      + `Fix the environment and run it again, or a person who approves ${decided.phase} names the cause, why the risk is acceptable and an expiry in their own terminal (an agent cannot). `
+      + 'The tests still run every time; a run in which tests execute and fail is never covered.', '/sf-decide');
+  }
+  if (TEST_CONFIGURATION_CODES.has(code) || (TEST_POLICY_CODES.has(code) && finding.details?.configurationDependency === true)) {
+    return route('runner-setup', phase.id, ['capability', 'test-setup', '--json'],
+      'No supported test command covers these paths without a guess. Read the suggestions; an approved test command '
+      + '(kind: test, argv, workingDirectory, affectedRoots and a result adapter) is adopted for this Story through a reviewed '
+      + '`story test-policy amend --reason <why>`. Tests still run; nothing is marked passed.', '/sf-test-setup');
+  }
+  if (finding.details?.requiredTestExecution?.failure?.kind === 'model-policy-skipped') {
+    return route('test-rerun', phase.id, ['recover', workId, '--phase', phase.id, '--json'],
+      'A required test command was not run. When it declares no modelPolicy it is skipped while models are disabled: rerun with the model enabled, '
+      + 'or have approved configuration declare modelPolicy: never for it and adopt it with story test-policy amend --reason <why>.');
+  }
+  return route('test-repair', phase.id, ['recover', workId, '--phase', phase.id, '--json'],
+    'Read the saved test output (singularity-flow logs --level error --tail 20), repair the failing test, the implementation or the repository-owned test reporter within this step, then recheck. '
+    + 'A test that ran and failed is fixed, never accepted.');
+}
+
 /** Closed dispositions, including an honest owner route for an unknown/unsupported blocker. */
 export function phaseResolutionChoices(workflow, phase, finding) {
   // Downstream checks can name an approved input's owner. Keep its repair/risk routes there,
@@ -139,7 +187,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   } else if (code === 'code_delivery_retained_evidence_missing') {
     // A planned evidence file is this step's deliverable. Say how to make it from this checkout.
     resolution = route('capture-retained-evidence', phase.id, ['phase', 'prepublish', phase.id, '--for-agent', '--json'],
-      `Produce ${finding.path ?? 'the planned evidence file'} from this checkout: start the app from the Story's repositoryPath with its own script on a port you confirmed free, bring it to the planned state, save the image at exactly that path, then recheck. Never use a server another checkout runs and never fabricate evidence; the file is not a visual pass, and a person witnesses it after submission.`,
+      `Produce ${finding.path ?? 'the planned evidence file'} from this checkout with the tool the plan names (a browser on a loopback port you confirmed free, a simulator or emulator, or a command-line run), bring it to the planned state, save the file at exactly that path, then recheck. Never use a server or device session another checkout runs and never fabricate evidence; the file is not a visual pass, and a person witnesses it after submission.`,
       generationSkillForPhase(phase, workflow));
   } else if (code === 'code_delivery_evidence_required') {
     resolution = route('author-correction', phase.id, ['phase', 'prepublish', phase.id, '--for-agent', '--json'],
@@ -156,9 +204,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     resolution = route('scope-appeal', 'plan-approval-authority', ['appeal', 'prepare', '--phase', phase.id, '--json'],
       'Explain each exact extra path and its approved clause or supporting class. Review the diff before accounting for it; tests still have to run.', '/sf-appeal');
   } else if (/test|validation|coverage/u.test(code) || ['test', 'tests', 'validation'].includes(category)) {
-    resolution = route('risk-inspection', 'validation-approval-authority',
-      ['story', 'test-policy', 'risks', '--phase', phase.id, '--operation', 'publish', '--json'],
-      'Inspect eligible, exact observed risks and runner repair. Unsupported or stale evidence is not a pass.', '/sf-recover');
+    resolution = testFindingRoute(workflow, phase, finding, code);
   } else if (/host|remote|transport|integration|dependency/u.test(code)
       || ['host', 'integration', 'transport', 'external-evidence'].includes(category)) {
     resolution = route('external-owner', 'repository-or-integration-owner',

@@ -686,6 +686,10 @@
           "argvSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
           "cause": { "type": "string", "minLength": 10, "maxLength": 300 },
           "expiresAt": { "type": "string", "format": "date-time" },
+          "boundBy": {
+            "const": "command-digest",
+            "description": "The decision names the command by its ID and argv digest because no run of it was recorded in the approver's checkout; it has no observation, and every run it lets through is checked for no executed test."
+          },
           "observation": {
             "type": "object",
             "required": ["attemptId", "status", "testsExecuted"],

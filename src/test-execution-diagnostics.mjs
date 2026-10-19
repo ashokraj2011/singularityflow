@@ -32,6 +32,17 @@ const FAILURE_GUIDANCE = Object.freeze({
     guidance: 'The report says tests passed but the test process failed. Inspect the remaining command stages and their output.',
     retryCondition: 'diagnostic-reviewed'
   },
+  // Every discovered test was skipped: no test executed. A skip is the suite's own decision, usually
+  // because a service it needs is missing here; it is an environment cause and never a pass.
+  'all-tests-skipped': {
+    guidance: 'Every discovered test was skipped, so no test executed; this is usually the environment (a Docker daemon, database or service the tests need is missing here). A skipped test is not a pass: provide what the tests need and run them again, or a person who approves the step can accept the test-run risk.',
+    retryCondition: 'runtime-changed'
+  },
+  // Model-free runs do not start a command whose external-model behavior is undeclared.
+  'model-policy-skipped': {
+    guidance: 'The test command was not run because it declares no modelPolicy and models are disabled for this run. Rerun with the model enabled, or have configuration declare modelPolicy: never for the command (then adopt it with story test-policy amend).',
+    retryCondition: 'runtime-changed'
+  },
   'invalid-or-missing-report': {
     guidance: 'Repair the repository-owned test reporter or result path; the process exit alone is not passing test evidence.',
     retryCondition: 'report-repaired'
@@ -106,6 +117,7 @@ export function classifyRequiredTestFailure(errorCode, check = null, report = nu
   const processFailed = check?.status === 'failed' || check?.status === 'blocked'
     || Number.isInteger(check?.exitCode) && check.exitCode !== 0;
   if (code === 'QUALITY_COMMAND_SOURCE_MUTATION') return failureOf('source-mutation');
+  if (check?.status === 'skipped-warning' && check?.externalModelPolicy !== 'never') return failureOf('model-policy-skipped');
   if (check?.timedOut === true || code === 'CODE_TEST_TIMEOUT'
       || check?.status === 'blocked' && /command exceeded its \d+ms timeout|timed? out/iu.test(output)) {
     return failureOf('timeout');
@@ -118,6 +130,10 @@ export function classifyRequiredTestFailure(errorCode, check = null, report = nu
   if (failed != null && failed > 0) return failureOf('failed-tests');
   if (/\bNo module named pytest\b|\bCannot find module ['"](?:jest|vitest|playwright|@playwright\/test)['"]|\b(?:jest|vitest|pytest|mvn|gradle): (?:command )?not found\b|\bCould not resolve dependencies\b|\bERR_MODULE_NOT_FOUND\b/iu.test(output)) {
     return failureOf('missing-dependency');
+  }
+  if (observed && !processFailed && failed === 0 && passed === 0 && discovered > 0
+      && safeCount(report.tests.skipped) === discovered) {
+    return failureOf('all-tests-skipped');
   }
   if (observed && failed === 0 && !(discovered > 0 && passed > 0)) {
     return failureOf('invalid-or-missing-report');

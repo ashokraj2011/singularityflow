@@ -68,7 +68,9 @@ test('all findings have an owner route; trust is never an ordinary risk waiver',
     assert.equal(result.choices[0].kind, 'configuration-owner');
     assert.equal(result.choices[0].automatic, false);
   }
-  assert.equal(phaseResolutionChoices(workflow, phase, { code: 'CODE_TEST_FAILED' }).choices[0].kind, 'risk-inspection');
+  // Observed-risk inspection exists only under a test-recovery agreement; otherwise the author repairs.
+  assert.equal(phaseResolutionChoices(workflow, phase, { code: 'CODE_TEST_FAILED' }).choices[0].kind, 'test-repair');
+  assert.equal(phaseResolutionChoices({ ...workflow, testRecovery: { id: 'TRA-1' } }, phase, { code: 'CODE_TEST_FAILED' }).choices[0].kind, 'risk-inspection');
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'never-seen-before' }).choices[0].kind, 'owner-escalation');
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'scope.unclaimed' }).choices[0].kind, 'scope-appeal');
   const unclaimed = { code: 'code.delivery.incomplete',

@@ -47,6 +47,17 @@ const MANIFESTS = Object.freeze({
   'pyproject.toml': 'python', 'pytest.ini': 'python', 'tox.ini': 'python',
   'go.mod': 'go', 'Cargo.toml': 'rust', 'Package.swift': 'swift'
 });
+// Build files of ecosystems with no structured test adapter. Alone in a directory they own
+// everything below it; beside a supported manifest they own their language's files. Either way the
+// walk stops there, so an unrelated root manifest's tests never count as their coverage.
+const NATIVE_MANIFESTS = Object.freeze({
+  Podfile: { system: 'cocoapods', label: 'CocoaPods', extensions: ['.swift', '.m', '.mm'] },
+  Gemfile: { system: 'ruby', label: 'Ruby', extensions: ['.rb', '.erb', '.rake'] },
+  'composer.json': { system: 'php', label: 'PHP Composer', extensions: ['.php'] },
+  'pubspec.yaml': { system: 'dart', label: 'Dart/Flutter', extensions: ['.dart'] }
+});
+export const TEST_SETUP_COMMAND = 'singularity-flow capability test-setup --json';
+const TEST_POLICY_AMEND_COMMAND = 'singularity-flow story test-policy amend --reason <why>';
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -118,27 +129,78 @@ async function manifestsAt(root, directory) {
   return [...found, ...dotnet];
 }
 
+async function nativeManifestsAt(root, directory) {
+  const found = [];
+  for (const [name, entry] of Object.entries(NATIVE_MANIFESTS)) {
+    if (await exists(path.join(root, directory, name))) found.push({ name, ...entry });
+  }
+  return found;
+}
+
+/** Where a test-configuration refusal goes next: inspect runner suggestions, then a reviewed amendment. */
+function testSetupRoute(extra = {}) {
+  return { ...extra, nextAction: { command: TEST_SETUP_COMMAND }, recoveryCommands: [TEST_SETUP_COMMAND, TEST_POLICY_AMEND_COMMAND] };
+}
+
+/**
+ * Approved configured test commands as module owners: each affected root (`.` is the whole
+ * repository) owns the paths below it, so the command an approver configured decides coverage there
+ * instead of a manifest guess. Only `kind: test` commands count.
+ */
+export function configuredTestModuleOverrides(commands = []) {
+  const overrides = {};
+  for (const command of commands ?? []) {
+    if (!command || typeof command !== 'object' || Array.isArray(command) || command.kind !== 'test') continue;
+    for (const candidate of command.affectedRoots ?? []) {
+      const prefix = normalized(candidate).replace(/\/+$/u, '') || '.';
+      overrides[prefix] ??= { root: prefix, system: 'configured', manifest: null };
+    }
+  }
+  return overrides;
+}
+
+function overrideFor(relative, overrides) {
+  const specificity = (prefix) => (prefix === '.' ? 0 : prefix.length + 1);
+  return Object.entries(overrides ?? {})
+    .map(([prefix, value]) => [normalized(prefix).replace(/\/+$/u, '') || '.', value])
+    .filter(([prefix]) => prefix === '.' || relative === prefix || relative.startsWith(`${prefix}/`))
+    .sort(([left], [right]) => specificity(right) - specificity(left) || left.localeCompare(right))[0] ?? null;
+}
+
 /** Resolve the nearest build owner; two build systems at that root are intentionally ambiguous. */
 export async function resolveAffectedModule(root, candidate, { overrides = {} } = {}) {
   const relative = normalized(candidate);
-  const explicit = Object.entries(overrides)
-    .filter(([prefix]) => relative === prefix || relative.startsWith(`${prefix}/`))
-    .sort(([left], [right]) => right.length - left.length || left.localeCompare(right))[0];
+  const explicit = overrideFor(relative, overrides);
   if (explicit) return { root: explicit[1].root ?? explicit[0], system: explicit[1].system, manifest: explicit[1].manifest ?? null, configured: true };
+  const extension = path.posix.extname(relative).toLowerCase();
   for (const directory of parentDirectories(relative)) {
     const manifests = await manifestsAt(root, directory);
+    const native = (await nativeManifestsAt(root, directory))
+      .find((entry) => !manifests.length || entry.extensions.includes(extension));
+    if (native) {
+      const manifest = directory ? `${directory}/${native.name}` : native.name;
+      throw new SingularityFlowError(
+        `Changed path '${relative}' belongs to ${manifest}, a ${native.label} build with no supported structured test runner, `
+        + 'so no inferred test command covers it; an unrelated manifest\'s tests never count as its coverage. '
+        + 'Configure an approved test command for it (kind: test, argv, workingDirectory, affectedRoots and a result adapter).',
+        { code: 'TEST_MODULE_UNCOVERED', details: testSetupRoute({ path: relative, manifest, nativeManifest: native.name, system: native.system }) }
+      );
+    }
     if (!manifests.length) continue;
     const systems = [...new Set(manifests.map((entry) => entry.system))];
     if (systems.length > 1) {
       throw new SingularityFlowError(
-        `Changed path '${relative}' maps to multiple build systems at '${directory || '.'}': ${systems.join(', ')}.`,
-        { code: 'TEST_MODULE_AMBIGUOUS' }
+        `Changed path '${relative}' maps to multiple build systems at '${directory || '.'}': ${systems.join(', ')}. `
+        + 'No runner is guessed; an approved configured test command covering this path decides which one runs.',
+        { code: 'TEST_MODULE_AMBIGUOUS', details: testSetupRoute({ path: relative, directory: directory || '.', systems }) }
       );
     }
     return { root: directory || '.', system: systems[0],
       manifest: systems[0] === 'dotnet' ? selectDotnetManifest(manifests.map((entry) => entry.name)) : manifests[0].name, configured: false };
   }
-  throw new SingularityFlowError(`No supported build manifest owns changed path '${relative}'.`, { code: 'TEST_MODULE_UNCOVERED' });
+  throw new SingularityFlowError(`No supported build manifest owns changed path '${relative}'.`, {
+    code: 'TEST_MODULE_UNCOVERED', details: testSetupRoute({ path: relative })
+  });
 }
 
 function executable(platform, unix, windows) {
@@ -326,6 +388,40 @@ function directPlaywrightScript(manifest, scriptName = 'test') {
   return /^(?:playwright|npx --no-install playwright) test(?: --config(?:=[A-Za-z0-9_./-]+| [A-Za-z0-9_./-]+))?$/u.test(script);
 }
 
+/** The nearest directory from a module up to the repository root that holds this wrapper, or null. */
+async function nearestWrapper(root, moduleRoot, name) {
+  let current = moduleRoot === '.' ? '' : normalized(moduleRoot);
+  while (true) {
+    if (await repositoryManifestExists(root, path.posix.join(current, name))) return current || '.';
+    if (!current) return null;
+    const parent = path.posix.dirname(current);
+    current = parent === '.' ? '' : parent;
+  }
+}
+
+/** An ancestor wrapper run from the module directory: `../../mvnw`, or `..\..\mvnw.cmd`. */
+function wrapperFrom(platform, upward, unix, windows) {
+  return platform === 'win32' ? `${upward.replaceAll('/', '\\')}\\${windows}` : `${upward}/${unix}`;
+}
+
+/** Whether every POM from the reactor root down declares the next directory as a `<module>`. */
+async function mavenReactorDeclares(root, reactorRoot, below) {
+  let current = reactorRoot === '.' ? '' : reactorRoot;
+  let remaining = below.split('/');
+  while (remaining.length) {
+    let pom;
+    try { pom = (await readRepositoryManifest(root, path.posix.join(current, 'pom.xml'))).bytes.toString('utf8'); } catch { return false; }
+    const declared = [...pom.replace(/<!--[\s\S]*?-->/gu, '').matchAll(/<module>\s*([^<]+?)\s*<\/module>/gu)]
+      .map((match) => path.posix.normalize(match[1].replaceAll('\\', '/').replace(/\/pom\.xml$/u, '').replace(/\/+$/u, '')).split('/'))
+      .filter((parts) => parts.length && !parts.includes('..') && parts[0] !== '.' && parts.every((part, index) => remaining[index] === part))
+      .sort((left, right) => right.length - left.length)[0];
+    if (!declared) return false;
+    current = path.posix.join(current, ...declared);
+    remaining = remaining.slice(declared.length);
+  }
+  return true;
+}
+
 export async function inferModuleTestCommand(root, module, {
   platform = process.platform,
   nodeScript = 'test',
@@ -336,12 +432,20 @@ export async function inferModuleTestCommand(root, module, {
   const resultBase = `.sflow/results/${module.system}-tests`;
   switch (module.system) {
     case 'maven': {
-      const wrapper = await at(platform === 'win32' ? 'mvnw.cmd' : 'mvnw');
+      const wrapperRoot = await nearestWrapper(root, module.root, platform === 'win32' ? 'mvnw.cmd' : 'mvnw');
+      const ancestor = wrapperRoot !== null && wrapperRoot !== module.root;
+      const below = ancestor ? path.posix.relative(wrapperRoot === '.' ? '' : wrapperRoot, module.root) : null;
+      // A multi-module build keeps one wrapper at its reactor root. Run that wrapper for this
+      // module (and the modules it needs) when the reactor declares it; otherwise run it from here.
+      const reactor = ancestor && await mavenReactorDeclares(root, wrapperRoot, below);
+      const launcher = ancestor && !reactor
+        ? wrapperFrom(platform, path.posix.relative(module.root, wrapperRoot === '.' ? '' : wrapperRoot), 'mvnw', 'mvnw.cmd')
+        : executable(platform, './mvnw', '.\\mvnw.cmd');
       return {
         id: `${module.root}-maven-tests`, kind: 'test',
-        argv: wrapper ? [executable(platform, './mvnw', '.\\mvnw.cmd'), 'test'] : ['mvn', 'test'],
-        workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
-        result: { adapter: 'junit-xml', path: 'target/surefire-reports', minimumDiscovered: 1 }
+        argv: wrapperRoot === null ? ['mvn', 'test'] : reactor ? [launcher, '-pl', below, '-am', 'test'] : [launcher, 'test'],
+        workingDirectory: reactor ? wrapperRoot : module.root, affectedRoots: [module.root], modelPolicy: 'never',
+        result: { adapter: 'junit-xml', path: reactor ? `${below}/target/surefire-reports` : 'target/surefire-reports', minimumDiscovered: 1 }
       };
     }
     case 'gradle': {
@@ -352,12 +456,16 @@ export async function inferModuleTestCommand(root, module, {
           GRADLE_TEST_TARGET_REASON, { code: 'GRADLE_TEST_TARGET_REQUIRED', details: { root: module.root, manifest: name } }
         );
       }
-      const wrapper = await at(platform === 'win32' ? 'gradlew.bat' : 'gradlew');
+      // A multi-project build keeps one wrapper at its root; `-p` runs this module's test task.
+      const wrapperRoot = await nearestWrapper(root, module.root, platform === 'win32' ? 'gradlew.bat' : 'gradlew');
+      const ancestor = wrapperRoot !== null && wrapperRoot !== module.root;
+      const below = ancestor ? path.posix.relative(wrapperRoot === '.' ? '' : wrapperRoot, module.root) : null;
+      const launcher = executable(platform, './gradlew', '.\\gradlew.bat');
       return {
         id: `${module.root}-gradle-tests`, kind: 'test',
-        argv: wrapper ? [executable(platform, './gradlew', '.\\gradlew.bat'), 'test'] : ['gradle', 'test'],
-        workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
-        result: { adapter: 'junit-xml', path: 'build/test-results/test', minimumDiscovered: 1 }
+        argv: wrapperRoot === null ? ['gradle', 'test'] : ancestor ? [launcher, '-p', below, 'test'] : [launcher, 'test'],
+        workingDirectory: ancestor ? wrapperRoot : module.root, affectedRoots: [module.root], modelPolicy: 'never',
+        result: { adapter: 'junit-xml', path: ancestor ? `${below}/build/test-results/test` : 'build/test-results/test', minimumDiscovered: 1 }
       };
     }
     case 'node': {

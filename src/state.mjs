@@ -92,8 +92,8 @@ import { assertPhaseAgentMayMutate } from './phase-actor-policy.mjs';
 import { assertPhaseGovernanceMayAdvance } from './phase-governance-routing.mjs';
 import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
 import {
-  affectedDeliveryPaths, assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands,
-  reviewRepairTarget,
+  assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands,
+  reviewRepairTarget, uncoveredTestDeliveryPaths,
   verifyCodeDeliveryReceipt
 } from './delivery-evidence.mjs';
 import { generationSkillForPhase, pinCodeDeliveryTask } from './code-delivery-policy.mjs';
@@ -240,7 +240,7 @@ import {
   observeAutoCandidateWorktree
 } from './auto/auto-candidate.mjs';
 import {
-  normalizeRequiredTestCommand, parseTestResult,
+  configuredTestModuleOverrides, normalizeRequiredTestCommand, parseTestResult,
   resolveAffectedModule, structuredTestCommandRequiredError, testReceiptPassing
 } from './code-delivery-tests.mjs';
 import { admitTestAttempts, recordTestAttempt } from './verification/attempts.mjs';
@@ -615,6 +615,8 @@ function applicabilityDecisionCommit(root, config, workflow, commit) {
     : changedList('completenessReviews') ? { list: 'completenessReviews', event: 'completeness_reviewed', decision: 'completeness' }
     : changedList('planAmendments') ? { list: 'planAmendments', event: 'plan_amended', decision: 'plan' }
     : changedList('riskDecisions') ? { list: 'riskDecisions', event: 'risk_decided', decision: 'risk' }
+    // A step approver's test-run risk decision, revocation or renewal (`decision test-risk`).
+    : changedList('testRunRisks') ? { list: 'testRunRisks', event: 'risk_decided', decision: 'test-risk' }
     : changedList('qualityRiskDecisions') ? { list: 'qualityRiskDecisions', event: 'quality_risk_decided', decision: 'quality-risk' }
     : changedList('witnessRecords') ? { list: 'witnessRecords', event: 'witness_recorded', decision: 'witness' }
     : changedList('upstreamIssues') ? { list: 'upstreamIssues', event: 'upstream_issue_raised', decision: 'upstream-issue' }
@@ -3331,16 +3333,20 @@ export async function assertPassedCodeDeliveryInput(root, config, workflow, phas
   if (!sourceId) return null;
   const source = workflow.phases?.[sourceId];
   const riskReference = source?.deliveryEvidence?.testRecovery;
-  const refuse = (reason) => new SingularityFlowError(
+  const refuse = (reason, details = {}) => new SingularityFlowError(
     `Phase '${phase.id}' needs verified, committed passing tests from '${sourceId}': ${reason}`,
-    { code: 'PRIOR_CODE_TEST_EVIDENCE_REQUIRED', details: { phase: phase.id, sourcePhase: sourceId } }
+    { code: 'PRIOR_CODE_TEST_EVIDENCE_REQUIRED', details: { phase: phase.id, sourcePhase: sourceId, ...details } }
   );
   if (!source || source.status !== 'approved' || source.deliveryEvidence?.status !== 'ready'
       || (source.deliveryEvidence?.validation?.status !== 'passed'
         && !(riskReference && ['unavailable', 'failed'].includes(source.deliveryEvidence.validation?.status)
           && source.deliveryEvidence.validation.status === riskReference.observedOutcome)
         && !await validationCarriedByTestRunRisk(workflow, source.deliveryEvidence?.validation))) {
-    throw refuse('finish and approve the Code phase with passing structured tests first.');
+    // An approved step whose accepted test-run risk lapsed is renewed by its approvers, not redone.
+    const lapsed = source?.status === 'approved' && source.deliveryEvidence?.status === 'ready'
+      ? await lapsedTestRunRisk(workflow, source.deliveryEvidence?.validation?.checks) : null;
+    throw lapsed ? refuse(lapsed.words, lapsed.details)
+      : refuse('finish and approve the Code phase with passing structured tests first.');
   }
   const entry = [...(workflow.lineage?.submissions ?? [])].reverse().find((item) =>
     item.phase === sourceId && Number(item.generation) === Number(source.generation));
@@ -3380,14 +3386,17 @@ export async function assertPassedCodeDeliveryInput(root, config, workflow, phas
     throw refuse(`the committed test receipt is invalid: ${error.message}.`);
   }
   const carriedRuns = await testRunRiskCarried(workflow, receipt.testExecutions);
-  if (receipt.status !== 'ready' || receipt.workId !== workflow.workItem.id || receipt.phase !== sourceId
+  const receiptMismatch = receipt.status !== 'ready' || receipt.workId !== workflow.workItem.id || receipt.phase !== sourceId
       || Number(receipt.generation) !== Number(source.generation)
       || receipt.tree?.generationCommit !== source.generationCommit
-      || !Array.isArray(receipt.testExecutions) || !receipt.testExecutions.length
+      || !Array.isArray(receipt.testExecutions) || !receipt.testExecutions.length;
+  if (receiptMismatch
       || receipt.testExecutions.some((execution) => execution.status !== 'passed' && !carriedRuns.has(execution)
         && !(riskReference && execution.kind === 'phase-validation-observation'
           && execution.status === riskReference.observedOutcome && ['unavailable', 'failed'].includes(execution.status)))) {
-    throw refuse('the receipt does not describe the approved generation and passing executions.');
+    const lapsed = receiptMismatch ? null : await lapsedTestRunRisk(workflow, receipt.testExecutions);
+    throw lapsed ? refuse(lapsed.words, lapsed.details)
+      : refuse('the receipt does not describe the approved generation and passing executions.');
   }
   const currentTestInput = await testInputTreeHash(root, config, workflow);
   if (receipt.tree.workingStateDigest !== await sourceTreeHash(root, config, workflow)
@@ -4813,10 +4822,8 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
     selection: trpSelection?.selection });
   if (retainedRisk) {
     if (workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false) {
-      const paths = affectedDeliveryPaths(deliveryEvidence, phase.sourceBoundary);
-      const uncovered = paths.filter(candidate => !commands.some(command => command.affectedRoots.some(affectedRoot =>
-        affectedRoot === '.' || candidate === affectedRoot || candidate.startsWith(`${affectedRoot.replace(/\/$/, '')}/`))));
-      if (uncovered.length) throw new SingularityFlowError(`No approved test command covers affected paths: ${uncovered.join(', ')}`, { code: 'TEST_MODULE_UNCOVERED' });
+      const uncovered = uncoveredTestDeliveryPaths(deliveryEvidence, phase.sourceBoundary, commands);
+      if (uncovered.length) throw uncoveredTestPathsError(`No approved test command covers affected paths: ${uncovered.join(', ')}`, uncovered);
     }
     deliveryEvidence.testRecovery = { observationSha256: retainedRisk.observation.recordSha256,
       observedOutcome: retainedRisk.observation.observedOutcome, disposition: 'accepted-risk',
@@ -4846,7 +4853,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
       }
       try {
         if (!check || check.status === 'skipped-warning') {
-          throw new SingularityFlowError(`Required test command '${command.id}' was skipped before publication.`, { code: 'CODE_TEST_SKIPPED' });
+          throw new SingularityFlowError(`Required test command '${command.id}' was skipped before publication.${skippedReason(check)}`, { code: 'CODE_TEST_SKIPPED' });
         }
         if (['blocked', 'failed'].includes(check.status)) {
           const observation = riskRun ? await captureStoryTestRiskObservation(root, config, workflow, phase,
@@ -4855,10 +4862,8 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
             const accepted = await assertStoryTestRiskGate(root, config, workflow, { phaseId: phase.id,
               operation: 'publish', generation: observation.subject.generation, observationSha256: observation.recordSha256 });
             if (workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false) {
-              const paths = affectedDeliveryPaths(deliveryEvidence, phase.sourceBoundary);
-              const uncovered = paths.filter(candidate => !commands.some(item => item.affectedRoots.some(affectedRoot =>
-                affectedRoot === '.' || candidate === affectedRoot || candidate.startsWith(`${affectedRoot.replace(/\/$/, '')}/`))));
-              if (uncovered.length) throw new SingularityFlowError(`No approved test command covers affected paths: ${uncovered.join(', ')}`, { code: 'TEST_MODULE_UNCOVERED' });
+              const uncovered = uncoveredTestDeliveryPaths(deliveryEvidence, phase.sourceBoundary, commands);
+              if (uncovered.length) throw uncoveredTestPathsError(`No approved test command covers affected paths: ${uncovered.join(', ')}`, uncovered);
             }
             const { materializeStoryTestRiskEvidence } = await import('./test-recovery-runtime.mjs');
             await materializeStoryTestRiskEvidence(root, config, workflow, accepted);
@@ -4895,7 +4900,16 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
           throw new SingularityFlowError(`Required test command '${command.id}' discovered zero or too few tests before publication.`, { code: 'CODE_TEST_ZERO_DISCOVERED' });
         }
         if (!testReceiptPassing(receipt, parsed.minimumDiscovered, command.result.minimumPassed)) {
-          throw new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence before publication.`, { code: 'CODE_TEST_FAILED' });
+          // Every discovered test skipped (a Docker daemon or database missing here): no test
+          // executed, so the step approvers' test-run risk route applies; it is never a pass.
+          const runRisk = await testRunRiskCover(workflow, phase, receipt);
+          if (runRisk) {
+            runRisks.push({ commandId: command.id, attemptId: receipt.attemptId, testRunRisk: runRisk });
+            passing.push(command);
+            continue;
+          }
+          throw await testRunRiskRefusal(workflow, phase, receipt,
+            new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence before publication.`, { code: 'CODE_TEST_FAILED' }));
         }
         passing.push(command);
       } catch (error) {
@@ -4909,18 +4923,29 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
     });
   }
   if (workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false) {
-    const paths = affectedDeliveryPaths(deliveryEvidence, phase.sourceBoundary);
-    const uncovered = paths.filter((candidate) => !passing.some((command) =>
-      command.affectedRoots.some((root) => root === '.' || candidate === root
-        || candidate.startsWith(`${root.replace(/\/$/, '')}/`))));
+    // Repository metadata and CI configuration are exempt, exactly as prepublish and replay judge it.
+    const uncovered = uncoveredTestDeliveryPaths(deliveryEvidence, phase.sourceBoundary, passing);
     if (uncovered.length) {
-      throw new SingularityFlowError(`No passing test command covers affected paths before publication: ${uncovered.join(', ')}`, { code: 'TEST_MODULE_UNCOVERED' });
+      throw uncoveredTestPathsError(`No passing test command covers affected paths before publication: ${uncovered.join(', ')}`, uncovered);
     }
   }
   if (runRisks.length) deliveryEvidence.testRunRisks = runRisks;
   // The publication commits this preflight and every earlier kept attempt of the step [E2G-016].
   await admitTestAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, phase.id);
   return { commands, checks };
+}
+
+/** Why a required test command was not run (its model-mode skip), for the refusal. */
+function skippedReason(check) {
+  return check?.status === 'skipped-warning' && check.stderr ? ` ${String(check.stderr).slice(0, 400)}` : '';
+}
+
+/** Affected paths no test command covers: name them and the test-setup route. */
+function uncoveredTestPathsError(message, paths) {
+  return new SingularityFlowError(`${message}. Configure an approved test command whose affected roots cover them.`, {
+    code: 'TEST_MODULE_UNCOVERED', details: { paths, nextAction: { command: 'singularity-flow capability test-setup --json' },
+      recoveryCommands: ['singularity-flow capability test-setup --json', 'singularity-flow story test-policy amend --reason <why>'] }
+  });
 }
 
 /** The binding of the active test-run risk decision that lets this attempt through, or null. */
@@ -4945,6 +4970,19 @@ async function testRunRiskCarries(workflow, entry, at = nowIso()) {
   if (!entry?.testRunRisk) return false;
   const { boundTestRunRiskActive } = await import('./test-run-risk.mjs');
   return boundTestRunRiskActive(workflow, entry.testRunRisk, { at });
+}
+
+/**
+ * When runs a test-run risk decision let through are no longer carried (it expired or was
+ * revoked), the renewal a person who approves that step runs: words and refusal details naming
+ * `decision test-risk ... --expires`. Null when no carried run lapsed.
+ */
+async function lapsedTestRunRisk(workflow, entries, at = nowIso()) {
+  const { lapsedTestRunRiskRenewals } = await import('./test-run-risk.mjs');
+  const renewals = lapsedTestRunRiskRenewals(workflow, entries, { at });
+  return renewals.length ? { words: renewals.map((entry) => entry.words).join(' '),
+    details: { testRunRiskRenewals: renewals, nextAction: { command: renewals[0].command },
+      recoveryCommands: renewals.map((entry) => entry.command) } } : null;
 }
 
 /** The entries an active test-run risk decision carries at `at`, so synchronous checks can ask. */
@@ -5295,7 +5333,7 @@ async function submitPhaseTransition(root, config, workflow, {
         let runRisk = null;
         try {
           if (!check || check.status === 'skipped-warning') {
-            throw new SingularityFlowError(`Required test command '${command.id}' was skipped.`, { code: 'CODE_TEST_SKIPPED' });
+            throw new SingularityFlowError(`Required test command '${command.id}' was skipped.${skippedReason(check)}`, { code: 'CODE_TEST_SKIPPED' });
           }
           if (['blocked', 'failed'].includes(check.status)) {
             const observation = riskRun ? await captureStoryTestRiskObservation(root, config, workflow, phase,
@@ -5329,7 +5367,13 @@ async function submitPhaseTransition(root, config, workflow, {
               throw new SingularityFlowError(`Required test command '${command.id}' discovered zero or too few tests.`, { code: 'CODE_TEST_ZERO_DISCOVERED' });
             }
             if (!testReceiptPassing(receipt, parsed.minimumDiscovered, minimumPassed)) {
-              throw new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence.`, { code: 'CODE_TEST_FAILED' });
+              // Every discovered test skipped: no test executed, so the test-run risk route applies.
+              runRisk = await testRunRiskCover(workflow, phase, receipt);
+              if (!runRisk) throw await testRunRiskRefusal(workflow, phase, receipt,
+                new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence.`, { code: 'CODE_TEST_FAILED' }));
+              // The run exited 0 yet no test ran: it is recorded as not passing, carried by the decision.
+              check.testRunRisk = runRisk;
+              check.status = 'failed';
             }
           }
         } catch (error) {
@@ -5357,12 +5401,9 @@ async function submitPhaseTransition(root, config, workflow, {
       });
     }
     if (workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false) {
-      const pathsRequiringCoverage = affectedDeliveryPaths(phase.deliveryEvidence, phase.sourceBoundary);
-      const uncovered = pathsRequiringCoverage.filter((candidate) => !testExecutions.some((execution) =>
-        execution.affectedRoots.some((affectedRoot) => affectedRoot === '.'
-          || candidate === affectedRoot || candidate.startsWith(`${affectedRoot.replace(/\/$/, '')}/`))));
+      const uncovered = uncoveredTestDeliveryPaths(phase.deliveryEvidence, phase.sourceBoundary, testExecutions);
       if (uncovered.length) {
-        throw new SingularityFlowError(`No passing test command covers affected paths: ${uncovered.join(', ')}`, { code: 'TEST_MODULE_UNCOVERED' });
+        throw uncoveredTestPathsError(`No passing test command covers affected paths: ${uncovered.join(', ')}`, uncovered);
       }
     }
     // The submission commits these attempts and every earlier kept attempt of the step, failed
@@ -5449,7 +5490,10 @@ async function submitPhaseTransition(root, config, workflow, {
           { code: 'AC_BINDING_MISSING' }
         );
       }
-      const module = await resolveAffectedModule(root, binding.testSource).catch((error) => {
+      // The approved configured test commands own their affected roots, as they did at resolution.
+      const module = await resolveAffectedModule(root, binding.testSource, {
+        overrides: configuredTestModuleOverrides(phase.qualityCommands)
+      }).catch((error) => {
         // The deterministic direct-node fallback is an explicit root-module adapter for
         // repositories that intentionally have executable .mjs tests but no package manifest.
         // It is valid only when the passing command names the repository root as its affected root.
@@ -5964,9 +6008,13 @@ export async function approvePhase(root, config, workflow, {
   const unacceptedUnavailable = unavailableRequiredChecks.filter(check => (!approvalRisk
     || check.trpObservationSha256 !== riskReference.observationSha256) && !carriedChecks.has(check));
   if (unacceptedFailed.length || unacceptedUnavailable.length) {
+    // Runs an accepted test-run risk let through stay failed; when its decision lapsed, its
+    // approvers renew it instead of sending working code back for repair.
+    const lapsed = await lapsedTestRunRisk(workflow, [...unacceptedFailed, ...unacceptedUnavailable]);
     throw new SingularityFlowError(
-      `Phase '${phase.id}' cannot be approved because ${failedChecks.length} quality command(s) failed and ${unavailableRequiredChecks.length} required command(s) were unavailable. Reject it to an allowed repair phase.`,
-      { code: 'PHASE_VALIDATION_FAILED' }
+      `Phase '${phase.id}' cannot be approved because ${failedChecks.length} quality command(s) failed and ${unavailableRequiredChecks.length} required command(s) were unavailable. `
+        + (lapsed ? `${lapsed.words} Otherwise reject it to an allowed repair phase.` : 'Reject it to an allowed repair phase.'),
+      { code: 'PHASE_VALIDATION_FAILED', ...(lapsed ? { details: { phase: phase.id, ...lapsed.details } } : {}) }
     );
   }
   let approvalQualityRisk = null;
@@ -5976,9 +6024,10 @@ export async function approvePhase(root, config, workflow, {
     if (!validation || (validation.status !== 'passed' && !(approvalRisk
       && validation.status === riskReference.observedOutcome && ['unavailable', 'failed'].includes(validation.status))
       && !await validationCarriedByTestRunRisk(workflow, validation))) {
+      const lapsed = validation ? await lapsedTestRunRisk(workflow, validation.checks) : null;
       throw new SingularityFlowError(
-        `Phase '${phase.id}' cannot be approved without a passing code-delivery validation receipt.`,
-        { code: 'CODE_DELIVERY_VALIDATION_REQUIRED' }
+        `Phase '${phase.id}' cannot be approved without a passing code-delivery validation receipt.${lapsed ? ` ${lapsed.words}` : ''}`,
+        { code: 'CODE_DELIVERY_VALIDATION_REQUIRED', ...(lapsed ? { details: { phase: phase.id, ...lapsed.details } } : {}) }
       );
     }
     const currentTestInput = await testInputTreeHash(root, config, workflow);

@@ -401,7 +401,10 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
           decisionFor: (entry) => adequacyDecision(entry, id, contract),
           unattached: unattached.get(id) ?? [],
           records: graph.witnessRecords ?? [],
-          acceptedRisk: submitted.some((entry) => entry.delivery.testRecovery?.disposition === 'accepted-risk')
+          acceptedRisk: submitted.some((entry) => entry.delivery.testRecovery?.disposition === 'accepted-risk'),
+          // The commands whose runs a step approver accepted could not execute any test.
+          acceptedNoTestRunCommands: new Set(submitted.flatMap((entry) => entry.delivery.testRecovery?.source === 'test-run-risk'
+            ? entry.delivery.testRecovery.commandIds ?? [] : []))
         });
         ({ status, exception, assurance, witnessResults, skipped } = result);
         contractSlots = result.slots;

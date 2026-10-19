@@ -7,10 +7,10 @@ import { exactFileAtObject, head } from './git.mjs';
 
 import { planAgentBriefs } from './agent-briefs.mjs';
 import {
-  evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands
+  evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands, uncoveredTestDeliveryPaths
 } from './delivery-evidence.mjs';
 import {
-  normalizeRequiredTestCommand, structuredTestCommandRequiredError
+  normalizeRequiredTestCommand, structuredTestCommandRequiredError, TEST_SETUP_COMMAND
 } from './code-delivery-tests.mjs';
 import { projectTestExecutionCommand, testExecutionHandoff } from './test-execution-handoff.mjs';
 import { buildRepositoryChangeSet, evaluateProtectedPaths, evaluateSourceBoundary } from './repository-change-set.mjs';
@@ -30,6 +30,11 @@ import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { phaseResolutionChoices } from './phase-resolution.mjs';
 import { hasPublishedPhaseGeneration, phaseInspectionGeneration, requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
 import { upstreamChangeRoutes } from './upstream-routes.mjs';
+
+// Runner findings only an approved test command resolves: no supported runner, two build systems,
+// or a native target (Android variant, Xcode scheme) that would otherwise be guessed.
+const TEST_CONFIGURATION_DEPENDENCIES = new Set(['TEST_MODULE_AMBIGUOUS', 'TEST_MODULE_UNCOVERED',
+  'GRADLE_TEST_TARGET_REQUIRED', 'XCODE_TEST_TARGET_REQUIRED']);
 
 function generationSkill(phase, workflow) {
   return directCopilotSkill(generationSkillForPhase(phase, workflow));
@@ -457,6 +462,15 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
           const configuredIndex = (phase.qualityCommands ?? []).indexOf(testCommands[index]);
           return projectTestExecutionCommand(command, { configuredIndex, testPolicy });
         });
+        // Publication refuses affected paths no command covers; say so now, not after the tests ran.
+        const uncovered = deliveryEvidence && !publishedCodeGeneration && testPolicy?.requireAffectedModuleCoverage !== false
+          ? uncoveredTestDeliveryPaths(deliveryEvidence, phase.sourceBoundary, normalized) : [];
+        if (uncovered.length) {
+          deliveryErrors.push(new SingularityFlowError(
+            `No test command covers affected paths: ${uncovered.join(', ')}. Publication would refuse them; configure an approved test command whose affected roots cover them.`,
+            { code: 'TEST_MODULE_UNCOVERED', details: { paths: uncovered, nextAction: { command: TEST_SETUP_COMMAND } } }
+          ));
+        }
       }
     } catch (error) {
       testExecution.reason = error.code ?? 'TEST_COMMAND_UNAVAILABLE';
@@ -476,8 +490,9 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
           && pinnedCommand
           && ['CODE_TEST_RESULT_REQUIRED', 'CODE_TEST_SUPPRESSED'].includes(error.code);
         const unsupportedRuntimeAdapter = error.code === 'RUST_TEST_ADAPTER_REQUIRED';
+        const testConfiguration = TEST_CONFIGURATION_DEPENDENCIES.has(error.code);
         const configurationDependency = missingRepositoryRunner || invalidPinnedCommand
-          || unsupportedRuntimeAdapter;
+          || unsupportedRuntimeAdapter || testConfiguration;
         // Each planned evidence file the step has not produced is its own author finding with its
         // own capture route; the general finding remains only for any other shortfall.
         const missingEvidence = error.details?.retainedEvidenceMissing ?? [];
@@ -493,7 +508,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
         }
         if (missingEvidence.length) actions.push(action({
           id: `capture-retained-evidence:${phase.id}`, mode: 'guided',
-          detail: `Produce ${[...missingFiles.keys()].join(', ')} from this checkout: start the app from the Story's repositoryPath with its own script on a port you confirmed free, bring it to each planned state, save each image at exactly its path, then recheck. Never use a server another checkout runs and never fabricate evidence; a person witnesses it after submission.`,
+          detail: `Produce ${[...missingFiles.keys()].join(', ')} from this checkout with the tool the plan names (a browser on a loopback port you confirmed free, a simulator or emulator, or a command-line run), bring it to each planned state, save each file at exactly its path, then recheck. Never use a server or device session another checkout runs and never fabricate evidence; a person witnesses it after submission.`,
           command: `singularity-flow phase prepublish ${phase.id} --for-agent --json`,
           skill: generationSkill(phase, workflow), authoringSkill: generationSkill(phase, workflow)
         }));
@@ -520,6 +535,11 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
                 kind: 'unsupported-runtime-adapter', currentStoryConfigurationRefresh: false,
                 retryRequiresChangedRuntimeOrPolicy: true
               }
+            } : testConfiguration ? {
+              recoveryBoundary: {
+                kind: 'test-configuration', currentStoryConfigurationRefresh: false,
+                retryRequiresChangedRuntimeOrPolicy: true
+              }
             } : {})
           }
         });
@@ -530,7 +550,9 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
               ? `resolve-code-delivery-test-policy:${phase.id}`
               : unsupportedRuntimeAdapter
                 ? `resolve-code-delivery-runtime-adapter:${phase.id}`
-                : `complete-code-delivery:${phase.id}`,
+                : testConfiguration
+                  ? `resolve-code-delivery-test-configuration:${phase.id}`
+                  : `complete-code-delivery:${phase.id}`,
           mode: invalidPinnedCommand || unsupportedRuntimeAdapter ? 'manual' : 'guided',
           detail: missingRepositoryRunner
             ? `${error.message} Inspect the affected module and, only within this phase's approved source scope, repair its repository-owned test script, manifest, or runner declaration so a supported structured command can be inferred. Preserve the Story pin and existing tests. Recheck recovery and prepublish after the repository change; do not retry publication against unchanged inputs. If in-scope runner repair is unavailable, an authorized reviewer can preview story test-policy amend --reason TEXT to adopt a newly approved explicit runner from the original configuration authority. Follow the engine's eligibility and returned route; unsupported native runners still need a supported adapter.`
@@ -538,18 +560,22 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
               ? `${error.message} This Story's configured test command is pinned; refreshing sflow/config alone does not change it. Do not replace or suppress the command in Story state. An authorized reviewer can preview story test-policy amend --reason TEXT to adopt a corrected structured test command from the original approved configuration authority for the current active phase. ${Number(phase.generation) === 0 ? 'It preserves code and prior phases and still requires fresh tests.' : 'The old publication and evidence remain historical; fresh validation and submission are required in the new policy epoch, without republishing unchanged code.'} Do not repeat publication against the unchanged blocker.`
               : unsupportedRuntimeAdapter
                 ? `${error.message} This runtime cannot produce the required structured Rust test receipt. Use a supported registered adapter or a separately approved test policy; repeating /sf-code or publication against unchanged inputs cannot recover this phase.`
-                : `${error.message} Keep this phase in progress, complete its application and test evidence, then inspect recovery again before publication.`,
+                : testConfiguration
+                  ? `${error.message} Inspect the suggestions with capability test-setup. An approved test command (kind: test, argv, workingDirectory, affectedRoots and a result adapter) from the original configuration authority is adopted for this Story through a reviewed story test-policy amend --reason TEXT; refreshing configuration alone does not change its pin. Code and tests are preserved, the tests still run, and repeating publication against unchanged inputs cannot recover this phase.`
+                  : `${error.message} Keep this phase in progress, complete its application and test evidence, then inspect recovery again before publication.`,
           // Repository-owned runner declarations are ordinary in-scope application edits. A
           // malformed pinned command is not: it requires a distinct reviewed policy amendment.
           command: configurationDependency
             ? missingRepositoryRunner
               ? `singularity-flow phase show ${phase.id} --json`
-              : invalidPinnedCommand && Number(phase.generation) === 0
-                ? 'singularity-flow explain test-recovery'
-                : null
+              : testConfiguration
+                ? TEST_SETUP_COMMAND
+                : invalidPinnedCommand && Number(phase.generation) === 0
+                  ? 'singularity-flow explain test-recovery'
+                  : null
             : `singularity-flow phase show ${phase.id} --json`,
           skill: configurationDependency
-            ? missingRepositoryRunner ? '/sf-phase-documents' : null
+            ? missingRepositoryRunner ? '/sf-phase-documents' : testConfiguration ? '/sf-test-setup' : null
             : '/sf-phase-documents',
           authoringSkill: configurationDependency ? null : generationSkill(phase, workflow)
         }));

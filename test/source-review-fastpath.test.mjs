@@ -11,6 +11,15 @@ import { publishedSpecificationStory, reviewReport } from './helpers/source-revi
 
 const engine = fileURLToPath(new URL('..', import.meta.url));
 
+test('paired measurement requires a baseline and balanced sample order before starting any fixture', () => {
+  const script = path.join(engine, 'scripts/source-review-paired-benchmark.mjs');
+  for (const args of [[], ['--baseline-engine=.', '--samples=3'], ['--baseline-engine=.', '--samples=0']]) {
+    const result = spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', timeout: 10_000 });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /baseline-engine|even sample count/u);
+  }
+});
+
 test('review readers cannot statically pull in phase authoring or lifecycle publication writers', async () => {
   const visited = new Set();
   const forbidden = new Set(['src/state.mjs', 'src/state-stores.mjs', 'src/phase-entry.mjs',

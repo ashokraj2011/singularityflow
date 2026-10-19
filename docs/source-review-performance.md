@@ -84,6 +84,19 @@ In all profiles OS caches remain unflushed, status runs after retention, and net
 excluded. Retention already returns its verified status and continuation; a consumer need not ask
 for another status just to display the same result.
 
+For comparisons on a host whose load changes, alternate the engines instead of measuring every
+baseline sample before every candidate sample:
+
+```sh
+node scripts/source-review-paired-benchmark.mjs --baseline-engine=/path/to/baseline --samples=6 --runtime=bundle --output=/tmp/review-paired.json
+```
+
+This runs A/B then B/A pairs on separate disposable fixtures with independent compile caches,
+retains every observation and prints a compact summary. Both small and larger profiles run by
+default; `--profile=small` or `large` selects one. An even sample count is required so each engine
+is measured first equally often. This reduces order bias; it does not flush OS caches or turn a
+short benchmark into a universal latency guarantee.
+
 ## Local Mac source-mode measurements
 
 Three samples per engine on this Mac, Node 22.14.0, against baseline `8dcb3a27`; milliseconds below

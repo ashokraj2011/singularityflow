@@ -149,3 +149,10 @@ five Git fixture calls. It creates disposable published Stories, runs the real c
 retain/status CLI, measures child counts and elapsed time, and cleans only its own temporary
 repositories. It never contacts a model or remote, publishes to an application repository, or
 records an approval. It is qualification tooling, not an installed command.
+
+`scripts/source-review-paired-benchmark.mjs` adds one frozen process import and one launch of the
+same fixed benchmark driver on the current Node executable. It alternates explicitly selected
+baseline/candidate engines over disposable fixtures to reduce host-load order bias, retaining all
+observations. Arguments are structured, runtime/sample/profile choices are bounded, output and
+execution time are capped, and no shell is used. The driver owns fixture isolation and cleanup.
+This site is never imported by a product command and does not extend the registered Git owners.

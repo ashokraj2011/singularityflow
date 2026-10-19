@@ -81,7 +81,7 @@ test('a gap and the issue that names it are one item; the superseded original ne
   assert.equal(packet.items.length, 1);
   const [item] = packet.items;
   assert.equal(item.title, 'REQ-001 is partial in the Release report');
-  assert.equal(item.why, 'The Release report marks REQ-001 partial; Implementation delivered it. No run by Verification is recorded, and the code '
+  assert.equal(item.why, 'The Release report marks REQ-001 partial; Implementation owns the linked upstream problem. No run by Verification is recorded, and the code '
     + 'has not changed since Implementation\'s recorded run (33 of 33 passed), which covers it. A problem reported against Implementation names it '
     + 'and is not decided yet. The verdict stays as written; a person decides the gap.');
   for (const words of [item.title, item.why, ...item.options.map((entry) => entry.label), ...item.options.map((entry) => entry.words)]) {

@@ -11,14 +11,15 @@
  * Both lists are append-only: an issue is never edited, and its decision is a separate record, so
  * each raise or decision is one appended entry. Pure: no I/O.
  */
-import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { discrepancyItemSha256 } from './records.mjs';
 import { OPEN_UPSTREAM_ISSUE_STATUSES, upstreamIssueStates } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 // The pure state read lives with the routes, which every lifecycle command already loads, so the
 // conformance gate can ask it without loading this module's schemas [owner decision 2026-10-19].
 export { upstreamIssueStates };
+export { discrepancyItemSha256 };
 
 export const UPSTREAM_ISSUE_OUTCOMES = Object.freeze(['plan-correction', 'amend', 'return', 'accept-risk', 'dismiss']);
 export const UPSTREAM_ISSUE_PROPOSALS = Object.freeze(['plan-correction', 'amend', 'return', 'accept-risk', 'unknown']);
@@ -66,11 +67,6 @@ function order(workflow) {
 export function upstreamIssueAuthorities(workflow, phaseId) {
   const policy = workflow?.phases?.[phaseId]?.approvalPolicy ?? {};
   return [...new Set([...(policy.authorities ?? []), ...(policy.requiredAuthorities ?? [])])].sort();
-}
-
-/** The digest that makes `--from-artifact` idempotent per recorded item. */
-export function discrepancyItemSha256(phaseId, itemText) {
-  return createHash('sha256').update(`${phaseId}\n${String(itemText).replace(/\s+/gu, ' ').trim()}`).digest('hex');
 }
 
 // Story-qualified clause IDs (`W:REQ-001`) and bare ones; record IDs (UPI, CR, PRC, FAM) are not clauses.

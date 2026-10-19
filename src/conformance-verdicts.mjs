@@ -1,6 +1,7 @@
 import { clauseMentionPattern, normalizeQualifiedClauseId } from './traceability-ids.mjs';
 import { parseMarkdownStructure } from './markdown-structure.mjs';
 import { authoredArtifactText } from './publication-preflight.mjs';
+import { discrepancyItemSha256 } from './records.mjs';
 
 const BLOCKING = new Set(['missing', 'partial']);
 const CLAUSE_HEADERS = new Set(['clause id', 'clause', 'id', 'criterion', 'specification clause']);
@@ -134,16 +135,52 @@ export function blockingConformanceVerdicts(markdown) {
 
 /**
  * Each clause the report's table honestly calls partial or missing, once, with its line. The gap
- * belongs to the step that delivered the clause; it never stops the report from publishing, and a
- * person decides it before the report is approved.
+ * may bind to an existing issue owned by an earlier step; it never stops report publication, and a
+ * person decides the gap before approval. No issue/decision is written by this reader.
  */
-export function conformanceVerdictGaps(markdown) {
+export function conformanceVerdictGaps(markdown, { workflow = null, phaseId = null } = {}) {
   const seen = new Set();
-  return incompleteVerdictRows(markdown).flatMap((row) => {
+  const gaps = incompleteVerdictRows(markdown).flatMap((row) => {
     const clauseId = normalizeQualifiedClauseId(row.clauseId) ?? row.clauseId;
     if (!clauseId || seen.has(clauseId.toUpperCase())) return [];
     seen.add(clauseId.toUpperCase());
     return [{ clauseId, verdict: row.verdict, line: row.line ?? null }];
+  });
+  if (!workflow || !phaseId || !gaps.length) return gaps;
+  return linkReportIssues(markdown, workflow, phaseId, gaps);
+}
+
+/**
+ * Bind a row to existing issues from authored references, never proximity or a phase name alone.
+ * Legacy reports sometimes say "both clauses" instead of spelling out IDs. That is unambiguous
+ * only for a two-clause table and an issue filed from this exact discrepancy item. An arbitrary
+ * section issue, another report, a changed item or a larger table cannot claim those clauses.
+ * These are derived read facts, not new records and never authority to edit an approved report.
+ */
+function linkReportIssues(markdown, workflow, phaseId, gaps) {
+  const lines = visibleTableLines(markdown);
+  const clauses = new Set(conformanceTableRows(markdown).map((row) => normalizeQualifiedClauseId(row.clauseId) ?? row.clauseId));
+  // The issue already retains the exact item text and its filing digest. Verify those bytes are
+  // still in the authored section instead of loading the full authoring/ownership parser on a
+  // read path. Table items use the same cell separator and backtick removal as their filing reader.
+  const section = (lines.join('\n').split(/^##\s+Upstream discrepancies\s*$/imu)[1]?.split(/^#{1,2}\s/mu)[0] ?? '').split('\n')
+    .map((line) => tableCells(line)?.map((cell) => cell.replaceAll('`', '').trim()).filter(Boolean).join(' — ') ?? line)
+    .join('\n').replace(/\s+/gu, ' ').trim();
+  const artifact = workflow.phases?.[phaseId]?.requiredArtifact?.path;
+  const suffix = artifact ? `/${workflow.workItem.id}/${artifact}` : null;
+  const issues = workflow.upstreamIssues ?? [];
+  const bound = issues.filter((issue) => {
+    const text = String(issue.problem ?? '').replace(/\s+/gu, ' ').trim();
+    return clauses.size === 2 && /\bboth\s+(?:of\s+the\s+)?clauses\b/iu.test(String(issue.impact ?? '').replace(/[`*_]/gu, ''))
+      && text && section.includes(text) && suffix && issue.source?.path?.endsWith(suffix)
+      && issue.source.itemSha256 === discrepancyItemSha256(issue.phase, issue.problem);
+  });
+  return gaps.map((gap) => {
+    const row = lines[(gap.line ?? 0) - 1] ?? '';
+    const ids = row.match(/(?<![\w:-])UPI-\d{3,}(?![\w-])/gu) ?? [];
+    const explicit = issues.filter((issue) => ids.includes(issue.id));
+    const linked = explicit.length ? explicit : bound;
+    return linked.length ? { ...gap, issueRefs: [...new Set(linked.map((issue) => issue.id))] } : gap;
   });
 }
 

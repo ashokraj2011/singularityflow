@@ -148,7 +148,7 @@ const advisory = (code, fields) => Object.freeze({ code, category: 'traceability
  * conformanceGapDecisions), and a table that contradicts its own discrepancy text is information.
  */
 export function inspectConformanceVerdictAdvisories(markdown, { workflow = null, phaseId = null, now = undefined, reused = [] } = {}) {
-  const gaps = conformanceVerdictGaps(markdown);
+  const gaps = conformanceVerdictGaps(markdown, { workflow, phaseId });
   const decided = workflow && phaseId ? conformanceGapDecisions(workflow, phaseId, gaps, { now, reused })
     : gaps.map((gap) => ({ ...gap, owner: null, status: 'unraised', issue: null, choices: [] }));
   return [
@@ -158,6 +158,8 @@ export function inspectConformanceVerdictAdvisories(markdown, { workflow = null,
       return advisory('conformance.verdict-incomplete', {
         requiredBefore: covered ? null : 'approve', clauseId: gap.clauseId, value: gap.clauseId, line: gap.line,
         details: { clauseId: gap.clauseId, verdict: gap.verdict, owner: gap.owner, status: gap.status, issue: gap.issue,
+          ...(/^UPI-\d{3,}$/u.test(gap.issue ?? '') ? { issueRefs: [gap.issue] }
+            : gap.issueRefs ? { issueRefs: gap.issueRefs } : {}),
           expiresAt: gap.expiresAt ?? null, choices: gap.choices },
         message: `conformance ${gap.clauseId} remains ${gap.verdict}. Keep the honest verdict: it publishes, and ${named} owns the gap. `
           + (covered ? `${gap.issue} (${gap.outcome}) decides it, so this step can be approved with the honest verdict.`
@@ -194,7 +196,7 @@ function verdictCoverage(gap) {
  */
 export function verdictSummaryBlock(markdown, workflow, phaseId, { now = undefined, reused = [] } = {}) {
   const table = String(markdown ?? '').replace(VERDICT_SUMMARY, '');
-  const gaps = conformanceGapDecisions(workflow, phaseId, conformanceVerdictGaps(table), { now, reused });
+  const gaps = conformanceGapDecisions(workflow, phaseId, conformanceVerdictGaps(table, { workflow, phaseId }), { now, reused });
   return [
     VERDICT_SUMMARY_START,
     'Engine-written from the clause table; keep it. The table is the only place a verdict is stated.', '',

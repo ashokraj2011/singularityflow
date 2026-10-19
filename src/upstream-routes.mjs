@@ -103,8 +103,8 @@ export function upstreamIssueStates(workflow, now = new Date().toISOString()) {
 }
 
 /**
- * The step that owns a conformance gap: the latest step before the report that delivered code, or
- * the step just before it when none did. Its approvers decide the gap; the report's author never does.
+ * Fallback only for a gap with no linked issue: the latest code step, or the preceding step when
+ * none delivered code. A linked evidence/scope/plan issue keeps its own actual owner instead.
  */
 export function conformanceGapOwner(workflow, phaseId) {
   return latestStepBefore(workflow, phaseId, (candidate) => phaseRequiresCodeDelivery(candidate))?.id
@@ -119,8 +119,8 @@ export function issueNamesClause(about, clauseId) {
 /**
  * Said wherever a partial or missing verdict needs a decision, so every surface states the rule.
  */
-export const CONFORMANCE_GAP_RULE = 'Keep the honest verdict; never edit it to clear a check. A person decides each gap: '
-  + 'accept it as a risk with an expiry, dismiss it, or return the work. Accepting existing evidence never certifies a run that was not recorded.';
+export const CONFORMANCE_GAP_RULE = 'Keep the honest verdict; never edit it to clear a check. Human choices: dated risk, dismissal or return. '
+  + 'Accepting existing evidence never certifies a run that was not recorded.';
 
 const displayArgument = (value) => /^[A-Za-z0-9._:/-]+$/u.test(value) || /^<[A-Za-z][A-Za-z0-9._/|-]*>$/u.test(value)
   ? value : JSON.stringify(value);
@@ -148,37 +148,55 @@ export function conformanceGapRoutes(workflow, phaseId, gap, issue = null) {
   return Object.freeze([
     issue
       ? gapChoice('decide-upstream-issue', owner, [...decide, '--outcome', 'accept-risk', '--expires', '<YYYY-MM-DD>', '--reason', '<why>'], '/sf-decide',
-        `${issue.id} names ${clause}; ${owner}'s approvers decide it in their own terminal: accept the gap as a risk with an expiry, or dismiss it (--outcome dismiss). Either lets ${phaseId} be approved with the honest verdict.`)
+        `${issue.id}: ${owner}'s approvers decide ${clause}; keep the verdict.`)
       : gapChoice('raise-upstream-issue', owner, ['upstream-issue', 'raise', '--phase', owner, '--about', clause,
         '--problem', '<what the delivered change is missing>', '--work-id', workId], '/sf-decide',
-      `Record what ${owner} did not deliver for ${clause} as an upstream issue; ${owner}'s approvers then decide it.`),
+      `${clause}: report once to ${owner}'s approvers.`),
     issue
       ? gapChoice('repair-return', owner, [...decide, '--outcome', 'return', '--reason', '<why>'], '/sf-decide',
-        `Repair: ${owner}'s approvers return the work through ${issue.id} so ${owner} delivers ${clause}; this report is compared again afterwards.`)
+        `Return via ${issue.id} to ${owner}; keep working files.`)
       : gapChoice('repair-return', owner, returnable(owner) ? reject(owner) : null, returnable(owner) ? '/sf-reject' : null,
-        returnable(owner) ? `Repair: an approver of ${phaseId} returns it to ${owner}${later} so ${owner} delivers ${clause}; this report is compared again afterwards.`
-          : `Repair: ${phaseId} may not return work to ${owner}; raise the upstream issue so ${owner}'s approvers can return it (--outcome return).`),
+        returnable(owner) ? `Return to ${owner}${later}; retest ${clause}.`
+          : `${owner}'s approvers can return it through an issue.`),
     gapChoice('evidence-reuse', 'phase-approval-authority', ['decision', 'evidence-reuse', workId, '--phase', owner, '--from-attempt', '<ATTEMPT-ID>', '--reason', '<TEXT>'], '/sf-decide',
-      `Reuse: a person who approves ${owner} accepts evidence an earlier attempt already recorded for ${clause}. Accepting existing evidence never certifies a run that was not recorded.`),
+      `${clause}: reuse retains its producer. Accepting existing evidence never certifies a run that was not recorded.`),
     gapChoice('fresh-recorded-run', codeStep ?? owner, codeStep && returnable(codeStep) ? reject(codeStep) : null, codeStep && returnable(codeStep) ? '/sf-reject' : null,
-      codeStep ? `Fresh run: return to ${codeStep}${later}; SFlow records its test run there. A document step such as ${phaseId} cannot record test runs.`
-        : `Fresh run: no code step precedes ${phaseId}, so no step of this Story records test runs; a document step cannot record them.`)
+      codeStep ? `Return to ${codeStep}${later}; a document step such as ${phaseId} cannot record test runs.`
+        : 'No code step records tests here.')
   ]);
 }
 
 /**
  * Whether a person has decided each partial or missing clause [owner decision 2026-10-19]. A clause
- * is decided only by an upstream issue whose `about` names it and whose latest decision accepts the
- * risk (not expired at `now`) or dismisses it. Approval of the conformance step and the terminal gate
+ * is decided by a linked upstream issue (authored reference, source provenance or exact clause)
+ * whose latest decision accepts the risk (unexpired at `now`) or dismisses it, or by verified reuse.
+ * Approval of the conformance step and the terminal gate
  * both call this, so they agree. Anything else carries its routes; none edits the verdict.
  */
 export function conformanceGapDecisions(workflow, phaseId, gaps, { now = new Date().toISOString(), reused = [] } = {}) {
   const states = upstreamIssueStates(workflow, now);
   const owner = conformanceGapOwner(workflow, phaseId);
-  return (gaps ?? []).map((gap) => {
-    const named = states.filter((state) => issueNamesClause(state.issue.about, gap.clauseId));
+  const order = workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {});
+  const earlier = order.slice(0, Math.max(0, order.indexOf(phaseId)));
+  const eligible = states.filter((state) => !state.supersededBy && earlier.includes(state.issue.phase));
+  return (gaps ?? []).flatMap((gap) => {
+    // Exact row/source-item links take precedence over generic clause mentions. A decided issue
+    // about the same clause but another problem must not clear the report's explicitly named gap.
+    // A retained report may still cite the original issue. Follow only recorded supersession,
+    // never a similar title or a new owner guessed from its prose; protect against corrupt cycles.
+    const refs = new Set((gap.issueRefs ?? []).map((id) => {
+      let state = states.find((entry) => entry.issue.id === id);
+      for (let round = 0; state?.supersededBy && round < states.length; round += 1) {
+        state = states.find((entry) => entry.issue.id === state.supersededBy);
+      }
+      return state?.issue.id;
+    }));
+    const referenced = eligible.filter((state) => refs.has(state.issue.id));
+    const named = referenced.length ? referenced : eligible.filter((state) => issueNamesClause(state.issue.about, gap.clauseId)
+      || issueNamesClause(state.issue.impact, gap.clauseId));
+    const pendingIssues = named.filter((state) => OPEN_UPSTREAM_ISSUE_STATUSES.includes(state.status));
     const covering = named.findLast((state) => state.status === 'decided' && ['accept-risk', 'dismiss'].includes(state.decision?.outcome));
-    if (covering) {
+    if (covering && !pendingIssues.length) {
       return Object.freeze({ ...gap, owner: covering.issue.phase, status: 'decided', issue: covering.issue.id,
         outcome: covering.decision.outcome, expiresAt: covering.decision.expiresAt ?? null, choices: Object.freeze([]) });
     }
@@ -191,20 +209,21 @@ export function conformanceGapDecisions(workflow, phaseId, gaps, { now = new Dat
         expiresAt: reuse.expiresAt ?? null, reuse: reuse.label, choices: Object.freeze([]) });
     }
     // A superseded issue owes nothing; its replacement names the clause if it carries the gap.
-    const pending = named.findLast((state) => OPEN_UPSTREAM_ISSUE_STATUSES.includes(state.status)) ?? null;
-    const gapOwner = pending?.issue.phase ?? owner;
-    return Object.freeze({ ...gap, owner: gapOwner, status: pending ? pending.status === 'expired' ? 'expired' : 'undecided' : 'unraised',
-      issue: pending?.issue.id ?? null, outcome: null, expiresAt: pending?.decision?.expiresAt ?? null,
-      choices: conformanceGapRoutes(workflow, phaseId, { ...gap, owner: gapOwner }, pending?.issue ?? null) });
+    return (pendingIssues.length ? pendingIssues : [null]).map((pending) => {
+      const gapOwner = pending?.issue.phase ?? owner;
+      return Object.freeze({ ...gap, owner: gapOwner, status: pending ? pending.status === 'expired' ? 'expired' : 'undecided' : 'unraised',
+        issue: pending?.issue.id ?? null, outcome: null, expiresAt: pending?.decision?.expiresAt ?? null,
+        choices: conformanceGapRoutes(workflow, phaseId, { ...gap, owner: gapOwner }, pending?.issue ?? null) });
+    });
   });
 }
 
 /** One line for an undecided gap: its verdict and who decides it next. */
 export function conformanceGapLine(gap) {
-  const owner = gap.owner ?? 'the step that delivered it';
+  const owner = gap.owner ?? 'the owning step';
   const state = gap.status === 'expired' ? `${gap.issue}'s accepted risk expired at ${gap.expiresAt}; ${owner}'s approvers decide it again`
-    : gap.status === 'undecided' ? `${gap.issue} names it and is not decided; ${owner}'s approvers decide it`
-      : `no upstream issue names it yet; raise one against ${owner}`;
+    : gap.status === 'undecided' ? `${gap.issue} awaits ${owner}'s approvers`
+      : `no linked issue; raise one against ${owner}`;
   return `${gap.clauseId} remains ${gap.verdict}: ${state}`;
 }
 

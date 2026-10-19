@@ -5877,7 +5877,7 @@ export async function approvePhase(root, config, workflow, {
     // person's decision on it (the terminal gate asks the same function) [owner decision 2026-10-19].
     const report = await readArtifactText(root, requiredRepoPath(config, workflow, phase));
     const approvedAt = nowIso();
-    const refusal = conformanceGapRefusal(workflow, phase.id, conformanceVerdictGaps(report),
+    const refusal = conformanceGapRefusal(workflow, phase.id, conformanceVerdictGaps(report, { workflow, phaseId: phase.id }),
       { now: approvedAt, reused: await conformanceEvidenceReuse(root, config, workflow, phase.id, approvedAt) });
     if (refusal) {
       // One plain sentence and the decision list first; each clause's own routes stay in details.

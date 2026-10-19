@@ -59,7 +59,7 @@ async function reportGaps(root, config, workflow, step, at) {
   const file = path.join(workDir(root, config, workflow.workItem.id), step.requiredArtifact.path);
   const report = await readFile(file, 'utf8');
   const reused = await conformanceEvidenceReuse(root, config, workflow, step.id, at);
-  const gaps = conformanceGapDecisions(workflow, step.id, conformanceVerdictGaps(report), { now: at, reused })
+  const gaps = conformanceGapDecisions(workflow, step.id, conformanceVerdictGaps(report, { workflow, phaseId: step.id }), { now: at, reused })
     .filter((gap) => gap.status !== 'decided')
     .map((gap) => ({ report: step.id, clauseId: gap.clauseId, verdict: gap.verdict, line: gap.line ?? null, owner: gap.owner,
       status: gap.status, issue: gap.issue, expiresAt: gap.expiresAt ?? null, choices: gap.choices }));
@@ -107,7 +107,8 @@ export function decisionGroups(workflow, { gaps = [], issues = [], includeAllIss
     const key = issue ? `issue:${issue.issue.id}` : `unraised:${gap.report}:${gap.owner}`;
     if (!groups.has(key)) groups.set(key, { kind: 'conformance-gap', issue: issue ? { ...issue.issue, status: issue.status, decision: issue.decision } : null,
       owner: issue?.issue.phase ?? gap.owner, gaps: [] });
-    groups.get(key).gaps.push(gap);
+    const existing = groups.get(key).gaps;
+    if (!existing.some((entry) => entry.report === gap.report && entry.clauseId === gap.clauseId)) existing.push(gap);
   }
   const named = new Set([...groups.values()].map((group) => group.issue?.id).filter(Boolean));
   const issueGroupsList = includeAllIssues ? [...open.values()].filter((state) => !named.has(state.issue.id))

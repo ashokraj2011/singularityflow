@@ -106,9 +106,9 @@ test('app status reads declared, started and ready; ready needs a live process',
     { id: 'api', declared: true, started: false, ready: true, url: null },
     { id: 'old', declared: false, started: false, ready: false }
   ] }), [
-    { id: 'web', declared: true, started: true, ready: true, url: 'http://127.0.0.1:5173/', pid: 42, environment: 'qa' },
-    { id: 'api', declared: true, started: false, ready: false, url: null, pid: null, environment: null },
-    { id: 'old', declared: false, started: false, ready: false, url: null, pid: null, environment: null }
+    { id: 'web', declared: true, started: true, ready: true, url: 'http://127.0.0.1:5173/', pid: 42, environment: 'qa', debug: null },
+    { id: 'api', declared: true, started: false, ready: false, url: null, pid: null, environment: null, debug: null },
+    { id: 'old', declared: false, started: false, ready: false, url: null, pid: null, environment: null, debug: null }
   ]);
 });
 

@@ -231,7 +231,7 @@ export function capabilityArgv(
   mode: 'add' | 'set' | 'remove',
   capabilityId: string,
   edits: Record<string, string> = {},
-  { reparentChildrenTo = undefined }: { reparentChildrenTo?: string | null } = {}
+  { reparentChildrenTo = undefined, applicationFile = undefined }: { reparentChildrenTo?: string | null; applicationFile?: string } = {}
 ): string[] {
   const argv = ['capability', mode, capabilityId];
   if (mode === 'remove') {
@@ -240,6 +240,8 @@ export function capabilityArgv(
     }
     return argv;
   }
+  // The application block travels as a file VS Code wrote, never as page fields. [RUN amendment 3]
+  if (applicationFile !== undefined) argv.push('--application-file', applicationFile);
   for (const [field, flag] of EDIT_FLAGS) {
     if (edits[field] === undefined) continue;
     if (edits.autoEligibility === 'inherit' && field.startsWith('auto') && field !== 'autoEligibility') continue;
@@ -276,7 +278,7 @@ export function capabilityProposalArgv(
   capabilityId: string,
   lead: string,
   edits: Record<string, string> = {},
-  options: { reparentChildrenTo?: string | null } = {}
+  options: { reparentChildrenTo?: string | null; applicationFile?: string } = {}
 ): string[] {
   const local = capabilityArgv(mode, capabilityId, edits, options);
   return ['capability', 'edit', capabilityId, '--lead', lead, '--mode', mode, ...local.slice(3), '--json'];

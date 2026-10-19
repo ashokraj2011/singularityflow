@@ -7064,7 +7064,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const runAndTestHost = () => ({ client, state: context.workspaceState, output,
     activeRepositoryId: () => activeRepositoryContext()?.repositoryId ?? null,
     capabilities: () => store.current.snapshot?.capabilityMap?.capabilities ?? [],
-    workId: () => store.current.snapshot?.workflow?.workItem.id ?? null });
+    workId: () => store.current.snapshot?.workflow?.workItem.id ?? null,
+    // Suggested start entries leave the way the capability page's edits do (onCapabilitiesMessage).
+    capabilityAuthority: () => ({ mode: store.current.snapshot?.capabilityMap?.mode ?? null,
+      authorityRepository: store.current.snapshot?.capabilityMap?.authorityRepository?.trim() || null }),
+    openCapabilityProposal: (lead: string, branch: string, capability: string) => {
+      const run = async (command: string[]): Promise<{ result: unknown; error: string | null }> => {
+        output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
+        try { return { result: await client.run<unknown>(command), error: null }; }
+        catch (error) { return { result: null, error: (error as Error).message }; }
+      };
+      lazyPanels().CapabilityProposalPanel.show(context, lead, branch, run, async () => { await refreshAfterKnownMutation(); }, capability);
+    },
+    afterLocalChange: async () => { await refreshAfterKnownMutation(); } });
   /**
    * Editing the capability map.
    *

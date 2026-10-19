@@ -10,6 +10,11 @@
  * Nothing runs in an untrusted workspace. The first run of each command identity (`commandSha256`
  * from `app plan`, or from `tests plan`) asks for confirmation on a review page, remembered for this
  * workspace; a changed command asks again.
+ *
+ * Start (debug) runs the same task with `--debug` and the debug block's own identity. Once
+ * `app status` says the debugger listens (for .NET: once the process has a pid), VS Code attaches
+ * with a loopback configuration built from the port or pid the engine reported, never from the
+ * page. Ending the debug session leaves the application running; Stop still ends it.
  */
 import path from 'node:path';
 import * as vscode from 'vscode';
@@ -19,16 +24,17 @@ import { showCompactWarningMessage } from '../compact-message.ts';
 import { collectReviewConfirmation } from './review-confirmation.ts';
 import {
   appPlanArgv, appPlanFrom, appPlanHereArgv, appStartArgv, appStatusArgv, appStatusFrom, appStopArgv, bindCommand, buildRunAndTestView,
-  capabilitiesHere, chooseEnvironment, CONFIRMED_COMMANDS_KEY, entryEnvironment, environmentOptions, environmentStatusWords,
-  ENVIRONMENT_CHOICES_KEY, findCapability, loopbackUrl, ownershipOf, rememberConfirmed, startConfirmationRequest,
-  plannedIdentities, startRefusal, testPlanFrom, testsConfirmationKeys, testsConfirmationRequest, testsEnvironment, testsPlanArgv, testsRunArgv,
-  unwrapResult, type Ownership, type RunAndTestState, type StartEntry
+  capabilitiesHere, chooseEnvironment, CONFIRMED_COMMANDS_KEY, debugAttachPlan, debuggerReady, debugStartConfirmationRequest, entryEnvironment,
+  environmentOptions, environmentStatusWords, ENVIRONMENT_CHOICES_KEY, findCapability, loopbackUrl, missingDebuggerMessage, ownershipOf,
+  rememberConfirmed, startConfirmationRequest, plannedIdentities, startRefusal, testPlanFrom, testsConfirmationKeys, testsConfirmationRequest,
+  testsEnvironment, testsPlanArgv, testsRunArgv, unwrapResult, type DebugRuntime, type Ownership, type RunAndTestState, type StartEntry
 } from './run-and-test-model.ts';
+import { RunSuggestionsPanel, type RunSuggestionsHost } from './run-suggestions.ts';
 import { runAndTestHtml } from './run-and-test-page.ts';
 import { testsSummaryArgv, testSummaryFrom, totalsLine } from './test-summary-model.ts';
 import { TestSummaryPanel } from './test-summary.ts';
 
-export interface RunAndTestHost {
+export interface RunAndTestHost extends Omit<RunSuggestionsHost, 'client' | 'output'> {
   client: SingularityFlowClient;
   /** This workspace's memento: confirmed command identities and the chosen environment per capability. */
   state: vscode.Memento;
@@ -45,7 +51,11 @@ const STOP_SETTLE_READS = 6;
 const STOP_SETTLE_MS = 500;
 const UNTRUSTED = 'This workspace is not trusted, so Singularity Flow runs no application or test command here. Trust it (Manage Workspace Trust), then try again.';
 
-interface Held { execution: vscode.TaskExecution; capability: string; entry: string | null; stopping: boolean }
+interface Held {
+  execution: vscode.TaskExecution; capability: string; entry: string | null; stopping: boolean;
+  /** Started with --debug: attach once `app status` says the debugger listens. */
+  debug?: { runtime: DebugRuntime; attached: boolean };
+}
 
 const failureCode = (error: unknown): string => {
   const result = (error as { result?: { error?: { code?: unknown }; code?: unknown } } | null)?.result;
@@ -143,7 +153,9 @@ export class RunAndTest implements vscode.Disposable {
     const state = this.stateOf(capability.id);
     if (state.plan === undefined && !state.loading) void this.load(capability.id);
     const tasks: NonNullable<RunAndTestState['tasks']> = { ...(state.tasks ?? {}) };
-    for (const held of this.held.values()) if (held.capability === capability.id && held.entry) tasks[held.entry] = { running: true };
+    for (const held of this.held.values()) {
+      if (held.capability === capability.id && held.entry) tasks[held.entry] = { running: true, ...(held.debug ? { debug: true } : {}) };
+    }
     return runAndTestHtml(buildRunAndTestView(capability, ownership, {
       ...state, tasks, environment: this.remembered(capability.id), testsRunning: this.held.has(this.key(capability.id))
     }));
@@ -191,8 +203,20 @@ export class RunAndTest implements vscode.Disposable {
       this.polls.delete(key);
       await this.readStatus(capability);
       const status = this.stateOf(capability).status?.find((item) => item.id === entry.id);
-      if (status?.ready) return this.update(capability, { notice: null });
-      if (!this.held.has(key) || Date.now() > deadline) return;
+      const held = this.held.get(key);
+      // A suspended JVM is ready only after the debugger attaches, so attaching comes first.
+      if (held?.debug && !held.debug.attached && entry.debug && debuggerReady(entry.debug, status)) {
+        held.debug.attached = true;
+        await this.attachTo(capability, entry, status);
+      }
+      const waitingToAttach = Boolean(held?.debug && !held.debug.attached);
+      if (status?.ready && !waitingToAttach) return held?.debug ? undefined : this.update(capability, { notice: null });
+      if (!this.held.has(key)) return;
+      if (Date.now() > deadline) {
+        if (!waitingToAttach) return;
+        return this.update(capability, { notice: null,
+          error: `${entry.id} is running, but app status never said its debugger was listening, so VS Code attached nothing. Its task terminal says why; Stop ends it.` });
+      }
       this.polls.set(key, setTimeout(() => void tick(), POLL_MS));
     };
     this.polls.set(key, setTimeout(() => void tick(), POLL_MS));
@@ -214,7 +238,8 @@ export class RunAndTest implements vscode.Disposable {
     return true;
   }
 
-  private task(action: 'app-start' | 'tests-run', capability: string, entry: string | null, environment: string | null, argv: string[]): vscode.Task {
+  private task(action: 'app-start' | 'tests-run', capability: string, entry: string | null, environment: string | null, argv: string[],
+    debug = false): vscode.Task {
     const { client } = this.host;
     const repository = client.repository;
     const env: Record<string, string> = {
@@ -224,8 +249,9 @@ export class RunAndTest implements vscode.Disposable {
     // The editor's own runtime runs the CLI only as Node; a separately configured Node needs nothing.
     if (process.versions.electron && client.location.executable === process.execPath) env.ELECTRON_RUN_AS_NODE = '1';
     const execution = new vscode.ProcessExecution(client.location.executable, [client.location.cli, ...argv], { cwd: repository, env });
-    const name = action === 'app-start' ? `Start ${entry} · ${capability}` : `Tests · ${capability}`;
-    const task = new vscode.Task({ type: TASK_TYPE, action, capability, ...(entry ? { entry } : {}), ...(environment ? { environment } : {}) },
+    const name = action === 'app-start' ? `Start ${entry}${debug ? ' (debug)' : ''} · ${capability}` : `Tests · ${capability}`;
+    const task = new vscode.Task({ type: TASK_TYPE, action, capability, ...(entry ? { entry } : {}), ...(environment ? { environment } : {}),
+      ...(debug ? { debug: true } : {}) },
       vscode.TaskScope.Workspace, name, 'Singularity Flow', execution, []);
     task.isBackground = action === 'app-start';
     task.presentationOptions = { reveal: vscode.TaskRevealKind.Always, panel: vscode.TaskPanelKind.Dedicated, clear: true, focus: false, showReuseMessage: false };
@@ -266,6 +292,78 @@ export class RunAndTest implements vscode.Disposable {
     delete tasks[entry.id];
     this.update(capability, { tasks, notice: `Starting ${entry.id}${environment ? ` against ${environment}` : ''}. Its log is in the task terminal.`, error: null });
     this.poll(capability, entry);
+  }
+
+  /**
+   * Start one entry with its debugger, as a task, after trust and the first-run confirmation of the
+   * debug block's own identity; then attach once `app status` says the debugger listens.
+   */
+  async startDebug(capability: string, entryId: string): Promise<void> {
+    if (!this.trusted(capability)) return;
+    if (this.held.has(this.key(capability, entryId))) {
+      return this.update(capability, { notice: `${entryId} is already running in its task terminal. Stop it first to start it with the debugger.`, error: null });
+    }
+    await this.load(capability);
+    const entry = this.stateOf(capability).plan?.find((item) => item.id === entryId);
+    if (!entry) return this.update(capability, { error: `${entryId} is not a start entry of ${capability} any more.`, notice: null });
+    if (!entry.debug) {
+      return this.update(capability, { error: entry.debugIssue ? `${entryId} was not started: ${entry.debugIssue}.` : `${entryId} declares no debug block in singularity/capabilities.yml.`, notice: null });
+    }
+    const environment = entryEnvironment(entry, this.chosenEnvironment(capability));
+    const refusal = startRefusal(entry, environment);
+    if (refusal) return this.update(capability, { error: refusal, notice: null });
+    if (!await this.confirmed([entry.debug.commandSha256], debugStartConfirmationRequest(entry, environment))) {
+      return this.update(capability, { notice: 'Nothing was started.', error: null });
+    }
+    const argv = appStartArgv(capability, entry.id, environment, entry.debug.commandSha256, true);
+    this.log(argv);
+    const execution = await this.execute(capability, this.task('app-start', capability, entry.id, environment, argv, true));
+    if (!execution) return;
+    this.held.set(this.key(capability, entry.id), { execution, capability, entry: entry.id, stopping: false, debug: { runtime: entry.debug.runtime, attached: false } });
+    const tasks = { ...(this.stateOf(capability).tasks ?? {}) };
+    delete tasks[entry.id];
+    this.update(capability, {
+      tasks, error: null,
+      notice: `Starting ${entry.id} with its debugger${environment ? ` against ${environment}` : ''}. VS Code attaches once the debugger listens; the log is in the task terminal.`
+    });
+    this.poll(capability, entry);
+  }
+
+  /** Attach again to a running entry whose debugger listens (after its debug session ended, say). */
+  async attach(capability: string, entryId: string): Promise<void> {
+    await this.readStatus(capability);
+    const state = this.stateOf(capability);
+    const entry = state.plan?.find((item) => item.id === entryId);
+    if (!entry) return;
+    await this.attachTo(capability, entry, state.status?.find((item) => item.id === entryId));
+  }
+
+  /**
+   * `vscode.debug.startDebugging` with the attach configuration for the runtime, on 127.0.0.1 and
+   * the port (or pid) `app status` reported. A missing debugger extension is named; the
+   * application keeps running either way.
+   */
+  private async attachTo(capability: string, entry: StartEntry, status: Parameters<typeof debugAttachPlan>[1]): Promise<void> {
+    const plan = debugAttachPlan(entry, status);
+    if ('error' in plan) return this.update(capability, { error: plan.error, notice: null });
+    const runtime = entry.debug!.runtime;
+    if (plan.extension && !vscode.extensions?.getExtension(plan.extension.id)) {
+      const message = missingDebuggerMessage(entry.id, runtime, plan.where);
+      void showCompactWarningMessage(message);
+      return this.update(capability, { error: message, notice: null });
+    }
+    const repository = vscode.Uri.file(this.host.client.repository);
+    const folder = vscode.workspace.getWorkspaceFolder?.(repository) ?? undefined;
+    this.host.output?.appendLine(`\n  attach ${JSON.stringify(plan.configuration)}`);
+    let attached = false;
+    try {
+      attached = await vscode.debug.startDebugging(folder, plan.configuration as unknown as vscode.DebugConfiguration);
+    } catch (error) {
+      return this.update(capability, { error: `VS Code could not attach the debugger to ${entry.id}: ${(error as Error).message}. ${entry.id} keeps running; Stop ends it.`, notice: null });
+    }
+    this.update(capability, attached
+      ? { notice: `The debugger is attached to ${entry.id}, ${plan.where.replace(/^with its debugger listening at/, 'at')}. Ending the debug session leaves ${entry.id} running; Stop ends it.`, error: null }
+      : { error: `VS Code did not start the debug session for ${entry.id}. ${entry.id} keeps running, ${plan.where}; Attach debugger tries again.`, notice: null });
   }
 
   /** End the task this window started; otherwise ask the CLI to stop what `app start` recorded. */
@@ -404,6 +502,12 @@ export class RunAndTest implements vscode.Disposable {
     switch (message.action) {
       case 'refresh': return this.load(capability);
       case 'start': return isEntry ? this.start(capability, entry) : undefined;
+      case 'debug': return isEntry ? this.startDebug(capability, entry) : undefined;
+      case 'attach': return isEntry ? this.attach(capability, entry) : undefined;
+      case 'suggest': return void RunSuggestionsPanel.show({ ...this.host, afterLocalChange: async (id: string) => {
+        await this.host.afterLocalChange?.(id);
+        await this.load(id);
+      } }, capability);
       case 'stop': return entry ? this.stop(capability, entry) : undefined;
       case 'open': return isEntry ? this.open(capability, entry) : undefined;
       case 'tests': return this.runTests(capability, command || null);

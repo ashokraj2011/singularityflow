@@ -8,7 +8,7 @@ export default async function* reporter(events) {
   const stacks = new Map();
   const files = new Map();
   const occurrences = [];
-  let incomplete = false;
+  const incomplete = new Set();
   async function* observe() {
     for await (const event of events) {
       const data = event.data ?? {};
@@ -28,10 +28,14 @@ export default async function* reporter(events) {
         }
         const file = files.get(data.file) ?? '';
         const ancestors = (stacks.get(data.file) ?? []).slice(0, data.nesting);
-        if (!file || file === '..' || file.startsWith('../') || path.isAbsolute(file)
-            || !Number.isInteger(data.line) || data.line < 1 || typeof data.name !== 'string'
-            || ancestors.length !== data.nesting || ancestors.some((name) => typeof name !== 'string')
-            || occurrences.length >= 100_000) incomplete = true;
+        const issues = [];
+        if (!file) issues.push(!data.file ? 'file-missing' : String(data.file).startsWith('file:') ? 'file-url-unresolved' : 'file-unresolved');
+        else if (file === '..' || file.startsWith('../') || path.isAbsolute(file)) issues.push('file-outside-root');
+        if (!Number.isInteger(data.line) || data.line < 1) issues.push('source-line-missing');
+        if (typeof data.name !== 'string') issues.push('name-invalid');
+        if (ancestors.length !== data.nesting || ancestors.some((name) => typeof name !== 'string')) issues.push('ancestry-mismatch');
+        if (occurrences.length >= 100_000) issues.push('occurrence-limit');
+        if (issues.length) for (const issue of issues) incomplete.add(issue);
         else occurrences.push({ file, line: data.line, name: data.name, ancestorTitles: ancestors,
           outcome: data.skip || data.todo ? 'skipped' : event.type === 'test:pass' ? 'passed' : 'failed',
           durationMs: data.details?.duration_ms ?? null });
@@ -42,5 +46,6 @@ export default async function* reporter(events) {
   if (process.env.SINGULARITY_FLOW_NODE_TEST_TAP === '0') {
     for await (const _event of observe()) { /* The configured reporter emits TAP. */ }
   } else yield* tap(observe());
-  yield `# sflow-node-observation-v1 ${JSON.stringify({ complete: !incomplete, occurrences })}\n`;
+  yield `# sflow-node-observation-v1 ${JSON.stringify({ complete: incomplete.size === 0, occurrences,
+    ...(incomplete.size ? { issues: [...incomplete] } : {}) })}\n`;
 }

@@ -240,6 +240,12 @@ test('a Story completes only once its open upstream issue is decided', async (t)
   assert.notEqual(refused.status, 0, 'the policy-approved ending waits for the open issue');
   assert.match(refused.stdout + refused.stderr, /UPI-001 about intake \(Out of scope\) is not decided/u);
   assert.match(refused.stdout + refused.stderr, /upstream-issue decide UPI-001 --work-id ISSUE-3/u);
+  // The ending's refusal leads with one plain sentence and the decision list.
+  assert.match(refused.stdout + refused.stderr, /can't be (?:completed|approved) yet: 1 decision needed\. Decide them in one place\. Copilot: \/sf-decide ISSUE-3/u);
+  // Next steps never offer the submission that would end the Story while the issue is open; the list takes its place.
+  const held = JSON.parse(cli('nextsteps', 'ISSUE-3', '--json').stdout).actions;
+  assert.equal(held.some((entry) => entry.command?.startsWith('singularity-flow submit verify')), false, JSON.stringify(held.map((entry) => entry.command)));
+  assert.equal(held.find((entry) => entry.timing === 'now').command, 'singularity-flow decisions ISSUE-3');
   const state = async () => JSON.parse(await readFile(path.join(root, 'singularity/work-items', W, 'workflow.json'), 'utf8'));
   assert.equal((await state()).status, 'in_progress', 'nothing was recorded');
   const dismissal = attempt('upstream-issue', 'decide', 'UPI-001', '--outcome', 'dismiss', '--reason', 'Only the default locale ships in this release.');

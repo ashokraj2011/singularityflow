@@ -104,7 +104,8 @@ function withDecisionList(workflow, phase, actions, held) {
   if (!held) return actions;
   const workId = workflow.workItem.id;
   const blocked = (entry) => entry.command?.startsWith(`singularity-flow approve ${phase.id} `)
-    || (phase.approvalPolicy?.mode === 'none' && entry.command?.startsWith(`singularity-flow submit ${phase.id}`));
+    // A step nobody approves, or one a policy may complete at submission, ends the Story by submitting.
+    || (['none', 'policy'].includes(phase.approvalPolicy?.mode) && entry.command?.startsWith(`singularity-flow submit ${phase.id}`));
   const index = actions.findIndex(blocked);
   if (index < 0) return actions;
   const decide = action(actions[index].timing, '/sf-decide', `singularity-flow decisions ${workId}`,

@@ -184,10 +184,8 @@ import { buildConstitutionException, constitutionIndex, constitutionPolicy, gene
 import { VERSION } from './version.mjs';
 import { HELP } from './help-text.mjs';
 
-/**
- * The route to show instead of submitting: the review's own next step while it is not ready, or
- * the submit command with the decision values it must record.
- */
+/** The route to show instead of submitting: the review's next step while it is not ready, the submit with the decision
+ * values it must record, or the decision list when a submission that completes the step would be refused for it. */
 async function submitHeldRoute(root, config, workflow, phase, options) {
   const review = sourceReviewRequired(workflow, phase.id)
     ? await readSourceReviewStatus(root, config, workflow, phase.id).catch(() => null) : null;
@@ -195,8 +193,9 @@ async function submitHeldRoute(root, config, workflow, phase, options) {
     const continuation = sourceReviewContinuation(workflow, phase, review);
     return { command: continuation.nextCommand, skill: continuation.nextSkill, reason: continuation.actions[0].reason };
   }
-  return decisionSubmitArguments(workflow, phase.id) && !optionStrings(options, 'decision').length
-    ? submitRoute(workflow, phase) : null;
+  if (decisionSubmitArguments(workflow, phase.id) && !optionStrings(options, 'decision').length) return submitRoute(workflow, phase);
+  const decide = ['none', 'policy'].includes(phase.approvalPolicy?.mode) ? await (await import('./decision-list-facts.mjs')).pendingDecisionSummary(root, config, workflow, phase).catch(() => null) : null;
+  return decide ? { command: decide.command, skill: '/sf-decide', reason: `${decide.headline} Decide them in one place before submitting.` } : null;
 }
 
 /** The only deliberately Shell-only instruction: restore a locally retained Git stash commit. */

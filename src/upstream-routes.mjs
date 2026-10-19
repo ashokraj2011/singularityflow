@@ -247,7 +247,7 @@ export function decisionHeadline(workflow, phaseId, count, { refused = false } =
   const phase = workflow?.phases?.[phaseId];
   const name = stepName(workflow, phaseId);
   if (!count) return `${name} has nothing waiting for a decision.`;
-  const verb = phase?.approvalPolicy?.mode === 'none' ? 'completed' : 'approved';
+  const verb = ['none', 'policy'].includes(phase?.approvalPolicy?.mode) ? 'completed' : 'approved';
   const needed = `${count} ${count === 1 ? 'decision' : 'decisions'}`;
   return refused || phase?.status === 'awaiting_approval' ? `${name} can't be ${verb} yet: ${needed} needed.`
     : `${name} needs ${needed} before it can be ${verb}.`;

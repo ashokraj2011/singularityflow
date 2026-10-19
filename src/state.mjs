@@ -83,7 +83,7 @@ import { phaseUpstream } from './phase-upstream.mjs';
 import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy.mjs';
 import {
   approvalRequirementsMet, assertApprovalPolicyAttainable, DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities,
-  normalizeApprovalSecurity, remainingRequiredAuthorities, requireApprovalAuthority
+  eligibleApprovers, normalizeApprovalSecurity, remainingRequiredAuthorities, requireApprovalAuthority
 } from './approval-authority.mjs';
 import { assertSourceBoundary, normalizeSourceBoundary } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
@@ -6104,7 +6104,8 @@ export async function approvePhase(root, config, workflow, {
     actor,
     { preferredAuthorities: remainingRequiredAuthorities(phase.approvalPolicy, active) }
   );
-  if (active.some((item) => actorKey(item.actor) === key)) throw new SingularityFlowError(`${key} already approved phase ${phase.id}; approvals require distinct identities.`);
+  if (active.some((item) => actorKey(item.actor) === key)) throw new SingularityFlowError(`${key} already approved phase ${phase.id}; approvals require distinct identities.`, { code: 'APPROVAL_IDENTITY_ALREADY_RECORDED', details: { phase: phase.id, workId: workflow.workItem.id,
+    ...eligibleApprovers(workflow.resolution.approvalAuthorities ?? config.approvalAuthorities, phase.approvalPolicy, { exclude: active.map((item) => actorKey(item.actor)) }) } });
 
   /**
    * The reviewer's checklist `[SPK:REQ-060]` `[SPK:REQ-061]` `[SPK:REQ-181]` applies only
@@ -6211,7 +6212,8 @@ export async function approvePhase(root, config, workflow, {
     selfApproval: actorKey(phase.generatedBy ?? {}) === key
   };
   if (decision.selfApproval && phase.approvalPolicy.allowSelfApproval === false) {
-    throw new SingularityFlowError(`Capability and workflow policy prohibit self-approval for phase '${phase.id}'. Ask another authorized Git identity to approve this generation.`);
+    throw new SingularityFlowError(`Capability and workflow policy prohibit self-approval for phase '${phase.id}'. Ask another authorized Git identity to approve this generation.`, { code: 'APPROVAL_SELF_APPROVAL_PROHIBITED', details: { phase: phase.id, workId: workflow.workItem.id,
+      ...eligibleApprovers(workflow.resolution.approvalAuthorities ?? config.approvalAuthorities, phase.approvalPolicy, { exclude: [key, actor?.email, actor?.login].filter(Boolean) }) } });
   }
   const prospectiveApprovals = [...(phase.testCommandRevalidation ? active : phase.approvals), decision];
   const reached = approvalRequirementsMet(phase.approvalPolicy, prospectiveApprovals);

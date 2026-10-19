@@ -186,6 +186,9 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
       'No automatic repair or waiver is registered for this finding. Give the maintainer this exact finding and preserved-state diagnostics.', '/sf-doctor');
   }
+  // A route its own command refuses for this Story is no way out: inspect instead, and let the
+  // check below name someone other than the author.
+  if (routeRefusedForStory(workflow, resolution)) resolution = recovery;
   // When the author has delivered everything and the check still misreads it, the step's approvers
   // can accept the exact finding as an exception on evidence [recoverable-findings M2].
   const disputedGate = DISPUTABLE_GATES.find((gate) => gate === phaseFindingCode(finding).toUpperCase()) ?? null;
@@ -212,6 +215,22 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     status: resolution.kind.endsWith('owner') || resolution.kind === 'owner-escalation'
       ? 'needs-owner' : resolution.kind.includes('risk') || resolution.kind.includes('appeal') || ['human-review', 'worktree-review', 'plan-amendment'].includes(resolution.kind) ? 'needs-human' : 'needs-correction',
     choices, preserved: ['working-tree bytes', 'Git index', 'published evidence', 'approval history'] };
+}
+
+/**
+ * Whether a route's own command refuses this Story before doing anything. Observed-risk review
+ * (story test-policy risks, accept-risk, revoke-risk, attest-risk) needs the test-recovery
+ * delegation the Story pinned; without it the command refuses (TRP_NOT_ENABLED,
+ * TRP_AUTHORITY_REQUIRED), so offering it would send the reader into a second refusal. Only a
+ * known pin decides: a projection that carries no resolution keeps the route.
+ */
+export function routeRefusedForStory(workflow, choice) {
+  const [family, group, action] = choice?.argv ?? [];
+  if (family !== 'story' || group !== 'test-policy' || !['risks', 'accept-risk', 'revoke-risk', 'attest-risk'].includes(action)) return false;
+  const resolution = workflow?.resolution;
+  if (!resolution || workflow.testRecovery) return false;
+  const pin = resolution.testRecovery;
+  return !(pin?.enabled === true && pin.riskAuthorities?.length > 0 && resolution.approvalAuthorities);
 }
 
 /** Advice belongs to a separate lane. It cannot reserve repairs or manufacture a human hold. */

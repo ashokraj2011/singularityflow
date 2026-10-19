@@ -19,11 +19,22 @@ import { parseArgs } from './util.mjs';
 
 const safeCommand = validateSafeSflowCommand;
 
+/** The recovery each listed finding names for itself (a gate or final-check refusal), bounded. */
+function findingRecoveries(details) {
+  return (Array.isArray(details?.findings) ? details.findings.slice(0, 20) : []).map((finding) => {
+    const recovery = finding?.recovery;
+    return typeof recovery?.command === 'string'
+      ? { command: recovery.command, label: recovery.label ?? recovery.detail } : null;
+  });
+}
+
 function explicitCommands(error) {
   const details = error?.details ?? {};
   const values = [
     details?.diagnosticAction,
     typeof details?.nextAction === 'string' ? { command: details.nextAction } : details?.nextAction,
+    // Some producers name their way out as `nextCommand` (session attach, workspace selection).
+    typeof details?.nextCommand === 'string' ? details.nextCommand : details?.nextCommand,
     details?.recoveryCommand,
     // A throw site that names its own way out: the exact repair, or the command to run instead.
     details?.repairCommand,
@@ -33,7 +44,8 @@ function explicitCommands(error) {
     ...(Array.isArray(details?.actions) ? details.actions : []),
     // A gate refusal's own actions, so the recovery plan every surface renders is the gate's
     // [E2G-024, criterion 16].
-    ...(Array.isArray(details?.gate?.actions) ? details.gate.actions.map((entry) => entry?.command) : [])
+    ...(Array.isArray(details?.gate?.actions) ? details.gate.actions.map((entry) => entry?.command) : []),
+    ...findingRecoveries(details)
   ];
   const seen = new Set();
   return values.map((value) => {
@@ -465,7 +477,8 @@ function upstreamInputSteps(argv, error) {
       : step('return-or-amend-upstream', `${notes[0] ?? `If the approved ${owner} content itself must change, only an authorized return or amendment of ${owner} changes it.`} The input comes from ${owner}; ${here} must not edit it.`,
         null, 'remediation'),
     // Always open, whatever the current status: record it for the owner and keep working [UIF-M4].
-    raise && raise !== route ? step('raise-upstream-issue', raise.label, raise.command, 'remediation') : null
+    raise && raise !== route ? step('raise-upstream-issue', `${raise.label} The input comes from ${owner}; ${here} must not edit it.`,
+      raise.command, 'remediation') : null
   ].filter(Boolean);
 }
 
@@ -491,6 +504,81 @@ function repairBudgetSteps(_argv, error) {
       null, 'remediation'),
     current ? step('inspect-submitted-phase', `Review the submitted ${current} evidence before deciding.`,
       `singularity-flow phase show ${current} --json`, 'diagnostic') : null
+  ].filter(Boolean);
+}
+
+/** The groups (and listed members) who may make a decision a refused identity cannot. */
+function eligibleDeciders(details = {}) {
+  const groups = (Array.isArray(details.authorities) ? details.authorities : []).map(lowerKebab).filter(Boolean);
+  const members = (Array.isArray(details.eligibleApprovers) ? details.eligibleApprovers : [])
+    .filter((entry) => typeof entry === 'string' && /^[^\s<>"'`]{1,254}$/u.test(entry)).slice(0, 10);
+  return `${groups.length ? groups.join(', ') : 'its approval groups'}${members.length ? ` (${members.join(', ')})` : ''}`;
+}
+
+const IDENTITY_CHECK = 'check the Git identity this checkout uses with git config user.email (a GitHub login comes from gh auth status)';
+const NOTHING_TO_REJECT = 'Nothing was recorded and the work under review needs no change; do not reject or resubmit it to get past this.';
+
+/**
+ * A decision refused for who is making it, never for what is under review. The way forward is the
+ * right identity or another eligible person, so these plans name both and offer no reject route.
+ */
+function approvalIdentitySteps(_argv, error) {
+  const details = error?.details ?? {};
+  const deciders = eligibleDeciders(details);
+  const phase = lowerKebab(details.phase);
+  const identity = typeof details.identity === 'string' && details.identity.trim()
+    ? `'${redactDiagnosticText(details.identity).slice(0, 254)}'` : 'This identity';
+  const ask = step('ask-eligible-member',
+    `Ask a member of ${deciders} to make this decision from their own checkout, under their own identity. ${NOTHING_TO_REJECT}`,
+    null, 'remediation');
+  if (error?.code === 'APPROVAL_IDENTITY_MISSING') return [
+    step('set-approval-identity',
+      `This checkout has no Git email or GitHub login to decide with: ${IDENTITY_CHECK}. Set user.email to the address you are listed under, then run the same command again.`,
+      null, 'remediation'),
+    ask
+  ];
+  if (error?.code === 'APPROVAL_SELF_APPROVAL_PROHIBITED') return [
+    step('ask-other-approver',
+      `Policy does not let the author of this generation approve ${phase ?? 'it'}. Ask another member of ${deciders} to approve it from their own checkout. ${NOTHING_TO_REJECT}`,
+      null, 'remediation'),
+    step('check-approval-identity',
+      `If you did not author it, this checkout is deciding as its author: ${IDENTITY_CHECK}, then run the same command again.`,
+      null, 'remediation')
+  ];
+  if (error?.code === 'APPROVAL_IDENTITY_ALREADY_RECORDED') return [
+    step('ask-next-approver',
+      `This identity's approval of ${phase ?? 'the step'} is already recorded, and each approval needs a different person. Another member of ${deciders} records the next one from their own checkout. ${NOTHING_TO_REJECT}`,
+      null, 'remediation'),
+    step('check-approval-identity',
+      `If you have not approved it, this checkout is deciding as another reviewer: ${IDENTITY_CHECK}, then run the same command again.`,
+      null, 'remediation')
+  ];
+  return [
+    step('check-approval-identity',
+      `${identity} is not a member of ${deciders}. If you are listed under another address, ${IDENTITY_CHECK}, set it to your listed address, and run the same command again (resume the Story first if its session still shows the old identity).`,
+      null, 'remediation'),
+    ask
+  ];
+}
+
+const APPROVAL_IDENTITY_CODES = Object.freeze(['APPROVAL_IDENTITY_NOT_AUTHORIZED', 'APPROVAL_IDENTITY_MISSING',
+  'APPROVAL_SELF_APPROVAL_PROHIBITED', 'APPROVAL_IDENTITY_ALREADY_RECORDED']);
+
+/**
+ * An approver must answer, and the answer must land in the author's checkout: it binds that
+ * checkout's composed prompt and reaches the Story only with that checkout's phase publication.
+ */
+function clarificationAuthoritySteps(argv, error) {
+  const details = error?.details ?? {};
+  const phase = lowerKebab(details.phase) ?? artifactAuthoringPhase(argv, error);
+  const workId = safeWorkId(details.workId);
+  return [
+    step('record-answer-in-author-checkout',
+      `Only a member of ${eligibleDeciders(details)} can answer. The answer must be recorded in this checkout: it is bound to this checkout's composed prompt and reaches the Story only with this checkout's publication, so a record made in another clone is never seen. `
+        + `The member records it here as themselves: with this checkout's git config user.email set to their listed address, they run singularity-flow resume ${workId ?? '<WORK-ID>'} and then the same clarification record command. The author then restores their own identity and resumes again. Never record the answer under the author's identity.`,
+      null, 'remediation'),
+    phase ? step('inspect-clarification-checkpoint', 'See which questions still need an answer.',
+      `singularity-flow clarification status ${phase} --json`, 'diagnostic') : null
   ].filter(Boolean);
 }
 
@@ -900,6 +988,8 @@ const KNOWN = Object.freeze({
       'remediation'
     )];
   },
+  ...Object.fromEntries(APPROVAL_IDENTITY_CODES.map((code) => [code, approvalIdentitySteps])),
+  CLARIFICATION_AUTHORITY_REQUIRED: clarificationAuthoritySteps,
   CLARIFICATION_MODE_OFF: (_argv, error) => {
     const phase = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(error?.details?.phase ?? '')
       ? error.details.phase : null;
@@ -912,6 +1002,9 @@ const KNOWN = Object.freeze({
       ?? step('continue-phase-without-clarification', label, command, 'remediation')];
   }
 });
+
+/** Every refusal code with its own registered route (the dead-end audit checks each one). */
+export const REMEDIATION_GUIDED_CODES = Object.freeze(Object.keys(KNOWN));
 
 function genericSteps(argv) {
   const command = String(argv?.[0] ?? '').trim();
@@ -929,6 +1022,14 @@ function genericSteps(argv) {
   return steps;
 }
 
+/**
+ * A plan shows its first three steps. The routes to someone other than the author are never cut
+ * to fit: a step approver accepting a run in which no test executed, and raising the issue for an
+ * earlier step's owners. One that falls after the first three is kept after them.
+ */
+export const PLAN_STEP_LIMIT = 3;
+export const PLAN_RESERVED_STEP_IDS = Object.freeze(['accept-test-run-risk', 'raise-upstream-issue']);
+
 function deduplicate(steps) {
   const seen = new Set();
   return steps.filter(Boolean).filter((entry) => {
@@ -936,7 +1037,7 @@ function deduplicate(steps) {
     if (seen.has(identity)) return false;
     seen.add(identity);
     return true;
-  }).slice(0, 3);
+  }).filter((entry, index) => index < PLAN_STEP_LIMIT || PLAN_RESERVED_STEP_IDS.includes(entry.id));
 }
 
 export function refusalRemediationPlan(error, argv = []) {
@@ -1004,6 +1105,8 @@ export function refusalRemediationPlan(error, argv = []) {
   const selfGuidedBlocked = ['CONFIGURATION_APPROVE_CONFIRMATION_REQUIRED', 'CONFIGURATION_APPROVE_PROPOSAL_REQUIRED',
     'CONFIGURATION_APPROVE_NOTHING', 'CONFIGURATION_DRAFTS_EMPTY'].includes(code);
   const unknownRecoveryPhase = code === 'RECOVERY_PHASE_UNKNOWN';
+  // Refused for who decides, not for what is decided: no phase repair, rejection or diagnostics.
+  const identityBlocked = APPROVAL_IDENTITY_CODES.includes(code) || code === 'CLARIFICATION_AUTHORITY_REQUIRED';
   const pinnedTestPolicyBlocked = ['CODE_TEST_RESULT_REQUIRED', 'CODE_TEST_SUPPRESSED'].includes(code)
     && error?.details?.configurationDependency === true;
   const requiredTestBlocked = /^CODE_TEST_[A-Z0-9_]+$/u.test(code)
@@ -1015,6 +1118,9 @@ export function refusalRemediationPlan(error, argv = []) {
   const phaseContext = pinnedTestPolicyBlocked && rawPhaseContext
     ? Object.freeze({ ...rawPhaseContext, strategy: 'pinned-test-policy-prerequisite',
       retryCommand: null, retrySkill: null })
+    : identityBlocked && rawPhaseContext
+      ? Object.freeze({ ...rawPhaseContext, strategy: 'approval-identity', turn: 'current-turn',
+        retryCommand: null, retrySkill: null })
     : upstreamInputBlocked && rawPhaseContext
       ? Object.freeze({ ...rawPhaseContext, strategy: 'upstream-input',
         upstreamPhases: upstreamInputContext(argv, error).producers, retryCommand: null, retrySkill: null })
@@ -1053,7 +1159,7 @@ export function refusalRemediationPlan(error, argv = []) {
   const ordered = configurationProblemsBlocked ? [...known, ...nonDuplicateExplicit]
     : selfGuidedBlocked ? [...nonDuplicateExplicit, ...known]
     : sessionTransportBlocked ? [...known, ...nonDuplicateExplicit]
-    : repositoryRunnerBlocked || pinnedTestPolicyBlocked || softGateBlocked || unknownRecoveryPhase ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
+    : repositoryRunnerBlocked || pinnedTestPolicyBlocked || softGateBlocked || unknownRecoveryPhase || identityBlocked ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
     ? phaseContext.turn === 'new-turn'
       // Reserve the bounded recovery/new-turn steps before the global three-step presentation cap;
       // arbitrary producer diagnostics must never displace the instruction that ends approval.
@@ -1079,6 +1185,10 @@ export function refusalRemediationPlan(error, argv = []) {
     ? 'Do not retry unchanged publication. An in-scope repository runner repair, updated runtime or reviewed command amendment must establish the structured contract; then follow the returned preparation or fresh-validation route.'
     : pinnedTestPolicyBlocked
     ? 'Do not retry unchanged publication. Preview a reviewed test-command amendment from corrected approved configuration for the active current code phase. Retain any existing publication and follow the returned preparation or fresh-validation route.'
+    : code === 'CLARIFICATION_AUTHORITY_REQUIRED'
+    ? 'Record the answer only in this checkout, as a listed member; the author never records it for them.'
+    : identityBlocked
+    ? 'Run the same command again only when this checkout decides as a listed member, or let another listed member decide. Nothing was recorded, and nothing needs rejecting.'
     : riskReviewBlocked
     ? 'Inspect the exact risk or repair prerequisite. Only a delegated human can record an eligible exception; normal phase approval stays separate. End an approval-only turn before any review mutation, then re-evaluate in a fresh turn.'
     : phaseContext?.turn === 'new-turn'
@@ -1288,6 +1398,8 @@ export function renderRefusalPlan(plan) {
           ? `  Scope: phase ${plan.context.phaseId} — pinned test-policy prerequisite; preview a reviewed test-command amendment for the active phase, then follow its preparation or fresh-validation route.`
         : plan.context.strategy === 'escalate-repeated-finding'
           ? `  Scope: phase ${plan.context.phaseId} — the same finding keeps returning; stop repairing it and hand it to someone other than the author. Nothing was accepted or waived.`
+        : plan.context.strategy === 'approval-identity'
+          ? `  Scope: phase ${plan.context.phaseId} — who decides, not what is decided; nothing about the work needs repairing.`
         : plan.context.strategy === 'upstream-input'
           ? `  Scope: phase ${plan.context.phaseId} — the cause is an approved input from ${plan.context.upstreamPhases?.join(', ') || 'an earlier phase'}; do not edit it here. Restore its approved bytes or use that phase's return or amendment route.`
         : `  Scope: phase ${plan.context.phaseId} — repair in place; no automatic advance or history rewrite.`

@@ -132,9 +132,11 @@ async function storyPathsAtRef(root, ref, workRoot, env) {
   }).filter((entry) => entry.file.endsWith('/workflow.json'));
 }
 
-function unavailable(code, branch, relative, reason, claimedId = null) {
+function unavailable(code, branch, relative, reason, claimedId = null, sourceCode = null) {
   return {
-    code, claimedId, branch, ref: `origin/${branch}`, path: relative ?? null, reason
+    code, claimedId, branch, ref: `origin/${branch}`, path: relative ?? null, reason,
+    // The reader's own code (a record written by a newer build), so its upgrade route is reached.
+    ...(typeof sourceCode === 'string' ? { sourceCode } : {})
   };
 }
 
@@ -470,7 +472,7 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
             });
           } catch (error) {
             diagnostics.push(unavailable(
-              'SESSION_STORY_INVALID', branch, entry.file, error.message, claimedId
+              'SESSION_STORY_INVALID', branch, entry.file, error.message, claimedId, error?.code
             ));
           }
         }

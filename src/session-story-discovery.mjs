@@ -177,7 +177,7 @@ export async function discoverRemoteStoryCandidates(root, definition, {
       requested.push({ key: `${pointer.commitOid}:${relative}`, ref: pointer.commitOid, path: relative, pointer });
     } catch (error) {
       unavailable.push({ code: 'SESSION_STORY_INVALID', claimedId: pointer.id, branch: pointer.branch,
-        ref: pointer.commitOid, path: WORKFLOW_PATH, reason: error.message });
+        ref: pointer.commitOid, path: WORKFLOW_PATH, reason: error.message, ...sourceCode(error) });
     }
   }
   const stateBytes = committedFilesAtRevisions(root, requested, {
@@ -219,9 +219,10 @@ export async function discoverRemoteStoryCandidates(root, definition, {
         code: 'SESSION_STORY_INVALID',
         claimedId: subject.id,
         ref: subject.location.ref ?? null,
-        branch: subject.location.branch ?? null,
+        branch: subject.location.branch ?? pointer.branch ?? null,
         path: subject.location.path ?? null,
-        reason: error.message
+        reason: error.message,
+        ...sourceCode(error)
       });
     }
   }
@@ -246,9 +247,11 @@ export async function discoverRemoteStoryCandidates(root, definition, {
       const restoredBranches = new Set(recovered.items.map((item) => item.branch));
       const merged = new Map(items.map((item) => [item.id, item]));
       for (const item of recovered.items) merged.set(item.id, item);
+      // A branch the recovery read has its verdict there; "unavailable locally" no longer describes it.
+      const missingLocally = (entry) => ['SUBJECT_STATE_UNAVAILABLE', 'SUBJECT_STATE_PARTIAL'].includes(entry.code);
       const remaining = unavailable.filter((entry) => !restoredBranches.has(entry.branch)
         && !recovered.unavailable.some((failure) => failure.branch === entry.branch
-          && failure.path === entry.path));
+          && (failure.path === entry.path || missingLocally(entry))));
       const restored = [...merged.values()].sort((left, right) => left.id.localeCompare(right.id));
       rememberProvenSummaries(cache, kept, pointers, restored, [...remaining, ...recovered.unavailable]);
       return {
@@ -275,12 +278,53 @@ export async function discoverRemoteStoryCandidates(root, definition, {
   };
 }
 
-/** Published Story subjects come only from exact commits named by the state ledger. */
-export async function stateStorySubjectIndex(root, definition, options = {}) {
-  const roster = await discoverRemoteStoryCandidates(root, definition, { ...options, includeState: true });
-  if (roster.unavailableCount) throw new SingularityFlowError(
+/** The reader's own refusal code, kept beside the listing code so its route stays reachable. */
+function sourceCode(error) {
+  return typeof error?.code === 'string' ? { sourceCode: error.code } : {};
+}
+
+/**
+ * Which unreadable Stories stop a lookup. Listing every Story needs every Story; a lookup by exact
+ * Work ID or branch needs only that one, so one Story written by a newer build no longer blocks
+ * resuming another on a fresh clone. A reference that names no readable Story may name one of the
+ * unreadable ones (an alias is unknown until it is read), so it still waits for all of them.
+ */
+export function blockingUnavailableStories(roster, reference = null) {
+  const unavailable = roster.unavailable ?? [];
+  const wanted = typeof reference === 'string' ? reference.trim() : '';
+  if (!unavailable.length || !wanted) return unavailable;
+  const match = (roster.items ?? []).find((item) => item.id === wanted || item.branch === wanted) ?? null;
+  const named = unavailable.filter((entry) => [wanted, match?.id, match?.branch].filter(Boolean)
+    .some((value) => entry.claimedId === value || entry.branch === value));
+  if (named.length) return named;
+  return match ? [] : unavailable;
+}
+
+/** Version refusals keep their own code: the reader then gets the upgrade route, not a repair. */
+const VERSION_SOURCE_CODES = new Set(['SCHEMA_VERSION_FUTURE', 'SCHEMA_VERSION_ARCHIVED']);
+
+function unavailableStoriesError(entries) {
+  const codes = new Set(entries.map((entry) => entry.sourceCode));
+  const [only] = codes;
+  if (codes.size === 1 && VERSION_SOURCE_CODES.has(only)) {
+    const ids = [...new Set(entries.map((entry) => entry.claimedId).filter(Boolean))];
+    return new SingularityFlowError(
+      `Story ${ids.map((id) => `'${id}'`).join(', ') || 'metadata'} cannot be read by this build: ${entries[0].reason} Nothing was changed.`,
+      { code: only, details: { unavailable: entries, workIds: ids } });
+  }
+  return new SingularityFlowError(
     'State-indexed Story metadata is incomplete. Refresh or repair the named records before selecting a Story; application branches were not scanned.',
-    { code: 'SESSION_STATE_INDEX_UNAVAILABLE', details: { unavailable: roster.unavailable } });
+    { code: 'SESSION_STATE_INDEX_UNAVAILABLE', details: { unavailable: entries } });
+}
+
+/**
+ * Published Story subjects come only from exact commits named by the state ledger. With
+ * `reference`, only an unreadable record that may be that Story refuses the lookup.
+ */
+export async function stateStorySubjectIndex(root, definition, { reference = null, ...options } = {}) {
+  const roster = await discoverRemoteStoryCandidates(root, definition, { ...options, includeState: true });
+  const blocking = blockingUnavailableStories(roster, reference);
+  if (blocking.length) throw unavailableStoriesError(blocking);
   const { RepositorySubjectIndex } = await import('./repository-subject-index.mjs');
   const index = new RepositorySubjectIndex();
   for (const row of roster.items) index.add({ kind: 'story', id: row.id,

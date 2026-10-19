@@ -115,7 +115,8 @@ export async function approvalInbox(root, definition, { fetch = true, now = new 
       });
     } catch (error) {
       unavailable.push({ code: 'SESSION_STORY_INVALID', claimedId: subject.id,
-        branch: subject.branch, ref: subject.commitOid, path: subject.path, reason: error.message });
+        branch: subject.branch, ref: subject.commitOid, path: subject.path, reason: error.message,
+        ...(typeof error?.code === 'string' ? { sourceCode: error.code } : {}) });
     }
   }
   items.sort((left, right) => String(left.submittedAt ?? '').localeCompare(String(right.submittedAt ?? '')) || left.id.localeCompare(right.id));

@@ -7,6 +7,21 @@ const SOURCE_WORDS = Object.freeze({
   'launch-settings': '.NET launch settings', detected: 'detected'
 });
 
+/**
+ * The private file an application block draft for this repository and capability goes in: outside
+ * the repository, beside the workflow fix drafts, never created here. A live /sf-run-app turn may
+ * write exactly this file and propose it with capability set|edit --application-file.
+ */
+export async function applicationDraftPath(root, capabilityId, { env = process.env } = {}) {
+  const [{ createHash }, { realpathSync }, path, { workflowBuildStateRoot }] = await Promise.all([
+    import('node:crypto'), import('node:fs'), import('node:path'), import('../workflow-build/store.mjs')]);
+  let resolved = path.resolve(root);
+  try { resolved = realpathSync(resolved); } catch { /* the path as given */ }
+  const repository = createHash('sha256').update(resolved).digest('hex').slice(0, 16);
+  const name = /^[a-z0-9][a-z0-9._-]{0,127}$/u.test(String(capabilityId ?? '')) ? capabilityId : 'capability';
+  return path.join(workflowBuildStateRoot(env), 'application-drafts', repository, `${name}.application.yml`);
+}
+
 export async function run(root, application, { json = false } = {}) {
   const { loadEnvironmentDeclaration } = await import('../environment-declaration.mjs');
   const { suggestApplication } = await import('../app-suggestions.mjs');
@@ -15,6 +30,11 @@ export async function run(root, application, { json = false } = {}) {
     capabilityId: application.capabilityId, capability: application.capability, repositoryId: application.repositoryId,
     repositories: application.repositories, declaration, policy: application.policy
   });
+  if (result.applicationDraft) {
+    result.draft = { applicationFile: await applicationDraftPath(root, result.capability) };
+    await import('../copilot-mutation-guard.mjs')
+      .then(({ issueRunAppDraftStaging }) => issueRunAppDraftStaging(result.draft.applicationFile, { root })).catch(() => 0);
+  }
   if (json) {
     console.log(JSON.stringify(result, null, 2));
     return result;

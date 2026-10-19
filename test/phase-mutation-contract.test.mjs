@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { deriveMutationContract, mutationContractPresentation, mutationPathDecision, mutationTurnMode } from '../src/phase-mutation-contract.mjs';
 import { recordRepositoryBoundaryTurn, endRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
-import { captureMutationTurn, mutationToolGuard, mutationPostToolGuard, issueMutationStaging, issueImportTeamStaging, issueBuildStaging, issueFixWorkflowStaging, refreshMutationContracts, endMutationDecisionTurns } from '../src/copilot-mutation-guard.mjs';
+import { captureMutationTurn, mutationToolGuard, mutationPostToolGuard, issueMutationStaging, issueImportTeamStaging, issueBuildStaging, issueFixWorkflowStaging, issueRunAppDraftStaging, refreshMutationContracts, endMutationDecisionTurns } from '../src/copilot-mutation-guard.mjs';
 import { createHash } from 'node:crypto';
 import { setCopilotPaused } from '../src/copilot-mode.mjs';
 import { assertPhaseSequence } from '../src/sequence.mjs';
@@ -428,6 +428,27 @@ test('/sf-run-app and /sf-test turns run the declared application and tests; no 
       assert.equal((await shell(command)).permissionDecision, 'deny', `${skill}: ${command}`);
     }
     assert.equal((await mutationToolGuard({ ...payload, toolArgs: { path: 'src/App.jsx' } })).permissionDecision, 'deny', 'no file edits');
+  }
+  // Suggested start entries: the turn writes only the draft `app suggest` issued and proposes exactly it.
+  const suggest = await f.enter('/sf-run-app suggest', 'suggester');
+  const draft = path.join(path.dirname(f.root), 'drafts', 'web.application.yml');
+  const other = path.join(path.dirname(f.root), 'drafts', 'other.application.yml');
+  const suggestShell = command => mutationToolGuard({ ...suggest, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  const edit = target => mutationToolGuard({ ...suggest, toolName: 'edit', toolArgs: { path: target } });
+  assert.equal((await edit(draft)).permissionDecision, 'deny', 'nothing is issued before app suggest');
+  // Every live /sf-run-app or /sf-test turn for this repository receives it: the two above and this one.
+  assert.equal(await issueRunAppDraftStaging(draft, { root: f.root }), 3);
+  assert.deepEqual(await edit(draft), {});
+  for (const target of [other, 'src/App.jsx', 'singularity/capabilities.yml']) assert.equal((await edit(target)).permissionDecision, 'deny', target);
+  for (const command of [`singularity-flow capability set web --application-file ${draft} --json`,
+    `singularity-flow capability edit web --lead https://example.invalid/lead.git --application-file ${draft} --mode set --json`]) {
+    assert.deepEqual(await suggestShell(command), {}, command);
+  }
+  for (const command of [`singularity-flow capability set web --application-file ${other}`,
+    `singularity-flow capability set web --application-file ${draft} --name Other`,
+    `singularity-flow capability edit web --lead https://example.invalid/lead.git --application-file ${draft} --mode remove`,
+    `singularity-flow capability edit web --application-file ${draft} --mode set`, 'singularity-flow capability add web']) {
+    assert.equal((await suggestShell(command)).permissionDecision, 'deny', command);
   }
   // An authoring turn may start the app and run tests, but never binds values either.
   const author = await f.enter('/sf-phase', 'author-env');

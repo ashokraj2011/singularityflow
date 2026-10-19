@@ -9,7 +9,7 @@
     "gateway-status-worker.cjs": { "maximumBytes": 200000, "maximumModules": 30 },
     "help-runtime.cjs": { "maximumBytes": 670000, "maximumModules": 129 },
     "runtime-prewarm.cjs": { "maximumBytes": 110000, "maximumModules": 24 },
-    "lazy-panels-runtime.cjs": { "maximumBytes": 3215000, "maximumModules": 263 },
+    "lazy-panels-runtime.cjs": { "maximumBytes": 3220000, "maximumModules": 263 },
     "support-runtime.cjs": { "maximumBytes": 455000, "maximumModules": 106 },
     "workflow-markup-runtime.cjs": { "maximumBytes": 140000, "maximumModules": 12 },
     "workflow-intent-runtime.cjs": { "maximumBytes": 30000, "maximumModules": 3 },

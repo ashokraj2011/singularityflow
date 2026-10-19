@@ -62,6 +62,34 @@ function realRepository(t) {
   return root;
 }
 
+test('explicit immutable path batches use one process without losing missing/oversize/corruption diagnostics', t => {
+  const root = realRepository(t);
+  const head = git(root, ['rev-parse', 'HEAD']);
+  const spec = `${head}:state/one.json`;
+  const calls = [];
+  const runCommand = (...args) => { calls.push(args[1]); return run(...args); };
+  const result = readObjectsBatch(root, [spec], { immutablePaths: true, runCommand });
+  assert.equal(result.get(spec).bytes.toString(), 'first');
+  assert.equal(calls.length, 1);
+  for (const [selected, options, expected] of [
+    [spec, { maxObjectBytes: 1 }, 'too-large'],
+    [`${head}:missing.json`, {}, 'missing'],
+    [`${head}^:state/one.json`, {}, 'missing']
+  ]) {
+    const fast = readObjectsBatch(root, [selected], { ...options, immutablePaths: true });
+    const sized = readObjectsBatch(root, [selected], options);
+    assert.equal(fast.get(selected).status, expected);
+    assert.deepEqual(fast, sized);
+  }
+  const corrupt = (_cmd, args, options) => args[0] === 'cat-file' && args[1] === '--batch'
+    ? { status: 0, stdout: Buffer.from(`${'a'.repeat(40)} blob 5\nwrong\n`) }
+    : run(_cmd, args, options);
+  assert.equal(readObjectsBatch(root, [spec], { immutablePaths: true, runCommand: corrupt }), null);
+  calls.length = 0;
+  readObjectsBatch(root, ['HEAD:state/one.json'], { immutablePaths: true, runCommand });
+  assert.equal(calls.length, 2, 'movable refs keep their ordinary sized path');
+});
+
 test('aggregate ref state is chunked instead of overflowing one cat-file response', () => {
   const files = new Map(Array.from({ length: 70 }, (_, index) => [
     `singularity/work-items/S-${index}/workflow.json`,

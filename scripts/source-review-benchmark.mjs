@@ -26,6 +26,7 @@ for (let sample = 0; sample < samples; sample++) {
   try {
   const { root, phaseId } = await publishedSpecificationStory({ after: fn => cleanups.push(fn) }, { humanAnswers: true });
   const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_BUNDLE: runtime === 'source' ? 'off' : 'on',
+    NODE_COMPILE_CACHE: path.join(directory, 'compile-cache'),
     SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1', SINGULARITY_FLOW_GIT_FACT_STORE: path.join(directory, 'git-facts'),
     SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(directory, 'workspaces.json'),
     SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(directory, 'active.json'),
@@ -48,10 +49,19 @@ for (let sample = 0; sample < samples; sample++) {
     });
     const ms = performance.now() - start;
     assert.equal(answer.status, 0, `${action}: ${answer.stderr}\n${answer.stdout}`);
-    const counter = name => Number(answer.stderr.match(new RegExp(`(?:^|\\s)${name.replaceAll('.', '\\.')}=([0-9.]+)`))?.[1] ?? 0);
+    const counter = name => Number(answer.stderr.match(new RegExp(`(?:^|\\s)${name.replaceAll('.', '\\.')}=([0-9.]+)(?=\\s|$)`))?.[1] ?? 0);
+    const timingLine = answer.stderr.split('\n').find(line => line.startsWith('[sflow timing]')) ?? '';
+    const timings = Object.fromEntries([...timingLine.matchAll(/(?:^|[\s:])([a-z][a-z0-9.-]*)=([0-9.]+)ms\b/gu)]
+      .map(([, name, value]) => [name, Number(value)]));
+    const gitCommands = Object.fromEntries([...timingLine.matchAll(/\bgit\.local\.command\.([a-z-]+)=([0-9]+)/gu)]
+      .map(([, name, value]) => [name, Number(value)]));
+    const gitServiceMs = Object.fromEntries([...timingLine.matchAll(/\bgit\.local\.service-ms\.([a-z-]+)=([0-9]+)/gu)]
+      .map(([, name, value]) => [name, Number(value)]));
     rows.push({ sample, action, ms: Math.round(ms), gitSpawns: counter('git.spawns'), gitRequests: counter('git.requests'),
       snapshotHits: counter('source-review.snapshot-hits'), inputLoads: counter('source-review.input-loads'),
-      provenanceHits: counter('source-review.provenance-hits'), freshBindings: counter('source-review.fresh-bindings') });
+      provenanceHits: counter('source-review.provenance-hits'), freshBindings: counter('source-review.fresh-bindings'),
+      definitionLoads: counter('configuration.definition-load'), sourceReads: counter('configuration.source-read'),
+      templateChecks: counter('configuration.template-checks'), timings, gitCommands, gitServiceMs });
     return completeAgentResult(answer.stdout);
   }
     const base = 'singularity/work-items/REVIEW-1';
@@ -91,6 +101,6 @@ for (let sample = 0; sample < samples; sample++) {
   }
 }
 const result = { platform: process.platform, node: process.version, engine, runtime, samples, history, attachments,
-  scope: 'Fresh Node CLI processes; cold = first review context/status on a disposable published Story; warm = immediate repeat with private Git fact storage. OS caches are not flushed. Excludes model reasoning, application tests and network push.', rows };
+  scope: 'Fresh Node CLI processes and an isolated V8 compile cache per sample; cold = first review context on a disposable published Story; warm = immediate repeat with private Git fact storage and compiled code. Status follows retention. OS caches are not flushed. Excludes model reasoning, application tests and network push.', rows };
 if (option('output')) await writeFile(path.resolve(option('output')), `${JSON.stringify(result, null, 2)}\n`);
 console.log(JSON.stringify(result, null, 2));

@@ -5,7 +5,6 @@ import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { sourceReviewKind } from '../phase-roles.mjs';
 import { workflowBranchAllowed } from '../story-paths.mjs';
 import { loadStoryAggregate } from '../story-aggregate-read.mjs';
-import { assertNoPendingPublication, transactStory } from '../state-stores.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { commandResult, effects, noEffects, action as narrationAction, noop, succeeded } from '../narration/command-result.mjs';
 import { sourceReviewRequired } from '../source-review-policy.mjs';
@@ -24,7 +23,8 @@ import { withFreshSourceReviewSnapshot } from '../source-review-snapshot.mjs';
 
 export async function run(argv, { positionals, options }) {
   return withCommandObservability(positionals[0], argv, options,
-    () => withCommandConfirmation(options, () => reviewSourceCommand(positionals, options)));
+    () => withCommandConfirmation(options, () => reviewSourceCommand(positionals, options)),
+    { preferencesOnly: true });
 }
 
 export async function reviewSourceCommand(positionals, options) {
@@ -102,7 +102,10 @@ export async function reviewSourceCommand(positionals, options) {
   if (workflow.currentPhase !== phaseId || phase.status !== 'in_progress') {
     throw new SingularityFlowError(`Source review ${action} requires current in-progress phase '${phaseId}'.`);
   }
-  if (action !== 'check' && action !== 'decision-context') await assertNoPendingPublication(root, config, workflow, `record source review ${action}`);
+  if (action !== 'check' && action !== 'decision-context') {
+    const { assertNoPendingPublication } = await import('../state-stores.mjs');
+    await assertNoPendingPublication(root, config, workflow, `record source review ${action}`);
+  }
   if (action === 'stage') {
     const { stageSourceReviewReport } = await import('../source-review-staging.mjs');
     const result = await stageSourceReviewReport(root, config, workflow, phaseId, optionString(options, 'report-json'));
@@ -157,6 +160,7 @@ export async function reviewSourceCommand(positionals, options) {
     }
     const session = scopedSourceReviewerSession(input, await loadSession(root));
     const evaluation = evaluateSubmittedSourceReview(report, input, session);
+    const { transactStory } = await import('../state-stores.mjs');
     let retained;
     const { publication } = await transactStory(root, config, workflow, {
       type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId, generation: phase.generation,
@@ -208,6 +212,7 @@ export async function reviewSourceCommand(positionals, options) {
     return;
   }
   assertSourceReviewDecisionConfirmation(decisionPacket, optionString(options, 'confirm'));
+  const { transactStory } = await import('../state-stores.mjs');
   let retained;
   const { publication } = await transactStory(root, config, workflow, {
     type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId, generation: phase.generation,

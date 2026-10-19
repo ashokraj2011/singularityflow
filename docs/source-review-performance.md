@@ -52,7 +52,37 @@ Inspect `--timings` for `source-review.inputs`, `source-review.git-batch`,
 snapshot-hit, provenance-hit and fresh-binding counters alongside `git.spawns`/`git.requests`.
 This does not measure Copilot reasoning or human reading time, and makes no full-Story speed claim.
 The driver launches Node directly, so PowerShell startup and VS Code/Copilot transport overhead
-are outside the measurement. V8's normal compile cache is not forcibly cleared between samples.
+are outside the measurement. The original tables below used V8's normal shared compile cache;
+the cold fast-path protocol isolates it per sample as described next.
+
+## Cold review fast path
+
+Read-only `review-source context`, `check` and `status` share configuration-source reads for one
+invocation, including accounting preferences. They do not load the current full agent catalog or
+validate every template merely to log a command. The accepted Story bootstrap and saved execution
+catalog remain authoritative. Stage, retain, human decisions and override forms do not inherit
+this read scope; their identity, lifecycle and publication checks remain fresh.
+
+The common phase binding and pure input/inspection/metadata helpers are separate from phase
+authoring, recovery and publication writers. Review context uses the narrow read bundle slot;
+publication/recovery loads only when a mutating route needs it. The installed envelope remains
+twenty files, rather than trading a smaller import graph for hundreds of Windows file opens.
+
+Immutable provenance cache lookups coalesce dependency metadata within one synchronous group,
+verify the metadata again before returning, then discard that observation. A change during the
+group takes the ordinary individual path. Fresh retention bypasses cached answers exactly as
+before. Exact commit/parent/path provenance reads can use one bounded, object-hash-verified Git
+batch; missing, oversized, incomplete or corrupt output retains the sized fallback and refusal.
+Attachment prefetch remains size-first and limited to 32 MiB. Movable refs do not use this path.
+
+The benchmark now retains per-command stage/span timings, configuration-load counts and bounded
+local Git verb/service counters. No arguments, paths, identities or remote URLs become timing
+keys. An isolated V8 compile-cache directory per sample makes the first context request
+compile-cold; its immediate repeat measures compiled-code and Git-fact reuse. Earlier tables below
+predate that isolation and must not be directly combined with the new cold-cache measurements.
+In all profiles OS caches remain unflushed, status runs after retention, and network/model work is
+excluded. Retention already returns its verified status and continuation; a consumer need not ask
+for another status just to display the same result.
 
 ## Local Mac source-mode measurements
 

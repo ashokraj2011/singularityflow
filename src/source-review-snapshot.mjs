@@ -2,7 +2,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 import { readObjectsBatch } from './git-ref-tree.mjs';
-import { cachedGitFact, gitFactRequest, gitFactSnapshot, rememberGitFact, withFreshGitFacts } from './git-fact-cache.mjs';
+import { gitFactBatch, gitFactRequest, rememberGitFact, withFreshGitFacts } from './git-fact-cache.mjs';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 import { resolvePlatformProcess } from './platform-process.mjs';
 import { run, SingularityFlowError } from './util.mjs';
@@ -127,16 +127,19 @@ export function sourceReviewProvenanceObjects(root, specs) {
   const executable = launch.physicalExecutable ?? launch.executable;
   const requests = new Map();
   const answers = new Map();
-  for (const spec of specs) {
-    const request = gitFactRequest(['show', spec], { cwd: root, env, executable });
-    const cached = cachedGitFact(request);
+  const candidates = new Map(specs.map(spec => [spec, gitFactRequest(['show', spec], { cwd: root, env, executable })]));
+  const cacheStarted = performance.now();
+  const facts = gitFactBatch([...candidates.values()]);
+  incrementCommandCounter('source-review.provenance-cache-ms', Math.max(0, Math.round(performance.now() - cacheStarted)));
+  for (const [spec, request] of candidates) {
+    const { cached, before } = facts.get(request);
     if (cached) {
       answers.set(spec, { status: 0, stdout: Buffer.from(cached.stdout, 'utf8') });
       incrementCommandCounter('source-review.provenance-hits');
-    } else requests.set(spec, { request, before: gitFactSnapshot(request) });
+    } else requests.set(spec, { request, before });
   }
   const entries = requests.size > 1 ? readObjectsBatch(root, [...requests.keys()], {
-    env, maxObjectBytes: MAX_BATCH_BYTES, maxBatchBytes: MAX_BATCH_BYTES
+    env, maxObjectBytes: MAX_BATCH_BYTES, maxBatchBytes: MAX_BATCH_BYTES, immutablePaths: true
   }) : null;
   for (const [spec, { request, before }] of requests) {
     const entry = entries?.get(spec);

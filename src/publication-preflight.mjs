@@ -5,6 +5,8 @@ import path from 'node:path';
 import { memberRoot, resolvedArtifactSet } from './artifact-sets.mjs';
 import { normalizeMarkdownHeading, parseMarkdownStructure } from './markdown-structure.mjs';
 import { qualifiedClauseMatches } from './traceability-ids.mjs';
+import { inspectManagedArtifactMetadata } from './artifact-metadata.mjs';
+export { inspectManagedArtifactMetadata };
 
 const PLACEHOLDER = /\b(?:TODO|TBD|FIXME|TBC)\b|\{\{[^}]+\}\}|\[\s*(?:describe|add|insert|provide|record)[^\]]*\]/gi;
 // These words are useful in ordinary prose when lower-cased. Treat only the conventional uppercase
@@ -17,37 +19,6 @@ const SINGLE_WORD_ANGLE_PLACEHOLDERS = new Set([
 
 function lineAt(text, index) {
   return text.slice(0, index).split('\n').length;
-}
-
-/**
- * Inspect the engine-owned metadata envelope without trusting its JSON payload.
- *
- * Publication replaces this envelope from durable workflow state. Authoring tools therefore only
- * need to prove that there is exactly one complete envelope at byte zero and that another marker
- * was not copied into author-owned prose. Approved input blocks may quote an upstream artifact and
- * are excluded for the same reason they are excluded by the publication boundary.
- */
-export function inspectManagedArtifactMetadata(text) {
-  const source = String(text ?? '');
-  const leading = source.match(MANAGED_METADATA)?.[0] ?? null;
-  const authoredRegion = (leading == null ? source : source.slice(leading.length))
-    // Keep offsets stable so the reported line still refers to the original artifact.
-    .replace(MANAGED_INPUTS, (block) => block.replace(/[^\n]/gu, ' '));
-  const markerIndex = authoredRegion.search(MANAGED_METADATA_MARKER);
-  if (leading != null && markerIndex < 0) {
-    return Object.freeze({ status: 'valid', line: null, leading });
-  }
-  if (leading == null && markerIndex < 0) {
-    return Object.freeze({ status: 'missing', line: 1, leading: null });
-  }
-  const absoluteIndex = leading == null
-    ? markerIndex
-    : leading.length + markerIndex;
-  return Object.freeze({
-    status: leading == null && absoluteIndex === 0 ? 'malformed' : 'duplicate-or-misplaced',
-    line: lineAt(source, Math.max(0, absoluteIndex)),
-    leading
-  });
 }
 
 function normalizedHeading(line) {

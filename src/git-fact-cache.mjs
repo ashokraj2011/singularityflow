@@ -465,6 +465,10 @@ export function gitFactRequest(args, { cwd, env = process.env, stdio = 'pipe', i
  * store kept is adopted on first use and checked exactly like one this process recorded.
  */
 export function cachedGitFact(request) {
+  return cachedGitFactUsing(request, fingerprint);
+}
+
+function cachedGitFactUsing(request, inspect) {
   if (!request || freshDepth > 0) return null;
   let entry = entries.get(request.key);
   let fromStore = false;
@@ -479,7 +483,7 @@ export function cachedGitFact(request) {
     return null;
   }
   for (const [file, expected, mode] of entry.files) {
-    if (fingerprint(file, mode) !== expected) {
+    if (inspect(file, mode) !== expected) {
       entries.delete(request.key);
       return null;
     }
@@ -522,12 +526,43 @@ export function rememberGitFact(request, result, { before = null } = {}) {
 
 /** The dependency fingerprints just before Git runs; the answer is tied to these values. */
 export function gitFactSnapshot(request) {
+  return gitFactSnapshotUsing(request, fingerprint);
+}
+
+function gitFactSnapshotUsing(request, inspect) {
   if (!request || request.kind === 'ref-format') return null;
   const checkout = checkoutOf(request.directory);
   if (!checkout) return null;
   const files = dependencies(request.kind, checkout, request.env, request.platform, request.executable);
   if (!files) return null;
-  return new Map(files.map(([file, mode]) => [file, fingerprint(file, mode)]));
+  return new Map(files.map(([file, mode]) => [file, inspect(file, mode)]));
+}
+
+/**
+ * Resolve a synchronous group of cache lookups with one before/after metadata observation per
+ * dependency. Nothing is shared with the following Git read or another operation. A dependency
+ * that moves while we inspect the group discards the optimization and takes individual checks.
+ * Fresh readers still bypass every cached answer. This coalesces filesystem work, not authority.
+ */
+export function gitFactBatch(requests) {
+  const observed = new Map();
+  const inspect = (file, mode) => {
+    const key = JSON.stringify([file, mode]);
+    if (!observed.has(key)) observed.set(key, { file, mode, value: fingerprint(file, mode) });
+    return observed.get(key).value;
+  };
+  const result = new Map();
+  for (const request of requests) {
+    const cached = cachedGitFactUsing(request, inspect);
+    result.set(request, { cached, before: cached ? null : gitFactSnapshotUsing(request, inspect) });
+  }
+  if ([...observed.values()].some(({ file, mode, value }) => fingerprint(file, mode) !== value)) {
+    return new Map(requests.map(request => {
+      const cached = cachedGitFact(request);
+      return [request, { cached, before: cached ? null : gitFactSnapshot(request) }];
+    }));
+  }
+  return result;
 }
 
 /** Install the session store (git-fact-store.mjs), or remove it with null. */

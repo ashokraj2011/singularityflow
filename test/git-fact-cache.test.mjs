@@ -4,10 +4,12 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 
 import {
   cachedGitFact, clearGitFactCache, gitFactCacheHits, gitFactKind, gitFactRequest,
-  gitFactSnapshot, rememberGitFact, withFreshGitFacts
+  gitFactSnapshot, gitFactBatch, rememberGitFact, withFreshGitFacts
 } from '../src/git-fact-cache.mjs';
 import { run } from '../src/util.mjs';
 
@@ -34,6 +36,57 @@ async function repository(t) {
 function asked(root, args, options = {}) {
   return run('git', args, { cwd: root, allowFailure: true, ...options });
 }
+
+test('a metadata batch shares filesystem probes, stays fresh when required and never outlives its group', async t => {
+  const root = await repository(t);
+  for (const file of ['b.txt', 'c.txt']) await writeFile(path.join(root, file), file);
+  outside(root, ['add', '.']); outside(root, ['commit', '-qm', 'More immutable objects']);
+  const head = outside(root, ['rev-parse', 'HEAD']);
+  const requests = ['a.txt', 'b.txt', 'c.txt'].map(file => {
+    const args = ['show', `${head}:${file}`];
+    const answer = asked(root, args);
+    assert.equal(answer.status, 0);
+    return gitFactRequest(args, { cwd: root });
+  });
+  // Keep requests identical to the utility boundary's resolved Git executable key.
+  for (const request of requests) rememberGitFact(request, { status: 0, stdout: 'fixture', stderr: '' });
+  const original = fs.lstatSync;
+  let probes = 0;
+  fs.lstatSync = (...args) => { probes++; return original(...args); };
+  syncBuiltinESMExports();
+  try {
+    for (const request of requests) assert.ok(cachedGitFact(request));
+    const individualProbes = probes; probes = 0;
+    assert.ok([...gitFactBatch(requests).values()].every(value => value.cached));
+    assert.ok(probes < individualProbes, `${probes} batched probes vs ${individualProbes} individual probes`);
+    assert.ok([...withFreshGitFacts(() => gitFactBatch(requests)).values()].every(value => !value.cached && value.before));
+  } finally { fs.lstatSync = original; syncBuiltinESMExports(); }
+  await writeFile(path.join(root, '.git', 'shallow'), `${head}\n`);
+  assert.ok([...gitFactBatch(requests).values()].every(value => !value.cached));
+});
+
+test('a dependency changed during a metadata batch discards every potentially stale answer', async t => {
+  const root = await repository(t);
+  const request = gitFactRequest(['rev-parse', 'HEAD'], { cwd: root });
+  rememberGitFact(request, { status: 0, stdout: outside(root, ['rev-parse', 'HEAD']), stderr: '' });
+  const config = path.join(root, '.git', 'config');
+  const original = fs.lstatSync;
+  let changed = false;
+  fs.lstatSync = (...args) => {
+    const info = original(...args);
+    if (!changed && path.resolve(String(args[0])) === config) {
+      changed = true;
+      fs.appendFileSync(config, '\n[core]\n\tquotePath = false\n');
+    }
+    return info;
+  };
+  syncBuiltinESMExports();
+  try {
+    const answer = gitFactBatch([request, request]);
+    assert.equal(changed, true);
+    assert.equal(answer.get(request).cached, null);
+  } finally { fs.lstatSync = original; syncBuiltinESMExports(); }
+});
 
 test('only repository location, HEAD, the index, history and single object reads, configuration and ref-name checks are cacheable', () => {
   const sha = 'a'.repeat(40);

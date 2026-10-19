@@ -32,12 +32,12 @@ test('immutable provenance batches cold objects, reuses warm proofs, and bypasse
   clearGitFactCache();
   const read = () => withCommandTiming(timer, () => sourceReviewProvenanceObjects(root, specs));
   const cold = read();
-  assert.equal(counters['git.spawns'], 2);
+  assert.equal(counters['git.spawns'], 1);
   assert.equal(read().get(specs[0]).stdout.toString(), cold.get(specs[0]).stdout.toString());
-  assert.equal(counters['git.spawns'], 2, 'warm proof needs no child process');
+  assert.equal(counters['git.spawns'], 1, 'warm proof needs no child process');
   assert.equal(counters['source-review.provenance-hits'], 3);
   withFreshGitFacts(read);
-  assert.equal(counters['git.spawns'], 4, 'fresh proof must actually ask Git again');
+  assert.equal(counters['git.spawns'], 2, 'fresh proof must actually ask Git again');
   await writeFile(path.join(root, '.git', 'shallow'), `${head}\n`);
   assert.notEqual(read().get(`${head}^:a.json`).status, 0, 'shallow history cannot reuse the parent proof');
   await rm(path.join(root, '.git', 'shallow'));

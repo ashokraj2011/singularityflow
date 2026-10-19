@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "29bf8230bb2a2cb023b76f7229102e8ce046330c",
-  "topicCount": 84,
-  "contentSha256": "39799dd8083768f92b77e39f6fcbbb204aece3c0888a882cc606aaa105b08c63",
+  "sourceCommit": "6c78c695e9d44f6d1ec28217fedb8227a2dd99a8",
+  "topicCount": 85,
+  "contentSha256": "cb8c56ae196a8343eef58dd5ecd880ef87bc7cecda015629276dae56c93fa554",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -500,6 +500,14 @@
       "sha256": "83703083d9fa9bd47e69d8f0c19014d1c9eef3defc947fe447034d09532aef92",
       "routingSha256": "da32593b0266e2e0d23bceecf9bd245d71449ec93893456df95884e41dd890c0",
       "file": "revision-loop.md"
+    },
+    {
+      "id": "run-and-test",
+      "title": "Run the application and its tests from a capability",
+      "version": 1,
+      "sha256": "eeec74d3e87797404107f1aaa2dcd9e7d6af0d7d90b507a294801a10530e74c5",
+      "routingSha256": "e5648e2040bedf6c5f38df1a681cdce3095fc24d46938acca9542d4ef682e7aa",
+      "file": "run-and-test.md"
     },
     {
       "id": "secrets",

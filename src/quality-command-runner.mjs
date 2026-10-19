@@ -73,6 +73,22 @@ function boundedCapture(maxBytes) {
 }
 
 /**
+ * Signal a whole process tree started detached (its own process group on POSIX), or the process
+ * itself when no group exists. Windows uses taskkill /T. Returns whether a signal was delivered.
+ */
+export function terminateProcessTree(pid, terminationSignal = 'SIGTERM', {
+  platform = process.platform, environment = process.env, spawnSyncCommand = spawnSync, group = true
+} = {}) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  if (platform === 'win32') {
+    if (tryWindowsTaskkill(pid, { force: terminationSignal === 'SIGKILL', environment, spawnSyncCommand, timeoutMs: 5_000 })) return true;
+  } else if (group) {
+    try { process.kill(-pid, terminationSignal); return true; } catch { /* the group may already be gone */ }
+  }
+  try { process.kill(pid, terminationSignal); return true; } catch { return false; }
+}
+
+/**
  * Stream a quality command instead of using spawnSync's fixed output buffer. Only a bounded
  * diagnostic prefix/tail is retained in memory; output volume can never turn a passing check into
  * ENOBUFS.
@@ -92,7 +108,11 @@ export async function runQualityCommand(command, args = [], {
   spawnCommand = spawn,
   platformLookupCommand = spawnSync,
   platformLstatCommand = undefined,
-  platformRealpathCommand = undefined
+  platformRealpathCommand = undefined,
+  // A factory of stream redactors (src/output-redaction.mjs) for a run that was given private
+  // environment values: stdout, stderr and the captured stdout file are redacted before they are
+  // bounded, hashed, written or returned.
+  redactor = null
 } = {}) {
   if (reportCapture) {
     try {
@@ -111,6 +131,14 @@ export async function runQualityCommand(command, args = [], {
     const stdout = boundedCapture(captureBytes);
     const stdoutDigest = createHash('sha256');
     const stderr = boundedCapture(captureBytes);
+    const stdoutRedactor = redactor ? redactor() : null;
+    const stderrRedactor = redactor ? redactor() : null;
+    const emitStdout = (data) => {
+      if (!data.length) return;
+      stdout.add(data);
+      stdoutDigest.update(data);
+      stdoutStream?.write(data);
+    };
     let timedOut = false;
     let aborted = signal?.aborted === true;
     let error = null;
@@ -164,12 +192,11 @@ export async function runQualityCommand(command, args = [], {
       resolve({ status: 1, signal: null, error: caught, timedOut: false, aborted: false, stdout: '', stderr: '', stdoutBytes: 0, stderrBytes: 0, stdoutTruncated: false, stderrTruncated: false });
       return;
     }
-    child.stdout?.on('data', (chunk) => {
-      stdout.add(chunk);
-      stdoutDigest.update(chunk);
-      stdoutStream?.write(chunk);
+    child.stdout?.on('data', (chunk) => emitStdout(stdoutRedactor ? Buffer.from(stdoutRedactor.write(chunk)) : chunk));
+    child.stderr?.on('data', (chunk) => {
+      const data = stderrRedactor ? Buffer.from(stderrRedactor.write(chunk)) : chunk;
+      if (data.length) stderr.add(data);
     });
-    child.stderr?.on('data', (chunk) => stderr.add(chunk));
     if (input != null) child.stdin?.end(Buffer.isBuffer(input) ? input : Buffer.from(String(input), 'utf8'));
     child.on('error', (caught) => { error = caught; });
     timer = timeoutMs == null ? null : setTimeout(() => {
@@ -204,6 +231,11 @@ export async function runQualityCommand(command, args = [], {
       if (timeoutDecisionTimer) clearTimeout(timeoutDecisionTimer);
       if (hardKillTimer) clearTimeout(hardKillTimer);
       signal?.removeEventListener?.('abort', onAbort);
+      if (stdoutRedactor) emitStdout(Buffer.from(stdoutRedactor.end()));
+      if (stderrRedactor) {
+        const rest = Buffer.from(stderrRedactor.end());
+        if (rest.length) stderr.add(rest);
+      }
       const finish = async () => {
         const out = stdout.result();
         const err = stderr.result();

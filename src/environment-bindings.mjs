@@ -229,16 +229,22 @@ function publicEnvironment(environmentId, declarationSha256, environment, record
 
 /**
  * Resolve a private binding without disclosing values in the public environment projection.
- * This release returns metadata only. Runtime materialization belongs to a separately reviewed
- * runner boundary, so callers cannot accidentally serialize secret values from this API.
+ * This returns metadata only; materializeEnvironmentBinding below is the one runner boundary that
+ * hands values to a child process, so callers cannot accidentally serialize secret values here.
  */
 export async function resolveEnvironmentBinding(root, environmentId, { commandId = null } = {}) {
+  return (await resolveBinding(root, environmentId, { commandId })).resolution;
+}
+
+/** The public resolution plus, for a complete binding only, the private effective bindings. */
+async function resolveBinding(root, environmentId, { commandId = null } = {}) {
+  const outcome = (resolution, privateBindings = null, environment = null) => ({ resolution, privateBindings, environment });
   const declaration = await loadEnvironmentDeclaration(root, { optional: true });
   if (environmentId == null && commandId != null) {
     environmentId = declaration?.checks?.[commandId]?.environment ?? null;
   }
   if (environmentId == null) {
-    return Object.freeze({ status: 'unbound', environment: null, missing: Object.freeze([]) });
+    return outcome(Object.freeze({ status: 'unbound', environment: null, missing: Object.freeze([]) }));
   }
   const environment = declaration?.environments?.[environmentId] ?? null;
   const unavailable = (missing = []) => Object.freeze({
@@ -248,35 +254,35 @@ export async function resolveEnvironmentBinding(root, environmentId, { commandId
     ),
     missing: Object.freeze([...missing].sort())
   });
-  if (!declaration || !environment) return unavailable(environment?.requires?.map((entry) => entry.name) ?? []);
+  if (!declaration || !environment) return outcome(unavailable(environment?.requires?.map((entry) => entry.name) ?? []));
   if (commandId && declaration.checks?.[commandId]
       && declaration.checks[commandId].environment !== environmentId) {
-    return unavailable(environment.requires.map((entry) => entry.name));
+    return outcome(unavailable(environment.requires.map((entry) => entry.name)));
   }
   let record;
   try { record = await readRecord(root, environmentId, environment); }
   catch (error) {
-    if (error instanceof SingularityFlowError) return unavailable(environment.requires.map((entry) => entry.name));
+    if (error instanceof SingularityFlowError) return outcome(unavailable(environment.requires.map((entry) => entry.name)));
     throw error;
   }
   const defaults = declarationBindings(environment);
   if (!record) {
     const missing = environment.requires.map((entry) => entry.name)
       .filter((name) => !Object.hasOwn(defaults, name)).sort();
-    return Object.freeze({
+    return outcome(Object.freeze({
       status: missing.length ? 'unbound' : 'bound',
       environment: publicEnvironment(
         environmentId, declaration.declarationSha256, environment, null, defaults
       ),
       missing: Object.freeze(missing)
-    });
+    }), missing.length ? null : defaults, environment);
   }
   if (record.declarationSha256 !== declaration.declarationSha256) {
-    return Object.freeze({
+    return outcome(Object.freeze({
       status: 'unavailable',
       environment: publicEnvironment(environmentId, declaration.declarationSha256, environment, record),
       missing: Object.freeze(environment.requires.map((entry) => entry.name).sort())
-    });
+    }));
   }
   const effectiveBindings = Object.freeze({ ...defaults, ...record.bindings });
   const requiredNames = environment.requires.map((entry) => entry.name);
@@ -286,13 +292,47 @@ export async function resolveEnvironmentBinding(root, environmentId, { commandId
   const status = missing.length
     ? (absent.length ? 'partial' : 'unavailable')
     : 'bound';
-  return Object.freeze({
+  return outcome(Object.freeze({
     status,
     environment: publicEnvironment(
       environmentId, declaration.declarationSha256, environment, record, effectiveBindings
     ),
     missing: Object.freeze(missing)
+  }), status === 'bound' ? effectiveBindings : null, environment);
+}
+
+/**
+ * The runner boundary: hand one complete binding to one child process [RUN rule 3].
+ *
+ * Only a `bound` environment materializes. Its values never become properties of the returned
+ * object: they stay in this closure and are copied only into the environment object a caller
+ * passes to spawn (`childEnvironment`). `redact` and `streamRedactor` replace every bound secret
+ * of four or more characters with `[redacted:NAME]`. Serializing the result shows exactly the
+ * public metadata `env status` shows, never a value or a value-derived hash.
+ */
+export async function materializeEnvironmentBinding(root, environmentId, { commandId = null } = {}) {
+  const { resolution, privateBindings, environment } = await resolveBinding(root, environmentId, { commandId });
+  const result = { status: resolution.status, environment: resolution.environment, missing: resolution.missing };
+  if (resolution.status !== 'bound' || !privateBindings || !environment) return Object.freeze(result);
+  const values = new Map(environment.requires.map((entry) => [entry.name, privateBindings[entry.name]?.value]));
+  if ([...values.values()].some((value) => typeof value !== 'string')) {
+    return Object.freeze({ ...result, status: 'unavailable', missing: Object.freeze([...values.keys()].sort()) });
+  }
+  const { createStreamRedactor, redactText, redactionEntries } = await import('./output-redaction.mjs');
+  const secrets = redactionEntries(environment.requires
+    .filter((entry) => entry.kind === 'secret').map((entry) => ({ name: entry.name, value: values.get(entry.name) })));
+  Object.defineProperties(result, {
+    childEnvironment: { enumerable: false, value: (base = process.env) => {
+      const names = new Set(values.keys());
+      const env = Object.fromEntries(Object.entries(base).filter(([key]) => !names.has(key.toUpperCase())));
+      for (const [name, value] of values) env[name] = value;
+      return env;
+    } },
+    redact: { enumerable: false, value: (text) => redactText(text, secrets) },
+    streamRedactor: { enumerable: false, value: () => createStreamRedactor(secrets) },
+    redactsAnything: { enumerable: false, value: secrets.length > 0 }
   });
+  return Object.freeze(result);
 }
 
 /** Merge a bounded stdin update into the current declaration-bound private record. */

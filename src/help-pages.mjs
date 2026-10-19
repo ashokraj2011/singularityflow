@@ -1246,6 +1246,36 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['approve', 'reopen', 'submit']
   },
+  app: {
+    summary: 'Start, check and stop the application a delivery capability declares, from VS Code, Copilot or the Shell.',
+    description: [
+      'Reads application.start from singularity/capabilities.yml (changed through the reviewed capability proposal).',
+      'Each start entry is a shell-free argv run from a repository-relative working directory, a loopback URL',
+      '(127.0.0.1, localhost or [::1]) and a readiness rule: an HTTP answer below 500 on a path, or literal text in',
+      'its output. app plan shows every entry, its environments with their binding status, and the command identity',
+      'a first run is confirmed by. app start runs it in the foreground, prints "Ready at <url>" once ready, and stops',
+      'the whole process tree after the timeout or on Ctrl+C; it keeps a private run record below the Git common',
+      'directory. app status reports declared, started (recorded process alive) and ready (URL answers) for each',
+      'entry. app stop stops only a process tree app start recorded.',
+      'An entry may list environments from singularity/environments.yml (the first is the default; pick one with',
+      '--environment). Their bound values are given to that process only, and only when the capability policy',
+      'localIntegrationEvidence is allowed; output is shown with every bound secret replaced by [redacted:NAME].',
+      'Values are bound by the person with env bind <ENV> --stdin from their own secret helper, never here.'
+    ],
+    options: [
+      ['START-ID', 'The start entry; optional when the capability declares exactly one.'],
+      ['--capability ID', 'The delivery capability; by default the one that owns this checkout.'],
+      ['--environment ENV', 'app start only: one of the entry\'s environments; the first is the default.'],
+      ['--json', 'plan, status and stop: machine-readable output (sflow-app-plan, sflow-app-status).']
+    ],
+    examples: [
+      ['singularity-flow app plan --json', 'Shows each start entry, its environments and their binding status.'],
+      ['singularity-flow app start web --environment qa', 'Starts web with the qa values, waits until it answers, and stays attached.'],
+      ['singularity-flow app status --json', 'Says whether web is started and answering at its URL.'],
+      ['singularity-flow app stop web', 'Stops the process tree app start recorded for web.']
+    ],
+    seeAlso: ['env', 'capability', 'precheck']
+  },
   decisions: {
     summary: 'See everything people must decide before a step can move, in plain words, and record the choices at once.',
     description: [

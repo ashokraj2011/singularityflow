@@ -79,6 +79,8 @@ const entries = {
   request: ['sf-sgos'],
   evidence: ['sf-sgos', 'sf-evidence'],
   env: ['sf-environment'],
+  // Until the guided /sf-run-app skill exists [RUN M5], readiness owns starting the application.
+  app: ['sf-ready', 'sf-environment'],
   candidate: ['sf-sgos'],
   'execution-unit': ['sf-sgos'],
   device: ['sf-sgos'],

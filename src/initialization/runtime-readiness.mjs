@@ -398,6 +398,25 @@ function generatedReadinessReportPaths(commands) {
 }
 
 /**
+ * The capability's declared start entries for this checkout [RUN M1], used by the start smoke
+ * check instead of a detected start command. An entry that needs an environment's private values
+ * is not smoke-started here: readiness never reads a binding. Any resolution problem means none.
+ */
+async function declaredStartCommands(root, options) {
+  if (options.declaredStartCommands !== undefined) return options.declaredStartCommands ?? [];
+  try {
+    const { resolveCapabilityApplication } = await import('../capability-context.mjs');
+    const context = await resolveCapabilityApplication(root);
+    return context.application.start
+      .filter((entry) => !entry.environments.length
+        && (context.repositories.length <= 1 || entry.repository === context.repositoryId))
+      .map((entry) => ({ id: `start-${entry.id}`, argv: [...entry.argv], workingDirectory: entry.workingDirectory }));
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Build the immutable command plan used by the pre-Story repository readiness gate.
  * Nothing is executed and no model is involved.
  */
@@ -418,6 +437,10 @@ export async function buildRepositoryReadinessPlan(root, options = {}) {
   } catch (error) {
     testInferenceError = { code: error?.code ?? 'TEST_INFERENCE_FAILED' };
   }
+  const declaredStarts = scope === 'full'
+    ? (await declaredStartCommands(root, options)).map((command) => normalizedCommand(
+      command, 'start', 'capability-application', { ...options, platform }))
+    : [];
   const detectorCommands = [
     ...(detectorOutput.commands?.dependency ?? []).map((command) => normalizedCommand(command, 'dependency', 'smart-init-detector', { ...options, platform })),
     ...(scope === 'full' ? (detectorOutput.commands?.build ?? []).map((command) => normalizedCommand(
@@ -426,9 +449,10 @@ export async function buildRepositoryReadinessPlan(root, options = {}) {
     ...(scope === 'full' ? (detectorOutput.commands?.quality ?? []).map((command) => normalizedCommand(
       command, 'quality', 'smart-init-detector', { ...options, platform }
     )) : []),
-    ...(scope === 'full' ? (detectorOutput.commands?.start ?? []).map((command) => normalizedCommand(
+    ...(scope === 'full' && !declaredStarts.length ? (detectorOutput.commands?.start ?? []).map((command) => normalizedCommand(
       command, 'start', 'smart-init-detector', { ...options, platform }
-    )) : [])
+    )) : []),
+    ...declaredStarts
   ];
   const testCommands = [
     ...inferredTests.map((command) => normalizedCommand(
@@ -442,7 +466,8 @@ export async function buildRepositoryReadinessPlan(root, options = {}) {
     `${command.purpose}\0${command.workingDirectory}`));
   const manifestFallbackCommands = manifestCommands(snapshot, { ...options, platform })
     .filter((command) => !detectedScopes.has(`${command.purpose}\0${command.workingDirectory}`))
-    .filter((command) => scope === 'full' || command.purpose === 'dependency');
+    .filter((command) => scope === 'full' || command.purpose === 'dependency')
+    .filter((command) => !(declaredStarts.length && command.purpose === 'start'));
   const commands = deduplicateCommands([
     ...detectorCommands,
     ...manifestFallbackCommands,
@@ -485,6 +510,8 @@ export async function buildRepositoryReadinessPlan(root, options = {}) {
   const ambiguities = structuredClone(detectorOutput.ambiguities ?? [])
     .filter((ambiguity) => scope === 'full'
       || !['build', 'quality', 'start'].includes(ambiguity.purpose))
+    // A declared start entry decides which command starts the application.
+    .filter((ambiguity) => !(declaredStarts.length && ambiguity.purpose === 'start'))
     .sort((left, right) => String(left.id ?? '').localeCompare(String(right.id ?? ''), 'en'));
   const blockers = [
     ...(commands.some(command => command.purpose === 'test')

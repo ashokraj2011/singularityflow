@@ -1582,9 +1582,9 @@
     },
     "src/commands/secrets.mjs": {
       "counts": {
-        "command-run": 2
+        "command-run": 4
       },
-      "digest": "4c2b1aa39e75ab53d1563e41327d87a1e7575762b5da0460f31ce5836880330e"
+      "digest": "b2f839dbe8578e51c1609848843de1487e78a88ec7e5ef4e087d6c3d96c1981d"
     }
   }
 }

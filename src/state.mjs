@@ -4338,7 +4338,9 @@ async function storyLocalIntegration(root, workflow, localRun = null) {
   if (workflow?.resolution?.capability?.policy?.localIntegrationEvidence !== 'allowed') return null;
   const listed = new Map();
   try {
-    const { resolveCapabilityApplication } = await import('./capability-application-context.mjs');
+    // Read only for an allowed Story, and kept out of the long-lived VS Code bundles like the bindings.
+    const runtimeUrl = pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'capability-application-context.mjs')).href;
+    const { resolveCapabilityApplication } = await import(runtimeUrl);
     const application = await resolveCapabilityApplication(root, { capabilityId: workflow.resolution.capability.id ?? null });
     for (const entry of application.application.tests) if (entry.environments.length) listed.set(entry.use, [...entry.environments]);
   } catch { /* no declared test environments: only checks-linked commands qualify */ }

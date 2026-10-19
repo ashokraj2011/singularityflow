@@ -6,11 +6,13 @@ import {
   lstat, mkdir, readFile, readlink, rename, rm, writeFile
 } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { inferRepositoryTestCommands } from '../repository-test-command-inference.mjs';
 import { nodeTapCounts, parseTestResult } from '../code-delivery-tests.mjs';
 import { exactChangedPathsBetweenObjects, gitCommonDir, head } from '../git.mjs';
 import { resolvePlatformProcess } from '../platform-process.mjs';
+import { PACKAGE_ROOT } from '../package-root.mjs';
 import { recordSha256 } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { incrementCommandCounter } from '../dx-timing-context.mjs';
@@ -405,7 +407,8 @@ function generatedReadinessReportPaths(commands) {
 async function declaredStartCommands(root, options) {
   if (options.declaredStartCommands !== undefined) return options.declaredStartCommands ?? [];
   try {
-    const { resolveCapabilityApplication } = await import('../capability-application-context.mjs');
+    // A file URL keeps the application resolver out of the VS Code bundles that load readiness.
+    const { resolveCapabilityApplication } = await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'capability-application-context.mjs')).href);
     const context = await resolveCapabilityApplication(root);
     return context.application.start
       .filter((entry) => !entry.environments.length

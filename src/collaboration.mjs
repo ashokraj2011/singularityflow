@@ -1,7 +1,7 @@
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { rm } from 'node:fs/promises';
 import {
-  branch, changedFiles, changes, fetchOrigin, hasUpstream, head, indexLockState, pullFastForward,
+  branch, changedFiles, changes, fetchRemote, hasUpstream, head, indexLockState, pullFastForward,
   refreshIndexEntries, storyIndexDrift
 } from './git.mjs';
 import { currentPhase } from './phase-generation.mjs';
@@ -219,7 +219,9 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
       detail: 'The publication recovery marker is unreadable. Diagnose it without clearing or replacing it.'
     });
   }
-  if (fetch && branch(root) === workflow.workItem.branch && hasUpstream(root) && !changes(root).trim()) actions.push({ id: 'fast-forward', safe: true, automatic: true, detail: 'Fetch and fast-forward the current work-item branch.' });
+  // A branch whose remote copy is gone (deleted, or removed after its merge) has no upstream left;
+  // fetching still brings the base the terminal gate compares it with, and nothing moves.
+  if (fetch && branch(root) === workflow.workItem.branch && !changes(root).trim()) actions.push({ id: 'fast-forward', safe: true, automatic: true, detail: hasUpstream(root) ? 'Fetch and fast-forward the current work-item branch.' : 'Fetch the configured remote; the work-item branch has no upstream, so nothing is fast-forwarded.' });
   const activePhaseId = workflow.currentPhase;
   const activePhase = activePhaseId ? workflow.phases?.[activePhaseId] ?? null : null;
   const consumedGeneration = activePhase?.generationIntent?.status === 'consumed'
@@ -461,8 +463,10 @@ export async function applyRecovery(root, config, workflow, plan, { confirm = nu
       continue;
     }
     if (action.id === 'fast-forward') {
-      await fetchOrigin(root);
-      await pullFastForward(root, { fetchedRemote: 'origin' });
+      // The configured remote, not a remote that happens to be named origin.
+      const remote = config.git?.remote ?? 'origin';
+      await fetchRemote(root, remote);
+      await pullFastForward(root, { fetchedRemote: remote });
       completed.push({ id: action.id, result: 'fast-forward complete' });
     }
   }

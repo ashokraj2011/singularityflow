@@ -40,7 +40,7 @@ import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { obligationsDroppedBySkips } from './workflow-decisions.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
-import { exactFileAtObject, firstParentCommitsMentioning, governedCommitIdentity, head } from './git.mjs';
+import { exactFileAtObject, firstParentCommitsMentioning, governedCommitIdentity, head, isAncestor } from './git.mjs';
 import { documentUploadPhases, evidenceIsActive } from './documents.mjs';
 import { documentNameKey } from './document-identity.mjs';
 import { isLocalDocument, localDocumentAvailability, validLocalDocumentKey } from './document-storage.mjs';
@@ -50,6 +50,8 @@ import { classifyStoryGateFailures, pendingOpenStory } from './gate-recovery.mjs
 import { runRemoteGitAsync } from './git-execution.mjs';
 import { configuredRemoteIdentity, frozenRemoteTransport, safeGitDiagnosticReference } from './git-remote-diagnostics.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
+import { commitLandedOn, localCommit } from './branch-landing.mjs';
+import { storyPublicationPending } from './story-publication-read.mjs';
 import { resolveStoryExecutionDefinition } from './story-execution-context.mjs';
 import { verifyPhaseApprovalWaiver } from './approval-waiver.mjs';
 
@@ -73,22 +75,69 @@ function conformanceGateErrors(findings) {
 
 export { approvedConfigurationMaterializations } from './configuration-materialization.mjs';
 
-/** Compare terminal publication against the exact configured push authority, not a mutable name. */
-export async function terminalPublicationObservation(root, remote, publicationBranch) {
+/**
+ * Compare terminal publication against the exact configured push authority, not a mutable name.
+ *
+ * `state` says how the two differ, so recovery can name the route that moves it: `behind` and
+ * `unfetched` need a fetch, `ahead` and `diverged` need a person, and `absent` is a branch the
+ * remote no longer has. A branch removed after its merge is published when HEAD is on the pull
+ * request base (`baseBranch`), merged with history or squashed with exactly its changes.
+ */
+export async function terminalPublicationObservation(root, remote, publicationBranch, { baseBranch = null } = {}) {
   const identity = configuredRemoteIdentity(root, remote, { direction: 'push' });
   if (!identity.configured || identity.ambiguous) {
-    return { published: false, reason: `${remote} has no unambiguous configured publication authority` };
+    return { published: false, state: 'unavailable', reason: `${remote} has no unambiguous configured publication authority` };
   }
   const transport = frozenRemoteTransport(identity.url);
+  const base = baseBranch && baseBranch !== publicationBranch ? baseBranch : null;
   const observed = await runRemoteGitAsync([
-    'ls-remote', '--heads', '--', transport.remote, `refs/heads/${publicationBranch}`
+    'ls-remote', '--heads', '--', transport.remote, `refs/heads/${publicationBranch}`,
+    ...(base ? [`refs/heads/${base}`] : [])
   ], { cwd: root, operation: 'remote-probe', env: transport.env });
   if (observed.status !== 0) {
-    return { published: false, reason: safeGitDiagnosticReference(observed, 'Cannot verify published HEAD') };
+    return { published: false, state: 'unavailable', reason: safeGitDiagnosticReference(observed, 'Cannot verify published HEAD') };
   }
-  const remoteHead = observed.stdout.trim().split(/\s+/)[0];
-  const localHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
-  return { published: remoteHead === localHead, reason: null };
+  // A pattern also matches longer names ending in it; only the exact ref counts.
+  const advertised = new Map(observed.stdout.split(/\r?\n/u)
+    .map((line) => line.trim().match(/^([0-9a-f]{40,64})\s+(refs\/heads\/\S+)$/iu))
+    .filter(Boolean).map((match) => [match[2], match[1].toLowerCase()]));
+  const remoteHead = advertised.get(`refs/heads/${publicationBranch}`) ?? null;
+  const localHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim().toLowerCase();
+  if (remoteHead === localHead) return { published: true, state: 'published', reason: null };
+  const target = `${remote}/${publicationBranch}`;
+  if (!remoteHead) {
+    const baseHead = base ? advertised.get(`refs/heads/${base}`) ?? null : null;
+    const landed = baseHead ? commitLandedOn(root, localHead, baseHead) : null;
+    if (landed) return { published: true, state: 'landed', landed, base, reason: null };
+    return {
+      published: false, state: 'absent', base,
+      reason: `${target} is not on the remote${!base ? ''
+        : !baseHead ? ` and neither is its base ${base}`
+          : !localCommit(root, baseHead) ? `, and ${remote}/${base} has commits this checkout has not fetched`
+            : `, and local HEAD is not on ${remote}/${base}`}`
+    };
+  }
+  if (!localCommit(root, remoteHead)) {
+    return { published: false, state: 'unfetched', reason: `${target} has commits this checkout has not fetched` };
+  }
+  const state = isAncestor(root, localHead, remoteHead) ? 'behind'
+    : isAncestor(root, remoteHead, localHead) ? 'ahead' : 'diverged';
+  return {
+    published: false, state,
+    reason: {
+      behind: `${target} has commits after local HEAD`,
+      ahead: `local HEAD has commits that are not on ${target}`,
+      diverged: `local HEAD and ${target} have diverged`
+    }[state]
+  };
+}
+
+/** The branch a Story's pull request targets, where its work lands once merged. */
+async function publicationBaseBranch(root, config, workflow) {
+  try {
+    const { pullRequestTarget, readStorySeed } = await import('./pull-request.mjs');
+    return pullRequestTarget(workflow, await readStorySeed(root, workflow), { root, config }).base ?? null;
+  } catch { return null; }
 }
 
 /**
@@ -235,10 +284,13 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   // Every error is also a coded finding naming the step and path it belongs to; recovery reads the
   // code and the step, never the wording [E2G-024].
   const coded = [];
-  const refuse = (code, message, { phase = null, path: file = null } = {}) => {
+  const refuse = (code, message, { phase = null, path: file = null, publication = null } = {}) => {
     errors.push(message);
-    coded.push({ code, message, phase, path: file });
+    coded.push({ code, message, phase, path: file, ...(publication ? { publication } : {}) });
   };
+  // Read once, only when a publication check needs it: the branch the Story's work lands on.
+  let landingBase;
+  const landingBranch = async () => (landingBase ??= publicationBaseBranch(root, config, workflow));
   const refuseEach = (code, messages, options) => { for (const message of messages ?? []) refuse(code, message, options); };
   const base = await validateWorkflow(root, config, workflow, { strict: true }); refuseEach('gate.state.invalid', base.errors); warnings.push(...base.warnings);
   try {
@@ -405,9 +457,14 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       if (!found) {
         if (!publicationInvalid) refuse('gate.generation.commit-missing', `${phaseId} generation ${generation} has no required Git commit`, { phase: phaseId });
       } else if (config.git?.publish === 'required') {
-        const remoteRef = `refs/remotes/${config.git.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}`;
+        const remote = config.git.remote ?? 'origin';
+        const remoteRef = `refs/remotes/${remote}/${workflowPublicationBranch(root, workflow)}`;
         const published = run('git', ['merge-base', '--is-ancestor', found[0], remoteRef], { cwd: root, allowFailure: true });
-        if (published.status !== 0) refuse('gate.publication.remote-missing', `${phaseId} generation ${generation} is not present on the remote branch`, { phase: phaseId });
+        // A branch the remote deleted after its merge leaves no tracking ref; its generations are
+        // published when they are on the base it merged into.
+        const landing = published.status !== 0 && !localCommit(root, remoteRef) ? await landingBranch() : null;
+        const landed = landing ? commitLandedOn(root, found[0], `refs/remotes/${remote}/${landing}`) : null;
+        if (published.status !== 0 && !landed) refuse('gate.publication.remote-missing', `${phaseId} generation ${generation} is not present on the remote branch`, { phase: phaseId });
       }
       // Historical receipts are checked as immutable evidence at their generation commit. A later
       // phase may legitimately change a previously evaluated source file; only the active
@@ -768,9 +825,15 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   if (config.git?.publish === 'required' && terminal && !pendingTransition) {
     const remote = config.git.remote ?? 'origin';
     const publicationBranch = workflowPublicationBranch(root, workflow);
-    const observation = await terminalPublicationObservation(root, remote, publicationBranch);
-    if (!observation.published) refuse('gate.publication.remote-missing', `terminal: ${observation.reason ?? `local HEAD is not published to ${remote}/${publicationBranch}`}`);
-    else passes.push('remote publication');
+    const observation = await terminalPublicationObservation(root, remote, publicationBranch, {
+      baseBranch: await landingBranch()
+    });
+    if (!observation.published) refuse('gate.publication.remote-missing', `terminal: ${observation.reason ?? `local HEAD is not published to ${remote}/${publicationBranch}`}`, {
+      publication: { state: observation.state ?? null, remote, branch: publicationBranch, base: observation.base ?? null }
+    });
+    else passes.push(observation.state === 'landed'
+      ? `remote publication: ${publicationBranch} is gone and HEAD is on ${remote}/${observation.base}${observation.landed === 'equivalent' ? ' (squashed or rebased)' : ''}`
+      : 'remote publication');
   }
 
   if (terminal) {
@@ -789,9 +852,15 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     if (workflow.pendingDecision) refuse('gate.terminal.decision-pending', `terminal: the Story is waiting for a decision: ${workflow.pendingDecision.label}`, { phase: workflow.pendingDecision.after ?? null });
     if (workflow.status !== 'closed' || currentPhase(workflow)) refuse('gate.terminal.workflow-incomplete', 'terminal: workflow is not closed'); else passes.push('terminal lifecycle');
   }
+  // Only a retained commit gives sync something to send; without one, the route is a fetch or a
+  // person. An unreadable marker keeps sync, whose own refusal names that marker.
+  const publicationPending = coded.some((entry) => entry.code === 'gate.publication.remote-missing')
+    ? await storyPublicationPending(root, config, workflow.workItem.id, { migrate: false }).catch(() => true)
+    : false;
   // A pending transition judges the Story it is about to commit; the persisted Story is still open,
   // so recovery must offer only routes legal for that open Story, never `reopen`.
   return { errors, warnings, passes, findings: classifyStoryGateFailures(workflow, coded, {
-    openStory: pendingTransition ? openStory ?? pendingOpenStory(workflow) : null
+    openStory: pendingTransition ? openStory ?? pendingOpenStory(workflow) : null,
+    publicationPending
   }) };
 }

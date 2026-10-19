@@ -96,7 +96,13 @@ test('repository readiness proves execution and confines setup repair before Sto
   assert.match(content, /committable setup[\s\S]*edit only confirmed paths/i);
   assert.match(content, /commands, adapters, timeouts/i);
   assert.match(content, /Build\/start\/end-to-end need `--full` and approved policy/i);
-  assert.match(content, /existing failures[\s\S]*product failure needs a Bug-fix Story/i);
+  // Failed tests only warn at Story start (STORY_PRE_EXISTING_TEST_FAILURES_OBSERVED); a Bug-fix Story is a choice.
+  assert.match(content, /existing failures[\s\S]*Failed tests never block Story start: repair in scope or record risk; a Bug-fix Story is optional/i);
+  assert.doesNotMatch(content, /product failure needs a Bug-fix Story/i);
+  assert.match(content, /`junit-xml` \(any runner\), `jest-json`, `vitest-json` or `node-tap`[\s\S]*`\/sf-test-setup`/);
+  assert.match(content, /--base-commit <OID>` or the person's commit\/stash/);
+  assert.match(content, /never shell-wide `NODE_OPTIONS`\/`JAVA_TOOL_OPTIONS`\/`PYTHONPATH`/);
+  assert.match(content, /install global tools\s+\(name missing ones for the person; rerun `\/sf-ready`\)/);
   assert.match(content, /sflow\/readiness\/<PLAN-DIGEST-PREFIX>/);
   assert.match(content, /explicit diff approval/i);
   assert.match(content, /commit only the reviewed\s+paths/i);
@@ -307,7 +313,8 @@ test('initial phase skills require interactive clarification instead of silently
     assert.match(content, /ask_user/);
     if (content !== epicRequirements) {
       assert.match(content, /ask only unanswered\/(?:materially )?changed questions/i);
-      assert.match(content, /unavailable: show (?:them|questions) and stop/i);
+      // Without `ask_user` the person answers in chat; that reply is staged and recorded, not dropped.
+      assert.match(content, /unavailable: show (?:them|questions) and stop; stage chat replies/i);
       assert.match(content, /record before (?:preparation|code mutation)/i);
     } else {
       assert.match(content, /wait/i);
@@ -346,12 +353,50 @@ test('initial phase skills require interactive clarification instead of silently
   assert.match(code, /No adoption\/amendment for redaction\/inference/);
 });
 
+test('authoring and evidence skills name a concrete next route at each stop they describe', async () => {
+  const read = (name) => readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
+  // A blocking clarification marker is answered by a person and recorded against its question.
+  assert.match(await read('sflow-specify'), /clarification record <PHASE> --marker "<question>" --answer "<reply>"`, write the answer in its place, recheck/);
+  // An unverified pinned policy names its read-only check and its repair route.
+  for (const name of ['sflow-phase', 'sflow-requirements', 'sflow-design', 'sflow-release', 'sflow-verify',
+    'sflow-document-intake', 'sflow-scenario-check']) {
+    assert.match(await read(name), /show `policyReason`, offer `\/sf-validate` then `\/sf-recover`/, name);
+  }
+  // A finding another producer owns is routed by the returned correction fields, not a guessed owner.
+  for (const name of ['sflow-specify', 'sflow-plan', 'sflow-converge', 'sflow-requirements', 'sflow-design',
+    'sflow-release', 'sflow-phase', 'sflow-verify']) {
+    assert.match(await read(name), /`correction\.guidance`\/`correction\.skill`/, name);
+  }
+  const code = await read('sflow-code');
+  assert.match(code, /no in-scope runner: `\/sf-test-setup`/);
+  assert.match(code, /No test ran: relay `testRunRisk\.command` to a step approver; never run it/);
+  assert.match(await read('sflow-scenario-check'), /name the missing tool\/environment, offer `\/sf-test-setup`; never code repair/);
+  assert.match(await read('sflow-test-setup'), /detection stays pending: say so, offer a user-supplied command or\s+adding tests in the Story; never invent one/);
+  assert.match(await read('sflow-fix'), /upstream-issue raise --phase <EARLIER-STEP> --about <ID> --problem "<TEXT>"/);
+  assert.match(await read('sflow-document-intake'), /loop limits need a human `\/sf-decide` choice, not a false pass/);
+  assert.match(await read('sflow-revision-attachments'), /listed text export[\s\S]*?`\/sf-revise` \(`--feedback-stdin`\)/);
+  assert.match(await read('sflow-revision-checks'), /offer `\/sf-fault` to record the stuck run/);
+  const storyChecks = await read('sflow-story-checks');
+  assert.match(storyChecks, /`\/sf-pr`/);
+  assert.match(storyChecks, /another Git host say plainly that this skill cannot collect its evidence/);
+  const codeDocs = await read('sflow-code-docs');
+  assert.match(codeDocs, /Otherwise stop: this skill documents code steps only/);
+  assert.doesNotMatch(codeDocs, /Terminal equivalent: singularity-flow phase prepublish/);
+  // Approved inputs are named by role, never by a packaged step name.
+  assert.match(await read('sflow-verify'), /Read the approved phase inputs and changed source/);
+  assert.doesNotMatch(await read('sflow-release'), /approved Verification generation/);
+  assert.doesNotMatch(await read('sflow-revise'), /Testing\/Verification/);
+});
+
 test('code and verification skills place qualified trace tags in the intended file class', async () => {
   const code = await readFile(path.join(pluginRoot, 'skills', 'sflow-code', 'SKILL.md'), 'utf8');
   const verify = await readFile(path.join(pluginRoot, 'skills', 'sflow-verify', 'SKILL.md'), 'utf8');
   const phase = await readFile(path.join(pluginRoot, 'skills', 'sflow-phase', 'SKILL.md'), 'utf8');
-  assert.match(code, /(?:Planned product paths|Product):.*@clause:ORDER:REQ-001/s);
-  assert.match(code, /(?:executable tests|tests):.*@ac:ORDER:AC-001/s);
+  // Tags use each file's own comment syntax (Python, shell, SQL, YAML, HTML, ...) and the Story's Work ID.
+  assert.match(code, /file's comment syntax \(`\/\/`, `#`, `--`, `\/\*`, `<!--`\)/);
+  assert.match(code, /(?:Planned product paths|Product):.*@clause:<WORK-ID>:REQ-001/s);
+  assert.match(code, /(?:executable tests|tests):.*@ac:<WORK-ID>:AC-001/s);
+  assert.doesNotMatch(code, /`\/\/ @(?:clause|ac):/);
   assert.match(code, /pinned test-only opt-outs/s);
   assert.match(verify, /@ac:WORK-ID:AC-001.*executable test/s);
   assert.match(verify, /@clause:WORK-ID:REQ-001.*trace witness/s);
@@ -479,7 +524,7 @@ test('verify skill routes release to its phase skill without running verificatio
   assert.match(content, /singularity-flow nextsteps --for-agent --json/);
   assert.doesNotMatch(content, /singularity-flow verify --json/,
     'ordinary Feature/Bugfix/Chore verification must not require a fast-path verb');
-  assert.match(content, /If `policyVerified` is false, show `policyReason`; stop/);
+  assert.match(content, /If `policyVerified` is false, show `policyReason`, offer `\/sf-validate` then `\/sf-recover`; stop/);
   assert.match(content, /Source edits need governed repair\/fresh evidence/);
 });
 

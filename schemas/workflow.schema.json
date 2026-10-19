@@ -767,6 +767,28 @@
         "additionalProperties": false
       }
     },
+    "visualProfileDecisions": {
+      "description": "Append-only decisions by the approvers of a visual verification step that one of its verification profiles (screen sizes) does not apply to this Story, and their revocations. Coverage lists such a profile as not applicable, never as passed; at least one profile must still be evidenced, and a revocation makes the profile required again.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["phase", "profileId", "reason", "actor", "authorityGroup", "at"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^VPD-[0-9]{3,}$" },
+          "revokes": { "type": "string", "pattern": "^VPD-[0-9]{3,}$" },
+          "phase": { "type": "string", "minLength": 1 },
+          "profileId": { "type": "string", "minLength": 1 },
+          "profileLabel": { "type": "string", "minLength": 1 },
+          "disposition": { "const": "not-applicable" },
+          "reason": { "type": "string", "minLength": 20, "maxLength": 1000 },
+          "actor": { "type": "string", "minLength": 1 },
+          "authorityGroup": { "type": "string", "minLength": 1 },
+          "identityAssurance": { "type": ["string", "null"] },
+          "at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
     "testPolicy": {
       "description": "The digest of the Story's sealed test policy and test capability record, written once at creation.",
       "type": "object",

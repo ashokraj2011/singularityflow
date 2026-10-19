@@ -709,6 +709,8 @@ Usage:
   singularity-flow mcp design-sources promote <RECORD-ID> --confirm <RECORD-ID> [--reason TEXT]
   singularity-flow visual status [--json]
   singularity-flow visual compare --expected RECORD-OR-PATH --actual RECORD-OR-PATH [--profile ID] [--json]
+  singularity-flow visual record --phase VISUAL-STEP --profile-id ID --screen-id ID --state-id ID --file PNG-PATH
+    --source simulator|emulator|device --device NAME [--os-version VERSION] [--note TEXT] [--json]
   singularity-flow wm design-inventory --from-records [--json]
   singularity-flow documents list [WORK-ID] [--phase PHASE] [--active|--all] [--json]
   singularity-flow documents artifacts [ARTIFACT-ID] [--version draft|approved] [--work-id ID] [--json]
@@ -783,6 +785,7 @@ Usage:
   singularity-flow decision risk [WORK-ID] [--fetch] (--obligation OBL-ID --category CATEGORY --expires YYYY-MM-DD [--transition terminal] | --revoke RISK-ID) --reason TEXT [--json]
   singularity-flow decision test-risk [WORK-ID] [--fetch] (--phase PHASE [--command ID [--argv-sha256 DIGEST]] --cause TEXT --expires YYYY-MM-DD | --revoke TRR-ID) --reason TEXT [--json]
   singularity-flow decision evidence-reuse [WORK-ID] [--fetch] (--phase PHASE --from-attempt TA-ID [--expires YYYY-MM-DD] | --revoke ERU-ID) --reason TEXT [--json]
+  singularity-flow decision visual-profile [WORK-ID] [--fetch] (--phase VISUAL-STEP --profile PROFILE-ID --not-applicable | --revoke VPD-ID) --reason TEXT [--json]
   singularity-flow decision witness [WORK-ID] [--fetch] --criterion AC-ID --slot SLOT --file PATH (--confirm ITEM | --deny ITEM)... --reason TEXT [--json]
   singularity-flow decision scope [WORK-ID] [--fetch] --item SRI-ID|DOC-ID --as included|existing|excluded|deferred|informative|duplicate|superseded [--clause ID,...] --reason TEXT [--json]
   singularity-flow decisions [WORK-ID] [--phase PHASE] [--choose ITEM=OPTION [--reason ITEM=TEXT] [--expires ITEM=YYYY-MM-DD] [--cause ITEM=TEXT]]... [--json]

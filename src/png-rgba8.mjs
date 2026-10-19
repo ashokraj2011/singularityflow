@@ -95,6 +95,24 @@ export function encodePngRgba8({ width, height, data }, { compressionLevel = 9 }
   return Buffer.concat([SIGNATURE, chunk('IHDR', header), chunk('IDAT', deflateSync(raw, { level: compressionLevel })), chunk('IEND', Buffer.alloc(0))]);
 }
 
+const IEND = Buffer.from([0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130]);
+
+/**
+ * A PNG's width and height from its header alone: the signature, a first IHDR chunk whose CRC
+ * holds and an IEND chunk closing the file. Nothing is decoded, so a device capture in any bit
+ * depth or color type answers, and a truncated file does not.
+ */
+export function readPngHeader(bytes) {
+  if (!Buffer.isBuffer(bytes)) bytes = Buffer.from(bytes);
+  if (bytes.length < 45 || !bytes.subarray(0, 8).equals(SIGNATURE)) throw new SingularityFlowError('Input is not a PNG file.', { code: 'PNG_INVALID' });
+  if (bytes.readUInt32BE(8) !== 13 || bytes.toString('ascii', 12, 16) !== 'IHDR'
+    || crc32(bytes.subarray(12, 29)) !== bytes.readUInt32BE(29)) throw new SingularityFlowError('PNG IHDR is invalid.', { code: 'PNG_INVALID' });
+  if (!bytes.subarray(bytes.length - 12).equals(IEND)) throw new SingularityFlowError('PNG does not end with IEND; the file is truncated.', { code: 'PNG_INVALID' });
+  const width = bytes.readUInt32BE(16), height = bytes.readUInt32BE(20);
+  if (!width || !height) throw new SingularityFlowError('PNG dimensions are invalid.', { code: 'PNG_INVALID' });
+  return { width, height };
+}
+
 export function pngDimensions(bytes, options = {}) {
   const decoded = decodePngRgba8(bytes, options);
   return { width: decoded.width, height: decoded.height };

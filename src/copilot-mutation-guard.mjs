@@ -343,9 +343,9 @@ function shellAllowed(call, mode, value) {
   // Deciding an upstream issue is the earlier step's approvers' call, like approve and reject; an
   // agent may raise one and keep working, never decide it.
   if (positionals[0] === 'upstream-issue' && UPSTREAM_ISSUE_DECISIONS.includes(positionals[1])) return false;
-  // Accepting that a step's tests cannot run here, or reusing another step's recorded run for it, is
-  // its approvers' call too; the refusal names it.
-  if (positionals[0] === 'decision' && ['test-risk', 'evidence-reuse'].includes(positionals[1])) return false;
+  // Accepting that a step's tests cannot run here, reusing another step's recorded run for it, or
+  // saying one of its screen sizes does not apply, is its approvers' call too; the refusal names it.
+  if (positionals[0] === 'decision' && ['test-risk', 'evidence-reuse', 'visual-profile'].includes(positionals[1])) return false;
   if (positionals[0] === 'spec' && positionals[1] === 'drift' && positionals[2] === 'decide') return false;
   // Setting held changes aside drops them from the checkout: the person who looked at them decides.
   if (positionals[0] === 'recover' && options['set-aside'] === true) return false;
@@ -390,15 +390,16 @@ function setAsideDecision(call, value) {
 }
 
 /**
- * A verified `decision test-risk`, `decision evidence-reuse` or `spec drift decide`: a step approver's
- * decision, that its tests cannot run here, that an earlier step's recorded run stands for it, or how
- * a closed Story's drifted clause is resolved.
+ * A verified `decision test-risk`, `decision evidence-reuse`, `decision visual-profile` or `spec drift
+ * decide`: a step approver's decision, that its tests cannot run here, that an earlier step's recorded
+ * run stands for it, that one of its screen sizes does not apply, or how a closed Story's drifted
+ * clause is resolved.
  */
 function testRunRiskDecision(call, value) {
   const safe = verifiedShellForm(call, value);
   if (!safe) return false;
   const { positionals } = parseArgs(safe.argv);
-  return (positionals[0] === 'decision' && ['test-risk', 'evidence-reuse'].includes(positionals[1]))
+  return (positionals[0] === 'decision' && ['test-risk', 'evidence-reuse', 'visual-profile'].includes(positionals[1]))
     || (positionals[0] === 'spec' && positionals[1] === 'drift' && positionals[2] === 'decide');
 }
 
@@ -610,7 +611,7 @@ export async function mutationToolGuard(payload = {}) {
         if (decisionListRecord(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: recording the decision list is the person\'s own step: they run the exact decisions record command in their own terminal (a /sf-decide turn may record only its upstream-issue options, after their explicit yes). Show the user the summary and the command, and stop; do not retry it or change its digest');
         if (testRunRiskDecision(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step\'s tests cannot run here, reusing an earlier step\'s recorded run for it, or how a closed Story\'s drifted clause is resolved, is decided by a person who approves that step, in their own terminal, not by this turn. Show the user the command and stop; do not retry it');
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step\'s tests cannot run here, reusing an earlier step\'s recorded run for it, that one of its screen sizes does not apply, or how a closed Story\'s drifted clause is resolved, is decided by a person who approves that step, in their own terminal, not by this turn. Show the user the command and stop; do not retry it');
         if (contract.turnMode !== 'authoring' && verifiedShellForm(call, value)) {
           return mutationDenial(contract, value.decisionEnded
             ? 'PHASE_MUTATION_DECISION_TURN_ENDED: the decision turn has ended. Preserve work and inspect the returned next action in a new turn; correcting command syntax cannot reopen approval'

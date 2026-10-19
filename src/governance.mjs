@@ -17,7 +17,7 @@ import { verifyClarificationRecord } from './clarifications.mjs';
 import { verifyPhaseTelemetry } from './telemetry.mjs';
 import { verifyMcpEvidence } from './mcp.mjs';
 import { verifyDesignSourceLifecycle } from './design-sources.mjs';
-import { evaluateVisualCoverage } from './visual-coverage.mjs';
+import { evaluateVisualCoverage, missingProfileRoutes } from './visual-coverage.mjs';
 import { listVisualComparisons } from './visual-compare.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import { verifyImpactPlanBinding, verifyImpactReceipt } from './impact.mjs';
@@ -653,7 +653,12 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   const visualCoverage = await evaluateVisualCoverage(root, workflow, {
     itemDirectory: workDir(root, config, workflow.workItem.id)
   });
-  if (visualCoverage.mode === 'enforce') refuseEach('gate.visual.coverage', visualCoverage.errors); else warnings.push(...visualCoverage.errors);
+  // The ending names the same ways forward as submission: capture the profile, or a person records
+  // that it does not apply to this Story.
+  const visualRoutes = visualCoverage.mode === 'enforce' && visualCoverage.uncovered?.length ? missingProfileRoutes(workflow, visualCoverage) : [];
+  if (visualCoverage.mode === 'enforce') refuseEach('gate.visual.coverage', visualCoverage.errors,
+    visualRoutes.length ? { details: { nextAction: visualRoutes[0], recoveryCommands: visualRoutes } } : undefined);
+  else warnings.push(...visualCoverage.errors);
   warnings.push(...visualCoverage.warnings);
   if (visualCoverage.status === 'pass') passes.push(`visual coverage: ${visualCoverage.covered.length}/${visualCoverage.profiles.length} profiles`);
   const comparisons = await listVisualComparisons(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });

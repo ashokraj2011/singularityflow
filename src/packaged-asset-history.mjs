@@ -388,7 +388,9 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/demo-check-repair-close/intake.md': Object.freeze(['b711a8f37bebf0dda05a99d4bf3efdcbb1bfc424d70d8f69d5c9289c2a6e2b2f']),
   'singularity/templates/demo-web-e2e-testing/intake.md': Object.freeze(['937e5b69f618050e79cb76e384994ba6349d8bbe59914c7d9117920af35e94f7']),
   'singularity/templates/document-test-repair/intake.md': Object.freeze(['93554c5483a2b117dfb48612a432531950b6c0c96c122d83d023344b23e37906']),
-  'singularity/templates/figma-mobile/visual-verification.md': Object.freeze(['aca2f864d6cc1b5321e466f80d0751ab4874049271b2fabab03dde7b0ec0e835']),
+  'singularity/templates/figma-mobile/visual-verification.md': Object.freeze(['aca2f864d6cc1b5321e466f80d0751ab4874049271b2fabab03dde7b0ec0e835',
+    // Before the native capture route and the not-applicable decision replaced asking the workflow owner (2026-10-19).
+    'bea4365e84a67ba60a2c77b60cebac1e947372eaec45684dc3660d900ab0448a']),
   'singularity/templates/poc-workflow/intake.md': Object.freeze(['511fa3a7c281bf8a4c84977668478392b5f73d14273d3149db6392eeba3b805d']),
   'singularity/templates/spec-code-test-loop/conformance.md': Object.freeze(['b22de4f73720b8bf645faef0e2484031838d511fe4ea06810c6bf9b16c8bae1a',
     // Before the conformance templates said the clause table alone states verdicts (2026-10-19).
@@ -514,7 +516,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/figma-mobile/design-inventory.md': '822ea61a75a25ec5a6b42dd887c842d5126233b36f7f0fc875402f9a43125079',
   'singularity/templates/figma-mobile/implementation.md': '69b5b75886dcc41da4e3063c7ceb6ff805251f98dd40ee41b2bf5de660dc74da',
   'singularity/templates/figma-mobile/mobile-spec.md': '5f25f3417be372a7073ac5ba2676b0e47ea302ff54d1db64270448d635db6d98',
-  'singularity/templates/figma-mobile/visual-verification.md': 'bea4365e84a67ba60a2c77b60cebac1e947372eaec45684dc3660d900ab0448a',
+  'singularity/templates/figma-mobile/visual-verification.md': '9722e4980eba29f331161c7902cc600400443957c918dfcbf596598799001c3e',
   'singularity/templates/initiatives/adr-log.md': '4ece55ac194e15395cbc331d382d6464f76e013b33576050895092a5dcebce12',
   'singularity/templates/initiatives/business-case.md': '155faec79961574f8dd12556f0874ec8bb396f5a546ca792b2ab41dc34aa6a17',
   'singularity/templates/initiatives/cicd-readiness.md': '98222239a8e316ff1413f827f1fe400d90345bb0759db5d06fe49f859e2aa754',

@@ -11,9 +11,14 @@ commands:
 related:
   - mcp-integration
   - approvals
-version: 3
+version: 4
 ---
 The figma-mobile work type pins the design file version itself: design-source records carry file key, version, nodes, and export hashes; a newer design version surfaces as a staleness warning, never silent drift; promotion requires exact-record confirmation and invalidates downstream approvals. Declared device profiles make coverage arithmetic — `sflow visual status` lists uncovered profiles and unclaimed artifacts as set operations, promotable from warning to gate. `sflow visual compare` produces a deterministic pixel diff (zero-dependency, honestly RGBA8-only) as evidence for the human decision — never an auto-verdict. The screenshot a reviewer approves is hash-bound into the record.
+
+## Native captures and screen sizes that do not apply
+
+- **Simulator, emulator or device screenshots.** A screenshot taken with `xcrun simctl io booted screenshot` or `adb exec-out screencap -p` comes from no MCP tool, so it is never recorded with `mcp record`. Record it as a native capture: `sflow visual record --phase VISUAL-STEP --profile-id ID --screen-id ID --state-id ID --file PNG --source simulator|emulator|device --device NAME [--os-version VERSION]`. Flow copies the PNG into the Story, binds its digest, reads its width and height from the PNG header and stores the source, device, who recorded it and when. It is refused (`VISUAL_CAPTURE_DIMENSIONS_MISMATCH`, naming expected and actual) unless the size is exactly the profile's width and height times its device scale factor, and coverage checks that again. `visual status` shows it as a native capture; no workflow change is needed to allow it.
+- **A screen size that does not apply to this Story.** When the workflow lists a profile the app does not target (a phone-only app and a tablet profile), a person who approves the visual step records why: `sflow decision visual-profile WORK-ID --phase VISUAL-STEP --profile PROFILE-ID --not-applicable --reason TEXT`. Coverage then lists the profile as not applicable with the reason, who decided and the decision ID (`VPD-NNN`), never as passed, and warns that it is an exception. A profile the step does not check, or the last one left to evidence, is refused. `--revoke VPD-NNN --reason TEXT` makes the profile required again. Copilot never runs the decision; a refusal for a missing profile names it beside the capture command.
 
 ## Purpose and prerequisites
 

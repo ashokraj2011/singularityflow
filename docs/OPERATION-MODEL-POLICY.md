@@ -196,6 +196,7 @@ Every public operation is classified before its implementation module is importe
 | decision.scope | mutation | never | — | — |
 | decision.show | read | never | — | — |
 | decision.test-risk | mutation | never | — | — |
+| decision.visual-profile | mutation | never | — | — |
 | decision.witness | mutation | never | — | — |
 | delivery.assurance-evaluate | read | never | — | — |
 | delivery.authenticated-runner-status | read | never | — | — |
@@ -729,6 +730,7 @@ Every public operation is classified before its implementation module is importe
 | verify | read | never | — | — |
 | version | read | never | — | — |
 | visual.compare | mutation | never | — | — |
+| visual.record | mutation | never | — | — |
 | visual.status | read | never | — | — |
 | watch | mutation | never | — | — |
 | why | read | never | — | — |

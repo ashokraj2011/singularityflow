@@ -1396,6 +1396,13 @@ export function refusalDetails(details) {
     }
     if (Object.keys(budget).length) projected.modelBudget = budget;
   }
+  // A visual capture at the wrong size, or profiles still missing evidence, so every surface names them.
+  const size = (value) => (Number.isSafeInteger(value?.width) && Number.isSafeInteger(value?.height) ? { width: value.width, height: value.height } : null);
+  if (text(details.profileId) && size(details.expected) && size(details.actual)) {
+    projected.capture = { profileId: text(details.profileId), expected: size(details.expected), actual: size(details.actual) };
+  }
+  const uncoveredProfiles = Array.isArray(details.covered) ? list(details.uncovered, text) : [];
+  if (uncoveredProfiles.length) projected.uncoveredProfiles = uncoveredProfiles;
   if (details.coverage && typeof details.coverage === 'object') {
     const coverage = compact(Object.fromEntries(['unimplemented', 'testPresenceOnly', 'unclaimedChangedPaths', 'withdrawnButClaimed']
       .map((key) => [key, list(details.coverage[key], text)]).filter(([, entries]) => entries.length)));

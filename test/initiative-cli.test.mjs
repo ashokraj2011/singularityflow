@@ -406,6 +406,29 @@ test('a destructive initiative action refuses the wrong --confirm value and name
   assert.ok(!state.history.some((entry) => entry.event === 'initiative_restarted'));
 });
 
+test('machine or system evidence must name the verifier that produced it', async () => {
+  // Without a named verifier, "machine-verified" is the registrant's own reading presented as
+  // automation. The refusal comes before any record is written, and naming one reaches the check's
+  // own accepted-assurance rule.
+  const root = await repository();
+  execute(root, ['initiative', 'start', 'INIT-VERIFIER', '--title', 'Verifier']);
+  execute(root, ['initiative', 'phase', 'define']);
+  execute(root, ['initiative', 'phase', 'publish', 'define']);
+  await writeFile(path.join(root, 'report.md'), '# Build report\n');
+  for (const level of ['machine-verified', 'system-verified']) {
+    const refused = execute(root, ['initiative', 'evidence', 'add', 'scope-agreed', '--assurance', level, '--path', 'report.md'],
+      { allowFailure: true });
+    assert.notEqual(refused.status, 0, level);
+    assert.match(refused.stderr, new RegExp(`${level} evidence must name the external verifier[\\s\\S]*--verification <METHOD>`), level);
+  }
+  const named = execute(root, ['initiative', 'evidence', 'add', 'scope-agreed', '--assurance', 'machine-verified',
+    '--path', 'report.md', '--verification', 'ci-pipeline'], { allowFailure: true });
+  assert.notEqual(named.status, 0);
+  assert.match(named.stderr, /cannot be satisfied by machine-verified evidence\. It accepts: human-approved/);
+  const records = JSON.parse(execute(root, ['initiative', 'evidence', 'list', '--json']).stdout);
+  assert.equal(records.length, 0, 'no refused registration leaves a record');
+});
+
 test('without a terminal and without --confirm, the refusal names the escape', async () => {
   const root = await repository();
   execute(root, ['initiative', 'start', 'INIT-HINT', '--title', 'Hinted']);

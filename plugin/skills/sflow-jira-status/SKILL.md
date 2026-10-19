@@ -28,7 +28,7 @@ This invocation has exactly one purpose: execute the Jira connection diagnostic 
 - Do not create, edit, delete, commit, or push any file.
 - Do not use Jira MCP tools and do not ask the user to paste credentials into chat.
 - Ignore the active initiative phase and any unfinished work. They are unrelated to this diagnostic.
-- If the command fails, report that failure and stop. Do not investigate by reading the repository and do not attempt a repair.
+- If the command fails, report that failure and stop. Do not investigate by reading the repository or attempt a repair yourself; offer `/sf-jira-doctor`, which diagnoses the configuration.
 
 After the command completes, report:
 

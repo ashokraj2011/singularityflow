@@ -8213,6 +8213,16 @@ async function initiativeCommand(positionals, options) {
     if (action === 'add') {
       const checkId = requirePositional(positionals, 3, 'checklist ID');
       const phaseId = optionString(options, 'phase', initiative.currentPhase);
+      // Machine and system assurance claim that something other than the registrant produced the
+      // result. Without the verifier named, the record is a person's (or agent's) own reading
+      // presented as automation, so a registration from the command line must say what verified it.
+      const assurance = optionString(options, 'assurance');
+      if (['machine-verified', 'system-verified'].includes(assurance) && !optionString(options, 'verification')?.trim()) {
+        throw new SingularityFlowError(
+          `${assurance} evidence must name the external verifier that produced it: add --verification <METHOD> `
+          + '(the CI job, tool or system). Your own reading of a file or URL is not machine or system verification.',
+          { code: 'INITIATIVE_EVIDENCE_VERIFIER_REQUIRED' });
+      }
       const session = await loadSession(root, { required: false });
       const { value, publication } = await transactInitiativeCommand(
         root,
@@ -8225,7 +8235,7 @@ async function initiativeCommand(positionals, options) {
             initiativeId,
             phaseId,
             checkId,
-            assurance: optionString(options, 'assurance'),
+            assurance,
             verificationMethod: optionString(options, 'verification'),
             source: {
               path: optionString(options, 'path'),

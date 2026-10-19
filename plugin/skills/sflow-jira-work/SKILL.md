@@ -23,6 +23,6 @@ No MCP server or IDE Jira plugin is used.
 - Make a separately confirmed status, assignee, priority, sprint, or comment change with `/sf-jira-update`.
 - Retrieve a specific item with `singularity-flow jira pull <WORK-ID>` (`show` remains an alias).
 - Discover custom field IDs with `singularity-flow jira fields --query acceptance`, `--query story points`, or `--query sprint`.
-- Start selected Jira work with `singularity-flow start <WORK-ID> --jira`.
+- Start selected Jira work with `/sf-start <WORK-ID> --jira`, which collects the remaining choices (Shell: `singularity-flow start <WORK-ID> --jira`).
 
-Jira access requires `JIRA_BASE_URL`, `JIRA_EMAIL`, and `JIRA_API_TOKEN`. Never request the user's Atlassian password, display the token, or store credentials in Git.
+Jira Cloud access requires `JIRA_BASE_URL`, `JIRA_EMAIL`, and `JIRA_API_TOKEN`; Jira Data Center requires `JIRA_BASE_URL`, `JIRA_DEPLOYMENT=data-center`, and `JIRA_PAT`. When the connection fails, offer `/sf-jira-doctor`. Never request the user's Atlassian password, display the token, or store credentials in Git.

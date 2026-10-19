@@ -26,4 +26,6 @@ Approval authority comes from configured local Git name/email groups, not the se
 7. Report the approved content/bundle hash, actor identity, authority group, governed agent, self-approval warning, remaining distinct approvals, advancement, commit, and push.
 8. When phase approval advances the initiative, reproduce the CLI's context-boundary guidance. For `new`, stop and ask the contributor to run `/clear` followed by `/sf-initiative-next`; for `compact`, ask for `/compact` first. Do not author the next initiative phase in the old conversation.
 
-If `ask_user` is unavailable or disabled, stop without approval. Every approval creates and pushes its own commit. Never describe self-approval as independent review.
+To reject instead, require the reviewer's explicit rejection and reason in their own words, then run once `singularity-flow initiative reject <OUTPUT-ID|phase> --initiative <INIT-ID> --reason "<REASON>"`. Report what it invalidated, commit and push, then hand off to the phase's authoring skill: `/sf-epic-requirements` or `/sf-epic-story-draft` for Epic stages, otherwise `/sf-initiative-phase`.
+
+If `ask_user` is unavailable or disabled, record nothing: give the reviewer `singularity-flow initiative approve <OUTPUT-ID|phase> --initiative <INIT-ID>` to run in their own terminal, which asks for the exact confirmation. Every approval creates and pushes its own commit. Never describe self-approval as independent review.

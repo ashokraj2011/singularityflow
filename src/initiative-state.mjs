@@ -35,6 +35,7 @@ import {
   writePendingPublication,
 } from './publication-pending.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
+import { publicationPushRefusal, publicationRemoteChangedRefusal } from './publication-retry-refusals.mjs';
 import { restorePublicationPreimage } from './publication-recovery.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
@@ -1338,11 +1339,10 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
     }
     if (!currentRecord.remoteFingerprint || !remoteAuthority?.url
       || remoteAuthority.fingerprint !== currentRecord.remoteFingerprint) {
-      throw new SingularityFlowError(
-        `Initiative '${initiative.initiative.id}' publication remote '${currentRecord.remote}' changed after the commit was retained. `
-        + 'The marker was retained and no ref was pushed.',
-        { code: 'PENDING_PUBLICATION_REMOTE_CHANGED', details: { subject, markerPath: current.path } }
-      );
+      // Name the change; restoring the remote is this route's repair (it has no confirmed rebind).
+      throw publicationRemoteChangedRefusal(root, {
+        label: `Initiative '${initiative.initiative.id}'`, subject, record: currentRecord, markerPath: current.path
+      });
     }
     if (fault) await fault('after-root-authority-capture', {
       record: currentRecord, remoteFingerprint: remoteAuthority.fingerprint
@@ -1434,7 +1434,12 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
               }
             });
           }
-          throw new SingularityFlowError(`Initiative push still fails: ${error}`);
+          throw publicationPushRefusal({
+            prefix: 'Initiative push still fails', result, outcome: pushOutcome, subject,
+            commit: currentRecord.commit, branch: currentRecord.branch, remote: currentRecord.remote,
+            retryCommand: `singularity-flow initiative sync ${initiative.initiative.id}`,
+            inspectCommand: `singularity-flow initiative status ${initiative.initiative.id}`
+          });
         }
       }
       rootPublished = true;

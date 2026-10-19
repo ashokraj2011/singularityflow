@@ -9896,7 +9896,7 @@ function stepActionLogger(root, config, workflow) {
   try { return repositoryLogger(root, config, { context: { workId: workflow?.workItem?.id ?? null } }); } catch { return null; }
 }
 
-export async function syncPublication(root, config, workflow, { fault = null } = {}) {
+export async function syncPublication(root, config, workflow, { fault = null, rebindRemote = null } = {}) {
   assertStoryNotArchived(root, workflow);
   const subject = { kind: 'story', id: workflow.workItem.id };
   const pendingOptions = {
@@ -10037,11 +10037,21 @@ export async function syncPublication(root, config, workflow, { fault = null } =
     catch { /* Unsafe credential-bearing replacement is authority drift. */ }
     if (!record.remoteFingerprint || !rootRemoteAuthority?.url
       || rootRemoteAuthority.fingerprint !== record.remoteFingerprint) {
-      throw new SingularityFlowError(
-        `Story '${workflow.workItem.id}' publication remote '${record.remote}' changed after the commit was retained. `
-        + 'The marker was retained and no ref was pushed.',
-        { code: 'PENDING_PUBLICATION_REMOTE_CHANGED', details: { subject, markerPath: current.path } }
-      );
+      // A remote moved from HTTPS to SSH names the same repository under a new URL. The marker's
+      // schema stays as it is: name the change, and move a sealed marker only on a confirmed rebind.
+      const retry = await import('./publication-retry-refusals.mjs');
+      const rebind = retry.acceptPublicationRemoteRebind(root, {
+        subject, record, integrityVerified: current.integrityVerified, confirmation: rebindRemote
+      });
+      if (!rebind) {
+        throw retry.publicationRemoteChangedRefusal(root, {
+          label: `Story '${workflow.workItem.id}'`, subject, record, markerPath: current.path,
+          integrityVerified: current.integrityVerified, confirmationGiven: rebindRemote,
+          rebindCommand: `singularity-flow sync ${workflow.workItem.id}`
+        });
+      }
+      record = { ...record, remoteFingerprint: rootRemoteAuthority.fingerprint };
+      await writePendingPublication(root, { ...subject, record });
     }
     if (fault) await fault('after-root-authority-capture', {
       record, remoteFingerprint: rootRemoteAuthority.fingerprint
@@ -10147,7 +10157,14 @@ export async function syncPublication(root, config, workflow, { fault = null } =
             record = { ...record, pushOutcome: 'rejected' };
             await writePendingPublication(root, { ...subject, record });
           }
-          throw new SingularityFlowError(`Push still fails: ${(result.stderr || result.stdout).trim()}`);
+          // A rule, hook or push-protection refusal repeats on every retry of this commit: name
+          // the manual repair first and offer the retry only for after the provider accepts it.
+          throw (await import('./publication-retry-refusals.mjs')).publicationPushRefusal({
+            result, outcome: pushOutcome, subject, commit: record.commit, branch: record.branch,
+            remote: record.remote, extraDetails: { workId: workflow.workItem.id, markerPath: current.path },
+            retryCommand: `singularity-flow sync ${workflow.workItem.id}`,
+            inspectCommand: `singularity-flow recover ${workflow.workItem.id}`
+          });
         }
       }
       if (fault) await fault('after-root-push-before-receipt', { record, result });

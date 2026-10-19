@@ -4965,7 +4965,7 @@ async function syncCommand(positionals = [], options = {}) {
   const workflow = await loadStoryAggregate(root, config, requestedId);
   let result;
   try {
-    result = await syncPublication(root, config, workflow);
+    result = await syncPublication(root, config, workflow, { rebindRemote: optionString(options, 'rebind-remote') });
   } catch (error) {
     throw await explainLostPublicationRace(root, config, workflow, error);
   }

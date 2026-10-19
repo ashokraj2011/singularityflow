@@ -27,7 +27,7 @@ const MARKER_FILES = new Set(['package.json', 'pom.xml', 'build.gradle', 'build.
 const JETBRAINS_TYPES = Object.freeze({
   Application: 'intellij', JetRunConfigurationType: 'intellij', SpringBootApplicationConfigurationType: 'intellij',
   MavenRunConfiguration: 'intellij', GradleRunConfiguration: 'intellij',
-  PythonConfigurationType: 'pycharm', 'Python.DjangoServer': 'pycharm',
+  PythonConfigurationType: 'pycharm', 'Python.DjangoServer': 'pycharm', 'Python.FastAPI': 'pycharm',
   NodeJSConfigurationType: 'webstorm', 'js.build_tools.npm': 'webstorm',
   GoApplicationRunConfiguration: 'goland',
   DotNetProject: 'rider', LaunchSettings: 'rider'
@@ -331,7 +331,7 @@ function jetBrainsLaunch(reader, type, configuration, { macros, projectDirectory
       variables: variablesFrom(Object.entries(optionMap(settings, 'env')).map(([name, value]) => ({ name, value }))), notes
     };
   }
-  if (type === 'PythonConfigurationType' || type === 'Python.DjangoServer') {
+  if (type === 'PythonConfigurationType' || type === 'Python.DjangoServer' || type === 'Python.FastAPI') {
     const workingDirectory = directory(optionValue(configuration, 'WORKING_DIRECTORY'));
     if (workingDirectory.refused) return { refused: `working directory ${workingDirectory.refused}` };
     const interpreter = interpreterPath(root, optionValue(configuration, 'SDK_HOME'), macros, projectDirectory, notes);
@@ -345,6 +345,20 @@ function jetBrainsLaunch(reader, type, configuration, { macros, projectDirectory
           port: optionValue(configuration, 'port') ?? '', noReload: optionValue(configuration, 'runNoReload') === 'true',
           additional: splitCommandLine(optionValue(configuration, 'additionalOptions')), workingDirectory: workingDirectory.absolute,
           customCommand: optionValue(configuration, 'useCustomRunCommand') === 'true' ? optionValue(configuration, 'customRunCommand') : null
+        },
+        variables, notes
+      };
+    }
+    if (type === 'Python.FastAPI') {
+      // PyCharm's FastAPI configuration names the application file; uvicorn's own options ride along.
+      const fileValue = optionValue(configuration, 'file') ?? optionValue(configuration, 'FILE') ?? '';
+      const application = resolveIdePath(root, fileValue, macros, workingDirectory.absolute);
+      if (application.refused || !fileValue.trim()) return { refused: `application file ${application.refused ?? 'is not named'}` };
+      return {
+        launch: {
+          platform: 'python', mode: 'fastapi', interpreter, interpreterOptions, file: application.absolute, workingDirectory: workingDirectory.absolute,
+          parameters: splitCommandLine(macroText(optionValue(configuration, 'uvicornParameters') ?? optionValue(configuration, 'additionalOptions')
+            ?? optionValue(configuration, 'PARAMETERS'), macros, workingDirectory.absolute))
         },
         variables, notes
       };

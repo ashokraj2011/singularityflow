@@ -2,8 +2,8 @@
   "format": 1,
   "measurement": "Repository-local static ESM closure; dynamic first-use imports excluded. Runtime source/bundle parity is tested separately.",
   "source": [
-    { "entry": "src/commands/start.mjs", "maximumModules": 444,
-      "note": "Includes the shared import-free requirement coverage rubric; no additional Git, model or legacy-dispatch dependency. 444: the source-review batching split three helpers out of loaded modules and added its snapshot cache.",
+    { "entry": "src/commands/start.mjs", "maximumModules": 454,
+      "note": "Includes the shared import-free requirement coverage rubric; no additional Git, model or legacy-dispatch dependency. 444: the source-review batching split three helpers out of loaded modules and added its snapshot cache. 454: 1078bf60 split publication writers out of state.mjs into ten modules (+17 KB eager source).",
       "forbidden": ["src/cli.mjs", "src/commands/legacy.mjs", "src/worldmodel.mjs", "src/model-runner.mjs", "src/editor.mjs"] },
     { "entry": "src/commands/workspace.mjs", "maximumModules": 27 },
     { "entry": "src/commands/capability.mjs", "maximumModules": 12 },

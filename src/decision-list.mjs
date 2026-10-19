@@ -30,7 +30,7 @@ export const DEFAULT_RISK_DAYS = 30;
 const MAX_RISK_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;
 // The order a chosen option's records are written in: an issue exists before it is decided.
-const EFFECT_ORDER = Object.freeze(['upstream-issue', 'evidence-reuse', 'test-run-risk', 'upstream-issue-decision']);
+const EFFECT_ORDER = Object.freeze(['upstream-issue', 'evidence-reuse', 'test-run-risk', 'visual-profile', 'upstream-issue-decision']);
 const REASON = Object.freeze({ minimum: 20, maximum: 1000 });
 const CAUSE = Object.freeze({ minimum: 10, maximum: 300 });
 
@@ -274,6 +274,32 @@ function issueItem(workflow, context, state) {
   };
 }
 
+/**
+ * One item for a screen size enforced visual coverage still lacks. Capturing it is the person's
+ * action (its command is shown, never recorded here); saying it does not apply to this Story is the
+ * decision, available while another screen size stays required.
+ */
+function visualItem(workflow, context, entry) {
+  const capture = entry.options.find((candidate) => candidate.id === 'capture');
+  const notApplicable = entry.options.find((candidate) => candidate.id === 'not-applicable');
+  const action = (source, words) => ({ id: source.id, label: source.label, recommended: false, words, effects: [], needs: {}, recordable: false,
+    ...(source.command ? { action: { command: source.command, alternativeCommands: source.alternativeCommands ?? [] } } : { available: false }),
+    decidedBy: { groups: [], labels: [], allowed: true, words: source.command ? 'You take the screenshot and record it; nothing is decided here.' : words } });
+  const options = [
+    ...(capture ? [action(capture, capture.detail)] : []),
+    ...(notApplicable ? [notApplicable.available ? option(workflow, context, {
+      id: 'not-applicable', label: notApplicable.label, words: notApplicable.detail,
+      effects: [{ kind: 'visual-profile', phase: entry.phase, profileId: entry.profileId }],
+      needs: { reason: textNeed(`${entry.label} does not apply to this Story: the change does not ship to this screen size.`, REASON) }
+    }) : action(notApplicable, notApplicable.detail)] : [])
+  ];
+  return {
+    kind: 'visual-profile', title: entry.title, why: entry.why, options,
+    details: { phase: entry.phase, profileId: entry.profileId, label: entry.label,
+      commands: [capture?.command, ...(capture?.alternativeCommands ?? []), notApplicable?.command].filter(Boolean) }
+  };
+}
+
 /** One item for a test command of a step whose latest run stopped before any test executed. */
 function testRiskItem(workflow, context, risk) {
   const name = stepName(workflow, risk.phase);
@@ -317,6 +343,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   const groups = decisionGroups(workflow, { gaps: facts.gaps, issues: facts.issues, includeAllIssues: facts.endsStory === true });
   const built = [
     ...groups.map((group) => (group.kind === 'conformance-gap' ? gapItem(workflow, context, group) : issueItem(workflow, context, group.state))),
+    ...(facts.visual ?? []).map((entry) => visualItem(workflow, context, entry)),
     ...(facts.testRisks ?? []).map((risk) => testRiskItem(workflow, context, risk))
   ];
   const items = built.map((item, index) => {
@@ -406,6 +433,11 @@ export function decisionRecordPlan(packet, answers, { at }) {
     for (const flag of ['reason', 'expires', 'cause']) {
       if (answers[flag].has(item.id) && !selected.needs[flag]) refused(`${item.id}=${chosen} takes no --${flag}.`, 'DECISIONS_ANSWER_INVALID');
     }
+    if (selected.recordable === false) {
+      refused(selected.action
+        ? `${item.id}=${chosen} is your action, not a recorded decision: take the screenshot and run ${selected.action.command}`
+        : `${item.id}=${chosen} is not available: ${selected.words}`, 'DECISIONS_OPTION_NOT_RECORDABLE', { item: item.id, option: chosen, command: selected.action?.command ?? null });
+    }
     if (!selected.decidedBy.allowed) {
       refusedItems.push({ item: item.id, title: item.title, option: chosen, words: selected.decidedBy.words, groups: selected.decidedBy.groups,
         share: selected.decidedBy.share ?? `/sf-decide ${packet.workId}` });
@@ -447,6 +479,7 @@ export function effectWords(workflow, effect, values = {}) {
   }
   if (effect.kind === 'upstream-issue') return `report the gap against ${stepName(workflow, effect.phase)} (new upstream issue about ${effect.about})`;
   if (effect.kind === 'test-run-risk') return `accept that ${effect.commandId} cannot run here until ${values.expires} (test-run risk)`;
+  if (effect.kind === 'visual-profile') return `record that screen size ${effect.profileId} does not apply to this Story (visual-profile decision)`;
   const what = { 'accept-risk': `accept it as a risk until ${values.expires}`, dismiss: 'dismiss it', return: `return the work to ${stepName(workflow, effect.issuePhase)}` }[effect.outcome] ?? effect.outcome;
   return `${what} (decision on ${effect.issue ?? 'the new upstream issue'})`;
 }

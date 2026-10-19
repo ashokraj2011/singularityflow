@@ -4,6 +4,10 @@
  * next-step parity, and the refusal routes. [decision list]
  */
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
 import test from 'node:test';
 
@@ -14,6 +18,7 @@ import {
   decisionGroups, decisionPacket, decisionRecordPlan, decisionRefusalLead, ISSUE_ONLY_OPTIONS, parseDecisionAnswers, runDecisionPlan
 } from '../src/decision-list.mjs';
 import { terminalRefusalMessage } from '../src/evidence/terminal.mjs';
+import { decisionListFacts } from '../src/decision-list-reads.mjs';
 import { workflowNextSteps } from '../src/nextsteps.mjs';
 import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
 import { upstreamIssueStates } from '../src/upstream-routes.mjs';
@@ -281,6 +286,59 @@ test('refusals lead with one sentence and the decision list, keeping the exact c
   const message = terminalRefusalMessage('BIN-501', { blockers: ['UPI-002 about implementation (BIN-501:REQ-001) is not decided; implementation\'s approvers decide it.'],
     recovery: ['singularity-flow decisions BIN-501'], decisions: lead });
   assert.match(message, /^Release can't be approved yet: 1 decision needed\. Decide them in one place\. Copilot: \/sf-decide BIN-501/u);
+});
+
+test('a screen size coverage still lacks is one item: capturing it is the person\'s action, not applicable is the decision', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-decision-visual-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  const PHONE = { id: 'phone-390x844', label: 'Phone 390 × 844', width: 390, height: 844, deviceScaleFactor: 1 };
+  const TABLET = { id: 'tablet-834x1194', label: 'Tablet 834 × 1194', width: 834, height: 1194, deviceScaleFactor: 1 };
+  const workflow = {
+    workItem: { id: 'MOB-1' }, status: 'in_progress', currentPhase: 'visual-verification',
+    phaseOrder: ['implementation', 'visual-verification'],
+    phases: {
+      implementation: { id: 'implementation', status: 'approved', generation: 1, approvalPolicy: { authorities: ['engineering-reviewers'] } },
+      'visual-verification': { id: 'visual-verification', label: 'Visual check', status: 'in_progress', generation: 1,
+        requiredArtifact: { kind: 'visual-test-evidence' }, approvalPolicy: { authorities: ['design-reviewers'] } }
+    },
+    resolution: { workItemRoot: 'singularity/work-items', verification: { coverage: 'enforce', profiles: [PHONE, TABLET] },
+      approvalAuthorities: { 'engineering-reviewers': { label: 'Engineering reviewers', allowAnyGitIdentity: true, members: [] },
+        'design-reviewers': { label: 'Design reviewers', allowAnyGitIdentity: false, members: [{ email: 'design@example.invalid' }] } } },
+    history: []
+  };
+  const config = { workItemRoot: 'singularity/work-items' };
+  const designer = { name: 'Designer', email: 'design@example.invalid', login: null };
+  const packet = decisionPacket(workflow, await decisionListFacts(root, config, workflow, { phaseId: 'visual-verification', at: AT }),
+    { authorities: workflow.resolution.approvalAuthorities, actor: designer, at: AT });
+  assert.equal(packet.headline, 'Visual check needs 2 decisions before it can be approved.');
+  assert.deepEqual(packet.items.map((item) => [item.kind, item.title]),
+    [['visual-profile', 'No screenshot yet for Phone 390 × 844'], ['visual-profile', 'No screenshot yet for Tablet 834 × 1194']]);
+  const [, tablet] = packet.items;
+  assert.deepEqual(tablet.options.map((option) => [option.id, option.recordable ?? true, option.effects.map((effect) => effect.kind)]),
+    [['capture', false, []], ['not-applicable', true, ['visual-profile']]]);
+  assert.match(tablet.options[0].action.command, /^singularity-flow visual record --phase visual-verification --profile-id tablet-834x1194 /u);
+  assert.deepEqual(tablet.options[1].decidedBy.groups, ['design-reviewers']);
+  assert.equal(tablet.options[1].decidedBy.allowed, true);
+  // Capturing is never recorded here; the decision records through its own command, by its own approvers.
+  assert.throws(() => decisionRecordPlan(packet, parseDecisionAnswers({ choose: ['d2=capture'] }), { at: AT }),
+    (error) => error.code === 'DECISIONS_OPTION_NOT_RECORDABLE' && /take the screenshot and run singularity-flow visual record/u.test(error.message));
+  const plan = decisionRecordPlan(packet, parseDecisionAnswers({ choose: ['d2=not-applicable'] }), { at: AT });
+  assert.deepEqual(plan.steps[0].effects, [{ kind: 'visual-profile', phase: 'visual-verification', profileId: TABLET.id }]);
+  assert.ok(plan.steps[0].values.reason.length >= 20);
+  const outsider = decisionPacket(workflow, await decisionListFacts(root, config, workflow, { phaseId: 'visual-verification', at: AT }),
+    { authorities: workflow.resolution.approvalAuthorities, actor, at: AT });
+  assert.equal(outsider.items[1].options[1].decidedBy.words, 'The Design reviewers decide this.');
+  assert.equal(outsider.packetSha256, packet.packetSha256);
+  // Once one screen size is decided, the last one can only be captured.
+  workflow.visualProfileDecisions = [{ id: 'VPD-001', phase: 'visual-verification', profileId: TABLET.id, profileLabel: TABLET.label,
+    disposition: 'not-applicable', reason: 'This app ships to phones only; no tablet layout.', actor: 'design@example.invalid', authorityGroup: 'design-reviewers', at: AT }];
+  const last = decisionPacket(workflow, await decisionListFacts(root, config, workflow, { phaseId: 'visual-verification', at: AT }),
+    { authorities: workflow.resolution.approvalAuthorities, actor: designer, at: AT });
+  assert.equal(last.items.length, 1);
+  assert.deepEqual(last.items[0].options.map((option) => [option.id, option.available ?? true]), [['capture', true], ['not-applicable', false]]);
+  assert.throws(() => decisionRecordPlan(last, parseDecisionAnswers({ choose: ['d1=not-applicable'] }), { at: AT }),
+    (error) => error.code === 'DECISIONS_OPTION_NOT_RECORDABLE' && /only screen size left to check/u.test(error.message));
 });
 
 test('an agent reading the list asks the person; a preview that needs the person\'s terminal is never run by the agent', () => {

@@ -59,7 +59,7 @@ async function storyContext(root, workId, { record, fetch }) {
 /** The list as it stands now, for the current Git identity. */
 export async function readDecisionPacket(root, config, workflow, { phaseId = null, at = nowIso() } = {}) {
   const [{ decisionListFacts }, { decisionPacket }, { actionActor }] = await Promise.all([
-    import('../decision-list-facts.mjs'), import('../decision-list.mjs'), import('./kernel.mjs')]);
+    import('../decision-list-reads.mjs'), import('../decision-list.mjs'), import('./kernel.mjs')]);
   const facts = await decisionListFacts(root, config, workflow, { phaseId: phaseId ?? workflow.currentPhase, at });
   return decisionPacket(workflow, facts, {
     authorities: workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities,
@@ -123,7 +123,8 @@ function itemLines(item, index, { numbered = false } = {}) {
   const lines = [`${numbered ? `${index + 1}. ` : `${item.id}. `}${item.title}`, `   ${item.why}`, `   ${item.decidedBy.words}`];
   if (!item.decidedBy.allowed && item.decidedBy.share) lines.push(`   Share this with them: ${item.decidedBy.share}`);
   item.options.forEach((option, position) => {
-    lines.push(`   ${numbered ? `${position + 1})` : `${option.id}:`} ${option.label}${option.recommended ? '  [recommended]' : ''}`);
+    const yours = option.action ? '  (yours to do; never recorded here)' : option.available === false ? '  (not available)' : '';
+    lines.push(`   ${numbered ? `${position + 1})` : `${option.id}:`} ${option.label}${option.recommended ? '  [recommended]' : ''}${yours}`);
   });
   return lines;
 }
@@ -203,6 +204,10 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
       }
       if (chosen === skip) continue;
       const option = item.options[chosen - 1];
+      if (option.recordable === false) {
+        say(`   ${option.words}${option.action ? ` Run it yourself: ${option.action.command}` : ''}`);
+        continue;
+      }
       if (!option.decidedBy.allowed) {
         say(`   ${option.decidedBy.words} Share this with them: ${option.decidedBy.share}`);
         continue;
@@ -253,6 +258,11 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
   if (effect.kind === 'evidence-reuse') {
     const { recordEvidenceReuseDecision } = await import('./decision-evidence-reuse.mjs');
     return (await recordEvidenceReuseDecision(root, config, workflow, { phaseId: effect.phase, attemptId: effect.attemptId,
+      reason: step.values.reason }, { actor, agent })).record;
+  }
+  if (effect.kind === 'visual-profile') {
+    const { recordVisualProfileDecisionFor } = await import('./decision-visual-profile.mjs');
+    return (await recordVisualProfileDecisionFor(root, config, workflow, { phaseId: effect.phase, profileId: effect.profileId,
       reason: step.values.reason }, { actor, agent })).record;
   }
   if (effect.kind === 'test-run-risk') {

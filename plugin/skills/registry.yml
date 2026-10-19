@@ -138,7 +138,7 @@ skills:
   sflow-epic-resume: { class: interactive, executionBoundary: repository }
   sflow-epic-review: { class: review, executionBoundary: repository }
   sflow-epic-review-decision: { class: review, executionBoundary: repository }
-  sflow-decide: { class: review, maximumTokenOverride: 1100, exception: "It shows everything a step waits for as one plain-words list and records the person's ask_user choices with one confirmation: who may not decide gets the line to share, a reused run or test-run risk is handed to the person's own terminal, and a changed list restarts it (2026-10-19, decision list). Its JSON reads carry --for-agent, so a long result arrives bounded with act first." }
+  sflow-decide: { class: review, maximumTokenOverride: 1125, exception: "It shows everything a step waits for as one plain-words list (a screen size to capture stays the person's action) and records the person's ask_user choices with one confirmation: who may not decide gets the line to share, a reused run or test-run risk is handed to the person's own terminal, and a changed list restarts it (2026-10-19, decision list). Its JSON reads carry --for-agent, so a long result arrives bounded with act first." }
   sflow-epic-sources: { class: mutation, executionBoundary: repository }
   sflow-epic-start: { class: interactive, executionBoundary: repository }
   sflow-epic-status: { class: echo, executionBoundary: repository }

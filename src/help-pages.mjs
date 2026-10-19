@@ -1274,7 +1274,40 @@ const PAGES = Object.freeze({
       ['singularity-flow app status --json', 'Says whether web is started and answering at its URL.'],
       ['singularity-flow app stop web', 'Stops the process tree app start recorded for web.']
     ],
-    seeAlso: ['env', 'capability', 'precheck']
+    seeAlso: ['env', 'capability', 'precheck', 'tests']
+  },
+  tests: {
+    summary: 'Run a capability\'s or a Story step\'s tests the way the code step runs them, and read one summary of every test case.',
+    description: [
+      'tests run resolves the commands exactly as the code step does (configured qualityCommands and the',
+      'repository-native ones it infers), narrowed by the capability\'s application.tests or by --command.',
+      'With --capability (the default scope) the run is a local preview: kept privately below the Git common',
+      'directory (the last 20 runs) and never evidence for any Story. With --work-id it stages one attempt per',
+      'command for the step, as publish preflight does; the step\'s next publication or submission admits it with',
+      'the others, and its gates still run their own. It prints totals per command and the summary to read next.',
+      'tests summary reads one run (the latest, or --run) as resultType sflow-test-summary: totals, each command',
+      '(perCase false, with a note, for report formats that give totals only), up to 5,000 test cases with their',
+      '@ac requirement tags from the evidence matrix\'s scanners, the untagged count and the run history.',
+      'A command linked to an environment runs with that environment\'s values only when the capability policy',
+      'localIntegrationEvidence is allowed and the binding is complete; its output shows each bound secret as',
+      '[redacted:NAME]. --environment picks one of the environments the command may use.'
+    ],
+    options: [
+      ['--capability ID', 'A local preview of this delivery capability; by default the one that owns this checkout.'],
+      ['--work-id ID', 'A Story; its current step unless --phase names another code step.'],
+      ['--phase PHASE', 'With --work-id: the code step whose commands run or whose runs are read.'],
+      ['--command ID', 'run only: run just this quality command; repeat for several.'],
+      ['--environment ENV', 'run only: the environment for commands that use one.'],
+      ['--run RUN-ID', 'summary only: a RUN- local run, or a TA- attempt of the Story step.'],
+      ['--json', 'Machine-readable output (sflow-test-run, sflow-test-summary).']
+    ],
+    examples: [
+      ['singularity-flow tests run', 'Runs this capability\'s tests as a local preview and prints totals.'],
+      ['singularity-flow tests run --command integration-tests --environment qa', 'Runs one command against qa.'],
+      ['singularity-flow tests summary --json', 'Every test case of the latest run, with its requirement tags.'],
+      ['singularity-flow tests run --work-id PAY-12', 'Stages a local run of the current code step\'s tests.']
+    ],
+    seeAlso: ['app', 'env', 'evidence', 'capability']
   },
   decisions: {
     summary: 'See everything people must decide before a step can move, in plain words, and record the choices at once.',

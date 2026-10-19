@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
-import { access, lstat, open, readFile, readdir, realpath, stat } from 'node:fs/promises';
+import { access, lstat, open, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { nodeTestObservation } from './verification/node-test-observation.mjs';
 
@@ -1386,6 +1386,23 @@ export function replayLocalJunitObservation(rawReports, {
   };
 }
 
+/**
+ * Where each JUnit test case says it is declared (its `file` and `line` attributes, when the
+ * runner writes them), in the same order as the occurrences an attempt keeps. Read only by the test
+ * summary to find a case's `@ac:` tags; it never changes what an attempt records [RUN M2].
+ */
+export function junitCaseLocations(reports) {
+  const locations = [];
+  for (const [index, content] of reports.entries()) {
+    for (const node of descendants(parseXml(decodeXmlReport(Buffer.from(content), index)), 'testcase')) {
+      const file = typeof node.attributes.file === 'string' && node.attributes.file ? node.attributes.file : null;
+      const line = /^\d+$/u.test(String(node.attributes.line ?? '')) ? Number(node.attributes.line) : null;
+      locations.push({ file, line });
+    }
+  }
+  return locations;
+}
+
 /** Narrow native Node reporter view; identity inventory must come from approved policy, not here. */
 export function parseNativeNodeJunitReport(bytes) {
   const contents = Buffer.from(bytes);
@@ -1460,6 +1477,30 @@ export async function assertTestReportTargetEmpty(root, command) {
   if (secured.exists && (await resultFiles(secured.absolute, normalized.result.adapter)).length) {
     throw new SingularityFlowError('Native report capture requires a freshly cleared output target.', { code: 'CODE_TEST_RESULT_REQUIRED' });
   }
+}
+
+/**
+ * Rewrite a command's fresh report files with every bound secret redacted, before anything reads,
+ * stores or replays them [RUN rule 3]. Used only for a run that was given private environment
+ * values; `redact` comes from that run's materialized binding. Returns how many files changed.
+ */
+export async function redactTestReportFiles(root, command, redact) {
+  const normalized = normalizeRequiredTestCommand(command);
+  const repositoryRoot = (await secureRepositoryPath(root, '.', { label: 'Repository root', mustExist: true, type: 'directory' })).absolute;
+  const secured = await secureRepositoryPath(root, path.join(normalized.workingDirectory, normalized.result.path), {
+    label: 'Structured test result', type: undefined
+  });
+  if (!secured.exists) return 0;
+  let changed = 0;
+  for (const file of await resultFiles(secured.absolute, normalized.result.adapter)) {
+    const text = (await readResultFile(repositoryRoot, file)).toString('utf8');
+    const redacted = redact(text);
+    if (redacted !== text) {
+      await writeFile(file.absolute, redacted);
+      changed += 1;
+    }
+  }
+  return changed;
 }
 
 export async function parseTestResult(root, command, { startedAt = null } = {}) {
@@ -1627,7 +1668,8 @@ export function testReceiptPassing(receipt, minimumDiscovered = 1, minimumPassed
  */
 export function buildTestExecutionReceipt(command, check, parsed, {
   attemptId, nonce, parentAttemptId = null, purpose = 'submission', workId = null, phase = null,
-  generation = null, epoch = null, rawReports = [], reportError = null, profile = null, selection = null
+  generation = null, epoch = null, rawReports = [], reportError = null, profile = null, selection = null,
+  localRunId = null, uncommittedChanges = null
 } = {}) {
   const countsValid = parsed ? consistentTestCounts(parsed.tests) : false;
   const processPassed = check?.status === 'passed' && check.exitCode === 0;
@@ -1644,6 +1686,8 @@ export function buildTestExecutionReceipt(command, check, parsed, {
   return {
     schemaVersion: currentSchemaVersion('test-execution'), kind: 'test-execution',
     attemptId, nonce, parentAttemptId, purpose, workId, phase, generation, ...(epoch ? { epoch } : {}),
+    // A local run's attempts share one run ID so a test summary reads them as one run [RUN M2].
+    ...(localRunId ? { localRunId, uncommittedChanges: uncommittedChanges === true } : {}),
     commandId: command.id,
     commandSha256: `sha256:${sha256(canonicalJson(commandCore))}`,
     argvSha256: sha256(Buffer.from(JSON.stringify(command.argv))),

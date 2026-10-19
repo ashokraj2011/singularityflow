@@ -91,6 +91,8 @@ Usage:
   singularity-flow app start [START-ID] [--capability ID] [--environment ENV]
   singularity-flow app status [--capability ID] [--json]
   singularity-flow app stop [START-ID] [--capability ID] [--json]
+  singularity-flow tests run [--capability ID | --work-id ID [--phase PHASE]] [--command ID]... [--environment ENV] [--json]
+  singularity-flow tests summary [--capability ID | --work-id ID [--phase PHASE]] [--run RUN-ID] [--json]
   singularity-flow refresh-branch [--remote origin] [--branch CURRENT] [--json]
   singularity-flow factory-reset [--dry-run] [--confirm "RESET REPOSITORY COMMIT" --expect-scope-sha256 SHA256] [--allow-dirty] [--include-local-documents] [--json]
   singularity-flow governance rebuild --dry-run [--remote origin] [--json]

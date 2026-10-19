@@ -25,7 +25,9 @@ import { posix, secureRepositoryPath, writeAtomicExclusive } from '../util.mjs';
 import { classifyTestCommand } from './adapters.mjs';
 import { profileForCommand } from './profiles.mjs';
 
-export const ATTEMPT_PURPOSES = Object.freeze(['preflight', 'submission', 'epoch']);
+// `local` is a run a person started with tests run for a Story step [RUN M2]: staged and later
+// admitted like the others, but never the run a gate, a decision or a test-run risk reads.
+export const ATTEMPT_PURPOSES = Object.freeze(['preflight', 'submission', 'epoch', 'local']);
 const ATTEMPT_FILE = /^TA-[a-f0-9]{20}\.json$/u;
 const MAX_ATTEMPT_FILES = 10_000;
 
@@ -82,10 +84,13 @@ export async function stepAttempts(root, itemRelative, workId, phaseId) {
     `${left.process?.completedAt ?? ''}\u0000${left.attemptId}`.localeCompare(`${right.process?.completedAt ?? ''}\u0000${right.attemptId}`));
 }
 
-/** The latest recorded run of each test command of a step, by command ID. */
-export async function latestStepAttempts(root, itemRelative, workId, phaseId) {
+/** The latest recorded gate run of each test command of a step, by command ID; local runs only when asked. */
+export async function latestStepAttempts(root, itemRelative, workId, phaseId, { includeLocal = false } = {}) {
   const latest = new Map();
-  for (const attempt of await stepAttempts(root, itemRelative, workId, phaseId)) latest.set(attempt.commandId, attempt);
+  for (const attempt of await stepAttempts(root, itemRelative, workId, phaseId)) {
+    if (attempt.purpose === 'local' && !includeLocal) continue;
+    latest.set(attempt.commandId, attempt);
+  }
   return latest;
 }
 
@@ -94,7 +99,8 @@ export async function latestStepAttempts(root, itemRelative, workId, phaseId) {
  * the attempt in private storage, and returns the attempt with its Story path and digest.
  */
 export async function recordTestAttempt(root, itemRelative, {
-  command, check, purpose, workId, phaseId, generation, epoch = null, random = randomBytes
+  command, check, purpose, workId, phaseId, generation, epoch = null, random = randomBytes, localRunId = null,
+  uncommittedChanges = null
 }) {
   let parsed = null;
   let reportError = null;
@@ -115,7 +121,8 @@ export async function recordTestAttempt(root, itemRelative, {
   const profile = profileForCommand(command);
   const attempt = buildTestExecutionReceipt(command, check, parsed, {
     ...newAttemptIdentity(random), parentAttemptId: previous?.attemptId ?? null, purpose, workId, phase: phaseId,
-    generation, epoch, rawReports, reportError, profile, selection: classifyTestCommand(profile, command)
+    generation, epoch, rawReports, reportError, profile, selection: classifyTestCommand(profile, command), localRunId,
+    uncommittedChanges
   });
   await writeAtomicExclusive(path.join(staging, phaseId, `${attempt.attemptId}.json`), `${JSON.stringify(attempt, null, 2)}\n`, { mode: 0o600 });
   return {

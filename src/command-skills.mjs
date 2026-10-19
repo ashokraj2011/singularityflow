@@ -81,6 +81,8 @@ const entries = {
   env: ['sf-environment'],
   // Until the guided /sf-run-app skill exists [RUN M5], readiness owns starting the application.
   app: ['sf-ready', 'sf-environment'],
+  // Until the guided /sf-test skill exists [RUN M5], test setup and evidence own the test commands.
+  tests: ['sf-test-setup', 'sf-evidence'],
   candidate: ['sf-sgos'],
   'execution-unit': ['sf-sgos'],
   device: ['sf-sgos'],

@@ -178,3 +178,92 @@ and its explicit shared-snapshot/fresh-retention assertions. All review CLI case
 Windows run passed; the follow-up reran the corrected fixture and affected cache/binding suites,
 not the entire broader corpus. Qualification workflows are temporary CI-only assets, not product
 files or workflows merged into main.
+
+## Follow-on cold-path measurements
+
+The follow-on baseline is `61538bd8` (already containing the earlier snapshot/batching work),
+not `8dcb3a27`. Six alternating A/B and B/A pairs per profile use the installed bundle and an
+independent empty compile cache for every fixture. Values are medians in milliseconds; sequence
+medians are computed per complete run, not by summing the individual step medians.
+
+| Host / profile | First context before → after | Sequence before → after | Sequence gain |
+| --- | ---: | ---: | ---: |
+| This Mac / small | 675 → 593.5 | 3,151 → 2,692.5 | 15% |
+| This Mac / larger | 633 → 544.5 | 2,781 → 2,401.5 | 14% |
+| Hosted macOS / small | 543.5 → 470.5 | 2,286 → 1,985 | 13% |
+| Hosted macOS / larger | 530.5 → 471 | 2,328.5 → 1,965 | 16% |
+| Hosted Windows / small | 2,071.5 → 1,814.5 | 10,900 → 9,438.5 | 13% |
+| Hosted Windows / larger | 2,424.5 → 2,140 | 12,496 → 11,620.5 | 7% |
+
+These six-pair measurements qualify the cold-read refactor before the final singleton metadata
+refinement. That refinement restores the existing individual cache path for one or two requests,
+avoiding the group's second object-store scan; larger groups still coalesce and revalidate.
+Its final smoke measurements and affected tests are recorded separately below. Do not present
+these six-pair figures as a new measurement of that last refinement.
+
+The review read's static bundle closure fell from 9,857,233 to 4,214,538 bytes, while the installed
+envelope stayed at twenty files. In the Windows small profile, cold module loading fell from a
+median 318 to 104 ms and accounting preparation from 407 to 113 ms. Definition loads fell from
+two to one; logging no longer scans the agent catalog or checks 57 templates. Timed spans may
+overlap and must not be added to predict elapsed time.
+
+Retention is not made uniformly faster by this change: the larger Windows profile was roughly
+flat (5,752 → 5,817 ms) and still dominates total time. Git children fell only from 93 to 92 for
+small retention, and 99 to 98 for larger retention. Initial, fresh-transaction and post-commit
+input loads remain separate, and every retained benchmark review performed one fresh binding
+check. Conservative Windows cache admission still applies; no timestamp-race rule was relaxed.
+
+Run `39188491990` supplies the hosted six-pair data; raw observations are retained as qualification
+artifacts. Its benchmark steps and four reader/retention tests passed on both hosts; its later
+product check found the new benchmark launch site missing from the frozen process inventory.
+That exact launch was reviewed and recorded, without widening the registered Git owners.
+An earlier qualification attempt also used an inappropriate synthetic Git name that made the
+privacy audit flag the product name; only the CI fixture identity was corrected.
+
+Final broad platform run `39189018604` passed on both hosts: 247 tests on macOS and 246 on
+Windows, with one existing privilege-dependent symlink case skipped on Windows and exercised
+on macOS. Both hosts passed 2,775 product checks, the CLI build, VS Code typechecking and build,
+including generated-output privacy checks. A separate local broader run passed all 330 tests,
+including publication faults. No validation or approval policy was weakened to obtain these results.
+
+### Final singleton-cache refinement
+
+Run `39191782059` qualified `d18afdc6` on both hosts: all 60 affected cache, invalidation,
+fresh-binding and review tests passed on each, together with 2,775 product checks, CLI builds,
+VS Code typechecking/builds and generated-output checks. Every optimized retention observation
+still had three independent input loads and exactly one fresh binding check.
+
+Its two-pair balanced smoke is deliberately reported separately from the six-pair measurements:
+
+| Host / profile | First context before → after ms | Sequence before → after ms |
+| --- | ---: | ---: |
+| Hosted macOS / small | 539.5 → 487 | 2,256 → 1,916 |
+| Hosted macOS / larger | 531 → 462 | 2,316 → 1,954 |
+| Hosted Windows / small | 1,907 → 1,814.5 | 10,092.5 → 8,989 |
+| Hosted Windows / larger | 2,107 → 1,817 | 11,413.5 → 14,524.5 |
+
+The last row is a regression in this smoke, not a speedup. Its two optimized retention samples
+were 5,250 and 11,519 ms versus 4,934 and 5,147 ms before; the slow observation also had higher
+Git service time and publication admission/candidate/commit time. The measurements do not
+establish whether the change or host variability caused it, so the larger Windows profile was
+repeated with six balanced pairs before integration. Startup improvements alone cannot justify
+a claim that complete review retention is faster.
+
+The six-pair repeat, run `39192673121`, also passed all 60 affected tests, 2,775 product checks,
+CLI builds and VS Code typechecking/builds. Its larger Windows medians were:
+
+| Step | Before ms | After ms |
+| --- | ---: | ---: |
+| First context, empty compile cache | 3,219.5 | 2,158.5 |
+| Repeated context | 1,994.5 | 1,600 |
+| Staging | 1,603 | 1,244 |
+| Report check | 1,401 | 1,026 |
+| Retention, including fresh binding | 6,942 | 6,277 |
+| First status after retention | 1,941.5 | 1,649.5 |
+| Complete measured sequence | 15,162 | 12,654.5 |
+
+The sequence improved 17% in this repeat, with fresh binding retained in all six optimized runs.
+Absolute host timings varied substantially between qualification runs; optimized retention still
+ranged from 5,576 to 9,635 ms, versus 6,024 to 11,300 ms before. This supports the read/startup
+optimization, not a fixed latency promise or a claim that publication is solved. The benchmark
+excludes Copilot model time, shell transport and network pushes; no office laptop was measured.

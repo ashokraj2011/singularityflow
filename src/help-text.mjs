@@ -92,6 +92,7 @@ Usage:
   singularity-flow app status [--capability ID] [--json]
   singularity-flow app stop [START-ID] [--capability ID] [--json]
   singularity-flow app suggest [--capability ID] [--json]
+  singularity-flow app config preview --application-file FILE [--capability ID] [--json]
   singularity-flow tests plan [--capability ID | --work-id ID [--phase PHASE]] [--command ID]... [--json]
   singularity-flow tests run [--capability ID | --work-id ID [--phase PHASE]] [--command ID]... [--environment ENV] [--expect-command sha256:DIGEST]... [--json]
   singularity-flow tests summary [--capability ID | --work-id ID [--phase PHASE]] [--run RUN-ID] [--json]

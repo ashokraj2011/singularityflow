@@ -1247,7 +1247,7 @@ const PAGES = Object.freeze({
     seeAlso: ['approve', 'reopen', 'submit']
   },
   app: {
-    summary: 'Start (or debug), check and stop the application a delivery capability declares, and suggest entries from IDE run configurations.',
+    summary: 'Start (or debug), check and stop the application a delivery capability declares, preview typed run configurations, and suggest them from IDE run configurations.',
     description: [
       'Reads application.start from singularity/capabilities.yml (changed through the reviewed capability proposal).',
       'Each start entry is a shell-free argv run from a repository-relative working directory, a loopback URL',
@@ -1268,7 +1268,13 @@ const PAGES = Object.freeze({
       '"Debugger listening at 127.0.0.1:<port>" once the port accepts. Missing debugpy or dlv is a coded refusal',
       'naming the install command. app suggest reads JetBrains .run/.idea run configurations, VS Code launch.json,',
       '.NET launchSettings.json and platform markers, and prints terminal-runnable start entries with an application',
-      'draft (for capability set|edit --application-file) and environments.yml additions; secrets are names only.'
+      'draft (for capability set|edit --application-file) and environments.yml additions; secrets are names only.',
+      'An entry may be a typed run configuration, as IntelliJ types one: type spring-boot, jar, application, maven,',
+      'gradle, python, django, fastapi, flask, node, npm, go or dotnet with that type\'s fields (main class, VM options,',
+      'program arguments, profiles, script or module, interpreter, …) instead of argv, plus env (literal, never secret),',
+      'beforeLaunch steps (run in order; a failing step stops the start) and perEnvironment overrides. app plan shows its',
+      'type, name, fields and per environment resolved { argv, envNames, beforeLaunch }; app config preview',
+      '--application-file FILE checks a whole block and shows each command line or every error at its field, writing nothing.'
     ],
     options: [
       ['START-ID', 'The start entry; optional when the capability declares exactly one.'],
@@ -1276,7 +1282,8 @@ const PAGES = Object.freeze({
       ['--environment ENV', 'app start only: one of the entry\'s environments; the first is the default.'],
       ['--expect-command sha256:DIGEST', 'app start only: refuse (APP_COMMAND_CHANGED) unless the entry still has the commandSha256 app plan showed.'],
       ['--debug', 'app start only: start the entry under its declared debugger, listening on 127.0.0.1 only.'],
-      ['--json', 'plan, status, stop and suggest: machine-readable output (sflow-app-plan, sflow-app-status, sflow-app-suggestions).']
+      ['--application-file FILE', 'app config preview only: the application block to check (YAML or JSON, at most 256 KiB).'],
+      ['--json', 'plan, status, stop, suggest and config preview: machine-readable output (sflow-app-plan, sflow-app-status, sflow-app-suggestions, sflow-app-config-preview).']
     ],
     examples: [
       ['singularity-flow app plan --json', 'Shows each start entry, its environments and their binding status.'],
@@ -1284,7 +1291,8 @@ const PAGES = Object.freeze({
       ['singularity-flow app status --json', 'Says whether web is started and answering at its URL.'],
       ['singularity-flow app stop web', 'Stops the process tree app start recorded for web.'],
       ['singularity-flow app start api --debug', 'Starts api with its debugger on 127.0.0.1 and says when it listens.'],
-      ['singularity-flow app suggest --json', 'Drafts start entries from the IDE run configurations in this checkout; writes nothing.']
+      ['singularity-flow app suggest --json', 'Drafts start entries from the IDE run configurations in this checkout; writes nothing.'],
+      ['singularity-flow app config preview --application-file application.yml', 'Shows each entry\'s command line per environment, or its errors; writes nothing.']
     ],
     seeAlso: ['env', 'capability', 'precheck', 'tests']
   },

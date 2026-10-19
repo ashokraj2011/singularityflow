@@ -13,7 +13,7 @@ import { head } from './git.mjs';
 import { operationContext } from './operation-context.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { runQualityCommand, withoutHostSurfaceVariables } from './quality-command-runner.mjs';
-import { localTestRunKernel as kernel, sourceTreeHash } from './state.mjs';
+import { localTestRunKernel as kernel, sourceTreeHash } from './state-stores.mjs';
 import { workDirRelative } from './story-paths.mjs';
 import { normalizeTestRuntime, testRuntimeEnvironment, testRuntimeIdentity } from './test-runtime.mjs';
 import { nowIso, secureRepositoryPath, SingularityFlowError } from './util.mjs';

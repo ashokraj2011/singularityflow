@@ -31,6 +31,7 @@ import {
   testsEnvironment, testsPlanArgv, testsRunArgv, unwrapResult, type DebugRuntime, type Ownership, type RunAndTestState, type StartEntry
 } from './run-and-test-model.ts';
 import { RunSuggestionsPanel, type RunSuggestionsHost } from './run-suggestions.ts';
+import { RunConfigurationsPanel } from './run-configurations.ts';
 import { runAndTestHtml } from './run-and-test-page.ts';
 import { testsSummaryArgv, testSummaryFrom, totalsLine } from './test-summary-model.ts';
 import { TestSummaryPanel } from './test-summary.ts';
@@ -512,6 +513,7 @@ export class RunAndTest implements vscode.Disposable {
         await this.host.afterLocalChange?.(id);
         await this.load(id);
       } }, capability);
+      case 'configurations': return void this.editConfigurations(capability, isEntry ? entry : null);
       case 'stop': return entry ? this.stop(capability, entry) : undefined;
       case 'open': return isEntry ? this.open(capability, entry) : undefined;
       case 'tests': return this.runTests(capability, command || null);
@@ -521,6 +523,14 @@ export class RunAndTest implements vscode.Disposable {
       case 'copy-bind': return this.copyBind(capability, environment);
       default: return undefined;
     }
+  }
+
+  /**
+   * The Run/Debug Configurations editor for a capability, with one configuration selected. A save
+   * reads `app plan` again, so this section shows what is declared now.
+   */
+  editConfigurations(capability: string, configuration: string | null = null): RunConfigurationsPanel {
+    return RunConfigurationsPanel.show({ ...this.host, afterSave: (id: string) => this.load(id) }, capability, { configuration });
   }
 
   /** The capability owning this checkout, picked when several do; null after saying why there is none. */
@@ -598,6 +608,26 @@ export class RunAndTest implements vscode.Disposable {
     this.changed.dispose();
     if (RunAndTest.instance === this) RunAndTest.instance = null;
   }
+}
+
+const CONFIGURATION_TARGET = /^[a-z0-9][a-z0-9-]*$/;
+
+/**
+ * `singularityFlow.editRunConfigurations`: "Singularity Flow: Edit Run Configurations…". Other surfaces
+ * (the run widget's "Edit Configurations…", the Run view's Edit) pass `{ capability, configuration }`:
+ * the capability ID, and the start entry ID to select (a capability ID alone, as a string, works too).
+ * Without a capability, the one this checkout runs, picked when several do.
+ */
+export async function editRunConfigurationsCommand(host: RunAndTestHost, target?: unknown): Promise<void> {
+  const controller = RunAndTest.attach(host);
+  const requested = (typeof target === 'string' ? { capability: target } : target && typeof target === 'object' ? target : {}) as
+    { capability?: unknown; configuration?: unknown };
+  const configuration = typeof requested.configuration === 'string' && CONFIGURATION_TARGET.test(requested.configuration) ? requested.configuration : null;
+  if (typeof requested.capability === 'string' && CONFIGURATION_TARGET.test(requested.capability)) {
+    return void controller.editConfigurations(requested.capability, configuration);
+  }
+  const picked = await controller.pickCapability('Edit Run Configurations');
+  if (picked && 'capability' in picked) controller.editConfigurations(picked.capability, configuration);
 }
 
 /** The three palette commands: Start Application, Run Tests, Test Summary. */

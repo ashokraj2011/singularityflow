@@ -605,6 +605,11 @@
         "icon": "$(checklist)"
       },
       {
+        "command": "singularityFlow.editRunConfigurations",
+        "title": "Singularity Flow: Edit Run Configurations…",
+        "icon": "$(gear)"
+      },
+      {
         "command": "singularityFlow.openDesigner",
         "title": "Singularity Flow: Workflow Designer (opens Workflow Studio)",
         "icon": "$(symbol-structure)"

@@ -39,6 +39,7 @@ function startRow(view: RunAndTestView, row: StartRow): string {
       <button type="button" class="compact-action"${attributes(view, 'start', { entry: row.id })}${row.canStart ? '' : ' disabled'}>${icon('start')}Start</button>${debug}
       <button type="button" class="secondary compact-action"${attributes(view, 'stop', { entry: row.id })}${row.canStop ? '' : ' disabled'}>Stop</button>
       <button type="button" class="secondary compact-action"${attributes(view, 'open', { entry: row.id })}${row.canOpen ? '' : ' disabled'}>Open in browser</button>
+      <button type="button" class="secondary compact-action"${attributes(view, 'configurations', { entry: row.id })} title="Edit this run configuration">${icon('edit')}Edit</button>
     </div></td></tr>`;
 }
 
@@ -97,7 +98,8 @@ export function runAndTestHtml(view: RunAndTestView | null): string {
     ${environmentHtml(view)}
     <h3>${icon('delivery')}Application</h3>
     ${starts}
-    <p class="rt-suggest"><button type="button" class="secondary compact-action"${attributes(view, 'suggest')}>Suggest from run configurations</button>
+    <p class="rt-suggest"><button type="button" class="secondary compact-action"${attributes(view, 'configurations')}>${icon('configuration')}Edit configurations…</button>
+      <button type="button" class="secondary compact-action"${attributes(view, 'suggest')}>Suggest from run configurations</button>
       <small class="muted">Reads IntelliJ, PyCharm, WebStorm, GoLand, Rider and VS Code run configurations in this repository. Nothing is written until you review and propose.</small></p>
     ${testsHtml(view)}
   </section>`;

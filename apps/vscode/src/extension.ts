@@ -967,7 +967,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openEvidenceMatrix',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.decideStory', 'singularityFlow.decisions',
-    'singularityFlow.startApplication', 'singularityFlow.runTests', 'singularityFlow.testSummary',
+    'singularityFlow.startApplication', 'singularityFlow.runTests', 'singularityFlow.testSummary', 'singularityFlow.editRunConfigurations',
     'singularityFlow.publishConfiguration',
     'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.togglePromptLog', 'singularityFlow.openActivityLog',
     'singularityFlow.openWorkspaceLogs', 'singularityFlow.refreshWorkspaceLogs', 'singularityFlow.openSpecificationTrace',
@@ -8838,6 +8838,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.startApplication': () => lazyPanels().runAndTestCommand('start', runAndTestHost()),
     'singularityFlow.runTests': () => lazyPanels().runAndTestCommand('tests', runAndTestHost()),
     'singularityFlow.testSummary': (target?: unknown) => lazyPanels().runAndTestCommand('summary', runAndTestHost(), target),
+    // The Run/Debug Configurations editor; other surfaces pass `{ capability, configuration }` (a start entry ID to select).
+    'singularityFlow.editRunConfigurations': (target?: unknown) => lazyPanels().editRunConfigurationsCommand(runAndTestHost(), target),
     // Workflow Studio, optionally at one section: `{ view: 'changes' }` opens the proposals waiting
     // for review, `{ view: 'artifacts' }` the templates.
     'singularityFlow.openWorkflowStudio': async (target?: unknown) => {

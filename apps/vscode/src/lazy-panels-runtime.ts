@@ -51,5 +51,5 @@ export { WorkspaceLogsPanel } from './views/workspace-logs.ts';
 export { SpecificationTracePanel } from './views/specification-trace.ts';
 export { VisualAssurancePanel } from './views/visual-assurance.ts';
 export { DecisionListPanel } from './views/decision-list.ts';
-export { RunAndTest, runAndTestCommand } from './views/run-and-test.ts';
+export { RunAndTest, runAndTestCommand, editRunConfigurationsCommand } from './views/run-and-test.ts';
 export { TestSummaryPanel } from './views/test-summary.ts';

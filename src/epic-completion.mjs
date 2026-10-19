@@ -157,7 +157,8 @@ function storyReadiness(story, observed) {
     }
     if (!observed.conformance?.treeSha256) problems.push('conformance source/test tree hash is missing');
     if (!submission) problems.push('no hash-bound review packet was submitted');
-    else if (!evidence?.ready) problems.push('exact-SHA Product Owner checks are missing or failed');
+    // Recorded by `epic checks`; a Story with no required checks records ready evidence offline.
+    else if (!evidence?.ready) problems.push(`exact-SHA Product Owner checks are missing or failed (record them with singularity-flow epic checks ${story.workId ?? story.id})`);
     if (!finalization || observed.deliveryStatus !== 'finalized_for_review') {
       problems.push('developer finalization packet is missing');
     } else if (finalization.reviewPacketSha256 !== submission?.packetSha256) {

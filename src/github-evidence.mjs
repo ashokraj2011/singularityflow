@@ -9,6 +9,7 @@ import { readStoryReviewPacket } from './story-lineage.mjs';
 import { runGovernanceGate } from './governance.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
+import { classifyGitHost } from './git-host.mjs';
 
 function hash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -109,10 +110,72 @@ export function collectGitHubEvidence(root, {
   };
 }
 
-function origin(root, runCommand = run) {
-  const result = runCommand('git', ['remote', 'get-url', 'origin'], { cwd: root, allowFailure: true });
-  if (result.status !== 0 || !result.stdout.trim()) throw new SingularityFlowError('The Story repository has no origin remote.');
-  return result.stdout.trim();
+/**
+ * The Story's configured remote URL. A review checkout made by SFlow names its only remote
+ * `origin`, whatever the contributor's repository calls it, so that name is the fallback.
+ */
+export function storyCheckRemote(root, config, runCommand = run) {
+  const configured = config?.git?.remote ?? 'origin';
+  for (const name of [...new Set([configured, 'origin'])]) {
+    const result = runCommand('git', ['remote', 'get-url', name], { cwd: root, allowFailure: true });
+    if (result.status === 0 && result.stdout.trim()) return { name, url: result.stdout.trim() };
+  }
+  throw new SingularityFlowError(`The Story repository has no remote '${configured}'. Configure it (git remote add), then record the checks again.`, {
+    code: 'STORY_CHECKS_REMOTE_MISSING', details: { remote: configured }
+  });
+}
+
+/** Ready evidence for a packet with no required checks: nothing to ask a provider. */
+function notRequiredEvidence(host, commit) {
+  return {
+    provider: 'not-required',
+    repository: null,
+    host: host.host,
+    commit,
+    observedAt: nowIso(),
+    checkRuns: [],
+    required: [],
+    pullRequests: [],
+    ready: true
+  };
+}
+
+/**
+ * Required checks are read from GitHub only. Another host's pipeline cannot be read here, and a
+ * check that cannot be read is never recorded as passed: refuse with the person's route instead.
+ */
+function unsupportedHostRefusal(workId, host, remote, required, commit) {
+  return new SingularityFlowError(
+    `Story checks read required checks from GitHub only; remote '${remote}' is ${host.label}${host.host ? ` (${host.host})` : ''}. `
+    + `Nothing was recorded, so ${required.join(', ')} still count as not passed for commit ${String(commit ?? '').slice(0, 12)}.`,
+    {
+      code: 'STORY_CHECKS_HOST_UNSUPPORTED',
+      details: {
+        workId, provider: host.provider, host: host.host, remote, requiredChecks: required, commit,
+        recoveryCommands: [{ command: `singularity-flow pr describe ${workId} --clipboard`,
+          label: `Copy the review description to open or update the ${host.label} merge request by hand.` }],
+        actions: [{ label: `Confirm ${required.join(', ')} passed for commit ${String(commit ?? '').slice(0, 12)} in ${host.label}'s own pipeline view, and have its required-check rule protect the merge there; the Story's required checks cannot be read from this host.` }]
+      }
+    }
+  );
+}
+
+/**
+ * The repository-check evidence for one exact commit, routed by host before anything is asked:
+ * no required checks needs no provider, GitHub (or a host that may be GitHub Enterprise) is asked
+ * through the GitHub CLI, and any other host is refused with its manual route.
+ */
+export function repositoryCheckEvidence(root, {
+  workId, remote, commit, submittedBranch = null, canonicalBranch = null, requiredChecks = [], runCommand = run
+} = {}) {
+  const host = classifyGitHost(remote.url);
+  if (!requiredChecks.length) return notRequiredEvidence(host, commit);
+  if (!['github', 'unknown'].includes(host.provider)) {
+    throw unsupportedHostRefusal(workId, host, remote.name, requiredChecks, commit);
+  }
+  return collectGitHubEvidence(root, {
+    remote: remote.url, commit, submittedBranch, canonicalBranch, requiredChecks, runCommand
+  });
 }
 
 export async function runAndRecordStoryChecks(root, config, workflow, {
@@ -122,9 +185,11 @@ export async function runAndRecordStoryChecks(root, config, workflow, {
 } = {}) {
   const packet = await readStoryReviewPacket(root, config, workflow, packetSha256);
   const seedChecks = workflow.lineage?.requiredChecks ?? [];
-  const required = requiredChecks ?? seedChecks;
-  const github = collectGitHubEvidence(root, {
-    remote: origin(root, runCommand),
+  // Checks named on the command add to the Story's own; they never replace them.
+  const required = [...new Set([...seedChecks, ...(requiredChecks ?? [])])];
+  const github = repositoryCheckEvidence(root, {
+    workId: workflow.workItem.id,
+    remote: storyCheckRemote(root, config, runCommand),
     commit: packet.sourceCommit ?? packet.submissionCommit,
     submittedBranch: packet.submittedBranch,
     canonicalBranch: packet.canonicalBranch,

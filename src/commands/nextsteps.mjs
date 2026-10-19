@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { branch, gitDir, repoRoot } from '../git.mjs';
+import { branch, gitDir, remoteUrl, repoRoot } from '../git.mjs';
+import { classifyGitHost } from '../git-host.mjs';
 import { nextStepsSnapshot, nextStepsText } from '../nextsteps.mjs';
 import { readPendingPublication } from '../publication-pending.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from '../repository-subject-index.mjs';
@@ -212,6 +213,8 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
         roots: { workItemRoot: path.dirname(path.dirname(selected.location.path)) }
       }))),
       recovery,
+      // Landing routes depend on the host: the GitHub CLI cannot open another host's merge request.
+      repositoryHost: classifyGitHost(remoteUrl(root, definition.git?.remote ?? 'origin')),
       prerequisites: await measureCommandSpan('nextsteps.prerequisites', () => storyPrerequisites(root, workflow, selected, modelMode, { definition, executionCatalog, observeFile })),
       modelMode
     }),

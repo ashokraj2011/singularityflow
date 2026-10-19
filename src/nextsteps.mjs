@@ -22,11 +22,40 @@ function action(timing, skill, command, reason, metadata = {}) {
   return guidance ? Object.freeze({ ...candidate, ...guidance }) : candidate;
 }
 
-function completionActions(workId, timing = 'now') {
+// Hosts the GitHub CLI cannot open a pull request on; their merge request is opened by hand.
+const MANUAL_PULL_REQUEST_HOSTS = new Set(['gitlab', 'bitbucket', 'azure-devops', 'local']);
+
+/**
+ * How a finished Story lands, from its branch completion policy and its remote's host. A direct
+ * policy opens no pull request (`pr` refuses it), and `pr --create` uses the GitHub CLI, so
+ * neither is offered where it can only fail.
+ */
+function landingActions(workflow, repositoryHost) {
+  const workId = workflow.workItem.id;
+  const policy = workflow.lineage?.branchCompletionPolicy ?? workflow.source?.branchCompletionPolicy ?? 'pr';
+  if (policy === 'direct') {
+    const finalized = (workflow.lineage?.finalizations ?? []).length > 0;
+    return [
+      ...(finalized ? [] : [action('then', '/sflow-finalize', `singularity-flow finalize --parent ${workId}`,
+        'Finalize the Story for review; repository policy completes it directly, without a pull request.')]),
+      ...((workflow.lineage?.childBranches ?? []).length ? [action('then', '/sflow-story-branch',
+        `singularity-flow story branch promote --parent ${workId} --mode direct`,
+        'After finalization, promote the finished child branch to the Story branch directly; no pull request is opened.')] : [])
+    ];
+  }
+  const preview = action('then', '/sflow-stack', `singularity-flow pr ${workId}`, 'Preview the pull request title, body, base, head, checks, and evidence before publishing anything.');
+  if (MANUAL_PULL_REQUEST_HOSTS.has(repositoryHost?.provider)) return [preview,
+    action('then', '/sflow-stack', `singularity-flow pr describe ${workId} --clipboard`,
+      `Copy the reviewed description and open the merge request in ${repositoryHost.label} by hand; pr --create uses the GitHub CLI.`)];
+  return [preview,
+    action('then', '/sflow-stack', `singularity-flow pr ${workId} --create`, 'After reviewing the preview, create the pull request with explicit confirmation.')];
+}
+
+function completionActions(workflow, timing = 'now', repositoryHost = null) {
+  const workId = workflow.workItem.id;
   return [
     action(timing, null, 'singularity-flow gate --terminal', 'Confirm the completed workflow and remote branch satisfy the final gate.'),
-    action('then', '/sflow-stack', `singularity-flow pr ${workId}`, 'Preview the pull request title, body, base, head, checks, and evidence before publishing anything.'),
-    action('then', '/sflow-stack', `singularity-flow pr ${workId} --create`, 'After reviewing the preview, create the pull request with explicit confirmation.'),
+    ...landingActions(workflow, repositoryHost),
     action('alternative', '/sflow-progress', `singularity-flow progress ${workId}`, 'Review deterministic phase completion and approvals.'),
     action('alternative', '/sflow-report', `singularity-flow report ${workId}`, 'Review timing, rework, token usage, and bottlenecks.')
   ];
@@ -60,7 +89,7 @@ function cancellationActions(workflow) {
   ];
 }
 
-function afterCompletionActions(workflow, phase, { withoutApproval = false } = {}) {
+function afterCompletionActions(workflow, phase, { withoutApproval = false, repositoryHost = null } = {}) {
   const when = withoutApproval ? `After ${phase.id} completes` : `After ${phase.id} is approved`;
   const ahead = upcomingDecision(workflow, phase);
   if (ahead) {
@@ -71,13 +100,13 @@ function afterCompletionActions(workflow, phase, { withoutApproval = false } = {
           ? `${when}, a person chooses what happens next ('${decision.label}').`
           : `${when}, '${decision.label}' chooses the next step from the values it records.`)];
     }
-    if (outcome.kind === 'end' || !outcome.target) return completionActions(workflow.workItem.id, 'then');
+    if (outcome.kind === 'end' || !outcome.target) return completionActions(workflow, 'then', repositoryHost);
     const target = workflow.phases[outcome.target];
     return [action('then', generationSkillForPhase(target, workflow), `singularity-flow prepare ${target.id}`,
       `${when}, ${describeOutcome(workflow, outcome)}`)];
   }
   const upcoming = nextPhaseAfterSkillAmendment(workflow, phase);
-  if (!upcoming) return completionActions(workflow.workItem.id, 'then');
+  if (!upcoming) return completionActions(workflow, 'then', repositoryHost);
   return [action(
     'then', generationSkillForPhase(upcoming, workflow), `singularity-flow prepare ${upcoming.id}`,
     withoutApproval
@@ -87,7 +116,8 @@ function afterCompletionActions(workflow, phase, { withoutApproval = false } = {
 }
 
 export function workflowNextSteps(workflow, {
-  publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null
+  publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null,
+  repositoryHost = null
 } = {}) {
   const workId = workflow.workItem.id;
   const phase = workflow.currentPhase ? workflow.phases[workflow.currentPhase] : null;
@@ -103,7 +133,7 @@ export function workflowNextSteps(workflow, {
       { operationId: 'recover.inspect', route: 'recovery' }
     )
   ];
-  if (!phase) return workflow.status === 'cancelled' ? cancellationActions(workflow) : completionActions(workId);
+  if (!phase) return workflow.status === 'cancelled' ? cancellationActions(workflow) : completionActions(workflow, 'now', repositoryHost);
   const pending = workflow.pendingDecision;
   if (pending) return [
     action('now', '/sflow-decide', `singularity-flow decision show ${workId}`,
@@ -126,12 +156,12 @@ export function workflowNextSteps(workflow, {
     item.command,
     item.reason, item.authoringStage ? { authoringStage: item.authoringStage, preserveExistingWork: true } : {}
   ));
-  if (phase.status === 'awaiting_approval') return [...undecided, ...immediate, ...afterCompletionActions(workflow, phase)];
+  if (phase.status === 'awaiting_approval') return [...undecided, ...immediate, ...afterCompletionActions(workflow, phase, { repositoryHost })];
 
   // A required after-step action of an earlier step holds this one until its approved delivery has
   // a receipt, so that delivery comes first and the step's own work follows it.
   if (stepActionHold?.missing?.length && phase.status === 'in_progress') {
-    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, sourceReviewEvidence, authoringProgress });
+    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, sourceReviewEvidence, authoringProgress, repositoryHost });
     const command = stepActionHold.nextAction ?? `singularity-flow integrations status --work-id ${workId} --all`;
     return [
       action('now', copilotSkillForCommand(command) ?? '/sf-integrations', command,
@@ -222,12 +252,12 @@ export function workflowNextSteps(workflow, {
   );
   actions.push(
     action('alternative', '/sf-cancel', `singularity-flow cancel ${workId} --reason <reason> --confirm ${workId}`, 'Cancel this Story, preserve its artifacts, and move it to Archived.'),
-    ...afterCompletionActions(workflow, phase, { withoutApproval: noApproval })
+    ...afterCompletionActions(workflow, phase, { withoutApproval: noApproval, repositoryHost })
   );
   return actions;
 }
 
-export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null } = {}) {
+export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null } = {}) {
   if (!initialized) return {
     schemaVersion: 1,
     state: 'not_initialized',
@@ -256,7 +286,7 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
   };
   const contextBoundary = !publicationPending && !recovery?.requiresRecovery && !workflow.pendingDecision
     && !stepActionHold?.missing?.length ? contextBoundaryPresentation(pendingContextBoundary(workflow)) : null;
-  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress });
+  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost });
   return {
     schemaVersion: 1,
     state: publicationPending ? 'publication_pending' : recovery?.requiresRecovery ? 'recovery_required' : workflow.status,

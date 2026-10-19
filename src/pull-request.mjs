@@ -3,7 +3,8 @@ import { readFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { run, commandExists, exists, SingularityFlowError } from './util.mjs';
 import { githubAuthStatus } from './github-evidence.mjs';
-import { defaultBranchName } from './git.mjs';
+import { branch as currentBranch, defaultBranchName } from './git.mjs';
+import { classifyGitHost } from './git-host.mjs';
 import { recap } from './narration/recap.mjs';
 import { baseStoryPullRequestTarget } from './story-base-lineage.mjs';
 import { workItemWorkflowRelative } from './work-item-location.mjs';
@@ -187,14 +188,44 @@ export function storyLifecycleBlockers(workflow) {
   return [...new Set(blockers)];
 }
 
+/**
+ * A direct completion policy opens no pull request: name the route it does use. Finalization binds
+ * the exact commit; a finished child branch is then promoted to the Story branch directly.
+ */
+function directPolicyRefusal(root, workflow, policy) {
+  const workId = workflow.workItem.id;
+  const canonical = workflow.lineage?.canonicalBranch ?? workflow.workItem.branch ?? workId;
+  let checkedOut = null;
+  try { checkedOut = root ? currentBranch(root) : null; } catch { checkedOut = null; }
+  const onChild = Boolean(checkedOut) && checkedOut !== canonical
+    && (workflow.lineage?.childBranches ?? []).some((entry) => entry?.name === checkedOut);
+  const finalized = (workflow.lineage?.finalizations ?? []).length > 0;
+  const recoveryCommands = [
+    ...(finalized ? [] : [{ command: `singularity-flow finalize --parent ${workId}`,
+      label: 'Finalize the Story for review; direct completion lands exactly the finalized commit.' }]),
+    ...(onChild ? [{ command: `singularity-flow story branch promote --parent ${workId} --mode direct`,
+      label: `Promote ${checkedOut} to ${canonical} directly, without a pull request.` }] : []),
+    { command: `singularity-flow nextsteps ${workId}`, label: 'See what the Story needs next.' }
+  ];
+  return new SingularityFlowError(
+    `Repository policy for ${workId} is 'direct'; it does not use pull requests. `
+    + (onChild ? `${finalized ? 'Promote' : 'Finalize the Story, then promote'} ${checkedOut} to ${canonical} directly.`
+      : finalized ? `${canonical} completes without a pull request; nothing is opened.`
+        : `Finalize the Story; ${canonical} completes without a pull request.`),
+    {
+      code: 'PULL_REQUEST_POLICY_DIRECT',
+      details: { workId, policy, canonicalBranch: canonical, currentBranch: checkedOut, nextAction: recoveryCommands[0], recoveryCommands }
+    }
+  );
+}
+
 // Build the complete pull request without contacting GitHub. Always safe to run.
 export async function storyPullRequestPlan(root, config, workflow, { mergeSequence = null } = {}) {
   const seed = await readStorySeed(root, workflow);
   const { base, head, builtOn = null } = pullRequestTarget(workflow, seed, { root, config });
-  const policy = seed?.story?.branchCompletionPolicy ?? workflow.source?.branchCompletionPolicy ?? 'pr';
-  if (policy === 'direct') {
-    throw new SingularityFlowError(`Repository policy for ${workflow.workItem.id} is 'direct'; it does not use pull requests.`);
-  }
+  const policy = seed?.story?.branchCompletionPolicy ?? workflow.source?.branchCompletionPolicy
+    ?? workflow.lineage?.branchCompletionPolicy ?? 'pr';
+  if (policy === 'direct') throw directPolicyRefusal(root, workflow, policy);
   if (base === head) throw new SingularityFlowError(`Pull request base and head are both '${base}'.`);
   let evidenceReceipt = null;
   if (workflow.lineage?.submissions?.length) {
@@ -270,11 +301,27 @@ export function createPullRequest(root, plan, { remote = 'origin', runCommand = 
   if ((plan.blockedBy ?? []).length) {
     throw new SingularityFlowError(`${plan.subjectId ?? plan.workId} cannot open a pull request yet: ${plan.blockedBy.join(', ')} must merge or otherwise become ready first.`);
   }
+  const url = runCommand('git', ['remote', 'get-url', remote], { cwd: root, allowFailure: true });
+  if (url.status !== 0) throw new SingularityFlowError(`Remote '${remote}' is not configured.`);
+  // The GitHub CLI opens GitHub pull requests only; another host's merge request is opened by hand.
+  const host = classifyGitHost(url.stdout.trim());
+  if (!['github', 'unknown'].includes(host.provider)) {
+    throw new SingularityFlowError(
+      `Remote '${remote}' is ${host.label}${host.host ? ` (${host.host})` : ''}; pull requests are opened with the GitHub CLI only. Nothing was opened.`,
+      {
+        code: 'PULL_REQUEST_HOST_UNSUPPORTED',
+        details: {
+          workId: plan.workId, provider: host.provider, host: host.host, remote, base: plan.base, head: plan.head,
+          ...(plan.subjectKind === 'Epic' ? {} : { recoveryCommands: [{ command: `singularity-flow pr describe ${plan.workId} --clipboard`,
+            label: `Copy the reviewed description, then open the merge request from ${plan.head} into ${plan.base} in ${host.label}.` }] }),
+          actions: [{ label: `Open the merge request from ${plan.head} into ${plan.base} in ${host.label} using the generated title and body.` }]
+        }
+      }
+    );
+  }
   if (runCommand === run && !commandExists('gh')) {
     throw new SingularityFlowError('Opening a pull request requires the GitHub CLI. Install gh and run gh auth login, or open the pull request manually using the generated body.');
   }
-  const url = runCommand('git', ['remote', 'get-url', remote], { cwd: root, allowFailure: true });
-  if (url.status !== 0) throw new SingularityFlowError(`Remote '${remote}' is not configured.`);
   githubAuthStatus(root, url.stdout.trim(), { runCommand });
 
   const existing = runCommand('gh', ['pr', 'list', '--head', plan.head, '--base', plan.base, '--json', 'url', '--jq', '.[0].url'], { cwd: root, allowFailure: true });

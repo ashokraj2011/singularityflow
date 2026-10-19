@@ -109,6 +109,7 @@ async function createRecord(payload, record, root, accepted, previous = null) {
     decisionEnded: previous?.decisionEnded ?? false,
     binding: { workflowFile, workflowSha256: digest(await readFile(workflowFile)), ...gitIdentity },
     baseline: previous?.baseline ?? null, findings: previous?.findings ?? [],
+    ...(record.confirmDigest ? { confirmDigest: record.confirmDigest } : {}),
     ...(previous?.importTeamStaging ? { importTeamStaging: previous.importTeamStaging } : {}),
     ...(previous?.buildStaging ? { buildStaging: previous.buildStaging } : {}),
     ...(previous?.fixStaging ? { fixStaging: previous.fixStaging } : {}) };
@@ -349,6 +350,12 @@ function shellAllowed(call, mode, value) {
   if (positionals[0] === 'spec' && positionals[1] === 'drift' && positionals[2] === 'decide') return false;
   // Setting held changes aside drops them from the checkout: the person who looked at them decides.
   if (positionals[0] === 'recover' && options['set-aside'] === true) return false;
+  // The /sf-confirm turn: only the command carrying the digest the person typed, for the bound Story.
+  // The CLI refuses the digest once it is stale; approvals and the decisions above keep their routes.
+  if (mode === 'confirm') return !value.decisionEnded && typeof value.confirmDigest === 'string'
+    && [options.confirm, options['confirm-plan']].includes(value.confirmDigest)
+    && !['approve', 'reject'].includes(positionals[0])
+    && (!options['work-id'] || !value.contract || options['work-id'] === value.contract.workId);
   return !['approve', 'reject'].includes(positionals[0]);
 }
 
@@ -417,6 +424,8 @@ function bootstrapAllowed(call, record) {
   const mode = mutationTurnMode(record.skill);
   // Before a Story is bound there is no decision to record, so /sf-decide gets reads only here.
   if (mode === 'session-only') return shellAllowed(call, mode, record);
+  // A confirmed setup command runs before any Story exists; only its typed digest is allowed.
+  if (mode === 'confirm') return shellAllowed(call, mode, record);
   // Repository setup has no Story yet. Its registered CLI operations retain their existing
   // configuration authority and confirmations; this exception never authorizes file tools.
   const setup = ['admin', 'init', 'configuration', 'workflows', 'workflow-rules', 'skills', 'instructions',
@@ -760,6 +769,8 @@ export async function refreshMutationContracts(root, accepted = null, { decision
     const payload = { sessionId: value.sessionId };
     const next = await createRecord(payload, record, root, accepted, value);
     if (decisionEnded && ['approval-only', 'review-decision-only'].includes(next.contract.turnMode)) next.decisionEnded = true;
+    // A confirmation runs once: after a command changed this checkout, its turn has nothing left to run.
+    if (advanceBaseline && next.contract.turnMode === 'confirm') next.decisionEnded = true;
     if (value.baseline && advanceBaseline) next.baseline = await shellSnapshot(root);
     await atomicRecord(file, next);
   }

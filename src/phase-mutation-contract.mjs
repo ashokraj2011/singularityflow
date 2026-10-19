@@ -22,6 +22,7 @@ export function mutationTurnMode(skill) {
   if (name === 'review-decide') return 'review-decision-only';
   // /sf-decide records a person's typed choice; its decision commands carry their own authority check.
   if (name === 'decide') return 'decision-only';
+  if (name === 'confirm') return 'confirm';
   if (name === 'publish') return 'publish-only';
   // /sf-import-team converts a team directory through its own CLI commands and one issued
   // candidate file; it never edits a repository (copilot-mutation-guard.mjs importTeamGuard).
@@ -108,7 +109,7 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
     : turnMode === 'publish-only'
       ? [route(['phase', 'publish', phase.id, '--authored', phasePublicationContract(phase).producer,
         '--channel', phasePublicationContract(phase).channel], 'Recheck publication readiness first; publish only when the kernel returns ready. Never author, submit or approve.')]
-    : ['approval-only', 'session-only', 'read', 'read-only-review', 'import-team', 'build-workflow', 'fix-workflow'].includes(turnMode)
+    : ['approval-only', 'session-only', 'read', 'read-only-review', 'import-team', 'build-workflow', 'fix-workflow', 'confirm'].includes(turnMode)
       ? [route(['nextsteps', '--json'], 'End this turn. Inspect the next action in a new turn; do not author now.')]
       : code && phase.generationIntent?.status === 'consumed'
         ? [route(['recover', workId, '--phase', phase.id, '--json'], 'Preserve published bytes and review the successor boundary before application edits.', '/sf-recover')]

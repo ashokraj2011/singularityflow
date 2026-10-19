@@ -38,6 +38,17 @@ export function explicitSflowSkill(prompt) {
     ?? prompt.trim().match(/^\/((?:sf|sflow)-[a-z0-9-]+)(?=\s|$)/u)?.[1] ?? null;
 }
 
+/**
+ * The one reviewed digest a /sf-confirm prompt carries, or null when it carries none or several.
+ * Only this value is kept, never the prompt: it binds the turn to the command the person confirmed.
+ */
+export function confirmedDigest(prompt) {
+  if (typeof prompt !== 'string' || prompt.length > 256 * 1024) return null;
+  const found = new Set([...prompt.matchAll(/--confirm(?:-plan)?[\s=]+(sha256:[a-f0-9]{64}|[a-z]{2,12}-[a-f0-9]{16,64}|[a-f0-9]{64})(?![\w:-])/gu)]
+    .map(match => match[1]));
+  return found.size === 1 ? [...found][0] : null;
+}
+
 export function boundaryBootstrap(skill) {
   const name = skill?.replace(/^sflow-/u, 'sf-');
   if (['sf-code', 'sf-phase'].includes(name)) return 'singularity-flow phase enter --for-agent --json';
@@ -78,8 +89,9 @@ export async function recordRepositoryBoundaryTurn(payload = {}, { now = Date.no
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const stat = await lstat(directory);
   if (!stat.isDirectory() || stat.isSymbolicLink()) return {};
+  const confirm = ['sf-confirm', 'sflow-confirm'].includes(skill) ? confirmedDigest(payload.prompt) : null;
   const record = { schemaVersion: currentSchemaVersion(FAMILY), sessionId: sessionId(payload), skill, turnId: randomUUID(),
-    recordedAt: now, modeChangedAt: mode.changedAt };
+    recordedAt: now, modeChangedAt: mode.changedAt, ...(confirm ? { confirmDigest: confirm } : {}) };
   const temporary = path.join(directory, `.${randomUUID()}.tmp`);
   try {
     await writeFile(temporary, `${JSON.stringify(record)}\n`, { flag: 'wx', mode: 0o600 });

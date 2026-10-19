@@ -361,6 +361,44 @@ test('human review-disposition turns allow only exact bound decisions; reviewers
   assert.equal((await shell(command)).permissionDecision, 'deny', 'a finished decision cannot be replayed in this turn');
 });
 
+test('/sf-confirm turns run only the command carrying the digest the person typed, once', async t => {
+  const f = await fixture(t);
+  const digest = `sha256:${'c'.repeat(64)}`;
+  const confirmed = `singularity-flow phase rollover custom-step --work-id PMC-1 --confirm ${digest}`;
+  const payload = await f.enter(`/sf-confirm ${confirmed.replace('singularity-flow ', '')}`, 'confirmer');
+  assert.equal(mutationTurnMode('sf-confirm'), 'confirm');
+  assert.equal(mutationTurnMode('sflow-confirm'), 'confirm');
+  assert.equal(f.contract('confirm').allow.application, false);
+  assert.deepEqual(f.contract('confirm').allow.artifacts, []);
+  const shell = (command, value = payload) => mutationToolGuard({ ...value, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  assert.deepEqual(await shell(confirmed), {}, 'the reviewed command the person confirmed runs');
+  assert.deepEqual(await shell('singularity-flow nextsteps --json'), {}, 'reads stay available');
+  for (const command of [confirmed.replace(digest, `sha256:${'d'.repeat(64)}`),
+    'singularity-flow phase rollover custom-step --work-id PMC-1',
+    confirmed.replace('--work-id PMC-1', '--work-id OTHER'), `${confirmed} && echo unsafe`,
+    `singularity-flow approve custom-step --work-id PMC-1 --confirm ${digest}`,
+    `singularity-flow decision evidence-reuse PMC-1 --phase custom-step --confirm ${digest}`,
+    `singularity-flow upstream-issue decide UPI-001 --work-id PMC-1 --outcome dismiss --reason x --confirm ${digest}`,
+    'singularity-flow submit custom-step', 'singularity-flow next']) {
+    assert.equal((await shell(command)).permissionDecision, 'deny', command);
+  }
+  for (const target of ['src/App.jsx', 'singularity/work-items/PMC-1/artifacts/custom-step/doc.md']) {
+    assert.equal((await mutationToolGuard({ ...payload, toolArgs: { path: target } })).permissionDecision, 'deny', target);
+  }
+  // The host may expand the skill before the person's arguments; only the typed digest binds the turn.
+  const expanded = await f.enter(`<skill-context name="sflow-confirm">Carry --confirm sha256:<DIGEST>.</skill-context>\n${confirmed}`, 'expanded');
+  assert.deepEqual(await shell(confirmed, expanded), {});
+  const none = await f.enter('/sf-confirm phase rollover custom-step', 'no-digest');
+  assert.equal((await shell(confirmed, none)).permissionDecision, 'deny', 'a confirmation without a digest runs nothing');
+  const two = await f.enter(`/sf-confirm ${confirmed} --confirm-plan sha256:${'e'.repeat(64)}`, 'two-digests');
+  assert.equal((await shell(confirmed, two)).permissionDecision, 'deny', 'two digests bind nothing');
+  // After a command changed the checkout, the confirmation has run: the same command is refused.
+  await refreshMutationContracts(f.root, f.accepted, { advanceBaseline: true });
+  const ended = await shell(confirmed);
+  assert.equal(ended.permissionDecision, 'deny');
+  assert.match(ended.permissionDecisionReason, /PHASE_MUTATION_DECISION_TURN_ENDED/u);
+});
+
 test('/sf-decide turns permit only the bound decision commands its skill runs', async t => {
   const f = await fixture(t); const payload = await f.enter('/sf-decide PMC-1');
   assert.equal(mutationTurnMode('sf-decide'), 'decision-only');

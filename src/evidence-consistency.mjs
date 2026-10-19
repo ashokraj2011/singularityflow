@@ -12,6 +12,11 @@ export const EVIDENCE_CONSISTENCY_REVISION = 'evidence-consistency-v1';
 export const EVIDENCE_CONSISTENCY_HEADING = '# Evidence consistency';
 export const MAX_EVIDENCE_CONSISTENCY_BYTES = 32 * 1024;
 export const EVIDENCE_CONSISTENCY_INSTRUCTION = 'Use this read-only account for evidence provenance and outstanding decisions. A missing retained execution record does not prove tests never ran; it means that run is not established by the retained packet. Earlier runs remain attributed to their producer, even after approved reuse. Reported clause verdicts are author claims, not verdicts established by this projection. Keep gaps and exceptions visible; never infer approval, invent results, or edit approved records to make a report consistent.';
+/**
+ * Said once, when the account lists recorded visual reviews. The composed prompt carries them only
+ * here (the separate recorded-visual-reviews section repeated them), so the rule travels with them.
+ */
+export const VISUAL_REVIEW_RULE = 'Report the recorded visual and inspection reviews as recorded: a valid one satisfies its slot, so never say that criterion lacks human visual review; one whose bound file or code candidate changed is not valid and needs a new review. Never infer a review that is not listed.';
 const PHASE_LIMIT = 32;
 const ITEM_LIMIT = 50;
 
@@ -62,6 +67,26 @@ function ownEvidenceLine(entry) {
   }).join('; ')}. Suite counts alone do not establish a clause verdict.`;
 }
 
+/** What one recorded review is: the file a person looked at, what they decided, who, and when. */
+function visualReviewDetail(entry) {
+  const outcome = entry.decision === 'does-not-satisfy'
+    ? `does not satisfy it${entry.answeredNo?.length ? ` (answered no: ${entry.answeredNo.join(', ')})` : ''}` : 'satisfies it';
+  const by = [entry.actor ? `by ${entry.actor}` : null, entry.authorityGroup ? `for ${entry.authorityGroup}` : null,
+    entry.at ? `at ${entry.at}` : null].filter(Boolean).join(' ');
+  return `${entry.method ?? 'review'} of \`${entry.file}\`${entry.target ? ` (screen: ${JSON.stringify(entry.target)})` : ''} ${outcome}`
+    + `${by ? `, recorded ${by}` : ''}; bound to ${entry.sha256}${entry.reason ? `; reviewer note: ${JSON.stringify(entry.reason)}` : ''}`;
+}
+
+/**
+ * One issue's line. A superseded issue owes nothing: it names its replacement and keeps its
+ * history, with no outcome and no outstanding decision.
+ */
+function issueLine(entry) {
+  if (entry.status === 'superseded') return `${entry.id}: owned by ${entry.phase}; superseded by ${entry.supersededBy}, original history retained.`;
+  return `${entry.id}: owned by ${entry.phase}; ${entry.status}${entry.decision ? ` (${entry.decision.outcome})` : '; human decision outstanding'}`
+    + `${entry.supersededBy ? `; superseded by ${entry.supersededBy}, original history retained` : ''}.`;
+}
+
 /** All human-facing adapters render these same lines instead of interpreting evidence again. */
 export function evidenceConsistencyLines(snapshot) {
   if (!snapshot) return [];
@@ -69,8 +94,9 @@ export function evidenceConsistencyLines(snapshot) {
     'Read-only retained facts; not a new run, clause acceptance, publication or approval.',
     ...snapshot.phases.map(ownEvidenceLine),
     ...snapshot.reuses.map((entry) => `${entry.state === 'active' ? 'Approved reuse' : 'Reuse not active'}: ${entry.label}`),
-    ...snapshot.visualReviews.map((entry) => `${entry.id}: ${entry.clauseId}, slot ${entry.slot}: ${entry.valid ? 'recorded human review satisfies this slot' : 'review does not currently satisfy this slot'}; file binding ${entry.binding}, candidate ${entry.candidate}.`),
-    ...snapshot.issues.map((entry) => `${entry.id}: owned by ${entry.phase}; ${entry.status}${entry.decision ? ` (${entry.decision.outcome})` : '; human decision outstanding'}${entry.supersededBy ? `; superseded by ${entry.supersededBy}, original history retained` : ''}.`),
+    ...(snapshot.visualReviews.length ? [VISUAL_REVIEW_RULE] : []),
+    ...snapshot.visualReviews.map((entry) => `${entry.id}: ${entry.clauseId}, slot ${entry.slot}: ${entry.valid ? 'recorded human review satisfies this slot' : 'review does not currently satisfy this slot'}; file binding ${entry.binding}, candidate ${entry.candidate}. ${visualReviewDetail(entry)}.`),
+    ...snapshot.issues.map(issueLine),
     ...snapshot.findings.map((entry) => `Reconcile ${entry.code}: ${entry.message}`)
   ];
   const omitted = Object.entries(snapshot.omitted).filter(([, count]) => count > 0);
@@ -99,9 +125,12 @@ export function projectEvidenceConsistency({ workflow, phase, executionEvidence 
     })),
     visualReviews: allReviews.slice(0, ITEM_LIMIT).map((entry) => ({
       id: entry.id, clauseId: entry.clauseId, slot: entry.slot, method: entry.method,
-      file: entry.file, sha256: entry.sha256, actor: entry.actor ?? null,
-      authorityGroup: entry.authorityGroup ?? null, binding: entry.binding,
-      candidate: entry.candidate, valid: entry.valid === true
+      ...(entry.target ? { target: entry.target } : {}),
+      file: entry.file, sha256: entry.sha256, decision: entry.decision ?? null,
+      ...(entry.answeredNo?.length ? { answeredNo: entry.answeredNo } : {}),
+      ...(entry.reason ? { reason: String(entry.reason).slice(0, 1000) } : {}),
+      actor: entry.actor ?? null, authorityGroup: entry.authorityGroup ?? null, at: entry.at ?? null,
+      binding: entry.binding, candidate: entry.candidate, valid: entry.valid === true
     })),
     reportedVerdicts: reportedVerdicts.slice(0, ITEM_LIMIT).map((row) => ({
       clauseId: row.clauseId, verdict: /^(matched|partial|missing|deviated|unplanned)(?:\s|\(|$)/u.exec(row.verdict)?.[1] ?? 'unrecognized',

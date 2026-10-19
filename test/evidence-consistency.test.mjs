@@ -150,6 +150,38 @@ test('custom renamed phases and future workflows use the same role-independent f
   assert.ok(shown.agentGuide.readOrder.includes('evidenceConsistency'));
 });
 
+test('a superseded issue owes nothing: no outcome and no outstanding decision, only its replacement and kept history', () => {
+  const item = fixture();
+  item.issues = [
+    { id: 'UPI-001', phase: 'specification', about: 'recorded discrepancy', status: 'superseded', supersededBy: 'UPI-002', decision: null },
+    { id: 'UPI-002', phase: 'implementation', about: 'BIN-501:REQ-001', status: 'open', supersededBy: null, decision: null },
+    { id: 'UPI-003', phase: 'verification', about: 'x', status: 'decided', supersededBy: 'UPI-004', decision: { outcome: 'dismiss' } }
+  ];
+  const lines = projectEvidenceConsistency(item).summary;
+  assert.ok(lines.includes('UPI-001: owned by specification; superseded by UPI-002, original history retained.'), lines.join('\n'));
+  assert.ok(lines.includes('UPI-002: owned by implementation; open; human decision outstanding.'));
+  assert.ok(lines.includes('UPI-003: owned by verification; decided (dismiss); superseded by UPI-004, original history retained.'));
+  assert.equal(lines.filter((line) => line.startsWith('UPI-001')).some((line) => /outstanding|\(/u.test(line)), false);
+});
+
+test('recorded visual reviews carry what the person looked at and the rule for reporting them, once', () => {
+  const item = fixture();
+  Object.assign(item.visualReviews.reviews[0], { at: AT, reason: 'Checked the converted totals.' });
+  item.visualReviews.reviews.push({ id: 'WIT-002', clauseId: 'BIN-501:AC-002', slot: 'screen', method: 'inspection',
+    file: 'evidence/two.png', sha256: HASH, decision: 'does-not-satisfy', answeredNo: ['matches-criterion'],
+    binding: 'bound-file-changed', candidate: 'unchanged', valid: false });
+  const lines = projectEvidenceConsistency(item).summary;
+  assert.equal(lines.filter((line) => line.startsWith('Report the recorded visual')).length, 1);
+  assert.ok(lines.some((line) => line.startsWith('WIT-001: BIN-501:AC-001, slot screenshot: recorded human review satisfies this slot')
+    && line.includes('visual of `evidence/binary.png` satisfies it, recorded by reviewer@example.test for quality-reviewers at 2026-10-19T09:00:00.000Z')
+    && line.includes('reviewer note: "Checked the converted totals."')), lines.join('\n'));
+  assert.ok(lines.some((line) => line.startsWith('WIT-002: BIN-501:AC-002, slot screen: review does not currently satisfy this slot')
+    && line.includes('does not satisfy it (answered no: matches-criterion)')));
+  delete item.visualReviews;
+  assert.equal(projectEvidenceConsistency(item).summary.some((line) => line.startsWith('Report the recorded visual')), false,
+    'the rule is said only when reviews are listed');
+});
+
 test('a refresh delivers current facts beside an immutable old prompt; unchanged digest adds nothing', () => {
   const snapshot = projectEvidenceConsistency(fixture());
   const old = '# Original prompt\nApproved evidence must not change.\n';

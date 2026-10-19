@@ -467,18 +467,15 @@ export function phasePromptExecutionContract(definition, workflow, phase, { temp
 
 /**
  * The human visual reviews the Story recorded (decision witness), for a step that reports on them.
- * The reader loads only when a witness exists; null otherwise.
+ * The reader loads only when a witness exists; null otherwise. The prompt carries them once, in the
+ * evidence-consistency section (with the rule for reporting them); the composition record still
+ * names the projection it delivered.
  */
 async function recordedVisualReviewContext(root, workflow, phase) {
   if (!workflow?.witnessRecords?.length || !phase) return null;
   const reviews = await import('./verification/witness-decisions.mjs');
   const projection = await reviews.phaseWitnessDecisions(root, workflow, phase);
-  return projection ? {
-    projection,
-    text: reviews.renderWitnessDecisions(projection),
-    record: reviews.witnessDecisionCompositionRecord(projection),
-    refresh: (text, record) => reviews.withWitnessDecisionRefresh(text, record, projection)
-  } : null;
+  return projection ? { projection, record: reviews.witnessDecisionCompositionRecord(projection) } : null;
 }
 
 /** Same delivery-only corrections for fresh and cached prompts; never persist over their receipts. */
@@ -795,8 +792,8 @@ async function compose(root, options, {
       const consistency = await readEvidenceConsistency(root, definition, workflow, phase,
         { executionEvidence, visualReviews: visualReviews?.projection ?? null });
       const refreshed = withExecutionEvidenceRefresh(existing.text, existing.record, executionEvidence);
-      const consistent = withEvidenceConsistencyRefresh(visualReviews ? visualReviews.refresh(refreshed, existing.record) : refreshed,
-        existing.record, consistency);
+      // Reviews recorded since composition reach the prompt in this one refresh, beside new reuse.
+      const consistent = withEvidenceConsistencyRefresh(refreshed, existing.record, consistency);
       const replyPrompt = withReplyPersonalization(
         withPhasePromptRuntimeGuidance(consistent, definition, workflow, phase),
         resolvePersonalization({ root }));
@@ -1019,9 +1016,8 @@ async function compose(root, options, {
     },
     { id: 'stakeholder-change-requests', text: stakeholderContext.text, mandatory: true, priority: 0 },
     { id: 'governed-execution-evidence', text: renderExecutionEvidence(executionEvidence), mandatory: true, priority: 0 },
+    // The single prompt source for reused-run labels and recorded visual reviews.
     { id: 'evidence-consistency', text: renderEvidenceConsistency(consistency), mandatory: true, priority: 0 },
-    // Present only when the Story recorded a witness, so every other prompt keeps its exact bytes.
-    ...(visualReviews ? [{ id: 'recorded-visual-reviews', text: visualReviews.text, mandatory: true, priority: 0 }] : []),
     { id: 'final-clarification-guard', text: clarificationGuard, mandatory: true, priority: 0 }
   ], tokenEconomyPolicy, {
     ...(tokenReductionRuntime ? {

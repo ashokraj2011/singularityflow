@@ -20,6 +20,7 @@ import { canonicalJson, recordSha256 } from '../src/records.mjs';
 import { requireApprovalAuthority } from '../src/approval-authority.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { phaseExecutionEvidence, renderExecutionEvidence } from '../src/phase-execution-evidence.mjs';
+import { projectEvidenceConsistency, renderEvidenceConsistency } from '../src/evidence-consistency.mjs';
 import { activeEvidenceReuse, evidenceReuseDecisionCommand, evidenceReuseFor, evidenceReuseState,
   observeEvidenceReuseSource, prepareEvidenceReuse, recordEvidenceReuse, recordEvidenceReuseRevocation,
   verifyReusableAttempt } from '../src/evidence-reuse.mjs';
@@ -131,10 +132,12 @@ test('an unchanged source lets a step approver reuse the recorded run, bound and
   const evidence = await phaseExecutionEvidence(item.root, item.config, item.workflow, item.phase);
   assert.equal(evidence.reusedTestEvidence.length, 1);
   assert.equal(evidence.reusedTestEvidence[0].label, label);
-  const rendered = renderExecutionEvidence(evidence);
-  assert.ok(rendered.includes(`- ${label}`), rendered);
-  assert.match(rendered, /never report it as a run of the reusing step/u);
+  // The prompt states each reuse label once, in the evidence-consistency section.
+  const rendered = renderEvidenceConsistency(projectEvidenceConsistency({ workflow: item.workflow, phase: item.phase, executionEvidence: evidence }));
+  assert.ok(rendered.includes(`- Approved reuse: ${label}`), rendered);
+  assert.match(rendered, /Earlier runs remain attributed to their producer, even after approved reuse/u);
   assert.doesNotMatch(rendered, /verification (?:ran|executed|passed) /u, 'never says the reusing step ran tests');
+  assert.equal(renderExecutionEvidence(evidence).includes(label), false, 'the execution-evidence section does not repeat it');
 
   // The conformance step's inputs carry the reuse its earlier step decided.
   const release = item.workflow.phases.release;
@@ -186,7 +189,8 @@ test('a decision lapses when the source changes after it, and the step is never 
   assert.match(reuse.lapsed[0].label, new RegExp(`^ERU-001 no longer applies \\(the application source or its test inputs changed after that run\\): ${ATTEMPT} was recorded by implementation at [0-9a-f]{12}, and no run by verification is recorded\\.`, 'u'));
   const evidence = await phaseExecutionEvidence(item.root, item.config, item.workflow, item.phase);
   assert.equal(evidence.reusedTestEvidence[0].state, 'source-changed');
-  assert.match(renderExecutionEvidence(evidence), /ERU-001 no longer applies/u);
+  assert.match(renderEvidenceConsistency(projectEvidenceConsistency({ workflow: item.workflow, phase: item.phase, executionEvidence: evidence })),
+    /Reuse not active: ERU-001 no longer applies/u);
   assert.equal(item.workflow.evidenceReuses.length, 1, 'lapsing writes nothing');
   // The binding is to bytes: the exact tested source binds again.
   await commitChange(item, 'app.js', original);

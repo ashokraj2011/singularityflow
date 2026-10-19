@@ -209,9 +209,8 @@ export function renderExecutionEvidence(evidence) {
     `Projection: ${evidence.projectionSha256}. Read-only facts; not publication, submission or human approval.`,
     'Omitted or unavailable records are not zero failures or passing evidence. Inspect the linked immutable packet if more detail is needed.',
     ...(untested.length ? ['', `Retained no test results: ${untested.map(entry => `${entry.phase} generation ${entry.generation}${entry.path ? ` (\`${entry.path}\`)` : ''}`).join(', ')}.`] : []),
-    // A run a person approved reusing is cited as the recording step's run, never as the reusing step's.
-    ...(evidence.reusedTestEvidence?.length ? ['', 'Reused test evidence (an earlier step recorded each run; a person who approves the reusing step decided it stands for that step, which ran no tests). Cite each by its label; never report it as a run of the reusing step:',
-      ...evidence.reusedTestEvidence.map(entry => `- ${entry.label}`)] : []),
+    // Reused runs are cited by their labels in the evidence-consistency section only, so the prompt
+    // states each label once; the read model keeps them in reusedTestEvidence.
     ...(facts ? ['', '```json', JSON.stringify({ current: evidence.current, entries: tested,
       diagnostics: evidence.diagnostics, omittedPackets: evidence.omittedPackets }), '```']
       : untested.length ? [] : ['', 'No earlier step retained test results.']),

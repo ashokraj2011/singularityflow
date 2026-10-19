@@ -39,7 +39,7 @@ async function composedPromptFile(root, workItemRoot, workId, phaseId, generatio
     const bytes = await readFile(path.join(root, relative));
     const sha256 = createHash('sha256').update(bytes).digest('hex');
     return sha256 === record.renderedSha256
-      ? { path: relative, sha256, bytes: bytes.length, differsFromText: 'omits the presentation-only reply personalization and any execution-evidence, recorded-visual-review or evidence-consistency refresh added on reuse (the packet carries those as retainedExecutionEvidence, recordedVisualReviews and evidenceConsistency)' }
+      ? { path: relative, sha256, bytes: bytes.length, differsFromText: 'omits the presentation-only reply personalization and any execution-evidence or evidence-consistency refresh added on reuse (recorded visual reviews arrive in the latter) (the packet carries those as retainedExecutionEvidence, recordedVisualReviews and evidenceConsistency)' }
       : null;
   } catch { return null; }
 }

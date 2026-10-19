@@ -122,11 +122,15 @@ test('a conformance step\'s entry packet and composed prompt carry the recorded 
   assert.equal(entry.evidenceConsistency.visualReviews[0].valid, true);
   assert.ok(entry.evidenceConsistency.summary.some((line) => line.includes('WIT-001: WIT-ENTRY-1:AC-001')));
   const text = entry.context.text;
-  assert.ok(text.includes(`${WITNESS_DECISIONS_HEADING}\n`), 'the composed prompt carries the block');
-  assert.ok(text.includes(`- WIT-001: visual of \`${SCREEN}\``));
-  assert.ok(text.includes('bound file unchanged.'));
-  // The retained prompt file holds the same block: it is part of the composed generation.
-  assert.ok((await readFile(path.join(item.root, entry.context.file.path), 'utf8')).includes(`${WITNESS_DECISIONS_HEADING}\n`));
+  // One prompt source: the evidence-consistency section carries the review, its details and the rule.
+  assert.equal(text.includes(`${WITNESS_DECISIONS_HEADING}\n`), false, 'no second visual-review section');
+  const line = `- WIT-001: WIT-ENTRY-1:AC-001, slot converter-screenshot: recorded human review satisfies this slot; file binding bound-file-unchanged, candidate `;
+  assert.ok(text.includes(line), text);
+  assert.equal(text.split('WIT-001:').length, 2, 'the review is stated once');
+  assert.match(text, new RegExp(`visual of \`${SCREEN.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}\`[^\n]* satisfies it, recorded `, "u"));
+  assert.match(text, /never say that criterion lacks human visual review/u);
+  // The retained prompt file holds the same account: it is part of the composed generation.
+  assert.ok((await readFile(path.join(item.root, entry.context.file.path), 'utf8')).includes(line));
   const record = JSON.parse(await readFile(path.join(item.root, `team/stories/WIT-ENTRY-1/context/${STEP}-gen${entry.context.generation}.json`), 'utf8'));
   assert.equal(record.promptBudget.visualReviews.projectionSha256, reviews.projectionSha256);
   assert.equal(record.promptBudget.evidenceConsistency.projectionSha256, entry.evidenceConsistency.projectionSha256);
@@ -143,8 +147,9 @@ test('without a witness the entry packet and prompt are unchanged; one recorded 
   item.commit('witness recorded after composition');
   const reused = item.enter();
   assert.equal(reused.context.renderedSha256, first.context.renderedSha256, 'the retained prompt keeps its exact bytes');
-  assert.match(reused.context.text, /# Current recorded visual reviews refresh\n/u);
-  assert.ok(reused.context.text.includes('- WIT-001: visual of'));
+  assert.doesNotMatch(reused.context.text, /# Current recorded visual reviews refresh\n/u, 'one refresh carries the new review');
+  assert.ok(reused.context.text.includes('WIT-001: WIT-ENTRY-1:AC-001, slot converter-screenshot: recorded human review satisfies this slot'));
+  assert.ok(reused.context.text.includes('visual of'));
   assert.equal(reused.recordedVisualReviews.reviews[0].valid, true);
   assert.match(reused.context.text, /# Current evidence-consistency refresh\n/u);
   assert.equal(reused.evidenceConsistency.visualReviews[0].valid, true);

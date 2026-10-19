@@ -14,6 +14,8 @@ const localEnv = () => ({ ...process.env, GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE
 
 /** Reuse only within one read operation. A different checkout never shares its mutable view. */
 export function withSourceReviewSnapshot(root, read) {
+  // A status question that needs no checkout (a skipped or unpublished step) has nothing to share.
+  if (root == null) return read();
   root = path.resolve(root);
   if (scopes.getStore()?.root === root) return read();
   return scopes.run({ root, head: null, files: new Map(), fileBytes: 0, inputs: new Map(), proofs: new Map() }, read);

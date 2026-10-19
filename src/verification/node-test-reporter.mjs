@@ -4,7 +4,9 @@ import path from 'node:path';
 import { realpathSync } from 'node:fs';
 
 export default async function* reporter(events) {
-  const root = realpathSync(process.env.SINGULARITY_FLOW_NODE_TEST_ROOT ?? process.cwd());
+  // The JS symlink walker preserves Windows 8.3 components; the native filesystem
+  // canonicalizer also expands those aliases so root and event paths share one namespace.
+  const root = realpathSync.native(process.env.SINGULARITY_FLOW_NODE_TEST_ROOT ?? process.cwd());
   const stacks = new Map();
   const files = new Map();
   const occurrences = [];
@@ -23,7 +25,7 @@ export default async function* reporter(events) {
         // both sides before containment/identity checks; outside or missing files still fail.
         // One resolution per reported file avoids another filesystem read per test case.
         if (data.file && !files.has(data.file)) {
-          try { files.set(data.file, path.relative(root, realpathSync(data.file)).replaceAll('\\', '/')); }
+          try { files.set(data.file, path.relative(root, realpathSync.native(data.file)).replaceAll('\\', '/')); }
           catch { files.set(data.file, ''); }
         }
         const file = files.get(data.file) ?? '';

@@ -17,7 +17,8 @@ export const COMMAND_PRESENTATION_CONTRACT = 'For every next action, honor retur
  * contracts: fixed overhead added to the budget, not per-skill prose, and only on Story authoring
  * and mutation skills (approval and review turns never run automatic actions).
  */
-export const REFUSAL_HANDLING_CONTRACT = 'On a refusal read `remediationPlan`: run its first read-only step once and follow `context.strategy`; never retry an unchanged condition or edit an earlier phase to clear it. One returned `automatic` plan-hash action (such as `sync`) may run once, then re-enter once.';
+export const REFUSAL_HANDLING_CONTRACT = 'On a refusal or any stop, relay the returned route before ending: `remediationPlan` (run its first read-only step once and follow `context.strategy`), else `commandGuidance`, `nextAction`, `continuation.actions`, `recovery.actions` or `correction.skill`, in that order; with none, offer `/sf-nextsteps`. Never retry an unchanged condition or edit an earlier phase to clear it. One returned `automatic` plan-hash action (such as `sync`) may run once, then re-enter once.';
+export const REFUSAL_ROUTE_CONTRACT = 'On a refusal or any stop, relay the returned route before ending: `remediationPlan` steps, else `commandGuidance`, `nextAction`, `continuation.actions` or `recovery.actions`, in that order; with none, offer `/sf-nextsteps`. Never retry an unchanged condition; run a returned action only when the person asks.';
 
 /**
  * Every Story skill acts on what the engine returned, never on its own reading of a step's name,
@@ -62,6 +63,21 @@ export function applicabilityContractApplies(rule) {
 
 export function refusalHandlingApplies(rule) {
   return ['generative', 'mutation'].includes(rule?.class) && (rule?.executionBoundary ?? 'story') === 'story';
+}
+
+/**
+ * Every other skill that runs commands relays the route a refusal or stop returns, whatever its
+ * boundary: a repository, Epic or review skill that ends on a bare refusal leaves the work with no
+ * next step. It runs no returned action itself, so approval and review turns stay human. Delegation
+ * skills hand off before running anything; conversational ones only explain.
+ */
+export function refusalRouteApplies(rule) {
+  return !refusalHandlingApplies(rule) && !['delegation', 'conversational'].includes(rule?.class);
+}
+
+/** The refusal contract a skill carries, or null. */
+export function refusalContractFor(rule) {
+  return refusalHandlingApplies(rule) ? REFUSAL_HANDLING_CONTRACT : refusalRouteApplies(rule) ? REFUSAL_ROUTE_CONTRACT : null;
 }
 
 export const ARTIFACT_PRESENTATION_CONTRACT = 'Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval.';
@@ -406,13 +422,13 @@ function withAutomaticPolicy(text, automatic, description, file) {
   return `---\n${source}\n---\n${skill.body}`;
 }
 
-function withOutputContract(text, contract, kernelModelPolicy, file, executionBoundaryKind, refusalHandling = false, applicability = false) {
+function withOutputContract(text, contract, kernelModelPolicy, file, executionBoundaryKind, refusalContract = null, applicability = false) {
   const skill = splitSkill(text, file);
   // Additional blocked/risk prose can separate the generated contract from its boundary. Strip
   // all maintained boundaries first so repeated generation never appends a second lookup.
   const sourceBody = skill.body.replace(/<!-- sflow-execution-boundary -->\r?\n\*\*(?:Execution boundary|Boundary):\*\*[^\n]*\r?\n?/gu, '');
   const marker = `<!-- sflow-output-contract: ${contract} -->`;
-  const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]}${approvedInputsContractApplies(contract) ? ` ${APPROVED_INPUTS_CONTRACT}` : ''} ${ARTIFACT_PRESENTATION_CONTRACT} ${COMMAND_PRESENTATION_CONTRACT}${refusalHandling ? ` ${REFUSAL_HANDLING_CONTRACT}` : ''}${applicability ? ` ${APPLICABILITY_CONTRACT} ${COMPLETE_OUTPUT_CONTRACT}` : ''}`;
+  const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]}${approvedInputsContractApplies(contract) ? ` ${APPROVED_INPUTS_CONTRACT}` : ''} ${ARTIFACT_PRESENTATION_CONTRACT} ${COMMAND_PRESENTATION_CONTRACT}${refusalContract ? ` ${refusalContract}` : ''}${applicability ? ` ${APPLICABILITY_CONTRACT} ${COMPLETE_OUTPUT_CONTRACT}` : ''}`;
   const boundaryMarker = '<!-- sflow-execution-boundary -->';
   const boundaryText = `${executionBoundary(executionBoundaryKind, path.basename(path.dirname(file)))} ${CLI_PATH_CONTRACT}`;
   if (!CONTRACT_TEXT[contract]) throw new Error(`${file}: unknown output contract '${contract}'`);
@@ -618,7 +634,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     let text = await readFile(file, 'utf8');
     if (write) {
       text = withAutomaticPolicy(text, automatic.has(name), AUTOMATIC_DESCRIPTIONS[name], file);
-      text = withOutputContract(text, classPolicy.outputContract, kernelModelPolicy, file, executionBoundaryKind, refusalHandlingApplies(rule), applicabilityContractApplies(rule));
+      text = withOutputContract(text, classPolicy.outputContract, kernelModelPolicy, file, executionBoundaryKind, refusalContractFor(rule), applicabilityContractApplies(rule));
       text = withCopilotPauseGuard(text, pauseGuardRequired, file, name, executionBoundaryKind);
       await writeFile(file, text);
     }
@@ -634,7 +650,9 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     const commandPresentationTokens = estimatedTokens(` ${COMMAND_PRESENTATION_CONTRACT}`);
     const artifactPresentationTokens = estimatedTokens(` ${ARTIFACT_PRESENTATION_CONTRACT}`);
     const refusalHandling = refusalHandlingApplies(rule);
-    const refusalHandlingTokens = refusalHandling ? estimatedTokens(` ${REFUSAL_HANDLING_CONTRACT}`) : 0;
+    const refusalRoute = refusalRouteApplies(rule);
+    const refusalText = refusalContractFor(rule);
+    const refusalHandlingTokens = refusalText ? estimatedTokens(` ${refusalText}`) : 0;
     const applicability = applicabilityContractApplies(rule);
     // Measured in this body like the approved-inputs contract, so a longer shared contract never
     // moves a skill's own prose count by rounding.
@@ -677,6 +695,9 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     if (!skill.body.includes(COMMAND_PRESENTATION_CONTRACT)) errors.push(`${name}: missing Shell/Copilot presentation contract`);
     if (refusalHandling !== skill.body.includes(REFUSAL_HANDLING_CONTRACT)) {
       errors.push(`${name}: ${refusalHandling ? 'missing' : 'unexpected'} engine refusal-handling contract`);
+    }
+    if (refusalRoute !== skill.body.includes(REFUSAL_ROUTE_CONTRACT)) {
+      errors.push(`${name}: ${refusalRoute ? 'missing' : 'unexpected'} engine refusal-route contract`);
     }
     if (applicability !== skill.body.includes(APPLICABILITY_CONTRACT)) {
       errors.push(`${name}: ${applicability ? 'missing' : 'unexpected'} engine applicability contract`);

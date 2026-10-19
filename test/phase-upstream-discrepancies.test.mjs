@@ -10,7 +10,9 @@ import {
 } from '../src/phase-authoring-contract.mjs';
 import { phaseRepairLoopSummary } from '../src/phase-repair-journal.mjs';
 import { phaseUpstreamDiscrepancies, upstreamDiscrepanciesFromMarkdown } from '../src/phase-upstream-discrepancies.mjs';
-import { REFUSAL_HANDLING_CONTRACT, refusalHandlingApplies } from '../scripts/skill-policy.mjs';
+import {
+  REFUSAL_HANDLING_CONTRACT, REFUSAL_ROUTE_CONTRACT, refusalHandlingApplies, refusalRouteApplies
+} from '../scripts/skill-policy.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -79,5 +81,29 @@ test('every Story authoring and mutation skill carries the engine refusal contra
   for (const name of ['sflow-approve', 'sflow-submit', 'sflow-reject']) {
     assert.equal(refusalHandlingApplies(registry.skills[name]), false, name);
   }
-  assert.match(REFUSAL_HANDLING_CONTRACT, /never retry an unchanged condition or edit an earlier phase/u);
+  assert.match(REFUSAL_HANDLING_CONTRACT, /Never retry an unchanged condition or edit an earlier phase/u);
+});
+
+test('every other skill that runs commands relays the route a refusal or stop returns, and runs none itself', async () => {
+  const registry = YAML.parse(await readFile(path.join(root, 'plugin/skills/registry.yml'), 'utf8'));
+  for (const [name, rule] of Object.entries(registry.skills)) {
+    const body = await readFile(path.join(root, 'plugin/skills', name, 'SKILL.md'), 'utf8').catch(() => null);
+    if (body == null) continue;
+    assert.equal(body.includes(REFUSAL_ROUTE_CONTRACT), refusalRouteApplies(rule), name);
+    // A skill that runs commands always says where a refusal goes next, whatever its boundary.
+    if (!['delegation', 'conversational'].includes(rule.class)) {
+      assert.ok(body.includes(REFUSAL_HANDLING_CONTRACT) || body.includes(REFUSAL_ROUTE_CONTRACT), name);
+    }
+  }
+  // Approval, review and the Epic, workflow and setup lanes relay routes without running them.
+  for (const name of ['sflow-approve', 'sflow-submit', 'sflow-reject', 'sflow-decide', 'sflow-epic-start', 'sflow-configuration', 'sflow-doctor']) {
+    assert.ok(refusalRouteApplies(registry.skills[name]), name);
+  }
+  for (const contract of [REFUSAL_HANDLING_CONTRACT, REFUSAL_ROUTE_CONTRACT]) {
+    for (const field of ['remediationPlan', 'commandGuidance', 'nextAction', 'continuation.actions', 'recovery.actions', '/sf-nextsteps']) {
+      assert.ok(contract.includes(field), `${field} in ${contract}`);
+    }
+  }
+  assert.match(REFUSAL_ROUTE_CONTRACT, /run a returned action only when the person asks/u);
+  assert.doesNotMatch(REFUSAL_ROUTE_CONTRACT, /automatic/u, 'an approval or review turn never runs an automatic action');
 });

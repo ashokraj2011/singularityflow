@@ -107,14 +107,16 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
   const exactCriteria = verifiedCriteria.filter((entry) => entry.identity === 'source-bound').length;
   const unmet = criteria.length - verifiedCriteria.length;
   // Both read the one submitted packet; a read scope verifies it once for the two of them.
-  const { witnessReview, reviewBinding } = await withReadScope(async () => ({
+  const { witnessReview, reviewBinding, evidenceConsistency } = await withReadScope(async () => ({
     witnessReview: await witnessMappingReview(root, config, workflow, phase),
     // Only an available, current submitted review can be bound by a human approval surface.
     // Drafts, historical phases and unavailable document bodies convey no reusable approval binding.
     reviewBinding: phase.id === workflow.currentPhase && phase.status === 'awaiting_approval'
       && documents.every((document) => !document.error)
       ? await (await import('../../choices.mjs')).approvalReviewBinding(root, config, workflow)
-      : null
+      : null,
+    evidenceConsistency: await (await import('../../evidence-consistency-read.mjs')).readEvidenceConsistency(
+      root, config, workflow, phase, { documents })
   }));
   return {
     schemaVersion: 1,
@@ -153,6 +155,7 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
     } : null,
     // Runs an earlier step recorded that this step's approvers decided to reuse, labelled as theirs.
     ...await reusedTestEvidence(root, config, workflow, phase),
+    evidenceConsistency,
     witnessReview,
     owedDecisions: reviewBinding ? await owedDecisions(root, config, workflow, stepsThrough(workflow, phase.id)) : null,
     documents,

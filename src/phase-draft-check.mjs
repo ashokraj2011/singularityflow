@@ -123,6 +123,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   let artifactQuality = { acceptedFindings: [], risks: null };
   let specificationAdvisories = [];
   let conformanceAdvisories = [];
+  let evidenceConsistency = null;
   const editableCode = workflow.currentPhase === phase.id && phase.status === 'in_progress'
     && phase.generationIntent?.status === 'open';
 
@@ -192,6 +193,13 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       details: { refreshCommand: `singularity-flow prepare ${phase.id}`, present: comparison.summary.present },
       message: `The engine-written Verdict summary does not match the clause table and its upstream issues. Run singularity-flow prepare ${phase.id} to refresh it; never edit it by hand.`
     })];
+    if ((await import('./verification/witness-decisions.mjs')).phaseReadsWitnessDecisions(workflow, phase)) {
+      evidenceConsistency = await (await import('./evidence-consistency-read.mjs')).readEvidenceConsistency(root, config, workflow, phase);
+      const known = new Set(conformanceAdvisories.map((item) => item.code));
+      conformanceAdvisories.push(...evidenceConsistency.findings.filter((item) => !known.has(item.code)
+        && item.code !== 'conformance.witness-unreported')
+        .map((item) => Object.freeze({ ...item, category: 'evidence', blocking: false })));
+    }
   }
 
   // Surface the exact missing source/test witness while the code generation is still editable. The
@@ -289,7 +297,10 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   const driftAdvisories = phase.generationIntent?.status === 'open' && phaseRequiresCodeDelivery(phase)
     ? await foreignClauseDrift(root, config, workflow) : [];
   // A report saying a criterion lacks human visual review while the Story recorded a valid one.
-  const witnessAdvisories = workflow.witnessRecords?.length && artifact?.exists
+  const witnessAdvisories = evidenceConsistency && !evidenceConsistency.omitted.findings
+    ? evidenceConsistency.findings.filter((entry) => entry.code === 'conformance.witness-unreported')
+      .map((entry) => Object.freeze({ ...entry, category: 'evidence', value: entry.clauseId }))
+    : workflow.witnessRecords?.length && artifact?.exists
     ? await (await import('./verification/witness-report-findings.mjs')).witnessReportAdvisories(root, workflow, phase, artifact) : [];
 
   const route = draftCorrectionRoute(codeEvidenceRepair, convergenceReview);
@@ -341,6 +352,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     producer,
     qualityDisposition: artifactQuality.acceptedFindings.length ? 'accepted-risk' : 'checked',
     acceptedQualityRisks: artifactQuality.risks,
+    ...(evidenceConsistency ? { evidenceConsistency } : {}),
     ownership,
     draftFingerprint: traceabilityDraftFingerprint(reviewDraft.fingerprint, traceabilityRepair),
     artifact,

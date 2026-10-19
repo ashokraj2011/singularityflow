@@ -13,11 +13,35 @@ related:
   - recovery
   - approvals
   - configuration
-version: 20
+version: 21
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
 The available routes are bounded readiness repair, reviewed test selection, current-phase test-command amendment, exact intake baseline acceptance, native Node/pytest/Maven failure and skipped-coverage review, and explicitly designated supplemental-document exceptions. Verified in-scope draft changes receive concrete repair or successor-generation guidance. These are not blanket waivers for dirty worktrees or protected state.
+
+## Shared evidence consistency account
+
+Phase entry, reporting-phase draft/prepublication checks, phase document reviews, and approval
+reviews expose the same `evidenceConsistency` read-only projection. Copilot composition and the
+CLI/VS Code review displays use its shared summary. The projection is derived from verified
+retained packets, current source bindings, recorded visual reviews, existing evidence-reuse
+decisions and upstream-issue decisions; it is not another evidence database or approval receipt.
+
+Each test run stays attributed to the phase and generation that retained it. A Verification
+report claiming 15 passing tests is not substantiated by an earlier Implementation packet that
+retains 33 passing tests, even on the same source. An authorized evidence-reuse decision can make
+that earlier run applicable without turning it into a Verification execution. Missing or omitted
+records, stale bindings and suite counts never become clause acceptance automatically.
+
+The account also surfaces contradictory conformance verdicts, valid human visual reviews a report
+denies, and legacy discrepancies filed against a phase other than the owner named in their source
+item. These are reconciliation advisories, not new publication blockers or automatic decisions.
+Use the existing draft repair, superseding upstream issue, evidence-reuse, risk decision or fresh
+execution route as appropriate. Historical artifacts and immutable submissions are not rewritten.
+Normal fresh lifecycle, evidence and human authority checks still run at mutation boundaries.
+
+Reused generation prompts keep their exact persisted bytes. New observations are delivered beside
+them as an evidence-consistency refresh, with a content digest and explicit omission counts.
 
 ## Purpose and prerequisites
 

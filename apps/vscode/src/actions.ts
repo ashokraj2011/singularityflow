@@ -58,6 +58,7 @@ interface ReceiptChoiceSet { id: string; label: string; options: ChoiceOption[] 
 interface Receipt { token: string; choiceSets: ReceiptChoiceSet[] }
 
 interface StoryReviewBundle {
+  evidenceConsistency?: import('./views/webview.ts').EvidenceConsistencyPresentation | null;
   workItem?: { id?: string; title?: string };
   phase?: { id?: string; label?: string; generation?: number };
   /** Presentation from the current local Git identity; the approval gate verifies again. */
@@ -478,6 +479,7 @@ export async function approveWithReceipt(
       findings: storyReview?.specificationQuality?.findings ?? [],
       witnessedClauses: storyReview?.specificationQuality?.witnessedClauses ?? null,
       witnessMappings: storyReview?.witnessReview?.mappings ?? [],
+      evidenceConsistency: storyReview?.evidenceConsistency ?? null,
       priorExceptions: (storyReview?.priorExceptions ?? []).map((entry) => ({
         article: entry.article,
         decision: entry.decision,

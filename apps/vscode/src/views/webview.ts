@@ -21,6 +21,14 @@ export function escape(value: unknown): string {
     .replace(/'/g, '&#39;');
 }
 
+/** CLI-owned wording: a webview must not infer another evidence verdict or approval. */
+export interface EvidenceConsistencyPresentation { projectionSha256: string; summary: string[] }
+
+/** Render the shared account without recomputing or preselecting any human decision. */
+export function evidenceConsistencyHtml(snapshot?: EvidenceConsistencyPresentation | null): string {
+  return snapshot ? `<details class="approval-evidence" open><summary>Evidence consistency</summary><code>${escape(snapshot.projectionSha256)}</code><ul>${snapshot.summary.map((line) => `<li>${escape(line)}</li>`).join('')}</ul></details>` : '';
+}
+
 /** Not a secret — a CSP nonce only has to be unpredictable per render. */
 export function nonce(): string {
   let value = '';

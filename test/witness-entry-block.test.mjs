@@ -117,6 +117,10 @@ test('a conformance step\'s entry packet and composed prompt carry the recorded 
   assert.deepEqual(reviews.reviews.map((review) => [review.id, review.clauseId, review.slot, review.file, review.decision, review.binding, review.valid]),
     [['WIT-001', 'WIT-ENTRY-1:AC-001', 'converter-screenshot', SCREEN, 'satisfies', 'bound-file-unchanged', true]]);
   assert.ok(entry.agentGuide.readOrder.includes('recordedVisualReviews'));
+  assert.ok(entry.agentGuide.readOrder.includes('evidenceConsistency'));
+  assert.equal(entry.evidenceConsistency.visualReviews[0].id, 'WIT-001');
+  assert.equal(entry.evidenceConsistency.visualReviews[0].valid, true);
+  assert.ok(entry.evidenceConsistency.summary.some((line) => line.includes('WIT-001: WIT-ENTRY-1:AC-001')));
   const text = entry.context.text;
   assert.ok(text.includes(`${WITNESS_DECISIONS_HEADING}\n`), 'the composed prompt carries the block');
   assert.ok(text.includes(`- WIT-001: visual of \`${SCREEN}\``));
@@ -125,6 +129,8 @@ test('a conformance step\'s entry packet and composed prompt carry the recorded 
   assert.ok((await readFile(path.join(item.root, entry.context.file.path), 'utf8')).includes(`${WITNESS_DECISIONS_HEADING}\n`));
   const record = JSON.parse(await readFile(path.join(item.root, `team/stories/WIT-ENTRY-1/context/${STEP}-gen${entry.context.generation}.json`), 'utf8'));
   assert.equal(record.promptBudget.visualReviews.projectionSha256, reviews.projectionSha256);
+  assert.equal(record.promptBudget.evidenceConsistency.projectionSha256, entry.evidenceConsistency.projectionSha256);
+  assert.ok(text.includes(`# Evidence consistency\n`));
 });
 
 test('without a witness the entry packet and prompt are unchanged; one recorded after composition is delivered as a refresh', async t => {
@@ -140,6 +146,8 @@ test('without a witness the entry packet and prompt are unchanged; one recorded 
   assert.match(reused.context.text, /# Current recorded visual reviews refresh\n/u);
   assert.ok(reused.context.text.includes('- WIT-001: visual of'));
   assert.equal(reused.recordedVisualReviews.reviews[0].valid, true);
+  assert.match(reused.context.text, /# Current evidence-consistency refresh\n/u);
+  assert.equal(reused.evidenceConsistency.visualReviews[0].valid, true);
 });
 
 test('draft-check names a report row that denies the recorded review, as an advisory only', async t => {
@@ -154,7 +162,10 @@ test('draft-check names a report row that denies the recorded review, as an advi
   ].join('\n');
   await writeFile(draft, report('Tests pass; this verdict does not claim independent human visual acceptance.'));
   const checked = item.run('phase', 'draft-check', STEP, '--json');
+  assert.ok(checked.evidenceConsistency.findings.some((entry) => entry.code === 'conformance.witness-unreported'));
   const advisory = checked.advisories.find((entry) => entry.code === 'conformance.witness-unreported');
+  assert.equal(checked.advisories.filter((entry) => entry.code === 'conformance.witness-unreported').length, 1,
+    'the shared snapshot and draft display do not duplicate the same visual-review advisory');
   assert.ok(advisory, JSON.stringify(checked.advisories));
   assert.equal(advisory.blocking, false);
   assert.equal(advisory.record, 'WIT-001');

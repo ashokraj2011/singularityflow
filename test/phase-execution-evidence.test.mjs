@@ -15,6 +15,7 @@ import { buildTestExecutionReceipt } from '../src/code-delivery-tests.mjs';
 import { canonicalJson, recordSha256 } from '../src/records.mjs';
 import { phaseExecutionEvidence, projectExecutionPacket, renderExecutionEvidence,
   withExecutionEvidenceRefresh, MAX_EXECUTION_EVIDENCE_BYTES } from '../src/phase-execution-evidence.mjs';
+import { readEvidenceConsistency } from '../src/evidence-consistency-read.mjs';
 
 const sha = `sha256:${'a'.repeat(64)}`;
 const commit = 'a'.repeat(40);
@@ -149,6 +150,10 @@ test('actual immutable packet handoff ignores altered local reports; source chan
   const evidence = await phaseExecutionEvidence(item.root, item.config, item.workflow, item.phase);
   assert.equal(evidence.entries.length, 1);
   assert.equal(evidence.entries[0].checks[0].commandSuccessReusable, true);
+  const consistency = await readEvidenceConsistency(item.root, item.config, item.workflow, item.phase,
+    { executionEvidence: evidence, visualReviews: null, documents: [] });
+  assert.equal(consistency.inputs.executionEvidenceSha256, evidence.projectionSha256);
+  assert.equal(consistency.phases.find((entry) => entry.phase === 'implementation').runs[0].binding, 'matched');
   assert.equal(evidence.entries[0].checks[0].structuredTestsReusable, false,
     'a successful command without a retained parsed report is not a verified test suite');
   assert.equal(evidence.entries[0].packetSha256, item.submission.packet.packetSha256);
@@ -269,6 +274,7 @@ test('new composed prompts carry bounded evidence and cached reuse preserves the
   await writeFile(path.join(item.root, 'singularity/work-items/EVIDENCE-1/workflow.json'), JSON.stringify(item.workflow));
   const prompt = await composePhasePrompt(item.root, { workId: 'EVIDENCE-1', phase: 'specification', agent: 'product-owner' });
   assert.match(prompt, /# Governed execution evidence/);
+  assert.match(prompt, /# Evidence consistency/);
   assert.match(prompt, /command success alone proves neither every criterion/i);
   const file = path.join(item.root, 'singularity/work-items/EVIDENCE-1/context/prompts/specification-gen1.md');
   const before = await readFile(file, 'utf8');

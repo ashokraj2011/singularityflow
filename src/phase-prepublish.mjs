@@ -560,6 +560,7 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     producer: draft.producer,
     qualityDisposition: draft.qualityDisposition,
     acceptedQualityRisks: draft.acceptedQualityRisks,
+    ...(draft.evidenceConsistency ? { evidenceConsistency: draft.evidenceConsistency } : {}),
     ownership: draft.ownership,
     draftFingerprint,
     artifact: draft.artifact,

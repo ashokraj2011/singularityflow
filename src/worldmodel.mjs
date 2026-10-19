@@ -474,6 +474,7 @@ async function recordedVisualReviewContext(root, workflow, phase) {
   const reviews = await import('./verification/witness-decisions.mjs');
   const projection = await reviews.phaseWitnessDecisions(root, workflow, phase);
   return projection ? {
+    projection,
     text: reviews.renderWitnessDecisions(projection),
     record: reviews.witnessDecisionCompositionRecord(projection),
     refresh: (text, record) => reviews.withWitnessDecisionRefresh(text, record, projection)
@@ -789,9 +790,15 @@ async function compose(root, options, {
       console.error(`Grounding composition reused: ${existing.file}`);
       const executionEvidence = await phaseExecutionEvidence(root, definition, workflow, phase);
       const visualReviews = await recordedVisualReviewContext(root, workflow, phase);
+      const { readEvidenceConsistency } = await import('./evidence-consistency-read.mjs');
+      const { withEvidenceConsistencyRefresh } = await import('./evidence-consistency.mjs');
+      const consistency = await readEvidenceConsistency(root, definition, workflow, phase,
+        { executionEvidence, visualReviews: visualReviews?.projection ?? null });
       const refreshed = withExecutionEvidenceRefresh(existing.text, existing.record, executionEvidence);
+      const consistent = withEvidenceConsistencyRefresh(visualReviews ? visualReviews.refresh(refreshed, existing.record) : refreshed,
+        existing.record, consistency);
       const replyPrompt = withReplyPersonalization(
-        withPhasePromptRuntimeGuidance(visualReviews ? visualReviews.refresh(refreshed, existing.record) : refreshed, definition, workflow, phase),
+        withPhasePromptRuntimeGuidance(consistent, definition, workflow, phase),
         resolvePersonalization({ root }));
       if (!renderOnly && options['skip-prompt-audit'] !== true) {
         await recordCompositionPromptAudit(root, {
@@ -979,6 +986,10 @@ async function compose(root, options, {
   }
   const executionEvidence = workflow ? await phaseExecutionEvidence(root, definition, workflow, phase) : null;
   const visualReviews = await recordedVisualReviewContext(root, workflow, phase);
+  const { readEvidenceConsistency } = await import('./evidence-consistency-read.mjs');
+  const { renderEvidenceConsistency } = await import('./evidence-consistency.mjs');
+  const consistency = workflow ? await readEvidenceConsistency(root, definition, workflow, phase,
+    { executionEvidence, visualReviews: visualReviews?.projection ?? null }) : null;
   // The rules this Story was pinned to at start, exactly those bytes, or their identities when absent.
   const constitution = workflow ? await constitutionPromptContext(root, workflow) : { text: '', record: null };
   const promptCompilation = compilePromptSections([
@@ -1008,6 +1019,7 @@ async function compose(root, options, {
     },
     { id: 'stakeholder-change-requests', text: stakeholderContext.text, mandatory: true, priority: 0 },
     { id: 'governed-execution-evidence', text: renderExecutionEvidence(executionEvidence), mandatory: true, priority: 0 },
+    { id: 'evidence-consistency', text: renderEvidenceConsistency(consistency), mandatory: true, priority: 0 },
     // Present only when the Story recorded a witness, so every other prompt keeps its exact bytes.
     ...(visualReviews ? [{ id: 'recorded-visual-reviews', text: visualReviews.text, mandatory: true, priority: 0 }] : []),
     { id: 'final-clarification-guard', text: clarificationGuard, mandatory: true, priority: 0 }
@@ -1050,6 +1062,7 @@ async function compose(root, options, {
     projectionSha256: executionEvidence.projectionSha256, packets: executionEvidence.entries.length,
     omittedPackets: executionEvidence.omittedPackets, diagnostics: executionEvidence.diagnostics };
   if (visualReviews) promptComposition.visualReviews = visualReviews.record;
+  if (consistency) promptComposition.evidenceConsistency = { projectionSha256: consistency.projectionSha256 };
   promptComposition.skillLoading = remote.loading ?? [];
   const deduplicatedPromptBytes = approvedReferences.deduplicated
     .reduce((total, entry) => total + (entry.previewBytes ?? 0), 0);

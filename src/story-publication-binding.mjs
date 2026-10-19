@@ -16,7 +16,8 @@ export function workflowPublicationMode(config, workflow) {
 export function workflowPublicationBranch(root, workflow) {
   const current = branch(root);
   if (!workflowBranchAllowed(workflow, current)) {
-    throw new SingularityFlowError(`Branch '${current}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`);
+    throw new SingularityFlowError(`Branch '${current}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`,
+      { details: { recoveryCommand: `singularity-flow story branch attach --parent ${workflow.workItem.id}` } });
   }
   return current;
 }

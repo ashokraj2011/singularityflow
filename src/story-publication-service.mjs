@@ -173,7 +173,9 @@ export async function commitAndPublish(root, config, workflow, event, message, e
             details: {
               branch: targetBranch,
               localParent: governedLocalParent,
-              observedRemoteSha: observation.sha
+              observedRemoteSha: observation.sha,
+              // Fast-forward first; a diverged branch then needs the unpublished commit published.
+              recoveryCommands: ['singularity-flow refresh-branch', 'singularity-flow sync']
             }
           }
         );

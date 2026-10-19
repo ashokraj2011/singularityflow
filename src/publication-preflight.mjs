@@ -1,11 +1,10 @@
-import { MANAGED_INPUTS, MANAGED_METADATA, MANAGED_METADATA_MARKER, authoredArtifactText, authoredArtifactFingerprint, requiredArtifactRepoPath, readReviewArtifact, reviewableMarkdownPath } from './artifact-review-read.mjs';
+import { MANAGED_INPUTS, MANAGED_METADATA, MANAGED_METADATA_MARKER, authoredArtifactText, inspectManagedArtifactMetadata, authoredArtifactFingerprint, requiredArtifactRepoPath, readReviewArtifact, reviewableMarkdownPath } from './artifact-review-read.mjs';
 export { reviewArtifactIdentityDecision, reviewArtifactBytesStable, authoredArtifactText, authoredArtifactFingerprint, requiredArtifactRepoPath, phaseAuthoredReviewArtifacts } from './artifact-review-read.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import path from 'node:path';
 import { memberRoot, resolvedArtifactSet } from './artifact-sets.mjs';
 import { normalizeMarkdownHeading, parseMarkdownStructure } from './markdown-structure.mjs';
 import { qualifiedClauseMatches } from './traceability-ids.mjs';
-import { inspectManagedArtifactMetadata } from './artifact-metadata.mjs';
 export { inspectManagedArtifactMetadata };
 
 const PLACEHOLDER = /\b(?:TODO|TBD|FIXME|TBC)\b|\{\{[^}]+\}\}|\[\s*(?:describe|add|insert|provide|record)[^\]]*\]/gi;

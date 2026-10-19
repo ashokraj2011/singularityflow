@@ -82,6 +82,11 @@ test('every Story authoring and mutation skill carries the engine refusal contra
     assert.equal(refusalHandlingApplies(registry.skills[name]), false, name);
   }
   assert.match(REFUSAL_HANDLING_CONTRACT, /Never retry an unchanged condition or edit an earlier phase/u);
+  // An authoring turn does its own step: an `act.state` of author, or a route back to the running skill,
+  // is work to do now, and a file edit that does not match is redone, never a reason to stop and relay.
+  assert.match(REFUSAL_HANDLING_CONTRACT, /`act\.state` is `author`, or a returned route to the skill you are running, is this turn's own work: do it now; never relay it/u);
+  assert.match(REFUSAL_HANDLING_CONTRACT, /A file edit that does not match is not a refusal: read the file again and redo the edit/u);
+  assert.doesNotMatch(REFUSAL_HANDLING_CONTRACT, /or any stop/u, 'only a refusal or a blocker ends an authoring turn with a relayed route');
 });
 
 test('every other skill that runs commands relays the route a refusal or stop returns, and runs none itself', async () => {

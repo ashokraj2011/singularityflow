@@ -785,6 +785,48 @@ test('managed capability Auto policy changes remain receipt-backed proposals', a
   assert.equal(inherited.receipt.parameters.auto, null);
 });
 
+test('capability protect and depend --json carry the review and activation routes the terminal prints', async (t) => {
+  // The terminal printed "Review" and "Activate after review" routes; --json returned neither, so a
+  // Copilot relay had no next action to name and had to rebuild both commands by hand.
+  const org = await remotes('platform');
+  t.after(() => removeTemporaryTree(org.base));
+  const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+  const cwd = path.join(org.base, 'platform-seed');
+  const env = { ...process.env, SINGULARITY_FLOW_LEAD_REGISTRY: registry(org.base) };
+  const digest = `sha256:${'a'.repeat(64)}`;
+  const proposals = {};
+  for (const args of [
+    ['protect', 'services/payments', '--approver', 'architecture-reviewers'],
+    ['depend', `payments@${digest}`, '--contract', 'payments-api', '--contract-version', '1',
+      '--publication-sha256', digest, '--publisher-authority', 'architecture-reviewers']
+  ]) {
+    const result = JSON.parse(execFileSync(process.execPath, [cli, 'capability', ...args, '--lead', org.platform, '--json'],
+      { cwd, env, encoding: 'utf8' }));
+    assert.equal(result.changed, true, args[0]);
+    proposals[args[0]] = result;
+    const review = `singularity-flow capability proposal ${result.branch} --lead ${org.platform} --json`;
+    const activate = `singularity-flow capability activate ${result.branch} --lead ${org.platform} --confirm ${result.commit} --json`;
+    assert.equal(result.nextAction.command, review, `${args[0]}: review is the one next action`);
+    assert.equal(result.nextAction.skill, '/sf-capability-map');
+    assert.equal(result.nextAction.commandGuidance.command, review);
+    assert.deepEqual(Object.keys(result.commandGuidance), ['review', 'activate'], 'review first, then activation');
+    assert.equal(result.commandGuidance.review.command, review);
+    assert.equal(result.commandGuidance.activate.command, activate, `${args[0]}: activation confirms the exact proposal commit`);
+    for (const route of Object.values(result.commandGuidance)) {
+      assert.equal(route.copilotCommand, '/sf-capability-map');
+      assert.equal(safeCommandGuidance({ command: route.command })?.command, route.command, 'a safe, registered route');
+    }
+  }
+
+  // Once the rule is in effect there is nothing to review, so no review is named.
+  await mergeProposal(org.platform, proposals.protect);
+  const again = JSON.parse(execFileSync(process.execPath, [cli, 'capability', 'protect', 'services/payments',
+    '--approver', 'architecture-reviewers', '--lead', org.platform, '--json'], { cwd, env, encoding: 'utf8' }));
+  assert.equal(again.changed, false);
+  assert.equal(again.nextAction, undefined);
+  assert.equal(again.commandGuidance, undefined);
+});
+
 test('the branch a capability is mapped on is not recorded as the repository default branch', async () => {
   /**
    * `withLeadCheckout` borrows the lead on the configuration authority branch, so the base branch it

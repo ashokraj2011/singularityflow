@@ -725,6 +725,31 @@ function exactDependency(positionals, options) {
   };
 }
 
+/**
+ * What a new capability proposal needs next, for a JSON reader: review it, then activate it after
+ * approval. The terminal has always printed both routes; `--json` returned neither, so an agent
+ * relaying the result had nothing to relay and had to reconstruct the commands itself.
+ */
+async function proposalContinuation(lead, result) {
+  const { commandGuidanceForCommands } = await import('../safe-command-guidance.mjs');
+  const route = (verb, ...extra) => ({ executable: 'singularity-flow',
+    argv: ['capability', verb, result.branch, '--lead', lead, ...extra, '--json'] });
+  // In order: review now, then activation after approval, confirming the exact proposal commit.
+  const commandGuidance = commandGuidanceForCommands({
+    review: route('proposal'), activate: route('activate', '--confirm', result.commit)
+  });
+  const review = commandGuidance.review;
+  return {
+    nextAction: review?.command ? {
+      id: 'capability.proposal.review', label: 'Review', kind: 'review',
+      reason: 'Nothing has been applied yet. Review the proposal; activate it only after approval.',
+      command: review.command, skill: '/sf-capability-map', copilotCommand: review.copilotCommand,
+      modelFreeCommand: review.modelFreeCommand, commandGuidance: review
+    } : null,
+    commandGuidance
+  };
+}
+
 async function runMutation(subcommand, context) {
   const { repoRoot } = await import('../git.mjs');
   const root = repoRoot();
@@ -761,7 +786,7 @@ async function runMutation(subcommand, context) {
         });
   await rememberLeadRepository(lead);
   if (optionBoolean(options, 'json')) {
-    console.log(JSON.stringify({ lead, ...result }, null, 2));
+    console.log(JSON.stringify({ lead, ...result, ...(result.changed ? await proposalContinuation(lead, result) : {}) }, null, 2));
     return result;
   }
   if (!result.changed) {

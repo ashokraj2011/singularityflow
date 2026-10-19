@@ -31,7 +31,7 @@ import { assertPhaseSequence } from './sequence.mjs';
 import { resolveLifecycleCapability } from './capability-context.mjs';
 import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
 import { artifactContentContractLines } from './publication-preflight.mjs';
-import { phaseOwnsScope, stepResponsibilities } from './phase-roles.mjs';
+import { phaseOwnsScope, scopeStepOf, stepResponsibilities } from './phase-roles.mjs';
 import { deriveMutationContract, mutationToolProtocol } from './phase-mutation-contract.mjs';
 import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
 import { recordPromptAudit } from './prompt-audit.mjs';
@@ -255,8 +255,34 @@ function presentSourceValue(value) {
   return value == null ? undefined : value;
 }
 
+/**
+ * The intent-conflict route this Story's own workflow accepts. `story intent-amendment propose`
+ * needs a scope step with an artifact and an active step after it (INTENT_AMENDMENT_UNSUPPORTED or
+ * _SOURCE_INVALID otherwise), and `clarification record` needs a clarification mode that is on.
+ */
+export function intentConflictRecovery(definition, workflow, phase) {
+  const scope = scopeStepOf(workflow);
+  const order = workflow.phaseOrder ?? [];
+  const recordable = !phase || resolvedClarificationPolicy(definition, workflow, phase).mode !== 'off';
+  const record = recordable ? 'record the human change in clarification and ' : '';
+  const propose = '`singularity-flow story intent-amendment propose --file <FILE> --reason "<REASON>"`';
+  const confirm = '- Conflict recovery: confirm the intent change with the human.';
+  const never = 'Never rewrite this pinned source.';
+  if (!scope?.requiredArtifact?.path) {
+    return `${confirm} This workflow has no scope step to amend, so \`story intent-amendment\` is refused here. If an earlier step's approved output carries the conflict, raise it with \`singularity-flow upstream-issue raise --phase <EARLIER> --about <ID|SECTION> --problem "<TEXT>" --proposed amend\` for its approvers; otherwise ${record}state the confirmed change in this step's artifact for its approvers. ${never}`;
+  }
+  const position = phase ? order.indexOf(phase.id) : -1;
+  if (position >= 0 && position > order.indexOf(scope.id)) {
+    return `${confirm} Then propose it from this step with ${propose} (it amends the approved scope of \`${scope.id}\`); no convergence finding or revision loop is required. Recompose after authorized approval and acknowledgement. ${never}`;
+  }
+  if (position >= 0) {
+    return `${confirm} \`${scope.id}\` is not approved yet: ${record}revise/review the scope draft normally. After its approval a later step can use ${propose}. ${never}`;
+  }
+  return `${confirm} After \`${scope.id}\` is approved, an active later step can use ${propose}; no convergence finding or revision loop is required. Recompose after authorized approval and acknowledgement. Before that approval, ${record}revise/review the scope draft normally. ${never}`;
+}
+
 /** The immutable Story request, projected without provider payloads or empty fields. */
-function workSourcePromptContext(workflow, source, sourceRecord) {
+function workSourcePromptContext(workflow, source, sourceRecord, { definition = {}, phase = null } = {}) {
   if (!workflow) return { text: '', record: null };
   if (!source || !sourceRecord?.sha256) {
     throw new SingularityFlowError(`Pinned Story source is missing for ${workflow.workItem.id}.`, {
@@ -277,7 +303,7 @@ function workSourcePromptContext(workflow, source, sourceRecord) {
     `- Immutable source: \`${sourceRecord.path}\``,
     `- SHA-256: \`${sourceRecord.sha256}\``,
     '- Authority: this is the requested outcome. Later evidence may refine missing detail but may not silently contradict or replace it.',
-    '- Conflict recovery: confirm the intent change with the human. After scope approval, any active phase in any workflow can use `singularity-flow story intent-amendment propose --file <FILE> --reason "<REASON>"`; no convergence finding or revision loop is required. Recompose after authorized approval and acknowledgement. Before scope approval, record the human change in clarification and revise/review the scope draft normally; never rewrite this pinned source.',
+    intentConflictRecovery(definition, workflow, phase),
     '',
     '```json',
     JSON.stringify(projection, null, 2),
@@ -365,7 +391,23 @@ function workflowChangedPaths(root, definition, workflow) {
     .filter((candidate) => isApplicationPath(candidate, pathContext)).sort();
 }
 
-export function phasePromptExecutionContract(definition, workflow, phase) {
+/**
+ * Which optional specification tables a scope step asks for: one its policy requires, its required
+ * headings name or its rendered template carries. Null (no template known) keeps the full contract.
+ */
+function specificationSectionsOf(definition, phase, resolvedPhase, template) {
+  if (!template) return null;
+  const configured = definition.phases?.[phase.id];
+  const quality = resolvedPhase?.specificationQuality ?? phase.specificationQuality ?? configured?.specificationQuality;
+  const headings = [resolvedPhase, phase, configured].flatMap((entry) =>
+    entry?.requiredArtifact?.validation?.requiredHeadings ?? entry?.artifact?.validation?.requiredHeadings ?? [])
+    .map((heading) => String(heading).replace(/^#+\s*/u, '').trim().toLowerCase());
+  const has = (name) => headings.includes(name) || new RegExp(`^#{1,6}\\s+${name}\\s*$`, 'imu').test(template);
+  const scenarioCoverage = quality?.scenarioCoverage === 'required' || has('scenario coverage');
+  return { scenarioCoverage, verificationIntent: scenarioCoverage || has('verification intent') };
+}
+
+export function phasePromptExecutionContract(definition, workflow, phase, { template = null } = {}) {
   const resolvedPhase = workflow?.resolution?.phases?.find((candidate) => candidate.id === phase.id);
   const generationPolicy = normalizeGenerationPolicy(
     phase.generationPolicy
@@ -381,15 +423,19 @@ export function phasePromptExecutionContract(definition, workflow, phase) {
   const deterministicOnly = allowedProducers.length === 1 && allowedProducers[0] === 'deterministic';
   const command = publication.command;
   const mutation = deriveMutationContract({ definition, workflow, phase: effectivePhase });
+  // A deterministic code step: the agent writes the code and `prepare` builds the summary from it.
+  const deterministicCode = deterministicOnly && mutation.policy.requiresOpenGeneration;
   const lines = [
     `- Changes allowed: ${mutation.summary}`,
     ...(phaseOwnsScope(workflow, phase) ? [
-      '- Scope repair first: inspect phase-entry scopeReview against every pinned source, document and answered clarification while this draft is still editable. Cover each source statement with a substantive observable clause using its exact scopeReview.items[].repair.sourceReference inside that clause. This preserves short requests and paraphrases without substring guessing.',
+      `- Scope repair first: inspect phase-entry scopeReview against every pinned source, document and answered clarification while this draft is still editable. Cover each source statement with a substantive observable clause using its exact scopeReview.items[].repair.sourceReference inside that clause. This preserves short requests and paraphrases without substring guessing. If scopeReview is absent, unavailable or reports \`more\` items, read the whole inventory with \`singularity-flow evidence scope ${workflow?.workItem?.id ?? '<WORK-ID>'} --json\`; an unresolved statement's reference is \`[scope:<ITEM-ID>]\`.`,
       '- Scope gaps are advisory, not a blanket phase blocker. Repair clear omissions in the current draft. For ambiguous intent or changed/excluded/deferred scope, ask the authorized person through the returned decision scope route; never record a human disposition yourself. A normal phase approval is not blanket acceptance of unresolved scope. Do not edit earlier phases or re-ask unchanged recorded decisions.'
     ] : []),
     ...(mutation.policy.requiresOpenGeneration ? [
       `- Code-edit prerequisite: ${mutation.policy.openGeneration ? 'the exact generation is open; verify the entry mutationContract before edits' : `follow \`${mutation.next[0].command}\` before any application edit, then refresh phase entry once. Review any adoption/confirmation or successor boundary; never infer or auto-accept it`}. Binding \`ready\` is not code-edit permission.`,
-      '- Code completion: preserve existing implementation and tests on resume. Complete the configured implementation summary and Agent brief, reconcile exact planned source/test paths and traceability, then prepublish. Passing a manual test command does not publish the phase or justify ending with no next action.'
+      deterministicCode
+        ? `- Code completion: preserve existing implementation and tests on resume. Write the planned code and tests and reconcile exact planned source/test paths and traceability; then run \`singularity-flow prepare ${phase.id}\`, which rebuilds the summary from what changed, and prepublish. Passing a manual test command does not publish the phase or justify ending with no next action.`
+        : '- Code completion: preserve existing implementation and tests on resume. Complete the configured implementation summary and Agent brief, reconcile exact planned source/test paths and traceability, then prepublish. Passing a manual test command does not publish the phase or justify ending with no next action.'
     ] : []),
     `- Generation requirement: \`${generationPolicy.requirement}\``,
     `- Default publication producer: \`${publication.producer}\``,
@@ -399,8 +445,13 @@ export function phasePromptExecutionContract(definition, workflow, phase) {
     '- Clarification authority: this pinned mode overrides generic skill, agent, and template guidance.',
     `- Exact publication command: \`${command}\``,
     '- Publication boundary: Use the exact configured producer, channel, and command. Never substitute a convenient authorship route.',
-    ...phaseAuthoringContractLines(phaseAuthoringContract(definition, workflow, effectivePhase), { deterministicOnly }),
-    ...(deterministicOnly ? [
+    ...phaseAuthoringContractLines(phaseAuthoringContract(definition, workflow, effectivePhase), {
+      deterministicOnly, specificationSections: specificationSectionsOf(definition, phase, resolvedPhase, template)
+    }),
+    ...(deterministicCode ? [
+      `- Deterministic summary: \`singularity-flow prepare ${phase.id}\` builds this step's artifact from what changed; never author or edit it by hand. Your authoring here is the planned code and tests.`,
+      '- Upstream discrepancies: approved earlier-step outputs are fixed evidence and this step\'s artifact is kernel-built. If one is wrong, incomplete or contradicts the pinned source, do not edit it and do not stop: work on the most conservative reading and raise it with `singularity-flow upstream-issue raise --phase <EARLIER> --about <ID|SECTION> --problem "<TEXT>"`; that step\'s approvers decide it.'
+    ] : deterministicOnly ? [
       '- Deterministic-only generation: do not author or edit the phase artifact with a model, governed agent, or human. Run only the deterministic kernel action returned by the router; the kernel owns artifact generation.'
     ] : [])
   ];
@@ -425,13 +476,17 @@ export function withPhasePromptRuntimeGuidance(text, definition, workflow, phase
   });
 }
 
-export function renderFinalClarificationGuard(phaseId, clarificationPolicy) {
+export function renderFinalClarificationGuard(phaseId, clarificationPolicy, { deterministicOnly = false } = {}) {
+  // A kernel-built artifact cannot carry an Assumption or a discrepancy section; name the routes that need none.
+  const offEvidence = deterministicOnly
+    ? 'Where the evidence is ambiguous, take the most conservative reading consistent with the pinned source. This step\'s artifact is kernel-built, so raise a problem in an earlier phase with `singularity-flow upstream-issue raise --phase <EARLIER> --about <ID|SECTION> --problem "<TEXT>"`.'
+    : 'Where governed evidence is ambiguous, label the reading you choose `Assumption:` with its impact and continue; a problem in an earlier phase goes under `## Upstream discrepancies`.';
   return [
     '# Final clarification guard',
     '',
     `The pinned clarification mode for \`${phaseId}\` is \`${clarificationPolicy.mode}\`; this instruction overrides conflicting generic skill, agent, template, or repository prose.`,
     clarificationPolicy.mode === 'off'
-      ? 'Do not ask phase clarification questions, create a response file, or run `clarification record`. Where governed evidence is ambiguous, label the reading you choose `Assumption:` with its impact and continue; a problem in an earlier phase goes under `## Upstream discrepancies`. Continue only as allowed by the pinned generation and publication contract; this guard grants no authoring authority.'
+      ? `Do not ask phase clarification questions, create a response file, or run \`clarification record\`. ${offEvidence} Continue only as allowed by the pinned generation and publication contract; this guard grants no authoring authority.`
       : clarificationPolicy.mode === 'when-needed'
         ? 'Ask and record a bounded batch only if material ambiguity remains after governed evidence is read; otherwise continue without a clarification record.'
         : 'Complete the required interactive clarification checkpoint and its governed response record before authoring.'
@@ -446,7 +501,6 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
     ? posix(path.join(itemRelative, phase.requiredArtifact.path))
     : 'not configured';
   const resolvedPhase = workflow.resolution?.phases?.find((candidate) => candidate.id === phase.id);
-  const executionContract = phasePromptExecutionContract(definition, workflow, phase);
   const pinnedIntelligence = workflow.resolution?.intelligence ?? {};
   const astContract = pinnedIntelligence.ast === 'off' || definition.ast?.mode === 'off'
     ? 'off; ordinary repository file access remains available'
@@ -469,6 +523,8 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
       retainedTemplate: executionContext?.phaseTemplates?.[phase.id]
     });
   }
+  // The rendered template says which optional specification tables this step asks for.
+  const executionContract = phasePromptExecutionContract(definition, workflow, phase, { template });
   const contract = [
     `# Active Story phase contract: ${phase.label ?? phase.id}`,
     '',
@@ -653,7 +709,7 @@ async function compose(root, options, {
   }
   const workSource = workSourcePromptContext(workflow, source, sourceInfo?.exists ? {
     path: sourceRelative, sha256: sourceInfo.sha256, bytes: sourceInfo.size
-  } : null);
+  } : null, { definition, phase: workflow?.phases?.[requestedPhase ?? workflow?.currentPhase] ?? null });
   const signals = {
     agent,
     phase: requestedPhase ?? workflow?.currentPhase ?? null,
@@ -817,7 +873,9 @@ async function compose(root, options, {
   // Repository agents are pinned into a Story and may legitimately come from an older SFlow
   // release. Repeat the current Story's immutable clarification contract after every authored
   // prompt section so stale or customized agent prose cannot override it by appearing later.
-  const clarificationGuard = renderFinalClarificationGuard(signals.phase, clarificationPolicy);
+  const clarificationGuard = renderFinalClarificationGuard(signals.phase, clarificationPolicy, {
+    deterministicOnly: Boolean(governed.executionContract?.deterministicOnly)
+  });
   const mcpPolicy = renderMcpPromptPolicy(definition, { agent, phase: signals.phase });
   const designSources = workflow && phase
     ? await renderDesignSourcePromptContext(root, workflow, phase, {

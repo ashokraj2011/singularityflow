@@ -107,6 +107,10 @@ export function renderAutoAuthoringPrompt({
       '- Their origin remains pre-auto-adhoc and their intent provenance remains discovered-at-landing.'
     ] : []),
     '- Work only in this managed worktree. Do not commit, push, approve, waive policy, answer clarification, change lifecycle state, or run Singularity Flow commands.',
+    // The composed prompt above names its repair routes as CLI commands; here they are reported.
+    deterministic
+      ? '- Routes named above as Singularity Flow commands (upstream issues, clarification, decisions, intent amendments) are not run here. The phase artifact is kernel-built, so implement only what the pinned source and approved inputs agree on; the step\'s reviewers decide anything left over.'
+      : '- Routes named above as Singularity Flow commands (upstream issues, clarification, decisions, intent amendments) are not run here: put an earlier step\'s problem under `## Upstream discrepancies` and an ambiguity as `Assumption:` with its impact in the phase artifact, where the step\'s reviewers decide it.',
     deterministic
       ? '- Implement and test the requirement. Do not edit the phase artifact; the kernel will regenerate its deterministic summary from your changes.'
       : adopted

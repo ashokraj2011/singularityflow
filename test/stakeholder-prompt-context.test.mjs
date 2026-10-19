@@ -26,6 +26,8 @@ test('bound requests retain exact comments/provenance once without mutating the 
   for (const [key, value] of Object.entries(request)) assert.deepEqual(body[key], value);
   assert.equal(JSON.stringify(capsule), before);
   assert.ok(projected.projection.capsuleBytesSaved > 2000);
+  // A request that conflicts with approved scope is answered under its ID and routed, never applied.
+  assert.match(projected.text, /If a request conflicts with approved scope, say so under its ID with the reason and follow Conflict recovery in the Pinned Story source; do not apply it in this step\./u);
 });
 
 test('equal comments on two identities remain two requests', () => {

@@ -70,6 +70,13 @@ test('a quick-fix implement step is coded by its agent and published with an eng
   assert.equal(entry.codeAuthoringReady, true, 'the agent may write this step\'s code');
   assert.ok(entry.context?.text?.length > 0, 'with the composed context');
   assert.match(entry.mutationContract.summary, /summary is built by `singularity-flow prepare` from what changed/u);
+  // The composed prompt agrees with that contract: write the code, never the kernel-built summary.
+  assert.doesNotMatch(entry.context.text, /Complete the configured implementation summary and Agent brief/u);
+  assert.doesNotMatch(entry.context.text, /Run only the deterministic kernel action/u);
+  assert.match(entry.context.text, /run `singularity-flow prepare implement`, which rebuilds the summary from what changed/u);
+  assert.match(entry.context.text, /upstream-issue raise --phase <EARLIER> --about <ID\|SECTION> --problem "<TEXT>"/u);
+  assert.match(entry.context.text, /propose it from this step with `singularity-flow story intent-amendment propose/u,
+    'implement follows the approved intake scope, so its conflict route is an amendment');
 
   // Preparing before any code says the code is still to write, and routes back to /sf-code.
   const prepared = JSON.parse(sflow('prepare', 'implement', '--json'));

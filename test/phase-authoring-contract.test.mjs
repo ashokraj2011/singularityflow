@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { phaseAuthoringContract, phaseAuthoringContractLines, phasePlansDelivery, scaffoldPlanningRows } from '../src/phase-authoring-contract.mjs';
+import { phaseAuthoringContract, phaseAuthoringContractLines, phasePlansDelivery, scaffoldPlanningRows, UPSTREAM_DISCREPANCY_PROTOCOL } from '../src/phase-authoring-contract.mjs';
 import { CLI_PATH_CONTRACT } from '../src/safe-command-guidance.mjs';
 import { inspectPlannedClaimMap, derivePlannedClaimMap } from '../src/specifications.mjs';
 import { phaseFindingPolicy } from '../src/phase-finding-policy.mjs';
@@ -139,6 +139,28 @@ test('all phases retain composition for current draft defects, but no upstream i
   }
   assert.equal(phaseFindingPolicy({ code: 'SPECIFICATION_INDEX_UNTRUSTED', category: 'integrity' }).repairableByProducer, false);
   assert.equal(phaseFindingPolicy({ code: 'SPECIFICATION_CLAIM_MAP_BINDING_STALE', category: 'planning-table' }).riskEligible, false);
+});
+
+test('a step that defines and plans its clauses plans the ones it writes; optional tables follow its template', () => {
+  const story = workflow();
+  story.resolution.plannedClaims.owners = { build: 'discover' };
+  const contract = phaseAuthoringContract({}, story, story.phases.discover);
+  assert.deepEqual(contract.roles, ['plan', 'scope']);
+  const short = phaseAuthoringContractLines(contract, { specificationSections: { scenarioCoverage: false, verificationIntent: false } }).join('\n');
+  assert.match(short, /every requirement and acceptance ID this draft defines/u);
+  assert.doesNotMatch(short, /inherit approved clause verification methods|from the authoritative clause capsule/u,
+    'no approved clauses exist yet to inherit');
+  assert.match(short, /no approved methods to inherit: each clause is proved by its planned tests/u);
+  assert.match(short, /`## Verification contracts` table only for non-test proof/u);
+  assert.doesNotMatch(short, /Scenario coverage: author|author a `## Verification intent` table/u);
+  assert.match(short, /Optional tables:[^\n]*a malformed optional table still refuses publication/u);
+  const full = phaseAuthoringContractLines(contract, { specificationSections: { scenarioCoverage: true, verificationIntent: true } }).join('\n');
+  assert.match(full, /plan the methods its own `## Verification intent` rows state/u);
+  assert.doesNotMatch(full, /Optional tables/u);
+  // The one stop the upstream protocol allows names its route; configuration that is the change is claimed.
+  assert.match(UPSTREAM_DISCREPANCY_PROTOCOL, /no reading satisfies the pinned source: then[^\n]*upstream-issue raise --phase <EARLIER>[^\n]*--proposed amend[^\n]*end the turn/u);
+  assert.match(short, /requested change itself \(a CI pipeline, container or runtime setting\), an approved clause claims it with Fulfillment `configuration`/u);
+  assert.match(short, /repository build\/test scripts or runner configuration/u);
 });
 
 test('prompt contracts share the approved capsule instead of re-copying or reconstructing prior artifacts', () => {

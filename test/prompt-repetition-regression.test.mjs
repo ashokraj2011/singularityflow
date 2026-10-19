@@ -296,6 +296,8 @@ test('CLI composition supplies exact approved clauses once and retains summary, 
   workflow.resolution.phases = [{ id: 'intake' }, {
     id: 'design', inputs: [declaration], clarification: consumer.clarification
   }];
+  // An accepted Story pins which step holds the scope; the amendment route exists only with one.
+  workflow.resolution.obligationGraph = { nodes: [{ id: 'intake', responsibilities: ['scope'] }, { id: 'design', responsibilities: [] }] };
   const briefs = await createAgentBriefs(fixture.root, workflow, producer, { itemDirectory, itemRelative });
   producer.agentBriefs = briefs;
   workflow.lineage.submissions[0].projection.agentBriefs = briefs;
@@ -330,6 +332,7 @@ test('CLI composition supplies exact approved clauses once and retains summary, 
   assert.ok(first.includes(fixture.registered.handle));
   assert.equal(occurrences(first, 'singularity-flow story intent-amendment propose'), 1,
     'the verified source owns the amendment route, not every clarification block');
+  assert.match(first, /propose it from this step with `singularity-flow story intent-amendment propose[^\n]*approved scope of `intake`/);
   assert.match(first, /Pause for at least one human response/);
   assert.match(first, /singularity-flow clarification record design --response-file/);
   assert.match(first, /The pinned clarification mode for `design` is `required`/);

@@ -58,3 +58,20 @@ test('a step whose name matches no profile is profiled by the task it declares',
   assert.equal(phaseBriefProfile('triage-intake', { task: 'analyze' }).id, 'intake');
   assert.equal(phaseBriefProfile('design', { task: 'summarize' }).id, 'design');
 });
+
+test('a declared output kind or code task chooses the reader before the step name', () => {
+  // Before, a code step named for its Story matched "story" and got the product owner's brief.
+  assert.equal(phaseBriefProfile('implement-story', { task: 'code' }).id, 'implementation');
+  assert.equal(phaseBriefProfile('implement-story', { kind: 'implementation-summary' }).id, 'implementation');
+  assert.equal(phaseBriefProfile('story-design', { kind: 'design' }).id, 'design');
+  assert.equal(phaseBriefProfile('test-plan', { kind: 'design' }).id, 'design');
+  assert.equal(phaseBriefProfile('sign-off', { kind: 'conformance-report' }).id, 'conformance');
+  assert.equal(phaseBriefProfile('acceptance-proof', { kind: 'test-evidence', task: 'analyze' }).id, 'verification');
+  // A name for the same reader still refines the declared kind.
+  assert.equal(phaseBriefProfile('fix-spec', { kind: 'implementation-spec' }).id, 'reproduction');
+  assert.equal(phaseBriefProfile('requirements', { kind: 'requirements' }).id, 'intake');
+  // An unknown kind leaves the name, then the declared document task, in charge.
+  assert.equal(phaseBriefProfile('triage-intake', { task: 'analyze', kind: 'impact-analysis' }).id, 'intake');
+  assert.equal(phaseBriefProfile('collect', { task: 'analyze', kind: 'impact-analysis' }).id, 'verification');
+  assert.equal(phaseBriefProfile('implement-story', { kind: 'implementation-summary', maxBytes: 5000 }).budget, 5000);
+});

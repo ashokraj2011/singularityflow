@@ -288,7 +288,9 @@ export function clarificationCheckpoint(policy, verification) {
     requiresHumanResponse: stage === 'derive-questions',
     missingRecordMeansUnanswered: false,
     instruction: questioningAllowed
-      ? 'Read the exact composed context, its approved phase inputs (the earlier steps\' outputs) first: what they state is settled, never asked again. A missing durable record is not an unanswered question. First reuse actual human replies in this conversation or the issued staging file only for this same Story, phase, generation and reviewed context. A refused write requires recording repair, not repeated questions. Use a file-edit tool for issued JSON and the standalone recordAction; preserve replies on failure. Ask only unanswered or materially changed questions: questions are agent-derived, not a missing predefined list. If required, no matching human reply exists, and evidence has no material ambiguity, ask once to confirm a concise interpretation. Offer proposals as proposals. Never invent answers or ask the user to supply the questions or generic clarification answers. A menu promise to provide answers is not an answer. Recording remains required before authoring.'
+      ? `Read the exact composed context, its approved phase inputs (the earlier steps\' outputs) first: what they state is settled, never asked again. A missing durable record is not an unanswered question. First reuse actual human replies in this conversation or the issued staging file only for this same Story, phase, generation and reviewed context. A refused write requires recording repair, not repeated questions. Use a file-edit tool for issued JSON and the standalone recordAction; preserve replies on failure. Ask only unanswered or materially changed questions: questions are agent-derived, not a missing predefined list. If required, no matching human reply exists, and evidence has no material ambiguity, ask once to confirm a concise interpretation. Offer proposals as proposals. Never invent answers or ask the user to supply the questions or generic clarification answers. A menu promise to provide answers is not an answer. ${mode === 'required'
+        ? 'Recording remains required before authoring.'
+        : 'Record only answers to questions you asked; with no material ambiguity, continue without a record.'}`
       : stage === 'inspect-binding'
         ? 'Inspect the existing answer and its exact prompt/generation binding. Preserve prior answers; do not automatically re-ask, overwrite or treat stale answers as accepted.'
         : stage === 'off' ? 'Do not ask or record phase clarification.'
@@ -419,18 +421,20 @@ export function renderClarificationProtocol(value, phaseId, { intentRecoveryInSo
     '',
     ...required.map((line) => `- ${line}`),
     `- Ask one concise batch of no more than ${policy.maxQuestions} questions with the interactive \`ask_user\` tool.`,
-    '- Derive every question only from the current Story’s pinned sources, approved upstream artifacts, repository world model, or contradictions among them. Never reuse example questions or placeholder text from templates.',
+    '- Derive every question only from the current Story’s pinned sources, approved upstream artifacts, repository brief, or contradictions among them. Never reuse example questions or placeholder text from templates.',
     '- Formulating evidence-grounded questions is permitted even while artifact authoring awaits clarification. Never ask the human to supply the questions or generic clarification answers. A menu promise to provide answers is not an answer.',
     '- Do not re-ask established facts or infer answers from generic knowledge. Label hypotheses/design proposals; they become acceptance or specification decisions only with human confirmation.',
     '- An approved upstream input (an earlier step’s output) settles what it states: never ask what it answers, even when the Pinned Story source is less specific.',
     '- Missing record does not mean unanswered. Reuse actual human replies only for the same Story, phase, generation and reviewed context. A failed tool/record write requires recording repair, not repeated questions; preserve the replies and staging file on failure. Changed bindings require review, never automatic answer adoption.',
     intentRecoveryInSource
       ? '- For intent conflicts, confirm the human change and follow Conflict recovery in the Pinned Story source; never silently overwrite intent.'
-      : '- For intent conflicts, confirm the human change. After scope approval use `singularity-flow story intent-amendment propose --file <FILE> --reason "<REASON>"` from any active phase/workflow (no convergence finding or loop required); have the authorized scope reviewer decide, acknowledge approval, then recompose. Before scope approval, record the human change in clarification and revise/review the scope draft normally. Never rewrite the pinned source.',
+      : '- For intent conflicts, confirm the human change. After scope approval use `singularity-flow story intent-amendment propose --file <FILE> --reason "<REASON>"` from an active step after the scope step (no convergence finding or loop required; a workflow with no scope step raises it with `upstream-issue raise --proposed amend`); have the authorized scope reviewer decide, acknowledge approval, then recompose. Before scope approval, record the human change in clarification and revise/review the scope draft normally. Never rewrite the pinned source.',
     '- Explain each question’s impact; offer an evidence-supported default. Accept explicit “unknown” or non-blocking deferral. Record confirmed decisions in the artifact and deferred items in Open questions with impact and owner.',
     `- Use a file-edit tool to stage only {"responses":[...]} at the issued responseStagingPath (standalone discovery: \`git rev-parse --git-path singularity-flow/clarification-responses/${phaseId}-gen<N>.json\`). Run the returned recordAction or standalone \`singularity-flow clarification record ${phaseId} --response-file <that-path>\`, without shell chains, then remove staging with a file-edit tool only after success. Never write response input to the CLI-owned \`singularity/work-items/**/context/clarifications-*.json\` durable path.`,
     '- Material unresolved decisions block specification publication; recommendations/placeholders cannot hide them.',
-    '- If `ask_user` is unavailable, print numbered questions and stop before authoring or publication; never assume answers.',
-    '- Do not author or publish the governed output until the checkpoint is complete.'
+    '- If `ask_user` is unavailable, print numbered questions and stop before authoring or publication; never assume answers. When the person replies, stage their answers at responseStagingPath, run recordAction, then continue.',
+    policy.mode === 'required'
+      ? '- Do not author or publish the governed output until the checkpoint is complete.'
+      : '- Do not author or publish this step\'s output until the checkpoint is complete: no material ambiguity found, or the answers to what you asked recorded.'
   ].join('\n');
 }

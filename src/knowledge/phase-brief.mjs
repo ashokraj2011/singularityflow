@@ -14,9 +14,9 @@ import { ruleStatusWords } from './records/rules.mjs';
 export const PHASE_BRIEF_RENDERER = Object.freeze({ id: 'repository-brief', version: 1 });
 
 /**
- * Per-phase reader, budget and section order, matched on the phase ID, first match wins; a phase
- * that only the catch-all matches is profiled by its declared task (TASK_PROFILES). The budgets are
- * defaults: `worldModel.knowledge.maxBytes` replaces them for every phase.
+ * Per-phase reader, budget and section order. A step is profiled by what it declares first (its
+ * output kind, then a code task), then by its ID (first match wins), then by its other declared task
+ * (TASK_PROFILES). The budgets are defaults: `worldModel.knowledge.maxBytes` replaces them for every phase.
  */
 export const PHASE_BRIEF_PROFILES = Object.freeze([
   Object.freeze({ id: 'reproduction', reader: 'developer', pattern: '(reproduc|fix-spec)', budget: 3072, order: Object.freeze(['rules', 'impact', 'risks', 'contracts']) }),
@@ -37,17 +37,35 @@ const EXPLANATIONS_TITLE = 'In plain words (inferred: model-written, checked aga
 const BULLET_CHARACTERS = 320;
 
 /**
- * The catch-all is a developer's brief for a code step. A step whose name matches none of the
- * profiles above (a user-defined workflow's own steps, typically) is profiled by the generation task
- * it declares instead, so a document-only analysis or summary step is not handed "What a change
- * touches" first. A matching name, a code task or no task keeps the profile it had.
+ * The catch-all is a developer's brief for a code step. A step with no known output kind whose name
+ * matches none of the profiles above (a user-defined workflow's own steps, typically) is profiled by
+ * the document task it declares instead, so an analysis or summary step is not handed "What a change
+ * touches" first.
  */
 const TASK_PROFILES = Object.freeze({ clarify: 'intake', analyze: 'verification', reason: 'design', summarize: 'release' });
 
-export function phaseBriefProfile(phase, { maxBytes = null, task = null } = {}) {
+/**
+ * A declared output kind (or a code task) names the reader, whatever the step is called: a code step
+ * named `implement-story` matched "story" and was handed the product owner's brief. A name match for
+ * the same reader still refines it (`fix-spec` keeps its reproduction brief). Document tasks stay
+ * below a matching name: `analyze` is declared by intake, check and convergence steps alike.
+ */
+const KIND_PROFILES = Object.freeze({
+  intake: 'intake', 'poc-intake': 'intake', 'design-intake': 'intake', requirements: 'intake',
+  design: 'design', 'design-inventory': 'design', 'delivery-plan': 'design',
+  reproduction: 'reproduction', 'implementation-spec': 'implementation-spec', 'fix-design': 'implementation-spec',
+  'component-mapping': 'implementation-spec', 'implementation-summary': 'implementation',
+  'test-evidence': 'verification', 'visual-test-evidence': 'verification', 'convergence-report': 'verification',
+  'conformance-report': 'conformance', 'publication-review': 'release'
+});
+
+export function phaseBriefProfile(phase, { maxBytes = null, task = null, kind = null } = {}) {
   const id = String(phase ?? '').toLowerCase();
-  let profile = PHASE_BRIEF_PROFILES.find((entry) => new RegExp(entry.pattern, 'u').test(id));
-  if (profile.pattern === '.*' && Object.hasOwn(TASK_PROFILES, task ?? '')) {
+  const declaredId = Object.hasOwn(KIND_PROFILES, kind ?? '') ? KIND_PROFILES[kind] : task === 'code' ? 'implementation' : null;
+  const declared = PHASE_BRIEF_PROFILES.find((entry) => entry.id === declaredId) ?? null;
+  const named = PHASE_BRIEF_PROFILES.find((entry) => new RegExp(entry.pattern, 'u').test(id));
+  let profile = declared && (named.pattern === '.*' || named.reader !== declared.reader) ? declared : named;
+  if (profile.pattern === '.*' && !declared && Object.hasOwn(TASK_PROFILES, task ?? '')) {
     profile = PHASE_BRIEF_PROFILES.find((entry) => entry.id === TASK_PROFILES[task]);
   }
   return { ...profile, budget: Number.isInteger(maxBytes) ? maxBytes : profile.budget };

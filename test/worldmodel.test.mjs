@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { phasePromptExecutionContract } from '../src/worldmodel.mjs';
+import { intentConflictRecovery, phasePromptExecutionContract, renderFinalClarificationGuard } from '../src/worldmodel.mjs';
 
 test('code prompts disclose generation admission before edits and preserve unfinished delivery for custom phases', () => {
   for (const id of ['implementation', 'team-self-heal']) {
@@ -66,6 +66,71 @@ test('phase prompts bind deterministic convergence to its exact publication and 
   assert.match(rendered, /pinned mode overrides generic skill, agent, and template guidance/);
   assert.match(rendered, /Exact publication command: `singularity-flow phase publish convergence --authored deterministic --channel kernel-generator`/);
   assert.match(rendered, /do not author or edit the phase artifact with a model, governed agent, or human/i);
+});
+
+test('a deterministic code step writes the code and lets prepare build its summary, with an artifact-free upstream route', () => {
+  const phase = { id: 'apply-fix', status: 'in_progress', generation: 0, writeScope: 'source-and-artifact',
+    requiredArtifact: { kind: 'implementation-summary' },
+    generationPolicy: { requirement: 'required', producer: 'deterministic', defaultProducer: 'deterministic',
+      allowedProducers: ['deterministic'], task: 'code' } };
+  const workflow = { workItem: { id: 'QF-1' }, currentPhase: phase.id, phases: { [phase.id]: phase },
+    phaseOrder: [phase.id], resolution: { phases: [] } };
+  const contract = phasePromptExecutionContract({ phases: {} }, workflow, phase);
+  const rendered = contract.lines.join('\n');
+  assert.equal(contract.deterministicOnly, true);
+  assert.doesNotMatch(rendered, /implementation summary and Agent brief/u, 'a kernel-built summary is never completed by hand');
+  assert.doesNotMatch(rendered, /Run only the deterministic kernel action/u, 'the code is still the agent\'s to write');
+  assert.match(rendered, /run `singularity-flow prepare apply-fix`, which rebuilds the summary from what changed/u);
+  assert.match(rendered, /never author or edit it by hand/u);
+  assert.match(rendered, /upstream-issue raise --phase <EARLIER> --about <ID\|SECTION> --problem "<TEXT>"/u);
+  assert.doesNotMatch(rendered, /## Upstream discrepancies/u, 'no heading in an artifact the agent may not edit');
+  const guard = renderFinalClarificationGuard(phase.id, { mode: 'off' }, { deterministicOnly: true });
+  assert.doesNotMatch(guard, /## Upstream discrepancies|`Assumption:`/u);
+  assert.match(guard, /upstream-issue raise --phase <EARLIER>/u);
+  assert.match(guard, /this guard grants no authoring authority/u);
+  assert.match(renderFinalClarificationGuard(phase.id, { mode: 'off' }), /goes under `## Upstream discrepancies`/u);
+});
+
+test('a scope step is asked for scenario and verification tables only when its template or policy has them', () => {
+  const phase = { id: 'triage', status: 'in_progress', generation: 0, requiredArtifact: { kind: 'requirements', path: 'artifacts/triage.md' },
+    generationPolicy: { requirement: 'required', producer: 'governed-agent', allowedProducers: ['governed-agent'] } };
+  const workflow = { workItem: { id: 'QF-2' }, currentPhase: phase.id, phases: { [phase.id]: phase }, phaseOrder: [phase.id],
+    resolution: { phases: [], obligationGraph: { nodes: [{ id: phase.id, responsibilities: ['scope'] }] } } };
+  const render = (options) => phasePromptExecutionContract({ phases: {} }, workflow, phase, options).lines.join('\n');
+  const short = render({ template: '# Triage\n\n## Acceptance criteria\n\n- TODO\n' });
+  assert.doesNotMatch(short, /Scenario coverage: author|author a `## Verification intent` table/u);
+  assert.match(short, /Optional tables: this step's template and policy ask for no `## Scenario coverage` or `## Verification intent` section; do not add one/u);
+  const spec = render({ template: '# Spec\n\n## Scenario coverage\n\n## Verification intent\n' });
+  assert.match(spec, /Scenario coverage: author S-number/u);
+  assert.match(spec, /author a `## Verification intent` table/u);
+  assert.doesNotMatch(spec, /Optional tables/u);
+  phase.specificationQuality = { mode: 'enforce', scenarioCoverage: 'required' };
+  assert.match(render({ template: '# Spec\n' }), /Scenario coverage: author S-number/u, 'a required table is asked for');
+  delete phase.specificationQuality;
+  assert.match(render(), /Scenario coverage: author S-number/u, 'an unknown template keeps the full contract');
+  // The scope review is bounded; the whole inventory has a read-only route.
+  assert.match(short, /read the whole inventory with `singularity-flow evidence scope QF-2 --json`/u);
+  assert.match(short, /\[scope:<ITEM-ID>\]/u);
+});
+
+test('the pinned source names only the intent-conflict route its own workflow accepts', () => {
+  const story = (ids, scopeId) => ({ workItem: { id: 'IC-1' }, phaseOrder: ids,
+    phases: Object.fromEntries(ids.map((id) => [id, { id, ...(id === scopeId ? { requiredArtifact: { path: 'artifacts/scope.md' } } : {}) }])),
+    resolution: { phases: [], obligationGraph: { nodes: ids.map((id) => ({ id, responsibilities: id === scopeId ? ['scope'] : [] })) } } });
+  const scoped = story(['shape', 'build'], 'shape');
+  const later = intentConflictRecovery({}, scoped, scoped.phases.build);
+  assert.match(later, /propose it from this step with `singularity-flow story intent-amendment propose --file <FILE> --reason "<REASON>"`/u);
+  assert.match(later, /approved scope of `shape`/u);
+  const own = intentConflictRecovery({}, scoped, scoped.phases.shape);
+  assert.match(own, /`shape` is not approved yet: revise\/review the scope draft/u);
+  assert.doesNotMatch(own, /clarification/u, 'clarification off: never name a refused clarification record');
+  scoped.phases.shape.clarification = { mode: 'when-needed' };
+  assert.match(intentConflictRecovery({}, scoped, scoped.phases.shape), /record the human change in clarification and revise\/review/u);
+  const flat = story(['fix', 'check'], null);
+  const none = intentConflictRecovery({}, flat, flat.phases.check);
+  assert.doesNotMatch(none, /intent-amendment propose/u, 'INTENT_AMENDMENT_UNSUPPORTED in a workflow with no scope step');
+  assert.match(none, /upstream-issue raise --phase <EARLIER> --about <ID\|SECTION> --problem "<TEXT>" --proposed amend/u);
+  for (const text of [later, own, none]) assert.match(text, /Never rewrite this pinned source/u);
 });
 
 test('evidence-planning instructions follow ownership for custom agents/phases, not a built-in planner name', () => {

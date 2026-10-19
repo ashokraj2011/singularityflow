@@ -50,10 +50,11 @@ export async function repositoryBriefPrompt(root, {
 }) {
   const policy = knowledgePromptPolicy(definition);
   const explicitBudget = Number.isInteger(definition?.worldModel?.knowledge?.maxBytes) ? policy.maxBytes : null;
-  // The task this Story pinned for the step, for a step whose name matches no brief profile.
-  const task = workflow?.phases?.[phase]?.generationPolicy?.task
-    ?? workflow?.resolution?.phases?.find((entry) => entry.id === phase)?.generation?.task ?? null;
-  const profile = phaseBriefProfile(phase, { maxBytes: explicitBudget, task });
+  // What this Story pinned for the step: its output kind and task choose the reader before its name.
+  const resolved = workflow?.resolution?.phases?.find((entry) => entry.id === phase);
+  const task = workflow?.phases?.[phase]?.generationPolicy?.task ?? resolved?.generation?.task ?? null;
+  const kind = workflow?.phases?.[phase]?.requiredArtifact?.kind ?? resolved?.artifact?.kind ?? null;
+  const profile = phaseBriefProfile(phase, { maxBytes: explicitBudget, task, kind });
   const warnings = [];
   const focus = storyFocus(workflow, changedPaths);
   let template = null;

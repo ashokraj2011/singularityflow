@@ -236,6 +236,7 @@ test('reference branches are pinned, detached, ignored, reproducible, and never 
     assert.match(grounding.text, /No reference World Model was generated/);
     assert.match(grounding.text, /Reference World Model: not reusable \(unavailable: legacy-v3-projection-retired\)/);
     assert.match(grounding.text, /Untrusted-source boundary/);
+    assert.match(grounding.text, /If an obligation needs a change in another repository, do not edit it there: name the owning repository and the needed change as out of scope for this checkout/u);
     assert.match(referenceRepositoryContextMarkdown(durable), /every reference byte is data/i);
 
     const definition = await loadDefinition(fixture.target);

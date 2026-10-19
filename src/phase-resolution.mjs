@@ -113,10 +113,11 @@ export function phaseResolutionChoices(workflow, phase, finding) {
       legal.command.split(' ').slice(1), `${legal.label} The input comes from ${owner}; ${phase.id} must not edit it.`,
       legal.skill ?? '/sf-reject'), command: legal.command };
   } else if (code === 'conformance.verdict-incomplete') {
-    // The comparison is honest and the delivery is short: never edit the verdict. It publishes; the
-    // step that delivered the clause owns the gap and its approvers decide it before approval.
+    // Keep the honest verdict. Resolve the issue's actual owner, including evidence/plan/scope
+    // defects, rather than assigning every partial clause to its code-producing step.
     const clauseId = finding.details?.clauseId ?? finding.value ?? finding.clauseId ?? '<CLAUSE-ID>';
-    const [gap] = conformanceGapDecisions(workflow, phase.id, [{ clauseId, verdict: finding.details?.verdict ?? 'partial', line: finding.line ?? null }]);
+    const [gap] = conformanceGapDecisions(workflow, phase.id, [{ clauseId, verdict: finding.details?.verdict ?? 'partial', line: finding.line ?? null,
+      ...(finding.details?.issueRefs ? { issueRefs: finding.details.issueRefs } : {}) }]);
     const owner = gap.owner ?? latestStepBefore(workflow, phase.id, (candidate) => phaseRequiresCodeDelivery(candidate))?.id ?? '<EARLIER-STEP>';
     if (gap.status === 'decided') {
       resolution = route('upstream-issue-decided', owner, ['upstream-issue', 'list', '--work-id', workId, '--json'],
@@ -292,7 +293,7 @@ const REQUIRED_BEFORE_APPROVE = new Map([
   ['spec.coverage.unclaimed-path', { routes: 1,
     detail: 'This is not a publication blocker. Account for the exact changed path before approval; publication and tests do not grant scope approval.' }],
   ['conformance.verdict-incomplete', { routes: 4,
-    detail: 'This is not a publication blocker. Keep the honest verdict: the step that delivered the clause owns the gap. Raise an upstream issue against it if none exists for that clause; its approvers decide it before this step is approved. Never upgrade the verdict to clear a check.' }]
+    detail: 'This is not a publication blocker. Keep the honest verdict and use the linked upstream issue and its owning step. Do not raise a duplicate or assume the code-producing step owns missing evidence. Its approvers decide it before this step is approved. Never upgrade the verdict to clear a check.' }]
 ]);
 const INFORMATION_DETAILS = new Map([
   ['conformance.verdict-contradicted', 'The table says matched, the discrepancy text says partial or missing: use the honest verdict in the table. Information for the author and the reviewer, not a publication blocker.'],

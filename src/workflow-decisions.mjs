@@ -710,6 +710,19 @@ export function assertChoiceKeepsDependencies(workflow, pending, reach, plannedC
  * state: the decisions it carries, the one after its current phase and what that phase must record,
  * the question waiting for a person, which phases were skipped and why, and the log.
  */
+/** Guidance for the legacy CLI reader, separate so workflow projections stay small. */
+export function storyDecisionReadGuidance(workflow) {
+  const workId = workflow?.workItem?.id ?? '<WORK-ID>';
+  return {
+    coverage: 'workflow-routing-and-applicability',
+    instruction: 'An empty routing decisions array is not approval readiness. Use the consolidated pending-decisions command for gaps and upstream issues.',
+    commandGuidance: { pendingDecisions: {
+      command: `singularity-flow decisions ${workId} --json`, skill: '/sf-decide',
+      copilotCommand: `/sf-decide ${workId}`, modelFreeCommand: null
+    } }
+  };
+}
+
 export function storyDecisionView(workflow) {
   const order = workflow?.phaseOrder ?? [];
   const name = (id) => id === DECISION_END ? 'Finish the Story'

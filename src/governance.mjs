@@ -827,7 +827,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     // approval, accept it only when a person decided it: the same function approval asks, dated as
     // the ending is. Before approval it is the step's own open question, so it only warns.
     const endedAt = terminalTransitionAt(workflow);
-    const gaps = conformanceGapRefusal(workflow, phase.id, conformanceVerdictGaps(report),
+    const gaps = conformanceGapRefusal(workflow, phase.id, conformanceVerdictGaps(report, { workflow, phaseId: phase.id }),
       { now: endedAt, reused: await conformanceEvidenceReuse(root, config, workflow, phase.id, endedAt) });
     for (const gap of gaps?.gaps ?? []) {
       const message = `conformance ${conformanceGapLine(gap)}`;

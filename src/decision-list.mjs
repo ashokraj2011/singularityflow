@@ -155,7 +155,7 @@ function returnLegal(workflow, ownerPhase) {
 /** One item for a conformance gap, with the open upstream issue that names its clauses when there is one. */
 function gapItem(workflow, context, group) {
   const { issue, owner, gaps } = group;
-  const clauses = gaps.map((gap) => gap.clauseId);
+  const clauses = [...new Set(gaps.map((gap) => gap.clauseId))];
   const names = listWords(clauses.map((clause) => clauseName(workflow, clause)));
   const verdicts = [...new Set(gaps.map((gap) => gap.verdict))];
   const reports = [...new Set(gaps.map((gap) => gap.report))];
@@ -165,7 +165,8 @@ function gapItem(workflow, context, group) {
   const candidate = coveringCandidate(context.facts.candidates, clauses);
   const problem = context.facts.reuseProblems?.find((entry) => clauses.some((clause) => (entry.clauses ?? []).some((id) => sameClause(id, clause))))
     ?? context.facts.reuseProblems?.[0] ?? null;
-  const why = [`The ${reportWords} marks ${names} ${listWords(verdicts)}; ${ownerName} delivered ${clauses.length === 1 ? 'it' : 'them'}.`];
+  const why = [`The ${reportWords} marks ${names} ${listWords(verdicts)}; ${issue
+    ? `${ownerName} owns the linked upstream problem` : `${ownerName} delivered ${clauses.length === 1 ? 'it' : 'them'}`}.`];
   if (candidate) {
     why.push(`No run by ${stepName(workflow, candidate.consumer)} is recorded, and the code has not changed since ${stepName(workflow, candidate.producer)}'s`
       + ` recorded run (${runCounts(candidate.tests)}), which covers ${clauses.length === 1 ? 'it' : 'them'}.`);
@@ -227,7 +228,7 @@ function gapItem(workflow, context, group) {
       reuse: candidate ? { attemptId: candidate.attemptId, recordedBy: candidate.producer, for: candidate.consumer, sourceCommit: candidate.sourceCommit ?? null,
         tests: candidate.tests ?? null } : null,
       rule: CONFORMANCE_GAP_RULE,
-      commands: (gaps.flatMap((gap) => gap.choices ?? []).map((choice) => choice.command).filter(Boolean)) }
+      commands: [...new Set(gaps.flatMap((gap) => gap.choices ?? []).map((choice) => choice.command).filter(Boolean))] }
   };
 }
 

@@ -1,14 +1,15 @@
 /**
- * `singularity-flow app plan|start|status|stop` [RUN M1, amendment M7]: the capability's declared
- * application, model-free and the same for the Shell, VS Code and Copilot.
+ * `singularity-flow app plan|start|status|stop|suggest` [RUN M1, amendment M7]: the capability's
+ * declared application, model-free and the same for the Shell, VS Code and Copilot.
  */
 import path from 'node:path';
 
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
-const SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop']);
+const SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop', 'suggest']);
 const OPTIONS = Object.freeze({
-  plan: ['capability', 'json'], start: ['capability', 'environment', 'expect-command', 'debug'], status: ['capability', 'json'], stop: ['capability', 'json']
+  plan: ['capability', 'json'], start: ['capability', 'environment', 'expect-command', 'debug'], status: ['capability', 'json'], stop: ['capability', 'json'],
+  suggest: ['capability', 'json']
 });
 
 function fail(message, code = 'APP_COMMAND_INVALID', details = null) {
@@ -52,13 +53,14 @@ export async function run(_argv, { positionals, options = {} }) {
   }
   rejectOptions(subcommand, options);
   const startId = positionals[2] ?? null;
-  if (positionals.length > 3 || (subcommand === 'status' && startId)) {
-    fail(subcommand === 'status' ? 'app status lists every start entry; it takes no START-ID.' : `app ${subcommand} takes at most one START-ID.`);
+  if (positionals.length > 3 || (['status', 'suggest'].includes(subcommand) && startId)) {
+    fail(['status', 'suggest'].includes(subcommand) ? `app ${subcommand} reads every entry; it takes no START-ID.` : `app ${subcommand} takes at most one START-ID.`);
   }
   const json = optionBoolean(options, 'json');
   const { repoRoot } = await import('../git.mjs');
   const root = repoRoot(process.cwd());
   const application = await context(root, options);
+  if (subcommand === 'suggest') return (await import('./app-suggest.mjs')).run(root, application, { json });
   const runtime = await import('../application-run.mjs');
   const { loadEnvironmentDeclaration } = await import('../environment-declaration.mjs');
 

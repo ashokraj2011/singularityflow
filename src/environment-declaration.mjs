@@ -30,6 +30,12 @@ const RESERVED_VARIABLES = new Set([
 ]);
 const RESERVED_PREFIXES = ['GIT_', 'LD_', 'DYLD_', 'NODE_', 'NPM_CONFIG_', 'SINGULARITY_FLOW_'];
 
+/** Whether environments.yml may declare this variable name (UPPER_CASE, not reserved). */
+export function declarableEnvironmentVariable(name) {
+  return typeof name === 'string' && VARIABLE.test(name) && !RESERVED_VARIABLES.has(name)
+    && !RESERVED_PREFIXES.some((prefix) => name.startsWith(prefix));
+}
+
 function fail(message, details = null) {
   throw new SingularityFlowError(
     `Invalid ${ENVIRONMENT_DECLARATION_PATH}: ${message}`,

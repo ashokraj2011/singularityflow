@@ -8,7 +8,7 @@ const STRUCTURED = new Set(['about', 'specify', 'plan', 'implement', 'verify', '
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
 const MODEL_FREE_MIXED_COMMANDS = new Set(['skill', 'init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'integrations', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'governance', 'phase', 'product', 'decision', 'import', 'imports', 'marketplace', 'appeal', 'instruction', 'upstream-issue', 'decisions', 'app', 'tests']);
 // Run and test from a capability [RUN]: plan, status and summary read; start, stop and run execute code.
-const APP_SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop']);
+const APP_SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop', 'suggest']);
 const TESTS_SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary']);
 const UPSTREAM_ISSUE_SUBCOMMANDS = Object.freeze(['raise', 'list', 'decide', 'propose-amendment', 'decide-amendment', 'revalidate']);
 
@@ -1471,7 +1471,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'app') {
     const action = positionals[1] ?? 'status';
     if (!APP_SUBCOMMANDS.includes(action)) return unknownSubcommand('app', action, APP_SUBCOMMANDS);
-    return never(`app.${action}`, definition, ['plan', 'status'].includes(action) ? 'read' : 'mutation');
+    return never(`app.${action}`, definition, ['plan', 'status', 'suggest'].includes(action) ? 'read' : 'mutation');
   }
   if (definition.name === 'tests') {
     const action = positionals[1] ?? 'summary';
@@ -1734,7 +1734,7 @@ export function operationCatalog() {
     ...UPSTREAM_ISSUE_SUBCOMMANDS.map(name => never(`upstream-issue.${name}`, commandDefinition('upstream-issue'), name === 'list' ? 'read' : 'mutation')),
     never('decisions.show', commandDefinition('decisions'), 'read'),
     never('decisions.record', commandDefinition('decisions'), 'mutation'),
-    ...APP_SUBCOMMANDS.map(name => never(`app.${name}`, commandDefinition('app'), ['plan', 'status'].includes(name) ? 'read' : 'mutation')),
+    ...APP_SUBCOMMANDS.map(name => never(`app.${name}`, commandDefinition('app'), ['plan', 'status', 'suggest'].includes(name) ? 'read' : 'mutation')),
     ...TESTS_SUBCOMMANDS.map(name => never(`tests.${name}`, commandDefinition('tests'), ['plan', 'summary'].includes(name) ? 'read' : 'mutation')),
     ...['create', 'edit', 'remove'].flatMap(name => [never(`instruction.${name}.preview`, commandDefinition('instruction'), 'read'), never(`instruction.${name}`, commandDefinition('instruction'), 'mutation')]),
     ...SKILL_MUTATION_SUBCOMMANDS.flatMap((name) => [

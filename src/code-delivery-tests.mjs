@@ -663,7 +663,7 @@ function xmlFailure(message) {
   });
 }
 
-function tagEnd(xml, start) {
+function tagEnd(xml, start, fail = xmlFailure) {
   let quote = null;
   for (let index = start; index < xml.length; index += 1) {
     const character = xml[index];
@@ -672,35 +672,36 @@ function tagEnd(xml, start) {
     } else if (character === '"' || character === "'") quote = character;
     else if (character === '>') return index;
   }
-  xmlFailure('unterminated tag');
+  fail('unterminated tag');
 }
 
-function parseAttributes(value) {
+function parseAttributes(value, fail = xmlFailure) {
   const attributes = Object.create(null);
   let index = 0;
   while (index < value.length) {
     while (/\s/.test(value[index] ?? '')) index += 1;
     if (index >= value.length) break;
     const name = value.slice(index).match(/^[A-Za-z_][A-Za-z0-9_.:-]*/)?.[0];
-    if (!name) xmlFailure('malformed attribute name');
+    if (!name) fail('malformed attribute name');
     index += name.length;
     while (/\s/.test(value[index] ?? '')) index += 1;
-    if (value[index] !== '=') xmlFailure(`attribute '${name}' has no value`);
+    if (value[index] !== '=') fail(`attribute '${name}' has no value`);
     index += 1;
     while (/\s/.test(value[index] ?? '')) index += 1;
     const quote = value[index];
-    if (quote !== '"' && quote !== "'") xmlFailure(`attribute '${name}' is not quoted`);
+    if (quote !== '"' && quote !== "'") fail(`attribute '${name}' is not quoted`);
     const end = value.indexOf(quote, index + 1);
-    if (end === -1) xmlFailure(`attribute '${name}' is unterminated`);
-    if (Object.hasOwn(attributes, name)) xmlFailure(`attribute '${name}' is duplicated`);
+    if (end === -1) fail(`attribute '${name}' is unterminated`);
+    if (Object.hasOwn(attributes, name)) fail(`attribute '${name}' is duplicated`);
     attributes[name] = value.slice(index + 1, end);
     index = end + 1;
   }
   return attributes;
 }
 
-function parseXml(xml) {
-  if (/<!DOCTYPE|<!ENTITY/i.test(xml)) xmlFailure('DOCTYPE and entity declarations are forbidden');
+/** A bounded XML reader (no DOCTYPE or entities); `fail` throws for a malformed document. Also read by app suggest. */
+export function parseXml(xml, fail = xmlFailure) {
+  if (/<!DOCTYPE|<!ENTITY/i.test(xml)) fail('DOCTYPE and entity declarations are forbidden');
   let index = 0;
   let elements = 0;
   let root = null;
@@ -708,57 +709,57 @@ function parseXml(xml) {
   while (index < xml.length) {
     const open = xml.indexOf('<', index);
     if (open === -1) {
-      if (stack.length || xml.slice(index).trim()) xmlFailure('text exists outside the root element');
+      if (stack.length || xml.slice(index).trim()) fail('text exists outside the root element');
       break;
     }
-    if (!stack.length && xml.slice(index, open).trim()) xmlFailure('text exists outside the root element');
+    if (!stack.length && xml.slice(index, open).trim()) fail('text exists outside the root element');
     if (xml.startsWith('<!--', open)) {
       const end = xml.indexOf('-->', open + 4);
-      if (end === -1) xmlFailure('unterminated comment');
+      if (end === -1) fail('unterminated comment');
       index = end + 3;
       continue;
     }
     if (xml.startsWith('<?', open)) {
       const end = xml.indexOf('?>', open + 2);
-      if (end === -1) xmlFailure('unterminated processing instruction');
+      if (end === -1) fail('unterminated processing instruction');
       index = end + 2;
       continue;
     }
     if (xml.startsWith('<![CDATA[', open)) {
-      if (!stack.length) xmlFailure('CDATA exists outside the root element');
+      if (!stack.length) fail('CDATA exists outside the root element');
       const end = xml.indexOf(']]>', open + 9);
-      if (end === -1) xmlFailure('unterminated CDATA section');
+      if (end === -1) fail('unterminated CDATA section');
       index = end + 3;
       continue;
     }
     if (xml.startsWith('</', open)) {
-      const end = tagEnd(xml, open + 2);
+      const end = tagEnd(xml, open + 2, fail);
       const name = xml.slice(open + 2, end).trim();
       const current = stack.pop();
-      if (!current || current.name !== name) xmlFailure(`closing tag '${name}' does not match the open element`);
+      if (!current || current.name !== name) fail(`closing tag '${name}' does not match the open element`);
       current.sourceEnd = end + 1;
       index = end + 1;
       continue;
     }
-    if (xml.startsWith('<!', open)) xmlFailure('unsupported declaration');
-    const end = tagEnd(xml, open + 1);
+    if (xml.startsWith('<!', open)) fail('unsupported declaration');
+    const end = tagEnd(xml, open + 1, fail);
     let body = xml.slice(open + 1, end).trim();
     const selfClosing = body.endsWith('/');
     if (selfClosing) body = body.slice(0, -1).trim();
     const name = body.match(/^[A-Za-z_][A-Za-z0-9_.:-]*/)?.[0];
-    if (!name) xmlFailure('malformed element name');
-    const node = { name, localName: name.split(':').at(-1), attributes: parseAttributes(body.slice(name.length)), children: [],
+    if (!name) fail('malformed element name');
+    const node = { name, localName: name.split(':').at(-1), attributes: parseAttributes(body.slice(name.length), fail), children: [],
       sourceStart: open, sourceEnd: selfClosing ? end + 1 : null };
-    if (++elements > MAX_XML_ELEMENTS) xmlFailure(`element count exceeds ${MAX_XML_ELEMENTS}`);
-    if (stack.length >= MAX_XML_DEPTH) xmlFailure(`depth exceeds ${MAX_XML_DEPTH}`);
+    if (++elements > MAX_XML_ELEMENTS) fail(`element count exceeds ${MAX_XML_ELEMENTS}`);
+    if (stack.length >= MAX_XML_DEPTH) fail(`depth exceeds ${MAX_XML_DEPTH}`);
     if (stack.length) stack.at(-1).children.push(node);
-    else if (root) xmlFailure('document contains multiple root elements');
+    else if (root) fail('document contains multiple root elements');
     else root = node;
     if (!selfClosing) stack.push(node);
     index = end + 1;
   }
-  if (stack.length) xmlFailure(`element '${stack.at(-1).name}' is not closed`);
-  if (!root) xmlFailure('document has no root element');
+  if (stack.length) fail(`element '${stack.at(-1).name}' is not closed`);
+  if (!root) fail('document has no root element');
   return root;
 }
 

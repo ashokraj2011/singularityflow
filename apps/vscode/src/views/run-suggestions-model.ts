@@ -150,12 +150,14 @@ function readyFrom(value: unknown): SuggestedStart['ready'] {
 
 function namesFrom(value: unknown): SuggestedName[] {
   if (!Array.isArray(value)) return [];
+  // A variable that differs per environment comes once per environment; only an exact repeat is dropped.
   const seen = new Set<string>();
   return value.flatMap((item): SuggestedName[] => {
     const entry = record(item);
     const name = text(entry?.name);
-    if (!entry || !name || !VARIABLE.test(name) || seen.has(name)) return [];
-    seen.add(name);
+    const scope = text(entry?.environment) ?? '';
+    if (!entry || !name || !VARIABLE.test(name) || seen.has(`${name}\u0000${scope}`)) return [];
+    seen.add(`${name}\u0000${scope}`);
     const declared = text(entry.kind);
     // A secret-looking name is a secret even when the engine called it something else.
     const kind = declared === 'secret' || SECRET_NAME.test(name) ? 'secret' : declared === 'endpoint' ? 'endpoint' : 'flag';

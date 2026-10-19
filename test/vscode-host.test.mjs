@@ -11005,3 +11005,54 @@ test('Suggest from run configurations lists suggestions, then proposes the kept 
   assert.equal(opened.length, 1);
   assert.equal(opened[0].args[0].fsPath, path.join(lead, '.run/Api (dev).run.xml'));
 });
+
+test('Suggest from run configurations saves with capability set when the map has no authority, then reads the suggestions again', async (t) => {
+  if (!requireBundle(t)) return;
+  // A folder opened directly, whose checkout has no remote: no capability-map authority, so edits are local.
+  const root = await demoRepository();
+  t.after(() => removeFixture(path.dirname(root)));
+  const map = path.join(root, 'singularity/capabilities.yml');
+  await writeFile(map, `${await readFile(map, 'utf8')}
+  checkout-app:
+    name: Checkout app
+    kind: delivery
+    parent: product
+    repositories: [mobile]
+`);
+  run('git', ['remote', 'remove', 'origin'], { cwd: root });
+  const cli = await runAndTestCli(path.dirname(root));
+  await cli.write('plan.json', runPlan());
+  await cli.write('status.json', runStatus({ started: false, ready: false }));
+  await cli.write('suggest.json', runSuggestions());
+  await cli.write('leads.json', []);
+  const { api, registered } = stubVscode();
+  withTaskHost(api, registered);
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  api.workspace.getConfiguration = () => ({ get: (key) => key === 'cliPath' ? cli.wrapper : '', update: async () => {} });
+  await loadExtension(api).activate(context());
+  const panel = await openRunAndTest(registered);
+  await panel.post(rt('suggest'));
+  const page = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.runSuggestions') ?? null);
+  await until(() => page.webview.html.includes('data-sg-index="1"'));
+  registered.reviewConfirmationManual = true;
+  const reviewing = page.post({ type: 'suggest.review', selection: [{ index: 0, keep: true, id: 'api' }, { index: 1, keep: false, id: 'site' }] });
+  const confirmation = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.reviewConfirmation' && entry.visible) ?? null);
+  assert.match(confirmation.webview.html, /Written to: singularity\/capabilities\.yml in this checkout/);
+  assert.ok(confirmation.webview.html.includes('capability set checkout-app --application-file &quot;&lt;private temporary file&gt;&quot; --json'));
+  await confirmation.post({ type: 'confirmation.accept', acknowledged: true });
+  await reviewing;
+  const call = (await cli.log()).find((entry) => entry.application !== undefined);
+  const file = call.argv[call.argv.indexOf('--application-file') + 1];
+  assert.deepEqual(call.argv, ['capability', 'set', 'checkout-app', '--application-file', file, '--json']);
+  assert.deepEqual(YAML.parse(call.application), { start: [RUN_EXISTING, RUN_API], tests: [{ use: 'module-tests' }] });
+  assert.equal(existsSync(file), false);
+  assert.ok((await cli.log()).some((entry) => entry.argv.join(' ') === 'capability leads --json'), 'no authority in the snapshot, so the registered leads are asked; there are none');
+  // A local save changes what is declared, so the page reads the suggestions again and keeps what it said.
+  // Seen in a real VS Code: the page still offered the saved entry under its old ID.
+  const suggestReads = async () => (await cli.log()).filter((entry) => entry.argv.join(' ') === 'app suggest --capability checkout-app --json').length;
+  for (let attempt = 0; attempt < 600 && await suggestReads() < 2; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(await suggestReads(), 2);
+  const html = await until(() => page.webview.html.includes('Saved to singularity/capabilities.yml in this checkout') && page.webview.html.includes('data-sg-index="1"') ? page.webview.html : null);
+  assert.doesNotMatch(html, /Reading the run configurations/);
+  assert.equal(registered.panels.some((entry) => entry.id === 'singularityFlow.capabilityProposal'), false, 'nothing was proposed');
+});

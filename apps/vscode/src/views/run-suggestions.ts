@@ -91,9 +91,11 @@ export class RunSuggestionsPanel implements vscode.Disposable {
   private log(argv: string[]): void { this.host.output?.appendLine(`\n$ ${displayCommand(argv)}`); }
 
   /** `app suggest` and `app plan` together: the suggestions, and the start IDs already taken. */
-  async load(): Promise<void> {
+  async load({ keepNotice = false }: { keepNotice?: boolean } = {}): Promise<void> {
     const generation = ++this.generation;
-    this.busy = true; this.error = null; this.render();
+    this.busy = true; this.error = null;
+    if (!keepNotice) this.notice = null;
+    this.render();
     const capability = this.capability;
     const [suggested, planned] = await Promise.allSettled([
       this.host.client.run(appSuggestArgv(capability)), this.host.client.run(appPlanArgv(capability))
@@ -155,13 +157,19 @@ export class RunSuggestionsPanel implements vscode.Disposable {
     }));
     if (!accepted) { this.notice = 'Nothing was proposed or saved.'; return this.render(); }
     this.busy = true; this.render();
-    await this.write(route, set.capability, applicationYaml);
+    const saved = await this.write(route, set.capability, applicationYaml);
     this.busy = false;
+    // A local save changed what is declared: read the suggestions again, keeping what was said. Seen
+    // in a real VS Code: the page still offered the saved entry under its old ID.
+    if (saved) return this.load({ keepNotice: true });
     this.render();
   }
 
-  /** The file exists only while the command reads it: 0600 inside a fresh 0700 directory. */
-  private async write(route: ApplicationRoute, capability: string, applicationYaml: string): Promise<void> {
+  /**
+   * The file exists only while the command reads it: 0600 inside a fresh 0700 directory. True when
+   * this checkout's map changed (a local save); a proposal changes nothing here until approved.
+   */
+  private async write(route: ApplicationRoute, capability: string, applicationYaml: string): Promise<boolean> {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-application-'));
     try {
       const file = path.join(directory, 'application.yml');
@@ -175,6 +183,7 @@ export class RunSuggestionsPanel implements vscode.Disposable {
       } else if (outcome.kind === 'local') {
         this.notice = `Saved to ${outcome.path ?? 'singularity/capabilities.yml'} in this checkout, as a local authoring change. Commit it, or propose it to the capability map's authority.`;
         await this.host.afterLocalChange?.(capability);
+        return true;
       } else {
         this.notice = 'The capability already declares these start entries; nothing changed.';
       }
@@ -183,6 +192,7 @@ export class RunSuggestionsPanel implements vscode.Disposable {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+    return false;
   }
 
   private async copyEnvironments(): Promise<void> {

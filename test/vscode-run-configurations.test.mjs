@@ -214,7 +214,8 @@ const suggestion = (overrides = {}) => ({
   source: { kind: 'intellij', file: '.run/Api (dev).run.xml', name: 'Api (dev)' },
   variants: [{ file: '.run/Api (dev).run.xml', name: 'Api (dev)', environment: 'dev' }, { file: '.run/Api (qa).run.xml', name: 'Api (qa)', environment: 'qa' }],
   start: { ...API_DRAFT, arguments: { dev: DEV, qa: QA } },
-  environmentNames: [{ name: 'SPRING_PROFILES_ACTIVE', kind: 'flag', default: 'dev', environment: 'dev' }, { name: 'DB_PASSWORD', kind: 'secret', default: 'hunter2-db' },
+  environmentNames: [{ name: 'SPRING_PROFILES_ACTIVE', kind: 'flag', default: 'dev', environment: 'dev' }, { name: 'SPRING_PROFILES_ACTIVE', kind: 'flag', default: 'qa', environment: 'qa' },
+    { name: 'SPRING_PROFILES_ACTIVE', kind: 'flag', default: 'dev', environment: 'dev' }, { name: 'DB_PASSWORD', kind: 'secret', default: 'hunter2-db' },
     { name: 'DATABASE_URL', kind: 'endpoint', value: 'http://127.0.0.1:5432/app' }, { name: 'API_TOKEN', kind: 'flag', default: 'tok-123456' },
     { name: 'BILLING_URL', kind: 'endpoint', value: 'https://user:pw@billing.local/' }],
   notes: ['IntelliJ computes the classpath; this runs through the Maven wrapper instead.'],
@@ -257,11 +258,12 @@ test('app suggest is read field by field: no secret value, no path outside the r
   assert.deepEqual(api.draft, API_DRAFT, 'kept exactly as the engine drafted and checked it');
   assert.deepEqual(api.environmentNames, [
     { name: 'SPRING_PROFILES_ACTIVE', kind: 'flag', default: 'dev', environment: 'dev' },
+    { name: 'SPRING_PROFILES_ACTIVE', kind: 'flag', default: 'qa', environment: 'qa' },
     { name: 'DB_PASSWORD', kind: 'secret', default: null, environment: null },
     { name: 'DATABASE_URL', kind: 'endpoint', default: 'http://127.0.0.1:5432/app', environment: null },
     { name: 'API_TOKEN', kind: 'secret', default: null, environment: null },
     { name: 'BILLING_URL', kind: 'endpoint', default: null, environment: null }
-  ], 'a secret (or secret-looking) name never has a value, and an endpoint never carries credentials');
+  ], 'one row per environment a variable differs in (seen in a real VS Code: the qa one was lost); a secret (or secret-looking) name never has a value, and an endpoint never carries credentials');
   assert.deepEqual(web.start.debug, { runtime: 'node', port: 9229 });
   assert.equal(api.refusal, null);
   assert.equal(web.refusal, null);
@@ -413,6 +415,7 @@ test('the suggestion page lists sources, variants, commands, arguments, debug an
   assert.match(html, /<tr><th>Debug<\/th><td>java on 127\.0\.0\.1:5005<\/td><\/tr>/);
   assert.match(html, /<tr><th>Environments<\/th><td>dev, qa <small class="muted">\(dev is the default\)<\/small>/);
   assert.match(html, /data-sg-name="SPRING_PROFILES_ACTIVE" data-sg-kind="flag">[\s\S]*<small class="muted">\(dev\)<\/small>[\s\S]*<code>dev<\/code>/);
+  assert.match(html, /data-sg-name="SPRING_PROFILES_ACTIVE" data-sg-kind="flag">\s*<td><code>SPRING_PROFILES_ACTIVE<\/code> <small class="muted">\(qa\)<\/small><\/td><td>flag<\/td>\s*<td><code>qa<\/code>/);
   assert.match(html, /data-sg-name="DATABASE_URL" data-sg-kind="endpoint">[\s\S]*<code>http:\/\/127\.0\.0\.1:5432\/app<\/code>/);
   assert.match(html, /data-sg-name="DB_PASSWORD" data-sg-kind="secret">[\s\S]*never copied[\s\S]*no value/);
   assert.match(html, /data-sg-keep="2" disabled>/, 'a suggestion that cannot be kept cannot be ticked');

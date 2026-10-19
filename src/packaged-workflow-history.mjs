@@ -67,7 +67,9 @@ const HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
       '22b76b63947822eff26a76c5b360c132cfb24e81ee4f6975201511ea19669363'
     ]),
     // Before broader return routes (2026-10-12).
-    'benchmarking-a': Object.freeze(['0a18e2ce95010eee32b209c98e1e9ab9d3a9993e78ca10f23938b2d3fe3d13cd'])
+    'benchmarking-a': Object.freeze(['0a18e2ce95010eee32b209c98e1e9ab9d3a9993e78ca10f23938b2d3fe3d13cd']),
+    // Before its description said its validation gates run TypeScript Playwright through npm.
+    'poc-workflow': Object.freeze(['dc72ed2683f76ed9c561ffe0135b442e8eb88202a661ea39031545d29a965d75'])
   }),
   phases: Object.freeze({
     // Native v4 assignments supersede these exact packaged legacy revisions.
@@ -262,7 +264,7 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     feature: '7a7103892a8196fc57254ab39442e2b090492bf9bbeaa01e16873d1c00e151d3',
     'figma-mobile': '183fab75a69bc986f9c1a3f9a8aa55884396366f22ca4d367f66e9d933feec63',
     'poc-lite': '5f9265d011c6427724608ef3d9ac1dc615f0b78d40bc12f06ae362a1a70719b2',
-    'poc-workflow': 'dc72ed2683f76ed9c561ffe0135b442e8eb88202a661ea39031545d29a965d75',
+    'poc-workflow': '2d703ea2ba9712a859cb29a4f26346d9e23071ca6445fcca6ec821bb5cd1ef3b',
     'quick-fix': '01398a0d4124462b07ee451bd27ee9b1b4af94046df803a31170f2efbf87d0e6',
     'reference-driven-build': 'b786e7026caae3a2a41130bd55b97f656de6e3c0c0a2e3390963532f996f9b62',
     'spec-code-test-loop': 'f6a911e589320f8fd63b4933c61b2656068c9757d55267e60f2e47c6e5259e3b',

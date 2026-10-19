@@ -957,7 +957,7 @@ workTypes:
 
   poc-workflow:
     label: POC workflow — enterprise Playwright
-    description: The existing enterprise browser-regression profile with governed Playwright MCP evidence and independent publication review.
+    description: The existing enterprise browser-regression profile for TypeScript Playwright suites run through npm — its validation gates run `npx --no-install tsc --noEmit` and `npx --no-install playwright test` — with governed Playwright MCP evidence and independent publication review.
     # A governed UI-regression proof of concept: understand the requested target, calculate the
     # change footprint, observe the live UI, author repository-native Playwright tests, validate
     # them with bounded repair, and stop at a human publication decision. The selected remote base

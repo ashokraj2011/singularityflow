@@ -37,6 +37,6 @@ test('Node test identities canonicalize directory aliases but refuse outside or 
   assert.equal(observed.occurrences[0].file, 'case.test.mjs');
   for (const file of [path.join(base, 'outside.test.mjs'), path.join(alias, 'missing.test.mjs')]) {
     const text = await observation(file);
-    assert.throws(() => nodeTestObservation(text, counts), /incomplete/);
+    assert.throws(() => nodeTestObservation(text, counts), { name: 'SyntaxError', message: 'Node test identities are incomplete.' });
   }
 });

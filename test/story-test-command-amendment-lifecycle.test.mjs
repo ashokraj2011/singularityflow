@@ -636,6 +636,7 @@ test('a completed approved generation cannot be reopened by a test-command amend
   catch (error) {
     const report = await readFile(path.join(value.root, '.sflow/results/generated.tap'), 'utf8').catch(() => null);
     if (report) t.diagnostic(`Failed fixture publication's captured Node report:\n${report.slice(-8192)}`);
+    if (error.details?.requiredTestExecution) t.diagnostic(JSON.stringify(error.details.requiredTestExecution));
     throw error;
   }
   await submitCurrent(value);

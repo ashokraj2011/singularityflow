@@ -339,6 +339,10 @@ function shellAllowed(call, mode, value) {
     && typeof options['change-set'] === 'string' && path.isAbsolute(options['change-set'])
     && (value.fixStaging ?? []).includes(path.resolve(options['change-set']));
   if (mode === 'read') return false;
+  // A /sf-confirm of the list's own record command is the person's typed yes: the same upstream-issue
+  // options a /sf-decide turn may record, with the digest they confirmed.
+  if (mode === 'confirm' && positionals[0] === 'decisions') return !value.decisionEnded
+    && options.confirm === value.confirmDigest && decisionListChatRecord(positionals, options, value.contract?.workId);
   // Recording the decision list is a person's decision; outside a /sf-decide turn it is theirs to run.
   if (positionals[0] === 'decisions') return false;
   // Deciding an upstream issue is the earlier step's approvers' call, like approve and reject; an

@@ -392,6 +392,14 @@ test('/sf-confirm turns run only the command carrying the digest the person type
   assert.equal((await shell(confirmed, none)).permissionDecision, 'deny', 'a confirmation without a digest runs nothing');
   const two = await f.enter(`/sf-confirm ${confirmed} --confirm-plan sha256:${'e'.repeat(64)}`, 'two-digests');
   assert.equal((await shell(confirmed, two)).permissionDecision, 'deny', 'two digests bind nothing');
+  // The decision list's own record command: only the options a /sf-decide turn may record.
+  const record = `singularity-flow decisions record PMC-1 --choose d1=dismiss --confirm ${digest}`;
+  const listed = await f.enter(`/sf-confirm ${record.replace('singularity-flow ', '')}`, 'list-confirmer');
+  assert.deepEqual(await shell(record, listed), {});
+  for (const command of [record.replace('d1=dismiss', 'd1=reuse'), record.replace('PMC-1', 'OTHER'),
+    record.replace(digest, `sha256:${'f'.repeat(64)}`)]) {
+    assert.equal((await shell(command, listed)).permissionDecision, 'deny', command);
+  }
   // After a command changed the checkout, the confirmation has run: the same command is refused.
   await refreshMutationContracts(f.root, f.accepted, { advanceBaseline: true });
   const ended = await shell(confirmed);

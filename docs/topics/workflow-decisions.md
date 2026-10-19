@@ -16,14 +16,37 @@ questions:
   - Why does my Story ask whether a responsibility applies before it can finish?
 commands:
   - decision
+  - decisions
   - submit
 related:
   - workflow-authoring
   - story-lifecycle
   - approvals
-version: 11
+version: 12
 ---
 A decision sits after one phase of a Story workflow and chooses what happens next: the next phase, a later one (skipping those between), an earlier one, or the end of the Story. Running Stories keep the decisions they started with.
+
+## Pending approval decisions versus workflow routing
+
+For everything a phase currently needs people to decide, run `singularity-flow decisions <WORK-ID> --json`
+or `/sf-decide <WORK-ID>` in Copilot. This is the consolidated list used by the CLI and VS Code.
+`singularity-flow decision show <WORK-ID> --json` is the older workflow-routing/applicability view:
+its `decisions` array contains configured branch and loop nodes. An empty array is not evidence
+that all approval decisions are complete. Its returned `commandGuidance.pendingDecisions` points
+to the consolidated command; do not substitute one view for the other.
+
+Partial or missing report verdicts retain their honest values. When a row cites an existing UPI-ID,
+or its clause is identified by the exact discrepancy that filed an issue, that issue and the affected
+rows are one decision, owned by the issue's phase. A missing Verification receipt does not become
+a separate Implementation defect merely because Implementation delivered the application code.
+The list, approval gate, terminal gate, authoring advisories and verdict summaries share this binding.
+Distinct issues stay separate, superseding records carry old references, and expired risks need a
+fresh decision. No approval or risk acceptance is inferred from grouping.
+
+In new reports, name the owning phase and each affected qualified clause ID in the discrepancy's
+Impact or Clause field, and cite an already-filed UPI-ID in the relevant comparison row. Avoid
+ambiguous phrases such as “some clauses.” Legacy “both clauses” is resolved only for an actual
+two-clause table and a matching source-item provenance; an unrelated section issue cannot claim it.
 
 ## Purpose and prerequisites
 

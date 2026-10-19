@@ -154,7 +154,7 @@ import { canonicalCommand, commandDefinition, operationById, validateCommandHand
 // `action` is already a command name in this file, so the narration constructor is renamed rather
 // than shadowing it.
 import { action as narrationAction, commandResult, effects, noEffects, noop, succeeded } from './narration/command-result.mjs';
-import { parseDecisionAssignments, resolveDecisionChoice, storyDecisionView } from './workflow-decisions.mjs';
+import { parseDecisionAssignments, resolveDecisionChoice, storyDecisionView, storyDecisionReadGuidance } from './workflow-decisions.mjs';
 import { emitCommandResult } from './narration/emit.mjs';
 import { factoryResetAll, factoryResetAllPlan, factoryResetPlan, factoryResetRepository } from './factory-reset.mjs';
 import { FRESH_INSTALL_CONFIRMATION, freshInstallReset, freshInstallResetPlan, localReset, localResetPlan, installerGeneratedResetPaths, sameResetPathIdentity } from './fresh-install-reset.mjs';
@@ -4071,7 +4071,7 @@ async function decisionShowCommand(positionals, options) {
   const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? undefined;
   const { workflow } = await loadAcceptedStoryExecution(root, requestedId);
   // Open upstream issues are decisions too, so /sf-decide sees them in the same answer [UIF-M2].
-  const view = { ...storyDecisionView(workflow), applicability: applicabilityStatus(workflow),
+  const view = { ...storyDecisionView(workflow), ...storyDecisionReadGuidance(workflow), applicability: applicabilityStatus(workflow),
     upstreamIssues: openUpstreamIssues(workflow).map(({ issue, status, supersededBy }) => ({ id: issue.id, phase: issue.phase, about: issue.about, status, supersededBy })) };
   if (optionBoolean(options, 'json')) {
     console.log(JSON.stringify(view, null, 2));
@@ -4079,6 +4079,8 @@ async function decisionShowCommand(positionals, options) {
   }
   printDecisionView(view);
   printApplicability(view.applicability);
+  console.log(view.instruction);
+  printCommandRoutes(view.commandGuidance.pendingDecisions, { label: 'Pending human decisions' });
 }
 
 /**

@@ -136,14 +136,36 @@ test('the release-approval incident is one decision: recorded once, then approva
   ].join('\n'));
   text = text.replace(/TODO:[^\n]*/gu, `Compared ${AC1} and ${AC2} against the approved Code generation and its committed receipt.`)
     .replace(/\bTODO\b/gu, 'none');
+  text += '\n\n## Upstream discrepancies\n\n'
+    + '- **Testing, “Acceptance results”:** Testing cites a 15-test execution that its packet did not retain. '
+    + 'Impact: the test portion of both clauses lacks a retained execution. Proposed owner action: retain a genuine run.\n';
   await writeFile(report, text);
   cli('prepare', 'conformance');
   cli('phase', 'publish', 'conformance', '--authored', 'human', '--channel', 'manual-in-place');
   cli('submit', 'conformance');
 
-  // The incident's records: an issue raised against the wrong step, and its replacement.
-  cli('upstream-issue', 'raise', '--phase', 'testing', '--about', AC1,
-    '--problem', 'Testing cites a 15-test run for this clause that was never recorded.');
+  // A section-only issue filed from the exact report is one problem with its partial verdict,
+  // owned by Testing, not a second invented Code defect. Every surface agrees before recording.
+  cli('upstream-issue', 'raise', '--from-artifact');
+  const sectionPacket = json(cliAs('release-reviewer', 'decisions', W, '--json')).data;
+  assert.equal(sectionPacket.items.length, 1);
+  assert.deepEqual([sectionPacket.items[0].details.owner, sectionPacket.items[0].details.issue], ['testing', 'UPI-001']);
+  assert.equal(sectionPacket.items[0].options.some((option) => option.effects.some((effect) => effect.kind === 'upstream-issue')), false);
+  assert.deepEqual(sectionPacket.items[0].options.find((option) => option.id === 'accept-risk').decidedBy.groups, ['quality-reviewers']);
+  const sectionRefusal = json(attempt('approve', 'conformance', '--yes', '--json'));
+  assert.equal(sectionRefusal.error.details.decisions.count, 1);
+  assert.equal(sectionRefusal.error.details.conformanceGaps[0].owner, 'testing');
+  assert.equal(sectionRefusal.error.details.conformanceGaps[0].issue, 'UPI-001');
+  const sectionGate = json(attempt('gate', '--terminal', '--json')).findings.find((finding) => finding.code === 'gate.conformance.blocking-verdict');
+  assert.equal(sectionGate.details.owner, 'testing');
+  const routing = json(cli('decision', 'show', W, '--json'));
+  assert.deepEqual(routing.decisions, []);
+  assert.equal(routing.upstreamIssues[0].id, 'UPI-001');
+  assert.equal(routing.commandGuidance.pendingDecisions.command, `singularity-flow decisions ${W} --json`);
+  assert.match(cli('decision', 'show', W).stdout, new RegExp(`Shell: singularity-flow decisions ${W} --json`, 'u'));
+
+  // Historical supersession still works: the retained report need not be rewritten to replace
+  // an issue. Its original reference follows the explicit replacement record, not prose guessing.
   cli('upstream-issue', 'raise', '--phase', 'implementation', '--about', AC1, '--supersedes', 'UPI-001',
     '--problem', 'The delivered change has no recorded run for this clause beyond the Code step.');
 

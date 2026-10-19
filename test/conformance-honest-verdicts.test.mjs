@@ -189,7 +189,7 @@ test('an honest partial verdict publishes and submits, and approval waits for a 
   const unraised = attempt('approve', 'conformance', '--yes');
   assert.notEqual(unraised.status, 0, 'approval waits for a person to decide the gap');
   const unraisedText = unraised.stdout + unraised.stderr;
-  assert.match(unraisedText, new RegExp(`${AC1} remains partial: no upstream issue names it yet; raise one against implementation`, 'u'));
+  assert.match(unraisedText, new RegExp(`${AC1} remains partial: no linked issue; raise one against implementation`, 'u'));
   assert.match(unraisedText, new RegExp(`singularity-flow upstream-issue raise --phase implementation --about ${AC1}`, 'u'));
   assert.match(unraisedText, /Keep the honest verdict; never edit it to clear a check/u);
   // The recovery plan names the decision and every route, never a repair of the report itself.
@@ -215,7 +215,7 @@ test('an honest partial verdict publishes and submits, and approval waits for a 
     '--problem', 'The Testing step cites a 15-test run that SFlow never recorded for this clause.');
   const undecided = attempt('approve', 'conformance', '--yes');
   assert.notEqual(undecided.status, 0);
-  assert.match(undecided.stdout + undecided.stderr, new RegExp(`${AC1} remains partial: UPI-001 names it and is not decided`, 'u'));
+  assert.match(undecided.stdout + undecided.stderr, new RegExp(`${AC1} remains partial: UPI-001 awaits implementation's approvers`, 'u'));
   assert.match(undecided.stdout + undecided.stderr, new RegExp(`singularity-flow upstream-issue decide UPI-001 --work-id ${W} --outcome accept-risk`, 'u'));
   // The final gate asks the same question as approval and names the same decision.
   const terminalGap = (result) => JSON.parse(result.stdout).findings.find((finding) => finding.code === 'gate.conformance.blocking-verdict');

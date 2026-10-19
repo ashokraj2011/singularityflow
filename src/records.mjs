@@ -14,6 +14,11 @@
  */
 import { createHash } from 'node:crypto';
 
+/** Stable source-item identity shared by issue filing and read-only report association. */
+export function discrepancyItemSha256(phaseId, itemText) {
+  return createHash('sha256').update(`${phaseId}\n${String(itemText).replace(/\s+/gu, ' ').trim()}`).digest('hex');
+}
+
 function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]));

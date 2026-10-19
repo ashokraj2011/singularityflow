@@ -333,7 +333,7 @@ export async function startApplication(root, context, entry, {
       paths: appDebugPaths(appRecordPath(root, context.capabilityId, entry.id))
     });
     // The tool checks run without the environment's values: they are for the application only.
-    assertDebugToolsAvailable(debugLaunch, { cwd, environment: base, platform, ...(spawnSyncCommand ? { spawnSyncCommand } : {}) });
+    assertDebugToolsAvailable(debugLaunch, { cwd, environment: base, platform, spawnSyncCommand: spawnSyncCommand ?? spawnSync });
     if (debugLaunch.port != null && await debugPortAccepts(debugLaunch.port)) {
       throw new SingularityFlowError(
         `${subject} debugs on ${debugLaunch.address}, and something already listens there. Stop it, or give the entry another debug.port. Nothing ran.`,

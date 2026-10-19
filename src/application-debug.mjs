@@ -17,9 +17,9 @@
  * - dotnet: nothing is added; the person attaches to the pid `app status` reports.
  *
  * Everything here is a pure transform of argv and environment except the tool checks, which look
- * for dlv on PATH and ask the interpreter whether it can import debugpy.
+ * for dlv on PATH and ask the interpreter whether it can import debugpy, through the process launcher
+ * the caller passes (application-run.mjs holds the one reviewed launch site).
  */
-import { spawnSync } from 'node:child_process';
 import { accessSync, constants as fsConstants, statSync } from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
@@ -266,7 +266,7 @@ export function executableOnPath(name, environment = process.env, { platform = p
  * Refuse a debug start whose debugger is not installed, naming the command the person runs. Delve is
  * looked up on PATH; debugpy is asked of the interpreter that will run the application.
  */
-export function assertDebugToolsAvailable(launch, { cwd, environment = process.env, platform = process.platform, spawnSyncCommand = spawnSync } = {}) {
+export function assertDebugToolsAvailable(launch, { cwd, environment = process.env, platform = process.platform, spawnSyncCommand } = {}) {
   if (launch.requires?.dlv && !executableOnPath('dlv', environment, { platform, cwd })) {
     throw refusal('APP_DEBUG_DLV_MISSING',
       'app start --debug runs go programs under Delve, and dlv is not on PATH. Install Delve yourself'

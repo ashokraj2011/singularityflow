@@ -33,7 +33,7 @@ import {
 } from './specifications.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { verifyAstLifecycleReceipt } from './ast-lifecycle.mjs';
-import { inspectConformanceReportContract, inspectQualifiedConformanceReport, traceableConformanceIds } from './conformance-readiness.mjs';
+import { conformanceEvidenceReuse, inspectConformanceReportContract, inspectQualifiedConformanceReport, traceableConformanceIds } from './conformance-readiness.mjs';
 import { conformanceVerdictGaps } from './conformance-verdicts.mjs';
 import { conformanceGapLine, conformanceGapRefusal } from './upstream-routes.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
@@ -821,7 +821,9 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     // A partial or missing verdict stands as written. The ending, and any gate after the step's
     // approval, accept it only when a person decided it: the same function approval asks, dated as
     // the ending is. Before approval it is the step's own open question, so it only warns.
-    const gaps = conformanceGapRefusal(workflow, phase.id, conformanceVerdictGaps(report), { now: terminalTransitionAt(workflow) });
+    const endedAt = terminalTransitionAt(workflow);
+    const gaps = conformanceGapRefusal(workflow, phase.id, conformanceVerdictGaps(report),
+      { now: endedAt, reused: await conformanceEvidenceReuse(root, config, workflow, phase.id, endedAt) });
     for (const gap of gaps?.gaps ?? []) {
       const message = `conformance ${conformanceGapLine(gap)}`;
       if (terminal || phase.status === 'approved') {

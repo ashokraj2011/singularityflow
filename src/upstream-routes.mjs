@@ -162,7 +162,7 @@ export function conformanceGapRoutes(workflow, phaseId, gap, issue = null) {
  * risk (not expired at `now`) or dismisses it. Approval of the conformance step and the terminal gate
  * both call this, so they agree. Anything else carries its routes; none edits the verdict.
  */
-export function conformanceGapDecisions(workflow, phaseId, gaps, { now = new Date().toISOString() } = {}) {
+export function conformanceGapDecisions(workflow, phaseId, gaps, { now = new Date().toISOString(), reused = [] } = {}) {
   const states = upstreamIssueStates(workflow, now);
   const owner = conformanceGapOwner(workflow, phaseId);
   return (gaps ?? []).map((gap) => {
@@ -171,6 +171,14 @@ export function conformanceGapDecisions(workflow, phaseId, gaps, { now = new Dat
     if (covering) {
       return Object.freeze({ ...gap, owner: covering.issue.phase, status: 'decided', issue: covering.issue.id,
         outcome: covering.decision.outcome, expiresAt: covering.decision.expiresAt ?? null, choices: Object.freeze([]) });
+    }
+    // A person approved reusing a run an earlier step recorded for this clause (decision
+    // evidence-reuse, still bound to unchanged source): that is the human decision for the gap. It is
+    // labelled as that step's run and never certifies a run this report's steps did not record.
+    const reuse = (reused ?? []).find((entry) => (entry.clauses ?? []).some((id) => String(id).toUpperCase() === String(gap.clauseId).toUpperCase()));
+    if (reuse) {
+      return Object.freeze({ ...gap, owner: reuse.recordedBy ?? owner, status: 'decided', issue: reuse.id, outcome: 'evidence-reuse',
+        expiresAt: reuse.expiresAt ?? null, reuse: reuse.label, choices: Object.freeze([]) });
     }
     const pending = named.findLast((state) => state.status !== 'decided') ?? null;
     const gapOwner = pending?.issue.phase ?? owner;
@@ -193,8 +201,8 @@ export function conformanceGapLine(gap) {
  * The refusal shared by conformance approval and the terminal gate, or null when a person decided
  * every gap. Its details carry each clause's routes and the exact commands, never a verdict edit.
  */
-export function conformanceGapRefusal(workflow, phaseId, gaps, { now = new Date().toISOString() } = {}) {
-  const open = conformanceGapDecisions(workflow, phaseId, gaps, { now }).filter((gap) => gap.status !== 'decided');
+export function conformanceGapRefusal(workflow, phaseId, gaps, { now = new Date().toISOString(), reused = [] } = {}) {
+  const open = conformanceGapDecisions(workflow, phaseId, gaps, { now, reused }).filter((gap) => gap.status !== 'decided');
   if (!open.length) return null;
   const seen = new Set();
   const recoveryCommands = open.flatMap((gap) => gap.choices).filter((choice) => choice.command && !seen.has(choice.command) && seen.add(choice.command))

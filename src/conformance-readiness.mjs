@@ -147,9 +147,9 @@ const advisory = (code, fields) => Object.freeze({ code, category: 'traceability
  * So a gap is an advisory required before approval (a person decides it, see
  * conformanceGapDecisions), and a table that contradicts its own discrepancy text is information.
  */
-export function inspectConformanceVerdictAdvisories(markdown, { workflow = null, phaseId = null, now = undefined } = {}) {
+export function inspectConformanceVerdictAdvisories(markdown, { workflow = null, phaseId = null, now = undefined, reused = [] } = {}) {
   const gaps = conformanceVerdictGaps(markdown);
-  const decided = workflow && phaseId ? conformanceGapDecisions(workflow, phaseId, gaps, { now })
+  const decided = workflow && phaseId ? conformanceGapDecisions(workflow, phaseId, gaps, { now, reused })
     : gaps.map((gap) => ({ ...gap, owner: null, status: 'unraised', issue: null, choices: [] }));
   return [
     ...decided.map((gap) => {
@@ -178,6 +178,7 @@ const VERDICT_SUMMARY = /<!-- singularity-flow:verdict-summary:start -->[\s\S]*?
 
 function verdictCoverage(gap) {
   const owner = gap.owner ?? 'the delivering step';
+  if (gap.status === 'decided' && gap.outcome === 'evidence-reuse') return `covered by ${gap.issue}: ${gap.reuse}.`;
   if (gap.status === 'decided') {
     return `covered by ${gap.issue} (${gap.outcome === 'accept-risk' ? `accepted risk until ${String(gap.expiresAt ?? '').slice(0, 10)}` : 'dismissed'}).`;
   }
@@ -191,9 +192,9 @@ function verdictCoverage(gap) {
  * stated; this engine-written block repeats each partial or missing one with the upstream issue
  * that covers it, so no prose has to restate a verdict. It is read from the table without itself.
  */
-export function verdictSummaryBlock(markdown, workflow, phaseId, { now = undefined } = {}) {
+export function verdictSummaryBlock(markdown, workflow, phaseId, { now = undefined, reused = [] } = {}) {
   const table = String(markdown ?? '').replace(VERDICT_SUMMARY, '');
-  const gaps = conformanceGapDecisions(workflow, phaseId, conformanceVerdictGaps(table), { now });
+  const gaps = conformanceGapDecisions(workflow, phaseId, conformanceVerdictGaps(table), { now, reused });
   return [
     VERDICT_SUMMARY_START,
     'Engine-written from the clause table; keep it. The table is the only place a verdict is stated.', '',
@@ -256,7 +257,19 @@ export async function inspectPhaseConformance(root, config, workflow, phase) {
   ].map((finding) => ({
     ...finding, path: relative
   }));
-  const advisories = inspectConformanceVerdictAdvisories(markdown, { workflow, phaseId: phase.id })
+  const reused = await conformanceEvidenceReuse(root, config, workflow, phase.id);
+  const advisories = inspectConformanceVerdictAdvisories(markdown, { workflow, phaseId: phase.id, reused })
     .map((entry) => Object.freeze({ ...entry, path: relative }));
-  return { findings, advisories, summary: verdictSummaryStatus(markdown, workflow, phase.id) };
+  return { findings, advisories, summary: verdictSummaryStatus(markdown, workflow, phase.id, { reused }) };
+}
+
+/**
+ * The evidence-reuse decisions a person approved for this step or an earlier one that still hold
+ * (bound to unchanged source). Each covers its clauses' gaps as that step's recorded run. Loaded only
+ * when the Story has such a decision, so Story start and lifecycle reads load nothing new.
+ */
+export async function conformanceEvidenceReuse(root, config, workflow, phaseId, at = undefined) {
+  if (!(workflow?.evidenceReuses ?? []).length) return [];
+  const { evidenceReuseFor } = await import('./evidence-reuse.mjs');
+  return (await evidenceReuseFor(root, config, workflow, phaseId, { ...(at ? { at } : {}), through: true })).active;
 }

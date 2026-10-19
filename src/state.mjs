@@ -120,7 +120,7 @@ import {
 } from './generation-boundary.mjs';
 import { conformanceVerdictGaps } from './conformance-verdicts.mjs';
 import { CONFORMANCE_GAP_RULE, conformanceGapRefusal } from './upstream-routes.mjs';
-import { inspectPhaseQualifiedConformance, withSelfApprovalDisclosures, withVerdictSummary } from './conformance-readiness.mjs';
+import { conformanceEvidenceReuse, inspectPhaseQualifiedConformance, withSelfApprovalDisclosures, withVerdictSummary } from './conformance-readiness.mjs';
 import { runQualityCommand } from './quality-command-runner.mjs';
 import { classifyRequiredTestFailure } from './test-execution-diagnostics.mjs';
 import {
@@ -2270,7 +2270,9 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
     }
     // One verdict source: every prepare writes, or refreshes in an existing draft, the engine-owned
     // Verdict summary read from the clause table, so no prose has to restate a verdict.
-    if (phase.requiredArtifact?.kind === 'conformance-report') text = withVerdictSummary(text, workflow, phase.id);
+    if (phase.requiredArtifact?.kind === 'conformance-report') {
+      text = withVerdictSummary(text, workflow, phase.id, { reused: await conformanceEvidenceReuse(root, config, workflow, phase.id) });
+    }
     if (!artifactExistedBeforePreparation && referenceContext) text = `${referenceContext}\n\n${text}`;
     if (!artifactExistedBeforePreparation) {
       const initialized = repairPreparedArtifactMetadata(text, { canonicalMetadata });
@@ -5872,7 +5874,9 @@ export async function approvePhase(root, config, workflow, {
     // An honest partial or missing verdict published and was submitted as written; approval needs a
     // person's decision on it (the terminal gate asks the same function) [owner decision 2026-10-19].
     const report = await readArtifactText(root, requiredRepoPath(config, workflow, phase));
-    const refusal = conformanceGapRefusal(workflow, phase.id, conformanceVerdictGaps(report), { now: nowIso() });
+    const approvedAt = nowIso();
+    const refusal = conformanceGapRefusal(workflow, phase.id, conformanceVerdictGaps(report),
+      { now: approvedAt, reused: await conformanceEvidenceReuse(root, config, workflow, phase.id, approvedAt) });
     if (refusal) {
       throw new SingularityFlowError(
         `Phase '${phase.id}' cannot be approved until a person decides each partial or missing clause:\n- `

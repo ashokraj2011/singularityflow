@@ -465,6 +465,21 @@ export function phasePromptExecutionContract(definition, workflow, phase, { temp
   });
 }
 
+/**
+ * The human visual reviews the Story recorded (decision witness), for a step that reports on them.
+ * The reader loads only when a witness exists; null otherwise.
+ */
+async function recordedVisualReviewContext(root, workflow, phase) {
+  if (!workflow?.witnessRecords?.length || !phase) return null;
+  const reviews = await import('./verification/witness-decisions.mjs');
+  const projection = await reviews.phaseWitnessDecisions(root, workflow, phase);
+  return projection ? {
+    text: reviews.renderWitnessDecisions(projection),
+    record: reviews.witnessDecisionCompositionRecord(projection),
+    refresh: (text, record) => reviews.withWitnessDecisionRefresh(text, record, projection)
+  } : null;
+}
+
 /** Same delivery-only corrections for fresh and cached prompts; never persist over their receipts. */
 export function withPhasePromptRuntimeGuidance(text, definition, workflow, phase) {
   const bound = Boolean(workflow && phase);
@@ -773,8 +788,10 @@ async function compose(root, options, {
       // new phase generation.
       console.error(`Grounding composition reused: ${existing.file}`);
       const executionEvidence = await phaseExecutionEvidence(root, definition, workflow, phase);
+      const visualReviews = await recordedVisualReviewContext(root, workflow, phase);
+      const refreshed = withExecutionEvidenceRefresh(existing.text, existing.record, executionEvidence);
       const replyPrompt = withReplyPersonalization(
-        withPhasePromptRuntimeGuidance(withExecutionEvidenceRefresh(existing.text, existing.record, executionEvidence), definition, workflow, phase),
+        withPhasePromptRuntimeGuidance(visualReviews ? visualReviews.refresh(refreshed, existing.record) : refreshed, definition, workflow, phase),
         resolvePersonalization({ root }));
       if (!renderOnly && options['skip-prompt-audit'] !== true) {
         await recordCompositionPromptAudit(root, {
@@ -961,6 +978,7 @@ async function compose(root, options, {
     }
   }
   const executionEvidence = workflow ? await phaseExecutionEvidence(root, definition, workflow, phase) : null;
+  const visualReviews = await recordedVisualReviewContext(root, workflow, phase);
   // The rules this Story was pinned to at start, exactly those bytes, or their identities when absent.
   const constitution = workflow ? await constitutionPromptContext(root, workflow) : { text: '', record: null };
   const promptCompilation = compilePromptSections([
@@ -990,6 +1008,8 @@ async function compose(root, options, {
     },
     { id: 'stakeholder-change-requests', text: stakeholderContext.text, mandatory: true, priority: 0 },
     { id: 'governed-execution-evidence', text: renderExecutionEvidence(executionEvidence), mandatory: true, priority: 0 },
+    // Present only when the Story recorded a witness, so every other prompt keeps its exact bytes.
+    ...(visualReviews ? [{ id: 'recorded-visual-reviews', text: visualReviews.text, mandatory: true, priority: 0 }] : []),
     { id: 'final-clarification-guard', text: clarificationGuard, mandatory: true, priority: 0 }
   ], tokenEconomyPolicy, {
     ...(tokenReductionRuntime ? {
@@ -1029,6 +1049,7 @@ async function compose(root, options, {
   if (executionEvidence) promptComposition.executionEvidence = {
     projectionSha256: executionEvidence.projectionSha256, packets: executionEvidence.entries.length,
     omittedPackets: executionEvidence.omittedPackets, diagnostics: executionEvidence.diagnostics };
+  if (visualReviews) promptComposition.visualReviews = visualReviews.record;
   promptComposition.skillLoading = remote.loading ?? [];
   const deduplicatedPromptBytes = approvedReferences.deduplicated
     .reduce((total, entry) => total + (entry.previewBytes ?? 0), 0);

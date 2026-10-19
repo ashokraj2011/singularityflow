@@ -70,7 +70,8 @@ export function phaseEntryAgentPresentation(packet) {
   const control = ENTRY_CONTROL_ORDER.filter((key) => Object.hasOwn(projected, key));
   const material = Object.keys(projected).filter((key) => !control.includes(key) && key !== 'context');
   return { agentGuide: {
-    readOrder: [...control, 'recovery', 'intent', 'recovery.testExecution', 'retainedExecutionEvidence', 'references', 'context.text'],
+    readOrder: [...control, 'recovery', 'intent', 'recovery.testExecution', 'retainedExecutionEvidence',
+      ...(Object.hasOwn(projected, 'recordedVisualReviews') ? ['recordedVisualReviews'] : []), 'references', 'context.text'],
     testExecutionPath: 'recovery.testExecution',
     retainedExecutionEvidencePath: 'retainedExecutionEvidence',
     contextFilePath: 'context.file.path',

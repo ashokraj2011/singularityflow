@@ -204,8 +204,9 @@ test('progress and document commands upload, list, and view files, images, and F
   assert.doesNotMatch(submission.stdout, /Drafting skill/, 'the automatic route of a step that names no skill is not repeated');
   // A submit used to run to several hundred lines. The compact evidence receipt adds review facts,
   // but the result still has to remain findable without dumping artifact bodies. Each action names
-  // its Copilot, Shell and model-free VS Code routes (2e600393), one line per route.
-  assert.ok(submission.stdout.split('\n').length < 45, `submit printed ${submission.stdout.split('\n').length} lines`);
+  // its Copilot, Shell and model-free VS Code routes (2e600393), one line per route. The retained
+  // evidence-consistency block (8e248318) is three lines: its digest and that it is not a new run.
+  assert.ok(submission.stdout.split('\n').length < 48, `submit printed ${submission.stdout.split('\n').length} lines`);
   readiness = JSON.parse(flow(root, ['status', 'DOCS-1', '--submission-readiness', '--json']).stdout);
   assert.equal(readiness.classification, 'already-submitted');
   assert.equal(readiness.phaseStatus, 'awaiting_approval');

@@ -29,6 +29,9 @@ export function mutationTurnMode(skill) {
   // /sf-build-workflow grows a machine-local workflow build through `workflow build` and one issued
   // proposal file; finishing goes through Workflow Studio's reviewed apply (buildWorkflowGuard).
   if (name === 'build-workflow') return 'build-workflow';
+  // /sf-fix-workflow reads `workflow validate` and `workflow check`, writes the one change set draft
+  // `workflow validate` issued, and proposes it through Workflow Studio's reviewed apply (fixWorkflowGuard).
+  if (name === 'fix-workflow') return 'fix-workflow';
   if (AUTHORING_SKILL_DECLARATION[`sflow-${name}`]) return 'authoring';
   // Kernel actions have their own authority checks. This never permits direct source edits.
   if (['inputs', 'next', 'recover', 'appeal', 'clarify', 'revise', 'submit', 'converge', 'continue',
@@ -105,7 +108,7 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
     : turnMode === 'publish-only'
       ? [route(['phase', 'publish', phase.id, '--authored', phasePublicationContract(phase).producer,
         '--channel', phasePublicationContract(phase).channel], 'Recheck publication readiness first; publish only when the kernel returns ready. Never author, submit or approve.')]
-    : ['approval-only', 'session-only', 'read', 'read-only-review', 'import-team', 'build-workflow'].includes(turnMode)
+    : ['approval-only', 'session-only', 'read', 'read-only-review', 'import-team', 'build-workflow', 'fix-workflow'].includes(turnMode)
       ? [route(['nextsteps', '--json'], 'End this turn. Inspect the next action in a new turn; do not author now.')]
       : code && phase.generationIntent?.status === 'consumed'
         ? [route(['recover', workId, '--phase', phase.id, '--json'], 'Preserve published bytes and review the successor boundary before application edits.', '/sf-recover')]

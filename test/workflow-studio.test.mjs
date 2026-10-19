@@ -98,7 +98,7 @@ test('a workflow, a new step and its new agent land together, and a dry run writ
   assert.deepEqual(created.steps[1].inputs, ['intake']);
   const validation = flow(root, ['workflow', 'validate', 'vendor-assessment'], { allowFailure: true });
   assert.equal(validation.status, 1, 'a workflow whose route drops responsibilities is not valid for new Stories');
-  assert.match(validation.stdout, /finishing after 'vendor-analysis' ends the Story without defined requirements \(scope\), a plan, implementation and verification/);
+  assert.match(validation.stdout, /[Ff]inishing after 'vendor-analysis' ends the Story without defined requirements \(scope\), a plan, implementation and verification/);
 });
 
 test('moving a step to another agent changes both agents in one valid change', async () => {

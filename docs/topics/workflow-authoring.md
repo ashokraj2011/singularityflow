@@ -1396,13 +1396,17 @@ singularity-flow workflow check feature --json
 Naming one workflow also prints its steps. Every finding says where to look: the step or decision
 in `singularity/workflow.yml`, or the file and line of an agent, skill or instruction. Findings are
 `problem` (a Story would stop or misbehave), `warning` (it works, probably not as meant) or `note`
-(worth a look). They never block anything; Story start keeps its own checks.
+(worth a look). They never block anything; Story start keeps its own checks. `blocksStart` marks the
+findings Story start refuses; a problem that lets a Story start says where it would stop in
+`stopsAt` (the step, and whether at entry, publication or rejection). Where the fix is mechanical,
+`fix.changes` holds the Workflow Studio change set ops that make it (and `fix.move` the workflow
+builder's move).
 
 | Area | What it finds |
 |---|---|
 | Flow | Steps nobody can reach, routes that never reach the end, loops without a limit, routes an earlier rule always wins, work every route owes (requirements, a plan, the change, verification, a person's review), and a code step with no requirements step before it |
-| Who owns it | A step no agent drafts, code that can reach the end without a sign-off, groups nobody can sign off with, and a last step that needs no sign-off |
-| Guidance | API calls a step's guidance makes that nothing in the workflow makes, possible conflicts between rules that reach the same step, broken links, and web pages the agent sees only as links |
+| Who owns it | A step no agent drafts (shown on the agent files that would fix it, even though the configuration cannot load until it is fixed), code that can reach the end without a sign-off, groups nobody can sign off with, and a last step that needs no sign-off |
+| Guidance | Step templates that lack what their step will be checked for (the clause anchors of a step that defines requirements, the planned-claims table of a step that plans a code step, sections its publication checks for, tokens step entry cannot fill), API calls a step's guidance makes that nothing in the workflow makes, possible conflicts between rules that reach the same step, broken links, and web pages the agent sees only as links |
 | Clarity | Steps with the same name, and steps that do not say what they are for |
 | Across the repository | Agents that can run no step, skills attached to nothing, instructions placed in no skill, the same instruction text under two names, and skills attached for steps their agent never drafts |
 
@@ -1429,6 +1433,9 @@ without starting a Story:
 singularity-flow workflow validate
 singularity-flow workflow validate customer-onboarding --json
 ```
+
+It also lists everything else that would stop a Story on that workflow, each with why and how to
+fix it, and `/sf-fix-workflow` drafts the fixes for review (see What `workflow validate` checks below).
 
 The validator runs during configuration load and every Workflow Studio check and CLI save as well. A future
 workflow cannot silently reach implementation with no clause source or planning owner, and every route
@@ -1479,6 +1486,54 @@ singularity-flow workflow edit customer-onboarding \
 
 A short workflow gets a scope-and-plan checkpoint step instead, as quick-fix's intake does. Use
 `--planned-claims auto` after changing phases to re-infer and pin a valid required topology.
+
+### What `workflow validate` checks
+
+`workflow validate` answers one question per workflow: is it correct as the platform judges it?
+It prints the table of clause steps and plan owners, then every problem and warning with where it
+is (`file:line`), **Why** (and where a Story would stop) and **Fix**, and exits 1 when any workflow is
+not valid, in text and `--json` alike. A workflow is valid when its planned-claims contract
+resolves, every route guarantees the five responsibilities, and `workflow check` (the same check
+Workflow Studio and the workflow builder use) finds no problem in it, its templates included. A
+configuration that does not load is reported as its located problems instead of a refusal; when
+only a step without an agent stops it, the workflows are still checked without agents.
+
+`--json` keeps every earlier field (`valid`, and per workflow `id`, `label`, `status`,
+`clausePhases`, `owners`, `reason`, `obligations`) and adds per workflow `valid`, `counts`,
+`findings` and `roles` (each step's responsibilities, whether it defines the clauses, which code
+steps it plans, and whether its code carries the clause tags), plus `repository.findings`, `counts`,
+`blocksStart` and, when something is wrong, `nextAction` (Copilot `/sf-fix-workflow <ID>`, the
+Shell command, Workflow Studio) and `fixDraft.changeSetPath`, a private file outside the
+repository for the fix draft.
+
+How a step holds each responsibility (from its structure, never its name):
+
+| Responsibility | A step holds it when |
+|---|---|
+| Scope (requirements) | its document type (`artifact.kind`) is `requirements` or `implementation-spec`, or `plannedClaims.clausePhases` names it; its document defines the clauses |
+| Plan | it is the step just before a code step, or `plannedClaims.owners` names it for that code step; its document holds the planned-claims table |
+| Implement | it is a code step (output code) or writes repository source |
+| Verify | it is a code step (it runs its tests) or its document type is `test-evidence` |
+| Review | a person's approval is required on it |
+
+The traceability chain the templates must make possible: the clause step's document defines
+anchors such as `[{{work.id}}:REQ-001]` and `[{{work.id}}:AC-001]` (rendered with the Story's ID);
+the planning step's document holds a table whose header starts
+`| Clause | Expected paths | Planned tests |` (optionally `| Fulfillment | Observable result |`, or
+`Steps`); code then carries `@clause:<WORK>:REQ-001` comments and tests `@ac:<WORK>:AC-001`.
+`workflow check` renders each step's template as step entry does and runs the kernel's own readers
+over it, so a template without anchors or with a table the kernel does not read is a problem now,
+not when the first Story reaches that step.
+
+In Copilot, `/sf-fix-workflow [WORKFLOW]` runs `workflow validate`, explains each problem, asks you
+what is yours to decide (which agent drafts a step, approval groups, whether a route may leave a
+responsibility out and why, the wording of requirements), drafts every fix as one Workflow Studio
+change set at `fixDraft.changeSetPath`, checks it with `workflow check --change-set`, shows the
+`workflow studio apply --dry-run` summary and, when you confirm, makes one configuration proposal.
+It never fixes a finding by removing a review, lowering approvals, or declaring an omission
+without your reason and group, and it never approves or activates: review the proposal in
+Workflow Studio → Changes, or run `singularity-flow configuration approve <BRANCH>` in your own
+terminal.
 
 ### Responsibilities every route owes
 

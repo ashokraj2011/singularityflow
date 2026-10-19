@@ -2178,6 +2178,15 @@ export async function renderArtifactTemplate(root, definition, resolvedPhase, va
     }
     sourceText = await readFile(file.absolute, 'utf8');
   }
+  return renderArtifactTemplateText(sourceText, resolvedPhase, variables);
+}
+
+/**
+ * The text a step's template renders to when a Story enters the step: the same token admission,
+ * clause namespaces and replacements, from template bytes already read. `workflow check` renders
+ * team templates through this so it judges exactly what an author would start from.
+ */
+export function renderArtifactTemplateText(sourceText, resolvedPhase, variables) {
   let text = renderClauseNamespaces(validateArtifactTemplateText(sourceText, variables, resolvedPhase.id), ARTIFACT_TEMPLATE_TOKENS.workId, variables.id);
   const replacements = {
     [ARTIFACT_TEMPLATE_TOKENS.workId]: variables.id,

@@ -254,7 +254,14 @@ test('new Story workflow has one coherent list, validate, simulate, and diff exp
   const listed = run('list', '--json');
   const validated = run('validate', 'hotfix', '--json');
   const simulated = run('simulate', 'hotfix', '--json');
-  for (const result of [listed, validated, simulated]) assert.equal(result.status, 0, result.stderr);
+  for (const result of [listed, simulated]) assert.equal(result.status, 0, result.stderr);
+  // The shared steps still send rejected work back to Intake and Design, which this workflow does
+  // not have: its planned-claims contract is fine, but validate (like workflow check) says so and fails.
+  assert.equal(validated.status, 1, validated.stderr);
+  const report = JSON.parse(validated.stdout);
+  assert.equal(report.valid, false);
+  assert.deepEqual([...new Set(report.workflows[0].findings.filter((entry) => entry.severity === 'problem').map((entry) => entry.code))], ['WORKFLOW_REJECTION_TARGET']);
+  assert.ok(report.workflows[0].findings.every((entry) => entry.severity !== 'problem' || entry.fix.changes?.[0]?.op === 'phase.update'));
   const listedHotfix = JSON.parse(listed.stdout).find((item) => item.id === 'hotfix');
   assert.equal(listedHotfix.status, 'local');
   assert.equal(listedHotfix.generatesCode, true);

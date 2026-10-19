@@ -1,4 +1,4 @@
-import { repositoryOwnedWorkflows } from './helpers/repository-owned-workflows.mjs';
+import { repositoryOwnedWorkflows, requirementsTemplatePlansCode } from './helpers/repository-owned-workflows.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
@@ -31,6 +31,7 @@ async function repository(run, flow) {
   await writeFile(path.join(root, 'README.md'), '# Build\n');
   flow(root, ['init']);
   await repositoryOwnedWorkflows(root);
+  await requirementsTemplatePlansCode(root);
   run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'initialize'], root);
   return root;
 }

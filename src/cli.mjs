@@ -101,7 +101,7 @@ import { resolveStoryExecutionContext } from './story-execution-context.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { completionRecoveryActions, completionVerdict, finalCheckRefusalMessage, printCompletionVerdict, recordedCompletion } from './completion-verdict.mjs';
 import { applicabilityStatus, omissionAuthorities, recordApplicabilityDecision } from './evidence/applicability.mjs';
-import { installWorkflow, simulateWorkflow, simulationText, validateWorkflowCatalog, workflowDiff } from './workflow-catalog.mjs';
+import { installWorkflow, simulateWorkflow, simulationText, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
 import { agentGuardHook, sessionStartAgentHook } from './agent-hooks.mjs';
 import { requireApprovalAuthority } from './approval-authority.mjs';
@@ -5925,37 +5925,7 @@ async function workflowCommand(positionals, options) {
       if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2)); else process.stdout.write(simulationText(result));
     });
   }
-  if (subcommand === 'validate') {
-    return withApprovedConfigurationRead(root, async () => {
-      const result = await validateWorkflowCatalog(root, positionals[2] ?? null);
-      if (optionBoolean(options, 'json')) {
-        console.log(JSON.stringify(result, null, 2));
-        if (!result.valid) process.exitCode = 1;
-        return;
-      }
-      console.log(table(result.workflows.map((workflow) => ({
-        id: workflow.id,
-        status: workflow.status,
-        clauses: workflow.clausePhases.join(', ') || 'none',
-        owners: Object.entries(workflow.owners).map(([code, owner]) => `${code}←${owner}`).join(', ') || 'none',
-        reason: workflow.reason ?? ''
-      })), [
-        { key: 'id', label: 'WORKFLOW' }, { key: 'status', label: 'PLANNED CLAIMS' },
-        { key: 'clauses', label: 'CLAUSE PHASES' }, { key: 'owners', label: 'CODE ← PLAN OWNER' },
-        { key: 'reason', label: 'REASON' }
-      ]));
-      const routeFindings = result.workflows.flatMap((workflow) => workflow.obligations.findings.map((entry) => ({ workflow: workflow.id, ...entry })));
-      if (routeFindings.length) {
-        console.log('\nRoutes that do not guarantee every responsibility:');
-        for (const entry of routeFindings) {
-          console.log(`  ${entry.severity === 'error' ? '✖' : '!'} ${entry.message}`);
-          console.log(`    ${entry.resolvingAction}`);
-        }
-      }
-      console.log(`Validated ${result.workflows.length} Story workflow(s).`);
-      if (!result.valid) process.exitCode = 1;
-    }, { preferAuthority: optionBoolean(options, 'for-start') });
-  }
+  // `workflow validate` is src/commands/workflow-validate.mjs.
   if (subcommand === 'diff') {
     return withApprovedConfigurationRead(root, async () => {
       const result = await workflowDiff(root, requirePositional(positionals, 2, 'workflow type'));

@@ -428,8 +428,11 @@ Usage:
     [--template FILE] [--optional] [--consumes phase/output,...]
   singularity-flow workflow install <ID> [--dry-run] [--replace]   a packaged workflow
     (add and upgrade are the former names and still work)
-  singularity-flow workflow validate [TYPE] [--json] [--for-start]
-                                                        verify every code phase has a clause source and plan owner
+  singularity-flow workflow validate [WORKFLOW] [--json] [--for-start]
+                                                        is each workflow correct: its clause steps and plan owners, what every route
+                                                        owes, and every check finding (step templates included), each located, with
+                                                        why and how to fix it; exits 1 when one is not. /sf-fix-workflow in Copilot
+                                                        drafts the fixes as one reviewed configuration proposal
   singularity-flow workflow simulate [TYPE] | diff <TYPE>
   singularity-flow workflow build start [--from-workflow ID] [--folder DIR]... [--file FILE]... [--notes FILE|-]...
     [--describe TEXT] [--name LABEL] [--json]

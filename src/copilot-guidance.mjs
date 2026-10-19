@@ -98,6 +98,10 @@ function skillRouteForCommand(command, skill, fallback) {
     const match = !/[\u0000-\u001f\u007f]/u.test(value) && value.match(/^(?:singularity-flow|sflow)\s+instruction\s+(list|show|create|edit|remove)(?:\s+(.+))?$/u);
     return match ? `${selected} ${match[1]}${match[2] ? ` ${match[2]}` : ''}` : selected;
   }
+  if (selected === '/sf-fix-workflow') {
+    const match = !/[\u0000-\u001f\u007f]/u.test(value) && value.match(/^(?:singularity-flow|sflow)\s+workflow\s+validate\s+([a-z0-9]+(?:-[a-z0-9]+)*)(?:\s|$)/u);
+    return match ? `${selected} ${match[1]}` : selected;
+  }
   if (selected === '/sf-workflows') {
     const match = !/[\u0000-\u001f\u007f]/u.test(value) && value.match(/^(?:singularity-flow|sflow)\s+workflow\s+((?:intent|markup)\s+.+)$/u);
     return match ? `${selected} ${match[1]}` : selected;

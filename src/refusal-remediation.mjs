@@ -58,6 +58,11 @@ function explicitCommands(error) {
   }).filter((guidance) => guidance && !seen.has(guidance.command) && seen.add(guidance.command));
 }
 
+function agentMappingSteps() {
+  return [step('validate-workflows', 'See which step has no agent to draft it, the agent files that fix it, and anything else the workflows need.',
+    'singularity-flow workflow validate', 'diagnostic', '/sf-fix-workflow')];
+}
+
 function step(id, label, command = null, kind = 'diagnostic', skill = null) {
   const guidance = command == null ? null : safeCommandGuidance({ command, ...(skill ? { skill } : {}) });
   if (command != null && !guidance) return null;
@@ -153,7 +158,8 @@ function commandPhase(argv) {
 }
 
 function phaseRemediationContext(argv, error) {
-  if (argv[0] === 'initiative' || error?.details?.subjectKind === 'initiative') return null;
+  // A configuration refusal names a step of the workflow definition, not a Story phase to repair.
+  if (argv[0] === 'initiative' || ['initiative', 'configuration'].includes(error?.details?.subjectKind)) return null;
   const phaseId = artifactAuthoringPhase(argv, error);
   if (!phaseId) return null;
   const details = error?.details ?? {};
@@ -831,6 +837,14 @@ const KNOWN = Object.freeze({
     step('verify-agent-phase-contract',
       'After applying one reviewed repair, verify the current workflow and agent contract before retrying the original command.',
       'singularity-flow init --check --json')
+  ],
+  // A step no agent drafts stops every command from reading the configuration. Validate names the
+  // step, the agent files that would fix it, and what else the workflows need.
+  AGENT_PHASE_UNMAPPED: () => agentMappingSteps(),
+  AGENT_PHASE_DEFAULT_MISSING: () => agentMappingSteps(),
+  AGENT_PHASE_DEFAULT_AMBIGUOUS: () => agentMappingSteps(),
+  WORKFLOW_UNKNOWN: () => [
+    step('list-workflows', 'See the workflows this repository has, then name one of them.', 'singularity-flow workflow list', 'diagnostic')
   ],
   MCP_AGENT_TOOLS_MISMATCH: () => [
     step('preview-packaged-configuration-repair',

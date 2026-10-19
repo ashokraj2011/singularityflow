@@ -135,6 +135,10 @@ test('a workflow with real problems: located findings in plain words, and an exp
   assert.equal(review.location.file, 'singularity/workflow.yml');
   assert.equal(review.location.line, await lineOf(root, 'singularity/workflow.yml', '- pay-build'), 'the step in the workflow\'s own list');
   assert.deepEqual(byCode('CHECK_CODE_WITHOUT_SIGNOFF'), [], 'the engine already says it; the sign-off check does not repeat it');
+  // Requirements plans Build the change (the step just before it), and its template has no table to plan in.
+  const table = byCode('CHECK_TEMPLATE_PLANNED_TABLE')[0];
+  assert.deepEqual([table.severity, table.blocksStart, table.subject.step, table.location.file], ['problem', false, 'requirements', 'singularity/templates/feature/requirements.md']);
+  assert.deepEqual(table.stopsAt, { step: 'requirements', when: 'publication' });
 
   const skill = 'singularity/skill-library/pay-rules/SKILL.md';
   const api = byCode('CHECK_API_UNPROVIDED')[0];
@@ -172,7 +176,7 @@ test('a workflow with real problems: located findings in plain words, and an exp
   assert.match(text, /^ {2}3\. Build the change: Changes code and writes a summary/mu);
   assert.match(text, /^ {5}Why: Makes the payment change the requirements ask for\.$/mu);
   assert.match(text, /^ {2}problem {2}What Build the change produces can reach the end without a review {2}\(singularity\/workflow\.yml:\d+\)$/mu);
-  assert.match(text, /^In all: 1 problem, \d+ warnings, \d+ notes\.$/mu);
+  assert.match(text, /^In all: 2 problems, \d+ warnings, \d+ notes\.$/mu);
 });
 
 test('steps shared with seeded workflows are not asked for a description they cannot take', async () => {
@@ -292,7 +296,7 @@ test('the Studio board asks for a check of the draft and shows it: counts, findi
   assert.ok(explain, 'before a check the step offers one');
   const result = json(root, ['workflow', 'check', 'pay']);
   listeners.message({ data: { type: 'studio.check', workflow: 'pay', changeSet: '', result } });
-  assert.equal(page.countWords(result.workflows[0].counts), page.countWords({ problem: 1, warning: 1, note: 3 }));
+  assert.equal(page.countWords(result.workflows[0].counts), page.countWords({ problem: 2, warning: 1, note: 3 }));
   assert.deepEqual(page.stepFindings('pay', 'pay-build').map((entry) => entry.code).sort(),
     ['CHECK_API_UNPROVIDED', 'CHECK_GUIDANCE_CONFLICT', 'CHECK_GUIDANCE_CONFLICT', 'OBLIGATION_VERIFY_WITHOUT_REVIEW']);
   assert.equal(page.stepMark(page.stepFindings('pay', 'pay-build')), 'problem');

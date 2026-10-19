@@ -11,6 +11,9 @@
  *
  * Severities: `problem` (a Story would stop or misbehave), `warning` (works, but probably not as
  * meant) and `note` (worth a look). Findings never block anything; Story start keeps its own gates.
+ * `blocksStart` says which findings those gates refuse (assertWorkTypeStartable, and a configuration
+ * that does not load); a problem that lets a Story start says where it would stop in `stopsAt`.
+ * Each step's template is judged by the kernel's own readers (src/workflow-template-conformance.mjs).
  */
 import { createHash } from 'node:crypto';
 import { lstat, readFile } from 'node:fs/promises';
@@ -24,22 +27,74 @@ import { SKILL_ATTACHMENTS_PATH } from './skill-library.mjs';
 import { explainWorkflow } from './workflow-explanation.mjs';
 import { simulateWorkflowRoutes } from './workflow-route-simulation.mjs';
 import { buildStudioModel } from './workflow-studio.mjs';
+import { templateConformanceFindings, templateReader } from './workflow-template-conformance.mjs';
 
 export const CHECK_SEVERITIES = Object.freeze(['problem', 'warning', 'note']);
 export const CHECK_AREAS = Object.freeze(['flow', 'ownership', 'assets', 'guidance', 'clarity']);
+/** A step that no agent drafts makes the whole configuration refuse to load (src/agents.mjs). */
+export const AGENT_MAPPING_CODES = Object.freeze(['AGENT_PHASE_UNMAPPED', 'AGENT_PHASE_DEFAULT_MISSING', 'AGENT_PHASE_DEFAULT_AMBIGUOUS']);
 const END = '\0end';
 
 const firstSentence = (text) => String(text ?? '').split(/(?<=[.!?])\s+/u)[0].trim();
 const countsOf = (findings) => Object.fromEntries(CHECK_SEVERITIES.map((severity) => [severity, findings.filter((entry) => entry.severity === severity).length]));
 
-function finding({ code, area, severity, title, detail = null, subject = {}, location = null, related = [], fix = null }) {
+/** `fix` is its text, or `{ text, move?, changes? }`: the builder's move and Workflow Studio's change set ops that make it. */
+function finding({ code, area, severity, title, detail = null, subject = {}, location = null, related = [], fix = null, blocksStart = false, stopsAt = null }) {
   const key = JSON.stringify([code, subject, location?.file ?? null, location?.line ?? null, related.map((entry) => `${entry.file}:${entry.line}`)]);
   return {
     id: `f-${createHash('sha256').update(key).digest('hex').slice(0, 12)}`,
     code, area, severity, title, detail, subject,
     ...(location ? { location } : {}),
     ...(related.length ? { related } : {}),
-    ...(fix ? { fix: { text: fix } } : {})
+    ...(fix ? { fix: typeof fix === 'string' ? { text: fix } : fix } : {}),
+    blocksStart: Boolean(blocksStart),
+    ...(stopsAt ? { stopsAt } : {})
+  };
+}
+
+/** How a step comes to hold each responsibility; the obligation graph reads it from structure, never names. */
+const ROLE_HOW = Object.freeze({
+  scope: 'requirements: a step whose document type (artifact kind) is requirements or implementation-spec, so its document defines the clauses ([<WORK>:REQ-001], [<WORK>:AC-001])',
+  plan: 'a plan: the step just before the code step, or the step plannedClaims.owners names for it, whose document holds the planned-claims table',
+  implement: 'the change itself: a code step',
+  verify: "verification: the code step's own tests, or a step whose document type is test-evidence",
+  review: "a person's review: a person's approval on a step every route passes"
+});
+const OMITS_HOW = 'Only if one truly does not apply to this route, declare omits on it instead, naming the responsibility, a reason of at least 20 characters and the approval group that records that decision.';
+
+/** The fix for an obligation finding, saying how a step holds what is missing. */
+function obligationFix(entry) {
+  switch (entry.code) {
+    case 'OBLIGATION_ROUTE_DROPS_RESPONSIBILITY':
+      return `Add to this route ${(entry.subject?.missing ?? []).map((name) => ROLE_HOW[name] ?? name).join('; ')}. ${OMITS_HOW}`;
+    case 'OBLIGATION_IMPLEMENT_WITHOUT_PLAN':
+      return 'Put a step that plans before it on every route: the step just before a code step plans its claims, or name one in plannedClaims.owners. Its document holds the planned-claims table.';
+    case 'OBLIGATION_VERIFY_WITHOUT_REVIEW':
+      return "Ask for a person's approval on that step, or on a later step every route from it passes.";
+    case 'OBLIGATION_REVIEW_POLICY_ONLY':
+      return "Ask for a person's approval, not only an automatic policy approval, on a step every route to this end passes.";
+    case 'OBLIGATION_OMIT_INVALID':
+      return 'Each omits entry names the responsibility (scope, plan, implement, verify or review), a reason of at least 20 characters, and an approval group that exists.';
+    default: return entry.resolvingAction ?? null;
+  }
+}
+
+/**
+ * A send-back target the workflow does not have before its step, with what repoints it: the step's
+ * sign-off as this workflow runs it, sent back to the targets that still fit, or to the step itself
+ * when none does. `move` is the workflow builder's; `changes` is the Workflow Studio change set op.
+ */
+function sendBackFix(workflow, stepId) {
+  const step = workflow.steps.find((entry) => entry.id === stepId);
+  if (!step || step.approval?.mode === 'none') return null;
+  const before = workflow.phases.slice(0, workflow.phases.indexOf(step.id) + 1);
+  const kept = (step.sendBackTo ?? []).filter((id) => before.includes(id));
+  const signOff = { groups: [...(step.approval?.authorities ?? [])], minimum: step.approval?.minimum, sendBackTo: kept.length ? kept : [step.id] };
+  const names = signOff.sendBackTo.map((id) => workflow.steps.find((entry) => entry.id === id)?.label ?? id);
+  return {
+    text: `Send rejected work back to ${names.join(' or ')} instead: change the step's send-back targets (approval rejectTo) for this workflow.`,
+    move: { move: 'step.change', id: step.id, signOff },
+    changes: [{ op: 'phase.update', id: step.id, workflow: workflow.id, approval: { groups: signOff.groups, minimum: signOff.minimum, rejectTo: signOff.sendBackTo } }]
   };
 }
 
@@ -160,7 +215,7 @@ const ROUTE_FIXES = Object.freeze({
 });
 
 /** Check one workflow of the model; returns its findings. */
-async function checkWorkflow(workflow, { definition, model, locate, guidance, groups }) {
+async function checkWorkflow(workflow, { definition, model, locate, guidance, groups, templates, unmapped = new Set() }) {
   const findings = [];
   const stepLabel = (id) => workflow.steps.find((step) => step.id === id)?.label ?? id;
   const decisionOf = (id) => (workflow.decisions ?? []).find((entry) => entry.id === id);
@@ -187,7 +242,7 @@ async function checkWorkflow(workflow, { definition, model, locate, guidance, gr
   try { resolved = resolveWorkType(definition, workflow.id); }
   catch (error) {
     add({ code: 'CHECK_WORKFLOW_UNREADABLE', area: 'flow', severity: 'problem', title: 'Stories cannot start from this workflow',
-      detail: error.message, subject: {} });
+      detail: error.message, subject: {}, blocksStart: true });
   }
 
   // Flow: the engine's own rules.
@@ -198,18 +253,22 @@ async function checkWorkflow(workflow, { definition, model, locate, guidance, gr
       const detail = String(entry.message).replace(/^Work type '[^']*':\s*/u, '');
       const title = OBLIGATION_TITLES[entry.code]?.({ step: step ? stepLabel(step) : 'this step', missing: entry.subject?.missing ?? [] }) ?? firstSentence(detail);
       add({ code: entry.code, area: 'flow', severity: entry.severity === 'error' ? 'problem' : 'warning',
-        title, detail: detail.charAt(0).toUpperCase() + detail.slice(1), fix: entry.resolvingAction ?? null,
-        subject: { ...(entry.subject?.phase ? { step: entry.subject.phase } : {}), ...(entry.subject?.decision ? { decision: entry.subject.decision } : {}) } });
+        title, detail: detail.charAt(0).toUpperCase() + detail.slice(1), fix: obligationFix(entry),
+        subject: { ...(entry.subject?.phase ? { step: entry.subject.phase } : {}), ...(entry.subject?.decision ? { decision: entry.subject.decision } : {}) },
+        // Story start refuses every route that drops a responsibility (assertWorkTypeStartable).
+        blocksStart: entry.severity === 'error' });
     }
     for (const entry of phaseTopologyFindings(resolved)) {
       add({ code: entry.code, area: 'flow', severity: 'problem', title: firstSentence(entry.message), detail: entry.message,
-        subject: { step: entry.phaseId } });
+        subject: { step: entry.phaseId }, blocksStart: true });
     }
     if (['migration-required', 'retired-opt-out'].includes(resolved.plannedClaims?.mode)) {
       add({ code: 'CHECK_PLANNED_CLAIMS', area: 'flow', severity: 'problem',
         title: 'A code step has no requirements step before it',
         detail: String(resolved.plannedClaims.reason ?? 'Story start refuses a code step without an earlier step that defines requirement clauses.'),
-        fix: 'Add a requirements or implementation-spec step before the code step, or declare why scope does not apply.', subject: {} });
+        fix: 'Add a step whose document type (artifact kind) is requirements or implementation-spec before the code step, so its document defines the clauses, and plan the code step in the step just before it (or name its planner in plannedClaims.owners). '
+          + 'If this workflow defines no requirements at all, declare omits for scope with a reason of at least 20 characters and the approval group that decides.',
+        subject: {}, blocksStart: true });
     }
     let simulation = null;
     try { simulation = simulateWorkflowRoutes(resolved, { approvalAuthorities: definition.approvalAuthorities }); }
@@ -219,9 +278,16 @@ async function checkWorkflow(workflow, { definition, model, locate, guidance, gr
     for (const entry of simulation?.findings ?? []) {
       if (entry.code === 'WORKFLOW_PHASE_UNREACHABLE' && entry.phase) unreachable.add(entry.phase);
       const words = { decision: entry.decision ? decisionOf(entry.decision)?.label ?? entry.decision : null, step: entry.phase ? stepLabel(entry.phase) : null };
+      const sendBack = entry.code === 'WORKFLOW_REJECTION_TARGET' && entry.phase ? sendBackFix(workflow, entry.phase) : null;
       add({ code: entry.code, area: 'flow', severity: entry.code === 'WORKFLOW_ROUTE_UNREACHABLE' ? 'warning' : 'problem',
-        title: (ROUTE_TITLES[entry.code] ?? (() => firstSentence(entry.message)))(words), detail: entry.message, fix: ROUTE_FIXES[entry.code] ?? null,
-        subject: { ...(entry.phase ? { step: entry.phase } : {}), ...(entry.decision ? { decision: entry.decision } : {}) } });
+        title: (ROUTE_TITLES[entry.code] ?? (() => firstSentence(entry.message)))(words), detail: entry.message, fix: sendBack ?? ROUTE_FIXES[entry.code] ?? null,
+        subject: { ...(entry.phase ? { step: entry.phase } : {}), ...(entry.decision ? { decision: entry.decision } : {}) },
+        ...(entry.code === 'WORKFLOW_REJECTION_TARGET' && entry.phase ? { stopsAt: { step: entry.phase, when: 'rejection' } } : {}) });
+    }
+    // What each step's template gives its author, judged by the readers that later judge the document.
+    for (const entry of await templateConformanceFindings(resolved, { read: templates, label: stepLabel })) {
+      const { step, template, kernelCode, ...rest } = entry;
+      add({ ...rest, area: 'guidance', subject: { step, template, file: entry.location?.file ?? null } });
     }
   }
 
@@ -229,7 +295,8 @@ async function checkWorkflow(workflow, { definition, model, locate, guidance, gr
   const signedOff = new Set(workflow.steps.filter((step) => step.approval?.mode !== 'none').map((step) => step.id));
   let codeUnsigned = false;
   for (const step of workflow.steps) {
-    if (!step.agent) {
+    // A step no agent drafts is reported once, where its agent files are (agentMappingFindings).
+    if (!step.agent && !unmapped.has(step.id)) {
       add({ code: 'CHECK_STEP_NO_AGENT', area: 'ownership', severity: 'problem', title: `Nobody drafts ${step.label}`,
         detail: `No agent is the default for ${step.label}, so a Story cannot enter it.`, fix: 'Choose the agent that drafts the step.', subject: { step: step.id } });
     }
@@ -390,40 +457,119 @@ async function checkAssets({ model, definition, guidance, configRoot, attachment
 }
 
 /**
+ * The located findings for steps no agent drafts (src/agents.mjs agentMappingProblems), on the agent
+ * files that would fix them. A step takes its agent from `sflow-phases` (may draft it) and
+ * `sflow-default-for` (drafts it) in exactly one agent file; the move and change set op are given
+ * only when exactly one agent sensibly fits, and choosing it stays the person's decision.
+ */
+async function agentMappingFindings(problems, { model, definition, locate, configRoot }) {
+  const agents = new Map(model.agents.map((agent) => [agent.id, agent]));
+  const lines = new Map();
+  const defaultLine = async (agent) => {
+    if (!agent?.path) return null;
+    if (!lines.has(agent.path)) {
+      lines.set(agent.path, readFile(path.join(configRoot, agent.path), 'utf8').then((text) => {
+        const index = text.split('\n').findIndex((line) => /^\s*sflow-default-for\s*:/u.test(line));
+        return index >= 0 ? index + 1 : 1;
+      }, () => 1));
+    }
+    return { file: agent.path, line: await lines.get(agent.path) };
+  };
+  const findings = [];
+  for (const problem of problems) {
+    const id = problem.phaseId;
+    const label = model.phases.find((phase) => phase.id === id)?.label ?? id;
+    const usedBy = model.workflows.filter((workflow) => workflow.phases.includes(id));
+    let candidates = (problem.code === 'AGENT_PHASE_DEFAULT_AMBIGUOUS' ? problem.defaults : problem.compatible).map((entry) => agents.get(entry.id) ?? entry);
+    if (!candidates.length) {
+      // No agent lists the step: the agents that draft steps writing the same kind of document,
+      // else this workflow's other steps with the same output.
+      const output = model.phases.find((phase) => phase.id === id)?.output ?? null;
+      const kind = definition.phases?.[id]?.artifact?.kind ?? null;
+      const draftedBy = (steps) => [...new Set(steps.filter((step) => step.id !== id && step.agent && step.output === output).map((step) => step.agent))]
+        .map((agentId) => agents.get(agentId)).filter(Boolean);
+      candidates = kind ? draftedBy(model.phases.filter((phase) => definition.phases?.[phase.id]?.artifact?.kind === kind)) : [];
+      if (!candidates.length) candidates = draftedBy(usedBy.flatMap((workflow) => workflow.steps));
+    }
+    const where = (agent) => agent.path ?? 'a packaged agent; Workflow Studio copies it into .github/agents';
+    const named = candidates.map((agent) => `${agent.label ?? agent.id} (${where(agent)})`);
+    const others = model.agents.filter((agent) => agent.scope === 'repository' && agent.path).slice(0, 6).map((agent) => agent.path);
+    const one = problem.code !== 'AGENT_PHASE_DEFAULT_AMBIGUOUS' && candidates.length === 1 ? candidates[0] : null;
+    const title = problem.code === 'AGENT_PHASE_UNMAPPED' ? `No agent can draft ${label}`
+      : problem.code === 'AGENT_PHASE_DEFAULT_MISSING' ? `No agent drafts ${label}` : `${problem.defaults.length} agents each claim to draft ${label}`;
+    const text = problem.code === 'AGENT_PHASE_DEFAULT_AMBIGUOUS'
+      ? `Keep '${id}' in sflow-default-for of exactly one of ${named.join(', ')}, and remove it from the others; or choose the step's agent in Workflow Studio.`
+      : candidates.length
+        ? `Add '${id}' to sflow-phases and sflow-default-for in ${named.join(' or ')}; or choose the step's agent in Workflow Studio.`
+        : `Add '${id}' to sflow-phases and sflow-default-for in the agent file that should draft it${others.length ? ` (agents here: ${others.join(', ')})` : ''}; or choose the step's agent in Workflow Studio.`;
+    const location = (one ? await defaultLine(one) : null) ?? locate(['phases', id]) ?? (candidates[0] ? await defaultLine(candidates[0]) : null);
+    const related = (await Promise.all(candidates.filter((agent) => agent !== one).map(defaultLine))).filter(Boolean);
+    findings.push(finding({
+      code: problem.code, area: 'ownership', severity: 'problem', title,
+      detail: `${problem.message} No command can read the workflow configuration until exactly one agent file lists '${id}' in sflow-phases and sflow-default-for`
+        + `${usedBy.length ? `; ${usedBy.map((workflow) => workflow.label).join(', ')} ${usedBy.length === 1 ? 'uses' : 'use'} the step.` : ', even though no workflow uses the step.'}`,
+      subject: { step: id, workflows: usedBy.map((workflow) => workflow.id), agents: candidates.map((agent) => agent.id) },
+      location, related,
+      fix: one ? { text, move: { move: 'step.change', id, agent: one.id }, changes: [{ op: 'phase.agent', phase: id, agent: one.id }] } : text,
+      blocksStart: true
+    }));
+  }
+  return findings;
+}
+
+/** A configuration that does not load: every located problem, each refusing every Story. */
+function unreadableConfiguration(base, error) {
+  const located = error?.details?.configurationProblems ?? [];
+  const findings = located.length
+    ? located.map((problem) => finding({ code: problem.code ?? error.code ?? 'CONFIGURATION_INVALID', area: 'flow', severity: 'problem',
+      title: firstSentence(problem.message), detail: problem.message, fix: problem.fix ?? null, subject: { file: problem.file ?? WORKFLOW_PATH },
+      location: problem.line ? { file: problem.file ?? WORKFLOW_PATH, line: problem.line } : null, blocksStart: true }))
+    : [finding({ code: error?.code ?? 'CONFIGURATION_INVALID', area: 'flow', severity: 'problem', title: 'The workflow configuration cannot be read',
+      detail: error.message, subject: { file: WORKFLOW_PATH }, blocksStart: true })];
+  return { ...base, configuration: { valid: false }, counts: countsOf(findings), workflows: [], repository: { counts: countsOf(findings), findings } };
+}
+
+/**
  * Explain and check the workflows at `root` (the approved configuration when the caller reads in its
  * scope). `workflows` limits the result to those IDs; repository findings are always included.
+ *
+ * A configuration that does not load is reported as its located problems. When only a step without
+ * an agent stops it, the workflows are still read without agents and checked, so the person sees the
+ * agent files to fix and everything else at once; `configuration.valid` stays false.
  */
 export async function checkWorkflowConfiguration(root, { workflows: only = null } = {}) {
   const configRoot = configurationReadRoot(root);
   const text = await readFile(path.join(configRoot, WORKFLOW_PATH), 'utf8').catch(() => null);
   const base = { schemaVersion: 1, resultType: 'workflow-check' };
   let definition;
+  let unmappedRefusal = null;
   try { definition = await loadDefinition(root); }
   catch (error) {
-    const located = error?.details?.configurationProblems ?? [];
-    const findings = located.length
-      ? located.map((problem) => finding({ code: problem.code ?? error.code ?? 'CONFIGURATION_INVALID', area: 'flow', severity: 'problem',
-        title: firstSentence(problem.message), detail: problem.message, fix: problem.fix ?? null, subject: { file: problem.file ?? WORKFLOW_PATH },
-        location: problem.line ? { file: problem.file ?? WORKFLOW_PATH, line: problem.line } : null }))
-      : [finding({ code: error?.code ?? 'CONFIGURATION_INVALID', area: 'flow', severity: 'problem', title: 'The workflow configuration cannot be read',
-        detail: error.message, subject: { file: WORKFLOW_PATH } })];
-    return { ...base, configuration: { valid: false }, counts: countsOf(findings), workflows: [], repository: { counts: countsOf(findings), findings } };
+    if (!AGENT_MAPPING_CODES.includes(error?.code) || !Array.isArray(error.details?.problems)) return unreadableConfiguration(base, error);
+    // Agents are what refused; the workflows themselves load (agents are read after them).
+    definition = await loadDefinition(root, { storyBootstrap: true }).catch(() => null);
+    if (!definition) return unreadableConfiguration(base, error);
+    unmappedRefusal = error;
   }
   const model = await buildStudioModel(root);
   if (only) {
     const unknown = only.filter((id) => !model.workflows.some((workflow) => workflow.id === id));
     if (unknown.length) {
       const { SingularityFlowError } = await import('./util.mjs');
-      throw new SingularityFlowError(`There is no workflow '${unknown[0]}'. Workflows here: ${model.workflows.map((workflow) => workflow.id).join(', ')}.`, { code: 'WORKFLOW_UNKNOWN' });
+      throw new SingularityFlowError(`There is no workflow '${unknown[0]}'. Workflows here: ${model.workflows.map((workflow) => workflow.id).join(', ')}.`,
+        { code: 'WORKFLOW_UNKNOWN', details: { workflow: unknown[0], workflows: model.workflows.map((workflow) => workflow.id) } });
     }
   }
   const locate = yamlLocator(text, WORKFLOW_PATH);
   const groups = new Map(model.groups.map((group) => [group.id, group]));
   const guidance = new GuidanceReader(configRoot, model);
+  const templates = templateReader(configRoot, definition.templatesRoot ?? model.templatesRoot);
+  const mapping = unmappedRefusal ? await agentMappingFindings(unmappedRefusal.details.problems, { model, definition, locate, configRoot }) : [];
+  const unmapped = new Set(mapping.map((entry) => entry.subject.step));
   const results = [];
   for (const workflow of model.workflows) {
     if (only && !only.includes(workflow.id)) continue;
-    const { findings, resolved, explanationGuidance } = await checkWorkflow(workflow, { definition, model, locate, guidance, groups });
+    const { findings, resolved, explanationGuidance } = await checkWorkflow(workflow, { definition, model, locate, guidance, groups, templates, unmapped });
     results.push({
       id: workflow.id, label: workflow.label, readOnly: Boolean(workflow.readOnly),
       explanation: explainWorkflow(model, workflow.id, { resolved, guidance: explanationGuidance }),
@@ -435,12 +581,12 @@ export async function checkWorkflowConfiguration(root, { workflows: only = null 
   for (const skill of model.skills ?? []) await guidance.scan(skill.path);
   for (const item of model.instructions ?? []) await guidance.scan(item.path);
   const attachmentsText = await readFile(path.join(configRoot, SKILL_ATTACHMENTS_PATH), 'utf8').catch(() => null);
-  const repository = await checkAssets({ model, definition, guidance, configRoot, attachmentsText });
+  const repository = [...mapping, ...await checkAssets({ model, definition, guidance, configRoot, attachmentsText })];
   const all = [...results.flatMap((entry) => entry.findings), ...repository];
   return {
     ...base,
     authority: model.authority,
-    configuration: { valid: true },
+    configuration: unmappedRefusal ? { valid: false, code: unmappedRefusal.code, checked: 'without-agents' } : { valid: true },
     counts: countsOf(all),
     workflows: results,
     repository: { counts: countsOf(repository), findings: repository }

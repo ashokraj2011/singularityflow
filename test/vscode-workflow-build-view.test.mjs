@@ -1,4 +1,4 @@
-import { repositoryOwnedWorkflows } from './helpers/repository-owned-workflows.mjs';
+import { repositoryOwnedWorkflows, requirementsTemplatePlansCode } from './helpers/repository-owned-workflows.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
@@ -33,6 +33,7 @@ async function harness(files = TEAM) {
   await writeFile(path.join(root, 'README.md'), '# Build\n');
   run(process.execPath, [bin, 'init'], root);
   await repositoryOwnedWorkflows(root);
+  await requirementsTemplatePlansCode(root);
   run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'initialize'], root);
   const team = await mkdtemp(path.join(os.tmpdir(), 'sflow-build-view-team-'));
   for (const [relative, text] of Object.entries(files)) {

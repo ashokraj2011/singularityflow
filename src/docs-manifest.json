@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "111f07e477b347f0337cf7eff6a1289f2e38acc1",
+  "sourceCommit": "f6c346729ede094b3892950f39caa29587e582e5",
   "topicCount": 84,
-  "contentSha256": "0f1976bfd2e67ac01ae96e9164b6ab845a7f754d98bd3c4981c10456af28bec6",
+  "contentSha256": "edac2ec0857d664110598931aef2bd4831e7f78e47f3bbd427e701f325dd1cf9",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -600,8 +600,8 @@
     {
       "id": "visual-verification",
       "title": "Visual verification for mobile",
-      "version": 3,
-      "sha256": "c52d9a0299493d035eb4518962f231694779fa7ca9e383e59a63c2b8a1f8411c",
+      "version": 4,
+      "sha256": "d092be237b9cdf96242d0cbc1f85802644b40482c08092189a444a68b781f1cd",
       "routingSha256": "2e2011faa98461dbf16f975ee882a4539944aba6dfb1ed908f47f4b825aaf423",
       "file": "visual-verification.md"
     },

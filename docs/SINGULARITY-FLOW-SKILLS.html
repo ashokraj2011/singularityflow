@@ -11325,11 +11325,11 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">mutation</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~780 body tokens</span>
+          <span class="pill">~842 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-visual</code></dd></div>
-          <div><dt>Arguments</dt><dd><code>status | compare --expected &lt;record&gt; --actual &lt;record&gt;</code></dd></div>
+          <div><dt>Arguments</dt><dd><code>status | compare --expected &lt;record&gt; --actual &lt;record&gt; | record</code></dd></div>
           <div><dt>Model-capable operations</dt><dd>none</dd></div>
           <div><dt>Source</dt><dd><code>plugin/skills/sflow-visual/SKILL.md</code></dd></div>
         </dl>
@@ -11341,7 +11341,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 name: sflow-visual
 description: Inspect visual-assurance status or compare expected and actual governed visual evidence.
 disable-model-invocation: true
-argument-hint: &quot;status | compare --expected &lt;record&gt; --actual &lt;record&gt;&quot;
+argument-hint: &quot;status | compare --expected &lt;record&gt; --actual &lt;record&gt; | record&quot;
 ---
 # Inspect visual assurance
 
@@ -11356,7 +11356,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 1. Run `singularity-flow visual status --json` for a read-only inventory.
 2. For comparison, require explicit expected and actual records and run `singularity-flow visual compare --expected &lt;EXPECTED&gt; --actual &lt;ACTUAL&gt; --json`.
 3. Preserve profile, viewport, source hashes, thresholds, mismatches, evidence paths, and readiness exactly.
-4. Never claim a screenshot comparison proves functional correctness. Use `/sf-mcp` when evidence must first be captured or attested.
+4. Never claim a screenshot comparison proves functional correctness. Use `/sf-mcp` when evidence must first be captured or attested by an MCP tool. Record a simulator, emulator or device screenshot with `singularity-flow visual record --phase &lt;STEP&gt; --profile-id &lt;ID&gt; --screen-id &lt;ID&gt; --state-id &lt;ID&gt; --file &lt;PNG&gt; --source &lt;KIND&gt; --device &lt;NAME&gt; --json`, never under an MCP tool.
 
 </code></pre>
       </div>

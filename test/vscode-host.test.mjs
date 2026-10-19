@@ -11344,6 +11344,9 @@ test('Edit Run Configurations from the command: selected configuration, Import f
   assert.ok((await cli.log()).some((entry) => entry.argv.join(' ') === 'capability leads --json'), 'no authority, so the registered leads are asked; there are none');
   await until(() => !page.visible);
   assert.equal(registered.panels.some((entry) => entry.id === 'singularityFlow.capabilityProposal'), false, 'nothing was proposed');
+});
+
+/**
  * IntelliJ-style run configurations (docs/SPEC-RUN-AND-TEST-v1.md, IntelliJ amendment, milestone 13):
  * the status bar run widget, the Run view and the Testing view, driven through the bundle against
  * the same CLI wrapper. Each acts through the Run & test controller, so the argv a task runs, its

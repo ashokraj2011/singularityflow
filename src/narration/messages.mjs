@@ -221,6 +221,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Recorded ${slot(s.record)}; the run stays the earlier step's, and the reuse lapses as soon as the source it tested changes.`,
     preserves: false
   },
+  'decision.visual-profile.succeeded': {
+    headline: (s) => `Recorded ${slot(s.record)}; coverage lists that screen size as not applicable, never as passed.`,
+    preserves: false
+  },
   'decision.plan.succeeded': {
     headline: (s) => `Amended the plan with ${slot(s.amendment)}: ${slot(s.changes)} change(s) recorded.`,
     preserves: false

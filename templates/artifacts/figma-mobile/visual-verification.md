@@ -25,23 +25,34 @@
 Store implementation screenshots as PNG files inside `artifacts/visual-verification/evidence/`,
 with descriptive names such as `checkout-actual.png`. Publishing commits the files under this phase
 directory, but a file there is not visual coverage. This workflow enforces coverage: the step is
-refused until every configured verification profile has a current visual-artifact record. Record
-each capture, taken at that profile's exact pixel size, with:
+refused until every configured verification profile has a current capture record, or a person has
+recorded that the profile does not apply to this Story. Record each capture, taken at that
+profile's exact pixel size, with one of:
 
 ```text
 singularity-flow mcp record <SERVER> --kind visual-artifact --tool <TOOL> --phase visual-verification --profile-id <PROFILE-ID> --screen-id <SCREEN-ID> --state-id <STATE-ID> --output <PNG-PATH>
+singularity-flow visual record --phase visual-verification --profile-id <PROFILE-ID> --screen-id <SCREEN-ID> --state-id <STATE-ID> --file <PNG-PATH> --source simulator|emulator|device --device "<DEVICE>" [--os-version <VERSION>]
 singularity-flow visual status
 singularity-flow visual compare --expected <RECORD-OR-PATH> --actual <RECORD-OR-PATH> --profile <PROFILE-ID>
 ```
 
-`<SERVER>` and `<TOOL>` are the pinned MCP server and tool that produced the image
-(`singularity-flow mcp list` shows what this step allows); `<PNG-PATH>` is repository-relative.
+Use `mcp record` for an image a pinned MCP tool produced: `<SERVER>` and `<TOOL>` are that server
+and tool (`singularity-flow mcp list` shows what this step allows). A screenshot taken on an iOS
+Simulator, Android emulator or device (for example with `xcrun simctl io booted screenshot` or
+`adb exec-out screencap -p`) is recorded with `visual record` as a native capture naming its
+source and device, never an MCP tool; it is refused unless its pixel size is exactly the profile's.
+`<PNG-PATH>` is repository-relative.
+
+When a configured profile does not apply to this app (a phone-only app has no tablet layout), a
+person who approves this step records why with
+`singularity-flow decision visual-profile {{work.id}} --phase visual-verification --profile <PROFILE-ID> --not-applicable --reason "<why>"`.
+Coverage then lists that profile as not applicable, with the reason and who decided, never as
+passed; at least one profile must still have a capture.
+
 `visual status` lists every profile still uncovered; resolve each one before publishing. Every
 profile needs its own capture: never record one image under another profile's ID, and never name a
-tool that did not produce the image. When a capture came from a tool this step does not pin, or a
-configured profile does not fit this app, record it under Differences and dispositions and ask the
-workflow owner to change the reviewed workflow configuration. Measure each difference with
-`visual compare` and cite the comparison it writes and, when it makes one, its diff image.
+tool that did not produce the image. Measure each difference with `visual compare` and cite the
+comparison it writes and, when it makes one, its diff image.
 
 The VS Code Inbox and artifact viewer present the pinned design export,
 implementation screenshot, and diff evidence together. Approval is always against

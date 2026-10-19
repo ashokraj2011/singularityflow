@@ -29,6 +29,41 @@ export function profilePixelSize(profile) {
   return { width: Math.round(profile.width * profile.deviceScaleFactor), height: Math.round(profile.height * profile.deviceScaleFactor) };
 }
 
+/**
+ * The not-applicable decisions (`decision visual-profile`) that hold for a step now, by profile:
+ * each one nobody revoked. Pure.
+ */
+export function activeVisualProfileDecisions(workflow, phaseId) {
+  const entries = workflow?.visualProfileDecisions ?? [];
+  const revoked = new Set(entries.map((entry) => entry?.revokes).filter(Boolean));
+  const active = new Map();
+  for (const entry of entries) {
+    if (entry?.id && !entry.revokes && !revoked.has(entry.id) && entry.phase === phaseId && entry.disposition === 'not-applicable') active.set(entry.profileId, entry);
+  }
+  return active;
+}
+
+/** The command that records a screenshot taken on a simulator, emulator or device for a profile. */
+export function nativeCaptureCommand(phaseId, profileId) {
+  return `singularity-flow visual record --phase ${phaseId} --profile-id ${profileId} --screen-id <SCREEN-ID> --state-id <STATE-ID> --file <PNG-PATH> --source <simulator|emulator|device> --device "<DEVICE>"`;
+}
+
+/** The command a person who approves the step runs to record that a profile does not apply to this Story. */
+export function visualProfileDecisionCommand(workflow, phaseId, profileId) {
+  return `singularity-flow decision visual-profile ${workflow?.workItem?.id ?? '<WORK-ID>'} --phase ${phaseId} --profile ${profileId} --not-applicable --reason "<why this screen size does not apply to this Story>"`;
+}
+
+/** The routes for each missing profile: capture it, or (while another profile stays required) decide it does not apply. */
+function missingProfileRoutes(workflow, result) {
+  const required = result.profiles.length - (result.notApplicable?.length ?? 0);
+  return result.uncovered.slice(0, 3).flatMap((profileId) => [
+    { command: nativeCaptureCommand(result.phase, profileId),
+      label: `Capture ${profileId} at its exact pixel size and record it (from a pinned MCP tool, use mcp record --kind visual-artifact instead).` },
+    ...(required > 1 ? [{ command: visualProfileDecisionCommand(workflow, result.phase, profileId),
+      label: `Or a person who approves ${result.phase} records, with a reason, that ${profileId} does not apply to this Story; it is listed as not applicable, never as passed.` }] : [])
+  ]);
+}
+
 /** The native captures in a Story, each checked against the bytes it recorded. */
 async function nativeCaptures(directory, workflow) {
   const records = [], errors = [];
@@ -80,9 +115,19 @@ export async function evaluateVisualCoverage(root, workflow, { itemDirectory = n
     if (!byProfile.has(record.profileId)) byProfile.set(record.profileId, []);
     byProfile.get(record.profileId).push(record);
   }
-  const covered = [], uncovered = [], duplicates = [], warnings = [...integrity.warnings], errors = [...integrity.errors, ...native.errors];
+  const covered = [], uncovered = [], duplicates = [], notApplicable = [], warnings = [...integrity.warnings], errors = [...integrity.errors, ...native.errors];
+  // A person's not-applicable decision stands only while another profile still needs evidence.
+  const decided = activeVisualProfileDecisions(workflow, phase.id);
+  const decisionsHold = profiles.some((profile) => !decided.has(profile.id));
+  if (decided.size && !decisionsHold) errors.push(`Every verification profile is marked not applicable (${[...decided.values()].map((entry) => entry.id).join(', ')}); at least one must be evidenced, so none of those decisions applies.`);
   for (const profile of profiles) {
     const records = byProfile.get(profile.id) ?? [];
+    const decision = decisionsHold ? decided.get(profile.id) : null;
+    if (!records.length && decision) {
+      notApplicable.push({ profileId: profile.id, decisionId: decision.id, reason: decision.reason, actor: decision.actor, authorityGroup: decision.authorityGroup, at: decision.at });
+      warnings.push(`Verification profile '${profile.id}' is not applicable for this Story (${decision.id}, decided by ${decision.actor} through ${decision.authorityGroup}): ${decision.reason} This is an exception, not passing evidence.`);
+      continue;
+    }
     if (!records.length) { uncovered.push(profile.id); continue; }
     if (records.length > 1) duplicates.push({ profileId: profile.id, records: records.map((record) => record.id).sort() });
     const record = [...records].sort((a, b) => String(b.recordedAt).localeCompare(String(a.recordedAt)))[0];
@@ -121,11 +166,18 @@ export async function evaluateVisualCoverage(root, workflow, { itemDirectory = n
     if (configured.coverage === 'enforce') errors.push(message); else warnings.push(message);
   }
   const status = errors.length ? 'fail' : warnings.length ? 'warn' : 'pass';
-  return { schemaVersion: 1, status, mode: configured.coverage, phase: phase.id, generation, profiles, covered, uncovered, unclaimed, stale, duplicates, warnings, errors };
+  // `notApplicable` appears only when a person decided one, so existing projections keep their bytes.
+  return { schemaVersion: 1, status, mode: configured.coverage, phase: phase.id, generation, profiles, covered, uncovered, unclaimed, stale, duplicates, warnings, errors,
+    ...(notApplicable.length ? { notApplicable } : {}) };
 }
 
 export async function assertVisualCoverage(root, workflow, options = {}) {
   const result = await evaluateVisualCoverage(root, workflow, options);
-  if (result.mode === 'enforce' && result.errors.length) throw new SingularityFlowError(`Visual verification coverage failed:\n- ${result.errors.join('\n- ')}`, { code: 'VISUAL_COVERAGE_FAILED', details: result });
+  if (result.mode === 'enforce' && result.errors.length) {
+    const routes = result.uncovered?.length ? missingProfileRoutes(workflow, result) : [];
+    throw new SingularityFlowError(`Visual verification coverage failed:\n- ${result.errors.join('\n- ')}${routes.length
+      ? '\nCapture each missing profile at its exact pixel size (visual record for a simulator, emulator or device screenshot), or a person who approves the step records that it does not apply to this Story (decision visual-profile).' : ''}`,
+    { code: 'VISUAL_COVERAGE_FAILED', details: { ...result, ...(routes.length ? { nextAction: routes[0], recoveryCommands: routes } : {}) } });
+  }
   return result;
 }

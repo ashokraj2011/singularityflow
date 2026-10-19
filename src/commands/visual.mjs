@@ -48,6 +48,9 @@ export async function visualCommand(positionals, options) {
     for (const entry of coverage.covered.filter((item) => item.method === 'native-capture')) {
       console.log(`Native capture: ${entry.profileId} ${entry.recordId} from ${entry.source?.kind} ${entry.source?.device}`);
     }
+    for (const entry of coverage.notApplicable ?? []) {
+      console.log(`Not applicable: ${entry.profileId} (${entry.decisionId}, decided by ${entry.actor} through ${entry.authorityGroup}): ${entry.reason}`);
+    }
     coverage.warnings.forEach((entry) => console.warn(`Warning: ${entry}`));
     coverage.errors.forEach((entry) => console.error(`Error: ${entry}`));
     for (const comparison of comparisons) console.log(`${comparison.id}\t${comparison.status}\t${comparison.differingPixels} differing pixels`);

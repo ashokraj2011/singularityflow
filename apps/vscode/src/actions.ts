@@ -437,6 +437,7 @@ export async function approveWithReceipt(
 
   let storyReview: StoryReviewBundle | null = null;
   let pendingDecisions: { count: number; headline: string } | null = null;
+  let testRun: { label: string; totals: string } | null = null;
   if (request.kind === 'story') {
     try {
       // Begin may fetch. Read the exact checklist and bytes only after that refresh; the receipt
@@ -446,12 +447,20 @@ export async function approveWithReceipt(
       // decision list first. A failed read shows nothing extra; the approval gate still decides.
       const decisions = client.run<{ data?: { items?: unknown[]; headline?: string } }>(
         ['decisions', request.workId, '--phase', request.phaseId, '--json']).catch(() => null);
+      // The step's test run, when there is one, so the page can open its summary beside the review.
+      type Totals = { passed?: number; failed?: number; discovered?: number };
+      type Summary = { resultType?: string; run?: { label?: string } | null; totals?: Totals; data?: Summary };
+      const tests = client.run<Summary>(['tests', 'summary', '--work-id', request.workId, '--phase', request.phaseId, '--json']).catch(() => null);
       storyReview = await client.run<StoryReviewBundle>([
         'review', request.phaseId, '--format', 'json'
       ]);
       const listed = (await decisions)?.data;
       pendingDecisions = Array.isArray(listed?.items) && listed.items.length && typeof listed.headline === 'string'
         ? { count: listed.items.length, headline: listed.headline } : null;
+      const answered = await tests;
+      const summary = answered?.resultType === 'sflow-test-summary' ? answered : answered?.data;
+      testRun = summary?.resultType === 'sflow-test-summary' && summary.run ? { label: summary.run.label ?? '',
+        totals: `${summary.totals?.passed ?? 0} passed, ${summary.totals?.failed ?? 0} failed of ${summary.totals?.discovered ?? 0}` } : null;
       if (storyReview.workItem?.id !== request.workId || storyReview.phase?.id !== request.phaseId) {
         throw new Error('The approval review is not bound to the selected Story phase.');
       }
@@ -489,6 +498,7 @@ export async function approveWithReceipt(
       witnessMappings: storyReview?.witnessReview?.mappings ?? [],
       evidenceConsistency: storyReview?.evidenceConsistency ?? null,
       pendingDecisions,
+      testRun,
       priorExceptions: (storyReview?.priorExceptions ?? []).map((entry) => ({
         article: entry.article,
         decision: entry.decision,

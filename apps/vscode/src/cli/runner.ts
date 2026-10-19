@@ -1795,7 +1795,7 @@ const TIMING_COMMANDS = new Set([
   'fix', 'journal', 'why', 'approvals', 'receipt', 'impact', 'context', 'tokens', 'clarification',
   'local', 'cache', 'repositories', 'policy', 'evidence', 'env', 'skill', 'mcp',
   'secrets', 'constitution', 'auto', 'adhoc', 'land', 'push', 'next', 'resume', 'return', 'run',
-  'reinstall', 'product', 'gate', 'specify', 'plan', 'implement', 'verify'
+  'reinstall', 'product', 'gate', 'specify', 'plan', 'implement', 'verify', 'app', 'tests'
 ]);
 const TIMING_SUBCOMMANDS: Readonly<Record<string, ReadonlySet<string>>> = {
   workflow: new Set(['list', 'proposals', 'proposal', 'proposal-status', 'author', 'create', 'publish', 'activate']),
@@ -1804,7 +1804,9 @@ const TIMING_SUBCOMMANDS: Readonly<Record<string, ReadonlySet<string>>> = {
   workspace: new Set(['list', 'current', 'status', 'doctor', 'branches', 'create', 'prepare', 'update', 'repair', 'sync', 'archive', 'refresh-configuration', 'reinitialize', 'attach-capability', 'detach-capability']),
   session: new Set(['current', 'doctor', 'context', 'candidates', 'status', 'attach', 'repair-selection']),
   revision: new Set(['checks', 'attachments', 'activation', 'capabilities', 'status', 'card', 'show', 'abandon']),
-  wm: new Set(['build', 'ast'])
+  wm: new Set(['build', 'ast']),
+  app: new Set(['plan', 'start', 'status', 'stop']),
+  tests: new Set(['run', 'summary', 'plan'])
 };
 const recentTimings: CliCommandTiming[] = [];
 

@@ -1,0 +1,440 @@
+/**
+ * Start a capability's application and run its tests from VS Code. [RUN, docs/SPEC-RUN-AND-TEST-v1.md]
+ *
+ * Starting runs `singularity-flow app start <id> --capability <ID> [--environment ENV]` as a VS Code
+ * task: a process execution of the CLI's argv, never a shell string, so its terminal shows the log
+ * and ending the task stops it. The CLI owns the environment's values and the readiness check; VS
+ * Code passes only names. Test runs are tasks the same way. The state shown is `app status --json`,
+ * read again while a start is waiting and whenever a task ends.
+ *
+ * Nothing runs in an untrusted workspace. The first run of each command identity (`commandSha256`
+ * from `app plan`, or from `tests plan`) asks for confirmation on a review page, remembered for this
+ * workspace; a changed command asks again.
+ */
+import path from 'node:path';
+import * as vscode from 'vscode';
+import type { SingularityFlowClient } from '../cli/client.ts';
+import type { CapabilityNode } from '../cli/snapshot.ts';
+import { showCompactWarningMessage } from '../compact-message.ts';
+import { collectReviewConfirmation } from './review-confirmation.ts';
+import {
+  appPlanArgv, appPlanFrom, appStartArgv, appStatusArgv, appStatusFrom, appStopArgv, bindCommand, buildRunAndTestView,
+  capabilitiesHere, chooseEnvironment, CONFIRMED_COMMANDS_KEY, entryEnvironment, environmentOptions, environmentStatusWords,
+  ENVIRONMENT_CHOICES_KEY, findCapability, loopbackUrl, ownershipOf, rememberConfirmed, startConfirmationRequest,
+  testPlanFrom, testsConfirmationKeys, testsConfirmationRequest, testsEnvironment, testsPlanArgv, testsRunArgv,
+  type RunAndTestState, type StartEntry
+} from './run-and-test-model.ts';
+import { runAndTestHtml } from './run-and-test-page.ts';
+import { testsSummaryArgv, testSummaryFrom } from './test-summary-model.ts';
+import { TestSummaryPanel } from './test-summary.ts';
+
+export interface RunAndTestHost {
+  client: SingularityFlowClient;
+  /** This workspace's memento: confirmed command identities and the chosen environment per capability. */
+  state: vscode.Memento;
+  output?: { appendLine(line: string): void };
+  activeRepositoryId(): string | null;
+  capabilities(): CapabilityNode[];
+  /** The Story selected in this window, for the Story-scope summary. */
+  workId?(): string | null;
+}
+
+export const TASK_TYPE = 'singularityFlow';
+const POLL_MS = 1_500;
+const UNTRUSTED = 'This workspace is not trusted, so Singularity Flow runs no application or test command here. Trust it (Manage Workspace Trust), then try again.';
+
+interface Held { execution: vscode.TaskExecution; capability: string; entry: string | null; stopping: boolean }
+
+const failureCode = (error: unknown): string => {
+  const result = (error as { result?: { error?: { code?: unknown }; code?: unknown } } | null)?.result;
+  return String(result?.error?.code ?? result?.code ?? '');
+};
+
+export class RunAndTest implements vscode.Disposable {
+  private static instance: RunAndTest | null = null;
+  static attach(host: RunAndTestHost): RunAndTest {
+    if (!RunAndTest.instance) RunAndTest.instance = new RunAndTest(host);
+    else RunAndTest.instance.host = host;
+    return RunAndTest.instance;
+  }
+  static get current(): RunAndTest | null { return RunAndTest.instance; }
+
+  private readonly changed = new vscode.EventEmitter<string>();
+  readonly onDidChange = this.changed.event;
+  private readonly states = new Map<string, RunAndTestState>();
+  private readonly held = new Map<string, Held>();
+  private readonly polls = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly subscriptions: vscode.Disposable[] = [];
+
+  private constructor(private host: RunAndTestHost) {
+    const tasks = (vscode as { tasks?: typeof vscode.tasks }).tasks;
+    if (tasks?.onDidEndTaskProcess) this.subscriptions.push(tasks.onDidEndTaskProcess((event) => this.ended(event.execution, event.exitCode ?? null)));
+    // A process that never started still ends its task; that is the only signal it gives.
+    if (tasks?.onDidEndTask) this.subscriptions.push(tasks.onDidEndTask((event) => this.ended(event.execution, null)));
+  }
+
+  private key(capability: string, entry: string | null = null): string {
+    return `${this.host.client.repository}\u0000${capability}\u0000${entry ?? '#tests'}`;
+  }
+
+  private stateOf(capability: string): RunAndTestState {
+    const key = this.key(capability, '#state');
+    let state = this.states.get(key);
+    if (!state) { state = {}; this.states.set(key, state); }
+    return state;
+  }
+
+  private update(capability: string, change: Partial<RunAndTestState>): void {
+    Object.assign(this.stateOf(capability), change);
+    this.changed.fire(capability);
+  }
+
+  private remembered(capability: string): string | null {
+    return this.host.state.get<Record<string, string>>(ENVIRONMENT_CHOICES_KEY, {})?.[capability] ?? null;
+  }
+
+  private chosenEnvironment(capability: string): string | null {
+    const state = this.stateOf(capability);
+    return chooseEnvironment(environmentOptions(state.plan ?? [], state.tests ?? []), this.remembered(capability));
+  }
+
+  /** The section's markup for one capability; reading it starts the first load. */
+  sectionHtml(capability: CapabilityNode): string {
+    const ownership = ownershipOf(capability, this.host.activeRepositoryId());
+    if (ownership !== 'here') return runAndTestHtml(buildRunAndTestView(capability, ownership, {}));
+    const state = this.stateOf(capability.id);
+    if (state.plan === undefined && !state.loading) void this.load(capability.id);
+    const tasks: NonNullable<RunAndTestState['tasks']> = { ...(state.tasks ?? {}) };
+    for (const held of this.held.values()) if (held.capability === capability.id && held.entry) tasks[held.entry] = { running: true };
+    return runAndTestHtml(buildRunAndTestView(capability, ownership, {
+      ...state, tasks, environment: this.remembered(capability.id), testsRunning: this.held.has(this.key(capability.id))
+    }));
+  }
+
+  /** Plan, status, the test plan (when the engine offers it) and the last run, read together. */
+  async load(capability: string): Promise<void> {
+    this.update(capability, { loading: true });
+    const { client } = this.host;
+    const [plan, status, tests, last] = await Promise.allSettled([
+      client.run(appPlanArgv(capability)), client.run(appStatusArgv(capability)),
+      client.run(testsPlanArgv(capability)), client.run(testsSummaryArgv({ kind: 'capability', capability }))
+    ]);
+    const parsed = plan.status === 'fulfilled' ? appPlanFrom(plan.value) : null;
+    const summary = last.status === 'fulfilled' ? testSummaryFrom(last.value) : null;
+    const lastCode = last.status === 'rejected' ? failureCode(last.reason) : '';
+    this.update(capability, {
+      loading: false,
+      error: null,
+      plan: parsed?.entries ?? [],
+      planNote: plan.status === 'rejected' ? `The start entries could not be read: ${(plan.reason as Error).message}`
+        : parsed?.dropped.length ? `Not shown, because the engine's answer for them is incomplete: ${parsed.dropped.join(', ')}.` : null,
+      status: status.status === 'fulfilled' ? appStatusFrom(status.value) : null,
+      tests: tests.status === 'fulfilled' ? testPlanFrom(tests.value) : null,
+      lastRun: summary?.run ? summary : null,
+      lastRunNote: summary?.run || last.status === 'fulfilled' || /NO_|NOT_FOUND|NONE/.test(lastCode) ? null
+        : `The last test run could not be read: ${(last.reason as Error).message}`
+    });
+  }
+
+  private async readStatus(capability: string): Promise<void> {
+    try {
+      this.update(capability, { status: appStatusFrom(await this.host.client.run(appStatusArgv(capability))) });
+    } catch (error) {
+      this.update(capability, { error: `The application state could not be read: ${(error as Error).message}` });
+    }
+  }
+
+  /** Read status until the entry answers, its task ends or the readiness timeout (plus margin) passes. */
+  private poll(capability: string, entry: StartEntry): void {
+    const key = this.key(capability, entry.id);
+    clearTimeout(this.polls.get(key));
+    const deadline = Date.now() + (entry.ready?.timeoutMs ?? 120_000) + 15_000;
+    const tick = async () => {
+      this.polls.delete(key);
+      await this.readStatus(capability);
+      const status = this.stateOf(capability).status?.find((item) => item.id === entry.id);
+      if (status?.ready) return this.update(capability, { notice: null });
+      if (!this.held.has(key) || Date.now() > deadline) return;
+      this.polls.set(key, setTimeout(() => void tick(), POLL_MS));
+    };
+    this.polls.set(key, setTimeout(() => void tick(), POLL_MS));
+  }
+
+  private trusted(capability: string): boolean {
+    if (vscode.workspace.isTrusted === true) return true;
+    this.update(capability, { error: UNTRUSTED, notice: null });
+    void showCompactWarningMessage(UNTRUSTED);
+    return false;
+  }
+
+  /** Ask once per command identity; remember the answer for this workspace. */
+  private async confirmed(keys: string[], request: Parameters<typeof collectReviewConfirmation>[0]): Promise<boolean> {
+    const known = this.host.state.get<string[]>(CONFIRMED_COMMANDS_KEY, []) ?? [];
+    if (keys.every((key) => known.includes(key))) return true;
+    if (!await collectReviewConfirmation(request)) return false;
+    await this.host.state.update(CONFIRMED_COMMANDS_KEY, rememberConfirmed(this.host.state.get<string[]>(CONFIRMED_COMMANDS_KEY, []) ?? [], keys));
+    return true;
+  }
+
+  private task(action: 'app-start' | 'tests-run', capability: string, entry: string | null, environment: string | null, argv: string[]): vscode.Task {
+    const { client } = this.host;
+    const repository = client.repository;
+    const env: Record<string, string> = {
+      // The window's repository, as every CLI call from this window names it. Never a value.
+      SINGULARITY_FLOW_SURFACE_CONTEXT: JSON.stringify({ schemaVersion: 1, repositoryPath: path.resolve(repository) })
+    };
+    // The editor's own runtime runs the CLI only as Node; a separately configured Node needs nothing.
+    if (process.versions.electron && client.location.executable === process.execPath) env.ELECTRON_RUN_AS_NODE = '1';
+    const execution = new vscode.ProcessExecution(client.location.executable, [client.location.cli, ...argv], { cwd: repository, env });
+    const name = action === 'app-start' ? `Start ${entry} · ${capability}` : `Tests · ${capability}`;
+    const task = new vscode.Task({ type: TASK_TYPE, action, capability, ...(entry ? { entry } : {}), ...(environment ? { environment } : {}) },
+      vscode.TaskScope.Workspace, name, 'Singularity Flow', execution, []);
+    task.isBackground = action === 'app-start';
+    task.presentationOptions = { reveal: vscode.TaskRevealKind.Always, panel: vscode.TaskPanelKind.Dedicated, clear: true, focus: false, showReuseMessage: false };
+    return task;
+  }
+
+  private async execute(capability: string, task: vscode.Task): Promise<vscode.TaskExecution | null> {
+    try {
+      return await vscode.tasks.executeTask(task);
+    } catch (error) {
+      this.update(capability, { error: `VS Code could not start the task: ${(error as Error).message}`, notice: null });
+      return null;
+    }
+  }
+
+  private log(argv: string[]): void { this.host.output?.appendLine(`\n$ singularity-flow ${argv.join(' ')}`); }
+
+  /** Start one entry as a task, after trust and the first-run confirmation of its command identity. */
+  async start(capability: string, entryId: string): Promise<void> {
+    if (!this.trusted(capability)) return;
+    if (this.held.has(this.key(capability, entryId))) return this.update(capability, { notice: `${entryId} is already running in its task terminal.`, error: null });
+    // Read the plan now: what is confirmed must be what the engine will run.
+    await this.load(capability);
+    const entry = this.stateOf(capability).plan?.find((item) => item.id === entryId);
+    if (!entry) return this.update(capability, { error: `${entryId} is not a start entry of ${capability} any more.`, notice: null });
+    const environment = entryEnvironment(entry, this.chosenEnvironment(capability));
+    if (!await this.confirmed([entry.commandSha256], startConfirmationRequest(entry, environment))) {
+      return this.update(capability, { notice: 'Nothing was started.', error: null });
+    }
+    const argv = appStartArgv(capability, entry.id, environment);
+    this.log(argv);
+    const execution = await this.execute(capability, this.task('app-start', capability, entry.id, environment, argv));
+    if (!execution) return;
+    this.held.set(this.key(capability, entry.id), { execution, capability, entry: entry.id, stopping: false });
+    const tasks = { ...(this.stateOf(capability).tasks ?? {}) };
+    delete tasks[entry.id];
+    this.update(capability, { tasks, notice: `Starting ${entry.id}${environment ? ` against ${environment}` : ''}. Its log is in the task terminal.`, error: null });
+    this.poll(capability, entry);
+  }
+
+  /** End the task this window started; otherwise ask the CLI to stop what `app start` recorded. */
+  async stop(capability: string, entryId: string): Promise<void> {
+    const held = this.held.get(this.key(capability, entryId));
+    if (held) {
+      held.stopping = true;
+      this.update(capability, { notice: `Stopping ${entryId}…`, error: null });
+      held.execution.terminate();
+      return;
+    }
+    await this.appStop(capability, entryId);
+  }
+
+  private async appStop(capability: string, entryId: string): Promise<void> {
+    const argv = appStopArgv(capability, entryId);
+    this.log(argv);
+    try {
+      await this.host.client.run(argv);
+      this.update(capability, { notice: `${entryId} was stopped.`, error: null });
+    } catch (error) {
+      this.update(capability, { error: (error as Error).message, notice: null });
+    }
+    await this.readStatus(capability);
+  }
+
+  async open(capability: string, entryId: string): Promise<void> {
+    const state = this.stateOf(capability);
+    const url = loopbackUrl(state.status?.find((item) => item.id === entryId)?.url ?? state.plan?.find((item) => item.id === entryId)?.url);
+    if (!url) return this.update(capability, { error: `${entryId} has no loopback URL to open.`, notice: null });
+    await vscode.env.openExternal(vscode.Uri.parse(url));
+  }
+
+  /** Run every test of the capability, or one command, as a task. */
+  async runTests(capability: string, command: string | null): Promise<void> {
+    if (!this.trusted(capability)) return;
+    if (this.held.has(this.key(capability))) return this.update(capability, { notice: 'A test run is already running for this capability.', error: null });
+    await this.load(capability);
+    const tests = this.stateOf(capability).tests ?? [];
+    const commands = command ? [command] : [];
+    const environment = testsEnvironment(tests, this.chosenEnvironment(capability), commands);
+    const argv = testsRunArgv(capability, commands, environment);
+    if (!await this.confirmed(testsConfirmationKeys(tests, argv, commands), testsConfirmationRequest(capability, tests, commands, environment))) {
+      return this.update(capability, { notice: 'No tests were run.', error: null });
+    }
+    this.log(argv);
+    const execution = await this.execute(capability, this.task('tests-run', capability, null, environment, argv));
+    if (!execution) return;
+    this.held.set(this.key(capability), { execution, capability, entry: null, stopping: false });
+    this.update(capability, { notice: `Running ${command ?? 'every test'}${environment ? ` against ${environment}` : ''}. Output is in the task terminal.`, error: null });
+  }
+
+  cancelTests(capability: string): void {
+    const held = this.held.get(this.key(capability));
+    if (!held) return;
+    held.stopping = true;
+    held.execution.terminate();
+  }
+
+  private async ended(execution: vscode.TaskExecution, exitCode: number | null): Promise<void> {
+    // VS Code hands every event the TaskExecution object executeTask returned. A definition match
+    // would also catch the late end of an earlier run of the same entry, so identity alone decides.
+    const found = [...this.held.entries()].find(([, held]) => held.execution === execution
+      || (Boolean(execution?.task) && held.execution.task === execution.task));
+    if (!found) return;
+    const [key, held] = found;
+    this.held.delete(key);
+    clearTimeout(this.polls.get(key));
+    if (held.entry) {
+      this.update(held.capability, {
+        // A stop the person asked for is not a failure, whatever signal ended the process.
+        tasks: { ...(this.stateOf(held.capability).tasks ?? {}), [held.entry]: { running: false, exitCode: held.stopping ? null : exitCode } },
+        notice: held.stopping ? `${held.entry} was stopped.` : `${held.entry} ended${exitCode === null ? '' : ` with exit code ${exitCode}`}.`
+      });
+      await this.readStatus(held.capability);
+      // Ending the task should end the process tree; when the engine still sees it, ask it to stop it.
+      if (held.stopping && this.stateOf(held.capability).status?.find((item) => item.id === held.entry)?.started) await this.appStop(held.capability, held.entry);
+      return;
+    }
+    this.update(held.capability, {
+      notice: held.stopping ? 'The test run was cancelled.' : `The test run finished${exitCode === null ? '' : ` with exit code ${exitCode}`}.`
+    });
+    await this.load(held.capability);
+    TestSummaryPanel.refreshFor({ kind: 'capability', capability: held.capability });
+  }
+
+  async setEnvironment(capability: string, environment: string): Promise<void> {
+    const state = this.stateOf(capability);
+    if (!environmentOptions(state.plan ?? [], state.tests ?? []).some((choice) => choice.name === environment)) return;
+    const choices = this.host.state.get<Record<string, string>>(ENVIRONMENT_CHOICES_KEY, {}) ?? {};
+    await this.host.state.update(ENVIRONMENT_CHOICES_KEY, { ...choices, [capability]: environment });
+    this.update(capability, { notice: null });
+  }
+
+  private async copyBind(capability: string, environment: string): Promise<void> {
+    const state = this.stateOf(capability);
+    if (!environmentOptions(state.plan ?? [], state.tests ?? []).some((choice) => choice.name === environment)) return;
+    await vscode.env.clipboard.writeText(bindCommand(environment));
+    void vscode.window.setStatusBarMessage('$(clippy) Copied. Run it in a terminal with your own secret helper.', 4_000);
+  }
+
+  /** A message from the capability page, checked against the map and this checkout again. */
+  async handle(message: { action: string; capability: string; entry: string; command: string; environment: string }): Promise<void> {
+    const node = findCapability(this.host.capabilities(), message.capability);
+    if (!node || ownershipOf(node, this.host.activeRepositoryId()) !== 'here') return;
+    const { capability, entry, command, environment } = message;
+    const state = this.stateOf(capability);
+    const isEntry = Boolean(entry && state.plan?.some((item) => item.id === entry));
+    switch (message.action) {
+      case 'refresh': return this.load(capability);
+      case 'start': return isEntry ? this.start(capability, entry) : undefined;
+      case 'stop': return entry ? this.stop(capability, entry) : undefined;
+      case 'open': return isEntry ? this.open(capability, entry) : undefined;
+      case 'tests': return this.runTests(capability, command || null);
+      case 'cancel-tests': return this.cancelTests(capability);
+      case 'summary': return void TestSummaryPanel.show(this.host.client, { kind: 'capability', capability });
+      case 'environment': return this.setEnvironment(capability, environment);
+      case 'copy-bind': return this.copyBind(capability, environment);
+      default: return undefined;
+    }
+  }
+
+  /** The capability owning this checkout, picked when several do; null after saying why there is none. */
+  async pickCapability(title: string, story: string | null = null): Promise<{ capability: string } | { story: string } | null> {
+    const active = this.host.activeRepositoryId();
+    const here = capabilitiesHere(this.host.capabilities(), active);
+    const items = [
+      ...(story ? [{ label: `Story ${story}`, description: 'this Story\'s current step', value: { story } }] : []),
+      ...here.map((node) => ({ label: node.name ?? node.id, description: node.id, value: { capability: node.id } }))
+    ];
+    if (!items.length) {
+      const anyDelivery = (nodes: CapabilityNode[]): boolean => nodes.some((node) => ownershipOf(node, active) === 'unknown-repository' || anyDelivery(node.children ?? []));
+      void showCompactWarningMessage(!active && anyDelivery(this.host.capabilities())
+        ? 'This window does not know which repository it has open. Open the repository from Workspaces, then try again.'
+        : 'No delivery capability runs from this repository. Open Capabilities to see where each one runs.');
+      return null;
+    }
+    if (items.length === 1) return items[0]!.value;
+    const picked = await vscode.window.showQuickPick(items, { title, placeHolder: 'Which capability?', ignoreFocusOut: true });
+    return picked?.value ?? null;
+  }
+
+  /** Palette: pick the start entry (and environment, when it allows several), then start it. */
+  async startFromPalette(capability: string): Promise<void> {
+    if (!this.trusted(capability)) return;
+    await this.load(capability);
+    const state = this.stateOf(capability);
+    const entries = state.plan ?? [];
+    if (!entries.length) return void showCompactWarningMessage(state.planNote ?? `${capability} declares no start entry.`);
+    const entry = entries.length === 1 ? entries[0]
+      : (await vscode.window.showQuickPick(entries.map((item) => ({ label: item.id, description: item.argv.join(' '), entry: item })),
+        { title: `Start ${capability}`, placeHolder: 'Which start entry?', ignoreFocusOut: true }))?.entry;
+    if (!entry) return;
+    if (entry.environments.length > 1 && !await this.pickEnvironment(capability, entry.environments)) return;
+    await this.start(capability, entry.id);
+  }
+
+  /** Palette: all tests, or one command when the engine lists them. */
+  async testsFromPalette(capability: string): Promise<void> {
+    if (!this.trusted(capability)) return;
+    await this.load(capability);
+    const state = this.stateOf(capability);
+    const commands = state.tests?.map((command) => command.id) ?? [...new Set((state.lastRun?.commands ?? []).map((command) => command.id))];
+    const picked = commands.length
+      ? await vscode.window.showQuickPick([{ label: 'All tests', command: null as string | null }, ...commands.map((id) => ({ label: id, command: id as string | null }))],
+        { title: `Run tests · ${capability}`, placeHolder: 'Which tests?', ignoreFocusOut: true })
+      : { label: 'All tests', command: null };
+    if (!picked) return;
+    const choices = environmentOptions([], state.tests ?? []);
+    if (choices.length > 1 && !await this.pickEnvironment(capability, choices)) return;
+    await this.runTests(capability, picked.command);
+  }
+
+  private async pickEnvironment(capability: string, choices: StartEntry['environments']): Promise<boolean> {
+    const current = chooseEnvironment(choices, this.remembered(capability));
+    const ordered = [...choices].sort((left, right) => Number(right.name === current) - Number(left.name === current));
+    const picked = await vscode.window.showQuickPick(ordered.map((choice) => ({
+      label: `${choice.name}: ${environmentStatusWords(choice.status)}`, name: choice.name,
+      description: choice.status === 'bound' ? '' : `bind with: ${bindCommand(choice.name)}`
+    })), { title: `Environment · ${capability}`, placeHolder: 'Which environment? VS Code never asks for its values.', ignoreFocusOut: true });
+    if (!picked) return false;
+    await this.setEnvironment(capability, picked.name);
+    return true;
+  }
+
+  dispose(): void {
+    for (const timer of this.polls.values()) clearTimeout(timer);
+    this.polls.clear();
+    for (const subscription of this.subscriptions.splice(0)) subscription.dispose();
+    this.changed.dispose();
+    if (RunAndTest.instance === this) RunAndTest.instance = null;
+  }
+}
+
+/** The three palette commands: Start Application, Run Tests, Test Summary. */
+export async function runAndTestCommand(kind: 'start' | 'tests' | 'summary', host: RunAndTestHost, target?: unknown): Promise<void> {
+  const controller = RunAndTest.attach(host);
+  const requested = (target && typeof target === 'object' ? target : {}) as { workId?: unknown; phase?: unknown; capability?: unknown; beside?: unknown };
+  if (kind === 'summary' && typeof requested.workId === 'string' && requested.workId) {
+    return void TestSummaryPanel.show(host.client, { kind: 'story', workId: requested.workId, phase: typeof requested.phase === 'string' ? requested.phase : null },
+      { beside: requested.beside === true });
+  }
+  if (kind === 'summary' && typeof requested.capability === 'string' && requested.capability) {
+    return void TestSummaryPanel.show(host.client, { kind: 'capability', capability: requested.capability });
+  }
+  const title = kind === 'start' ? 'Start Application' : kind === 'tests' ? 'Run Tests' : 'Test Summary';
+  const picked = await controller.pickCapability(title, kind === 'summary' ? host.workId?.() ?? null : null);
+  if (!picked) return;
+  if ('story' in picked) return void TestSummaryPanel.show(host.client, { kind: 'story', workId: picked.story, phase: null });
+  if (kind === 'summary') return void TestSummaryPanel.show(host.client, { kind: 'capability', capability: picked.capability });
+  return kind === 'start' ? controller.startFromPalette(picked.capability) : controller.testsFromPalette(picked.capability);
+}

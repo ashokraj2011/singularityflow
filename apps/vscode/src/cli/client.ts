@@ -292,7 +292,9 @@ function enabledBooleanOption(args: string[], name: string): boolean {
  */
 function cacheableRead(args: string[]): boolean {
   // The decision list is reviewed and confirmed by digest: always read it now, never from the cache.
-  return !args.includes('--for-agent') && !['check', 'review-source', 'choices', 'phase', 'decisions'].includes(args[0] ?? '')
+  // `app status` is a live process and URL probe, `app plan` is what the next start runs and a
+  // test summary changes with every run: each is read now.
+  return !args.includes('--for-agent') && !['check', 'review-source', 'choices', 'phase', 'decisions', 'app', 'tests'].includes(args[0] ?? '')
     && !args.includes('--submission-readiness') && !args.includes('--submit-if-ready')
     && !(args[0] === 'configuration' && args[1] === 'validate')
     // An explicit test-setup inspection must reread the selected module manifests, including
@@ -403,6 +405,10 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'decision') return (args[1] ?? 'show') === 'show' ? 'read' : 'mutation';
   // The decision list and a preview of choices read; only `decisions record` writes.
   if (args[0] === 'decisions') return args[1] === 'record' ? 'mutation' : 'read';
+  // Run and test: plan, status, summary (and the plan of a test run) read; start, stop and run
+  // execute repository code, so they are never reads.
+  if (args[0] === 'app') return ['plan', 'status'].includes(args[1] ?? '') ? 'read' : 'mutation';
+  if (args[0] === 'tests') return ['summary', 'plan'].includes(args[1] ?? '') ? 'read' : 'mutation';
   if (args[0] === 'mcp' && args[1] === 'sources') return 'read';
   // A preview fetches and stages bytes and a check re-reads sources; neither changes governed state.
   if (args[0] === 'import') return args[1] === 'preview' ? 'read' : 'mutation';

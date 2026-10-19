@@ -590,6 +590,21 @@
         "icon": "$(checklist)"
       },
       {
+        "command": "singularityFlow.startApplication",
+        "title": "Singularity Flow: Start Application",
+        "icon": "$(play)"
+      },
+      {
+        "command": "singularityFlow.runTests",
+        "title": "Singularity Flow: Run Tests",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "singularityFlow.testSummary",
+        "title": "Singularity Flow: Test Summary",
+        "icon": "$(checklist)"
+      },
+      {
         "command": "singularityFlow.openDesigner",
         "title": "Singularity Flow: Workflow Designer (opens Workflow Studio)",
         "icon": "$(symbol-structure)"
@@ -1012,6 +1027,18 @@
       {
         "command": "singularityFlow.openHelpTopicFromChat",
         "title": "Singularity Flow: Open Chat Help Topic"
+      }
+    ],
+    "taskDefinitions": [
+      {
+        "type": "singularityFlow",
+        "required": ["action", "capability"],
+        "properties": {
+          "action": { "type": "string", "enum": ["app-start", "tests-run"], "description": "Start a capability's application or run its tests through the Singularity Flow CLI." },
+          "capability": { "type": "string", "description": "The capability ID from singularity/capabilities.yml." },
+          "entry": { "type": "string", "description": "The application.start entry ID." },
+          "environment": { "type": "string", "description": "The environments.yml environment the run uses. Its values stay with the CLI." }
+        }
       }
     ],
     "submenus": [

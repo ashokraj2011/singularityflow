@@ -920,6 +920,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void showCompactInformationMessage('Saved Teams webhook removed.');
   }));
 
+  /** The run widget and the Run view [RUN amendment §3]; the lazy panels runtime handles them. */
+  const RUN_CONFIGURATION_COMMANDS = [
+    'singularityFlow.selectRunConfiguration', 'singularityFlow.runSelectedConfiguration', 'singularityFlow.debugSelectedConfiguration',
+    'singularityFlow.stopRunningConfiguration', 'singularityFlow.rerunSelectedConfiguration', 'singularityFlow.runConfiguration',
+    'singularityFlow.debugConfiguration', 'singularityFlow.stopConfiguration', 'singularityFlow.openConfigurationInBrowser',
+    'singularityFlow.showConfigurationLog', 'singularityFlow.editConfiguration', 'singularityFlow.copyConfigurationCommandLine',
+    'singularityFlow.runConfigurationInEnvironment', 'singularityFlow.refreshRunConfigurations'
+  ];
   /**
    * Register the view with a fixed explanation and stop.
    *
@@ -967,7 +975,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openEvidenceMatrix',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.decideStory', 'singularityFlow.decisions',
-    'singularityFlow.startApplication', 'singularityFlow.runTests', 'singularityFlow.testSummary', 'singularityFlow.editRunConfigurations',
+    'singularityFlow.startApplication', 'singularityFlow.runTests', 'singularityFlow.testSummary', 'singularityFlow.editRunConfigurations', ...RUN_CONFIGURATION_COMMANDS,
     'singularityFlow.publishConfiguration',
     'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.togglePromptLog', 'singularityFlow.openActivityLog',
     'singularityFlow.openWorkspaceLogs', 'singularityFlow.refreshWorkspaceLogs', 'singularityFlow.openSpecificationTrace',
@@ -983,6 +991,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.expandReference', 'singularityFlow.openHarnessReport',
     'singularityFlow.checkRepository', ...EXECUTION_CONTEXT_COMMANDS
   ];
+  /**
+   * The Run view, IntelliJ's Services window [RUN amendment §3]. Registered whatever the window
+   * holds, so it always has a provider; it stays hidden (singularityFlow.runConfigurations) and
+   * empty until the lazy run widget has a configuration to list.
+   */
+  const runViewChanged = new vscode.EventEmitter<void>();
+  let runView: ReturnType<LazyPanelsRuntime['RunWidget']['attach']> | null = null;
+  context.subscriptions.push(runViewChanged, vscode.window.createTreeView<unknown>('singularityFlow.run', { treeDataProvider: {
+    onDidChangeTreeData: runViewChanged.event,
+    getChildren: (node?: unknown) => runView?.children(node as never) ?? [],
+    getTreeItem: (node: unknown) => runView!.item(node as never)
+  } }));
   /** Workspaces are machine-wide and remain available whatever folder is open. */
   const workspaceTree = new NodeTreeProvider();
   let workspaceEntries: WorkspaceEntry[] = [];
@@ -5326,9 +5346,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // A failed initial read leaves these deferred; the first later confirmed snapshot starts them.
   let initialRefreshCompleted = false;
   let auxiliaryEpoch = -1;
+  // Set below, beside runAndTestHost: the run widget's check of each confirmed snapshot.
+  let refreshRunWidget = (): void => {};
   const startAuxiliaryReadsAfterConfirmedSnapshot = (forceReadiness = false): void => {
     const state = store.current;
     if (!initialRefreshCompleted || state.stale || state.error || !state.snapshot) return;
+    refreshRunWidget();
     const scope = repositoryEpoch.capture();
     if (!forceReadiness && auxiliaryEpoch === scope.epoch) return;
     auxiliaryEpoch = scope.epoch;
@@ -7077,6 +7100,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       lazyPanels().CapabilityProposalPanel.show(context, lead, branch, run, async () => { await refreshAfterKnownMutation(); }, capability);
     },
     afterLocalChange: async () => { await refreshAfterKnownMutation(); } });
+  /**
+   * The run widget, the Run view and the Testing view (lazy panels) [RUN amendment §3, §4]. Whether
+   * this repository declares an application is a read of its capability map file, never a CLI
+   * process: a window whose map declares none loads and runs nothing for them.
+   */
+  let runMapKey: string | null = null;
+  const runWidget = (): NonNullable<typeof runView> => {
+    if (runView) return runView;
+    runView = lazyPanels().RunWidget.attach(runAndTestHost(), () => runViewChanged.fire());
+    context.subscriptions.push(runView);
+    return runView;
+  };
+  refreshRunWidget = () => void (async () => {
+    const map = store.current.snapshot?.capabilityMap;
+    const file = path.join(client.repository, 'singularity', 'capabilities.yml');
+    const text = map?.capabilities?.length && map.mode !== 'implicit' ? await readFile(file, 'utf8').catch(() => '') : '';
+    // An `application:` key, block or flow style; a comment that mentions one is not a declaration.
+    const declared = text.split('\n').some((line) => /^\s*(?:[^#\s][^#]*[{,]\s*)?["']?application["']?\s*:/.test(line));
+    const key = declared ? `${client.repository}\u0000${text}` : null;
+    if (key === runMapKey) return;
+    runMapKey = key;
+    if (!key) return runView?.hide();
+    await backgroundWork.waitUntilIdle({ signal: activationSignal });
+    if (runMapKey === key && !activationSignal.aborted) await runWidget().refresh();
+  })().catch((error) => output.appendLine(`Run configurations could not be read: ${(error as Error).message}`));
   /**
    * Editing the capability map.
    *
@@ -8840,6 +8888,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.testSummary': (target?: unknown) => lazyPanels().runAndTestCommand('summary', runAndTestHost(), target),
     // The Run/Debug Configurations editor; other surfaces pass `{ capability, configuration }` (a start entry ID to select).
     'singularityFlow.editRunConfigurations': (target?: unknown) => lazyPanels().editRunConfigurationsCommand(runAndTestHost(), target),
+    // The run widget and the Run view: a row, `{ key }` or `{ capability, configuration }` names a configuration.
+    ...Object.fromEntries(RUN_CONFIGURATION_COMMANDS.map((id) => [id, (target?: unknown) => runWidget().command(id, target)])),
     // Workflow Studio, optionally at one section: `{ view: 'changes' }` opens the proposals waiting
     // for review, `{ view: 'artifacts' }` the templates.
     'singularityFlow.openWorkflowStudio': async (target?: unknown) => {

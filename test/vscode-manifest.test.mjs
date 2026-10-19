@@ -151,10 +151,21 @@ test('the activity view opens as one compact enterprise navigation surface', () 
    * The providers were never the dead part — they feed this webview, and the host tests now reach
    * them through `sidebar.sourceFor()`, which is the route that corresponds to something on screen.
    */
-  assert.deepEqual(contributed.map(({ id }) => id), ['singularityFlow.navigation']);
+  assert.deepEqual(contributed.map(({ id }) => id), ['singularityFlow.navigation', 'singularityFlow.run']);
   assert.equal(contributed[0].type, 'webview', 'the visible navigation is one styled webview');
-  assert.ok(!contributed.some((view) => view.when),
-    'a contributed view gated on a condition nothing sets is a view nobody can open');
+  assert.equal(contributed[0].when, undefined, 'the navigation shows in every window');
+  /**
+   * The Run view, IntelliJ's Services window [RUN amendment §3]: a native tree, shown only while the
+   * window has a run configuration. Its key is one the run widget sets, so it is never a view gated
+   * on a condition nothing sets — the defect the five legacy views had.
+   */
+  assert.deepEqual({ type: contributed[1].type, when: contributed[1].when }, { type: 'tree', when: 'singularityFlow.runConfigurations' });
+  for (const view of contributed.filter((entry) => entry.when)) {
+    for (const [key] of view.when.matchAll(/\bsingularityFlow\.\w+/g)) {
+      assert.ok(source.includes(`'${key}'`) && /executeCommand\(\s*'setContext', RUN_CONFIGURATIONS_CONTEXT/.test(source),
+        `${view.id} is gated on ${key}, which nothing sets`);
+    }
+  }
 });
 
 test('the extension icon is a square PNG the packager accepts, drawn from its tracked SVG source', async () => {

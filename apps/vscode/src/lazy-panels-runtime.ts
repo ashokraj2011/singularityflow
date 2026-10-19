@@ -53,3 +53,4 @@ export { VisualAssurancePanel } from './views/visual-assurance.ts';
 export { DecisionListPanel } from './views/decision-list.ts';
 export { RunAndTest, runAndTestCommand, editRunConfigurationsCommand } from './views/run-and-test.ts';
 export { TestSummaryPanel } from './views/test-summary.ts';
+export { RunWidget } from './views/run-widget.ts';

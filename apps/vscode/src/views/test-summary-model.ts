@@ -33,11 +33,15 @@ export interface TestSummaryCommand {
   perCase: boolean; note: string | null;
   /** The environment it ran against, and the engine's label for it when it differs by command. */
   environment: string | null; label: string | null;
+  /** The command's own totals (`tests`), which a report with totals only still gives. */
+  counts: { discovered: number; passed: number; failed: number; skipped: number } | null;
 }
 
 export interface TestSummaryCase {
   command: string; suite: string | null; name: string; file: string | null; line: number | null;
   outcome: string; durationMs: number | null; clauses: string[];
+  /** The report's failure message for the case, when it gives one. */
+  message: string | null;
 }
 
 export interface TestSummaryHistory {
@@ -107,11 +111,14 @@ export function testSummaryFrom(raw: unknown): TestSummary | null {
     commands: (Array.isArray(value.commands) ? value.commands : []).flatMap((item) => {
       const command = record(item);
       const id = text(command?.id);
+      const tests = record(command?.tests);
+      const counted = tests && ['discovered', 'passed', 'failed', 'skipped'].some((key) => typeof tests[key] === 'number');
       return command && id ? [{
         id, kind: text(command.kind), adapter: text(command.adapter), status: text(command.status),
         exitCode: typeof command.exitCode === 'number' ? command.exitCode : null,
         perCase: command.perCase !== false, note: text(command.note),
-        environment: text(command.environment), label: text(command.label)
+        environment: text(command.environment), label: text(command.label),
+        counts: counted ? { discovered: count(tests.discovered), passed: count(tests.passed), failed: count(tests.failed), skipped: count(tests.skipped) } : null
       }] : [];
     }),
     cases: (Array.isArray(value.cases) ? value.cases : []).flatMap((item) => {
@@ -122,7 +129,8 @@ export function testSummaryFrom(raw: unknown): TestSummary | null {
         file: text(entry.file), line: typeof entry.line === 'number' && Number.isInteger(entry.line) && entry.line > 0 ? entry.line : null,
         outcome: text(entry.outcome) ?? 'unknown',
         durationMs: typeof entry.durationMs === 'number' && entry.durationMs >= 0 ? entry.durationMs : null,
-        clauses: Array.isArray(entry.clauses) ? entry.clauses.filter((clause): clause is string => typeof clause === 'string' && clause.length > 0) : []
+        clauses: Array.isArray(entry.clauses) ? entry.clauses.filter((clause): clause is string => typeof clause === 'string' && clause.length > 0) : [],
+        message: (text(entry.message) ?? text(record(entry.failure)?.message))?.slice(0, 4_000) ?? null
       }];
     }),
     truncated: value.truncated === true,
@@ -239,7 +247,7 @@ export function buildTestSummaryView(summary: TestSummary | null, options: {
   const shownCases = filterCases(summary.cases, filters);
   const listed = new Set(summary.commands.map((command) => command.id));
   const extra = [...new Set(summary.cases.map((entry) => entry.command).filter((id) => !listed.has(id)))]
-    .map((id): TestSummaryCommand => ({ id: id || 'other', kind: null, adapter: null, status: null, exitCode: null, perCase: true, note: null, environment: null, label: null }));
+    .map((id): TestSummaryCommand => ({ id: id || 'other', kind: null, adapter: null, status: null, exitCode: null, perCase: true, note: null, environment: null, label: null, counts: null }));
   const commands = [...summary.commands, ...extra].map((command): CommandTable => ({
     ...command,
     // A command's own label only when it says something the run's does not.

@@ -15,6 +15,10 @@
  * `app status` says the debugger listens (for .NET: once the process has a pid), VS Code attaches
  * with a loopback configuration built from the port or pid the engine reported, never from the
  * page. Ending the debug session leaves the application running; Stop still ends it.
+ *
+ * The capability page, the run widget, the Run view and the Testing view (run-widget.ts,
+ * run-testing.ts) all act through this one controller, so trust, the confirmations, the tasks and
+ * the state they show are the same wherever a run starts.
  */
 import path from 'node:path';
 import * as vscode from 'vscode';
@@ -53,6 +57,17 @@ const STOP_SETTLE_READS = 6;
 const STOP_SETTLE_MS = 500;
 const UNTRUSTED = 'This workspace is not trusted, so Singularity Flow runs no application or test command here. Trust it (Manage Workspace Trust), then try again.';
 
+/** A test run's task ended: the Testing view reads the run it recorded. */
+export interface TestsEnded { capability: string; execution: vscode.TaskExecution; exitCode: number | null; cancelled: boolean }
+
+/** What the run widget, the Run view and the Testing view read of one capability. */
+export interface RunAndTestReading extends Readonly<RunAndTestState> {
+  /** The environment a run uses now: the remembered choice when still allowed, else the default. */
+  chosen: string | null;
+  /** Entries this window started with --debug that are still running. */
+  debugging: ReadonlySet<string>;
+}
+
 interface Held {
   execution: vscode.TaskExecution; capability: string; entry: string | null; stopping: boolean;
   /** Started with --debug: attach once `app status` says the debugger listens. */
@@ -75,6 +90,10 @@ export class RunAndTest implements vscode.Disposable {
 
   private readonly changed = new vscode.EventEmitter<string>();
   readonly onDidChange = this.changed.event;
+  private readonly testsEnded = new vscode.EventEmitter<TestsEnded>();
+  readonly onDidEndTests = this.testsEnded.event;
+  /** The terminal name of each start entry's last task: its log stays there after it ends. */
+  private readonly taskNames = new Map<string, string>();
   private readonly states = new Map<string, RunAndTestState>();
   private readonly held = new Map<string, Held>();
   private readonly polls = new Map<string, ReturnType<typeof setTimeout>>();
@@ -145,6 +164,39 @@ export class RunAndTest implements vscode.Disposable {
     if (!known) { void this.resolveHere(); return 'resolving'; }
     if (!known.capability) return 'unknown-repository';
     return known.capability === capability.id ? 'here' : 'elsewhere';
+  }
+
+  /** What this window knows of one capability, with this window's running tasks merged in. */
+  reading(capability: string): RunAndTestReading {
+    const state = this.stateOf(capability);
+    const tasks: NonNullable<RunAndTestState['tasks']> = { ...(state.tasks ?? {}) };
+    const debugging = new Set<string>();
+    for (const held of this.held.values()) {
+      if (held.capability !== capability || !held.entry) continue;
+      tasks[held.entry] = { running: true, ...(held.debug ? { debug: true } : {}) };
+      if (held.debug) debugging.add(held.entry);
+    }
+    return { ...state, tasks, testsRunning: this.held.has(this.key(capability)), chosen: this.chosenEnvironment(capability), debugging };
+  }
+
+  /** The delivery capabilities this checkout runs: the map's, else the one the engine resolves here. */
+  async capabilityIdsHere(): Promise<string[]> {
+    const active = this.host.activeRepositoryId();
+    const here = capabilitiesHere(this.host.capabilities(), active).map((node) => node.id);
+    if (here.length || active) return here;
+    const resolved = await this.resolveHere();
+    return resolved && findCapability(this.host.capabilities(), resolved) ? [resolved] : [];
+  }
+
+  /** `app status --json` again, for a light poll while something runs. */
+  refreshStatus(capability: string): Promise<void> { return this.readStatus(capability); }
+
+  /** Forget the last notice and error, before an action whose own words should be shown. */
+  clearMessages(capability: string): void { this.update(capability, { error: null, notice: null }); }
+
+  /** The task terminal a start entry's log is in: its current task, else the last one this window ran. */
+  taskName(capability: string, entry: string): string | null {
+    return this.held.get(this.key(capability, entry))?.execution.task?.name ?? this.taskNames.get(this.key(capability, entry)) ?? null;
   }
 
   /** The section's markup for one capability; reading it starts the first load. */
@@ -251,7 +303,12 @@ export class RunAndTest implements vscode.Disposable {
     // The editor's own runtime runs the CLI only as Node; a separately configured Node needs nothing.
     if (process.versions.electron && client.location.executable === process.execPath) env.ELECTRON_RUN_AS_NODE = '1';
     const execution = new vscode.ProcessExecution(client.location.executable, [client.location.cli, ...argv], { cwd: repository, env });
-    const name = action === 'app-start' ? `Start ${entry}${debug ? ' (debug)' : ''} · ${capability}` : `Tests · ${capability}`;
+    // Each run keeps its own terminal, named by configuration and environment, as IntelliJ's run tabs are.
+    const configuration = action === 'app-start' ? this.stateOf(capability).plan?.find((item) => item.id === entry) : null;
+    const label = configuration?.name ?? entry;
+    const name = action === 'app-start'
+      ? `Start ${label}${environment ? ` · ${environment}` : ''}${debug ? ' (debug)' : ''} · ${capability}` : `Tests · ${capability}`;
+    if (action === 'app-start' && entry) this.taskNames.set(this.key(capability, entry), name);
     const task = new vscode.Task({ type: TASK_TYPE, action, capability, ...(entry ? { entry } : {}), ...(environment ? { environment } : {}),
       ...(debug ? { debug: true } : {}) },
       vscode.TaskScope.Workspace, name, 'Singularity Flow', execution, []);
@@ -417,23 +474,31 @@ export class RunAndTest implements vscode.Disposable {
     await vscode.env.openExternal(vscode.Uri.parse(url));
   }
 
-  /** Run every test of the capability, or one command, as a task. */
-  async runTests(capability: string, command: string | null): Promise<void> {
-    if (!this.trusted(capability)) return;
-    if (this.held.has(this.key(capability))) return this.update(capability, { notice: 'A test run is already running for this capability.', error: null });
+  /**
+   * Run every test of the capability, or the named commands, as a task. The execution, or null when
+   * nothing started (untrusted, already running, not confirmed); the state says why.
+   */
+  async runTests(capability: string, command: string | readonly string[] | null): Promise<vscode.TaskExecution | null> {
+    if (!this.trusted(capability)) return null;
+    if (this.held.has(this.key(capability))) {
+      this.update(capability, { notice: 'A test run is already running for this capability.', error: null });
+      return null;
+    }
     await this.load(capability);
     const tests = this.stateOf(capability).tests ?? [];
-    const commands = command ? [command] : [];
+    const commands = typeof command === 'string' ? [command] : [...new Set(command ?? [])];
     const environment = testsEnvironment(tests, this.chosenEnvironment(capability), commands);
     const argv = testsRunArgv(capability, commands, environment, plannedIdentities(tests, commands));
     if (!await this.confirmed(testsConfirmationKeys(tests, argv, commands), testsConfirmationRequest(capability, tests, commands, environment))) {
-      return this.update(capability, { notice: 'No tests were run.', error: null });
+      this.update(capability, { notice: 'No tests were run.', error: null });
+      return null;
     }
     this.log(argv);
     const execution = await this.execute(capability, this.task('tests-run', capability, null, environment, argv));
-    if (!execution) return;
+    if (!execution) return null;
     this.held.set(this.key(capability), { execution, capability, entry: null, stopping: false });
-    this.update(capability, { notice: `Running ${command ?? 'every test'}${environment ? ` against ${environment}` : ''}. Output is in the task terminal.`, error: null });
+    this.update(capability, { notice: `Running ${commands.length ? commands.join(', ') : 'every test'}${environment ? ` against ${environment}` : ''}. Output is in the task terminal.`, error: null });
+    return execution;
   }
 
   cancelTests(capability: string): void {
@@ -480,6 +545,7 @@ export class RunAndTest implements vscode.Disposable {
       this.update(held.capability, { notice: `The test run finished: ${totalsLine(last.totals)}${notRun ? `; ${notRun} command${notRun === 1 ? '' : 's'} not run` : ''}.` });
     }
     TestSummaryPanel.refreshFor({ kind: 'capability', capability: held.capability });
+    this.testsEnded.fire({ capability: held.capability, execution: held.execution, exitCode, cancelled: held.stopping });
   }
 
   async setEnvironment(capability: string, environment: string): Promise<void> {
@@ -516,7 +582,7 @@ export class RunAndTest implements vscode.Disposable {
       case 'configurations': return void this.editConfigurations(capability, isEntry ? entry : null);
       case 'stop': return entry ? this.stop(capability, entry) : undefined;
       case 'open': return isEntry ? this.open(capability, entry) : undefined;
-      case 'tests': return this.runTests(capability, command || null);
+      case 'tests': return void await this.runTests(capability, command || null);
       case 'cancel-tests': return this.cancelTests(capability);
       case 'summary': return void TestSummaryPanel.show(this.host.client, { kind: 'capability', capability });
       case 'environment': return this.setEnvironment(capability, environment);
@@ -606,6 +672,7 @@ export class RunAndTest implements vscode.Disposable {
     this.polls.clear();
     for (const subscription of this.subscriptions.splice(0)) subscription.dispose();
     this.changed.dispose();
+    this.testsEnded.dispose();
     if (RunAndTest.instance === this) RunAndTest.instance = null;
   }
 }

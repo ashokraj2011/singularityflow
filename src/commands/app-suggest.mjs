@@ -2,6 +2,8 @@
  * `singularity-flow app suggest [--capability ID] [--json]` [RUN amendment §3]: start entries drafted
  * from the IDE run configurations in the checkout. A read; it prints drafts and writes nothing.
  */
+import path from 'node:path';
+
 const SOURCE_WORDS = Object.freeze({
   intellij: 'IntelliJ', pycharm: 'PyCharm', webstorm: 'WebStorm', goland: 'GoLand', rider: 'Rider', vscode: 'VS Code',
   'launch-settings': '.NET launch settings', detected: 'detected'
@@ -13,8 +15,8 @@ const SOURCE_WORDS = Object.freeze({
  * write exactly this file and propose it with capability set|edit --application-file.
  */
 export async function applicationDraftPath(root, capabilityId, { env = process.env } = {}) {
-  const [{ createHash }, { realpathSync }, path, { workflowBuildStateRoot }] = await Promise.all([
-    import('node:crypto'), import('node:fs'), import('node:path'), import('../workflow-build/store.mjs')]);
+  const [{ createHash }, { realpathSync }, { workflowBuildStateRoot }] = await Promise.all([
+    import('node:crypto'), import('node:fs'), import('../workflow-build/store.mjs')]);
   let resolved = path.resolve(root);
   try { resolved = realpathSync(resolved); } catch { /* the path as given */ }
   const repository = createHash('sha256').update(resolved).digest('hex').slice(0, 16);

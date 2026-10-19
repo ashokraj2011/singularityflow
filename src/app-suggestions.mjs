@@ -552,11 +552,11 @@ async function detectMarkers(context, files) {
       const text = await readText(context, file) ?? '';
       const assignment = text.match(/^([A-Za-z_]\w*)\s*(?::\s*\w+\s*)?=\s*FastAPI\(/mu);
       if (!assignment) continue;
-      let packageRoot = directory;
-      while (packageRoot !== context.root && await context.reader.exists(path.join(packageRoot, '__init__.py'))) packageRoot = path.dirname(packageRoot);
-      const module = posixRelative(packageRoot, file).replace(/\.py$/u, '').split('/').join('.');
+      let pythonPackageDirectory = directory;
+      while (pythonPackageDirectory !== context.root && await context.reader.exists(path.join(pythonPackageDirectory, '__init__.py'))) pythonPackageDirectory = path.dirname(pythonPackageDirectory);
+      const module = posixRelative(pythonPackageDirectory, file).replace(/\.py$/u, '').split('/').join('.');
       add(file, 'FastAPI (uvicorn)', { platform: 'python', mode: 'module', interpreter: null, interpreterOptions: [], module: 'uvicorn',
-        script: null, parameters: [`${module}:${assignment[1]}`, '--host', '127.0.0.1', '--port', '8000'], workingDirectory: packageRoot });
+        script: null, parameters: [`${module}:${assignment[1]}`, '--host', '127.0.0.1', '--port', '8000'], workingDirectory: pythonPackageDirectory });
     } else if (base === 'main.go') {
       if (/^package main\b/mu.test(await readText(context, file) ?? '')) mains.push(file);
     } else if (base.endsWith('.csproj')) {

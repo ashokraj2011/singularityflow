@@ -1,6 +1,7 @@
 /**
- * `singularity-flow app plan|start|status|stop|suggest` [RUN M1, amendment M7]: the capability's
- * declared application, model-free and the same for the Shell, VS Code and Copilot.
+ * `singularity-flow app plan|start|status|stop|suggest` [RUN M1, amendments M7 and M11]: the
+ * capability's declared application, model-free and the same for the Shell, VS Code and Copilot.
+ * Start entries may be typed run configurations (run-configurations.mjs).
  */
 import path from 'node:path';
 
@@ -78,8 +79,15 @@ export async function run(_argv, { positionals, options = {} }) {
       console.log(`Application of ${application.capabilityId}:`);
       for (const [index, plan] of plans.entries()) {
         const entry = entries[index];
-        console.log(`  ${plan.id}: ${plan.argv.join(' ')} · in ${plan.repository}/${plan.workingDirectory} · ${plan.url} · ${words(entry)} · ${environmentWords(plan.environments)}`);
-        for (const environment of plan.arguments ? plan.environments : []) console.log(`    ${environment.name}: ${environment.argv.join(' ')}`);
+        const label = `${plan.id}${plan.name && plan.name !== plan.id ? ` (${plan.name})` : ''}${plan.type && plan.type !== 'command' ? ` · ${plan.type}` : ''}`;
+        console.log(`  ${label}: ${plan.argv.join(' ')} · in ${plan.repository}/${plan.workingDirectory} · ${plan.url} · ${words(entry)} · ${environmentWords(plan.environments)}`);
+        const perEnvironment = plan.environments.filter((environment) => environment.argv);
+        for (const environment of perEnvironment) {
+          const names = environment.resolved?.envNames ?? [];
+          console.log(`    ${environment.name}: ${environment.argv.join(' ')}${names.length ? ` (with ${names.join(', ')} set)` : ''}`);
+        }
+        if (!perEnvironment.length && plan.resolved?.envNames.length) console.log(`    with ${plan.resolved.envNames.join(', ')} set`);
+        for (const step of (perEnvironment[0] ?? plan).resolved?.beforeLaunch ?? []) console.log(`    before launch: ${step.argv.join(' ')} (in ${step.workingDirectory})`);
         if (plan.debug) {
           console.log(plan.debug.refusal ? `    debug (${plan.debug.runtime}): refused, ${plan.debug.refusal.message}`
             : `    debug (${plan.debug.runtime}${plan.debug.address ? ` on ${plan.debug.address}` : ', attach to the pid'}): ${plan.debug.argv.join(' ')}${plan.debug.environmentNames.length ? ` with ${plan.debug.environmentNames.join(', ')} set` : ''}`);
@@ -127,7 +135,9 @@ export async function run(_argv, { positionals, options = {} }) {
   const debug = optionBoolean(options, 'debug');
   if (debug) runtime.assertDebugDeclared(entry);
   const requested = optionString(options, 'environment', null);
-  const shownArgv = entry.environments.includes(requested ?? entry.environments[0]) ? runtime.startArgv(entry, requested ?? entry.environments[0]) : entry.argv;
+  const paths = runtime.appRunPaths(root, application.capabilityId, entry.id);
+  const shownArgv = entry.environments.includes(requested ?? entry.environments[0]) ? runtime.startArgv(entry, requested ?? entry.environments[0], { paths })
+    : runtime.startArgv(entry, null, { paths });
   console.log(`Starting ${entry.id}${debug && entry.debug ? ` with the ${entry.debug.runtime} debugger` : ''}: ${shownArgv.join(' ')} (in ${entry.workingDirectory}). Stop with Ctrl+C or singularity-flow app stop ${entry.id}.`);
   const result = await runtime.startApplication(root, application, entry, {
     requestedEnvironment: requested, declaration, debug,

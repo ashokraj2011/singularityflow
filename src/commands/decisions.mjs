@@ -19,7 +19,7 @@
  */
 import { readFile } from 'node:fs/promises';
 import { stdin as processInput, stdout as processOutput } from 'node:process';
-import readline from 'node:readline';
+import readline from 'node:readline/promises';
 
 import { action, commandResult, effects, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';

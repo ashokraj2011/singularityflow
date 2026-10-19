@@ -91,6 +91,26 @@ async function recordedDiscrepancies(root, config, workflow) {
   return { ...sorted, unowned };
 }
 
+/**
+ * Raise one issue and commit it. One issue per commit, so each is a single appended decision that may
+ * sit between a step's submission and its approval without staling either. `raise` and the decision
+ * list both raise through this.
+ */
+export async function commitUpstreamIssue(root, config, workflow, request, { actor, agent = null, authored = 'human' }) {
+  raiseUpstreamIssue(structuredClone(workflow), { ...request, authored, agent, raisedBy: actorKey(actor), at: nowIso() });
+  const { value } = await transactStory(root, config, workflow, {
+    type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,
+    actor, agent, authorityGroup: null, payload: { decision: 'upstream-issue' }
+  }, `[${workflow.workItem.id}][upstream-issue] raise against ${request.phase}`, async (aggregate) => {
+    await assertNoPendingPublication(root, config, aggregate, 'raise an upstream issue');
+    const issue = raiseUpstreamIssue(aggregate, { ...request, authored, agent, raisedBy: actorKey(actor), at: nowIso() });
+    aggregate.history.push({ at: issue.at, actor: issue.raisedBy, agent, event: 'upstream_issue_raised', phase: aggregate.currentPhase ?? null,
+      detail: `${issue.id} against ${issue.phase} (${issue.about}): ${issue.problem}${issue.supersedes ? ` It supersedes ${issue.supersedes}.` : ''}` });
+    return issue;
+  }, { exactWorkItemPaths: [], eventFromResult: (issue) => ({ payload: { decision: 'upstream-issue', issue: issue.id, reviewPacketSha256: null } }) });
+  return value;
+}
+
 async function raise(root, config, workflow, options) {
   const fromArtifact = optionBoolean(options, 'from-artifact');
   const chosen = optionString(options, 'proposed');
@@ -122,21 +142,7 @@ async function raise(root, config, workflow, options) {
   for (const request of requests) raiseUpstreamIssue(structuredClone(workflow), { ...request, authored, agent,
     raisedBy: actorKey(actor), at: nowIso() });
   const raised = [];
-  for (const request of requests) {
-    // One issue per commit, so each is a single appended decision that may sit between a step's
-    // submission and its approval without staling either.
-    const { value } = await transactStory(root, config, workflow, {
-      type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,
-      actor, agent, authorityGroup: null, payload: { decision: 'upstream-issue' }
-    }, `[${workflow.workItem.id}][upstream-issue] raise against ${request.phase}`, async (aggregate) => {
-      await assertNoPendingPublication(root, config, aggregate, 'raise an upstream issue');
-      const issue = raiseUpstreamIssue(aggregate, { ...request, authored, agent, raisedBy: actorKey(actor), at: nowIso() });
-      aggregate.history.push({ at: issue.at, actor: issue.raisedBy, agent, event: 'upstream_issue_raised', phase: aggregate.currentPhase ?? null,
-        detail: `${issue.id} against ${issue.phase} (${issue.about}): ${issue.problem}${issue.supersedes ? ` It supersedes ${issue.supersedes}.` : ''}` });
-      return issue;
-    }, { exactWorkItemPaths: [], eventFromResult: (issue) => ({ payload: { decision: 'upstream-issue', issue: issue.id, reviewPacketSha256: null } }) });
-    raised.push(value);
-  }
+  for (const request of requests) raised.push(await commitUpstreamIssue(root, config, workflow, request, { actor, agent, authored }));
   const unowned = recorded?.unowned ?? [];
   if (!optionBoolean(options, 'json')) {
     if (!raised.length && !unowned.length) console.log('No unraised upstream discrepancies are recorded in this step\'s artifacts.');
@@ -177,21 +183,23 @@ function list(workflow, options) {
   });
 }
 
-async function decide(root, config, workflow, issueId, options) {
+/**
+ * Decide one issue through the earlier step's approval groups and commit it: a return rejects the
+ * current step to the issue's step in the same commit. `decide` and the decision list both decide
+ * through this, so authority, validation and the record are the same.
+ */
+export async function decideUpstreamIssueRecord(root, config, workflow, issueId, {
+  outcome, reason = '', link = null, expires = null
+}, { actor, agent = null }) {
   const state = upstreamIssueStates(workflow).find((entry) => entry.issue.id === issueId);
   if (!state) refused(`${issueId || 'That issue'} is not an upstream issue of this Story. List them with upstream-issue list.`, 'UPSTREAM_ISSUE_NOT_FOUND');
-  const outcome = optionString(options, 'outcome');
   if (!UPSTREAM_ISSUE_OUTCOMES.includes(outcome)) refused(`--outcome must be one of ${UPSTREAM_ISSUE_OUTCOMES.join(', ')}.`);
   const groups = upstreamIssueAuthorities(workflow, state.issue.phase);
   if (!groups.length) refused(`${state.issue.phase} has no approval group, so nobody can decide this issue.`, 'UPSTREAM_ISSUE_AUTHORITY_UNAVAILABLE');
-  const actor = actionActor(root);
-  const session = await loadSession(root, { required: false });
-  const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
   const authority = requireApprovalAuthority(workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities,
     { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 }, actor);
-  const reason = optionString(options, 'reason') ?? '';
-  const decision = (aggregate, link = optionString(options, 'link') ?? null) => decideUpstreamIssue(aggregate, {
-    issue: issueId, outcome, reason, link, expiresAt: optionString(options, 'expires') ?? null,
+  const decision = (aggregate, recordLink = link) => decideUpstreamIssue(aggregate, {
+    issue: issueId, outcome, reason, link: recordLink, expiresAt: expires,
     actor: actorKey(actor), authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null, at: nowIso()
   });
   // Check everything except the change request a return opens before anything is written.
@@ -226,6 +234,22 @@ async function decide(root, config, workflow, issueId, options) {
     }, { exactWorkItemPaths: [], eventFromResult: (recorded) => ({ authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
       payload: { decision: 'upstream-issue', issue: recorded.issue, reviewPacketSha256: null } }) }));
   }
+  return { value, authority };
+}
+
+async function decide(root, config, workflow, issueId, options) {
+  const state = upstreamIssueStates(workflow).find((entry) => entry.issue.id === issueId);
+  if (!state) refused(`${issueId || 'That issue'} is not an upstream issue of this Story. List them with upstream-issue list.`, 'UPSTREAM_ISSUE_NOT_FOUND');
+  const outcome = optionString(options, 'outcome');
+  if (!UPSTREAM_ISSUE_OUTCOMES.includes(outcome)) refused(`--outcome must be one of ${UPSTREAM_ISSUE_OUTCOMES.join(', ')}.`);
+  const groups = upstreamIssueAuthorities(workflow, state.issue.phase);
+  if (!groups.length) refused(`${state.issue.phase} has no approval group, so nobody can decide this issue.`, 'UPSTREAM_ISSUE_AUTHORITY_UNAVAILABLE');
+  const actor = actionActor(root);
+  const session = await loadSession(root, { required: false });
+  const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
+  const { value, authority } = await decideUpstreamIssueRecord(root, config, workflow, issueId, {
+    outcome, reason: optionString(options, 'reason') ?? '', link: optionString(options, 'link') ?? null, expires: optionString(options, 'expires') ?? null
+  }, { actor, agent });
   if (!optionBoolean(options, 'json')) {
     console.log(`Decided ${issueId} through ${authority.authorityGroup}: ${outcome}${value.link ? ` (${value.link})` : ''}.`);
     if (outcome === 'return') console.log(`${value.changeRequest.id} returned the Story to ${value.changeRequest.targetPhase}; the current step's working files are kept.`);

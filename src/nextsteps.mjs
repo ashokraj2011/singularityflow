@@ -13,6 +13,7 @@ import { nextPhaseAfterSkillAmendment } from './lifecycle-transitions.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { applicabilityStatus } from './evidence/applicability.mjs';
 import { contextBoundaryPresentation, formatContextBoundaryHandoff, pendingContextBoundary } from './context-policy.mjs';
+import { OPEN_UPSTREAM_ISSUE_STATUSES, decisionHeadline, upstreamIssueStates } from './upstream-routes.mjs';
 
 function action(timing, skill, command, reason, metadata = {}) {
   const candidate = copilotAction({
@@ -82,6 +83,36 @@ function applicabilityActions(workflow, phase) {
   ));
 }
 
+/**
+ * What holds the step back from approval (or, for a step nobody approves, from completing): the
+ * pending-decision summary its caller read (conformance gaps and open upstream issues), or, when no
+ * caller read one, the open upstream issues that would refuse the Story's end. Null when nothing does.
+ */
+function decisionHold(workflow, phase, pendingDecisions) {
+  if (pendingDecisions !== undefined) return pendingDecisions?.count ? pendingDecisions : null;
+  const order = workflow.phaseOrder ?? [];
+  const ends = order.indexOf(phase.id) >= 0 && order.slice(order.indexOf(phase.id) + 1).every((id) => workflow.phases?.[id]?.status === 'skipped');
+  const open = ends ? upstreamIssueStates(workflow).filter((state) => OPEN_UPSTREAM_ISSUE_STATUSES.includes(state.status)).length : 0;
+  return open ? { count: open, headline: decisionHeadline(workflow, phase.id, open), command: `singularity-flow decisions ${workflow.workItem.id}` } : null;
+}
+
+/**
+ * Parity with the engine: never offer an approval (or the submission that completes a step nobody
+ * approves) that pending decisions would refuse. The decision list takes its place, at its timing.
+ */
+function withDecisionList(workflow, phase, actions, held) {
+  if (!held) return actions;
+  const workId = workflow.workItem.id;
+  const blocked = (entry) => entry.command?.startsWith(`singularity-flow approve ${phase.id} `)
+    || (phase.approvalPolicy?.mode === 'none' && entry.command?.startsWith(`singularity-flow submit ${phase.id}`));
+  const index = actions.findIndex(blocked);
+  if (index < 0) return actions;
+  const decide = action(actions[index].timing, '/sf-decide', `singularity-flow decisions ${workId}`,
+    `${held.headline} Decide them in one place: each is shown in plain words with its choices, and its approvers record them.`,
+    { route: 'decision-list' });
+  return [...actions.slice(0, index), decide, ...actions.slice(index + 1).filter((entry) => !blocked(entry))];
+}
+
 function cancellationActions(workflow) {
   return [
     action('now', '/sflow-documents', `singularity-flow documents list ${workflow.workItem.id}`, 'Review the preserved artifacts for this archived Story.'),
@@ -117,7 +148,7 @@ function afterCompletionActions(workflow, phase, { withoutApproval = false, repo
 
 export function workflowNextSteps(workflow, {
   publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null,
-  repositoryHost = null
+  repositoryHost = null, pendingDecisions = undefined
 } = {}) {
   const workId = workflow.workItem.id;
   const phase = workflow.currentPhase ? workflow.phases[workflow.currentPhase] : null;
@@ -156,12 +187,13 @@ export function workflowNextSteps(workflow, {
     item.command,
     item.reason, item.authoringStage ? { authoringStage: item.authoringStage, preserveExistingWork: true } : {}
   ));
-  if (phase.status === 'awaiting_approval') return [...undecided, ...immediate, ...afterCompletionActions(workflow, phase, { repositoryHost })];
+  const held = decisionHold(workflow, phase, pendingDecisions);
+  if (phase.status === 'awaiting_approval') return withDecisionList(workflow, phase, [...undecided, ...immediate, ...afterCompletionActions(workflow, phase, { repositoryHost })], held);
 
   // A required after-step action of an earlier step holds this one until its approved delivery has
   // a receipt, so that delivery comes first and the step's own work follows it.
   if (stepActionHold?.missing?.length && phase.status === 'in_progress') {
-    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, sourceReviewEvidence, authoringProgress, repositoryHost });
+    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions });
     const command = stepActionHold.nextAction ?? `singularity-flow integrations status --work-id ${workId} --all`;
     return [
       action('now', copilotSkillForCommand(command) ?? '/sf-integrations', command,
@@ -254,10 +286,10 @@ export function workflowNextSteps(workflow, {
     action('alternative', '/sf-cancel', `singularity-flow cancel ${workId} --reason <reason> --confirm ${workId}`, 'Cancel this Story, preserve its artifacts, and move it to Archived.'),
     ...afterCompletionActions(workflow, phase, { withoutApproval: noApproval, repositoryHost })
   );
-  return actions;
+  return withDecisionList(workflow, phase, actions, held);
 }
 
-export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null } = {}) {
+export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined } = {}) {
   if (!initialized) return {
     schemaVersion: 1,
     state: 'not_initialized',
@@ -286,7 +318,7 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
   };
   const contextBoundary = !publicationPending && !recovery?.requiresRecovery && !workflow.pendingDecision
     && !stepActionHold?.missing?.length ? contextBoundaryPresentation(pendingContextBoundary(workflow)) : null;
-  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost });
+  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions });
   return {
     schemaVersion: 1,
     state: publicationPending ? 'publication_pending' : recovery?.requiresRecovery ? 'recovery_required' : workflow.status,

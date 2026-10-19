@@ -1246,6 +1246,38 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['approve', 'reopen', 'submit']
   },
+  decisions: {
+    summary: 'See everything people must decide before a step can move, in plain words, and record the choices at once.',
+    description: [
+      'Lists, for the current step (or --phase), each decision people must make before it can be approved: a',
+      'partial or missing verdict in a conformance report together with the upstream issue that names it, an',
+      'open upstream issue the Story cannot finish without, and a test command that could not run here. Each item',
+      'has a plain title, why it waits (from recorded facts), its options with the recommended one first, what',
+      'each option would record, what it still needs (a date or a reason, each with a default) and who decides.',
+      'A superseded upstream issue is never listed; its replacement carries it.',
+      'decisions record writes the chosen options with one confirmation: the list\'s digest. It refuses when the',
+      'list changed since it was reviewed, and an item the current identity may not decide is not recorded (the',
+      'refusal names who decides and the line to share). Each record is written by the same function its own',
+      'command uses, under the same approval-group check, so nothing is decided for anyone and every choice keeps',
+      'its history. In an interactive terminal it asks for each choice, shows a summary and asks y/N.',
+      'Accepting a reused run never certifies a run that was not recorded: the run stays the earlier step\'s.'
+    ],
+    options: [
+      ['--phase PHASE', 'The step whose decisions to list; the current step by default.'],
+      ['--choose ITEM=OPTION', 'Choose an option for an item, such as d1=reuse; repeat per item.'],
+      ['--reason ITEM=TEXT', 'Replace the default reason of a chosen item (20 to 1000 characters).'],
+      ['--expires ITEM=YYYY-MM-DD', 'Replace the default date of a chosen item (at most 90 days ahead).'],
+      ['--cause ITEM=TEXT', 'Replace the default cause of an accepted test-run risk.'],
+      ['--confirm sha256:DIGEST', 'record only: the digest of the list the choices were made from.'],
+      ['--answers FILE', 'record only: a JSON file with choose, reason, expires, cause and confirm.']
+    ],
+    examples: [
+      ['singularity-flow decisions BIN-501', 'Shows what Release waits for, in plain words, with the choices.'],
+      ['singularity-flow decisions record BIN-501 --choose d1=reuse --confirm sha256:<DIGEST>',
+        'Records the recommended reuse and the issue decision it implies, then approval can go ahead.']
+    ],
+    seeAlso: ['approve', 'upstream-issue', 'decision']
+  },
   'upstream-issue': {
     summary: 'Record a defect in an earlier step without stopping the current one; its approvers decide it.',
     description: [

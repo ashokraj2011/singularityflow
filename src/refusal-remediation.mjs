@@ -1042,7 +1042,7 @@ function genericSteps(argv) {
  * earlier step's owners. One that falls after the first three is kept after them.
  */
 export const PLAN_STEP_LIMIT = 3;
-export const PLAN_RESERVED_STEP_IDS = Object.freeze(['accept-test-run-risk', 'renew-test-run-risk', 'raise-upstream-issue',
+export const PLAN_RESERVED_STEP_IDS = Object.freeze(['open-decision-list', 'accept-test-run-risk', 'renew-test-run-risk', 'raise-upstream-issue',
   'decide-conformance-gap', 'return-conformance-gap', 'reuse-recorded-evidence', 'record-fresh-run']);
 
 const CONFORMANCE_GAP_STEP_IDS = Object.freeze({ 'raise-upstream-issue': 'raise-upstream-issue', 'decide-upstream-issue': 'decide-conformance-gap',
@@ -1050,14 +1050,18 @@ const CONFORMANCE_GAP_STEP_IDS = Object.freeze({ 'raise-upstream-issue': 'raise-
 
 /**
  * An honest partial or missing verdict waits for a person, never for a repair of the report: the
- * first clause's every route and each other clause's decision, in place of the phase-repair steps.
+ * decision list first (every decision in plain words, as choices), then the first clause's every
+ * route and each other clause's decision for scripts, in place of the phase-repair steps.
  */
 function conformanceGapSteps(error) {
   const gaps = Array.isArray(error?.details?.conformanceGaps) ? error.details.conformanceGaps.slice(0, 5) : [];
-  return gaps.flatMap((gap, index) => (Array.isArray(gap?.choices) ? gap.choices : []).slice(0, index === 0 ? 4 : 1)
+  const list = error?.details?.nextAction?.command?.startsWith('singularity-flow decisions ')
+    ? step('open-decision-list', String(error.details.nextAction.label ?? 'Open the decision list.').slice(0, 2000),
+      error.details.nextAction.command, 'remediation', '/sf-decide') : null;
+  return [list, ...gaps.flatMap((gap, index) => (Array.isArray(gap?.choices) ? gap.choices : []).slice(0, index === 0 ? 4 : 1)
     .map((choice) => (typeof choice?.command === 'string' && CONFORMANCE_GAP_STEP_IDS[choice.kind]
       ? step(CONFORMANCE_GAP_STEP_IDS[choice.kind], String(choice.detail ?? '').slice(0, 2000), choice.command, 'remediation', choice.skill ?? null)
-      : null))).filter(Boolean);
+      : null)))].filter(Boolean);
 }
 // A producer's own `decision test-risk` route: the step approvers renew or record it, so no cap drops it.
 const testRunRiskRoute = (entry) => entry?.argv?.[0] === 'decision' && entry?.argv?.[1] === 'test-risk';
@@ -1159,7 +1163,8 @@ export function refusalRemediationPlan(error, argv = []) {
       ? Object.freeze({ ...rawPhaseContext, strategy: 'upstream-input',
         upstreamPhases: upstreamInputContext(argv, error).producers, retryCommand: null, retrySkill: null })
     : conformanceGapBlocked && rawPhaseContext
-      ? Object.freeze({ ...rawPhaseContext, strategy: 'person-decides-conformance-gap', retryCommand: null, retrySkill: null })
+      // People decide; the decision list opens in this same turn, nothing about the report is repaired.
+      ? Object.freeze({ ...rawPhaseContext, strategy: 'person-decides-conformance-gap', turn: 'current-turn', retryCommand: null, retrySkill: null })
       : rawPhaseContext;
   const phaseSteps = phaseContainmentSteps(phaseContext);
   let explicit = explicitCommands(error).map((command, index) => step(
@@ -1404,6 +1409,37 @@ export function refusalDetails(details) {
     projected.relocation = { requiresConfirmation: true, argv: list(relocation.argv, text).slice(0, 16),
       useArgv: list(relocation.useArgv, text).slice(0, 8), path: text(relocation.path) };
   }
+  // The decision list: the current list and digest a stale confirmation must be replaced with, the
+  // summary and exact record command an unconfirmed choice needs, who decides a refused item, and
+  // what a part-way failure recorded and left. Plain words and commands only.
+  const digest = (value) => (/^sha256:[a-f0-9]{64}$/u.test(value ?? '') ? value : null);
+  const packet = details.packet;
+  if (packet?.resultType === 'sflow-decisions' && digest(packet.packetSha256)) {
+    projected.packet = compact({ resultType: packet.resultType, packetSha256: packet.packetSha256, headline: text(packet.headline),
+      status: text(packet.status), record: compact({ recommended: text(packet.record?.recommended), interactive: text(packet.record?.interactive),
+        share: text(packet.record?.share) }),
+      items: list(packet.items, (item) => (item && typeof item === 'object' ? compact({ id: text(item.id), kind: text(item.kind), title: text(item.title),
+        why: text(item.why), decidedBy: text(item.decidedBy?.words),
+        options: list(item.options, (option) => (option && typeof option === 'object' ? compact({ id: text(option.id), label: text(option.label),
+          recommended: option.recommended === true }) : null)) }) : null)).slice(0, 20) });
+  }
+  if (digest(details.packetSha256)) projected.packetSha256 = details.packetSha256;
+  const summary = list(details.summary, text);
+  if (summary.length) projected.summary = summary;
+  if (details.record && typeof details.record === 'object' && text(details.record.command)) {
+    projected.record = compact({ command: safeCommandGuidance({ command: details.record.command })?.command ?? null,
+      recordInChat: typeof details.record.recordInChat === 'boolean' ? details.record.recordInChat : null });
+  }
+  const decisionItems = (value) => list(value, (entry) => (entry && typeof entry === 'object' ? compact({ item: text(entry.item), kind: text(entry.kind),
+    title: text(entry.title), record: text(entry.record), words: text(entry.words), share: text(entry.share) }) : null));
+  for (const key of ['refused', 'recorded', 'remaining']) {
+    const entries = decisionItems(details[key]);
+    if (entries.length) projected[key] = entries;
+  }
+  if (details.decisions && typeof details.decisions === 'object' && text(details.decisions.headline)) {
+    projected.decisions = compact({ headline: text(details.decisions.headline),
+      count: Number.isSafeInteger(details.decisions.count) ? details.decisions.count : null });
+  }
   // A stale or unconfirmed recreate-sync apply: the current list and digest a person must review.
   const recreate = details.preview;
   if (recreate?.resultType === 'sflow-configuration-recreate-sync' && /^sha256:[a-f0-9]{64}$/u.test(recreate.confirmation ?? '')) {
@@ -1461,6 +1497,8 @@ export function renderRefusalPlan(plan) {
           ? `  Scope: phase ${plan.context.phaseId} — pinned test-policy prerequisite; preview a reviewed test-command amendment for the active phase, then follow its preparation or fresh-validation route.`
         : plan.context.strategy === 'escalate-repeated-finding'
           ? `  Scope: phase ${plan.context.phaseId} — the same finding keeps returning; stop repairing it and hand it to someone other than the author. Nothing was accepted or waived.`
+        : plan.context.strategy === 'person-decides-conformance-gap'
+          ? `  Scope: phase ${plan.context.phaseId} — people decide what is open; nothing about the report needs repairing. Open the decision list now.`
         : plan.context.strategy === 'approval-identity'
           ? `  Scope: phase ${plan.context.phaseId} — who decides, not what is decided; nothing about the work needs repairing.`
         : plan.context.strategy === 'upstream-input'

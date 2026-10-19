@@ -191,6 +191,21 @@ export function agentAct(result) {
       said: 'Repair this staged packet now using exact citation fields and pinned text, then check the changed packet. At most two changed-packet repair attempts; never retry unchanged bytes or invent coverage.',
       ...correctionList(result.findings) };
   }
+  // The decision list: the person chooses; recording a reused run or a test-run risk is their own
+  // terminal step, and an agent records only upstream-issue options, in a /sf-decide turn.
+  const list = result.resultType === 'sflow-decisions' ? result : result.data?.resultType === 'sflow-decisions' ? result.data : null;
+  if (list) {
+    const at = list === result ? '' : 'data.';
+    const record = list.preview?.record ?? null;
+    if (record) return record.recordInChat
+      ? { state: 'confirm', do: null, read: [`${at}preview`],
+        said: `Show ${at}preview.summary and ask the person for an explicit yes in this chat. In a /sf-decide turn run ${at}preview.record.command once; otherwise give it to them for their own terminal. Never change its digest.` }
+      : { state: 'confirm-in-terminal', do: null, read: [`${at}preview`],
+        said: `Show ${at}preview.summary. The person records it by running ${at}preview.record.command in their own terminal; never run it or change its digest.` };
+    if (list.items?.length) return { state: 'ask-person', do: null, read: [`${at}items`, `${at}record`],
+      said: 'Show each item\'s title and why; ask the person to pick one of its options (recommended first) and any date or reason, offering its default. Never choose for them.' };
+    return { state: 'read', do: null, said: oneLine(list.headline) };
+  }
   const action = genericAction(result);
   const state = result.classification === 'convergence-advance-required' ? 'confirm-review' : 'next';
   const said = oneLine(result.reason ?? result.agentInstruction ?? (result.classification ? `Classification: ${result.classification}.` : '')) || null;

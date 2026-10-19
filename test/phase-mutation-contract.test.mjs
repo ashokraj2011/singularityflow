@@ -419,6 +419,35 @@ test('/sf-decide turns permit only the bound decision commands its skill runs', 
     `${refused.stdout}\n${refused.stderr}`);
 });
 
+test('a /sf-decide turn records only the decision list\'s upstream-issue options; a reuse or test-run risk is the person\'s own terminal step', async t => {
+  const f = await fixture(t);
+  const digest = `sha256:${'c'.repeat(64)}`;
+  const decide = await f.enter('/sf-decide PMC-1', 'list-decider');
+  const shell = (payload, command) => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  for (const command of ['singularity-flow decisions PMC-1 --json', 'singularity-flow decisions PMC-1 --choose d1=reuse --json',
+    `singularity-flow decisions record PMC-1 --choose d1=accept-risk --expires d1=2026-11-18 --confirm ${digest} --json`,
+    `singularity-flow decisions record PMC-1 --choose d1=dismiss --choose d2=return --reason "d1=Not a defect in what was delivered." --confirm ${digest}`]) {
+    assert.deepEqual(await shell(decide, command), {}, command);
+  }
+  for (const command of [`singularity-flow decisions record PMC-1 --choose d1=reuse --confirm ${digest}`,
+    `singularity-flow decisions record PMC-1 --choose d1=dismiss --choose d2=accept-test-risk --confirm ${digest}`,
+    `singularity-flow decisions record OTHER --choose d1=dismiss --confirm ${digest}`,
+    'singularity-flow decisions record PMC-1 --choose d1=dismiss',
+    'singularity-flow decisions record PMC-1 --answers answers.json',
+    `singularity-flow decisions record PMC-1 --choose d1=dismiss --confirm ${digest} --fetch`]) {
+    const denied = await shell(decide, command);
+    assert.equal(denied.permissionDecision, 'deny', command);
+  }
+  const reuse = await shell(decide, `singularity-flow decisions record PMC-1 --choose d1=reuse --confirm ${digest}`);
+  assert.match(reuse.permissionDecisionReason, /recording the decision list is the person's own step: they run the exact decisions record command in their own terminal/u);
+  for (const [skill, mode] of [['/sf-phase', null], ['/sf-recover', 'kernel'], ['/sf-approve', 'approver']]) {
+    const payload = await f.enter(skill, mode ?? undefined);
+    assert.deepEqual(await shell(payload, 'singularity-flow decisions PMC-1 --json'), {}, `${skill} may read the list`);
+    const denied = await shell(payload, `singularity-flow decisions record PMC-1 --choose d1=dismiss --confirm ${digest}`);
+    assert.equal(denied.permissionDecision, 'deny', skill);
+  }
+});
+
 test('an authoring turn may raise an upstream issue but never decide one', async t => {
   const f = await fixture(t);
   const payload = await f.enter('/sf-phase');

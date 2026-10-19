@@ -17,6 +17,9 @@ const FILE_READS = new Set(['read', 'read_file', 'readfile', 'read_text_file', '
 const DECIDE_SKILL_MUTATIONS = Object.freeze(['choose', 'applicability', 'scope', 'completeness', 'plan']);
 // An agent may raise an issue or propose an amendment; only an approver decides or revalidates.
 const UPSTREAM_ISSUE_DECISIONS = Object.freeze(['decide', 'decide-amendment', 'revalidate']);
+// The decision list's options that write only upstream-issue records (ISSUE_ONLY_OPTIONS in
+// src/decision-list.mjs; a test pins the two equal). A /sf-decide turn may record only these.
+export const DECISION_LIST_CHAT_OPTIONS = Object.freeze(['accept-risk', 'dismiss', 'return']);
 const DELEGATION = new Set(['task', 'spawn_agent', 'write_agent', 'delegate', 'run_subagent']);
 const IMPORT_TEAM_COMMANDS = Object.freeze(['inspect', 'compile', 'status']);
 const digest = value => createHash('sha256').update(value).digest('hex');
@@ -298,6 +301,10 @@ function shellAllowed(call, mode, value) {
     && typeof options.reason === 'string' && /^[a-f0-9]{64}$/u.test(options.confirm ?? '')
     && positionals.length === 3
     && Object.keys(options).every(key => ['work-id', 'finding', 'reason', 'confirm', 'json'].includes(key));
+  // A /sf-decide turn records the decision list's upstream-issue options for the bound Story, with the
+  // list's digest; a reused run or a test-run risk stays the person's own terminal step.
+  if (mode === 'decision-only' && positionals[0] === 'decisions') return !value.decisionEnded
+    && decisionListChatRecord(positionals, options, value.contract.workId);
   // The /sf-decide turn boundary: the decision commands its skill names, for the bound Story only.
   // `decision risk` and `decision witness` stay outside it; a witness needs the human terminal.
   if (mode === 'decision-only' && positionals[0] === 'upstream-issue') return !value.decisionEnded
@@ -329,6 +336,8 @@ function shellAllowed(call, mode, value) {
     && typeof options['change-set'] === 'string' && path.isAbsolute(options['change-set'])
     && (value.fixStaging ?? []).includes(path.resolve(options['change-set']));
   if (mode === 'read') return false;
+  // Recording the decision list is a person's decision; outside a /sf-decide turn it is theirs to run.
+  if (positionals[0] === 'decisions') return false;
   // Deciding an upstream issue is the earlier step's approvers' call, like approve and reject; an
   // agent may raise one and keep working, never decide it.
   if (positionals[0] === 'upstream-issue' && UPSTREAM_ISSUE_DECISIONS.includes(positionals[1])) return false;
@@ -339,6 +348,27 @@ function shellAllowed(call, mode, value) {
   // Setting held changes aside drops them from the checkout: the person who looked at them decides.
   if (positionals[0] === 'recover' && options['set-aside'] === true) return false;
   return !['approve', 'reject'].includes(positionals[0]);
+}
+
+/**
+ * `decisions record` for one Story with only upstream-issue options, each item once, with the list's
+ * digest: what a /sf-decide turn may record after the person's explicit yes in chat.
+ */
+function decisionListChatRecord(positionals, options, workId) {
+  if (positionals[1] !== 'record' || positionals[2] !== workId || positionals.length !== 3) return false;
+  if (!Object.keys(options).every(key => ['choose', 'reason', 'expires', 'confirm', 'json', 'phase'].includes(key))) return false;
+  if (!/^sha256:[a-f0-9]{64}$/u.test(options.confirm ?? '')) return false;
+  const chosen = [options.choose].flat().filter(entry => entry !== undefined);
+  return chosen.length > 0 && chosen.every(entry => typeof entry === 'string'
+    && new RegExp(`^d\\d{1,3}=(?:${DECISION_LIST_CHAT_OPTIONS.join('|')})$`, 'u').test(entry));
+}
+
+/** A verified `decisions record`: the person's own step unless a /sf-decide turn may record it. */
+function decisionListRecord(call, value) {
+  const safe = verifiedShellForm(call, value);
+  if (!safe) return false;
+  const { positionals } = parseArgs(safe.argv);
+  return positionals[0] === 'decisions' && positionals[1] === 'record';
 }
 
 /** A verified `upstream-issue decide`: an approver's decision, never an agent's. */
@@ -575,6 +605,8 @@ export async function mutationToolGuard(payload = {}) {
       if (!kernel) {
         if (setAsideDecision(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: setting held changes aside removes them from the checkout (after a private recovery copy); the person who looked at them runs it in their own terminal. Show the user the listed files and the command, and stop; do not retry it');
+        if (decisionListRecord(call, value)) return mutationDenial(contract,
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: recording the decision list is the person\'s own step: they run the exact decisions record command in their own terminal (a /sf-decide turn may record only its upstream-issue options, after their explicit yes). Show the user the summary and the command, and stop; do not retry it or change its digest');
         if (testRunRiskDecision(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step\'s tests cannot run here, reusing an earlier step\'s recorded run for it, or how a closed Story\'s drifted clause is resolved, is decided by a person who approves that step, in their own terminal, not by this turn. Show the user the command and stop; do not retry it');
         if (contract.turnMode !== 'authoring' && verifiedShellForm(call, value)) {

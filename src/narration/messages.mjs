@@ -258,6 +258,19 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Recorded ${slot(s.outcome)} for ${slot(s.phase)}.`,
     preserves: false
   },
+  'decisions.show.succeeded': {
+    headline: (s) => (Number(s.count) ? `${slot(s.count)} decision(s) listed; nothing was recorded.` : 'Nothing is waiting for a decision.'),
+    preserves: true
+  },
+  'decisions.preview.succeeded': {
+    headline: (s) => `${slot(s.chosen, '0')} choice(s) previewed; nothing is recorded until the record command runs.`,
+    preserves: true
+  },
+  'decisions.record.succeeded': {
+    headline: (s) => `Recorded ${slot(s.count, '0')} decision(s) as ${slot(s.records, '0')} record(s)`
+      + (Number(s.refused) > 0 ? `; ${slot(s.refused)} you may not decide were not recorded.` : '.'),
+    preserves: false
+  },
   'upstream-issue.decide.succeeded': {
     headline: (s) => `Decided ${slot(s.issue)}: ${slot(s.outcome)}.`,
     preserves: false

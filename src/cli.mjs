@@ -2017,11 +2017,11 @@ async function nextCommand(options) {
     console.log('Run the Flow Gate for the completed workflow.');
     return (await import('./commands/validate.mjs')).gateCommand({ ...options, terminal: true });
   }
-  if (phase.status === 'awaiting_approval') {
-    printCommandRoutes(`singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`, {
-      label: `Review and decide '${phase.id}'`
-    });
-    console.log(`Review and decide submitted phase '${phase.id}'.`);
+  if (phase.status === 'awaiting_approval') { // Decisions approval would refuse for come first, in one list.
+    const held = await (await import('./decision-list-facts.mjs')).pendingDecisionSummary(root, config, workflow, phase).catch(() => null);
+    printCommandRoutes(held?.command ?? `singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`, { label: held?.headline ?? `Review and decide '${phase.id}'` });
+    console.log(held ? `${held.headline} Decide them in one place before approval.` : `Review and decide submitted phase '${phase.id}'.`);
+    if (held) return (await import('./commands/decisions.mjs')).run(['decisions', workflow.workItem.id], { positionals: ['decisions', workflow.workItem.id], options: {} });
     return (await import('./commands/approve.mjs')).approveCommand(['approve', workflow.workItem.id], { ...options, fetch: optionBoolean(options, 'fetch', true) });
   }
   if (phase.status !== 'in_progress') throw new SingularityFlowError(`Cannot automatically continue phase '${phase.id}' while it is ${phase.status}.\nCopilot: /sf-nextsteps ${workflow.workItem.id}\nShell: singularity-flow nextsteps ${workflow.workItem.id}\nVS Code (model-free): not available for this action`);
@@ -11799,7 +11799,7 @@ async function dispatch(command, positionals, options, argv) {
     watch: () => watchCommand(positionals, options),
     recover: () => recoverCommand(positionals, options),
     appeal: async () => (await import('./commands/appeal.mjs')).run(positionals, { options }),
-    'upstream-issue': async () => (await import('./commands/upstream-issue.mjs')).run(positionals, { options }),
+    'upstream-issue': async () => (await import('./commands/upstream-issue.mjs')).run(positionals, { options }), decisions: async () => (await import('./commands/decisions.mjs')).run(positionals, { positionals, options }),
     explain: async () => (await import('./commands/explain.mjs')).run(argv, { positionals, options }),
     why: async () => (await import('./commands/why.mjs')).run(argv, { positionals, options }),
     // The five verbs. Each dispatches into the same router; the registry keeps them distinct

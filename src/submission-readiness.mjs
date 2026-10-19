@@ -165,6 +165,16 @@ export async function submissionReadiness(root, config, workflow, {
         nextCommand: `singularity-flow appeal list --phase ${phase.id} --json`, nextSkill: '/sf-appeal' };
     }
   }
+  // Decisions approval would refuse for (a conformance gap, an open upstream issue at the Story's end)
+  // route to the decision list before any approval is offered [decision list parity].
+  if (phase?.status === 'awaiting_approval' && phaseId === workflow.currentPhase) {
+    const held = await (await import('./decision-list-facts.mjs')).pendingDecisionSummary(root, config, workflow, phase).catch(() => null);
+    if (held) {
+      return { ...readiness, lifecycleReady: false, classification: 'decisions-required', reasonCode: 'DECISIONS_REQUIRED',
+        reason: held.headline, command: held.command, nextCommand: held.command, nextSkill: '/sf-decide',
+        decisions: { count: held.count, headline: held.headline, copilotCommand: held.copilotCommand } };
+    }
+  }
   // Before submission, the command must first run fresh quality checks and refresh observed claim
   // bindings; it performs the terminal preview at that last pre-mutation boundary. Re-evaluate
   // here only once the phase is already awaiting approval, so host routing cannot mistake

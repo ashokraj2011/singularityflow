@@ -785,6 +785,8 @@ Usage:
   singularity-flow decision evidence-reuse [WORK-ID] [--fetch] (--phase PHASE --from-attempt TA-ID [--expires YYYY-MM-DD] | --revoke ERU-ID) --reason TEXT [--json]
   singularity-flow decision witness [WORK-ID] [--fetch] --criterion AC-ID --slot SLOT --file PATH (--confirm ITEM | --deny ITEM)... --reason TEXT [--json]
   singularity-flow decision scope [WORK-ID] [--fetch] --item SRI-ID|DOC-ID --as included|existing|excluded|deferred|informative|duplicate|superseded [--clause ID,...] --reason TEXT [--json]
+  singularity-flow decisions [WORK-ID] [--phase PHASE] [--choose ITEM=OPTION [--reason ITEM=TEXT] [--expires ITEM=YYYY-MM-DD] [--cause ITEM=TEXT]]... [--json]
+  singularity-flow decisions record [WORK-ID] [--phase PHASE] (--choose ITEM=OPTION [--reason ITEM=TEXT] [--expires ITEM=YYYY-MM-DD] [--cause ITEM=TEXT]... --confirm sha256:DIGEST | --answers FILE) [--fetch] [--json]
   singularity-flow upstream-issue raise --phase EARLIER --about ID|SECTION --problem TEXT [--assumption TEXT] [--impact TEXT] [--proposed KIND] [--authored human|governed-agent] [--supersedes UPI-ID] [--work-id WORK-ID] [--json]
   singularity-flow upstream-issue raise --from-artifact [--work-id WORK-ID] [--json]
   singularity-flow upstream-issue list [--open] [--work-id WORK-ID] [--json]

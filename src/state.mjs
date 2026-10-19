@@ -119,7 +119,7 @@ import {
   publishedGenerationCommit, verifyOpenGenerationIntent
 } from './generation-boundary.mjs';
 import { conformanceVerdictGaps } from './conformance-verdicts.mjs';
-import { CONFORMANCE_GAP_RULE, conformanceGapRefusal } from './upstream-routes.mjs';
+import { CONFORMANCE_GAP_RULE, conformanceGapRefusal, upstreamIssueStates } from './upstream-routes.mjs';
 import { conformanceEvidenceReuse, inspectPhaseQualifiedConformance, withSelfApprovalDisclosures, withVerdictSummary } from './conformance-readiness.mjs';
 import { runQualityCommand } from './quality-command-runner.mjs';
 import { classifyRequiredTestFailure } from './test-execution-diagnostics.mjs';
@@ -5878,10 +5878,16 @@ export async function approvePhase(root, config, workflow, {
     const refusal = conformanceGapRefusal(workflow, phase.id, conformanceVerdictGaps(report),
       { now: approvedAt, reused: await conformanceEvidenceReuse(root, config, workflow, phase.id, approvedAt) });
     if (refusal) {
+      // One plain sentence and the decision list first; each clause's own routes stay in details.
+      const [{ decisionRefusalLead }, { phaseEndsStory }] = await Promise.all([import('./decision-list.mjs'), import('./decision-list-facts.mjs')]);
+      const lead = decisionRefusalLead(workflow, phase.id, { gaps: refusal.gaps.map((gap) => ({ ...gap, report: phase.id })),
+        issues: upstreamIssueStates(workflow, approvedAt), includeAllIssues: phaseEndsStory(workflow, phase) });
       throw new SingularityFlowError(
-        `Phase '${phase.id}' cannot be approved until a person decides each partial or missing clause:\n- `
+        `${lead ? `${lead.headline} ${lead.route}\n` : ''}Phase '${phase.id}' cannot be approved until a person decides each partial or missing clause:\n- `
         + `${refusal.lines.join('\n- ')}\n${CONFORMANCE_GAP_RULE}`,
-        { code: 'CONFORMANCE_BLOCKING_VERDICTS', details: refusal.details }
+        { code: 'CONFORMANCE_BLOCKING_VERDICTS', details: { ...refusal.details,
+          ...(lead ? { decisions: { count: lead.count, headline: lead.headline }, nextAction: lead.nextAction,
+            recoveryCommands: [lead.nextAction, ...refusal.details.recoveryCommands] } : {}) } }
       );
     }
   }

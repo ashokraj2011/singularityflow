@@ -35,7 +35,7 @@ import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { verifyAstLifecycleReceipt } from './ast-lifecycle.mjs';
 import { conformanceEvidenceReuse, inspectConformanceReportContract, inspectQualifiedConformanceReport, traceableConformanceIds } from './conformance-readiness.mjs';
 import { conformanceVerdictGaps } from './conformance-verdicts.mjs';
-import { conformanceGapLine, conformanceGapRefusal } from './upstream-routes.mjs';
+import { conformanceGapLine, conformanceGapRefusal, decisionListRoute } from './upstream-routes.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
@@ -827,11 +827,13 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     for (const gap of gaps?.gaps ?? []) {
       const message = `conformance ${conformanceGapLine(gap)}`;
       if (terminal || phase.status === 'approved') {
-        const recoveryCommands = gap.choices.filter((choice) => choice.command)
-          .map((choice) => ({ command: choice.command, skill: choice.skill, label: choice.detail }));
+        // The decision list is the way out; each clause's own commands stay for scripts.
+        const decide = decisionListRoute(workflow.workItem.id);
+        const recoveryCommands = [decide, ...gap.choices.filter((choice) => choice.command)
+          .map((choice) => ({ command: choice.command, skill: choice.skill, label: choice.detail }))];
         refuse('gate.conformance.blocking-verdict', message, { phase: phase.id, details: {
           clauseId: gap.clauseId, verdict: gap.verdict, owner: gap.owner, status: gap.status, issue: gap.issue,
-          route: gaps.details.route, rule: gaps.details.rule, choices: gap.choices, nextAction: recoveryCommands[0] ?? null, recoveryCommands
+          route: gaps.details.route, rule: gaps.details.rule, choices: gap.choices, nextAction: decide, recoveryCommands
         } });
       } else warnings.push(message);
     }

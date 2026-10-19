@@ -7,23 +7,26 @@ aliases:
   - stale-approval
 questions:
   - How do approvals work?
+  - What must be decided before this step can be approved?
   - Why is my approval stale?
   - What command approves a phase?
 keywords:
   - reviewer authority
   - self approval
   - product approvers
+  - decision list
 commands:
   - approvals
   - approve
   - reject
   - upstream-issue
+  - decisions
   - inbox
 related:
   - waivers
   - inbox-and-review
   - sequence-gates
-version: 12
+version: 13
 ---
 Approval is an authorization event, never an agent utterance. Authority comes from `approvalAuthorities` groups in pinned configuration; the ceremony shows the exact artifact and its SHA-256, then requires typing the exact confirmation — nothing auto-fills it. The record binds identity, authority group, and artifact hash, verifiable offline. If artifact bytes change afterward, the approval goes stale automatically; the old signature remains in history attached to the bytes it actually covered. Agents cannot approve. Normal team configuration defaults self-approval and first-use identity enrollment on; both are explicit `approvalSecurity` switches in **People & approvals**, while the regulated profile defaults them off. Rejections require reasons — which become pinned context the next generation literally reads.
 
@@ -45,11 +48,12 @@ Use this topic when the current goal matches **approvals**. Start in a repositor
 4. Run the smallest applicable command from this topic. Do not substitute an undocumented subcommand.
 5. Approval automatically advances and activates the next phase when the configured threshold is met. It may instead wait for other reviewers or a workflow decision. Report the actual result; do not issue another advance command. Next-phase authoring is a separate action. In VS Code, refresh the relevant view if it has not already refreshed.
 6. A later step that finds a defect in an earlier, approved step raises it with `sflow upstream-issue raise --phase EARLIER --about ID --problem TEXT`, or `--from-artifact` for the items its own artifacts list under `## Upstream discrepancies`. Raising never stops the current step. The earlier step's approvers decide it with `sflow upstream-issue decide UPI-NNN`: a plan correction (`sflow decision plan --replace-location ...`), a return to that step (allowed while the current step is still in progress), an accepted risk that expires, or a dismissal. The Story completes only when every issue is decided.
-7. An approved document step can be corrected without re-running it: `sflow upstream-issue propose-amendment --phase EARLIER --reason TEXT` saves the corrected bytes (the edited artifact, or a `--file` draft), and that step's approvers install them as its next generation with `sflow upstream-issue decide-amendment FAM-NNN --decision approve --confirm FAM-NNN`. Approved later steps that read it keep their approval; each step's approvers record `sflow upstream-issue revalidate STEP --amendment FAM-NNN --outcome unchanged`, or `return` to redo it. Steps that define clauses use intent amendment; plans use `decision plan` corrections.
+7. **The decision list.** When a step cannot be approved yet because people still have to decide something, `sflow decisions [WORK-ID]` (Copilot: `/sf-decide WORK-ID`) shows all of it in one place, in plain words, as choices: a partial or missing verdict together with the upstream issue that names it (one item, not two), an open upstream issue the Story cannot finish without, and a test command that could not run here. Each item says why it waits from recorded facts, which option is recommended when the facts make it safe (reusing an earlier step's recorded run only when one exists and the code is unchanged), exactly what each option records, any date or reason it needs (with an editable default), and who decides it. `sflow decisions record [WORK-ID]` asks for each choice in an interactive terminal, shows a one-screen summary and records them after one confirmation; scripts pass `--choose d1=reuse ... --confirm sha256:DIGEST`. Every choice is still a person's decision, checked against their approval group and kept in the history; an item you may not decide names who does and the line to share (`/sf-decide WORK-ID`). A changed list refuses the old confirmation. A superseded upstream issue is never listed and never blocks; its replacement carries it. Approval refusals for pending decisions lead with one sentence ("Release can't be approved yet: 1 decision needed.") and this list.
+8. An approved document step can be corrected without re-running it: `sflow upstream-issue propose-amendment --phase EARLIER --reason TEXT` saves the corrected bytes (the edited artifact, or a `--file` draft), and that step's approvers install them as its next generation with `sflow upstream-issue decide-amendment FAM-NNN --decision approve --confirm FAM-NNN`. Approved later steps that read it keep their approval; each step's approvers record `sflow upstream-issue revalidate STEP --amendment FAM-NNN --outcome unchanged`, or `return` to redo it. Steps that define clauses use intent amendment; plans use `decision plan` corrections.
 
 ## State and safety
 
-These commands can change repository or machine-local state: `approve`, `reject`, `upstream-issue raise`, `upstream-issue decide`, `upstream-issue propose-amendment`, `upstream-issue decide-amendment`, `upstream-issue revalidate`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can change repository or machine-local state: `approve`, `reject`, `decisions record`, `upstream-issue raise`, `upstream-issue decide`, `upstream-issue propose-amendment`, `upstream-issue decide-amendment`, `upstream-issue revalidate`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 

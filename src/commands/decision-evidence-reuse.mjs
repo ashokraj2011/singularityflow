@@ -34,6 +34,60 @@ export function evidenceReuseAuthorities(workflow, phaseId) {
   return testRunRiskAuthorities(workflow, phaseId);
 }
 
+/**
+ * Record one evidence-reuse decision for `phaseId` (the attempt verified against the current source
+ * first), or the revocation named by `revoke`, and commit it. The command and the decision list
+ * both record through this, so the source binding, authority and record are the same.
+ */
+export async function recordEvidenceReuseDecision(root, config, workflow, {
+  phaseId, attemptId = null, revoke = null, reason = '', expires = null
+}, { actor, agent = null }) {
+  const id = workflow.workItem.id;
+  // Verified before authority, so a refusal names what is wrong with the evidence first.
+  const prepared = revoke ? null : await prepareEvidenceReuse(root, config, workflow, { phaseId, attemptId });
+  const groups = evidenceReuseAuthorities(workflow, phaseId);
+  if (!groups.length) {
+    throw new SingularityFlowError(`Step ${phaseId} has no approval group, so nobody can approve reusing evidence for it.`, { code: 'EVIDENCE_REUSE_AUTHORITY_UNAVAILABLE' });
+  }
+  const authority = requireApprovalAuthority(
+    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
+    { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 },
+    actor
+  );
+  const common = { reason: reason ?? '', actor: actorKey(actor), authorityGroup: authority.authorityGroup,
+    identityAssurance: authority.identityAssurance ?? null, at: nowIso() };
+  const decide = (aggregate) => revoke
+    ? recordEvidenceReuseRevocation(aggregate, { reuseId: revoke, ...common })
+    : recordEvidenceReuse(aggregate, { phaseId, candidate: prepared, expires: expires ?? null, ...common });
+  decide(structuredClone(workflow));
+  const { value: record, publication } = await transactStory(
+    root, config, workflow,
+    {
+      type: LIFECYCLE_EVENT.DECISION_MADE, phaseId, generation: null,
+      actor, agent, authorityGroup: authority.authorityGroup, payload: { decision: 'evidence-reuse' }
+    },
+    `[${id}][evidence-reuse:${revoke ? 'revoke' : 'accept'}] ${revoke ?? `${phaseId} ${attemptId}`}`,
+    async (aggregate) => {
+      await assertNoPendingPublication(root, config, aggregate, 'record an evidence-reuse decision');
+      const recorded = decide(aggregate);
+      aggregate.history.push({
+        at: recorded.at, actor: recorded.actor, agent, event: 'evidence_reuse_decided', phase: phaseId,
+        detail: recorded.revokes
+          ? `${recorded.revokes} (${recorded.attemptId} for ${recorded.phase}) revoked. ${recorded.reason}`
+          : `${recorded.id} ${evidenceReuseLabel(recorded)}${recorded.expiresAt ? `, until ${recorded.expiresAt.slice(0, 10)}` : ''}. ${recorded.reason}`
+      });
+      return recorded;
+    },
+    {
+      eventFromResult: (recorded) => ({
+        actor, agent, authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
+        payload: { decision: 'evidence-reuse', record: recorded.revokes ?? recorded.id, revoked: Boolean(recorded.revokes), reviewPacketSha256: null }
+      })
+    }
+  );
+  return { record, publication };
+}
+
 export async function decisionEvidenceReuseCommand(positionals, options) {
   const root = repoRoot();
   const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? null;
@@ -62,51 +116,12 @@ export async function decisionEvidenceReuseCommand(positionals, options) {
   if (!workflow.phases?.[phaseId] || workflow.phases[phaseId].status === 'skipped') {
     throw new SingularityFlowError(`Story ${id} has no step ${phaseId} that is on its route.`, { code: 'EVIDENCE_REUSE_INVALID' });
   }
-  // Verified before authority, so a refusal names what is wrong with the evidence first.
-  const prepared = revoke ? null : await prepareEvidenceReuse(root, config, workflow, { phaseId, attemptId });
-  const groups = evidenceReuseAuthorities(workflow, phaseId);
-  if (!groups.length) {
-    throw new SingularityFlowError(`Step ${phaseId} has no approval group, so nobody can approve reusing evidence for it.`, { code: 'EVIDENCE_REUSE_AUTHORITY_UNAVAILABLE' });
-  }
   const actor = actionActor(root);
   const loadedSession = await loadSession(root, { required: false });
   const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
-  const authority = requireApprovalAuthority(
-    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
-    { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 },
-    actor
-  );
-  const common = { reason: optionString(options, 'reason') ?? '', actor: actorKey(actor), authorityGroup: authority.authorityGroup,
-    identityAssurance: authority.identityAssurance ?? null, at: nowIso() };
-  const decide = (aggregate) => revoke
-    ? recordEvidenceReuseRevocation(aggregate, { reuseId: revoke, ...common })
-    : recordEvidenceReuse(aggregate, { phaseId, candidate: prepared, expires: optionString(options, 'expires') ?? null, ...common });
-  decide(structuredClone(workflow));
-  const { value: record, publication } = await transactStory(
-    root, config, workflow,
-    {
-      type: LIFECYCLE_EVENT.DECISION_MADE, phaseId, generation: null,
-      actor, agent, authorityGroup: authority.authorityGroup, payload: { decision: 'evidence-reuse' }
-    },
-    `[${id}][evidence-reuse:${revoke ? 'revoke' : 'accept'}] ${revoke ?? `${phaseId} ${attemptId}`}`,
-    async (aggregate) => {
-      await assertNoPendingPublication(root, config, aggregate, 'record an evidence-reuse decision');
-      const recorded = decide(aggregate);
-      aggregate.history.push({
-        at: recorded.at, actor: recorded.actor, agent, event: 'evidence_reuse_decided', phase: phaseId,
-        detail: recorded.revokes
-          ? `${recorded.revokes} (${recorded.attemptId} for ${recorded.phase}) revoked. ${recorded.reason}`
-          : `${recorded.id} ${evidenceReuseLabel(recorded)}${recorded.expiresAt ? `, until ${recorded.expiresAt.slice(0, 10)}` : ''}. ${recorded.reason}`
-      });
-      return recorded;
-    },
-    {
-      eventFromResult: (recorded) => ({
-        actor, agent, authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
-        payload: { decision: 'evidence-reuse', record: recorded.revokes ?? recorded.id, revoked: Boolean(recorded.revokes), reviewPacketSha256: null }
-      })
-    }
-  );
+  const { record, publication } = await recordEvidenceReuseDecision(root, config, workflow, {
+    phaseId, attemptId, revoke, reason: optionString(options, 'reason') ?? '', expires: optionString(options, 'expires') ?? null
+  }, { actor, agent });
   if (!optionBoolean(options, 'json')) {
     console.log(record.revokes
       ? `Revoked ${record.revokes}: ${record.attemptId} no longer stands for ${record.phase}.`

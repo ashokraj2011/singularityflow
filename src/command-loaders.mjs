@@ -70,6 +70,7 @@ export const COMMAND_LOADERS = Object.freeze({
   './commands/submit.mjs': () => import('./commands/submit.mjs'),
   './commands/telemetry.mjs': () => import('./commands/telemetry.mjs'),
   './commands/upstream-issue.mjs': () => import('./commands/upstream-issue.mjs'),
+  './commands/decisions.mjs': () => import('./commands/decisions.mjs'),
   './commands/validate.mjs': () => import('./commands/validate.mjs'),
   './commands/why.mjs': () => import('./commands/why.mjs'),
   './commands/wm.mjs': () => import('./commands/wm.mjs'),

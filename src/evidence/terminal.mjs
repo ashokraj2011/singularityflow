@@ -97,8 +97,25 @@ export async function evaluateTerminalTransition(root, definition, workflow, { o
   // An earlier step's owners decide every upstream issue before the Story ends [UIF-M2].
   const upstream = [...upstreamIssueTerminalBlockers(workflow), ...forwardAmendmentTerminalBlockers(workflow)];
   const blockers = [...new Set([...evidenceBlockers, ...gate.errors, ...upstream.map((entry) => entry.message)])];
-  const recovery = [...new Set([...upstream.map((entry) => entry.command), ...terminalRecoveryActions(workflow.workItem.id, evaluation, gate)])];
-  return { evaluation, gate, blockers, recovery, upstream };
+  const decisions = await pendingDecisionLead(workflow, gate, upstream, openStory);
+  const recovery = [...new Set([...(decisions ? [decisions.nextAction.command] : []), ...upstream.map((entry) => entry.command),
+    ...terminalRecoveryActions(workflow.workItem.id, evaluation, gate)])];
+  return { evaluation, gate, blockers, recovery, upstream, decisions };
+}
+
+/**
+ * When the ending waits for people's decisions (a conformance gap, an open upstream issue), the
+ * plain sentence and the decision-list route that lead its refusal; null otherwise.
+ */
+async function pendingDecisionLead(workflow, gate, upstream, openStory) {
+  const gaps = (gate.findings ?? []).filter((finding) => finding.code === 'gate.conformance.blocking-verdict' && finding.details?.clauseId)
+    .map((finding) => ({ report: finding.phase, clauseId: finding.details.clauseId, verdict: finding.details.verdict,
+      owner: finding.details.owner, status: finding.details.status, issue: finding.details.issue ?? null }));
+  if (!gaps.length && !upstream.some((entry) => entry.code === 'UPSTREAM_ISSUES_OPEN')) return null;
+  const [{ decisionRefusalLead }, { upstreamIssueStates }] = await Promise.all([import('../decision-list.mjs'), import('../upstream-routes.mjs')]);
+  const order = workflow.phaseOrder ?? [];
+  const phaseId = openStory?.phase ?? [...order].reverse().find((id) => workflow.phases?.[id]?.status !== 'skipped') ?? null;
+  return phaseId ? decisionRefusalLead(workflow, phaseId, { gaps, issues: upstreamIssueStates(workflow), includeAllIssues: true }) : null;
 }
 
 // The preview has no real reviewer by design. Approval authority, assurance and threshold are
@@ -187,7 +204,9 @@ export async function evaluateTerminalReadiness(root, definition, workflow, { st
   // ending itself waits for them, so the submission preview defers them too.
   if (stage === 'submission') result.upstream.forEach((entry) => deferredMessages.add(entry.message));
   const blockers = result.blockers.filter((message) => !omitted.has(message) && !deferredMessages.has(message));
-  const recovery = [...(stage === 'submission' ? [] : result.upstream.map((entry) => entry.command)),
+  // Submission defers the decisions; approval and the ending lead with their list.
+  const decisions = stage === 'submission' ? null : result.decisions;
+  const recovery = [...(decisions ? [decisions.nextAction.command] : []), ...(stage === 'submission' ? [] : result.upstream.map((entry) => entry.command)),
     ...terminalRecoveryActions(workflow.workItem.id, result.evaluation, gate).filter((command) => {
       if (stage !== 'submission') return true;
       if (command.startsWith('singularity-flow decision witness ')) return false;
@@ -197,13 +216,15 @@ export async function evaluateTerminalReadiness(root, definition, workflow, { st
     ...result,
     gate,
     blockers,
-    recovery
+    recovery: [...new Set(recovery)],
+    decisions
   };
 }
 
-export function terminalRefusalMessage(workId, { blockers, recovery }) {
+export function terminalRefusalMessage(workId, { blockers, recovery, decisions = null }) {
   const listed = blockers.slice(0, MAX_LISTED);
   return [
+    ...(decisions ? [`${decisions.headline} ${decisions.route}`] : []),
     `Story ${workId} cannot finish yet: its final evaluation found ${blockers.length === 1 ? 'an open obligation' : `${blockers.length} open obligations`}.`,
     ...listed.map((message) => `- ${message}`),
     ...(blockers.length > listed.length ? [`- …and ${blockers.length - listed.length} more`] : []),
@@ -234,7 +255,8 @@ export async function assertTerminalTransition(root, definition, workflow) {
     throw new SingularityFlowError(terminalRefusalMessage(workflow.workItem.id, result), {
       code: 'STORY_COMPLETION_REFUSED',
       exitCode: 2,
-      details: { blockers: result.blockers.slice(0, MAX_LISTED), recovery: result.recovery, gate }
+      details: { blockers: result.blockers.slice(0, MAX_LISTED), recovery: result.recovery, gate,
+        ...(result.decisions ? { decisions: { count: result.decisions.count, headline: result.decisions.headline }, nextAction: result.decisions.nextAction } : {}) }
     });
   }
   const decision = { gate: result.evaluation.decision.gate };

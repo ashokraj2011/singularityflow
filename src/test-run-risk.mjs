@@ -39,6 +39,26 @@ export function noTestExecuted(attempt) {
   return Boolean(attempt) && NOT_RUN_STATUSES.has(attempt.status) && testsExecuted(attempt) === 0;
 }
 
+/**
+ * Who may accept the risk of a step's test commands: the step's approval groups. A step nobody
+ * approves (quick-fix's implement) is answered for by the next step on the route that has
+ * approvers, since they review its evidence.
+ */
+export function testRunRiskAuthorities(workflow, phaseId) {
+  const groups = (id) => {
+    const policy = workflow?.phases?.[id]?.approvalPolicy ?? {};
+    return [...new Set([...(policy.authorities ?? []), ...(policy.requiredAuthorities ?? [])])].sort();
+  };
+  const own = groups(phaseId);
+  if (own.length) return own;
+  const order = workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {});
+  for (const id of order.slice(order.indexOf(phaseId) + 1)) {
+    const next = groups(id);
+    if (next.length) return next;
+  }
+  return [];
+}
+
 /** The digest an execution or check binds a decision by. */
 export function testRunRiskSha256(decision) {
   return `sha256:${recordSha256(decision)}`;

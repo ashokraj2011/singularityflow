@@ -21,9 +21,10 @@ export async function run({ positionals, options }) {
   const checked = await step(['status', workId, '--submission-readiness', '--json'], cwd);
   if (!checked.ok) stop(checked, 'status --submission-readiness');
   const readiness = checked.value;
-  if (readiness?.classification === 'terminal-obligations-required') {
+  // Decisions approval would refuse for open the decision list first; no receipt is begun.
+  if (['terminal-obligations-required', 'decisions-required'].includes(readiness?.classification)) {
     return console.log(JSON.stringify({ resultType: 'sflow-approval-packet', begun: false,
-      reason: 'terminal-obligations-required', approvalPacket: { readiness, review: null } }, null, 2));
+      reason: readiness.classification, approvalPacket: { readiness, review: null } }, null, 2));
   }
   const begun = await step(['choices', 'begin', 'approve', workId, ...(options.fetch === true ? ['--fetch'] : []), '--json'], cwd);
   if (!begun.ok) stop(begun, 'choices begin approve');

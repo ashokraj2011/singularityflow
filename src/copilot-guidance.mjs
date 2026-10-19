@@ -137,6 +137,12 @@ function skillRouteForCommand(command, skill, fallback) {
       /^(?:singularity-flow|sflow)\s+story\s+advance\s+--work-id\s+([A-Za-z0-9][A-Za-z0-9._-]{0,127})\s+--confirm\s+(sha256:[a-f0-9]{64})$/u);
     return match ? `${selected} --work-id ${match[1]} --confirm ${match[2]}` : selected;
   }
+  if (selected === '/sf-decide') {
+    // The decision list opens for its Story: the one line a person shares with whoever decides.
+    const match = !/[\u0000-\u001f\u007f]/u.test(value)
+      && value.match(/^(?:singularity-flow|sflow)\s+decisions\s+([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\s|$)/u);
+    return match && match[1] !== 'record' ? `${selected} ${match[1]}` : selected;
+  }
   if (selected === '/sf-approve') {
     const selectors = approvalSelectors(value);
     return selectors ? `${selected} ${selectors}` : selected;

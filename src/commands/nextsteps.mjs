@@ -194,6 +194,9 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
       phaseId: active.id
     });
   }
+  // Decisions approval would refuse for: the list replaces that approval (parity with the engine).
+  const pendingDecisions = active ? await measureCommandSpan('nextsteps.pending-decisions', async () =>
+    (await import('../decision-list-facts.mjs')).pendingDecisionSummary(root, definition, workflow, active)).catch(() => undefined) : undefined;
   // Receipts are read from this checkout, so only the Story checked out here can be held by one.
   let stepActionHold = null;
   if (storyRequiresStepActions(workflow) && workflow.workItem?.branch === branch(root)) {
@@ -213,6 +216,7 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
         roots: { workItemRoot: path.dirname(path.dirname(selected.location.path)) }
       }))),
       recovery,
+      pendingDecisions,
       // Landing routes depend on the host: the GitHub CLI cannot open another host's merge request.
       repositoryHost: classifyGitHost(remoteUrl(root, definition.git?.remote ?? 'origin')),
       prerequisites: await measureCommandSpan('nextsteps.prerequisites', () => storyPrerequisites(root, workflow, selected, modelMode, { definition, executionCatalog, observeFile })),

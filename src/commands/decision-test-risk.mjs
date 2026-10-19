@@ -21,30 +21,13 @@ import { emitCommandResult } from '../narration/emit.mjs';
 import { loadSession } from '../session.mjs';
 import { workDirRelative } from '../story-paths.mjs';
 import { actorKey, assertNoPendingPublication, loadConfig, transactStory } from '../state-stores.mjs';
-import { recordTestRunRisk, recordTestRunRiskRevocation, testRunRiskIneligibility } from '../test-run-risk.mjs';
+import { recordTestRunRisk, recordTestRunRiskRevocation, testRunRiskAuthorities, testRunRiskIneligibility, testRunRiskState } from '../test-run-risk.mjs';
 import { nowIso, optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 import { stepAttempts } from '../verification/attempts.mjs';
 import { actionActor } from './kernel.mjs';
 
-/**
- * Who may accept the risk of a step's test commands: the step's approval groups. A step nobody
- * approves (quick-fix's implement) is answered for by the next step on the route that has
- * approvers, since they review its evidence.
- */
-export function testRunRiskAuthorities(workflow, phaseId) {
-  const groups = (id) => {
-    const policy = workflow?.phases?.[id]?.approvalPolicy ?? {};
-    return [...new Set([...(policy.authorities ?? []), ...(policy.requiredAuthorities ?? [])])].sort();
-  };
-  const own = groups(phaseId);
-  if (own.length) return own;
-  const order = workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {});
-  for (const id of order.slice(order.indexOf(phaseId) + 1)) {
-    const next = groups(id);
-    if (next.length) return next;
-  }
-  return [];
-}
+// Pure, so the decision list can say who decides without loading this command.
+export { testRunRiskAuthorities } from '../test-run-risk.mjs';
 
 /** The latest recorded run of each test command of a step, by command. */
 async function latestAttempts(root, config, workflow, phaseId) {
@@ -70,6 +53,74 @@ function chooseAttempt(latest, commandId, phaseId, argvSha256 = null) {
       ? `No test command of ${phaseId} has a latest run that failed or was blocked before any test executed (${names.join(', ')}).`
       : `No run of a test command of ${phaseId} is recorded in this checkout yet; publish or submit the step first so its failure is recorded, or name the command and digest its refusal gave with --command ID --argv-sha256 DIGEST.`,
   { code: candidates.length ? 'TEST_RUN_RISK_COMMAND_REQUIRED' : 'TEST_RUN_RISK_NOT_ELIGIBLE' });
+}
+
+/**
+ * Record one test-run risk decision, or the revocation named by `revoke`, for `phaseId` and commit
+ * it. The command and the decision list both record through this, so eligibility, authority, the
+ * record and its commit are the same whichever surface a person used.
+ */
+export async function recordTestRunRiskDecision(root, config, workflow, {
+  phaseId, revoke = null, commandId = null, argvSha256 = null, cause = '', reason = '', expires = null
+}, { actor, agent = null }) {
+  const id = workflow.workItem.id;
+  const commandOption = commandId;
+  const argvDigest = argvSha256;
+  const attempt = revoke ? null
+    : chooseAttempt(await latestAttempts(root, config, workflow, phaseId), commandOption, phaseId, argvDigest);
+  const groups = testRunRiskAuthorities(workflow, phaseId);
+  if (!groups.length) {
+    throw new SingularityFlowError(`Step ${phaseId} has no approval group, so nobody can accept the risk of its tests.`, { code: 'RISK_AUTHORITY_UNAVAILABLE' });
+  }
+  const authority = requireApprovalAuthority(
+    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
+    { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 },
+    actor
+  );
+  const common = { reason: reason ?? '', actor: actorKey(actor), authorityGroup: authority.authorityGroup,
+    identityAssurance: authority.identityAssurance ?? null, at: nowIso() };
+  const decide = (aggregate) => revoke
+    ? recordTestRunRiskRevocation(aggregate, { riskId: revoke, ...common })
+    : recordTestRunRisk(aggregate, { phaseId, attempt, commandId: commandOption, argvSha256: argvDigest, cause: cause ?? '',
+      expires: expires ?? null, ...common });
+  decide(structuredClone(workflow));
+  const { value: record, publication } = await transactStory(
+    root, config, workflow,
+    {
+      type: LIFECYCLE_EVENT.DECISION_MADE, phaseId, generation: null,
+      actor, agent, authorityGroup: authority.authorityGroup, payload: { decision: 'test-risk' }
+    },
+    `[${id}][test-risk:${revoke ? 'revoke' : 'accept'}] ${revoke ?? `${phaseId} ${attempt?.commandId ?? commandOption}`}`,
+    async (aggregate) => {
+      await assertNoPendingPublication(root, config, aggregate, 'record a test-run risk decision');
+      const recorded = decide(aggregate);
+      aggregate.history.push({
+        at: recorded.at, actor: recorded.actor, agent, event: 'risk_decided', phase: phaseId,
+        detail: recorded.revokes
+          ? `${recorded.revokes} on ${recorded.phase} ${recorded.commandId} revoked. ${recorded.reason}`
+          : `${recorded.id} accepts that ${recorded.phase} test command ${recorded.commandId} cannot run here (${recorded.cause}) until ${recorded.expiresAt.slice(0, 10)}${recorded.boundBy === 'command-digest' ? '; bound by its argv digest, with no run of it recorded in this checkout' : ''}. ${recorded.reason}`
+      });
+      return recorded;
+    },
+    {
+      eventFromResult: (recorded) => ({
+        actor, agent, authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
+        payload: { decision: 'test-risk', record: recorded.revokes ?? recorded.id, revoked: Boolean(recorded.revokes), reviewPacketSha256: null }
+      })
+    }
+  );
+  return { record, publication };
+}
+
+/**
+ * The test commands of `phaseId` whose latest recorded run failed or was blocked before any test
+ * executed and that no active decision covers at `at`: what a person may accept as a risk now.
+ */
+export async function testRunRiskCandidates(root, config, workflow, phaseId, { at = nowIso() } = {}) {
+  return [...(await latestAttempts(root, config, workflow, phaseId)).values()]
+    .filter((attempt) => !testRunRiskIneligibility(attempt)
+      && testRunRiskState(workflow, { phaseId, commandId: attempt.commandId, argvSha256: attempt.argvSha256 }, { at })?.state !== 'active')
+    .sort((left, right) => left.commandId.localeCompare(right.commandId));
 }
 
 export async function decisionTestRiskCommand(positionals, options) {
@@ -101,52 +152,13 @@ export async function decisionTestRiskCommand(positionals, options) {
   if (argvDigest !== null && (revoke || !commandOption || !/^[a-f0-9]{64}$/u.test(argvDigest))) {
     throw new SingularityFlowError('--argv-sha256 takes the 64-character digest a refusal named, with --phase and --command.', { code: 'TEST_RUN_RISK_INVALID' });
   }
-  const attempt = revoke ? null
-    : chooseAttempt(await latestAttempts(root, config, workflow, phaseId), commandOption, phaseId, argvDigest);
-  const groups = testRunRiskAuthorities(workflow, phaseId);
-  if (!groups.length) {
-    throw new SingularityFlowError(`Step ${phaseId} has no approval group, so nobody can accept the risk of its tests.`, { code: 'RISK_AUTHORITY_UNAVAILABLE' });
-  }
   const actor = actionActor(root);
   const loadedSession = await loadSession(root, { required: false });
   const agent = loadedSession?.workId === id ? loadedSession.agent ?? null : null;
-  const authority = requireApprovalAuthority(
-    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
-    { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 },
-    actor
-  );
-  const common = { reason: optionString(options, 'reason') ?? '', actor: actorKey(actor), authorityGroup: authority.authorityGroup,
-    identityAssurance: authority.identityAssurance ?? null, at: nowIso() };
-  const decide = (aggregate) => revoke
-    ? recordTestRunRiskRevocation(aggregate, { riskId: revoke, ...common })
-    : recordTestRunRisk(aggregate, { phaseId, attempt, commandId: commandOption, argvSha256: argvDigest, cause: optionString(options, 'cause') ?? '',
-      expires: optionString(options, 'expires') ?? null, ...common });
-  decide(structuredClone(workflow));
-  const { value: record, publication } = await transactStory(
-    root, config, workflow,
-    {
-      type: LIFECYCLE_EVENT.DECISION_MADE, phaseId, generation: null,
-      actor, agent, authorityGroup: authority.authorityGroup, payload: { decision: 'test-risk' }
-    },
-    `[${id}][test-risk:${revoke ? 'revoke' : 'accept'}] ${revoke ?? `${phaseId} ${attempt?.commandId ?? commandOption}`}`,
-    async (aggregate) => {
-      await assertNoPendingPublication(root, config, aggregate, 'record a test-run risk decision');
-      const recorded = decide(aggregate);
-      aggregate.history.push({
-        at: recorded.at, actor: recorded.actor, agent, event: 'risk_decided', phase: phaseId,
-        detail: recorded.revokes
-          ? `${recorded.revokes} on ${recorded.phase} ${recorded.commandId} revoked. ${recorded.reason}`
-          : `${recorded.id} accepts that ${recorded.phase} test command ${recorded.commandId} cannot run here (${recorded.cause}) until ${recorded.expiresAt.slice(0, 10)}${recorded.boundBy === 'command-digest' ? '; bound by its argv digest, with no run of it recorded in this checkout' : ''}. ${recorded.reason}`
-      });
-      return recorded;
-    },
-    {
-      eventFromResult: (recorded) => ({
-        actor, agent, authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
-        payload: { decision: 'test-risk', record: recorded.revokes ?? recorded.id, revoked: Boolean(recorded.revokes), reviewPacketSha256: null }
-      })
-    }
-  );
+  const { record, publication } = await recordTestRunRiskDecision(root, config, workflow, {
+    phaseId, revoke, commandId: commandOption, argvSha256: argvDigest, cause: optionString(options, 'cause') ?? '',
+    reason: optionString(options, 'reason') ?? '', expires: optionString(options, 'expires') ?? null
+  }, { actor, agent });
   if (!optionBoolean(options, 'json')) {
     console.log(record.revokes
       ? `Revoked ${record.revokes} on ${record.phase} ${record.commandId}.`

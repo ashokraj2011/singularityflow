@@ -227,3 +227,40 @@ export function conformanceGapRefusal(workflow, phaseId, gaps, { now = new Date(
     })
   });
 }
+
+// The decision list's own words, here because every lifecycle command already loads this module:
+// the plain sentence that leads a refusal or next step for pending decisions, and the one route to them.
+function titleCase(id) {
+  return String(id ?? 'step').split(/[-_]/u).filter(Boolean).map((part) => `${part[0].toUpperCase()}${part.slice(1)}`).join(' ');
+}
+
+/** A step's name as people see it. */
+export function stepName(workflow, phaseId) {
+  return workflow?.phases?.[phaseId]?.label ?? titleCase(phaseId);
+}
+
+/**
+ * "Release can't be approved yet: 1 decision needed." A step not yet submitted "needs N decisions
+ * before it can be approved"; `refused` always says it can't be, as a refusal does.
+ */
+export function decisionHeadline(workflow, phaseId, count, { refused = false } = {}) {
+  const phase = workflow?.phases?.[phaseId];
+  const name = stepName(workflow, phaseId);
+  if (!count) return `${name} has nothing waiting for a decision.`;
+  const verb = phase?.approvalPolicy?.mode === 'none' ? 'completed' : 'approved';
+  const needed = `${count} ${count === 1 ? 'decision' : 'decisions'}`;
+  return refused || phase?.status === 'awaiting_approval' ? `${name} can't be ${verb} yet: ${needed} needed.`
+    : `${name} needs ${needed} before it can be ${verb}.`;
+}
+
+/** The route every refusal for pending decisions leads with: the decision list, never record IDs. */
+export function decisionListRoute(workId) {
+  return { command: `singularity-flow decisions ${workId}`, skill: '/sf-decide', copilotCommand: `/sf-decide ${workId}`,
+    label: 'Open the decision list: each decision in plain words, with its choices, recorded with one confirmation.' };
+}
+
+/** "Decide them in one place: Copilot /sf-decide W; Shell singularity-flow decisions W." */
+export function decisionListRouteLine(workId) {
+  const route = decisionListRoute(workId);
+  return `Decide them in one place. Copilot: ${route.copilotCommand} · Shell: ${route.command}`;
+}

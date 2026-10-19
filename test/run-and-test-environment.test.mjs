@@ -108,3 +108,22 @@ test('a quality command given private values has its output and captured report 
   assert.equal(await readFile(stdoutFile, 'utf8'), 'out [redacted:API_TOKEN]\n');
   assert.doesNotMatch(JSON.stringify(result), new RegExp(SECRET, 'u'));
 });
+
+test('app and tests are registered: plan, status and summary read; start, stop and run execute code', async () => {
+  const { operationCatalog, resolveOperation } = await import('../src/command-registry.mjs');
+  const classes = Object.fromEntries([
+    ['app', 'plan'], ['app', 'status'], ['app', 'start'], ['app', 'stop'], ['tests', 'plan'], ['tests', 'run'], ['tests', 'summary']
+  ].map(([command, action]) => {
+    const operation = resolveOperation({ requestedCommand: command, positionals: [command, action], options: {} });
+    assert.equal(operation.id, `${command}.${action}`);
+    assert.equal(operation.modelPolicy, 'never');
+    return [operation.id, operation.classification];
+  }));
+  assert.deepEqual(classes, {
+    'app.plan': 'read', 'app.status': 'read', 'app.start': 'mutation', 'app.stop': 'mutation',
+    'tests.plan': 'read', 'tests.run': 'mutation', 'tests.summary': 'read'
+  });
+  const catalog = new Map(operationCatalog().map((entry) => [entry.id, entry.classification]));
+  for (const [id, classification] of Object.entries(classes)) assert.equal(catalog.get(id), classification, id);
+  assert.throws(() => resolveOperation({ requestedCommand: 'tests', positionals: ['tests', 'watch'], options: {} }), { code: 'UNKNOWN_SUBCOMMAND' });
+});

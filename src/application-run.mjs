@@ -16,7 +16,7 @@ import { applicationStartCommandSha256, loopbackApplicationUrl } from './capabil
 import { gitCommonDir } from './git.mjs';
 import { resolvePlatformProcess } from './platform-process.mjs';
 import { readPrivateSidecar, writeMutablePrivateSidecar } from './private-sidecar.mjs';
-import { terminateProcessTree } from './quality-command-runner.mjs';
+import { terminateProcessTree, withoutHostSurfaceVariables } from './quality-command-runner.mjs';
 import { environmentBindingRefusal, localIntegrationPolicyRefusal, selectRunEnvironment } from './run-environment.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
@@ -226,8 +226,13 @@ export async function stopApplication(root, context, entry) {
  */
 export async function startApplication(root, context, entry, {
   requestedEnvironment = null, declaration = null, output = process.stdout, errorOutput = process.stderr,
-  onReady = null, signals = ['SIGINT', 'SIGTERM', 'SIGHUP'], platform = process.platform
+  onReady = null, signals = ['SIGINT', 'SIGTERM', 'SIGHUP'], platform = process.platform, expectedCommandSha256 = null
 } = {}) {
+  if (expectedCommandSha256 && expectedCommandSha256 !== applicationStartCommandSha256(entry)) {
+    throw new SingularityFlowError(
+      `Start entry '${entry.id}' changed since it was confirmed; nothing ran. Read singularity-flow app plan ${entry.id} --json and confirm again.`,
+      { code: 'APP_COMMAND_CHANGED', details: { startId: entry.id, expected: expectedCommandSha256, commandSha256: applicationStartCommandSha256(entry) } });
+  }
   assertRepositoryHere(context, entry);
   const existing = await readAppRecord(root, context.capabilityId, entry.id);
   if (existing && recordedProcessAlive(existing)) {
@@ -250,7 +255,8 @@ export async function startApplication(root, context, entry, {
   const cwd = (await secureRepositoryPath(root, entry.workingDirectory, {
     label: `${subject} working directory`, mustExist: true, type: 'directory'
   })).absolute;
-  const base = { ...process.env };
+  // The host's own variables (VS Code runs the CLI with ELECTRON_RUN_AS_NODE) never reach the application.
+  const base = withoutHostSurfaceVariables(process.env);
   delete base.NODE_TEST_CONTEXT;
   const env = materialized ? materialized.childEnvironment(base) : base;
   const commandSha256 = applicationStartCommandSha256(entry);

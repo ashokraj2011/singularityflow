@@ -3823,7 +3823,7 @@ singularity-flow capability tree|show|of|add|set|remove|map|edit|organisation|le
 singularity-flow hook turn-intent|turn-end|agent-start|session-start|agent-guard
 singularity-flow env status|audit|bind|unbind ...
 singularity-flow app plan|start|status|stop [START-ID] [--capability ID] [--environment ENV] [--json]
-singularity-flow tests run|summary [--capability ID | --work-id ID [--phase PHASE]] [--command ID]... [--environment ENV] [--run RUN-ID] [--json]
+singularity-flow tests plan|run|summary [--capability ID | --work-id ID [--phase PHASE]] [--command ID]... [--environment ENV] [--expect-command sha256:DIGEST]... [--run RUN-ID] [--json]
 singularity-flow secrets scan [--staged] [--json]
 singularity-flow secrets protect [--force]
 singularity-flow bootstrap <REPOSITORY-URL> --capability ID [--name TEXT] [--kind collection|delivery] [--into DIR] [--no-push]

@@ -9,11 +9,8 @@ import {
   capabilityDeliveries,
   capabilityForRepository,
   capabilityPath,
-  capabilityRepositories,
   IMPLICIT_CAPABILITY_ID,
-  normalizeCapabilityApplication,
   resolveCapabilityOwner,
-  resolveCapabilityPolicy,
   resolveImplicitCapability,
   resolveExplicitCapability,
   resolveEffectiveCapabilityPolicy,
@@ -142,7 +139,7 @@ function tightenStorage(storage, policy = {}) {
   return { ...storage, providers, defaultProvider, allowedMimeTypes, maxBytes };
 }
 
-async function sourceForRepository(root) {
+export async function sourceForRepository(root) {
   const active = await workspaceMemberContextForRepository(
     root,
     activeWorkspaceFile(),
@@ -269,7 +266,7 @@ async function implicitLifecycleCapability(root, source, {
   };
 }
 
-function soleDelivery(definition) {
+export function soleDelivery(definition) {
   // Collection ancestors also return their descendant deliveries from `capabilityDeliveries`.
   // Counting those ancestors made one real delivery look like three choices (enterprise, product,
   // delivery), so automatic intake could never select the only approved delivery in a normal
@@ -339,7 +336,7 @@ export function validateConfigurationSnapshotCapabilities(snapshot, { capability
   };
 }
 
-async function readRetainedCapabilityMap(root) {
+export async function readRetainedCapabilityMap(root) {
   const located = await secureRepositoryPath(root, CAPABILITIES_PATH, {
     label: 'Capability map', type: 'file'
   });
@@ -823,69 +820,4 @@ export function assertCapabilitySource(capability, source = {}) {
       throw new SingularityFlowError(`Capability '${capability.id}' does not allow Jira host '${host ?? source.url}'.`);
     }
   }
-}
-
-
-/**
- * One delivery capability's declared application (start entries and tests), for `app` and `tests`.
- *
- * The map is selected exactly as resolveLifecycleCapability selects it (the pinned or approved
- * overlay, else the active workspace's lead repository), from one retained byte buffer. Leases and
- * provenance are not read: these commands start local processes and pin nothing. Without a map the
- * implicit repository-root capability has no start entries and runs what the code step runs.
- */
-export async function resolveCapabilityApplication(root, { capabilityId = null, subjectPath = null } = {}) {
-  const source = await sourceForRepository(root);
-  const hasApprovedReadScope = path.resolve(configurationReadRoot(root)) !== path.resolve(root);
-  const hasPinnedConfiguration = existsSync(path.join(root, CONFIGURATION_SOURCE_PATH));
-  let mapRoot = hasPinnedConfiguration || hasApprovedReadScope ? root : source.mapRoot;
-  let loaded = await readRetainedCapabilityMap(mapRoot);
-  if (!loaded && mapRoot !== root) loaded = await readRetainedCapabilityMap(root);
-  if (!loaded) {
-    if (capabilityId && capabilityId !== IMPLICIT_CAPABILITY_ID) {
-      throw new SingularityFlowError(
-        `Unknown capability '${capabilityId}'. This repository currently uses the implicit '${IMPLICIT_CAPABILITY_ID}' capability.`,
-        { code: 'CAPABILITY_UNKNOWN', details: { capabilityId, available: [IMPLICIT_CAPABILITY_ID] } });
-    }
-    return Object.freeze({
-      capabilityId: IMPLICIT_CAPABILITY_ID, implicit: true, capability: null,
-      application: normalizeCapabilityApplication(IMPLICIT_CAPABILITY_ID, null),
-      repositories: source.repositoryId ? [source.repositoryId] : [], repositoryId: source.repositoryId ?? null,
-      policy: {}, mapSha256: null
-    });
-  }
-  const { definition, snapshot } = loaded;
-  const deliveries = Object.entries(definition.capabilities)
-    .filter(([, capability]) => capability.kind === 'delivery').map(([id]) => id);
-  let selected = capabilityId;
-  if (!selected && source.repositoryId) {
-    const shipping = deliveries.filter((id) => capabilityRepositories(definition.capabilities[id]).includes(source.repositoryId));
-    if (shipping.length === 1) [selected] = shipping;
-    else if (shipping.length > 1) {
-      const owner = resolveCapabilityOwner(definition, subjectPath ?? '').capabilityId;
-      selected = shipping.includes(owner) ? owner : null;
-    }
-  }
-  if (!selected && source.workspace?.capabilities?.length === 1) selected = source.workspace.capabilities[0];
-  if (!selected) selected = soleDelivery(definition);
-  if (!selected) {
-    throw new SingularityFlowError(
-      `This checkout maps to ${deliveries.length ? `more than one delivery capability (${deliveries.join(', ')})` : 'no delivery capability'}. Name one with --capability <ID>.`,
-      { code: 'CAPABILITY_SELECTION_REQUIRED', details: { capabilityIds: deliveries, option: '--capability <id>' } });
-  }
-  const capability = definition.capabilities[selected];
-  if (!capability) {
-    throw new SingularityFlowError(`Unknown capability '${selected}'.`, {
-      code: 'CAPABILITY_UNKNOWN', details: { capabilityId: selected, available: deliveries } });
-  }
-  if (capability.kind !== 'delivery') {
-    throw new SingularityFlowError(`Capability '${selected}' is a collection; name one of its delivery capabilities with --capability.`, {
-      code: 'CAPABILITY_NOT_DELIVERY', details: { capabilityId: selected, available: deliveries } });
-  }
-  return Object.freeze({
-    capabilityId: selected, implicit: false, capability,
-    application: normalizeCapabilityApplication(selected, capability),
-    repositories: capabilityRepositories(capability), repositoryId: source.repositoryId ?? null,
-    policy: resolveCapabilityPolicy(definition, selected).policy, mapSha256: snapshot.sha256
-  });
 }

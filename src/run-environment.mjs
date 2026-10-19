@@ -7,6 +7,7 @@
  * the default. When `checks` links the command, only a run in that environment counts for the
  * step's obligation; without a link, any of the command's declared environments counts.
  */
+import { recordSha256 } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const LOCAL_INTEGRATION_POLICY_COMMAND = 'singularity-flow capability show --json';
@@ -41,6 +42,20 @@ export function selectRunEnvironment({ listed = [], linked = null, requested = n
     return requested;
   }
   return allowed[0] ?? null;
+}
+
+/**
+ * The identity a person confirms before a test command first runs: what runs, where, what it
+ * reports and which environments it may be given. `tests plan` shows it; `--expect-command`
+ * refuses a run whose resolved command no longer has it.
+ */
+export function testCommandSha256(command, environments = []) {
+  return `sha256:${recordSha256({
+    kind: command.kind ?? null, argv: command.argv ? [...command.argv] : null, command: command.argv ? null : command.command ?? null,
+    workingDirectory: command.workingDirectory ?? '.',
+    result: { adapter: command.result?.adapter ?? null, path: command.result?.path ?? null },
+    environments: [...environments]
+  })}`;
 }
 
 /** Whether a run in `environment` counts for the step's obligation of a command. */

@@ -73,6 +73,18 @@ function boundedCapture(maxBytes) {
 }
 
 /**
+ * Variables a host sets to run the CLI itself (VS Code runs it with ELECTRON_RUN_AS_NODE), which
+ * must not reach an application or test a person starts from it: an Electron application under
+ * development stops being one when ELECTRON_RUN_AS_NODE is set [RUN M4 handoff].
+ */
+export const HOST_SURFACE_VARIABLES = Object.freeze(['ELECTRON_RUN_AS_NODE', 'SINGULARITY_FLOW_SURFACE_CONTEXT']);
+
+export function withoutHostSurfaceVariables(environment) {
+  return Object.fromEntries(Object.entries(environment)
+    .filter(([key]) => !HOST_SURFACE_VARIABLES.includes(key.toUpperCase())));
+}
+
+/**
  * Signal a whole process tree started detached (its own process group on POSIX), or the process
  * itself when no group exists. Windows uses taskkill /T. Returns whether a signal was delivered.
  */

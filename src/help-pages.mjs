@@ -1266,6 +1266,7 @@ const PAGES = Object.freeze({
       ['START-ID', 'The start entry; optional when the capability declares exactly one.'],
       ['--capability ID', 'The delivery capability; by default the one that owns this checkout.'],
       ['--environment ENV', 'app start only: one of the entry\'s environments; the first is the default.'],
+      ['--expect-command sha256:DIGEST', 'app start only: refuse (APP_COMMAND_CHANGED) unless the entry still has the commandSha256 app plan showed.'],
       ['--json', 'plan, status and stop: machine-readable output (sflow-app-plan, sflow-app-status).']
     ],
     examples: [
@@ -1279,6 +1280,8 @@ const PAGES = Object.freeze({
   tests: {
     summary: 'Run a capability\'s or a Story step\'s tests the way the code step runs them, and read one summary of every test case.',
     description: [
+      'tests plan lists, without running anything, the commands tests run would run: argv, working directory,',
+      'their environments with binding status, and the commandSha256 a first run is confirmed by.',
       'tests run resolves the commands exactly as the code step does (configured qualityCommands and the',
       'repository-native ones it infers), narrowed by the capability\'s application.tests or by --command.',
       'With --capability (the default scope) the run is a local preview: kept privately below the Git common',
@@ -1298,10 +1301,12 @@ const PAGES = Object.freeze({
       ['--phase PHASE', 'With --work-id: the code step whose commands run or whose runs are read.'],
       ['--command ID', 'run only: run just this quality command; repeat for several.'],
       ['--environment ENV', 'run only: the environment for commands that use one.'],
+      ['--expect-command sha256:DIGEST', 'run only: the identity tests plan showed, once per command; a changed command refuses with TESTS_COMMAND_CHANGED.'],
       ['--run RUN-ID', 'summary only: a RUN- local run, or a TA- attempt of the Story step.'],
-      ['--json', 'Machine-readable output (sflow-test-run, sflow-test-summary).']
+      ['--json', 'Machine-readable output (sflow-test-plan, sflow-test-run, sflow-test-summary).']
     ],
     examples: [
+      ['singularity-flow tests plan --json', 'Lists the commands tests run would run, with their environments and identities.'],
       ['singularity-flow tests run', 'Runs this capability\'s tests as a local preview and prints totals.'],
       ['singularity-flow tests run --command integration-tests --environment qa', 'Runs one command against qa.'],
       ['singularity-flow tests summary --json', 'Every test case of the latest run, with its requirement tags.'],

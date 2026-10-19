@@ -16,8 +16,21 @@ test('a capability-scope run is a private local preview and its summary lists ca
     { id: 'bulk-junit', kind: 'test', argv: ['node', 'tools/junit.mjs', String(SUMMARY_CASE_LIMIT + 1)], workingDirectory: '.',
       affectedRoots: ['bulk'], modelPolicy: 'never', result: { adapter: 'junit-xml', path: '.sflow/results/bulk.xml' } }
   ] });
+  // tests plan: what would run, with nothing executed.
+  const plan = repo.sflowJson('tests', 'plan').value;
+  assert.equal(plan.resultType, 'sflow-test-plan');
+  assert.deepEqual(plan.scope, { kind: 'capability', capability: 'repository-root', workId: null, phase: null });
+  const junitPlan = plan.commands.find((command) => command.id === 'module-junit');
+  assert.deepEqual(Object.keys(junitPlan), ['id', 'kind', 'argv', 'workingDirectory', 'adapter', 'environments', 'commandSha256']);
+  assert.deepEqual([junitPlan.argv, junitPlan.workingDirectory, junitPlan.environments], [['node', 'tools/junit.mjs', '2'], '.', []]);
+  assert.deepEqual(plan.commands.map((command) => command.id).sort(), ['bulk-junit', 'karma-totals', 'module-junit', 'node-tests']);
+  await assert.rejects(readdir(path.join(repo.root, '.git', 'singularity-flow', 'test-runs')), { code: 'ENOENT' }, 'a plan runs nothing');
+  const nodePlan = plan.commands.find((command) => command.id === 'node-tests');
+  const changed = repo.sflowJson('tests', 'run', '--command', 'node-tests', '--expect-command', junitPlan.commandSha256);
+  assert.equal(changed.value.error.code, 'TESTS_COMMAND_CHANGED');
+  assert.match(changed.value.error.message, /changed since they were confirmed: node-tests\. Nothing ran/u);
   // The node:test command the code step infers, through the code step's reporter.
-  const nodeRun = repo.sflowJson('tests', 'run', '--command', 'node-tests');
+  const nodeRun = repo.sflowJson('tests', 'run', '--command', 'node-tests', '--expect-command', nodePlan.commandSha256);
   assert.equal(nodeRun.status, 0, nodeRun.stderr);
   assert.equal(nodeRun.value.resultType, 'sflow-test-run');
   assert.deepEqual(nodeRun.value.scope, { kind: 'capability', capability: 'repository-root', workId: null, phase: null });
@@ -41,8 +54,14 @@ test('a capability-scope run is a private local preview and its summary lists ca
   assert.equal(nodeSummary.totals.discovered, 2);
 
   // JUnit XML that names each case's file and line, and a totals-only report.
-  const mixed = repo.sflowJson('tests', 'run', '--command', 'module-junit', '--command', 'karma-totals');
+  // From a host that sets its own variables, as VS Code does: karma-totals exits 3 if it sees them.
+  const hosted = spawnSync(process.execPath, [cli, '--no-model', 'tests', 'run', '--command', 'module-junit', '--command', 'karma-totals', '--json'], {
+    cwd: repo.root, encoding: 'utf8', timeout: 240_000,
+    env: { ...repo.env, ELECTRON_RUN_AS_NODE: '1', SINGULARITY_FLOW_SURFACE_CONTEXT: JSON.stringify({ schemaVersion: 1, repositoryPath: repo.root }) }
+  });
+  const mixed = { status: hosted.status, value: JSON.parse(hosted.stdout) };
   assert.equal(mixed.status, 1, 'a failing test case makes the run exit non-zero');
+  assert.equal(mixed.value.commands.find((command) => command.id === 'karma-totals').status, 'passed');
   const summary = repo.sflowJson('tests', 'summary').value;
   assert.equal(summary.run.id, mixed.value.run.id);
   const junit = summary.commands.find((command) => command.id === 'module-junit');
@@ -154,13 +173,31 @@ test('a Story step run is staged as local attempts, read as a local run, and adm
   sflow('phase', 'begin', 'implement', '--json');
   await writeFile(path.join(root, 'src/value.mjs'), '// @clause:QF-1:AC-001 the exported value is the approved 2\nexport const value = 2;\n');
   await writeFile(path.join(root, 'test/value.test.mjs'), "import test from 'node:test';\nimport assert from 'node:assert/strict';\n"
-    + "import { value } from '../src/value.mjs';\n\n// @ac:QF-1:AC-001\ntest('value is two', () => assert.equal(value, 2));\n");
+    + "import { value } from '../src/value.mjs';\n\n// @ac:QF-1:AC-001\ntest('value is two', () => assert.equal(value, 2));\n\n"
+    + "test('the host never hands its own variables to tests', () => {\n  assert.equal(process.env.ELECTRON_RUN_AS_NODE, undefined);\n"
+    + "  assert.equal(process.env.SINGULARITY_FLOW_SURFACE_CONTEXT, undefined);\n});\n");
   sflow('prepare', 'implement');
   const workflowPath = path.join(root, 'singularity/work-items/QF-1/workflow.json');
   const before = await readFile(workflowPath, 'utf8');
   const head = must('git', ['rev-parse', 'HEAD']).trim();
 
-  const run = sflowJson('tests', 'run', '--work-id', 'QF-1');
+  // The plan names what would run, with nothing executed; its identity is what a run must match.
+  const plan = sflowJson('tests', 'plan', '--work-id', 'QF-1').value;
+  assert.equal(plan.resultType, 'sflow-test-plan');
+  assert.deepEqual(plan.scope, { kind: 'story', capability: 'repository-root', workId: 'QF-1', phase: 'implement' });
+  assert.equal(plan.localIntegrationEvidence, 'off');
+  assert.deepEqual(plan.commands.map((command) => [command.id, command.kind, command.environments]), [['.-node-tests', 'test', []]]);
+  assert.match(plan.commands[0].commandSha256, /^sha256:[a-f0-9]{64}$/u);
+  const stale = sflowJson('tests', 'run', '--work-id', 'QF-1', '--expect-command', `sha256:${'0'.repeat(64)}`);
+  assert.equal(stale.status, 1);
+  assert.equal(stale.value.error.code, 'TESTS_COMMAND_CHANGED');
+  await assert.rejects(readdir(path.join(root, '.git', 'singularity-flow', 'test-attempts', 'QF-1', 'implement')), { code: 'ENOENT' }, 'nothing ran');
+  // Run from a host that sets its own variables, as VS Code does: the tests never see them.
+  const hosted = spawnSync(process.execPath, [cli, '--no-model', 'tests', 'run', '--work-id', 'QF-1', '--expect-command', plan.commands[0].commandSha256, '--json'], {
+    cwd: root, encoding: 'utf8', timeout: 240_000,
+    env: { ...repo.env, ELECTRON_RUN_AS_NODE: '1', SINGULARITY_FLOW_SURFACE_CONTEXT: JSON.stringify({ schemaVersion: 1, repositoryPath: root }) }
+  });
+  const run = { status: hosted.status, value: JSON.parse(hosted.stdout), stderr: hosted.stderr };
   assert.equal(run.status, 0, run.stderr + JSON.stringify(run.value));
   assert.deepEqual(run.value.scope, { kind: 'story', capability: 'repository-root', workId: 'QF-1', phase: 'implement' });
   assert.equal(run.value.run.evidenceClass, 'local-preview');
@@ -169,7 +206,9 @@ test('a Story step run is staged as local attempts, read as a local run, and adm
   assert.equal(run.value.next, 'singularity-flow tests summary --work-id QF-1 --phase implement');
   const summary = sflowJson('tests', 'summary', '--work-id', 'QF-1').value;
   assert.equal(summary.run.id, run.value.run.id);
-  assert.deepEqual(summary.cases.map((entry) => [entry.name, entry.clauses]), [['value is two', ['QF-1:AC-001']]]);
+  assert.deepEqual(summary.cases.map((entry) => [entry.name, entry.outcome, entry.clauses]), [
+    ['value is two', 'passed', ['QF-1:AC-001']], ['the host never hands its own variables to tests', 'passed', []]
+  ]);
   // Staged privately: the Story and the branch are exactly as they were.
   assert.equal(await readFile(workflowPath, 'utf8'), before);
   assert.equal(must('git', ['rev-parse', 'HEAD']).trim(), head);
@@ -187,5 +226,8 @@ test('a Story step run is staged as local attempts, read as a local run, and adm
   assert.equal(afterPublish.run.evidenceClass, 'governed');
   assert.equal(afterPublish.run.label, 'Governed run at publication');
   assert.equal(afterPublish.run.countsForStep, true);
-  assert.deepEqual(afterPublish.history.map((entry) => entry.evidenceClass), ['governed', 'local-preview']);
+  assert.deepEqual(afterPublish.history.map((entry) => [entry.evidenceClass, entry.label]), [
+    ['governed', 'Governed run at publication'], ['local-preview', 'Local run, not evidence: publication and submission run the tests again']
+  ]);
+  assert.equal(sflowJson('tests', 'summary', '--work-id', 'QF-1', '--run', 'RUN-20200101T000000Z-00000000').value.error.code, 'TESTS_RUN_NOT_FOUND');
 });

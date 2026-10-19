@@ -8,7 +8,7 @@ import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
 const SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop']);
 const OPTIONS = Object.freeze({
-  plan: ['capability', 'json'], start: ['capability', 'environment'], status: ['capability', 'json'], stop: ['capability', 'json']
+  plan: ['capability', 'json'], start: ['capability', 'environment', 'expect-command'], status: ['capability', 'json'], stop: ['capability', 'json']
 });
 
 function fail(message, code = 'APP_COMMAND_INVALID', details = null) {
@@ -36,7 +36,7 @@ function environmentWords(environments) {
 }
 
 async function context(root, options) {
-  const { resolveCapabilityApplication } = await import('../capability-context.mjs');
+  const { resolveCapabilityApplication } = await import('../capability-application-context.mjs');
   const relative = path.relative(root, process.cwd()).replaceAll('\\', '/');
   return resolveCapabilityApplication(root, {
     capabilityId: optionString(options, 'capability', null),
@@ -118,7 +118,8 @@ export async function run(_argv, { positionals, options = {} }) {
   const declaration = await loadEnvironmentDeclaration(root, { optional: true });
   console.log(`Starting ${entry.id}: ${entry.argv.join(' ')} (in ${entry.workingDirectory}). Stop with Ctrl+C or singularity-flow app stop ${entry.id}.`);
   const result = await runtime.startApplication(root, application, entry, {
-    requestedEnvironment: optionString(options, 'environment', null), declaration
+    requestedEnvironment: optionString(options, 'environment', null), declaration,
+    expectedCommandSha256: optionString(options, 'expect-command', null)
   });
   console.log(result.outcome === 'stopped' ? `Stopped ${entry.id}.` : `${entry.id} exited (${result.signal ?? result.exitCode}).`);
   process.exitCode = result.exitCode ?? 0;

@@ -16,6 +16,7 @@ import { writeFileSync } from 'node:fs';
 const [port, mode] = process.argv.slice(2);
 writeFileSync('pid.txt', String(process.pid));
 if (process.env.API_TOKEN) console.log('token is ' + process.env.API_TOKEN + ' and endpoint ' + process.env.API_BASE_URL);
+console.log('host variables: ' + (process.env.ELECTRON_RUN_AS_NODE ?? 'unset') + ' ' + (process.env.SINGULARITY_FLOW_SURFACE_CONTEXT ?? 'unset'));
 if (mode === 'never') setInterval(() => {}, 1000);
 else setTimeout(() => {
   http.createServer((request, response) => { response.statusCode = request.url === '/health' ? 204 : 404; response.end(); })
@@ -82,8 +83,8 @@ after(async () => {
   }
 });
 
-function startInBackground(root, args = []) {
-  const child = spawn(process.execPath, [CLI, 'app', 'start', ...args], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+function startInBackground(root, args = [], env = process.env) {
+  const child = spawn(process.execPath, [CLI, 'app', 'start', ...args], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
   started.add({ child, root });
   let output = '';
   child.stdout.on('data', (chunk) => { output += chunk; });
@@ -175,10 +176,18 @@ test('app start waits for http readiness, records the process privately, and app
   assert.equal(JSON.parse(cli(root, ['app', 'stop', '--json']).stdout).reason, 'not-recorded');
 });
 
-test('app start accepts literal log readiness', async () => {
+test('app start accepts literal log readiness, keeps the host\'s variables from the app, and checks the confirmed identity', async () => {
   const { root } = await fixture({ ready: { log: 'server ready in', timeoutMs: 15_000 } });
-  const started = startInBackground(root);
+  const plan = JSON.parse(cli(root, ['app', 'plan', '--json']).stdout).entries[0];
+  const changed = cli(root, ['app', 'start', '--expect-command', `sha256:${'0'.repeat(64)}`]);
+  assert.notEqual(changed.status, 0);
+  assert.match(changed.stderr, /Start entry 'web' changed since it was confirmed; nothing ran/u);
+  await assert.rejects(readFile(path.join(root, 'server', 'pid.txt')), { code: 'ENOENT' });
+  // Started from a host that sets its own variables, as VS Code does when it runs the CLI.
+  const started = startInBackground(root, ['--expect-command', plan.commandSha256], { ...process.env, ELECTRON_RUN_AS_NODE: '1',
+    SINGULARITY_FLOW_SURFACE_CONTEXT: JSON.stringify({ schemaVersion: 1, repositoryPath: root }) });
   await started.waitFor(/Ready at/u);
+  assert.match(started.output(), /host variables: unset unset/u);
   assert.equal(JSON.parse(cli(root, ['app', 'stop', '--json']).stdout).stopped, true);
   assert.equal((await started.exited).code, 0);
 });

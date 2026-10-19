@@ -1,6 +1,6 @@
 /**
- * `singularity-flow tests run|summary` [RUN M2]: run a capability's tests, or a Story step's, the
- * way the code step runs them, and read one summary of every test case.
+ * `singularity-flow tests plan|run|summary` [RUN M2]: see which tests would run, run a capability's
+ * tests or a Story step's the way the code step runs them, and read one summary of every test case.
  *
  * Capability scope saves a `local-preview` run privately (never evidence). Story scope stages one
  * attempt per command for the step, as publish preflight does, with purpose `local`; the step's
@@ -12,9 +12,10 @@ import path from 'node:path';
 
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
-const SUBCOMMANDS = Object.freeze(['run', 'summary']);
+const SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary']);
 const OPTIONS = Object.freeze({
-  run: ['capability', 'work-id', 'phase', 'command', 'environment', 'json'],
+  plan: ['capability', 'work-id', 'phase', 'command', 'json'],
+  run: ['capability', 'work-id', 'phase', 'command', 'environment', 'expect-command', 'json'],
   summary: ['capability', 'work-id', 'phase', 'run', 'json']
 });
 const GATE_LABELS = Object.freeze({
@@ -99,10 +100,45 @@ function selectCommands(available, { commandIds, application, subject }) {
   return wanted.map((id) => available.find((command) => command.id === id));
 }
 
-function environmentPlan(command, { application, declaration, requested }) {
+function environmentPlan(command, { application, declaration }) {
   const listed = application?.tests?.find((entry) => entry.use === command.id)?.environments ?? [];
   const linked = declaration?.checks?.[command.id]?.environment ?? command.environment ?? null;
-  return { listed: [...listed], linked };
+  return { listed: [...listed], linked, allowed: listed.length ? [...listed] : linked ? [linked] : [] };
+}
+
+/** One command as `tests plan` shows it: what runs, where, in which environments, and its identity. */
+async function plannedCommand(root, command, plan, declaration) {
+  const [{ resolveEnvironmentBinding }, { testCommandSha256 }] = await Promise.all([
+    import('../environment-bindings.mjs'), import('../run-environment.mjs')]);
+  const environments = [];
+  for (const [index, name] of plan.allowed.entries()) {
+    const status = Object.hasOwn(declaration?.environments ?? {}, name)
+      ? (await resolveEnvironmentBinding(root, name).catch(() => ({ status: 'unavailable' }))).status : 'undeclared';
+    environments.push({ name, status, default: index === 0 });
+  }
+  return {
+    id: command.id, kind: command.kind ?? null, argv: command.argv ? [...command.argv] : null,
+    workingDirectory: command.workingDirectory ?? '.', adapter: command.result?.adapter ?? null,
+    environments, ...(plan.linked ? { linkedEnvironment: plan.linked } : {}),
+    commandSha256: testCommandSha256(command, plan.allowed)
+  };
+}
+
+/**
+ * --expect-command: every command a run is about to run must carry an identity the person
+ * confirmed, and every confirmed identity must still be one of them; otherwise nothing runs.
+ */
+async function assertExpectedCommands(options, entries) {
+  const expected = optionStrings(options, 'expect-command');
+  if (!expected.length) return;
+  const { testCommandSha256 } = await import('../run-environment.mjs');
+  const planned = entries.map(({ command, allowed }) => ({ id: command.id, commandSha256: testCommandSha256(command, allowed) }));
+  const changed = planned.filter((entry) => !expected.includes(entry.commandSha256));
+  const stale = expected.filter((value) => !planned.some((entry) => entry.commandSha256 === value));
+  if (changed.length || stale.length) {
+    fail(`The test commands changed since they were confirmed${changed.length ? `: ${changed.map((entry) => entry.id).join(', ')}` : ''}. Nothing ran; read singularity-flow tests plan --json and confirm again.`,
+      'TESTS_COMMAND_CHANGED', { changed, stale });
+  }
 }
 
 async function rawReportLocations(root, receipt, workId) {
@@ -123,12 +159,10 @@ async function rawReportLocations(root, receipt, workId) {
 // ---------------------------------------------------------------------------------------------
 // Capability scope: a local preview, never evidence.
 
-async function runCapability(root, options) {
-  const [{ resolveCapabilityApplication }, { loadDefinition }, { loadEnvironmentDeclaration }, state, store, summary,
-    { buildTestExecutionReceipt, junitCaseLocations, normalizeRequiredTestCommand }, { newAttemptIdentity }, adapters, runEnvironment, util, git] = await Promise.all([
-    import('../capability-context.mjs'), import('../config.mjs'), import('../environment-declaration.mjs'), import('../state.mjs'),
-    import('../test-runs.mjs'), import('../test-summary.mjs'), import('../code-delivery-tests.mjs'), import('../verification/attempts.mjs'),
-    import('../verification/adapters.mjs'), import('../run-environment.mjs'), import('../util.mjs'), import('../git.mjs')]);
+/** The commands a capability-scope plan or run selects, each with its environments. */
+async function capabilitySelection(root, options) {
+  const [{ resolveCapabilityApplication }, { loadDefinition }, { loadEnvironmentDeclaration }, { normalizeRequiredTestCommand }] = await Promise.all([
+    import('../capability-application-context.mjs'), import('../config.mjs'), import('../environment-declaration.mjs'), import('../code-delivery-tests.mjs')]);
   const application = await resolveCapabilityApplication(root, { capabilityId: optionString(options, 'capability', null) });
   const config = await loadDefinition(root);
   const declaration = await loadEnvironmentDeclaration(root, { optional: true });
@@ -136,12 +170,39 @@ async function runCapability(root, options) {
   const selected = selectCommands(await codeStepCommands(root, config), {
     commandIds: optionStrings(options, 'command'), application: application.application, subject
   });
-  if (!selected.length) {
+  const plans = selected.map((command, index) => {
+    let normalized = command;
+    let invalid = null;
+    try { if (command.kind === 'test') normalized = normalizeRequiredTestCommand(command, index); }
+    catch (error) { invalid = error.message; }
+    return { command: normalized, invalid, ...environmentPlan(command, { application: application.application, declaration }) };
+  });
+  return { application, config, declaration, subject, plans };
+}
+
+async function planCapability(root, options) {
+  const { application, declaration, plans } = await capabilitySelection(root, options);
+  const commands = [];
+  for (const plan of plans) commands.push(await plannedCommand(root, plan.command, plan, declaration));
+  return {
+    resultType: 'sflow-test-plan',
+    scope: { kind: 'capability', capability: application.capabilityId, workId: null, phase: null },
+    localIntegrationEvidence: application.policy?.localIntegrationEvidence ?? 'off',
+    commands
+  };
+}
+
+async function runCapability(root, options) {
+  const [state, store, summary, { buildTestExecutionReceipt, junitCaseLocations }, { newAttemptIdentity }, adapters, runEnvironment, util, git] = await Promise.all([
+    import('../local-test-runs.mjs'), import('../test-runs.mjs'), import('../test-summary.mjs'), import('../code-delivery-tests.mjs'),
+    import('../verification/attempts.mjs'), import('../verification/adapters.mjs'), import('../run-environment.mjs'), import('../util.mjs'), import('../git.mjs')]);
+  const { application, config, declaration, subject, plans } = await capabilitySelection(root, options);
+  if (!plans.length) {
     fail(`${subject} has no test command to run: the code step runs none and the capability names none. Run singularity-flow capability test-setup --json.`,
       'TESTS_NONE_RESOLVED');
   }
+  await assertExpectedCommands(options, plans);
   const requested = optionString(options, 'environment', null);
-  const plans = selected.map((command) => ({ command, ...environmentPlan(command, { application: application.application, declaration }) }));
   if (requested && !plans.some((plan) => plan.listed.includes(requested) || plan.linked === requested)) {
     fail(`No selected command may run in '${requested}'. ${plans.filter((plan) => plan.listed.length || plan.linked)
       .map((plan) => `${plan.command.id}: ${(plan.listed.length ? plan.listed : [plan.linked]).join(', ')}`).join('; ') || 'None declares an environment.'}`,
@@ -159,11 +220,11 @@ async function runCapability(root, options) {
       listed: plan.listed, linked: plan.linked, declaration, subject: `Test command '${plan.command.id}'`,
       requested: requested && (plan.listed.includes(requested) || plan.linked === requested) ? requested : null
     }) : null;
-    let command = plan.command;
+    const command = plan.command;
     let materialized = null;
-    let note = null;
+    let note = plan.invalid;
     let check = null;
-    if (environment && application.policy?.localIntegrationEvidence !== 'allowed') {
+    if (note) { /* the command cannot run as declared */ } else if (environment && application.policy?.localIntegrationEvidence !== 'allowed') {
       note = runEnvironment.localIntegrationPolicyRefusal({ capabilityId: application.capabilityId, environment, subject: `Test command '${command.id}'` }).message;
     } else if (environment) {
       const { materializeEnvironmentBinding } = await import('../environment-bindings.mjs');
@@ -173,11 +234,6 @@ async function runCapability(root, options) {
           subject: `Test command '${command.id}'` }).message;
         materialized = null;
       }
-    }
-    try {
-      if (command.kind === 'test') command = normalizeRequiredTestCommand(command, index);
-    } catch (error) {
-      note = error.message;
     }
     let parsed = null;
     let reportError = null;
@@ -222,7 +278,7 @@ async function capabilitySummary(root, capabilityId, record = null, { runId = nu
   const scope = { kind: 'capability', capability: capabilityId, workId: null, phase: null };
   const history = runs.map((entry) => ({
     runId: entry.runId, at: entry.startedAt, evidenceClass: entry.evidenceClass, environment: entry.environment ?? null,
-    totals: summary.historyTotals(entry.commands.map((command) => command.receipt))
+    label: entry.label, totals: summary.historyTotals(entry.commands.map((command) => command.receipt))
   }));
   if (!chosen) return summary.buildTestSummary({ scope, run: null, entries: [], history });
   return summary.buildTestSummary({
@@ -238,6 +294,28 @@ async function capabilitySummary(root, capabilityId, record = null, { runId = nu
 
 // ---------------------------------------------------------------------------------------------
 // Story scope: attempts staged for the step, read back with every earlier attempt of it.
+
+/** One attempt's class, environment, whether it counts for the step, and its label. */
+async function attemptMeaning(attempt, declaration) {
+  const evidenceClass = attemptClass(attempt);
+  const environment = attempt.boundEnvironment?.name ?? null;
+  const linked = attempt.linkedEnvironment ?? declaration?.checks?.[attempt.commandId]?.environment ?? null;
+  const countsForStep = evidenceClass === 'governed' ? true
+    : evidenceClass === 'local-integration'
+      ? attempt.countsForStep ?? (await import('../run-environment.mjs')).environmentCountsForStep({ environment, listed: attempt.allowedEnvironments ?? [], linked })
+      : false;
+  const label = evidenceClass === 'local-integration'
+    ? (await import('../code-delivery-tests.mjs')).localIntegrationLabel({ ranBy: attempt.ranBy, environment, commit: attempt.candidate?.commit, countsForStep, linked })
+    : evidenceClass === 'local-preview' ? 'Local run, not evidence: publication and submission run the tests again'
+      : GATE_LABELS[attempt.purpose] ?? 'Governed run';
+  return { evidenceClass, environment, countsForStep, label };
+}
+
+/** A run's label from its commands' labels: one when they agree, else each command's. */
+function groupLabel(entries) {
+  const labels = [...new Set(entries.map((entry) => entry.label))];
+  return labels.length === 1 ? labels[0] : entries.map((entry) => `${entry.receipt.commandId}: ${entry.label}`).join(' · ');
+}
 
 function attemptClass(attempt) {
   if (attempt.evidenceClass) return attempt.evidenceClass;
@@ -276,29 +354,21 @@ async function storySummary(root, options, { localRunId = null } = {}) {
   const group = wanted
     ? groups.find((entry) => entry.id === wanted || entry.members.some((attempt) => attempt.attemptId === wanted))
     : groups[0] ?? null;
-  if (wanted && !group) fail(`No run ${wanted} is recorded for ${workflow.workItem.id} step ${phaseId}.`, 'TESTS_RUN_UNKNOWN');
+  if (wanted && !group) fail(`No run ${wanted} is recorded for ${workflow.workItem.id} step ${phaseId}.`, 'TESTS_RUN_NOT_FOUND');
   const scope = { kind: 'story', capability: workflow.resolution?.capability?.id ?? null, workId: workflow.workItem.id, phase: phaseId };
-  const history = groups.slice(0, 20).map((entry) => ({
-    runId: entry.id, at: entry.at, evidenceClass: [...new Set(entry.members.map(attemptClass))].join('+'),
-    totals: summary.historyTotals(entry.members)
-  }));
+  const history = [];
+  for (const entry of groups.slice(0, 20)) {
+    const meanings = await Promise.all(entry.members.map(async (attempt) => ({ receipt: attempt, ...await attemptMeaning(attempt, declaration) })));
+    const environments = [...new Set(meanings.map((meaning) => meaning.environment).filter(Boolean))];
+    history.push({ runId: entry.id, at: entry.at, evidenceClass: [...new Set(meanings.map((meaning) => meaning.evidenceClass))].join('+'),
+      environment: environments.length === 1 ? environments[0] : null, label: groupLabel(meanings), totals: summary.historyTotals(entry.members) });
+  }
   if (!group) return summary.buildTestSummary({ scope, run: null, entries: [], history });
   const entries = [];
   for (const attempt of group.members) {
-    const evidenceClass = attemptClass(attempt);
-    const environment = attempt.boundEnvironment?.name ?? null;
-    const linked = attempt.linkedEnvironment ?? declaration?.checks?.[attempt.commandId]?.environment ?? null;
-    const countsForStep = evidenceClass === 'governed' ? true
-      : evidenceClass === 'local-integration'
-        ? attempt.countsForStep ?? runEnvironment.environmentCountsForStep({ environment, listed: attempt.allowedEnvironments ?? [], linked })
-        : false;
     const locations = await rawReportLocations(root, attempt, workflow.workItem.id);
     entries.push({
-      receipt: attempt, kind: 'test', evidenceClass, environment, countsForStep, locations,
-      label: evidenceClass === 'local-integration'
-        ? (await import('../code-delivery-tests.mjs')).localIntegrationLabel({ ranBy: attempt.ranBy, environment, commit: attempt.candidate?.commit, countsForStep, linked })
-        : evidenceClass === 'local-preview' ? 'Local run, not evidence: publication and submission run the tests again'
-          : GATE_LABELS[attempt.purpose] ?? 'Governed run',
+      receipt: attempt, kind: 'test', locations, ...await attemptMeaning(attempt, declaration),
       clauses: await summary.occurrenceClauses(root, { occurrences: attempt.occurrences ?? [], profile: attempt.profile, locations })
     });
   }
@@ -310,7 +380,7 @@ async function storySummary(root, options, { localRunId = null } = {}) {
     scope,
     run: {
       id: group.id, evidenceClass: runClass,
-      label: classes.length === 1 ? entries[0].label : entries.map((entry) => `${entry.receipt.commandId}: ${entry.label}`).join(' · '),
+      label: groupLabel(entries),
       environment: environments.length === 1 ? environments[0] : null,
       countsForStep: entries.every((entry) => entry.countsForStep),
       startedAt: group.members.map((attempt) => attempt.process?.startedAt).filter(Boolean).sort()[0] ?? null,
@@ -323,23 +393,56 @@ async function storySummary(root, options, { localRunId = null } = {}) {
   });
 }
 
-async function runStory(root, options) {
-  const [{ loadAcceptedStoryExecution }, state, store, { resolveCapabilityApplication }, util] = await Promise.all([
-    import('../accepted-story-execution.mjs'), import('../state.mjs'), import('../test-runs.mjs'), import('../capability-context.mjs'),
-    import('../util.mjs')]);
+/** The Story, its pinned capability's application, and how a step's commands are selected. */
+async function storyContext(root, options) {
+  const [{ loadAcceptedStoryExecution }, { resolveCapabilityApplication }, { loadEnvironmentDeclaration }] = await Promise.all([
+    import('../accepted-story-execution.mjs'), import('../capability-application-context.mjs'), import('../environment-declaration.mjs')]);
   const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
   const application = await resolveCapabilityApplication(root, { capabilityId: workflow.resolution?.capability?.id ?? null })
     .then((value) => value.application).catch(() => null);
+  const declaration = await loadEnvironmentDeclaration(root, { optional: true }).catch(() => null);
   const commandIds = optionStrings(options, 'command');
-  const localRunId = store.newTestRunId();
   const subject = `Story ${workflow.workItem.id}`;
-  await state.stageStoryLocalTests(root, config, workflow, {
+  // The capability's test environments apply only when the Story's pinned policy allows them.
+  const allowed = workflow.resolution?.capability?.policy?.localIntegrationEvidence === 'allowed';
+  const environmentApplication = allowed ? application : null;
+  const select = (commands) => selectCommands(commands, { commandIds, application: commandIds.length ? null : application, subject });
+  const withEnvironments = (commands) => commands.map((command) => ({ command, ...environmentPlan(command, { application: environmentApplication, declaration }) }));
+  return { config, workflow, declaration, allowed, select, withEnvironments };
+}
+
+async function planStory(root, options) {
+  const state = await import('../local-test-runs.mjs');
+  const context = await storyContext(root, options);
+  const { phase, commands } = await state.resolveStoryLocalTestCommands(root, context.config, context.workflow, {
+    phaseId: optionString(options, 'phase', null) });
+  const planned = [];
+  for (const entry of context.withEnvironments(context.select(commands))) {
+    planned.push(await plannedCommand(root, entry.command, entry, context.declaration));
+  }
+  return {
+    resultType: 'sflow-test-plan',
+    scope: { kind: 'story', capability: context.workflow.resolution?.capability?.id ?? null, workId: context.workflow.workItem.id, phase: phase.id },
+    localIntegrationEvidence: context.allowed ? 'allowed' : 'off',
+    commands: planned
+  };
+}
+
+async function runStory(root, options) {
+  const [state, store, util] = await Promise.all([import('../local-test-runs.mjs'), import('../test-runs.mjs'), import('../util.mjs')]);
+  const context = await storyContext(root, options);
+  const localRunId = store.newTestRunId();
+  await state.stageStoryLocalTests(root, context.config, context.workflow, {
     phaseId: optionString(options, 'phase', null),
     localRunId,
     uncommittedChanges: worktreeChanged(root, util.run),
     ranBy: await localActorKey(root),
     requestedEnvironment: optionString(options, 'environment', null),
-    select: (commands) => selectCommands(commands, { commandIds, application: commandIds.length ? null : application, subject })
+    select: async (commands) => {
+      const selected = context.select(commands);
+      await assertExpectedCommands(options, context.withEnvironments(selected));
+      return selected;
+    }
   });
   return storySummary(root, options, { localRunId });
 }
@@ -382,6 +485,20 @@ export async function run(_argv, { positionals, options = {} }) {
   const { repoRoot } = await import('../git.mjs');
   const root = repoRoot(process.cwd());
   const story = Boolean(optionString(options, 'work-id', null));
+  if (subcommand === 'plan') {
+    const result = story ? await planStory(root, options) : await planCapability(root, options);
+    if (json) console.log(JSON.stringify(result, null, 2));
+    else {
+      const scope = result.scope.kind === 'story' ? `${result.scope.workId} step ${result.scope.phase}` : `capability ${result.scope.capability}`;
+      console.log(`Tests of ${scope} (local integration evidence ${result.localIntegrationEvidence}):`);
+      for (const command of result.commands) {
+        const environments = command.environments.map((entry) => `${entry.name}${entry.default ? ' (default)' : ''}: ${entry.status}`).join(', ');
+        console.log(`  ${command.id}: ${(command.argv ?? []).join(' ')} · in ${command.workingDirectory}${environments ? ` · ${environments}` : ''}`);
+      }
+      console.log(`Run: singularity-flow tests run${result.scope.kind === 'story' ? ` --work-id ${result.scope.workId} --phase ${result.scope.phase}` : ` --capability ${result.scope.capability}`}`);
+    }
+    return result;
+  }
   if (subcommand === 'run') {
     const result = runResult(story ? await runStory(root, options) : await runCapability(root, options));
     if (json) console.log(JSON.stringify(result, null, 2));
@@ -392,7 +509,7 @@ export async function run(_argv, { positionals, options = {} }) {
   let result;
   if (story) result = await storySummary(root, options);
   else {
-    const { resolveCapabilityApplication } = await import('../capability-context.mjs');
+    const { resolveCapabilityApplication } = await import('../capability-application-context.mjs');
     const application = await resolveCapabilityApplication(root, { capabilityId: optionString(options, 'capability', null) });
     result = await capabilitySummary(root, application.capabilityId, null, { runId: optionString(options, 'run', null) });
   }

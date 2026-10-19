@@ -82,7 +82,7 @@ export async function repository(t, { extraCommands = [], implementCommands = tr
   else if (implementCommands) config.phases.implement.qualityCommands = [
     { id: 'module-junit', kind: 'test', argv: ['node', 'tools/junit.mjs', '2'], workingDirectory: '.', affectedRoots: ['tests'],
       modelPolicy: 'never', result: { adapter: 'junit-xml', path: '.sflow/results/junit.xml' } },
-    { id: 'karma-totals', kind: 'test', argv: ['node', '-e', 'console.log("TOTAL: 3 SUCCESS")'], workingDirectory: '.', affectedRoots: ['karma'],
+    { id: 'karma-totals', kind: 'test', argv: ['node', '-e', 'if (process.env.ELECTRON_RUN_AS_NODE || process.env.SINGULARITY_FLOW_SURFACE_CONTEXT) process.exit(3); console.log("TOTAL: 3 SUCCESS")'], workingDirectory: '.', affectedRoots: ['karma'],
       modelPolicy: 'never', result: { adapter: 'karma-text', path: '.sflow/results/karma.txt' } },
     ...extraCommands
   ];

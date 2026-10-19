@@ -405,7 +405,7 @@ function generatedReadinessReportPaths(commands) {
 async function declaredStartCommands(root, options) {
   if (options.declaredStartCommands !== undefined) return options.declaredStartCommands ?? [];
   try {
-    const { resolveCapabilityApplication } = await import('../capability-context.mjs');
+    const { resolveCapabilityApplication } = await import('../capability-application-context.mjs');
     const context = await resolveCapabilityApplication(root);
     return context.application.start
       .filter((entry) => !entry.environments.length

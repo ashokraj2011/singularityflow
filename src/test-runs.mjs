@@ -39,7 +39,7 @@ function validRun(record, capabilityId) {
 
 export async function readTestRun(root, capabilityId, runId) {
   if (!isTestRunId(runId)) {
-    throw new SingularityFlowError(`'${runId}' is not a local run ID (RUN-YYYYMMDDTHHMMSSZ-xxxxxxxx).`, { code: 'TESTS_RUN_UNKNOWN' });
+    throw new SingularityFlowError(`'${runId}' is not a local run ID (RUN-YYYYMMDDTHHMMSSZ-xxxxxxxx).`, { code: 'TESTS_RUN_NOT_FOUND' });
   }
   const bytes = await readPrivateSidecar(root, path.join(testRunDirectory(root, capabilityId), `${runId}.json`), {
     maximumBytes: MAXIMUM_RUN_BYTES, optional: true
@@ -47,7 +47,7 @@ export async function readTestRun(root, capabilityId, runId) {
   const record = bytes ? JSON.parse(bytes.toString('utf8')) : null;
   if (!validRun(record, capabilityId)) {
     throw new SingularityFlowError(`No local run ${runId} is kept for capability '${capabilityId}'.`, {
-      code: 'TESTS_RUN_UNKNOWN', details: { capabilityId, runId } });
+      code: 'TESTS_RUN_NOT_FOUND', details: { capabilityId, runId } });
   }
   return record;
 }

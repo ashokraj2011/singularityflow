@@ -258,6 +258,77 @@ test('Epic Planning approval is an explicit business review, available outside t
   assert.doesNotMatch(alias.stderr, /desktop UI/);
 });
 
+/** An Epic at Planning, awaiting approval, committed on its own branch. */
+async function epicAtPlanning(root, id, extra = []) {
+  execute(root, ['initiative', 'start', id, '--title', `${id} planning`, ...extra], { profile: 'epic-planning' });
+  const stateFile = path.join(root, `singularity/initiatives/${id}/state.json`);
+  const state = JSON.parse(await readFile(stateFile, 'utf8'));
+  state.currentPhase = 'epic-planning';
+  state.phases['epic-intake'].status = 'approved';
+  state.phases['epic-requirements'].status = 'approved';
+  state.phases['epic-planning'].status = 'awaiting_approval';
+  await writeFile(stateFile, `${JSON.stringify(state, null, 2)}\n`);
+  git(root, ['add', stateFile]);
+  git(root, ['commit', '-m', `Prepare ${id} Planning review`]);
+}
+
+test('epic planning approve --epic never approves the Epic the branch happens to be', async () => {
+  // `--epic` chose which Epic was loaded and checked, but approval was handed to the Initiative
+  // command without it, and that resolves its subject from the current branch. Here the branch's
+  // own Epic is ready to approve, so before the fix the command approved it in EPIC-NAMED's place.
+  const root = await repository();
+  await epicAtPlanning(root, 'EPIC-NAMED');
+  execute(root, ['initiative', 'start', 'EPIC-OTHER', '--title', 'The branch Epic', '--base', 'EPIC-NAMED']);
+  execute(root, ['initiative', 'phase', 'define']);
+  execute(root, ['initiative', 'phase', 'publish', 'define']);
+  await writeFile(path.join(root, 'approval.md'), '# Approved by product owner\n');
+  for (const check of ['business-case-approved', 'scope-agreed']) {
+    execute(root, ['initiative', 'evidence', 'add', check, '--assurance', 'human-approved', '--path', 'approval.md']);
+  }
+  execute(root, ['initiative', 'approve', 'business-case', '--acknowledge-self-approval'], { confirm: 'define:business-case' });
+  assert.equal(git(root, ['branch', '--show-current']), 'EPIC-OTHER');
+  const before = git(root, ['rev-parse', 'HEAD']);
+
+  const refused = execute(root, ['epic', 'planning', 'approve', '--epic', 'EPIC-NAMED', '--acknowledge-self-approval', '--json'], {
+    allowFailure: true, confirm: 'define:phase'
+  });
+  assert.notEqual(refused.status, 0);
+  const envelope = JSON.parse(refused.stdout);
+  assert.equal(envelope.error.code, 'EPIC_BRANCH_MISMATCH');
+  assert.match(envelope.error.message, /Epic 'EPIC-NAMED' is recorded on branch EPIC-NAMED, but this checkout is on EPIC-OTHER/);
+  assert.match(envelope.error.message, /no other Epic was approved in its place/);
+  assert.ok(envelope.remediationPlan.steps.some((step) => step.command === 'singularity-flow initiative resume EPIC-NAMED'),
+    JSON.stringify(envelope.remediationPlan.steps));
+  assert.equal(git(root, ['rev-parse', 'HEAD']), before, 'nothing was committed on the branch Epic');
+  const other = JSON.parse(execute(root, ['initiative', 'status', '--json']).stdout);
+  assert.equal(other.initiative.currentPhase, 'define', 'the branch Epic was not approved in the named Epic\'s place');
+  assert.notEqual(other.initiative.phases.define.status, 'approved');
+
+  const missing = execute(root, ['epic', 'planning', 'approve', '--epic', 'EPIC-NOWHERE', '--json'], {
+    allowFailure: true, confirm: 'define:phase'
+  });
+  assert.notEqual(missing.status, 0);
+  assert.equal(JSON.parse(missing.stdout).error.code, 'EPIC_NOT_FOUND');
+  assert.equal(git(root, ['rev-parse', 'HEAD']), before);
+
+  // Reading another Epic from here is still allowed; it reads, and changes nothing.
+  const status = JSON.parse(execute(root, ['epic', 'planning', 'status', '--epic', 'EPIC-NAMED', '--json']).stdout);
+  assert.equal(status.status, 'awaiting_approval');
+});
+
+test('epic planning approve --epic on the named Epic\'s own branch acts on that Epic', async () => {
+  const root = await repository();
+  await epicAtPlanning(root, 'EPIC-HERE');
+  const attempted = execute(root, ['epic', 'planning', 'approve', '--epic', 'EPIC-HERE', '--json'], {
+    allowFailure: true, confirm: 'epic-planning:phase'
+  });
+  // This fixture has no published plan, so the named Epic's own readiness gate refuses: proof the
+  // approval reached EPIC-HERE rather than a subject-resolution refusal.
+  assert.notEqual(attempted.status, 0);
+  assert.doesNotMatch(attempted.stdout, /EPIC_BRANCH_MISMATCH|EPIC_NOT_FOUND/);
+  assert.match(JSON.parse(attempted.stdout).error.message, /Initiative phase 'epic-planning' is not ready/);
+});
+
 test('initiative phase generation continues without repository world-model bytes under enforce', async () => {
   const root = await repository({ grounding: 'enforce' });
   execute(root, ['initiative', 'start', 'INIT-GROUNDED']);

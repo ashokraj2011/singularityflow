@@ -34,11 +34,17 @@ use /sf-test-setup before governed execution. Intake itself does not execute or 
 
 ## Planned implementation evidence
 
-Plan a repair only if fresh checking demonstrates a defect.
+Repair only what fresh checking demonstrates, but plan now the exact paths a repair would most
+likely change: a later repair may change only the paths these approved rows claim. List exact
+repository-relative product source and executable regression test paths in backticks.
+Use fulfillment `modified` for product source a repair may change, or `test-only` with an
+unquoted dash (-) under Expected paths when only tests would change. A repair that needs any
+other path hands back to intake: the repair handoff chooses `revise-intake`, or its reviewer
+rejects it to intake, for a revised, re-approved plan; it never changes an unplanned path.
 
-| Clause | Expected paths | Planned tests | Change kind | Expected behavior |
+| Clause | Expected paths | Planned tests | Fulfillment | Observable result |
 |---|---|---|---|---|
-| `{{work.id}}:AC-001` | TODO: Real source paths | TODO: Executable regression paths | update | TODO: Observable behavior |
+| `{{work.id}}:AC-001` | TODO: Real source paths | TODO: Executable regression paths | modified | TODO: Observable behavior |
 
 TODO: Include explicit evidence-file slots/methods for screenshots or document inspection,
 separately from product-source delivery. Do not invent source markers for an evidence-only clause.

@@ -4,8 +4,9 @@
 
 TODO: Cite the approved Specification, Code, and Playwright testing review generations, their
 artifact SHA-256 values, the Code publication/review commit, and the passing structured Code test
-receipt. If any source or specification generation changed, stop and obtain fresh downstream
-evidence rather than reusing a prior verdict.
+receipt. If no test could run, cite the active test-run risk decision (ID, cause, expiry) instead
+of a passing receipt, and never call it a pass. If any source or specification generation changed,
+stop and obtain fresh downstream evidence rather than reusing a prior verdict.
 
 ## Clause-by-clause comparison
 

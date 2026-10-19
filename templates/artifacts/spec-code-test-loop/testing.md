@@ -8,14 +8,17 @@ test receipt, authorized browser target, observed behavior, and any required rew
 observation is not an executable-test verdict or permission to change the Specification.
 -->
 
+TODO: Write the Agent brief here as visible text; text inside the comment above is not read.
+
 ## Exact inputs and committed test receipt
 
 TODO: Cite the approved Specification generation and SHA-256, the Code publication/review commit,
 and the kernel-validated `context/code-delivery/implementation-genN.json` and
 `context/code-delivery/tests/implementation-genN-*.json` receipts. Record the test command ID,
-discovered/passed/failed counts, and any unavailable coverage. Do not call MCP observations a
-passing structured test result. The Code receipt is checked again before this phase may publish,
-submit, or be approved.
+discovered/passed/failed counts, and any unavailable coverage. If no test could run, cite the
+active test-run risk decision (ID, cause, expiry) instead of a passing receipt, and never call it a
+pass. Do not call MCP observations a passing structured test result. The Code receipt is checked
+again before this phase may publish, submit, or be approved.
 
 ## Authorized target and environment
 

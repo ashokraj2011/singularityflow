@@ -16,16 +16,16 @@ while placeholders remain.
 
 | Clause | Observable outcome |
 |---|---|
-| [{{work.id}}:AC-001] | TODO: State one observable outcome, such as the lockfile pinning a version or the build passing. |
+| [{{work.id}}:AC-001] | TODO: State one observable outcome, such as a lockfile or build manifest pinning a version, or the CI build passing. |
 
 ## Supporting files
 
 The plan: one bullet for each file this chore changes, with an exact backticked repository path and
-why it changes, for example - `package-lock.json` — pins the patched release. Dependency locks,
-build and CI configuration, repository metadata and documentation qualify; the class comes from the
-path.
+why it changes, for example - `go.sum` — pins the patched release, or - `pom.xml` — raises the
+library version. Dependency locks, build and CI configuration, repository metadata and
+documentation qualify; the class comes from the path.
 
-- `package-lock.json` — TODO: why this file changes.
+- TODO: `<exact repository path>` — why this file changes.
 
 ## Validation
 

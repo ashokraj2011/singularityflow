@@ -7,6 +7,8 @@ Summarize the executable-test verdict and any gap, including the exact Code rece
 revision. A written claim never replaces the kernel-validated test execution receipt.
 -->
 
+TODO: Write the Agent brief here as visible text; text inside the comment above is not read.
+
 ## Committed test results
 
 This phase reviews tests run and committed during Code submission. It does not create a fresh
@@ -16,6 +18,8 @@ TODO: Cite the Code phase's committed `context/code-delivery/implementation-genN
 `context/code-delivery/tests/implementation-genN-*.json` paths, command IDs, SHA-256 digests,
 discovered/passed/failed counts, and the immutable review evidence commit. SFlow checks these
 receipts before this phase can publish, submit, or be approved.
+If no test could run, cite the active test-run risk decision (ID, cause, expiry) instead
+of a passing receipt, and never call it a pass.
 
 ## Commands and environment
 

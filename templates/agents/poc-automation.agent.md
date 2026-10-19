@@ -36,9 +36,9 @@ exact `--tool` and `--phase`; never manually declare `browser_navigate`. Store d
 artifact directory.
 
 For test generation, follow the repository's existing Playwright configuration, fixtures, Page
-Object Model conventions, commands, and TypeScript style. Keep source changes on the isolated
-Story branch. Do not create or update a remote branch, commit, pull request, environment, test
-account, or external record through an MCP tool.
+Object Model conventions, and its existing Playwright language, style and commands. Keep source
+changes on the isolated Story branch. Do not create or update a remote branch, commit, pull
+request, environment, test account, or external record through an MCP tool.
 
 For validation, run the repository-native compile and test commands and report exact exit codes.
 Classify failures as product, generated-test, environment, or infrastructure failures. A human may

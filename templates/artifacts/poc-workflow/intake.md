@@ -18,7 +18,7 @@ environment changes, or production traffic.
 | Pinned base commit | Record the exact refreshed remote commit |
 | Isolated Story branch | Record the Story branch; it must differ from the selected base |
 | Existing test framework | Record the detected Playwright configuration, test roots, and commands |
-| TypeScript validation | Record the exact local command; the seeded gate runs `npx --no-install tsc --noEmit` |
+| Language and compile check | Record the existing Playwright language and its exact local compile check; the seeded gate runs TypeScript `npx --no-install tsc --noEmit` |
 | Playwright validation | Record approved overrides; the seeded gate runs `npx --no-install playwright test --reporter=json` |
 
 Do not accept a local-only base branch or silently choose a default. The normal Story-start
@@ -29,13 +29,15 @@ preflight owns remote access, ancestry, branch creation, and publication of the 
 | Field | Approved value |
 |---|---|
 | Environment name | Record dev, test, staging, or another approved non-production target |
-| Base URL / allowed origins | Record the exact authorized HTTPS origin(s) |
+| Base URL / allowed origins | Record the exact authorized HTTPS origin(s), or loopback HTTP (`localhost`, `127.0.0.1`) for a local target |
 | Browsers and viewports | Record the required browser projects and deterministic sizes |
 | Test-data boundary | Record reusable fixtures/accounts and cleanup requirements |
 | Access method | Name a secret reference or host-managed login; never record a secret value |
 | MCP readiness | Record scaffold, attestation, and live-smoke receipt status for this exact origin |
 
-Before approving intake, configure and verify the browser host:
+Intake records readiness only; the intake agent never browses the target. Before intake is
+approved, the contributor runs these host checks on their own machine, and this intake records the
+status they report:
 
 ```text
 singularity-flow mcp scaffold playwright
@@ -44,9 +46,9 @@ singularity-flow mcp smoke playwright --url <AUTHORIZED-URL>
 ```
 
 The smoke receipt is machine-local and becomes stale whenever the host entry or governed MCP policy
-changes. If the repository uses a nonstandard TypeScript or Playwright command, update the POC
-phase quality commands through governed configuration before starting the Story; never silently
-skip either executable gate.
+changes. If the repository's Playwright suite is not TypeScript, or uses a nonstandard compile or
+Playwright command, record it here as a blocker: the POC phase quality commands change through
+governed configuration before starting the Story. Never silently skip either executable gate.
 
 ## Test intent and acceptance criteria
 

@@ -31,6 +31,8 @@ export interface TestSummaryRun {
 export interface TestSummaryCommand {
   id: string; kind: string | null; adapter: string | null; status: string | null; exitCode: number | null;
   perCase: boolean; note: string | null;
+  /** The environment it ran against, and the engine's label for it when it differs by command. */
+  environment: string | null; label: string | null;
 }
 
 export interface TestSummaryCase {
@@ -74,7 +76,8 @@ export function testsSummaryArgv(target: TestSummaryTarget, runId: string | null
   const scope = target.kind === 'capability'
     ? ['--capability', required(target.capability, 'Capability', ID)]
     : ['--work-id', required(target.workId, 'Work ID', WORK_ID), ...(target.phase ? ['--phase', required(target.phase, 'Phase', PHASE)] : [])];
-  return ['tests', 'summary', ...scope, ...(runId ? ['--run', required(runId, 'Run ID', RUN_ID)] : []), '--json'];
+  // One token: elsewhere `--run` is a boolean flag, so the CLI reads a separate run ID as a positional.
+  return ['tests', 'summary', ...scope, ...(runId ? [`--run=${required(runId, 'Run ID', RUN_ID)}`] : []), '--json'];
 }
 
 export function totalsFrom(value: unknown): TestSummaryTotals {
@@ -107,15 +110,15 @@ export function testSummaryFrom(raw: unknown): TestSummary | null {
       return command && id ? [{
         id, kind: text(command.kind), adapter: text(command.adapter), status: text(command.status),
         exitCode: typeof command.exitCode === 'number' ? command.exitCode : null,
-        perCase: command.perCase !== false, note: text(command.note)
+        perCase: command.perCase !== false, note: text(command.note),
+        environment: text(command.environment), label: text(command.label)
       }] : [];
     }),
     cases: (Array.isArray(value.cases) ? value.cases : []).flatMap((item) => {
       const entry = record(item);
-      const name = text(entry?.name);
-      if (!entry || !name) return [];
+      if (!entry) return [];
       return [{
-        command: text(entry.command) ?? '', suite: text(entry.suite), name,
+        command: text(entry.command) ?? '', suite: text(entry.suite), name: text(entry.name) ?? '(unnamed test case)',
         file: text(entry.file), line: typeof entry.line === 'number' && Number.isInteger(entry.line) && entry.line > 0 ? entry.line : null,
         outcome: text(entry.outcome) ?? 'unknown',
         durationMs: typeof entry.durationMs === 'number' && entry.durationMs >= 0 ? entry.durationMs : null,
@@ -148,6 +151,7 @@ export function evidenceClassLabel(evidenceClass: string): string {
 
 export function formatDuration(ms: number | null): string {
   if (ms === null) return '—';
+  if (ms < 1) return '<1 ms';
   if (ms < 1000) return `${Math.round(ms)} ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;
   return `${Math.floor(ms / 60_000)} min ${Math.round((ms % 60_000) / 1000)} s`;
@@ -181,7 +185,7 @@ export interface CaseRow {
 
 export interface CommandTable {
   id: string; kind: string | null; adapter: string | null; status: string | null; exitCode: number | null;
-  perCase: boolean; note: string | null; rows: CaseRow[]; total: number;
+  perCase: boolean; note: string | null; environment: string | null; label: string | null; rows: CaseRow[]; total: number;
 }
 
 export interface RunOption { id: string; label: string; title: string; selected: boolean }
@@ -235,14 +239,17 @@ export function buildTestSummaryView(summary: TestSummary | null, options: {
   const shownCases = filterCases(summary.cases, filters);
   const listed = new Set(summary.commands.map((command) => command.id));
   const extra = [...new Set(summary.cases.map((entry) => entry.command).filter((id) => !listed.has(id)))]
-    .map((id): TestSummaryCommand => ({ id: id || 'other', kind: null, adapter: null, status: null, exitCode: null, perCase: true, note: null }));
+    .map((id): TestSummaryCommand => ({ id: id || 'other', kind: null, adapter: null, status: null, exitCode: null, perCase: true, note: null, environment: null, label: null }));
   const commands = [...summary.commands, ...extra].map((command): CommandTable => ({
     ...command,
+    // A command's own label only when it says something the run's does not.
+    label: command.label && command.label !== summary.run?.label ? command.label : null,
     rows: shownCases.filter((entry) => (entry.command || 'other') === command.id).map(row),
     total: summary.cases.filter((entry) => (entry.command || 'other') === command.id).length
   }));
   const run = summary.run;
-  const countsNote = run && run.countsForStep === false
+  // Only a Story step has a step to count for; a capability's local run is labelled by its own words.
+  const countsNote = run && options.target.kind === 'story' && run.countsForStep === false
     ? (/does not count/i.test(run.label) ? run.label : `This run does not count for this step. ${run.label}`.trim())
     : null;
   const history = summary.history.some((entry) => entry.runId === run?.id) || !run ? summary.history

@@ -215,6 +215,7 @@ export function loopbackUrl(value: string | null | undefined): string | null {
 /** "qa: not bound". Only the binding status is ever shown; values never reach VS Code. */
 export function environmentStatusWords(status: string): string {
   if (status === 'bound') return 'bound';
+  if (status === 'undeclared') return 'not declared in singularity/environments.yml';
   if (status === 'partial' || status === 'partially-bound') return 'partly bound';
   if (['unbound', 'not-bound', 'missing', 'unavailable', 'none'].includes(status)) return 'not bound';
   return status === 'unknown' ? 'status unknown' : status.replace(/-/g, ' ');
@@ -249,6 +250,21 @@ export function entryEnvironment(entry: Pick<StartEntry, 'environments'>, chosen
   return entry.environments.find((choice) => choice.default)?.name ?? entry.environments[0]!.name;
 }
 
+/**
+ * Why a start entry cannot run in its environment, from the plan read just before: the engine would
+ * refuse an incomplete binding or an undeclared environment after the task opened, so it is said
+ * here, plainly, with what the person does about it. Null when it can run.
+ */
+export function startRefusal(entry: Pick<StartEntry, 'id' | 'environments'>, environment: string | null): string | null {
+  const choice = environment ? entry.environments.find((item) => item.name === environment) : null;
+  // Only a status the engine reported as not runnable; an unknown one is left to the engine.
+  if (!choice || !['unbound', 'unavailable', 'partial', 'partially-bound', 'missing', 'not-bound', 'none', 'undeclared'].includes(choice.status)) return null;
+  if (choice.status === 'undeclared') {
+    return `${entry.id} was not started: environment ${choice.name} is not declared in singularity/environments.yml. Declare it through a configuration proposal, or pick another environment.`;
+  }
+  return `${entry.id} was not started: environment ${choice.name} is ${environmentStatusWords(choice.status)} on this computer. Bind its values with your own secret helper, on standard input: ${bindCommand(choice.name)}`;
+}
+
 /** The environment a test run names: only one a command that will run allows; nothing otherwise. */
 export function testsEnvironment(tests: TestCommandPlan[], chosen: string | null, commands: string[] = []): string | null {
   const planned = commands.length ? tests.filter((command) => commands.includes(command.id)) : tests;
@@ -265,19 +281,39 @@ export const appPlanArgv = (capability: string): string[] =>
 export const appStatusArgv = (capability: string): string[] =>
   ['app', 'status', '--capability', required(capability, 'Capability', ID), '--json'];
 export const appStopArgv = (capability: string, id: string): string[] =>
-  ['app', 'stop', required(id, 'Start entry', ID), '--capability', required(capability, 'Capability', ID)];
+  ['app', 'stop', required(id, 'Start entry', ID), '--capability', required(capability, 'Capability', ID), '--json'];
+/** The capability the engine resolves for this checkout, for a window that does not know its repository. */
+export const appPlanHereArgv = (): string[] => ['app', 'plan', '--json'];
 
-/** What the start task runs after the CLI path: `app start <id> --capability <ID> [--environment ENV]`. */
-export function appStartArgv(capability: string, id: string, environment: string | null): string[] {
+const expect = (identities: string[]): string[] => identities.flatMap((sha) => ['--expect-command', required(sha, 'Command identity', SHA256)]);
+
+/**
+ * What the start task runs after the CLI path: `app start <id> --capability <ID> [--environment ENV]
+ * --expect-command <commandSha256>`. The engine refuses (APP_COMMAND_CHANGED) when the entry is no
+ * longer the one the person confirmed.
+ */
+export function appStartArgv(capability: string, id: string, environment: string | null, commandSha256: string | null = null): string[] {
   return ['app', 'start', required(id, 'Start entry', ID), '--capability', required(capability, 'Capability', ID),
-    ...(environment ? ['--environment', required(environment, 'Environment', ENVIRONMENT)] : [])];
+    ...(environment ? ['--environment', required(environment, 'Environment', ENVIRONMENT)] : []),
+    ...expect(commandSha256 ? [commandSha256] : [])];
 }
 
-/** `tests run --capability <ID> [--command ID]... [--environment ENV]`; prose output for the terminal. */
-export function testsRunArgv(capability: string, commands: string[], environment: string | null): string[] {
+/**
+ * `tests run --capability <ID> [--command ID]... [--environment ENV] [--expect-command SHA]...`, prose
+ * output for the terminal. Every command that runs carries the identity the person confirmed; the
+ * engine refuses (TESTS_COMMAND_CHANGED) and runs nothing when one changed.
+ */
+export function testsRunArgv(capability: string, commands: string[], environment: string | null, identities: string[] = []): string[] {
   return ['tests', 'run', '--capability', required(capability, 'Capability', ID),
     ...commands.flatMap((command) => ['--command', required(command, 'Test command', ID)]),
-    ...(environment ? ['--environment', required(environment, 'Environment', ENVIRONMENT)] : [])];
+    ...(environment ? ['--environment', required(environment, 'Environment', ENVIRONMENT)] : []),
+    ...expect(identities)];
+}
+
+/** The planned identities of the commands a run selects, when the engine planned every one. */
+export function plannedIdentities(tests: TestCommandPlan[], commands: string[]): string[] {
+  const planned = commands.length ? tests.filter((command) => commands.includes(command.id)) : tests;
+  return planned.length && planned.every((command) => command.commandSha256) ? planned.map((command) => command.commandSha256!) : [];
 }
 
 export const testsPlanArgv = (capability: string): string[] =>
@@ -302,8 +338,8 @@ export function rememberConfirmed(confirmed: readonly string[], keys: readonly s
  * run, else one digest of the exact `tests run` argv (an older engine without `tests plan`).
  */
 export function testsConfirmationKeys(tests: TestCommandPlan[], argv: string[], commands: string[]): string[] {
-  const planned = commands.length ? tests.filter((command) => commands.includes(command.id)) : tests;
-  if (planned.length && planned.every((command) => command.commandSha256)) return planned.map((command) => command.commandSha256!);
+  const planned = plannedIdentities(tests, commands);
+  if (planned.length) return planned;
   return [`vscode-argv:sha256:${createHash('sha256').update(JSON.stringify(argv)).digest('hex')}`];
 }
 
@@ -333,7 +369,7 @@ export function startConfirmationRequest(entry: StartEntry, environment: string 
         : 'Environment: none',
       `Command identity: ${entry.commandSha256}`,
       '',
-      `VS Code runs it as a task: ${displayCommand(appStartArgv(entry.capability, entry.id, environment))}`
+      `VS Code runs it as a task: ${displayCommand(appStartArgv(entry.capability, entry.id, environment, entry.commandSha256))}`
     ].join('\n'),
     confirmLabel: 'Run this command'
   };
@@ -358,7 +394,7 @@ export function testsConfirmationRequest(capability: string, tests: TestCommandP
       ...lines,
       environment ? `Environment: ${environment}. Its values go to the test process only; VS Code never reads or shows them.` : 'Environment: none named',
       '',
-      `VS Code runs it as a task: ${displayCommand(testsRunArgv(capability, commands, environment))}`,
+      `VS Code runs it as a task: ${displayCommand(testsRunArgv(capability, commands, environment, plannedIdentities(tests, commands)))}`,
       'The run is a local preview: it is shown in the test summary and never counts as evidence for a Story.'
     ].join('\n'),
     confirmLabel: 'Run these tests'
@@ -392,7 +428,11 @@ export interface StartRow {
 
 export interface EnvironmentRow { name: string; status: string; words: string; bound: boolean; selected: boolean }
 
-export interface LastRunLine { runId: string; classLabel: string; line: string; label: string | null }
+export interface LastRunLine {
+  runId: string; classLabel: string; line: string; label: string | null;
+  /** Commands the engine did not run, with its reason (an unbound environment, the policy). */
+  blocked: string[];
+}
 
 export interface RunAndTestState {
   plan?: StartEntry[] | null;
@@ -446,7 +486,7 @@ export function buildRunAndTestView(capability: CapabilityNode, ownership: Owner
       state: current, stateWords: STATE_WORDS[current],
       detail: current === 'ready' && url ? `at ${url}`
         : current === 'starting' ? `waiting until ${readiness(entry.ready)}`
-          : current === 'failed' ? `exit code ${task?.exitCode}` : null,
+          : current === 'failed' ? `exit code ${task?.exitCode}; its task terminal says why` : null,
       environment: running ? status?.environment ?? null : entryEnvironment(entry, environment),
       canStart: !running, canStop: running, canOpen: current === 'ready' && Boolean(url)
     };
@@ -455,7 +495,9 @@ export function buildRunAndTestView(capability: CapabilityNode, ownership: Owner
     runId: state.lastRun.run.id,
     classLabel: evidenceClassLabel(state.lastRun.run.evidenceClass),
     line: `${totalsLine(state.lastRun.totals)}${state.lastRun.run.environment ? ` · environment ${state.lastRun.run.environment}` : ''}${state.lastRun.run.startedAt ? ` · ${state.lastRun.run.startedAt}` : ''}`,
-    label: state.lastRun.run.label || null
+    label: state.lastRun.run.label || null,
+    blocked: state.lastRun.commands.filter((command) => command.status === 'blocked')
+      .map((command) => `${command.id}${command.environment ? ` (${command.environment})` : ''}: ${command.note ?? 'not run'}`)
   } : null;
   const fromSummary = (state.lastRun?.commands ?? []).map((command) => command.id).filter((id) => ID.test(id));
   return {
@@ -470,7 +512,8 @@ export function buildRunAndTestView(capability: CapabilityNode, ownership: Owner
       bound: choice.status === 'bound', selected: choice.name === environment
     })),
     environment,
-    bind: chosen && chosen.status !== 'bound' ? bindCommand(chosen.name) : null,
+    // Binding helps only a declared environment; an undeclared one needs an environments.yml proposal.
+    bind: chosen && chosen.status !== 'bound' && chosen.status !== 'undeclared' ? bindCommand(chosen.name) : null,
     starts,
     startsNote: state.planNote ?? (state.plan && !plan.length
       ? 'No start entries are declared. Add application.start to this capability in singularity/capabilities.yml through a capability proposal.' : null),

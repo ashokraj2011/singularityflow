@@ -4,8 +4,10 @@ import type { CommandTable, TestSummaryView } from './test-summary-model.ts';
 
 function commandHtml(command: CommandTable): string {
   const head = `<header class="ts-command-head"><h2><code>${escape(command.id)}</code></h2>
-      <span class="pill ${command.status === 'passed' ? 'ok' : command.status === 'failed' ? 'bad' : ''}">${escape(command.status ?? 'no status')}</span>
-      <small class="muted">${escape([command.kind, command.adapter, command.exitCode === null ? null : `exit ${command.exitCode}`].filter(Boolean).join(' · '))}</small></header>`;
+      <span class="pill ${command.status === 'passed' ? 'ok' : command.status === 'failed' ? 'bad' : command.status === 'blocked' ? 'wait' : ''}">${escape(command.status ?? 'no status')}</span>
+      <small class="muted">${escape([command.kind, command.adapter, command.exitCode === null ? null : `exit ${command.exitCode}`,
+    command.environment ? `environment ${command.environment}` : null].filter(Boolean).join(' · '))}</small></header>
+      ${command.label ? `<p class="muted ts-command-label">${escape(command.label)}</p>` : ''}`;
   const note = command.note ? `<p class="notice ts-note" data-ts-note="${escape(command.id)}">${escape(command.note)}</p>` : '';
   if (!command.perCase) {
     return `<section class="ts-command" data-ts-command="${escape(command.id)}" data-per-case="false">${head}

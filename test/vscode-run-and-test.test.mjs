@@ -59,24 +59,19 @@ function summary(overrides = {}) {
   };
 }
 
-test('app plan|status, tests summary|plan are reads; app start|stop and tests run execute and are never reads', async (t) => {
-  for (const args of [['app', 'plan', '--capability', 'x', '--json'], ['app', 'status', '--capability', 'x', '--json'],
-    ['tests', 'summary', '--capability', 'x', '--json'], ['tests', 'plan', '--capability', 'x', '--json']]) {
-    assert.equal(commandClass(args), 'read', args.join(' '));
-  }
-  for (const args of [['app', 'start', 'web', '--capability', 'x'], ['app', 'stop', 'web', '--capability', 'x'],
-    ['tests', 'run', '--capability', 'x'], ['app'], ['tests'], ['app', 'unknown']]) {
-    assert.equal(commandClass(args), 'mutation', args.join(' '));
-  }
-  // Once the engine registers the commands, both sides must agree.
+test('app plan|status, tests summary|plan are reads; app start|stop and tests run execute; VS Code and the CLI agree', async () => {
+  const reads = [['app', 'plan', '--capability', 'x', '--json'], ['app', 'plan', '--json'], ['app', 'status', '--capability', 'x', '--json'],
+    ['tests', 'summary', '--capability', 'x', '--json'], ['tests', 'summary', '--capability', 'x', '--run=RUN-1', '--json'],
+    ['tests', 'plan', '--capability', 'x', '--json'], ['app'], ['app', '--json'], ['tests'], ['tests', '--capability', 'x']];
+  const executions = [['app', 'start', 'web', '--capability', 'x', '--expect-command', SHA], ['app', 'stop', 'web', '--capability', 'x', '--json'],
+    ['tests', 'run', '--capability', 'x', '--expect-command', SHA], ['tests', 'run', '--capability', 'x', '--command', 'a', '--environment', 'qa']];
+  for (const args of reads) assert.equal(commandClass(args), 'read', args.join(' '));
+  for (const args of executions) assert.equal(commandClass(args), 'mutation', args.join(' '));
+  assert.equal(commandClass(['app', 'unknown']), 'mutation', 'an unknown subcommand stays conservative');
   const { resolveOperation } = await import(path.join(root, 'src', 'command-registry.mjs'));
   const { parseArgs } = await import(path.join(root, 'src', 'util.mjs'));
-  const engine = (args) => { try { return resolveOperation({ requestedCommand: args[0], ...parseArgs(args) }).classification; } catch { return null; } };
-  if (engine(['app', 'plan', '--json']) === null) return t.skip('the engine does not register `app` yet');
-  for (const args of [['app', 'plan', '--json'], ['app', 'status', '--json'], ['app', 'start', 'web'], ['app', 'stop', 'web'],
-    ['tests', 'run', '--capability', 'x'], ['tests', 'summary', '--capability', 'x', '--json']]) {
-    assert.equal(commandClass(args), engine(args), args.join(' '));
-  }
+  const engine = (args) => resolveOperation({ requestedCommand: args[0], ...parseArgs(args) }).classification;
+  for (const args of [...reads, ...executions]) assert.equal(commandClass(args), engine(args), `engine and VS Code: ${args.join(' ')}`);
 });
 
 test('the client never reuses an app or tests answer from its read cache', async () => {
@@ -130,9 +125,18 @@ test('the section belongs to a delivery capability whose repository is this chec
 });
 
 test('a start runs `app start <id> --capability <ID> [--environment ENV]` as argv, never a shell string', () => {
-  assert.deepEqual(model.appStartArgv('payments-web', 'web', 'qa'), ['app', 'start', 'web', '--capability', 'payments-web', '--environment', 'qa']);
+  assert.deepEqual(model.appStartArgv('payments-web', 'web', 'qa', SHA),
+    ['app', 'start', 'web', '--capability', 'payments-web', '--environment', 'qa', '--expect-command', SHA]);
   assert.deepEqual(model.appStartArgv('payments-web', 'web', null), ['app', 'start', 'web', '--capability', 'payments-web']);
-  assert.deepEqual(model.appStopArgv('payments-web', 'web'), ['app', 'stop', 'web', '--capability', 'payments-web']);
+  assert.deepEqual(model.appStopArgv('payments-web', 'web'), ['app', 'stop', 'web', '--capability', 'payments-web', '--json']);
+  assert.deepEqual(model.appPlanHereArgv(), ['app', 'plan', '--json']);
+  assert.deepEqual(model.testsRunArgv('payments-web', [], 'qa', [SHA, SHA2]),
+    ['tests', 'run', '--capability', 'payments-web', '--environment', 'qa', '--expect-command', SHA, '--expect-command', SHA2]);
+  assert.throws(() => model.appStartArgv('payments-web', 'web', null, 'not-a-digest'), /invalid/);
+  const planned = [{ id: 'a', commandSha256: SHA, environments: [] }, { id: 'b', commandSha256: SHA2, environments: [] }];
+  assert.deepEqual(model.plannedIdentities(planned, []), [SHA, SHA2]);
+  assert.deepEqual(model.plannedIdentities(planned, ['b']), [SHA2]);
+  assert.deepEqual(model.plannedIdentities([{ id: 'a', commandSha256: null, environments: [] }], []), [], 'no identity is claimed for an unplanned command');
   assert.deepEqual(model.appStatusArgv('payments-web'), ['app', 'status', '--capability', 'payments-web', '--json']);
   assert.deepEqual(model.testsRunArgv('payments-web', ['module-tests'], 'dev'),
     ['tests', 'run', '--capability', 'payments-web', '--command', 'module-tests', '--environment', 'dev']);
@@ -159,6 +163,10 @@ test('the environment is the remembered one when still allowed, else the first l
   assert.equal(model.testsEnvironment(both, 'uat', ['integration-tests']), 'uat');
   assert.equal(model.environmentStatusWords('unbound'), 'not bound');
   assert.equal(model.environmentStatusWords('partial'), 'partly bound');
+  assert.equal(model.environmentStatusWords('unavailable'), 'not bound');
+  assert.equal(model.environmentStatusWords('undeclared'), 'not declared in singularity/environments.yml');
+  const undeclared = model.buildRunAndTestView(capability(), 'here', { plan: model.appPlanFrom([planEntry({ environments: [{ name: 'uat', status: 'undeclared', default: true }] })]).entries });
+  assert.equal(undeclared.bind, null, 'binding cannot help an environment environments.yml does not declare');
   assert.equal(model.bindCommand('qa'), 'singularity-flow env bind qa --stdin');
 });
 
@@ -170,7 +178,7 @@ test('the first-run confirmation shows exactly what runs and its identity, and n
   assert.equal(request.confirmLabel, 'Run this command');
   for (const line of ['Command: ["npm","run","dev","--","--host","127.0.0.1","--port","5173"]', 'Working directory: apps/web (repository payments-web)',
     'Ready when: HTTP / answers below 500 within 90 s', 'Environment: qa (not bound). Its values go to this process only',
-    `Command identity: ${SHA}`, 'singularity-flow app start web --capability payments-web --environment qa']) {
+    `Command identity: ${SHA}`, `singularity-flow app start web --capability payments-web --environment qa --expect-command ${SHA}`]) {
     assert.ok(request.detail.includes(line), line);
   }
   const tests = [{ id: 'module-tests', kind: 'test', argv: ['npm', 'test'], workingDirectory: 'apps/web', environments: [], commandSha256: SHA2 }];
@@ -198,7 +206,7 @@ test('the section shows each start entry with its state, the environment picker 
   assert.match(html, /data-rt-entry="web" data-rt-state="ready">[\s\S]*Ready<\/span> <small>at http:\/\/127\.0\.0\.1:5173\/<\/small>[\s\S]*environment qa/);
   assert.match(html, /data-rt="start" data-rt-capability="payments-web" data-rt-entry="web" disabled/);
   assert.match(html, /data-rt="open" data-rt-capability="payments-web" data-rt-entry="web">Open in browser/);
-  assert.match(html, /data-rt-entry="api" data-rt-state="failed">[\s\S]*Stopped with an error<\/span> <small>exit code 2<\/small>/);
+  assert.match(html, /data-rt-entry="api" data-rt-state="failed">[\s\S]*Stopped with an error<\/span> <small>exit code 2; its task terminal says why<\/small>/);
   assert.match(html, /data-rt="stop" data-rt-capability="payments-web" data-rt-entry="api" disabled/);
   assert.match(html, /Run all tests[\s\S]*Run module-tests[\s\S]*Run lint/);
   assert.match(html, /<strong>Last run:<\/strong> Local preview · 2 passed, 1 failed, 1 skipped of 4 · environment dev · 2026-10-19T10:00:00Z\s*<button type="button" class="link" data-rt="summary"[^>]*>Open test summary/);
@@ -256,7 +264,7 @@ test('loopback URLs only: no other host, no credentials, query or fragment', () 
 test('tests summary argv names the capability or the Story step, and optionally one run', () => {
   assert.deepEqual(summaryModel.testsSummaryArgv({ kind: 'capability', capability: 'payments-web' }), ['tests', 'summary', '--capability', 'payments-web', '--json']);
   assert.deepEqual(summaryModel.testsSummaryArgv({ kind: 'story', workId: 'PAY-12', phase: 'implementation' }, 'TA-7'),
-    ['tests', 'summary', '--work-id', 'PAY-12', '--phase', 'implementation', '--run', 'TA-7', '--json']);
+    ['tests', 'summary', '--work-id', 'PAY-12', '--phase', 'implementation', '--run=TA-7', '--json'], 'one token: --run is a boolean flag elsewhere');
   assert.deepEqual(summaryModel.testsSummaryArgv({ kind: 'story', workId: 'PAY-12', phase: null }), ['tests', 'summary', '--work-id', 'PAY-12', '--json']);
   assert.throws(() => summaryModel.testsSummaryArgv({ kind: 'capability', capability: '--x' }), /invalid/);
   assert.throws(() => summaryModel.testsSummaryArgv({ kind: 'story', workId: 'PAY-12', phase: null }, '-r'), /invalid/);
@@ -314,4 +322,47 @@ test('each run is labelled by its evidence class and environment; a run that doe
     { target: { kind: 'capability', capability: 'payments-web' } });
   assert.equal(counted.run.countsNote, null);
   assert.equal(summaryModel.evidenceClassLabel('governed'), 'Step run (publish or submit)');
+});
+
+test('a command the engine did not run is named with its reason, on the section and the summary', () => {
+  const refusal = "Test command 'integration-tests' needs environment 'qa', which is not bound on this computer. Bind it with singularity-flow env bind qa --stdin.";
+  const blocked = summaryModel.testSummaryFrom(summary({
+    commands: [
+      { id: 'module-tests', kind: 'test', adapter: 'node-tap', status: 'passed', exitCode: 0, tests: {}, perCase: true, note: null, environment: null, countsForStep: false },
+      { id: 'integration-tests', kind: 'test', adapter: 'node-tap', status: 'blocked', exitCode: null, tests: {}, perCase: false, note: refusal, environment: 'qa', countsForStep: false }
+    ],
+    cases: [{ command: 'module-tests', suite: null, name: null, file: 'test/a.test.mjs', line: 3, outcome: 'passed', durationMs: 1, clauses: [] }]
+  }));
+  assert.equal(blocked.cases[0].name, '(unnamed test case)', 'a case without a name is still listed');
+  assert.equal(blocked.commands[1].environment, 'qa');
+  const section = runAndTestHtml(model.buildRunAndTestView(capability(), 'here', { plan: [], lastRun: blocked }));
+  assert.ok(section.includes(`<strong>Not run.</strong> integration-tests (qa): ${refusal.replaceAll("'", '&#39;')}`));
+  const page = testSummaryHtml(summaryModel.buildTestSummaryView(blocked, { target: { kind: 'capability', capability: 'payments-web' } }));
+  assert.match(page, /data-ts-command="integration-tests" data-per-case="false">[\s\S]*<span class="pill wait">blocked<\/span>[\s\S]*environment qa[\s\S]*is not bound on this computer/);
+  // A command's label is shown only when it differs from the run's.
+  const labelled = summaryModel.buildTestSummaryView(summaryModel.testSummaryFrom(summary({
+    commands: [{ id: 'module-tests', status: 'passed', perCase: true, label: 'Local preview, not evidence' }, { id: 'lint', status: 'passed', perCase: false, label: 'Run by publication' }]
+  })), { target: { kind: 'capability', capability: 'payments-web' } });
+  assert.deepEqual(labelled.commands.map((command) => command.label), [null, 'Run by publication']);
+});
+
+test('a start in an environment that cannot run is refused before anything opens, with what to do about it', () => {
+  const entry = model.appPlanFrom([planEntry({ environments: [{ name: 'dev', status: 'bound', default: true }, { name: 'qa', status: 'unbound' },
+    { name: 'uat', status: 'undeclared' }, { name: 'old', status: 'unknown' }] })]).entries[0];
+  assert.equal(model.startRefusal(entry, 'dev'), null);
+  assert.equal(model.startRefusal(entry, null), null);
+  assert.equal(model.startRefusal(entry, 'old'), null, 'a status the engine did not report is left to the engine');
+  assert.equal(model.startRefusal(entry, 'qa'),
+    'web was not started: environment qa is not bound on this computer. Bind its values with your own secret helper, on standard input: singularity-flow env bind qa --stdin');
+  assert.match(model.startRefusal(entry, 'uat'), /^web was not started: environment uat is not declared in singularity\/environments\.yml\./);
+});
+
+test('a capability\'s local run has no step to count for; the summary says nothing about one', () => {
+  const capabilityView = summaryModel.buildTestSummaryView(summaryModel.testSummaryFrom(summary()), { target: { kind: 'capability', capability: 'payments-web' } });
+  assert.equal(capabilityView.run.countsForStep, false);
+  assert.equal(capabilityView.run.countsNote, null);
+  assert.doesNotMatch(testSummaryHtml(capabilityView), /data-counts-for-step/);
+  assert.equal(summaryModel.formatDuration(0.4), '<1 ms');
+  assert.equal(summaryModel.formatDuration(0), '<1 ms');
+  assert.equal(summaryModel.formatDuration(5), '5 ms');
 });

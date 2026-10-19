@@ -10304,6 +10304,11 @@ const runPlanEntry = (sha = RUN_SHA) => ({
   environments: [{ name: 'dev', status: 'bound', default: true }, { name: 'qa', status: 'unbound', default: false }],
   commandSha256: sha
 });
+/** The real shapes: `app plan --json` and `app status --json` (sflow-app-plan, sflow-app-status). */
+const runPlan = (sha = RUN_SHA) => ({ resultType: 'sflow-app-plan', capability: 'checkout-app', entries: [runPlanEntry(sha)] });
+const runStatus = ({ started, ready, environment = null }) => ({ resultType: 'sflow-app-status', capability: 'checkout-app', entries: [{
+  id: 'web', declared: true, started, ready, url: 'http://127.0.0.1:5173/', pid: started ? 4242 : null, startedAt: started ? '2026-10-19T10:00:00Z' : null,
+  environment: started ? environment : null, commandSha256: RUN_SHA, recordedCommandSha256: started ? RUN_SHA : null }] });
 const runSummary = (overrides = {}) => ({
   resultType: 'sflow-test-summary', schemaVersion: 1,
   scope: { kind: 'capability', capability: 'checkout-app', workId: null, phase: null },
@@ -10344,11 +10349,14 @@ async function runAndTestCli(base) {
       appendFileSync(state + '/log.jsonl', JSON.stringify({ argv: args, cwd: process.cwd() }) + '\\n');
       const key = args[0] + ' ' + args[1];
       let file = { 'app plan': 'plan.json', 'app status': 'status.json', 'tests plan': 'tests-plan.json', 'tests summary': 'summary.json' }[key];
-      if (key === 'tests summary' && args.includes('--run')) file = 'summary-' + args[args.indexOf('--run') + 1] + '.json';
+      const run = args.find((value) => value.startsWith('--run='));
+      if (key === 'tests summary' && run) file = 'summary-' + run.slice('--run='.length) + '.json';
       else if (key === 'tests summary' && args.includes('--work-id')) file = 'story-summary.json';
-      if (key === 'app stop') out({ resultType: 'command-result', data: { stopped: args[2] } });
+      if (key === 'app stop') out(existsSync(state + '/stop.json') ? read('stop.json') : { capability: 'checkout-app', id: args[2], stopped: true, pid: 4242, reason: 'stopped' });
       else if (file && existsSync(state + '/' + file)) out(read(file));
-      else if (key === 'tests summary') refuse('TEST_RUN_NOT_FOUND', 'No test run is recorded here yet.');
+      else if (key === 'tests summary') out({ resultType: 'sflow-test-summary', schemaVersion: 1,
+        scope: { kind: 'capability', capability: 'checkout-app', workId: null, phase: null }, run: null,
+        totals: { discovered: 0, passed: 0, failed: 0, skipped: 0, flaky: 0, durationMs: 0 }, commands: [], cases: [], truncated: false, untagged: 0, history: [] });
       else refuse('UNKNOWN_FIXTURE', 'No fixture for ' + key + '.');
     } else if (args[0] === 'choices' && args[1] === 'begin' && args[3] === ${JSON.stringify(RUN_W)}) {
       out({ schemaVersion: 1, token: 'receipt-run-1', choiceSets: [] });
@@ -10427,8 +10435,8 @@ async function activatedWithRunAndTest(t) {
     repositories: [mobile]
 `);
   const cli = await runAndTestCli(base);
-  await cli.write('plan.json', [runPlanEntry()]);
-  await cli.write('status.json', { entries: [{ id: 'web', declared: true, started: false, ready: false, url: 'http://127.0.0.1:5173/' }] });
+  await cli.write('plan.json', runPlan());
+  await cli.write('status.json', runStatus({ started: false, ready: false }));
   const { api, registered } = stubVscode();
   withTaskHost(api, registered);
   api.workspace.workspaceFolders = null;
@@ -10468,7 +10476,7 @@ test('Run & test starts an entry as a task of the CLI argv, after trust and a fi
   assert.match(html, /data-rt-entry="web" data-rt-state="stopped">[\s\S]*Not running/);
   assert.deepEqual((await cli.log()).map((entry) => entry.argv.slice(0, 2).join(' ')).sort(), ['app plan', 'app status', 'tests plan', 'tests summary']);
   assert.ok((await cli.log()).every((entry) => entry.argv.includes('--capability') && entry.argv[entry.argv.indexOf('--capability') + 1] === 'checkout-app'));
-  assert.match(html, /<p class="rt-last muted">No test run yet\./, 'a refused summary read with no run is "no run yet"');
+  assert.match(html, /<p class="rt-last muted">No test run yet\./, 'a summary with run: null is "no run yet"');
   // Collections show nothing new.
   await panel.post({ type: 'select', id: 'product' });
   await until(() => !panel.webview.html.includes('data-run-and-test='));
@@ -10487,6 +10495,14 @@ test('Run & test starts an entry as a task of the CLI argv, after trust and a fi
   await panel.post(rt('environment', { environment: 'prod' }));
   assert.deepEqual(windowState.get('singularityFlow.runAndTest.environments'), { 'checkout-app': 'qa' }, 'an environment the entries do not allow is ignored');
 
+  // qa is not bound: starting in it is refused plainly, with how to bind it; nothing is asked or run.
+  await panel.post(rt('start', { entry: 'web' }));
+  html = await until(() => panel.webview.html.includes('web was not started') ? panel.webview.html : null);
+  assert.match(html, /role="alert">[\s\S]*web was not started: environment qa is not bound on this computer\. Bind its values with your own secret helper, on standard input: singularity-flow env bind qa --stdin/);
+  assert.equal(registered.tasks.length, 0);
+  assert.equal(registered.reviewConfirmations.length, 0);
+  await panel.post(rt('environment', { environment: 'dev' }));
+
   // Untrusted: nothing runs, nothing is confirmed.
   api.workspace.isTrusted = false;
   await panel.post(rt('start', { entry: 'web' }));
@@ -10503,7 +10519,7 @@ test('Run & test starts an entry as a task of the CLI argv, after trust and a fi
   assert.equal(confirmation.title, 'Start web for checkout-app');
   assert.ok(confirmation.webview.html.includes('Command: [&quot;npm&quot;,&quot;run&quot;,&quot;dev&quot;'));
   assert.ok(confirmation.webview.html.includes(`Command identity: ${RUN_SHA}`));
-  assert.ok(confirmation.webview.html.includes('singularity-flow app start web --capability checkout-app --environment qa'));
+  assert.ok(confirmation.webview.html.includes('singularity-flow app start web --capability checkout-app --environment dev'));
   await confirmation.post({ type: 'confirmation.cancel' });
   await starting;
   assert.equal(registered.tasks.length, 0);
@@ -10517,16 +10533,16 @@ test('Run & test starts an entry as a task of the CLI argv, after trust and a fi
   const [{ task }] = registered.tasks;
   assert.equal(task.execution.kind, 'process', 'a process execution, never a shell string');
   assert.equal(task.execution.process, process.execPath);
-  assert.deepEqual(task.execution.args, [cli.wrapper, 'app', 'start', 'web', '--capability', 'checkout-app', '--environment', 'qa']);
+  assert.deepEqual(task.execution.args, [cli.wrapper, 'app', 'start', 'web', '--capability', 'checkout-app', '--environment', 'dev', '--expect-command', RUN_SHA]);
   assert.equal(task.execution.options.cwd, lead);
   assert.deepEqual(Object.keys(task.execution.options.env), ['SINGULARITY_FLOW_SURFACE_CONTEXT'], 'VS Code hands the task no value, only its repository');
-  assert.deepEqual(task.definition, { type: 'singularityFlow', action: 'app-start', capability: 'checkout-app', entry: 'web', environment: 'qa' });
+  assert.deepEqual(task.definition, { type: 'singularityFlow', action: 'app-start', capability: 'checkout-app', entry: 'web', environment: 'dev' });
   assert.equal(task.isBackground, true);
   assert.deepEqual(windowState.get('singularityFlow.runAndTest.confirmedCommands'), [RUN_SHA]);
   await until(() => panel.webview.html.includes('data-rt-state="starting"'));
 
   // The page reads `app status` until the entry answers; then Open in browser opens its loopback URL.
-  await cli.write('status.json', { entries: [{ id: 'web', declared: true, started: true, ready: true, url: 'http://127.0.0.1:5173/', environment: 'qa', pid: 4242 }] });
+  await cli.write('status.json', runStatus({ started: true, ready: true, environment: 'dev' }));
   html = await until(() => panel.webview.html.includes('data-rt-state="ready"') ? panel.webview.html : null);
   assert.match(html, /Ready<\/span> <small>at http:\/\/127\.0\.0\.1:5173\/<\/small>/);
   await panel.post(rt('open', { entry: 'web' }));
@@ -10534,12 +10550,18 @@ test('Run & test starts an entry as a task of the CLI argv, after trust and a fi
   await panel.post(rt('start', { entry: 'web' }));
   assert.equal(registered.tasks.length, 1, 'a running entry is not started twice');
 
-  // Stop ends the task; the engine still sees the process, so the page asks `app stop` for it.
+  // Stop ends the task; the engine still sees the process, so the page asks `app stop` for it. Seen in a
+  // real VS Code: by then the ended CLI had cleared its record, and the page said nothing was stopped.
+  await cli.write('stop.json', { capability: 'checkout-app', id: 'web', stopped: false, reason: 'not-recorded' });
   await panel.post(rt('stop', { entry: 'web' }));
   assert.equal(registered.tasks[0].terminated, true);
   await until(() => panel.webview.html.includes('web was stopped.'));
-  await logged(cli, (entry) => entry.argv.join(' ') === 'app stop web --capability checkout-app');
-  await cli.write('status.json', { entries: [{ id: 'web', declared: true, started: false, ready: false, url: 'http://127.0.0.1:5173/' }] });
+  await logged(cli, (entry) => entry.argv.join(' ') === 'app stop web --capability checkout-app --json');
+  await settle(); await settle();
+  assert.doesNotMatch(panel.webview.html, /nothing was stopped/);
+  assert.match(panel.webview.html, /web was stopped\./);
+  await cli.remove('stop.json');
+  await cli.write('status.json', runStatus({ started: false, ready: false }));
 
   // The same command identity is not asked again; a changed one is.
   registered.reviewConfirmations.length = 0;
@@ -10550,7 +10572,7 @@ test('Run & test starts an entry as a task of the CLI argv, after trust and a fi
   assert.equal(registered.reviewConfirmations.length, 0, 'remembered for this workspace');
   registered.endTask(registered.tasks[1], 1);
   await until(() => panel.webview.html.includes('data-rt-state="failed"'));
-  await cli.write('plan.json', [runPlanEntry(RUN_SHA_CHANGED)]);
+  await cli.write('plan.json', runPlan(RUN_SHA_CHANGED));
   starting = panel.post(rt('start', { entry: 'web' }));
   confirmation = await until(() => registered.panels.filter((entry) => entry.id === 'singularityFlow.reviewConfirmation' && entry.visible).at(-1) ?? null);
   assert.ok(confirmation.webview.html.includes(`Command identity: ${RUN_SHA_CHANGED}`), 'a changed command asks again');
@@ -10562,7 +10584,8 @@ test('Run & test starts an entry as a task of the CLI argv, after trust and a fi
 
 const TESTS_SHA_MODULE = `sha256:${'3'.repeat(64)}`;
 const TESTS_SHA_INTEGRATION = `sha256:${'4'.repeat(64)}`;
-const runTestsPlan = () => ({ resultType: 'sflow-test-plan', commands: [
+const runTestsPlan = () => ({ resultType: 'sflow-test-plan',
+  scope: { kind: 'capability', capability: 'checkout-app', workId: null, phase: null }, localIntegrationEvidence: 'allowed', commands: [
   { id: 'module-tests', kind: 'test', argv: ['npm', 'test'], workingDirectory: 'apps/web', environments: [], commandSha256: TESTS_SHA_MODULE },
   { id: 'integration-tests', kind: 'test', argv: ['npm', 'run', 'test:it'], workingDirectory: 'apps/web',
     environments: [{ name: 'dev', status: 'bound', default: true }, { name: 'qa', status: 'unbound', default: false }], commandSha256: TESTS_SHA_INTEGRATION }
@@ -10587,7 +10610,8 @@ test('Run & test runs tests as a task, shows the last run, and the Test summary 
   await running;
   const testsTask = registered.tasks.at(-1);
   assert.equal(testsTask.task.execution.kind, 'process');
-  assert.deepEqual(testsTask.task.execution.args, [cli.wrapper, 'tests', 'run', '--capability', 'checkout-app', '--environment', 'dev']);
+  assert.deepEqual(testsTask.task.execution.args, [cli.wrapper, 'tests', 'run', '--capability', 'checkout-app', '--environment', 'dev',
+    '--expect-command', TESTS_SHA_MODULE, '--expect-command', TESTS_SHA_INTEGRATION]);
   assert.equal(testsTask.task.execution.options.cwd, lead);
   assert.deepEqual(testsTask.task.definition, { type: 'singularityFlow', action: 'tests-run', capability: 'checkout-app', environment: 'dev' });
   assert.equal(testsTask.task.isBackground, false);
@@ -10607,13 +10631,15 @@ test('Run & test runs tests as a task, shows the last run, and the Test summary 
   registered.endTask(testsTask, 1);
   let html = await until(() => panel.webview.html.includes('data-rt-last="RUN-2"') ? panel.webview.html : null);
   assert.match(html, /<strong>Last run:<\/strong> Local preview · 1 passed, 1 failed of 3 · environment dev · 2026-10-19T10:00:00Z/);
-  assert.match(html, /The test run finished with exit code 1\./);
+  html = await until(() => panel.webview.html.includes('The test run finished: ') ? panel.webview.html : null);
+  assert.match(html, /The test run finished: 1 passed, 1 failed of 3\./, 'the totals the engine recorded, not an exit code');
 
   // One command: its identity is already confirmed, and an environment it does not allow is not named.
   registered.reviewConfirmations.length = 0;
   await panel.post(rt('tests', { command: 'module-tests' }));
   assert.equal(registered.reviewConfirmations.length, 0);
-  assert.deepEqual(registered.tasks.at(-1).task.execution.args, [cli.wrapper, 'tests', 'run', '--capability', 'checkout-app', '--command', 'module-tests']);
+  assert.deepEqual(registered.tasks.at(-1).task.execution.args, [cli.wrapper, 'tests', 'run', '--capability', 'checkout-app', '--command', 'module-tests',
+    '--expect-command', TESTS_SHA_MODULE]);
   await panel.post(rt('cancel-tests'));
   assert.equal(registered.tasks.at(-1).terminated, true);
   await until(() => panel.webview.html.includes('The test run was cancelled.'));
@@ -10652,7 +10678,7 @@ test('Run & test runs tests as a task, shows the last run, and the Test summary 
   assert.equal((await cli.log()).some((entry) => entry.argv.includes('RUN-9')), false, 'a run the page did not list is never read');
   await page.post({ type: 'summary.run', run: 'RUN-1' });
   await until(() => page.webview.html.includes('<option value="RUN-1" selected'));
-  assert.ok((await cli.log()).some((entry) => entry.argv.join(' ') === 'tests summary --capability checkout-app --run RUN-1 --json'));
+  assert.ok((await cli.log()).some((entry) => entry.argv.join(' ') === 'tests summary --capability checkout-app --run=RUN-1 --json'));
   assert.match(page.webview.html, /3 passed of 3/);
 
   // Palette: one capability owns this checkout, so no capability is asked; tests and environment are picked.
@@ -10661,14 +10687,15 @@ test('Run & test runs tests as a task, shows the last run, and the Test summary 
   assert.deepEqual(registered.quickPicks.map((entry) => entry.options.title), ['Run tests · checkout-app', 'Environment · checkout-app']);
   assert.deepEqual(registered.quickPicks[0].items.map((item) => item.label), ['All tests', 'module-tests', 'integration-tests']);
   assert.deepEqual(registered.quickPicks[1].items.map((item) => item.label), ['dev: bound', 'qa: not bound']);
-  assert.deepEqual(registered.tasks.at(-1).task.execution.args, [cli.wrapper, 'tests', 'run', '--capability', 'checkout-app', '--environment', 'dev']);
+  assert.deepEqual(registered.tasks.at(-1).task.execution.args, [cli.wrapper, 'tests', 'run', '--capability', 'checkout-app', '--environment', 'dev',
+    '--expect-command', TESTS_SHA_MODULE, '--expect-command', TESTS_SHA_INTEGRATION]);
   registered.endTask(registered.tasks.at(-1), 0);
   registered.reviewConfirmationManual = false;
   registered.informationAnswer = 'Run this command';
   const before = registered.tasks.length;
   await registered.commands.get('singularityFlow.startApplication')();
   assert.equal(registered.tasks.length, before + 1);
-  assert.deepEqual(registered.tasks.at(-1).task.execution.args, [cli.wrapper, 'app', 'start', 'web', '--capability', 'checkout-app', '--environment', 'dev']);
+  assert.deepEqual(registered.tasks.at(-1).task.execution.args, [cli.wrapper, 'app', 'start', 'web', '--capability', 'checkout-app', '--environment', 'dev', '--expect-command', RUN_SHA]);
   assert.equal(registered.reviewConfirmations.at(-1).title, 'Start web for checkout-app');
   await registered.commands.get('singularityFlow.testSummary')();
   assert.equal(page.title, 'Test summary · checkout-app');
@@ -10723,4 +10750,42 @@ test('a Story step\'s approval page shows its test run and opens the Story-scope
   assert.doesNotMatch(plain.webview.html, /data-test-summary>/);
   await plain.post({ type: 'approval.cancel' });
   await again;
+});
+
+test('a window that opened its folder directly asks the engine which capability owns the checkout', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  t.after(() => removeFixture(path.dirname(root)));
+  const map = path.join(root, 'singularity/capabilities.yml');
+  await writeFile(map, `${await readFile(map, 'utf8')}
+  checkout-app:
+    name: Checkout app
+    kind: delivery
+    parent: product
+    repositories: [mobile]
+  checkout-api:
+    name: Checkout API
+    kind: delivery
+    parent: product
+    repositories: [api]
+`);
+  const cli = await runAndTestCli(path.dirname(root));
+  await cli.write('plan.json', runPlan());
+  await cli.write('status.json', runStatus({ started: false, ready: false }));
+  const { api, registered } = stubVscode();
+  withTaskHost(api, registered);
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  api.workspace.getConfiguration = () => ({ get: (key) => key === 'cliPath' ? cli.wrapper : '', update: async () => {} });
+  await loadExtension(api).activate(context());
+  const panel = await openRunAndTest(registered);
+  assert.ok((await cli.log()).some((entry) => entry.argv.join(' ') === 'app plan --json'), 'the engine named the capability this checkout runs');
+  assert.doesNotMatch(panel.webview.html, /Open this capability's repository from Workspaces/);
+  await panel.post({ type: 'select', id: 'checkout-api' });
+  await until(() => panel.webview.html.includes('Checkout API</h3>') || panel.webview.html.includes('data-select="checkout-api"'));
+  assert.doesNotMatch(panel.webview.html, /data-run-and-test=/, 'another delivery capability of the map is not this checkout\'s');
+  // The palette takes the same answer.
+  registered.informationAnswer = 'Run this command';
+  await registered.commands.get('singularityFlow.startApplication')();
+  assert.deepEqual(registered.tasks.at(-1)?.task.execution.args.slice(1, 5), ['app', 'start', 'web', '--capability']);
+  assert.equal(registered.tasks.at(-1).task.definition.capability, 'checkout-app');
 });

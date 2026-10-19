@@ -407,8 +407,9 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'decisions') return args[1] === 'record' ? 'mutation' : 'read';
   // Run and test: plan, status, summary (and the plan of a test run) read; start, stop and run
   // execute repository code, so they are never reads.
-  if (args[0] === 'app') return ['plan', 'status'].includes(args[1] ?? '') ? 'read' : 'mutation';
-  if (args[0] === 'tests') return ['summary', 'plan'].includes(args[1] ?? '') ? 'read' : 'mutation';
+  // Without a subcommand `app` shows status and `tests` the summary, as the CLI resolves them.
+  if (args[0] === 'app') return ['plan', 'status'].includes(args[1] && !args[1].startsWith('-') ? args[1] : 'status') ? 'read' : 'mutation';
+  if (args[0] === 'tests') return ['summary', 'plan'].includes(args[1] && !args[1].startsWith('-') ? args[1] : 'summary') ? 'read' : 'mutation';
   if (args[0] === 'mcp' && args[1] === 'sources') return 'read';
   // A preview fetches and stages bytes and a check re-reads sources; neither changes governed state.
   if (args[0] === 'import') return args[1] === 'preview' ? 'read' : 'mutation';

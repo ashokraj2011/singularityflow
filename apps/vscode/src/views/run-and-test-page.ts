@@ -50,7 +50,8 @@ function testsHtml(view: RunAndTestView): string {
   const last = view.lastRun
     ? `<p class="rt-last" data-rt-last="${escape(view.lastRun.runId)}"><strong>Last run:</strong> ${escape(view.lastRun.classLabel)} · ${escape(view.lastRun.line)}
         <button type="button" class="link"${attributes(view, 'summary')}>Open test summary</button>
-        ${view.lastRun.label ? `<br><small class="muted">${escape(view.lastRun.label)}</small>` : ''}</p>`
+        ${view.lastRun.label ? `<br><small class="muted">${escape(view.lastRun.label)}</small>` : ''}</p>
+      ${view.lastRun.blocked.map((line) => `<p class="notice rt-blocked" role="status"><strong>Not run.</strong> ${escape(line)}</p>`).join('')}`
     : view.lastRunNote ? `<p class="rt-last muted">${escape(view.lastRunNote)}
         <button type="button" class="link"${attributes(view, 'summary')}>Open test summary</button></p>` : '';
   return `<h3>${icon('phase')}Tests</h3>
@@ -95,6 +96,8 @@ export const RUN_AND_TEST_STYLE = `
 .rt-environment { max-width:28rem; }
 .rt-bind code { overflow-wrap:anywhere; }
 .rt-last { margin:.6rem 0 0; }
+.run-and-test .rt-tests { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
+.run-and-test .rt-tests > button { margin:0; }
 `;
 
 /**

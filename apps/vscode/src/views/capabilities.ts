@@ -194,7 +194,7 @@ export class CapabilitiesPanel {
     this.runAndTest = RunAndTest.attach(host);
     if (first) this.disposables.push(this.runAndTest.onDidChange((capability) => {
       // Only the capability on screen (or the implicit one, shown with nothing selected) redraws.
-      if (this.disposed || this.selected && this.selected !== capability) return;
+      if (this.disposed || capability !== '*' && this.selected && this.selected !== capability) return;
       if (this.dirty) this.renderHeld = true; else this.render();
     }));
   }

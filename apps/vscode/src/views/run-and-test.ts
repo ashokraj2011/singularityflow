@@ -18,14 +18,14 @@ import type { CapabilityNode } from '../cli/snapshot.ts';
 import { showCompactWarningMessage } from '../compact-message.ts';
 import { collectReviewConfirmation } from './review-confirmation.ts';
 import {
-  appPlanArgv, appPlanFrom, appStartArgv, appStatusArgv, appStatusFrom, appStopArgv, bindCommand, buildRunAndTestView,
+  appPlanArgv, appPlanFrom, appPlanHereArgv, appStartArgv, appStatusArgv, appStatusFrom, appStopArgv, bindCommand, buildRunAndTestView,
   capabilitiesHere, chooseEnvironment, CONFIRMED_COMMANDS_KEY, entryEnvironment, environmentOptions, environmentStatusWords,
   ENVIRONMENT_CHOICES_KEY, findCapability, loopbackUrl, ownershipOf, rememberConfirmed, startConfirmationRequest,
-  testPlanFrom, testsConfirmationKeys, testsConfirmationRequest, testsEnvironment, testsPlanArgv, testsRunArgv,
-  type RunAndTestState, type StartEntry
+  plannedIdentities, startRefusal, testPlanFrom, testsConfirmationKeys, testsConfirmationRequest, testsEnvironment, testsPlanArgv, testsRunArgv,
+  unwrapResult, type Ownership, type RunAndTestState, type StartEntry
 } from './run-and-test-model.ts';
 import { runAndTestHtml } from './run-and-test-page.ts';
-import { testsSummaryArgv, testSummaryFrom } from './test-summary-model.ts';
+import { testsSummaryArgv, testSummaryFrom, totalsLine } from './test-summary-model.ts';
 import { TestSummaryPanel } from './test-summary.ts';
 
 export interface RunAndTestHost {
@@ -41,6 +41,8 @@ export interface RunAndTestHost {
 
 export const TASK_TYPE = 'singularityFlow';
 const POLL_MS = 1_500;
+const STOP_SETTLE_READS = 6;
+const STOP_SETTLE_MS = 500;
 const UNTRUSTED = 'This workspace is not trusted, so Singularity Flow runs no application or test command here. Trust it (Manage Workspace Trust), then try again.';
 
 interface Held { execution: vscode.TaskExecution; capability: string; entry: string | null; stopping: boolean }
@@ -65,6 +67,9 @@ export class RunAndTest implements vscode.Disposable {
   private readonly held = new Map<string, Held>();
   private readonly polls = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly subscriptions: vscode.Disposable[] = [];
+  /** The capability the engine resolves for this checkout (`app plan --json`), per repository. */
+  private here: { repository: string; capability: string | null } | null = null;
+  private hereReading: Promise<string | null> | null = null;
 
   private constructor(private host: RunAndTestHost) {
     const tasks = (vscode as { tasks?: typeof vscode.tasks }).tasks;
@@ -98,9 +103,42 @@ export class RunAndTest implements vscode.Disposable {
     return chooseEnvironment(environmentOptions(state.plan ?? [], state.tests ?? []), this.remembered(capability));
   }
 
+  /**
+   * Which capability the engine runs for this checkout. Asked only when the window does not know its
+   * repository ID (a folder opened directly): `app plan` without --capability answers with the
+   * capability that owns the checkout, the one `app start` and `tests run` would use.
+   */
+  private resolveHere(): Promise<string | null> {
+    const repository = this.host.client.repository;
+    if (this.here?.repository === repository) return Promise.resolve(this.here.capability);
+    this.hereReading ??= (async () => {
+      let capability: string | null = null;
+      try {
+        const answer = unwrapResult(await this.host.client.run(appPlanHereArgv())) as { capability?: unknown } | null;
+        capability = typeof answer?.capability === 'string' ? answer.capability : null;
+      } catch { capability = null; }
+      this.here = { repository, capability };
+      this.hereReading = null;
+      this.changed.fire('*');
+      return capability;
+    })();
+    return this.hereReading;
+  }
+
+  /** The Test setup check; when the window does not know its repository, the engine's answer. */
+  private ownership(capability: CapabilityNode): Ownership | 'resolving' {
+    const ownership = ownershipOf(capability, this.host.activeRepositoryId());
+    if (ownership !== 'unknown-repository') return ownership;
+    const known = this.here?.repository === this.host.client.repository ? this.here : null;
+    if (!known) { void this.resolveHere(); return 'resolving'; }
+    if (!known.capability) return 'unknown-repository';
+    return known.capability === capability.id ? 'here' : 'elsewhere';
+  }
+
   /** The section's markup for one capability; reading it starts the first load. */
   sectionHtml(capability: CapabilityNode): string {
-    const ownership = ownershipOf(capability, this.host.activeRepositoryId());
+    const ownership = this.ownership(capability);
+    if (ownership === 'resolving') return '';
     if (ownership !== 'here') return runAndTestHtml(buildRunAndTestView(capability, ownership, {}));
     const state = this.stateOf(capability.id);
     if (state.plan === undefined && !state.loading) void this.load(capability.id);
@@ -214,10 +252,12 @@ export class RunAndTest implements vscode.Disposable {
     const entry = this.stateOf(capability).plan?.find((item) => item.id === entryId);
     if (!entry) return this.update(capability, { error: `${entryId} is not a start entry of ${capability} any more.`, notice: null });
     const environment = entryEnvironment(entry, this.chosenEnvironment(capability));
+    const refusal = startRefusal(entry, environment);
+    if (refusal) return this.update(capability, { error: refusal, notice: null });
     if (!await this.confirmed([entry.commandSha256], startConfirmationRequest(entry, environment))) {
       return this.update(capability, { notice: 'Nothing was started.', error: null });
     }
-    const argv = appStartArgv(capability, entry.id, environment);
+    const argv = appStartArgv(capability, entry.id, environment, entry.commandSha256);
     this.log(argv);
     const execution = await this.execute(capability, this.task('app-start', capability, entry.id, environment, argv));
     if (!execution) return;
@@ -240,14 +280,29 @@ export class RunAndTest implements vscode.Disposable {
     await this.appStop(capability, entryId);
   }
 
-  private async appStop(capability: string, entryId: string): Promise<void> {
+  /**
+   * `app stop --json`: `{ stopped, pid, reason }`; it exits 1 when the process did not stop. After this
+   * window ended the entry's own task, a record that is already gone means that stop worked.
+   */
+  private async appStop(capability: string, entryId: string, afterTask = false): Promise<void> {
     const argv = appStopArgv(capability, entryId);
     this.log(argv);
+    const words = (result: unknown): string | null => {
+      const answer = unwrapResult(result) as { stopped?: unknown; reason?: unknown; pid?: unknown } | null;
+      if (!answer || typeof answer !== 'object') return null;
+      if (answer.stopped === true || afterTask) return `${entryId} was stopped.`;
+      if (answer.reason === 'still-running') return null;
+      return `${entryId} was not running from app start; nothing was stopped.`;
+    };
     try {
-      await this.host.client.run(argv);
-      this.update(capability, { notice: `${entryId} was stopped.`, error: null });
+      this.update(capability, { notice: words(await this.host.client.run(argv)) ?? `${entryId} was stopped.`, error: null });
     } catch (error) {
-      this.update(capability, { error: (error as Error).message, notice: null });
+      const result = (error as { result?: { reason?: unknown; pid?: unknown } }).result;
+      this.update(capability, {
+        error: result?.reason === 'still-running'
+          ? `${entryId} (pid ${String(result.pid)}) did not stop; stop it from your system's process manager.` : (error as Error).message,
+        notice: null
+      });
     }
     await this.readStatus(capability);
   }
@@ -267,7 +322,7 @@ export class RunAndTest implements vscode.Disposable {
     const tests = this.stateOf(capability).tests ?? [];
     const commands = command ? [command] : [];
     const environment = testsEnvironment(tests, this.chosenEnvironment(capability), commands);
-    const argv = testsRunArgv(capability, commands, environment);
+    const argv = testsRunArgv(capability, commands, environment, plannedIdentities(tests, commands));
     if (!await this.confirmed(testsConfirmationKeys(tests, argv, commands), testsConfirmationRequest(capability, tests, commands, environment))) {
       return this.update(capability, { notice: 'No tests were run.', error: null });
     }
@@ -301,14 +356,26 @@ export class RunAndTest implements vscode.Disposable {
         notice: held.stopping ? `${held.entry} was stopped.` : `${held.entry} ended${exitCode === null ? '' : ` with exit code ${exitCode}`}.`
       });
       await this.readStatus(held.capability);
-      // Ending the task should end the process tree; when the engine still sees it, ask it to stop it.
-      if (held.stopping && this.stateOf(held.capability).status?.find((item) => item.id === held.entry)?.started) await this.appStop(held.capability, held.entry);
+      if (!held.stopping) return;
+      // Ending the task ends the CLI, which stops the tree and clears its record a moment later.
+      const stillStarted = () => this.stateOf(held.capability).status?.find((item) => item.id === held.entry)?.started === true;
+      for (let attempt = 0; attempt < STOP_SETTLE_READS && stillStarted(); attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, STOP_SETTLE_MS));
+        await this.readStatus(held.capability);
+      }
+      // When the engine still sees it, ask it to stop what app start recorded.
+      if (stillStarted()) await this.appStop(held.capability, held.entry, true);
       return;
     }
     this.update(held.capability, {
       notice: held.stopping ? 'The test run was cancelled.' : `The test run finished${exitCode === null ? '' : ` with exit code ${exitCode}`}.`
     });
     await this.load(held.capability);
+    const last = this.stateOf(held.capability).lastRun;
+    if (!held.stopping && last?.run) {
+      const notRun = last.commands.filter((command) => command.status === 'blocked').length;
+      this.update(held.capability, { notice: `The test run finished: ${totalsLine(last.totals)}${notRun ? `; ${notRun} command${notRun === 1 ? '' : 's'} not run` : ''}.` });
+    }
     TestSummaryPanel.refreshFor({ kind: 'capability', capability: held.capability });
   }
 
@@ -330,7 +397,7 @@ export class RunAndTest implements vscode.Disposable {
   /** A message from the capability page, checked against the map and this checkout again. */
   async handle(message: { action: string; capability: string; entry: string; command: string; environment: string }): Promise<void> {
     const node = findCapability(this.host.capabilities(), message.capability);
-    if (!node || ownershipOf(node, this.host.activeRepositoryId()) !== 'here') return;
+    if (!node || this.ownership(node) !== 'here') return;
     const { capability, entry, command, environment } = message;
     const state = this.stateOf(capability);
     const isEntry = Boolean(entry && state.plan?.some((item) => item.id === entry));
@@ -351,7 +418,12 @@ export class RunAndTest implements vscode.Disposable {
   /** The capability owning this checkout, picked when several do; null after saying why there is none. */
   async pickCapability(title: string, story: string | null = null): Promise<{ capability: string } | { story: string } | null> {
     const active = this.host.activeRepositoryId();
-    const here = capabilitiesHere(this.host.capabilities(), active);
+    let here = capabilitiesHere(this.host.capabilities(), active);
+    if (!here.length && !active) {
+      const resolved = await this.resolveHere();
+      const node = resolved ? findCapability(this.host.capabilities(), resolved) : null;
+      if (node) here = [node];
+    }
     const items = [
       ...(story ? [{ label: `Story ${story}`, description: 'this Story\'s current step', value: { story } }] : []),
       ...here.map((node) => ({ label: node.name ?? node.id, description: node.id, value: { capability: node.id } }))

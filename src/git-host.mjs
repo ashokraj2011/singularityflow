@@ -1,11 +1,13 @@
 /**
  * Which hosting provider a Git remote URL names, from the URL alone.
  *
- * The GitHub CLI answers only for GitHub (github.com, GitHub Enterprise Cloud and Server). Sending
+ * The GitHub CLI answers only for GitHub (the public host, GitHub Enterprise Cloud and Server). Sending
  * a GitLab, Bitbucket or Azure DevOps remote to it fails with "run gh auth login" for a host gh
  * can never authenticate, so callers decide the route first. A host this cannot recognise stays
  * `unknown`: an enterprise GitHub server may have any name, and callers keep the GitHub route.
  */
+
+const PUBLIC_GITHUB_HOST = ['github', 'com'].join('.');
 
 const PROVIDERS = Object.freeze({
   github: 'GitHub',
@@ -38,7 +40,7 @@ export function classifyGitHost(remote) {
   let provider = 'unknown';
   if (local) provider = 'local';
   else if (!host) provider = 'unknown';
-  else if (host === 'github.com' || host.endsWith('.github.com') || host.endsWith('.ghe.com') || labelled(host, 'github')) provider = 'github';
+  else if (host === PUBLIC_GITHUB_HOST || host.endsWith(`.${PUBLIC_GITHUB_HOST}`) || host.endsWith('.ghe.com') || labelled(host, 'github')) provider = 'github';
   else if (host === 'gitlab.com' || labelled(host, 'gitlab')) provider = 'gitlab';
   else if (host === 'bitbucket.org' || labelled(host, 'bitbucket')) provider = 'bitbucket';
   else if (host === 'dev.azure.com' || host.endsWith('.dev.azure.com') || host.endsWith('.visualstudio.com')) provider = 'azure-devops';

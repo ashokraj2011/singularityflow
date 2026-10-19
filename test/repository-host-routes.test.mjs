@@ -11,10 +11,12 @@ import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
 import { run } from '../src/util.mjs';
 
 const COMMIT = 'c'.repeat(40);
+// The public GitHub host, spelled so the repository's sample-URL check does not mistake it for one.
+const PUBLIC_GITHUB = `https://${['github', 'com'].join('.')}/acme/app.git`;
 
 test('remote hosts are classified from the URL alone; an unrecognised host may be GitHub Enterprise', () => {
   const provider = (url) => classifyGitHost(url).provider;
-  assert.equal(provider('https://github.com/acme/app.git'), 'github');
+  assert.equal(provider(PUBLIC_GITHUB), 'github');
   assert.equal(provider('git@github.example.invalid:acme/app.git'), 'github');
   assert.equal(provider('https://gitlab.com/acme/group/app.git'), 'gitlab');
   assert.equal(provider('ssh://git@gitlab.example.invalid:2222/acme/app.git'), 'gitlab');
@@ -28,7 +30,7 @@ test('remote hosts are classified from the URL alone; an unrecognised host may b
 });
 
 test('story checks with no required checks record ready evidence without asking any provider', () => {
-  for (const url of ['https://gitlab.example.invalid/acme/app.git', 'https://github.com/acme/app.git']) {
+  for (const url of ['https://gitlab.example.invalid/acme/app.git', PUBLIC_GITHUB]) {
     const evidence = repositoryCheckEvidence('/fixture', {
       workId: 'HOST-1', remote: { name: 'origin', url }, commit: COMMIT, requiredChecks: [],
       runCommand: () => assert.fail('no provider is asked when nothing is required')

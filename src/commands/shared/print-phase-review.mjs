@@ -86,12 +86,16 @@ export function printPhaseReview(review, { showArtifact = false } = {}) {
   }
   if (review.upstreamDiscrepancies?.length) {
     console.log(`\n${style.heading('Upstream discrepancies')} ${style.detail(`${review.upstreamDiscrepancies.length} recorded; each needs its producer phase to return, amend or accept the risk`)}`);
-    for (const item of review.upstreamDiscrepancies) console.log(`  - ${item.phase ? `${item.phase}: ` : ''}${item.text}`);
+    // Items are kept whole; the review shows each one's start (the artifact holds all of it).
+    for (const item of review.upstreamDiscrepancies) {
+      const text = item.text.length > 300 ? `${item.text.slice(0, 299)}…` : item.text;
+      console.log(`  - ${item.phase ? `${item.phase}: ` : '(no single earlier owning step named) '}${text.replace(/\s*\n\s*/gu, ' ')}`);
+    }
     console.log(`  File them for their owners: singularity-flow upstream-issue raise --from-artifact`);
   }
   if (review.upstreamIssues?.length) {
     console.log(`\n${style.heading('Open upstream issues')} ${style.detail(`${review.upstreamIssues.length} waiting for an earlier step's approvers; the Story completes only when each is decided`)}`);
-    for (const item of review.upstreamIssues) console.log(`  - ${item.id} ${item.phase} (${item.about}): ${item.problem}\n    ${item.decide}`);
+    for (const item of review.upstreamIssues) console.log(`  - ${item.id} ${item.phase} (${item.about}): ${item.problem}${item.supersededBy ? ` [superseded by ${item.supersededBy}]` : ''}\n    ${item.decide}`);
   }
   const readable = review.documents.filter((document) => !document.error && !document.binary && document.content != null);
   const viewRoute = review.handoff?.find((entry) => entry.optional && entry.skill === '/sf-phase-documents');

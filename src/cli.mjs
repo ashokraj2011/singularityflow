@@ -4102,7 +4102,7 @@ async function decisionShowCommand(positionals, options) {
   const { workflow } = await loadAcceptedStoryExecution(root, requestedId);
   // Open upstream issues are decisions too, so /sf-decide sees them in the same answer [UIF-M2].
   const view = { ...storyDecisionView(workflow), applicability: applicabilityStatus(workflow),
-    upstreamIssues: openUpstreamIssues(workflow).map(({ issue, status }) => ({ id: issue.id, phase: issue.phase, about: issue.about, status })) };
+    upstreamIssues: openUpstreamIssues(workflow).map(({ issue, status, supersededBy }) => ({ id: issue.id, phase: issue.phase, about: issue.about, status, supersededBy })) };
   if (optionBoolean(options, 'json')) {
     console.log(JSON.stringify(view, null, 2));
     return;

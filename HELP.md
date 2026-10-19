@@ -3748,7 +3748,7 @@ singularity-flow review-source context|status <specification|planning> [--json]
 singularity-flow review-source stage <phase> --report-json '<completed-report-json>' --json
 singularity-flow review-source submit <specification|planning> --report-file GIT-PRIVATE-FILE [--json]
 singularity-flow review-source decide <specification|planning> --finding ID --reason TEXT [--json]
-singularity-flow upstream-issue raise --phase EARLIER --about ID|SECTION --problem TEXT [--from-artifact] [--json]
+singularity-flow upstream-issue raise --phase EARLIER --about ID|SECTION --problem TEXT [--supersedes UPI-ID] [--from-artifact] [--json]
 singularity-flow upstream-issue list [--open] [--json]
 singularity-flow upstream-issue decide UPI-ID --outcome plan-correction|amend|return|accept-risk|dismiss --reason TEXT [--link PRC-ID|FAM-ID] [--expires YYYY-MM-DD]
 singularity-flow upstream-issue propose-amendment --phase EARLIER --reason TEXT [--file DRAFT] [--issue UPI-ID]

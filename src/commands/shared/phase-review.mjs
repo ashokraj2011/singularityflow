@@ -148,8 +148,8 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
     owedDecisions: reviewBinding ? await owedDecisions(root, config, workflow, stepsThrough(workflow, phase.id)) : null,
     documents,
     upstreamDiscrepancies: phaseUpstreamDiscrepancies(documents, workflow, phase.id),
-    upstreamIssues: openUpstreamIssues(workflow).map(({ issue, status }) => ({ id: issue.id, phase: issue.phase, about: issue.about,
-      problem: issue.problem, status, decide: upstreamIssueDecideCommand(workflow.workItem.id, issue) })),
+    upstreamIssues: openUpstreamIssues(workflow).map(({ issue, status, supersededBy }) => ({ id: issue.id, phase: issue.phase, about: issue.about,
+      problem: issue.problem, status, supersededBy, decide: upstreamIssueDecideCommand(workflow.workItem.id, issue, supersededBy) })),
     ...(await phaseAuthoringSummary(root, config, workflow, phase, { documents, includeContinuation }))
   };
 }

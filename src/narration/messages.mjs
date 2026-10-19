@@ -234,7 +234,8 @@ export const MESSAGES = Object.freeze({
     preserves: true
   },
   'upstream-issue.raise.succeeded': {
-    headline: (s) => `Raised ${slot(s.count, '0')} upstream issue(s); the current step continues while the earlier step's approvers decide.`,
+    headline: (s) => `Raised ${slot(s.count, '0')} upstream issue(s); the current step continues while the earlier step's approvers decide.`
+      + (Number(s.unowned) > 0 ? ` ${slot(s.unowned)} recorded item(s) name no single earlier owning step and were not raised.` : ''),
     preserves: false
   },
   'upstream-issue.list.succeeded': {

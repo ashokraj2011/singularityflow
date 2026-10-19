@@ -191,7 +191,47 @@
                       "oneOf": [{ "required": ["http"] }, { "required": ["log"] }],
                       "additionalProperties": false
                     },
-                    "environments": { "$ref": "#/$defs/environmentList" }
+                    "environments": { "$ref": "#/$defs/environmentList" },
+                    "arguments": {
+                      "description": "Arguments appended to argv for one environment; each key is one of the entry's environments.",
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array", "minItems": 1, "maxItems": 64,
+                        "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+                      }
+                    },
+                    "debug": {
+                      "description": "How app start --debug runs this entry with a debugger listening on 127.0.0.1 only.",
+                      "type": "object",
+                      "required": ["runtime"],
+                      "properties": {
+                        "runtime": { "enum": ["java", "python", "node", "go", "dotnet"] },
+                        "port": { "description": "Loopback port; defaults java 5005, python 5678, node 9229, go 2345. dotnet has none.", "type": "integer", "minimum": 1024, "maximum": 65535 },
+                        "suspend": { "description": "java and node only: wait for the debugger before running.", "type": "boolean" },
+                        "argv": {
+                          "description": "A full replacement argv for the debug start; it must start one loopback listener.",
+                          "type": "array", "minItems": 1, "maxItems": 256,
+                          "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+                        },
+                        "arguments": {
+                          "description": "Arguments appended for the debug start instead of the runtime's own injection.",
+                          "type": "array", "minItems": 1, "maxItems": 64,
+                          "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+                        },
+                        "environment": {
+                          "description": "Exactly one of NODE_OPTIONS, JAVA_TOOL_OPTIONS or JDK_JAVA_OPTIONS, set to the debugger flag alone.",
+                          "type": "object", "minProperties": 1, "maxProperties": 1,
+                          "properties": {
+                            "NODE_OPTIONS": { "type": "string", "pattern": "^--inspect(?:-brk|-wait)?(?:=[^\\s\"']+)?$" },
+                            "JAVA_TOOL_OPTIONS": { "type": "string", "pattern": "^-agentlib:jdwp=[^\\s\"']+$" },
+                            "JDK_JAVA_OPTIONS": { "type": "string", "pattern": "^-agentlib:jdwp=[^\\s\"']+$" }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "not": { "required": ["argv", "arguments"] },
+                      "additionalProperties": false
+                    }
                   },
                   "additionalProperties": false
                 }

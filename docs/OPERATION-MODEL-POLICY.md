@@ -39,6 +39,7 @@ Every public operation is classified before its implementation module is importe
 | app.start | mutation | never | — | — |
 | app.status | read | never | — | — |
 | app.stop | mutation | never | — | — |
+| app.suggest | read | never | — | — |
 | appeal.attest | mutation | never | — | — |
 | appeal.checkpoint | mutation | never | — | — |
 | appeal.checkpoint-show | read | never | — | — |

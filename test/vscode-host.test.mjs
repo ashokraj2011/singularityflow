@@ -10339,7 +10339,8 @@ async function runAndTestCli(base) {
   const realCli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
   const wrapper = path.join(base, 'run-and-test-cli.mjs');
   await writeFile(wrapper, `
-    import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+    import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs';
+    import { dirname } from 'node:path';
     const state = ${JSON.stringify(state)};
     const read = (name) => JSON.parse(readFileSync(state + '/' + name, 'utf8'));
     const args = process.argv.slice(2);
@@ -10348,7 +10349,7 @@ async function runAndTestCli(base) {
     if (args[0] === 'app' || args[0] === 'tests') {
       appendFileSync(state + '/log.jsonl', JSON.stringify({ argv: args, cwd: process.cwd() }) + '\\n');
       const key = args[0] + ' ' + args[1];
-      let file = { 'app plan': 'plan.json', 'app status': 'status.json', 'tests plan': 'tests-plan.json', 'tests summary': 'summary.json' }[key];
+      let file = { 'app plan': 'plan.json', 'app status': 'status.json', 'app suggest': 'suggest.json', 'tests plan': 'tests-plan.json', 'tests summary': 'summary.json' }[key];
       const run = args.find((value) => value.startsWith('--run='));
       if (key === 'tests summary' && run) file = 'summary-' + run.slice('--run='.length) + '.json';
       else if (key === 'tests summary' && args.includes('--work-id')) file = 'story-summary.json';
@@ -10358,6 +10359,17 @@ async function runAndTestCli(base) {
         scope: { kind: 'capability', capability: 'checkout-app', workId: null, phase: null }, run: null,
         totals: { discovered: 0, passed: 0, failed: 0, skipped: 0, flaky: 0, durationMs: 0 }, commands: [], cases: [], truncated: false, untagged: 0, history: [] });
       else refuse('UNKNOWN_FIXTURE', 'No fixture for ' + key + '.');
+    } else if (args[0] === 'capability' && args.includes('--application-file')) {
+      // What the engine would read: the file's bytes and permissions, logged while it exists.
+      const target = args[args.indexOf('--application-file') + 1];
+      appendFileSync(state + '/log.jsonl', JSON.stringify({ argv: args, cwd: process.cwd(), application: readFileSync(target, 'utf8'),
+        fileMode: statSync(target).mode & 0o777, directoryMode: statSync(dirname(target)).mode & 0o777 }) + '\\n');
+      out(existsSync(state + '/capability-write.json') ? read('capability-write.json')
+        : args[1] === 'edit' ? { lead: args[args.indexOf('--lead') + 1], capabilityId: args[2], changed: true, branch: 'sflow/config-change/capability/set-' + args[2], commit: 'c'.repeat(40) }
+          : { capabilityId: args[2], changed: true, path: 'singularity/capabilities.yml' });
+    } else if (args[0] === 'capability' && args[1] === 'leads' && existsSync(state + '/leads.json')) {
+      appendFileSync(state + '/log.jsonl', JSON.stringify({ argv: args, cwd: process.cwd() }) + '\\n');
+      out(read('leads.json'));
     } else if (args[0] === 'choices' && args[1] === 'begin' && args[3] === ${JSON.stringify(RUN_W)}) {
       out({ schemaVersion: 1, token: 'receipt-run-1', choiceSets: [] });
     } else if (args[0] === 'review' && existsSync(state + '/review.json')) {
@@ -10400,6 +10412,11 @@ function withTaskHost(api, registered) {
   };
   api.env.openExternal = async (uri) => { registered.opened.push(uri.fsPath); return true; };
   registered.endTask = (execution, exitCode) => { processEnded.fire({ execution, exitCode }); taskEnded.fire({ execution }); };
+  // Debug attach: what VS Code is asked to start, and which debugger extensions are installed.
+  registered.debugSessions = [];
+  registered.installedExtensions = new Set();
+  api.debug = { startDebugging: async (folder, configuration) => { registered.debugSessions.push({ folder, configuration }); return true; } };
+  api.extensions = { getExtension: (id) => registered.installedExtensions.has(id) ? { id, isActive: true } : undefined };
 }
 
 /**
@@ -10788,4 +10805,254 @@ test('a window that opened its folder directly asks the engine which capability 
   await registered.commands.get('singularityFlow.startApplication')();
   assert.deepEqual(registered.tasks.at(-1)?.task.execution.args.slice(1, 5), ['app', 'start', 'web', '--capability']);
   assert.equal(registered.tasks.at(-1).task.definition.capability, 'checkout-app');
+});
+
+/**
+ * IDE-style run configurations (docs/SPEC-RUN-AND-TEST-v1.md, amendment, milestone 8): Start (debug)
+ * attaches with a loopback configuration from the port `app status` reports, and "Suggest from run
+ * configurations" proposes kept entries through the capability page's route.
+ */
+/** The engine's shape: the debug start shares the entry's commandSha256 (which covers the debug block). */
+const runDebugPlan = () => {
+  const argv = runPlanEntry().argv;
+  const debugArgv = (mode) => [...argv, '--mode', mode, '-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=127.0.0.1:5005'];
+  return { resultType: 'sflow-app-plan', capability: 'checkout-app', entries: [{
+    ...runPlanEntry(),
+    environments: [
+      { name: 'dev', status: 'bound', default: true, argv: [...argv, '--mode', 'development'], debug: { argv: debugArgv('development'), environmentNames: [] } },
+      { name: 'qa', status: 'unbound', default: false, argv: [...argv, '--mode', 'qa'], debug: { argv: debugArgv('qa'), environmentNames: [] } }
+    ],
+    arguments: { dev: ['--mode', 'development'], qa: ['--mode', 'qa'] },
+    debug: { runtime: 'java', port: 5005, suspend: false, address: '127.0.0.1:5005', launcher: 'java', argv: debugArgv('development'), environmentNames: [], notes: [] }
+  }] };
+};
+const runDebugStatus = ({ started, listening, port = 5005 }) => {
+  const answer = runStatus({ started, ready: false, environment: 'dev' });
+  answer.entries[0].debug = started ? { runtime: 'java', port, listening } : null;
+  return answer;
+};
+
+test('Start (debug) runs app start --debug as a task, attaches on 127.0.0.1 at the reported port, and names a missing debugger', async (t) => {
+  if (!requireBundle(t)) return;
+  const { registered, cli, windowState } = await activatedWithRunAndTest(t);
+  await cli.write('plan.json', runDebugPlan());
+  const panel = await openRunAndTest(registered);
+  let html = await until(() => panel.webview.html.includes('data-rt="debug"') ? panel.webview.html : null);
+  // The row shows what its environment runs, and each environment's own arguments.
+  assert.match(html, /rt-command">npm run dev -- --host 127\.0\.0\.1 --port 5173 --mode development<\/small>/);
+  assert.match(html, /data-rt-arguments="dev" data-rt-current>dev \(this run\): <code>--mode development<\/code>[\s\S]*data-rt-arguments="qa">qa: <code>--mode qa<\/code>/);
+  assert.match(html, /debug: Java debugger at 127\.0\.0\.1:5005/);
+
+  registered.installedExtensions.add('vscjava.vscode-java-debug');
+  registered.reviewConfirmationManual = true;
+  const starting = panel.post(rt('debug', { entry: 'web' }));
+  const confirmation = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.reviewConfirmation' && entry.visible) ?? null);
+  assert.equal(confirmation.title, 'Start web with its debugger for checkout-app');
+  assert.ok(confirmation.webview.html.includes(`Command identity: ${RUN_SHA} (its debug start)`));
+  assert.ok(confirmation.webview.html.includes('address=127.0.0.1:5005'), 'the debug launch the engine resolved');
+  assert.ok(confirmation.webview.html.includes(`singularity-flow app start web --capability checkout-app --environment dev --debug --expect-command ${RUN_SHA}`));
+  await confirmation.post({ type: 'confirmation.accept', acknowledged: true });
+  await starting;
+  assert.equal(registered.tasks.length, 1);
+  const [{ task }] = registered.tasks;
+  assert.equal(task.execution.kind, 'process');
+  assert.deepEqual(task.execution.args, [cli.wrapper, 'app', 'start', 'web', '--capability', 'checkout-app', '--environment', 'dev', '--debug', '--expect-command', RUN_SHA]);
+  assert.deepEqual(task.definition, { type: 'singularityFlow', action: 'app-start', capability: 'checkout-app', entry: 'web', environment: 'dev', debug: true });
+  assert.equal(task.name, 'Start web (debug) · checkout-app');
+  assert.deepEqual(windowState.get('singularityFlow.runAndTest.confirmedCommands'), [`${RUN_SHA}:debug`], 'the debug start is confirmed apart from the plain start');
+
+  // Started but not listening yet: nothing is attached.
+  await cli.write('status.json', runDebugStatus({ started: true, listening: false }));
+  await logged(cli, (entry) => entry.argv.join(' ') === 'app status --capability checkout-app --json');
+  await settle(); await settle(); await settle(); await settle();
+  assert.equal(registered.debugSessions.length, 0);
+
+  // Listening: VS Code attaches once, on loopback, at the port app status reports.
+  await cli.write('status.json', runDebugStatus({ started: true, listening: true, port: 5007 }));
+  await until(() => registered.debugSessions.length === 1);
+  assert.deepEqual(registered.debugSessions[0].configuration,
+    { type: 'java', request: 'attach', name: 'web · checkout-app (Singularity Flow)', hostName: '127.0.0.1', port: 5007 });
+  html = await until(() => panel.webview.html.includes('The debugger is attached to web') ? panel.webview.html : null);
+  assert.match(html, /Ending the debug session leaves web running; Stop ends it\./);
+  assert.match(html, /<small class="rt-listening">Debugger listening at 127\.0\.0\.1:5007<\/small>/);
+  await settle(); await settle(); await settle(); await settle();
+  assert.equal(registered.debugSessions.length, 1, 'attached once, not on every status read');
+  assert.equal(registered.tasks[0].terminated, false, 'attaching never touches the application');
+
+  // A missing debugger extension is named; the application keeps running.
+  registered.installedExtensions.clear();
+  await panel.post(rt('attach', { entry: 'web' }));
+  html = await until(() => panel.webview.html.includes('vscjava.vscode-java-debug') ? panel.webview.html : null);
+  assert.match(html, /role="alert">[\s\S]*web is running with its debugger listening at 127\.0\.0\.1:5007, but VS Code has no Java debugger to attach with\. Install the Debugger for Java extension \(vscjava\.vscode-java-debug\), then choose Attach debugger\. web keeps running; Stop ends it\./);
+  assert.ok(registered.warnings.some((message) => message.includes('vscjava.vscode-java-debug')));
+  assert.equal(registered.debugSessions.length, 1);
+  assert.equal(registered.tasks[0].terminated, false);
+
+  // Attach again once it is installed; a page message names an entry, never a host or port.
+  registered.installedExtensions.add('vscjava.vscode-java-debug');
+  await panel.post({ ...rt('attach', { entry: 'web' }), host: '0.0.0.0', port: 1234, hostName: 'example.com' });
+  await until(() => registered.debugSessions.length === 2);
+  assert.deepEqual(registered.debugSessions[1].configuration,
+    { type: 'java', request: 'attach', name: 'web · checkout-app (Singularity Flow)', hostName: '127.0.0.1', port: 5007 });
+
+  // Stop still ends the application's task.
+  await panel.post(rt('stop', { entry: 'web' }));
+  assert.equal(registered.tasks[0].terminated, true);
+});
+
+const RUN_EXISTING = { id: 'web', argv: ['npm', 'run', 'dev'], workingDirectory: 'apps/web', url: 'http://127.0.0.1:5173/', ready: { http: '/', timeoutMs: 1000 } };
+const RUN_API = { id: 'api', argv: ['./mvnw', '-q', 'spring-boot:run'], workingDirectory: 'services/api', url: 'http://127.0.0.1:8080/',
+  ready: { http: '/actuator/health', timeoutMs: 180000 }, environments: ['dev', 'qa'],
+  arguments: { dev: ['-Dspring-boot.run.profiles=dev'], qa: ['-Dspring-boot.run.profiles=qa'] }, debug: { runtime: 'java', port: 5005 } };
+const RUN_SITE = { id: 'site', argv: ['npm', 'run', 'storybook'], workingDirectory: 'apps/web', url: 'http://127.0.0.1:6006/', ready: { http: '/', timeoutMs: 90000 },
+  debug: { runtime: 'node', port: 9229 } };
+/** `app suggest --json` as the engine answers it; the DB_PASSWORD default is what an engine bug could leak. */
+const runSuggestions = () => ({
+  resultType: 'sflow-app-suggestions', capability: 'checkout-app', repository: 'mobile',
+  suggestions: [
+    { source: { kind: 'intellij', file: '.run/Api (dev).run.xml', name: 'Api (dev)' },
+      variants: [{ file: '.run/Api (dev).run.xml', name: 'Api (dev)', environment: 'dev' }, { file: '.run/Api (qa).run.xml', name: 'Api (qa)', environment: 'qa' }],
+      start: RUN_API,
+      environmentNames: [{ name: 'SPRING_PROFILES_ACTIVE', kind: 'flag', default: 'dev' }, { name: 'DB_PASSWORD', kind: 'secret', default: 'leaked-by-a-bug' }],
+      notes: ['IntelliJ computes the classpath; this runs through the Maven wrapper instead.'] },
+    { source: { kind: 'webstorm', file: '.run/storybook.run.xml', name: 'storybook' }, start: { ...RUN_SITE, arguments: {} }, environmentNames: [], notes: [] }
+  ],
+  applicationDraft: `# The application block for capability checkout-app: existing entries, then the suggested ones.\n${YAML.stringify({ start: [RUN_EXISTING, RUN_API, RUN_SITE], tests: [{ use: 'module-tests' }] })}`,
+  environmentsDraft: '# Additions for singularity/environments.yml.\nenvironments:\n  dev:\n    requires:\n      - { name: DB_PASSWORD, kind: secret }\n',
+  notes: [], files: { read: 3, skipped: [] }
+});
+
+test('Suggest from run configurations lists suggestions, then proposes the kept entries from a private file that is deleted', async (t) => {
+  if (!requireBundle(t)) return;
+  const { registered, cli, lead } = await activatedWithRunAndTest(t);
+  await cli.write('suggest.json', runSuggestions());
+  await cli.write('leads.json', [{ url: 'https://git.example/lead.git' }]);
+  const panel = await openRunAndTest(registered);
+  assert.match(panel.webview.html, /data-rt="suggest" data-rt-capability="checkout-app">Suggest from run configurations/);
+  await panel.post(rt('suggest'));
+  const page = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.runSuggestions') ?? null);
+  let html = await until(() => page.webview.html.includes('data-sg-index="1"') ? page.webview.html : null);
+  assert.equal(page.title, 'Run configurations · checkout-app');
+  assert.match(html, /Content-Security-Policy" content="default-src 'none'/);
+  assert.ok((await cli.log()).some((entry) => entry.argv.join(' ') === 'app suggest --capability checkout-app --json'));
+  assert.match(html, /<span class="pill">IntelliJ IDEA<\/span>\s*<button type="button" class="link" data-sg-open="0">\.run\/Api \(dev\)\.run\.xml<\/button>/);
+  assert.match(html, /One entry from 2 configurations: Api \(dev\) → dev; Api \(qa\) → qa/);
+  assert.match(html, /data-sg-name="DB_PASSWORD" data-sg-kind="secret">[\s\S]*no value/);
+  assert.doesNotMatch(html, /leaked-by-a-bug/, 'a secret value never reaches the page');
+  assert.match(html, /checkout-app already declares: <code>web<\/code>/);
+
+  // An ID already declared: refused on the page, nothing confirmed or written.
+  await page.post({ type: 'suggest.review', selection: [{ index: 0, keep: true, id: 'web' }, { index: 1, keep: false, id: 'site' }] });
+  html = await until(() => page.webview.html.includes('data-sg-problem="0"') ? page.webview.html : null);
+  assert.match(html, /web is already a start entry of checkout-app\. Choose another ID\./);
+  assert.equal(registered.reviewConfirmations.length, 0);
+
+  // Renamed: the review page shows the exact YAML and the command; accepting writes it once, privately.
+  registered.reviewConfirmationManual = true;
+  const reviewing = page.post({ type: 'suggest.review', selection: [{ index: 0, keep: true, id: 'api' }, { index: 1, keep: false, id: 'site' }] });
+  const confirmation = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.reviewConfirmation' && entry.visible) ?? null);
+  const review = confirmation.webview.html;
+  assert.match(review, /Start entries added: api \(from IntelliJ IDEA, \.run\/Api \(dev\)\.run\.xml\)/);
+  assert.match(review, /Start entries already declared, kept as they are: web/);
+  assert.match(review, /Tests already declared, kept as they are: 1/);
+  assert.match(review, /start:\n  - id: web\n    argv: \[npm, run, dev\][\s\S]*  - id: api\n    argv: \[\.\/mvnw, -q, spring-boot:run\]/);
+  assert.match(review, /Additions for singularity\/environments\.yml\. VS Code does not write these/);
+  assert.doesNotMatch(review, /leaked-by-a-bug/);
+  await confirmation.post({ type: 'confirmation.accept', acknowledged: true });
+  await reviewing;
+  const call = await (async () => {
+    for (let attempt = 0; attempt < 600; attempt += 1) {
+      const found = (await cli.log()).find((entry) => entry.application !== undefined);
+      if (found) return found;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    throw new Error('the application file was never handed to the engine');
+  })();
+  // The capability page's route: this map's approved authority, so no lead is asked for.
+  const file = call.argv[call.argv.indexOf('--application-file') + 1];
+  assert.deepEqual(call.argv, ['capability', 'edit', 'checkout-app', '--lead', call.argv[4], '--mode', 'set', '--application-file', file, '--json']);
+  assert.equal(await realpath(call.argv[4]), path.join(path.resolve(lead, '..', '..', '..', '..'), 'checkout'), 'the authority the capability page proposes to');
+  assert.equal((await cli.log()).some((entry) => entry.argv[0] === 'capability' && entry.argv[1] === 'leads'), false);
+  assert.ok(path.basename(path.dirname(file)).startsWith('sflow-application-'));
+  assert.equal(call.fileMode, 0o600);
+  assert.equal(call.directoryMode, 0o700);
+  // The whole block replaces the capability's: the declared entry and tests, then the kept one.
+  assert.equal(call.application, [
+    'start:', '  - id: web', '    argv: [npm, run, dev]', '    workingDirectory: apps/web', '    url: http://127.0.0.1:5173/', '    ready:', '      http: /', '      timeoutMs: 1000',
+    '  - id: api', '    argv: [./mvnw, -q, spring-boot:run]', '    workingDirectory: services/api', '    url: http://127.0.0.1:8080/',
+    '    ready:', '      http: /actuator/health', '      timeoutMs: 180000', '    environments: [dev, qa]', '    arguments:',
+    '      dev: [-Dspring-boot.run.profiles=dev]', '      qa: [-Dspring-boot.run.profiles=qa]', '    debug:', '      runtime: java', '      port: 5005',
+    'tests:', '  - use: module-tests', ''
+  ].join('\n'));
+  assert.deepEqual(YAML.parse(call.application), { start: [RUN_EXISTING, RUN_API], tests: [{ use: 'module-tests' }] });
+  assert.doesNotMatch(call.application, /leaked-by-a-bug|DB_PASSWORD/);
+  assert.equal(existsSync(file), false, 'the private file is deleted once the command returned');
+  assert.equal(existsSync(path.dirname(file)), false);
+  assert.ok(registered.output.some((line) => line.includes('--application-file "<private temporary file>"')), 'the log names no temporary path');
+
+  // The proposal opens on the capability page's review panel; the page says what happened.
+  await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.capabilityProposal') ?? null);
+  html = await until(() => page.webview.html.includes('Proposal sflow/config-change/capability/set-checkout-app was created') ? page.webview.html : null);
+  assert.match(html, /nothing is applied before it is approved/);
+
+  // The environments.yml additions are copied, never written; a source file opens only when the page listed it.
+  await page.post({ type: 'suggest.copy' });
+  assert.equal(registered.clipboard.at(-1), runSuggestions().environmentsDraft);
+  await page.post({ type: 'suggest.open', index: 0 });
+  await page.post({ type: 'suggest.open', index: 7 });
+  await page.post({ type: 'suggest.open', file: '/etc/hosts' });
+  const opened = registered.executedCommands.filter((entry) => entry.id === 'vscode.open');
+  assert.equal(opened.length, 1);
+  assert.equal(opened[0].args[0].fsPath, path.join(lead, '.run/Api (dev).run.xml'));
+});
+
+test('Suggest from run configurations saves with capability set when the map has no authority, then reads the suggestions again', async (t) => {
+  if (!requireBundle(t)) return;
+  // A folder opened directly, whose checkout has no remote: no capability-map authority, so edits are local.
+  const root = await demoRepository();
+  t.after(() => removeFixture(path.dirname(root)));
+  const map = path.join(root, 'singularity/capabilities.yml');
+  await writeFile(map, `${await readFile(map, 'utf8')}
+  checkout-app:
+    name: Checkout app
+    kind: delivery
+    parent: product
+    repositories: [mobile]
+`);
+  run('git', ['remote', 'remove', 'origin'], { cwd: root });
+  const cli = await runAndTestCli(path.dirname(root));
+  await cli.write('plan.json', runPlan());
+  await cli.write('status.json', runStatus({ started: false, ready: false }));
+  await cli.write('suggest.json', runSuggestions());
+  await cli.write('leads.json', []);
+  const { api, registered } = stubVscode();
+  withTaskHost(api, registered);
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  api.workspace.getConfiguration = () => ({ get: (key) => key === 'cliPath' ? cli.wrapper : '', update: async () => {} });
+  await loadExtension(api).activate(context());
+  const panel = await openRunAndTest(registered);
+  await panel.post(rt('suggest'));
+  const page = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.runSuggestions') ?? null);
+  await until(() => page.webview.html.includes('data-sg-index="1"'));
+  registered.reviewConfirmationManual = true;
+  const reviewing = page.post({ type: 'suggest.review', selection: [{ index: 0, keep: true, id: 'api' }, { index: 1, keep: false, id: 'site' }] });
+  const confirmation = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.reviewConfirmation' && entry.visible) ?? null);
+  assert.match(confirmation.webview.html, /Written to: singularity\/capabilities\.yml in this checkout/);
+  assert.ok(confirmation.webview.html.includes('capability set checkout-app --application-file &quot;&lt;private temporary file&gt;&quot; --json'));
+  await confirmation.post({ type: 'confirmation.accept', acknowledged: true });
+  await reviewing;
+  const call = (await cli.log()).find((entry) => entry.application !== undefined);
+  const file = call.argv[call.argv.indexOf('--application-file') + 1];
+  assert.deepEqual(call.argv, ['capability', 'set', 'checkout-app', '--application-file', file, '--json']);
+  assert.deepEqual(YAML.parse(call.application), { start: [RUN_EXISTING, RUN_API], tests: [{ use: 'module-tests' }] });
+  assert.equal(existsSync(file), false);
+  assert.ok((await cli.log()).some((entry) => entry.argv.join(' ') === 'capability leads --json'), 'no authority in the snapshot, so the registered leads are asked; there are none');
+  // A local save changes what is declared, so the page reads the suggestions again and keeps what it said.
+  // Seen in a real VS Code: the page still offered the saved entry under its old ID.
+  const suggestReads = async () => (await cli.log()).filter((entry) => entry.argv.join(' ') === 'app suggest --capability checkout-app --json').length;
+  for (let attempt = 0; attempt < 600 && await suggestReads() < 2; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(await suggestReads(), 2);
+  const html = await until(() => page.webview.html.includes('Saved to singularity/capabilities.yml in this checkout') && page.webview.html.includes('data-sg-index="1"') ? page.webview.html : null);
+  assert.doesNotMatch(html, /Reading the run configurations/);
+  assert.equal(registered.panels.some((entry) => entry.id === 'singularityFlow.capabilityProposal'), false, 'nothing was proposed');
 });

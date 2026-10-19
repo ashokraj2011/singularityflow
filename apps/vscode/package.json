@@ -1037,7 +1037,8 @@
           "action": { "type": "string", "enum": ["app-start", "tests-run"], "description": "Start a capability's application or run its tests through the Singularity Flow CLI." },
           "capability": { "type": "string", "description": "The capability ID from singularity/capabilities.yml." },
           "entry": { "type": "string", "description": "The application.start entry ID." },
-          "environment": { "type": "string", "description": "The environments.yml environment the run uses. Its values stay with the CLI." }
+          "environment": { "type": "string", "description": "The environments.yml environment the run uses. Its values stay with the CLI." },
+          "debug": { "type": "boolean", "description": "Started with the runtime's debugger listening on 127.0.0.1 (app start --debug)." }
         }
       }
     ],

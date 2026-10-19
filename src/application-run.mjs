@@ -13,7 +13,10 @@ import http from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
 
-import { applicationStartCommandSha256, loopbackApplicationUrl } from './capabilities.mjs';
+import {
+  appDebugPaths, assertDebugToolsAvailable, debugPortAccepts, jdwpListeningLine, resolveDebugLaunch
+} from './application-debug.mjs';
+import { applicationStartArgv, applicationStartCommandSha256, loopbackApplicationUrl } from './capabilities.mjs';
 import { gitCommonDir } from './git.mjs';
 import { resolvePlatformProcess } from './platform-process.mjs';
 import { readPrivateSidecar, writeMutablePrivateSidecar } from './private-sidecar.mjs';
@@ -25,6 +28,14 @@ export const APP_RUN_FORMAT = 'sflow-app-run/v1';
 const MAXIMUM_RECORD_BYTES = 16 * 1024;
 const POLL_MS = 500;
 const STOP_GRACE_MS = 5_000;
+
+/** What a start entry runs in one environment (argv, then that environment's arguments). */
+export const startArgv = applicationStartArgv;
+
+/** Refuse `--debug` for an entry without a debug block, before anything runs or is read. */
+export function assertDebugDeclared(entry) {
+  if (!entry.debug) resolveDebugLaunch(entry);
+}
 
 export function appRecordPath(root, capabilityId, startId) {
   return path.join(gitCommonDir(root), 'singularity-flow', 'app', capabilityId, `${startId}.json`);
@@ -129,8 +140,26 @@ export async function startEntryEnvironments(root, entry, declaration) {
   return environments;
 }
 
+/**
+ * The debug start of an entry in one environment as app plan shows it: the argv and the names of
+ * the variables it adds, or the coded refusal app start --debug would give. Nothing is spawned.
+ */
+export function describeDebugStart(root, context, entry, environment = null) {
+  try {
+    const launch = resolveDebugLaunch(entry, {
+      argv: applicationStartArgv(entry, environment), environmentArguments: environment ? entry.arguments?.[environment] ?? [] : [],
+      paths: appDebugPaths(appRecordPath(root, context.capabilityId, entry.id))
+    });
+    return { launcher: launch.launcher, argv: [...launch.argv], environmentNames: [...launch.environmentNames], notes: [...launch.notes] };
+  } catch (error) {
+    if (!String(error?.code ?? '').startsWith('APP_DEBUG_')) throw error;
+    return { refusal: { code: error.code, message: error.message } };
+  }
+}
+
 export async function planStartEntry(root, context, entry, declaration) {
-  return {
+  const environments = await startEntryEnvironments(root, entry, declaration);
+  const plan = {
     capability: context.capabilityId,
     repository: entry.repository,
     id: entry.id,
@@ -138,9 +167,24 @@ export async function planStartEntry(root, context, entry, declaration) {
     workingDirectory: entry.workingDirectory,
     url: entry.url,
     ready: { ...entry.ready },
-    environments: await startEntryEnvironments(root, entry, declaration),
+    environments,
     commandSha256: applicationStartCommandSha256(entry)
   };
+  // Shown only when declared, so a plan of an entry without them reads exactly as before.
+  if (entry.arguments) {
+    plan.arguments = Object.fromEntries(Object.entries(entry.arguments).map(([name, list]) => [name, [...list]]));
+    for (const environment of environments) environment.argv = applicationStartArgv(entry, environment.name);
+  }
+  if (entry.debug) {
+    for (const environment of environments) {
+      const { launcher: _launcher, notes: _notes, ...shown } = describeDebugStart(root, context, entry, environment.name);
+      environment.debug = shown;
+    }
+    const { runtime, port, suspend } = entry.debug;
+    plan.debug = { runtime, port, suspend, address: port == null ? null : `127.0.0.1:${port}`,
+      ...describeDebugStart(root, context, entry, entry.environments[0] ?? null) };
+  }
+  return plan;
 }
 
 export function selectStartEntry(context, startId = null) {
@@ -187,10 +231,26 @@ export async function applicationStatus(root, context) {
       environment: started ? record.environment ?? null : null,
       commandSha256: applicationStartCommandSha256(entry),
       recordedCommandSha256: started ? record.commandSha256 : null,
-      ...(record && !started ? { staleRecord: true } : {})
+      ...(record && !started ? { staleRecord: true } : {}),
+      ...(entry.debug || (started && record.debug) ? { debug: await debugStatus(entry, started ? record : null) } : {})
     });
   }
   return { resultType: 'sflow-app-status', capability: context.capabilityId, entries };
+}
+
+/**
+ * `debug: { runtime, port, listening }` of one entry. Listening is true only for a run app start
+ * --debug recorded. A JDWP port is not probed (each probe logs a failed handshake in the JVM's output):
+ * the JVM's own listening line, recorded at start, and a live process answer for it. dotnet has no
+ * listener, so its port and listening are null and the person attaches to the pid.
+ */
+async function debugStatus(entry, record) {
+  const runtime = record?.debug?.runtime ?? entry.debug?.runtime ?? null;
+  const port = record?.debug ? record.debug.port ?? null : entry.debug?.port ?? null;
+  if (runtime === 'dotnet' || port == null) return { runtime, port: null, listening: null };
+  if (!record?.debug) return { runtime, port, listening: false };
+  const listening = runtime === 'java' ? Boolean(record.debug.listeningAt) : await debugPortAccepts(port);
+  return { runtime, port, listening };
 }
 
 async function waitForExit(pid, timeoutMs) {
@@ -228,7 +288,8 @@ export async function stopApplication(root, context, entry) {
  */
 export async function startApplication(root, context, entry, {
   requestedEnvironment = null, declaration = null, output = process.stdout, errorOutput = process.stderr,
-  onReady = null, signals = ['SIGINT', 'SIGTERM', 'SIGHUP'], platform = process.platform, expectedCommandSha256 = null
+  onReady = null, signals = ['SIGINT', 'SIGTERM', 'SIGHUP'], platform = process.platform, expectedCommandSha256 = null,
+  debug = false, spawnSyncCommand = undefined
 } = {}) {
   if (expectedCommandSha256 && expectedCommandSha256 !== applicationStartCommandSha256(entry)) {
     throw new SingularityFlowError(
@@ -242,7 +303,10 @@ export async function startApplication(root, context, entry, {
       { code: 'APP_ALREADY_RUNNING', details: { capabilityId: context.capabilityId, startId: entry.id, pid: existing.pid, url: existing.url } });
   }
   const subject = `Start entry '${entry.id}'`;
+  // Refused before an environment's values are read: a debug start needs its runtime declared.
+  if (debug) assertDebugDeclared(entry);
   const environment = selectRunEnvironment({ listed: entry.environments, requested: requestedEnvironment, declaration, subject });
+  const argv = applicationStartArgv(entry, environment);
   let materialized = null;
   if (environment) {
     if (context.policy?.localIntegrationEvidence !== 'allowed') {
@@ -262,7 +326,26 @@ export async function startApplication(root, context, entry, {
   delete base.NODE_TEST_CONTEXT;
   const env = materialized ? materialized.childEnvironment(base) : base;
   const commandSha256 = applicationStartCommandSha256(entry);
-  const launch = resolvePlatformProcess(entry.argv[0], entry.argv.slice(1), { platform, environment: env, cwd });
+  let debugLaunch = null;
+  if (debug) {
+    debugLaunch = resolveDebugLaunch(entry, {
+      argv, environmentArguments: environment ? entry.arguments?.[environment] ?? [] : [], environment: env, platform,
+      paths: appDebugPaths(appRecordPath(root, context.capabilityId, entry.id))
+    });
+    // The tool checks run without the environment's values: they are for the application only.
+    assertDebugToolsAvailable(debugLaunch, { cwd, environment: base, platform, spawnSyncCommand: spawnSyncCommand ?? spawnSync });
+    if (debugLaunch.port != null && await debugPortAccepts(debugLaunch.port)) {
+      throw new SingularityFlowError(
+        `${subject} debugs on ${debugLaunch.address}, and something already listens there. Stop it, or give the entry another debug.port. Nothing ran.`,
+        { code: 'APP_DEBUG_PORT_IN_USE', details: { startId: entry.id, port: debugLaunch.port } });
+    }
+    for (const file of debugLaunch.files) await writeMutablePrivateSidecar(root, file.path, file.content, { maximumBytes: MAXIMUM_RECORD_BYTES });
+    Object.assign(env, debugLaunch.environment);
+    output.write(`Debug start: ${debugLaunch.argv.join(' ')}${debugLaunch.environmentNames.length ? ` (with ${debugLaunch.environmentNames.join(', ')} set for the application only)` : ''}\n`);
+    for (const note of debugLaunch.notes) output.write(`${note}\n`);
+  }
+  const launchArgv = debugLaunch?.argv ?? argv;
+  const launch = resolvePlatformProcess(launchArgv[0], launchArgv.slice(1), { platform, environment: env, cwd });
   let child;
   try {
     child = spawn(launch.executable, launch.arguments, {
@@ -277,18 +360,24 @@ export async function startApplication(root, context, entry, {
   });
   if (spawnError || !child.pid) {
     throw new SingularityFlowError(`${subject} could not start: ${spawnError?.message ?? 'no process'}.`, {
-      code: 'APP_START_FAILED', details: { startId: entry.id, executable: entry.argv[0] } });
+      code: 'APP_START_FAILED', details: { startId: entry.id, executable: launchArgv[0] } });
   }
   const record = {
     format: APP_RUN_FORMAT, capability: context.capabilityId, id: entry.id, pid: child.pid,
     url: entry.url, startedAt: new Date().toISOString(), commandSha256,
-    processStartedAt: processStartIdentity(child.pid, { platform }), environment, readyAt: null
+    processStartedAt: processStartIdentity(child.pid, { platform }), environment, readyAt: null,
+    ...(debugLaunch ? { debug: { runtime: debugLaunch.runtime, port: debugLaunch.port, listeningAt: null } } : {})
   };
   await writeAppRecord(root, record);
+  if (debugLaunch && debugLaunch.port == null) output.write(`Attach a .NET debugger to process ${child.pid}; dotnet has no debugger listener.\n`);
 
   const logText = entry.ready.log ?? null;
   let recent = '';
   let logSeen = false;
+  // A JVM says when its debugger listens; probing the port instead would log a failed handshake.
+  const watchesJdwp = debugLaunch?.runtime === 'java' && debugLaunch.port != null;
+  let jdwpRecent = '';
+  let jdwpSeen = false;
   const relay = (stream, target) => {
     const redactor = materialized?.redactsAnything ? materialized.streamRedactor() : null;
     const emit = (text) => {
@@ -297,6 +386,10 @@ export async function startApplication(root, context, entry, {
       if (logText && !logSeen) {
         recent = (recent + text).slice(-(logText.length + 4_096));
         if (recent.includes(logText)) logSeen = true;
+      }
+      if (watchesJdwp && !jdwpSeen) {
+        jdwpRecent = (jdwpRecent + text).slice(-4_096);
+        if (jdwpListeningLine(jdwpRecent, debugLaunch.port)) jdwpSeen = true;
       }
     };
     stream.on('data', (chunk) => emit(redactor ? redactor.write(chunk) : chunk.toString('utf8')));
@@ -309,13 +402,31 @@ export async function startApplication(root, context, entry, {
   let stopRequested = null;
   const onSignal = (name) => { stopRequested ??= name; void stopTree(child.pid); };
   for (const name of signals) process.on(name, onSignal);
+  let debugAnnounced = false;
+  const announceDebugger = async () => {
+    if (!debugLaunch || debugLaunch.port == null || debugAnnounced) return;
+    if (!(watchesJdwp ? jdwpSeen : await debugPortAccepts(debugLaunch.port, { timeoutMs: 300 }))) return;
+    debugAnnounced = true;
+    output.write(`Debugger listening at ${debugLaunch.address}\n`);
+    record.debug.listeningAt = new Date().toISOString();
+    await writeAppRecord(root, record);
+  };
   try {
     const deadline = Date.now() + entry.ready.timeoutMs;
     let ready = false;
     while (!exit && !stopRequested && Date.now() < deadline) {
+      await announceDebugger();
       if (logText ? logSeen : (await probeLoopback(readinessUrl(entry), { timeoutMs: Math.min(2_000, POLL_MS * 4) })).ready) { ready = true; break; }
       await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, POLL_MS))]);
       if (logText && logSeen) { ready = true; break; }
+    }
+    // Ready first is possible (a slow debugger, a fast server); give the listener a short while more.
+    for (let wait = 0; ready && debugLaunch?.port != null && !debugAnnounced && !exit && wait < 20; wait += 1) {
+      await announceDebugger();
+      if (!debugAnnounced) await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    if (ready && debugLaunch?.port != null && !debugAnnounced) {
+      output.write(`The debugger did not start listening at ${debugLaunch.address}; the application runs without it.\n`);
     }
     if (!ready) {
       const earlyExit = exit;
@@ -336,7 +447,8 @@ export async function startApplication(root, context, entry, {
     await onReady?.({ ...record });
     await exited;
     // `app stop` from elsewhere ends the tree with SIGTERM (then SIGKILL): that is a requested stop too.
-    const stopped = Boolean(stopRequested) || ['SIGTERM', 'SIGINT', 'SIGKILL'].includes(exit?.signal);
+    // A JVM (Spring Boot among them) answers SIGTERM by exiting 143 rather than dying of the signal.
+    const stopped = Boolean(stopRequested) || ['SIGTERM', 'SIGINT', 'SIGKILL'].includes(exit?.signal) || [130, 137, 143].includes(exit?.code);
     return {
       capability: context.capabilityId, id: entry.id, outcome: stopped ? 'stopped' : 'exited', ready: true,
       exitCode: stopped ? 0 : exit?.code ?? 1, signal: exit?.signal ?? null
@@ -346,5 +458,10 @@ export async function startApplication(root, context, entry, {
     // The leader may exit while descendants it started keep the group alive.
     if (!exit || pidAlive(child.pid, { group: true })) await stopTree(child.pid);
     await removeAppRecord(root, context.capabilityId, entry.id, child.pid);
+    if (debugLaunch) {
+      const { rm } = await import('node:fs/promises');
+      const paths = appDebugPaths(appRecordPath(root, context.capabilityId, entry.id));
+      for (const file of [paths.gradleInitScript, paths.goBinary]) await rm(file, { force: true, recursive: true }).catch(() => {});
+    }
   }
 }

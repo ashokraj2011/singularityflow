@@ -1,14 +1,15 @@
 /**
- * `singularity-flow app plan|start|status|stop` [RUN M1]: the capability's declared application,
- * model-free and the same for the Shell, VS Code and Copilot.
+ * `singularity-flow app plan|start|status|stop|suggest` [RUN M1, amendment M7]: the capability's
+ * declared application, model-free and the same for the Shell, VS Code and Copilot.
  */
 import path from 'node:path';
 
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
-const SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop']);
+const SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop', 'suggest']);
 const OPTIONS = Object.freeze({
-  plan: ['capability', 'json'], start: ['capability', 'environment', 'expect-command'], status: ['capability', 'json'], stop: ['capability', 'json']
+  plan: ['capability', 'json'], start: ['capability', 'environment', 'expect-command', 'debug'], status: ['capability', 'json'], stop: ['capability', 'json'],
+  suggest: ['capability', 'json']
 });
 
 function fail(message, code = 'APP_COMMAND_INVALID', details = null) {
@@ -52,13 +53,14 @@ export async function run(_argv, { positionals, options = {} }) {
   }
   rejectOptions(subcommand, options);
   const startId = positionals[2] ?? null;
-  if (positionals.length > 3 || (subcommand === 'status' && startId)) {
-    fail(subcommand === 'status' ? 'app status lists every start entry; it takes no START-ID.' : `app ${subcommand} takes at most one START-ID.`);
+  if (positionals.length > 3 || (['status', 'suggest'].includes(subcommand) && startId)) {
+    fail(['status', 'suggest'].includes(subcommand) ? `app ${subcommand} reads every entry; it takes no START-ID.` : `app ${subcommand} takes at most one START-ID.`);
   }
   const json = optionBoolean(options, 'json');
   const { repoRoot } = await import('../git.mjs');
   const root = repoRoot(process.cwd());
   const application = await context(root, options);
+  if (subcommand === 'suggest') return (await import('./app-suggest.mjs')).run(root, application, { json });
   const runtime = await import('../application-run.mjs');
   const { loadEnvironmentDeclaration } = await import('../environment-declaration.mjs');
 
@@ -77,6 +79,11 @@ export async function run(_argv, { positionals, options = {} }) {
       for (const [index, plan] of plans.entries()) {
         const entry = entries[index];
         console.log(`  ${plan.id}: ${plan.argv.join(' ')} · in ${plan.repository}/${plan.workingDirectory} · ${plan.url} · ${words(entry)} · ${environmentWords(plan.environments)}`);
+        for (const environment of plan.arguments ? plan.environments : []) console.log(`    ${environment.name}: ${environment.argv.join(' ')}`);
+        if (plan.debug) {
+          console.log(plan.debug.refusal ? `    debug (${plan.debug.runtime}): refused, ${plan.debug.refusal.message}`
+            : `    debug (${plan.debug.runtime}${plan.debug.address ? ` on ${plan.debug.address}` : ', attach to the pid'}): ${plan.debug.argv.join(' ')}${plan.debug.environmentNames.length ? ` with ${plan.debug.environmentNames.join(', ')} set` : ''}`);
+        }
       }
       const first = plans[0];
       console.log(`Start: singularity-flow app start ${first.id}${first.environments.length > 1 ? ` [--environment ${first.environments.map((entry) => entry.name).join('|')}]` : ''}`);
@@ -96,7 +103,8 @@ export async function run(_argv, { positionals, options = {} }) {
     else {
       for (const entry of result.entries) {
         const state = entry.started ? `started (pid ${entry.pid}${entry.environment ? `, environment ${entry.environment}` : ''})` : 'not started';
-        console.log(`  ${entry.id}: ${state} · ${entry.ready ? 'ready' : 'not answering'} at ${entry.url}`);
+        const debug = entry.debug?.listening ? ` · debugger listening at 127.0.0.1:${entry.debug.port}` : '';
+        console.log(`  ${entry.id}: ${state} · ${entry.ready ? 'ready' : 'not answering'} at ${entry.url}${debug}`);
       }
       const idle = result.entries.find((entry) => !entry.started);
       if (idle) console.log(`Start: singularity-flow app start ${idle.id}`);
@@ -116,9 +124,13 @@ export async function run(_argv, { positionals, options = {} }) {
   }
 
   const declaration = await loadEnvironmentDeclaration(root, { optional: true });
-  console.log(`Starting ${entry.id}: ${entry.argv.join(' ')} (in ${entry.workingDirectory}). Stop with Ctrl+C or singularity-flow app stop ${entry.id}.`);
+  const debug = optionBoolean(options, 'debug');
+  if (debug) runtime.assertDebugDeclared(entry);
+  const requested = optionString(options, 'environment', null);
+  const shownArgv = entry.environments.includes(requested ?? entry.environments[0]) ? runtime.startArgv(entry, requested ?? entry.environments[0]) : entry.argv;
+  console.log(`Starting ${entry.id}${debug && entry.debug ? ` with the ${entry.debug.runtime} debugger` : ''}: ${shownArgv.join(' ')} (in ${entry.workingDirectory}). Stop with Ctrl+C or singularity-flow app stop ${entry.id}.`);
   const result = await runtime.startApplication(root, application, entry, {
-    requestedEnvironment: optionString(options, 'environment', null), declaration,
+    requestedEnvironment: requested, declaration, debug,
     expectedCommandSha256: optionString(options, 'expect-command', null)
   });
   console.log(result.outcome === 'stopped' ? `Stopped ${entry.id}.` : `${entry.id} exited (${result.signal ?? result.exitCode}).`);

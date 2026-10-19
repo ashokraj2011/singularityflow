@@ -19,6 +19,37 @@ import { evidenceClassLabel, totalsLine, type TestSummary } from './test-summary
 /** One environment a start entry or test command may run against, as `env status` sees it. */
 export interface EnvironmentChoice { name: string; status: string; default: boolean }
 
+/** The runtimes a start entry's `debug` block names. [RUN amendment 2] */
+export type DebugRuntime = 'java' | 'python' | 'node' | 'go' | 'dotnet';
+export const DEBUG_RUNTIMES: readonly DebugRuntime[] = ['java', 'python', 'node', 'go', 'dotnet'];
+
+/** A coded refusal `app start --debug` would give before anything runs (APP_DEBUG_*). */
+export interface DebugRefusal { code: string; message: string }
+
+/** How a debug start runs in one environment, as `app plan` describes it, or why it cannot. */
+export interface DebugLaunch {
+  argv: string[] | null;
+  /** Variables the engine sets for the application only (NODE_OPTIONS, npm_config_node_options, …): names. */
+  environmentNames: string[];
+  refusal: DebugRefusal | null;
+}
+
+/**
+ * A start entry's `debug` block as `app plan --json` resolves it. A debug start has no identity of
+ * its own: `commandSha256` covers the debug block, and `app start --debug --expect-command`
+ * compares the entry's commandSha256. VS Code confirms it separately as `<commandSha256>:debug`.
+ */
+export interface DebugPlan extends DebugLaunch {
+  runtime: DebugRuntime;
+  /** The loopback port the debugger listens on; null for .NET, which attaches by process ID. */
+  port: number | null;
+  suspend: boolean;
+  launcher: string | null;
+  notes: string[];
+  /** Each environment's own debug launch (`environments[].debug`); the block itself is the first one's. */
+  environments: Record<string, DebugLaunch>;
+}
+
 /** One `application.start` entry, resolved by `app plan --json`. */
 export interface StartEntry {
   capability: string;
@@ -30,6 +61,13 @@ export interface StartEntry {
   ready: { http?: string; log?: string; timeoutMs?: number } | null;
   environments: EnvironmentChoice[];
   commandSha256: string;
+  /** `arguments`: appended to argv for the chosen environment. */
+  arguments: Record<string, string[]>;
+  /** The argv each environment runs, as the engine resolved it (`environments[].argv`). */
+  resolvedArgv: Record<string, string[]>;
+  debug: DebugPlan | null;
+  /** Why a declared `debug` block is not offered: the engine's answer for it is incomplete. */
+  debugIssue: string | null;
 }
 
 /** One line of `app status --json`. */
@@ -41,6 +79,8 @@ export interface StartStatus {
   url: string | null;
   pid: number | null;
   environment: string | null;
+  /** `debug: { runtime, port, listening }` for a start made with --debug. */
+  debug: { runtime: string | null; port: number | null; listening: boolean } | null;
 }
 
 /** One command `tests run` would run, from `tests plan --json` when the engine offers it. */
@@ -108,6 +148,60 @@ export function environmentsFrom(entry: Record<string, unknown>): EnvironmentCho
   return choices;
 }
 
+/** `{ <environment>: [string, …] }`, keeping only environment names and argv-safe lists. */
+function argvMap(value: unknown, environments: string[] | null = null): Record<string, string[]> {
+  const object = record(value);
+  const map: Record<string, string[]> = {};
+  if (!object) return map;
+  for (const [name, list] of Object.entries(object)) {
+    if (!ENVIRONMENT.test(name) || environments && !environments.includes(name)) continue;
+    const argv = argvFrom(list);
+    if (argv) map[name] = argv;
+  }
+  return map;
+}
+
+/** A TCP port the engine reported: an integer from 1 to 65535, nothing else. */
+export const debugPort = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 65_535 ? value : null;
+
+const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+
+/** `{ argv, environmentNames }` or `{ refusal: { code, message } }`, from the plan. */
+function debugLaunchFrom(value: unknown): DebugLaunch {
+  const launch = record(value) ?? {};
+  const refusal = record(launch.refusal);
+  const code = text(refusal?.code);
+  return {
+    argv: argvFrom(launch.argv),
+    environmentNames: (Array.isArray(launch.environmentNames) ? launch.environmentNames : [])
+      .filter((name): name is string => typeof name === 'string' && VARIABLE_NAME.test(name)),
+    refusal: refusal ? { code: code && /^[A-Z0-9_]{1,64}$/.test(code) ? code : 'APP_DEBUG_REFUSED',
+      message: text(refusal.message) && !CONTROL.test(String(refusal.message)) ? String(refusal.message) : 'app start --debug would refuse this entry.' } : null
+  };
+}
+
+/** The plan's `debug` block, or why VS Code cannot offer it. */
+function debugFrom(value: unknown, environments: Array<{ name: string; debug?: unknown }>): { debug: DebugPlan | null; issue: string | null } {
+  const debug = record(value);
+  if (!debug) return { debug: null, issue: null };
+  const runtime = text(debug.runtime) as DebugRuntime | null;
+  if (!runtime || !DEBUG_RUNTIMES.includes(runtime)) return { debug: null, issue: `the debug runtime ${JSON.stringify(debug.runtime ?? null)} is not one VS Code attaches to` };
+  // Only a port the engine reported: VS Code never assumes one (attach reads `app status` again).
+  const port = runtime === 'dotnet' ? null : debugPort(debug.port);
+  if (port === null && runtime !== 'dotnet' && debug.port != null) return { debug: null, issue: `the debug port ${JSON.stringify(debug.port)} is not a TCP port` };
+  return {
+    debug: {
+      runtime, port, suspend: debug.suspend === true, launcher: text(debug.launcher),
+      notes: (Array.isArray(debug.notes) ? debug.notes : []).filter((note): note is string => typeof note === 'string' && !CONTROL.test(note)),
+      ...debugLaunchFrom(debug),
+      environments: Object.fromEntries(environments.filter((environment) => record(environment.debug))
+        .map((environment) => [environment.name, debugLaunchFrom(environment.debug)]))
+    },
+    issue: null
+  };
+}
+
 /** The start entries `app plan --json` returned; an entry VS Code cannot run exactly is left out. */
 export function appPlanFrom(raw: unknown): { entries: StartEntry[]; dropped: string[] } {
   const entries: StartEntry[] = [];
@@ -124,6 +218,19 @@ export function appPlanFrom(raw: unknown): { entries: StartEntry[]; dropped: str
       continue;
     }
     const ready = record(entry.ready);
+    const environments = environmentsFrom(entry);
+    const names = environments.map((choice) => choice.name);
+    const planned = (Array.isArray(entry.environments) ? entry.environments : []).flatMap((value) => {
+      const object = record(value);
+      const name = text(object?.name);
+      return object && name && names.includes(name) ? [{ name, argv: object.argv, debug: object.debug }] : [];
+    });
+    const resolvedArgv: Record<string, string[]> = {};
+    for (const environment of planned) {
+      const resolved = argvFrom(environment.argv);
+      if (resolved) resolvedArgv[environment.name] = resolved;
+    }
+    const { debug, issue } = debugFrom(entry.debug, planned);
     entries.push({
       capability, repository: text(entry.repository), id, argv,
       workingDirectory: text(entry.workingDirectory), url: text(entry.url),
@@ -132,12 +239,33 @@ export function appPlanFrom(raw: unknown): { entries: StartEntry[]; dropped: str
         ...(typeof ready.log === 'string' ? { log: ready.log } : {}),
         ...(typeof ready.timeoutMs === 'number' ? { timeoutMs: ready.timeoutMs } : {})
       } : null,
-      environments: environmentsFrom(entry),
-      commandSha256: sha
+      environments,
+      commandSha256: sha,
+      arguments: argvMap(entry.arguments, names),
+      resolvedArgv,
+      debug,
+      debugIssue: issue
     });
   }
   return { entries, dropped };
 }
+
+/**
+ * The argv an entry runs in an environment: what `app plan` resolved for it, else `argv` followed
+ * by that environment's `arguments`, the rule the amendment gives. Without an environment, `argv`.
+ */
+export function resolvedArgv(entry: Pick<StartEntry, 'argv' | 'arguments' | 'resolvedArgv'>, environment: string | null): string[] {
+  if (!environment) return entry.argv;
+  return entry.resolvedArgv[environment] ?? [...entry.argv, ...(entry.arguments[environment] ?? [])];
+}
+
+/** The debug launch in an environment: that environment's own, else the block's (the first environment's). */
+export function debugLaunch(debug: DebugPlan, environment: string | null): DebugLaunch {
+  return (environment ? debug.environments[environment] : null) ?? debug;
+}
+
+/** The key a debug start is confirmed under: the entry's identity, marked as its debug start. */
+export const debugConfirmationKey = (entry: Pick<StartEntry, 'commandSha256'>): string => `${entry.commandSha256}:debug`;
 
 /** `app status --json`: what is declared, started (pid alive) and ready (URL responds). */
 export function appStatusFrom(raw: unknown): StartStatus[] {
@@ -147,11 +275,13 @@ export function appStatusFrom(raw: unknown): StartStatus[] {
     if (!entry || !id) return [];
     const state = text(entry.state);
     const started = entry.started === true || state === 'started' || state === 'ready';
+    const debug = record(entry.debug);
     return [{
       id, declared: entry.declared !== false, started,
       ready: started && (entry.ready === true || state === 'ready'),
-      url: text(entry.url), pid: typeof entry.pid === 'number' ? entry.pid : null,
-      environment: text(entry.environment) ?? text(record(entry.environment)?.name)
+      url: text(entry.url), pid: typeof entry.pid === 'number' && Number.isInteger(entry.pid) && entry.pid > 0 ? entry.pid : null,
+      environment: text(entry.environment) ?? text(record(entry.environment)?.name),
+      debug: debug ? { runtime: text(debug.runtime), port: debugPort(debug.port), listening: started && debug.listening === true } : null
     }];
   });
 }
@@ -289,13 +419,97 @@ const expect = (identities: string[]): string[] => identities.flatMap((sha) => [
 
 /**
  * What the start task runs after the CLI path: `app start <id> --capability <ID> [--environment ENV]
- * --expect-command <commandSha256>`. The engine refuses (APP_COMMAND_CHANGED) when the entry is no
- * longer the one the person confirmed.
+ * [--debug] --expect-command <commandSha256>`. The engine refuses (APP_COMMAND_CHANGED) when the
+ * entry is no longer the one the person confirmed. A debug start (--debug) is compared on the same
+ * commandSha256, which covers the debug block.
  */
-export function appStartArgv(capability: string, id: string, environment: string | null, commandSha256: string | null = null): string[] {
+export function appStartArgv(capability: string, id: string, environment: string | null, commandSha256: string | null = null,
+  debug = false): string[] {
   return ['app', 'start', required(id, 'Start entry', ID), '--capability', required(capability, 'Capability', ID),
     ...(environment ? ['--environment', required(environment, 'Environment', ENVIRONMENT)] : []),
+    ...(debug ? ['--debug'] : []),
     ...expect(commandSha256 ? [commandSha256] : [])];
+}
+
+/** Every attach configuration VS Code builds connects to this host and nothing else. */
+export const DEBUG_HOST = '127.0.0.1';
+
+const RUNTIME_WORDS: Record<DebugRuntime, string> = { java: 'Java', python: 'Python', node: 'Node.js', go: 'Go', dotnet: '.NET' };
+
+/** The extension that provides each runtime's attach type; Node's debugger is built into VS Code. */
+export const DEBUGGER_EXTENSIONS: Record<DebugRuntime, { id: string; name: string } | null> = {
+  java: { id: 'vscjava.vscode-java-debug', name: 'Debugger for Java' },
+  python: { id: 'ms-python.debugpy', name: 'Python Debugger' },
+  node: null,
+  go: { id: 'golang.go', name: 'Go' },
+  dotnet: { id: 'ms-dotnettools.csharp', name: 'C#' }
+};
+
+/**
+ * The attach configuration for a runtime: loopback host, the port the engine reported, or for .NET
+ * the process ID `app status` reported. Nothing here comes from a page: a webview message names an
+ * entry, and the host reads the port and pid from the engine again.
+ */
+export function debugAttachConfiguration(runtime: DebugRuntime, name: string, target: { port?: number | null; pid?: number | null }):
+  Record<string, unknown> | null {
+  const port = debugPort(target.port);
+  const pid = typeof target.pid === 'number' && Number.isInteger(target.pid) && target.pid > 0 ? target.pid : null;
+  switch (runtime) {
+    case 'java': return port ? { type: 'java', request: 'attach', name, hostName: DEBUG_HOST, port } : null;
+    case 'python': return port ? { type: 'debugpy', request: 'attach', name, connect: { host: DEBUG_HOST, port } } : null;
+    case 'node': return port ? { type: 'node', request: 'attach', name, address: DEBUG_HOST, port } : null;
+    case 'go': return port ? { type: 'go', request: 'attach', name, mode: 'remote', host: DEBUG_HOST, port } : null;
+    case 'dotnet': return pid ? { type: 'coreclr', request: 'attach', name, processId: pid } : null;
+    default: return null;
+  }
+}
+
+/** The debug session's name in VS Code's Run and Debug view. */
+export const debugSessionName = (capability: string, id: string): string => `${id} · ${capability} (Singularity Flow)`;
+
+/** Whether `app status` says the debugger can be attached to now: listening, or for .NET a live pid. */
+export function debuggerReady(debug: DebugPlan, status: StartStatus | undefined): boolean {
+  if (!status?.started) return false;
+  return debug.runtime === 'dotnet' ? status.pid !== null : status.debug?.listening === true;
+}
+
+export type DebugAttachPlan =
+  | { configuration: Record<string, unknown>; extension: { id: string; name: string } | null; where: string }
+  | { error: string };
+
+/** What VS Code attaches to, from the plan's runtime and the live `app status` port or pid. */
+export function debugAttachPlan(entry: Pick<StartEntry, 'capability' | 'id' | 'debug'>, status: StartStatus | undefined): DebugAttachPlan {
+  const debug = entry.debug;
+  if (!debug) return { error: `${entry.id} declares no debug block in singularity/capabilities.yml.` };
+  if (!debuggerReady(debug, status)) {
+    return { error: debug.runtime === 'dotnet'
+      ? `${entry.id} is not running, so there is no process to attach to.`
+      : `${entry.id} has no debugger listening. Start it with Start (debug).` };
+  }
+  if (status?.debug?.runtime && status.debug.runtime !== debug.runtime) {
+    return { error: `${entry.id} is running with the ${status.debug.runtime} debugger, but singularity/capabilities.yml now declares ${debug.runtime}. Stop it and start it again.` };
+  }
+  const port = status?.debug?.port ?? debug.port;
+  const configuration = debugAttachConfiguration(debug.runtime, debugSessionName(entry.capability, entry.id), { port, pid: status?.pid ?? null });
+  if (!configuration) return { error: `The engine did not report the ${debug.runtime === 'dotnet' ? 'process ID' : 'debugger port'} of ${entry.id}, so VS Code attached nothing.` };
+  return {
+    configuration, extension: DEBUGGER_EXTENSIONS[debug.runtime],
+    where: debug.runtime === 'dotnet' ? `as process ${status!.pid}` : `with its debugger listening at ${DEBUG_HOST}:${port}`
+  };
+}
+
+/** Said when the language's debugger extension is missing; the application stays running. */
+export function missingDebuggerMessage(entryId: string, runtime: DebugRuntime, where: string): string {
+  const extension = DEBUGGER_EXTENSIONS[runtime];
+  return `${entryId} is running ${where}, but VS Code has no ${RUNTIME_WORDS[runtime]} debugger to attach with. `
+    + `Install the ${extension?.name ?? RUNTIME_WORDS[runtime]} extension${extension ? ` (${extension.id})` : ''}, then choose Attach debugger. `
+    + `${entryId} keeps running; Stop ends it.`;
+}
+
+/** "java debugger at 127.0.0.1:5005", for a row and the confirmation. */
+export function debugWords(debug: DebugPlan): string {
+  if (debug.runtime === 'dotnet') return '.NET: VS Code attaches to the started process by its ID';
+  return `${RUNTIME_WORDS[debug.runtime]} debugger at ${DEBUG_HOST}:${debug.port ?? 'the port the engine reports'}${debug.suspend ? ', waiting for the debugger before it runs' : ''}`;
 }
 
 /**
@@ -351,25 +565,69 @@ const readiness = (ready: StartEntry['ready']): string => {
   return `the engine's default readiness check${seconds}`;
 };
 
+const environmentLine = (entry: StartEntry, environment: string | null): string => {
+  const chosen = entry.environments.find((choice) => choice.name === environment);
+  return environment
+    ? `Environment: ${environment} (${environmentStatusWords(chosen?.status ?? 'unknown')}). Its values go to this process only; VS Code never reads or shows them.`
+    : 'Environment: none';
+};
+
+const argumentsLine = (entry: StartEntry, environment: string | null): string[] =>
+  environment && entry.arguments[environment]?.length ? [`Arguments for ${environment}: ${JSON.stringify(entry.arguments[environment])}`] : [];
+
 /** The review page shown before a start entry first runs, and again whenever its command changes. */
 export function startConfirmationRequest(entry: StartEntry, environment: string | null): ReviewConfirmationRequest {
-  const chosen = entry.environments.find((choice) => choice.name === environment);
   return {
     title: `Start ${entry.id} for ${entry.capability}`,
     summary: 'This command comes from singularity/capabilities.yml and runs on this computer. Review it once; you are asked again when it changes.',
     detail: [
       `Capability: ${entry.capability}`,
       `Start entry: ${entry.id}`,
-      `Command: ${JSON.stringify(entry.argv)}`,
+      `Command: ${JSON.stringify(resolvedArgv(entry, environment))}`,
+      ...argumentsLine(entry, environment),
       `Working directory: ${entry.workingDirectory ?? '.'}${entry.repository ? ` (repository ${entry.repository})` : ''}`,
       `Opens at: ${entry.url ?? 'no URL declared'}`,
       `Ready when: ${readiness(entry.ready)}`,
-      environment
-        ? `Environment: ${environment} (${environmentStatusWords(chosen?.status ?? 'unknown')}). Its values go to this process only; VS Code never reads or shows them.`
-        : 'Environment: none',
+      environmentLine(entry, environment),
       `Command identity: ${entry.commandSha256}`,
       '',
       `VS Code runs it as a task: ${displayCommand(appStartArgv(entry.capability, entry.id, environment, entry.commandSha256))}`
+    ].join('\n'),
+    confirmLabel: 'Run this command'
+  };
+}
+
+/**
+ * The review page before a debug start first runs. It is confirmed as `<commandSha256>:debug`: asked
+ * for separately from the plain start, and again whenever the entry (its debug block included) changes.
+ */
+export function debugStartConfirmationRequest(entry: StartEntry, environment: string | null): ReviewConfirmationRequest {
+  const debug = entry.debug!;
+  const launch = debugLaunch(debug, environment);
+  const attach = debugAttachConfiguration(debug.runtime, debugSessionName(entry.capability, entry.id), { port: debug.port, pid: 1 });
+  return {
+    title: `Start ${entry.id} with its debugger for ${entry.capability}`,
+    summary: 'This command comes from singularity/capabilities.yml and runs on this computer with a debugger that listens on 127.0.0.1 only. Review it once; you are asked again when it changes.',
+    detail: [
+      `Capability: ${entry.capability}`,
+      `Start entry: ${entry.id}`,
+      launch.argv ? `Command: ${JSON.stringify(launch.argv)}`
+        : `Command: ${JSON.stringify(resolvedArgv(entry, environment))}, with the debugger the engine adds for ${debug.runtime}`,
+      ...argumentsLine(entry, environment),
+      ...(launch.environmentNames.length ? [`Set for the application only, by the engine: ${launch.environmentNames.join(', ')}`] : []),
+      ...debug.notes.map((note) => `Note: ${note}`),
+      `Working directory: ${entry.workingDirectory ?? '.'}${entry.repository ? ` (repository ${entry.repository})` : ''}`,
+      `Debugger: ${debugWords(debug)}`,
+      debug.runtime === 'dotnet'
+        ? `VS Code then attaches with: ${JSON.stringify({ type: 'coreclr', request: 'attach', processId: 'the process ID app status reports' })}`
+        : `VS Code attaches once app status says the debugger listens, on ${DEBUG_HOST} at the port app status reports: ${JSON.stringify(attach ?? { host: DEBUG_HOST, port: 'the port app status reports' })}`,
+      `Opens at: ${entry.url ?? 'no URL declared'}`,
+      `Ready when: ${readiness(entry.ready)}${debug.suspend ? ', after the debugger attaches' : ''}`,
+      environmentLine(entry, environment),
+      `Command identity: ${entry.commandSha256} (its debug start)`,
+      '',
+      `VS Code runs it as a task: ${displayCommand(appStartArgv(entry.capability, entry.id, environment, entry.commandSha256, true))}`,
+      `Ending the debug session leaves ${entry.id} running; Stop ends it.`
     ].join('\n'),
     confirmLabel: 'Run this command'
   };
@@ -402,7 +660,7 @@ export function testsConfirmationRequest(capability: string, tests: TestCommandP
 }
 
 /** What VS Code knows of a start entry's task in this window. */
-export interface StartTaskState { running: boolean; exitCode?: number | null }
+export interface StartTaskState { running: boolean; exitCode?: number | null; debug?: boolean }
 
 export type StartState = 'ready' | 'starting' | 'started' | 'stopped' | 'failed' | 'not-declared';
 
@@ -423,7 +681,14 @@ const STATE_WORDS: Record<StartState, string> = {
 export interface StartRow {
   id: string; command: string; workingDirectory: string | null; url: string | null;
   state: StartState; stateWords: string; detail: string | null; environment: string | null;
-  canStart: boolean; canStop: boolean; canOpen: boolean;
+  /** Each environment's own arguments; `current` marks the one the command above runs with. */
+  arguments: Array<{ environment: string; words: string; current: boolean }>;
+  /** "Java debugger at 127.0.0.1:5005" when the entry declares a debug start. */
+  debug: string | null;
+  /** "Debugger listening at 127.0.0.1:5005" while a debug start listens. */
+  listening: string | null;
+  debugNote: string | null;
+  canStart: boolean; canStop: boolean; canOpen: boolean; canDebug: boolean; canAttach: boolean;
 }
 
 export interface EnvironmentRow { name: string; status: string; words: string; bound: boolean; selected: boolean }
@@ -481,14 +746,27 @@ export function buildRunAndTestView(capability: CapabilityNode, ownership: Owner
     const current = startState(status, task);
     const url = loopbackUrl(status?.url ?? entry.url);
     const running = current === 'ready' || current === 'starting' || current === 'started';
+    const runsIn = running ? status?.environment ?? null : entryEnvironment(entry, environment);
+    const refusal = entry.debug ? debugLaunch(entry.debug, runsIn).refusal : null;
+    const listening = entry.debug && status?.debug?.listening
+      ? `Debugger listening at ${DEBUG_HOST}:${status.debug.port ?? entry.debug.port}` : null;
     return {
-      id: entry.id, command: entry.argv.join(' '), workingDirectory: entry.workingDirectory, url,
+      id: entry.id, command: resolvedArgv(entry, runsIn).join(' '), workingDirectory: entry.workingDirectory, url,
       state: current, stateWords: STATE_WORDS[current],
       detail: current === 'ready' && url ? `at ${url}`
-        : current === 'starting' ? `waiting until ${readiness(entry.ready)}`
+        : current === 'starting' ? `waiting ${task?.debug && entry.debug && !listening ? 'for the debugger to listen, then ' : ''}until ${readiness(entry.ready)}`
           : current === 'failed' ? `exit code ${task?.exitCode}; its task terminal says why` : null,
-      environment: running ? status?.environment ?? null : entryEnvironment(entry, environment),
-      canStart: !running, canStop: running, canOpen: current === 'ready' && Boolean(url)
+      environment: runsIn,
+      arguments: entry.environments.filter((choice) => entry.arguments[choice.name]?.length).map((choice) => ({
+        environment: choice.name, words: entry.arguments[choice.name]!.join(' '), current: choice.name === runsIn
+      })),
+      debug: entry.debug ? debugWords(entry.debug) : null,
+      listening,
+      debugNote: entry.debugIssue ? `Start (debug) is not offered: ${entry.debugIssue}.`
+        : refusal ? `Start (debug) is not available: ${refusal.message}` : null,
+      canStart: !running, canStop: running, canOpen: current === 'ready' && Boolean(url),
+      canDebug: Boolean(entry.debug) && !refusal && !running,
+      canAttach: Boolean(entry.debug) && running && debuggerReady(entry.debug!, status)
     };
   });
   const lastRun = state.lastRun?.run ? {

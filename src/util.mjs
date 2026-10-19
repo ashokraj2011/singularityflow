@@ -155,7 +155,9 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   // any command reads them, so they must be declared here too.
   'verbose', 'show-artifact', 'brief', 'table',
   // Imports.
-  'without-defaults', 'launch', 'allow-not-ready'
+  'without-defaults', 'launch', 'allow-not-ready',
+  // Run and test: app start --debug.
+  'debug'
 ]));
 
 export function parseArgs(argv) {

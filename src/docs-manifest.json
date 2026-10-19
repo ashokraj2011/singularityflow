@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "4a8e6c42fd37cb7134906fac0f0af432ba15cad5",
+  "sourceCommit": "ab2155a0a7d6d9f56cd9b1098732f655d54fbada",
   "topicCount": 85,
-  "contentSha256": "d70abdcfccca9b5356d2958d971a8c12c36f8028af94e472a615f9892ce327e6",
+  "contentSha256": "1c2929ef331d7eeaa51f3dad3c38807dd0faeb005366272bf6f113332d36329b",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -504,9 +504,9 @@
     {
       "id": "run-and-test",
       "title": "Run the application and its tests from a capability",
-      "version": 1,
-      "sha256": "0922352ba7f7ce7f4735084c5e23fba51ee72370551d5b5d145c1a2313d45395",
-      "routingSha256": "1749eb7c538c54b503da32494be8ac33b7a5ca82f3dda07f50f864db813adb27",
+      "version": 2,
+      "sha256": "f2767880e56e8bda6534124e68a0fb9d1bd6a4f6fea950a751c9fc19ecfcdef9",
+      "routingSha256": "5c0d8d9550503468e98794e82e9b5125b0160d9c25acf1393f5c54c54f871c09",
       "file": "run-and-test.md"
     },
     {

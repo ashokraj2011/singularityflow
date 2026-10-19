@@ -16,14 +16,27 @@ const PILL: Record<StartRow['state'], string> = {
   ready: 'ok', starting: 'wait', started: 'wait', stopped: '', failed: 'bad', 'not-declared': 'bad'
 };
 
+function argumentsHtml(row: StartRow): string {
+  if (!row.arguments.length) return '';
+  return `<br><small class="muted rt-arguments">${row.arguments.map((item) =>
+    `<span data-rt-arguments="${escape(item.environment)}"${item.current ? ' data-rt-current' : ''}>${escape(item.environment)}${item.current ? ' (this run)' : ''}: <code>${escape(item.words)}</code></span>`).join('<br>')}</small>`;
+}
+
 function startRow(view: RunAndTestView, row: StartRow): string {
+  const debug = row.debug ? `
+      <button type="button" class="secondary compact-action"${attributes(view, 'debug', { entry: row.id })}${row.canDebug ? '' : ' disabled'}>${icon('start')}Start (debug)</button>
+      <button type="button" class="secondary compact-action"${attributes(view, 'attach', { entry: row.id })}${row.canAttach ? '' : ' disabled'}>Attach debugger</button>` : '';
   return `<tr data-rt-entry="${escape(row.id)}" data-rt-state="${escape(row.state)}">
     <td><strong><code>${escape(row.id)}</code></strong><br><small class="muted rt-command">${escape(row.command)}</small>
-      ${row.workingDirectory ? `<br><small class="muted">in ${escape(row.workingDirectory)}</small>` : ''}</td>
+      ${argumentsHtml(row)}
+      ${row.workingDirectory ? `<br><small class="muted">in ${escape(row.workingDirectory)}</small>` : ''}
+      ${row.debug ? `<br><small class="muted rt-debug">debug: ${escape(row.debug)}</small>` : ''}
+      ${row.debugNote ? `<br><small class="muted rt-debug">${escape(row.debugNote)}</small>` : ''}</td>
     <td><span class="pill ${PILL[row.state]}">${escape(row.stateWords)}</span>${row.detail ? ` <small>${escape(row.detail)}</small>` : ''}
-      ${row.environment ? `<br><small class="muted">environment ${escape(row.environment)}</small>` : ''}</td>
+      ${row.environment ? `<br><small class="muted">environment ${escape(row.environment)}</small>` : ''}
+      ${row.listening ? `<br><small class="rt-listening">${escape(row.listening)}</small>` : ''}</td>
     <td><div class="rt-actions">
-      <button type="button" class="compact-action"${attributes(view, 'start', { entry: row.id })}${row.canStart ? '' : ' disabled'}>${icon('start')}Start</button>
+      <button type="button" class="compact-action"${attributes(view, 'start', { entry: row.id })}${row.canStart ? '' : ' disabled'}>${icon('start')}Start</button>${debug}
       <button type="button" class="secondary compact-action"${attributes(view, 'stop', { entry: row.id })}${row.canStop ? '' : ' disabled'}>Stop</button>
       <button type="button" class="secondary compact-action"${attributes(view, 'open', { entry: row.id })}${row.canOpen ? '' : ' disabled'}>Open in browser</button>
     </div></td></tr>`;
@@ -84,6 +97,8 @@ export function runAndTestHtml(view: RunAndTestView | null): string {
     ${environmentHtml(view)}
     <h3>${icon('delivery')}Application</h3>
     ${starts}
+    <p class="rt-suggest"><button type="button" class="secondary compact-action"${attributes(view, 'suggest')}>Suggest from run configurations</button>
+      <small class="muted">Reads IntelliJ, PyCharm, WebStorm, GoLand, Rider and VS Code run configurations in this repository. Nothing is written until you review and propose.</small></p>
     ${testsHtml(view)}
   </section>`;
 }
@@ -92,6 +107,8 @@ export const RUN_AND_TEST_STYLE = `
 .run-and-test h3 { display:flex; gap:.4rem; align-items:center; margin:1rem 0 .4rem; }
 .rt-start td { vertical-align:top; }
 .rt-command { overflow-wrap:anywhere; font-family:var(--vscode-editor-font-family); }
+.rt-arguments code { overflow-wrap:anywhere; }
+.rt-suggest { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; margin:.6rem 0 0; }
 .rt-actions { display:flex; flex-wrap:wrap; gap:.4rem; }
 .rt-environment { max-width:28rem; }
 .rt-bind code { overflow-wrap:anywhere; }

@@ -37,7 +37,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     'commands/prepare.mjs', 'commands/review-source.mjs', 'commands/submit.mjs', 'commands/approve.mjs', 'commands/phase-lifecycle.mjs']) {
     const closure = await graph(file);
     assert.equal(closure.files.has(path.join(sourceRoot, 'cli.mjs')), false, `${file} re-imported the monolith`);
-    assert.ok(closure.files.size <= 450, `${file} loads ${closure.files.size} local files (budget 450; retired graph 597)`);
+    // 455: phase-lifecycle.mjs reached 455 with the source-review batching (f79ec1fa, 5a25abe8, d18afdc6): the
+    // clarification-paths, phase-input-policy and phase-inspection-generation helpers split out of modules it already
+    // loaded, plus the source-review snapshot cache.
+    assert.ok(closure.files.size <= 455, `${file} loads ${closure.files.size} local files (budget 455; retired graph 597)`);
     assert.ok(closure.bytes <= 9_000_000, `${file} exceeds the 9 MB eager-source budget`);
   }
 });
@@ -48,7 +51,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   assert.ok(root.files.size <= 39, `root dispatch loads ${root.files.size} local files`);
   // 770,000 (next 5,000 boundary): 747,457 at 3fd3db0b grew to 768,310 across utility-entry.mjs (7e50d127, decided
   // before repository discovery), execution-context-scope.mjs (f62c3107) and small additions to cli-entry and Git transport.
-  assert.ok(root.bytes <= 770_000, `root dispatch loads ${root.bytes} source bytes`);
+  // 775,000: 769,967 grew to 772,758 with the source-review batching (f79ec1fa, 5a25abe8, d18afdc6): git-fact-cache.mjs
+  // +1,810, util.mjs +713, utility-entry.mjs +268; no new file.
+  assert.ok(root.bytes <= 775_000, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   for (const entry of ['commands/session-entry.mjs', 'commands/choices-entry.mjs']) {

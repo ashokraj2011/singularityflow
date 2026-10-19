@@ -12,6 +12,22 @@ export function normalizeQualifiedClauseId(value) {
   return QUALIFIED_ID.test(text) ? text.toUpperCase() : null;
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
+/**
+ * Where prose names one clause: its exact ID, or (for a qualified ID) its bare label when no other
+ * namespace prefixes it. A bare ID also matches a namespaced mention of it. Case-insensitive.
+ */
+export function clauseMentionPattern(clauseId) {
+  const id = String(clauseId ?? '');
+  const colon = id.lastIndexOf(':');
+  const bare = escapeRegExp(colon >= 0 ? id.slice(colon + 1) : id);
+  const forms = colon >= 0 ? `${escapeRegExp(id)}|${bare}` : `(?:[A-Za-z0-9][A-Za-z0-9._-]*:)?${bare}`;
+  return new RegExp(`(?<![A-Za-z0-9_.:-])(?:${forms})(?![A-Za-z0-9_-]|\\.[A-Za-z0-9])`, 'giu');
+}
+
 /** Exact prose identities; never match a suffix of another namespace or a longer ID. */
 export function qualifiedClauseMatches(text) {
   const pattern = new RegExp(

@@ -13,7 +13,12 @@
  */
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { upstreamIssueStates } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
+
+// The pure state read lives with the routes, which every lifecycle command already loads, so the
+// conformance gate can ask it without loading this module's schemas [owner decision 2026-10-19].
+export { upstreamIssueStates };
 
 export const UPSTREAM_ISSUE_OUTCOMES = Object.freeze(['plan-correction', 'amend', 'return', 'accept-risk', 'dismiss']);
 export const UPSTREAM_ISSUE_PROPOSALS = Object.freeze(['plan-correction', 'amend', 'return', 'accept-risk', 'unknown']);
@@ -187,20 +192,6 @@ export function raiseUpstreamIssue(workflow, {
   }
   workflow.upstreamIssues.push(checked.data);
   return checked.data;
-}
-
-/** Each issue with its latest decision, whether it is still open at `now`, and what replaced it. */
-export function upstreamIssueStates(workflow, now = new Date().toISOString()) {
-  const decisions = workflow?.upstreamIssueDecisions ?? [];
-  const replacements = new Map();
-  for (const issue of workflow?.upstreamIssues ?? []) {
-    if (issue?.supersedes && !replacements.has(issue.supersedes)) replacements.set(issue.supersedes, issue.id);
-  }
-  return (workflow?.upstreamIssues ?? []).map((issue) => {
-    const decision = decisions.findLast((entry) => entry?.issue === issue.id) ?? null;
-    const expired = decision?.outcome === 'accept-risk' && decision.expiresAt && Date.parse(decision.expiresAt) <= Date.parse(now);
-    return { issue, decision, status: !decision ? 'open' : expired ? 'expired' : 'decided', supersededBy: replacements.get(issue.id) ?? null };
-  });
 }
 
 /** Issues completion still waits for: undecided, or an accepted risk that expired. */

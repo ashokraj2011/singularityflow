@@ -24,6 +24,12 @@ const CONFORMANCE_CONTRACT = [
   check('conformance-readiness.mjs', 'inspectConformanceReportContract', 'draft-check, publication, submission'),
   check('conformance-readiness.mjs', 'inspectQualifiedConformanceReport', 'draft-check, publication, submission')
 ];
+// A partial or missing verdict is never the report author's to fix: it is an advisory from the draft
+// check through submission, and approval and the gate accept it once a person decided it.
+const CONFORMANCE_GAPS = [
+  check('conformance-readiness.mjs', 'inspectConformanceVerdictAdvisories', 'draft-check, prepublish, publication and submission (advisory, required before approval)'),
+  check('upstream-routes.mjs', 'conformanceGapRefusal', 'conformance approval and the gate (refuses until a decided upstream issue names the clause)')
+];
 const QUALIFIED_ROWS = [check('conformance-readiness.mjs', 'inspectQualifiedConformanceReport', 'draft-check, publication, submission')];
 const CODE_COVERAGE = [
   check('spec-coverage-preview.mjs', 'assertStrictCandidateSpecificationCoverage', 'code publication (refuses when enforced, returns a warning when recorded)'),
@@ -63,7 +69,7 @@ export const GATE_PARITY = Object.freeze({
   'gate.code-delivery.receipt-missing': entry('engine', 'integrity'),
   'gate.code-delivery.replay': entry('engine', 'integrity'),
   'gate.configuration.snapshot-drift': entry('engine', 'integrity'),
-  'gate.conformance.blocking-verdict': entry('author', 'same-check', { checks: CONFORMANCE_CONTRACT }),
+  'gate.conformance.blocking-verdict': entry('approver', 'same-check', { checks: CONFORMANCE_GAPS }),
   'gate.conformance.clause-row-duplicate': entry('author', 'same-check', { checks: QUALIFIED_ROWS }),
   'gate.conformance.clause-row-invalid': entry('author', 'same-check', { checks: QUALIFIED_ROWS }),
   'gate.conformance.clause-row-unknown': entry('author', 'same-check', { checks: QUALIFIED_ROWS }),

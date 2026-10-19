@@ -11,9 +11,13 @@ of a passing receipt, and never call it a pass.
 ## Traceability comparison
 
 Compare every approved Intake clause against the implementation and executable-test evidence.
-Use only matched, partial, missing, deviated, or unplanned verdicts; unresolved verdicts cannot
-be approved. Use one exact qualified clause ID per row; cite planned source `@clause:` and
+Use only matched, partial, missing, deviated, or unplanned verdicts; a placeholder verdict cannot
+be approved, and a partial or missing one only after its upstream issue is decided. Use one exact qualified clause ID per row; cite planned source `@clause:` and
 executable-test `@ac:` witnesses when applicable. A tag alone is not a passing verdict.
+
+The clause table is the only place a verdict is stated. Under `## Upstream discrepancies`, describe each
+problem and its owner, never a verdict; the engine-written Verdict summary lists each gap with the
+upstream issue that covers it.
 
 | Clause ID | Requirement | Code evidence | Test evidence | Verdict | Deviation |
 |---|---|---|---|---|---|

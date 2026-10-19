@@ -10,7 +10,7 @@ import {
 } from './delivery-evidence.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import { commandGuidanceForCommands } from './safe-command-guidance.mjs';
-import { inspectPhaseQualifiedConformance } from './conformance-readiness.mjs';
+import { inspectPhaseConformance } from './conformance-readiness.mjs';
 import { convergenceReviewRoute } from './convergence-review-route.mjs';
 import {
   artifactFindingMessage, inspectPhaseArtifactQuality, phaseAuthoredReviewArtifacts
@@ -32,6 +32,9 @@ function correctionClass(producer) {
   if (producer === 'external-tool') return 'external-tool';
   return 'human-input';
 }
+
+// An honest partial or missing verdict is the delivering step's gap, never the author's correction.
+const UPSTREAM_GAP_GUIDANCE = 'Keep every partial or missing verdict as written; never upgrade one to clear a check. The step that delivered the clause owns the gap: raise an upstream issue against it if none exists for that clause, and its approvers decide it.';
 
 function correctionGuidance(kind, phase, { deterministicCode = false } = {}) {
   if (kind === 'agent-authoring' && deterministicCode) {
@@ -119,6 +122,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   let verifiedCodeIntent = false;
   let artifactQuality = { acceptedFindings: [], risks: null };
   let specificationAdvisories = [];
+  let conformanceAdvisories = [];
   const editableCode = workflow.currentPhase === phase.id && phase.status === 'in_progress'
     && phase.generationIntent?.status === 'open';
 
@@ -172,12 +176,22 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   // inspect through a failed integrity/lifecycle boundary, or inspect another phase's draft.
   const inspectOwnedDraft = () => findings.every(finding => phaseFindingPolicy(finding).repairableByProducer);
   if (inspectOwnedDraft() && artifact?.exists) {
-    const comparison = await inspectPhaseQualifiedConformance(root, config, workflow, phase);
-    findings.push(...comparison.map((finding) => ({
+    const comparison = await inspectPhaseConformance(root, config, workflow, phase);
+    findings.push(...comparison.findings.map((finding) => ({
       code: finding.code, category: 'traceability', path: finding.path,
       line: finding.line, value: finding.clauseId, message: finding.message,
       fingerprint: artifact.fingerprint
     })));
+    // A partial or missing verdict publishes; a person decides it before approval.
+    conformanceAdvisories = comparison.advisories;
+    // The engine writes the Verdict summary at prepare; an editable draft whose table or upstream
+    // issues moved on since is told to prepare again, never to edit the block by hand.
+    if (prospective && comparison.summary && !comparison.summary.current) conformanceAdvisories = [...conformanceAdvisories, Object.freeze({
+      code: 'conformance.verdict-summary-stale', category: 'traceability', blocking: false, requiredBefore: null,
+      path: comparison.advisories[0]?.path ?? artifact.path, line: null, value: null,
+      details: { refreshCommand: `singularity-flow prepare ${phase.id}`, present: comparison.summary.present },
+      message: `The engine-written Verdict summary does not match the clause table and its upstream issues. Run singularity-flow prepare ${phase.id} to refresh it; never edit it by hand.`
+    })];
   }
 
   // Surface the exact missing source/test witness while the code generation is still editable. The
@@ -294,7 +308,13 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       class: 'phase-recovery', command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`,
       skill: '/sf-recover', guidance: 'Preserve the published bytes. Restore the exact reviewed content or use an authorized return/successor generation; do not re-author this publication in place.'
     } : route ?? clarificationRoute;
-  const repairClass = nextRoute?.class ?? (deterministicCode ? 'agent-authoring' : correctionClass(producer));
+  // Upstream-defect findings and gap advisories are never the author's to correct: an author told to
+  // re-author them upgraded honest verdicts to publish. Owned findings beside them are still owned.
+  const upstreamGap = [...findings, ...conformanceAdvisories]
+    .some((entry) => phaseFindingPolicy(entry).classification === 'upstream-defect');
+  const upstreamOnly = upstreamGap && findings.every((entry) => phaseFindingPolicy(entry).classification === 'upstream-defect');
+  const repairClass = nextRoute?.class ?? (upstreamOnly ? 'upstream-issue'
+    : deterministicCode ? 'agent-authoring' : correctionClass(producer));
   const generationSkill = directCopilotSkill(generationSkillForPhase(phase, workflow));
   const awaitingApproval = phase.status === 'awaiting_approval';
   const clean = findings.length === 0;
@@ -329,7 +349,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       ...finding,
       message: finding.message ?? artifactFindingMessage(finding)
     }))),
-    advisories: Object.freeze([...advisories, ...coverageAdvisories, ...driftAdvisories, ...specificationAdvisories, ...witnessAdvisories]),
+    advisories: Object.freeze([...advisories, ...coverageAdvisories, ...driftAdvisories, ...specificationAdvisories, ...witnessAdvisories, ...conformanceAdvisories]),
     documentation,
     coverage,
     traceabilityRepair,
@@ -341,8 +361,9 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
         && traceabilityRepair?.status !== 'manual-review',
       requiresNewGeneration: (awaitingApproval || retained) && !clean,
       maximumChangedFingerprints: 3,
-      guidance: clean ? null : nextRoute?.guidance
-        ?? (traceabilityRepair?.sameTurn ? traceabilityRepair.guidance : correctionGuidance(repairClass, phase, { deterministicCode })),
+      guidance: clean ? null : nextRoute?.guidance ?? (upstreamOnly ? UPSTREAM_GAP_GUIDANCE
+        : [traceabilityRepair?.sameTurn ? traceabilityRepair.guidance : correctionGuidance(repairClass, phase, { deterministicCode }),
+          upstreamGap ? UPSTREAM_GAP_GUIDANCE : null].filter(Boolean).join(' ') || null),
       skill: nextRoute ? nextRoute.skill : (repairClass === 'agent-authoring' ? generationSkill : null)
     }),
     commands,

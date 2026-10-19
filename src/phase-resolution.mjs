@@ -7,7 +7,7 @@ import { renderPlatformCommand, safeCommandGuidance } from './safe-command-guida
 import { phaseFindingPolicy, phaseFindingCode, phaseFindingIdentity, isArtifactQualityFinding } from './phase-finding-policy.mjs';
 import { findingDocumentation } from './finding-catalog.mjs';
 import { DISPUTABLE_GATES } from './phase-finding-dispute-schema.mjs';
-import { upstreamChangeRoutes, upstreamRouteSummary } from './upstream-routes.mjs';
+import { CONFORMANCE_GAP_RULE, conformanceGapDecisions, upstreamChangeRoutes, upstreamRouteSummary } from './upstream-routes.mjs';
 import { latestStepBefore } from './phase-roles.mjs';
 
 const UPSTREAM_INPUT_CODES = new Set(['phase_inputs_not_ready', 'phase.inputs.not-ready',
@@ -94,6 +94,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     'Save private recovery copies of dirty files and the index. No commit, discard, publication or phase advance.', '/sf-appeal');
   let resolution;
   let upstreamReturn = null;
+  let gapRoutes = [];
   if (UPSTREAM_INPUT_CODES.has(code) || category === 'inputs') {
     // The bytes belong to the earlier phase that produced them. Name it, and offer only the routes
     // that can work from here: restore its approved bytes, or its return/amendment route.
@@ -112,14 +113,20 @@ export function phaseResolutionChoices(workflow, phase, finding) {
       legal.command.split(' ').slice(1), `${legal.label} The input comes from ${owner}; ${phase.id} must not edit it.`,
       legal.skill ?? '/sf-reject'), command: legal.command };
   } else if (code === 'conformance.verdict-incomplete') {
-    // The comparison is honest and the delivery is short: never edit the verdict to publish. The
-    // step that delivered the clause owns the gap; its approvers decide the issue (return or amend).
-    const delivering = latestStepBefore(workflow, phase.id, (candidate) => phaseRequiresCodeDelivery(candidate))?.id ?? '<EARLIER-STEP>';
-    resolution = route('upstream-issue', delivering,
-      ['upstream-issue', 'raise', '--phase', delivering, '--about', finding.details?.clauseId ?? finding.value ?? '<CLAUSE-ID>',
-        '--problem', '<what the delivered change is missing>', '--work-id', workId],
-      `Keep the honest verdict. Record what ${delivering} did not deliver as an upstream issue for its approvers, then stop: this report publishes only after that step returns and delivers the clause.`,
-      '/sf-decide');
+    // The comparison is honest and the delivery is short: never edit the verdict. It publishes; the
+    // step that delivered the clause owns the gap and its approvers decide it before approval.
+    const clauseId = finding.details?.clauseId ?? finding.value ?? finding.clauseId ?? '<CLAUSE-ID>';
+    const [gap] = conformanceGapDecisions(workflow, phase.id, [{ clauseId, verdict: finding.details?.verdict ?? 'partial', line: finding.line ?? null }]);
+    const owner = gap.owner ?? latestStepBefore(workflow, phase.id, (candidate) => phaseRequiresCodeDelivery(candidate))?.id ?? '<EARLIER-STEP>';
+    if (gap.status === 'decided') {
+      resolution = route('upstream-issue-decided', owner, ['upstream-issue', 'list', '--work-id', workId, '--json'],
+        `Keep the honest verdict. ${gap.issue} (${gap.outcome}) decides ${clauseId}, so this step can be approved as written.`, '/sf-decide');
+    } else {
+      const [primary, ...others] = gap.choices.filter((choice) => choice.argv);
+      resolution = route(primary.kind === 'raise-upstream-issue' ? 'upstream-issue' : primary.kind, owner, primary.argv,
+        `Keep the honest verdict; it publishes. ${owner} owns the gap: ${primary.detail} ${CONFORMANCE_GAP_RULE}`, primary.skill);
+      gapRoutes = others.map((choice) => route(choice.kind, choice.owner, choice.argv, choice.detail, choice.skill));
+    }
   } else if (code === 'plan_evidence_correction_review_required') {
     resolution = route('human-review', 'plan-approval-authority',
       ['appeal', 'evidence-prepare', '--phase', phase.id, '--path', finding.path ?? '<EVIDENCE-PATH>',
@@ -243,7 +250,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
       '--evidence-file', '<PATH>', '--expires', '<YYYY-MM-DD>', '--reason', '<why>', '--json'],
     'When every listed item is delivered and the finding still returns unchanged, the check is misreading the work: stop repairing and prepare a dispute with the evidence (test output, the test file). One of the step\'s approvers reviews it live and may accept it as an exception for this exact candidate; it is recorded as an exception, never a pass, and tests still run.',
     '/sf-appeal') : null;
-  const choices = [resolution, ...(dispute ? [dispute] : []), ...(upstreamReturn ? [upstreamReturn] : []), recovery];
+  const choices = [resolution, ...gapRoutes, ...(dispute ? [dispute] : []), ...(upstreamReturn ? [upstreamReturn] : []), recovery];
   if (isArtifactQualityFinding(finding)) choices.splice(1, 0, route('pilot-risk-review', 'phase-approval-authority',
     ['appeal', 'risk-prepare', '--work-id', workId, '--phase', phase.id, '--finding', phaseFindingCode(finding),
       '--gate-mode', 'soft', '--expires', '<YYYY-MM-DD>', '--reason', '<why>', '--json'],
@@ -259,7 +266,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     // What the finding means, its usual causes, the fix, and who else can act.
     documentation: findingDocumentation(finding),
     status: resolution.kind.endsWith('owner') || resolution.kind === 'owner-escalation'
-      ? 'needs-owner' : resolution.kind.includes('risk') || resolution.kind.includes('appeal') || ['human-review', 'worktree-review', 'plan-amendment'].includes(resolution.kind) ? 'needs-human' : 'needs-correction',
+      ? 'needs-owner' : resolution.kind.includes('risk') || resolution.kind.includes('appeal') || ['human-review', 'worktree-review', 'plan-amendment', 'decide-upstream-issue'].includes(resolution.kind) ? 'needs-human' : 'needs-correction',
     choices, preserved: ['working-tree bytes', 'Git index', 'published evidence', 'approval history'] };
 }
 
@@ -279,17 +286,32 @@ export function routeRefusedForStory(workflow, choice) {
   return !(pin?.enabled === true && pin.riskAuthorities?.length > 0 && resolution.approvalAuthorities);
 }
 
+// Advisories a person must settle before approval, with what each one says, and how many of its
+// routes to show: an honest partial or missing verdict offers its decision and every repair route.
+const REQUIRED_BEFORE_APPROVE = new Map([
+  ['spec.coverage.unclaimed-path', { routes: 1,
+    detail: 'This is not a publication blocker. Account for the exact changed path before approval; publication and tests do not grant scope approval.' }],
+  ['conformance.verdict-incomplete', { routes: 4,
+    detail: 'This is not a publication blocker. Keep the honest verdict: the step that delivered the clause owns the gap. Raise an upstream issue against it if none exists for that clause; its approvers decide it before this step is approved. Never upgrade the verdict to clear a check.' }]
+]);
+const INFORMATION_DETAILS = new Map([
+  ['conformance.verdict-contradicted', 'The table says matched, the discrepancy text says partial or missing: use the honest verdict in the table. Information for the author and the reviewer, not a publication blocker.'],
+  ['conformance.verdict-summary-stale', 'The engine-written Verdict summary is older than the clause table or its upstream issues. Prepare the step again to refresh it; the table alone states verdicts. Not a publication blocker.']
+]);
+
 /** Advice belongs to a separate lane. It cannot reserve repairs or manufacture a human hold. */
 function advisoryProjection(workflow, phase, advisory) {
-  const requiredBefore = advisory.code === 'spec.coverage.unclaimed-path' ? 'approve' : null;
+  // A decided gap is settled: still shown, no longer required before approval.
+  const required = advisory.code === 'conformance.verdict-incomplete' && advisory.details?.status === 'decided'
+    ? null : REQUIRED_BEFORE_APPROVE.get(advisory.code) ?? null;
+  const requiredBefore = required ? 'approve' : null;
   return {
     code: advisory.code, path: advisory.path ?? null, message: advisory.message ?? advisory.code,
     status: 'advisory', blocking: false, requiredBefore,
-    detail: requiredBefore
-      ? 'This is not a publication blocker. Account for the exact changed path before approval; publication and tests do not grant scope approval.'
-      : 'Optional improvement, not a publication blocker or a required human decision. Repair only owned editable work; never change approved evidence.',
+    detail: required?.detail ?? INFORMATION_DETAILS.get(advisory.code)
+      ?? 'Optional improvement, not a publication blocker or a required human decision. Repair only owned editable work; never change approved evidence.',
     choices: requiredBefore
-      ? phaseResolutionChoices(workflow, phase, advisory).choices.slice(0, 1)
+      ? phaseResolutionChoices(workflow, phase, advisory).choices.slice(0, required.routes)
         .map(choice => ({ ...choice, blocking: false, requiredBefore }))
       : []
   };

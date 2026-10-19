@@ -34,6 +34,8 @@ import {
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { verifyAstLifecycleReceipt } from './ast-lifecycle.mjs';
 import { inspectConformanceReportContract, inspectQualifiedConformanceReport, traceableConformanceIds } from './conformance-readiness.mjs';
+import { conformanceVerdictGaps } from './conformance-verdicts.mjs';
+import { conformanceGapLine, conformanceGapRefusal } from './upstream-routes.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
@@ -284,9 +286,9 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   // Every error is also a coded finding naming the step and path it belongs to; recovery reads the
   // code and the step, never the wording [E2G-024].
   const coded = [];
-  const refuse = (code, message, { phase = null, path: file = null, publication = null } = {}) => {
+  const refuse = (code, message, { phase = null, path: file = null, publication = null, details = null } = {}) => {
     errors.push(message);
-    coded.push({ code, message, phase, path: file, ...(publication ? { publication } : {}) });
+    coded.push({ code, message, phase, path: file, ...(publication ? { publication } : {}), ...(details ? { details } : {}) });
   };
   // Read once, only when a publication check needs it: the branch the Story's work lands on.
   let landingBase;
@@ -816,6 +818,21 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       }
     }
     for (const entry of contract.filter((item) => item.code !== 'gate.conformance.missing-row')) refuse(entry.code, entry.message, { phase: phase.id });
+    // A partial or missing verdict stands as written. The ending, and any gate after the step's
+    // approval, accept it only when a person decided it: the same function approval asks, dated as
+    // the ending is. Before approval it is the step's own open question, so it only warns.
+    const gaps = conformanceGapRefusal(workflow, phase.id, conformanceVerdictGaps(report), { now: terminalTransitionAt(workflow) });
+    for (const gap of gaps?.gaps ?? []) {
+      const message = `conformance ${conformanceGapLine(gap)}`;
+      if (terminal || phase.status === 'approved') {
+        const recoveryCommands = gap.choices.filter((choice) => choice.command)
+          .map((choice) => ({ command: choice.command, skill: choice.skill, label: choice.detail }));
+        refuse('gate.conformance.blocking-verdict', message, { phase: phase.id, details: {
+          clauseId: gap.clauseId, verdict: gap.verdict, owner: gap.owner, status: gap.status, issue: gap.issue,
+          route: gaps.details.route, rule: gaps.details.rule, choices: gap.choices, nextAction: recoveryCommands[0] ?? null, recoveryCommands
+        } });
+      } else warnings.push(message);
+    }
     if (phase.conformanceTree !== await sourceTreeHash(root, config, workflow)) refuse('gate.conformance.stale', 'conformance report is stale: source/test tree changed after comparison', { phase: phase.id });
     else passes.push(`conformance freshness: ${expected.size} traced identifiers`);
   }

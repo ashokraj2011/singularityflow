@@ -162,17 +162,26 @@ export function withoutPreviewApproval(gate, phaseId) {
 export async function evaluateTerminalReadiness(root, definition, workflow, { stage = 'approval' } = {}) {
   const { projected, phaseId, openStory } = projectFinalApproval(workflow);
   const result = await evaluateTerminalTransition(root, definition, projected, { openStory });
-  const { gate, omitted } = withoutPreviewApproval(result.gate, phaseId);
+  const { gate: previewGate, omitted } = withoutPreviewApproval(result.gate, phaseId);
+  // A partial or missing verdict submits as written: a person decides it while the step is reviewed,
+  // and approval and the ending refuse it until then [owner decision 2026-10-19].
+  const gapFindings = stage === 'submission'
+    ? (previewGate.findings ?? []).filter((finding) => finding.code === 'gate.conformance.blocking-verdict') : [];
+  const gapMessages = new Set(gapFindings.map((finding) => finding.details?.message).filter(Boolean));
+  const gate = gapFindings.length ? { ...previewGate,
+    findings: previewGate.findings.filter((finding) => !gapFindings.includes(finding)),
+    errors: previewGate.errors.filter((message) => !gapMessages.has(message)) } : previewGate;
   // A visual witness is intentionally recorded only after submission has pinned the exact
   // candidate. Likewise, the final human approval itself supplies pending review obligations.
-  // At the submission boundary defer only those two human-after-submission findings; every scope,
-  // implementation, test, conformance and integrity finding remains blocking. The approval/status
+  // At the submission boundary defer only those two human-after-submission findings (and the
+  // conformance gap decisions above); every scope, implementation, test, conformance-row and
+  // integrity finding remains blocking. The approval/status
   // projection uses the default stage and exposes the exact witness route.
   const deferred = stage === 'submission'
     ? (result.evaluation.findings ?? []).filter((finding) =>
       ['EVIDENCE_VISUAL_MISSING', 'EVIDENCE_REVIEW_PENDING'].includes(finding.code))
     : [];
-  const deferredMessages = new Set(deferred.map((finding) => finding.message));
+  const deferredMessages = new Set([...deferred.map((finding) => finding.message), ...gapMessages]);
   const deferredObligations = new Set(deferred.flatMap((finding) => finding.obligationIds ?? []));
   // Upstream issues are decided by earlier steps' owners while the last step is reviewed; only the
   // ending itself waits for them, so the submission preview defers them too.

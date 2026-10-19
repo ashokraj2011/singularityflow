@@ -12,6 +12,14 @@
     "scripts/gal-matrix-cell.mjs"
   ],
   "sites": {
+    "scripts/source-review-benchmark.mjs": {
+      "counts": { "command-git": 5, "process-import": 1, "process-launch": 2 },
+      "digest": "0a86f4282e444ec2f42c7466fb793f3a2dfdfef3711f1a260766ae98e0f8dee0"
+    },
+    "src/source-review-snapshot.mjs": {
+      "counts": { "command-run": 4 },
+      "digest": "c02c5e3fa855122f6e1f5257f696f5372c4c4257bc73c5f6594eade9b0b9d7b2"
+    },
     "src/workspace-retention.mjs": {
       "counts": { "command-git": 7, "command-run": 5 },
       "digest": "effe11585e329d5029a14663b37bcf7343505ef6b8cff9e3db67e2ace86678f6"
@@ -1385,9 +1393,9 @@
     },
     "src/source-review-lifecycle.mjs": {
       "counts": {
-        "command-run": 8
+        "command-run": 2
       },
-      "digest": "0728c0233034cf5039e3791ee937c70b18a557aef2fde9f0e35c45b5c9879401"
+      "digest": "27e0183beb5b9ea823c1234090fc45609b5743dfcc3870e5bf44256e902489e6"
     },
     "src/specifications.mjs": {
       "counts": {

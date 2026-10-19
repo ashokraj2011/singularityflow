@@ -133,3 +133,17 @@ lazy fetch and replacement objects disabled and explicit time/output/record boun
 ask for blob sizes during tree enumeration. Missing blobs are fetched separately by the existing
 deadline-aware ledger transport, only by tree-proven object ID; hash verification and byte bounds
 still apply. It never scans application branches or history, changes a checkout, or initializes state.
+
+Source review moves six per-file Git sites into `src/source-review-snapshot.mjs`: two exact HEAD
+reads (entry and final retention recheck) and two buffer-preserving individual fallbacks. Named
+inputs use the existing hash-verified object batch reader. Immutable UTF-8 provenance facts use
+the existing private Git cache with its configuration, shallow/graft/replacement and object-store
+invalidation. The two path-scoped introduction-history proofs remain in the lifecycle reader.
+The final retention and human-decision checks bypass every Git fact and shared review packet.
+These sites remain frozen baseline entries, not new registered process owners.
+
+`scripts/source-review-benchmark.mjs` has a reviewed process import, two process launch sites and
+five Git fixture calls. It creates disposable published Stories, runs the real context/stage/check/
+retain/status CLI, measures child counts and elapsed time, and cleans only its own temporary
+repositories. It never contacts a model or remote, publishes to an application repository, or
+records an approval. It is qualification tooling, not an installed command.

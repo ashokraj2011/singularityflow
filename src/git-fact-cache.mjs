@@ -138,7 +138,7 @@ const CONFIG_READS = new Set(['--get', '--get-all', '--get-regexp', '-l', '--lis
 const REF_FORMAT_FLAGS = new Set(['--branch', '--allow-onelevel', '--no-allow-onelevel', '--refspec-pattern']);
 const FANOUT = Array.from({ length: 256 }, (_, index) => index.toString(16).padStart(2, '0'));
 // `<object ID>:<path>` from the tree's root; `./` and `../` would make it depend on the directory.
-const OBJECT_PATH = /^[0-9a-f]{40}(?:[0-9a-f]{24})?:(?!\.{1,2}\/)(?:.+)$/u;
+const OBJECT_PATH = /^[0-9a-f]{40}(?:[0-9a-f]{24})?\^?:(?!\.{1,2}\/)(?:.+)$/u;
 const PEELED = /^[0-9a-f]{40}(?:[0-9a-f]{24})?\^\{(?:tree|commit|blob)\}$/u;
 const LS_TREE_FLAGS = new Set(['-r', '-z', '-d', '-t', '-l', '--long', '--name-only', '--name-status', '--object-only', '--full-tree', '--full-name']);
 const LS_TREE_FORMAT = /^--format=(?:%\((?:objectmode|objecttype|objectname|objectsize(?::padded)?|path)\)|%x[0-9a-fA-F]{2}|[^%])*$/u;

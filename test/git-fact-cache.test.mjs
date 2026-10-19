@@ -55,6 +55,9 @@ test('only repository location, HEAD, the index, history and single object reads
     [['check-ref-format', '--normalize', 'refs/heads/x'], null],
     // A single object read by its full ID is tied to the object store, so it still proves presence.
     [['show', `${sha}:singularity/workflow.yml`], 'object'],
+    [['show', `${sha}^:singularity/workflow.yml`], 'object'],
+    [['show', `${sha}^^:singularity/workflow.yml`], null],
+    [['show', `${sha}^:../a.txt`], null],
     [['ls-tree', '-r', '-z', sha, '--', 'docs'], 'object'],
     [['ls-tree', '-rz', '--format=%(objectmode)%x09%(objecttype)%x09%(objectname)%x09%(path)', sha, '--'], 'object'],
     [['rev-parse', '--verify', `${sha}^{tree}`], 'object'],

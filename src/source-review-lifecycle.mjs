@@ -20,6 +20,8 @@ import { effectiveDocumentMimeType, extractSourceText, isTextualSource } from '.
 import { evaluateSourceGroundedReview, sourceReviewBinding } from './source-grounded-review.mjs';
 import { sourceReviewReportSchema, sourceReviewReportTemplate, validateSourceReviewReport, sourceReviewCitationGuide, sourceReviewRepairGuide } from './source-review-contract.mjs';
 import { ensureSecureRepositoryDirectory, exists, nowIso, posix, run, secureRepositoryPath, SingularityFlowError, writeJson } from './util.mjs';
+import { committedSourceReviewFile, prefetchSourceReviewFiles, sharedSourceReviewInput,
+  sharedSourceReviewProvenance, sourceReviewProvenanceObjects, withSourceReviewSnapshot } from './source-review-snapshot.mjs';
 
 const REVIEW_AGENT = 'sflow-source-reviewer';
 const MAX_SOURCE_BYTES = 25 * 1024 * 1024;
@@ -65,9 +67,7 @@ async function checkedFile(root, relative, label, expectedSha256 = null, { maxBy
     });
   }
   let bytes = await readFile(secured.absolute);
-  const committed = run('git', ['show', `HEAD:${relative}`], {
-    cwd: root, allowFailure: true, encoding: 'buffer'
-  });
+  const committed = committedSourceReviewFile(root, relative);
   // A checkout that rewrote line endings (core.autocrlf) differs from Git only in CR bytes; the
   // committed bytes are the ones the catalog pinned, so review those.
   if (committed.status === 0 && Buffer.isBuffer(committed.stdout) && !committed.stdout.equals(bytes)
@@ -115,9 +115,7 @@ function creationStoryText(root, base, relative) {
     'The accepted Story creation commit is unavailable; source review cannot verify USER-STORY.md.',
     { code: 'SOURCE_REVIEW_SOURCE_UNPINNED' }
   );
-  const captured = run('git', ['show', `${creationCommit}:${relative}`], {
-    cwd: root, allowFailure: true, encoding: 'buffer'
-  });
+  const captured = sourceReviewProvenanceObjects(root, [`${creationCommit}:${relative}`]).get(`${creationCommit}:${relative}`);
   if (captured.status !== 0 || !Buffer.isBuffer(captured.stdout)) throw new SingularityFlowError(
     'USER-STORY.md was not retained by the accepted Story creation commit.',
     { code: 'SOURCE_REVIEW_SOURCE_UNPINNED' }
@@ -157,6 +155,10 @@ async function storySources(root, config, workflow, phaseId) {
   if (catalog.workId !== workflow.workItem.id || !Array.isArray(catalog.documents)) throw new SingularityFlowError('Story document catalog is malformed.', {
     code: 'SOURCE_REVIEW_INPUT_UNAVAILABLE'
   });
+  await prefetchSourceReviewFiles(root, catalog.documents.filter(entry => entry?.status !== 'detached'
+    && documentOfferedToPhase(entry, phaseId) && !isLocalDocument(entry) && entry.type === 'file'
+    && typeof entry.path === 'string' && posix(entry.path).startsWith(`${base}/inputs/`))
+    .map(entry => posix(entry.path)));
   for (const document of catalog.documents.filter((entry) => entry?.status !== 'detached' && documentOfferedToPhase(entry, phaseId))) {
     const name = document.name ?? document.id;
     // A review is re-checked on other machines, which do not have a machine-local document's bytes.
@@ -292,6 +294,13 @@ async function publishedClarification(root, config, workflow, phase, artifact, r
 
 /** Exact source bytes and artifact bytes for an independent reviewer. This never writes. */
 export async function sourceReviewInput(root, config, workflow, phaseId) {
+  return sharedSourceReviewInput(root, recordSha256({ workflow, phaseId,
+    workItemRoot: config.workItemRoot ?? null,
+    reviewer: config.agents?.[workflow.resolution?.sourceReview?.reviewerAgent ?? REVIEW_AGENT] ?? null
+  }), () => loadSourceReviewInput(root, config, workflow, phaseId));
+}
+
+async function loadSourceReviewInput(root, config, workflow, phaseId) {
   const phase = checkPublishedGeneration(workflow, phaseId);
   // Author-collision inspection still explains the honest re-author route. Retention and
   // scoped reviewer validation forbid using this diagnostic packet as independent evidence.
@@ -307,8 +316,6 @@ export async function sourceReviewInput(root, config, workflow, phaseId) {
       { code: 'SOURCE_REVIEW_AGENT_NOT_PINNED' }
     );
   }
-  const { sources, unreadable } = await storySources(root, config, workflow, phaseId);
-  const artifact = await phaseArtifact(root, config, workflow, phaseId);
   // A plan is reviewed against the approved scope it plans: the step before it that defines it.
   const kind = sourceReviewKind(workflow, phaseId);
   const approved = kind === 'planning'
@@ -316,6 +323,15 @@ export async function sourceReviewInput(root, config, workflow, phaseId) {
   if (kind === 'planning' && approved?.status !== 'approved') throw new SingularityFlowError(
     'Planning review requires an approved specification.', { code: 'SOURCE_REVIEW_SPEC_NOT_APPROVED' }
   );
+  const base = itemRelative(config, workflow.workItem.id);
+  await prefetchSourceReviewFiles(root, [`${base}/source.json`, `${base}/USER-STORY.md`, `${base}/documents.json`,
+    `${base}/workflow.json`, posix(path.relative(root, pointerPath(root, config, workflow, phaseId))),
+    ...[phase, approved].filter(Boolean).flatMap(step => [
+      step.requiredArtifact?.path ? posix(path.join(base, step.requiredArtifact.path)) : null,
+      ...(step.clarifications ?? []).filter(entry => entry.generation === step.generation).map(entry => entry.path)
+    ])]);
+  const { sources, unreadable } = await storySources(root, config, workflow, phaseId);
+  const artifact = await phaseArtifact(root, config, workflow, phaseId);
   const upstreamSpec = approved ? await phaseArtifact(root, config, workflow, approved.id) : null;
   const clarifications = [
     await publishedClarification(root, config, workflow, phase, artifact, 'current-phase'),
@@ -368,9 +384,7 @@ async function readCommittedJson(root, file, label) {
   const relative = posix(path.relative(root, file));
   const secured = await secureRepositoryPath(root, relative, { label, mustExist: true, type: 'file' });
   const bytes = await readFile(secured.absolute);
-  const committed = run('git', ['show', `HEAD:${relative}`], {
-    cwd: root, allowFailure: true, encoding: 'buffer'
-  });
+  const committed = committedSourceReviewFile(root, relative);
   if (committed.status !== 0 || !Buffer.isBuffer(committed.stdout)
       || !committed.stdout.equals(bytes)) {
     throw new SingularityFlowError(`${label} is not retained unchanged in the current Story commit.`, {
@@ -404,22 +418,20 @@ async function assertRetainedLifecycleEvent(root, config, workflow, record, kind
   // A copied sidecar cannot claim an old event. Its exact bytes and projection must have been
   // introduced together in one commit; the event must be absent from that commit's parent.
   const relative = posix(path.relative(root, sidecarFile));
+  const currentBytes = await readFile(sidecarFile);
+  return sharedSourceReviewProvenance(root, recordSha256({ relative, bytes: sha256(currentBytes), event }), async () => {
   const introduced = run('git', ['log', '--format=%H', '--diff-filter=A', '--', relative], {
     cwd: root, allowFailure: true
   });
   const commits = introduced.status === 0 ? introduced.stdout.trim().split(/\r?\n/u).filter(Boolean) : [];
   const first = commits.length === 1 && /^[a-f0-9]{40,64}$/u.test(commits[0]) ? commits[0] : null;
-  const sidecarAtFirst = first ? run('git', ['show', `${first}:${relative}`], {
-    cwd: root, allowFailure: true, encoding: 'buffer'
-  }) : null;
-  const currentBytes = await readFile(sidecarFile);
   const workflowRelative = posix(path.relative(root, workflowFile));
-  const workflowAtFirst = first ? run('git', ['show', `${first}:${workflowRelative}`], {
-    cwd: root, allowFailure: true
-  }) : null;
-  const workflowBefore = first ? run('git', ['show', `${first}^:${workflowRelative}`], {
-    cwd: root, allowFailure: true
-  }) : null;
+  const objects = first ? sourceReviewProvenanceObjects(root, [
+    `${first}:${relative}`, `${first}:${workflowRelative}`, `${first}^:${workflowRelative}`
+  ]) : new Map();
+  const sidecarAtFirst = objects.get(`${first}:${relative}`);
+  const workflowAtFirst = objects.get(`${first}:${workflowRelative}`);
+  const workflowBefore = objects.get(`${first}^:${workflowRelative}`);
   let introducedProjection = null;
   let parentHasEvent = true;
   if (workflowAtFirst?.status === 0 && workflowBefore?.status === 0) {
@@ -438,6 +450,7 @@ async function assertRetainedLifecycleEvent(root, config, workflow, record, kind
       code: 'SOURCE_REVIEW_EVENT_MISSING'
     });
   }
+  });
 }
 
 async function readCurrentRecord(root, config, workflow, phaseId) {
@@ -574,6 +587,10 @@ async function carriedUnreadableDecisions(root, config, workflow, phaseId, input
 
 /** Read current review and decisions, then recompute all source and artifact bindings. */
 export async function readSourceReviewStatus(root, config, workflow, phaseId) {
+  return withSourceReviewSnapshot(root, () => loadSourceReviewStatus(root, config, workflow, phaseId));
+}
+
+async function loadSourceReviewStatus(root, config, workflow, phaseId) {
   // Status is a question: a skipped or not-yet-published step is answered, never refused.
   const step = workflow.phases?.[phaseId];
   if (step?.status === 'skipped') {
@@ -637,6 +654,10 @@ async function evaluateRetainedSourceReview(root, config, workflow, phaseId, inp
 
 /** Build the JSON payload a reviewer authors, with no lifecycle or filesystem mutation. */
 export async function sourceReviewContext(root, config, workflow, phaseId, stagingPath) {
+  return withSourceReviewSnapshot(root, () => loadSourceReviewContext(root, config, workflow, phaseId, stagingPath));
+}
+
+async function loadSourceReviewContext(root, config, workflow, phaseId, stagingPath) {
   const phase = checkPublishedGeneration(workflow, phaseId);
   if (workflow.currentPhase === phaseId && phase.status === 'in_progress'
       && phaseNeedsGeneration(workflow, phase) && !sourceReviewAuthorConflict(workflow, phase)) {

@@ -20,6 +20,7 @@ import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { requireApprovalAuthority } from '../approval-authority.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
+import { withFreshSourceReviewSnapshot } from '../source-review-snapshot.mjs';
 
 export async function run(argv, { positionals, options }) {
   return withCommandObservability(positionals[0], argv, options,
@@ -163,7 +164,7 @@ export async function reviewSourceCommand(positionals, options) {
       payload: { kind: 'source-grounded-review', reportSha256: evaluation.reportSha256 }
     }, `[${workflow.workItem.id}][phase:${phaseId}][source-review] ${evaluation.reportSha256.slice(0, 12)}`,
     async (aggregate, publicationEvent) => {
-      const current = await sourceReviewInput(root, config, aggregate, phaseId);
+      const current = await withFreshSourceReviewSnapshot(root, () => sourceReviewInput(root, config, aggregate, phaseId));
       if (JSON.stringify(current.binding) !== JSON.stringify(input.binding)) throw new SingularityFlowError(
         'Review sources or artifact changed during submission.', { code: 'SOURCE_REVIEW_BINDING_STALE' }
       );
@@ -215,7 +216,7 @@ export async function reviewSourceCommand(positionals, options) {
       reportSha256: status.reportSha256, findingId: id }
   }, `[${workflow.workItem.id}][phase:${phaseId}][source-review-decision] ${id}`,
   async (aggregate, publicationEvent) => {
-    const current = await readSourceReviewStatus(root, config, aggregate, phaseId);
+    const current = await withFreshSourceReviewSnapshot(root, () => readSourceReviewStatus(root, config, aggregate, phaseId));
     if (current.reportSha256 !== status.reportSha256 || current.status === 'stale') throw new SingularityFlowError(
       'Source review changed before the human decision was recorded.', {
         code: 'SOURCE_REVIEW_BINDING_STALE'

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile, symlink, stat, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -16,6 +16,8 @@ import {
   retainSourceReviewDecision, scopedSourceReviewerSession, sourceReviewContext, sourceReviewInput
 } from '../src/source-review-lifecycle.mjs';
 import { stageSourceReviewReport } from '../src/source-review-staging.mjs';
+import { withSourceReviewSnapshot, withFreshSourceReviewSnapshot } from '../src/source-review-snapshot.mjs';
+import { withCommandTiming } from '../src/dx-timing-context.mjs';
 
 const ID = 'EXAMPLE';
 const ITEM = `singularity/work-items/${ID}`;
@@ -46,6 +48,54 @@ async function put(root, relative, data) {
 }
 
 const PDF = '%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\n%%EOF\n';
+
+function counts() {
+  const counters = {};
+  return { counters, timer: { increment: (name, amount) => { counters[name] = (counters[name] ?? 0) + amount; },
+    measure: (_name, read) => read() } };
+}
+
+test('review snapshots batch named attachments and share context/input work only inside one operation', async t => {
+  const extraDocuments = Array.from({ length: 24 }, (_, n) => ({ id: `DOC-EXTRA-${n}`,
+    path: `${ITEM}/inputs/note-${n}.md`, text: 'Drafts must persist.\n' }));
+  const { root, config, workflow } = await fixture(t, { extraDocuments });
+  const { counters, timer } = counts();
+  await withCommandTiming(timer, () => withSourceReviewSnapshot(root, async () => {
+    const context = await sourceReviewContext(root, config, workflow, 'specification');
+    const input = await sourceReviewInput(root, config, workflow, 'specification');
+    assert.deepEqual(input.binding, context.binding);
+    assert.equal(input.sources.length, 26);
+  }));
+  assert.equal(counters['source-review.input-loads'], 1);
+  assert.equal(counters['source-review.snapshot-hits'], 1);
+  assert.ok(counters['git.spawns'] < 12, JSON.stringify(counters));
+});
+
+test('fresh retention boundary ignores a shared packet, rehashes live bytes and checks reviewer pin', async t => {
+  const { root, config, workflow } = await fixture(t);
+  const file = path.join(root, ITEM, 'inputs/notes.md');
+  const before = await stat(file);
+  await withSourceReviewSnapshot(root, async () => {
+    await sourceReviewInput(root, config, workflow, 'specification');
+    const changedConfig = structuredClone(config);
+    changedConfig.agents['sflow-source-reviewer'].sha256 = 'b'.repeat(64);
+    await assert.rejects(sourceReviewInput(root, changedConfig, workflow, 'specification'), { code: 'SOURCE_REVIEW_AGENT_NOT_PINNED' });
+    await writeFile(file, NOTES.replace('persist', 'persist'.toUpperCase()));
+    await utimes(file, before.atime, before.mtime);
+    await assert.rejects(withFreshSourceReviewSnapshot(root,
+      () => sourceReviewInput(root, config, workflow, 'specification')), { code: 'SOURCE_REVIEW_SOURCE_CHANGED' });
+  });
+  await assert.rejects(sourceReviewInput(root, config, workflow, 'specification'), { code: 'SOURCE_REVIEW_SOURCE_CHANGED' });
+});
+
+test('fresh retention boundary refuses HEAD movement even when all reviewed files are unchanged', async t => {
+  const { root, config, workflow } = await fixture(t);
+  await assert.rejects(withFreshSourceReviewSnapshot(root, async () => {
+    const input = await sourceReviewInput(root, config, workflow, 'specification');
+    git(root, 'commit', '--allow-empty', '-qm', 'External HEAD movement');
+    return input;
+  }), { code: 'SOURCE_REVIEW_BINDING_STALE' });
+});
 
 async function fixture(t, { document = 'file', notes = NOTES, spec = SPEC, extraDocuments = [] } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-source-review-'));

@@ -10422,8 +10422,10 @@ function withTaskHost(api, registered) {
 /**
  * A workspace whose lead repository is `mobile`, selected with no folder open, so this window knows
  * its repository ID; the lead's map adds `checkout-app`, a delivery capability shipping from it.
+ * `application` declares its application block in the map, which is what makes the run widget,
+ * the Run view and the Testing view appear; `prepare` extends the stub before activation.
  */
-async function activatedWithRunAndTest(t) {
+async function activatedWithRunAndTest(t, { application = false, prepare = null } = {}) {
   const source = await demoRepository();
   const base = path.dirname(source);
   t.after(() => removeFixture(base));
@@ -10450,12 +10452,13 @@ async function activatedWithRunAndTest(t) {
     kind: delivery
     parent: product
     repositories: [mobile]
-`);
+${application ? RUN_APPLICATION_YAML : ''}`);
   const cli = await runAndTestCli(base);
   await cli.write('plan.json', runPlan());
   await cli.write('status.json', runStatus({ started: false, ready: false }));
   const { api, registered } = stubVscode();
   withTaskHost(api, registered);
+  prepare?.(api, registered);
   api.workspace.workspaceFolders = null;
   api.workspace.getConfiguration = () => ({ get: (key) => key === 'cliPath' ? cli.wrapper : '', update: async () => {} });
   const windowState = new Map();
@@ -10858,7 +10861,7 @@ test('Start (debug) runs app start --debug as a task, attaches on 127.0.0.1 at t
   assert.equal(task.execution.kind, 'process');
   assert.deepEqual(task.execution.args, [cli.wrapper, 'app', 'start', 'web', '--capability', 'checkout-app', '--environment', 'dev', '--debug', '--expect-command', RUN_SHA]);
   assert.deepEqual(task.definition, { type: 'singularityFlow', action: 'app-start', capability: 'checkout-app', entry: 'web', environment: 'dev', debug: true });
-  assert.equal(task.name, 'Start web (debug) · checkout-app');
+  assert.equal(task.name, 'Start web · dev (debug) · checkout-app', 'its own terminal, named by configuration and environment');
   assert.deepEqual(windowState.get('singularityFlow.runAndTest.confirmedCommands'), [`${RUN_SHA}:debug`], 'the debug start is confirmed apart from the plain start');
 
   // Started but not listening yet: nothing is attached.
@@ -11055,4 +11058,330 @@ test('Suggest from run configurations saves with capability set when the map has
   const html = await until(() => page.webview.html.includes('Saved to singularity/capabilities.yml in this checkout') && page.webview.html.includes('data-sg-index="1"') ? page.webview.html : null);
   assert.doesNotMatch(html, /Reading the run configurations/);
   assert.equal(registered.panels.some((entry) => entry.id === 'singularityFlow.capabilityProposal'), false, 'nothing was proposed');
+});
+
+/**
+ * IntelliJ-style run configurations (docs/SPEC-RUN-AND-TEST-v1.md, IntelliJ amendment, milestone 13):
+ * the status bar run widget, the Run view and the Testing view, driven through the bundle against
+ * the same CLI wrapper. Each acts through the Run & test controller, so the argv a task runs, its
+ * confirmation and its trust check are asserted exactly as the capability page's are.
+ */
+const RUN_APPLICATION_YAML = `    application:
+      start:
+        - { id: web, argv: [npm, run, dev], workingDirectory: apps/web, url: "http://127.0.0.1:5173/", ready: { http: /, timeoutMs: 1000 }, environments: [dev, qa] }
+`;
+
+/** Status bar items keep their arguments, and hiding one is visible; a Testing API that records. */
+function withRunWidgetHost(api, registered) {
+  const create = api.window.createStatusBarItem;
+  registered.runItems = () => registered.statusBars.filter((item) => String(item.args?.[0] ?? '').startsWith('singularityFlow.run.'));
+  registered.runItem = (id) => registered.statusBars.find((item) => item.args?.[0] === `singularityFlow.run.${id}`);
+  api.window.createStatusBarItem = (...args) => {
+    const item = create();
+    item.args = args;
+    item.hide = function hide() { this.shown = false; };
+    return item;
+  };
+  api.window.terminals = [];
+  registered.runContext = () => registered.executedCommands.filter((entry) => entry.id === 'setContext' && entry.args[0] === 'singularityFlow.runConfigurations').at(-1)?.args[1];
+  class Items {
+    constructor() { this.map = new Map(); }
+    get size() { return this.map.size; }
+    replace(items) { this.map = new Map(items.map((item) => [item.id, item])); }
+    add(item) { this.map.set(item.id, item); }
+    get(id) { return this.map.get(id); }
+    delete(id) { this.map.delete(id); }
+    forEach(callback) { for (const item of this.map.values()) callback(item, this); }
+    [Symbol.iterator]() { return this.map.entries(); }
+  }
+  registered.testControllers = [];
+  api.TestRunProfileKind = { Run: 1, Debug: 2, Coverage: 3 };
+  api.TestMessage = class { constructor(message) { this.message = message; } };
+  api.Location = class { constructor(uri, range) { this.uri = uri; this.range = range; } };
+  api.tests = {
+    createTestController: (id, label) => {
+      const controller = {
+        id, label, items: new Items(), profiles: [], runs: [], disposed: false,
+        createTestItem: (itemId, itemLabel, uri) => ({ id: itemId, label: itemLabel, uri, children: new Items(), canResolveChildren: false }),
+        createRunProfile: (profileLabel, kind, runHandler, isDefault) => {
+          const profile = { label: profileLabel, kind, runHandler, isDefault, dispose() {} };
+          controller.profiles.push(profile);
+          return profile;
+        },
+        createTestRun: (request, name, persist) => {
+          const events = [];
+          const run = {
+            request, name, persist, events, output: [], ended: false,
+            enqueued: (item) => events.push(['enqueued', item.id]), started: (item) => events.push(['started', item.id]),
+            passed: (item, duration) => events.push(['passed', item.id, duration]),
+            failed: (item, message, duration) => events.push(['failed', item.id, message.message, duration, message.location?.range?.start.line ?? null]),
+            errored: (item, message, duration) => events.push(['errored', item.id, message.message, duration]),
+            skipped: (item) => events.push(['skipped', item.id]),
+            appendOutput: (text) => run.output.push(text), end: () => { run.ended = true; }
+          };
+          controller.runs.push(run);
+          return run;
+        },
+        dispose() { controller.disposed = true; }
+      };
+      registered.testControllers.push(controller);
+      return controller;
+    }
+  };
+}
+
+const cancellation = () => {
+  const listeners = [];
+  return { isCancellationRequested: false, onCancellationRequested: (listener) => { listeners.push(listener); return { dispose() {} }; },
+    cancel() { this.isCancellationRequested = true; for (const listener of listeners) listener(); } };
+};
+
+test('without an application the window shows no run widget, no Run view rows and no test controller, and runs no app or tests command', async (t) => {
+  if (!requireBundle(t)) return;
+  const { registered, cli } = await activatedWithRunAndTest(t, { prepare: withRunWidgetHost });
+  // The first confirmed snapshot paints the status bar; the run widget's check follows it.
+  await until(() => registered.statusBars[0]?.text && !registered.statusBars[0].text.includes('loading'));
+  await settle(); await settle(); await settle();
+  assert.deepEqual(registered.runItems(), [], 'no run widget item is even created');
+  assert.ok(registered.trees.has('singularityFlow.run'), 'the Run view has its provider in every window');
+  assert.deepEqual(await registered.trees.get('singularityFlow.run').treeDataProvider.getChildren(), []);
+  assert.equal(registered.runContext(), undefined, 'the Run view stays hidden');
+  assert.deepEqual(registered.testControllers, []);
+  assert.deepEqual(await cli.log(), [], 'the check is a read of the capability map file, never the CLI');
+});
+
+test('the run widget shows the selected configuration and environment, and Run, Debug, Rerun and Stop act through the Run & test controller', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered, cli, windowState } = await activatedWithRunAndTest(t, { application: true, prepare: withRunWidgetHost });
+  const configuration = await until(() => registered.runItem('configuration')?.shown ? registered.runItem('configuration') : null);
+  assert.equal(configuration.text, '$(play) web · dev');
+  assert.equal(configuration.command, 'singularityFlow.selectRunConfiguration');
+  assert.deepEqual(configuration.args, ['singularityFlow.run.configuration', 1, 9999], 'left, beside the branch');
+  assert.equal(configuration.name, 'Singularity Flow: Run Configuration');
+  assert.deepEqual([registered.runItem('run').text, registered.runItem('run').command, registered.runItem('run').shown], ['$(play)', 'singularityFlow.runSelectedConfiguration', true]);
+  assert.equal(registered.runItem('debug').shown, false, 'no debug block, no Debug');
+  assert.equal(registered.runItem('stop').shown, false);
+  assert.equal(registered.runContext(), true, 'the Run view and the palette commands show');
+  assert.deepEqual([...new Set((await cli.log()).map((entry) => entry.argv.slice(0, 2).join(' ')))].sort(), ['app plan', 'app status', 'tests plan', 'tests summary']);
+  const tree = registered.trees.get('singularityFlow.run').treeDataProvider;
+  const [row] = await tree.getChildren();
+  const item = await tree.getTreeItem(row);
+  assert.deepEqual([item.label, item.description, item.contextValue, item.iconPath.id], ['web', 'dev · http://127.0.0.1:5173/', 'sflow.runConfiguration.stopped', 'circle-large-outline']);
+  assert.deepEqual(item.command, { command: 'singularityFlow.selectRunConfiguration', title: 'Select', arguments: [{ key: 'checkout-app/web' }] });
+
+  // The quick pick: the configuration with its type icon and state, its environments, Edit Configurations….
+  const choose = (match) => { api.window.showQuickPick = async (items, options) => { registered.quickPicks.push({ items, options }); return items.find(match); }; };
+  choose((entry) => entry.label.endsWith(' qa'));
+  await registered.commands.get('singularityFlow.selectRunConfiguration')();
+  assert.deepEqual(registered.quickPicks.at(-1).items.map((entry) => entry.label),
+    ['$(terminal) web', '$(check) dev', '$(circle-large-outline) qa', '$(gear) Edit Configurations…']);
+  assert.equal(registered.quickPicks.at(-1).items[2].detail, 'Bind its values with your own secret helper: singularity-flow env bind qa --stdin');
+  assert.deepEqual(windowState.get('singularityFlow.runAndTest.environments'), { 'checkout-app': 'qa' }, 'the same per-capability choice the page remembers');
+  await until(() => configuration.text === '$(play) web · qa');
+
+  // qa is not bound: Run refuses plainly, in a message, and nothing is asked or run.
+  await registered.commands.get('singularityFlow.runSelectedConfiguration')();
+  await until(() => registered.warnings.some((message) => message.startsWith('web was not started: environment qa is not bound')));
+  assert.equal(registered.tasks.length, 0);
+  assert.equal(registered.reviewConfirmations.length, 0);
+  choose((entry) => entry.label.endsWith(' dev'));
+  await registered.commands.get('singularityFlow.selectRunConfiguration')();
+  await until(() => configuration.text === '$(play) web · dev');
+
+  // Untrusted: nothing runs.
+  api.workspace.isTrusted = false;
+  await registered.commands.get('singularityFlow.runSelectedConfiguration')();
+  assert.equal(registered.tasks.length, 0);
+  assert.ok(registered.warnings.some((message) => /not trusted/.test(message)));
+  api.workspace.isTrusted = true;
+
+  // Run: the first-run confirmation, then the controller's task of the CLI argv.
+  registered.informationAnswer = 'Run this command';
+  await registered.commands.get('singularityFlow.runSelectedConfiguration')();
+  assert.equal(registered.reviewConfirmations.at(-1).title, 'Start web for checkout-app');
+  assert.equal(registered.tasks.length, 1);
+  assert.deepEqual(registered.tasks[0].task.execution.args, [cli.wrapper, 'app', 'start', 'web', '--capability', 'checkout-app', '--environment', 'dev', '--expect-command', RUN_SHA]);
+  assert.equal(registered.tasks[0].task.name, 'Start web · dev · checkout-app', 'its own terminal, named by configuration and environment');
+  assert.deepEqual(windowState.get('singularityFlow.runWidget.selection'), { capability: 'checkout-app', entries: { 'checkout-app': 'web' } });
+  await until(() => configuration.text === '$(loading~spin) web · dev');
+  assert.deepEqual([registered.runItem('run').text, registered.runItem('run').command], ['$(debug-restart)', 'singularityFlow.rerunSelectedConfiguration']);
+  assert.deepEqual([registered.runItem('stop').text, registered.runItem('stop').shown], ['$(debug-stop)', true]);
+  assert.equal((await tree.getTreeItem((await tree.getChildren())[0])).contextValue, 'sflow.runConfiguration.starting');
+
+  // Ready: the controller's status read moves it; Open in browser and Copy command line act on the row.
+  await cli.write('status.json', runStatus({ started: true, ready: true, environment: 'dev' }));
+  await until(() => configuration.text === '$(vm-running) web · dev');
+  const ready = (await tree.getChildren())[0];
+  assert.equal((await tree.getTreeItem(ready)).contextValue, 'sflow.runConfiguration.ready.browsable');
+  await registered.commands.get('singularityFlow.openConfigurationInBrowser')(ready);
+  assert.deepEqual(registered.opened, ['http://127.0.0.1:5173/']);
+  await registered.commands.get('singularityFlow.copyConfigurationCommandLine')(ready);
+  assert.equal(registered.clipboard.at(-1), 'npm run dev -- --host 127.0.0.1 --port 5173', 'the engine\'s resolved argv for dev, not the task wrapper');
+  const terminal = { name: 'Task - Start web · dev · checkout-app', shown: false, show() { this.shown = true; } };
+  api.window.terminals = [{ name: 'other', show() { throw new Error('the wrong terminal'); } }, terminal];
+  await registered.commands.get('singularityFlow.showConfigurationLog')(ready);
+  assert.equal(terminal.shown, true, 'Show log reveals its task terminal');
+
+  // Rerun: stop the task, wait until it has stopped, then start it again the same way.
+  await cli.write('status.json', runStatus({ started: false, ready: false }));
+  await registered.commands.get('singularityFlow.rerunSelectedConfiguration')();
+  assert.equal(registered.tasks[0].terminated, true);
+  assert.equal(registered.tasks.length, 2);
+  assert.deepEqual(registered.tasks[1].task.execution.args, registered.tasks[0].task.execution.args);
+  assert.equal(registered.reviewConfirmations.filter((entry) => entry.title === 'Start web for checkout-app').length, 1, 'the confirmed identity is not asked again');
+
+  // Stop (the widget's): ends the task.
+  await registered.commands.get('singularityFlow.stopRunningConfiguration')();
+  assert.equal(registered.tasks[1].terminated, true);
+  await until(() => configuration.text === '$(play) web · dev');
+  assert.equal(registered.runItem('stop').shown, false);
+
+  // Debug: a plan with a debug block shows Debug; it runs app start --debug through its own confirmation.
+  await cli.write('plan.json', runDebugPlan());
+  await registered.commands.get('singularityFlow.refreshRunConfigurations')();
+  await until(() => registered.runItem('debug').shown);
+  assert.equal(registered.runItem('debug').command, 'singularityFlow.debugSelectedConfiguration');
+  assert.equal((await tree.getTreeItem((await tree.getChildren())[0])).contextValue, 'sflow.runConfiguration.stopped.debuggable');
+  await registered.commands.get('singularityFlow.debugSelectedConfiguration')();
+  assert.equal(registered.reviewConfirmations.at(-1).title, 'Start web with its debugger for checkout-app');
+  assert.deepEqual(registered.tasks.at(-1).task.execution.args, [cli.wrapper, 'app', 'start', 'web', '--capability', 'checkout-app', '--environment', 'dev', '--debug', '--expect-command', RUN_SHA]);
+  await registered.commands.get('singularityFlow.stopConfiguration')((await tree.getChildren())[0]);
+  assert.equal(registered.tasks.at(-1).terminated, true);
+  assert.equal(Object.keys(manifestKeybindings()).length, 0, 'no default keybindings');
+});
+
+/** The extension's contributed keybindings: none, so people bind the commands themselves. */
+function manifestKeybindings() {
+  return JSON.parse(readFileSync(path.join(packageRoot, 'apps/vscode/package.json'), 'utf8')).contributes.keybindings ?? {};
+}
+
+test('the Run view context menu: Edit opens the Run/Debug Configurations editor when present, Run in environment picks and runs', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered, cli, windowState } = await activatedWithRunAndTest(t, { application: true, prepare: withRunWidgetHost });
+  await until(() => registered.runItem('configuration')?.shown);
+  const tree = registered.trees.get('singularityFlow.run').treeDataProvider;
+  const [row] = await tree.getChildren();
+
+  // No editor in this build: say where a run configuration is edited, and offer Capabilities.
+  await registered.commands.get('singularityFlow.editConfiguration')(row);
+  assert.match(registered.infos.at(-1), /^This build has no Run\/Debug Configurations editor\. A run configuration is an application\.start entry of checkout-app in singularity\/capabilities\.yml/);
+  // With the editor: the configuration it was asked from.
+  const edited = [];
+  registered.commands.set('singularityFlow.editRunConfigurations', (target) => { edited.push(target); });
+  await registered.commands.get('singularityFlow.editConfiguration')(row);
+  await registered.commands.get('singularityFlow.editConfiguration')({ capability: 'checkout-app', configuration: 'web' });
+  assert.deepEqual(edited, [{ capability: 'checkout-app', configuration: 'web' }, { capability: 'checkout-app', configuration: 'web' }]);
+  // From the widget's quick pick too.
+  api.window.showQuickPick = async (items, options) => { registered.quickPicks.push({ items, options }); return items.at(-1); };
+  await registered.commands.get('singularityFlow.selectRunConfiguration')();
+  assert.equal(edited.length, 3);
+
+  // Run in environment ▸: pick dev; it is remembered and runs, through the confirmation.
+  api.window.showQuickPick = async (items, options) => { registered.quickPicks.push({ items, options }); return items.find((entry) => entry.name === 'dev'); };
+  registered.informationAnswer = 'Run this command';
+  await registered.commands.get('singularityFlow.runConfigurationInEnvironment')(row);
+  assert.deepEqual(registered.quickPicks.at(-1).items.map((entry) => [entry.label, entry.description]), [['dev', 'bound · current'], ['qa', 'not bound']]);
+  assert.deepEqual(windowState.get('singularityFlow.runAndTest.environments'), { 'checkout-app': 'dev' });
+  assert.deepEqual(registered.tasks.at(-1).task.execution.args, [cli.wrapper, 'app', 'start', 'web', '--capability', 'checkout-app', '--environment', 'dev', '--expect-command', RUN_SHA]);
+  // A row command naming a configuration that is not declared does nothing.
+  const before = registered.tasks.length;
+  await registered.commands.get('singularityFlow.runConfiguration')({ capability: 'checkout-app', configuration: 'not-declared' });
+  assert.equal(registered.tasks.length, before);
+});
+
+test('the Testing view lists test commands and cases with their file and line, runs through the controller, and reports the run\'s summary', async (t) => {
+  if (!requireBundle(t)) return;
+  const { registered, cli, lead } = await activatedWithRunAndTest(t, { application: true, prepare: async (api, registered) => withRunWidgetHost(api, registered) });
+  await cli.write('tests-plan.json', runTestsPlan());
+  await cli.write('summary.json', runSummary());
+  await until(() => registered.runItem('configuration')?.shown);
+  await registered.commands.get('singularityFlow.refreshRunConfigurations')();
+  const controller = await until(() => registered.testControllers[0]);
+  assert.deepEqual([controller.id, controller.label], ['singularityFlow', 'Singularity Flow']);
+  await controller.resolveHandler(undefined);
+  const ids = () => [...controller.items].map(([id]) => id);
+  assert.deepEqual(ids(), ['checkout-app/module-tests', 'checkout-app/integration-tests', 'checkout-app/lint'], 'tests plan, then what only the summary names');
+  const moduleTests = controller.items.get('checkout-app/module-tests');
+  assert.equal(moduleTests.description, 'junit-xml');
+  assert.equal(moduleTests.canResolveChildren, true);
+  assert.equal(controller.items.get('checkout-app/lint').canResolveChildren, false, 'a totals-only report has no cases');
+  assert.equal(moduleTests.children.size, 0, 'cases are made when asked for');
+  await controller.resolveHandler(moduleTests);
+  const cases = [...moduleTests.children].map(([, item]) => item);
+  assert.deepEqual(cases.map((item) => [item.id, item.label, item.uri.fsPath, item.range.start.line]), [
+    ['["Cart","adds an item"]', 'adds an item', path.join(lead, 'src', 'cart.test.js'), 11],
+    ['["Cart","removes an item"]', 'removes an item', path.join(lead, 'src', 'cart.test.js'), 29]
+  ]);
+  const [profile] = controller.profiles;
+  assert.deepEqual([profile.label, profile.kind, profile.isDefault], ['Run', 1, true]);
+
+  // Rerun the failed case: its command runs (the engine runs whole commands), after the confirmation.
+  registered.informationAnswer = 'Run these tests';
+  const token = cancellation();
+  const running = profile.runHandler({ include: [cases[1]], exclude: [] }, token);
+  const task = await until(() => registered.tasks.find((entry) => entry.task.definition.action === 'tests-run'));
+  assert.deepEqual(task.task.execution.args, [cli.wrapper, 'tests', 'run', '--capability', 'checkout-app', '--command', 'module-tests',
+    '--expect-command', TESTS_SHA_MODULE]);
+  assert.equal(registered.reviewConfirmations.at(-1).title, 'Run tests for checkout-app');
+  const recorded = runSummary({
+    run: { ...runSummary().run, id: 'RUN-3', startedAt: '2026-10-20T11:00:00Z' },
+    commands: [{ id: 'module-tests', kind: 'test', adapter: 'junit-xml', status: 'failed', exitCode: 1, tests: { discovered: 3, passed: 1, failed: 1, skipped: 1 }, perCase: true, note: null },
+      runSummary().commands[1]],
+    cases: [
+      { command: 'module-tests', suite: 'Cart', name: 'adds an item', file: 'src/cart.test.js', line: 12, outcome: 'passed', durationMs: 5, clauses: [] },
+      { command: 'module-tests', suite: 'Cart', name: 'removes an item', file: 'src/cart.test.js', line: 30, outcome: 'failed', durationMs: 35, clauses: [], message: 'expected 1 to equal 0' },
+      { command: 'module-tests', suite: 'Cart', name: 'new one', file: 'src/cart.test.js', line: 50, outcome: 'skipped', durationMs: null, clauses: [] }
+    ]
+  });
+  await cli.write('summary.json', recorded);
+  await cli.write('summary-RUN-3.json', recorded);
+  registered.endTask(task, 1);
+  await running;
+  const [run] = controller.runs;
+  assert.equal(run.ended, true);
+  assert.deepEqual(run.events, [
+    ['enqueued', 'checkout-app/module-tests'], ['started', 'checkout-app/module-tests'],
+    ['passed', '["Cart","adds an item"]', 5],
+    ['failed', '["Cart","removes an item"]', 'expected 1 to equal 0', 35, 29],
+    ['skipped', '["Cart","new one"]'],
+    ['failed', 'checkout-app/module-tests', '1 passed, 1 failed, 1 skipped of 3', undefined, null]
+  ]);
+  assert.deepEqual(run.output.slice(0, 2), ['Local preview, not evidence [local-preview]\r\n',
+    'Run RUN-3, environment dev, commit abc1234: 1 passed, 1 failed of 3.\r\n'], 'the engine\'s label and evidence class lead the output');
+  assert.ok((await cli.log()).some((entry) => entry.argv.join(' ') === 'tests summary --capability checkout-app --run=RUN-3 --json'));
+  assert.equal(moduleTests.children.get('["Cart","new one"]').range.start.line, 49, 'a case the run found is listed for the editor');
+
+  // A totals-only command is reported on its own item.
+  const lint = controller.items.get('checkout-app/lint');
+  assert.ok(lint, 'still listed: the latest summary names it');
+  const linting = profile.runHandler({ include: [lint], exclude: [] }, cancellation());
+  const lintTask = await until(() => registered.tasks.filter((entry) => entry.task.definition.action === 'tests-run')[1]);
+  assert.deepEqual(lintTask.task.execution.args, [cli.wrapper, 'tests', 'run', '--capability', 'checkout-app', '--command', 'lint']);
+  const totalsOnly = runSummary({ run: { ...runSummary().run, id: 'RUN-4' }, commands: [runSummary().commands[1]], cases: [] });
+  await cli.write('summary.json', totalsOnly);
+  await cli.write('summary-RUN-4.json', totalsOnly);
+  registered.endTask(lintTask, 0);
+  await linting;
+  assert.deepEqual(controller.runs[1].events, [['enqueued', 'checkout-app/lint'], ['started', 'checkout-app/lint'], ['passed', 'checkout-app/lint', undefined]]);
+  assert.ok(controller.runs[1].output.includes('lint: Totals only: a junit-xml report would list each test case.\r\n'));
+
+  // Cancelling ends the task; nothing is reported as passed.
+  const cancelled = cancellation();
+  const stopping = profile.runHandler({ include: [moduleTests], exclude: [] }, cancelled);
+  const third = await until(() => registered.tasks.filter((entry) => entry.task.definition.action === 'tests-run')[2]);
+  await until(() => controller.runs[2]?.events.some(([kind]) => kind === 'started'));
+  cancelled.cancel();
+  await stopping;
+  assert.equal(third.terminated, true);
+  assert.deepEqual(controller.runs[2].events, [['enqueued', 'checkout-app/module-tests'], ['started', 'checkout-app/module-tests'], ['skipped', 'checkout-app/module-tests']]);
+  assert.deepEqual(controller.runs[2].output, ['The test run was cancelled.\r\n']);
+
+  // Declined confirmation of a changed command: nothing runs, and the run says why.
+  await cli.write('tests-plan.json', { ...runTestsPlan(), commands: runTestsPlan().commands.map((entry) => ({ ...entry, commandSha256: `sha256:${'9'.repeat(64)}` })) });
+  registered.informationAnswer = undefined;
+  const count = registered.tasks.length;
+  await profile.runHandler({ include: [moduleTests], exclude: [] }, cancellation());
+  assert.equal(registered.tasks.length, count);
+  assert.deepEqual(controller.runs[3].events, [['enqueued', 'checkout-app/module-tests'], ['skipped', 'checkout-app/module-tests']]);
+  assert.deepEqual(controller.runs[3].output, ['No tests were run.\r\n']);
 });

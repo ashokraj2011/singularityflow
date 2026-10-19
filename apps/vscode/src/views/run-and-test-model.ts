@@ -55,6 +55,10 @@ export interface StartEntry {
   capability: string;
   repository: string | null;
   id: string;
+  /** The display name of a typed run configuration (`name`); null shows the ID. [RUN IntelliJ amendment §1] */
+  name: string | null;
+  /** Its type (`spring-boot`, `npm`, …); null for an entry written as argv (type `command`). */
+  type: string | null;
   argv: string[];
   workingDirectory: string | null;
   url: string | null;
@@ -87,6 +91,8 @@ export interface StartStatus {
 export interface TestCommandPlan {
   id: string;
   kind: string | null;
+  /** The report adapter (`junit-xml`, …), when `tests plan` names it. */
+  adapter: string | null;
   argv: string[] | null;
   workingDirectory: string | null;
   environments: EnvironmentChoice[];
@@ -100,6 +106,7 @@ const SHA256 = /^(?:sha256:)?[a-f0-9]{64}$/;
 const ID = /^[a-z0-9][a-z0-9-]*$/;
 const ENVIRONMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+const TYPE = /^[a-z][a-z0-9-]{0,31}$/;
 
 const text = (value: unknown): string | null => (typeof value === 'string' && value.trim() ? value : null);
 const record = (value: unknown): Record<string, unknown> | null =>
@@ -210,7 +217,9 @@ export function appPlanFrom(raw: unknown): { entries: StartEntry[]; dropped: str
     const entry = record(item);
     if (!entry) continue;
     const id = text(entry.id);
-    const argv = argvFrom(entry.argv);
+    // A typed entry may answer only its resolved command line (`resolved.argv`, per environment).
+    const resolvedFirst = (Array.isArray(entry.environments) ? entry.environments : []).map((value) => record(record(value)?.resolved)?.argv)[0];
+    const argv = argvFrom(entry.argv) ?? argvFrom(record(entry.resolved)?.argv) ?? argvFrom(resolvedFirst);
     const sha = text(entry.commandSha256);
     const capability = text(entry.capability);
     if (!id || !ID.test(id) || !argv || !sha || !SHA256.test(sha) || !capability || !ID.test(capability)) {
@@ -223,7 +232,7 @@ export function appPlanFrom(raw: unknown): { entries: StartEntry[]; dropped: str
     const planned = (Array.isArray(entry.environments) ? entry.environments : []).flatMap((value) => {
       const object = record(value);
       const name = text(object?.name);
-      return object && name && names.includes(name) ? [{ name, argv: object.argv, debug: object.debug }] : [];
+      return object && name && names.includes(name) ? [{ name, argv: record(object.resolved)?.argv ?? object.argv, debug: object.debug }] : [];
     });
     const resolvedArgv: Record<string, string[]> = {};
     for (const environment of planned) {
@@ -231,8 +240,12 @@ export function appPlanFrom(raw: unknown): { entries: StartEntry[]; dropped: str
       if (resolved) resolvedArgv[environment.name] = resolved;
     }
     const { debug, issue } = debugFrom(entry.debug, planned);
+    const name = text(entry.name);
+    const type = text(entry.type);
     entries.push({
       capability, repository: text(entry.repository), id, argv,
+      name: name && name.length <= 120 && !CONTROL.test(name) ? name.trim() : null,
+      type: type && TYPE.test(type) ? type : null,
       workingDirectory: text(entry.workingDirectory), url: text(entry.url),
       ready: ready ? {
         ...(typeof ready.http === 'string' ? { http: ready.http } : {}),
@@ -294,7 +307,7 @@ export function testPlanFrom(raw: unknown): TestCommandPlan[] {
     if (!entry || !id || !ID.test(id)) return [];
     const sha = text(entry.commandSha256);
     return [{
-      id, kind: text(entry.kind), argv: argvFrom(entry.argv), workingDirectory: text(entry.workingDirectory),
+      id, kind: text(entry.kind), adapter: text(entry.adapter), argv: argvFrom(entry.argv), workingDirectory: text(entry.workingDirectory),
       environments: environmentsFrom(entry), commandSha256: sha && SHA256.test(sha) ? sha : null
     }];
   });

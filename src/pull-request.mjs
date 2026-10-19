@@ -1,30 +1,13 @@
 import path from 'node:path';
-import { readFile } from 'node:fs/promises';
-import YAML from 'yaml';
-import { run, commandExists, exists, SingularityFlowError } from './util.mjs';
+import { run, commandExists, SingularityFlowError } from './util.mjs';
 import { githubAuthStatus } from './github-evidence.mjs';
 import { branch as currentBranch, defaultBranchName } from './git.mjs';
 import { classifyGitHost } from './git-host.mjs';
 import { recap } from './narration/recap.mjs';
-import { baseStoryPullRequestTarget } from './story-base-lineage.mjs';
 import { workItemWorkflowRelative } from './work-item-location.mjs';
+import { pullRequestTarget, readStorySeed } from './story-base-lineage.mjs';
 
-// Where the story's pull request goes. Materialization records the branch the story was cut from;
-// for a story in the epic's own repository that is the epic branch, so the pull request targets the
-// epic branch and the epic lands on the default branch once every blocking story has merged. A
-// story cut from another story's branch targets that branch while that story is open, and that
-// story's own base once it has landed or its branch is gone (`builtOn` says which).
-export function pullRequestTarget(workflow, seed = null, { root = null, config = {} } = {}) {
-  const head = workflow.workItem.branch ?? workflow.workItem.id;
-  const builtOn = !seed?.story?.parentBranch && root
-    ? baseStoryPullRequestTarget(root, workflow, { remote: config.git?.remote ?? 'origin' })
-    : null;
-  const base = seed?.story?.parentBranch
-    ?? builtOn?.base
-    ?? workflow.workItem.baseBranch
-    ?? (root ? defaultBranchName(root, config) : config.defaultBaseBranch ?? 'main');
-  return builtOn ? { base, head, builtOn } : { base, head };
-}
+export { pullRequestTarget, readStorySeed };
 
 function bulleted(values, empty) {
   const items = (values ?? []).filter(Boolean);
@@ -165,14 +148,6 @@ export function epicPullRequestBody(initiative, mergeSequence) {
   }
   lines.push('', '---', '', 'Generated deterministically by Singularity Flow from committed Initiative state and observed Git ancestry.');
   return lines.join('\n');
-}
-
-export async function readStorySeed(root, workflow) {
-  const relative = workflow.source?.seed ?? path.posix.join('singularity', 'seeds', `${workflow.workItem.id}.yml`);
-  const absolute = path.join(root, relative);
-  if (!(await exists(absolute))) return null;
-  try { return YAML.parse(await readFile(absolute, 'utf8')); }
-  catch { throw new SingularityFlowError(`Story seed ${relative} is not valid YAML.`); }
 }
 
 export function storyLifecycleBlockers(workflow) {

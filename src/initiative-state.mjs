@@ -35,7 +35,6 @@ import {
   writePendingPublication,
 } from './publication-pending.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
-import { publicationPushRefusal, publicationRemoteChangedRefusal } from './publication-retry-refusals.mjs';
 import { restorePublicationPreimage } from './publication-recovery.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
@@ -1340,7 +1339,7 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
     if (!currentRecord.remoteFingerprint || !remoteAuthority?.url
       || remoteAuthority.fingerprint !== currentRecord.remoteFingerprint) {
       // Name the change; restoring the remote is this route's repair (it has no confirmed rebind).
-      throw publicationRemoteChangedRefusal(root, {
+      throw (await import('./publication-retry-refusals.mjs')).publicationRemoteChangedRefusal(root, {
         label: `Initiative '${initiative.initiative.id}'`, subject, record: currentRecord, markerPath: current.path
       });
     }
@@ -1434,7 +1433,7 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
               }
             });
           }
-          throw publicationPushRefusal({
+          throw (await import('./publication-retry-refusals.mjs')).publicationPushRefusal({
             prefix: 'Initiative push still fails', result, outcome: pushOutcome, subject,
             commit: currentRecord.commit, branch: currentRecord.branch, remote: currentRecord.remote,
             retryCommand: `singularity-flow initiative sync ${initiative.initiative.id}`,

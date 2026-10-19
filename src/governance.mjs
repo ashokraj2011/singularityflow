@@ -135,7 +135,7 @@ export async function terminalPublicationObservation(root, remote, publicationBr
 /** The branch a Story's pull request targets, where its work lands once merged. */
 async function publicationBaseBranch(root, config, workflow) {
   try {
-    const { pullRequestTarget, readStorySeed } = await import('./pull-request.mjs');
+    const { pullRequestTarget, readStorySeed } = await import('./story-base-lineage.mjs');
     return pullRequestTarget(workflow, await readStorySeed(root, workflow), { root, config }).base ?? null;
   } catch { return null; }
 }

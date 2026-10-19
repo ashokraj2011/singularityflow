@@ -12,8 +12,12 @@
  * Finding the link is advisory: a commit or workflow that cannot be read means no link, never a
  * refused start.
  */
-import { committedFilesAtRevisions, exactFileAtObject, isAncestor, recentFirstParentSubjects, refCommit } from './git.mjs';
+import path from 'node:path';
+import { readFile } from 'node:fs/promises';
+import YAML from 'yaml';
+import { committedFilesAtRevisions, defaultBranchName, exactFileAtObject, isAncestor, recentFirstParentSubjects, refCommit } from './git.mjs';
 import { readRecord } from './schema-migrations.mjs';
+import { exists, SingularityFlowError } from './util.mjs';
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 /** Singularity Flow commit subjects begin `[<Work ID>][<step>]`. */
@@ -175,4 +179,29 @@ export function storyLineageLines(workflow) {
     lines.push(`Epic: ${epicId}${inherited ? ` (inherited from ${inherited})` : ''}`);
   }
   return lines;
+}
+
+// Where the story's pull request goes. Materialization records the branch the story was cut from;
+// for a story in the epic's own repository that is the epic branch, so the pull request targets the
+// epic branch and the epic lands on the default branch once every blocking story has merged. A
+// story cut from another story's branch targets that branch while that story is open, and that
+// story's own base once it has landed or its branch is gone (`builtOn` says which).
+export function pullRequestTarget(workflow, seed = null, { root = null, config = {} } = {}) {
+  const head = workflow.workItem.branch ?? workflow.workItem.id;
+  const builtOn = !seed?.story?.parentBranch && root
+    ? baseStoryPullRequestTarget(root, workflow, { remote: config.git?.remote ?? 'origin' })
+    : null;
+  const base = seed?.story?.parentBranch
+    ?? builtOn?.base
+    ?? workflow.workItem.baseBranch
+    ?? (root ? defaultBranchName(root, config) : config.defaultBaseBranch ?? 'main');
+  return builtOn ? { base, head, builtOn } : { base, head };
+}
+
+export async function readStorySeed(root, workflow) {
+  const relative = workflow.source?.seed ?? path.posix.join('singularity', 'seeds', `${workflow.workItem.id}.yml`);
+  const absolute = path.join(root, relative);
+  if (!(await exists(absolute))) return null;
+  try { return YAML.parse(await readFile(absolute, 'utf8')); }
+  catch { throw new SingularityFlowError(`Story seed ${relative} is not valid YAML.`); }
 }

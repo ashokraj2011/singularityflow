@@ -9,7 +9,6 @@ import {
   publicationPushOutcome, pushCommitToBranchAsync, refExists, refHead, refreshStalePublishedIndex, remoteContains
 } from './git.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
-import { publicationPushRefusal, publicationRemoteChangedRefusal } from './publication-retry-refusals.mjs';
 import {
   clearPublicationJournal,
   publicationJournalOwnedByCurrentProcess,
@@ -610,7 +609,7 @@ export async function completePendingStoryBranchPromotion(root, pending, {
         });
       }
       // Promotion retries push the same Candidate; a rule or hook refusal repeats on every retry.
-      throw publicationPushRefusal({
+      throw (await import('./publication-retry-refusals.mjs')).publicationPushRefusal({
         prefix: `Story '${subject.id}' branch promotion push failed. The exact Candidate and recovery marker were retained`,
         code: 'STORY_PROMOTION_PUSH_FAILED', result: published.result, outcome, subject,
         commit: record.commit, branch: record.targetBranch, remote: record.remote,
@@ -938,7 +937,7 @@ export async function syncPendingLifecyclePublication(root, options = {}) {
     if (!record.remoteFingerprint || !authority?.url
         || authority.fingerprint !== record.remoteFingerprint) {
       // Name the change; this route has no confirmed rebind, so restoring the remote is the repair.
-      throw publicationRemoteChangedRefusal(root, {
+      throw (await import('./publication-retry-refusals.mjs')).publicationRemoteChangedRefusal(root, {
         label: `${subject.kind} '${subject.id}'`, subject, record,
         message: `${subject.kind} '${subject.id}' publication remote changed after its exact commit was retained`
       });
@@ -981,7 +980,7 @@ export async function syncPendingLifecyclePublication(root, options = {}) {
             ...subject, record: { ...record, pushOutcome: 'rejected' }
           });
         }
-        throw publicationPushRefusal({
+        throw (await import('./publication-retry-refusals.mjs')).publicationPushRefusal({
           result, outcome, subject, commit: record.commit, branch: record.branch, remote: record.remote
         });
       }

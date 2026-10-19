@@ -74,7 +74,11 @@ export async function run(_argv, { positionals, options = {} }) {
     const entries = startId ? [runtime.selectStartEntry(application, startId)] : application.application.start;
     const plans = [];
     for (const entry of entries) plans.push(await runtime.planStartEntry(root, application, entry, declaration));
-    const result = { resultType: 'sflow-app-plan', capability: application.capabilityId, entries: plans };
+    // The block as capabilities.yml holds it (typed fields as written), so an editor can write the whole
+    // block back with --application-file and never drop tests; no block reads as an empty one.
+    const block = application.capability?.application;
+    const result = { resultType: 'sflow-app-plan', capability: application.capabilityId, entries: plans,
+      application: block && typeof block === 'object' ? structuredClone(block) : { start: [], tests: [] } };
     if (json) console.log(JSON.stringify(result, null, 2));
     else if (!plans.length) {
       console.log(`Capability '${application.capabilityId}' declares no application start entry.`);

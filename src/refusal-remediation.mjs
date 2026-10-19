@@ -1386,6 +1386,11 @@ export function refusalDetails(details) {
     choices: Array.isArray(problem.choices) ? list(problem.choices, text).slice(0, 20) : null
   }) : null));
   if (configurationProblems.length) projected.configurationProblems = configurationProblems;
+  // Every located error of a capability application block (start[1].vmOptions …), so an editor can mark each field.
+  const applicationErrors = list(details.errors, (entry) => (entry && typeof entry === 'object' && typeof entry.path === 'string'
+    && /^(?:(?:start|tests)(?:\[\d+\](?:\.[\w.[\]-]+)?)?)?$/u.test(entry.path) && text(entry.message)
+    ? { path: entry.path, message: text(entry.message) } : null));
+  if (applicationErrors.length) projected.errors = applicationErrors;
   if (details.modelBudget && typeof details.modelBudget === 'object') {
     const budget = {};
     if (text(details.modelBudget.viewId)) budget.viewId = text(details.modelBudget.viewId);

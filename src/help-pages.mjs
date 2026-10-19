@@ -1274,7 +1274,8 @@ const PAGES = Object.freeze({
       'program arguments, profiles, script or module, interpreter, …) instead of argv, plus env (literal, never secret),',
       'beforeLaunch steps (run in order; a failing step stops the start) and perEnvironment overrides. app plan shows its',
       'type, name, fields and per environment resolved { argv, envNames, beforeLaunch }; app config preview',
-      '--application-file FILE checks a whole block and shows each command line or every error at its field, writing nothing.'
+      '--application-file FILE checks a whole block and shows each command line or every error at its path, writing nothing;',
+      'app plan --json also returns the block exactly as capabilities.yml holds it (application).'
     ],
     options: [
       ['START-ID', 'The start entry; optional when the capability declares exactly one.'],

@@ -131,6 +131,10 @@ test('app plan shows a typed entry\'s type, name, fields and, per environment, w
   assert.deepEqual(pricing.resolved.argv, ['../../.venv/bin/python', '-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8000', '--reload']);
   assert.deepEqual(pricing.debug.argv, ['../../.venv/bin/python', '-m', 'debugpy', '--listen', '127.0.0.1:5678', '-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8000']);
   assert.equal(pricing.name, 'pricing', 'the name defaults to the id');
+  // The whole block as capabilities.yml holds it, typed fields as written, for an editor to write back.
+  const written = JSON.parse(await readFile(path.join(root, 'singularity', 'capabilities.yml'), 'utf8')).capabilities.web.application;
+  assert.deepEqual(plan.application, written);
+  assert.equal(Object.hasOwn(plan.application, 'tests'), false, 'nothing is added to the block');
   // The human plan names the type and each environment's command line.
   const human = cli(root, ['app', 'plan']).stdout;
   assert.match(human, /api \(Api\) · spring-boot: \.\.\/\.\.\/mvnw spring-boot:run/u);
@@ -223,43 +227,48 @@ test('app config preview checks a whole block from a file and resolves it per en
   const root = await fixture(t, [{ id: 'api', type: 'jar', url: 'http://127.0.0.1:8080/', ready: { http: '/' } }], { files: JAVA_FILES });
   const broken = cli(root, ['app', 'plan', '--json']);
   assert.notEqual(broken.status, 0);
-  assert.equal(JSON.parse(broken.stdout).error.message, 'Capability \'web\'.application start[0].jar is required for type jar.');
+  const refusal = JSON.parse(broken.stdout).error;
+  assert.equal(refusal.message, 'Capability \'web\'.application start[0].jar is required for type jar.');
+  assert.deepEqual(refusal.details.errors, [{ path: 'start[0].jar', message: 'is required for type jar.' }], 'the refusal locates every error the same way');
   const directory = await mkdtemp(path.join(tmpdir(), 'sflow-typed-preview-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const file = path.join(directory, 'application.yml');
   await writeFile(file, YAML.stringify({ application: { start: [
     { id: 'api', name: 'Api', type: 'spring-boot', mainClass: 'com.example.api.ApiApplication', activeProfiles: ['dev'], workingDirectory: 'services/api',
       environments: ['dev', 'qa'], perEnvironment: { qa: { activeProfiles: ['qa'] } }, url: 'http://127.0.0.1:8080/', ready: { http: '/actuator/health' } },
+    { id: 'jobs', type: 'spring-boot', environments: ['dev', 'qa'], perEnvironment: { qa: { vmOptions: '-Xmx2g' } }, url: 'http://127.0.0.1:8090/', ready: { http: '/' } },
     { id: 'web', type: 'npm', script: 'dev', env: { DB_PASSWORD: 'hunter2' }, url: 'http://127.0.0.1:5173/', ready: { http: '/' } },
     { id: 'report', argv: ['node', 'report.mjs'], url: 'http://127.0.0.1:9000/', ready: { log: 'ready' } }
   ] } }));
   const before = git(root, 'status', '--porcelain');
-  const preview = json(root, ['app', 'config', 'preview', '--application-file', file, '--json']);
+  const preview = json(root, ['app', 'config', 'preview', '--capability', 'web', '--application-file', file, '--json']);
   assert.equal(preview.resultType, 'sflow-app-config-preview');
   assert.equal(preview.capability, 'web');
   assert.equal(preview.valid, false);
   assert.deepEqual(preview.errors, []);
-  const [api, web, report] = preview.entries;
+  const [api, jobs, web, report] = preview.entries;
   assert.deepEqual([api.id, api.name, api.type, api.errors], ['api', 'Api', 'spring-boot', []]);
   assert.deepEqual(api.environments.map((environment) => [environment.name, environment.resolved.argv]), [
     ['dev', ['../../mvnw', 'spring-boot:run', '-Dspring-boot.run.main-class=com.example.api.ApiApplication', '-Dspring-boot.run.profiles=dev']],
     ['qa', ['../../mvnw', 'spring-boot:run', '-Dspring-boot.run.main-class=com.example.api.ApiApplication', '-Dspring-boot.run.profiles=qa']]
   ]);
+  assert.deepEqual(api.environments.map((environment) => environment.default), [true, false]);
   assert.match(api.commandSha256, /^sha256:[a-f0-9]{64}$/u);
-  assert.deepEqual(web, { index: 1, id: 'web', name: 'web', type: 'npm', environments: [], errors: [{ field: 'env.DB_PASSWORD',
+  assert.deepEqual(jobs.errors, [{ path: 'start[1].perEnvironment.qa.vmOptions', message: 'must be a list of arguments, not a shell string; no shell runs it.' }]);
+  assert.deepEqual(web, { index: 2, id: 'web', name: 'web', type: 'npm', environments: [], errors: [{ path: 'start[2].env.DB_PASSWORD',
     message: 'looks like it carries a secret; capabilities.yml never holds one. Declare it as a secret in singularity/environments.yml, bind it with env bind <ENV> --stdin, and read it from the environment.' }] });
-  assert.deepEqual(report.environments, [{ name: null, resolved: { argv: ['node', 'report.mjs'], envNames: [], beforeLaunch: [] } }]);
+  assert.deepEqual(report.environments, [{ name: null, default: true, resolved: { argv: ['node', 'report.mjs'], envNames: [], beforeLaunch: [] } }]);
   assert.equal(git(root, 'status', '--porcelain'), before, 'nothing was written');
   // Shared-field and block errors are located too.
   await writeFile(file, YAML.stringify({ start: [{ id: 'x', type: 'npm', script: 'dev', url: 'http://10.0.0.4/', ready: { http: '/' } },
     { id: 'x', argv: ['a'], url: 'http://127.0.0.1:1/', ready: { http: '/' } }], tests: 'all', extra: true }));
   const located = json(root, ['app', 'config', 'preview', '--application-file', file, '--json']);
-  assert.deepEqual(located.errors.map((error) => error.field), ['', 'tests']);
-  assert.deepEqual(located.entries[0].errors.map((error) => error.field), ['url']);
+  assert.deepEqual(located.errors.map((error) => error.path), ['', 'tests']);
+  assert.deepEqual(located.entries[0].errors.map((error) => error.path), ['start[0].url']);
   assert.match(located.entries[0].errors[0].message, /must be on the loopback host 127\.0\.0\.1, localhost or \[::1\], not '10\.0\.0\.4'/u);
-  assert.deepEqual(located.entries[1].errors, [{ field: 'id', message: '\'x\' is declared more than once (also start[0]).' }]);
+  assert.deepEqual(located.entries[1].errors, [{ path: 'start[1].id', message: '\'x\' is declared more than once (also start[0]).' }]);
   const text = cli(root, ['app', 'config', 'preview', '--application-file', file]).stdout;
-  assert.match(text, /x · npm: 1 error\n {4}url: must be on the loopback host/u);
+  assert.match(text, /x · npm: 1 error\n {4}start\[0\]\.url: must be on the loopback host/u);
   // An unreadable or oversized file is refused; preview needs a file.
   await writeFile(path.join(directory, 'huge.yml'), `start: []\n# ${'x'.repeat(300 * 1024)}\n`);
   assert.match(cli(root, ['app', 'config', 'preview', '--application-file', path.join(directory, 'huge.yml')]).stderr, /--application-file is larger than 256 KiB\./u);
@@ -280,12 +289,31 @@ test('capability set --application-file refuses a typed entry at its field befor
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr, /--application-file start\[0\]\.nodeOptions --inspect=0\.0\.0\.0:9229 listens on '0\.0\.0\.0'; a debugger listens on 127\.0\.0\.1 only\. \(1 more; app config preview --application-file .* lists each\) Nothing was written\./u);
   assert.equal(await readFile(path.join(root, 'singularity', 'capabilities.yml'), 'utf8'), before);
+  const refusedJson = JSON.parse(cli(root, ['capability', 'set', 'web', '--application-file', invalid, '--json']).stdout).error;
+  assert.equal(refusedJson.code, 'CAPABILITY_APPLICATION_FILE_INVALID');
+  assert.deepEqual(refusedJson.details.errors.map((error) => error.path), ['start[0].nodeOptions', 'start[0].env.PATH']);
   const valid = path.join(directory, 'valid.yml');
   await writeFile(valid, YAML.stringify({ start: [{ id: 'web', name: 'Web', type: 'node', script: 'server/server.mjs', applicationParameters: ['3000'],
     workingDirectory: 'server', url: 'http://127.0.0.1:3000/', ready: { http: '/' } }] }));
   assert.equal(cli(root, ['capability', 'set', 'web', '--application-file', valid]).status, 0);
   const plan = json(root, ['app', 'plan', '--json']).entries[0];
   assert.deepEqual([plan.type, plan.name, plan.argv], ['node', 'Web', ['node', 'server.mjs', '3000']]);
+});
+
+test('app plan carries the block exactly as written, tests included, and an empty one when there is none', async (t) => {
+  const start = [{ id: 'web', name: 'Web', type: 'node', script: 'server/server.mjs', applicationParameters: ['3000'], workingDirectory: 'server',
+    url: 'http://127.0.0.1:3000/', ready: { http: '/' }, environments: ['dev'], perEnvironment: { dev: { nodeOptions: [] } } }];
+  const root = await fixture(t, start, { files: { 'singularity/capabilities.yml': JSON.stringify({ version: 1, capabilities: { web: {
+    kind: 'delivery', repository: 'web', application: { start, tests: [{ use: 'module-tests', environments: ['dev'] }] } } } }) } });
+  const plan = json(root, ['app', 'plan', '--json']);
+  assert.deepEqual(plan.application, { start, tests: [{ use: 'module-tests', environments: ['dev'] }] });
+  const bare = await mkdtemp(path.join(tmpdir(), 'sflow-typed-bare-'));
+  t.after(() => rm(bare, { recursive: true, force: true }));
+  git(bare, 'init', '-q');
+  await writeFile(path.join(bare, 'README.md'), 'x\n');
+  git(bare, 'add', '-A');
+  git(bare, '-c', 'user.name=Typed Tester', '-c', 'user.email=typed-tester@example.invalid', 'commit', '-qm', 'bare');
+  assert.deepEqual(json(bare, ['app', 'plan', '--json']).application, { start: [], tests: [] });
 });
 
 test('the readiness smoke check starts a typed entry its argv runs, never one that needs variables, steps or a private file', async (t) => {

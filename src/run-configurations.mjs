@@ -341,12 +341,22 @@ function typedDebug(capabilityId, raw, index) {
   return applicationDebug(capabilityId, debug, `start[${index}]`, raw.id, raw.url);
 }
 
+/** The block path of an entry's field, as app config preview and refusals name it: start[1].perEnvironment.qa.vmOptions. */
+export function errorPath(index, field = '') {
+  return `start[${index}]${field ? `.${field}` : ''}`;
+}
+
+/** Entry problems as `{ path, message }`, the shape preview and refusals carry. */
+export function locatedErrors(index, problems) {
+  return problems.map((problem) => ({ path: errorPath(index, problem.field), message: problem.message }));
+}
+
 function invalid(capabilityId, index, raw, problems) {
   const [first] = problems;
-  return new SingularityFlowError(`Capability '${capabilityId}'.application start[${index}]${first.field ? `.${first.field}` : ''} ${first.message}`
+  return new SingularityFlowError(`Capability '${capabilityId}'.application ${errorPath(index, first.field)} ${first.message}`
     + (problems.length > 1 ? ` (${problems.length - 1} more; app config preview --application-file lists each)` : ''), {
     code: 'CAPABILITY_APPLICATION_INVALID',
-    details: { capabilityId, startId: typeof raw?.id === 'string' ? raw.id : null, field: first.field, errors: problems }
+    details: { capabilityId, startId: typeof raw?.id === 'string' ? raw.id : null, path: errorPath(index, first.field), errors: locatedErrors(index, problems) }
   });
 }
 
@@ -759,21 +769,22 @@ export function startArgvFor(entry, environment = null, { paths = null } = {}) {
 
 /**
  * A whole application block checked and resolved, as IntelliJ previews a run configuration's
- * command line, without writing anything: per start entry its located errors, or per environment
- * (one null environment when it lists none) the resolved argv, variable names and before-launch
- * steps. Block-level problems (unknown keys, the tests list) are `errors`. `pathsFor(id)` gives the
- * private file paths a run of that entry would use.
+ * command line, without writing anything: per start entry its errors, each `{ path, message }` with
+ * the block path (start[1].vmOptions, start[0].perEnvironment.qa.activeProfiles), or per environment
+ * (one null environment when it lists none; the first is the default) the resolved argv, variable
+ * names and before-launch steps. Block-level problems (unknown keys, the tests list) are `errors`.
+ * `pathsFor(id)` gives the private file paths a run of that entry would use.
  */
 export function previewApplication(capabilityId, block, { checkoutRoot = null, repositoryId = null, repositories = [], pathsFor = null, platform = process.platform } = {}) {
   const errors = [];
   const shape = { kind: 'delivery', repositories: repositories.length ? [...repositories] : [repositoryId ?? 'repository'] };
   const unknown = Object.keys(block).filter((key) => !['start', 'tests'].includes(key)).sort();
-  if (unknown.length) errors.push({ field: '', message: `contains unsupported field(s): ${unknown.join(', ')}; an application block has start and tests.` });
-  if (block.start != null && (!Array.isArray(block.start) || block.start.length > 32)) errors.push({ field: 'start', message: 'must be a list of at most 32 entries.' });
+  if (unknown.length) errors.push({ path: '', message: `contains unsupported field(s): ${unknown.join(', ')}; an application block has start and tests.` });
+  if (block.start != null && (!Array.isArray(block.start) || block.start.length > 32)) errors.push({ path: 'start', message: 'must be a list of at most 32 entries.' });
   if (block.tests != null) {
     try { normalizeCapabilityApplication(capabilityId, { ...shape, application: { tests: block.tests } }); } catch (error) {
       const located = locatedApplicationError(error);
-      errors.push({ field: located.field || 'tests', message: located.message });
+      errors.push({ path: located.field || 'tests', message: located.message });
     }
   }
   const seen = new Map();
@@ -789,15 +800,15 @@ export function previewApplication(capabilityId, block, { checkoutRoot = null, r
     problems.push(...runConfigurationErrors(raw, { capabilityId, index }));
     if (id != null && seen.has(id)) problems.push({ field: 'id', message: `'${id}' is declared more than once (also start[${seen.get(id)}]).` });
     else if (id != null) seen.set(id, index);
-    if (problems.length || !normalized) return { index, id, name, type, errors: problems, environments: [] };
+    if (problems.length || !normalized) return { index, id, name, type, errors: locatedErrors(index, problems), environments: [] };
     const entry = typedStartEntry(capabilityId, normalized, raw, index, {
       checkoutRoot: repositories.length <= 1 || normalized.repository === repositoryId ? checkoutRoot : null, platform
     });
     const paths = pathsFor ? pathsFor(entry.id) : null;
     return {
       index, id: entry.id, name: entry.name, type: entry.type, errors: [], commandSha256: startEntryCommandSha256(entry),
-      environments: (entry.environments.length ? entry.environments : [null])
-        .map((environment) => ({ name: environment, resolved: shownResolution(resolveStartCommand(entry, environment, { paths })) }))
+      environments: (entry.environments.length ? entry.environments : [null]).map((environment, position) => ({
+        name: environment, default: position === 0, resolved: shownResolution(resolveStartCommand(entry, environment, { paths })) }))
     };
   });
   return { valid: !errors.length && entries.every((entry) => !entry.errors.length), entries, errors };

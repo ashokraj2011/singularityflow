@@ -11,7 +11,7 @@ import { lstatSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
 
-import { runConfigurationErrors } from './run-configurations.mjs';
+import { errorPath, locatedErrors, runConfigurationErrors } from './run-configurations.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 const MAXIMUM_BYTES = 256 * 1024;
@@ -45,8 +45,8 @@ export function readApplicationFile(file, { cwd = process.cwd() } = {}) {
   for (const [index, raw] of (Array.isArray(value.start) ? value.start : []).entries()) {
     const [first, ...more] = runConfigurationErrors(raw, { index });
     if (first) {
-      throw refuse(`start[${index}]${first.field ? `.${first.field}` : ''} ${first.message}${more.length ? ` (${more.length} more; app config preview --application-file ${file} lists each)` : ''}`,
-        { file, startId: typeof raw?.id === 'string' ? raw.id : null, errors: [first, ...more] });
+      throw refuse(`${errorPath(index, first.field)} ${first.message}${more.length ? ` (${more.length} more; app config preview --application-file ${file} lists each)` : ''}`,
+        { file, startId: typeof raw?.id === 'string' ? raw.id : null, errors: locatedErrors(index, [first, ...more]) });
     }
   }
   return value;

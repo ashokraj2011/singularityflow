@@ -49,7 +49,7 @@ export async function run(root, options, positionals, { json = false } = {}) {
     const label = `${entry.id ?? `start[${entry.index}]`}${entry.name && entry.name !== entry.id ? ` (${entry.name})` : ''} · ${entry.type}`;
     if (entry.errors.length) {
       console.log(`  ${label}: ${entry.errors.length} error${entry.errors.length === 1 ? '' : 's'}`);
-      for (const error of entry.errors) console.log(`    ${error.field || '(entry)'}: ${error.message}`);
+      for (const error of entry.errors) console.log(`    ${error.path}: ${error.message}`);
       continue;
     }
     console.log(`  ${label}`);
@@ -58,7 +58,7 @@ export async function run(root, options, positionals, { json = false } = {}) {
       for (const step of environment.resolved.beforeLaunch) console.log(`      before launch: ${step.argv.join(' ')} (in ${step.workingDirectory})`);
     }
   }
-  for (const error of result.errors) console.log(`Block ${error.field || ''}${error.field ? ' ' : ''}${error.message}`);
+  for (const error of result.errors) console.log(`Block${error.path ? ` ${error.path}` : ''}: ${error.message}`);
   console.log(result.valid ? 'Valid. Write it with capability set <ID> --application-file, or propose it with capability edit <ID> --lead <URL> --application-file --mode set.'
     : 'Fix the errors above, then preview again; nothing is written until capability set or capability edit.');
   return result;

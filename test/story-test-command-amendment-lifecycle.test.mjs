@@ -632,7 +632,12 @@ test('a published submitted generation adopts a corrected command only through f
 
 test('a completed approved generation cannot be reopened by a test-command amendment', async t => {
   const value = await fixture(t, { oldCommandWorks: true });
-  await value.publish();
+  try { await value.publish(); }
+  catch (error) {
+    const report = await readFile(path.join(value.root, '.sflow/results/generated.tap'), 'utf8').catch(() => null);
+    if (report) t.diagnostic(`Failed fixture publication's captured Node report:\n${report.slice(-8192)}`);
+    throw error;
+  }
   await submitCurrent(value);
   await approveCurrent(value);
   assert.equal(value.workflow.phases.implementation.generation, 1);

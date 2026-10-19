@@ -12,6 +12,11 @@ import type { CapabilityDetail } from './capability-model.ts';
 import { escape, icon, repositoryWebLink } from './webview.ts';
 import type { CapabilityNode } from '../cli/snapshot.ts';
 import type { CapabilityDashboard } from './capability-dashboard-model.ts';
+import { RUN_AND_TEST_SCRIPT } from './run-and-test-page.ts';
+
+/** The Run & test section for a capability ID, from the host; empty for collections and other repositories. */
+export type RunAndTestSection = (capabilityId: string) => string;
+const noSection: RunAndTestSection = () => '';
 
 /** The portfolio's repository declarations, keyed by the repository ID a capability names. */
 export type RepositoryDeclarations = Record<string, { url?: unknown } | null | undefined>;
@@ -123,7 +128,7 @@ function dashboardHtml(dashboard: CapabilityDashboard): string {
   </section>`;
 }
 
-function implicitCapabilityHtml(tree: CapabilityNode[], error: string | null): string {
+function implicitCapabilityHtml(tree: CapabilityNode[], error: string | null, runAndTest: RunAndTestSection): string {
   const detail = capabilityDetail(tree, tree[0]?.id ?? 'repository-root');
   return `<header>
     <h1>${icon('capability', { size: 20 })}Capability</h1>
@@ -149,6 +154,7 @@ function implicitCapabilityHtml(tree: CapabilityNode[], error: string | null): s
     </div>
   </section>
   ${testSetupMenu(detail?.id)}
+  ${detail ? runAndTest(detail.id) : ''}
   ${detail ? `<section class="editor-card">
     <div class="card-head"><div><p class="eyebrow">Optional capability policy</p><h3>${escape(detail.name)}</h3></div></div>
     ${autoPolicyEditor(detail, true)}
@@ -157,7 +163,7 @@ function implicitCapabilityHtml(tree: CapabilityNode[], error: string | null): s
 
 function managedCapabilityHtml(
   tree: CapabilityNode[], selected: string | null, error: string | null,
-  dashboard: CapabilityDashboard | undefined, repositories: RepositoryDeclarations
+  dashboard: CapabilityDashboard | undefined, repositories: RepositoryDeclarations, runAndTest: RunAndTestSection
 ): string {
   const detail = selected ? capabilityDetail(tree, selected) : null;
   return `<header>
@@ -177,6 +183,7 @@ function managedCapabilityHtml(
     </div>
   </section>
   ${testSetupMenu(detail?.id)}
+  ${detail ? runAndTest(detail.id) : ''}
   <section class="editor-card">${detail
     ? `<div class="card-head"><div><p class="eyebrow">Capability policy</p><h3>${escape(detail.name)}</h3></div>
          <span class="grow"></span><span class="muted">${escape([...detail.ancestors, detail.id].join(' / '))}</span></div>
@@ -247,7 +254,7 @@ function parentSelect(
   </select>`;
 }
 
-function detailHtml(tree: CapabilityNode[], selected: string, repositories: RepositoryDeclarations): string {
+function detailHtml(tree: CapabilityNode[], selected: string, repositories: RepositoryDeclarations, runAndTest: RunAndTestSection): string {
   const detail = capabilityDetail(tree, selected);
   if (!detail) return '<p class="muted">That capability is no longer in the map.</p>';
   const overridden = detail.policy.filter((field) => field.overridden);
@@ -393,6 +400,7 @@ function detailHtml(tree: CapabilityNode[], selected: string, repositories: Repo
 
   ${autoPolicyEditor(detail)}
   ${testSetupMenu(detail.id)}
+  ${runAndTest(detail.id)}
 
   ${detail.ships.length ? `
   <h2>${icon('repository')}Ships from</h2>
@@ -410,11 +418,12 @@ export function bodyHtml(
   error: string | null,
   dashboard?: CapabilityDashboard,
   mode: 'implicit' | 'explicit-legacy' | 'explicit-managed' = 'explicit-legacy',
-  repositories: RepositoryDeclarations = {}
+  repositories: RepositoryDeclarations = {},
+  runAndTest: RunAndTestSection = noSection
 ): string {
   // No map means no onboarded capability, so the implicit page gains no repository link.
-  if (mode === 'implicit') return implicitCapabilityHtml(tree, error);
-  if (mode === 'explicit-managed') return managedCapabilityHtml(tree, selected, error, dashboard, repositories);
+  if (mode === 'implicit') return implicitCapabilityHtml(tree, error, runAndTest);
+  if (mode === 'explicit-managed') return managedCapabilityHtml(tree, selected, error, dashboard, repositories, runAndTest);
   return `
   <header>
     <h1>${icon('capability', { size: 20 })}Capabilities</h1>
@@ -431,7 +440,7 @@ export function bodyHtml(
     : ''}
   </section>
   <section class="editor-card">${selected
-    ? detailHtml(tree, selected, repositories)
+    ? detailHtml(tree, selected, repositories, runAndTest)
     : '<p class="muted">Choose a capability to see what it delivers, who works on it, and the policy it is held to. Use Add a capability to map a new capability and its Git repository.</p>'}
   </section>`;
 }
@@ -531,7 +540,7 @@ export const SCRIPT = `
     else if (data.reviewProposals !== undefined) vscode.postMessage({ type: 'review-proposals' });
     else if (data.save !== undefined) vscode.postMessage({ type: 'save', id: data.save, edits: read() });
   });
-`;
+${RUN_AND_TEST_SCRIPT}`;
 
 
 /** Keep only the fields the model knows, so a page cannot widen what gets written. */

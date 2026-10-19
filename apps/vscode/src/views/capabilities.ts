@@ -16,6 +16,9 @@ import { contentSecurityPolicy, navigationTarget, nonce, page, repositoryWebTarg
 import { navigateTo, openRepositoryWeb } from './navigate.ts';
 import type { WorkspaceStore } from '../state.ts';
 import { RetainedPanelRenderGate } from '../single-flight.ts';
+import { RunAndTest, type RunAndTestHost } from './run-and-test.ts';
+import { findCapability } from './run-and-test-model.ts';
+import { RUN_AND_TEST_STYLE } from './run-and-test-page.ts';
 
 export type CapabilitiesMessage =
   | { type: 'save'; id: string; edits: Record<string, string> }
@@ -43,15 +46,19 @@ export class CapabilitiesPanel {
   /** The form holds edits not saved yet: a background refresh waits, and switching asks first. */
   private dirty = false;
   private renderHeld = false;
+  /** Starting the application and running tests, for the capability whose repository is this checkout. */
+  private runAndTest: RunAndTest | null = null;
 
   private constructor(
     panel: vscode.WebviewPanel,
     store: WorkspaceStore,
     onMessage: (message: CapabilitiesMessage) => void,
-    private readonly lease: { dispose(): void }
+    private readonly lease: { dispose(): void },
+    runAndTest?: RunAndTestHost
   ) {
     this.panel = panel;
     this.store = store;
+    this.useRunAndTest(runAndTest);
     this.snapshotRenders = new RetainedPanelRenderGate(
       () => this.panel.visible !== false,
       () => { if (this.dirty) this.renderHeld = true; else this.render(); },
@@ -127,6 +134,12 @@ export class CapabilitiesPanel {
       if (message?.type === 'open-auto-settings') return onMessage({ type: 'open-auto-settings' });
       if (message?.type === 'test-setup' && typeof message.id === 'string') return onMessage({ type: 'test-setup', id: message.id });
       if (message?.type === 'progressive-why') return onMessage({ type: 'progressive-why' });
+      if (message?.type === 'run-and-test') {
+        const field = (name: string): string => { const value = (raw as Record<string, unknown>)[name]; return typeof value === 'string' ? value : ''; };
+        if (!field('action') || !field('capability')) return;
+        return this.runAndTest?.handle({ action: field('action'), capability: field('capability'), entry: field('entry'),
+          command: field('command'), environment: field('environment') });
+      }
       if (message?.type === 'save' && typeof message.id === 'string') {
         return onMessage({ type: 'save', id: message.id, edits: readEdits(message.edits) });
       }
@@ -142,9 +155,11 @@ export class CapabilitiesPanel {
   static async show(
     context: vscode.ExtensionContext,
     store: WorkspaceStore,
-    onMessage: (message: CapabilitiesMessage) => void
+    onMessage: (message: CapabilitiesMessage) => void,
+    runAndTest?: RunAndTestHost
   ): Promise<CapabilitiesPanel> {
     if (CapabilitiesPanel.current) {
+      CapabilitiesPanel.current.useRunAndTest(runAndTest);
       CapabilitiesPanel.current.panel.reveal(vscode.ViewColumn.Active);
       return CapabilitiesPanel.current;
     }
@@ -152,6 +167,7 @@ export class CapabilitiesPanel {
     const raced = CapabilitiesPanel.current as CapabilitiesPanel | null;
     if (raced) {
       lease.dispose();
+      raced.useRunAndTest(runAndTest);
       raced.panel.reveal(vscode.ViewColumn.Active);
       return raced;
     }
@@ -163,12 +179,24 @@ export class CapabilitiesPanel {
           retainContextWhenHidden: true,
           localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
         });
-      CapabilitiesPanel.current = new CapabilitiesPanel(panel, store, onMessage, lease);
+      CapabilitiesPanel.current = new CapabilitiesPanel(panel, store, onMessage, lease, runAndTest);
     } catch (error) {
       lease.dispose();
       throw error;
     }
     return CapabilitiesPanel.current;
+  }
+
+  /** Bind the Run & test controller once; its changes redraw the page unless unsaved edits hold it. */
+  private useRunAndTest(host: RunAndTestHost | undefined): void {
+    if (!host) return;
+    const first = !this.runAndTest;
+    this.runAndTest = RunAndTest.attach(host);
+    if (first) this.disposables.push(this.runAndTest.onDidChange((capability) => {
+      // Only the capability on screen (or the implicit one, shown with nothing selected) redraws.
+      if (this.disposed || this.selected && this.selected !== capability) return;
+      if (this.dirty) this.renderHeld = true; else this.render();
+    }));
   }
 
   /** Open on a capability, for a caller that already knows which one — the tree, clicking one. */
@@ -202,11 +230,16 @@ export class CapabilitiesPanel {
       bodyHtml(
         map?.capabilities ?? [], this.selected,
         this.error ?? map?.error ?? null, dashboard, map?.mode,
-        this.store.current.snapshot?.portfolio?.repositories ?? {}
+        this.store.current.snapshot?.portfolio?.repositories ?? {},
+        (id) => {
+          const node = this.runAndTest ? findCapability(map?.capabilities ?? [], id) : null;
+          return node && this.runAndTest ? this.runAndTest.sectionHtml(node) : '';
+        }
       ),
       contentSecurityPolicy(this.panel.webview, token),
       token,
-      SCRIPT
+      SCRIPT,
+      { styles: RUN_AND_TEST_STYLE }
     );
   }
 

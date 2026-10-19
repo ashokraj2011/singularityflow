@@ -967,6 +967,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openEvidenceMatrix',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.decideStory', 'singularityFlow.decisions',
+    'singularityFlow.startApplication', 'singularityFlow.runTests', 'singularityFlow.testSummary',
     'singularityFlow.publishConfiguration',
     'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.togglePromptLog', 'singularityFlow.openActivityLog',
     'singularityFlow.openWorkspaceLogs', 'singularityFlow.refreshWorkspaceLogs', 'singularityFlow.openSpecificationTrace',
@@ -7059,6 +7060,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
   };
 
+  /** Run & test (lazy panels): this window's client, workspace memory and capability map. */
+  const runAndTestHost = () => ({ client, state: context.workspaceState, output,
+    activeRepositoryId: () => activeRepositoryContext()?.repositoryId ?? null,
+    capabilities: () => store.current.snapshot?.capabilityMap?.capabilities ?? [],
+    workId: () => store.current.snapshot?.workflow?.workItem.id ?? null });
   /**
    * Editing the capability map.
    *
@@ -7068,7 +7074,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    */
   const onCapabilitiesMessage = async (message: CapabilitiesMessage): Promise<void> => {
     const { CapabilitiesPanel } = lazyPanels();
-    const panel = await CapabilitiesPanel.show(context, store, (next) => { void onCapabilitiesMessage(next); });
+    const panel = await CapabilitiesPanel.show(context, store, (next) => { void onCapabilitiesMessage(next); }, runAndTestHost());
     if (message.type === 'open-auto-settings') {
       await vscode.commands.executeCommand('singularityFlow.configureAuto');
       return;
@@ -7966,7 +7972,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       async () => {
         const { CapabilitiesPanel } = lazyPanels();
         void refreshReadiness();
-        return CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); });
+        return CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); }, runAndTestHost());
       },
     'singularityFlow.openImpact': async () => {
       const { ImpactPanel } = lazyPanels();
@@ -8816,6 +8822,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       lazyPanels().DecisionListPanel.show(client, { workId, phase: typeof phase === 'string' ? phase : null },
         { refresh: refreshAfterKnownMutation, output });
     },
+    // Run & test from the palette; `testSummary` also takes `{ workId, phase, beside }` or `{ capability }`.
+    'singularityFlow.startApplication': () => lazyPanels().runAndTestCommand('start', runAndTestHost()),
+    'singularityFlow.runTests': () => lazyPanels().runAndTestCommand('tests', runAndTestHost()),
+    'singularityFlow.testSummary': (target?: unknown) => lazyPanels().runAndTestCommand('summary', runAndTestHost(), target),
     // Workflow Studio, optionally at one section: `{ view: 'changes' }` opens the proposals waiting
     // for review, `{ view: 'artifacts' }` the templates.
     'singularityFlow.openWorkflowStudio': async (target?: unknown) => {
@@ -9109,7 +9119,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }) as never,
     'singularityFlow.editCapability': (async (node?: TreeNode) => {
       const { CapabilitiesPanel } = lazyPanels();
-      const panel = await CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); });
+      const panel = await CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); }, runAndTestHost());
       const capability = capabilityIdOf(node);
       if (capability) panel.focus(capability);
     }) as never

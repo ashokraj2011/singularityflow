@@ -67,6 +67,8 @@ export interface ApprovalReviewRequest {
    * bundle. Presentation only: the approval gate checks again.
    */
   pendingDecisions?: { count: number; headline: string } | null;
+  /** The step's test run (`tests summary --json`), when one is recorded: its label and totals. */
+  testRun?: { label: string; totals: string } | null;
   priorExceptions: Array<{ article?: string; decision?: string; reason?: string; actor?: string }>;
   selfApproval: boolean;
 }
@@ -292,13 +294,18 @@ function reviewBody(request: ApprovalReviewRequest, errors: string[] = []): stri
     <p class="muted">Approval is refused until each one is decided. They are listed in one place, in plain words with their choices.</p>
     <button type="button" data-decide>Decide what blocks this step</button>
   </section>` : '';
+  const tests = request.testRun ? `<section class="approval-tests" aria-label="Test results">
+    <h2>Test results</h2><p>${escape(request.testRun.totals)}${request.testRun.label ? ` · ${escape(request.testRun.label)}` : ''}</p>
+    <button type="button" class="secondary" data-test-summary>Open test summary</button>
+    <span class="muted">Every test case of this step's run, opened beside this review.</span>
+  </section>` : '';
   return `<form class="approval-form" data-expected="${escape(request.expected)}">
     <div class="approval-review-content" tabindex="0" aria-label="Approval review details"><header>
       <h1>${escape(request.title)}</h1>
       <p class="meta">Review the exact generation, record every required decision, then type the phase confirmation.</p>
     </header>
     <div class="review-binding approval-binding">${binding}</div>
-    ${held}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
+    ${held}${tests}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
       ${checklist}${witnessReview}
       <section class="approval-confirmation">
         <h2>Confirm your decision</h2>
@@ -452,6 +459,8 @@ const REVIEW_SCRIPT = `
   });
   const decide = form.querySelector('[data-decide]');
   if (decide) decide.addEventListener('click', function () { window.__sfVscode.postMessage({ type: 'approval.decide' }); });
+  const tests = form.querySelector('[data-test-summary]');
+  if (tests) tests.addEventListener('click', function () { window.__sfVscode.postMessage({ type: 'approval.testSummary' }); });
   form.addEventListener('submit', function (event) {
     event.preventDefault();
     sync();
@@ -511,6 +520,11 @@ export function collectApprovalReview(
         if (!request.pendingDecisions?.count) return;
         finish(null);
         void vscode.commands.executeCommand('singularityFlow.decisions', { workId: request.workId, phase: request.phaseId });
+      },
+      // The review stays open: the summary opens beside it, for the same Story step.
+      'approval.testSummary': () => {
+        if (!request.testRun) return;
+        void vscode.commands.executeCommand('singularityFlow.testSummary', { workId: request.workId, phase: request.phaseId, beside: true });
       },
       'approval.submit': (message) => {
         const checked = validateApprovalReviewSubmission(request, message);

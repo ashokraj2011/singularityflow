@@ -148,6 +148,25 @@ async function saveIn(file, document, store, beforeWrite = null) {
 }
 
 /**
+ * A shared step may send rejected work back to steps another workflow runs before it. A workflow
+ * that does not run those steps first keeps only the targets it has, written as its own override,
+ * so no Story of it is sent back to a step it lacks (WORKFLOW_REJECTION_TARGET). Never widens.
+ */
+export function pinWorkflowRejectTargets(document, store, workflowId, phases) {
+  if (store.governs !== 'story') return;
+  const content = document.toJS() ?? {};
+  for (const [index, phaseId] of phases.entries()) {
+    const own = content[store.workflows]?.[workflowId]?.phaseOverrides?.[phaseId]?.approval;
+    const approval = Array.isArray(own?.rejectTo) ? own : content[store.phases]?.[phaseId]?.approval;
+    if (!Array.isArray(approval?.rejectTo)) continue;
+    const kept = approval.rejectTo.filter((target) => target === phaseId || phases.slice(0, index).includes(target));
+    if (kept.length === approval.rejectTo.length) continue;
+    document.setIn([store.workflows, workflowId, 'phaseOverrides', phaseId, 'approval', 'rejectTo'],
+      document.createNode(kept.length ? kept : [phaseId]));
+  }
+}
+
+/**
  * Make the planning contract explicit on every newly-authored Story workflow.
  *
  * Old hand-authored catalogs remain readable as `migration-required`, but an authoring command is
@@ -328,6 +347,7 @@ export async function defineWorkflow(root, workflowId, {
     ...(plannedClaims !== undefined && plannedClaims !== null ? { plannedClaims } : {}),
     ...(reworkLoops?.length ? { reworkLoops } : {})
   }));
+  pinWorkflowRejectTargets(document, store, id, phases);
   const plannedClaimsPolicy = pinAuthoredStoryPlannedClaims(document, store, id, { newlyCreated: true });
   await saveIn(file, document, store);
   return { workflowId: id, governs: store.governs, phases, path: store.file,
@@ -374,6 +394,7 @@ export async function editWorkflow(root, workflowId, changes = {}) {
         `Workflow '${id}' would name phases that are not defined for ${store.governs} work: ${unknown.join(', ')}.`);
     }
     document.setIn([store.workflows, id, 'phases'], changes.phases);
+    pinWorkflowRejectTargets(document, store, id, changes.phases);
   }
   for (const field of ['label', 'description']) {
     if (changes[field] === undefined) continue;

@@ -498,7 +498,8 @@ export async function loadInitiative(root, id = undefined, portfolio = null) {
   const selected = resolveContext(index, { reference: requested, kind: 'initiative', required: false });
   if (!selected) {
     const expected = posix(path.relative(root, initiativeStatePath(root, definition, requested)));
-    throw new SingularityFlowError(`No initiative found for ${requested}. Expected ${expected} or a registered branch alias.`);
+    throw new SingularityFlowError(`No initiative found for ${requested}. Expected ${expected} or a registered branch alias.`,
+      { code: 'INITIATIVE_NOT_FOUND', details: { workId: requested } });
   }
   const initiative = validateInitiativeRuntimeState(await readJson(path.join(root, selected.location.path)), selected.id);
   return { portfolio: definition, initiative };

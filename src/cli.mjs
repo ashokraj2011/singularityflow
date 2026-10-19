@@ -10538,11 +10538,11 @@ async function epicCommand(positionals, options) {
   }
   if (['requirements', 'planning'].includes(subcommand)) {
     const root = repoRoot();
-    const initiativeId = optionString(options, 'epic') ?? branch(root);
     const phaseId = EPIC_PHASES[subcommand];
     const action = positionals[2] ?? 'status';
-    let loaded = await loadInitiativeAggregate(root, initiativeId);
-    if (subcommand === 'requirements' && loaded.initiative.currentPhase === EPIC_PHASES.intake) {
+    const { initiativeId, onEpicBranch, loaded: subject } = await (await import('./epic-subject.mjs')).resolveEpicSubject(root, options, { action, phaseId });
+    let loaded = subject;
+    if (onEpicBranch && subcommand === 'requirements' && loaded.initiative.currentPhase === EPIC_PHASES.intake) {
       const completed = await completeEpicIntake(root, initiativeId);
       if (completed.advanced) {
         await commitInitiativeChange(
@@ -10566,7 +10566,7 @@ async function epicCommand(positionals, options) {
     if (loaded.initiative.currentPhase !== phaseId) {
       throw new SingularityFlowError(`Cannot ${action} ${phaseId}: current Epic stage is '${loaded.initiative.currentPhase ?? 'complete'}'.`);
     }
-    if (action === 'prepare') return initiativeCommand(['initiative', 'phase', phaseId], options);
+    if (action === 'prepare') return initiativeCommand(['initiative', 'phase', phaseId], { ...options, initiative: initiativeId });
     if (action === 'validate' && subcommand === 'planning') {
       const verification = await verifyEpicPlanningPackage(root, loaded.portfolio, loaded.initiative);
       if (optionBoolean(options, 'json')) console.log(JSON.stringify(verification, null, 2));
@@ -10577,8 +10577,8 @@ async function epicCommand(positionals, options) {
       if (!verification.valid) process.exitCode = 2;
       return;
     }
-    if (action === 'publish') return initiativeCommand(['initiative', 'phase', 'publish', phaseId], options);
-    if (action === 'approve') return initiativeCommand(['initiative', 'approve', 'phase'], options);
+    if (action === 'publish') return initiativeCommand(['initiative', 'phase', 'publish', phaseId], { ...options, initiative: initiativeId });
+    if (action === 'approve') return initiativeCommand(['initiative', 'approve', 'phase'], { ...options, initiative: initiativeId });
     const allowed = subcommand === 'planning' ? 'prepare, status, validate, publish, or approve' : 'prepare, status, publish, or approve';
     throw new SingularityFlowError(`Unknown Epic ${subcommand} action '${action}'. Use ${allowed}.`);
   }

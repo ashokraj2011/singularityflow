@@ -1059,8 +1059,8 @@ test('My Work resolves an active workspace when no editor folder is open', async
   await writeFile(intakeFile, intake
     .replace(/TODO: Describe[^\n]*/, 'Prove My Work can resolve an open implementation interval without an editor folder.')
     .replace(/TODO: State one[^\n]*/, 'My Work displays the active Story. |')
-    .replace(/TODO: `src\/example.js`/, '`local-poc-change.txt`')
-    .replace(/TODO: `test\/example.test.js`/, 'not-applicable: this host regression exercises the packaged UI separately')
+    .replace(/TODO: replace with exact backticked repository-relative source paths/, '`local-poc-change.txt`')
+    .replace(/TODO: replace with exact backticked repository-relative test paths/, 'not-applicable: this host regression exercises the packaged UI separately')
     .replace(/TODO: what a person[^\n]*/, 'The active Story and its local changes are visible. |')
     .replace(/TODO: State what[^\n]*/, 'No application feature or production test is changed.'));
   for (const args of [['phase', 'publish', 'intake', '--authored', 'human'], ['submit', 'intake'],

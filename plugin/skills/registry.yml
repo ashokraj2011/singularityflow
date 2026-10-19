@@ -147,7 +147,7 @@ skills:
   sflow-epic-sync: { class: mutation, executionBoundary: repository }
   sflow-factory-reset: { class: mutation, executionBoundary: repository }
   sflow-governance-rebuild: { class: mutation, executionBoundary: repository }
-  sflow-fault: { class: mutation }
+  sflow-fault: { class: mutation, executionBoundary: repository }
   sflow-fresh-install: { class: mutation, executionBoundary: machine }
   sflow-local-reset: { class: mutation, executionBoundary: machine }
   sflow-local: { class: interactive, executionBoundary: machine }
@@ -216,7 +216,7 @@ skills:
   sflow-receipt: { class: echo, executionBoundary: repository }
   sflow-refresh-branch: { class: mutation }
   sflow-refresh-configuration: { class: mutation, executionBoundary: machine }
-  sflow-regression-investigate: { class: conversational }
+  sflow-regression-investigate: { class: conversational, executionBoundary: repository }
   sflow-recover: { class: mutation, maximumTokenOverride: 801, exception: "Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open." }
   sflow-appeal: { class: review, maximumTokenOverride: 802, exception: "Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open." }
   sflow-reject: { class: review, maximumTokenOverride: 803, exception: "Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open." }

@@ -272,7 +272,11 @@ test('plugin provides governed Jira Story intake with explicit workflow and gove
   assert.match(content, /singularity-flow story start <STORY-KEY> --fetch/);
   assert.match(content, /workflow-template and governed-agent options/);
   assert.match(content, /--selection-receipt <TOKEN>/);
-  assert.match(content, /canonical branch is the exact Jira key/);
+  // A `--ref` or `git.branchNaming.pattern` names the branch; the Jira key is the Story's identity.
+  assert.match(content, /canonical branch is the returned `workItem\.branch`/);
+  assert.doesNotMatch(content, /canonical branch is the exact Jira key/);
+  assert.match(content, /--readiness-baseline <CHOICE> --test-execution-mode <MODE> --gate-mode <GATES>/);
+  assert.match(content, /never default them silently/);
 });
 
 test('plugin provides a read-only effective prompt inspection skill', async () => {
@@ -486,8 +490,12 @@ test('recovery skill reviews a dirty consumed-generation rollover with an exact 
   assert.match(content, /phase rollover <phase> --json/);
   assert.match(content, /match identity\/confirmation to recovery/);
   assert.match(content, /Human-confirm then run returned command once/);
-  assert.match(content, /Never route to `\/sf-code` before rollover succeeds/);
-  assert.match(content, /`\/sf-code` after rollover/i);
+  // Any step rolls over, so the route after it is that step's own skill, not always /sf-code.
+  assert.match(content, /Author only after rollover succeeds via the step's `nextsteps` skill/);
+  assert.doesNotMatch(content, /`\/sf-code` after rollover/i);
+  // A stop names its owner route and comes back here.
+  assert.match(content, /Divergence: `\/sf-refresh-branch`, then a human-reviewed merge/);
+  assert.match(content, /diagnose via `\/sf-doctor`\/`\/sf-admin` before rollover; never waive\. Then rerun `\/sf-recover`/);
   assert.match(content, /Integrity cannot be waived/);
   assert.match(content, /automation only, not manual correction/);
   assert.match(content, /Owned repair saves copies/);
@@ -670,12 +678,57 @@ test('plugin exposes safe refresh, merge-stack, and regression investigation ski
   const expectations = {
     'sflow-refresh-branch': /singularity-flow refresh-branch --json/,
     'sflow-stack': /singularity-flow stack sync --epic/,
-    'sflow-regression-investigate': /singularity-flow regression analyze --base main/
+    // The base is the Story's recorded base or the repository's default branch, never an assumed `main`.
+    'sflow-regression-investigate': /singularity-flow regression analyze --base <BASE>[\s\S]*Never assume `main`/
   };
   for (const [name, pattern] of Object.entries(expectations)) {
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
     assert.match(content, pattern);
   }
+});
+
+test('lifecycle, review and repair skills name the route each stop leaves the person on', async () => {
+  const skill = async (name) => readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
+  // IDE and build files left in an Android, Xcode or .NET checkout must not stall intake.
+  assert.match(await skill('sflow-start'), /`worktree-review-required`: list its `changes`; no Story\. The person commits, ignores, moves or lands them \(`\/sf-adhoc`\), then reruns `\/sf-start`/);
+  // Every outcome the CLI accepts, with the link it requires; a return opens its own change request.
+  assert.match(await skill('sflow-decide'), /plan-correction \(`--link PRC-NNN`\), amend \(`--link FAM-NNN`, approved\), return \(opens its change request\), accept-risk \(`--expires YYYY-MM-DD`\) or dismiss/);
+  // Escalation targets only a configured stronger workflow, then starts a new Story with it.
+  const interval = await skill('sflow-work-interval');
+  assert.match(interval, /Hand off to `\/sf-start` for a new Story whose workflow is the plan's `toWorkType`/);
+  assert.match(interval, /no `escalationTarget` \(no stronger workflow configured\), relay the reasons and offer `\/sf-appeal`/);
+  // A raw commit or stash would bypass governed publication.
+  const refresh = await skill('sflow-refresh-branch');
+  assert.match(refresh, /never commit or stash it outside the governed flow\. On a Story branch offer `\/sf-recover`/);
+  assert.doesNotMatch(refresh, /Ask the contributor to commit or stash/);
+  // `pr --create` prompts on a terminal without --yes and opens the pull request through `gh` only.
+  const pr = await skill('sflow-pr');
+  assert.match(pr, /singularity-flow pr <WORK-ID> --create --yes/);
+  assert.match(pr, /without it, or on another Git host, give `singularity-flow pr describe <WORK-ID> --clipboard`/);
+  // The inbox reads one repository; an empty result there is not an empty workspace.
+  assert.match(await skill('sflow-inbox'), /is clear, not the whole workspace: it reads one repository[\s\S]*singularity-flow inbox --workspace <WORKSPACE-ID> --repository <ID> --json/);
+  const approve = await skill('sflow-approve');
+  assert.match(approve, /Unauthorized: show its approval groups \(`\/sf-approvals`\) so an authorized approver uses `\/sf-inbox`; stop/);
+  assert.match(approve, /`PHASE_ALREADY_APPROVED`: offer `\/sf-next`/);
+  const finalize = await skill('sflow-finalize');
+  assert.match(finalize, /with its `Recover:` commands/);
+  assert.match(finalize, /Next: `\/sf-epic-review` when the packet names an `epicId`, otherwise `\/sf-pr`/);
+  assert.match(await skill('sflow-session'), /relay `remediationPlan` steps in order \(its condition first, then its refresh\/open\); never retry unchanged/);
+  // The CLI treats the person's typed preview digest as the authorization; the agent never supplies it.
+  const version = await skill('sflow-story-skill-version');
+  assert.match(version, /Only the person typing the \*\*full digest returned by the current preview\*\* authorizes it/);
+  assert.match(version, /Never type, copy or infer the digest yourself/);
+  assert.doesNotMatch(version, /typed digest by itself is not human authorization/);
+  const resume = await skill('sflow-resume');
+  assert.match(resume, /never read `workflow\.json`, `STATUS\.md` or earlier artifacts/);
+  assert.match(resume, /`data\.contextBoundary`: relay its `commands` in order[\s\S]*stop before any authoring/);
+  const cancel = await skill('sflow-cancel');
+  assert.match(cancel, /Pending publication: `singularity-flow sync <WORK-ID>`; stale or diverged branch: `\/sf-recover`; then rerun `\/sf-cancel`/);
+  assert.match(cancel, /or in `\/sf-stories` for Copilot CLI users/);
+  assert.match(await skill('sflow-review'), /Substantive findings need a human fix decision; offer the approver's post-submission `\/sf-reject --to <OWNING-STEP>`, or `singularity-flow upstream-issue raise --phase <OWNING-STEP>/);
+  assert.match(await skill('sflow-review-source'), /Unavailable\/truncated sources: name their IDs and stop; route to `\/sf-documents`/);
+  assert.match(await skill('sflow-auto'), /halt after a second failure; then offer step 3's `needs-you` read or step 8's `takeover` for manual repair/);
+  assert.match(await skill('sflow-fault'), /Pass `--story` only for a known Story; a fault needs none/);
 });
 
 test('Epic Story drafting stops for UI review before Jira publication', async () => {
@@ -1120,9 +1173,12 @@ test('code explanation skill uses one read-only computed route and keeps narrati
 
 test('advise skill turns confusion into grounded choices without executing them', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-advise', 'SKILL.md'), 'utf8');
-  assert.match(content, /singularity-flow home --json --request "\$ARGUMENTS"/);
+  // The person's words reach the shell single-quoted: inside double quotes `$(...)` and backticks run.
+  assert.match(content, /singularity-flow home --json --request '\$ARGUMENTS'/);
   assert.match(content, /singularity-flow recommend --json/);
-  assert.match(content, /singularity-flow explain "\$ARGUMENTS" --here --json/);
+  assert.match(content, /singularity-flow explain '\$ARGUMENTS' --here --json/);
+  assert.match(content, /one single-quoted argument, each `'` inside written `'\\''` \(PowerShell `''`\), never in double quotes/);
+  assert.doesNotMatch(content, /"\$ARGUMENTS"/);
   assert.match(content, /singularity-flow nextsteps <WORK-ID> --for-agent --json/);
   assert.match(content, /What I found[\s\S]*Why[\s\S]*Safest next step[\s\S]*Other choices[\s\S]*What changes/);
   assert.match(content, /Nothing yet/);
@@ -1178,8 +1234,11 @@ test('next skill executes one action and preserves explicit approval controls', 
     'pending-publication state must be verified before the one-shot sync');
   assert.match(content, /never waive grounding or rebuild/);
   assert.doesNotMatch(content, /singularity-flow wm ensure/);
-  assert.match(content, /automatic phase agent.*exact phase name/is);
-  assert.match(content, /Every recorded approval must produce its own commit and push/);
+  // A returned decision route (`/sf-confirm` carries a reviewed digest) is the person's to type:
+  // running it from /sf-next would confirm or decide what nobody typed.
+  assert.match(content, /Relay, never run, human-decision routes \(`\/sf-approve`, `\/sf-confirm`, `\/sf-decide`, `\/sf-review-decide`/);
+  assert.match(content, /the person types them; a route's arguments are never their answer/);
+  assert.doesNotMatch(content, /Before approval run|require the exact phase name/);
   assert.match(content, /Do not automatically submit a generation you just published/);
 });
 

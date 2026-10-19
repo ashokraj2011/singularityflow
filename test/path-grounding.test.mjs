@@ -103,6 +103,8 @@ test('the skill boundary lattice keeps entry points storyless without weakening 
   ];
   const repositoryEntry = [
     'sflow-adhoc', 'sflow-approvals', 'sflow-auto', 'sflow-documents', 'sflow-factory-reset',
+    // A fault report and a regression investigation need a repository, not an active Story.
+    'sflow-fault', 'sflow-regression-investigate',
     'sflow-impact', 'sflow-inbox', 'sflow-init', 'sflow-inspect', 'sflow-learn', 'sflow-nextsteps',
     'sflow-progress', 'sflow-receipt', 'sflow-report', 'sflow-reset-all', 'sflow-resume', 'sflow-return',
     'sflow-session', 'sflow-sgos', 'sflow-sgos-create', 'sflow-snapshot', 'sflow-stack', 'sflow-start', 'sflow-status',

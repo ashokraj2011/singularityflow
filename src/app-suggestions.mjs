@@ -16,9 +16,9 @@ import YAML from 'yaml';
 import { APPLICATION_DEBUG_DEFAULT_PORTS, normalizeCapabilityApplication } from './capabilities.mjs';
 import { declarableEnvironmentVariable, ENVIRONMENT_IDENTIFIER } from './environment-declaration.mjs';
 import { insideRoot, parseJsonc, posixRelative, readRunConfigurationSources, splitCommandLine } from './app-suggestion-sources.mjs';
+import { classifyVariable, looksSecretName, looksSecretValue } from './secret-looking.mjs';
 
 export const APP_SUGGESTIONS_RESULT = 'sflow-app-suggestions';
-const SECRET_NAME = /pass|secret|token|key|credential|private|auth/iu;
 const TIMEOUTS = Object.freeze({ java: 180_000, python: 60_000, node: 90_000, go: 120_000, dotnet: 120_000 });
 const ENVIRONMENT_SYNONYMS = Object.freeze({
   development: ['dev', 'development'], develop: ['dev'], dev: ['dev', 'development'], local: ['local'], localhost: ['local'], qa: ['qa', 'test'], test: ['test', 'qa'], testing: ['test', 'qa'], uat: ['uat'], staging: ['staging', 'stage'],
@@ -30,61 +30,6 @@ const ENVIRONMENT_VARIABLES = new Set(['SPRING_PROFILES_ACTIVE', 'ASPNETCORE_ENV
 
 // ---------------------------------------------------------------------------------------------
 // Secrets
-
-function entropy(value) {
-  const counts = new Map();
-  for (const character of value) counts.set(character, (counts.get(character) ?? 0) + 1);
-  let bits = 0;
-  for (const count of counts.values()) { const p = count / value.length; bits -= p * Math.log2(p); }
-  return bits;
-}
-
-/** Whether a value reads like a credential: a JWT, a cloud key, a URL with userinfo, or a long random token. */
-export function looksSecretValue(raw) {
-  const value = String(raw ?? '').trim();
-  if (value.length < 8) return false;
-  if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/u.test(value)) return true;
-  if (/(?:^|[^A-Za-z0-9])eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/u.test(value)) return true;
-  if (/\b(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA|ANVA|AIPA)[A-Z0-9]{16}\b/u.test(value)) return true;
-  if (/\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bxox[abprs]-[A-Za-z0-9-]{10,}|\bsk_(?:live|test)_[A-Za-z0-9]{10,}|\bAIza[0-9A-Za-z_-]{30,}/u.test(value)) return true;
-  if (/[a-z][a-z0-9+.-]*:\/\/[^/\s@]+@/iu.test(value)) return true;
-  if (/[?&;](?:[^=&\s]*(?:pass|secret|token|key|credential|auth|signature|sig))[^=&\s]*=/iu.test(value)) return true;
-  for (const piece of value.split(/[\s,;]+/u)) {
-    if (piece.length < 20 || !/^[A-Za-z0-9+/=_\-.~]+$/u.test(piece)) continue;
-    // A dotted name such as a Java class (com.example.shop.Api2Main) is an identifier, not a token,
-    // and so is an option with a value (-Dfile.encoding=UTF-8); base64 padding only ends a token.
-    if (/^(?:[a-z][a-z0-9]*\.)+[A-Za-z_$][\w$]*$/u.test(piece) || /=[^=]/u.test(piece)) continue;
-    if (/^[0-9a-f]{32,}$/iu.test(piece)) return true;
-    const upper = /[A-Z]/u.test(piece);
-    const lower = /[a-z]/u.test(piece);
-    const digit = /\d/u.test(piece);
-    const score = entropy(piece);
-    if ((upper && lower && digit && score >= 3.5) || ((upper || lower) && digit && score >= 4.2)) return true;
-  }
-  return false;
-}
-
-export function looksSecretName(name) {
-  return SECRET_NAME.test(String(name ?? ''));
-}
-
-/** A variable as environments.yml would declare it: a secret has a name only. */
-export function classifyVariable(name, rawValue, { reference = false } = {}, secrets = new Set()) {
-  const value = String(rawValue ?? '');
-  if (looksSecretName(name) || looksSecretValue(value)) {
-    if (value.length >= 4) secrets.add(value);
-    return { name, kind: 'secret' };
-  }
-  if (reference || !value) return { name, kind: 'flag' };
-  try {
-    const url = new URL(value);
-    if (['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash && value.length <= 2_048) {
-      return { name, kind: 'endpoint', value };
-    }
-  } catch { /* not a URL */ }
-  if (value.length > 256 || value.includes('\u0000')) return { name, kind: 'flag' };
-  return { name, kind: 'flag', default: value };
-}
 
 function environmentNameFor(option) {
   return option.replace(/^-+/u, '').replace(/^D(?=[a-z])/u, '').replace(/[^A-Za-z0-9]+/gu, '_').replace(/^_+|_+$/gu, '').toUpperCase();
@@ -845,4 +790,4 @@ export async function suggestApplication(root, { capabilityId, capability = null
   return scrubDeep(result, secrets);
 }
 
-export { parseJsonc };
+export { classifyVariable, looksSecretName, looksSecretValue, parseJsonc };

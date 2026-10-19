@@ -18,5 +18,5 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 1. Run `singularity-flow refresh-branch --json` from the active repository.
 2. Report whether the branch was already current, fast-forwarded, ahead, or diverged.
 3. If it diverged, stop and show the exact message. Do not rebase, merge, reset, checkout another branch, or force-push automatically.
-4. A dirty working tree is intentionally refused. Ask the contributor to commit or stash their work first.
+4. A dirty working tree is intentionally refused; never commit or stash it outside the governed flow. On a Story branch offer `/sf-recover`: it classifies the changes and returns their governed route (publication, set-aside or `commit-reviewed-worktree`). Elsewhere the contributor decides how to keep them. Then rerun `/sf-refresh-branch`.
 5. This command refreshes only the branch already checked out; it never guesses or switches branches.

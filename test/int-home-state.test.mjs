@@ -231,7 +231,10 @@ test('the Copilot home skill explicitly routes every home goal and refreshes aft
     'home:workspace.switch', 'home:impact.quick', 'home:repository.explore', 'home:help.explain'
   ]) assert.match(skill, new RegExp(goal.replaceAll('.', '\\.')));
   assert.match(skill, /ask_user/);
-  assert.match(skill, /singularity-flow home --json --request "\$ARGUMENTS"/);
+  // The person's words reach the shell single-quoted: inside double quotes `$(...)` and backticks run.
+  assert.match(skill, /singularity-flow home --json --request '\$ARGUMENTS'/);
+  assert.match(skill, /each inner `'` as `'\\''` \(PowerShell `''`\) so nothing expands/);
+  assert.doesNotMatch(skill, /--request "\$ARGUMENTS"/);
   for (const intent of ['orient', 'continue', 'start', 'inspect', 'act', 'recover', 'help']) {
     assert.match(skill, new RegExp(`\\b${intent}\\b`));
   }

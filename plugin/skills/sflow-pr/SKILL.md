@@ -16,5 +16,5 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 
 1. Inspect Story status, finalization, remote branch, and pending publication before any PR operation.
 2. Use `singularity-flow pr describe <WORK-ID> --format markdown` for deterministic local text.
-3. Before a network write, show the exact head, base, title, body, and existing-PR state. Require explicit confirmation, then run `singularity-flow pr <WORK-ID> --create` or `singularity-flow pr describe <WORK-ID> --write --yes` as selected.
+3. Before a network write, show the exact head, base, title, body, and existing-PR state. Require the person to type the Work ID in chat as confirmation, then run `singularity-flow pr <WORK-ID> --create --yes` (without `--yes` it waits on a terminal prompt) or `singularity-flow pr describe <WORK-ID> --write --yes` as selected. Both need the GitHub CLI (`gh`): without it, or on another Git host, give `singularity-flow pr describe <WORK-ID> --clipboard` with the head and base so the person opens the pull request manually.
 4. Report the PR URL and exact head commit. Never merge, force-push, or change the selected base branch. Use `/sf-stack` for Epic dependency order.

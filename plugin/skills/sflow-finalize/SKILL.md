@@ -15,7 +15,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 <!-- sflow-execution-boundary -->
 **Boundary:** reuse entry `ready`/`workId`, cwd=`repositoryPath`; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-1. Run `singularity-flow finalize`; it decides whether every step is settled (approved, or skipped by a workflow decision), so never pre-check it yourself. On refusal relay its findings or `Incomplete:` list and stop.
+1. Run `singularity-flow finalize`; it decides whether every step is settled (approved, or skipped by a workflow decision), so never pre-check it yourself. On refusal relay its findings or `Incomplete:` list with its `Recover:` commands, and stop.
 2. The command verifies a clean tree, the governed seed, parent and Story specification hashes, every phase artifact, approvals, quality evidence, model/token records, and exact source/test tree.
-3. Show the finalization packet path/hash, source commit/tree hash, commit, and push.
+3. Show the finalization packet path/hash, source commit/tree hash, commit, and push. Next: `/sf-epic-review` when the packet names an `epicId`, otherwise `/sf-pr`.
 4. Do not approve or promote the Story. Finalization changes delivery state to `finalized_for_review`; Product Owner review is a separate decision.

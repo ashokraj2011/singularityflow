@@ -328,7 +328,7 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /state=publication_pending[^.]*first `NOW` command equals `singularity-flow sync`/i,
       /singularity-flow sync <WORK-ID>[^.]*once in the verified cwd/i,
       /never follow `THEN`, invoke `\/sf-nextsteps` or `\/sf-next`, or retry/i,
-      /Before approval run `singularity-flow phase show <phase> --for-agent --json`/i,
+      /Relay, never run, human-decision routes \(`\/sf-approve`, `\/sf-confirm`, `\/sf-decide`, `\/sf-review-decide`[^)]*\): the person types them/i,
       /On failure follow `remediationPlan`'s first read-only step/i,
       /copy the first `NOW` action's `copilotCommand` and `command` from that same action object/i,
       /never pair `\/sf-phase` with `singularity-flow next`/i
@@ -336,7 +336,8 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
     forbidden: [
       /Then run `singularity-flow next` once/i,
       /run `phase show <phase> --for-agent --json`/i,
-      /run `recover`/i
+      /run `recover`/i,
+      /Before approval run `singularity-flow phase show/i
     ]
   },
   'sflow-workflow-rules': {
@@ -683,7 +684,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       if (rule.class === 'guided') {
         for (const required of [
           'automatic invocation is not mutation consent',
-          'singularity-flow home --json --request "$ARGUMENTS"',
+          'singularity-flow home --json --request \'$ARGUMENTS\'',
           '`ask_user`',
           'require an explicit `/sf-*` invocation'
         ]) if (!skill.body.includes(required)) errors.push(`${name}: guided automatic skill must include '${required}'`);

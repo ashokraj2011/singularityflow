@@ -116,3 +116,20 @@ or history), it fell from 8,330 to 7,741 ms (7%); cold context was essentially f
 1,231 ms. A bundle-specific check also verified shared staging snapshots and exactly one fresh
 binding check in each of the six optimized retention runs. Native Windows qualification uses a
 hosted runner, not an office laptop with its security filters, cloud storage and shell setup.
+
+## Qualification record
+
+The source-runtime Windows sequence measured 18,856 → 13,761 ms (27%) on the larger corpus and
+13,701 → 14,097 ms (3% slower) on the small corpus. Runtime modes and machines must not be mixed
+into one speedup claim. The clearer installed-runtime gains above are the relevant deployment path.
+
+Native qualification run `39183229972` passed all 168 broader cases on macOS. Windows passed 167;
+the sole failure was an existing test comparing Git's expanded Windows path with an 8.3 alias.
+The assertion now compares both native canonical paths and still requires byte-identical cached
+answers. No runtime validation was relaxed. Follow-up run `39185311144` passed all 54 cache,
+path and source-review lifecycle cases on **both** hosts, along with 2,768 product checks, VS Code
+typechecking and builds. Windows installed-bundle run `39184156814` passed both benchmark profiles
+and its explicit shared-snapshot/fresh-retention assertions. All review CLI cases from the broader
+Windows run passed; the follow-up reran the corrected fixture and affected cache/binding suites,
+not the entire broader corpus. Qualification workflows are temporary CI-only assets, not product
+files or workflows merged into main.

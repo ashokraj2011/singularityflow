@@ -216,8 +216,13 @@ test('a Story step run is staged as local attempts, read as a local run, and adm
   assert.equal(staged.length, 1);
   await assert.rejects(readdir(path.join(root, 'singularity/work-items/QF-1/context/code-delivery/tests/attempts/implement')), { code: 'ENOENT' });
 
-  // Publication runs its own preflight and admits every kept attempt, the local one included.
-  sflow('phase', 'publish', 'implement');
+  // Publication runs its own preflight and admits every kept attempt, the local one included. Run
+  // from a host that sets its own variables too: the preflight's tests never see them either.
+  const published = spawnSync(process.execPath, [cli, '--no-model', 'phase', 'publish', 'implement'], {
+    cwd: root, encoding: 'utf8', timeout: 240_000,
+    env: { ...repo.env, ELECTRON_RUN_AS_NODE: '1', SINGULARITY_FLOW_SURFACE_CONTEXT: JSON.stringify({ schemaVersion: 1, repositoryPath: root }) }
+  });
+  assert.equal(published.status, 0, published.stdout + published.stderr);
   const admitted = await readdir(path.join(root, 'singularity/work-items/QF-1/context/code-delivery/tests/attempts/implement'));
   const records = await Promise.all(admitted.map(async (name) => JSON.parse(await readFile(path.join(root,
     'singularity/work-items/QF-1/context/code-delivery/tests/attempts/implement', name), 'utf8'))));

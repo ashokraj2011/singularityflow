@@ -4546,8 +4546,9 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       commandEnvironment = nodeTestReporterEnvironment(commandEnvironment, isolation?.root ?? root, { argv: policy.argv, cwd: executionRoot });
     }
     delete commandEnvironment.NODE_TEST_CONTEXT;
-    // A person's local run from VS Code must not hand the host's own variables to the tests.
-    if (localRun) commandEnvironment = withoutHostSurfaceVariables(commandEnvironment);
+    // Variables a host sets to run the CLI itself (VS Code's ELECTRON_RUN_AS_NODE) are not the
+    // tests' environment, in a local run or at publication and submission alike.
+    commandEnvironment = withoutHostSurfaceVariables(commandEnvironment);
     if (materialized) commandEnvironment = materialized.childEnvironment(commandEnvironment);
     if (policy.kind === 'test' && policy.result?.adapter === 'playwright-json'
         && structuredResultTarget) {

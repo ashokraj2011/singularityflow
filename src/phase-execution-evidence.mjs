@@ -93,7 +93,7 @@ function executionDetails(root, packet, testPolicy) {
         || receipt.process?.status !== check.status || receipt.process?.exitCode !== check.exitCode) {
       throw new SingularityFlowError('Retained execution identity differs.', { code: 'STORY_REVIEW_EVIDENCE_INVALID' });
     }
-    return { commandId: receipt.commandId, path: reference.path, sha256: reference.sha256,
+    return { attemptId: receipt.attemptId, commandId: receipt.commandId, path: reference.path, sha256: reference.sha256,
       status: receipt.status, adapter: receipt.adapter, counts: receipt.tests,
       assurance: receipt.assurance,
       meetsPinnedCountPolicy: testReceiptPassing(receipt, testPolicy?.minimumDiscovered ?? 1, testPolicy?.minimumPassed ?? 1)

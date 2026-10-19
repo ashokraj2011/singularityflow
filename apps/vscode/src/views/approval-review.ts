@@ -12,7 +12,8 @@ import {
   booleanField, registerMessageRouter, stringField, type InboundMessage
 } from './messages.ts';
 import { navigateTo } from './navigate.ts';
-import { contentSecurityPolicy, escape, navigationTarget, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, escape, evidenceConsistencyHtml, navigationTarget, nonce, page,
+  type EvidenceConsistencyPresentation } from './webview.ts';
 
 export const APPROVAL_DECISIONS = ['satisfied', 'exception', 'not-applicable'] as const;
 export type ApprovalChecklistDecision = {
@@ -60,6 +61,7 @@ export interface ApprovalReviewRequest {
     }>;
   } | null;
   witnessMappings?: WitnessMappingReview[];
+  evidenceConsistency?: EvidenceConsistencyPresentation | null;
   priorExceptions: Array<{ article?: string; decision?: string; reason?: string; actor?: string }>;
   selfApproval: boolean;
 }
@@ -285,7 +287,7 @@ function reviewBody(request: ApprovalReviewRequest, errors: string[] = []): stri
       <p class="meta">Review the exact generation, record every required decision, then type the phase confirmation.</p>
     </header>
     <div class="review-binding approval-binding">${binding}</div>
-    ${findings}${witnessed}${prior}${selfApproval}
+    ${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
       ${checklist}${witnessReview}
       <section class="approval-confirmation">
         <h2>Confirm your decision</h2>

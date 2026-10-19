@@ -158,6 +158,8 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
   return {
     schemaVersion: 1, generatedAt: new Date().toISOString(), workItem: workflow.workItem, branch: branch(root), workflowStatus: workflow.status,
     specificationQuality, witnessReview, markers, priorExceptions, reviewerSelfApproval,
+    evidenceConsistency: await (await import('./evidence-consistency-read.mjs')).readEvidenceConsistency(
+      root, config, workflow, phase, { documents: artifact ? [artifact] : [] }),
     /**
      * The constitution articles this phase is bound by `[SPK:REQ-101]`, and every exception to them
      * `[SPK:REQ-104]`.
@@ -355,6 +357,9 @@ export function reviewMarkdown(bundle) {
     ...specificationQualitySection(bundle),
     ...witnessMappingSection(bundle)
   );
+  if (bundle.evidenceConsistency) lines.push('## Evidence consistency', '',
+    `Projection: ${bundle.evidenceConsistency.projectionSha256}`, '',
+    ...bundle.evidenceConsistency.summary.map((line) => `- ${line}`), '');
   if (bundle.narrative) lines.push('## How this Story got here', '', '```text', bundle.narrative, '```', '');
   lines.push('## Source change summary', '', '```text', bundle.changeSummary || 'No source changes.', '```', '', '## Supporting evidence', '', ...(bundle.documents.length ? bundle.documents.map((item) => `- ${item.id} — ${item.label} (${item.path ?? item.url})`) : ['_No supporting evidence._']), '');
   if (bundle.continuation) {

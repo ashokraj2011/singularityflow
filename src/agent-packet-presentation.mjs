@@ -71,9 +71,11 @@ export function phaseEntryAgentPresentation(packet) {
   const material = Object.keys(projected).filter((key) => !control.includes(key) && key !== 'context');
   return { agentGuide: {
     readOrder: [...control, 'recovery', 'intent', 'recovery.testExecution', 'retainedExecutionEvidence',
+      ...(Object.hasOwn(projected, 'evidenceConsistency') ? ['evidenceConsistency'] : []),
       ...(Object.hasOwn(projected, 'recordedVisualReviews') ? ['recordedVisualReviews'] : []), 'references', 'context.text'],
     testExecutionPath: 'recovery.testExecution',
     retainedExecutionEvidencePath: 'retainedExecutionEvidence',
+    ...(Object.hasOwn(projected, 'evidenceConsistency') ? { evidenceConsistencyPath: 'evidenceConsistency' } : {}),
     contextFilePath: 'context.file.path',
     platform: process.platform,
     instruction: 'Read authority fields together once, without key enumeration; they come first and are complete, one field per line two levels deep. status clarification-required is this skill\'s own next step: compose and ask the unanswered questions in this turn. Never relay the skill you are running as a next action; do that step. Binding ready is not source-edit permission: use mutationContract and codeAuthoringReady before edits. authoringProgress describes the remaining draft milestone, not completed code or permission to publish. Read clarification.checkpoint before interpreting authoringAllowed. Use retainedExecutionEvidence for governed outcomes; recovery.testExecution describes this phase\'s runner, not absence of upstream execution. Reconcile stale narrative and IDE discovery separately; command success is not criterion acceptance. Never truncate control instructions with arbitrary string/byte slices. If a tool cuts context.text, read context.file.path (the same composed prompt, verified by context.file.sha256, without the presentation-only reply personalization) in bounded portions, or complete named sections from the same saved packet; do not recompose or infer absent instructions, and never author from partial context. Reuse context.text; changed bindings need fresh checks. Never reuse approval consent.'

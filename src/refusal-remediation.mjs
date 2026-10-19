@@ -1028,7 +1028,9 @@ function genericSteps(argv) {
  * earlier step's owners. One that falls after the first three is kept after them.
  */
 export const PLAN_STEP_LIMIT = 3;
-export const PLAN_RESERVED_STEP_IDS = Object.freeze(['accept-test-run-risk', 'raise-upstream-issue']);
+export const PLAN_RESERVED_STEP_IDS = Object.freeze(['accept-test-run-risk', 'renew-test-run-risk', 'raise-upstream-issue']);
+// A producer's own `decision test-risk` route: the step approvers renew or record it, so no cap drops it.
+const testRunRiskRoute = (entry) => entry?.argv?.[0] === 'decision' && entry?.argv?.[1] === 'test-risk';
 
 function deduplicate(steps) {
   const seen = new Set();
@@ -1127,8 +1129,9 @@ export function refusalRemediationPlan(error, argv = []) {
       : rawPhaseContext;
   const phaseSteps = phaseContainmentSteps(phaseContext);
   let explicit = explicitCommands(error).map((command, index) => step(
-    `producer-${index + 1}`, command.label ?? 'Follow the recovery action supplied by the refusing operation.', command.command,
-    index === 0 ? 'remediation' : 'diagnostic', command.skill
+    testRunRiskRoute(command) ? 'renew-test-run-risk' : `producer-${index + 1}`,
+    command.label ?? 'Follow the recovery action supplied by the refusing operation.', command.command,
+    index === 0 || testRunRiskRoute(command) ? 'remediation' : 'diagnostic', command.skill
   ));
   // Reserve a place for the actual human repair, even when several diagnostics precede it.
   // The bounded presentation must not reduce "needs ownership review" to three read-only reads.
@@ -1165,7 +1168,10 @@ export function refusalRemediationPlan(error, argv = []) {
       // arbitrary producer diagnostics must never displace the instruction that ends approval.
       ? riskReviewBlocked || upstreamInputBlocked || worktreeHeld
         ? [known[0], ...phaseSteps.filter(entry => entry.id === 'leave-approval-turn'), ...known.slice(1)]
-        : [...phaseSteps, ...known, ...nonDuplicateExplicit]
+        // A lapsed test-run risk is renewed by the step's approvers, not rejected: name that first.
+        : nonDuplicateExplicit.some(testRunRiskRoute)
+          ? [...nonDuplicateExplicit.filter(testRunRiskRoute), ...phaseSteps, ...known, ...nonDuplicateExplicit.filter(entry => !testRunRiskRoute(entry))]
+          : [...phaseSteps, ...known, ...nonDuplicateExplicit]
       : upstreamInputBlocked
         ? [...known, ...nonDuplicateExplicit, ...phaseSteps]
       : requiredTestBlocked
@@ -1297,6 +1303,9 @@ export function refusalDetails(details) {
   if (gate) projected.gate = gate;
   // A run in which no test executed: the step approvers' risk route, so every surface can name it.
   const runRisk = details.testRunRisk;
+  // The refusing operation's own next command, when it is a safe Singularity Flow command.
+  const next = safeCommandGuidance(typeof details.nextAction === 'string' ? { command: details.nextAction } : details.nextAction ?? {});
+  if (next?.command) projected.nextAction = next.command;
   if (runRisk?.eligible === true && text(runRisk.phase) && text(runRisk.commandId)) {
     projected.testRunRisk = compact({ eligible: true, phase: text(runRisk.phase), commandId: text(runRisk.commandId),
       decision: text(runRisk.decision), lapsed: text(runRisk.lapsed), command: text(runRisk.command) });

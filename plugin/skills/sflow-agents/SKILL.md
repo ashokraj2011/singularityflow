@@ -18,8 +18,8 @@ Read-only utility: run the requested read once with `--utility-entry --for-agent
 - Discover: `singularity-flow agents list`.
 - Inspect Copilot-agent routing: `singularity-flow agents mappings`.
 - Inspect: `singularity-flow agents status [AGENT]`.
-- First trust: `singularity-flow agents lock <AGENT>`.
-- Review an update: `singularity-flow agents lock <AGENT> --update`.
+- First trust is terminal-only: give the person `singularity-flow agents lock <AGENT>` to run in their own terminal, where they type the agent name; never run it from chat.
+- Review an update the same way: `singularity-flow agents lock <AGENT> --update`.
 - Materialize locked content: `singularity-flow agents sync <AGENT>`.
 - Refresh generated Markdown: `singularity-flow agents refresh-output <RESOURCE-ID> [--replace]`.
 

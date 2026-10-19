@@ -19,7 +19,8 @@ Use the deterministic CLI. Do not edit ledger entries, head files, idempotency
 indexes, or durable intents by hand.
 
 1. Run `singularity-flow ledger status --json`.
-2. If disabled, explain that `ledger.enabled: true` must be reviewed; do not enable it silently.
+2. If disabled, explain that `ledger.enabled: true` must be reviewed: offer `/sf-configuration` to
+   propose it in `singularity/workflow.yml` as a reviewed configuration change; never enable it silently.
 3. If enabled but uninitialized, offer `singularity-flow ledger init`.
 4. Only when status returns `enabled` and `initialized`: run `singularity-flow ledger doctor` to check orphan ancestry, pin transport,
    signing readiness, and the clone's custom-ref fetch configuration.

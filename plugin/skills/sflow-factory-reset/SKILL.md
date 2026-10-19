@@ -53,6 +53,6 @@ uncommitted reset-scope changes, call them out prominently because factory reset
 will discard them.
 
 If the contributor asks to forget registrations but preserve physical workspace
-directories, run `sf-reset-all` without `--yes` and show its full preview. If they
+directories, use `/sf-local-reset --forget-only`. If they
 ask for a clean machine state that also removes managed workspace directories, use
 `/sf-local-reset`; do not substitute the repository-only reset or full reinstall.

@@ -53,7 +53,7 @@ Use this skill when a contributor wants to browse Jira hierarchy or connect an e
 2. Display every operation, subject, and field plus the exact plan SHA-256.
 3. Explain that `jira.writeMode: approved` and the approved Story-plan step the plan names are required.
 4. Ask the user to confirm the exact initiative ID and exact plan hash.
-5. Only then run `singularity-flow initiative jira-apply --plan <SHA-256>`.
+5. Only then run `singularity-flow initiative jira-apply --plan <SHA-256> --confirm <INIT-ID>`, with the initiative ID exactly as the person typed it.
 6. Display each Jira key and the committed receipt/push result.
 
 Do not transition issues automatically. Do not treat Jira as workflow state; committed Git records remain canonical.

@@ -25,4 +25,4 @@ Keep every choice and confirmation inside GitHub Copilot.
 6. The CLI creates the exact initiative branch, snapshots the portfolio/profile, commits, and pushes. Do not create or switch branches manually.
 7. Show the complete phase flow, profile, current phase, commit, publication result, and the next action it returned (or `singularity-flow initiative next --for-agent --json`). Recommend `/sf-initiative-documents` after phase preparation.
 
-If `ask_user` is unavailable or disabled, stop without mutation. Never substitute public `--profile` or `--agent` flags; they intentionally do not exist.
+If `ask_user` is unavailable or disabled, change nothing here: give the contributor `singularity-flow initiative start <INIT-ID>` with their Jira, title and description arguments to run in their own terminal, which asks for the profile. Never substitute public `--profile` or `--agent` flags; they intentionally do not exist.

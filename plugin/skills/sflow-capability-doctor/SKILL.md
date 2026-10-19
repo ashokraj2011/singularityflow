@@ -18,8 +18,10 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 This is a deterministic inspection skill. Do not infer capability ownership from
 folder or branch names, and do not repair governed state by hand.
 
-1. Run `singularity-flow capability leads --json`. Use the sole result; otherwise ask
-   which lead URL. Never infer one from the current folder or chat history.
+1. Run `singularity-flow capability leads --json`. Use the sole result; with several, ask
+   which lead URL. With none, say no lead is registered, skip step 2, run step 3's local
+   `singularity-flow capabilities doctor --json`, and offer `/sf-capability-map` to register one.
+   Never infer a lead from the current folder or chat history.
 2. Run `singularity-flow capability fsck --lead <LEAD-URL> --json`. Report every failed
    workspace binding, stale state projection, and proposal-history finding with the exact
    remediation supplied by the engine. Do not mutate anything during this check.

@@ -38,7 +38,7 @@ import { activateWorkflowConfigurationProposal, assertLocalConfigurationAuthorin
 import { chmod, lstat, mkdir, mkdtemp, open, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { SingularityFlowError, commandExists, commandLineFile, didYouMean, exists, gitHeadIsUnborn, nearestNames, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, repoRelative, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
-import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, hasUpstream, head, identity, localBranches, pullFastForward, refHead, remoteBranches, repoRoot } from './git.mjs';
+import { add, assertClean, branch, changedFiles, changes, checkout, commit, defaultBranchName, fastForwardTo, fetchOrigin, fetchRemote, hasUpstream, head, identity, localBranches, pullFastForward, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 
 import { currentPhase } from './phase-generation.mjs';
@@ -478,8 +478,11 @@ async function initCommand(options) {
   if (workId) {
     validateId({ idPattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' }, workId);
     assertClean(root);
+    // Without --base, cut the setup branch from the remote's own default branch (recorded locally,
+    // no network), not a hard-coded `main`: a repository on `master`, `develop` or `trunk` would
+    // otherwise get a setup branch from the wrong history, or none.
     await checkout(root, `setup/${workId}`, {
-      base: optionString(options, 'base', 'main'),
+      base: optionString(options, 'base') ?? defaultBranchName(root),
       fetch: optionBoolean(options, 'fetch')
     });
   }
@@ -8213,6 +8216,16 @@ async function initiativeCommand(positionals, options) {
     if (action === 'add') {
       const checkId = requirePositional(positionals, 3, 'checklist ID');
       const phaseId = optionString(options, 'phase', initiative.currentPhase);
+      // Machine and system assurance claim that something other than the registrant produced the
+      // result. Without the verifier named, the record is a person's (or agent's) own reading
+      // presented as automation, so a registration from the command line must say what verified it.
+      const assurance = optionString(options, 'assurance');
+      if (['machine-verified', 'system-verified'].includes(assurance) && !optionString(options, 'verification')?.trim()) {
+        throw new SingularityFlowError(
+          `${assurance} evidence must name the external verifier that produced it: add --verification <METHOD> `
+          + '(the CI job, tool or system). Your own reading of a file or URL is not machine or system verification.',
+          { code: 'INITIATIVE_EVIDENCE_VERIFIER_REQUIRED' });
+      }
       const session = await loadSession(root, { required: false });
       const { value, publication } = await transactInitiativeCommand(
         root,
@@ -8225,7 +8238,7 @@ async function initiativeCommand(positionals, options) {
             initiativeId,
             phaseId,
             checkId,
-            assurance: optionString(options, 'assurance'),
+            assurance,
             verificationMethod: optionString(options, 'verification'),
             source: {
               path: optionString(options, 'path'),

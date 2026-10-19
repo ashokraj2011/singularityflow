@@ -16,12 +16,13 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 **Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
 1. Run `singularity-flow workspace current --json`. When it returns a repository, use only its exact
-   `repositoryPath` as cwd; when it returns no selected repository, do not search for one.
+   `repositoryPath` as cwd; when it returns none, use the opened Git root (the repository this chat was
+   opened in) as cwd. Never search for one.
 2. With a repository, run `singularity-flow init --check --json`, then
    `singularity-flow doctor $ARGUMENTS`. Report each failure with its exact safe fix and summarize
    warnings separately. The initialization check covers workflow, portfolio, templates, prompts,
    and governed-agent files on the current branch. Recommend `/sf-init` when assets are missing.
-3. Without a repository, run `singularity-flow workspace doctor --json`. It is machine-local and
+3. Only without either, run `singularity-flow workspace doctor --json`. It is machine-local and
    offline by default. Add `--network` only after the contributor explicitly chooses to contact the
    remotes named by unfinished bootstrap sessions. Relay proxy and certificate configuration source
    names, never their values; never request credentials or recommend disabling TLS.

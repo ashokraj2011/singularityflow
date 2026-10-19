@@ -20,3 +20,4 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 3. Clearly separate unreachable, blocked, and ready Stories.
 4. Report whether every blocking Story has merged and whether the Epic branch is ready.
 5. This is read-only; do not merge, rebase, or push.
+6. When the Epic branch is ready, offer the read-only preview `singularity-flow epic pr --epic <EPIC-KEY>` (nothing opens without `--create` and the person's confirmation) and `/sf-epic-next` for the next governed step.

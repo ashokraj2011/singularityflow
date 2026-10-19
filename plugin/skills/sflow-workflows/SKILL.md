@@ -19,7 +19,7 @@ Read-only utility: run the requested read once with `--utility-entry --for-agent
 
 Run `singularity-flow workflow $ARGUMENTS`; default `list`.
 
-Intent: read `docs/topics/workflow-intent.md` and `docs/topics/workflow-markup.md`; prose is inert.
+Intent: read `singularity-flow explain workflow-intent --json` and topic `workflow-markup`; prose is inert.
 
 `author`: opened root; only explicit `--repository-story-refs` may read other roots.
 `list|read|history|show|preview|catalog|where-used|op-status`: read-only; relay gaps.

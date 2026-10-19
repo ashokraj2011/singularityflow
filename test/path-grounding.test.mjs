@@ -82,7 +82,9 @@ test('every packaged and template agent rebinds tools to the active repository a
 test('broad reads retain their repository fence and implementation aliases delegate it once', async () => {
   const epicStories = await readFile(path.join(root, 'plugin', 'skills', 'sflow-epic-stories', 'SKILL.md'), 'utf8');
   const implement = await readFile(path.join(root, 'plugin', 'skills', 'sflow-implement', 'SKILL.md'), 'utf8');
-  assert.match(epicStories, /singularity\/initiatives\/<EPIC-ID>\/artifacts\/epic-planning\/story-plan\.yml/);
+  assert.match(epicStories, /initiative documents epic-planning --initiative <EPIC-ID> --json/);
+  assert.match(epicStories, /never construct these paths or search for them/);
+  assert.doesNotMatch(epicStories, /singularity\/initiatives\//, 'the initiative root is configurable');
   assert.match(implement, /Run `\/sflow-code` once/);
   const code = await readFile(path.join(root, 'plugin', 'skills', 'sflow-code', 'SKILL.md'), 'utf8');
   assert.match(code, /singularity-flow phase enter --compose --for-agent --json/);

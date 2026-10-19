@@ -20,7 +20,7 @@ For listing, run `singularity-flow initiative evidence list [CHECK-ID] --json` a
 For registration:
 
 1. Show the active checklist contract with `/sf-initiative-checklist`.
-2. Require the contributor to explicitly choose `machine-verified`, `system-verified`, `human-approved`, or `presence-only` and identify the source.
+2. Offer only the levels in that check's `acceptedAssurance` and require the contributor's explicit choice and source. `machine-verified` or `system-verified` also needs `--verification` naming the external verifier that produced the result (CI job, tool or system), never your own reading of a file or URL; without one, do not register that level.
 3. Preview the phase, checklist item, source, assurance, verification method, applicability decision, reason, and superseded hashes.
 4. Run `singularity-flow initiative evidence add <CHECK-ID> --assurance <LEVEL>` with the supplied `--path`, `--url`, `--external-id`, `--observed-state`, `--source-version`, `--verification`, `--decision`, `--reason`, and repeatable `--supersedes` values.
 5. Report the content hash, committed evidence copy, commit, and push.

@@ -1,6 +1,6 @@
 ---
 name: sflow-epic-start
-description: Start or resume a Jira-keyed Epic planning workspace with an explicitly selected immutable profile and an automatic phase agent.
+description: Start or resume a Jira-keyed or local Epic planning workspace with an explicitly selected immutable profile and an automatic phase agent.
 disable-model-invocation: true
 
 ---
@@ -15,10 +15,12 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-1. Require the Jira Epic key. Run `singularity-flow initiative choices begin start <EPIC-KEY> --json`.
+Say up front: Epic review checks and Epic completion currently need a GitHub remote with an authenticated `gh`. On another Git host, relay their refusal as an unsupported-provider limitation; never retry it.
+
+1. Require the Jira Epic key. A team without Jira gives a title, description and goal instead: run `singularity-flow epic start --local --title <TITLE> --description <TEXT> --goal <TEXT>` once on a clean tree, then go to step 6. With a key, run `singularity-flow initiative choices begin start <EPIC-KEY> --json`.
 2. Present exactly the returned `choiceSets` (profiles) with Copilot's selectable question UI; the phase agent is selected automatically. Do not infer an answer.
 3. Record each answer with `singularity-flow initiative choices answer <TOKEN> <CHOICE-ID> <SELECTED-ID> --json`.
 4. When the receipt is ready, run `singularity-flow epic start <EPIC-KEY> --selection-receipt <TOKEN>`.
 5. Offer only the profiles the receipt returns; never preselect one.
-6. Show the created branch, pinned profile, source Jira identity, commit/push result, complete phase flow, and first deterministic next action.
+6. Show the created branch, pinned profile, source identity (Jira key or reserved local ID), commit/push result, complete phase flow, and first deterministic next action.
 7. Do not create branches manually or approve any phase.

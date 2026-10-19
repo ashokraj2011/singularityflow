@@ -15,9 +15,11 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
+Say up front: Epic checks, approval and completion currently need a GitHub remote with an authenticated `gh`. On another Git host, relay their refusal as an unsupported-provider limitation; never retry it.
+
 1. Run `singularity-flow epic review --epic <EPIC-KEY>` to show the cross-repository review inbox.
 2. Open one exact packet with `singularity-flow epic review <STORY-KEY> --epic <EPIC-KEY>`.
-3. Display the complete documents, source/spec hashes, Epic → REQ/AC → plan ID → Jira key → branch lineage, Git diff, approvals, self-approval warnings, models/tokens/cost, and conformance state.
+3. Link each document and the Git diff as verified previews and list touched paths with added/deleted line counts; never paste document bodies or the diff. Show source/spec hashes, Epic → REQ/AC → plan ID → Jira key → branch lineage, approvals, self-approval warnings, models/tokens/cost, and conformance state.
 4. Run `singularity-flow epic checks <STORY-KEY> --epic <EPIC-KEY> --packet <SHA-256>` only when the reviewer requests it.
 5. Checks may read configured GitHub repository-check and PR state for the exact submitted SHA; they must not execute repository build or test code locally.
-6. Do not approve automatically. When the reviewer decides, use `/sf-epic-review-decision` so the governed agent, rejection target, and exact packet confirmation are captured through a selection receipt. Approval authority still comes from the reviewer’s real Git/GitHub identity.
+6. Do not approve automatically. When the reviewer decides, use `/sf-epic-review-decision` so the governed agent, rejection target, and exact packet confirmation are captured through a selection receipt. Approval authority comes from the reviewer's configured local Git identity and approval groups (configured-local, not cryptographic).

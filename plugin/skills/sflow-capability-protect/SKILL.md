@@ -18,4 +18,4 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 2. Require an explicit approval group when the CLI cannot resolve exactly one.
 3. After confirmation, run once:
    `singularity-flow capability protect <PATH> --approver <GROUP> [--reason <TEXT>] --json`.
-4. Relay the exact review branch, commit, and receipt. Stop; never split the path rule from its approval, activate the proposal, or edit YAML.
+4. Relay the exact review branch, commit, and receipt, then the next action the CLI names for that proposal: review with `singularity-flow capability proposal <BRANCH> --lead <LEAD-URL> --json`; after approval, activation through `/sf-capability-map` (`singularity-flow capability activate <BRANCH> --lead <LEAD-URL> --confirm <COMMIT> --json`). Stop; never split the path rule from its approval, activate the proposal yourself, or edit YAML.

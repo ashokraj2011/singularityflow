@@ -63,6 +63,7 @@ approval without staling either (`state.mjs` decision-commit classification). Ea
 | `proposed` | `plan-correction`, `amend`, `return`, `accept-risk` or `unknown` |
 | `producerGeneration`, `producerArtifacts` | What the issue was raised against (artifact paths and digests) |
 | `source` | For `--from-artifact`, the artifact path and the item digest that makes raising idempotent |
+| `supersedes` | Optional, written only when set: the open issue this one replaces (raised against the wrong step). The replaced issue is never edited; it shows "superseded by" and its own approvers decide it as `dismiss` |
 | `raisedBy`, `authored`, `agent` | Git identity; `human` or `governed-agent`; the session's agent as audit context |
 | `at` | Timestamp |
 
@@ -78,8 +79,18 @@ id), `return` (link to the change request), `accept-risk` (with `expiresAt`, at 
 - `upstream-issue raise --phase <earlier> --about <id|section> --problem <text> [--assumption]
   [--impact] [--proposed <kind>] [--authored governed-agent]`. It may run from any status of the
   current phase.
-- `upstream-issue raise --from-artifact [--phase <current>]` creates one issue per item under
-  `## Upstream discrepancies` that names an earlier phase. It is idempotent per item text.
+- `upstream-issue raise --from-artifact` creates one issue per item under `## Upstream discrepancies`,
+  against the earlier step the item names as its owner: its leading label (`**Verification generation 1; …:**`,
+  `planning:`), its table's producer column, or an `Owner:` / `Owning step:` / `Producer phase:` field, by step
+  id or label. A step named anywhere else (a quoted section title) never decides it. An item naming no
+  owning step, two, or one that is not an earlier step that ran is not raised; the result lists it with a
+  `raise --phase` command. The whole item is the problem (an item over 1,000 characters is refused with
+  `UPSTREAM_ISSUE_PROBLEM_TOO_LONG`, never cut); `about` lists the clause IDs it names, else its section
+  titles; `Assumption:`, `Impact:` and `Proposed owner action:` fill their fields (a proposal only when it
+  opens with a proposal kind). It is idempotent per item text, including items filed under the 300
+  characters an earlier reader kept; an item once filed against another step supersedes that open issue.
+- `upstream-issue raise --phase <earlier> ... --supersedes <UPI>` replaces an open issue raised against the
+  wrong step.
 - `upstream-issue list [--open]` (read-only).
 - `upstream-issue decide <UPI> --outcome <outcome> --reason <text> [--expires <date>]
   [--link <id>]`. It is decided by the earlier phase's approvers.

@@ -838,6 +838,7 @@
           "about": { "type": "string", "minLength": 1, "maxLength": 200 },
           "problem": { "type": "string", "minLength": 20, "maxLength": 1000 },
           "proposed": { "enum": ["plan-correction", "amend", "return", "accept-risk", "unknown"] },
+          "supersedes": { "description": "Optional, written only when set: the open issue this one replaces (raised against the wrong step). The replaced issue is never edited; its approvers decide it as dismiss.", "type": "string", "pattern": "^UPI-[0-9]{3,}$" },
           "authored": { "enum": ["human", "governed-agent"] },
           "at": { "type": "string", "format": "date-time" }
         }

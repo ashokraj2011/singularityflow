@@ -130,6 +130,47 @@ test('an issue raised while a step is in review leaves its approval valid', asyn
   assert.deepEqual(after.upstreamIssues.map((issue) => [issue.id, issue.raisedIn.status]), [['UPI-001', 'awaiting_approval']]);
 });
 
+test('--from-artifact files an item whole against the step it names, holds an unowned one, and a wrong issue is superseded', async (t) => {
+  const { root, cli, attempt, state, AC } = await drafted(t, 'ISSUE-4');
+  cli('upstream-issue', 'raise', '--phase', 'intake', '--about', 'recorded discrepancy', '--problem', PROBLEM);
+  const summary = path.join(root, 'singularity/work-items/ISSUE-4/artifacts/implementation/implementation-summary.md');
+  // The section titles quote the Code step and the planned evidence; only the leading label names the owner.
+  const owned = `**Intake generation 1; “Code evidence” / “Planned implementation evidence”:** the approved intake ${'names the value module but not which callers read it, '.repeat(5)}`
+    + `so ${AC} cannot say who sees 2. **Assumption:** every caller reads the export. **Impact:** ${AC} is verified for direct imports only. `
+    + '**Proposed owner action:** amend the intake scope to name the callers.';
+  await writeFile(summary, `${await readFile(summary, 'utf8')}\n## Upstream discrepancies\n\n- ${owned}\n- The Code step and the planned evidence disagree about ${AC}.\n`);
+  const filed = JSON.parse(cli('upstream-issue', 'raise', '--from-artifact', '--json').stdout).data;
+  assert.ok(owned.indexOf(AC) > 300);
+  assert.deepEqual(filed.issues.map((issue) => [issue.id, issue.phase, issue.about, issue.problem, issue.assumption, issue.impact, issue.proposed]),
+    [['UPI-002', 'intake', AC, owned, 'every caller reads the export.', `${AC} is verified for direct imports only.`, 'amend']]);
+  assert.deepEqual(filed.unowned.map((item) => [item.owner.status, item.text]), [['unnamed', `The Code step and the planned evidence disagree about ${AC}.`]]);
+  assert.match(filed.unowned[0].command, /^singularity-flow upstream-issue raise --work-id ISSUE-4 --phase intake --about "ISSUE-4:AC-001" --problem /u);
+  const again = cli('upstream-issue', 'raise', '--from-artifact').stdout;
+  assert.match(again, /Not raised: 1 item\(s\) name no single earlier owning step/u);
+  assert.match(again, /Not raised because it does not name its owning step/u);
+  assert.equal((await state()).upstreamIssues.length, 2, 'filed once; the unowned item is never guessed');
+  const mixed = attempt('upstream-issue', 'raise', '--from-artifact', '--phase', 'intake');
+  assert.notEqual(mixed.status, 0);
+  assert.match(mixed.stdout + mixed.stderr, /takes no --phase/u);
+
+  // A replacement records the link; the replaced issue keeps its history and is dismissed by its own approvers.
+  const replaced = JSON.parse(cli('upstream-issue', 'raise', '--phase', 'intake', '--about', 'Scope and constraints',
+    '--problem', 'The intake never says whether callers may cache the value or read it once.', '--supersedes', 'UPI-001', '--json').stdout).data.issues[0];
+  assert.deepEqual([replaced.id, replaced.supersedes], ['UPI-003', 'UPI-001']);
+  const listed = cli('upstream-issue', 'list', '--open').stdout;
+  assert.match(listed, /UPI-001 \[open\][^\n]*\n {2}superseded by UPI-003 — decide it as dismiss\n {2}singularity-flow upstream-issue decide UPI-001 --work-id ISSUE-4 --outcome dismiss --reason "Superseded by UPI-003\."/u);
+  assert.deepEqual(JSON.parse(cli('upstream-issue', 'list', '--json').stdout).data.issues.map((issue) => [issue.id, issue.supersededBy]),
+    [['UPI-001', 'UPI-003'], ['UPI-002', null], ['UPI-003', null]]);
+  cli('upstream-issue', 'decide', 'UPI-001', '--outcome', 'dismiss', '--reason', 'Superseded by UPI-003.');
+  const after = await state();
+  assert.equal(Object.hasOwn(after.upstreamIssues[0], 'supersedes'), false);
+  assert.equal(after.upstreamIssues[2].supersedes, 'UPI-001');
+  assert.match(after.history.filter((entry) => entry.event === 'upstream_issue_raised').at(-1).detail, /It supersedes UPI-001\.$/u);
+  const late = attempt('upstream-issue', 'raise', '--phase', 'intake', '--about', 'x', '--problem', PROBLEM, '--supersedes', 'UPI-001');
+  assert.notEqual(late.status, 0);
+  assert.match(late.stdout + late.stderr, /UPI-001 is already decided \(dismiss\)/u);
+});
+
 test('a Story completes only once its open upstream issue is decided', async (t) => {
   const W = 'ISSUE-3';
   const AC = `${W}:AC-001`;

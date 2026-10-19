@@ -31,8 +31,8 @@ export async function upstreamEntrySummary(root, definition, workflow, phase, { 
   const inputs = resolvedPhaseInputs(workflow, phase).map(producerOf).filter(Boolean).map((id) => ({
     phase: id, status: workflow.phases?.[id]?.status ?? 'missing', generation: Number(workflow.phases?.[id]?.generation ?? 0)
   }));
-  const openIssues = openUpstreamIssues(workflow).map(({ issue, status }) => ({
-    id: issue.id, phase: issue.phase, about: issue.about, status, decide: upstreamIssueDecideCommand(workId, issue)
+  const openIssues = openUpstreamIssues(workflow).map(({ issue, status, supersededBy }) => ({
+    id: issue.id, phase: issue.phase, about: issue.about, status, supersededBy, decide: upstreamIssueDecideCommand(workId, issue, supersededBy)
   }));
   const amendments = forwardAmendmentTerminalBlockers(workflow);
   let finalGate = null;

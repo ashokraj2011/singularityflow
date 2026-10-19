@@ -1251,7 +1251,10 @@ const PAGES = Object.freeze({
     description: [
       'raise records an issue against an earlier step from any status of the current step. It needs no',
       'authority, never refuses the current step and changes no artifact. --from-artifact files each item',
-      'the current step\'s artifacts list under "## Upstream discrepancies", once per item.',
+      'the current step\'s artifacts list under "## Upstream discrepancies", once per item, against the step',
+      'it names as its owner (its leading label, such as "planning:", or an "Owner: <step>" field). An item',
+      'that names no owning step, or two, is not raised; it is listed with the command that raises it.',
+      '--supersedes UPI-ID replaces an open issue raised against the wrong step; its approvers dismiss it.',
       'decide is for the earlier step\'s approvers: plan-correction (link the decision plan correction),',
       'return (rework from that step; allowed while the current step is in progress, working files kept,',
       'repair budgets apply), accept-risk (expires within 90 days) or dismiss.',
@@ -1264,6 +1267,7 @@ const PAGES = Object.freeze({
       ['--phase PHASE', 'The earlier step the issue is about.'],
       ['--about ID|SECTION', 'The clause or section, at most 200 characters.'],
       ['--problem TEXT', 'What is wrong, 20 to 1000 characters.'],
+      ['--supersedes UPI-ID', 'The open issue this one replaces; its approvers decide it as dismiss.'],
       ['--outcome KIND', 'plan-correction, return, accept-risk or dismiss.'],
       ['--link PRC-ID', 'The plan correction that resolves the issue.'],
       ['--expires YYYY-MM-DD', 'When an accepted risk lapses; at most 90 days.']

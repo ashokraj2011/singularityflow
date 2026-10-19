@@ -13,10 +13,10 @@ import { assertNoPendingPublication, actorKey, decideForwardAmendment, proposeFo
 import { persistGenerationPublicationRecord } from '../generation-publication-store.mjs';
 import { nextForwardAmendmentProposal, pendingAmendmentRevalidations, revalidateCommand } from '../forward-amendments.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
-import { upstreamDiscrepanciesFromMarkdown } from '../phase-upstream-discrepancies.mjs';
+import { discrepancySteps, upstreamDiscrepanciesFromMarkdown } from '../phase-upstream-discrepancies.mjs';
 import {
-  decideUpstreamIssue, discrepancyItemSha256, raiseUpstreamIssue, upstreamIssueAuthorities, upstreamIssueDecideCommand,
-  upstreamIssueStates, UPSTREAM_ISSUE_OUTCOMES, UPSTREAM_ISSUE_PROPOSALS
+  decideUpstreamIssue, discrepancyIssueRequests, raiseUpstreamIssue, upstreamIssueAuthorities, upstreamIssueDecideCommand,
+  upstreamIssueStates, UPSTREAM_ISSUE_OUTCOMES, UPSTREAM_ISSUE_PROBLEM_MAXIMUM, UPSTREAM_ISSUE_PROPOSALS
 } from '../upstream-issues.mjs';
 import { commandResult, effects, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
@@ -25,7 +25,7 @@ import { actionActor } from './kernel.mjs';
 
 export const UPSTREAM_ISSUE_ACTIONS = Object.freeze(['raise', 'list', 'decide', 'propose-amendment', 'decide-amendment', 'revalidate']);
 const ALLOWED = {
-  raise: ['phase', 'about', 'problem', 'assumption', 'impact', 'proposed', 'authored', 'from-artifact'],
+  raise: ['phase', 'about', 'problem', 'assumption', 'impact', 'proposed', 'authored', 'from-artifact', 'supersedes'],
   list: ['open'],
   decide: ['outcome', 'reason', 'link', 'expires'],
   'propose-amendment': ['phase', 'reason', 'file', 'issue'],
@@ -33,8 +33,8 @@ const ALLOWED = {
   revalidate: ['amendment', 'outcome', 'reason']
 };
 
-function refused(message, code = 'UPSTREAM_ISSUE_INVALID') {
-  throw new SingularityFlowError(message, { code });
+function refused(message, code = 'UPSTREAM_ISSUE_INVALID', details = undefined) {
+  throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
 }
 
 function emit(options, workflow, action, { slots = {}, body = {}, changed = false }) {
@@ -58,45 +58,68 @@ async function stepDocuments(root, config, workflow, phase) {
   return [...paths].filter((file) => /\.(?:md|markdown)$/iu.test(file)).sort();
 }
 
-/** Items the current step's own documents list under `## Upstream discrepancies`, not yet raised. */
+/**
+ * Items the current step's own documents list under `## Upstream discrepancies`, not yet raised.
+ * An item is raised only against the one earlier step it names as its owner; the rest come back
+ * with the command that raises them once the author names the step.
+ */
 async function recordedDiscrepancies(root, config, workflow) {
   const current = workflow.phases?.[workflow.currentPhase];
   if (!current) refused('The Story has no current step whose artifacts could list discrepancies.');
-  const order = workflow.phaseOrder ?? [];
+  const steps = discrepancySteps(workflow);
+  const order = steps.map((step) => step.id);
   const earlier = order.slice(0, Math.max(0, order.indexOf(current.id)));
-  const raised = new Set((workflow.upstreamIssues ?? []).map((issue) => issue.source?.itemSha256).filter(Boolean));
-  const found = [];
+  const entries = [];
   for (const file of await stepDocuments(root, config, workflow, current)) {
-    const artifact = { path: file };
     const content = await readFile(path.join(root, file), 'utf8').catch(() => null);
     if (content == null) continue;
-    for (const item of upstreamDiscrepanciesFromMarkdown(content, earlier)) {
-      if (!item.phase) continue;
-      const itemSha256 = discrepancyItemSha256(item.phase, item.text);
-      if (raised.has(itemSha256) || found.some((entry) => entry.source.itemSha256 === itemSha256)) continue;
-      const about = /\b(?:[A-Z0-9][A-Z0-9._-]{0,63}:)?[A-Z]{2,4}-\d{3}\b/u.exec(item.text)?.[0] ?? 'recorded discrepancy';
-      found.push({ phase: item.phase, about,
-        problem: item.text.length >= 20 ? item.text : `Recorded discrepancy: ${item.text}`, source: { path: artifact.path, itemSha256 } });
-    }
+    for (const item of upstreamDiscrepanciesFromMarkdown(content, steps, { earlier })) entries.push({ path: file, item });
   }
-  return found;
+  const sorted = discrepancyIssueRequests(workflow, entries);
+  const workId = workflow.workItem.id;
+  const produced = earlier.filter((id) => Number(workflow.phases?.[id]?.generation) > 0 && workflow.phases[id].status !== 'not_started');
+  const unowned = sorted.unowned.map(({ path: file, text, owner, about }) => ({
+    path: file, text, owner,
+    reason: owner.status === 'conflicting' ? `it names more than one owning step (${owner.named.join(', ')})`
+      : owner.status === 'not-earlier' ? `it names ${owner.named[0]}, which is not a step before ${current.id}`
+        : owner.status === 'unknown-step' ? `its owner field names "${owner.value}", which is not a step of this Story`
+          : owner.status === 'not-run' ? `it names ${owner.named[0]}, which has not produced anything`
+          : 'it does not name its owning step',
+    command: `singularity-flow upstream-issue raise --work-id ${workId} --phase ${produced.length ? produced.join('|') : '<EARLIER>'} --about "${about.replaceAll('"', "'")}" --problem "<this item's text>"`,
+    rerun: `singularity-flow upstream-issue raise --from-artifact --work-id ${workId}`
+  }));
+  return { ...sorted, unowned };
 }
 
 async function raise(root, config, workflow, options) {
-  const proposed = optionString(options, 'proposed') ?? 'unknown';
-  if (!UPSTREAM_ISSUE_PROPOSALS.includes(proposed)) refused(`--proposed must be one of ${UPSTREAM_ISSUE_PROPOSALS.join(', ')}.`);
+  const fromArtifact = optionBoolean(options, 'from-artifact');
+  const chosen = optionString(options, 'proposed');
+  if (chosen != null && !UPSTREAM_ISSUE_PROPOSALS.includes(chosen)) refused(`--proposed must be one of ${UPSTREAM_ISSUE_PROPOSALS.join(', ')}.`);
   const authored = optionString(options, 'authored') ?? 'human';
   if (!['human', 'governed-agent'].includes(authored)) refused('--authored must be human or governed-agent.');
-  const requests = optionBoolean(options, 'from-artifact')
-    ? await recordedDiscrepancies(root, config, workflow)
+  const manual = fromArtifact ? ['phase', 'about', 'problem', 'assumption', 'impact', 'supersedes'].filter((key) => options[key] !== undefined) : [];
+  if (manual.length) {
+    refused(`--from-artifact reads each item's owning step and text from the artifact, so it takes no --${manual.join(' or --')}. `
+      + 'Raise one item yourself with --phase and --problem, without --from-artifact.', 'UPSTREAM_ISSUE_OPTIONS_INVALID');
+  }
+  const recorded = fromArtifact ? await recordedDiscrepancies(root, config, workflow) : null;
+  if (recorded?.tooLong.length) {
+    refused(`${recorded.tooLong.length} recorded item(s) are longer than the ${UPSTREAM_ISSUE_PROBLEM_MAXIMUM}-character limit of an upstream issue's problem, so nothing was raised: `
+      + `${recorded.tooLong.map((entry) => `${entry.path} (${entry.length} characters: "${entry.text.slice(0, 60)}…")`).join('; ')}. `
+      + `Split each into shorter items under \`## Upstream discrepancies\`, or raise it with --phase, a --problem of at most ${UPSTREAM_ISSUE_PROBLEM_MAXIMUM} characters, and --assumption and --impact.`,
+    'UPSTREAM_ISSUE_PROBLEM_TOO_LONG', { maximum: UPSTREAM_ISSUE_PROBLEM_MAXIMUM, items: recorded.tooLong });
+  }
+  const requests = recorded
+    ? recorded.requests.map((request) => ({ ...request, proposed: chosen ?? request.proposed }))
     : [{ phase: optionString(options, 'phase'), about: optionString(options, 'about'), problem: optionString(options, 'problem'),
-      assumption: optionString(options, 'assumption') ?? null, impact: optionString(options, 'impact') ?? null, source: null }];
-  if (!optionBoolean(options, 'from-artifact') && !requests[0].phase) refused('Name the earlier step with --phase.');
+      assumption: optionString(options, 'assumption') ?? null, impact: optionString(options, 'impact') ?? null, proposed: chosen ?? 'unknown',
+      source: null, supersedes: optionString(options, 'supersedes') ?? null }];
+  if (!fromArtifact && !requests[0].phase) refused('Name the earlier step with --phase.');
   const actor = actionActor(root);
   const session = await loadSession(root, { required: false });
   const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
   // Validate every item before the first commit, so a malformed one records nothing.
-  for (const request of requests) raiseUpstreamIssue(structuredClone(workflow), { ...request, proposed, authored, agent,
+  for (const request of requests) raiseUpstreamIssue(structuredClone(workflow), { ...request, authored, agent,
     raisedBy: actorKey(actor), at: nowIso() });
   const raised = [];
   for (const request of requests) {
@@ -107,35 +130,53 @@ async function raise(root, config, workflow, options) {
       actor, agent, authorityGroup: null, payload: { decision: 'upstream-issue' }
     }, `[${workflow.workItem.id}][upstream-issue] raise against ${request.phase}`, async (aggregate) => {
       await assertNoPendingPublication(root, config, aggregate, 'raise an upstream issue');
-      const issue = raiseUpstreamIssue(aggregate, { ...request, proposed, authored, agent, raisedBy: actorKey(actor), at: nowIso() });
+      const issue = raiseUpstreamIssue(aggregate, { ...request, authored, agent, raisedBy: actorKey(actor), at: nowIso() });
       aggregate.history.push({ at: issue.at, actor: issue.raisedBy, agent, event: 'upstream_issue_raised', phase: aggregate.currentPhase ?? null,
-        detail: `${issue.id} against ${issue.phase} (${issue.about}): ${issue.problem}` });
+        detail: `${issue.id} against ${issue.phase} (${issue.about}): ${issue.problem}${issue.supersedes ? ` It supersedes ${issue.supersedes}.` : ''}` });
       return issue;
     }, { exactWorkItemPaths: [], eventFromResult: (issue) => ({ payload: { decision: 'upstream-issue', issue: issue.id, reviewPacketSha256: null } }) });
     raised.push(value);
   }
+  const unowned = recorded?.unowned ?? [];
   if (!optionBoolean(options, 'json')) {
-    if (!raised.length) console.log('No unraised upstream discrepancies are recorded in this step\'s artifacts.');
+    if (!raised.length && !unowned.length) console.log('No unraised upstream discrepancies are recorded in this step\'s artifacts.');
     for (const issue of raised) {
       console.log(`Raised ${issue.id} against ${issue.phase}: ${issue.about}. This step continues; ${issue.phase}'s approvers decide it:`);
       console.log(`  ${upstreamIssueDecideCommand(workflow.workItem.id, issue)}`);
+      const prior = issue.supersedes ? workflow.upstreamIssues?.find((entry) => entry.id === issue.supersedes) : null;
+      if (prior) {
+        console.log(`${issue.id} supersedes ${prior.id}, recorded against ${prior.phase}; ${prior.phase}'s approvers dismiss it:`);
+        console.log(`  ${upstreamIssueDecideCommand(workflow.workItem.id, prior, issue.id)}`);
+      }
+    }
+    if (unowned.length) console.log(`Not raised: ${unowned.length} item(s) name no single earlier owning step, and an owner is never guessed.`);
+    for (const item of unowned) {
+      const text = item.text.replace(/\s*\n\s*/gu, ' ');
+      console.log(`  - ${item.path}: ${text.length > 160 ? `${text.slice(0, 159)}…` : text}`);
+      console.log(`    Not raised because ${item.reason}. Raise it against its owning step:`);
+      console.log(`    ${item.command}`);
+      console.log(`    Or start the item with that step (for example "planning: …") or add "Owner: <step>", then rerun: ${item.rerun}`);
     }
   }
-  emit(options, workflow, 'raise', { slots: { count: String(raised.length) }, body: { issues: raised }, changed: raised.length > 0 });
+  emit(options, workflow, 'raise', { slots: { count: String(raised.length), unowned: String(unowned.length) },
+    body: { issues: raised, unowned }, changed: raised.length > 0 });
 }
 
 function list(workflow, options) {
   const states = upstreamIssueStates(workflow).filter((entry) => !optionBoolean(options, 'open') || entry.status !== 'decided');
   if (!optionBoolean(options, 'json')) {
     if (!states.length) console.log(optionBoolean(options, 'open') ? 'No open upstream issues.' : 'No upstream issues.');
-    for (const { issue, decision, status } of states) {
+    for (const { issue, decision, status, supersededBy } of states) {
       console.log(`${issue.id} [${status}] ${issue.phase} — ${issue.about}: ${issue.problem}`);
+      if (issue.supersedes) console.log(`  supersedes ${issue.supersedes}`);
+      if (supersededBy) console.log(`  superseded by ${supersededBy}${status === 'decided' ? '' : ' — decide it as dismiss'}`);
       if (decision) console.log(`  ${decision.outcome}${decision.link ? ` (${decision.link})` : ''} by ${decision.actor}: ${decision.reason}`);
-      else console.log(`  ${upstreamIssueDecideCommand(workflow.workItem.id, issue)}`);
+      else console.log(`  ${upstreamIssueDecideCommand(workflow.workItem.id, issue, supersededBy)}`);
     }
   }
   emit(options, workflow, 'list', {
-    slots: { count: String(states.length) }, body: { issues: states.map(({ issue, decision, status }) => ({ ...issue, status, decision })) }
+    slots: { count: String(states.length) },
+    body: { issues: states.map(({ issue, decision, status, supersededBy }) => ({ ...issue, status, decision, supersededBy })) }
   });
 }
 
@@ -318,7 +359,8 @@ export async function run(argv, { positionals = argv, options = {} } = {}) {
   const action = positionals[1] ?? 'list';
   if (options.help === true) {
     console.log('Usage: singularity-flow upstream-issue raise|list|decide [--work-id WORK-ID] [--json]\n'
-      + 'raise: --phase EARLIER --about ID|SECTION --problem TEXT [--assumption TEXT] [--impact TEXT] [--proposed KIND] [--authored human|governed-agent], or --from-artifact\n'
+      + 'raise: --phase EARLIER --about ID|SECTION --problem TEXT [--assumption TEXT] [--impact TEXT] [--proposed KIND] [--authored human|governed-agent] [--supersedes UPI-ID], or --from-artifact\n'
+      + '  --from-artifact raises each item against the step it names as its owner (its leading label, such as "planning:", or an "Owner: <step>" field); an item naming none, or two, is listed with the command that raises it. An item once filed against another step supersedes that issue. --supersedes replaces an open issue raised against the wrong step; its approvers dismiss it.\n'
       + 'list: [--open]\n'
       + 'decide UPI-ID --outcome plan-correction|amend|return|accept-risk|dismiss --reason TEXT [--link PRC-ID|FAM-ID] [--expires YYYY-MM-DD]\n'
       + 'propose-amendment --phase EARLIER --reason TEXT [--file DRAFT] [--issue UPI-ID]; decide-amendment FAM-ID --decision approve|reject --reason TEXT --confirm FAM-ID\n'

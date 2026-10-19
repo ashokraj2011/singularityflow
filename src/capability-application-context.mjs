@@ -8,6 +8,7 @@ import {
 import { readRetainedCapabilityMap, soleDelivery, sourceForRepository } from './capability-context.mjs';
 import { CONFIGURATION_SOURCE_PATH } from './configuration-branch.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
+import { typedApplication } from './run-configurations.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 /**
@@ -17,8 +18,13 @@ import { SingularityFlowError } from './util.mjs';
  * overlay, else the active workspace's lead repository), from one retained byte buffer. Leases and
  * provenance are not read: these commands start local processes and pin nothing. Without a map the
  * implicit repository-root capability has no start entries and runs what the code step runs.
+ *
+ * Each start entry is typed (run-configurations.mjs): a typed entry's fields are checked here, with
+ * the first located error refused, and what this checkout provides (wrappers, interpreter) is
+ * detected for it. `readApplication: false` selects the capability without reading its block at all,
+ * for app config preview, which checks a block from a file instead of the one in the map.
  */
-export async function resolveCapabilityApplication(root, { capabilityId = null, subjectPath = null } = {}) {
+export async function resolveCapabilityApplication(root, { capabilityId = null, subjectPath = null, readApplication = true } = {}) {
   const source = await sourceForRepository(root);
   const hasApprovedReadScope = path.resolve(configurationReadRoot(root)) !== path.resolve(root);
   const hasPinnedConfiguration = existsSync(path.join(root, CONFIGURATION_SOURCE_PATH));
@@ -66,10 +72,12 @@ export async function resolveCapabilityApplication(root, { capabilityId = null, 
     throw new SingularityFlowError(`Capability '${selected}' is a collection; name one of its delivery capabilities with --capability.`, {
       code: 'CAPABILITY_NOT_DELIVERY', details: { capabilityId: selected, available: deliveries } });
   }
+  const repositories = capabilityRepositories(capability);
   return Object.freeze({
     capabilityId: selected, implicit: false, capability,
-    application: normalizeCapabilityApplication(selected, capability),
-    repositories: capabilityRepositories(capability), repositoryId: source.repositoryId ?? null,
+    application: readApplication ? typedApplication(selected, capability.application, normalizeCapabilityApplication(selected, capability), {
+      checkoutRoot: root, repositoryId: source.repositoryId ?? null, repositories }) : null,
+    repositories, repositoryId: source.repositoryId ?? null,
     policy: resolveCapabilityPolicy(definition, selected).policy, mapSha256: snapshot.sha256
   });
 }

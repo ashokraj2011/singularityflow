@@ -8,6 +8,12 @@
  * a variable whose name or value looks secret becomes a `secret` name with no value, a secret
  * argument is removed from argv (and named as a secret instead), and before anything is returned
  * every string is checked once more against every secret value seen. Nothing is written.
+ *
+ * A typed source becomes a typed entry [RUN amendment "IntelliJ-style run configurations" §1]: an
+ * IntelliJ Spring Boot configuration a `type: spring-boot` entry with its main class, VM options,
+ * program arguments and profiles, a PyCharm Django server a `type: django` entry, and so on, so it
+ * reads back as the person wrote it. Each suggestion keeps `start` (its command line, as before) and
+ * adds `configuration`, the typed entry the draft holds; `start.argv` is what that entry resolves to.
  */
 import { readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
@@ -16,9 +22,12 @@ import YAML from 'yaml';
 import { APPLICATION_DEBUG_DEFAULT_PORTS, normalizeCapabilityApplication } from './capabilities.mjs';
 import { declarableEnvironmentVariable, ENVIRONMENT_IDENTIFIER } from './environment-declaration.mjs';
 import { insideRoot, parseJsonc, posixRelative, readRunConfigurationSources, splitCommandLine } from './app-suggestion-sources.mjs';
+import {
+  PRIVATE_DIRECTORY_PLACEHOLDER, resolveStartCommand, runConfigurationErrors, RUN_CONFIGURATION_TYPES, typedStartEntry
+} from './run-configurations.mjs';
+import { classifyVariable, looksSecretName, looksSecretValue } from './secret-looking.mjs';
 
 export const APP_SUGGESTIONS_RESULT = 'sflow-app-suggestions';
-const SECRET_NAME = /pass|secret|token|key|credential|private|auth/iu;
 const TIMEOUTS = Object.freeze({ java: 180_000, python: 60_000, node: 90_000, go: 120_000, dotnet: 120_000 });
 const ENVIRONMENT_SYNONYMS = Object.freeze({
   development: ['dev', 'development'], develop: ['dev'], dev: ['dev', 'development'], local: ['local'], localhost: ['local'], qa: ['qa', 'test'], test: ['test', 'qa'], testing: ['test', 'qa'], uat: ['uat'], staging: ['staging', 'stage'],
@@ -30,61 +39,6 @@ const ENVIRONMENT_VARIABLES = new Set(['SPRING_PROFILES_ACTIVE', 'ASPNETCORE_ENV
 
 // ---------------------------------------------------------------------------------------------
 // Secrets
-
-function entropy(value) {
-  const counts = new Map();
-  for (const character of value) counts.set(character, (counts.get(character) ?? 0) + 1);
-  let bits = 0;
-  for (const count of counts.values()) { const p = count / value.length; bits -= p * Math.log2(p); }
-  return bits;
-}
-
-/** Whether a value reads like a credential: a JWT, a cloud key, a URL with userinfo, or a long random token. */
-export function looksSecretValue(raw) {
-  const value = String(raw ?? '').trim();
-  if (value.length < 8) return false;
-  if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/u.test(value)) return true;
-  if (/(?:^|[^A-Za-z0-9])eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/u.test(value)) return true;
-  if (/\b(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA|ANVA|AIPA)[A-Z0-9]{16}\b/u.test(value)) return true;
-  if (/\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bxox[abprs]-[A-Za-z0-9-]{10,}|\bsk_(?:live|test)_[A-Za-z0-9]{10,}|\bAIza[0-9A-Za-z_-]{30,}/u.test(value)) return true;
-  if (/[a-z][a-z0-9+.-]*:\/\/[^/\s@]+@/iu.test(value)) return true;
-  if (/[?&;](?:[^=&\s]*(?:pass|secret|token|key|credential|auth|signature|sig))[^=&\s]*=/iu.test(value)) return true;
-  for (const piece of value.split(/[\s,;]+/u)) {
-    if (piece.length < 20 || !/^[A-Za-z0-9+/=_\-.~]+$/u.test(piece)) continue;
-    // A dotted name such as a Java class (com.example.shop.Api2Main) is an identifier, not a token,
-    // and so is an option with a value (-Dfile.encoding=UTF-8); base64 padding only ends a token.
-    if (/^(?:[a-z][a-z0-9]*\.)+[A-Za-z_$][\w$]*$/u.test(piece) || /=[^=]/u.test(piece)) continue;
-    if (/^[0-9a-f]{32,}$/iu.test(piece)) return true;
-    const upper = /[A-Z]/u.test(piece);
-    const lower = /[a-z]/u.test(piece);
-    const digit = /\d/u.test(piece);
-    const score = entropy(piece);
-    if ((upper && lower && digit && score >= 3.5) || ((upper || lower) && digit && score >= 4.2)) return true;
-  }
-  return false;
-}
-
-export function looksSecretName(name) {
-  return SECRET_NAME.test(String(name ?? ''));
-}
-
-/** A variable as environments.yml would declare it: a secret has a name only. */
-export function classifyVariable(name, rawValue, { reference = false } = {}, secrets = new Set()) {
-  const value = String(rawValue ?? '');
-  if (looksSecretName(name) || looksSecretValue(value)) {
-    if (value.length >= 4) secrets.add(value);
-    return { name, kind: 'secret' };
-  }
-  if (reference || !value) return { name, kind: 'flag' };
-  try {
-    const url = new URL(value);
-    if (['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash && value.length <= 2_048) {
-      return { name, kind: 'endpoint', value };
-    }
-  } catch { /* not a URL */ }
-  if (value.length > 256 || value.includes('\u0000')) return { name, kind: 'flag' };
-  return { name, kind: 'flag', default: value };
-}
 
 function environmentNameFor(option) {
   return option.replace(/^-+/u, '').replace(/^D(?=[a-z])/u, '').replace(/[^A-Za-z0-9]+/gu, '_').replace(/^_+|_+$/gu, '').toUpperCase();
@@ -139,6 +93,32 @@ export function withoutSecretArguments(tokens, secrets, notes) {
   return { tokens: kept, secretNames: [...new Set(names)].filter(declarableEnvironmentVariable) };
 }
 
+/** A typed configuration with every secret part of its argument lists and properties removed, as for argv. */
+function withoutSecretFields(configuration, secrets, notes) {
+  const fields = {};
+  const secretNames = [];
+  const kinds = RUN_CONFIGURATION_TYPES[configuration.type]?.fields ?? {};
+  for (const [name, value] of Object.entries(configuration)) {
+    if (kinds[name] === 'arguments' && Array.isArray(value)) {
+      const scrubbed = withoutSecretArguments(value, secrets, notes);
+      secretNames.push(...scrubbed.secretNames);
+      if (scrubbed.tokens.length) fields[name] = scrubbed.tokens;
+    } else if (kinds[name] === 'properties') {
+      const kept = {};
+      for (const [property, entry] of Object.entries(value)) {
+        if (looksSecretName(property) || looksSecretValue(entry)) {
+          if (String(entry).length >= 4) secrets.add(String(entry));
+          const variable = environmentNameFor(property);
+          if (declarableEnvironmentVariable(variable)) secretNames.push(variable);
+          notes.push(`A secret Maven property was removed; bind ${variable} with env bind and read it from the environment.`);
+        } else kept[property] = entry;
+      }
+      if (Object.keys(kept).length) fields[name] = kept;
+    } else fields[name] = value;
+  }
+  return { configuration: fields, secretNames: [...new Set(secretNames)] };
+}
+
 /** Replace every secret value seen anywhere in a returned structure. A last guard; readers already drop them. */
 function scrubDeep(value, secrets) {
   const ordered = [...secrets].filter((secret) => secret.length >= 4).sort((left, right) => right.length - left.length);
@@ -167,6 +147,12 @@ function relativeExecutable(from, absolute) {
 function relativeTarget(from, absolute) {
   const relative = posixRelative(from, absolute);
   return relative === '.' ? '.' : relative.startsWith('..') ? relative : `./${relative}`;
+}
+
+/** A typed configuration's fields without the empty ones, so a draft reads as the person wrote it. */
+function fieldsOf(type, fields) {
+  return { type, ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value != null && value !== ''
+    && !(Array.isArray(value) && !value.length) && !(typeof value === 'object' && !Array.isArray(value) && !Object.keys(value).length))) };
 }
 
 async function nearestDirectory(context, from, names) {
@@ -292,7 +278,9 @@ async function translateJava(context, launch, notes) {
     const settings = spring ? await springSettings(context, directory, { variables: launch.variables })
       : { url: urlFor(8080), ready: { http: '/', timeoutMs: TIMEOUTS.java }, notes: ['The URL is a guess; set the port the application serves on.'] };
     notes.push(...settings.notes);
-    return { argv, workingDirectory: directory, url: settings.url, ready: settings.ready };
+    const configuration = launch.typedAs === 'spring-boot' ? fieldsOf('spring-boot', { launcher: 'maven' })
+      : fieldsOf('maven', { goals: launch.goals, profiles: launch.profiles, properties: launch.properties, arguments: launch.options });
+    return { argv, workingDirectory: directory, url: settings.url, ready: settings.ready, configuration };
   }
   if (launch.mode === 'gradle') {
     const directory = launch.workingDirectory;
@@ -304,7 +292,9 @@ async function translateJava(context, launch, notes) {
     const settings = spring ? await springSettings(context, directory, { programArguments: passed, variables: launch.variables })
       : { url: urlFor(8080), ready: { http: '/', timeoutMs: TIMEOUTS.java }, notes: ['The URL is a guess; set the port the application serves on.'] };
     notes.push(...settings.notes);
-    return { argv, workingDirectory: directory, url: settings.url, ready: settings.ready };
+    const configuration = launch.typedAs === 'spring-boot' ? fieldsOf('spring-boot', { launcher: 'gradle' })
+      : fieldsOf('gradle', { tasks: launch.tasks, arguments: launch.arguments.filter((token) => token !== '--debug-jvm') });
+    return { argv, workingDirectory: directory, url: settings.url, ready: settings.ready, configuration };
   }
   // An IntelliJ Application or Spring Boot configuration: IntelliJ computes the classpath, so the
   // terminal runs the module's own build instead.
@@ -331,8 +321,13 @@ async function translateJava(context, launch, notes) {
     return !profile;
   });
   const programArguments = launch.programArguments;
+  // Notes for the command-line form only; the typed form carries VM options, profiles and the main class.
+  const commandNotes = [];
+  const typedNotes = [];
   let argv;
+  let configuration;
   if (spring && maven) {
+    configuration = fieldsOf('spring-boot', { launcher: 'maven', mainClass: launch.mainClass, vmOptions: vm, programArguments, activeProfiles: profiles });
     argv = [await tool(directory, 'mvnw', 'mvn'), 'spring-boot:run',
       ...(launch.mainClass ? [`-Dspring-boot.run.main-class=${launch.mainClass}`] : []),
       ...(vm.length ? [`-Dspring-boot.run.jvmArguments=${joinArguments(vm)}`] : []),
@@ -341,16 +336,22 @@ async function translateJava(context, launch, notes) {
   } else if (spring) {
     const passed = [...programArguments, ...(profiles.length ? [`--spring.profiles.active=${profiles.join(',')}`] : [])];
     argv = [await tool(directory, 'gradlew', 'gradle'), 'bootRun', ...(passed.length ? [`--args=${joinArguments(passed)}`] : [])];
-    if (vm.length) notes.push('Gradle\'s bootRun takes JVM options only from the build (bootRun { jvmArgs … }); the configuration\'s VM options are not carried.');
+    if (vm.length) commandNotes.push('Gradle\'s bootRun takes JVM options only from the build (bootRun { jvmArgs … }); the configuration\'s VM options are not carried.');
+    configuration = fieldsOf('spring-boot', { launcher: 'gradle', mainClass: launch.mainClass, vmOptions: vm, programArguments, activeProfiles: profiles });
+    if (vm.length || profiles.length || launch.mainClass) typedNotes.push('Its VM options, profiles and main class reach bootRun through a private Gradle init script that app start writes for the run.');
   } else if (maven) {
     if (!launch.mainClass) return { refused: 'names no main class' };
     argv = [await tool(directory, 'mvnw', 'mvn'), '-q', 'compile', 'exec:java', `-Dexec.mainClass=${launch.mainClass}`,
       ...(programArguments.length ? [`-Dexec.args=${joinArguments(programArguments)}`] : [])];
-    if (vm.length) notes.push('exec:java runs in Maven\'s own JVM; set the VM options in MAVEN_OPTS.');
+    if (vm.length) commandNotes.push('exec:java runs in Maven\'s own JVM; set the VM options in MAVEN_OPTS.');
+    configuration = fieldsOf('application', { launcher: 'maven-exec', mainClass: launch.mainClass, vmOptions: vm, programArguments });
+    if (vm.length) typedNotes.push('exec:java runs in Maven\'s own JVM, so its VM options are set in MAVEN_OPTS for the application process.');
   } else {
     argv = [await tool(directory, 'gradlew', 'gradle'), 'run', ...(programArguments.length ? [`--args=${joinArguments(programArguments)}`] : [])];
-    notes.push(`gradle run needs the application plugin with mainClass ${launch.mainClass ?? 'set'}.`);
-    if (vm.length) notes.push('Gradle\'s run task takes JVM options only from the build; the configuration\'s VM options are not carried.');
+    commandNotes.push(`gradle run needs the application plugin with mainClass ${launch.mainClass ?? 'set'}.`);
+    if (vm.length) commandNotes.push('Gradle\'s run task takes JVM options only from the build; the configuration\'s VM options are not carried.');
+    configuration = fieldsOf('application', { launcher: 'gradle-run', mainClass: launch.mainClass, vmOptions: vm, programArguments });
+    typedNotes.push(`gradle run needs the application plugin; ${launch.mainClass || vm.length ? 'the main class and VM options reach its run task through a private Gradle init script app start writes for the run' : 'it runs the build\'s main class'}.`);
   }
   const wrapper = /mvnw|gradlew/u.test(argv[0]);
   notes.unshift(`${ide} computes the classpath; this runs through ${wrapper ? `the ${maven ? 'Maven' : 'Gradle'} wrapper` : maven ? 'Maven' : 'Gradle'} instead.`);
@@ -360,7 +361,7 @@ async function translateJava(context, launch, notes) {
   const settings = spring ? await springSettings(context, directory, { programArguments, vmOptions: vm, variables: launch.variables })
     : { url: urlFor(8080), ready: { http: '/', timeoutMs: TIMEOUTS.java }, notes: ['The URL is a guess; set the port the application serves on.'] };
   notes.push(...settings.notes);
-  return { argv, workingDirectory: directory, url: settings.url, ready: settings.ready };
+  return { argv, workingDirectory: directory, url: settings.url, ready: settings.ready, configuration, commandNotes, typedNotes };
 }
 
 async function pythonInterpreter(context, launch, directory, notes) {
@@ -370,7 +371,7 @@ async function pythonInterpreter(context, launch, directory, notes) {
       if (await context.reader.exists(path.join(base, candidate))) return relativeExecutable(directory, path.join(base, candidate));
     }
   }
-  notes.push('No project interpreter was found in the repository, so the entry runs python3; name the project\'s interpreter in argv if it is another.');
+  notes.push('No project interpreter was found in the repository, so the entry runs python3; name the project\'s interpreter if it is another.');
   return 'python3';
 }
 
@@ -381,9 +382,44 @@ function pythonPort(tokens, module, variables) {
   return module === 'flask' ? 5000 : module === 'streamlit' ? 8501 : 8000;
 }
 
+/** uvicorn options as a FastAPI entry's fields: the host is loopback, the port and --reload are fields. */
+function uvicornOptions(tokens) {
+  const parameters = [];
+  let port = null;
+  let reload = false;
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = String(tokens[index]);
+    if (token === '--host') { index += 1; continue; }
+    if (token.startsWith('--host=')) continue;
+    if (token === '--port' && /^\d{2,5}$/u.test(String(tokens[index + 1] ?? ''))) { port = Number(tokens[index + 1]); index += 1; continue; }
+    if (/^--port=\d{2,5}$/u.test(token)) { port = Number(token.slice('--port='.length)); continue; }
+    if (token === '--reload') { reload = true; continue; }
+    parameters.push(token);
+  }
+  return { parameters, port, reload };
+}
+
 async function translatePython(context, launch, notes) {
   const directory = launch.workingDirectory;
   const python = await pythonInterpreter(context, launch, directory, notes);
+  // The typed form names the configuration's own interpreter only; without one it finds the project's at run time.
+  const interpreter = launch.interpreter ? posixRelative(context.root, launch.interpreter) : null;
+  if (launch.mode === 'fastapi') {
+    const text = await readText(context, launch.file) ?? '';
+    const assignment = text.match(/^([A-Za-z_]\w*)\s*(?::\s*\w+\s*)?=\s*FastAPI\(/mu);
+    if (!assignment) return { refused: 'names a file with no FastAPI() application assigned at module level' };
+    const relative = posixRelative(directory, launch.file);
+    if (relative.startsWith('..')) return { refused: 'runs a file outside its working directory, which uvicorn cannot import from there' };
+    const app = `${relative.replace(/\.py$/u, '').split('/').join('.')}:${assignment[1]}`;
+    const options = uvicornOptions(launch.parameters);
+    if (launch.parameters.some((token) => /^--host(?:=|$)/u.test(String(token)))) notes.push('Its --host became 127.0.0.1: a local run listens on loopback only.');
+    const port = options.port ?? 8000;
+    return {
+      argv: [python, ...launch.interpreterOptions, '-m', 'uvicorn', app, '--host', '127.0.0.1', '--port', String(port), ...(options.reload ? ['--reload'] : []), ...options.parameters],
+      workingDirectory: directory, url: urlFor(port), ready: { http: '/', timeoutMs: TIMEOUTS.python },
+      configuration: fieldsOf('fastapi', { app, reload: options.reload || null, interpreter, interpreterOptions: launch.interpreterOptions, parameters: options.parameters })
+    };
+  }
   if (launch.mode === 'django') {
     const manage = await nearestDirectory(context, directory, ['manage.py']);
     if (!manage) return { refused: 'is a Django server with no manage.py in or above its working directory' };
@@ -393,7 +429,10 @@ async function translatePython(context, launch, notes) {
     return {
       argv: [python, ...launch.interpreterOptions, relativeTarget(directory, path.join(manage.directory, 'manage.py')).replace(/^\.\//u, ''), 'runserver',
         `127.0.0.1:${port}`, ...(launch.noReload ? ['--noreload'] : []), ...launch.additional],
-      workingDirectory: directory, url: urlFor(port), ready: { http: '/', timeoutMs: TIMEOUTS.python }
+      workingDirectory: directory, url: urlFor(port), ready: { http: '/', timeoutMs: TIMEOUTS.python },
+      // manage defaults to the working directory's manage.py.
+      configuration: fieldsOf('django', { manage: manage.directory === path.resolve(directory) ? null : posixRelative(context.root, path.join(manage.directory, 'manage.py')), interpreter,
+        interpreterOptions: launch.interpreterOptions, noReload: launch.noReload || null, parameters: launch.additional })
     };
   }
   const parameters = loopbackHostArguments(launch.parameters, notes);
@@ -410,7 +449,10 @@ async function translatePython(context, launch, notes) {
     const match = address.match(/(?:^|:)(\d{2,5})$/u);
     if (match) port = Number(match[1]);
   }
-  return { argv, workingDirectory: directory, url: urlFor(port), ready: { http: '/', timeoutMs: TIMEOUTS.python } };
+  const configuration = launch.typedAs === 'fastapi' ? fieldsOf('fastapi', { app: launch.app })
+    : fieldsOf('python', { ...(launch.mode === 'module' ? { module: launch.module } : { script: posixRelative(context.root, launch.script) }),
+      interpreter, interpreterOptions: launch.interpreterOptions, parameters });
+  return { argv, workingDirectory: directory, url: urlFor(port), ready: { http: '/', timeoutMs: TIMEOUTS.python }, configuration };
 }
 
 const NODE_TOOL_PORTS = [[/\bvite\b|svelte-kit|\bvitest --ui\b/u, 5173], [/\bng serve\b|\bng\s+s\b/u, 4200], [/\bastro\b/u, 4321],
@@ -443,7 +485,10 @@ async function translateNode(context, launch, notes) {
     }
     if (nodeOptions.length !== launch.nodeOptions.length) notes.push('The configuration\'s own --inspect was dropped; app start --debug adds a loopback one.');
     const argv = ['node', ...nodeOptions, posixRelative(directory, launch.script), ...launch.arguments];
-    return { argv, workingDirectory: directory, debugPort, ...await nodeSettings(context, directory, '', launch.arguments, launch.variables ?? []) };
+    return {
+      argv, workingDirectory: directory, debugPort, ...await nodeSettings(context, directory, '', launch.arguments, launch.variables ?? []),
+      configuration: fieldsOf('node', { script: posixRelative(context.root, launch.script), nodeOptions, applicationParameters: launch.arguments })
+    };
   }
   if (launch.mode === 'executable') {
     const command = launch.executableIsPath ? relativeExecutable(directory, launch.executable) : launch.executable;
@@ -452,7 +497,11 @@ async function translateNode(context, launch, notes) {
     if (['npm', 'pnpm', 'yarn'].includes(command) && runs !== -1) {
       try { scriptText = JSON.parse(await readText(context, path.join(directory, 'package.json')) ?? '{}')?.scripts?.[launch.arguments[runs + 1]] ?? scriptText; } catch { /* only the guess is lost */ }
     }
-    return { argv: [command, ...launch.arguments], workingDirectory: directory, ...await nodeSettings(context, directory, scriptText, launch.arguments, launch.variables ?? []) };
+    return {
+      argv: [command, ...launch.arguments], workingDirectory: directory, ...await nodeSettings(context, directory, scriptText, launch.arguments, launch.variables ?? []),
+      configuration: ['npm', 'pnpm', 'yarn'].includes(command) && launch.arguments[0] === 'run' && launch.arguments[1]
+        ? npmConfiguration(command, launch.arguments[1], launch.arguments.slice(2), { named: true }) : null
+    };
   }
   if (!launch.script && launch.command === 'run') return { refused: 'names no npm script' };
   if (!['run', 'start', 'run-script'].includes(launch.command)) return { refused: `runs npm ${launch.command}, not a script that serves` };
@@ -463,8 +512,22 @@ async function translateNode(context, launch, notes) {
   if (manager === 'yarn') notes.push('app start --debug cannot add a debugger to yarn (it runs on Node itself); switch the entry to npm run or give debug.argv.');
   return {
     argv: [manager, 'run', script, ...launch.arguments], workingDirectory: directory,
-    ...await nodeSettings(context, directory, scriptText, launch.arguments, launch.variables ?? [])
+    ...await nodeSettings(context, directory, scriptText, launch.arguments, launch.variables ?? []),
+    configuration: npmConfiguration(manager, script, launch.arguments, { named: ['npm', 'pnpm', 'yarn'].includes(launch.packageManager) || manager !== 'npm' })
   };
+}
+
+/**
+ * An npm run configuration as a typed entry, or null when its arguments are the package manager's own
+ * options: a typed npm entry passes `arguments` to the script (after `--` for npm).
+ */
+function npmConfiguration(manager, script, tokens, { named }) {
+  let passed = [...tokens];
+  if (manager === 'npm' && passed.length) {
+    if (passed[0] !== '--') return null;
+    passed = passed.slice(1);
+  } else if (passed[0] === '--') return null;
+  return fieldsOf('npm', { packageManager: named ? manager : null, script, arguments: passed });
 }
 
 async function translateGo(context, launch, notes) {
@@ -479,9 +542,12 @@ async function translateGo(context, launch, notes) {
   const target = launch.target.path ? relativeTarget(directory, launch.target.path) : launch.target.package;
   const port = portFromArguments(launch.arguments, ['-port', '--port', '-addr', '--addr', '-listen', '--listen'])
     ?? (Number(variableValue(launch.variables ?? [], 'PORT')) || 8080);
+  const kind = launch.target.path ? (await context.reader.isDirectory(launch.target.path) ? 'directory' : 'file') : null;
   return {
     argv: ['go', 'run', ...launch.goFlags, target, ...launch.arguments], workingDirectory: directory,
-    url: urlFor(port), ready: { http: '/', timeoutMs: TIMEOUTS.go }
+    url: urlFor(port), ready: { http: '/', timeoutMs: TIMEOUTS.go },
+    configuration: fieldsOf('go', { kind, target: launch.target.path ? posixRelative(context.root, launch.target.path) : target === '.' ? null : target,
+      goToolArguments: launch.goFlags, programArguments: launch.arguments })
   };
 }
 
@@ -517,7 +583,11 @@ async function translateDotnet(context, launch, notes) {
   if (!applicationUrl && launch.launchSettings && launch.launchProfile) {
     try { applicationUrl = parseJsonc(await readText(context, launch.launchSettings) ?? '{}')?.profiles?.[launch.launchProfile]?.applicationUrl ?? null; } catch { /* only the guess is lost */ }
   }
-  return { argv, workingDirectory: directory, url: dotnetUrl(applicationUrl, launch.variables ?? [], launch.arguments), ready: { http: '/', timeoutMs: TIMEOUTS.dotnet } };
+  return {
+    argv, workingDirectory: directory, url: dotnetUrl(applicationUrl, launch.variables ?? [], launch.arguments), ready: { http: '/', timeoutMs: TIMEOUTS.dotnet },
+    configuration: fieldsOf('dotnet', { project: project.length ? posixRelative(context.root, launch.project ?? projectDirectory) : null,
+      launchProfile: launch.launchProfile, arguments: launch.arguments })
+  };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -541,11 +611,11 @@ async function detectMarkers(context, files) {
     } else if (base === 'pom.xml') {
       const text = await readText(context, file) ?? '';
       if (/spring-boot-maven-plugin|spring-boot-starter-parent/u.test(text) && !/<packaging>\s*pom\s*<\/packaging>/u.test(text)) {
-        add(file, 'Spring Boot (Maven)', { platform: 'java', mode: 'maven', goals: ['spring-boot:run'], profiles: [], properties: {}, options: [], workingDirectory: directory });
+        add(file, 'Spring Boot (Maven)', { platform: 'java', mode: 'maven', typedAs: 'spring-boot', goals: ['spring-boot:run'], profiles: [], properties: {}, options: [], workingDirectory: directory });
       }
     } else if (base === 'build.gradle' || base === 'build.gradle.kts') {
       const text = await readText(context, file) ?? '';
-      if (/org\.springframework\.boot/u.test(text) && !/org\.springframework\.boot['")\s]*(?:version\s*['"(][^\n]*)?\bapply\s*\(?\s*false/u.test(text)) add(file, 'Spring Boot (Gradle)', { platform: 'java', mode: 'gradle', tasks: ['bootRun'], arguments: [], workingDirectory: directory });
+      if (/org\.springframework\.boot/u.test(text) && !/org\.springframework\.boot['")\s]*(?:version\s*['"(][^\n]*)?\bapply\s*\(?\s*false/u.test(text)) add(file, 'Spring Boot (Gradle)', { platform: 'java', mode: 'gradle', typedAs: 'spring-boot', tasks: ['bootRun'], arguments: [], workingDirectory: directory });
     } else if (base === 'manage.py') {
       add(file, 'Django runserver', { platform: 'python', mode: 'django', interpreter: null, interpreterOptions: [], host: '', port: '8000', noReload: false, additional: [], workingDirectory: directory });
     } else if (['main.py', 'app.py', 'asgi.py'].includes(base)) {
@@ -555,7 +625,7 @@ async function detectMarkers(context, files) {
       let pythonPackageDirectory = directory;
       while (pythonPackageDirectory !== context.root && await context.reader.exists(path.join(pythonPackageDirectory, '__init__.py'))) pythonPackageDirectory = path.dirname(pythonPackageDirectory);
       const module = posixRelative(pythonPackageDirectory, file).replace(/\.py$/u, '').split('/').join('.');
-      add(file, 'FastAPI (uvicorn)', { platform: 'python', mode: 'module', interpreter: null, interpreterOptions: [], module: 'uvicorn',
+      add(file, 'FastAPI (uvicorn)', { platform: 'python', mode: 'module', typedAs: 'fastapi', app: `${module}:${assignment[1]}`, interpreter: null, interpreterOptions: [], module: 'uvicorn',
         script: null, parameters: [`${module}:${assignment[1]}`, '--host', '127.0.0.1', '--port', '8000'], workingDirectory: pythonPackageDirectory });
     } else if (base === 'main.go') {
       if (/^package main\b/mu.test(await readText(context, file) ?? '')) mains.push(file);
@@ -679,15 +749,64 @@ function namesFor(group) {
   return items;
 }
 
+/**
+ * The typed entry a group drafts: the first member's configuration, and for each other environment
+ * the fields that differ (perEnvironment). Null when a member is not typed, or the members differ in
+ * type or in which fields they set (an override can change a field, not remove one).
+ */
+function typedDraftFor(group, { id, name, start }) {
+  const [first] = group.members;
+  if (!group.members.every((member) => member.typed && member.typed.type === first.typed.type)) return null;
+  const keys = JSON.stringify(Object.keys(first.typed).sort());
+  if (group.members.some((member) => JSON.stringify(Object.keys(member.typed).sort()) !== keys)) return null;
+  const { type, ...fields } = first.typed;
+  const perEnvironment = {};
+  for (const member of group.members.slice(1)) {
+    const differs = Object.fromEntries(Object.entries(member.typed).filter(([key, value]) => key !== 'type' && JSON.stringify(value) !== JSON.stringify(fields[key])));
+    if (Object.keys(differs).length) perEnvironment[member.environment] = differs;
+  }
+  return {
+    id, ...(name && name !== id ? { name } : {}), type, ...fields,
+    ...(start.repository ? { repository: start.repository } : {}), workingDirectory: start.workingDirectory, url: start.url, ready: { ...start.ready },
+    ...(start.environments ? { environments: [...start.environments] } : {}), ...(Object.keys(perEnvironment).length ? { perEnvironment } : {}),
+    debug: start.debug.runtime === 'dotnet' ? { runtime: 'dotnet' } : { port: start.debug.port }
+  };
+}
+
+/** Whether an existing typed entry already declares this typed draft (its type, fields and directory). */
+function sameTypedEntry(existing, draft) {
+  if (!existing?.type || existing.type !== draft.type || (existing.workingDirectory ?? '.') !== draft.workingDirectory) return false;
+  const fieldsOf = (entry) => JSON.stringify(Object.fromEntries(Object.keys(RUN_CONFIGURATION_TYPES[draft.type]?.fields ?? {})
+    .filter((key) => entry[key] != null).map((key) => [key, entry[key]])));
+  return fieldsOf(existing) === fieldsOf(draft);
+}
+
 function draftYaml(header, value) {
   return `${header.map((line) => `# ${line}`).join('\n')}\n${YAML.stringify(value, { lineWidth: 0 })}`;
 }
 
 /**
+ * A typed entry built from a drafted configuration, checked and resolved as app plan would, or the
+ * first problem that keeps it a command line.
+ */
+function typedEntryFrom(capabilityId, raw, { root, repositories, repositoryId }) {
+  const [problem] = runConfigurationErrors(raw, { capabilityId });
+  if (problem) return { problem: `${problem.field ? `${problem.field} ` : ''}${problem.message}` };
+  try {
+    const [normalized] = normalizeCapabilityApplication(capabilityId, {
+      kind: 'delivery', repositories: repositories.length ? repositories : [repositoryId ?? 'repository'], application: { start: [raw] } }).start;
+    return { entry: typedStartEntry(capabilityId, normalized, raw, 0, { checkoutRoot: root }) };
+  } catch (error) {
+    return { problem: error.message };
+  }
+}
+
+/**
  * Suggestions for one capability from the checkout at `root`. `existing` is the capability's raw
  * application block, kept in the draft so `capability set --application-file` replaces nothing.
+ * `pathsFor(id)` gives the private paths a run of entry `id` uses (a typed Gradle entry's init script).
  */
-export async function suggestApplication(root, { capabilityId, capability = null, repositoryId = null, repositories = [], declaration = null, policy = null } = {}) {
+export async function suggestApplication(root, { capabilityId, capability = null, repositoryId = null, repositories = [], declaration = null, policy = null, pathsFor = null } = {}) {
   const read = await readRunConfigurationSources(root);
   const secrets = new Set();
   const context = { root: read.root, reader: read.reader, cache: new Map(), launchSettingsFiles: read.launchSettingsFiles, markers: read.markers };
@@ -713,7 +832,19 @@ export async function suggestApplication(root, { capabilityId, capability = null
       context.reader.skip(path.join(context.root, configuration.source.file), `'${configuration.source.name}' runs in a directory outside the repository`);
       return null;
     }
-    const scrubbed = withoutSecretArguments(translated.argv, secrets, own);
+    // The typed form when the source is typed and its fields check; else the command line, as before.
+    let typed = null;
+    const relativeDirectory = posixRelative(context.root, real);
+    if (translated.configuration) {
+      const typedNotes = [];
+      const { configuration, secretNames } = withoutSecretFields(translated.configuration, secrets, typedNotes);
+      const built = typedEntryFrom(capabilityId, { id: 'suggestion', ...configuration, workingDirectory: relativeDirectory, url: translated.url, ready: translated.ready },
+        { root: context.root, repositories, repositoryId });
+      if (built.entry) typed = { configuration, secretNames, notes: [...new Set([...typedNotes, ...translated.typedNotes ?? []])], argv: resolveStartCommand(built.entry).argv };
+      else own.push(`It stays a command line: ${built.problem}`);
+    }
+    const scrubbed = typed ? { tokens: typed.argv, secretNames: typed.secretNames } : withoutSecretArguments(translated.argv, secrets, own);
+    own.push(...(typed ? typed.notes : translated.commandNotes ?? []));
     if (scrubbed.tokens.some((token) => /\$[A-Z_]+\$|\$\{[^}]+\}/u.test(token))) own.push('An argument still names an IDE variable ($…$ or ${…}); replace it with its value.');
     const classified = [];
     for (const variable of configuration.variables) {
@@ -727,7 +858,7 @@ export async function suggestApplication(root, { capabilityId, capability = null
     for (const name of scrubbed.secretNames) if (!classified.some((entry) => entry.name === name)) classified.push({ name, kind: 'secret' });
     const candidate = {
       source: configuration.source, platform: launch.platform, launch, variables: configuration.variables, classified,
-      argv: scrubbed.tokens, workingDirectory: posixRelative(context.root, real), url: translated.url, ready: translated.ready,
+      argv: scrubbed.tokens, workingDirectory: relativeDirectory, url: translated.url, ready: translated.ready, typed: typed?.configuration ?? null,
       debug: debugFor(launch.platform, translated.debugPort ?? null), notes: own, idHint: configuration.idHint ?? null
     };
     candidate.environmentWords = environmentWords(candidate);
@@ -787,12 +918,34 @@ export async function suggestApplication(root, { capabilityId, capability = null
       workingDirectory: first.workingDirectory, url: first.url, ready: { ...first.ready },
       ...(environments.length ? { environments } : {}), arguments: startArguments, debug: { ...first.debug }
     };
+    // A typed group drafts its typed entry; start shows the command line it resolves to per environment.
+    const name = first.source.kind === 'detected' ? null : merged || first.declaredEnvironment ? baseName(first) : first.source.name;
+    let configuration = typedDraftFor(group, { id, name, start });
+    if (configuration) {
+      const built = typedEntryFrom(capabilityId, configuration, { root: context.root, repositories, repositoryId });
+      if (built.entry) {
+        const paths = pathsFor?.(id) ?? null;
+        if (merged) {
+          const lines = group.members.map((member) => resolveStartCommand(built.entry, member.environment, { paths }).argv);
+          const prefix = commonPrefix(lines);
+          start.argv = [...prefix];
+          start.arguments = Object.fromEntries(group.members.map((member, index) => [member.environment, lines[index].slice(prefix.length)])
+            .filter(([, tail]) => tail.length));
+        } else start.argv = resolveStartCommand(built.entry, null, { paths }).argv;
+      } else {
+        own.push(`It stays a command line: ${built.problem}`);
+        configuration = null;
+      }
+    }
     const draft = { ...start };
-    if (!Object.keys(startArguments).length) delete draft.arguments;
-    const duplicate = existingStart.find((entry) => JSON.stringify(entry?.argv) === JSON.stringify(start.argv)
-      && (entry?.workingDirectory ?? '.') === start.workingDirectory);
+    if (!Object.keys(start.arguments).length) delete draft.arguments;
+    const duplicate = existingStart.find((entry) => (configuration ? sameTypedEntry(entry, configuration) : false)
+      || (JSON.stringify(entry?.argv) === JSON.stringify(start.argv) && (entry?.workingDirectory ?? '.') === start.workingDirectory));
     if (duplicate) own.push(`Already declared as start entry '${duplicate.id}'; the draft keeps that one.`);
-    else {
+    else if (configuration) draftEntries.push(configuration);
+    else if (start.argv.some((token) => token.includes(PRIVATE_DIRECTORY_PLACEHOLDER))) {
+      own.push('Not in the draft: its command line needs a private file only a typed entry describes.');
+    } else {
       try {
         normalizeCapabilityApplication(capabilityId, { kind: 'delivery', repositories: repositories.length ? repositories : [repositoryId ?? 'repository'],
           application: { start: [draft] } });
@@ -814,7 +967,7 @@ export async function suggestApplication(root, { capabilityId, capability = null
     suggestions.push({
       source: { ...first.source },
       ...(merged ? { variants: group.members.map((member) => ({ file: member.source.file, name: member.source.name, environment: member.environment })) } : {}),
-      start, environmentNames, notes: own
+      start, ...(configuration ? { configuration } : {}), environmentNames, notes: own
     });
   }
 
@@ -845,4 +998,4 @@ export async function suggestApplication(root, { capabilityId, capability = null
   return scrubDeep(result, secrets);
 }
 
-export { parseJsonc };
+export { classifyVariable, looksSecretName, looksSecretValue, parseJsonc };

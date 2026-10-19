@@ -457,7 +457,8 @@ export function capabilityLeadRepository(capability) {
 }
 
 const APPLICATION_KEYS = Object.freeze(['start', 'tests']);
-const START_KEYS = Object.freeze(['id', 'repository', 'argv', 'workingDirectory', 'url', 'ready', 'environments', 'arguments', 'debug']);
+const START_KEYS = Object.freeze(['id', 'repository', 'argv', 'workingDirectory', 'url', 'ready', 'environments', 'arguments', 'debug', 'name', 'type',
+  'env', 'beforeLaunch', 'perEnvironment']);
 const DEBUG_KEYS = Object.freeze(['runtime', 'port', 'suspend', 'argv', 'arguments', 'environment']);
 /** The runtimes app start --debug knows, and each one's default loopback port. */
 export const APPLICATION_DEBUG_RUNTIMES = Object.freeze(['java', 'python', 'node', 'go', 'dotnet']);
@@ -580,7 +581,7 @@ function assertLoopbackDebugTokens(id, tokens, label, startId) {
   if (refusals.length) throw applicationError(id, `${label}: ${refusals[0]}`, { startId, refusals });
 }
 
-function applicationArguments(id, value, label, environments, startId) {
+export function applicationArguments(id, value, label, environments, startId) {
   if (value == null) return null;
   if (typeof value !== 'object' || Array.isArray(value)) {
     throw applicationError(id, `${label}.arguments must map an environment to the arguments appended for it.`, { startId });
@@ -596,7 +597,7 @@ function applicationArguments(id, value, label, environments, startId) {
   return Object.freeze(result);
 }
 
-function applicationDebug(id, raw, label, startId, url) {
+export function applicationDebug(id, raw, label, startId, url) {
   if (raw == null) return null;
   const at = `${label}.debug`;
   if (typeof raw !== 'object' || Array.isArray(raw)) throw applicationError(id, `${at} must be an object with a runtime.`, { startId });
@@ -663,11 +664,14 @@ function applicationDebug(id, raw, label, startId, url) {
 function applicationStartEntry(id, raw, index, repositories) {
   const label = `start[${index}]`;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw applicationError(id, `${label} must be an object.`);
-  closedKeys(id, raw, START_KEYS, label);
+  // A typed entry (any type but command) is built from its own fields, which run-configurations.mjs
+  // checks, with its arguments and debug block, where the block is read; here only its shape.
+  const typed = raw.type != null && raw.type !== 'command';
+  if (!typed) closedKeys(id, raw, START_KEYS, label);
   if (typeof raw.id !== 'string' || !APPLICATION_ENTRY_ID.test(raw.id)) {
     throw applicationError(id, `${label}.id must be lower-kebab-case and at most 64 characters.`);
   }
-  argumentList(id, raw.argv, `${label}.argv`, raw.id);
+  if (!typed) argumentList(id, raw.argv, `${label}.argv`, raw.id);
   let repository = raw.repository ?? null;
   if (repository != null && (typeof repository !== 'string' || !repositories.includes(repository))) {
     throw applicationError(id, `${label}.repository must be one of this capability's repositories: ${repositories.join(', ')}.`);
@@ -706,14 +710,14 @@ function applicationStartEntry(id, raw, index, repositories) {
     throw applicationError(id, `${label}.ready.timeoutMs must be an integer from 1000 to 600000.`);
   }
   const environments = Object.freeze(applicationEnvironments(id, raw.environments, label));
-  const startArguments = applicationArguments(id, raw.arguments, label, environments, raw.id);
-  const debug = applicationDebug(id, raw.debug, label, raw.id, raw.url);
+  const startArguments = typed ? null : applicationArguments(id, raw.arguments, label, environments, raw.id);
+  const debug = typed ? null : applicationDebug(id, raw.debug, label, raw.id, raw.url);
   assertLoopbackDebugTokens(id, raw.argv, `${label}.argv`, raw.id);
   for (const [environment, list] of Object.entries(startArguments ?? {})) {
     assertLoopbackDebugTokens(id, list, `${label}.arguments.${environment}`, raw.id);
   }
   return Object.freeze({
-    id: raw.id, repository, argv: Object.freeze([...raw.argv]), workingDirectory: workingDirectory.replace(/^\.\/(?=.)/u, '').replace(/\/$/u, '') || '.',
+    id: raw.id, ...(typed ? { type: raw.type } : {}), repository, argv: Object.freeze([...raw.argv ?? []]), workingDirectory: workingDirectory.replace(/^\.\/(?=.)/u, '').replace(/\/$/u, '') || '.',
     url: raw.url,
     ready: Object.freeze(ready.http != null ? { http: ready.http, timeoutMs } : { log: ready.log, timeoutMs }),
     environments,

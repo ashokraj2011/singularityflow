@@ -15,12 +15,13 @@ import { agentAct } from '../src/agent-output.mjs';
 import { promptDecisionAnswers } from '../src/commands/decisions.mjs';
 import { DECISION_LIST_CHAT_OPTIONS } from '../src/copilot-mutation-guard.mjs';
 import {
-  decisionGroups, decisionPacket, decisionRecordPlan, decisionRefusalLead, ISSUE_ONLY_OPTIONS, parseDecisionAnswers, runDecisionPlan
+  decisionGroups, decisionPacket, decisionRecordCommand, decisionRecordPlan, decisionRefusalLead, ISSUE_ONLY_OPTIONS, parseDecisionAnswers, runDecisionPlan
 } from '../src/decision-list.mjs';
 import { terminalRefusalMessage } from '../src/evidence/terminal.mjs';
 import { decisionListFacts } from '../src/decision-list-reads.mjs';
 import { workflowNextSteps } from '../src/nextsteps.mjs';
 import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
+import { validateSflowExecutionCommand } from '../src/safe-command-guidance.mjs';
 import { upstreamIssueStates } from '../src/upstream-routes.mjs';
 
 const AT = '2026-10-19T09:00:00.000Z';
@@ -170,6 +171,18 @@ test('the digest binds the items, options, effects, defaults and the Story state
   assert.notEqual(decisionPacket(workflow, facts(workflow), { authorities: workflow.resolution.approvalAuthorities, actor, at: '2026-10-20T09:00:00.000Z' }).packetSha256,
     first.packetSha256, 'a new day moves the default dates');
   assert.equal(first.record.recommended, `singularity-flow decisions record BIN-501 --choose d1=reuse --confirm ${first.packetSha256}`);
+});
+
+test('a typed reason reaches the record command as the person wrote it: a shell never expands it', () => {
+  const digest = `sha256:${'a'.repeat(64)}`;
+  const reason = 'Costs $HOME and `date` and $(id): it\'s "fine"';
+  const command = decisionRecordCommand('BIN-501', { choices: [['d1', 'dismiss']], digest, values: { reason: { d1: reason } } });
+  assert.doesNotMatch(command, /"d1=/u, 'JSON double quotes are not shell quoting');
+  const token = command.slice(command.indexOf('--reason ') + '--reason '.length, command.indexOf(' --confirm'));
+  assert.equal(execFileSync('/bin/sh', ['-c', `printf '%s' ${token}`], { encoding: 'utf8' }), `d1=${reason}`);
+  assert.ok(validateSflowExecutionCommand(command, { shell: 'posix' })?.copyable, 'the guard reads it as one command');
+  assert.equal(decisionRecordCommand('BIN-501', { choices: [['d1', 'reuse']], digest }),
+    `singularity-flow decisions record BIN-501 --choose d1=reuse --confirm ${digest}`, 'plain values stay bare');
 });
 
 test('the record plan uses the shown defaults, refuses what the person may not decide, and checks every value', () => {

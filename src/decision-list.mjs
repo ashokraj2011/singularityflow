@@ -326,7 +326,9 @@ function testRiskItem(workflow, context, risk) {
 
 /** The commands a person or script uses to record, with the packet digest. */
 export function decisionRecordCommand(workId, { phaseId = null, choices = [], digest, values = {} } = {}) {
-  const quote = (value) => (/^[A-Za-z0-9._:/=-]+$/u.test(value) ? value : JSON.stringify(value));
+  // POSIX single quotes, as canonicalDisplayToken in safe-command-guidance.mjs: a JSON double-quoted
+  // reason would still expand `$()`, `$NAME` and backticks when the person pastes the command.
+  const quote = (value) => (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`);
   const extra = Object.entries(values).flatMap(([flag, entries]) => Object.entries(entries ?? {})
     .map(([item, value]) => `--${flag} ${quote(`${item}=${value}`)}`));
   return ['singularity-flow decisions record', workId, ...(phaseId ? [`--phase ${phaseId}`] : []),

@@ -133,3 +133,26 @@ lazy fetch and replacement objects disabled and explicit time/output/record boun
 ask for blob sizes during tree enumeration. Missing blobs are fetched separately by the existing
 deadline-aware ledger transport, only by tree-proven object ID; hash verification and byte bounds
 still apply. It never scans application branches or history, changes a checkout, or initializes state.
+
+Source review moves six per-file Git sites into `src/source-review-snapshot.mjs`: two exact HEAD
+reads (entry and final retention recheck) and two buffer-preserving individual fallbacks. Named
+inputs use the existing hash-verified object batch reader with a 32 MiB aggregate prefetch ceiling.
+One reviewed Git executable-resolution literal binds the cache key to the actual Git installation;
+it does not launch Git. Immutable UTF-8 provenance facts use
+the existing private Git cache with its configuration, shallow/graft/replacement and object-store
+invalidation. The two path-scoped introduction-history proofs remain in the lifecycle reader.
+The final retention and human-decision checks bypass every Git fact and shared review packet.
+These sites remain frozen baseline entries, not new registered process owners.
+
+`scripts/source-review-benchmark.mjs` has a reviewed process import, two process launch sites and
+five Git fixture calls. It creates disposable published Stories, runs the real context/stage/check/
+retain/status CLI, measures child counts and elapsed time, and cleans only its own temporary
+repositories. It never contacts a model or remote, publishes to an application repository, or
+records an approval. It is qualification tooling, not an installed command.
+
+`scripts/source-review-paired-benchmark.mjs` adds one frozen process import and one launch of the
+same fixed benchmark driver on the current Node executable. It alternates explicitly selected
+baseline/candidate engines over disposable fixtures to reduce host-load order bias, retaining all
+observations. Arguments are structured, runtime/sample/profile choices are bounded, output and
+execution time are capped, and no shell is used. The driver owns fixture isolation and cleanup.
+This site is never imported by a product command and does not extend the registered Git owners.

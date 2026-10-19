@@ -1,4 +1,6 @@
 import { nextPhaseGeneration } from './phase-generation.mjs';
+import { workflowInputsMode, resolvedPhaseInputs } from './phase-input-policy.mjs';
+export { workflowInputsMode, resolvedPhaseInputs, approvedInputPhases } from './phase-input-policy.mjs';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -71,21 +73,6 @@ function expansionHandle(workflow, producer, repositoryPath) {
       && approval.agentBriefSource?.path === repositoryPath
   );
   return amendment?.agentBriefSource?.reference?.handle ?? null;
-}
-
-export function workflowInputsMode(workflow) {
-  return workflow.resolution?.inputsMode ?? 'off';
-}
-
-export function resolvedPhaseInputs(workflow, phase) {
-  return workflow.resolution?.phases?.find((candidate) => candidate.id === phase.id)?.inputs ?? phase.inputs ?? [];
-}
-
-/** The steps whose approved outputs this step receives, in declared order; none while inputs are off. */
-export function approvedInputPhases(workflow, phase) {
-  if (!workflow || !phase || workflowInputsMode(workflow) === 'off') return [];
-  return [...new Set(resolvedPhaseInputs(workflow, phase)
-    .map((entry) => typeof entry === 'string' ? entry : entry?.phase).filter(Boolean))];
 }
 
 export async function collectInputs(root, workflow, phase, {

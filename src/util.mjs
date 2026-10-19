@@ -463,6 +463,11 @@ export function defaultTimeoutFor(command, { timeoutClass = null, env = process.
   return undefined;
 }
 
+const TIMED_GIT_VERBS = new Set(['rev-parse', 'symbolic-ref', 'config', 'show', 'log',
+  'ls-files', 'ls-tree', 'cat-file', 'diff', 'diff-index', 'status', 'hash-object',
+  'read-tree', 'write-tree', 'update-index', 'commit-tree', 'update-ref', 'check-attr',
+  'check-ignore', 'merge-base']);
+
 function gitSubcommand(args) {
   for (let index = 0; index < args.length; index += 1) {
     const value = String(args[index]);
@@ -796,10 +801,13 @@ export function run(command, args = [], {
     killSignal = 'SIGKILL';
   }
   const ownsGitTiming = command === 'git' && recordGitTiming && !cachedFact;
+  // Fixed verbs only: paths, refs, credentials and arbitrary arguments never enter telemetry.
+  const timedGitVerb = ownsGitTiming && TIMED_GIT_VERBS.has(gitSubcommand(args)) ? gitSubcommand(args) : null;
   const serviceStarted = ownsGitTiming ? performance.now() : 0;
   if (ownsGitTiming) {
     incrementCommandCounter('git.requests');
     incrementCommandCounter('git.spawns');
+    if (timedGitVerb) incrementCommandCounter(`git.local.command.${timedGitVerb}`);
   } else if (cachedFact && recordGitTiming) {
     incrementCommandCounter('git.requests');
     incrementCommandCounter('git.fact-cache-hits');
@@ -835,7 +843,9 @@ export function run(command, args = [], {
     if (command === 'git' && !scopedGitRead) result = waitOutIndexLock(result, args, { cwd, env, spawnAgain: spawnOnce });
   } finally {
     if (ownsGitTiming) {
-      incrementCommandCounter('git.service-ms', Math.max(0, Math.round(performance.now() - serviceStarted)));
+      const elapsed = Math.max(0, Math.round(performance.now() - serviceStarted));
+      incrementCommandCounter('git.service-ms', elapsed);
+      if (timedGitVerb) incrementCommandCounter(`git.local.service-ms.${timedGitVerb}`, elapsed);
     }
   }
   if (!cachedFact && factRequest) rememberGitFact(factRequest, result, { before: factBefore });

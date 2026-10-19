@@ -1,4 +1,6 @@
 import { nextPhaseGeneration } from './phase-generation.mjs';
+import { clarificationRecordRelative } from './clarification-paths.mjs';
+export { clarificationRecordRelative };
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import path from 'node:path';
@@ -60,12 +62,6 @@ export function assertClarificationRecordingAllowed(definition, workflow, phase)
   );
 }
 
-export function clarificationRecordRelative(definition, workflow, phase, generation = nextPhaseGeneration(phase)) {
-  return posix(path.join(
-    definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context',
-    `clarifications-${phase.id}-gen${generation}.json`
-  ));
-}
 
 /**
  * The marker this answer resolves, if it resolves one. `[SPK:REQ-066]`

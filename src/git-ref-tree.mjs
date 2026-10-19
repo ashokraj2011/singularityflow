@@ -311,8 +311,11 @@ export function readRefTree(root, ref, pathspecs = [], options = {}) {
  * limits, verified against its ID, returns null and the caller takes the sized path, which
  * answers that object exactly as it always has.
  */
-function readObjectsWithoutSizing(root, unique, { runCommand, localEnv, maxObjectBytes, maxBatchBytes }) {
-  if (unique.length > 256 || !unique.every((spec) => /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(spec))) return null;
+function readObjectsWithoutSizing(root, unique, { runCommand, localEnv, maxObjectBytes, maxBatchBytes, immutablePaths = false }) {
+  const oidPattern = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+  const immutablePath = /^(?:[0-9a-f]{40}|[0-9a-f]{64})(?:\^)?:[^\r\n]+$/u;
+  if (unique.length > 256 || !unique.every(spec => oidPattern.test(spec)
+      || immutablePaths && immutablePath.test(spec))) return null;
   const budget = Math.min(Math.max(1, maxBatchBytes), unique.length * maxObjectBytes);
   if (!Number.isSafeInteger(budget) || budget < 0) return null;
   const batch = runCommand('git', ['cat-file', '--batch'], {
@@ -328,7 +331,8 @@ function readObjectsWithoutSizing(root, unique, { runCommand, localEnv, maxObjec
     if (newline < 0) return null;
     const [oid, type, rawSize, extra] = buffer.toString('utf8', cursor, newline).trim().split(' ');
     const size = Number(rawSize);
-    if (extra !== undefined || oid !== spec || !Number.isSafeInteger(size) || size < 0 || size > maxObjectBytes) return null;
+    if (extra !== undefined || !oidPattern.test(oid) || oidPattern.test(spec) && oid !== spec
+        || !Number.isSafeInteger(size) || size < 0 || size > maxObjectBytes) return null;
     const start = newline + 1; const end = start + size;
     if (end >= buffer.length || buffer[end] !== 0x0a) return null;
     const body = buffer.subarray(start, end);
@@ -352,7 +356,8 @@ function readObjectsWithoutSizing(root, unique, { runCommand, localEnv, maxObjec
  * fails, so a caller keeps its exact per-ref path for that case.
  */
 export function readObjectsBatch(root, specs, {
-  runCommand = run, env = process.env, maxObjectBytes = DEFAULT_OBJECT_BYTES, maxBatchBytes = DEFAULT_BATCH_BYTES, checkOnly = false
+  runCommand = run, env = process.env, maxObjectBytes = DEFAULT_OBJECT_BYTES, maxBatchBytes = DEFAULT_BATCH_BYTES, checkOnly = false,
+  immutablePaths = false
 } = {}) {
   const answers = new Map();
   const unique = [...new Set(specs)];
@@ -360,7 +365,7 @@ export function readObjectsBatch(root, specs, {
   if (unique.some((spec) => typeof spec !== 'string' || !spec || /[\r\n]/u.test(spec))) return null;
   const localEnv = gitEnvironment(env);
   if (!checkOnly) {
-    const unsized = readObjectsWithoutSizing(root, unique, { runCommand, localEnv, maxObjectBytes, maxBatchBytes });
+    const unsized = readObjectsWithoutSizing(root, unique, { runCommand, localEnv, maxObjectBytes, maxBatchBytes, immutablePaths });
     if (unsized) return unsized;
   }
   const checked = runCommand('git', ['cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'], {

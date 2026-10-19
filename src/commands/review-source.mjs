@@ -5,7 +5,6 @@ import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { sourceReviewKind } from '../phase-roles.mjs';
 import { workflowBranchAllowed } from '../story-paths.mjs';
 import { loadStoryAggregate } from '../story-aggregate-read.mjs';
-import { assertNoPendingPublication, transactStory } from '../state-stores.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { commandResult, effects, noEffects, action as narrationAction, noop, succeeded } from '../narration/command-result.mjs';
 import { sourceReviewRequired } from '../source-review-policy.mjs';
@@ -20,10 +19,12 @@ import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { requireApprovalAuthority } from '../approval-authority.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
+import { withFreshSourceReviewSnapshot } from '../source-review-snapshot.mjs';
 
 export async function run(argv, { positionals, options }) {
   return withCommandObservability(positionals[0], argv, options,
-    () => withCommandConfirmation(options, () => reviewSourceCommand(positionals, options)));
+    () => withCommandConfirmation(options, () => reviewSourceCommand(positionals, options)),
+    { preferencesOnly: true });
 }
 
 export async function reviewSourceCommand(positionals, options) {
@@ -101,7 +102,10 @@ export async function reviewSourceCommand(positionals, options) {
   if (workflow.currentPhase !== phaseId || phase.status !== 'in_progress') {
     throw new SingularityFlowError(`Source review ${action} requires current in-progress phase '${phaseId}'.`);
   }
-  if (action !== 'check' && action !== 'decision-context') await assertNoPendingPublication(root, config, workflow, `record source review ${action}`);
+  if (action !== 'check' && action !== 'decision-context') {
+    const { assertNoPendingPublication } = await import('../state-stores.mjs');
+    await assertNoPendingPublication(root, config, workflow, `record source review ${action}`);
+  }
   if (action === 'stage') {
     const { stageSourceReviewReport } = await import('../source-review-staging.mjs');
     const result = await stageSourceReviewReport(root, config, workflow, phaseId, optionString(options, 'report-json'));
@@ -156,6 +160,7 @@ export async function reviewSourceCommand(positionals, options) {
     }
     const session = scopedSourceReviewerSession(input, await loadSession(root));
     const evaluation = evaluateSubmittedSourceReview(report, input, session);
+    const { transactStory } = await import('../state-stores.mjs');
     let retained;
     const { publication } = await transactStory(root, config, workflow, {
       type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId, generation: phase.generation,
@@ -163,7 +168,7 @@ export async function reviewSourceCommand(positionals, options) {
       payload: { kind: 'source-grounded-review', reportSha256: evaluation.reportSha256 }
     }, `[${workflow.workItem.id}][phase:${phaseId}][source-review] ${evaluation.reportSha256.slice(0, 12)}`,
     async (aggregate, publicationEvent) => {
-      const current = await sourceReviewInput(root, config, aggregate, phaseId);
+      const current = await withFreshSourceReviewSnapshot(root, () => sourceReviewInput(root, config, aggregate, phaseId));
       if (JSON.stringify(current.binding) !== JSON.stringify(input.binding)) throw new SingularityFlowError(
         'Review sources or artifact changed during submission.', { code: 'SOURCE_REVIEW_BINDING_STALE' }
       );
@@ -207,6 +212,7 @@ export async function reviewSourceCommand(positionals, options) {
     return;
   }
   assertSourceReviewDecisionConfirmation(decisionPacket, optionString(options, 'confirm'));
+  const { transactStory } = await import('../state-stores.mjs');
   let retained;
   const { publication } = await transactStory(root, config, workflow, {
     type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId, generation: phase.generation,
@@ -215,7 +221,7 @@ export async function reviewSourceCommand(positionals, options) {
       reportSha256: status.reportSha256, findingId: id }
   }, `[${workflow.workItem.id}][phase:${phaseId}][source-review-decision] ${id}`,
   async (aggregate, publicationEvent) => {
-    const current = await readSourceReviewStatus(root, config, aggregate, phaseId);
+    const current = await withFreshSourceReviewSnapshot(root, () => readSourceReviewStatus(root, config, aggregate, phaseId));
     if (current.reportSha256 !== status.reportSha256 || current.status === 'stale') throw new SingularityFlowError(
       'Source review changed before the human decision was recorded.', {
         code: 'SOURCE_REVIEW_BINDING_STALE'

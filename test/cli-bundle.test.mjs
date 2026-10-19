@@ -104,6 +104,13 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   }
   assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4.25 * 1024 * 1024,
     'strict next-step reads must not inherit the broad phase-review closure');
+  const reviewCode = await readFile(path.join(outdir, 'cold-narrow-reads.mjs'), 'utf8');
+  assert.match(reviewCode, /source-review-agent-context/u,
+    'source review context must use the narrow reader slot, not the publication chunk');
+  for (const name of ['cold-compatibility.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs', 'cold-intake.mjs']) {
+    assert.ok(!closure('cold-narrow-reads.mjs').some(item => item.file === name),
+      `source review reads must not statically reach ${name}`);
+  }
   assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7 * 1024 * 1024,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5 * 1024 * 1024,

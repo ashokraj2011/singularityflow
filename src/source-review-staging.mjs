@@ -6,6 +6,7 @@ import { gitDir } from './git.mjs';
 import { safeSidecarTreeDirectory } from './private-sidecar.mjs';
 import { CLI_PATH_CONTRACT, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { withSourceReviewSnapshot } from './source-review-snapshot.mjs';
 
 export const SOURCE_REVIEW_STAGE_MAXIMUM_BYTES = 65536;
 
@@ -22,6 +23,10 @@ export function sourceReviewStagingProtocol(phaseId, stagingPath) {
 
 export async function stageSourceReviewReport(root, config, workflow, phaseId, reportJson) {
   root = await realpath(root);
+  return withSourceReviewSnapshot(root, () => stageReport(root, config, workflow, phaseId, reportJson));
+}
+
+async function stageReport(root, config, workflow, phaseId, reportJson) {
   if (typeof reportJson !== 'string' || Buffer.byteLength(reportJson, 'utf8') > SOURCE_REVIEW_STAGE_MAXIMUM_BYTES) {
     throw new SingularityFlowError('Provide bounded JSON through --report-json (at most 64 KiB).', {
       code: 'SOURCE_REVIEW_REPORT_INVALID'

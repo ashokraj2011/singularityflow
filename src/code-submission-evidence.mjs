@@ -9,26 +9,11 @@ import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { canonicalJson } from './records.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+export { hasPublishedPhaseGeneration, requiresProspectivePhaseInspection, phaseInspectionGeneration } from './phase-inspection-generation.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
-export function hasPublishedPhaseGeneration(phase) {
-  const generation = Number(phase?.generation);
-  if (!Number.isSafeInteger(generation) || generation < 1 || phase.generationIntent?.status === 'open') return false;
-  return (phase.generationIntent?.status === 'consumed' && Number(phase.generationIntent.generation) === generation)
-    || (phase.generationPublications ?? []).some(entry => Number(entry.generation) === generation && entry.record?.path);
-}
 
-export function requiresProspectivePhaseInspection(workflow, phase) {
-  return phase.status === 'in_progress'
-    && (!hasPublishedPhaseGeneration(phase) || phaseNeedsGeneration(workflow, phase));
-}
 
-/** Inspection labels are current for retained publications, prospective only for authoring. */
-export function phaseInspectionGeneration(workflow, phase) {
-  return requiresProspectivePhaseInspection(workflow, phase)
-    ? nextPhaseGeneration(phase) : Number(phase.generation ?? 0);
-}
 
 const same = (left, right) => canonicalJson(left ?? null) === canonicalJson(right ?? null);
 function stale(phase, message) {

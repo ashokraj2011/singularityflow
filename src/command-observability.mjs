@@ -4,7 +4,7 @@ import { optionBoolean } from './util.mjs';
 import { withReadScope, inCommandReadScope } from './read-scope.mjs';
 import { measureCommandSpan } from './dx-timing-context.mjs';
 
-async function prepare(command, argv, options) {
+async function prepare(command, argv, options, { preferencesOnly = false } = {}) {
   const { repositoryLogger, redactCommandArgv } = await import('./logging.mjs');
   let harness = null;
   const env = optionBoolean(options, 'json') ? { ...process.env, SINGULARITY_FLOW_LOG_CONSOLE: 'off' }
@@ -14,7 +14,7 @@ async function prepare(command, argv, options) {
   // The old logger and harness each loaded this same definition before invocation. This scope
   // ends before the handler can mutate anything; it never caches identity or publication state.
   try {
-    if (root) definition = inCommandReadScope()
+    if (root) definition = preferencesOnly || inCommandReadScope()
       ? await (await import('./accounting-projection.mjs')).accountingProjection(root)
       : await (await import('./config.mjs')).loadDefinition(root);
   } catch { /* Accounting must not refuse the command. */ }
@@ -43,9 +43,9 @@ async function prepare(command, argv, options) {
   return { log, invocation, persistedArgv, harness };
 }
 
-export async function withCommandObservability(command, argv, options, invoke) {
+export async function withCommandObservability(command, argv, options, invoke, preferences = {}) {
   const { log, invocation, persistedArgv, harness } = await measureCommandSpan('accounting.prepare',
-    () => withReadScope(() => prepare(command, argv, options)));
+    () => withReadScope(() => prepare(command, argv, options, preferences)));
   const started = Date.now();
   log.info('command.start', null, { argv: persistedArgv.slice(0, 24) });
   try {

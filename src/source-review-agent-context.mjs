@@ -1,8 +1,8 @@
 import path from 'node:path';
-import { phaseEntryContext } from './phase-entry.mjs';
+import { phaseEntryContext } from './phase-entry-context.mjs';
 import { sourceReviewContext } from './source-review-lifecycle.mjs';
 import { sourceReviewKind } from './phase-roles.mjs';
-import { branch, gitDir } from './git.mjs';
+import { branch, gitDir } from './git-execution.mjs';
 import { workflowBranchAllowed } from './story-paths.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { withAgentPathProtocol } from './safe-command-guidance.mjs';

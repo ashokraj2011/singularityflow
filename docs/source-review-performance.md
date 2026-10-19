@@ -35,6 +35,11 @@ node scripts/source-review-benchmark.mjs --engine=/path/to/baseline --samples=3 
 node scripts/source-review-benchmark.mjs --samples=3 --history=100 --attachments=16 --output=/tmp/review-after.json
 ```
 
+The default `--runtime=source` isolates the Node handler changes in a development checkout.
+For the installed CLI path, first run `node scripts/build-cli-bundle.mjs` in both engine checkouts,
+then repeat with `--runtime=bundle`. This forces that engine's built bundle and refuses a missing
+bundle instead of silently falling back to sources. Keep runtime modes separate when comparing.
+
 Both engines use the same disposable published-Story fixture and synthetic review report, with
 publication-bound human answers, sixteen attachments and one hundred extra commits. Each measured
 CLI step runs in a new Node process. Cold means the first context/status request in that fixture;

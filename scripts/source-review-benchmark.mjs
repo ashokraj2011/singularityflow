@@ -8,9 +8,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { publishedSpecificationStory, reviewReport } from '../test/helpers/source-review-fixture.mjs';
 import { completeAgentResult } from '../src/agent-output.mjs';
+import { bundledCliUrl } from '../src/bundled-cli.mjs';
 
 const option = name => process.argv.find(arg => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
 const engine = path.resolve(option('engine') ?? fileURLToPath(new URL('..', import.meta.url)));
+const runtime = option('runtime') ?? 'source';
+if (!['source', 'bundle'].includes(runtime)) throw new Error('Runtime must be source or bundle.');
 const samples = Number(option('samples') ?? 3);
 const history = Number(option('history') ?? 100);
 const attachments = Number(option('attachments') ?? 16);
@@ -21,12 +24,17 @@ for (let sample = 0; sample < samples; sample++) {
   const cleanups = [];
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-benchmark-'));
   const { root, phaseId } = await publishedSpecificationStory({ after: fn => cleanups.push(fn) }, { humanAnswers: true });
-  const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_BUNDLE: 'off',
+  const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_BUNDLE: runtime === 'source' ? 'off' : 'on',
     SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1', SINGULARITY_FLOW_GIT_FACT_STORE: path.join(directory, 'git-facts'),
     SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(directory, 'workspaces.json'),
     SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(directory, 'active.json'),
     SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(directory, 'mode.json') };
   delete env.SINGULARITY_FLOW_NO_MODEL;
+  delete env.SINGULARITY_FLOW_BUNDLE_DIR;
+  if (runtime === 'bundle') {
+    env.SINGULARITY_FLOW_BUNDLE_DIR = path.join(engine, 'bundle');
+    assert.ok(bundledCliUrl(engine, env), 'Build the engine bundle first; never silently measure a source fallback.');
+  }
   const git = args => {
     const answer = spawnSync('git', args, { cwd: root, env, encoding: 'utf8', timeout: 120000 });
     assert.equal(answer.status, 0, answer.stderr);
@@ -82,7 +90,7 @@ for (let sample = 0; sample < samples; sample++) {
     await rm(directory, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 });
   }
 }
-const result = { platform: process.platform, node: process.version, engine, samples, history, attachments,
+const result = { platform: process.platform, node: process.version, engine, runtime, samples, history, attachments,
   scope: 'Fresh Node CLI processes; cold = first review context/status on a disposable published Story; warm = immediate repeat with private Git fact storage. OS caches are not flushed. Excludes model reasoning, application tests and network push.', rows };
 if (option('output')) await writeFile(path.resolve(option('output')), `${JSON.stringify(result, null, 2)}\n`);
 console.log(JSON.stringify(result, null, 2));

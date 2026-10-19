@@ -374,11 +374,15 @@ async function prepareStoryWorktreeInLease(root, workId, { base = 'HEAD', storyB
       created: false, resumed: true, initialHead: registered.head, preparedAt: nowIso(), storyBranch
     };
   }
-  const stagingExists = localRefHeads(root, stagingBranches.map(candidate => `refs/heads/${candidate}`)).size > 0;
-  if (stagingExists) {
+  const stagingRefs = localRefHeads(root, stagingBranches.map(candidate => `refs/heads/${candidate}`));
+  const retained = releaseOrphanedLaunchRefs(root, stagingRefs, inventory);
+  if (retained.length) {
     throw new SingularityFlowError(
-      `Story '${id}' has an incomplete launch branch but no registered worktree. Run 'git worktree repair', then retry.`,
-      { code: 'STORY_WORKTREE_RECOVERY_REQUIRED' }
+      `Story '${id}' has an incomplete launch branch (${retained.join(', ')}) but no registered worktree, and it holds `
+      + 'commits no other branch has, so it was kept. Review it with git log; when nothing on it is needed, delete it with '
+      + `git branch -D, then retry. If its checkout folder still exists elsewhere, run 'git worktree repair' there instead.`,
+      { code: 'STORY_WORKTREE_RECOVERY_REQUIRED', details: { retainedBranches: retained,
+        actions: [{ label: `Review ${retained.join(', ')} with git log and keep anything it holds; delete it with git branch -D only when nothing on it is needed, then retry the Story start.` }] } }
     );
   }
   await safeNewPath(root, target);
@@ -397,6 +401,35 @@ async function prepareStoryWorktreeInLease(root, workId, { base = 'HEAD', storyB
     initialHead: run('git', ['rev-parse', '--verify', 'HEAD'], { cwd: target }).stdout.trim(),
     preparedAt: nowIso(), storyBranch
   };
+}
+
+/**
+ * Delete launch refs a failed start left behind with no checkout, when that loses nothing.
+ *
+ * A launch ref only ever names the base its checkout was made from. When no registered worktree
+ * has it checked out and another ref still holds its commit, it is deleted by compare-and-swap at
+ * the exact commit read here. One that holds commits no other ref has is returned, never deleted.
+ */
+function releaseOrphanedLaunchRefs(root, stagingRefs, inventory) {
+  const retained = [];
+  for (const [ref, commit] of stagingRefs) {
+    const name = ref.replace(/^refs\/heads\//u, '');
+    if (inventory.some((entry) => entry.branch === name)) { retained.push(name); continue; }
+    const deleted = launchCommitHeldElsewhere(root, ref, commit) && run('git', ['update-ref', '--no-deref', '-d', ref, commit], {
+      cwd: root, allowFailure: true
+    }).status === 0;
+    if (!deleted) retained.push(name);
+  }
+  return retained;
+}
+
+/** Whether a branch, remote-tracking ref or tag other than a launch ref also holds this commit. */
+function launchCommitHeldElsewhere(root, ref, commit) {
+  const holders = run('git', ['for-each-ref', '--contains', commit, '--format=%(refname)', 'refs/heads', 'refs/remotes', 'refs/tags'], {
+    cwd: root, allowFailure: true
+  });
+  return holders.status === 0 && holders.stdout.split(/\r?\n/u).map((holder) => holder.trim())
+    .some((holder) => holder && holder !== ref && !/^refs\/heads\/sflow-start-[0-9a-f]{16}$/u.test(holder));
 }
 
 /** Remove the temporary launch ref after the worktree has switched to the durable Story branch. */
@@ -538,9 +571,12 @@ export function rollbackStoryWorktree(prepared, {
       cwd: root, allowFailure: true
     }).stdout.trim();
     // A branch created for this launch and still at its initial commit contains no new Story
-    // commit. Delete that exact ref even when the source checkout has switched elsewhere.
-    const unchangedNewBranch = prepared.created === true && branchHead
-      && branchHead === prepared.initialHead;
+    // commit. Delete that exact ref even when the source checkout has switched elsewhere. A launch
+    // ref this start resumed (a prepared checkout) is deleted the same way while another ref still
+    // holds its commit: Git's merged-commit check refuses a base newer than the source checkout.
+    const unchangedNewBranch = branchHead && branchHead === prepared.initialHead
+      && (prepared.created === true
+        || (branch === prepared.stagingBranch && launchCommitHeldElsewhere(root, branchRef, branchHead)));
     const deleted = unchangedNewBranch
       ? run('git', ['update-ref', '-d', branchRef, branchHead], { cwd: root, allowFailure: true })
       // A pre-existing branch or changed ref needs Git's merged-commit protection.
@@ -620,11 +656,13 @@ export function rollbackFailedStoryWorktree(
     );
   }
   if (recovery.cleanupPending?.length) {
+    // The start's own failure stays the refusal; the retained branch is what to review after it.
     throw new SingularityFlowError(
       `${originalError.message}\nThe isolated checkout was removed, but its branch ${recovery.cleanupPending.join(', ')} contains commits Git would not discard. Review the retained branch before retrying Story start.`,
       {
-        code: 'STORY_WORKTREE_RECOVERY_REQUIRED',
-        details: { repositoryPath: recovery.repositoryPath, retainedBranches: recovery.cleanupPending },
+        code: originalError.code ?? 'STORY_WORKTREE_RECOVERY_REQUIRED',
+        details: { ...(originalError.details ?? {}), repositoryPath: recovery.repositoryPath,
+          retainedBranches: recovery.cleanupPending, cleanupCode: 'STORY_WORKTREE_RECOVERY_REQUIRED' },
         cause: originalError
       }
     );

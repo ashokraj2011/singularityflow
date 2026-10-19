@@ -585,6 +585,11 @@
         "icon": "$(git-compare)"
       },
       {
+        "command": "singularityFlow.decisions",
+        "title": "Singularity Flow: Decide What Blocks This Step",
+        "icon": "$(checklist)"
+      },
+      {
         "command": "singularityFlow.openDesigner",
         "title": "Singularity Flow: Workflow Designer (opens Workflow Studio)",
         "icon": "$(symbol-structure)"

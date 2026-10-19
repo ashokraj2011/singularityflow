@@ -50,3 +50,4 @@ export { InstructionDesignerPanel } from './views/instruction-designer.ts';
 export { WorkspaceLogsPanel } from './views/workspace-logs.ts';
 export { SpecificationTracePanel } from './views/specification-trace.ts';
 export { VisualAssurancePanel } from './views/visual-assurance.ts';
+export { DecisionListPanel } from './views/decision-list.ts';

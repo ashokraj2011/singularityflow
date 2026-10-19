@@ -291,7 +291,8 @@ function enabledBooleanOption(args: string[], name: string): boolean {
  * policy; only result reuse is forbidden.
  */
 function cacheableRead(args: string[]): boolean {
-  return !args.includes('--for-agent') && !['check', 'review-source', 'choices', 'phase'].includes(args[0] ?? '')
+  // The decision list is reviewed and confirmed by digest: always read it now, never from the cache.
+  return !args.includes('--for-agent') && !['check', 'review-source', 'choices', 'phase', 'decisions'].includes(args[0] ?? '')
     && !args.includes('--submission-readiness') && !args.includes('--submit-if-ready')
     && !(args[0] === 'configuration' && args[1] === 'validate')
     // An explicit test-setup inspection must reread the selected module manifests, including
@@ -400,6 +401,8 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'inputs') return enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
   if (args[0] === 'documents') return ['list', 'browse', 'artifacts'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
   if (args[0] === 'decision') return (args[1] ?? 'show') === 'show' ? 'read' : 'mutation';
+  // The decision list and a preview of choices read; only `decisions record` writes.
+  if (args[0] === 'decisions') return args[1] === 'record' ? 'mutation' : 'read';
   if (args[0] === 'mcp' && args[1] === 'sources') return 'read';
   // A preview fetches and stages bytes and a check re-reads sources; neither changes governed state.
   if (args[0] === 'import') return args[1] === 'preview' ? 'read' : 'mutation';

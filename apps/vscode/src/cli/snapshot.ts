@@ -466,6 +466,9 @@ export interface SubmissionReadiness {
   reasonCode?: string;
   /** The waiting decision, when `classification` is `decision-required`. */
   decision?: PendingDecisionView;
+  /** What the decision list holds, when `classification` is `decisions-required`. */
+  decisions?: { count: number; headline: string; copilotCommand?: string };
+  reason?: string;
   /** Values the decision after this phase reads; a host asks for them before submitting. */
   decisionInputs?: DecisionInputSpec[];
   /**

@@ -436,14 +436,22 @@ export async function approveWithReceipt(
   }
 
   let storyReview: StoryReviewBundle | null = null;
+  let pendingDecisions: { count: number; headline: string } | null = null;
   if (request.kind === 'story') {
     try {
       // Begin may fetch. Read the exact checklist and bytes only after that refresh; the receipt
       // refuses later drift. Do not show pre-fetch artifacts as though they were the reviewed set.
       if (!(await stillCurrent())) return false;
+      // What the approval would be refused for, read beside the bundle: the page then offers the
+      // decision list first. A failed read shows nothing extra; the approval gate still decides.
+      const decisions = client.run<{ data?: { items?: unknown[]; headline?: string } }>(
+        ['decisions', request.workId, '--phase', request.phaseId, '--json']).catch(() => null);
       storyReview = await client.run<StoryReviewBundle>([
         'review', request.phaseId, '--format', 'json'
       ]);
+      const listed = (await decisions)?.data;
+      pendingDecisions = Array.isArray(listed?.items) && listed.items.length && typeof listed.headline === 'string'
+        ? { count: listed.items.length, headline: listed.headline } : null;
       if (storyReview.workItem?.id !== request.workId || storyReview.phase?.id !== request.phaseId) {
         throw new Error('The approval review is not bound to the selected Story phase.');
       }
@@ -480,6 +488,7 @@ export async function approveWithReceipt(
       witnessedClauses: storyReview?.specificationQuality?.witnessedClauses ?? null,
       witnessMappings: storyReview?.witnessReview?.mappings ?? [],
       evidenceConsistency: storyReview?.evidenceConsistency ?? null,
+      pendingDecisions,
       priorExceptions: (storyReview?.priorExceptions ?? []).map((entry) => ({
         article: entry.article,
         decision: entry.decision,

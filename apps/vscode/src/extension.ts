@@ -966,7 +966,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openReconciliation',
     'singularityFlow.openEvidenceMatrix',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
-    'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.decideStory',
+    'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.decideStory', 'singularityFlow.decisions',
     'singularityFlow.publishConfiguration',
     'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.togglePromptLog', 'singularityFlow.openActivityLog',
     'singularityFlow.openWorkspaceLogs', 'singularityFlow.refreshWorkspaceLogs', 'singularityFlow.openSpecificationTrace',
@@ -6196,6 +6196,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (message.type === 'run') {
       const journey = buildJourney(store.current.snapshot);
       if (journey.nextAction?.execution === 'decide') return chooseStoryDecision(journey.id, null);
+      if (journey.nextAction?.execution === 'decide-list') return void vscode.commands.executeCommand('singularityFlow.decisions', { workId: journey.id });
       if (journey.nextAction?.execution === 'prefill') {
         return vscode.commands.executeCommand('singularityFlow.prefillStoryPhaseGeneration', {
           kind: 'action', id: 'story:journey:generate', label: journey.nextAction.label ?? 'Generate phase',
@@ -8805,6 +8806,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const workId = typeof target === 'string' ? target
         : (target as { workId?: unknown } | undefined)?.workId;
       return chooseStoryDecision(typeof workId === 'string' ? workId : null, null);
+    },
+    // Everything the current step waits on, decided in one place: `{ workId, phase }` or the selected Story.
+    'singularityFlow.decisions': async (target?: unknown) => {
+      const requested = typeof target === 'string' ? target : (target as { workId?: unknown } | undefined)?.workId;
+      const phase = (target as { phase?: unknown } | undefined)?.phase;
+      const workId = typeof requested === 'string' && requested ? requested : store.current.snapshot?.workflow?.workItem.id ?? null;
+      if (!workId) return void showRefusal('Select the Story whose decisions you want to see.', { headline: 'No Story selected' });
+      lazyPanels().DecisionListPanel.show(client, { workId, phase: typeof phase === 'string' ? phase : null },
+        { refresh: refreshAfterKnownMutation, output });
     },
     // Workflow Studio, optionally at one section: `{ view: 'changes' }` opens the proposals waiting
     // for review, `{ view: 'artifacts' }` the templates.

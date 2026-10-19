@@ -62,6 +62,11 @@ export interface ApprovalReviewRequest {
   } | null;
   witnessMappings?: WitnessMappingReview[];
   evidenceConsistency?: EvidenceConsistencyPresentation | null;
+  /**
+   * Decisions the engine would refuse this approval for (`decisions --json`), read beside the review
+   * bundle. Presentation only: the approval gate checks again.
+   */
+  pendingDecisions?: { count: number; headline: string } | null;
   priorExceptions: Array<{ article?: string; decision?: string; reason?: string; actor?: string }>;
   selfApproval: boolean;
 }
@@ -281,13 +286,19 @@ function reviewBody(request: ApprovalReviewRequest, errors: string[] = []): stri
       <p class="muted">Review semantic adequacy yourself. Exact identity and a passing local test do not prove the requirement.</p>
       <div class="approval-checklist">${witnessMappings.map(witnessMappingHtml).join('')}</div></section>`
     : '';
+  const held = request.pendingDecisions?.count ? `<section class="approval-held" aria-label="Decisions needed first">
+    <h2>Decide what blocks this step first</h2>
+    <p>${escape(request.pendingDecisions.headline)}</p>
+    <p class="muted">Approval is refused until each one is decided. They are listed in one place, in plain words with their choices.</p>
+    <button type="button" data-decide>Decide what blocks this step</button>
+  </section>` : '';
   return `<form class="approval-form" data-expected="${escape(request.expected)}">
     <div class="approval-review-content" tabindex="0" aria-label="Approval review details"><header>
       <h1>${escape(request.title)}</h1>
       <p class="meta">Review the exact generation, record every required decision, then type the phase confirmation.</p>
     </header>
     <div class="review-binding approval-binding">${binding}</div>
-    ${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
+    ${held}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
       ${checklist}${witnessReview}
       <section class="approval-confirmation">
         <h2>Confirm your decision</h2>
@@ -328,6 +339,8 @@ body > .page-nav button { flex:none; white-space:nowrap; }
 .approval-self label { display:flex; gap:.5rem; align-items:flex-start; margin-top:.7rem; font-weight:650; }
 .approval-evidence { margin:.65rem 0; padding:.65rem .8rem; border:var(--sf-border); border-radius:var(--sf-radius); }
 .approval-confirmation { border-left:3px solid var(--sf-wait); padding-left:1rem; }
+.approval-held { margin:1rem 0; padding:1rem; border:1px solid var(--sf-wait); border-left:4px solid var(--sf-wait); border-radius:var(--sf-radius); }
+.approval-held h2 { margin-top:0; }
 .approval-errors { min-height:1.2rem; color:var(--sf-bad); }
 .approval-errors p { margin:.2rem 0; }
 .form-actions { display:flex; gap:.6rem; flex-wrap:wrap; margin:0; padding:.6rem 0; border-top:var(--sf-border); background:var(--vscode-editor-background); }
@@ -437,6 +450,8 @@ const REVIEW_SCRIPT = `
   form.querySelector('[data-cancel]').addEventListener('click', function () {
     window.__sfVscode.postMessage({ type: 'approval.cancel' });
   });
+  const decide = form.querySelector('[data-decide]');
+  if (decide) decide.addEventListener('click', function () { window.__sfVscode.postMessage({ type: 'approval.decide' }); });
   form.addEventListener('submit', function (event) {
     event.preventDefault();
     sync();
@@ -491,6 +506,12 @@ export function collectApprovalReview(
     };
     const router = registerMessageRouter('singularityFlow.approvalReview', {
       'approval.cancel': () => finish(null),
+      // Held by pending decisions: close this review and open the decision list for the same step.
+      'approval.decide': () => {
+        if (!request.pendingDecisions?.count) return;
+        finish(null);
+        void vscode.commands.executeCommand('singularityFlow.decisions', { workId: request.workId, phase: request.phaseId });
+      },
       'approval.submit': (message) => {
         const checked = validateApprovalReviewSubmission(request, message);
         if (!checked.value) return render(checked.errors);

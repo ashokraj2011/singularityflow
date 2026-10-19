@@ -813,7 +813,14 @@ function storyPhaseActions(
     }];
   }
   if (phase.status === 'awaiting_approval') {
-    return [{
+    // Decisions the approval would be refused for come first: the list is where they are decided.
+    const held = exactSubmissionReadiness(readiness, phase.id);
+    const decide: TreeNode[] = held?.classification === 'decisions-required' ? [{
+      kind: 'action', id: `story:${phase.id}:decisions`, label: 'Decide what blocks this step',
+      description: held.decisions?.headline ?? held.reason ?? 'decisions needed before approval', icon: 'git-compare',
+      runCommand: 'singularityFlow.decisions', contextValue: 'sflow.story.decisions'
+    }] : [];
+    return [...decide, {
       kind: 'action', id: `story:${phase.id}:approve`, label: `Review and approve ${phase.label}`,
       description: 'exact generation', icon: 'verified',
       approve: {

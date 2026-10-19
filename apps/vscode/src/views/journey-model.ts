@@ -93,7 +93,7 @@ export interface Journey {
   nextAction: {
     command: string; reason: string; label?: string;
     executable: 'singularity-flow'; argv: readonly string[];
-    execution?: 'run' | 'prefill' | 'decide'; skill: string; copilotCommand: string; copyable: boolean;
+    execution?: 'run' | 'prefill' | 'decide' | 'decide-list'; skill: string; copilotCommand: string; copyable: boolean;
     /** The exact `@sflow` route, present only when one is equivalent to the command. */
     modelFreeCommand?: string;
     /** Values the decision after this phase reads; the host asks for them before running. */
@@ -280,6 +280,9 @@ function storyJourneyOf(
         : `After ${currentStage?.label ?? 'this phase'}, '${ahead.label}' chooses the next step from the values it records.`) }
     : null;
   const decisionInputs: DecisionInputSpec[] = readiness?.decisionInputs ?? [];
+  // Decisions the approval would be refused for: the decision list is the next action, never an approval.
+  const held = currentPhase && readiness?.phaseId === currentPhase.id && readiness.classification === 'decisions-required'
+    && readiness.nextCommand ? commandGuidance({ command: readiness.nextCommand, skill: '/sf-decide' }) : null;
   return {
     kind: 'story',
     id: workflow.workItem.id,
@@ -311,6 +314,13 @@ function storyJourneyOf(
             ? `'${pending.label}' used all ${pending.maxRounds} rounds. Choose what happens next.`
             : `'${pending.label}' waits for a person to choose what happens next.`,
           label: 'Choose what happens next', execution: 'decide', skill: decisionRoutes.skill
+        }
+      : held
+      ? {
+          command: held.command, executable: held.executable, argv: held.argv, copilotCommand: held.copilotCommand, copyable: held.copyable,
+          ...(held.modelFreeCommand ? { modelFreeCommand: held.modelFreeCommand } : {}),
+          reason: readiness?.decisions?.headline ?? readiness?.reason ?? 'Decisions are needed before this step can be approved.',
+          label: 'Decide what blocks this step', execution: 'decide-list', skill: held.skill
         }
       : presentation?.kind === 'ready-to-submit' && actionRoutes
       ? {

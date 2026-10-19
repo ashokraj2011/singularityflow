@@ -10056,3 +10056,233 @@ test('Git URL maintenance cancellation also stops bounded local fallback discove
     ['singularityFlow.openWorkspaces', 'singularityFlow.refreshAuthorityPin',
       'singularityFlow.reinitialize'].includes(entry.id)), false);
 });
+
+/**
+ * The decision list's own CLI answers, served by a wrapper in front of the real CLI: `decisions`
+ * (and, for the approval page, the receipt and the review bundle of a Story the demo repository does
+ * not have) come from files the test writes; every other command is the real engine. The wrapper
+ * logs each decisions argv, and for `decisions record` the answers file's bytes and mode, so the
+ * test sees exactly what the page asked the engine to record.
+ */
+const DECIDE_W = 'DECIDE-1';
+const DECIDE_DIGEST = `sha256:${'8'.repeat(64)}`;
+const DECIDE_FRESH = `sha256:${'9'.repeat(64)}`;
+function decisionPacketFixture(digest, { itemIds = ['d1', 'd2'] } = {}) {
+  const reason = (text) => ({ default: text, minimum: 20, maximum: 1000 });
+  const expires = { default: '2026-11-18', latest: '2027-01-16' };
+  const yours = { groups: ['engineering-reviewers'], labels: ['Engineering reviewers'], allowed: true, words: 'You may decide this (Engineering reviewers).' };
+  const quality = { groups: ['quality-reviewers'], labels: ['Quality reviewers'], allowed: false, words: 'The Quality reviewers decide this.', share: `/sf-decide ${DECIDE_W}` };
+  const items = {
+    d1: { id: 'd1', kind: 'conformance-gap', title: 'AC-001 is partial in the Code checking report', why: 'The Code checking report marks AC-001 partial.',
+      options: [
+        { id: 'reuse', label: "Accept Code's recorded run (1 of 1 passed) for Testing", recommended: true, words: "Code's run stays labelled as Code's.",
+          effects: [], needs: { reason: reason("Code's recorded run on unchanged code stands for Testing."), expires }, decidedBy: { ...quality } },
+        { id: 'accept-risk', label: 'Accept the gap as a risk until a date', recommended: false, words: 'The verdict stays partial.',
+          effects: [{ kind: 'upstream-issue-decision', issue: 'UPI-002', issuePhase: 'implementation', outcome: 'accept-risk' }],
+          needs: { expires, reason: reason('Accepted as a risk until the date: AC-001 is partial as the report says.') }, decidedBy: yours }
+      ],
+      decidedBy: { ...yours, words: 'You may choose "Accept the gap as a risk until a date"; the Quality reviewers decide the other options.' } },
+    d2: { id: itemIds.length === 1 ? 'd1' : 'd2', kind: 'upstream-issue', title: 'AC-002: a problem reported in Testing', why: "Testing's approvers decide it.",
+      options: [{ id: 'dismiss', label: 'Dismiss it: it is not a real problem', recommended: false, words: 'The report stays in the history.',
+        effects: [], needs: { reason: reason('Dismissed: AC-002 in Testing is not a defect.') }, decidedBy: quality }],
+      decidedBy: { ...quality } }
+  };
+  return { schemaVersion: 1, resultType: 'sflow-decisions', workId: DECIDE_W, phase: 'conformance', phaseLabel: 'Code checking', status: 'decisions-needed',
+    headline: `Code checking can't be approved yet: ${itemIds.length} decision${itemIds.length === 1 ? '' : 's'} needed.`, rule: 'Keep the honest verdict.',
+    items: itemIds.map((id) => items[id]), packetSha256: digest, record: { share: `/sf-decide ${DECIDE_W}` } };
+}
+
+async function decisionsCli(base) {
+  const state = path.join(base, 'decisions-state');
+  await mkdir(state, { recursive: true });
+  const file = (name) => path.join(state, name);
+  const write = (name, value) => writeFile(file(name), JSON.stringify(value));
+  const realCli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
+  const wrapper = path.join(base, 'decisions-cli.mjs');
+  await writeFile(wrapper, `
+    import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+    const state = ${JSON.stringify(state)};
+    const read = (name) => JSON.parse(readFileSync(state + '/' + name, 'utf8'));
+    const args = process.argv.slice(2);
+    const out = (value, code = 0) => { process.stdout.write(JSON.stringify(value)); process.exitCode = code; };
+    if (args[0] === 'decisions') {
+      const entry = { argv: args };
+      if (args[1] === 'record') {
+        const answers = args[args.indexOf('--answers') + 1];
+        entry.answers = JSON.parse(readFileSync(answers, 'utf8'));
+        entry.mode = (statSync(answers).mode & 0o777).toString(8);
+        entry.answersFile = answers;
+      }
+      appendFileSync(state + '/log.jsonl', JSON.stringify(entry) + '\\n');
+      const current = read('current.json');
+      if (args[1] !== 'record') {
+        if (!args.includes('--choose')) out({ resultType: 'command-result', data: current });
+        else out({ resultType: 'command-result', data: { ...current, preview: read('preview.json') } });
+      } else if (read('mode.json') === 'stale') {
+        writeFileSync(state + '/current.json', JSON.stringify(read('fresh.json')));
+        out({ schemaVersion: 1, resultType: 'sflow-refusal-plan', status: 'failed', error: { code: 'DECISIONS_PACKET_CHANGED',
+          message: 'The decision list changed since it was reviewed. Nothing was recorded.', details: { packet: read('fresh.json'), packetSha256: read('fresh.json').packetSha256 } } }, 1);
+      } else {
+        writeFileSync(state + '/current.json', JSON.stringify(read('after.json')));
+        out({ resultType: 'command-result', data: { recorded: [{ item: 'd1', kind: 'upstream-issue-decision', record: 'UPI-002 accept-risk' }],
+          refused: [], remaining: [{ id: 'd1', title: 'AC-002: a problem reported in Testing' }], packetSha256: read('after.json').packetSha256 } });
+      }
+    } else if (args[0] === 'choices' && args[1] === 'begin' && args[3] === ${JSON.stringify(DECIDE_W)}) {
+      out({ schemaVersion: 1, token: 'receipt-decide-1', choiceSets: [] });
+    } else if (args[0] === 'review' && args[1] === 'conformance') {
+      out(read('review.json'));
+    } else {
+      await import(${JSON.stringify(pathToFileURL(realCli).href)});
+    }
+  `);
+  const log = async () => (existsSync(file('log.jsonl')) ? (await readFile(file('log.jsonl'), 'utf8')).trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)) : []);
+  return { wrapper, write, log };
+}
+
+async function activatedWithDecisions(t) {
+  const root = await demoRepository();
+  t.after(() => removeFixture(path.dirname(root)));
+  const cli = await decisionsCli(path.dirname(root));
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  api.workspace.getConfiguration = () => ({ get: (key) => key === 'cliPath' ? cli.wrapper : '', update: async () => {} });
+  await loadExtension(api).activate(context());
+  return { root, registered, cli };
+}
+
+test('the Decisions page lists each item, previews the choices, confirms them and records through a private answers file', async (t) => {
+  if (!requireBundle(t)) return;
+  const { registered, cli } = await activatedWithDecisions(t);
+  await cli.write('current.json', decisionPacketFixture(DECIDE_DIGEST));
+  await cli.write('fresh.json', decisionPacketFixture(DECIDE_FRESH));
+  await cli.write('after.json', decisionPacketFixture(`sha256:${'a'.repeat(64)}`, { itemIds: ['d2'] }));
+  await cli.write('mode.json', 'stale');
+  await cli.write('preview.json', {
+    steps: [{ item: 'd1', option: 'accept-risk', label: 'Accept the gap as a risk until a date', values: { expires: '2026-12-01' } }],
+    refused: [], summary: ['d1. AC-001 is partial in the Code checking report: Accept the gap as a risk until a date. Records: accept it as a risk until 2026-12-01 (decision on UPI-002).'],
+    record: { command: `singularity-flow decisions record ${DECIDE_W} --choose d1=accept-risk --expires d1=2026-12-01 --confirm ${DECIDE_DIGEST}`, recordInChat: true }
+  });
+
+  await registered.commands.get('singularityFlow.decisions')({ workId: DECIDE_W });
+  const page = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.decisions') ?? null);
+  await until(() => page.webview.html.includes('data-item="d2"'));
+  assert.equal(page.title, `Decisions · ${DECIDE_W}`);
+  assert.match(page.webview.html, /data-option="accept-risk" aria-pressed="false"/);
+  assert.doesNotMatch(page.webview.html, /data-option="reuse"/, 'an option the person may not decide is never a button');
+  assert.match(page.webview.html, /Share this with them:<\/span> <code>\/sf-decide DECIDE-1<\/code>/);
+  assert.match(page.webview.html, /Content-Security-Policy" content="default-src 'none'/);
+  assert.deepEqual((await cli.log()).map((entry) => entry.argv), [['decisions', DECIDE_W, '--json']]);
+
+  // Copy puts the share line on the clipboard; the page never sends the text itself.
+  await page.post({ type: 'decisions.copy', item: 'd2' });
+  assert.equal(registered.clipboard.at(-1), `/sf-decide ${DECIDE_W}`);
+
+  // The person chooses, reviews and confirms; the list changed meanwhile, so nothing is recorded.
+  const choose = () => page.post({ type: 'decisions.review', digest: page.webview.html.match(/data-digest="([^"]+)"/)[1],
+    choices: [{ item: 'd1', option: 'accept-risk', expires: '2026-12-01',
+      reason: 'Accepted as a risk until the date: AC-001 is partial as the report says.' }] });
+  registered.reviewConfirmationManual = true;
+  let reviewing = choose();
+  let confirmation = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.reviewConfirmation' && entry.visible) ?? null);
+  assert.equal(confirmation.title, `Record 1 decision for ${DECIDE_W}`);
+  assert.match(confirmation.webview.html, /Records: accept it as a risk until 2026-12-01 \(decision on UPI-002\)\./);
+  assert.ok(confirmation.webview.html.includes(`--confirm ${DECIDE_DIGEST}`), 'the exact digest command is on the page');
+  assert.match(confirmation.webview.html, /<input type="checkbox" data-acknowledged>/, 'an acknowledgement; the digest is never typed');
+  assert.deepEqual((await cli.log()).at(-1).argv, ['decisions', DECIDE_W, '--choose', 'd1=accept-risk', '--expires', 'd1=2026-12-01', '--json'],
+    'the preview carries the changed date and leaves the unchanged default reason out');
+  await confirmation.post({ type: 'confirmation.accept', acknowledged: true });
+  await reviewing;
+  await until(() => page.webview.html.includes('data-outcome="stale"'));
+  const stale = (await cli.log()).at(-1);
+  assert.deepEqual(stale.argv, ['decisions', 'record', DECIDE_W, '--answers', stale.answersFile, '--json']);
+  assert.deepEqual(stale.answers, { choose: { d1: 'accept-risk' }, reason: {}, expires: { d1: '2026-12-01' }, cause: {}, confirm: DECIDE_DIGEST });
+  assert.equal(stale.mode, '600', 'the answers file is readable only by the person');
+  assert.equal(existsSync(path.dirname(stale.answersFile)), false, 'the private folder is removed after the command');
+  assert.match(page.webview.html, /The decision list changed since you reviewed it, so nothing was recorded\./);
+  assert.ok(page.webview.html.includes(`data-digest="${DECIDE_FRESH}"`), 'the refusal\'s fresh list is shown');
+
+  // Choosing again from the fresh list records, and the page reads the list again.
+  await cli.write('mode.json', 'ok');
+  reviewing = choose();
+  confirmation = await until(() => registered.panels.filter((entry) => entry.id === 'singularityFlow.reviewConfirmation' && entry.visible).at(-1) ?? null);
+  await confirmation.post({ type: 'confirmation.accept', acknowledged: true });
+  await reviewing;
+  await until(() => page.webview.html.includes('data-outcome="recorded"'));
+  assert.match(page.webview.html, /Recorded 1 record from your choices\.[\s\S]*<li>d1: UPI-002 accept-risk<\/li>/);
+  const recorded = (await cli.log()).filter((entry) => entry.argv[1] === 'record').at(-1);
+  assert.equal(recorded.answers.confirm, DECIDE_FRESH, 'bound to the list the person chose from');
+  await until(() => !page.webview.html.includes('data-option="accept-risk"'));
+  assert.deepEqual((await cli.log()).at(-1).argv, ['decisions', DECIDE_W, '--json'], 'what remains is the engine\'s answer, read fresh');
+  assert.match(page.webview.html, /Code checking can&#39;t be approved yet: 1 decision needed\./);
+
+  // Cancelling the review records nothing.
+  await cli.write('current.json', decisionPacketFixture(DECIDE_DIGEST));
+  await page.post({ type: 'decisions.refresh' });
+  await until(() => page.webview.html.includes(`data-digest="${DECIDE_DIGEST}"`));
+  const before = (await cli.log()).length;
+  reviewing = choose();
+  confirmation = await until(() => registered.panels.filter((entry) => entry.id === 'singularityFlow.reviewConfirmation' && entry.visible).at(-1) ?? null);
+  await confirmation.post({ type: 'confirmation.cancel' });
+  await reviewing;
+  await until(() => page.webview.html.includes('Nothing was recorded. Your choices are kept on this page.'));
+  assert.equal((await cli.log()).slice(before).some((entry) => entry.argv[1] === 'record'), false);
+  assert.match(page.webview.html, /data-option="accept-risk" aria-pressed="true"/);
+});
+
+test('a list that changed before the preview is shown fresh, with no confirmation and nothing recorded', async (t) => {
+  if (!requireBundle(t)) return;
+  const { registered, cli } = await activatedWithDecisions(t);
+  await cli.write('current.json', decisionPacketFixture(DECIDE_DIGEST));
+  await cli.write('preview.json', { steps: [{ item: 'd1', option: 'accept-risk' }], refused: [], summary: ['d1.'], record: { command: 'singularity-flow decisions record' } });
+  await registered.commands.get('singularityFlow.decisions')({ workId: DECIDE_W });
+  const page = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.decisions') ?? null);
+  await until(() => page.webview.html.includes(`data-digest="${DECIDE_DIGEST}"`));
+  await cli.write('current.json', decisionPacketFixture(DECIDE_FRESH));
+  registered.reviewConfirmationManual = true;
+  await page.post({ type: 'decisions.review', digest: DECIDE_DIGEST, choices: [{ item: 'd1', option: 'accept-risk' }] });
+  await until(() => page.webview.html.includes('The decision list changed since it was shown, so nothing was previewed. This is the current list.'));
+  assert.equal(registered.panels.some((entry) => entry.id === 'singularityFlow.reviewConfirmation'), false);
+  assert.ok(page.webview.html.includes(`data-digest="${DECIDE_FRESH}"`));
+  // A choice the engine would refuse never reaches it.
+  const reads = (await cli.log()).length;
+  await page.post({ type: 'decisions.review', digest: DECIDE_FRESH, choices: [{ item: 'd1', option: 'reuse' }] });
+  assert.equal((await cli.log()).length, reads);
+  assert.match(page.webview.html, /role="alert">[\s\S]*The Quality reviewers decide this\./);
+});
+
+test('an approval held by pending decisions says so on the approval page and opens the decision list', async (t) => {
+  if (!requireBundle(t)) return;
+  const { registered, cli } = await activatedWithDecisions(t);
+  await cli.write('current.json', decisionPacketFixture(DECIDE_DIGEST));
+  await cli.write('review.json', { schemaVersion: 1, workItem: { id: DECIDE_W, title: 'Change the value' },
+    phase: { id: 'conformance', label: 'Code checking', generation: 1 }, artifact: { path: 'artifacts/conformance/report.md', sha256: 'c'.repeat(64) },
+    specificationQuality: null, priorExceptions: [], reviewerSelfApproval: false,
+    evidenceConsistency: { projectionSha256: `sha256:${'e'.repeat(64)}`, summary: ['UPI-002: owned by implementation; open; human decision outstanding.'] } });
+  registered.reviewConfirmationManual = true;
+  const approving = registered.commands.get('singularityFlow.approve')({ kind: 'action', id: 'story:conformance:approve', label: 'Review and approve',
+    approve: { kind: 'story', workId: DECIDE_W, phaseId: 'conformance', expected: 'conformance', summary: `Approve ${DECIDE_W} / Code checking` } });
+  const review = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.approvalReview') ?? null);
+  assert.match(review.webview.html, /<h2>Decide what blocks this step first<\/h2>\s*<p>Code checking can&#39;t be approved yet: 2 decisions needed\.<\/p>/);
+  assert.match(review.webview.html, /<button type="button" data-decide>Decide what blocks this step<\/button>/);
+  assert.match(review.webview.html, /Evidence consistency[\s\S]*UPI-002: owned by implementation; open; human decision outstanding\./);
+  assert.ok((await cli.log()).some((entry) => entry.argv.join(' ') === `decisions ${DECIDE_W} --phase conformance --json`), 'read beside the review bundle');
+  await review.post({ type: 'approval.decide' });
+  await approving;
+  assert.equal(review.visible, false, 'the approval page closed');
+  const page = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.decisions') ?? null);
+  await until(() => page.webview.html.includes('data-item="d1"'));
+  assert.deepEqual((await cli.log()).at(-1).argv, ['decisions', DECIDE_W, '--phase', 'conformance', '--json'], 'the list of the step being approved');
+  assert.equal(registered.output.some((line) => /\$ singularity-flow approve /.test(line)), false);
+
+  // With nothing pending, the approval page has no such section.
+  await cli.write('current.json', { ...decisionPacketFixture(DECIDE_DIGEST), items: [], status: 'nothing-to-decide' });
+  const again = registered.commands.get('singularityFlow.approve')({ kind: 'action', id: 'story:conformance:approve', label: 'Review and approve',
+    approve: { kind: 'story', workId: DECIDE_W, phaseId: 'conformance', expected: 'conformance', summary: `Approve ${DECIDE_W} / Code checking` } });
+  const plain = await until(() => registered.panels.filter((entry) => entry.id === 'singularityFlow.approvalReview' && entry.visible).at(-1) ?? null);
+  assert.doesNotMatch(plain.webview.html, /<button type="button" data-decide>/, 'the script names the selector on every page; the button only when held');
+  await plain.post({ type: 'approval.decide' });
+  assert.equal(plain.visible, true, 'the decide message does nothing when nothing is held');
+  await plain.post({ type: 'approval.cancel' });
+  await again;
+  assert.equal(registered.output.some((line) => /\$ singularity-flow approve /.test(line)), false, 'nothing was approved');
+});

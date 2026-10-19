@@ -6741,7 +6741,7 @@ function commitKnowledge(root, message) {
  * while the second says nothing about it. A valid edit that changes a delivery into a collection
  * therefore sends both `--kind collection` and `--repository ''`.
  */
-function capabilityChanges(options) {
+async function capabilityChanges(options) {
   // Insertion order is the order new keys land in the file, so this is the order a person reads a
   // capability in: what it is, where it sits, what it ships, then who tracks and runs it.
   const changes = {};
@@ -6782,6 +6782,8 @@ function capabilityChanges(options) {
   put('owns', 'owns', list);
   put('description', 'description');
   put('owner', 'owner');
+  const applicationFile = optionString(options, 'application-file');
+  if (applicationFile != null) changes.application = (await import('./capability-application-file.mjs')).readApplicationFile(applicationFile);
 
   // Auto is the one capability policy slice exposed by the guided editor. It is deliberately
   // narrower than a generic `--policy` escape hatch: capability policy can only tighten the
@@ -7104,7 +7106,7 @@ async function capabilityCommand(positionals, options) {
     const edited = await editCapabilityInOrganisation(
       leadUrl,
       id,
-      mode === 'remove' ? {} : capabilityChanges(options),
+      mode === 'remove' ? {} : await capabilityChanges(options),
       { mode, reparentChildrenTo: mode === 'remove' ? capabilityRemovalDestination(options) : undefined }
     );
     await rememberLeadRepository(leadUrl);
@@ -7421,7 +7423,7 @@ async function capabilityCommand(positionals, options) {
 
   if (subcommandForWrite === 'add' || subcommandForWrite === 'set' || subcommandForWrite === 'remove') {
     const id = requirePositional(positionals, 2, 'capability ID');
-    const result = await editCapability(root, id, capabilityChanges(options), {
+    const result = await editCapability(root, id, await capabilityChanges(options), {
       mode: subcommandForWrite,
       portfolio,
       reparentChildrenTo: subcommandForWrite === 'remove'

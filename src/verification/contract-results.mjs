@@ -121,6 +121,7 @@ function recordSlotResult(id, slot, { rowSubmitted, records }) {
  */
 export function contractResult(id, contract, entries, {
   submitted, rowSubmitted, requiredAssurance, decisionFor = () => null, unattached = [], records = [], acceptedRisk = false,
+  acceptedNoTestRunCommands = new Set(),
   at = new Date().toISOString()
 }) {
   const slots = contract.slots.map((slot) => ({
@@ -145,6 +146,15 @@ export function contractResult(id, contract, entries, {
   // A recovery decision that accepted the observed test failure carries the criterion, visibly.
   if (acceptedRisk && ['failed', 'inconclusive'].includes(status)
       && countedResults.length && countedResults.every((entry) => ['failed', 'unavailable'].includes(entry.outcome) || entry.status === 'met')) {
+    status = 'excepted';
+    exception = 'accepted-risk';
+  }
+  // A step approver accepted a run in which no test executed (every test skipped for want of a
+  // service): a criterion whose test was skipped in exactly that command's run is carried the same
+  // way, visibly. A skip in any other run still verifies nothing.
+  if (acceptedNoTestRunCommands.size && status === 'missing' && countedResults.some((entry) => entry.outcome === 'unverified-skipped')
+      && countedResults.every((entry) => entry.status === 'met' || (['unverified-skipped', 'unavailable'].includes(entry.outcome)
+        && acceptedNoTestRunCommands.has(entry.commandId)))) {
     status = 'excepted';
     exception = 'accepted-risk';
   }

@@ -73,7 +73,8 @@ async function testRunRiskDisposition(workflow, evidence) {
   const at = terminalTransitionAt(workflow);
   if (!runs.every((entry) => boundTestRunRiskActive(workflow, entry.testRunRisk, { at }))) return null;
   return { disposition: 'accepted-risk', observedOutcome: 'unavailable', source: 'test-run-risk',
-    decisions: [...new Set(runs.map((entry) => entry.testRunRisk.id))] };
+    decisions: [...new Set(runs.map((entry) => entry.testRunRisk.id))],
+    commandIds: [...new Set(runs.map((entry) => entry.commandId).filter(Boolean))] };
 }
 
 /** The committed delivery evidence of one code phase: receipt, test receipts and dispositions. */

@@ -15,7 +15,11 @@ export const FINDINGS_TOPIC = 'findings';
 const CODE_SECTIONS = new Map(Object.entries({
   'CODE_DELIVERY_EVIDENCE_REQUIRED': ['code_delivery_evidence_required'],
   'CODE_DELIVERY_RETAINED_EVIDENCE_MISSING': ['code_delivery_retained_evidence_missing'],
-  'CODE_DELIVERY_TEST_COMMAND_REQUIRED': ['code_delivery_test_command_required'],
+  // Every runner an approved test command must supply: none inferable, two build systems, a native
+  // target (Android variant, Xcode scheme) or adapter that would otherwise be guessed.
+  'CODE_DELIVERY_TEST_COMMAND_REQUIRED': ['code_delivery_test_command_required', 'test_module_ambiguous', 'test_module_uncovered',
+    'gradle_test_target_required', 'xcode_test_target_required', 'rust_test_adapter_required', 'code_test_result_required',
+    'code_test_suppressed'],
   'SPEC_COVERAGE_INCOMPLETE': ['spec_coverage_incomplete'],
   'conformance.verdict-incomplete': ['conformance.verdict-incomplete'],
   'plan_evidence_correction_review_required': ['plan_evidence_correction_review_required'],

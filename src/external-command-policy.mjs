@@ -135,5 +135,7 @@ export function evaluateExternalCommandForModelMode(value, {
     return { ...normalized, action: 'block', reason: `Quality command '${normalized.id}' requires an external model while model mode is disabled.` };
   }
   const action = unknownStrictness === 'block' ? 'block' : 'skip';
-  return { ...normalized, action, reason: `Quality command '${normalized.id}' has unknown external-model behavior and was not run while model mode is disabled.` };
+  // Skipping is a model-mode decision, not a broken runner: name the two ways it runs again.
+  return { ...normalized, action, reason: `Quality command '${normalized.id}' has unknown external-model behavior (it declares no modelPolicy) and was not run while model mode is disabled. `
+    + 'Rerun with the model enabled, or have configuration declare modelPolicy: never for it.' };
 }

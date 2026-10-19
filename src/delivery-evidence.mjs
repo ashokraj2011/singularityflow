@@ -5,7 +5,7 @@ import path from 'node:path';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import {
-  inferModuleTestCommand, isAllowedTestAutomationPath, isExecutableTestSourcePath,
+  configuredTestModuleOverrides, inferModuleTestCommand, isAllowedTestAutomationPath, isExecutableTestSourcePath,
   isSupportingTestResourcePath, isTestSourceName, persistedOccurrences, readDurableTestObservation, replayTestReports,
   resolveAffectedModule, testReceiptPassing
 } from './code-delivery-tests.mjs';
@@ -55,6 +55,28 @@ export function affectedDeliveryPaths(delivery = {}, sourceBoundary = 'unrestric
     ...(sourceBoundary === 'test-automation' ? delivery.testPaths ?? [] : delivery.sourcePaths ?? []),
     ...(delivery.configurationPaths ?? [])
   ])].sort();
+}
+
+/**
+ * Repository metadata (.gitignore, CODEOWNERS, editor settings) and CI configuration
+ * (.github/workflows/*, .gitlab-ci.yml) are never exercised by a module's tests. They are not held
+ * to affected-module test coverage; the plan and scope still account for every one of them.
+ */
+export function testCoverageExemptPath(candidate) {
+  const kind = configurationPathKind(candidate);
+  return kind === 'repository-metadata' || kind === 'ci-configuration';
+}
+
+/** The affected paths a passing module test command must cover: publish, submit, replay and recovery agree. */
+export function testCoverageDeliveryPaths(delivery = {}, sourceBoundary = 'unrestricted') {
+  return affectedDeliveryPaths(delivery, sourceBoundary).filter((candidate) => !testCoverageExemptPath(candidate));
+}
+
+/** The affected paths no command's affected roots cover, in order. */
+export function uncoveredTestDeliveryPaths(delivery, sourceBoundary, commands = []) {
+  return testCoverageDeliveryPaths(delivery, sourceBoundary).filter((candidate) => !commands.some((command) =>
+    (command?.affectedRoots ?? []).some((affectedRoot) => affectedRoot === '.' || candidate === affectedRoot
+      || candidate.startsWith(`${String(affectedRoot).replace(/\/$/u, '')}/`))));
 }
 
 function pinnedTestEvidenceSource(workflow, phase) {
@@ -1510,11 +1532,18 @@ export async function resolveDeliveryQualityCommands(root, phase, { executionMod
     ...(phase.deliveryEvidence?.testPaths ?? [])
   ])];
   const modules = new Map();
+  // An approved configured test command owns the paths below its affected roots, so a directory
+  // with two build systems (a tooling package.json beside pom.xml) is decided by that approval.
+  const overrides = configuredTestModuleOverrides(configuredTests);
   for (const candidate of deliveryPaths) {
-    const module = await resolveAffectedModule(root, candidate).catch((error) => {
-      if (error?.code === 'TEST_MODULE_UNCOVERED') return null;
+    const module = await resolveAffectedModule(root, candidate, { overrides }).catch((error) => {
+      // Repository metadata and CI configuration need no module of their own [testCoverageExemptPath].
+      if (testCoverageExemptPath(candidate) && ['TEST_MODULE_UNCOVERED', 'TEST_MODULE_AMBIGUOUS'].includes(error?.code)) return null;
+      // A build with no supported runner owns its files: refuse rather than borrow another module's tests.
+      if (error?.code === 'TEST_MODULE_UNCOVERED' && !error.details?.nativeManifest) return null;
       throw error;
     });
+    if (module?.configured) continue;
     if (module) modules.set(`${module.root}:${module.system}`, module);
   }
   for (const module of modules.values()) {
@@ -2028,7 +2057,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
     }
   }
   if (requireAffectedModuleCoverage) {
-    for (const sourcePath of affectedDeliveryPaths(receipt.changeSet)) {
+    for (const sourcePath of testCoverageDeliveryPaths(receipt.changeSet)) {
       if (![...executions.values()].some((execution) => pathCoveredByRoots(sourcePath, execution.affectedRoots))) {
         fail(`affected ${isConfigurationPath(sourcePath) ? 'configuration' : 'source'} path ${sourcePath} has no passing module test receipt`);
       }

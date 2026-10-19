@@ -30,7 +30,7 @@ export async function inspectRepositoryTestSetup(root, { sourceRoots = ['.'], pl
       }
       if (!commands.length) diagnostics.push({ path: directory, code: 'TEST_CONFIGURATION_PENDING', message: 'No supported structured runner inferred. Provide the command and reporter, or select the exact nested application directory.' });
     } catch (error) {
-      if (!['TEST_MODULE_UNCOVERED', 'TEST_MODULE_AMBIGUOUS', 'GRADLE_TEST_TARGET_REQUIRED', 'RUST_TEST_ADAPTER_REQUIRED'].includes(error.code)) throw error;
+      if (!['TEST_MODULE_UNCOVERED', 'TEST_MODULE_AMBIGUOUS', 'GRADLE_TEST_TARGET_REQUIRED', 'RUST_TEST_ADAPTER_REQUIRED', 'XCODE_TEST_TARGET_REQUIRED'].includes(error.code)) throw error;
       diagnostics.push({ path: directory, code: error.code, message: error.message });
     }
   }

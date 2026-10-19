@@ -13,6 +13,11 @@
  * approval, later steps and the Story's completion while the decision is active: until it expires,
  * is revoked, or a newer decision on the same command replaces it. Decisions and revocations are
  * append-only. Pure.
+ *
+ * A decision binds the command by its ID and argv digest. The run that prompted it is kept in the
+ * private Git storage of the checkout that ran it, so an approver on another machine may bind the
+ * command by the digest the refusal names instead; every use still re-checks that no test executed
+ * in the run it lets through.
  */
 import { recordSha256 } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -20,6 +25,7 @@ import { SingularityFlowError } from './util.mjs';
 export const MAX_TEST_RUN_RISK_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;
 const NOT_RUN_STATUSES = new Set(['failed', 'blocked']);
+const ARGV_DIGEST = /^[a-f0-9]{64}$/u;
 
 /** How many tests a recorded attempt executed: passed plus failed; skipped ones did not run. */
 export function testsExecuted(attempt) {
@@ -48,9 +54,16 @@ function textBetween(value, minimum, maximum, option, what) {
   return text;
 }
 
+/** The command a person who approves the step runs to accept, or renew, the risk of one command. */
+export function testRunRiskDecisionCommand(workflow, { phaseId, commandId, argvSha256 = null }) {
+  return `singularity-flow decision test-risk ${workflow?.workItem?.id ?? '<WORK-ID>'} --phase ${phaseId} --command ${commandId}`
+    + ' --cause "<what in the environment stops it>" --reason "<why the risk is acceptable>" --expires <YYYY-MM-DD>'
+    + (ARGV_DIGEST.test(String(argvSha256 ?? '')) ? ` --argv-sha256 ${argvSha256}` : '');
+}
+
 /** Why a person may not accept the risk of this attempt, or null when they may. */
 export function testRunRiskIneligibility(attempt) {
-  if (!attempt) return 'no run of this command is recorded for the step yet; publish or submit it first so its failure is recorded';
+  if (!attempt) return 'no run of this command is recorded for the step in this checkout yet; publish or submit it first so its failure is recorded, or name the command digest its refusal gave with --argv-sha256';
   if (attempt.status === 'passed') return 'its latest run passed';
   if (!NOT_RUN_STATUSES.has(attempt.status)) return `its latest run is ${attempt.status}, not a run that failed or was blocked`;
   const executed = testsExecuted(attempt);
@@ -58,12 +71,16 @@ export function testRunRiskIneligibility(attempt) {
   return null;
 }
 
-/** Record a decision on the aggregate; the caller found the attempt and checked authority. */
-export function recordTestRunRisk(workflow, { phaseId, attempt, cause, reason, expires, actor, authorityGroup, identityAssurance = null, at }) {
-  const ineligible = testRunRiskIneligibility(attempt);
+/**
+ * Record a decision on the aggregate; the caller found the attempt and checked authority. With no
+ * run recorded in this checkout, the command is bound by `commandId` and its `argvSha256` instead.
+ */
+export function recordTestRunRisk(workflow, { phaseId, attempt, commandId = null, argvSha256 = null, cause, reason, expires, actor, authorityGroup, identityAssurance = null, at }) {
+  const byDigest = !attempt && Boolean(commandId) && ARGV_DIGEST.test(String(argvSha256 ?? ''));
+  const ineligible = byDigest ? null : testRunRiskIneligibility(attempt);
   if (ineligible) {
-    throw new SingularityFlowError(`The risk of ${attempt?.commandId ?? 'this test command'} cannot be accepted: ${ineligible}.`, {
-      code: 'TEST_RUN_RISK_NOT_ELIGIBLE', details: { phase: phaseId, commandId: attempt?.commandId ?? null }
+    throw new SingularityFlowError(`The risk of ${attempt?.commandId ?? commandId ?? 'this test command'} cannot be accepted: ${ineligible}.`, {
+      code: 'TEST_RUN_RISK_NOT_ELIGIBLE', details: { phase: phaseId, commandId: attempt?.commandId ?? commandId ?? null }
     });
   }
   const statedCause = textBetween(cause, 10, 300, '--cause', 'what in the environment stops the tests');
@@ -78,12 +95,13 @@ export function recordTestRunRisk(workflow, { phaseId, attempt, cause, reason, e
   workflow.testRunRisks ??= [];
   const decision = {
     id: `TRR-${String(workflow.testRunRisks.filter((entry) => !entry.revokes).length + 1).padStart(3, '0')}`,
-    phase: phaseId, commandId: attempt.commandId, argvSha256: attempt.argvSha256,
+    phase: phaseId, commandId: byDigest ? commandId : attempt.commandId, argvSha256: byDigest ? argvSha256 : attempt.argvSha256,
     cause: statedCause, reason: text, expiresAt: expiry.toISOString(),
-    observation: {
+    // Bound by digest, the decision saw no run here; each run it lets through is checked at use.
+    ...(byDigest ? { boundBy: 'command-digest' } : { observation: {
       attemptId: attempt.attemptId, status: attempt.status,
       exitCode: Number.isInteger(attempt.exitCode) ? attempt.exitCode : null, testsExecuted: 0
-    },
+    } }),
     actor, authorityGroup, identityAssurance, at
   };
   workflow.testRunRisks.push(decision);
@@ -150,8 +168,8 @@ export function boundTestRunRiskActive(workflow, binding, { at } = {}) {
 export function testRunRiskRoute(workflow, { phaseId, attempt, at }) {
   if (!noTestExecuted(attempt)) return null;
   const state = testRunRiskState(workflow, { phaseId, commandId: attempt.commandId, argvSha256: attempt.argvSha256 }, { at });
-  const command = `singularity-flow decision test-risk ${workflow.workItem.id} --phase ${phaseId} --command ${attempt.commandId}`
-    + ' --cause "<what in the environment stops it>" --reason "<why the risk is acceptable>" --expires <YYYY-MM-DD>';
+  // The digest lets an approver on another machine bind the same command without this run.
+  const command = testRunRiskDecisionCommand(workflow, { phaseId, commandId: attempt.commandId, argvSha256: attempt.argvSha256 });
   const lapsed = state && state.state !== 'active'
     ? ` ${state.decision.id} ${state.state === 'expired' ? `expired on ${state.decision.expiresAt.slice(0, 10)}` : 'was revoked'}.` : '';
   return {
@@ -175,8 +193,40 @@ export function testRunRiskCoverageProblem(workflow, binding, { phaseId, attempt
   }
   if (!noTestExecuted(attempt)) return `tests executed in this run, which no test-run risk decision covers`;
   const state = testRunRiskState(workflow, { phaseId, commandId: decision.commandId, argvSha256: decision.argvSha256 }, { at });
-  if (state?.state !== 'active') return `test-run risk ${state?.decision.id ?? decision.id} is ${state?.state ?? 'unknown'}; a person who approves ${phaseId} must accept it again`;
+  if (state?.state !== 'active') {
+    return `test-run risk ${state?.decision.id ?? decision.id} is ${state?.state ?? 'unknown'}; a person who approves ${phaseId} must accept it again: `
+      + testRunRiskDecisionCommand(workflow, { phaseId, commandId: decision.commandId, argvSha256: decision.argvSha256 });
+  }
   return null;
+}
+
+/**
+ * The decisions that no longer carry runs they let through, because the decision now governing
+ * the command expired or was revoked: one entry per command, each with the renewal a person who
+ * approves that step runs (`decision test-risk ... --expires`). Empty when nothing lapsed.
+ */
+export function lapsedTestRunRiskRenewals(workflow, entries, { at } = {}) {
+  const renewals = new Map();
+  for (const entry of entries ?? []) {
+    const binding = entry?.testRunRisk;
+    const decision = binding?.id
+      ? (workflow?.testRunRisks ?? []).find((record) => !record.revokes && record.id === binding.id) : null;
+    if (!decision || testRunRiskSha256(decision) !== binding.sha256) continue;
+    const key = [decision.phase, decision.commandId, decision.argvSha256].join('\u0000');
+    if (renewals.has(key)) continue;
+    const state = testRunRiskState(workflow, { phaseId: decision.phase, commandId: decision.commandId,
+      argvSha256: decision.argvSha256 }, { at });
+    if (!state || state.state === 'active') continue;
+    const command = testRunRiskDecisionCommand(workflow, { phaseId: decision.phase, commandId: decision.commandId,
+      argvSha256: decision.argvSha256 });
+    renewals.set(key, {
+      decision: state.decision.id, state: state.state, phase: decision.phase, commandId: decision.commandId, command,
+      words: `${state.decision.id} ${state.state === 'expired' ? `expired on ${state.decision.expiresAt.slice(0, 10)}` : 'was revoked'},`
+        + ` so the run of ${decision.commandId} it let through (no test executed) is no longer carried. A person who approves`
+        + ` ${decision.phase} can renew it in their own terminal (an agent cannot), or the environment is fixed and the tests run again: ${command}`
+    });
+  }
+  return [...renewals.values()];
 }
 
 /**

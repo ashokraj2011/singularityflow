@@ -2,11 +2,14 @@
  * `decision test-risk`: a person in the group that approves a step accepts the risk that one of its
  * test commands cannot run in this environment, or revokes such a decision. See src/test-run-risk.mjs.
  *
- *   singularity-flow decision test-risk [WORK-ID] --phase PHASE [--command ID] --cause TEXT --reason TEXT --expires YYYY-MM-DD
+ *   singularity-flow decision test-risk [WORK-ID] --phase PHASE [--command ID [--argv-sha256 DIGEST]] --cause TEXT --reason TEXT --expires YYYY-MM-DD
  *   singularity-flow decision test-risk [WORK-ID] --revoke TRR-001 --reason TEXT
  *
- * Only a recorded run that failed or was blocked before any test executed can be accepted. The
- * Copilot guard refuses this command, like approve: an agent may name the route, never decide it.
+ * Only a recorded run that failed or was blocked before any test executed can be accepted. Runs
+ * are kept in the private Git storage of the checkout that ran them, so an approver on another
+ * machine names the command and the argv digest its refusal gave instead; each run the decision
+ * lets through is still checked for no executed test. The Copilot guard refuses this command, like
+ * approve: an agent may name the route, never decide it.
  */
 import { checkoutStoryBranch } from '../story-branch-name.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
@@ -52,8 +55,12 @@ async function latestAttempts(root, config, workflow, phaseId) {
   return latest;
 }
 
-function chooseAttempt(latest, commandId, phaseId) {
-  if (commandId) return latest.get(commandId) ?? null;
+function chooseAttempt(latest, commandId, phaseId, argvSha256 = null) {
+  if (commandId) {
+    const attempt = latest.get(commandId) ?? null;
+    // A run recorded here with other argv (another platform's wrapper) is not the named command.
+    return argvSha256 && attempt && attempt.argvSha256 !== argvSha256 ? null : attempt;
+  }
   const candidates = [...latest.values()].filter((attempt) => !testRunRiskIneligibility(attempt));
   if (candidates.length === 1) return candidates[0];
   const names = [...latest.keys()].sort();
@@ -61,7 +68,7 @@ function chooseAttempt(latest, commandId, phaseId) {
     ? `More than one test command of ${phaseId} could not run; name one with --command (${candidates.map((entry) => entry.commandId).sort().join(', ')}).`
     : names.length
       ? `No test command of ${phaseId} has a latest run that failed or was blocked before any test executed (${names.join(', ')}).`
-      : `No run of a test command of ${phaseId} is recorded yet; publish or submit the step first so its failure is recorded.`,
+      : `No run of a test command of ${phaseId} is recorded in this checkout yet; publish or submit the step first so its failure is recorded, or name the command and digest its refusal gave with --command ID --argv-sha256 DIGEST.`,
   { code: candidates.length ? 'TEST_RUN_RISK_COMMAND_REQUIRED' : 'TEST_RUN_RISK_NOT_ELIGIBLE' });
 }
 
@@ -89,8 +96,13 @@ export async function decisionTestRiskCommand(positionals, options) {
   if (!workflow.phases?.[phaseId]) {
     throw new SingularityFlowError(`Story ${id} has no step ${phaseId}.`, { code: 'TEST_RUN_RISK_INVALID' });
   }
+  const commandOption = optionString(options, 'command') ?? null;
+  const argvDigest = optionString(options, 'argv-sha256') ?? null;
+  if (argvDigest !== null && (revoke || !commandOption || !/^[a-f0-9]{64}$/u.test(argvDigest))) {
+    throw new SingularityFlowError('--argv-sha256 takes the 64-character digest a refusal named, with --phase and --command.', { code: 'TEST_RUN_RISK_INVALID' });
+  }
   const attempt = revoke ? null
-    : chooseAttempt(await latestAttempts(root, config, workflow, phaseId), optionString(options, 'command') ?? null, phaseId);
+    : chooseAttempt(await latestAttempts(root, config, workflow, phaseId), commandOption, phaseId, argvDigest);
   const groups = testRunRiskAuthorities(workflow, phaseId);
   if (!groups.length) {
     throw new SingularityFlowError(`Step ${phaseId} has no approval group, so nobody can accept the risk of its tests.`, { code: 'RISK_AUTHORITY_UNAVAILABLE' });
@@ -107,7 +119,7 @@ export async function decisionTestRiskCommand(positionals, options) {
     identityAssurance: authority.identityAssurance ?? null, at: nowIso() };
   const decide = (aggregate) => revoke
     ? recordTestRunRiskRevocation(aggregate, { riskId: revoke, ...common })
-    : recordTestRunRisk(aggregate, { phaseId, attempt, cause: optionString(options, 'cause') ?? '',
+    : recordTestRunRisk(aggregate, { phaseId, attempt, commandId: commandOption, argvSha256: argvDigest, cause: optionString(options, 'cause') ?? '',
       expires: optionString(options, 'expires') ?? null, ...common });
   decide(structuredClone(workflow));
   const { value: record, publication } = await transactStory(
@@ -116,7 +128,7 @@ export async function decisionTestRiskCommand(positionals, options) {
       type: LIFECYCLE_EVENT.DECISION_MADE, phaseId, generation: null,
       actor, agent, authorityGroup: authority.authorityGroup, payload: { decision: 'test-risk' }
     },
-    `[${id}][test-risk:${revoke ? 'revoke' : 'accept'}] ${revoke ?? `${phaseId} ${attempt.commandId}`}`,
+    `[${id}][test-risk:${revoke ? 'revoke' : 'accept'}] ${revoke ?? `${phaseId} ${attempt?.commandId ?? commandOption}`}`,
     async (aggregate) => {
       await assertNoPendingPublication(root, config, aggregate, 'record a test-run risk decision');
       const recorded = decide(aggregate);
@@ -124,7 +136,7 @@ export async function decisionTestRiskCommand(positionals, options) {
         at: recorded.at, actor: recorded.actor, agent, event: 'risk_decided', phase: phaseId,
         detail: recorded.revokes
           ? `${recorded.revokes} on ${recorded.phase} ${recorded.commandId} revoked. ${recorded.reason}`
-          : `${recorded.id} accepts that ${recorded.phase} test command ${recorded.commandId} cannot run here (${recorded.cause}) until ${recorded.expiresAt.slice(0, 10)}. ${recorded.reason}`
+          : `${recorded.id} accepts that ${recorded.phase} test command ${recorded.commandId} cannot run here (${recorded.cause}) until ${recorded.expiresAt.slice(0, 10)}${recorded.boundBy === 'command-digest' ? '; bound by its argv digest, with no run of it recorded in this checkout' : ''}. ${recorded.reason}`
       });
       return recorded;
     },

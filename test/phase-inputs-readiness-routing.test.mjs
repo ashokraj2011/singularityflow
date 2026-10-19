@@ -130,14 +130,18 @@ test('upstream-input remediation inspects, restores, then returns; never repairs
     assert.deepEqual(plan.steps.map(entry => entry.command), [
       'singularity-flow inputs planning --dry-run --json',
       'singularity-flow inputs restore planning',
-      'singularity-flow reject planning --work-id ROUTE-1 --to specification --reason <reason>'
+      'singularity-flow reject planning --work-id ROUTE-1 --to specification --reason <reason>',
+      // Never cut to fit the three-step plan: the earlier step's approvers are the other way out.
+      'singularity-flow upstream-issue raise --work-id ROUTE-1 --phase specification --about <clause-or-section> --problem <what-is-wrong>'
     ], argv.join(' '));
     assert.equal(plan.context.phaseId, 'planning');
     assert.equal(plan.context.strategy, 'upstream-input');
     assert.deepEqual(plan.context.upstreamPhases, ['specification']);
     assert.ok(plan.steps.every(entry => /come[s]? from specification/.test(entry.label) && /must not (?:be edited by planning|edit it)/.test(entry.label)),
       JSON.stringify(plan.steps.map(entry => entry.label)));
-    assert.doesNotMatch(JSON.stringify(plan), /--phase specification|repair-current-phase|doctor/);
+    // Raising the issue names specification as its owner; nothing repairs or recovers specification.
+    assert.doesNotMatch(JSON.stringify(plan.steps.filter(entry => entry.id !== 'raise-upstream-issue')), /--phase specification/);
+    assert.doesNotMatch(JSON.stringify(plan), /(?:recover|prepare|phase \w+)[^"]*--phase specification|repair-current-phase|doctor/);
     assert.match(renderRefusalPlan(plan), /approved input from specification; do not edit it here/);
   }
   // Nothing to restore and no return from an in-progress step: raising the issue is offered.

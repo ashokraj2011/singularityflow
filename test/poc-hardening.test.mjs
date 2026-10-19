@@ -170,6 +170,17 @@ Quality review must decide first and engineering review must decide independentl
   assert.equal(one.approval.authorityGroup, 'quality-reviewers');
   assert.equal(workflow.status, 'in_progress');
   assert.equal(workflow.phases[publication.id].status, 'awaiting_approval');
+  // Refused for who decides: each refusal is coded and names who else can, never a rejection.
+  await assert.rejects(approvePhase(root, config, workflow, { phaseId: publication.id, persist: false }), (error) => {
+    assert.equal(error.code, 'APPROVAL_IDENTITY_ALREADY_RECORDED', error.message);
+    assert.ok(error.details.eligibleApprovers.includes('engineering@example.com'), error.details.eligibleApprovers.join(', '));
+    assert.ok(!error.details.eligibleApprovers.includes('quality@example.com'), 'the identity already recorded is not suggested');
+    return true;
+  });
+  const outsider = { name: 'Outside Reviewer', email: 'outsider@example.com', login: null };
+  await setAgentSession(root, config, outsider, 'poc-validator', 'POC-AUTH-1', { phaseId: publication.id, source: 'test' });
+  await assert.rejects(approvePhase(root, config, workflow, { phaseId: publication.id, persist: false }),
+    { code: 'APPROVAL_IDENTITY_NOT_AUTHORIZED', message: /^Identity 'outsider@example\.com' is not a member of/u });
 
   const second = { name: 'Engineering Reviewer', email: 'engineering@example.com', login: null };
   await setAgentSession(root, config, second, 'poc-validator', 'POC-AUTH-1', { phaseId: publication.id, source: 'test' });

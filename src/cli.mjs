@@ -99,7 +99,7 @@ import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { decisionSubmitArguments } from './workflow-decisions.mjs';
 import { resolveStoryExecutionContext } from './story-execution-context.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
-import { completionVerdict, finalCheckRefusalMessage, printCompletionVerdict, recordedCompletion } from './completion-verdict.mjs';
+import { completionRecoveryActions, completionVerdict, finalCheckRefusalMessage, printCompletionVerdict, recordedCompletion } from './completion-verdict.mjs';
 import { applicabilityStatus, omissionAuthorities, recordApplicabilityDecision } from './evidence/applicability.mjs';
 import { installWorkflow, simulateWorkflow, simulationText, validateWorkflowCatalog, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
@@ -1342,7 +1342,7 @@ async function returnCommand(positionals, options) {
   const remote = discovery.remote;
   const offline = optionBoolean(options, 'offline');
   const { stateStorySubjectIndex } = await import('./session-story-discovery.mjs');
-  const index = await stateStorySubjectIndex(root, initialConfig, { remote, fetch: !offline });
+  const index = await stateStorySubjectIndex(root, initialConfig, { remote, fetch: !offline, reference });
   const subject = resolveContext(index, { reference, kind: 'story' });
   const targetBranch = subject.canonicalBranch;
   if (!offline) await fetchRemote(root, remote, { branches: [targetBranch], respectPartialClone: true });
@@ -2605,8 +2605,8 @@ async function clarificationCommand(positionals, options) {
     } catch (error) {
       throw new SingularityFlowError(
         `Only a member of ${phase.id}'s approval groups (${answerPolicy.authorities.join(', ')}) can answer its clarification questions, because the answers decide what the phase produces. `
-        + `Ask one of them to record the answer. ${error.message}`,
-        { code: 'CLARIFICATION_AUTHORITY_REQUIRED', details: { phase: phase.id, authorities: [...answerPolicy.authorities] } }
+        + `One of them records the answer in this checkout, under their own Git identity: a record made in another clone never reaches this Story, and the author cannot record it for them. ${error.message}`,
+        { code: 'CLARIFICATION_AUTHORITY_REQUIRED', details: { ...error.details, phase: phase.id, workId: workflow.workItem.id, authorities: [...answerPolicy.authorities] } }
       );
     }
   }
@@ -11402,7 +11402,7 @@ export async function finalizeCommand(options) {
   if (!finalCheck.verified) {
     throw new SingularityFlowError(
       finalCheckRefusalMessage(workflow.workItem.id, finalCheck),
-      { code: 'STORY_FINAL_CHECK_FAILED', exitCode: 2, details: { findings: finalCheck.findings } }
+      { code: 'STORY_FINAL_CHECK_FAILED', exitCode: 2, details: { findings: finalCheck.findings, recoveryCommands: completionRecoveryActions(finalCheck) } }
     );
   }
   // A required after-step action of the last step holds finalization like it holds a next step.

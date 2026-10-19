@@ -101,7 +101,7 @@ export async function resumeCommand(positionals, options, { selectedBranch = nul
   const refIndex = selectedBranch
     ? await buildRepositorySubjectIndexFromRefs(root, {
       definition: initialConfig, refs: [{ branch: selectedBranch, ref: `${remote}/${selectedBranch}` }]
-    }) : local ? null : await stateStorySubjectIndex(root, initialConfig, { remote, fetch });
+    }) : local ? null : await stateStorySubjectIndex(root, initialConfig, { remote, fetch, reference });
   const refSubject = local ?? resolveContext(refIndex, { reference, kind: 'story', required: false });
   if (selectedBranch && !refSubject) throw new SingularityFlowError(
     `The refreshed Story branch '${selectedBranch}' does not prove Work ID '${reference}'. No session was selected.`,

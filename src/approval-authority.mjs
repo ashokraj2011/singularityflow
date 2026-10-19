@@ -347,8 +347,35 @@ export function matchApprovalAuthority(authorities, policy, actor, { preferredAu
   };
 }
 
+/**
+ * Who else can make this decision: the policy's groups and up to `limit` members they list, never
+ * `exclude` (the identity that was refused). A group that admits any Git identity lists nobody.
+ */
+export function eligibleApprovers(authorities, policy, { exclude = [], limit = 10 } = {}) {
+  const groups = [...(policy?.authorities ?? [])];
+  let registry;
+  try { registry = normalizeApprovalAuthorities(authorities); } catch { return { authorities: groups, eligibleApprovers: [] }; }
+  const skip = new Set((Array.isArray(exclude) ? exclude : [exclude]).map(normalizedEmail).filter(Boolean));
+  const members = new Set();
+  for (const id of groups) {
+    for (const member of Object.hasOwn(registry, id) ? registry[id].members : []) {
+      if ((member.email && skip.has(member.email)) || (member.githubLogin && skip.has(member.githubLogin))) continue;
+      members.add(member.email || `github:${member.githubLogin}`);
+    }
+  }
+  return { authorities: groups, eligibleApprovers: [...members].slice(0, limit) };
+}
+
 export function requireApprovalAuthority(authorities, policy, actor, options = {}) {
   const match = matchApprovalAuthority(authorities, policy, actor, options);
-  if (!match.authorized) throw new SingularityFlowError(match.reason);
+  if (!match.authorized) {
+    // Coded, so every surface can say who may decide instead and how to check this checkout's
+    // identity. A refused identity is never a reason to reject the work under review.
+    const identity = normalizedEmail(actor?.email) || normalizedLogin(actor?.login) || null;
+    throw new SingularityFlowError(match.reason, {
+      code: identity ? 'APPROVAL_IDENTITY_NOT_AUTHORIZED' : 'APPROVAL_IDENTITY_MISSING',
+      details: { identity, ...eligibleApprovers(authorities, policy, { exclude: identity ?? [] }) }
+    });
+  }
   return match;
 }

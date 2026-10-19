@@ -27,3 +27,25 @@ capabilities:
       serviceTier: standard
     owns: [initiatives, stories]
     policy: {}
+
+  # A delivery capability may say how its application starts locally and which quality commands
+  # are its tests. Change it through the reviewed capability proposal like any other field.
+  #   singularity-flow app plan · app start [ID] [--environment ENV] · tests run · tests summary
+  # payments-web:
+  #   kind: delivery
+  #   parent: product
+  #   repositories: [payments-web]
+  #   application:
+  #     start:
+  #       - id: web
+  #         argv: [npm, run, dev, --, --host, 127.0.0.1, --port, "5173"]  # no shell runs it
+  #         workingDirectory: apps/web          # repository-relative
+  #         url: http://127.0.0.1:5173/         # loopback only: 127.0.0.1, localhost or [::1]
+  #         ready: { http: /, timeoutMs: 90000 } # or { log: "ready in", timeoutMs: 90000 }
+  #         environments: [dev, qa]             # optional, from environments.yml; the first is the default
+  #     tests:                                  # optional: absent means what the code step runs
+  #       - use: module-tests                   # a qualityCommands ID from workflow.yml
+  #       - use: integration-tests
+  #         environments: [dev, qa]
+  #   policy:
+  #     localIntegrationEvidence: allowed       # off (default) | allowed; a child may only turn it off

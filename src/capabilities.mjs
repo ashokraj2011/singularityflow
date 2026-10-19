@@ -301,6 +301,33 @@ function nonNegativeInteger(value, label, { positive = false } = {}) {
   return value;
 }
 
+/**
+ * Whether an environment-linked quality command may run on the person's machine with its private
+ * values and count as `local-integration` evidence. `off` is the default. Folding only tightens: a
+ * child may turn it off, and turning it `allowed` under an ancestor that says `off` is refused.
+ */
+export const LOCAL_INTEGRATION_EVIDENCE_VALUES = Object.freeze(['off', 'allowed']);
+
+function foldLocalIntegrationEvidence(parent, child) {
+  for (const [value, label] of [[parent, 'Parent capability policy'], [child, 'Capability policy']]) {
+    if (value != null && !LOCAL_INTEGRATION_EVIDENCE_VALUES.includes(value)) {
+      throw new SingularityFlowError(`${label}.localIntegrationEvidence must be off or allowed.`, {
+        code: 'CAPABILITY_POLICY_INVALID'
+      });
+    }
+  }
+  if (parent === 'off' && child === 'allowed') throw localIntegrationLoosened();
+  return child ?? parent ?? null;
+}
+
+function localIntegrationLoosened(capabilityId = null, ancestorId = null) {
+  return new SingularityFlowError(
+    `${capabilityId ? `Capability '${capabilityId}'` : 'A child capability'} cannot turn policy.localIntegrationEvidence to allowed`
+    + ` under ${ancestorId ? `'${ancestorId}'` : 'a parent'}, which sets it off. Change it on that parent through a capability proposal, or leave the child off.`,
+    { code: 'CAPABILITY_POLICY_LOOSENED', details: { capabilityId, ancestorId, field: 'localIntegrationEvidence' } }
+  );
+}
+
 export function foldCapabilityPolicy(parent = {}, child = {}) {
   object(parent, 'Parent capability policy');
   object(child, 'Child capability policy');
@@ -309,7 +336,7 @@ export function foldCapabilityPolicy(parent = {}, child = {}) {
     'allowedPhases', 'requiredChecks', 'requiredAuthorityGroups', 'jiraProjects', 'jiraHosts', 'jiraOperations', 'jiraFields',
     'protectedPaths', 'worldModelGrounding', 'worldModelStaleness', 'requiredWorldModelViews',
     'writeScopes', 'qualityCommands', 'storageProviders', 'allowedMimeTypes', 'tokenBudget',
-    'gitPublication', 'contextBoundary', 'contextMaxBytes', 'auto'
+    'gitPublication', 'contextBoundary', 'contextMaxBytes', 'auto', 'localIntegrationEvidence'
   ]);
   for (const key of Object.keys(child)) if (!allowed.has(key)) throw new SingularityFlowError(`Capability policy contains unknown key '${key}'.`);
   const array = (key) => uniqueStrings(child[key], `Capability policy.${key}`);
@@ -352,7 +379,8 @@ export function foldCapabilityPolicy(parent = {}, child = {}) {
     gitPublication: stricterEnum(parent.gitPublication, child.gitPublication, PUBLICATION_ORDER, 'gitPublication'),
     contextBoundary: stricterEnum(parent.contextBoundary, child.contextBoundary, CONTEXT_ORDER, 'contextBoundary'),
     contextMaxBytes: min(parentContextMaxBytes, childContextMaxBytes),
-    auto: foldCapabilityAutoPolicy(parentAuto, childAuto)
+    auto: foldCapabilityAutoPolicy(parentAuto, childAuto),
+    localIntegrationEvidence: foldLocalIntegrationEvidence(parent.localIntegrationEvidence, child.localIntegrationEvidence)
   };
   return Object.fromEntries(Object.entries(result).filter(([, value]) => value != null));
 }
@@ -428,6 +456,162 @@ export function capabilityLeadRepository(capability) {
   return repositories.length === 1 ? repositories[0] : null;
 }
 
+const APPLICATION_KEYS = Object.freeze(['start', 'tests']);
+const START_KEYS = Object.freeze(['id', 'repository', 'argv', 'workingDirectory', 'url', 'ready', 'environments']);
+const TEST_KEYS = Object.freeze(['use', 'environments']);
+const APPLICATION_ENTRY_ID = /^(?=.{1,64}$)[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+const APPLICATION_ENVIRONMENT_ID = /^(?=.{1,64}$)[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u;
+const APPLICATION_COMMAND_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
+const APPLICATION_CONTROL = /[\u0000-\u001f\u007f]/u;
+/** Loopback hosts a declared start entry may serve on; nothing else is ever opened or probed. */
+export const APPLICATION_LOOPBACK_HOSTS = Object.freeze(['127.0.0.1', 'localhost', '[::1]']);
+export const APPLICATION_READY_TIMEOUT_MS = Object.freeze({ minimum: 1_000, maximum: 600_000, default: 60_000 });
+
+function applicationError(id, message, details = null) {
+  return new SingularityFlowError(`Capability '${id}'.application ${message}`, {
+    code: 'CAPABILITY_APPLICATION_INVALID', details: { capabilityId: id, ...(details ?? {}) }
+  });
+}
+
+function closedKeys(id, value, allowed, label) {
+  const unknown = Object.keys(value).filter((key) => !allowed.includes(key)).sort();
+  if (unknown.length) {
+    const hint = unknown.includes('environment') ? ' Use environments: [ENV, ...]; the first is the default.' : '';
+    throw applicationError(id, `${label} contains unsupported field(s): ${unknown.join(', ')}.${hint}`);
+  }
+}
+
+/** One loopback HTTP(S) URL without credentials, query or fragment, or a refusal naming the rule. */
+export function loopbackApplicationUrl(value, label = 'url') {
+  const fail = (why) => new SingularityFlowError(`${label} ${why}`, { code: 'CAPABILITY_APPLICATION_INVALID' });
+  if (typeof value !== 'string' || !value || value.length > 2_048 || APPLICATION_CONTROL.test(value)) {
+    throw fail('must be an http or https URL.');
+  }
+  let parsed;
+  try { parsed = new URL(value); } catch { throw fail('must be an absolute http or https URL.'); }
+  if (!['http:', 'https:'].includes(parsed.protocol)) throw fail('must use http or https.');
+  if (!APPLICATION_LOOPBACK_HOSTS.includes(parsed.hostname)) {
+    throw fail(`must be on the loopback host 127.0.0.1, localhost or [::1], not '${parsed.hostname}'.`);
+  }
+  if (parsed.username || parsed.password || value.includes('?') || value.includes('#')) {
+    throw fail('must not carry credentials, a query or a fragment.');
+  }
+  return parsed;
+}
+
+function applicationEnvironments(id, value, label) {
+  if (value == null) return [];
+  if (!Array.isArray(value) || !value.length || value.length > 16) {
+    throw applicationError(id, `${label}.environments must list between 1 and 16 environments from singularity/environments.yml.`);
+  }
+  for (const entry of value) {
+    if (typeof entry !== 'string' || !APPLICATION_ENVIRONMENT_ID.test(entry)) {
+      throw applicationError(id, `${label}.environments entries must be lower-kebab-case environment IDs.`);
+    }
+  }
+  if (new Set(value).size !== value.length) throw applicationError(id, `${label}.environments names an environment more than once.`);
+  return [...value];
+}
+
+function applicationStartEntry(id, raw, index, repositories) {
+  const label = `start[${index}]`;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw applicationError(id, `${label} must be an object.`);
+  closedKeys(id, raw, START_KEYS, label);
+  if (typeof raw.id !== 'string' || !APPLICATION_ENTRY_ID.test(raw.id)) {
+    throw applicationError(id, `${label}.id must be lower-kebab-case and at most 64 characters.`);
+  }
+  if (typeof raw.argv === 'string') {
+    throw applicationError(id, `${label}.argv must be a list of arguments, not a shell string; no shell runs it.`, { startId: raw.id });
+  }
+  if (!Array.isArray(raw.argv) || !raw.argv.length || raw.argv.length > 256
+      || raw.argv.some((entry) => typeof entry !== 'string' || !entry || entry.length > 4_096 || APPLICATION_CONTROL.test(entry))) {
+    throw applicationError(id, `${label}.argv must be a non-empty list of non-empty strings without control characters.`, { startId: raw.id });
+  }
+  let repository = raw.repository ?? null;
+  if (repository != null && (typeof repository !== 'string' || !repositories.includes(repository))) {
+    throw applicationError(id, `${label}.repository must be one of this capability's repositories: ${repositories.join(', ')}.`);
+  }
+  if (repository == null) {
+    if (repositories.length !== 1) {
+      throw applicationError(id, `${label}.repository is required because this capability ships from several repositories (${repositories.join(', ')}).`);
+    }
+    [repository] = repositories;
+  }
+  const workingDirectory = raw.workingDirectory == null ? '.' : raw.workingDirectory;
+  if (typeof workingDirectory !== 'string' || !workingDirectory || APPLICATION_CONTROL.test(workingDirectory)
+      || workingDirectory.includes('\\') || workingDirectory.startsWith('/') || /^[A-Za-z]:/u.test(workingDirectory)
+      || workingDirectory.split('/').includes('..')) {
+    throw applicationError(id, `${label}.workingDirectory must be repository-relative without '..'.`);
+  }
+  try { loopbackApplicationUrl(raw.url, `${label}.url`); }
+  catch (error) { throw applicationError(id, error.message, { startId: raw.id }); }
+  const ready = raw.ready;
+  if (!ready || typeof ready !== 'object' || Array.isArray(ready)) {
+    throw applicationError(id, `${label}.ready must be { http: /PATH } or { log: TEXT }, with an optional timeoutMs.`);
+  }
+  closedKeys(id, ready, ['http', 'log', 'timeoutMs'], `${label}.ready`);
+  if ((ready.http != null) === (ready.log != null)) {
+    throw applicationError(id, `${label}.ready takes either http or log, never both and never neither.`);
+  }
+  if (ready.http != null && (typeof ready.http !== 'string' || !ready.http.startsWith('/') || ready.http.startsWith('//')
+      || ready.http.length > 2_048 || ready.http.includes('\\') || ready.http.includes('#') || APPLICATION_CONTROL.test(ready.http))) {
+    throw applicationError(id, `${label}.ready.http must be a path starting with a single /.`);
+  }
+  if (ready.log != null && (typeof ready.log !== 'string' || !ready.log || ready.log.length > 200 || APPLICATION_CONTROL.test(ready.log))) {
+    throw applicationError(id, `${label}.ready.log must be literal text of 1 to 200 characters on one line.`);
+  }
+  const timeoutMs = ready.timeoutMs ?? APPLICATION_READY_TIMEOUT_MS.default;
+  if (!Number.isInteger(timeoutMs) || timeoutMs < APPLICATION_READY_TIMEOUT_MS.minimum || timeoutMs > APPLICATION_READY_TIMEOUT_MS.maximum) {
+    throw applicationError(id, `${label}.ready.timeoutMs must be an integer from 1000 to 600000.`);
+  }
+  return Object.freeze({
+    id: raw.id, repository, argv: Object.freeze([...raw.argv]), workingDirectory: workingDirectory.replace(/^\.\/(?=.)/u, '').replace(/\/$/u, '') || '.',
+    url: raw.url,
+    ready: Object.freeze(ready.http != null ? { http: ready.http, timeoutMs } : { log: ready.log, timeoutMs }),
+    environments: Object.freeze(applicationEnvironments(id, raw.environments, label))
+  });
+}
+
+/**
+ * The validated `application` block of one delivery capability: how its application starts and
+ * which quality commands its tests are. Absent means `{ start: [], tests: [] }`. Environment names
+ * and quality-command IDs are checked when a run resolves them, because those live in other files.
+ */
+export function normalizeCapabilityApplication(id, capability) {
+  const value = capability?.application;
+  if (value == null) return Object.freeze({ start: Object.freeze([]), tests: Object.freeze([]) });
+  if (typeof value !== 'object' || Array.isArray(value)) throw applicationError(id, 'must be an object with start and tests lists.');
+  closedKeys(id, value, APPLICATION_KEYS, 'block');
+  const repositories = capabilityRepositories(capability);
+  if (value.start != null && (!Array.isArray(value.start) || value.start.length > 32)) {
+    throw applicationError(id, 'start must be a list of at most 32 entries.');
+  }
+  if (value.tests != null && (!Array.isArray(value.tests) || value.tests.length > 64)) {
+    throw applicationError(id, 'tests must be a list of at most 64 entries.');
+  }
+  const start = (value.start ?? []).map((entry, index) => applicationStartEntry(id, entry, index, repositories));
+  const duplicateStart = start.find((entry, index) => start.findIndex((other) => other.id === entry.id) !== index);
+  if (duplicateStart) throw applicationError(id, `start declares id '${duplicateStart.id}' more than once.`);
+  const tests = (value.tests ?? []).map((raw, index) => {
+    const label = `tests[${index}]`;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw applicationError(id, `${label} must be an object with use.`);
+    closedKeys(id, raw, TEST_KEYS, label);
+    if (typeof raw.use !== 'string' || !APPLICATION_COMMAND_ID.test(raw.use)) {
+      throw applicationError(id, `${label}.use must name a qualityCommands ID from singularity/workflow.yml.`);
+    }
+    return Object.freeze({ use: raw.use, environments: Object.freeze(applicationEnvironments(id, raw.environments, label)) });
+  });
+  const duplicateTest = tests.find((entry, index) => tests.findIndex((other) => other.use === entry.use) !== index);
+  if (duplicateTest) throw applicationError(id, `tests names '${duplicateTest.use}' more than once.`);
+  return Object.freeze({ start: Object.freeze(start), tests: Object.freeze(tests) });
+}
+
+/** The identity a person confirms before a start entry first runs: what runs, where, with which environments. */
+export function applicationStartCommandSha256(entry) {
+  return `sha256:${recordSha256({ repository: entry.repository, workingDirectory: entry.workingDirectory, argv: [...entry.argv],
+    environments: [...entry.environments] })}`;
+}
+
 function validateCapabilityDelivery(id, capability, capabilities, portfolio) {
   if (!CAPABILITY_KINDS.includes(capability.kind)) {
     throw new SingularityFlowError(
@@ -496,6 +680,13 @@ function validateCapabilityDelivery(id, capability, capabilities, portfolio) {
   }
 
   if (capability.teams != null) uniqueStrings(capability.teams, `Capability '${id}'.teams`);
+
+  if (capability.application != null) {
+    if (capability.kind !== 'delivery') {
+      throw applicationError(id, 'belongs on a delivery capability; a collection has no application of its own.');
+    }
+    normalizeCapabilityApplication(id, capability);
+  }
 }
 
 /**
@@ -549,6 +740,17 @@ export function validateCapabilities(definition, portfolio = null) {
     while (cursor) {
       if (visited.has(cursor)) throw new SingularityFlowError(`Capability tree contains a cycle at '${cursor}'.`);
       visited.add(cursor);
+      cursor = capabilities[cursor]?.parent ?? null;
+    }
+  }
+  // A child may turn local integration evidence off, never on under an ancestor that turned it off.
+  for (const [id, capability] of Object.entries(capabilities)) {
+    if (capability.policy?.localIntegrationEvidence !== 'allowed') continue;
+    let cursor = capability.parent ?? null;
+    while (cursor) {
+      const declared = capabilities[cursor]?.policy?.localIntegrationEvidence;
+      if (declared === 'off') throw localIntegrationLoosened(id, cursor);
+      if (declared === 'allowed') break;
       cursor = capabilities[cursor]?.parent ?? null;
     }
   }

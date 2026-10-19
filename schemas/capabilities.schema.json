@@ -9,7 +9,10 @@
   ],
   "properties": {
     "version": {
-      "const": 1
+      "enum": [1, 2]
+    },
+    "management": {
+      "type": "object"
     },
     "capabilities": {
       "type": "object",
@@ -150,9 +153,96 @@
                   "ceilings": { "type": "object" }
                 },
                 "additionalProperties": false
+              },
+              "localIntegrationEvidence": {
+                "description": "Whether an environment-linked quality command may run on the person's machine with its private values and count as local-integration evidence. Inherited parent to child; a child may turn it off but never allowed under an off parent.",
+                "enum": ["off", "allowed"]
               }
             },
             "additionalProperties": false
+          },
+          "application": {
+            "description": "How this delivery capability's application starts locally and which quality commands are its tests. Edited through the reviewed capability proposal.",
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "array",
+                "maxItems": 32,
+                "items": {
+                  "type": "object",
+                  "required": ["id", "argv", "url", "ready"],
+                  "properties": {
+                    "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 64 },
+                    "repository": { "description": "Required when the capability has several repositories.", "type": "string", "minLength": 1 },
+                    "argv": {
+                      "description": "Shell-free argument list; no shell runs it.",
+                      "type": "array", "minItems": 1, "maxItems": 256,
+                      "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+                    },
+                    "workingDirectory": { "description": "Repository-relative, without '..'.", "type": "string", "minLength": 1 },
+                    "url": { "description": "http or https on 127.0.0.1, localhost or [::1]; no credentials, query or fragment.", "type": "string", "format": "uri" },
+                    "ready": {
+                      "type": "object",
+                      "properties": {
+                        "http": { "description": "Ready when this path answers below 500.", "type": "string", "pattern": "^/(?!/)" },
+                        "log": { "description": "Ready when this literal text appears in the output.", "type": "string", "minLength": 1, "maxLength": 200 },
+                        "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 600000 }
+                      },
+                      "oneOf": [{ "required": ["http"] }, { "required": ["log"] }],
+                      "additionalProperties": false
+                    },
+                    "environments": { "$ref": "#/$defs/environmentList" }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "tests": {
+                "description": "Absent means what the code step runs.",
+                "type": "array",
+                "maxItems": 64,
+                "items": {
+                  "type": "object",
+                  "required": ["use"],
+                  "properties": {
+                    "use": { "description": "A qualityCommands ID from workflow.yml.", "type": "string", "minLength": 1 },
+                    "environments": { "$ref": "#/$defs/environmentList" }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "jira": {
+            "type": "object",
+            "properties": {
+              "projectKey": { "type": "string" },
+              "board": { "type": "string" },
+              "component": { "type": "string" }
+            }
+          },
+          "teams": {
+            "$ref": "#/$defs/stringSet"
+          },
+          "sourceHashExcludedRoots": {
+            "description": "Repository-relative directories hashed as separate test inputs rather than source.",
+            "$ref": "#/$defs/sourceRoots"
+          },
+          "testConfigurationPaths": {
+            "description": "Exact repository-relative test configuration files hashed as separate test inputs.",
+            "$ref": "#/$defs/sourceRoots"
+          },
+          "dependencies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["capability", "contract"],
+              "properties": {
+                "capability": { "type": "string", "minLength": 1 },
+                "contract": { "type": "object" }
+              },
+              "additionalProperties": false
+            }
           },
           "type": {
             "description": "Optional domain classification, separate from the collection/delivery structural kind.",
@@ -262,6 +352,14 @@
     }
   },
   "$defs": {
+    "environmentList": {
+      "description": "Environments declared in singularity/environments.yml; the first is the default.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", "maxLength": 64 }
+    },
     "stringSet": {
       "type": "array",
       "uniqueItems": true,

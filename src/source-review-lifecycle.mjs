@@ -420,36 +420,36 @@ async function assertRetainedLifecycleEvent(root, config, workflow, record, kind
   const relative = posix(path.relative(root, sidecarFile));
   const currentBytes = await readFile(sidecarFile);
   return sharedSourceReviewProvenance(root, recordSha256({ relative, bytes: sha256(currentBytes), event }), async () => {
-  const introduced = run('git', ['log', '--format=%H', '--diff-filter=A', '--', relative], {
-    cwd: root, allowFailure: true
-  });
-  const commits = introduced.status === 0 ? introduced.stdout.trim().split(/\r?\n/u).filter(Boolean) : [];
-  const first = commits.length === 1 && /^[a-f0-9]{40,64}$/u.test(commits[0]) ? commits[0] : null;
-  const workflowRelative = posix(path.relative(root, workflowFile));
-  const objects = first ? sourceReviewProvenanceObjects(root, [
-    `${first}:${relative}`, `${first}:${workflowRelative}`, `${first}^:${workflowRelative}`
-  ]) : new Map();
-  const sidecarAtFirst = objects.get(`${first}:${relative}`);
-  const workflowAtFirst = objects.get(`${first}:${workflowRelative}`);
-  const workflowBefore = objects.get(`${first}^:${workflowRelative}`);
-  let introducedProjection = null;
-  let parentHasEvent = true;
-  if (workflowAtFirst?.status === 0 && workflowBefore?.status === 0) {
-    try {
-      introducedProjection = JSON.parse(workflowAtFirst.stdout).publicationProjections
-        ?.find((entry) => entry?.event?.eventId === record.lifecycleEventId) ?? null;
-      parentHasEvent = Boolean(JSON.parse(workflowBefore.stdout).publicationProjections
-        ?.some((entry) => entry?.event?.eventId === record.lifecycleEventId));
-    } catch { /* Invalid historical workflow bytes fail closed below. */ }
-  }
-  if (sidecarAtFirst?.status !== 0 || !Buffer.isBuffer(sidecarAtFirst.stdout)
-      || !sidecarAtFirst.stdout.equals(currentBytes)
-      || !introducedProjection || parentHasEvent
-      || recordSha256(introducedProjection.event) !== recordSha256(event)) {
-    throw new SingularityFlowError('Source review sidecar was not introduced with its lifecycle event.', {
-      code: 'SOURCE_REVIEW_EVENT_MISSING'
+    const introduced = run('git', ['log', '--format=%H', '--diff-filter=A', '--', relative], {
+      cwd: root, allowFailure: true
     });
-  }
+    const commits = introduced.status === 0 ? introduced.stdout.trim().split(/\r?\n/u).filter(Boolean) : [];
+    const first = commits.length === 1 && /^[a-f0-9]{40,64}$/u.test(commits[0]) ? commits[0] : null;
+    const workflowRelative = posix(path.relative(root, workflowFile));
+    const objects = first ? sourceReviewProvenanceObjects(root, [
+      `${first}:${relative}`, `${first}:${workflowRelative}`, `${first}^:${workflowRelative}`
+    ]) : new Map();
+    const sidecarAtFirst = objects.get(`${first}:${relative}`);
+    const workflowAtFirst = objects.get(`${first}:${workflowRelative}`);
+    const workflowBefore = objects.get(`${first}^:${workflowRelative}`);
+    let introducedProjection = null;
+    let parentHasEvent = true;
+    if (workflowAtFirst?.status === 0 && workflowBefore?.status === 0) {
+      try {
+        introducedProjection = JSON.parse(workflowAtFirst.stdout).publicationProjections
+          ?.find((entry) => entry?.event?.eventId === record.lifecycleEventId) ?? null;
+        parentHasEvent = Boolean(JSON.parse(workflowBefore.stdout).publicationProjections
+          ?.some((entry) => entry?.event?.eventId === record.lifecycleEventId));
+      } catch { /* Invalid historical workflow bytes fail closed below. */ }
+    }
+    if (sidecarAtFirst?.status !== 0 || !Buffer.isBuffer(sidecarAtFirst.stdout)
+        || !sidecarAtFirst.stdout.equals(currentBytes)
+        || !introducedProjection || parentHasEvent
+        || recordSha256(introducedProjection.event) !== recordSha256(event)) {
+      throw new SingularityFlowError('Source review sidecar was not introduced with its lifecycle event.', {
+        code: 'SOURCE_REVIEW_EVENT_MISSING'
+      });
+    }
   });
 }
 

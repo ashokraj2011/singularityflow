@@ -46,3 +46,27 @@ Inspect `--timings` for `source-review.inputs`, `source-review.git-batch`,
 `source-review.provenance`, `source-review.fresh-binding` and their input-load, blob-hit,
 snapshot-hit, provenance-hit and fresh-binding counters alongside `git.spawns`/`git.requests`.
 This does not measure Copilot reasoning or human reading time, and makes no full-Story speed claim.
+
+## Local Mac measurements
+
+Three samples per engine on this Mac, Node 22.14.0, against baseline `8dcb3a27`; milliseconds below
+are medians. These are process-cold requests, not flushed-disk or freshly booted machine tests.
+
+| Step | Before ms | After ms | Git children before → after |
+| --- | ---: | ---: | ---: |
+| Context, cold | 1,328 | 1,012 | 39 → 23 |
+| Context, warm | 1,171 | 903 | 30 → 12 |
+| Private staging | 1,409 | 911 | 52 → 12 |
+| Report check | 1,071 | 807 | 29 → 11 |
+| Retain, including final fresh check | 3,047 | 2,264 | 150 → 99 |
+| Status, first after retention | 1,132 | 905 | 37 → 16 |
+| Status, repeated | 1,148 | 864 | 36 → 15 |
+
+The normal context → stage → check → retain → status sequence fell from a median 8,033 ms to
+5,894 ms (27%); Git children fell from 307 to 161 (48%). Staging reports one input load and one
+snapshot hit; retention reports three independent input loads and one final fresh binding check.
+The first post-retention status can reuse immutable facts proved during retention, so its “cold”
+label is not a claim that the provenance store is empty. Only successful fixture runs enter these
+latency samples. One separate local attempt refused during accepted-Story bootstrap because a
+creation-history Git object was unavailable, before source-review input loading; its refusal was
+not masked or counted as a successful sample. The subsequent complete three-sample run passed.

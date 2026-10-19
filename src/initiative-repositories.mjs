@@ -19,6 +19,7 @@ import {
 } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
+import { commitLandedOn, localCommit } from './branch-landing.mjs';
 import { sameGitRepository } from './git-repository-identity.mjs';
 import {
   assertCredentialFreeRemote, configuredRemoteIdentity, frozenRemoteTransport,
@@ -1091,15 +1092,19 @@ export async function initiativeMergeState(root, initiativeId) {
      * only one that answers the question actually being asked.
      */
     const parentBranch = story.parentBranch ?? parentBranchFor(root, repository, initiative);
-    const storyRef = `origin/${workId}`;
-    const parentRef = `origin/${parentBranch}`;
-    const storyHead = run('git', ['rev-parse', '--verify', storyRef], { cwd: cache, allowFailure: true });
-    const parentHead = run('git', ['rev-parse', '--verify', parentRef], { cwd: cache, allowFailure: true });
-    if (storyHead.status !== 0 || parentHead.status !== 0) { unreachable.push(story.id); continue; }
-    if (run('git', ['merge-base', '--is-ancestor', storyRef, parentRef], { cwd: cache, allowFailure: true }).status === 0) {
-      merged.push(story.id);
-    }
-    const workflowText = childWorkflowAtCommit(cache, storyHead.stdout.trim(), workId);
+    // The managed clone's `origin` is the clone SFlow made of the approved URL, whatever the
+    // contributor's own remote is called. The Story branch is the one recorded for it (a naming
+    // pattern need not match the work ID); a host that deletes it after the merge leaves the tip
+    // last observed. Squash and rebase merges land the changes without the tip: equivalent counts.
+    const recorded = initiative.childStories?.[story.id] ?? {};
+    const storyBranch = recorded.canonicalBranch ?? recorded.branch ?? workId;
+    const parentHead = localCommit(cache, `refs/remotes/origin/${parentBranch}`);
+    const storyHead = localCommit(cache, `refs/remotes/origin/${storyBranch}`)
+      ?? (storyBranch !== workId ? localCommit(cache, `refs/remotes/origin/${workId}`) : null)
+      ?? localCommit(cache, recorded.observedCommit);
+    if (!storyHead || !parentHead) { unreachable.push(story.id); continue; }
+    if (commitLandedOn(cache, storyHead, parentHead)) merged.push(story.id);
+    const workflowText = childWorkflowAtCommit(cache, storyHead, workId);
     if (workflowText.status === 0) {
       try {
         if (readRecord('story-workflow', workflowText.stdout).record.status === 'closed') complete.push(story.id);
@@ -1168,8 +1173,10 @@ export async function syncInitiativeRepositories(root, initiativeId) {
     }
     let commit;
     let observedHead;
+    const recordedBranch = initiative.childStories?.[story.id]?.canonicalBranch ?? workId;
     try {
-      commit = managedCloneCommit(cache, `origin/${workId}`);
+      commit = managedCloneCommit(cache, `origin/${recordedBranch}`)
+        ?? (recordedBranch !== workId ? managedCloneCommit(cache, `origin/${workId}`) : null);
       observedHead = commit ? managedCloneCommit(cache, `origin/${repository.defaultBranch}`) : null;
     } catch (error) {
       results.push({ storyId: story.id, repository: story.repository, status: 'invalid-cache', error: error.message });
@@ -1191,7 +1198,7 @@ export async function syncInitiativeRepositories(root, initiativeId) {
           ...previous,
           ...story,
           branch: workId,
-          canonicalBranch: workId,
+          canonicalBranch: recordedBranch,
           observedCommit: commit,
           observedAt,
           status: 'invalid',
@@ -1225,7 +1232,7 @@ export async function syncInitiativeRepositories(root, initiativeId) {
       ...previous,
       ...story,
       branch: workId,
-      canonicalBranch: workId,
+      canonicalBranch: recordedBranch,
       observedCommit: commit,
       observedAt: nowIso(),
       status: workflow?.status ?? 'seeded',
@@ -1252,7 +1259,7 @@ export async function syncInitiativeRepositories(root, initiativeId) {
       telemetry: workflow ? childTelemetry(workflow) : previous.telemetry ?? null
     };
     if (workflow) {
-      current.canonicalBranch = workflow.lineage?.canonicalBranch ?? workId;
+      current.canonicalBranch = workflow.lineage?.canonicalBranch ?? recordedBranch;
       current.childBranches = structuredClone(workflow.lineage?.childBranches ?? []);
       current.submissions = structuredClone(workflow.lineage?.submissions ?? []);
       current.finalizations = structuredClone(workflow.lineage?.finalizations ?? []);

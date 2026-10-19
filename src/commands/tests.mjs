@@ -52,16 +52,15 @@ async function localActorKey(root) {
   const session = await loadSession(root, { required: false }).catch(() => null);
   const actor = session?.actor;
   if (actor) return actor.login ?? actor.email ?? actor.name ?? null;
-  const { run } = await import('../util.mjs');
-  for (const key of ['user.email', 'user.name']) {
-    const value = run('git', ['config', '--get', key], { cwd: root, allowFailure: true }).stdout.trim();
-    if (value) return value;
-  }
-  return null;
+  const { gitCommitIdentity } = await import('../git.mjs');
+  const identity = (() => { try { return gitCommitIdentity(root); } catch { return null; } })();
+  return identity?.email ?? identity?.name ?? null;
 }
 
-function worktreeChanged(root, run) {
-  return run('git', ['status', '--porcelain', '--untracked-files=normal'], { cwd: root, allowFailure: true }).stdout.trim() !== '';
+/** Whether tracked or untracked (not ignored) files differ from HEAD, read through the Git query layer. */
+async function worktreeChanged(root) {
+  const { executeGitQuery } = await import('../git-query.mjs');
+  return executeGitQuery(root, 'repository.status').length > 0;
 }
 
 /** Every quality command the code steps of this workflow resolve, first definition of an ID first. */
@@ -212,7 +211,7 @@ async function runCapability(root, options) {
   const runId = store.newTestRunId();
   const startedAt = new Date().toISOString();
   const commit = git.head(root);
-  const uncommittedChanges = worktreeChanged(root, util.run);
+  const uncommittedChanges = await worktreeChanged(root);
   const entries = [];
   for (const [index, plan] of plans.entries()) {
     const usesEnvironment = plan.listed.length || plan.linked;
@@ -350,7 +349,7 @@ async function storySummary(root, options, { localRunId = null } = {}) {
   const declaration = await loadEnvironmentDeclaration(root, { optional: true }).catch(() => null);
   const attempts = await stepAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, phaseId);
   const groups = attemptGroups(attempts);
-  const wanted = localRunId ?? optionString(options, 'run', null);
+  const wanted = localRunId ?? (typeof options.run === 'string' ? options.run : null);
   const group = wanted
     ? groups.find((entry) => entry.id === wanted || entry.members.some((attempt) => attempt.attemptId === wanted))
     : groups[0] ?? null;
@@ -435,7 +434,7 @@ async function runStory(root, options) {
   await state.stageStoryLocalTests(root, context.config, context.workflow, {
     phaseId: optionString(options, 'phase', null),
     localRunId,
-    uncommittedChanges: worktreeChanged(root, util.run),
+    uncommittedChanges: await worktreeChanged(root),
     ranBy: await localActorKey(root),
     requestedEnvironment: optionString(options, 'environment', null),
     select: async (commands) => {
@@ -473,10 +472,14 @@ export async function run(_argv, { positionals, options = {} }) {
     fail(`Unknown tests subcommand '${subcommand}'. Supported: ${SUBCOMMANDS.join(', ')}.`, 'UNKNOWN_SUBCOMMAND',
       { command: 'tests', subcommand, available: [...SUBCOMMANDS] });
   }
-  // `run` is a registered boolean flag elsewhere, so `--run RUN-ID` arrives as a flag and a word.
-  if (subcommand === 'summary' && options.run === true) {
-    if (positionals.length !== 3) fail('tests summary --run needs a run ID: a RUN- local run or a TA- attempt.');
-    options = { ...options, run: positionals[2] };
+  // `run` is a boolean flag of precheck and story test commands, so `--run RUN-ID` arrives as the
+  // flag and a separate word, and `--run=RUN-ID` as text. Both are taken here, before validation.
+  if (subcommand === 'summary' && options.run !== undefined) {
+    const value = options.run === true ? positionals[2] : options.run;
+    if (typeof value !== 'string' || !value || (options.run === true ? positionals.length !== 3 : positionals.length > 2)) {
+      fail('tests summary --run needs one run ID: a RUN- local run or a TA- attempt.');
+    }
+    options = { ...options, run: value };
     positionals = positionals.slice(0, 2);
   }
   if (positionals.length > 2) fail(`tests ${subcommand} takes no positional arguments; name the scope with --capability or --work-id.`);
@@ -511,7 +514,7 @@ export async function run(_argv, { positionals, options = {} }) {
   else {
     const { resolveCapabilityApplication } = await import('../capability-application-context.mjs');
     const application = await resolveCapabilityApplication(root, { capabilityId: optionString(options, 'capability', null) });
-    result = await capabilitySummary(root, application.capabilityId, null, { runId: optionString(options, 'run', null) });
+    result = await capabilitySummary(root, application.capabilityId, null, { runId: typeof options.run === 'string' ? options.run : null });
   }
   if (json) console.log(JSON.stringify(result, null, 2));
   else {

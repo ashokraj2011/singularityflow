@@ -12,6 +12,13 @@
     "scripts/gal-matrix-cell.mjs"
   ],
   "sites": {
+    "src/application-run.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "ae7e30ac7c553428a3db40db48e136a93d0c4181008ad95859db4614a74420db"
+    },
     "src/story-policy-anchor.mjs": {
       "counts": {
         "command-run": 2

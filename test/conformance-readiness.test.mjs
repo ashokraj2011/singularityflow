@@ -6,7 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  inspectConformanceReportContract, inspectPhaseQualifiedConformance, inspectQualifiedConformanceReport, inspectSelfApprovalDisclosures
+  inspectConformanceReportContract, inspectConformanceVerdictAdvisories, inspectPhaseConformance, inspectPhaseQualifiedConformance,
+  inspectQualifiedConformanceReport, inspectSelfApprovalDisclosures
 } from '../src/conformance-readiness.mjs';
 import { phaseResolutionChoices } from '../src/phase-resolution.mjs';
 
@@ -32,7 +33,7 @@ test('qualified report requires one exact row per approved clause across all fiv
     'Stories without authoritative clauses retain their existing opt-out');
 });
 
-test('qualified report refuses duplicate, unapproved, and unfinished comparison rows', () => {
+test('qualified report refuses duplicate, unapproved, and unfinished comparison rows, never an honest partial or missing verdict', () => {
   const report = [
     '| Clause | Evidence | Verdict |',
     '|---|---|---|',
@@ -47,10 +48,13 @@ test('qualified report refuses duplicate, unapproved, and unfinished comparison 
   assert.deepEqual(inspectQualifiedConformanceReport(report, clauseIds)
     .map((finding) => [finding.code, finding.clauseId]), [
     ['conformance.clause-row-duplicate', 'STORY-1:REQ-001'],
-    ['conformance.verdict-incomplete', 'STORY-1:BEH-001'],
-    ['conformance.verdict-incomplete', 'STORY-1:IFC-001'],
     ['conformance.verdict-invalid', 'STORY-1:AC-001'],
     ['conformance.clause-row-unknown', 'STORY-1:AC-999']
+  ]);
+  // The partial and missing rows are advisories required before approval, not blockers.
+  assert.deepEqual(inspectConformanceVerdictAdvisories(report).map((entry) => [entry.code, entry.clauseId, entry.blocking, entry.requiredBefore]), [
+    ['conformance.verdict-incomplete', 'STORY-1:BEH-001', false, 'approve'],
+    ['conformance.verdict-incomplete', 'STORY-1:IFC-001', false, 'approve']
   ]);
 });
 
@@ -153,11 +157,12 @@ test('every conformance report owes the gate\'s rows and verdicts before publica
   await writeFile(path.join(item, 'artifacts/intake/intake.md'), '| [AC-001] | Keys show digits. |\n| [AC-002] | Clear resets. |\n');
   const report = path.join(item, phase.requiredArtifact.path);
   await writeFile(report, '# Conformance\n\n| Clause | Planned | Observed | Tests | Verdict |\n|---|---|---|---|---|\n| AC-001 | keypad | keypad | yes | partial |\n');
-  const findings = await inspectPhaseQualifiedConformance(root, config, workflow, phase);
-  assert.deepEqual(findings.map((finding) => [finding.code, finding.clauseId]),
-    [['conformance.clause-row-missing', 'AC-002'], ['conformance.verdict-incomplete', 'AC-001']]);
+  const { findings, advisories } = await inspectPhaseConformance(root, config, workflow, phase);
+  assert.deepEqual(findings.map((finding) => [finding.code, finding.clauseId]), [['conformance.clause-row-missing', 'AC-002']]);
+  assert.deepEqual(advisories.map((entry) => [entry.code, entry.clauseId, entry.requiredBefore, entry.details.owner]),
+    [['conformance.verdict-incomplete', 'AC-001', 'approve', 'build']]);
   // An honest partial verdict is the delivering step's gap: routed to an upstream issue, never to an edit of the verdict.
-  const [choice] = phaseResolutionChoices(workflow, phase, { ...findings[1], category: 'traceability', value: 'AC-001' }).choices;
+  const [choice] = phaseResolutionChoices(workflow, phase, { ...advisories[0], value: 'AC-001' }).choices;
   assert.equal(choice.kind, 'upstream-issue');
   assert.match(choice.command, /^singularity-flow upstream-issue raise --phase build --about AC-001 /u);
   await writeFile(report, '# Conformance\n\nAC-001 and AC-002 were compared.\n');
@@ -165,5 +170,6 @@ test('every conformance report owes the gate\'s rows and verdicts before publica
     ['conformance.verdict-invalid']);
   // Qualified rows judge rows and verdicts themselves; only the verdict presence is shared.
   assert.deepEqual(inspectConformanceReportContract('| AC-001 | partial |', { rowsQualified: true, expected: ['AC-009'] }), []);
+  assert.deepEqual(inspectConformanceReportContract('| AC-009 | partial |', { expected: ['AC-009'] }), [], 'a partial verdict is not a contract defect');
   assert.deepEqual(inspectConformanceReportContract('nothing here', { rowsQualified: true }).map((finding) => finding.code), ['conformance.verdict-invalid']);
 });

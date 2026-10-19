@@ -188,6 +188,13 @@ function publicationRecovery(workflow, ownerPhase, { publicationPending = true, 
 function storyRecovery(workflow, code, ownerPhase, path, openStory = null, context = {}) {
   const workId = workflow.workItem.id;
   if (code === 'gate.publication.remote-missing') return publicationRecovery(workflow, ownerPhase, context);
+  // An honest partial or missing verdict is decided by the delivering step's approvers on its
+  // upstream issue; a return to the report's own author would only invite an edit of the verdict.
+  if (code === 'gate.conformance.blocking-verdict' && context.details?.nextAction?.command) return {
+    mode: 'guided', ownerPhase: context.details.owner ?? ownerPhase, requiresReopen: false,
+    command: context.details.nextAction.command, skill: context.details.nextAction.skill ?? '/sf-decide',
+    detail: `${context.details.nextAction.label} ${context.details.rule ?? ''}`.trim()
+  };
   if (code === 'gate.protected-path.changed') return {
     mode: 'manual', ownerPhase: null, requiresReopen: false,
     command: path ? `git diff -- ${path}` : 'git diff -- singularity/workflow.yml',
@@ -317,7 +324,7 @@ export function classifyStoryGateFailures(workflow, findings, { openStory = null
   return (findings ?? []).map((entry) => (typeof entry === 'string'
     ? { code: 'gate.validation.failed', message: entry, phase: null, path: null }
     : { code: entry.code ?? 'gate.validation.failed', message: entry.message, phase: entry.phase ?? null, path: entry.path ?? null,
-      publication: entry.publication ?? null }))
+      publication: entry.publication ?? null, details: entry.details ?? null }))
     .filter((entry) => !seen.has(entry.message) && seen.add(entry.message))
     .map((entry) => {
     const { code, message, path } = entry;
@@ -332,8 +339,8 @@ export function classifyStoryGateFailures(workflow, findings, { openStory = null
       line: null,
       value: null,
       stableState: 'unchanged',
-      details: { message },
-      recovery: storyRecovery(workflow, code, phase, path, openStory, { publicationPending, publication: entry.publication })
+      details: { message, ...(entry.details ?? {}) },
+      recovery: storyRecovery(workflow, code, phase, path, openStory, { publicationPending, publication: entry.publication, details: entry.details })
     };
   });
 }

@@ -118,7 +118,8 @@ import {
   beginCodeGeneration, consumeGenerationIntent, persistGenerationPublicationRecord,
   publishedGenerationCommit, verifyOpenGenerationIntent
 } from './generation-boundary.mjs';
-import { blockingConformanceVerdicts } from './conformance-verdicts.mjs';
+import { conformanceVerdictGaps } from './conformance-verdicts.mjs';
+import { CONFORMANCE_GAP_RULE, conformanceGapRefusal } from './upstream-routes.mjs';
 import { inspectPhaseQualifiedConformance, withSelfApprovalDisclosures } from './conformance-readiness.mjs';
 import { runQualityCommand } from './quality-command-runner.mjs';
 import { classifyRequiredTestFailure } from './test-execution-diagnostics.mjs';
@@ -5863,13 +5864,15 @@ export async function approvePhase(root, config, workflow, {
     approvalQualityRisk = coverage?.acceptedRisk ?? null;
   }
   if (phase.requiredArtifact?.kind === 'conformance-report') {
+    // An honest partial or missing verdict published and was submitted as written; approval needs a
+    // person's decision on it (the terminal gate asks the same function) [owner decision 2026-10-19].
     const report = await readArtifactText(root, requiredRepoPath(config, workflow, phase));
-    const blocking = blockingConformanceVerdicts(report);
-    if (blocking.length) {
+    const refusal = conformanceGapRefusal(workflow, phase.id, conformanceVerdictGaps(report), { now: nowIso() });
+    if (refusal) {
       throw new SingularityFlowError(
-        `Phase '${phase.id}' cannot be approved while conformance is incomplete:\n- `
-        + blocking.map((finding) => `${finding.clauseId}: ${finding.verdict}`).join('\n- '),
-        { code: 'CONFORMANCE_BLOCKING_VERDICTS' }
+        `Phase '${phase.id}' cannot be approved until a person decides each partial or missing clause:\n- `
+        + `${refusal.lines.join('\n- ')}\n${CONFORMANCE_GAP_RULE}`,
+        { code: 'CONFORMANCE_BLOCKING_VERDICTS', details: refusal.details }
       );
     }
   }

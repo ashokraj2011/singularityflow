@@ -2,13 +2,15 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
-  blockingConformanceVerdicts,
   conformanceTableRows,
+  conformanceVerdictGaps,
+  contradictedConformanceVerdicts,
   duplicateQualifiedConformanceRows,
   missingQualifiedConformanceRows
 } from './conformance-verdicts.mjs';
 import { loadActiveSpecRecords } from './specifications.mjs';
 import { normalizeQualifiedClauseId } from './traceability-ids.mjs';
+import { conformanceGapDecisions } from './upstream-routes.mjs';
 import { secureRepositoryPath } from './util.mjs';
 
 const VERDICT = /^(matched|partial|missing|deviated|unplanned)(?:\s|\(|$)/u;
@@ -86,10 +88,11 @@ export async function traceableConformanceIds(root, config, workflow) {
 
 /**
  * What every conformance report owes the approval gate apart from qualified rows and self-approval
- * disclosure, read exactly as the gate reads it: a mention of each traceable identifier, at least
- * one recognized verdict, and no partial or missing verdict. The gate and the earlier checks call
- * this one function, so a report is never refused first at approval [gate parity].
- * `rowsQualified` means the qualified row contract already judged the rows and their verdicts.
+ * disclosure, read exactly as the gate reads it: a mention of each traceable identifier and at least
+ * one recognized verdict. The gate and the earlier checks call this one function, so a report is
+ * never refused first at approval [gate parity]. A partial or missing verdict is not a defect of the
+ * report: it is an advisory here (inspectConformanceVerdictAdvisories), decided by a person before
+ * approval. `rowsQualified` means the qualified row contract already judged the rows.
  */
 export function inspectConformanceReportContract(report, { expected = [], rowsQualified = false } = {}) {
   const text = String(report ?? '');
@@ -100,11 +103,6 @@ export function inspectConformanceReportContract(report, { expected = [], rowsQu
     }
   }
   if (!ANY_VERDICT.test(text)) findings.push({ code: 'conformance.verdict-invalid', clauseId: null, line: null, message: 'conformance report has no recognized verdict' });
-  if (!rowsQualified) {
-    for (const finding of blockingConformanceVerdicts(text)) {
-      findings.push({ code: 'conformance.verdict-incomplete', clauseId: finding.clauseId, line: null, message: `conformance ${finding.clauseId} remains ${finding.verdict}` });
-    }
-  }
   return findings;
 }
 
@@ -134,12 +132,44 @@ export function inspectQualifiedConformanceReport(markdown, clauseIds) {
     } else if (!VERDICT.test(row.verdict) || MULTIPLE_VERDICTS.test(row.verdict)) {
       findings.push({ code: 'conformance.verdict-invalid', clauseId: id,
         message: `conformance ${id} has no recognized verdict on line ${row.line}`, line: row.line });
-    } else if (/^(partial|missing)(?:\s|\(|$)/u.test(row.verdict)) {
-      findings.push({ code: 'conformance.verdict-incomplete', clauseId: id,
-        message: `conformance ${id} remains ${row.verdict.split(/\s/u)[0]}`, line: row.line });
     }
   }
   return findings;
+}
+
+const advisory = (code, fields) => Object.freeze({ code, category: 'traceability', blocking: false, ...fields });
+
+/**
+ * What the report's verdicts tell its author and reviewer, never a blocker. Owner decision
+ * (2026-10-19): an honest partial or missing verdict does not block drafting, publication or
+ * submission. A release step that pushed its agent to clear such a check flipped four honest
+ * verdicts to "matched" while its own discrepancy paragraph still said "partial", and published.
+ * So a gap is an advisory required before approval (a person decides it, see
+ * conformanceGapDecisions), and a table that contradicts its own discrepancy text is information.
+ */
+export function inspectConformanceVerdictAdvisories(markdown, { workflow = null, phaseId = null, now = undefined } = {}) {
+  const gaps = conformanceVerdictGaps(markdown);
+  const decided = workflow && phaseId ? conformanceGapDecisions(workflow, phaseId, gaps, { now })
+    : gaps.map((gap) => ({ ...gap, owner: null, status: 'unraised', issue: null, choices: [] }));
+  return [
+    ...decided.map((gap) => {
+      const named = gap.owner ?? 'the step that delivered it';
+      const covered = gap.status === 'decided';
+      return advisory('conformance.verdict-incomplete', {
+        requiredBefore: covered ? null : 'approve', clauseId: gap.clauseId, value: gap.clauseId, line: gap.line,
+        details: { clauseId: gap.clauseId, verdict: gap.verdict, owner: gap.owner, status: gap.status, issue: gap.issue,
+          expiresAt: gap.expiresAt ?? null, choices: gap.choices },
+        message: `conformance ${gap.clauseId} remains ${gap.verdict}. Keep the honest verdict: it publishes, and ${named} owns the gap. `
+          + (covered ? `${gap.issue} (${gap.outcome}) decides it, so this step can be approved with the honest verdict.`
+            : `${gap.issue ? `${gap.issue} names it; ` : `Raise an upstream issue against ${named} for ${gap.clauseId} if none exists; `}its approvers decide it before this step is approved.`)
+      });
+    }),
+    ...contradictedConformanceVerdicts(markdown).map((entry) => advisory('conformance.verdict-contradicted', {
+      requiredBefore: null, clauseId: entry.clauseId, value: entry.clauseId, line: entry.line,
+      details: { clauseId: entry.clauseId, verdict: entry.verdict, stated: entry.stated, section: entry.section, excerpt: entry.excerpt },
+      message: `conformance ${entry.clauseId}: the table says matched, the ${entry.section} text says ${entry.stated}: use the honest verdict.`
+    }))
+  ];
 }
 
 /**
@@ -151,7 +181,12 @@ export function inspectQualifiedConformanceReport(markdown, clauseIds) {
  * them and refused only at approval.
  */
 export async function inspectPhaseQualifiedConformance(root, config, workflow, phase) {
-  if (phase?.requiredArtifact?.kind !== 'conformance-report') return [];
+  return (await inspectPhaseConformance(root, config, workflow, phase)).findings;
+}
+
+/** The report's blocking findings and its verdict advisories, read once. */
+export async function inspectPhaseConformance(root, config, workflow, phase) {
+  if (phase?.requiredArtifact?.kind !== 'conformance-report') return { findings: [], advisories: [] };
   const qualified = workflow.resolution?.spec?.conformanceRows === 'qualified';
   const itemDirectory = path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
   const relative = path.posix.join(
@@ -161,13 +196,13 @@ export async function inspectPhaseQualifiedConformance(root, config, workflow, p
   const safe = await secureRepositoryPath(root, relative, {
     label: `Conformance report for phase '${phase.id}'`, mustExist: qualified, type: 'file'
   });
-  if (!qualified && !safe.exists) return [];
+  if (!qualified && !safe.exists) return { findings: [], advisories: [] };
   const markdown = await readFile(safe.absolute, 'utf8');
   const clauseIds = qualified ? [...new Set((await loadActiveSpecRecords(itemDirectory, workflow)).indexes
     .flatMap((index) => (index.clauses ?? []).map((clause) => clause.id)))] : [];
   // As the gate: qualified rows replace the identifier mentions only when there are clauses.
   const rowsQualified = clauseIds.length > 0;
-  return [
+  const findings = [
     ...(rowsQualified ? inspectQualifiedConformanceReport(markdown, clauseIds) : []),
     ...inspectConformanceReportContract(markdown, {
       rowsQualified, expected: rowsQualified ? [] : await traceableConformanceIds(root, config, workflow)
@@ -176,4 +211,7 @@ export async function inspectPhaseQualifiedConformance(root, config, workflow, p
   ].map((finding) => ({
     ...finding, path: relative
   }));
+  const advisories = inspectConformanceVerdictAdvisories(markdown, { workflow, phaseId: phase.id })
+    .map((entry) => Object.freeze({ ...entry, path: relative }));
+  return { findings, advisories };
 }

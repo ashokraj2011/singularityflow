@@ -14,7 +14,7 @@ related:
   - recovery
   - phase-appeals
   - escalation
-version: 4
+version: 5
 ---
 A finding is one exact reason a step cannot publish, submit or finish. Every finding has an owner and a recovery route: the step's own author fixes its draft, an earlier step's approvers decide an upstream issue, a person records a decision, or an owner restores trusted bytes. Each refusal names its finding code; read its entry here with `sflow explain findings --section <CODE>` (the code is matched without regard to case). No finding routes only back to its own author: each names at least one route for someone else, its approvers, an earlier step, an owner, or, when nothing more specific exists, the workflow maintainer. Nothing in this catalog waives a test, approves a step or accepts a risk by itself.
 
@@ -112,7 +112,11 @@ A file changed that no clause claims, such as a test helper, mock data or a new 
 
 ### conformance.verdict-incomplete
 
-The conformance comparison is honest and found the delivery short. Keep the verdict. Record what the delivering step missed with `sflow upstream-issue raise --phase <DELIVERING-STEP> --about <CLAUSE> --problem <TEXT>`; this report publishes after that step returns and delivers the clause.
+The conformance comparison is honest and found the delivery short. It is an advisory, never a publication blocker: keep the partial or missing verdict as written, and never upgrade it to clear a check. The step that delivered the clause owns the gap. Raise an upstream issue against it if none names the clause (`sflow upstream-issue raise --phase <DELIVERING-STEP> --about <CLAUSE> --problem <TEXT>`); its approvers decide it. Approval of the report (refused as `CONFORMANCE_BLOCKING_VERDICTS`) and the final gate (`gate.conformance.blocking-verdict`) wait until a person accepts the gap as a risk with an expiry (`sflow upstream-issue decide <UPI-ID> --outcome accept-risk --expires <YYYY-MM-DD> --reason <TEXT>`) or dismisses it. The other ways out: the delivering step's approvers return the work to repair it (`--outcome return`, or `sflow reject <PHASE> --to <STEP>`); a person who approves that step accepts evidence an earlier attempt already recorded (`sflow decision evidence-reuse <WORK-ID> --phase <PHASE> --from-attempt <ATTEMPT-ID> --reason <TEXT>`); or the work returns to the code step for a fresh recorded test run, since a document step cannot record test runs. Accepting existing evidence never certifies a run that was not recorded.
+
+### conformance.verdict-contradicted
+
+The report's clause table says matched while its own `## Upstream discrepancies` or Impact text calls the same clause partial or missing. Information for the author and the reviewer, never a blocker: use the honest verdict in the table. The discrepancy text describes the problem and its owner; it does not restate a verdict.
 
 ### Upstream input findings
 

@@ -1042,7 +1042,23 @@ function genericSteps(argv) {
  * earlier step's owners. One that falls after the first three is kept after them.
  */
 export const PLAN_STEP_LIMIT = 3;
-export const PLAN_RESERVED_STEP_IDS = Object.freeze(['accept-test-run-risk', 'renew-test-run-risk', 'raise-upstream-issue']);
+export const PLAN_RESERVED_STEP_IDS = Object.freeze(['accept-test-run-risk', 'renew-test-run-risk', 'raise-upstream-issue',
+  'decide-conformance-gap', 'return-conformance-gap', 'reuse-recorded-evidence', 'record-fresh-run']);
+
+const CONFORMANCE_GAP_STEP_IDS = Object.freeze({ 'raise-upstream-issue': 'raise-upstream-issue', 'decide-upstream-issue': 'decide-conformance-gap',
+  'repair-return': 'return-conformance-gap', 'evidence-reuse': 'reuse-recorded-evidence', 'fresh-recorded-run': 'record-fresh-run' });
+
+/**
+ * An honest partial or missing verdict waits for a person, never for a repair of the report: the
+ * first clause's every route and each other clause's decision, in place of the phase-repair steps.
+ */
+function conformanceGapSteps(error) {
+  const gaps = Array.isArray(error?.details?.conformanceGaps) ? error.details.conformanceGaps.slice(0, 5) : [];
+  return gaps.flatMap((gap, index) => (Array.isArray(gap?.choices) ? gap.choices : []).slice(0, index === 0 ? 4 : 1)
+    .map((choice) => (typeof choice?.command === 'string' && CONFORMANCE_GAP_STEP_IDS[choice.kind]
+      ? step(CONFORMANCE_GAP_STEP_IDS[choice.kind], String(choice.detail ?? '').slice(0, 2000), choice.command, 'remediation', choice.skill ?? null)
+      : null))).filter(Boolean);
+}
 // A producer's own `decision test-risk` route: the step approvers renew or record it, so no cap drops it.
 const testRunRiskRoute = (entry) => entry?.argv?.[0] === 'decision' && entry?.argv?.[1] === 'test-risk';
 
@@ -1130,6 +1146,8 @@ export function refusalRemediationPlan(error, argv = []) {
   const requiredTestFailure = requiredTestExecutionForRefusal(error)?.failure;
   // The cause lives in an earlier phase's approved input: never "repair the current phase".
   const upstreamInputBlocked = UPSTREAM_INPUT_CODES.has(code);
+  const gapSteps = code === 'CONFORMANCE_BLOCKING_VERDICTS' ? conformanceGapSteps(error) : [];
+  const conformanceGapBlocked = gapSteps.length > 0;
   const rawPhaseContext = phaseRemediationContext(argv, error);
   const phaseContext = pinnedTestPolicyBlocked && rawPhaseContext
     ? Object.freeze({ ...rawPhaseContext, strategy: 'pinned-test-policy-prerequisite',
@@ -1140,6 +1158,8 @@ export function refusalRemediationPlan(error, argv = []) {
     : upstreamInputBlocked && rawPhaseContext
       ? Object.freeze({ ...rawPhaseContext, strategy: 'upstream-input',
         upstreamPhases: upstreamInputContext(argv, error).producers, retryCommand: null, retrySkill: null })
+    : conformanceGapBlocked && rawPhaseContext
+      ? Object.freeze({ ...rawPhaseContext, strategy: 'person-decides-conformance-gap', retryCommand: null, retrySkill: null })
       : rawPhaseContext;
   const phaseSteps = phaseContainmentSteps(phaseContext);
   let explicit = explicitCommands(error).map((command, index) => step(
@@ -1173,7 +1193,8 @@ export function refusalRemediationPlan(error, argv = []) {
   // broad command help/doctor/recommend fallbacks are reserved for errors that carry no safe phase
   // identity. This makes future uncoded phase refusals recoverable without adding another code-keyed
   // entry here, and keeps approval repair outside the approval-only turn.
-  const ordered = configurationProblemsBlocked ? [...known, ...nonDuplicateExplicit]
+  const ordered = conformanceGapBlocked ? gapSteps
+    : configurationProblemsBlocked ? [...known, ...nonDuplicateExplicit]
     : selfGuidedBlocked ? [...nonDuplicateExplicit, ...known]
     : sessionTransportBlocked ? [...known, ...nonDuplicateExplicit]
     : repositoryRunnerBlocked || pinnedTestPolicyBlocked || softGateBlocked || unknownRecoveryPhase || identityBlocked ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
@@ -1209,6 +1230,8 @@ export function refusalRemediationPlan(error, argv = []) {
     ? 'Record the answer only in this checkout, as a listed member; the author never records it for them.'
     : identityBlocked
     ? 'Run the same command again only when this checkout decides as a listed member, or let another listed member decide. Nothing was recorded, and nothing needs rejecting.'
+    : conformanceGapBlocked
+    ? 'Never edit the verdict to clear this check. Approve again once a person has decided each gap on its upstream issue (an accepted risk with an expiry, or a dismissal); a return sends the work back instead. Accepting existing evidence never certifies a run that was not recorded.'
     : riskReviewBlocked
     ? 'Inspect the exact risk or repair prerequisite. Only a delegated human can record an eligible exception; normal phase approval stays separate. End an approval-only turn before any review mutation, then re-evaluate in a fresh turn.'
     : phaseContext?.turn === 'new-turn'
@@ -1320,6 +1343,14 @@ export function refusalDetails(details) {
   // The refusing operation's own next command, when it is a safe Singularity Flow command.
   const next = safeCommandGuidance(typeof details.nextAction === 'string' ? { command: details.nextAction } : details.nextAction ?? {});
   if (next?.command) projected.nextAction = next.command;
+  // Each undecided partial or missing clause with its routes, so every surface names the decision.
+  const conformanceGaps = list(details.conformanceGaps, (gap) => (gap && typeof gap === 'object' && text(gap.clauseId) ? compact({
+    clauseId: text(gap.clauseId), verdict: text(gap.verdict), owner: text(gap.owner), status: text(gap.status), issue: text(gap.issue),
+    choices: list(gap.choices, (choice) => (choice && typeof choice === 'object' ? compact({
+      kind: text(choice.kind), command: safeCommandGuidance(text(choice.command) ?? {})?.command ?? null, detail: text(choice.detail)
+    }) : null))
+  }) : null));
+  if (conformanceGaps.length) projected.conformanceGaps = conformanceGaps;
   if (runRisk?.eligible === true && text(runRisk.phase) && text(runRisk.commandId)) {
     projected.testRunRisk = compact({ eligible: true, phase: text(runRisk.phase), commandId: text(runRisk.commandId),
       decision: text(runRisk.decision), lapsed: text(runRisk.lapsed), command: text(runRisk.command) });

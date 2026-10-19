@@ -43,6 +43,10 @@ export function printPhaseReview(review, { showArtifact = false } = {}) {
       }
     }
   }
+  for (const entry of review.reusedTestEvidence ?? []) {
+    if (entry.state === 'active') console.log(`Reused test evidence: ${entry.label}`);
+    else console.warn(`Reused test evidence lapsed: ${entry.label}`);
+  }
   for (const mapping of review.witnessReview?.mappings ?? []) {
     const safe = (value) => String(value ?? 'unavailable')
       .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu, '�');

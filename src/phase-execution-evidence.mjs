@@ -102,6 +102,25 @@ function executionDetails(root, packet, testPolicy) {
   });
 }
 
+/**
+ * Runs an earlier step recorded that a person who approves a step up to this one decided to reuse
+ * for it (`decision evidence-reuse`), each labelled with who recorded it and who reused it, and
+ * whether its source binding still holds now. Empty, with nothing read, when there is none.
+ */
+async function reusedEvidence(root, definition, workflow, eligible, phase, current, diagnostics) {
+  if (!phase?.id || !(workflow?.evidenceReuses ?? []).some(entry => !entry.revokes && eligible.has(entry.phase))) return [];
+  try {
+    const { activeEvidenceReuse, observeEvidenceReuseSource } = await import('./evidence-reuse.mjs');
+    const observed = await observeEvidenceReuseSource(root, definition, workflow, current.status === 'available'
+      ? { sourceTreeSha256: current.sourceTreeSha256, testInputSha256: current.testInputSha256 } : {});
+    const reuse = activeEvidenceReuse(workflow, phase.id, { at: new Date().toISOString(), observed, through: true });
+    return [...reuse.active, ...reuse.lapsed].slice(0, LIMIT);
+  } catch (error) {
+    diagnostics.push({ phase: phase.id, code: error.code ?? 'EVIDENCE_REUSE_UNAVAILABLE', status: 'unavailable' });
+    return [];
+  }
+}
+
 /** Compact phase-agnostic projection, derived solely from this Story's latest retained generations. */
 export async function phaseExecutionEvidence(root, definition, workflow, phase) {
   const order = workflow?.phaseOrder ?? [];
@@ -169,9 +188,10 @@ export async function phaseExecutionEvidence(root, definition, workflow, phase) 
   while (entries.length && Buffer.byteLength(JSON.stringify({ current, entries, diagnostics })) > MAX_EXECUTION_EVIDENCE_BYTES) {
     entries.shift(); omittedPackets += 1;
   }
+  const reusedTestEvidence = await reusedEvidence(root, definition, workflow, eligible, phase, current, diagnostics);
   const core = { revision: 'phase-execution-evidence-v1', workId: workflow?.workItem?.id ?? null,
     phase: phase?.id ?? null, readOnly: true, current, entries, diagnostics,
-    omittedPackets,
+    omittedPackets, ...(reusedTestEvidence.length ? { reusedTestEvidence } : {}),
     reconciliation: reconciliation(workflow, phase), instruction: EXECUTION_EVIDENCE_INSTRUCTION };
   return { ...core, projectionSha256: digest(core) };
 }
@@ -189,6 +209,9 @@ export function renderExecutionEvidence(evidence) {
     `Projection: ${evidence.projectionSha256}. Read-only facts; not publication, submission or human approval.`,
     'Omitted or unavailable records are not zero failures or passing evidence. Inspect the linked immutable packet if more detail is needed.',
     ...(untested.length ? ['', `Retained no test results: ${untested.map(entry => `${entry.phase} generation ${entry.generation}${entry.path ? ` (\`${entry.path}\`)` : ''}`).join(', ')}.`] : []),
+    // A run a person approved reusing is cited as the recording step's run, never as the reusing step's.
+    ...(evidence.reusedTestEvidence?.length ? ['', 'Reused test evidence (an earlier step recorded each run; a person who approves the reusing step decided it stands for that step, which ran no tests). Cite each by its label; never report it as a run of the reusing step:',
+      ...evidence.reusedTestEvidence.map(entry => `- ${entry.label}`)] : []),
     ...(facts ? ['', '```json', JSON.stringify({ current: evidence.current, entries: tested,
       diagnostics: evidence.diagnostics, omittedPackets: evidence.omittedPackets }), '```']
       : untested.length ? [] : ['', 'No earlier step retained test results.']),

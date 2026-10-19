@@ -217,6 +217,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Recorded ${slot(s.record)}; the tests still run every time, and only a run in which no test executed is let through until it expires or is revoked.`,
     preserves: false
   },
+  'decision.evidence-reuse.succeeded': {
+    headline: (s) => `Recorded ${slot(s.record)}; the run stays the earlier step's, and the reuse lapses as soon as the source it tested changes.`,
+    preserves: false
+  },
   'decision.plan.succeeded': {
     headline: (s) => `Amended the plan with ${slot(s.amendment)}: ${slot(s.changes)} change(s) recorded.`,
     preserves: false

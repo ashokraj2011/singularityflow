@@ -17,8 +17,8 @@
       "digest": "0a86f4282e444ec2f42c7466fb793f3a2dfdfef3711f1a260766ae98e0f8dee0"
     },
     "src/source-review-snapshot.mjs": {
-      "counts": { "command-run": 4 },
-      "digest": "c02c5e3fa855122f6e1f5257f696f5372c4c4257bc73c5f6594eade9b0b9d7b2"
+      "counts": { "command-git-literal": 1, "command-run": 4 },
+      "digest": "cdc56ab883a3cf101cff9408dbf3a3749e3001330a38777cf3e68f684ad8082d"
     },
     "src/workspace-retention.mjs": {
       "counts": { "command-git": 7, "command-run": 5 },

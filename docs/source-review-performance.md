@@ -9,7 +9,9 @@ independence, human decisions or the last fresh retention binding check.
 One operation shares a commit-bound snapshot across context, private staging and validation.
 Named source/artifact/clarification files are read in a verified Git object batch, followed by a
 batch of the attachments offered to that phase. No application tree, all-branches scan or broad
-history walk is added. Each live file still passes regular-file/path confinement, byte/hash and
+history walk is added. Size-first admission caps prefetch at 32 MiB total; files beyond that
+optimization budget retain their individual checks and existing review/disposition semantics.
+Each live file still passes regular-file/path confinement, byte/hash and
 publication checks. Windows CRLF checkouts keep the existing committed-byte comparison.
 
 Immutable provenance objects are reused through the existing private Git fact cache. Introduction

@@ -16,7 +16,7 @@ const localEnv = () => ({ ...process.env, GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE
 export function withSourceReviewSnapshot(root, read) {
   root = path.resolve(root);
   if (scopes.getStore()?.root === root) return read();
-  return scopes.run({ root, head: null, files: new Map(), inputs: new Map(), proofs: new Map() }, read);
+  return scopes.run({ root, head: null, files: new Map(), fileBytes: 0, inputs: new Map(), proofs: new Map() }, read);
 }
 
 /** Retention/decision transactions must independently reload live bytes, HEAD and provenance. */
@@ -66,12 +66,27 @@ export async function prefetchSourceReviewFiles(root, relatives) {
   const specs = [...new Set(relatives.filter(Boolean).map(relative => `${head}:${relative}`))]
     .filter(spec => !scope.files.has(spec));
   if (!specs.length) return;
-  const entries = await measureCommandSpan('source-review.git-batch', () => readObjectsBatch(root, specs, {
-    maxObjectBytes: MAX_BATCH_BYTES, maxBatchBytes: MAX_BATCH_BYTES
-  }));
+  const entries = await measureCommandSpan('source-review.git-batch', () => {
+    // Size only these named objects, then materialize a bounded total by immutable blob ID. Many
+    // individually permitted binary attachments must not turn prefetch into gigabytes of RAM.
+    const checked = readObjectsBatch(root, specs, { checkOnly: true });
+    if (!checked) return null;
+    let remaining = MAX_BATCH_BYTES - scope.fileBytes;
+    const admitted = new Map();
+    for (const [spec, entry] of checked) {
+      if (entry.status !== 'ok' || entry.type !== 'blob' || entry.size > remaining) continue;
+      admitted.set(spec, entry); remaining -= entry.size;
+    }
+    const objects = readObjectsBatch(root, [...new Set([...admitted.values()].map(entry => entry.oid))], {
+      maxObjectBytes: MAX_BATCH_BYTES, maxBatchBytes: MAX_BATCH_BYTES
+    });
+    return new Map([...admitted].map(([spec, entry]) => [spec, objects?.get(entry.oid)]));
+  });
   // A failed batch is not absence. The exact individual read below preserves the old refusal.
   for (const [spec, entry] of entries ?? []) {
-    if (entry.status === 'ok' && entry.type === 'blob') scope.files.set(spec, entry.bytes);
+    if (entry?.status === 'ok' && entry.type === 'blob') {
+      scope.files.set(spec, entry.bytes); scope.fileBytes += entry.bytes.length;
+    }
   }
 }
 

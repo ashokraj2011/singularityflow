@@ -136,7 +136,9 @@ still apply. It never scans application branches or history, changes a checkout,
 
 Source review moves six per-file Git sites into `src/source-review-snapshot.mjs`: two exact HEAD
 reads (entry and final retention recheck) and two buffer-preserving individual fallbacks. Named
-inputs use the existing hash-verified object batch reader. Immutable UTF-8 provenance facts use
+inputs use the existing hash-verified object batch reader with a 32 MiB aggregate prefetch ceiling.
+One reviewed Git executable-resolution literal binds the cache key to the actual Git installation;
+it does not launch Git. Immutable UTF-8 provenance facts use
 the existing private Git cache with its configuration, shallow/graft/replacement and object-store
 invalidation. The two path-scoped introduction-history proofs remain in the lifecycle reader.
 The final retention and human-decision checks bypass every Git fact and shared review packet.

@@ -208,6 +208,18 @@ async function readyReviewFixture(t) {
   return { ...fixtureData, retainedDecision };
 }
 
+test('a warm provenance proof cannot hide deletion and reintroduction of a review decision', async t => {
+  const { root, config, workflow, retainedDecision } = await readyReviewFixture(t);
+  const file = retainedDecision.path;
+  const bytes = await readFile(file);
+  await readSourceReviewStatus(root, config, workflow, 'specification');
+  await rm(file);
+  git(root, 'add', '-A'); git(root, 'commit', '-qm', 'Remove sidecar');
+  await writeFile(file, bytes);
+  git(root, 'add', '.'); git(root, 'commit', '-qm', 'Reintroduce old sidecar');
+  await assert.rejects(readSourceReviewStatus(root, config, workflow, 'specification'), { code: 'SOURCE_REVIEW_EVENT_MISSING' });
+});
+
 test('real reviewer context issues exact usable staging without unlocking the artifact', async t => {
   const f = await fixture(t);
   const root = await realpath(f.root);

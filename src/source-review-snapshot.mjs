@@ -4,6 +4,7 @@ import path from 'node:path';
 import { readObjectsBatch } from './git-ref-tree.mjs';
 import { cachedGitFact, gitFactRequest, gitFactSnapshot, rememberGitFact, withFreshGitFacts } from './git-fact-cache.mjs';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
+import { resolvePlatformProcess } from './platform-process.mjs';
 import { run, SingularityFlowError } from './util.mjs';
 
 const scopes = new AsyncLocalStorage();
@@ -107,10 +108,12 @@ export function sharedSourceReviewProvenance(root, key, read) {
  */
 export function sourceReviewProvenanceObjects(root, specs) {
   const env = localEnv();
+  const launch = resolvePlatformProcess('git', [], { environment: env, cwd: root });
+  const executable = launch.physicalExecutable ?? launch.executable;
   const requests = new Map();
   const answers = new Map();
   for (const spec of specs) {
-    const request = gitFactRequest(['show', spec], { cwd: root, env });
+    const request = gitFactRequest(['show', spec], { cwd: root, env, executable });
     const cached = cachedGitFact(request);
     if (cached) {
       answers.set(spec, { status: 0, stdout: Buffer.from(cached.stdout, 'utf8') });

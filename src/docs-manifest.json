@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "653168a1d67b4538e0372b6b53672ad305f794e6",
+  "sourceCommit": "fcfaf67d52211be6360dc99d167c460a4f9aa333",
   "topicCount": 85,
-  "contentSha256": "ed9a0610166ffb1a9e5bc47d7fa95e022cfb010111c43c84969af13afbb57027",
+  "contentSha256": "e816158c7f5c049952e8d87e918b39018557d142afc44fb9a65ce819cf66014b",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -177,7 +177,7 @@
       "id": "environment-bindings",
       "title": "Test environments without committing their values",
       "version": 2,
-      "sha256": "d3f661a43855dd26d964d9d4659ef04ce657662a14536509f4eebdaeb8e24e1b",
+      "sha256": "9a1e5c293984192b536e1b8e9fdd10abd01506c4533be634e54c105ce7599713",
       "routingSha256": "0c61c3f9e4515b7e0995db1a3080f4f9a94910d5ba00054a2486e856fa068c30",
       "file": "environment-bindings.md"
     },
@@ -505,7 +505,7 @@
       "id": "run-and-test",
       "title": "Run the application and its tests from a capability",
       "version": 1,
-      "sha256": "a242b7a1421ae2dced6348044970fca74ad76db4cb8f038fee27a0c73b5e12f0",
+      "sha256": "3c5ea0db8391a00bf7622b746e0e1cc003224fc407c9a53858e25cc25bb13e95",
       "routingSha256": "1749eb7c538c54b503da32494be8ac33b7a5ca82f3dda07f50f864db813adb27",
       "file": "run-and-test.md"
     },

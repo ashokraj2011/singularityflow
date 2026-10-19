@@ -105,11 +105,6 @@ function environmentPlan(command, { application, declaration, requested }) {
   return { listed: [...listed], linked };
 }
 
-function localIntegrationLabel({ ranBy, environment, commit, countsForStep, linked }) {
-  return `Local integration run by ${ranBy ?? 'an unknown identity'}, environment \`${environment}\`, commit \`${String(commit ?? '').slice(0, 7)}\`; values never recorded`
-    + (countsForStep ? '' : `; does not count for this step: it requires \`${linked}\``);
-}
-
 async function rawReportLocations(root, receipt, workId) {
   if (receipt.adapter !== 'junit-xml' || !receipt.rawReports?.length) return null;
   const [{ gitDir }, { junitCaseLocations }] = await Promise.all([import('../git.mjs'), import('../code-delivery-tests.mjs')]);
@@ -292,15 +287,16 @@ async function storySummary(root, options, { localRunId = null } = {}) {
   for (const attempt of group.members) {
     const evidenceClass = attemptClass(attempt);
     const environment = attempt.boundEnvironment?.name ?? null;
-    const linked = declaration?.checks?.[attempt.commandId]?.environment ?? attempt.linkedEnvironment ?? null;
+    const linked = attempt.linkedEnvironment ?? declaration?.checks?.[attempt.commandId]?.environment ?? null;
     const countsForStep = evidenceClass === 'governed' ? true
-      : evidenceClass === 'local-integration' ? runEnvironment.environmentCountsForStep({ environment, listed: attempt.allowedEnvironments ?? [environment], linked })
+      : evidenceClass === 'local-integration'
+        ? attempt.countsForStep ?? runEnvironment.environmentCountsForStep({ environment, listed: attempt.allowedEnvironments ?? [], linked })
         : false;
     const locations = await rawReportLocations(root, attempt, workflow.workItem.id);
     entries.push({
       receipt: attempt, kind: 'test', evidenceClass, environment, countsForStep, locations,
       label: evidenceClass === 'local-integration'
-        ? localIntegrationLabel({ ranBy: attempt.ranBy, environment, commit: attempt.candidate?.commit, countsForStep, linked })
+        ? (await import('../code-delivery-tests.mjs')).localIntegrationLabel({ ranBy: attempt.ranBy, environment, commit: attempt.candidate?.commit, countsForStep, linked })
         : evidenceClass === 'local-preview' ? 'Local run, not evidence: publication and submission run the tests again'
           : GATE_LABELS[attempt.purpose] ?? 'Governed run',
       clauses: await summary.occurrenceClauses(root, { occurrences: attempt.occurrences ?? [], profile: attempt.profile, locations })
@@ -343,7 +339,6 @@ async function runStory(root, options) {
     uncommittedChanges: worktreeChanged(root, util.run),
     ranBy: await localActorKey(root),
     requestedEnvironment: optionString(options, 'environment', null),
-    application,
     select: (commands) => selectCommands(commands, { commandIds, application: commandIds.length ? null : application, subject })
   });
   return storySummary(root, options, { localRunId });

@@ -28,7 +28,10 @@ function projectRun(check, entry) {
     receiptPath: execution?.path ?? null, receiptSha256: execution?.sha256 ?? null,
     counts: execution?.counts ?? null, assurance: execution?.assurance ?? null,
     structuredTestsReusable: check.structuredTestsReusable === true,
-    criterionVerdict: 'not-established-by-suite-counts'
+    criterionVerdict: 'not-established-by-suite-counts',
+    // A local-integration run keeps its own label here: never shown as a governed run [RUN M3].
+    ...(execution?.evidenceClass ? { evidenceClass: execution.evidenceClass, environment: execution.environment ?? null,
+      label: execution.label ?? null } : {})
   };
 }
 
@@ -63,7 +66,7 @@ function ownEvidenceLine(entry) {
   if (!entry.runs.length) return `${who}: ${entry.status}; no passing execution is established by this projection.`;
   return `${who}: ${entry.runs.map((run) => {
     const counts = run.counts ? `${run.counts.passed} passed, ${run.counts.failed} failed, ${run.counts.skipped} skipped` : 'no structured counts';
-    return `${run.commandId}: ${run.outcome}, ${counts}; source binding ${run.binding}`;
+    return `${run.commandId}: ${run.outcome}, ${counts}; source binding ${run.binding}${run.label ? `; ${run.label}` : ''}`;
   }).join('; ')}. Suite counts alone do not establish a clause verdict.`;
 }
 

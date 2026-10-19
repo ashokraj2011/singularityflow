@@ -1656,6 +1656,28 @@ export function testReceiptPassing(receipt, minimumDiscovered = 1, minimumPassed
     && number(receipt.tests?.failed) === 0;
 }
 
+/** Words for a run that does not count: "does not count for this step: it requires `qa`". */
+export function environmentDoesNotCountWords(linked) {
+  return `does not count for this step: it requires \`${linked}\``;
+}
+
+/**
+ * The label every surface shows for a local-integration run [RUN evidence classes]: who ran it, in
+ * which environment, on which commit, that values were never recorded, and when the run does not
+ * count for the step because the step requires another environment.
+ */
+export function localIntegrationLabel({ ranBy = null, environment, commit = null, countsForStep = true, linked = null }) {
+  return `Local integration run by ${ranBy ?? 'an unrecorded identity'}, environment \`${environment}\`, commit \`${String(commit ?? 'unknown').slice(0, 7)}\`; values never recorded`
+    + (countsForStep || !linked ? '' : `; ${environmentDoesNotCountWords(linked)}`);
+}
+
+/** The label of one recorded attempt with the local-integration class, or null for any other. */
+export function attemptLocalIntegrationLabel(attempt) {
+  if (attempt?.evidenceClass !== 'local-integration') return null;
+  return localIntegrationLabel({ ranBy: attempt.ranBy, environment: attempt.boundEnvironment?.name ?? 'unknown',
+    commit: attempt.candidate?.commit, countsForStep: attempt.countsForStep !== false, linked: attempt.linkedEnvironment ?? null });
+}
+
 /**
  * One immutable test-execution attempt (test-execution v5) [E2G-016].
  *
@@ -1718,6 +1740,16 @@ export function buildTestExecutionReceipt(command, check, parsed, {
     rawReports,
     occurrences: parsed ? persistedOccurrences(parsed) : [],
     reportError,
-    assurance: 'module-executed'
+    assurance: 'module-executed',
+    // A run given an environment's values [RUN M3]: its class, the environment's public metadata
+    // (never a value), who ran it, and whether a run in that environment counts for the step.
+    ...(check?.evidenceClass === 'local-integration' ? {
+      evidenceClass: 'local-integration',
+      boundEnvironment: check.environment ?? null,
+      ranBy: check.ranBy ?? null,
+      linkedEnvironment: check.linkedEnvironment ?? null,
+      allowedEnvironments: [...(check.allowedEnvironments ?? [])],
+      countsForStep: check.countsForStep !== false
+    } : {})
   };
 }

@@ -8,8 +8,9 @@ import test from 'node:test';
 import { bindEnvironment, materializeEnvironmentBinding } from '../src/environment-bindings.mjs';
 import { createStreamRedactor, redactText, redactionEntries } from '../src/output-redaction.mjs';
 import { runQualityCommand } from '../src/quality-command-runner.mjs';
+import { environmentDoesNotCountWords } from '../src/code-delivery-tests.mjs';
 import {
-  environmentCountsForStep, environmentDoesNotCountWords, localIntegrationPolicyRefusal, selectRunEnvironment
+  environmentCountsForStep, localIntegrationPolicyRefusal, selectRunEnvironment
 } from '../src/run-environment.mjs';
 
 const SECRET = 'very-private-token-3141';

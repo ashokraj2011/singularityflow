@@ -41,6 +41,8 @@ A capability-scope `tests run` is a local preview: it is kept at `singularity-fl
 
 `app start` keeps a private run record (pid, URL, start time and command identity) under the Git common directory at `singularity-flow/app/<capability>/<id>.json`, readable by you only. `app stop` stops only a process tree that record names, after checking the process is still the one that was started. Values never go into argv, a file, the worktree, the run record or any output: every bound secret of four or more characters is shown as `[redacted:NAME]`.
 
+A test command linked to an environment (through `checks` in `environments.yml`, its own `environment` field, or `application.tests[].environments`) runs with that environment's values only when the policy is `allowed` and the binding is complete. Publication and submission then record it as `local-integration`, labelled "Local integration run by <identity>, environment `qa`, commit `<abc1234>`; values never recorded". When `checks` links the command to one environment, only a run in that environment counts for the step; a run in another is shown with "does not count for this step: it requires `qa`". With the policy `off` such a command stays blocked, and the refusal names the policy and its capability proposal.
+
 ## Troubleshooting
 
 - If `app start` says the policy is off, the capability's `localIntegrationEvidence` must become `allowed` through a capability proposal; nothing ran.

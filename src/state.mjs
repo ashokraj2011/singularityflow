@@ -4221,47 +4221,8 @@ function safeEnvironmentMetadata(value, fallbackName = null) {
   };
 }
 
-/**
- * Environment-bound quality commands fail closed until an approved isolated runner owns value
- * materialization. The resolver may return private processEnvironment data for a future runner;
- * this boundary intentionally neither reads nor spreads it. Durable checks retain only the public
- * environment identifier and its value-independent binding fingerprint.
- */
-export async function environmentQualityCommandBlock(root, policy, {
-  sourceCommit,
-  sourceTreeSha256,
-  startedAt,
-  resolver = resolveEnvironmentBinding
-} = {}) {
-  let resolution = null;
-  let resolutionFailed = false;
-  try {
-    resolution = await resolver(root, policy?.environment ?? null, { commandId: policy?.id });
-  } catch {
-    // Declaration, private-store, and resolver failures are all unavailable at this execution
-    // boundary. Raw resolver errors may contain provider or host details and are never copied into
-    // a governed check.
-    resolutionFailed = true;
-  }
-  const environment = safeEnvironmentMetadata(resolution?.environment, policy?.environment ?? null);
-  // A command with neither an explicit environment nor a declaration check mapping remains an
-  // ordinary quality command. A resolver failure still blocks because a malformed declaration
-  // could otherwise hide a command-to-environment mapping.
-  if (!environment && !policy?.environment && !resolutionFailed) return null;
-  const shellCommandRefused = Boolean(policy?.command) && Boolean(environment || policy?.environment);
-  const bound = resolution?.status === 'bound';
-  const errorCode = shellCommandRefused
-    ? 'ENVIRONMENT_ARGV_REQUIRED'
-    : bound
-      ? 'ENVIRONMENT_ISOLATED_RUNNER_REQUIRED'
-      : 'ENVIRONMENT_BINDING_UNAVAILABLE';
-  const reason = resolutionFailed && !environment && !policy?.environment
-    ? `Environment requirements could not be resolved safely for quality command '${policy.id}'. The command was not executed.`
-    : shellCommandRefused
-      ? `Environment '${environment?.name ?? policy.environment}' is assigned to quality command '${policy.id}', but environment-bound commands must use an exact argv declaration. The shell command was not executed.`
-      : bound
-        ? `Environment '${environment?.name ?? policy.environment}' is bound, but quality command '${policy.id}' requires an approved isolated runner. No environment values were materialized and the command was not executed.`
-        : `Environment '${environment?.name ?? policy.environment}' is unavailable for quality command '${policy.id}'. Bind the declared environment before retrying; the command was not executed.`;
+/** The blocked check an environment-linked command records instead of running. */
+function environmentBlockedCheck(policy, { environment, errorCode, reason, sourceCommit, sourceTreeSha256, startedAt }) {
   return {
     id: policy.id,
     command: policy.command ?? policy.argv.join(' '),
@@ -4287,6 +4248,110 @@ export async function environmentQualityCommandBlock(root, policy, {
     stderrTruncated: false,
     environment: environment ?? safeEnvironmentMetadata({}, policy.environment) ?? null
   };
+}
+
+/**
+ * Environment-bound quality commands fail closed unless the Story's capability policy
+ * `localIntegrationEvidence` is `allowed` [RUN M3, docs/ENVIRONMENT-BINDINGS.md]. Then, and only
+ * for a complete binding and an argv command, the gate says `run`: the values are materialized
+ * at the runner boundary for that process only and the run is recorded as `local-integration`.
+ * The resolver returns public metadata only; durable checks retain the public environment
+ * identifier and its value-independent binding fingerprint, never a value.
+ *
+ * `localIntegration` is passed only when the policy is allowed: { listed (command ID -> the
+ * capability's tests[].environments), requested (a person's --environment for a local run) }.
+ * Without it the result is exactly what this boundary returned before the policy existed.
+ */
+export async function environmentQualityCommandGate(root, policy, {
+  sourceCommit,
+  sourceTreeSha256,
+  startedAt,
+  resolver = resolveEnvironmentBinding,
+  localIntegration = null
+} = {}) {
+  let resolution = null;
+  let resolutionFailed = false;
+  try {
+    resolution = await resolver(root, policy?.environment ?? null, { commandId: policy?.id });
+  } catch {
+    // Declaration, private-store, and resolver failures are all unavailable at this execution
+    // boundary. Raw resolver errors may contain provider or host details and are never copied into
+    // a governed check.
+    resolutionFailed = true;
+  }
+  let environment = safeEnvironmentMetadata(resolution?.environment, policy?.environment ?? null);
+  // The checks mapping or the command's own field: the one environment whose run counts.
+  const linked = environment?.name ?? null;
+  const listed = localIntegration?.listed?.get(policy?.id) ?? [];
+  let chosen = linked;
+  if (localIntegration && !resolutionFailed && (listed.length || linked)) {
+    const allowed = listed.length ? listed : [linked];
+    chosen = localIntegration.requested && allowed.includes(localIntegration.requested)
+      ? localIntegration.requested : linked ?? listed[0];
+    if (chosen !== linked) {
+      // Another declared environment of this command: resolved by itself, never through the mapping.
+      try { resolution = await resolver(root, chosen, {}); }
+      catch { resolution = null; resolutionFailed = true; }
+      environment = safeEnvironmentMetadata(resolution?.environment, chosen);
+    }
+  }
+  // A command with neither an explicit environment nor a declaration check mapping remains an
+  // ordinary quality command. A resolver failure still blocks because a malformed declaration
+  // could otherwise hide a command-to-environment mapping.
+  if (!environment && !policy?.environment && !resolutionFailed) return { block: null, run: null };
+  const shellCommandRefused = Boolean(policy?.command) && Boolean(environment || policy?.environment);
+  const bound = resolution?.status === 'bound';
+  if (localIntegration && bound && !shellCommandRefused && environment && !resolutionFailed) {
+    return { block: null, run: {
+      environmentId: environment.name, environment, linked, listed: [...listed],
+      countsForStep: linked ? environment.name === linked : true
+    } };
+  }
+  const errorCode = shellCommandRefused
+    ? 'ENVIRONMENT_ARGV_REQUIRED'
+    : bound
+      ? 'ENVIRONMENT_ISOLATED_RUNNER_REQUIRED'
+      : 'ENVIRONMENT_BINDING_UNAVAILABLE';
+  const reason = resolutionFailed && !environment && !policy?.environment
+    ? `Environment requirements could not be resolved safely for quality command '${policy.id}'. The command was not executed.`
+    : shellCommandRefused
+      ? `Environment '${environment?.name ?? policy.environment}' is assigned to quality command '${policy.id}', but environment-bound commands must use an exact argv declaration. The shell command was not executed.`
+      : bound
+        ? `Environment '${environment?.name ?? policy.environment}' is bound, but quality command '${policy.id}' requires an approved isolated runner. No environment values were materialized and the command was not executed.`
+          + ' To run it on this machine as labelled local-integration evidence, the capability policy localIntegrationEvidence must be allowed; it changes through a capability proposal.'
+        : `Environment '${environment?.name ?? policy.environment}' is unavailable for quality command '${policy.id}'. Bind the declared environment before retrying; the command was not executed.`;
+  return { block: environmentBlockedCheck(policy, { environment, errorCode, reason, sourceCommit, sourceTreeSha256, startedAt }), run: null };
+}
+
+/** The pre-policy boundary: the blocked check, or null when the command is not environment-linked. */
+export async function environmentQualityCommandBlock(root, policy, options = {}) {
+  return (await environmentQualityCommandGate(root, policy, { ...options, localIntegration: null })).block;
+}
+
+/**
+ * What an allowed local-integration run needs to know for this Story, or null when the pinned
+ * capability policy is off (the default), in which case nothing else is read at all.
+ */
+async function storyLocalIntegration(root, workflow, localRun = null) {
+  if (workflow?.resolution?.capability?.policy?.localIntegrationEvidence !== 'allowed') return null;
+  const listed = new Map();
+  try {
+    const { resolveCapabilityApplication } = await import('./capability-context.mjs');
+    const application = await resolveCapabilityApplication(root, { capabilityId: workflow.resolution.capability.id ?? null });
+    for (const entry of application.application.tests) if (entry.environments.length) listed.set(entry.use, [...entry.environments]);
+  } catch { /* no declared test environments: only checks-linked commands qualify */ }
+  const session = localRun?.ranBy ? null : await loadSession(root, { required: false }).catch(() => null);
+  return {
+    listed,
+    requested: localRun?.requestedEnvironment ?? null,
+    ranBy: localRun?.ranBy ?? (session?.actor ? actorKey(session.actor) ?? null : null)
+  };
+}
+
+async function materializeQualityEnvironment(root, environmentId) {
+  const runtimeUrl = pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'environment-bindings.mjs')).href;
+  environmentBindingRuntimePromise ??= import(runtimeUrl);
+  return (await environmentBindingRuntimePromise).materializeEnvironmentBinding(root, environmentId);
 }
 
 export function effectiveEnvironmentQualityCommandCatalog(
@@ -4425,7 +4490,8 @@ export async function runLocalPreviewQualityCommand(root, config, value, { index
  * publishes, submits or changes the Story. `select` narrows the resolved commands.
  */
 export async function stageStoryLocalTests(root, config, workflow, {
-  phaseId = null, select = (commands) => commands, localRunId, uncommittedChanges = null
+  phaseId = null, select = (commands) => commands, localRunId, uncommittedChanges = null,
+  ranBy = null, requestedEnvironment = null
 } = {}) {
   const phase = workflow.phases?.[phaseId ?? workflow.currentPhase] ?? null;
   if (!phase) {
@@ -4456,7 +4522,8 @@ export async function stageStoryLocalTests(root, config, workflow, {
   const commands = select(resolved);
   if (!commands.length) throw structuredTestCommandRequiredError(phase);
   const checks = await qualityChecks(root, phase, config, workflow, commands, {
-    commandProvenance: new Map(commands.map((command) => [command, command.provenance]))
+    commandProvenance: new Map(commands.map((command) => [command, command.provenance])),
+    localRun: { ranBy, requestedEnvironment }
   });
   const attempts = [];
   try {
@@ -4477,9 +4544,11 @@ export async function stageStoryLocalTests(root, config, workflow, {
 }
 
 async function qualityChecks(root, phase, config, workflow, commands = phase.qualityCommands ?? [], {
-  commandProvenance = new Map()
+  commandProvenance = new Map(), localRun = null
 } = {}) {
   const checks = [];
+  // Null unless the pinned capability policy allows local integration evidence [RUN M3].
+  const localIntegration = await storyLocalIntegration(root, workflow, localRun);
   const declaration = await loadEnvironmentDeclaration(root, { optional: true });
   const catalog = effectiveEnvironmentQualityCommandCatalog(phase, workflow, commands);
   validateEnvironmentQualityCommandCatalog(declaration, catalog);
@@ -4513,12 +4582,26 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     const policy = evaluateExternalCommandForModelMode(value, { modelEnabled, unknownStrictness, index });
     const command = policy.command ?? policy.argv.join(' ');
     const startedAt = nowIso();
-    const environmentBlock = await environmentQualityCommandBlock(root, policy, {
-      sourceCommit, sourceTreeSha256, startedAt
+    const environmentGate = await environmentQualityCommandGate(root, policy, {
+      sourceCommit, sourceTreeSha256, startedAt, localIntegration
     });
-    if (environmentBlock) {
-      checks.push(environmentBlock);
+    if (environmentGate.block) {
+      checks.push(environmentGate.block);
       continue;
+    }
+    // The runner boundary: values for this one process, never a durable field [RUN rule 3].
+    let materialized = null;
+    if (environmentGate.run) {
+      materialized = await materializeQualityEnvironment(root, environmentGate.run.environmentId).catch(() => null);
+      if (materialized?.status !== 'bound') {
+        checks.push(environmentBlockedCheck(policy, {
+          environment: safeEnvironmentMetadata(materialized?.environment, environmentGate.run.environmentId),
+          errorCode: 'ENVIRONMENT_BINDING_UNAVAILABLE',
+          reason: `Environment '${environmentGate.run.environmentId}' is unavailable for quality command '${policy.id}'. Bind the declared environment before retrying; the command was not executed.`,
+          sourceCommit, sourceTreeSha256, startedAt
+        }));
+        continue;
+      }
     }
     if (policy.action === 'block') throw new SingularityFlowError(policy.reason, { code: 'EXTERNAL_MODEL_POLICY_BLOCKED' });
     if (policy.action === 'skip') {
@@ -4602,6 +4685,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       commandEnvironment = nodeTestReporterEnvironment(commandEnvironment, isolation?.root ?? root, { argv: policy.argv, cwd: executionRoot });
     }
     delete commandEnvironment.NODE_TEST_CONTEXT;
+    if (materialized) commandEnvironment = materialized.childEnvironment(commandEnvironment);
     if (policy.kind === 'test' && policy.result?.adapter === 'playwright-json'
         && structuredResultTarget) {
       // The JSON reporter otherwise writes to stdout. Bind its report to the exact secured,
@@ -4620,7 +4704,8 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
         timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
         killTree: true,
         reportCapture: trpNativeReportCapture(root, policy, riskDeclaration),
-        stdoutFile: stdoutReportCaptured(policy) ? structuredResultTarget : null
+        stdoutFile: stdoutReportCaptured(policy) ? structuredResultTarget : null,
+        redactor: materialized?.redactsAnything ? materialized.streamRedactor : null
       })
       : await runQualityCommand(policy.command, [], {
         cwd: executionRoot, env: commandEnvironment, shell: true,
@@ -4633,6 +4718,10 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     if (isolatedResultRestore) {
       await isolatedResultRestore();
       isolatedResultRestore = null;
+    }
+    // Report files are rewritten with every bound secret redacted before anything reads them.
+    if (materialized?.redactsAnything && policy.kind === 'test' && policy.result?.path) {
+      await (await import('./code-delivery-tests.mjs')).redactTestReportFiles(root, policy, materialized.redact);
     }
     const completedTreeSha256 = await sourceTreeHash(isolation ? isolation.root : root, config, workflow);
     const completedTestInputSha256 = await testInputTreeHash(isolation ? isolation.root : root, config, workflow);
@@ -4659,7 +4748,15 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       stdoutBytes: result.stdoutBytes,
       stderrBytes: result.stderrBytes,
       stdoutTruncated: result.stdoutTruncated || String(result.stdout ?? '').length > 2000,
-      stderrTruncated: result.stderrTruncated || String(result.stderr ?? '').length > 2000
+      stderrTruncated: result.stderrTruncated || String(result.stderr ?? '').length > 2000,
+      // A run given an environment's values is local-integration evidence, labelled as such, with
+      // the environment's public metadata and who ran it; never relabelled as governed [RUN M3].
+      ...(environmentGate.run ? {
+        evidenceClass: 'local-integration', environment: environmentGate.run.environment,
+        ranBy: localIntegration?.ranBy ?? null, linkedEnvironment: environmentGate.run.linked,
+        allowedEnvironments: environmentGate.run.listed.length ? environmentGate.run.listed : environmentGate.run.linked ? [environmentGate.run.linked] : [],
+        countsForStep: environmentGate.run.countsForStep
+      } : {})
     };
     if (completedTreeSha256 !== sourceTreeSha256 || completedTestInputSha256 !== testInputSha256) {
       const error = new SingularityFlowError(

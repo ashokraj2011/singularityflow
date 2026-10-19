@@ -16,6 +16,7 @@ import path from 'node:path';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { recordSha256 } from '../records.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
+import { attemptLocalIntegrationLabel } from '../code-delivery-tests.mjs';
 import { readRecord } from '../schema-migrations.mjs';
 import { currentCompletenessReview } from '../scope/decisions.mjs';
 import { buildScopeInventory } from '../scope/inventory.mjs';
@@ -44,7 +45,13 @@ function attemptProjection(record) {
     attemptId: record.attemptId ?? null, purpose: record.purpose ?? null, status: record.status,
     exitCode: record.exitCode ?? null, timedOut: record.timedOut === true, terminal: record.terminal !== false,
     candidateTreeSha256: record.candidate?.treeSha256 ?? null, tests: record.tests ?? {},
-    occurrences: record.occurrences ?? []
+    occurrences: record.occurrences ?? [],
+    ...(record.evidenceClass === 'local-integration' ? {
+      evidenceClass: record.evidenceClass, environment: record.boundEnvironment?.name ?? null,
+      ranBy: record.ranBy ?? null, commit: record.candidate?.commit ?? null,
+      countsForStep: record.countsForStep !== false, linkedEnvironment: record.linkedEnvironment ?? null,
+      label: attemptLocalIntegrationLabel(record)
+    } : {})
   };
 }
 

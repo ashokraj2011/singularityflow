@@ -14,7 +14,7 @@ commands:
   - env
 version: 2
 ---
-An environment binding separates a names-only repository declaration from values held in private machine state. Put the closed declaration in `singularity/environments.yml`, bind values through standard input or an approved reference, and inspect only redacted status metadata. SFlow refuses declared local files at commit, candidate, publication, document-intake, and World Model boundaries. A missing binding is unavailable and never a pass. Environment-bound execution is allowed to satisfy a gate only through an approved isolated runner; the developer-local runner is not silently promoted into that role.
+An environment binding separates a names-only repository declaration from values held in private machine state. Put the closed declaration in `singularity/environments.yml`, bind values through standard input or an approved reference, and inspect only redacted status metadata. SFlow refuses declared local files at commit, candidate, publication, document-intake, and World Model boundaries. A missing binding is unavailable and never a pass. An environment-linked check runs on this machine only when the capability policy `localIntegrationEvidence` is `allowed` and the binding is complete: its values go to that process only, its output is redacted, and the run is recorded as `local-integration`, never as governed or isolated evidence. With the policy `off` (the default) it stays blocked.
 
 ## Purpose and prerequisites
 
@@ -34,13 +34,13 @@ Before binding, select the intended workspace and repository, confirm that its a
 2. Run `singularity-flow env status --json`. It shows missing names, never values.
 3. Pipe a bounded JSON object to `singularity-flow env bind <name> --stdin`. Do not use command-line `NAME=value` arguments.
 4. Run `singularity-flow env audit --json` before candidate freeze or publication.
-5. If a check reports that an approved isolated runner is unavailable, keep the result owed; do not substitute a local pass.
+5. If a check reports that an approved isolated runner is unavailable, keep the result owed; do not substitute a local pass. A capability may instead allow local integration evidence (`policy.localIntegrationEvidence: allowed`, through a capability proposal); see `sflow explain run-and-test`.
 
 ## State and safety
 
 The declaration is public repository configuration; binding values are local private state outside every worktree. Status, audit output, packets, receipts, exports, logs, and World Model inputs may contain names and approved fingerprints, but never secret values or secret hashes. `env bind` and `env unbind` mutate only local binding state. Configuration save and proposal activation validate the declaration's closed schema and its exact quality-command links before approved authority can move.
 
-The current developer-local runner can prove that a binding exists, but it is not an independently attested isolated runner. Until an approved runner is configured, an environment-dependent gate remains unavailable rather than being recorded as passed.
+The current developer-local runner can prove that a binding exists, but it is not an independently attested isolated runner. Unless the capability allows local integration evidence, an environment-dependent gate remains unavailable rather than being recorded as passed; when it is allowed, the run is labelled `local-integration` with the environment, the commit and who ran it, and every bound secret in its output is shown as `[redacted:NAME]`.
 
 ## Troubleshooting
 

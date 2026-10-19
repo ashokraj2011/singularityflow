@@ -40,7 +40,7 @@ def test_round():
     assert 1 == 2
 `;
 
-export async function repository(t, { extraCommands = [], implementCommands = true } = {}) {
+export async function repository(t, { extraCommands = [], implementCommands = true, implementQualityCommands = null, files = {} } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-tests-run-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'repo');
@@ -68,13 +68,18 @@ export async function repository(t, { extraCommands = [], implementCommands = tr
     + "import { value } from '../src/value.mjs';\n\n// @ac:QF-1:AC-001\ntest('value is one', () => assert.equal(value, 1));\n\ntest('untagged arithmetic', () => assert.equal(1 + 1, 2));\n");
   await writeFile(path.join(root, 'tools/junit.mjs'), JUNIT_WRITER);
   await writeFile(path.join(root, 'tests/test_pay.py'), PYTHON_TESTS);
+  for (const [relative, content] of Object.entries(files)) {
+    await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
+    await writeFile(path.join(root, relative), content);
+  }
   sflow('init');
   const configPath = path.join(root, 'singularity/workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.worldModel.grounding = 'off';
   config.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
-  if (implementCommands) config.phases.implement.qualityCommands = [
+  if (implementQualityCommands) config.phases.implement.qualityCommands = implementQualityCommands;
+  else if (implementCommands) config.phases.implement.qualityCommands = [
     { id: 'module-junit', kind: 'test', argv: ['node', 'tools/junit.mjs', '2'], workingDirectory: '.', affectedRoots: ['tests'],
       modelPolicy: 'never', result: { adapter: 'junit-xml', path: '.sflow/results/junit.xml' } },
     { id: 'karma-totals', kind: 'test', argv: ['node', '-e', 'console.log("TOTAL: 3 SUCCESS")'], workingDirectory: '.', affectedRoots: ['karma'],

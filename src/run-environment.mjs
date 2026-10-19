@@ -50,10 +50,7 @@ export function environmentCountsForStep({ environment = null, listed = [], link
   return listed.includes(environment);
 }
 
-/** Words for a run that does not count: "does not count for this step: it requires `qa`". */
-export function environmentDoesNotCountWords(linked) {
-  return `does not count for this step: it requires \`${linked}\``;
-}
+// The labels a local-integration run carries live beside the receipt (code-delivery-tests.mjs).
 
 /** The coded refusal for private values while the capability policy is off. */
 export function localIntegrationPolicyRefusal({ capabilityId, environment, subject }) {

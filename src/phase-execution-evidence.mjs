@@ -6,7 +6,7 @@ import { sourceTreeHash, testInputTreeHash } from './state-stores.mjs';
 import { commitIsAncestor, exactFileAtObject } from './git.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
-import { testReceiptPassing } from './code-delivery-tests.mjs';
+import { attemptLocalIntegrationLabel, testReceiptPassing } from './code-delivery-tests.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 const digest = value => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
@@ -96,6 +96,10 @@ function executionDetails(root, packet, testPolicy) {
     return { attemptId: receipt.attemptId, commandId: receipt.commandId, path: reference.path, sha256: reference.sha256,
       status: receipt.status, adapter: receipt.adapter, counts: receipt.tests,
       assurance: receipt.assurance,
+      ...(receipt.evidenceClass === 'local-integration' ? {
+        evidenceClass: receipt.evidenceClass, environment: receipt.boundEnvironment?.name ?? null,
+        ranBy: receipt.ranBy ?? null, label: attemptLocalIntegrationLabel(receipt)
+      } : {}),
       meetsPinnedCountPolicy: testReceiptPassing(receipt, testPolicy?.minimumDiscovered ?? 1, testPolicy?.minimumPassed ?? 1)
         && receipt.tests?.skipped === 0,
       criterionVerdict: 'requires-bound-witness-evaluation' };

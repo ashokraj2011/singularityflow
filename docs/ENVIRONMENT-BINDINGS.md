@@ -48,7 +48,7 @@ The input has the closed shape `{"bindings":{"DB_CONN":{"source":"local","value"
 - The draft proposed rewriting `.gitignore` during initialization. The adopted design does not mutate an application checkout merely to mirror policy: teams may add those convenience ignores themselves, while exact-tree Git gates enforce the declaration whether or not an ignore rule exists.
 - Environment-local files are excluded before World Model or packet content is read. The declaration is safe input; the declared local content is not.
 - A missing or partial binding is `unavailable`, never `passed`, and the required gate remains owed.
-- The current developer-local signed runner is not an isolated evidence runner. Environment-bound commands therefore remain blocked until an approved isolated runner is active. The product does not inject secrets into the application worktree or relabel local execution as governed evidence.
+- The current developer-local signed runner is not an isolated evidence runner. Environment-linked commands run only when the capability policy `localIntegrationEvidence` is `allowed` and the binding is complete. Values go to that command's process only, never to the worktree. Output is redacted. The run is recorded as `local-integration`, never relabelled as governed or isolated evidence. With the policy `off` (the default), they stay blocked.
 
 ## Fingerprints and evidence
 

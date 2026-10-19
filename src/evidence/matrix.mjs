@@ -118,6 +118,7 @@ export function matrixText({ evaluation, page }) {
     `Required assurance: ${evaluation.requiredAssurance.level} (${evaluation.requiredAssurance.source})`,
     ...(evaluation.summary.scope ? [`Scope: ${scopeLine(evaluation.summary.scope)}`] : []),
     ...(evaluation.summary.scopeRevision?.changes ? [`Scope revision: ${evaluation.summary.scopeRevision.words}`] : []),
+    ...(evaluation.localIntegrationRuns ?? []).map((run) => `Local integration (${run.phaseId}): ${run.label}`),
     ''
   ];
   if (page.rows.length) {
@@ -158,7 +159,8 @@ export function matrixMarkdown(evaluation, { limit = 5 } = {}) {
     `- Rows: ${evaluation.summary.rows} — ${results}`,
     `- Assurance floor: ${evaluation.summary.assuranceFloor ?? 'none'}; ${evaluation.summary.testCaseResults}`,
     ...(evaluation.summary.scope ? [`- Scope: ${scopeLine(evaluation.summary.scope)}`] : []),
-    ...(evaluation.summary.scopeRevision?.changes ? [`- Scope revision: ${evaluation.summary.scopeRevision.words}`] : [])
+    ...(evaluation.summary.scopeRevision?.changes ? [`- Scope revision: ${evaluation.summary.scopeRevision.words}`] : []),
+    ...(evaluation.localIntegrationRuns ?? []).map((run) => `- Local integration (${run.phaseId}): ${run.label}`)
   ];
   if (open.length) {
     lines.push(`- Open obligations (${open.length}):`, ...open.slice(0, limit).map((entry) => `  - ${entry}`));

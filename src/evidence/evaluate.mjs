@@ -658,9 +658,17 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
   const gate = blocked ? 'block' : allRows.some((row) => row.result === 'satisfied-with-exception') ? 'allow-with-risk' : 'allow';
   const verified = allRows.filter((row) => (row.type === 'AC' || row.id === 'story:verify')
     && ['satisfied', 'satisfied-with-exception'].includes(row.result));
+  // Every bound run given an environment's values, so no surface shows it as a governed run [RUN M3].
+  const localIntegrationRuns = (graph.deliveries ?? []).flatMap((delivery) => [
+    ...(delivery.executions ?? []).map((entry) => entry.record), ...(delivery.preflight ?? []).map((entry) => entry.record)
+  ].filter((record) => record?.evidenceClass === 'local-integration').map((record) => ({
+    phaseId: delivery.phaseId, attemptId: record.attemptId, environment: record.environment, ranBy: record.ranBy,
+    commit: record.commit, countsForStep: record.countsForStep, label: record.label
+  })));
   return {
     schemaVersion: 1, // schema-transient: computed evaluation, never persisted by this version
     workId,
+    ...(localIntegrationRuns.length ? { localIntegrationRuns } : {}),
     title: workflow.workItem.title ?? null,
     boundary,
     mode,

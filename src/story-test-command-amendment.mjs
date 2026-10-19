@@ -22,7 +22,7 @@ import { applicationPathContext, ensureWorkIntervalBaseline, isApplicationChange
 import { verifyWorkflowSnapshot } from './workflow-snapshots.mjs';
 import { nowIso, secureRepositoryPath, SingularityFlowError, writeText } from './util.mjs';
 
-import { prospectiveTestCommandAmendments as PROSPECTIVE, prospectiveTestCommandAmendment } from './test-command-amendment-context.mjs';
+import { prospectiveTestCommandAmendments as PROSPECTIVE, prospectiveTestCommandAmendment } from './test-command-amendment-contracts.mjs';
 export { prospectiveTestCommandAmendment };
 const digest = value => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
 const bytesDigest = value => `sha256:${createHash('sha256').update(value).digest('hex')}`;

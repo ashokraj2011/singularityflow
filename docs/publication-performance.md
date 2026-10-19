@@ -67,7 +67,7 @@ not a substantial speedup. A separate two-pair local small smoke overlapped expl
 and is not used for a performance claim (cold 1,947 → 1,803.5 ms; warm 1,622 → 1,720 ms).
 Do not combine different hosts' absolute timings into one speedup figure.
 
-The final dedicated writer's static installed closure is 5,279,726 bytes, versus 7,161,598 bytes for
+The final integrated writer's static installed closure is 5,281,209 bytes, versus 7,161,598 bytes for
 the baseline chunk containing the former Story store (about 26% less). The complete deployment
 has 21 coarse files versus 20. Reader/catalog parse budgets and the partial-deployment fallback
 remain enforced. A smaller import graph alone does not imply the same elapsed-time saving.
@@ -120,6 +120,30 @@ outside-repository files remain incomplete and cannot earn exact test credit. A 
 and native-long-path regression runs on both platforms. Malformed identities raise a structured
 result parse error so the existing bounded, redacted command diagnostics are retained, with bounded
 field-level reason codes instead of a generic error that discarded the useful output.
+
+## Latest-main integration and qualification
+
+Integrated main through `12899b26` before the final merge. The publication measurements above
+remain the frozen `b440b0a6` versus `1078bf60` comparison, not a newly measured speedup against
+the later main. The later changes retain the same benchmarked review-retention transaction path.
+
+The latest-main source graph initially exposed an eager-import budget regression. Optional human
+document review rendering is now lazy in approval and phase lifecycle commands, and the prospective
+test-command token shares its existing contract owner rather than adding another eager module.
+Approval reaches 446 local files and phase lifecycle 453, both below the unchanged 455-file ceiling.
+No import budget or permission gate was relaxed to accept this work.
+
+- Final latest-main local Mac regression: 480 passed, zero failed or skipped, on Node 22.14.0.
+  TypeScript-importing tests use `--experimental-strip-types`, required by this older Node 22 build.
+- Final product checks: 2,812 passed. CLI bundle build, VS Code typechecking and VS Code build passed.
+- Native macOS run `39204947590`, before the latest-main integration, passed all 415 cases and its
+  product/build checks. The corrected Windows spot checks in that run passed, including native
+  short/long test-path handling and actual private-ACL validation; the POSIX hook case is inapplicable.
+- The new native qualification/remeasurement run `39205514283` was refused before executing any
+  step because GitHub Actions reported an account payment/spending-limit issue. The user explicitly
+  requested merging without that run. Final latest-main Windows qualification and remeasurement are
+  therefore waived, not reported as successful. The earlier native measurement jobs completed and
+  their raw results remain retained separately.
 
 ## Reviewed boundary moves
 

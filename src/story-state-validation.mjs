@@ -11,7 +11,7 @@ import { normalizeLedgerConfig } from "./ledger-config.mjs";
 import { normalizeSequenceGates, normalizeSessionPolicy, resolveWorkType } from "./config.mjs";
 import { normalizeTokenEconomy } from "./token-economy.mjs";
 import { default as path } from "node:path";
-import { prospectiveTestCommandAmendment } from './test-command-amendment-context.mjs';
+import { prospectiveTestCommandAmendment } from './test-command-amendment-contracts.mjs';
 async function verifyAcceptedTestCommandAmendment(...args) { return (await import('./story-test-command-amendment.mjs')).verifyAcceptedTestCommandAmendment(...args); }
 async function assertConvergencePublicationReady(...args) { return (await import('./convergence-context.mjs')).assertConvergencePublicationReady(...args); }
 import { readConfigurationSource } from "./configuration-branch.mjs";

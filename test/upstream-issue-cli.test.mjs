@@ -153,12 +153,13 @@ test('--from-artifact files an item whole against the step it names, holds an un
   assert.notEqual(mixed.status, 0);
   assert.match(mixed.stdout + mixed.stderr, /takes no --phase/u);
 
-  // A replacement records the link; the replaced issue keeps its history and is dismissed by its own approvers.
+  // A replacement records the link; the replaced issue keeps its history, owes nothing, and may still be dismissed.
   const replaced = JSON.parse(cli('upstream-issue', 'raise', '--phase', 'intake', '--about', 'Scope and constraints',
     '--problem', 'The intake never says whether callers may cache the value or read it once.', '--supersedes', 'UPI-001', '--json').stdout).data.issues[0];
   assert.deepEqual([replaced.id, replaced.supersedes], ['UPI-003', 'UPI-001']);
-  const listed = cli('upstream-issue', 'list', '--open').stdout;
-  assert.match(listed, /UPI-001 \[open\][^\n]*\n {2}superseded by UPI-003 — decide it as dismiss\n {2}singularity-flow upstream-issue decide UPI-001 --work-id ISSUE-4 --outcome dismiss --reason "Superseded by UPI-003\."/u);
+  assert.doesNotMatch(cli('upstream-issue', 'list', '--open').stdout, /^UPI-001 /mu, 'a superseded issue is not open');
+  const listed = cli('upstream-issue', 'list').stdout;
+  assert.match(listed, /UPI-001 \[superseded\][^\n]*\n {2}superseded by UPI-003; it no longer blocks anything\n(?! {2}singularity-flow)/u);
   assert.deepEqual(JSON.parse(cli('upstream-issue', 'list', '--json').stdout).data.issues.map((issue) => [issue.id, issue.supersededBy]),
     [['UPI-001', 'UPI-003'], ['UPI-002', null], ['UPI-003', null]]);
   cli('upstream-issue', 'decide', 'UPI-001', '--outcome', 'dismiss', '--reason', 'Superseded by UPI-003.');

@@ -13,7 +13,7 @@
  */
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { upstreamIssueStates } from './upstream-routes.mjs';
+import { OPEN_UPSTREAM_ISSUE_STATUSES, upstreamIssueStates } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 // The pure state read lives with the routes, which every lifecycle command already loads, so the
@@ -194,24 +194,23 @@ export function raiseUpstreamIssue(workflow, {
   return checked.data;
 }
 
-/** Issues completion still waits for: undecided, or an accepted risk that expired. */
+/** Issues completion still waits for: undecided, or an accepted risk that expired. A superseded issue is not one. */
 export function openUpstreamIssues(workflow, now = new Date().toISOString()) {
-  return upstreamIssueStates(workflow, now).filter((entry) => entry.status !== 'decided');
+  return upstreamIssueStates(workflow, now).filter((entry) => OPEN_UPSTREAM_ISSUE_STATUSES.includes(entry.status));
 }
 
-/** The decide command; a superseded issue is decided as a dismissal naming its replacement. */
+/** The decide command; a superseded issue, should its approvers close it, is dismissed naming its replacement. */
 export function upstreamIssueDecideCommand(workId, issue, supersededBy = null) {
   if (supersededBy) return `singularity-flow upstream-issue decide ${issue.id} --work-id ${workId} --outcome dismiss --reason "Superseded by ${supersededBy}."`;
   return `singularity-flow upstream-issue decide ${issue.id} --work-id ${workId} --outcome plan-correction|amend|return|accept-risk|dismiss --reason "<why>"`;
 }
 
-/** One terminal blocker per open issue, with its exact decide command. */
+/** One terminal blocker per open issue, with its exact decide command. A superseded issue blocks nothing. */
 export function upstreamIssueTerminalBlockers(workflow, now = new Date().toISOString()) {
-  return openUpstreamIssues(workflow, now).map(({ issue, status, supersededBy }) => ({
+  return openUpstreamIssues(workflow, now).map(({ issue, status }) => ({
     code: 'UPSTREAM_ISSUES_OPEN',
-    message: `${issue.id} about ${issue.phase} (${issue.about}) ${status === 'expired' ? 'had its accepted risk expire' : 'is not decided'}`
-      + `${supersededBy ? `; it is superseded by ${supersededBy}, so ${issue.phase}'s approvers decide it as dismiss.` : `; ${issue.phase}'s approvers decide it.`}`,
-    command: upstreamIssueDecideCommand(workflow.workItem?.id ?? '<WORK-ID>', issue, supersededBy)
+    message: `${issue.id} about ${issue.phase} (${issue.about}) ${status === 'expired' ? 'had its accepted risk expire' : 'is not decided'}; ${issue.phase}'s approvers decide it.`,
+    command: upstreamIssueDecideCommand(workflow.workItem?.id ?? '<WORK-ID>', issue)
   }));
 }
 

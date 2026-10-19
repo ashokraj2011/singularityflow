@@ -199,7 +199,7 @@ test('filing skips items already filed, holds unowned and over-long ones, and re
   assert.deepEqual(held.requests.map((request) => request.phase), ['verification']);
 });
 
-test('a superseding issue leaves the old one intact and routes it to dismissal by its own approvers', () => {
+test('a superseding issue leaves the old one intact, superseded: it owes nothing and blocks nothing', () => {
   const workflow = story();
   const old = raise(workflow);
   const before = JSON.stringify(old);
@@ -208,17 +208,19 @@ test('a superseding issue leaves the old one intact and routes it to dismissal b
   assert.equal(replacement.supersedes, 'UPI-001');
   assert.equal(JSON.stringify(workflow.upstreamIssues[0]), before, 'the replaced issue is never edited');
   const [first, second] = upstreamIssueStates(workflow, AT);
-  assert.deepEqual([first.status, first.supersededBy, second.supersededBy], ['open', 'UPI-002', null]);
+  assert.deepEqual([first.status, first.supersededBy, second.status, second.supersededBy], ['superseded', 'UPI-002', 'open', null]);
+  // Its approvers may still close it explicitly; the dismissal names the replacement.
   assert.equal(upstreamIssueDecideCommand('OWN-1', first.issue, first.supersededBy),
     'singularity-flow upstream-issue decide UPI-001 --work-id OWN-1 --outcome dismiss --reason "Superseded by UPI-002."');
-  const [blocker] = upstreamIssueTerminalBlockers(workflow, AT);
-  assert.match(blocker.message, /UPI-001 about specification \(REQ-001\) is not decided; it is superseded by UPI-002, so specification's approvers decide it as dismiss\./u);
-  assert.match(blocker.command, /--outcome dismiss --reason "Superseded by UPI-002\."$/u);
+  // The replacement carries the obligation; the superseded issue is never an open blocker.
+  const blockers = upstreamIssueTerminalBlockers(workflow, AT);
+  assert.deepEqual(blockers.map((entry) => entry.message.split(' ')[0]), ['UPI-002']);
+  assert.doesNotMatch(JSON.stringify(blockers), /UPI-001/u);
 
   assert.throws(() => raise(workflow, { supersedes: 'UPI-001' }), { code: 'UPSTREAM_ISSUE_SUPERSEDE_INVALID', message: /already superseded by UPI-002/u });
   assert.throws(() => raise(workflow, { supersedes: 'UPI-009' }), { code: 'UPSTREAM_ISSUE_SUPERSEDE_INVALID' });
   assert.throws(() => raise(workflow, { supersedes: 'not-an-id' }), { code: 'UPSTREAM_ISSUE_SUPERSEDE_INVALID' });
-  // Only the old issue's own approvers decide it; the dismissal names the replacement.
+  // Only the old issue's own approvers decide it, and they still may; the dismissal names the replacement.
   decideUpstreamIssue(workflow, { issue: 'UPI-001', outcome: 'dismiss', reason: 'Superseded by UPI-002.', actor: 'lead@example.invalid',
     authorityGroup: 'specification-approvers', at: AT });
   assert.equal(raise(workflow, { supersedes: 'UPI-002', phase: 'planning' }).supersedes, 'UPI-002', 'an open issue not yet replaced can be');

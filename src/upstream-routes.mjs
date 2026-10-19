@@ -78,7 +78,15 @@ export function upstreamRouteSummary(entry) {
   return entry?.notes?.[0] ?? `${entry?.producer ?? 'The earlier phase'} is approved; it changes only by an authorized return or amendment.`;
 }
 
-/** Each upstream issue with its latest decision, whether it is still open at `now`, and what replaced it. Pure. */
+/** The statuses of an issue that still owe a person's decision: undecided, or an accepted risk that expired. */
+export const OPEN_UPSTREAM_ISSUE_STATUSES = Object.freeze(['open', 'expired']);
+
+/**
+ * Each upstream issue with its latest decision, whether it is still open at `now`, and what replaced
+ * it. Pure. An issue another one supersedes (raised against the wrong step) is `superseded` unless a
+ * standing decision closed it: it stays in the record and the history, owes nothing, and blocks
+ * nothing; its replacement carries the obligation. Its approvers may still dismiss it explicitly.
+ */
 export function upstreamIssueStates(workflow, now = new Date().toISOString()) {
   const decisions = workflow?.upstreamIssueDecisions ?? [];
   const replacements = new Map();
@@ -88,7 +96,9 @@ export function upstreamIssueStates(workflow, now = new Date().toISOString()) {
   return (workflow?.upstreamIssues ?? []).map((issue) => {
     const decision = decisions.findLast((entry) => entry?.issue === issue.id) ?? null;
     const expired = decision?.outcome === 'accept-risk' && decision.expiresAt && Date.parse(decision.expiresAt) <= Date.parse(now);
-    return { issue, decision, status: !decision ? 'open' : expired ? 'expired' : 'decided', supersededBy: replacements.get(issue.id) ?? null };
+    const supersededBy = replacements.get(issue.id) ?? null;
+    const status = decision && !expired ? 'decided' : supersededBy ? 'superseded' : !decision ? 'open' : 'expired';
+    return { issue, decision, status, supersededBy };
   });
 }
 
@@ -180,7 +190,8 @@ export function conformanceGapDecisions(workflow, phaseId, gaps, { now = new Dat
       return Object.freeze({ ...gap, owner: reuse.recordedBy ?? owner, status: 'decided', issue: reuse.id, outcome: 'evidence-reuse',
         expiresAt: reuse.expiresAt ?? null, reuse: reuse.label, choices: Object.freeze([]) });
     }
-    const pending = named.findLast((state) => state.status !== 'decided') ?? null;
+    // A superseded issue owes nothing; its replacement names the clause if it carries the gap.
+    const pending = named.findLast((state) => OPEN_UPSTREAM_ISSUE_STATUSES.includes(state.status)) ?? null;
     const gapOwner = pending?.issue.phase ?? owner;
     return Object.freeze({ ...gap, owner: gapOwner, status: pending ? pending.status === 'expired' ? 'expired' : 'undecided' : 'unraised',
       issue: pending?.issue.id ?? null, outcome: null, expiresAt: pending?.decision?.expiresAt ?? null,

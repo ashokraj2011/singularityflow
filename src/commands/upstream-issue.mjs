@@ -144,10 +144,7 @@ async function raise(root, config, workflow, options) {
       console.log(`Raised ${issue.id} against ${issue.phase}: ${issue.about}. This step continues; ${issue.phase}'s approvers decide it:`);
       console.log(`  ${upstreamIssueDecideCommand(workflow.workItem.id, issue)}`);
       const prior = issue.supersedes ? workflow.upstreamIssues?.find((entry) => entry.id === issue.supersedes) : null;
-      if (prior) {
-        console.log(`${issue.id} supersedes ${prior.id}, recorded against ${prior.phase}; ${prior.phase}'s approvers dismiss it:`);
-        console.log(`  ${upstreamIssueDecideCommand(workflow.workItem.id, prior, issue.id)}`);
-      }
+      if (prior) console.log(`${issue.id} supersedes ${prior.id}, recorded against ${prior.phase}: it no longer blocks anything and stays in the history.`);
     }
     if (unowned.length) console.log(`Not raised: ${unowned.length} item(s) name no single earlier owning step, and an owner is never guessed.`);
     for (const item of unowned) {
@@ -163,15 +160,15 @@ async function raise(root, config, workflow, options) {
 }
 
 function list(workflow, options) {
-  const states = upstreamIssueStates(workflow).filter((entry) => !optionBoolean(options, 'open') || entry.status !== 'decided');
+  const states = upstreamIssueStates(workflow).filter((entry) => !optionBoolean(options, 'open') || ['open', 'expired'].includes(entry.status));
   if (!optionBoolean(options, 'json')) {
     if (!states.length) console.log(optionBoolean(options, 'open') ? 'No open upstream issues.' : 'No upstream issues.');
     for (const { issue, decision, status, supersededBy } of states) {
       console.log(`${issue.id} [${status}] ${issue.phase} — ${issue.about}: ${issue.problem}`);
       if (issue.supersedes) console.log(`  supersedes ${issue.supersedes}`);
-      if (supersededBy) console.log(`  superseded by ${supersededBy}${status === 'decided' ? '' : ' — decide it as dismiss'}`);
+      if (supersededBy) console.log(`  superseded by ${supersededBy}${status === 'decided' ? '' : '; it no longer blocks anything'}`);
       if (decision) console.log(`  ${decision.outcome}${decision.link ? ` (${decision.link})` : ''} by ${decision.actor}: ${decision.reason}`);
-      else console.log(`  ${upstreamIssueDecideCommand(workflow.workItem.id, issue, supersededBy)}`);
+      else if (status !== 'superseded') console.log(`  ${upstreamIssueDecideCommand(workflow.workItem.id, issue)}`);
     }
   }
   emit(options, workflow, 'list', {

@@ -19,7 +19,7 @@ import { isVisualVerificationPhase } from './phase-roles.mjs';
 import { readPngHeader } from './png-rgba8.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { nowIso, posix, secureRepositoryPath, SingularityFlowError, snapshot, writeAtomic, writeJson } from './util.mjs';
-import { NATIVE_CAPTURE_DIRECTORY, NATIVE_CAPTURE_SOURCES, profilePixelSize } from './visual-coverage.mjs';
+import { NATIVE_CAPTURE_DIRECTORY, NATIVE_CAPTURE_SOURCES, nativeCaptureScale, nativeCaptureScaleRange, profilePixelSize } from './visual-coverage.mjs';
 
 const MAX_BYTES = 25 * 1024 * 1024;
 const MAX_RECORDS = 5000;
@@ -75,9 +75,10 @@ export async function recordNativeVisualCapture(root, workflow, {
   let actual;
   try { actual = readPngHeader(bytes); } catch (error) { throw invalid(`${input.relative} cannot be read as a PNG: ${error.message}`); }
   const expected = profilePixelSize(profile);
-  if (actual.width !== expected.width || actual.height !== expected.height) {
+  const scale = nativeCaptureScale(profile, actual);
+  if (scale === null) {
     throw new SingularityFlowError(`${input.relative} is ${actual.width}×${actual.height} pixels; verification profile '${profile.id}' (${profile.label}) expects ${expected.width}×${expected.height} `
-      + `(${profile.width}×${profile.height} at device scale ${profile.deviceScaleFactor}). Record a capture at that size, or under the profile it matches; nothing was recorded.`, {
+      + `(${profile.width}×${profile.height} at ${nativeCaptureScaleRange(profile)}). Record a capture at that size, or under the profile it matches; nothing was recorded.`, {
       code: 'VISUAL_CAPTURE_DIMENSIONS_MISMATCH', details: { phase: phaseId, profileId: profile.id, expected, actual }
     });
   }
@@ -108,6 +109,7 @@ export async function recordNativeVisualCapture(root, workflow, {
         profileId: profile.id, screenId, stateId,
         source: { kind: source, device: String(device), osVersion: osVersion == null ? null : String(osVersion) },
         dimensions: actual,
+        scale,
         output: { path: relative, sha256: captured.sha256, bytes: captured.size, mediaType: 'image/png', sourceDisposition: 'local-copy' },
         outputSha256: captured.sha256,
         actor, agent,

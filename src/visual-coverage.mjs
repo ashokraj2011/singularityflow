@@ -29,6 +29,30 @@ export function profilePixelSize(profile) {
   return { width: Math.round(profile.width * profile.deviceScaleFactor), height: Math.round(profile.height * profile.deviceScaleFactor) };
 }
 
+export const NATIVE_CAPTURE_MAXIMUM_SCALE = 4;
+
+/**
+ * The pixel scale at which a native screenshot fits a profile, or null. A simulator or device
+ * captures at its own pixel density (an iPhone Simulator at 3x), so a capture fits at the profile's
+ * declared pixel size or at an exact whole-number multiple of its logical size, from its declared
+ * density up to 4x: the same screen, never another shape and never a lower density than it asks for. The scale is recorded and shown, never hidden.
+ */
+/** The scales a native capture may have for this profile, in words: "2x-4x". */
+export function nativeCaptureScaleRange(profile) {
+  const lowest = Math.max(1, Math.ceil(profile.deviceScaleFactor ?? 1));
+  return lowest === NATIVE_CAPTURE_MAXIMUM_SCALE ? `${lowest}x` : `${lowest}x-${NATIVE_CAPTURE_MAXIMUM_SCALE}x`;
+}
+
+export function nativeCaptureScale(profile, actual) {
+  const expected = profilePixelSize(profile);
+  if (actual?.width === expected.width && actual?.height === expected.height) return profile.deviceScaleFactor;
+  // Never below the density the profile declares: a profile that asks for 3x is not met at 1x.
+  for (let scale = Math.max(1, Math.ceil(profile.deviceScaleFactor ?? 1)); scale <= NATIVE_CAPTURE_MAXIMUM_SCALE; scale += 1) {
+    if (actual?.width === profile.width * scale && actual?.height === profile.height * scale) return scale;
+  }
+  return null;
+}
+
 /**
  * The not-applicable decisions (`decision visual-profile`) that hold for a step now, by profile:
  * each one nobody revoked. Pure.
@@ -54,7 +78,7 @@ export function visualProfileDecisionCommand(workflow, phaseId, profileId) {
 }
 
 /** The routes for each missing profile: capture it, or (while another profile stays required) decide it does not apply. */
-function missingProfileRoutes(workflow, result) {
+export function missingProfileRoutes(workflow, result) {
   const required = result.profiles.length - (result.notApplicable?.length ?? 0);
   return result.uncovered.slice(0, 3).flatMap((profileId) => [
     { command: nativeCaptureCommand(result.phase, profileId),
@@ -139,10 +163,11 @@ export async function evaluateVisualCoverage(root, workflow, { itemDirectory = n
       catch (error) { errors.push(`Native capture '${record.id}' cannot be read as a PNG: ${error.message}`); }
       if (actual && (actual.width !== record.dimensions?.width || actual.height !== record.dimensions?.height)) {
         errors.push(`Native capture '${record.id}' records ${record.dimensions?.width}×${record.dimensions?.height} but its PNG is ${actual.width}×${actual.height}.`);
-      } else if (actual && (actual.width !== expected.width || actual.height !== expected.height)) {
-        errors.push(`[VISUAL_CAPTURE_DIMENSIONS_MISMATCH] Native capture '${record.id}' is ${actual.width}×${actual.height}; profile '${profile.id}' expects ${expected.width}×${expected.height}.`);
+      } else if (actual && nativeCaptureScale(profile, actual) === null) {
+        errors.push(`[VISUAL_CAPTURE_DIMENSIONS_MISMATCH] Native capture '${record.id}' is ${actual.width}×${actual.height}; profile '${profile.id}' expects ${expected.width}×${expected.height} (${profile.width}×${profile.height} at ${nativeCaptureScaleRange(profile)}).`);
       } else if (actual) {
-        covered.push({ profileId: profile.id, recordId: record.id, outputSha256: record.outputSha256, dimensions: actual, method: 'native-capture', source: record.source });
+        covered.push({ profileId: profile.id, recordId: record.id, outputSha256: record.outputSha256, dimensions: actual,
+          scale: nativeCaptureScale(profile, actual), method: 'native-capture', source: record.source });
         continue;
       }
       uncovered.push(profile.id);
@@ -176,7 +201,7 @@ export async function assertVisualCoverage(root, workflow, options = {}) {
   if (result.mode === 'enforce' && result.errors.length) {
     const routes = result.uncovered?.length ? missingProfileRoutes(workflow, result) : [];
     throw new SingularityFlowError(`Visual verification coverage failed:\n- ${result.errors.join('\n- ')}${routes.length
-      ? '\nCapture each missing profile at its exact pixel size (visual record for a simulator, emulator or device screenshot), or a person who approves the step records that it does not apply to this Story (decision visual-profile).' : ''}`,
+      ? '\nCapture each missing profile at its pixel size, or a whole-number multiple of it from a simulator, emulator or device (visual record), or a person who approves the step records that it does not apply to this Story (decision visual-profile).' : ''}`,
     { code: 'VISUAL_COVERAGE_FAILED', details: { ...result, ...(routes.length ? { nextAction: routes[0], recoveryCommands: routes } : {}) } });
   }
   return result;

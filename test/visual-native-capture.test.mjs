@@ -74,9 +74,9 @@ test('a native capture at the profile\'s pixel size covers it, and is never labe
   assert.equal(coverage.status, 'pass', JSON.stringify(coverage.errors));
   assert.deepEqual(coverage.covered, [
     { profileId: PHONE.id, recordId: phone.record.id, outputSha256: phone.record.outputSha256, dimensions: { width: 390, height: 844 },
-      method: 'native-capture', source: { kind: 'simulator', device: 'iPhone 15', osVersion: '17.5' } },
+      scale: 1, method: 'native-capture', source: { kind: 'simulator', device: 'iPhone 15', osVersion: '17.5' } },
     { profileId: RETINA.id, recordId: retina.record.id, outputSha256: retina.record.outputSha256, dimensions: { width: 1170, height: 2532 },
-      method: 'native-capture', source: { kind: 'emulator', device: 'Pixel 8', osVersion: null } }
+      scale: 3, method: 'native-capture', source: { kind: 'emulator', device: 'Pixel 8', osVersion: null } }
   ]);
   // The MCP evidence reader never sees it: it is not an MCP record of any kind.
   assert.deepEqual((await verifyMcpEvidence(root, workflow, { itemDirectory })).records, []);
@@ -87,7 +87,7 @@ test('a capture whose pixel size differs from the profile is refused naming expe
   const refused = await record({ profileId: RETINA.id, file: await png('small.png', 390, 844) }).then(() => null, (error) => error);
   assert.equal(refused?.code, 'VISUAL_CAPTURE_DIMENSIONS_MISMATCH');
   assert.deepEqual(refused.details, { phase: 'visual-verification', profileId: RETINA.id, expected: { width: 1170, height: 2532 }, actual: { width: 390, height: 844 } });
-  assert.match(refused.message, /small\.png is 390×844 pixels; verification profile 'phone-390x844-3x' \(Phone 390 × 844 @3x\) expects 1170×2532 \(390×844 at device scale 3\)/u);
+  assert.match(refused.message, /small\.png is 390×844 pixels; verification profile 'phone-390x844-3x' \(Phone 390 × 844 @3x\) expects 1170×2532 \(390×844 at 3x-4x\)/u);
   assert.deepEqual(await readdir(path.join(itemDirectory, 'context')).catch(() => []), [], 'no record and no copied image');
 });
 
@@ -143,7 +143,7 @@ test('coverage refuses a native capture at another size with a coded error namin
   // The workflow's profile changes after the capture (a refreshed configuration): the capture no longer fits.
   workflow.resolution.verification.profiles = [{ ...PHONE, deviceScaleFactor: 2 }, RETINA];
   const coverage = await evaluateVisualCoverage(root, workflow, { itemDirectory });
-  assert.ok(coverage.errors.includes(`[VISUAL_CAPTURE_DIMENSIONS_MISMATCH] Native capture '${phone.record.id}' is 390×844; profile '${PHONE.id}' expects 780×1688.`), coverage.errors.join('\n'));
+  assert.ok(coverage.errors.includes(`[VISUAL_CAPTURE_DIMENSIONS_MISMATCH] Native capture '${phone.record.id}' is 390×844; profile '${PHONE.id}' expects 780×1688 (390×844 at 2x-4x).`), coverage.errors.join('\n'));
   assert.ok(coverage.uncovered.includes(PHONE.id));
   assert.ok(!coverage.covered.some((entry) => entry.profileId === PHONE.id));
 });

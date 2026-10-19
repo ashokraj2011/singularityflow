@@ -372,9 +372,9 @@ test('authoring and evidence skills name a concrete next route at each stop they
     assert.match(await read(name), /`correction\.guidance`\/`correction\.skill`/, name);
   }
   const code = await read('sflow-code');
-  assert.match(code, /no in-scope runner: `\/sf-test-setup`/);
+  assert.match(code, /no in-scope runner: offer `\/sf-test-setup` and keep coding/);
   assert.match(code, /No test ran: relay `testRunRisk\.command` to a step approver; never run it/);
-  assert.match(await read('sflow-scenario-check'), /name the missing tool\/environment, offer `\/sf-test-setup`; never code repair/);
+  assert.match(await read('sflow-scenario-check'), /a verdict to record and publish, not a stop \(then name the missing tool\/environment and offer `\/sf-test-setup`\); never code repair/);
   assert.match(await read('sflow-test-setup'), /detection stays pending: say so, offer a user-supplied command or\s+adding tests in the Story; never invent one/);
   assert.match(await read('sflow-fix'), /upstream-issue raise --phase <EARLIER-STEP> --about <ID> --problem "<TEXT>"/);
   assert.match(await read('sflow-document-intake'), /loop limits need a human `\/sf-decide` choice, not a false pass/);
@@ -491,11 +491,11 @@ test('recovery skill reviews a dirty consumed-generation rollover with an exact 
   assert.match(content, /match identity\/confirmation to recovery/);
   assert.match(content, /Human-confirm then run returned command once/);
   // Any step rolls over, so the route after it is that step's own skill, not always /sf-code.
-  assert.match(content, /Author only after rollover succeeds via the step's `nextsteps` skill/);
+  assert.match(content, /After rollover succeeds, relay the step's `nextsteps` authoring skill; never author here/);
   assert.doesNotMatch(content, /`\/sf-code` after rollover/i);
   // A stop names its owner route and comes back here.
   assert.match(content, /Divergence: `\/sf-refresh-branch`, then a human-reviewed merge/);
-  assert.match(content, /diagnose via `\/sf-doctor`\/`\/sf-admin` before rollover; never waive\. Then rerun `\/sf-recover`/);
+  assert.match(content, /diagnose via `\/sf-doctor`\/`\/sf-admin` before rollover; never waive\. Then the person reruns `\/sf-recover`/);
   assert.match(content, /Integrity cannot be waived/);
   assert.match(content, /automation only, not manual correction/);
   assert.match(content, /Owned repair saves copies/);
@@ -690,7 +690,7 @@ test('plugin exposes safe refresh, merge-stack, and regression investigation ski
 test('lifecycle, review and repair skills name the route each stop leaves the person on', async () => {
   const skill = async (name) => readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
   // IDE and build files left in an Android, Xcode or .NET checkout must not stall intake.
-  assert.match(await skill('sflow-start'), /`worktree-review-required`: list its `changes`; no Story\. The person commits, ignores, moves or lands them \(`\/sf-adhoc`\), then reruns `\/sf-start`/);
+  assert.match(await skill('sflow-start'), /`worktree-review-required`: preserve and list its `changes`; do not create a Story\. The person commits, ignores, moves or lands them \(`\/sf-adhoc`\), then reruns `\/sf-start`/);
   // Every outcome the CLI accepts, with the link it requires; a return opens its own change request.
   assert.match(await skill('sflow-decide'), /plan-correction \(`--link PRC-NNN`\), amend \(`--link FAM-NNN`, approved\), return \(opens its change request\), accept-risk \(`--expires YYYY-MM-DD`\) or dismiss/);
   // Escalation targets only a configured stronger workflow, then starts a new Story with it.
@@ -713,7 +713,7 @@ test('lifecycle, review and repair skills name the route each stop leaves the pe
   const finalize = await skill('sflow-finalize');
   assert.match(finalize, /with its `Recover:` commands/);
   assert.match(finalize, /Next: `\/sf-epic-review` when the packet names an `epicId`, otherwise `\/sf-pr`/);
-  assert.match(await skill('sflow-session'), /relay `remediationPlan` steps in order \(its condition first, then its refresh\/open\); never retry unchanged/);
+  assert.match(await skill('sflow-session'), /relay `remediationPlan` steps in order \(its condition first, then its refresh\/open\); never retry automatically/);
   // The CLI treats the person's typed preview digest as the authorization; the agent never supplies it.
   const version = await skill('sflow-story-skill-version');
   assert.match(version, /Only the person typing the \*\*full digest returned by the current preview\*\* authorizes it/);
@@ -723,9 +723,9 @@ test('lifecycle, review and repair skills name the route each stop leaves the pe
   assert.match(resume, /never read `workflow\.json`, `STATUS\.md` or earlier artifacts/);
   assert.match(resume, /`data\.contextBoundary`: relay its `commands` in order[\s\S]*stop before any authoring/);
   const cancel = await skill('sflow-cancel');
-  assert.match(cancel, /Pending publication: `singularity-flow sync <WORK-ID>`; stale or diverged branch: `\/sf-recover`; then rerun `\/sf-cancel`/);
+  assert.match(cancel, /Pending publication: `singularity-flow sync <WORK-ID>`; stale or diverged branch: `\/sf-recover`; the person reruns `\/sf-cancel` after it/);
   assert.match(cancel, /or in `\/sf-stories` for Copilot CLI users/);
-  assert.match(await skill('sflow-review'), /Substantive findings need a human fix decision; offer the approver's post-submission `\/sf-reject --to <OWNING-STEP>`, or `singularity-flow upstream-issue raise --phase <OWNING-STEP>/);
+  assert.match(await skill('sflow-review'), /Substantive findings need a separate human fix decision: publish them in the review, then offer the approver's post-submission `\/sf-reject --to <OWNING-STEP>`, or `singularity-flow upstream-issue raise --phase <OWNING-STEP>/);
   assert.match(await skill('sflow-review-source'), /Unavailable\/truncated sources: name their IDs and stop; route to `\/sf-documents`/);
   assert.match(await skill('sflow-auto'), /halt after a second failure; then offer step 3's `needs-you` read or step 8's `takeover` for manual repair/);
   assert.match(await skill('sflow-fault'), /Pass `--story` only for a known Story; a fault needs none/);

@@ -93,7 +93,7 @@ skills:
   sflow-agents: { class: echo, executionBoundary: repository }
   sflow-admin: { class: conversational, executionBoundary: machine }
   sflow-approvals: { class: echo, executionBoundary: repository }
-  sflow-approve: { class: review }
+  sflow-approve: { class: review, maximumTokenOverride: 804, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit." }
   sflow-assign: { class: mutation }
   sflow-auto: { class: interactive, kernelModelPolicy: conditional, executionBoundary: repository }
   sflow-cancel: { class: mutation }
@@ -103,26 +103,26 @@ skills:
   sflow-capability-protect: { class: interactive, executionBoundary: repository }
   sflow-capability-doctor: { class: echo, executionBoundary: organisation }
   sflow-capability-map: { class: interactive, executionBoundary: organisation }
-  sflow-code: { class: generative, maximumTokenOverride: 1266, exception: 'Code-phase recovery and publication-time test diagnosis must preserve safe current-phase repair without bypassing evidence, generated public code must carry doc comments, the code author must produce its planned evidence files, and a question that arises while coding must reach the person or the earlier step that owns it without stopping the code. Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open.' }
-  sflow-document-intake: { class: generative, maximumTokenOverride: 801, exception: "It ends with `phase prepublish --publish-if-ready`, which publishes and returns the review in the same command instead of three Copilot round trips, so it names when not to run `commands.publish` itself." }
-  sflow-scenario-check: { class: generative, maximumTokenOverride: 812, exception: "It ends with `phase prepublish --publish-if-ready`, which publishes and returns the review in the same command instead of three Copilot round trips, so it names when not to run `commands.publish` itself." }
+  sflow-code: { class: generative, maximumTokenOverride: 1288, exception: 'Code-phase recovery and publication-time test diagnosis must preserve safe current-phase repair without bypassing evidence, generated public code must carry doc comments, the code author must produce its planned evidence files, and a question that arises while coding must reach the person or the earlier step that owns it without stopping the code. Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open. It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit.' }
+  sflow-document-intake: { class: generative, maximumTokenOverride: 804, exception: "It ends with `phase prepublish --publish-if-ready`, which publishes and returns the review in the same command instead of three Copilot round trips, so it names when not to run `commands.publish` itself. It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit." }
+  sflow-scenario-check: { class: generative, maximumTokenOverride: 854, exception: "It ends with `phase prepublish --publish-if-ready`, which publishes and returns the review in the same command instead of three Copilot round trips, so it names when not to run `commands.publish` itself. It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit." }
   sflow-scenario-repair: { class: delegation, executionBoundary: machine, delegatesTo: sflow-code }
   sflow-code-docs: { class: repair }
   sflow-confirm: { class: mutation, executionBoundary: repository }
   sflow-continue: { class: mutation }
   sflow-configuration: { class: mutation, executionBoundary: repository }
   sflow-constitution: { class: mutation, executionBoundary: repository }
-  sflow-design: { class: generative, maximumTokenOverride: 905, exception: "A step may choose this skill, so it re-reads the step's verified route and follows that step's clarification mode, inputs, artifact contract and engine-computed handoff instead of assuming its original step. It continues only on its own verified route, so a built-in step changed into code or sign-off only is relayed, with the reason when the route is withheld." }
+  sflow-design: { class: generative, maximumTokenOverride: 916, exception: "A step may choose this skill, so it re-reads the step's verified route and follows that step's clarification mode, inputs, artifact contract and engine-computed handoff instead of assuming its original step. It continues only on its own verified route, so a built-in step changed into code or sign-off only is relayed, with the reason when the route is withheld. It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit." }
   sflow-docs: { class: echo, executionBoundary: machine }
   sflow-evidence: { class: echo, executionBoundary: repository }
   sflow-explain: { class: conversational }
   sflow-explain-code: { class: conversational, executionBoundary: repository, kernelModelPolicy: conditional }
   sflow-import: { class: mutation, executionBoundary: repository }
-  sflow-specify: { class: generative }
+  sflow-specify: { class: generative, maximumTokenOverride: 831, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit." }
   sflow-plan: { class: generative, maximumTokenOverride: 815, exception: "It ends with `phase prepublish --publish-if-ready`, which publishes and returns the review in the same command instead of three Copilot round trips, so it names when not to run `commands.publish` itself. Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open." }
   sflow-review-source: { class: review }
   sflow-review-decide: { class: mutation }
-  sflow-converge: { class: generative, maximumTokenOverride: 822, exception: "It ends with `phase prepublish --publish-if-ready`, which publishes and returns the review in the same command instead of three Copilot round trips, so it names when not to run `commands.publish` itself. Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open." }
+  sflow-converge: { class: generative, maximumTokenOverride: 823, exception: "It ends with `phase prepublish --publish-if-ready`, which publishes and returns the review in the same command instead of three Copilot round trips, so it names when not to run `commands.publish` itself. Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open. It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit." }
   sflow-doctor: { class: echo, executionBoundary: machine }
   sflow-check: { class: echo, executionBoundary: repository }
   sflow-documents: { class: mutation, executionBoundary: repository }
@@ -152,12 +152,12 @@ skills:
   sflow-local-reset: { class: mutation, executionBoundary: machine }
   sflow-local: { class: interactive, executionBoundary: machine }
   sflow-product: { class: mutation, executionBoundary: machine }
-  sflow-reinstall: { class: mutation, executionBoundary: machine }
+  sflow-reinstall: { class: mutation, executionBoundary: machine, maximumTokenOverride: 808, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit." }
   sflow-revision: { class: echo, executionBoundary: machine }
   sflow-revision-attachments: { class: mutation }
   sflow-revision-checks: { class: interactive, executionBoundary: machine }
   sflow-revise: { class: mutation }
-  sflow-ready: { class: interactive, executionBoundary: repository }
+  sflow-ready: { class: interactive, executionBoundary: repository, maximumTokenOverride: 815, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit." }
   sflow-test-setup: { class: interactive, executionBoundary: repository }
   sflow-finalize: { class: mutation }
   sflow-fix: { class: interactive }
@@ -167,7 +167,7 @@ skills:
   sflow-journal: { class: interactive, executionBoundary: machine }
   sflow-harness: { class: echo, executionBoundary: repository }
   sflow-help: { class: conversational, executionBoundary: machine }
-  sflow-home: { class: guided, executionBoundary: machine }
+  sflow-home: { class: guided, executionBoundary: machine, maximumTokenOverride: 805, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit." }
   sflow-import-team: { class: guided, executionBoundary: machine }
   sflow-build-workflow: { class: guided, executionBoundary: repository }
   sflow-fix-workflow: { class: guided, executionBoundary: repository }
@@ -199,7 +199,7 @@ skills:
   sflow-learn: { class: interactive, executionBoundary: repository }
   sflow-ledger: { class: mutation, executionBoundary: repository }
   sflow-logs: { class: echo, executionBoundary: repository }
-  sflow-mcp: { class: mutation, executionBoundary: repository }
+  sflow-mcp: { class: mutation, executionBoundary: repository, maximumTokenOverride: 822, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit." }
   sflow-next: { class: mutation, kernelModelPolicy: conditional }
   sflow-nextsteps: { class: conversational, executionBoundary: repository }
   sflow-phase: { class: generative, maximumTokenOverride: 840, exception: "It drafts every step on the automatic route, so it relays any step routed to another skill with its terminal equivalent and shows why an unverified route was withheld; a chosen skill is never bypassed." }
@@ -218,12 +218,12 @@ skills:
   sflow-refresh-branch: { class: mutation }
   sflow-refresh-configuration: { class: mutation, executionBoundary: machine }
   sflow-regression-investigate: { class: conversational, executionBoundary: repository }
-  sflow-recover: { class: mutation, maximumTokenOverride: 801, exception: "Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open." }
+  sflow-recover: { class: mutation, maximumTokenOverride: 809, exception: "Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open. It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit." }
   sflow-appeal: { class: review, maximumTokenOverride: 802, exception: "Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open." }
   sflow-reject: { class: review, maximumTokenOverride: 803, exception: "Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open." }
-  sflow-release: { class: generative, maximumTokenOverride: 875, exception: "A step may choose this skill, so it re-reads the step's verified route and follows that step's clarification mode, inputs, artifact contract and engine-computed handoff instead of assuming its original step. It continues only on its own verified route, so a built-in step changed into code or sign-off only is relayed, with the reason when the route is withheld." }
+  sflow-release: { class: generative, maximumTokenOverride: 894, exception: "A step may choose this skill, so it re-reads the step's verified route and follows that step's clarification mode, inputs, artifact contract and engine-computed handoff instead of assuming its original step. It continues only on its own verified route, so a built-in step changed into code or sign-off only is relayed, with the reason when the route is withheld. It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit." }
   sflow-report: { class: echo, executionBoundary: repository }
-  sflow-requirements: { class: generative, maximumTokenOverride: 924, exception: "A step may choose this skill, so it re-reads the step's verified route and follows that step's clarification mode, inputs, artifact contract and engine-computed handoff instead of assuming its original step. It continues only on its own verified route, so a built-in step changed into code or sign-off only is relayed, with the reason when the route is withheld. It ends with `phase prepublish --publish-if-ready`, which publishes and returns the review in the same command instead of three Copilot round trips, so it names when not to run `commands.publish` itself." }
+  sflow-requirements: { class: generative, maximumTokenOverride: 950, exception: "A step may choose this skill, so it re-reads the step's verified route and follows that step's clarification mode, inputs, artifact contract and engine-computed handoff instead of assuming its original step. It continues only on its own verified route, so a built-in step changed into code or sign-off only is relayed, with the reason when the route is withheld. It ends with `phase prepublish --publish-if-ready`, which publishes and returns the review in the same command instead of three Copilot round trips, so it names when not to run `commands.publish` itself. It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit." }
   sflow-reset-all: { class: mutation, executionBoundary: repository }
   sflow-resume: { class: interactive, executionBoundary: repository }
   sflow-return: { class: interactive, executionBoundary: repository }
@@ -232,7 +232,7 @@ skills:
   sflow-secrets: { class: mutation, executionBoundary: repository }
   sflow-sgos: { class: interactive, executionBoundary: repository }
   sflow-sgos-create: { class: interactive, executionBoundary: repository }
-  sflow-session: { class: interactive, executionBoundary: repository }
+  sflow-session: { class: interactive, executionBoundary: repository, maximumTokenOverride: 802, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit." }
   sflow-show: { class: echo }
   sflow-show-prompt: { class: echo }
   sflow-skill: { class: conversational, executionBoundary: machine }
@@ -240,7 +240,7 @@ skills:
   sflow-snapshot: { class: echo, executionBoundary: repository }
   sflow-spec: { class: mutation, kernelModelPolicy: conditional }
   sflow-stack: { class: mutation, executionBoundary: repository }
-  sflow-start: { class: interactive, executionBoundary: repository }
+  sflow-start: { class: interactive, executionBoundary: repository, maximumTokenOverride: 810, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit." }
   sflow-status: { class: conversational, executionBoundary: repository }
   sflow-stories: { class: interactive, executionBoundary: machine }
   sflow-story-branch: { class: interactive, executionBoundary: repository }
@@ -248,7 +248,7 @@ skills:
   sflow-story-fetch: { class: interactive, executionBoundary: repository }
   sflow-story-inbox: { class: echo, executionBoundary: repository }
   sflow-work-interval: { class: mutation }
-  sflow-story-start: { class: interactive, kernelModelPolicy: never, executionBoundary: repository }
+  sflow-story-start: { class: interactive, kernelModelPolicy: never, executionBoundary: repository, maximumTokenOverride: 814, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit." }
   sflow-story-skill-version: { class: mutation }
   sflow-submit: { class: review, maximumTokenOverride: 828, exception: "Readiness with `--submit-if-ready` submits and returns the review in the same command instead of three Copilot round trips, so the skill names when not to run the submit command itself. A Convergence digest confirmed in its arguments advances without another preview loop. Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open." }
   sflow-telemetry: { class: echo, executionBoundary: repository }
@@ -258,7 +258,7 @@ skills:
   sflow-visual: { class: mutation }
   sflow-watch: { class: echo, executionBoundary: repository }
   sflow-workflow-rules: { class: conversational, kernelModelPolicy: conditional, executionBoundary: repository }
-  sflow-workflows: { class: mutation, executionBoundary: repository }
+  sflow-workflows: { class: mutation, executionBoundary: repository, maximumTokenOverride: 801, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit." }
   sflow-workspace: { class: interactive, kernelModelPolicy: conditional, executionBoundary: machine }
   sflow-workspace-bootstrap: { class: interactive, executionBoundary: machine }
   sflow-workspace-impact: { class: advisory, kernelModelPolicy: conditional, executionBoundary: repository }

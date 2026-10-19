@@ -17,8 +17,15 @@ export const COMMAND_PRESENTATION_CONTRACT = 'For every next action, honor retur
  * contracts: fixed overhead added to the budget, not per-skill prose, and only on Story authoring
  * and mutation skills (approval and review turns never run automatic actions).
  */
-export const REFUSAL_HANDLING_CONTRACT = 'A result whose `act.state` is `author`, or a returned route to the skill you are running, is this turn\'s own work: do it now; never relay it or end the turn on it. A file edit that does not match is not a refusal: read the file again and redo the edit. On a refusal or a blocker this step cannot clear, relay the returned route before ending: `remediationPlan` (run its first read-only step once and follow `context.strategy`), else `commandGuidance`, `nextAction`, `continuation.actions`, `recovery.actions` or `correction.skill`, in that order; with none, offer `/sf-nextsteps`. Never retry an unchanged condition or edit an earlier phase to clear it. One returned `automatic` plan-hash action (such as `sync`) may run once, then re-enter once.';
-export const REFUSAL_ROUTE_CONTRACT = 'On a refusal or any stop, relay the returned route before ending: `remediationPlan` steps, else `commandGuidance`, `nextAction`, `continuation.actions` or `recovery.actions`, in that order; with none, offer `/sf-nextsteps`. Never retry an unchanged condition; run a returned action only when the person asks.';
+export const REFUSAL_HANDLING_CONTRACT = 'On a refusal read `remediationPlan`: run its first read-only step once and follow `context.strategy`; never retry an unchanged condition or edit an earlier phase to clear it. One returned `automatic` plan-hash action (such as `sync`) may run once, then re-enter once.';
+
+/**
+ * A skill that writes its own document does that work in the turn. A live /sf-phase run ended three turns
+ * relaying its own /sf-phase route, and stopped again when a file edit did not match. Only on generative
+ * skills: a skill whose returned route waits on a person (a capture, registration, decision or
+ * confirmation) must never run it for them, so the clause names what a person must still supply.
+ */
+export const AUTHORING_TURN_CONTRACT = 'When a result\'s `act.state` is `author`, or it routes back to this skill with nothing for a person to answer, edit, review or confirm, that is this turn\'s own work: do it, never relay it. A file edit that does not match is not a refusal: read the file again and redo the edit.';
 
 /**
  * Every Story skill acts on what the engine returned, never on its own reading of a step's name,
@@ -65,19 +72,14 @@ export function refusalHandlingApplies(rule) {
   return ['generative', 'mutation'].includes(rule?.class) && (rule?.executionBoundary ?? 'story') === 'story';
 }
 
-/**
- * Every other skill that runs commands relays the route a refusal or stop returns, whatever its
- * boundary: a repository, Epic or review skill that ends on a bare refusal leaves the work with no
- * next step. It runs no returned action itself, so approval and review turns stay human. Delegation
- * skills hand off before running anything; conversational ones only explain.
- */
-export function refusalRouteApplies(rule) {
-  return !refusalHandlingApplies(rule) && !['delegation', 'conversational'].includes(rule?.class);
+export function authoringTurnApplies(rule) {
+  return rule?.class === 'generative';
 }
 
-/** The refusal contract a skill carries, or null. */
+/** The refusal and authoring-turn contracts a skill carries, as one engine-owned text, or null. */
 export function refusalContractFor(rule) {
-  return refusalHandlingApplies(rule) ? REFUSAL_HANDLING_CONTRACT : refusalRouteApplies(rule) ? REFUSAL_ROUTE_CONTRACT : null;
+  const parts = [refusalHandlingApplies(rule) ? REFUSAL_HANDLING_CONTRACT : null, authoringTurnApplies(rule) ? AUTHORING_TURN_CONTRACT : null].filter(Boolean);
+  return parts.length ? parts.join(' ') : null;
 }
 
 export const ARTIFACT_PRESENTATION_CONTRACT = 'Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval.';
@@ -651,7 +653,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     const commandPresentationTokens = estimatedTokens(` ${COMMAND_PRESENTATION_CONTRACT}`);
     const artifactPresentationTokens = estimatedTokens(` ${ARTIFACT_PRESENTATION_CONTRACT}`);
     const refusalHandling = refusalHandlingApplies(rule);
-    const refusalRoute = refusalRouteApplies(rule);
+    const authoringTurn = authoringTurnApplies(rule);
     const refusalText = refusalContractFor(rule);
     const refusalHandlingTokens = refusalText ? estimatedTokens(` ${refusalText}`) : 0;
     const applicability = applicabilityContractApplies(rule);
@@ -697,8 +699,8 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     if (refusalHandling !== skill.body.includes(REFUSAL_HANDLING_CONTRACT)) {
       errors.push(`${name}: ${refusalHandling ? 'missing' : 'unexpected'} engine refusal-handling contract`);
     }
-    if (refusalRoute !== skill.body.includes(REFUSAL_ROUTE_CONTRACT)) {
-      errors.push(`${name}: ${refusalRoute ? 'missing' : 'unexpected'} engine refusal-route contract`);
+    if (authoringTurn !== skill.body.includes(AUTHORING_TURN_CONTRACT)) {
+      errors.push(`${name}: ${authoringTurn ? 'missing' : 'unexpected'} engine authoring-turn contract`);
     }
     if (applicability !== skill.body.includes(APPLICABILITY_CONTRACT)) {
       errors.push(`${name}: ${applicability ? 'missing' : 'unexpected'} engine applicability contract`);

@@ -11,7 +11,7 @@ import {
 import { phaseRepairLoopSummary } from '../src/phase-repair-journal.mjs';
 import { phaseUpstreamDiscrepancies, upstreamDiscrepanciesFromMarkdown } from '../src/phase-upstream-discrepancies.mjs';
 import {
-  REFUSAL_HANDLING_CONTRACT, REFUSAL_ROUTE_CONTRACT, refusalHandlingApplies, refusalRouteApplies
+  AUTHORING_TURN_CONTRACT, REFUSAL_HANDLING_CONTRACT, authoringTurnApplies, refusalHandlingApplies
 } from '../scripts/skill-policy.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -81,34 +81,31 @@ test('every Story authoring and mutation skill carries the engine refusal contra
   for (const name of ['sflow-approve', 'sflow-submit', 'sflow-reject']) {
     assert.equal(refusalHandlingApplies(registry.skills[name]), false, name);
   }
-  assert.match(REFUSAL_HANDLING_CONTRACT, /Never retry an unchanged condition or edit an earlier phase/u);
-  // An authoring turn does its own step: an `act.state` of author, or a route back to the running skill,
-  // is work to do now, and a file edit that does not match is redone, never a reason to stop and relay.
-  assert.match(REFUSAL_HANDLING_CONTRACT, /`act\.state` is `author`, or a returned route to the skill you are running, is this turn's own work: do it now; never relay it/u);
-  assert.match(REFUSAL_HANDLING_CONTRACT, /A file edit that does not match is not a refusal: read the file again and redo the edit/u);
-  assert.doesNotMatch(REFUSAL_HANDLING_CONTRACT, /or any stop/u, 'only a refusal or a blocker ends an authoring turn with a relayed route');
+  // The refusal contract says only how to read a refusal; it gives no turn a reason to stop and relay.
+  // Widening it ("On a refusal or any stop, relay the returned route ...") made a live /sf-phase run
+  // relay its own route three turns running instead of writing the document.
+  assert.equal(REFUSAL_HANDLING_CONTRACT, 'On a refusal read `remediationPlan`: run its first read-only step once and follow `context.strategy`; never retry an unchanged condition or edit an earlier phase to clear it. One returned `automatic` plan-hash action (such as `sync`) may run once, then re-enter once.');
 });
 
-test('every other skill that runs commands relays the route a refusal or stop returns, and runs none itself', async () => {
+test('only skills that write their own document are told a route back to them is their own work', async () => {
   const registry = YAML.parse(await readFile(path.join(root, 'plugin/skills/registry.yml'), 'utf8'));
   for (const [name, rule] of Object.entries(registry.skills)) {
     const body = await readFile(path.join(root, 'plugin/skills', name, 'SKILL.md'), 'utf8').catch(() => null);
     if (body == null) continue;
-    assert.equal(body.includes(REFUSAL_ROUTE_CONTRACT), refusalRouteApplies(rule), name);
-    // A skill that runs commands always says where a refusal goes next, whatever its boundary.
-    if (!['delegation', 'conversational'].includes(rule.class)) {
-      assert.ok(body.includes(REFUSAL_HANDLING_CONTRACT) || body.includes(REFUSAL_ROUTE_CONTRACT), name);
-    }
+    assert.equal(body.includes(AUTHORING_TURN_CONTRACT), authoringTurnApplies(rule), name);
+    assert.equal(authoringTurnApplies(rule), rule.class === 'generative', name);
+    // No skill is told to end its turn on any stop, or to relay a route it should run.
+    assert.doesNotMatch(body, /On a refusal or any stop/u, name);
   }
-  // Approval, review and the Epic, workflow and setup lanes relay routes without running them.
-  for (const name of ['sflow-approve', 'sflow-submit', 'sflow-reject', 'sflow-decide', 'sflow-epic-start', 'sflow-configuration', 'sflow-doctor']) {
-    assert.ok(refusalRouteApplies(registry.skills[name]), name);
+  for (const name of ['sflow-phase', 'sflow-code', 'sflow-specify', 'sflow-epic-requirements', 'sflow-initiative-phase']) {
+    assert.ok(authoringTurnApplies(registry.skills[name]), name);
   }
-  for (const contract of [REFUSAL_HANDLING_CONTRACT, REFUSAL_ROUTE_CONTRACT]) {
-    for (const field of ['remediationPlan', 'commandGuidance', 'nextAction', 'continuation.actions', 'recovery.actions', '/sf-nextsteps']) {
-      assert.ok(contract.includes(field), `${field} in ${contract}`);
-    }
+  // A skill whose returned route waits on a person never gets it: running that route would capture,
+  // register, decide or confirm for them.
+  for (const name of ['sflow-revise', 'sflow-revision-attachments', 'sflow-story-skill-version', 'sflow-review-decide',
+    'sflow-next', 'sflow-recover', 'sflow-approve', 'sflow-confirm']) {
+    assert.equal(authoringTurnApplies(registry.skills[name]), false, name);
   }
-  assert.match(REFUSAL_ROUTE_CONTRACT, /run a returned action only when the person asks/u);
-  assert.doesNotMatch(REFUSAL_ROUTE_CONTRACT, /automatic/u, 'an approval or review turn never runs an automatic action');
+  assert.match(AUTHORING_TURN_CONTRACT, /routes back to this skill with nothing for a person to answer, edit, review or confirm, that is this turn's own work: do it, never relay it/u);
+  assert.match(AUTHORING_TURN_CONTRACT, /A file edit that does not match is not a refusal: read the file again and redo the edit/u);
 });

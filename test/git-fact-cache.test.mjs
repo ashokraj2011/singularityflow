@@ -59,6 +59,10 @@ test('a metadata batch shares filesystem probes, stays fresh when required and n
     const individualProbes = probes; probes = 0;
     assert.ok([...gitFactBatch(requests).values()].every(value => value.cached));
     assert.ok(probes < individualProbes, `${probes} batched probes vs ${individualProbes} individual probes`);
+    probes = 0; assert.ok(cachedGitFact(requests[0]));
+    const singleProbes = probes; probes = 0;
+    assert.ok(gitFactBatch([requests[0]]).get(requests[0]).cached);
+    assert.equal(probes, singleProbes, 'a singleton must not add a second object-store scan');
     assert.ok([...withFreshGitFacts(() => gitFactBatch(requests)).values()].every(value => !value.cached && value.before));
   } finally { fs.lstatSync = original; syncBuiltinESMExports(); }
   await writeFile(path.join(root, '.git', 'shallow'), `${head}\n`);
@@ -82,7 +86,7 @@ test('a dependency changed during a metadata batch discards every potentially st
   };
   syncBuiltinESMExports();
   try {
-    const answer = gitFactBatch([request, request]);
+    const answer = gitFactBatch([request, request, request]);
     assert.equal(changed, true);
     assert.equal(answer.get(request).cached, null);
   } finally { fs.lstatSync = original; syncBuiltinESMExports(); }

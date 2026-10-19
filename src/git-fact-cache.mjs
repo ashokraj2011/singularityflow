@@ -545,6 +545,12 @@ function gitFactSnapshotUsing(request, inspect) {
  * Fresh readers still bypass every cached answer. This coalesces filesystem work, not authority.
  */
 export function gitFactBatch(requests) {
+  // A before/after group cannot save probes for one or two requests. In particular, the Story
+  // creation proof is a singleton on every review read; do not double its object-store scan.
+  if (requests.length < 3) return new Map(requests.map(request => {
+    const cached = cachedGitFact(request);
+    return [request, { cached, before: cached ? null : gitFactSnapshot(request) }];
+  }));
   const observed = new Map();
   const inspect = (file, mode) => {
     const key = JSON.stringify([file, mode]);

@@ -71,7 +71,9 @@ twenty files, rather than trading a smaller import graph for hundreds of Windows
 Immutable provenance cache lookups coalesce dependency metadata within one synchronous group,
 verify the metadata again before returning, then discard that observation. A change during the
 group takes the ordinary individual path. Fresh retention bypasses cached answers exactly as
-before. Exact commit/parent/path provenance reads can use one bounded, object-hash-verified Git
+before. Singletons and pairs keep the ordinary checked path: grouping cannot save probes for
+them and must not add another object-store inventory scan. Exact commit/parent/path provenance
+reads can use one bounded, object-hash-verified Git
 batch; missing, oversized, incomplete or corrupt output retains the sized fallback and refusal.
 Attachment prefetch remains size-first and limited to 32 MiB. Movable refs do not use this path.
 

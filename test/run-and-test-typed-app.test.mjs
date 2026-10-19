@@ -201,6 +201,56 @@ test('app start --debug starts a typed node entry with the inspector after node,
   await started.exited;
 });
 
+test('app config preview checks a whole block from a file and resolves it per environment, writing nothing', async (t) => {
+  // The map's own block is broken; preview still checks the file, and app plan names the error at its field.
+  const root = await fixture(t, [{ id: 'api', type: 'jar', url: 'http://127.0.0.1:8080/', ready: { http: '/' } }], { files: JAVA_FILES });
+  const broken = cli(root, ['app', 'plan', '--json']);
+  assert.notEqual(broken.status, 0);
+  assert.equal(JSON.parse(broken.stdout).error.message, 'Capability \'web\'.application start[0].jar is required for type jar.');
+  const directory = await mkdtemp(path.join(tmpdir(), 'sflow-typed-preview-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const file = path.join(directory, 'application.yml');
+  await writeFile(file, YAML.stringify({ application: { start: [
+    { id: 'api', name: 'Api', type: 'spring-boot', mainClass: 'com.example.api.ApiApplication', activeProfiles: ['dev'], workingDirectory: 'services/api',
+      environments: ['dev', 'qa'], perEnvironment: { qa: { activeProfiles: ['qa'] } }, url: 'http://127.0.0.1:8080/', ready: { http: '/actuator/health' } },
+    { id: 'web', type: 'npm', script: 'dev', env: { DB_PASSWORD: 'hunter2' }, url: 'http://127.0.0.1:5173/', ready: { http: '/' } },
+    { id: 'report', argv: ['node', 'report.mjs'], url: 'http://127.0.0.1:9000/', ready: { log: 'ready' } }
+  ] } }));
+  const before = git(root, 'status', '--porcelain');
+  const preview = json(root, ['app', 'config', 'preview', '--application-file', file, '--json']);
+  assert.equal(preview.resultType, 'sflow-app-config-preview');
+  assert.equal(preview.capability, 'web');
+  assert.equal(preview.valid, false);
+  assert.deepEqual(preview.errors, []);
+  const [api, web, report] = preview.entries;
+  assert.deepEqual([api.id, api.name, api.type, api.errors], ['api', 'Api', 'spring-boot', []]);
+  assert.deepEqual(api.environments.map((environment) => [environment.name, environment.resolved.argv]), [
+    ['dev', ['../../mvnw', 'spring-boot:run', '-Dspring-boot.run.main-class=com.example.api.ApiApplication', '-Dspring-boot.run.profiles=dev']],
+    ['qa', ['../../mvnw', 'spring-boot:run', '-Dspring-boot.run.main-class=com.example.api.ApiApplication', '-Dspring-boot.run.profiles=qa']]
+  ]);
+  assert.match(api.commandSha256, /^sha256:[a-f0-9]{64}$/u);
+  assert.deepEqual(web, { index: 1, id: 'web', name: 'web', type: 'npm', environments: [], errors: [{ field: 'env.DB_PASSWORD',
+    message: 'looks like it carries a secret; capabilities.yml never holds one. Declare it as a secret in singularity/environments.yml, bind it with env bind <ENV> --stdin, and read it from the environment.' }] });
+  assert.deepEqual(report.environments, [{ name: null, resolved: { argv: ['node', 'report.mjs'], envNames: [], beforeLaunch: [] } }]);
+  assert.equal(git(root, 'status', '--porcelain'), before, 'nothing was written');
+  // Shared-field and block errors are located too.
+  await writeFile(file, YAML.stringify({ start: [{ id: 'x', type: 'npm', script: 'dev', url: 'http://10.0.0.4/', ready: { http: '/' } },
+    { id: 'x', argv: ['a'], url: 'http://127.0.0.1:1/', ready: { http: '/' } }], tests: 'all', extra: true }));
+  const located = json(root, ['app', 'config', 'preview', '--application-file', file, '--json']);
+  assert.deepEqual(located.errors.map((error) => error.field), ['', 'tests']);
+  assert.deepEqual(located.entries[0].errors.map((error) => error.field), ['url']);
+  assert.match(located.entries[0].errors[0].message, /must be on the loopback host 127\.0\.0\.1, localhost or \[::1\], not '10\.0\.0\.4'/u);
+  assert.deepEqual(located.entries[1].errors, [{ field: 'id', message: '\'x\' is declared more than once (also start[0]).' }]);
+  const text = cli(root, ['app', 'config', 'preview', '--application-file', file]).stdout;
+  assert.match(text, /x · npm: 1 error\n {4}url: must be on the loopback host/u);
+  // An unreadable or oversized file is refused; preview needs a file.
+  await writeFile(path.join(directory, 'huge.yml'), `start: []\n# ${'x'.repeat(300 * 1024)}\n`);
+  assert.match(cli(root, ['app', 'config', 'preview', '--application-file', path.join(directory, 'huge.yml')]).stderr, /--application-file is larger than 256 KiB\./u);
+  assert.match(cli(root, ['app', 'config', 'preview', '--application-file', path.join(directory, 'missing.yml')]).stderr, /names .*missing\.yml, which does not exist\./u);
+  assert.match(cli(root, ['app', 'config', 'preview']).stderr, /app config preview needs --application-file <FILE>/u);
+  assert.match(cli(root, ['app', 'config', 'apply', '--application-file', file]).stderr, /app config takes one action: app config preview/u);
+});
+
 test('capability set --application-file refuses a typed entry at its field before writing, and app plan reads a valid one', async (t) => {
   const root = await fixture(t, [{ id: 'web', argv: ['node', 'server.mjs'], workingDirectory: 'server', url: 'http://127.0.0.1:3000/', ready: { http: '/' } }]);
   const directory = await mkdtemp(path.join(tmpdir(), 'sflow-typed-set-'));

@@ -1,16 +1,16 @@
 /**
- * `singularity-flow app plan|start|status|stop|suggest` [RUN M1, amendments M7 and M11]: the
- * capability's declared application, model-free and the same for the Shell, VS Code and Copilot.
- * Start entries may be typed run configurations (run-configurations.mjs).
+ * `singularity-flow app plan|start|status|stop|suggest|config preview` [RUN M1, amendments M7 and
+ * M11]: the capability's declared application, model-free and the same for the Shell, VS Code and
+ * Copilot. Start entries may be typed run configurations (run-configurations.mjs).
  */
 import path from 'node:path';
 
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
-const SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop', 'suggest']);
+const SUBCOMMANDS = Object.freeze(['plan', 'start', 'status', 'stop', 'suggest', 'config']);
 const OPTIONS = Object.freeze({
   plan: ['capability', 'json'], start: ['capability', 'environment', 'expect-command', 'debug'], status: ['capability', 'json'], stop: ['capability', 'json'],
-  suggest: ['capability', 'json']
+  suggest: ['capability', 'json'], config: ['application-file', 'capability', 'json']
 });
 
 function fail(message, code = 'APP_COMMAND_INVALID', details = null) {
@@ -53,6 +53,10 @@ export async function run(_argv, { positionals, options = {} }) {
       { command: 'app', subcommand, available: [...SUBCOMMANDS] });
   }
   rejectOptions(subcommand, options);
+  if (subcommand === 'config') {
+    const { repoRoot } = await import('../git.mjs');
+    return (await import('./app-config.mjs')).run(repoRoot(process.cwd()), options, positionals, { json: optionBoolean(options, 'json') });
+  }
   const startId = positionals[2] ?? null;
   if (positionals.length > 3 || (['status', 'suggest'].includes(subcommand) && startId)) {
     fail(['status', 'suggest'].includes(subcommand) ? `app ${subcommand} reads every entry; it takes no START-ID.` : `app ${subcommand} takes at most one START-ID.`);

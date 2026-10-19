@@ -10,7 +10,8 @@ import { nextPhaseGeneration } from '../phase-generation.mjs';
 import { printCommandRoutes } from './shared/print-command-routes.mjs';
 import { storyDraftTransaction } from './shared/story-draft-transaction.mjs';
 import { verifyOpenGenerationIntent, generationStartPublicationBinding } from '../generation-boundary.mjs';
-import { phaseReview } from './shared/phase-review.mjs';
+// Load the full document renderer only when a caller actually requests that projection.
+async function phaseReview(...args) { return (await import('./shared/phase-review.mjs')).phaseReview(...args); }
 import { printPhaseReview } from './shared/print-phase-review.mjs';
 import { loadSession } from '../session.mjs';
 import { phasePrepublish, prepublishTestExecutionLines } from '../phase-prepublish.mjs';

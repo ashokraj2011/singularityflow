@@ -21,6 +21,7 @@ import { withSubjectLock } from './subject-lock.mjs';
 import { SingularityFlowError, nowIso, stateFingerprint } from './util.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { measureCommandSpan } from './dx-timing-context.mjs';
+import { withPublicationContext } from './publication-context.mjs';
 import {
   capturePublicationPreimage, publicationReworkRefNamespace, restorePublicationPreimage
 } from './publication-recovery.mjs';
@@ -129,7 +130,7 @@ export class GitPublicationUnitOfWork {
         { code: 'PUBLICATION_REMOTE_AUTHORITY_MISSING' }
       );
     }
-  return withSubjectLock(root, subject, async (lockOwner) => {
+  return withSubjectLock(root, subject, async (lockOwner) => withPublicationContext(root, async () => {
     const { branch: transactionBranch, head: publicationHead } = headAndBranch(root);
     if (transactionBranch !== publication.branch) {
       throw new SingularityFlowError(`Current branch ${transactionBranch} must match ${subject.kind} branch ${publication.branch}.`);
@@ -230,13 +231,13 @@ export class GitPublicationUnitOfWork {
     // Persist the exact pre-transaction bytes before the journal authorizes the first state write.
     // An ordinary exception can use the same preimage immediately; a hard process death leaves it
     // in the journal for the next `sync` to restore after reclaiming the dead owner's lock.
-    const recoveryPreimage = suppliedRecoveryPreimage
+    const recoveryPreimage = await measureCommandSpan('publication.recovery-capture', async () => suppliedRecoveryPreimage
       ?? (state?.captureRecovery
         ? await state.captureRecovery()
         : await capturePublicationPreimage(root, allowedPaths, {
           refPrefixes: [publicationReworkRefNamespace(subject)]
-        }));
-    const journal = await beginPublicationJournal(root, {
+        })));
+    const journal = await measureCommandSpan('publication.journal-begin', () => beginPublicationJournal(root, {
       subject,
       expectedHead: publicationHead,
       branch: publication.branch,
@@ -251,7 +252,7 @@ export class GitPublicationUnitOfWork {
       pendingMetadata,
       ...(transactionId ? { transactionId } : {}),
       lockOwner
-    });
+    }));
     let wroteState = false;
     let ledgerIntentPath = null;
     let transactionTree = null;
@@ -841,7 +842,7 @@ export class GitPublicationUnitOfWork {
       candidate: candidateBinding,
       ...(revisionSelection ? { revisionSelection } : {})
     };
-  });
+  }));
   }
 }
 

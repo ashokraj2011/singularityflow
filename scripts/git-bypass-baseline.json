@@ -12,13 +12,26 @@
     "scripts/gal-matrix-cell.mjs"
   ],
   "sites": {
+    "src/story-policy-anchor.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "a907f63de1be4797ff2271868fa3c835a479660977b083c24f8a517ef76ce258"
+    },
     "scripts/source-review-paired-benchmark.mjs": {
-      "counts": { "process-import": 1, "process-launch": 1 },
-      "digest": "fd66c1af2d8b47ec39a74e2c72073538013401084c649680cc4c40cfb94703df"
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "8e97c4f35362a66528caab25acae10cf1f827ef1adea7ccd8b1bec1bac8f8d2e"
     },
     "scripts/source-review-benchmark.mjs": {
-      "counts": { "command-git": 5, "process-import": 1, "process-launch": 2 },
-      "digest": "0a86f4282e444ec2f42c7466fb793f3a2dfdfef3711f1a260766ae98e0f8dee0"
+      "counts": {
+        "command-git": 6,
+        "process-import": 1,
+        "process-launch": 2
+      },
+      "digest": "07002df15427b06f76f0ac399ddce5b8cdbe076c63bcb2122807dfdb043228e3"
     },
     "src/source-review-snapshot.mjs": {
       "counts": { "command-git-literal": 1, "command-run": 4 },
@@ -1342,7 +1355,7 @@
         "process-import": 1,
         "process-launch": 1
       },
-      "digest": "d2bf15bdfbe5152a2c2841999f135cd601147f39ade590eeafddaf2c9fb599ba"
+      "digest": "213c8fab5c0c937bf61a421a2abf0f25d530b5951598747bde4b92967d87d034"
     },
     "src/sgos/capability-pack-authority.mjs": {
       "counts": {
@@ -1415,9 +1428,9 @@
     },
     "src/state.mjs": {
       "counts": {
-        "command-run": 27
+        "command-run": 25
       },
-      "digest": "3071d813bbfb6a1facfec2106f7fd20fb9a8a85bf63ec0c7f34ce6847288b6e9"
+      "digest": "fc51d0e3695fb67f967d6b39ebf72c1d541d8d50114b8fa356213c6456b80f75"
     },
     "src/story-intake-verification.mjs": {
       "counts": {

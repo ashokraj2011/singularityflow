@@ -22,7 +22,8 @@ import { applicationPathContext, ensureWorkIntervalBaseline, isApplicationChange
 import { verifyWorkflowSnapshot } from './workflow-snapshots.mjs';
 import { nowIso, secureRepositoryPath, SingularityFlowError, writeText } from './util.mjs';
 
-const PROSPECTIVE = new WeakMap();
+import { prospectiveTestCommandAmendments as PROSPECTIVE, prospectiveTestCommandAmendment } from './test-command-amendment-contracts.mjs';
+export { prospectiveTestCommandAmendment };
 const digest = value => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
 const bytesDigest = value => `sha256:${createHash('sha256').update(value).digest('hex')}`;
 const fail = (message, code = 'TCA_AMENDMENT_UNSUPPORTED') => { throw new SingularityFlowError(message, { code }); };
@@ -35,7 +36,6 @@ const recordPath = (config, workflow, id, suffix) => `${workRelative(config, wor
 const policyDigest = resolution => { const value = structuredClone(resolution); delete value.policySha256; return digest(value); };
 
 /** Only the locked application owner may supply a prospective policy to ordinary validation. */
-export function prospectiveTestCommandAmendment(workflow) { return PROSPECTIVE.get(workflow) ?? null; }
 
 function reviewPolicy(policy) {
   if (policy?.mode !== 'required' || policy.minimum !== 1

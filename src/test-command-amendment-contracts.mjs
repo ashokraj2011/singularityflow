@@ -7,6 +7,10 @@ import { isTestQualityCommand } from './delivery-evidence.mjs';
 import { normalizeRequiredTestCommand } from './code-delivery-tests.mjs';
 import { pinnedObligationGraph } from './evidence/obligation-compiler.mjs';
 
+/** One prospective aggregate token shared by amendment validation and its locked writer. */
+export const prospectiveTestCommandAmendments = new WeakMap();
+export function prospectiveTestCommandAmendment(workflow) { return prospectiveTestCommandAmendments.get(workflow) ?? null; }
+
 export const TEST_COMMAND_AMENDMENT_DIALECT = 'test-command-adoption/v1';
 export const PUBLISHED_TEST_COMMAND_AMENDMENT_DIALECT = 'test-command-adoption/v2';
 export const TEST_COMMAND_AMENDMENT_DIALECTS = Object.freeze([

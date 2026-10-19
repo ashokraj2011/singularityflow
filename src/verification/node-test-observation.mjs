@@ -36,10 +36,10 @@ export function nodeTestObservation(text, counts) {
   if (!records.length) return null;
   const occurrences = records.flatMap((line) => {
     const record = JSON.parse(line.slice('# sflow-node-observation-v1 '.length));
-    if (record.complete !== true || !Array.isArray(record.occurrences)) throw new Error('Node test identities are incomplete.');
+    if (record.complete !== true || !Array.isArray(record.occurrences)) throw new SyntaxError('Node test identities are incomplete.');
     return record.occurrences;
   });
-  if (occurrences.length > 100_000) throw new Error('Node test occurrence limit exceeded.');
+  if (occurrences.length > 100_000) throw new SyntaxError('Node test occurrence limit exceeded.');
   const observed = { passed: 0, failed: 0, skipped: 0 };
   for (const occurrence of occurrences) {
     if (!occurrence || typeof occurrence.file !== 'string' || !occurrence.file
@@ -48,11 +48,11 @@ export function nodeTestObservation(text, counts) {
         || !Number.isInteger(occurrence.line) || occurrence.line < 1
         || typeof occurrence.name !== 'string' || !Array.isArray(occurrence.ancestorTitles)
         || occurrence.ancestorTitles.some((value) => typeof value !== 'string')
-        || !Object.hasOwn(observed, occurrence.outcome)) throw new Error('Invalid Node test identity.');
+        || !Object.hasOwn(observed, occurrence.outcome)) throw new SyntaxError('Invalid Node test identity.');
     observed[occurrence.outcome] += 1;
   }
   if (occurrences.length !== counts.discovered || Object.keys(observed).some((key) => observed[key] !== counts[key])) {
-    throw new Error('Node test identity counts do not match the complete TAP summary.');
+    throw new SyntaxError('Node test identity counts do not match the complete TAP summary.');
   }
   return { framework: 'node:test', occurrences };
 }

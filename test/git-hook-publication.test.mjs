@@ -102,7 +102,7 @@ test('intake probe skips local hooks; actual publication enforces them and retai
   assert.equal(await readFile(path.join(root, 'hook-report.txt'), 'utf8'), 'retained report\n');
 });
 
-test("Git's ignored-hook hint is not a hook failure and keeps a lost push response indeterminate", async (t) => {
+test("Git's ignored-hook hint is not a hook failure and keeps a lost push response indeterminate", () => {
   const hint = "hint: The '.git/hooks/pre-push' hook was ignored because it's not set as executable.\n"
     + 'hint: You can disable this warning with `git config set advice.ignoredHook false`.\n';
   const lost = { status: 128, stdout: '', stderr: `${hint}fatal: the remote end hung up unexpectedly\n` };
@@ -111,7 +111,10 @@ test("Git's ignored-hook hint is not a hook failure and keeps a lost push respon
   assert.equal(publicationPushOutcome(lost), 'transport-indeterminate',
     'a response lost after the remote may have accepted the update must stay reconcilable');
   assert.equal(classifyGitRemoteFailure(failed(`${hint}fatal: Authentication failed`)).classification, 'authentication-required');
+});
 
+test('POSIX Git ignores a non-executable pre-push hook without classifying a stale lease as a hook failure',
+  { skip: process.platform === 'win32' ? 'Windows does not use POSIX executable permission bits for hooks.' : false }, async (t) => {
   const { root, hook } = await repository(t);
   await writeFile(hook, '#!/bin/sh\nexit 0\n');
   await chmod(hook, 0o644);

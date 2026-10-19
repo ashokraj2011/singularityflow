@@ -2,7 +2,8 @@
 import { optionBoolean, SingularityFlowError, optionString, optionStrings } from '../util.mjs';
 import { decisionWorkflow } from './shared/decision-workflow.mjs';
 import { printPhaseReview } from './shared/print-phase-review.mjs';
-import { phaseReview } from './shared/phase-review.mjs';
+// Human document rendering is not part of the compact agent approval path.
+async function phaseReview(...args) { return (await import('./shared/phase-review.mjs')).phaseReview(...args); }
 import { requireApprovalAuthority, remainingRequiredAuthorities } from '../approval-authority.mjs';
 import { confirm, activeActionContext } from './kernel.mjs';
 import { checklistDecisions } from './shared/checklist-decisions.mjs';

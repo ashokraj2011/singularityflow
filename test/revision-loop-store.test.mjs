@@ -7,12 +7,43 @@ import path from 'node:path';
 import test from 'node:test';
 import { canonicalJson, recordSha256 } from '../src/records.mjs';
 import { buildRevisionPrecheck } from '../src/revision/contracts.mjs';
-import { createRevisionLoopStore } from '../src/revision/loop-store.mjs';
+import { createRevisionLoopStore, hasRevisionLoopJournal } from '../src/revision/loop-store.mjs';
+import { assertNoInteractiveRevisionPublication } from '../src/revision/publication-absence.mjs';
+import { withSubjectLock } from '../src/subject-lock.mjs';
+import { currentInteractiveRevisionPublication } from '../src/revision/publication-adapter.mjs';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+import { secureWindowsAuthAcl } from '../src/mcp-auth-profile.mjs';
 
 const sha = (value) => `sha256:${recordSha256(value)}`;
 const digest = (letter) => `sha256:${letter.repeat(64)}`;
 const producer = Object.freeze({
   id: 'revision-test', version: '1', implementationSha256: digest('f')
+});
+
+test('the no-loop publication probe checks safe absence under the Story lock without a producer', async t => {
+  const f = await fixture(t);
+  assert.equal(await hasRevisionLoopJournal(f.root, f.scope), false);
+  const execution = { definition: {}, workflow: { workItem: { id: f.scope.workId }, currentPhase: f.scope.phaseId,
+    phases: { [f.scope.phaseId]: { id: f.scope.phaseId, generation: f.scope.phaseGeneration,
+      generationPolicy: { requirement: 'required', producer: 'agent', task: 'code' } } } } };
+  await assert.rejects(assertNoInteractiveRevisionPublication(f.root, execution), { code: 'REV_PUBLICATION_LOCK_REQUIRED' });
+  await withSubjectLock(f.root, { kind: 'story', id: f.scope.workId }, async () => {
+    assert.equal(await assertNoInteractiveRevisionPublication(f.root, execution), true);
+  });
+  const originalRead = fs.readFileSync;
+  try {
+    fs.readFileSync = function(file, ...args) {
+      assert.ok(!String(file).endsWith('producer-lock.json'), 'absent REV must not hash the installed producer');
+      return originalRead.call(this, file, ...args);
+    };
+    syncBuiltinESMExports();
+    assert.equal(await currentInteractiveRevisionPublication(f.root, execution), null);
+  } finally { fs.readFileSync = originalRead; syncBuiltinESMExports(); }
+  await privateJournalFixture(f);
+  await writeFile(path.join(f.journal, 'unexpected'), 'preserve');
+  await assert.rejects(hasRevisionLoopJournal(f.root, f.scope), { code: 'REV_LOOP_CORRUPT' });
+  assert.equal(await readFile(path.join(f.journal, 'unexpected'), 'utf8'), 'preserve');
 });
 const requiredChecks = [
   'candidateIntegrity', 'candidateFreeze', 'parentResultLineage', 'scope', 'protectedPaths',
@@ -61,6 +92,23 @@ function openRequest(value, idempotencyKey = 'open-1') {
     context: value.context, idempotencyKey,
     transition: { type: 'open-loop', loopId: 'LOOP-1', initialCandidate: candidate('a') }
   };
+}
+
+// Hand-authored historical/corrupt fixtures must satisfy the same private-storage contract
+// as kernel-created journals before they can exercise record validation on either platform.
+async function privateJournalFixture(value) {
+  await mkdir(value.journal, { recursive: true, mode: 0o700 });
+  if (process.platform === 'win32') {
+    for (const directory of [path.dirname(path.dirname(value.journal)), path.dirname(value.journal), value.journal]) {
+      await secureWindowsAuthAcl(directory, { directory: true });
+    }
+  }
+}
+
+async function writeHistoricalEntry(value, name, entry) {
+  const file = path.join(value.journal, name);
+  await writeFile(file, canonicalJson(entry), { mode: 0o600 });
+  if (process.platform === 'win32') await secureWindowsAuthAcl(file);
 }
 
 function legacyEntry(value, request, {
@@ -306,10 +354,8 @@ test('producerless v1 journals remain readable and replayable but cannot grant n
   const value = await fixture(t);
   const request = openRequest(value);
   const historical = legacyEntry(value, request);
-  await mkdir(value.journal, { recursive: true, mode: 0o700 });
-  await writeFile(path.join(value.journal, '0000000000.json'), canonicalJson(historical), {
-    mode: 0o600
-  });
+  await privateJournalFixture(value);
+  await writeHistoricalEntry(value, '0000000000.json', historical);
 
   const head = await value.store.read();
   assert.equal(head.revision, 0);
@@ -325,9 +371,7 @@ test('producerless v1 journals remain readable and replayable but cannot grant n
     previousEntrySha256: historical.entrySha256,
     committedAt: '2026-09-16T00:01:00.000Z'
   });
-  await writeFile(path.join(value.journal, '0000000001.json'), canonicalJson(historicalCommit), {
-    mode: 0o600
-  });
+  await writeHistoricalEntry(value, '0000000001.json', historicalCommit);
   const committedHead = await value.store.read();
   assert.equal(committedHead.revision, 1);
   assert.equal(committedHead.head.candidateRefSha256, candidate('b').candidateRefSha256);

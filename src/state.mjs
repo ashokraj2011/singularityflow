@@ -1,3 +1,15 @@
+import { resolvedPhasePolicy, currentPhasePolicy, resolutionPolicySha256, storyHistoryCommits, initialWorkflowRecord, verifiedInitialPolicyAnchor, committedResolutionPolicySha256, committedResolutionPolicy, PROSPECTIVE_SKILL_AMENDMENT } from './story-policy-anchor.mjs';
+import { validateId, statusPath, legacyPendingPublicationPath, storyStatusMarkdown, saveWorkflow } from './story-state-write.mjs';
+export { validateId, statusPath, storyStatusMarkdown, saveWorkflow };
+import { workflowPublicationMode, workflowPublicationBranch, storyLedgerSummary } from './story-publication-binding.mjs';
+export { workflowPublicationBranch };
+import { repairRetainedPublication, assertNoPendingPublication, TRANSITION_REPAIR_SWITCH } from './story-publication-pending.mjs';
+export { assertNoPendingPublication };
+import { validateWorkflow, requiredRepoPath } from './story-state-validation.mjs';
+export { validateWorkflow };
+import { commitAndPublish, stepActionLogger } from './story-publication-service.mjs';
+export { commitAndPublish };
+export { validatePhase, refreshPhaseSpecificationIndex, refreshSkillLifecycleArtifactIdentities, registerApprovedSnapshot, settleRetainedPhases, updateArtifactMetadata, writeDecision };
 import { assertStoryNotArchived } from './governance-archive.mjs';
 import { normalizeCurrentWorkflow } from './story-state-normalization.mjs';
 import { workDir, workDirRelative, workflowPath, workflowBranchNames, workflowBranchAllowed } from './story-paths.mjs';
@@ -285,7 +297,6 @@ const DEFAULT_QUALITY_COMMAND_TIMEOUT_MS = 30 * 60 * 1000;
 const CONFIRMED_CONVERGENCE_SUBMISSION = Symbol('confirmed-convergence-submission');
 // Only the exact aggregate mutated by the locked publication owner may present an uncommitted
 // amendment revision for validation. Ordinary readers must prove the accepted Git chain instead.
-const PROSPECTIVE_SKILL_AMENDMENT = new WeakMap();
 const MODEL_ASSURANCE_RANK = Object.freeze({
   unavailable: 0, 'host-observed': 1, 'provider-reported': 2, 'policy-selected': 3
 });
@@ -358,23 +369,12 @@ async function assertConvergenceConfirmation(root, config, workflow, phase, conf
   return verified;
 }
 
-export function validateId(config, id) {
-  const portableId = validatePortableWorkId(id);
-  if (!(new RegExp(config.idPattern ?? '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')).test(portableId)) throw new SingularityFlowError(`Work ID ${portableId} does not match ${config.idPattern}.`);
-  const reserved = new Set(['main', 'master', String(config.defaultBaseBranch ?? '').trim()]
-    .filter(Boolean).map((value) => value.toLocaleLowerCase('en-US')));
-  if (reserved.has(portableId.toLocaleLowerCase('en-US'))) {
-    throw new SingularityFlowError(`Work ID '${portableId}' is reserved for application integration and cannot identify work.`);
-  }
-}
 
-export function statusPath(root, config, id) { return path.join(workDir(root, config, id), 'STATUS.md'); }
 export function sourcePath(root, config, id) { return path.join(workDir(root, config, id), 'source.json'); }
 export function userStoryPath(root, config, id) { return path.join(workDir(root, config, id), 'USER-STORY.md'); }
 export function approvalPath(root, config, id, phase) { return path.join(workDir(root, config, id), 'approvals', `${phase}.json`); }
 export function decisionDir(root, config, id, phase) { return path.join(workDir(root, config, id), 'approvals', phase); }
 export function pendingPublicationPath(root, _config, id) { return localPendingPublicationPath(root, 'story', id); }
-function legacyPendingPublicationPath(root, config, id) { return path.join(workDir(root, config, id), 'publication-pending.json'); }
 /**
  * @param migrate `false` for read-only callers. Migration deletes a tracked file, and the snapshot
  *   coordinator's did-anything-change check fails when a capture mutates the working tree — which
@@ -389,13 +389,6 @@ function legacyPendingPublicationPath(root, config, id) { return path.join(workD
  */
 export function actorKey(actor) { return actor.login ?? actor.email ?? actor.name; }
 
-function workflowPublicationMode(config, workflow) {
-  const configured = config.git?.publish ?? 'required';
-  const capability = workflow.resolution?.capability?.policy?.gitPublication;
-  if (configured === 'required' || capability === 'required') return 'required';
-  if (capability === 'warn') return 'warn';
-  return configured;
-}
 
 
 
@@ -411,13 +404,6 @@ export function prefetchStoryPublicationObservation(root, config, workflow) {
   } catch { /* commitAndPublish asks, and refuses, exactly as before */ }
 }
 
-export function workflowPublicationBranch(root, workflow) {
-  const current = branch(root);
-  if (!workflowBranchAllowed(workflow, current)) {
-    throw new SingularityFlowError(`Branch '${current}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`);
-  }
-  return current;
-}
 
 function markdownValue(value) {
   if (value == null || value === '') return '';
@@ -508,59 +494,8 @@ function phaseState(definition, index) {
  * the mutable execution state. Keep one canonical projection so a hand-edited workflow cannot
  * weaken approval, generation, scope, test, or artifact requirements by changing the latter.
  */
-function resolvedPhasePolicy(definition, index) {
-  return {
-    id: definition.id,
-    label: definition.label,
-    order: index,
-    ...(definition.kind === 'skill' ? {
-      kind: 'skill', skillBinding: structuredClone(definition.skillBinding)
-    } : {}),
-    defaultAgent: definition.defaultAgent ?? null,
-    requiredArtifact: structuredClone(definition.artifact),
-    template: definition.template,
-    worldModel: structuredClone(definition.worldModel ?? {}),
-    writeScope: definition.writeScope ?? 'artifact-only',
-    sourceBoundary: normalizeSourceBoundary(definition.sourceBoundary, definition.id),
-    comparison: structuredClone(definition.comparison ?? {}),
-    mcp: structuredClone(definition.mcp ?? { requiredServers: [], requireSmoke: false, evidence: [] }),
-    repairBudget: structuredClone(definition.repairBudget ?? null),
-    inputs: structuredClone(definition.inputs ?? []),
-    generationPolicy: structuredClone(definition.generation ?? { requirement: 'required', producer: 'agent' }),
-    approvalPolicy: structuredClone(definition.approval ?? {
-      authorities: [DEFAULT_APPROVAL_AUTHORITY], minimum: 1, rejectTo: [definition.id]
-    }),
-    qualityCommands: [...(definition.qualityCommands ?? [])]
-  };
-}
 
-function currentPhasePolicy(phase) {
-  return resolvedPhasePolicy({
-    id: phase.id,
-    label: phase.label,
-    kind: phase.kind,
-    skillBinding: phase.skillBinding,
-    artifact: phase.requiredArtifact,
-    template: phase.template,
-    defaultAgent: phase.defaultAgent,
-    worldModel: phase.worldModel,
-    writeScope: phase.writeScope,
-    sourceBoundary: phase.sourceBoundary,
-    comparison: phase.comparison,
-    mcp: phase.mcp,
-    repairBudget: phase.repairBudget,
-    inputs: phase.inputs,
-    generation: phase.generationPolicy,
-    approval: phase.approvalPolicy,
-    qualityCommands: phase.qualityCommands
-  }, phase.order);
-}
 
-function resolutionPolicySha256(resolution) {
-  const policy = structuredClone(resolution ?? {});
-  delete policy.policySha256;
-  return `sha256:${createHash('sha256').update(canonicalJson(policy)).digest('hex')}`;
-}
 
 /**
  * The commits a read-only Story history query names, or a refusal when Git could not answer.
@@ -570,12 +505,6 @@ function resolutionPolicySha256(resolution) {
  * accepted Story read as an unaccepted draft and a history Git could not walk passed the
  * intervening-commit gate. Only before the first commit is an empty history real.
  */
-function storyHistoryCommits(root, args, label) {
-  const output = gitReadOutput(run('git', args, { cwd: root, allowFailure: true }), label, {
-    absentWhen: () => gitHeadIsUnborn(root)
-  });
-  return (output ?? '').trim().split(/\r?\n/u).filter(Boolean);
-}
 
 /**
  * Whether a commit is exactly one applicability decision [E2G-005]: a person recording why a
@@ -671,84 +600,10 @@ export function onlyHumanDecisionCommits(root, config, workflow, from, to) {
   return parent === to ? commits : null;
 }
 
-function initialWorkflowRecord(root, config, workId) {
-  const relative = workDirRelative(config, workId);
-  const workflowRelative = `${relative}/workflow.json`;
-  const history = storyHistoryCommits(root, [
-    'log', '--format=%H', '--diff-filter=A', '--reverse', '--', workflowRelative
-  ], `Story '${workId}' creation record`);
-  if (!history.length) return null;
-  const stored = run('git', ['show', `${history[0]}:${workflowRelative}`], {
-    cwd: root, allowFailure: true
-  });
-  if (stored.status !== 0) {
-    throw new SingularityFlowError(
-      `The immutable creation policy for Story '${workId}' cannot be read from ${history[0]}.`,
-      { code: 'STORY_POLICY_ANCHOR_UNREADABLE' }
-    );
-  }
-  let initial;
-  try { initial = JSON.parse(stored.stdout); }
-  catch {
-    throw new SingularityFlowError(
-      `The immutable creation policy for Story '${workId}' is not valid JSON.`,
-      { code: 'STORY_POLICY_ANCHOR_INVALID' }
-    );
-  }
-  const anchor = initial?.resolution?.policySha256;
-  return { record: initial, commit: history[0], workflowRelative, anchor };
-}
 
-function verifiedInitialPolicyAnchor(initial, workId) {
-  if (!initial) return null;
-  const { anchor, commit, record } = initial;
-  // Stories created before policy anchoring are deliberately compatible. Their schema migration
-  // adds normalized resolution fields that did not exist in the creation bytes, so comparing the
-  // migrated projection with a digest those bytes never declared would make every legacy Story
-  // look manually weakened. Only an explicit, well-formed creation anchor opts into this gate.
-  if (anchor == null) return null;
-  if (typeof anchor !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(anchor)) {
-    throw new SingularityFlowError(
-      `The immutable creation policy anchor for Story '${workId}' is malformed.`,
-      {
-        code: 'STORY_POLICY_ANCHOR_INVALID',
-        details: { workId, commit, actual: anchor }
-      }
-    );
-  }
-  // Recompute from the committed bytes. Trusting a digest field stored beside the policy would
-  // accept a stale or hand-edited receipt without proving that it describes those exact bytes.
-  const derived = resolutionPolicySha256(record.resolution);
-  if (anchor !== derived) {
-    throw new SingularityFlowError(
-      `The immutable creation policy anchor for Story '${workId}' does not match its committed resolution bytes.`,
-      {
-        code: 'STORY_POLICY_ANCHOR_INVALID',
-        details: { workId, commit, expected: derived, actual: anchor }
-      }
-    );
-  }
-  return anchor;
-}
 
-function committedResolutionPolicySha256(root, config, workId) {
-  return committedResolutionPolicy(root, config, workId)?.sha256 ?? null;
-}
 
 /** The creation commit's migrated policy identity, with the commit that holds it. */
-function committedResolutionPolicy(root, config, workId) {
-  const initial = initialWorkflowRecord(root, config, workId);
-  const storedAnchor = verifiedInitialPolicyAnchor(initial, workId);
-  if (!storedAnchor) return null;
-  // The creation receipt authenticates the exact schema that was written at creation time.  A
-  // deterministic reader migration may subsequently strengthen that policy (for example the v4
-  // convergence producer restriction).  Comparing the migrated live aggregate with the *stored*
-  // v3 digest would reject every honestly anchored in-flight Story after an upgrade.  First prove
-  // the stored anchor above, then derive the policy identity from the registry-migrated creation
-  // record so both sides of the immutable-policy comparison use the same current schema.
-  const migratedCreation = readRecord('story-workflow', initial.record).record;
-  return { sha256: resolutionPolicySha256(migratedCreation.resolution), commit: initial.commit };
-}
 
 const PINNED_RESOLUTION_VERIFICATIONS = new Map();
 
@@ -940,93 +795,7 @@ async function updateArtifactMetadata(root, config, workflow, phase) {
   await refreshRequiredArtifact(root, config, workflow, phase, { registerIfMissing: false });
 }
 
-export function storyStatusMarkdown(workflow) {
-  const lines = [
-    `# ${workflow.workItem.id} — ${workflow.workItem.title}`, '',
-    `- Branch: \`${workflow.workItem.branch}\``,
-    `- Work type: **${workflow.workItem.workType}**`,
-    ...(workflow.resolution?.capability
-      ? [`- Capability: **${workflow.resolution.capability.name}** (\`${workflow.resolution.capability.id}\`)`,
-        `- Capability map: \`${workflow.resolution.capability.map.sha256}\``]
-      : []),
-    ...(workflow.measurement?.plan?.kind === 'prompt-set-randomized'
-      ? [`- Prompt study: **${workflow.measurement.plan.variantId}** · \`${workflow.measurement.plan.studyRunId}\``]
-      : []),
-    ...((workflow.resolution?.referenceRepositories ?? []).length
-      ? [`- Read-only references: ${(workflow.resolution.referenceRepositories)
-          .map((reference) => `**${reference.id}** \`${reference.requestedBranch}@${reference.commit.slice(0, 12)}\``)
-          .join(', ')}`]
-      : []),
-    `- Overall status: **${workflow.status}**`,
-    `- Current phase: **${workflow.currentPhase ?? (workflow.status === 'cancelled' ? 'cancelled and archived' : 'none — every step is decided')}**`,
-    ...(workflow.pendingDecision
-      ? [`- Waiting for a decision: **${workflow.pendingDecision.label}** — ${workflow.pendingDecision.by.join(', ')} choose${workflow.pendingDecision.reason === 'limit' ? ' (its rounds are used)' : ''}`]
-      : []),
-    ...(workflow.cancellation ? [
-      `- Cancelled during: **${workflow.cancellation.phase}**`,
-      `- Cancellation reason: ${workflow.cancellation.reason}`,
-      `- Cancelled at: ${workflow.cancellation.cancelledAt}`
-    ] : []), '',
-    '| # | Phase | Agent | Status | Generation | Approvals | Tokens |',
-    '|---:|---|---|---|---:|---:|---:|'
-  ];
-  for (const id of workflow.phaseOrder) {
-    const phase = workflow.phases[id];
-    const approvals = phase.approvals.filter((item) => !item.invalidatedAt).length;
-    const tokens = phase.usage.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0);
-    lines.push(`| ${phase.order + 1} | ${phase.label} (\`${id}\`) | ${phase.defaultAgent ?? 'unavailable'} | **${phase.status}** | ${phase.generation} | ${approvals} | ${tokens || 'unavailable'} |`);
-    for (const approval of phase.approvals.filter((item) => !item.invalidatedAt && item.selfApproval)) lines.push(`|  | ⚠ self-approval | ${approval.actor.name ?? approval.actor.email ?? 'unknown'} via ${approval.authorityGroup ?? 'unrecorded authority'}; agent ${approval.agent ?? 'unavailable'} | **warning** |  |  |  |`);
-  }
-  const openChangeRequests = (workflow.changeRequests ?? []).filter((request) => request.status === 'open');
-  if (openChangeRequests.length) {
-    lines.push('', '## Open stakeholder change requests', '');
-    for (const request of openChangeRequests) {
-      const requester = request.requestedBy?.name ?? request.requestedBy?.email ?? request.requestedBy?.login ?? 'unknown';
-      lines.push(`- **${request.id}** — return \`${request.sourcePhase}\` to \`${request.targetPhase}\`: ${request.comment} _(requested by ${requester} at ${request.requestedAt})_`);
-      if (request.forwardCheckpoint) {
-        lines.push(`  - Reversible checkpoint: \`${request.forwardCheckpoint.id}\` — preview with \`singularity-flow story rework roll-forward --work-id ${workflow.workItem.id} --change-request ${request.id} --json\`.`);
-      }
-    }
-  }
-  /**
-   * Open clarification markers `[SPK:REQ-065]`.
-   *
-   * Under `warn` a marker reaches a published generation, and the clause asks that it be visible in
-   * status rather than only at the gate. A reviewer who first learns of an open question on the
-   * approval screen has already read the artifact once believing it settled.
-   */
-  const openMarkers = workflow.phaseOrder
-    .map((id) => [workflow.phases[id], markerSummary(workflow.phases[id])])
-    .filter(([, summary]) => summary);
-  if (openMarkers.length) {
-    lines.push('', '## Open clarification markers', '');
-    for (const [phase, summary] of openMarkers) {
-      for (const question of summary.questions) lines.push(`- **${phase.label}** generation ${summary.generation} (\`${summary.mode}\`): ${question}`);
-    }
-  }
-  lines.push('', '## Recent history', '');
-  workflow.history.slice(-15).reverse().forEach((item) => lines.push(`- ${item.at} — **${item.event}**${item.phase ? ` (${item.phase})` : ''} by ${item.actor ?? 'unknown'}${item.agent ? ` · agent ${item.agent}` : ''}${item.detail ? `: ${item.detail}` : ''}`));
-  if (workflow.sequenceOverrides?.length) lines.push('', `> ⚠ ${workflow.sequenceOverrides.length} confirmed soft sequence override(s) are recorded for this work item.`);
-  return `${lines.join('\n')}\n`;
-}
 
-export async function saveWorkflow(root, config, workflow) {
-  validateId(config, workflow?.workItem?.id);
-  assertStoryNotArchived(root, workflow);
-  await ensureSecureRepositoryDirectory(
-    root,
-    workDirRelative(config, workflow.workItem.id),
-    { label: `Story '${workflow.workItem.id}' state directory` }
-  );
-  const file = workflowPath(root, config, workflow.workItem.id);
-  await writeJson(file, workflow);
-  await writeText(statusPath(root, config, workflow.workItem.id), storyStatusMarkdown(workflow));
-  // Keep the aggregate's idea of what is on disk current. Every legitimate write by this process
-  // goes through here, so refreshing the fingerprint means the publication check ahead can treat any
-  // remaining mismatch as what it is: a different process writing the same work item.
-  const tracked = workflow[Symbol.for('singularity-flow.state-revision')];
-  if (tracked) tracked.stateSha256 = stateFingerprint(file);
-}
 
 export async function createWorkflow(root, config, {
   id, title, source, baseBranch, baseCommit = null, baseRemote = null,
@@ -1476,7 +1245,6 @@ export async function resolveWorkItem(root, config, idOrRef = branch(root), { mu
 import { currentPhase } from './phase-generation.mjs';
 export { currentPhase };
 
-const TRANSITION_REPAIR_SWITCH = 'SINGULARITY_FLOW_TRANSITION_REPAIR';
 
 /**
  * Finish a Story's retained publication before a transition, when that is an ordinary retry.
@@ -1487,37 +1255,8 @@ const TRANSITION_REPAIR_SWITCH = 'SINGULARITY_FLOW_TRANSITION_REPAIR';
  * `singularity-flow sync`. An interrupted pre-commit publication is never rolled back here, and any
  * failure leaves the sequence gate to refuse exactly as before.
  */
-async function repairRetainedPublication(root, config, workflow, action) {
-  if (['off', '0', 'false', 'no'].includes(String(process.env[TRANSITION_REPAIR_SWITCH] ?? '').trim().toLowerCase())) return false;
-  const pending = await readPendingPublication(root, {
-    kind: 'story', id: workflow.workItem.id,
-    legacyPath: legacyPendingPublicationPath(root, config, workflow.workItem.id)
-  }).catch(() => null);
-  if (!pending || pending.record?.recoveryStage === 'interrupted-before-branch-ref-advanced') return false;
-  try {
-    const result = await syncPublication(root, config, workflow);
-    if (result.recoveredPrepared) return false;
-  } catch {
-    return false;
-  }
-  if (await storyPublicationPending(root, config, workflow.workItem.id)) return false;
-  console.warn(`Published the retained local commit before this transition (${action}).`);
-  return true;
-}
 
-export async function assertNoPendingPublication(root, config, workflow, action = 'continue') {
-  // Retirement must precede prompt/artifact writes or retained-publication repair, not merely
-  // the final workflow save. All existing mutation entry points share this preflight boundary.
-  assertStoryNotArchived(root, workflow);
-  if (await storyPublicationPending(root, config, workflow.workItem.id)
-      && !(await repairRetainedPublication(root, config, workflow, action))) {
-    await enforceSequenceGate(root, workflow, 'publicationPending', action, {
-      reason: 'Publication is pending because a retained local lifecycle commit has not reached its configured remote.'
-    });
-  }
-}
 
-function requiredRepoPath(config, workflow, phase) { return requiredArtifactRepoPath(config, workflow, phase); }
 
 /** The artifact's text, or empty when it is not there yet — a missing artifact is `validatePhase`'s. */
 async function readArtifactText(root, relative) {
@@ -9485,467 +9224,8 @@ export async function decideStorySkillVersion(root, config, workflow, options = 
  * fell back to fetching every Story's metadata from the remote, one round trip each. Readers that
  * do not know these fields ignore them; workId, phase, generation and branch are unchanged.
  */
-function storyLedgerSummary(workflow) {
-  const lineage = workflow.lineage ?? {};
-  return {
-    title: workflow.workItem.title ?? workflow.workItem.id,
-    status: workflow.status ?? null,
-    currentPhase: workflow.currentPhase ?? null,
-    progress: structuredClone(storyLifecycleProgress(workflow)),
-    canonicalBranch: lineage.canonicalBranch ?? workflow.workItem.branch ?? workflow.workItem.id,
-    createdAt: workflow.workItem.createdAt ?? null,
-    updatedAt: workflow.history?.at(-1)?.at ?? workflow.workItem.createdAt ?? null,
-    aliases: [lineage.planId, lineage.jiraIssueId, lineage.sourceStableId, workflow.workItem.source?.stableId,
-      lineage.initialJiraKey, lineage.currentJiraKey,
-      ...(lineage.aliases ?? []).map((entry) => typeof entry === 'string' ? entry : entry?.value ?? entry?.key)]
-      .filter((alias) => typeof alias === 'string' && alias)
-  };
-}
 
-export async function commitAndPublish(root, config, workflow, event, message, extraPaths = [], {
-  beforeStateWrite = null,
-  afterOwnedWrites = null,
-  eventFromResult = null,
-  afterEventFinalize = null,
-  worktreeGuard = null,
-  transactionId = null,
-  rollbackWorkflow = null,
-  recoveryPreimage = null,
-  expectedRemoteSha = undefined,
-  expectedLocalHead = undefined,
-  publicationAuthority = null,
-  publicationTail = null,
-  exactWorkItemPaths = null,
-  revisionPublication = null,
-  fault = null
-} = {}) {
-  validateId(config, workflow?.workItem?.id);
-  if (revisionPublication !== null && (typeof revisionPublication !== 'object'
-      || Array.isArray(revisionPublication))) {
-    throw new SingularityFlowError('REV publication selection must be an internal exact binding.', {
-      code: 'REV_PUBLICATION_BINDING_INVALID'
-    });
-  }
-  // Capture before the first asynchronous read. Even aggregates loaded through a legacy path that
-  // lacks a STATE_REVISION receipt must not silently move onto a different local parent while this
-  // transaction is checking pending publication and ledger state.
-  const invocationHead = head(root);
-  // The revision-one closure becomes immutable only with the Story creation commit. Creation
-  // callers may add other already-reviewed pins to the draft before this locked transaction.
-  const unacceptedWorkflowSnapshot = initialWorkflowRecord(root, config, workflow.workItem.id) == null;
-  if (await storyPublicationPending(root, config, workflow.workItem.id)) await assertNoPendingPublication(root, config, workflow, 'create another lifecycle commit');
-  // A Story a governance rebuild archived stays readable, but nothing may change it [E2G §11].
-  assertStoryNotArchived(root, workflow);
-  const ledgerConfig = normalizeLedgerConfig(workflow.resolution?.ledger ?? config.ledger ?? {});
-  const requestedPhaseId = event?.phaseId ?? workflow.currentPhase ?? null;
-  const requestedPhase = requestedPhaseId ? workflow.phases?.[requestedPhaseId] : null;
-  const decision = [...(requestedPhase?.approvals ?? [])].reverse().find((item) => !item.invalidatedAt) ?? null;
-  const authenticatedPublicationTail = publicationTail?.capabilityPublications?.length ? {
-    ...publicationTail,
-    capabilityPublicationPlan: publicationTail.capabilityPublicationPlan
-      ?? publicationTail.capabilityPublications,
-    capabilityPublicationPlanSha256: capabilityPublicationPlanSha256(
-      publicationTail.capabilityPublicationPlan ?? publicationTail.capabilityPublications
-    )
-  } : publicationTail;
-  const envelope = lifecycleEvent({
-    ...event,
-    subject: { kind: 'story', id: workflow.workItem.id, branch: workflowPublicationBranch(root, workflow) },
-    phaseId: requestedPhaseId,
-    generation: event?.generation ?? requestedPhase?.generation ?? null,
-    actor: event?.actor ?? decision?.actor ?? identity(root),
-    agent: Object.hasOwn(event ?? {}, 'agent') ? event.agent : decision?.agent ?? requestedPhase?.generatedAgent ?? null,
-    authorityGroup: event?.authorityGroup ?? decision?.authorityGroup ?? null,
-    payload: {
-      ...(event?.payload ?? {}),
-      ...(storyRequiresStepActions(workflow) ? {
-        stepActionRemote: workflowPublicationMode(config, workflow) === 'off' ? null
-          : (publicationAuthority ?? configuredRemoteAuthority(root, config.git?.remote ?? 'origin'))?.url ?? null
-      } : {}),
-      ...(authenticatedPublicationTail?.capabilityPublicationPlanSha256 ? {
-        capabilityPublicationPlanSha256: authenticatedPublicationTail.capabilityPublicationPlanSha256
-      } : {}),
-      decision: Object.hasOwn(event?.payload ?? {}, 'decision') ? event.payload.decision : decision?.decision ?? null,
-      reviewPacketSha256: decision?.reviewPacketSha256 ?? null
-    }
-  });
-  let ledgerIntent = null;
-  if (ledgerConfig.enabled) {
-    ledgerIntent = createLedgerIntent({
-      eventId: envelope.eventId,
-      eventType: envelope.type,
-      capabilityId: workflow.resolution?.capability?.id ?? `story-${workflow.workItem.id}`,
-      subject: {
-        workId: workflow.workItem.id,
-        workType: workflow.workItem.workType,
-        phase: envelope.phaseId,
-        generation: envelope.generation,
-        branch: workflowPublicationBranch(root, workflow),
-        ...storyLedgerSummary(workflow)
-      },
-      actor: envelope.actor,
-      agent: envelope.agent,
-      authorityGroup: envelope.authorityGroup,
-      identityAssurance: decision?.identityAssurance ?? null,
-      payload: {
-        lifecycleEventId: envelope.eventId,
-        lifecyclePayload: envelope.payload,
-        configPath: WORKFLOW_PATH,
-        configSha256: workflow.resolution?.configSha256 ?? null,
-        templateSha256: envelope.phaseId ? workflow.resolution?.templates?.[envelope.phaseId]?.sha256 ?? null : null,
-        capabilityMapSha256: workflow.resolution?.capability?.map?.sha256 ?? null,
-        capabilityPolicy: workflow.resolution?.capability?.policy ?? null
-      }
-    });
-  }
-  const targetBranch = workflowPublicationBranch(root, workflow);
-  const publicationMode = workflowPublicationMode(config, workflow);
-  const governedLocalParent = expectedLocalHead
-    ?? workflow[Symbol.for('singularity-flow.state-revision')]?.head
-    ?? invocationHead;
-  // Every ordinary lifecycle update extends the exact local revision that was loaded and validated
-  // by this transaction. The remote may legitimately be an older ancestor when ordinary local
-  // commits have not been pushed yet, so bind the push to the exact observed remote tip below.
-  // Creation paths can still explicitly supply absence (`null`) or a materialized seed commit.
-  let governedExpectedRemoteSha = expectedRemoteSha !== undefined
-    ? expectedRemoteSha
-    : governedLocalParent;
-  let expectedRemoteShaSource = expectedRemoteSha !== undefined
-    ? 'explicit'
-    : 'implicit-local-parent';
-  let governedPublicationAuthority = publicationAuthority;
-  if (publicationMode !== 'off' && expectedRemoteSha === undefined) {
-    governedPublicationAuthority ??= configuredRemoteAuthority(
-      root, config.git?.remote ?? 'origin'
-    );
-    const observation = governedPublicationAuthority?.url
-      ? await takeRemoteBranchObservation(root, governedPublicationAuthority.url, targetBranch)
-        ?? await exactRemoteBranchObservationAsync(root, governedPublicationAuthority.url, targetBranch)
-      : { reachable: false, malformed: false, sha: null };
-    if (observation.reachable && !observation.malformed && observation.sha !== null) {
-      if (!commitIsAncestor(root, observation.sha, governedLocalParent)) {
-        throw new SingularityFlowError(
-          `Story '${workflow.workItem.id}' has commits on its remote branch '${targetBranch}' that this checkout does not have: another clone published to it. `
-          + 'Run singularity-flow refresh-branch to bring them in (it only fast-forwards), then retry; nothing was changed. '
-          + 'If it reports that the branch diverged, this checkout also holds an unpublished commit: run singularity-flow sync.',
-          {
-            code: 'STORY_PUBLICATION_REMOTE_DIVERGED',
-            details: {
-              branch: targetBranch,
-              localParent: governedLocalParent,
-              observedRemoteSha: observation.sha
-            }
-          }
-        );
-      }
-      // Local commits ahead of the remote are a normal fast-forward history. Lease the exact live
-      // remote tip rather than pretending every local ancestor was already published.
-      governedExpectedRemoteSha = observation.sha;
-      expectedRemoteShaSource = 'observed-remote';
-    }
-  }
-  const priorWorkflow = rollbackWorkflow ?? structuredClone(workflow);
-  const workflowRecovery = captureAggregateRecovery(workflow, priorWorkflow);
-  // The whole work directory, not just `workflow.json`.
-  //
-  // `state.write` is not one write: the approval path rewrites the artifact's metadata block in
-  // place, registers an approved snapshot, and writes both `approvals/<phase>.json` and a timestamped
-  // decision file — all before `saveWorkflow`. Restoring only the aggregate left an artifact carrying
-  // post-approval metadata (so the next command reported "Artifact changed after registration" and
-  // blamed the operator) and a complete approved decision on disk for an approval that was undone —
-  // which the next successful governed commit would then sweep into signed, pushed, attested history.
-  const workDirectory = workDirRelative(config, workflow.workItem.id);
-  // Narrow evidence/appeal transactions must not sweep an unfinished phase draft into a commit.
-  // The subject state and status projection remain mandatory owned paths; callers cannot use this
-  // internal option to commit application code or another Story's files.
-  if (exactWorkItemPaths !== null && (!Array.isArray(exactWorkItemPaths)
-      || exactWorkItemPaths.some(file => typeof file !== 'string' || !file.startsWith(`${workDirectory}/`)
-        || file.split('/').some(segment => !segment || segment === '.' || segment === '..')
-        || /[\\\x00-\x1f]/u.test(file)))) {
-    throw new SingularityFlowError('Exact Story publication paths must stay inside this work item.', { code: 'STORY_PUBLICATION_SCOPE_INVALID' });
-  }
-  const pendingMetadata = {
-    workId: workflow.workItem.id,
-    ...(authenticatedPublicationTail ?? {}),
-    // This provenance is covered by the machine-local recovery MAC. Keep it after caller metadata
-    // so an authenticated tail cannot relabel an explicit lease as an inferred compatibility lease.
-    ...(publicationMode !== 'off' ? { expectedRemoteShaSource } : {})
-  };
-  let revisionSelection = null;
-  const revisionAttestation = revisionPublication === null ? null : {
-    beforeStateWrite: async ({ expectedHead }) => {
-      const preflight = await prepareRevisionPublicationSelection({
-        ...revisionPublication, root, workflow
-      });
-      if (revisionPublication.candidateReference?.repository?.baselineCommit !== expectedHead) {
-        throw new SingularityFlowError('REV selected Candidate does not extend the Story publication parent.', {
-          code: 'REV_PUBLICATION_BASELINE_CHANGED'
-        });
-      }
-      return preflight;
-    },
-    select: async ({ preflight, prospectiveTree }) => {
-      revisionSelection = await verifyPreparedRevisionPublicationSelection({
-        token: preflight, root, prospectiveTree, config, workflow
-      });
-      return revisionSelection;
-    }
-  };
-  const result = await publishLifecycleChange(root, {
-    subject: envelope.subject,
-    expectedRevision: workflow[Symbol.for('singularity-flow.state-revision')] ?? null,
-    allowedPaths: exactWorkItemPaths === null ? [workDirectory, ...extraPaths]
-      : [...new Set([`${workDirectory}/workflow.json`, `${workDirectory}/STATUS.md`, ...exactWorkItemPaths, ...extraPaths])],
-    event: envelope,
-    commit: { message },
-    state: {
-      write: async (publicationEvent, transactionContext) => {
-        // Mutations which create or advance governed lifecycle state must run
-        // after the publication unit has acquired the subject lock and opened
-        // its recovery journal. Callers may prepare an in-memory decision before
-        // this point, but may not persist governed files outside this callback.
-        if (revisionPublication === null && phaseRequiresCodeDelivery(
-          workflow.phases?.[workflow.currentPhase]
-        )) {
-          await assertNoInteractiveRevisionPublication(root, { definition: config, workflow });
-        }
-        const transitionResult = beforeStateWrite
-          ? await beforeStateWrite(publicationEvent, transactionContext)
-          : undefined;
-        if (eventFromResult) {
-          const derived = await eventFromResult(transitionResult, workflow, publicationEvent);
-          if (derived) {
-            const finalized = lifecycleEvent({
-              ...publicationEvent,
-              ...derived,
-              subject: publicationEvent.subject,
-              payload: { ...(publicationEvent.payload ?? {}), ...(derived.payload ?? {}) }
-            });
-            Object.assign(publicationEvent, finalized, {
-              eventId: publicationEvent.eventId,
-              createdAt: publicationEvent.createdAt
-            });
-            if (ledgerIntent) {
-              ledgerIntent.eventType = publicationEvent.type;
-              ledgerIntent.subject.phase = publicationEvent.phaseId;
-              ledgerIntent.subject.generation = publicationEvent.generation;
-              ledgerIntent.actor = {
-                name: publicationEvent.actor?.name ?? null,
-                email: publicationEvent.actor?.email ?? null,
-                githubLogin: publicationEvent.actor?.login ?? publicationEvent.actor?.githubLogin ?? null,
-                identityAssurance: derived.identityAssurance
-                  ?? ledgerIntent.actor?.identityAssurance
-                  ?? 'unavailable'
-              };
-              ledgerIntent.agent = publicationEvent.agent;
-              ledgerIntent.authorityGroup = publicationEvent.authorityGroup;
-              ledgerIntent.payload = {
-                ...(ledgerIntent.payload ?? {}),
-                lifecyclePayload: publicationEvent.payload,
-                lifecycleEvent: publicationEvent
-              };
-            }
-          }
-        }
-        // Some governed transitions legitimately mint a generation without using the ordinary
-        // publish command (currently an authority-approved intent amendment). Their durable
-        // generation receipt must bind the *finalized* lifecycle event, including the generation
-        // derived from the transition result, so this hook runs after eventFromResult and before
-        // the workflow projection is saved in the same transaction.
-        if (afterEventFinalize) {
-          await afterEventFinalize(publicationEvent, transactionContext, transitionResult);
-        }
-        // Design-source selection is lifecycle authority, not an incidental file
-        // write. Build and bind it only after the publication unit has acquired
-        // the subject lock, checked the revision, and opened its journal.
-        if (event?.type === 'artifact-generated'
-          && workflow.resolution?.designSources?.capturePhase === requestedPhase?.id) {
-          await buildDesignSourceSet(root, workflow, {
-            itemDirectory: workDir(root, config, workflow.workItem.id),
-            selectionByFileKey: requestedPhase.designSourceSelection ?? {}
-          });
-          await updateArtifactMetadata(root, config, workflow, requestedPhase);
-          // The source set is created after publishGeneration has registered the
-          // artifact. Its managed metadata therefore changes once more here;
-          // refresh that registration inside the same publication transaction so
-          // submit does not mistake Flow's own metadata update for user tampering.
-          await registerArtifact(root, workflow, path.join(
-            workDirRelative(config, workflow.workItem.id),
-            requestedPhase.requiredArtifact.path
-          ), { phaseId: requestedPhase.id, kind: requestedPhase.requiredArtifact.kind, config });
-          const designValidation = await validatePhase(root, config, workflow, requestedPhase,
-            { generation: publicationEvent.generation, transition: 'publish' });
-          if (designValidation.length) {
-            throw new SingularityFlowError(`Phase ${requestedPhase.id} design-source binding is not publishable:\n- ${designValidation.join('\n- ')}`);
-          }
-        }
-        if (event?.type === 'phase-approved') {
-          const binding = workflow.resolution?.designSources?.capturePhase === requestedPhase?.id
-            ? [...(requestedPhase.designSourceSets ?? [])]
-              .reverse().find((entry) => entry.generation === requestedPhase.generation) ?? null
-            : null;
-          if (workflow.resolution?.designSources?.capturePhase === requestedPhase?.id
-            && workflow.resolution.designSources.requireApprovedSet && !binding) {
-            throw new SingularityFlowError(
-              `Phase '${requestedPhase.id}' cannot be approved without its generation ${requestedPhase.generation} design-source set.`
-            );
-          }
-          const approval = [...(requestedPhase.approvals ?? [])].reverse()
-            .find((item) => !item.invalidatedAt && item.decision === 'approved');
-          if (approval) {
-            if (binding) approval.designSourceSet = binding;
-            if (requestedPhase.status === 'approved') {
-              await updateArtifactMetadata(root, config, workflow, requestedPhase);
-              // This hash represents the final approved artifact, including its
-              // managed approval metadata. Do not rewrite it after this point.
-              await registerApprovedSnapshot(root, config, workflow, requestedPhase);
-              await refreshSkillLifecycleArtifactIdentities(root, config, workflow, requestedPhase, {
-                stage: 'approved', decision: approval
-              });
-              // The specification index was first created at publication, before approval metadata
-              // was rendered. Rebuild it against the exact final approved bytes so downstream
-              // clause context can verify source, index and workflow anchor before injection.
-              await refreshPhaseSpecificationIndex(root, config, workflow, requestedPhase);
-              await settleRetainedPhases(root, config, workflow, approval.at);
-            }
-            await writeDecision(root, config, workflow, requestedPhase, approval);
-            // The advancing phase's interval baseline is a durable write like the three above, and
-            // it belongs here for the same reason. `approvePhase` used to write it before the unit
-            // opened, which put the baseline file inside the snapshot the rollback restores — so a
-            // failed approval left the file on disk with a workflow.json that no longer referenced
-            // it. `currentPhase` has already advanced in memory by this point, and the helper is a
-            // no-op for a phase that does not use intervals or already has an open one.
-            if (requestedPhase.status === 'approved') {
-              await ensureWorkIntervalBaseline(root, config, workflow, {
-                phaseId: workflow.currentPhase,
-                itemDirectory: workDir(root, config, workflow.workItem.id),
-                itemRelative: workDirRelative(config, workflow.workItem.id)
-              });
-            }
-          }
-        }
-        // Every publication that commits a Story as complete passes the final evaluation first, and
-        // once. It runs after every other write of the transition (approval metadata, the approved
-        // snapshot, the decision receipt), so it judges the bytes about to be committed; a refusal
-        // throws before the state is written, and the publication unit rolls back.
-        if (workflow.status === 'closed' && workflow.completion?.evaluatedAt == null) {
-          const { assertTerminalTransition } = await import('./evidence/terminal.mjs');
-          await assertTerminalTransition(root, config, workflow);
-        }
-        if (unacceptedWorkflowSnapshot) {
-          await finalizeDraftWorkflowSnapshot(root, config, workflow);
-        }
-        // The transition above moved the Story on; the ledger lists it as it is committed.
-        if (ledgerIntent) Object.assign(ledgerIntent.subject, storyLedgerSummary(workflow));
-        recordPublicationProjection(workflow, publicationEvent, ledgerIntent);
-        await saveWorkflow(root, config, workflow);
-        return { event: publicationEvent, transitionResult };
-      },
-      // Captured before the projection mutates it in place, so a publication that fails after the
-      // write leaves no record of an event that never happened — and covering every file the write
-      // touches, not only the aggregate.
-      // The captured bytes are the aggregate too, so restoring them is the whole durable undo. The
-      // in-memory object is restored separately below without re-serialising the already-correct
-      // file.
-      rollback: async (preimage, recoveryOptions = {}) => {
-        const restoration = await restorePublicationPreimage(root, preimage, {
-          subject: envelope.subject,
-          ...recoveryOptions
-        });
-        // The publication unit restores every durable Story byte, but callers may keep the same
-        // aggregate object alive (the state store, VS Code command services, and tests all do).
-        // Leaving that object mutated after a pre-commit refusal makes an immediate retry observe
-        // a generation, approval, or phase transition that never became authoritative. Restore the
-        // supplied object only from this rollback callback: it is invoked iff the durable preimage
-        // was restored. A push failure deliberately does not come through here because its exact
-        // governed commit is retained as the new stable recovery boundary.
-        restoreAggregateRecovery(workflow, workflowRecovery);
-        return restoration;
-      },
-      validate: async () => {
-        // Publication acts on errors only; its warnings were never shown.
-        const validation = await validateWorkflow(root, config, workflow, { reportWarnings: false });
-        if (!validation.valid) {
-          throw new SingularityFlowError(`Story state is invalid before publication: ${validation.errors.join(' ')}`, {
-            code: 'STORY_STATE_INVALID',
-            details: { workId: workflow.workItem.id, currentPhase: workflow.currentPhase ?? null, problems: validation.errors }
-          });
-        }
-      }
-    },
-    publication: {
-      mode: publicationMode,
-      remote: config.git?.remote ?? 'origin',
-      branch: targetBranch,
-      expectedLocalHead: governedLocalParent,
-      ...(governedPublicationAuthority ? { authority: governedPublicationAuthority } : {}),
-      ...(publicationMode !== 'off' ? { expectedRemoteSha: governedExpectedRemoteSha } : {})
-    },
-    pendingMetadata,
-    pendingRecord: () => pendingMetadata,
-    retainPendingOnSuccess: Boolean(publicationTail),
-    revisionAttestation,
-    ledger: { config: ledgerConfig, intent: ledgerIntent, intentDirectory: workDirRelative(config, workflow.workItem.id) },
-    afterOwnedWrites,
-    validateProspectiveTree: async ({ event: finalizedEvent, prospectiveTree }) => {
-      await validateDocumentPublicationTree(root, config, workflow, finalizedEvent, { prospectiveTree });
-    },
-    recoveryPreimage,
-    stabilityGuard: worktreeGuard,
-    transactionId,
-    fault
-  });
-  if (workflow[Symbol.for('singularity-flow.state-revision')]) {
-    workflow[Symbol.for('singularity-flow.state-revision')].head = result.sha;
-  }
-  let pendingCleanup = { status: 'not-required' };
-  if (result.pushed && !publicationTail) {
-    try {
-      await clearPendingPublication(root, {
-        kind: 'story', id: workflow.workItem.id,
-        legacyPath: legacyPendingPublicationPath(root, config, workflow.workItem.id)
-      });
-      pendingCleanup = { status: 'complete' };
-    } catch (error) {
-      // The exact governed commit is already created and pushed. A failure to remove its local
-      // retry marker is recoverable machine state, not a failed lifecycle mutation; throwing here
-      // invites the caller to publish the same transition again. Keep the marker for `sync` to
-      // verify and clear, and return the committed outcome with a bounded warning instead.
-      pendingCleanup = {
-        status: 'pending',
-        code: typeof error?.code === 'string' ? error.code : 'LOCAL_PENDING_CLEANUP_FAILED'
-      };
-      console.warn(
-        `Warning: commit ${result.sha.slice(0, 8)} was pushed, but its local publication marker could not be cleared. `
-        + 'Do not repeat the lifecycle action; run singularity-flow sync to verify and clear the marker.'
-      );
-    }
-  }
-  const notifications = await deliverLifecycleNotifications({
-    channels: workflow.resolution?.collaboration?.notifications ?? config.collaboration?.notifications ?? [],
-    event: result.event
-  });
-  warnNotificationFailures(notifications);
-  // After-step actions run from the actions this Story pinned, once the commit is published (or at
-  // once when publication is off). A commit that could not be pushed holds them until sync does.
-  const stepActions = await runStepActionsAfterTransition(root, workflow, {
-    event: result.event,
-    commit: result.sha,
-    remote: governedPublicationAuthority?.url ?? null,
-    published: Boolean(result.pushed) || workflowPublicationMode(config, workflow) === 'off',
-    logger: stepActionLogger(root, config, workflow)
-  });
-  const stepActionNotice = stepActionWarning(stepActions);
-  if (stepActionNotice) console.warn(`Warning: ${stepActionNotice}`);
-  return {
-    ...result, notifications, stepActions, pendingCleanup,
-    ...(revisionSelection ? { revisionSelection } : {})
-  };
-}
 
-function stepActionLogger(root, config, workflow) {
-  try { return repositoryLogger(root, config, { context: { workId: workflow?.workItem?.id ?? null } }); } catch { return null; }
-}
 
 export async function syncPublication(root, config, workflow, { fault = null, rebindRemote = null } = {}) {
   assertStoryNotArchived(root, workflow);
@@ -10308,165 +9588,3 @@ export async function syncPublication(root, config, workflow, { fault = null, re
  * the remote; only a surface that is merely *describing* state opts out, and it says so through the
  * same ledger fields every other offline reader uses.
  */
-export async function validateWorkflow(root, config, workflow, {
-  strict = false, offline = false, reportWarnings = true
-} = {}) {
-  const errors = [], warnings = []; if (!workflowBranchAllowed(workflow, branch(root))) errors.push(`Current branch ${branch(root)} is not registered for Story ${workflow.workItem.id}.`);
-  const prospective = PROSPECTIVE_SKILL_AMENDMENT.get(workflow) ?? prospectiveTestCommandAmendment(workflow);
-  const prospectiveValid = Boolean(prospective
-    && canonicalJson(prospective.reference) === canonicalJson(workflow.workflowSnapshot)
-    && prospective.policySha256 === resolutionPolicySha256(workflow.resolution));
-  const amendedRevision = Number(workflow.workflowSnapshot?.revision ?? 1) > 1;
-  let workflowSnapshotStatus = null;
-  try {
-    // An accepted amendment is authority only when its complete append-only Git chain verifies.
-    // The private prospective token applies solely to the aggregate owned by this transaction.
-    workflowSnapshotStatus = await verifyWorkflowSnapshot(root, config, workflow,
-      amendedRevision && !prospectiveValid ? { requireAccepted: true } : {});
-    if (amendedRevision && !prospectiveValid) {
-      await verifyAcceptedSkillAmendmentRevalidation(root, config, workflow,
-        workflowSnapshotStatus);
-      await verifyAcceptedTestCommandAmendment(root, config, workflow, workflowSnapshotStatus);
-    }
-    if (workflowSnapshotStatus.enrolled) {
-      const initial = initialWorkflowRecord(root, config, workflow.workItem.id);
-      const genesisReference = initial?.record?.workflowSnapshot ?? null;
-      if (genesisReference && !amendedRevision
-          && canonicalJson(genesisReference) !== canonicalJson(workflow.workflowSnapshot)) {
-        errors.push('Workflow snapshot reference differs from the immutable Story creation commit.');
-      }
-      if (amendedRevision && !prospectiveValid
-          && workflowSnapshotStatus.snapshotHash !== workflow.workflowSnapshot.snapshotHash) {
-        errors.push('Story amendment differs from its accepted snapshot lineage tip.');
-      }
-    } else {
-      warnings.push('Story has no captured WFA closure; portability is unproven.');
-    }
-  } catch (error) {
-    errors.push(`Workflow snapshot: ${error.message}`);
-  }
-  const currentPolicySha256 = resolutionPolicySha256(workflow.resolution);
-  let creationPolicySha256 = null;
-  try {
-    creationPolicySha256 = committedResolutionPolicySha256(root, config, workflow.workItem.id);
-    if (creationPolicySha256 && creationPolicySha256 !== currentPolicySha256
-        && !(amendedRevision && workflowSnapshotStatus?.enrolled)) {
-      errors.push('Resolved Story policy differs from the immutable creation commit.');
-    }
-  } catch (error) {
-    errors.push(`Story policy anchor: ${error.message}`);
-  }
-  if (workflow.resolution?.configurationSource) {
-    try {
-      const currentSource = await readConfigurationSource(root, { verify: true });
-      const pinned = workflow.resolution.configurationSource;
-      if (!currentSource || currentSource.commit !== pinned.commit
-        || currentSource.repository !== pinned.repository) {
-        const message = 'Current workspace configuration provenance differs from the accepted Story snapshot.';
-        if (workflowSnapshotStatus?.enrolled) warnings.push(message);
-        else errors.push(message);
-      } else if (pinned.filesSha256 && currentSource.filesSha256 !== pinned.filesSha256) {
-        // Only `commit` and `repository` used to be pinned, so the asset hash map could be rewritten
-        // wholesale — change `approval.minimum`, repaste its hash — and both the self-check and this
-        // comparison passed while the record still attested to the approved commit.
-        const message = 'Current workspace configuration asset set differs from the accepted Story snapshot.';
-        if (workflowSnapshotStatus?.enrolled) warnings.push(message);
-        else errors.push(message);
-      }
-    } catch (error) {
-      const message = `Current workspace configuration provenance is unavailable: ${error.message}`;
-      if (workflowSnapshotStatus?.enrolled) warnings.push(message);
-      else errors.push(message);
-    }
-  }
-  if (workflow.resolution?.workType !== workflow.workItem.workType) errors.push('Work type differs from the immutable profile snapshot.');
-  const resolvedOrder = workflow.resolution?.phases?.map((phase) => phase.id);
-  if (resolvedOrder?.length && JSON.stringify(resolvedOrder) !== JSON.stringify(workflow.phaseOrder)) errors.push('Phase order differs from the immutable profile snapshot.');
-  // A WFA-enrolled Story is interpreted from its verified, content-closed policy. Comparing it to
-  // today's mutable workspace defaults would turn an ordinary configuration refresh into a false
-  // lifecycle failure. Legacy Stories retain the old comparison because they have no closed input.
-  if (!workflowSnapshotStatus?.enrolled && config.workTypes?.[workflow.workItem.workType]) {
-    const expectedGates = resolveWorkType(config, workflow.workItem.workType).sequenceGates;
-    const pinnedGates = normalizeSequenceGates(workflow.resolution?.sequenceGates ?? {});
-    if (JSON.stringify(pinnedGates) !== JSON.stringify(expectedGates)) errors.push('Sequence gate policy differs from the immutable work-type configuration snapshot.');
-    const expectedSession = normalizeSessionPolicy(config.session ?? {});
-    const pinnedSession = normalizeSessionPolicy(workflow.resolution?.session ?? {});
-    if (JSON.stringify(pinnedSession) !== JSON.stringify(expectedSession)) errors.push('Session agent policy differs from the immutable configuration snapshot.');
-    const expectedContextPolicy = normalizeContextPolicy(config.contextPolicy ?? {}, { phaseIds: Object.keys(config.phases ?? {}) });
-    const pinnedContextPolicy = normalizeContextPolicy(workflow.resolution?.contextPolicy ?? {});
-    if (JSON.stringify(pinnedContextPolicy) !== JSON.stringify(expectedContextPolicy)) errors.push('Copilot context-boundary policy differs from the immutable configuration snapshot.');
-    const expectedTokenEconomy = normalizeTokenEconomy(config.tokenEconomy ?? {});
-    const pinnedTokenEconomy = normalizeTokenEconomy(workflow.resolution?.tokenEconomy ?? {});
-    if (JSON.stringify(pinnedTokenEconomy) !== JSON.stringify(expectedTokenEconomy)) errors.push('Token-economy policy differs from the immutable configuration snapshot.');
-  }
-  let activeCount = 0;
-  for (const phaseId of workflow.phaseOrder) {
-    const phase = workflow.phases[phaseId]; if (!phase) { errors.push(`Missing phase ${phaseId}.`); continue; }
-    if (creationPolicySha256) {
-      const pinnedPhase = workflow.resolution?.phases?.find((candidate) => candidate.id === phaseId);
-      if (!pinnedPhase) {
-        errors.push(`Phase ${phaseId} has no immutable profile snapshot.`);
-      } else if (Object.hasOwn(pinnedPhase, 'artifact')
-        && canonicalJson(currentPhasePolicy(phase))
-          !== canonicalJson(resolvedPhasePolicy(pinnedPhase, phase.order))) {
-        errors.push(`Phase ${phaseId} operational policy differs from the immutable profile snapshot.`);
-      }
-    }
-    if (['in_progress', 'awaiting_approval'].includes(phase.status)) activeCount += 1;
-    if (phase.status === 'approved' && !(await exists(path.join(root, requiredRepoPath(config, workflow, phase))))) errors.push(`Approved artifact missing: ${requiredRepoPath(config, workflow, phase)}`);
-  }
-  if (workflow.pendingDecision && workflow.status !== 'in_progress') errors.push(`A ${workflow.status} workflow cannot wait for a decision.`);
-  if (workflow.status === 'closed') { if (workflow.currentPhase !== null) errors.push('Closed workflow must have currentPhase null.'); if (activeCount) errors.push('Closed workflow cannot have an active phase.'); }
-  else if (workflow.status === 'cancelled') {
-    if (workflow.currentPhase !== null) errors.push('Cancelled workflow must have currentPhase null.');
-    if (activeCount) errors.push('Cancelled workflow cannot have an active phase.');
-    if (!workflow.cancellation?.reason?.trim()) errors.push('Cancelled workflow must record a cancellation reason.');
-    if (!workflow.cancellation?.cancelledAt || !workflow.cancellation?.cancelledBy) errors.push('Cancelled workflow must record when and by whom it was cancelled.');
-    if (!workflow.cancellation?.phase || workflow.phases[workflow.cancellation.phase]?.status !== 'cancelled') errors.push('Cancelled workflow must identify its cancelled phase.');
-  } else if (workflow.pendingDecision) {
-    // Waiting for a person: the phase before the decision is approved and stays current, and
-    // nothing is active until someone chooses what happens next.
-    if (workflow.currentPhase !== workflow.pendingDecision.after
-        || workflow.phases[workflow.pendingDecision.after]?.status !== 'approved') {
-      errors.push('A pending decision must follow the approved current phase.');
-    }
-    if (activeCount) errors.push(`A Story waiting for a decision cannot have an active phase; found ${activeCount}.`);
-  } else { if (!workflow.currentPhase) errors.push('In-progress workflow must have a current phase.'); if (activeCount !== 1) errors.push(`In-progress workflow must have exactly one active phase; found ${activeCount}.`); }
-  const active = currentPhase(workflow);
-  if (strict && active && active.status === 'awaiting_approval') {
-    if (isConvergencePhase(active)) {
-      try { await assertConvergencePublicationReady(root, config, workflow, active); }
-      catch (error) { errors.push(`Convergence publication integrity: ${error.message}`); }
-    }
-    errors.push(...await validatePhase(root, config, workflow, active, {
-      placeholders: !isConvergencePhase(active),
-      content: true
-    }));
-  }
-  // Validation reports; it does not migrate. The enforcement paths that gate a mutation still do.
-  if (await storyPublicationPending(root, config, workflow.workItem.id, { migrate: false })) errors.push('Publication is pending; run singularity-flow sync.');
-  const ledgerConfig = normalizeLedgerConfig(workflow.resolution?.ledger ?? config.ledger ?? {});
-  // Only an enforced ledger turns its health into errors. A caller that discards warnings
-  // (publication) gets nothing from the all-Stories health report otherwise: every remote Story
-  // branch's intents, the whole ledger verified and its whole log read, about 33 Git processes per
-  // publication. It keeps the remote state refresh the report starts with.
-  const ledgerBlocks = ledgerConfig.enforcement === 'required' || ledgerConfig.behind === 'block';
-  if (ledgerConfig.enabled && !reportWarnings && !ledgerBlocks) {
-    try { await refreshLedgerRemoteView(root, ledgerConfig, { offline }); } catch { /* only ever a warning */ }
-  } else if (ledgerConfig.enabled) {
-    try {
-      const ledger = await ledgerStatus(root, ledgerConfig, { offline });
-      const messages = [];
-      if (!ledger.initialized) messages.push(`Capability ledger branch '${ledgerConfig.branch}' is not initialized.`);
-      if (ledger.verification && !ledger.verification.valid) messages.push(...ledger.verification.errors.map((message) => `Capability ledger: ${message}`));
-      if (ledger.pending?.length) messages.push(`${ledger.pending.length} durable ledger intent(s) are pending reconciliation.`);
-      if (ledgerConfig.enforcement === 'required' || ledgerConfig.behind === 'block') errors.push(...messages);
-      else warnings.push(...messages);
-    } catch (error) {
-      const message = `Capability ledger could not be verified: ${error.message}`;
-      if (ledgerConfig.enforcement === 'required' || ledgerConfig.behind === 'block') errors.push(message);
-      else warnings.push(message);
-    }
-  }
-  return { valid: errors.length === 0, errors, warnings };
-}

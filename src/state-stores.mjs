@@ -22,6 +22,7 @@ import {
 } from './workspace-context.mjs';
 import { loadSession } from './session.mjs';
 import { stateFingerprint } from './util.mjs';
+import { StoryPublicationStore } from './story-publication-store.mjs';
 
 
 
@@ -33,10 +34,9 @@ import { stateFingerprint } from './util.mjs';
  * orchestrate multiple state planes depend on this surface instead of duplicating
  * filesystem and publication details.
  */
-export class StoryStateStore {
+export class StoryStateStore extends StoryPublicationStore {
   constructor(root, definition) {
-    this.root = root;
-    this.definition = definition;
+    super(root, definition);
   }
 
   async load(id) {
@@ -50,23 +50,6 @@ export class StoryStateStore {
   resolve(reference, options) { return resolveWorkItem(this.root, this.definition, reference, options); }
   /** Compatibility path for draft authoring; new governed mutations use transact(). */
   saveDraft(workflow) { return saveWorkflow(this.root, this.definition, workflow); }
-  publish(workflow, event, message, paths = [], options = {}) {
-    return commitAndPublish(this.root, this.definition, workflow, event, message, paths, options);
-  }
-  async transact(workflow, event, message, transition, { paths = [], ...options } = {}) {
-    if (typeof transition !== 'function') throw new TypeError('Story transaction requires a transition function.');
-    const prior = structuredClone(workflow);
-    let value;
-    const publication = await this.publish(workflow, event, message, paths, {
-      ...options,
-      rollbackWorkflow: prior,
-      beforeStateWrite: async (...publicationContext) => {
-        value = await transition(workflow, ...publicationContext);
-        return value;
-      }
-    });
-    return { value, publication };
-  }
   sync(workflow) { return syncPublication(this.root, this.definition, workflow); }
   validate(workflow, options) { return validateWorkflow(this.root, this.definition, workflow, options); }
 }
@@ -167,9 +150,7 @@ export async function saveInitiativeDraft(root, portfolio, initiative) {
   return new InitiativeStateStore(root, portfolio).saveDraft(initiative);
 }
 
-export async function transactStory(root, definition, workflow, event, message, transition, options = {}) {
-  return new StoryStateStore(root, definition).transact(workflow, event, message, transition, options);
-}
+export { transactStory } from './story-publication-store.mjs';
 
 export async function transactInitiative(root, portfolio, initiative, event, message, transition, options = {}) {
   return new InitiativeStateStore(root, portfolio).transact(initiative, event, message, transition, options);

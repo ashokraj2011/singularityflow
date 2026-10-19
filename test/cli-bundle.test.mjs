@@ -70,7 +70,7 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   t.after(() => rm(outdir, { recursive: true, force: true }));
   const { manifest } = await buildCliBundle({ outdir });
   assert.equal(manifest.format, 2);
-  assert.ok(manifest.outputs.length <= 20, 'coarse chunks, never hundreds of module files');
+  assert.ok(manifest.outputs.length <= 21, 'bounded coarse chunks, including one narrow publication writer');
   const closure = file => {
     const found = new Set();
     const visit = name => { if (found.has(name)) return; found.add(name);
@@ -104,6 +104,12 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   }
   assert.ok(closure('cold-narrow-reads.mjs').reduce((sum, item) => sum + item.bytes, 0) < 4.25 * 1024 * 1024,
     'strict next-step reads must not inherit the broad phase-review closure');
+  const publicationClosure = closure('cold-publication.mjs');
+  assert.ok(publicationClosure.length && publicationClosure.reduce((sum, item) => sum + item.bytes, 0) < 6 * 1024 * 1024,
+    'first publication must use a bounded writer closure');
+  for (const name of ['cold-compatibility.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs', 'cold-intake.mjs', 'cold-models.mjs']) {
+    assert.ok(!publicationClosure.some(item => item.file === name), `publication must not statically reach ${name}`);
+  }
   const reviewCode = await readFile(path.join(outdir, 'cold-narrow-reads.mjs'), 'utf8');
   assert.match(reviewCode, /source-review-agent-context/u,
     'source review context must use the narrow reader slot, not the publication chunk');

@@ -567,6 +567,33 @@ async function durableExclusive(file, bytes, runtime) {
 }
 
 /** Constructing this local journal never activates execution or grants publication authority. */
+async function scopedJournalDirectory(root, scope, { create = false, platform, windowsAcl }) {
+  identifier(scope.workId, 'Work ID'); identifier(scope.phaseId, 'Phase ID');
+  if (!Number.isSafeInteger(scope.phaseGeneration) || scope.phaseGeneration < 0) fail('REV_LOOP_INVALID', 'Phase generation must be non-negative.');
+  const scopeHash = createHash('sha256').update(canonicalJson(scope)).digest('hex');
+  const common = await realpath(gitCommonDir(root));
+  if (!(await lstat(common)).isDirectory()) fail('REV_LOOP_UNSAFE', 'Git common directory is unsafe.');
+  let directory = common;
+  for (const [index, part] of ['singularity-flow', 'revisions', scopeHash, 'journal'].entries()) {
+    const parent = directory;
+    directory = path.join(directory, part);
+    const exists = await privateDirectory(directory, { create, platform, windowsAcl, enforceMode: index > 0 });
+    if (!exists) return null;
+    if (exists.created) await flushDirectory(parent, platform);
+  }
+  return directory;
+}
+
+/** Absence-only probe. Existing entries still require the complete journal/producer verifier. */
+export async function hasRevisionLoopJournal(root, scope, { platform = process.platform, windowsAcl = secureWindowsAuthAcl } = {}) {
+  const directory = await scopedJournalDirectory(root, scope, { platform, windowsAcl });
+  if (!directory) return false;
+  const names = await readdir(directory);
+  if (names.length > MAX_ENTRIES * 2) fail('REV_LOOP_LIMIT', 'Loop journal exceeds its entry limit.');
+  for (const name of names) if (!TEMP.test(name) && !FILE.test(name)) fail('REV_LOOP_CORRUPT', 'Loop journal contains an unexpected entry.');
+  return names.some(name => FILE.test(name));
+}
+
 export function createRevisionLoopStore({
   root, workId, phaseId, phaseGeneration, assertCurrentContext, verifyRetainedCandidate,
   verifyCurrentPrecheck, producer,
@@ -581,22 +608,8 @@ export function createRevisionLoopStore({
   validateProducer(producer, 'Loop-store producer');
   producer = JSON.parse(JSON.stringify(producer));
   const runtime = { platform, windowsAcl };
-  const scopeHash = createHash('sha256').update(canonicalJson(scope)).digest('hex');
-
   async function journalDirectory(create = false) {
-    const common = await realpath(gitCommonDir(root));
-    if (!(await lstat(common)).isDirectory()) fail('REV_LOOP_UNSAFE', 'Git common directory is unsafe.');
-    let directory = common;
-    for (const [index, part] of ['singularity-flow', 'revisions', scopeHash, 'journal'].entries()) {
-      const parent = directory;
-      directory = path.join(directory, part);
-      const exists = await privateDirectory(directory, {
-        create, platform, windowsAcl, enforceMode: index > 0
-      });
-      if (!exists) return null;
-      if (exists.created) await flushDirectory(parent, platform);
-    }
-    return directory;
+    return scopedJournalDirectory(root, scope, { create, platform, windowsAcl });
   }
   async function entries() {
     const directory = await journalDirectory();

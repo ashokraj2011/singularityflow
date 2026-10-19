@@ -4,10 +4,13 @@ import path from 'node:path';
 import { realpathSync } from 'node:fs';
 
 export default async function* reporter(events) {
-  const root = realpathSync(process.env.SINGULARITY_FLOW_NODE_TEST_ROOT ?? process.cwd());
+  // The JS symlink walker preserves Windows 8.3 components; the native filesystem
+  // canonicalizer also expands those aliases so root and event paths share one namespace.
+  const root = realpathSync.native(process.env.SINGULARITY_FLOW_NODE_TEST_ROOT ?? process.cwd());
   const stacks = new Map();
+  const files = new Map();
   const occurrences = [];
-  let incomplete = false;
+  const incomplete = new Set();
   async function* observe() {
     for await (const event of events) {
       const data = event.data ?? {};
@@ -18,12 +21,23 @@ export default async function* reporter(events) {
         stacks.set(data.file, stack);
       }
       if (['test:pass', 'test:fail'].includes(event.type) && data.details?.type !== 'suite') {
-        const file = data.file ? path.relative(root, data.file).replaceAll('\\', '/') : '';
+        // Windows temp/cwd paths can use an 8.3 alias while the root is canonical. Resolve
+        // both sides before containment/identity checks; outside or missing files still fail.
+        // One resolution per reported file avoids another filesystem read per test case.
+        if (data.file && !files.has(data.file)) {
+          try { files.set(data.file, path.relative(root, realpathSync.native(data.file)).replaceAll('\\', '/')); }
+          catch { files.set(data.file, ''); }
+        }
+        const file = files.get(data.file) ?? '';
         const ancestors = (stacks.get(data.file) ?? []).slice(0, data.nesting);
-        if (!file || file === '..' || file.startsWith('../') || path.isAbsolute(file)
-            || !Number.isInteger(data.line) || data.line < 1 || typeof data.name !== 'string'
-            || ancestors.length !== data.nesting || ancestors.some((name) => typeof name !== 'string')
-            || occurrences.length >= 100_000) incomplete = true;
+        const issues = [];
+        if (!file) issues.push(!data.file ? 'file-missing' : String(data.file).startsWith('file:') ? 'file-url-unresolved' : 'file-unresolved');
+        else if (file === '..' || file.startsWith('../') || path.isAbsolute(file)) issues.push('file-outside-root');
+        if (!Number.isInteger(data.line) || data.line < 1) issues.push('source-line-missing');
+        if (typeof data.name !== 'string') issues.push('name-invalid');
+        if (ancestors.length !== data.nesting || ancestors.some((name) => typeof name !== 'string')) issues.push('ancestry-mismatch');
+        if (occurrences.length >= 100_000) issues.push('occurrence-limit');
+        if (issues.length) for (const issue of issues) incomplete.add(issue);
         else occurrences.push({ file, line: data.line, name: data.name, ancestorTitles: ancestors,
           outcome: data.skip || data.todo ? 'skipped' : event.type === 'test:pass' ? 'passed' : 'failed',
           durationMs: data.details?.duration_ms ?? null });
@@ -34,5 +48,6 @@ export default async function* reporter(events) {
   if (process.env.SINGULARITY_FLOW_NODE_TEST_TAP === '0') {
     for await (const _event of observe()) { /* The configured reporter emits TAP. */ }
   } else yield* tap(observe());
-  yield `# sflow-node-observation-v1 ${JSON.stringify({ complete: !incomplete, occurrences })}\n`;
+  yield `# sflow-node-observation-v1 ${JSON.stringify({ complete: incomplete.size === 0, occurrences,
+    ...(incomplete.size ? { issues: [...incomplete] } : {}) })}\n`;
 }

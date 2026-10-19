@@ -21,7 +21,7 @@ const FAMILIES = Object.freeze([
   // phase review caused every nextsteps call to load document, receipt and lifecycle writers.
   ['narrow-reads', ['commands/nextsteps.mjs', 'commands/status-details.mjs',
     'accepted-story-execution.mjs', 'story-workflow-read.mjs',
-    'commands/review-source.mjs', 'source-review-agent-context.mjs']],
+    'commands/review-source.mjs', 'source-review-agent-context.mjs', 'story-publication-pending.mjs']],
   ['light', ['commands/about.mjs', 'commands/pause.mjs', 'commands/workspace.mjs', 'commands/capability.mjs',
     'commands/intake-entry.mjs', 'commands/snapshot.mjs', 'commands/phase.mjs', 'agent-output.mjs', 'agent-catalog-presentation.mjs',
     'commands/logs.mjs', 'commands/help.mjs', 'commands/explain.mjs']],
@@ -32,6 +32,9 @@ const FAMILIES = Object.freeze([
     'accounting-projection.mjs',
     'commands/skill.mjs', 'commands/skill-master.mjs', 'commands/instruction.mjs', 'asset-catalog.mjs',
     'configuration-drafts.mjs', 'logging.mjs', 'harness-events.mjs']],
+  // Preserve existing read-family ownership before claiming the focused mutation closure.
+  // One additional coarse file avoids loading the legacy generation/model engine on first writes.
+  ['publication', ['story-publication-store.mjs', 'story-publication-service.mjs']],
   ['hook-context', ['commands/phase-show.mjs', 'commands/shared/session-repository-authority.mjs', 'agent-hooks.mjs',
     'accepted-story-execution.mjs', 'delivery-evidence.mjs', 'worktree-fingerprint.mjs']],
   ['session', ['commands/session-entry.mjs', 'commands/session-open.mjs', 'commands/session-open-local.mjs',
@@ -117,7 +120,7 @@ export async function buildColdCliBundle({ root, outdir, toolRoot, entries, exte
     for (const chunk of output) {
       if (chunk.type !== 'chunk' || !/^[a-zA-Z0-9_-]+\.mjs$/u.test(chunk.fileName)) throw new Error('Unsupported cold bundle output.');
       // No module-by-module deployment: the complete installed engine has a small fixed envelope.
-      if (output.length > 20) throw new Error(`Cold bundle produced ${output.length} files; maximum is 20.`);
+      if (output.length > 21) throw new Error(`Cold bundle produced ${output.length} files; maximum is 21.`);
       // Rollup owns identity/chunking; esbuild only strips whitespace/comments and keeps the same
       // Node 20 syntax target as the monolithic builder. It never re-bundles or duplicates modules.
       const transformed = await transform(chunk.code, { format: 'esm', platform: 'node', target: 'node20',

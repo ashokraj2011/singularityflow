@@ -115,7 +115,13 @@ function itemDecidedBy(workflow, options) {
 }
 
 const textNeed = (value, limits) => ({ default: value, minimum: limits.minimum, maximum: limits.maximum });
-const expiryNeed = (at) => ({ default: dayAfter(at, DEFAULT_RISK_DAYS), latest: dayAfter(at, MAX_RISK_DAYS) });
+/**
+ * A date from tomorrow to `latest`, the last day its own record command accepts: an accepted upstream
+ * issue risk ends at the start of its day (at most 90 days ahead), a test-run risk at the end
+ * of its day, so its last day is one earlier.
+ */
+const expiryNeed = (at, { endOfDay = false } = {}) => ({ default: dayAfter(at, DEFAULT_RISK_DAYS),
+  latest: dayAfter(at, endOfDay ? MAX_RISK_DAYS - 1 : MAX_RISK_DAYS) });
 
 function option(workflow, context, { id, label, recommended = false, effects, needs, words }) {
   const ordered = [...effects].sort((left, right) => EFFECT_ORDER.indexOf(left.kind) - EFFECT_ORDER.indexOf(right.kind));
@@ -317,7 +323,7 @@ function testRiskItem(workflow, context, risk) {
       effects: [{ kind: 'test-run-risk', phase: risk.phase, commandId: risk.commandId, argvSha256: risk.argvSha256 ?? null, attemptId: risk.attemptId ?? null }],
       needs: { cause: textNeed(`No test ran: the latest run of ${risk.commandId} ${stopped} before any test executed${exit}.`, CAUSE),
         reason: textNeed(`The tests of ${risk.commandId} run again at every publication and submission; this environment cannot run them now.`, REASON),
-        expires: expiryNeed(context.at) }
+        expires: expiryNeed(context.at, { endOfDay: true }) }
     })],
     details: { phase: risk.phase, commandId: risk.commandId, attemptId: risk.attemptId ?? null, status: risk.status, exitCode: risk.exitCode ?? null,
       commands: [`singularity-flow decision test-risk ${workflow.workItem.id} --phase ${risk.phase} --command ${risk.commandId} --cause "<what stops it>" --reason "<why>" --expires <YYYY-MM-DD>`] }
@@ -382,10 +388,12 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   };
 }
 
-function validDate(value, at) {
-  if (!/^\d{4}-\d{2}-\d{2}$/u.test(String(value ?? ''))) return false;
-  const end = Date.parse(`${value}T23:59:59.999Z`);
-  return Number.isFinite(end) && end > Date.parse(at) && end - Date.parse(at) <= MAX_RISK_DAYS * DAY;
+/** A real YYYY-MM-DD day after today and no later than the option's own last day. */
+function validDate(value, at, latest) {
+  const text = String(value ?? '');
+  const day = /^\d{4}-\d{2}-\d{2}$/u.test(text) ? Date.parse(`${text}T00:00:00.000Z`) : Number.NaN;
+  if (!Number.isFinite(day) || new Date(day).toISOString().slice(0, 10) !== text) return false;
+  return text > String(at).slice(0, 10) && text <= latest;
 }
 
 /**
@@ -462,8 +470,8 @@ export function decisionRecordPlan(packet, answers, { at }) {
     }
     if (selected.needs.expires) {
       const expires = String(answers.expires.get(item.id) ?? selected.needs.expires.default).trim();
-      if (!validDate(expires, at)) {
-        refused(`The date for ${item.id} must be YYYY-MM-DD, after today and at most ${MAX_RISK_DAYS} days ahead (${selected.needs.expires.latest} at the latest).`,
+      if (!validDate(expires, at, selected.needs.expires.latest)) {
+        refused(`The date for ${item.id} must be YYYY-MM-DD, after today and no later than ${selected.needs.expires.latest}.`,
           'DECISIONS_ANSWER_INVALID', { item: item.id });
       }
       values.expires = expires;

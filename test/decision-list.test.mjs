@@ -23,6 +23,8 @@ import { workflowNextSteps } from '../src/nextsteps.mjs';
 import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
 import { validateSflowExecutionCommand } from '../src/safe-command-guidance.mjs';
 import { upstreamIssueStates } from '../src/upstream-routes.mjs';
+import { decideUpstreamIssue } from '../src/upstream-issues.mjs';
+import { recordTestRunRisk } from '../src/test-run-risk.mjs';
 
 const AT = '2026-10-19T09:00:00.000Z';
 const RECORD_ID = /\b(?:UPI|ERU|TRR|CR|PRC|FAM)-\d{3}\b|\bTA-[a-f0-9]{20}\b|\s--[a-z]/u;
@@ -197,12 +199,42 @@ test('the record plan uses the shown defaults, refuses what the person may not d
   const refuse = (answers, pattern) => assert.throws(() => decisionRecordPlan(packet, parseDecisionAnswers(answers), { at: AT }),
     (error) => error.code === 'DECISIONS_ANSWER_INVALID' && pattern.test(error.message));
   refuse({ choose: ['d1=approve'] }, /d1 has no option 'approve'; its options are reuse, accept-risk, dismiss, return/u);
-  refuse({ choose: ['d1=accept-risk'], expires: ['d1=2027-06-01'] }, /at most 90 days ahead/u);
+  refuse({ choose: ['d1=accept-risk'], expires: ['d1=2027-06-01'] }, /after today and no later than 2027-01-17/u);
   refuse({ choose: ['d1=accept-risk'], reason: ['d1=too short'] }, /20 to 1000 characters/u);
   refuse({ choose: ['d1=dismiss'], expires: ['d1=2026-11-01'] }, /takes no --expires/u);
   refuse({ reason: ['d1=A reason with no choice behind it at all.'] }, /not chosen with --choose/u);
   assert.throws(() => parseDecisionAnswers({ choose: ['d1=reuse', 'd1=dismiss'] }), /names d1 twice/u);
   assert.throws(() => parseDecisionAnswers({ choose: ['UPI-002=dismiss'] }), /not an item of the list/u);
+});
+
+test('the last day an option offers is one its own record command accepts, at any time of day', () => {
+  const argvSha256 = 'b'.repeat(64);
+  for (const at of [AT, '2026-10-19T00:00:00.000Z', '2026-10-19T23:59:59.000Z']) {
+    const workflow = story();
+    const packet = decisionPacket(workflow, facts(workflow, { testRisks: [{ phase: 'release', commandId: 'unit', attemptId: null, status: 'blocked', exitCode: 1, argvSha256 }] }),
+      { authorities: workflow.resolution.approvalAuthorities, actor, at });
+    const gapItem = packet.items.find((item) => item.kind === 'conformance-gap');
+    const riskItem = packet.items.find((item) => item.kind === 'test-run-risk');
+    const accept = gapItem.options.find((entry) => entry.id === 'accept-risk');
+    const risk = riskItem.options[0];
+    // An accepted issue risk ends at the start of its day; a test-run risk at the end of its day.
+    assert.equal(accept.needs.expires.latest, '2027-01-17', at);
+    assert.equal(risk.needs.expires.latest, '2027-01-16', at);
+    for (const [item, option, latest, after] of [[gapItem, accept, '2027-01-17', '2027-01-18'], [riskItem, risk, '2027-01-16', '2027-01-17']]) {
+      const answers = (expires) => parseDecisionAnswers({ choose: [`${item.id}=${option.id}`], expires: [`${item.id}=${expires}`] });
+      const plan = decisionRecordPlan(packet, answers(latest), { at });
+      assert.equal(plan.steps.find((step) => step.item === item.id)?.values.expires, latest, `${at} ${option.id}`);
+      assert.throws(() => decisionRecordPlan(packet, answers(after), { at }), new RegExp(`no later than ${latest}`, 'u'));
+      assert.throws(() => decisionRecordPlan(packet, answers(at.slice(0, 10)), { at }), /after today/u, 'today is not a future day');
+      assert.throws(() => decisionRecordPlan(packet, answers('2026-11-31'), { at }), /YYYY-MM-DD/u, 'a day that does not exist');
+    }
+    // Each writer accepts the last day the list offered for it.
+    decideUpstreamIssue(structuredClone(workflow), { issue: 'UPI-002', outcome: 'accept-risk', reason: 'Accepted until the follow-up records its run.',
+      expiresAt: accept.needs.expires.latest, actor: 'reviewer@example.test', authorityGroup: 'engineering-reviewers', at });
+    recordTestRunRisk(structuredClone(workflow), { phaseId: 'release', attempt: null, commandId: 'unit', argvSha256,
+      cause: 'The runner image has no browser.', reason: 'The tests run again at every publication and submission.',
+      expires: risk.needs.expires.latest, actor: 'reviewer@example.test', authorityGroup: 'engineering-reviewers', at });
+  }
 });
 
 test('a failure part way names exactly what was recorded and what remains', async () => {

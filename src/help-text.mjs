@@ -88,9 +88,10 @@ Usage:
   singularity-flow env bind <ENVIRONMENT> --stdin [--json]
   singularity-flow env unbind <ENVIRONMENT> [--json]
   singularity-flow app plan [START-ID] [--capability ID] [--json]
-  singularity-flow app start [START-ID] [--capability ID] [--environment ENV] [--expect-command sha256:DIGEST]
+  singularity-flow app start [START-ID] [--capability ID] [--environment ENV] [--expect-command sha256:DIGEST] [--debug]
   singularity-flow app status [--capability ID] [--json]
   singularity-flow app stop [START-ID] [--capability ID] [--json]
+  singularity-flow app suggest [--capability ID] [--json]
   singularity-flow tests plan [--capability ID | --work-id ID [--phase PHASE]] [--command ID]... [--json]
   singularity-flow tests run [--capability ID | --work-id ID [--phase PHASE]] [--command ID]... [--environment ENV] [--expect-command sha256:DIGEST]... [--json]
   singularity-flow tests summary [--capability ID | --work-id ID [--phase PHASE]] [--run RUN-ID] [--json]
@@ -1069,7 +1070,7 @@ Usage:
   singularity-flow capability of <REPOSITORY-ID> [--json]
   singularity-flow capability add|set <CAPABILITY-ID> [--name TEXT] [--kind collection|delivery] [--parent ID]
     [--repository ID] [--metadata KEY=VALUE]... [--jira-project KEY] [--jira-board TEXT]
-    [--app-id ID] [--teams A,B] [--owns A,B] [--json]
+    [--app-id ID] [--teams A,B] [--owns A,B] [--application-file FILE] [--json]
   singularity-flow capability remove <CAPABILITY-ID> [--reparent-children-to ID] [--json]
     (add, set, and remove author only the checkout; use map or remote edit to publish)
   singularity-flow capability map <CAPABILITY-ID> [--lead URL] [--repository URL]... [--name TEXT]
@@ -1119,6 +1120,7 @@ Usage:
     [--auto-eligibility inherit|disabled|plan-only|bounded]
     [--auto-protected-scope block|allow]
     [--auto-maximum-touched-paths N] [--auto-maximum-concurrent-flights N]
+    [--application-file FILE]   (the whole application block, e.g. app suggest's applicationDraft)
     [--json]   (no checkout needed)
   Capability parents are optional. Omit --parent to create a top-level capability; clear it in the
   VS Code capability designer to move an existing capability back to the top level.

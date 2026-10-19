@@ -5,6 +5,8 @@ aliases:
   - run-app
   - app
   - local-integration
+  - debug-app
+  - run-configurations
 related:
   - environment-bindings
   - capability-management
@@ -21,9 +23,17 @@ Use this topic when you want to run a capability's application on your machine, 
 
 An entry may list `environments` from `singularity/environments.yml`; the first is the default. Their values are given to the started process only, and only when the capability policy `localIntegrationEvidence` is `allowed`. With the policy `off` (the default) such an entry is refused before anything runs.
 
+## IDE-style run configurations
+
+Start entries follow the run configurations people already keep in IntelliJ, PyCharm, WebStorm, GoLand, Rider and VS Code.
+
+- **Arguments per environment.** `arguments: { dev: [-Dspring-boot.run.profiles=dev], qa: [...] }` appends a list (1 to 64 shell-free strings) to `argv` for that environment only; each key must be one of the entry's `environments`. `app plan` shows the resolved argv per environment, and the command identity (`commandSha256`) covers it, so a changed argument asks for confirmation again. A long or machine-specific option set may live in an argument file in a `localFiles` folder, for example `java @resources/dev/jvm.args`.
+- **Debug start.** `debug: { runtime: java|python|node|go|dotnet, port, suspend }` (ports default to java 5005, python 5678, node 9229, go 2345; `suspend` is for java and node). `singularity-flow app start <ID> --debug` adds the runtime's debugger on `127.0.0.1` only: the JDWP agent after `java`, merged into Maven's `-Dspring-boot.run.jvmArguments`, or added to Gradle's `bootRun`/`run` task by a private init script (Gradle's own `--debug-jvm` is refused: it binds every interface); `python -m debugpy --listen 127.0.0.1:PORT` before the script or module (`uvicorn` and other console scripts run as their module, Django's `runserver` gets `--noreload`); `--inspect=127.0.0.1:PORT` after `node`, or npm's own `node-options` setting for `npm`, `npx` and `pnpm` scripts so the debugger reaches the application and not the package manager (`yarn` is refused); `dlv debug … --headless --listen=127.0.0.1:PORT` for `go run`; nothing for `dotnet`, whose pid `app status` reports for attaching. It prints `Debugger listening at 127.0.0.1:<port>` once the port accepts, then waits for readiness as usual; `app status` reports `debug: { runtime, port, listening }`. An entry may instead give `debug.argv` (a full replacement), `debug.arguments` (appended) or `debug.environment` (only `NODE_OPTIONS`, `JAVA_TOOL_OPTIONS` or `JDK_JAVA_OPTIONS`, set to the debugger flag alone). Every debug address must be loopback: `0.0.0.0`, `*`, `::` or another host anywhere in the debug arguments is refused when the map is read.
+- **Suggestions.** `singularity-flow app suggest [--json]` reads JetBrains `.run/*.run.xml` and `.idea/runConfigurations/*.xml` (Application, Spring Boot, Maven, Gradle, Python, Django server, Node.js, npm, Go, Rider), VS Code `.vscode/launch.json` (with comments), .NET `Properties/launchSettings.json`, and the platform's own markers where no configuration covers a directory (package.json scripts, the Spring Boot Maven or Gradle plugin, `manage.py`, a FastAPI app, a Go `main` package, an ASP.NET project). IDE-only launches become build-tool launches that run from a terminal (an IntelliJ Spring Boot configuration becomes the Maven or Gradle run, a WebStorm npm configuration `npm run <script>`), configurations that differ only by environment become one entry with `arguments` per declared environment, and the URL and readiness are guessed (`/actuator/health` when Spring Boot Actuator is a dependency). Variables become environments.yml names: a name or value that looks secret becomes a `secret` name with no value, and a secret on the command line is removed and named instead. Nothing is written: the output carries an `applicationDraft` for `singularity-flow capability set <ID> --application-file <FILE>` (or `capability edit <ID> --lead <URL> --application-file <FILE> --mode set` for a proposal) and an `environmentsDraft` for the configuration proposal.
+
 ## Use it from each surface
 
-- **Shell:** `singularity-flow app plan`, `singularity-flow app start [ID] [--environment ENV]`, `singularity-flow app status`, `singularity-flow app stop [ID]`; `singularity-flow tests plan`, `singularity-flow tests run [--command ID] [--environment ENV]` and `singularity-flow tests summary`.
+- **Shell:** `singularity-flow app plan`, `singularity-flow app start [ID] [--environment ENV] [--debug]`, `singularity-flow app status`, `singularity-flow app stop [ID]`, `singularity-flow app suggest`; `singularity-flow tests plan`, `singularity-flow tests run [--command ID] [--environment ENV]` and `singularity-flow tests summary`.
 - **VS Code:** the capability page runs `app start` as a task, reads `app status --json`, and opens the test summary from `tests summary --json`.
 - **Copilot:** run `app plan`, `app start` and `tests run` instead of guessing a command; Copilot never runs `env bind`.
 
@@ -49,6 +59,8 @@ A test command linked to an environment (through `checks` in `environments.yml`,
 - If it says an environment is not bound, bind it with `env bind <ENV> --stdin` and retry.
 - If it says the entry was not ready in time, check the URL and readiness rule in `app plan`; the process tree was stopped.
 - If it says the entry is already running, stop it with `app stop` first.
+- If `app start --debug` says debugpy or dlv is missing, install it yourself with the command it names (`pip install debugpy`, or Delve), then retry; if it says the debug port is in use, stop what listens there or set `debug.port`.
+- If `app suggest` skips a configuration, its note says why: a path outside the repository, an IDE-only macro such as `$USER_HOME$`, a type it does not translate, or a file that is malformed or larger than 256 KiB.
 
 ## Related topics
 

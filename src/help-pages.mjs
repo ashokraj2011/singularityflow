@@ -1247,7 +1247,7 @@ const PAGES = Object.freeze({
     seeAlso: ['approve', 'reopen', 'submit']
   },
   app: {
-    summary: 'Start, check and stop the application a delivery capability declares, from VS Code, Copilot or the Shell.',
+    summary: 'Start (or debug), check and stop the application a delivery capability declares, and suggest entries from IDE run configurations.',
     description: [
       'Reads application.start from singularity/capabilities.yml (changed through the reviewed capability proposal).',
       'Each start entry is a shell-free argv run from a repository-relative working directory, a loopback URL',
@@ -1260,20 +1260,31 @@ const PAGES = Object.freeze({
       'An entry may list environments from singularity/environments.yml (the first is the default; pick one with',
       '--environment). Their bound values are given to that process only, and only when the capability policy',
       'localIntegrationEvidence is allowed; output is shown with every bound secret replaced by [redacted:NAME].',
-      'Values are bound by the person with env bind <ENV> --stdin from their own secret helper, never here.'
+      'Values are bound by the person with env bind <ENV> --stdin from their own secret helper, never here.',
+      'An entry may add arguments per environment (arguments: { qa: [...] }, appended to argv) and a debug block',
+      '(runtime java|python|node|go|dotnet, port, suspend). app start --debug adds the runtime\'s debugger on',
+      '127.0.0.1 only (JDWP for java, Maven jvmArguments or a private Gradle init script; debugpy; --inspect, or npm\'s',
+      'node-options for npm/npx/pnpm; dlv for go run; nothing for dotnet, attach to the pid) and prints',
+      '"Debugger listening at 127.0.0.1:<port>" once the port accepts. Missing debugpy or dlv is a coded refusal',
+      'naming the install command. app suggest reads JetBrains .run/.idea run configurations, VS Code launch.json,',
+      '.NET launchSettings.json and platform markers, and prints terminal-runnable start entries with an application',
+      'draft (for capability set|edit --application-file) and environments.yml additions; secrets are names only.'
     ],
     options: [
       ['START-ID', 'The start entry; optional when the capability declares exactly one.'],
       ['--capability ID', 'The delivery capability; by default the one that owns this checkout.'],
       ['--environment ENV', 'app start only: one of the entry\'s environments; the first is the default.'],
       ['--expect-command sha256:DIGEST', 'app start only: refuse (APP_COMMAND_CHANGED) unless the entry still has the commandSha256 app plan showed.'],
-      ['--json', 'plan, status and stop: machine-readable output (sflow-app-plan, sflow-app-status).']
+      ['--debug', 'app start only: start the entry under its declared debugger, listening on 127.0.0.1 only.'],
+      ['--json', 'plan, status, stop and suggest: machine-readable output (sflow-app-plan, sflow-app-status, sflow-app-suggestions).']
     ],
     examples: [
       ['singularity-flow app plan --json', 'Shows each start entry, its environments and their binding status.'],
       ['singularity-flow app start web --environment qa', 'Starts web with the qa values, waits until it answers, and stays attached.'],
       ['singularity-flow app status --json', 'Says whether web is started and answering at its URL.'],
-      ['singularity-flow app stop web', 'Stops the process tree app start recorded for web.']
+      ['singularity-flow app stop web', 'Stops the process tree app start recorded for web.'],
+      ['singularity-flow app start api --debug', 'Starts api with its debugger on 127.0.0.1 and says when it listens.'],
+      ['singularity-flow app suggest --json', 'Drafts start entries from the IDE run configurations in this checkout; writes nothing.']
     ],
     seeAlso: ['env', 'capability', 'precheck', 'tests']
   },

@@ -8,6 +8,7 @@
  * `app stop` find exactly the processes `app start` started, and nothing else.
  */
 import { spawn, spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
@@ -33,7 +34,8 @@ export function appRecordPath(root, capabilityId, startId) {
 export function processStartIdentity(pid, { platform = process.platform, spawnSyncCommand = spawnSync } = {}) {
   if (platform === 'win32' || !Number.isInteger(pid) || pid <= 0) return null;
   try {
-    const result = spawnSyncCommand('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', timeout: 2_000 });
+    // The system ps, never one a checkout or PATH entry could shadow.
+    const result = spawnSyncCommand(existsSync('/bin/ps') ? '/bin/ps' : '/usr/bin/ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', timeout: 2_000 });
     const value = String(result.stdout ?? '').trim();
     return result.status === 0 && value ? value : null;
   } catch { return null; }

@@ -258,7 +258,7 @@ test('policy allowed: runs get the values in the child only, redacted, labelled 
 
   // Every surface shows the label: the summary, the approval page data and the evidence matrix.
   const summary = repo.sflowJson('tests', 'summary', '--work-id', 'QF-1', '--phase', 'implement').value;
-  assert.match(summary.run.label, /Governed run at submission/u);
+  assert.match(summary.run.label, /Run by submission/u);
   const command = summary.commands.find((entry) => entry.id === 'integration-tests');
   assert.equal(command.evidenceClass, 'local-integration');
   assert.equal(command.environment, 'qa');

@@ -23,7 +23,7 @@ An entry may list `environments` from `singularity/environments.yml`; the first 
 
 ## Use it from each surface
 
-- **Shell:** `singularity-flow app plan`, `singularity-flow app start [ID] [--environment ENV]`, `singularity-flow app status`, `singularity-flow app stop [ID]`; `singularity-flow tests run [--command ID] [--environment ENV]` and `singularity-flow tests summary`.
+- **Shell:** `singularity-flow app plan`, `singularity-flow app start [ID] [--environment ENV]`, `singularity-flow app status`, `singularity-flow app stop [ID]`; `singularity-flow tests plan`, `singularity-flow tests run [--command ID] [--environment ENV]` and `singularity-flow tests summary`.
 - **VS Code:** the capability page runs `app start` as a task, reads `app status --json`, and opens the test summary from `tests summary --json`.
 - **Copilot:** run `app plan`, `app start` and `tests run` instead of guessing a command; Copilot never runs `env bind`.
 

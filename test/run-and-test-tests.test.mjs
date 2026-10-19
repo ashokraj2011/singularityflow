@@ -224,10 +224,10 @@ test('a Story step run is staged as local attempts, read as a local run, and adm
   assert.deepEqual(records.map((record) => record.purpose).sort(), ['local', 'preflight']);
   const afterPublish = sflowJson('tests', 'summary', '--work-id', 'QF-1').value;
   assert.equal(afterPublish.run.evidenceClass, 'governed');
-  assert.equal(afterPublish.run.label, 'Governed run at publication');
+  assert.equal(afterPublish.run.label, 'Run by publication');
   assert.equal(afterPublish.run.countsForStep, true);
   assert.deepEqual(afterPublish.history.map((entry) => [entry.evidenceClass, entry.label]), [
-    ['governed', 'Governed run at publication'], ['local-preview', 'Local run, not evidence: publication and submission run the tests again']
+    ['governed', 'Run by publication'], ['local-preview', 'Local run, not evidence: publication and submission run the tests again']
   ]);
   assert.equal(sflowJson('tests', 'summary', '--work-id', 'QF-1', '--run', 'RUN-20200101T000000Z-00000000').value.error.code, 'TESTS_RUN_NOT_FOUND');
 });

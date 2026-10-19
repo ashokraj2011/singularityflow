@@ -18,8 +18,9 @@ const OPTIONS = Object.freeze({
   run: ['capability', 'work-id', 'phase', 'command', 'environment', 'expect-command', 'json'],
   summary: ['capability', 'work-id', 'phase', 'run', 'json']
 });
+// Runs a gate made itself (evidence class `governed`), in words.
 const GATE_LABELS = Object.freeze({
-  preflight: 'Governed run at publication', submission: 'Governed run at submission', epoch: 'Governed run for a runner amendment'
+  preflight: 'Run by publication', submission: 'Run by submission', epoch: 'Run by a runner amendment'
 });
 
 function fail(message, code = 'TESTS_COMMAND_INVALID', details = null) {
@@ -192,9 +193,9 @@ async function planCapability(root, options) {
 }
 
 async function runCapability(root, options) {
-  const [state, store, summary, { buildTestExecutionReceipt, junitCaseLocations }, { newAttemptIdentity }, adapters, runEnvironment, util, git] = await Promise.all([
+  const [state, store, summary, { buildTestExecutionReceipt, junitCaseLocations }, { newAttemptIdentity }, adapters, runEnvironment, git] = await Promise.all([
     import('../local-test-runs.mjs'), import('../test-runs.mjs'), import('../test-summary.mjs'), import('../code-delivery-tests.mjs'),
-    import('../verification/attempts.mjs'), import('../verification/adapters.mjs'), import('../run-environment.mjs'), import('../util.mjs'), import('../git.mjs')]);
+    import('../verification/attempts.mjs'), import('../verification/adapters.mjs'), import('../run-environment.mjs'), import('../git.mjs')]);
   const { application, config, declaration, subject, plans } = await capabilitySelection(root, options);
   if (!plans.length) {
     fail(`${subject} has no test command to run: the code step runs none and the capability names none. Run singularity-flow capability test-setup --json.`,
@@ -306,7 +307,7 @@ async function attemptMeaning(attempt, declaration) {
   const label = evidenceClass === 'local-integration'
     ? (await import('../code-delivery-tests.mjs')).localIntegrationLabel({ ranBy: attempt.ranBy, environment, commit: attempt.candidate?.commit, countsForStep, linked })
     : evidenceClass === 'local-preview' ? 'Local run, not evidence: publication and submission run the tests again'
-      : GATE_LABELS[attempt.purpose] ?? 'Governed run';
+      : GATE_LABELS[attempt.purpose] ?? 'Run by a gate';
   return { evidenceClass, environment, countsForStep, label };
 }
 
@@ -338,9 +339,9 @@ function attemptGroups(attempts) {
 }
 
 async function storySummary(root, options, { localRunId = null } = {}) {
-  const [{ loadAcceptedStoryExecution }, { stepAttempts }, { workDirRelative }, summary, runEnvironment, { loadEnvironmentDeclaration }] = await Promise.all([
+  const [{ loadAcceptedStoryExecution }, { stepAttempts }, { workDirRelative }, summary, { loadEnvironmentDeclaration }] = await Promise.all([
     import('../accepted-story-execution.mjs'), import('../verification/attempts.mjs'), import('../story-paths.mjs'),
-    import('../test-summary.mjs'), import('../run-environment.mjs'), import('../environment-declaration.mjs')]);
+    import('../test-summary.mjs'), import('../environment-declaration.mjs')]);
   const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
   const phaseId = optionString(options, 'phase', null) ?? workflow.currentPhase;
   if (!workflow.phases?.[phaseId]) {
@@ -428,7 +429,7 @@ async function planStory(root, options) {
 }
 
 async function runStory(root, options) {
-  const [state, store, util] = await Promise.all([import('../local-test-runs.mjs'), import('../test-runs.mjs'), import('../util.mjs')]);
+  const [state, store] = await Promise.all([import('../local-test-runs.mjs'), import('../test-runs.mjs')]);
   const context = await storyContext(root, options);
   const localRunId = store.newTestRunId();
   await state.stageStoryLocalTests(root, context.config, context.workflow, {

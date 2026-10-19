@@ -21,6 +21,8 @@ import { readInstruction } from './instruction-library.mjs';
 import { syncConfigurationReferences } from './configuration-reference-sync.mjs';
 import { ConfigurationObjectReader } from './configuration-object-reader.mjs';
 import { isConfigurationStatePath } from './configuration-state-contract.mjs';
+import { recordSha256 } from './records.mjs';
+import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 
 const PREFIX = 'refs/heads/sflow/config-change/';
@@ -35,6 +37,11 @@ const utf8 = bytes => new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 const fail = (message, code = 'CONFIGURATION_RECREATE_UNSAFE', details = {}) => {
   throw new SingularityFlowError(message, { code, details });
 };
+const PREVIEW_COMMAND = 'singularity-flow configuration recreate-sync --json';
+const DIGEST = /^sha256:[a-f0-9]{64}$/u;
+const line = value => String(value ?? '').replace(/[\u0000-\u001f\u007f]/gu, ' ').trim().slice(0, 200);
+/** The exact apply command for one previewed packet; only a person who reviewed it should run it. */
+export const recreateSyncApplyArgv = confirmation => ['configuration', 'recreate-sync', '--apply', '--confirm', confirmation, '--json'];
 
 function git(root, args, env, extra = {}) {
   return run('git', args, { cwd: root, env, maxBuffer: MAX_BYTES, timeoutMs: 15_000, ...extra });
@@ -98,9 +105,14 @@ function captureCandidate(root, baseCommit, allowedPaths, env) {
   return { candidateTree, changedPaths };
 }
 
-/** The menu click / --apply is the authorization. No implicit approval or Story mutation. */
+/**
+ * Preview, or apply exactly what a person previewed. The preview's `confirmation` digests the
+ * authority, approved base, every proposal tip in replay order and the resulting files, so
+ * `--apply --confirm <digest>` refuses when a proposal appeared, moved or left since the review.
+ * Without a digest, apply proceeds only when nothing is pending. No implicit approval or Story mutation.
+ */
 export async function recreateAndSyncConfiguration(root, {
-  apply = false, env = process.env, runRemoteCommand = runRemoteGitAsync,
+  apply = false, confirm = null, env = process.env, runRemoteCommand = runRemoteGitAsync,
   syncReferences = syncConfigurationReferences
 } = {}) {
   const gitEnv = enterpriseGitEnvironment(env);
@@ -145,7 +157,8 @@ export async function recreateAndSyncConfiguration(root, {
         fail('A proposal moved during recreation. Click Recreate & sync again; nothing changed.', 'CONFIGURATION_RECREATE_PROPOSAL_MOVED');
       }
       item.merged = gitIsAncestor(scratch, item.commit, baseCommit, { env: transport.env });
-      item.time = Number(git(scratch, ['show', '-s', '--format=%ct', item.commit], transport.env).stdout.trim());
+      const [time, author, summary] = git(scratch, ['show', '-s', '--format=%ct%n%an%n%s', item.commit], transport.env).stdout.split('\n');
+      Object.assign(item, { time: Number(time), author: line(author), summary: line(summary) });
       if (!item.merged) {
         const ancestor = git(scratch, ['merge-base', baseCommit, item.commit], transport.env, { allowFailure: true });
         if (ancestor.status !== 0) fail(`Proposal '${item.branch}' has no configuration history. Original branches remain preserved.`);
@@ -213,15 +226,35 @@ export async function recreateAndSyncConfiguration(root, {
       [backupRef('approved', baseCommit), baseCommit],
       ...proposals.map(item => [backupRef('proposal', item.commit), item.commit])
     ])].map(([ref, commit]) => ({ ref, commit }));
+    // Everything apply would publish, in replay order. Author and summary are display-only.
+    const confirmation = `sha256:${recordSha256({ remote: sanitizeRemote(remote), targetBranch: CONFIGURATION_BRANCH, baseCommit,
+      proposals: proposals.map(({ branch, commit, merged }) => ({ branch, commit, merged })),
+      files: staged.changedPaths, replacements, backupRefs })}`;
     const result = {
       schemaVersion: 1, // schema-transient: configuration recreation operation result, no lifecycle authority
       resultType: 'sflow-configuration-recreate-sync', status: apply ? 'current' : 'preview',
       remote: sanitizeRemote(remote), targetBranch: CONFIGURATION_BRANCH, baseCommit, targetCommit: baseCommit,
-      proposals: proposals.map(({ branch, commit, merged }) => ({ branch, commit, merged })),
-      files: staged.changedPaths, replacements, backupRefs,
+      proposals: proposals.map(({ branch, commit, merged, author, summary, changed }) => ({
+        branch, commit, merged, author, summary, files: changed ?? [] })),
+      files: staged.changedPaths, replacements, backupRefs, confirmation,
       effects: { applicationCode: 'unchanged', worktree: 'unchanged', index: 'unchanged', stories: 'unchanged', approvals: 'unchanged' }
     };
-    if (!apply) return result;
+    if (!apply) {
+      return { ...result, commandGuidance: { next: safeCommandGuidance({ executable: 'singularity-flow', argv: recreateSyncApplyArgv(confirmation) }) } };
+    }
+    if (confirm != null ? confirm !== confirmation : proposals.length > 0) {
+      const preview = { resultType: result.resultType, confirmation, baseCommit, proposals: result.proposals, files: result.files };
+      if (confirm == null) {
+        fail(`Apply replays ${proposals.length} configuration proposal${proposals.length === 1 ? '' : 's'}, teammates' unreviewed ones included. `
+          + 'Preview, confirm that exact list, then run --apply --confirm with the preview\'s confirmation. Nothing was applied.',
+        'CONFIGURATION_RECREATE_CONFIRMATION_REQUIRED', { preview, nextAction: { command: PREVIEW_COMMAND,
+          label: 'Preview the proposals, review the exact list, then apply with its --confirm value.' } });
+      }
+      fail(DIGEST.test(confirm) ? 'Configuration proposals or approved configuration changed after the reviewed preview. Nothing was applied.'
+        : 'The --confirm value is not a recreate-sync preview digest (sha256:...). Nothing was applied.',
+      'CONFIGURATION_RECREATE_STALE', { preview, nextAction: { command: PREVIEW_COMMAND,
+        label: 'Preview again and review the current list; an earlier confirmation does not cover it.' } });
+    }
     if (!proposals.length) {
       result.referenceSync = await syncReferences(root, remote, baseCommit, { env });
       return result;
@@ -275,7 +308,7 @@ export async function recreateAndSyncConfiguration(root, {
       result.status = after.ok ? 'not-synced' : 'outcome-unknown';
       result.failure = { code: 'CONFIGURATION_RECREATE_PUSH_REFUSED',
         message: pushed.failure?.advice ?? 'The server did not confirm the atomic configuration update. Original refs were not deliberately overwritten.' };
-      result.retryCommand = 'singularity-flow configuration recreate-sync --apply --json';
+      result.retryCommand = `singularity-flow configuration recreate-sync --apply --confirm ${confirmation} --json`;
       return result;
     }
     result.status = 'synced';

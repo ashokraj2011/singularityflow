@@ -740,7 +740,7 @@
         "command-git": 13,
         "command-run": 1
       },
-      "digest": "0df12f32366fb36b70ad797f2dc223d7080362283547aa20921272f45f4805d3"
+      "digest": "2e4ad9151ea6baf19aeae6786e84812c8d6e36e3de1338886fee7a3e162e5723"
     },
     "src/configuration-history-cleanup.mjs": {
       "counts": {

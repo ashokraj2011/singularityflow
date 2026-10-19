@@ -35,7 +35,7 @@ import {
   decisionChoiceItems, decisionChooseArgv, decisionInputPrompt, pendingDecisionSummary, submitArgvWithDecisionValues
 } from './decisions.ts';
 import { ConfigurationValidator } from './validation.ts';
-import { ConfigurationSyncAction, configurationSyncInterruptedMessage } from './views/configuration-sync-model.ts';
+import { ConfigurationSyncAction, configurationSyncConfirmation, configurationSyncInterruptedMessage } from './views/configuration-sync-model.ts';
 import { ConfigurationCleanupAction } from './views/configuration-cleanup-model.ts';
 import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedAction } from './actions.ts';
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
@@ -7695,6 +7695,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     run: argv => client.run(argv), refresh: async () => {
       await refreshAfterKnownMutation();
       await lazyPanels().WorkflowStudioPanel.refreshAfterConfigurationSync();
+    },
+    // It writes to the shared configuration and pushes, so it asks once, listing every proposal it
+    // replays (teammates' unreviewed ones too); the apply carries this preview's digest.
+    confirm: async preview => {
+      output.appendLine(JSON.stringify(preview, null, 2));
+      const review = configurationSyncConfirmation(preview);
+      return await showCompactWarningMessage(review.message, { modal: true, compactDetail: review.compactDetail,
+        detail: review.detail }, 'Recreate & sync') === 'Recreate & sync';
     }
   });
   const configurationCleanupAction = new ConfigurationCleanupAction({
@@ -7998,21 +8006,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openConfigurationApprovals': async () =>
       vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'changes' }),
     'singularityFlow.recreateAndSyncConfiguration': async () => {
-      // It writes to the shared configuration and pushes, so it asks once, naming what changes.
-      const proceed = await showCompactWarningMessage('Recreate and sync configuration?', {
-        modal: true,
-        detail: 'Pending configuration edits are applied to the approved configuration, older proposals are archived, '
-          + 'and the result is pushed to the remote. Application code and Stories stay unchanged.'
-      }, 'Recreate & sync');
-      if (proceed !== 'Recreate & sync') return;
+      // Preview first; the action's confirm lists the exact proposals before anything is applied.
       await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
         title: 'Recreating and syncing configuration', cancellable: false }, async () => {
-        output.appendLine('Recreate & sync configuration: starting the bounded configuration-only transaction.');
+        output.appendLine('Recreate & sync configuration: previewing the proposals it would replay.');
         let result;
         try { result = await configurationSyncAction.run(); }
         catch (error) {
           output.appendLine(`Configuration sync did not return a confirmed result: ${(error as Error).message}`);
-          if (error instanceof CliError && error.result) {
+          if (cliRefusalCode(error) === 'CONFIGURATION_RECREATE_STALE') {
+            // The list changed after the person reviewed it; nothing was applied. Review it again.
+            showRefusal(error as CliError, { headline: 'Configuration proposals changed after your review' });
+          } else if (error instanceof CliError && error.result) {
             // Preserve the engine's exact refusal and remediation; do not disguise validation as
             // a host interruption or send the user around an unchanged retry loop.
             showRefusal(error, { headline: 'Configuration sync needs attention' });
@@ -8022,6 +8027,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           }
           return;
         }
+        if (!result) return void output.appendLine('Recreate & sync configuration: not confirmed; nothing was applied.');
         output.appendLine(JSON.stringify(result, null, 2));
         if (!['synced', 'current'].includes(result.status)) {
           showRefusal(result.failure?.message ?? `Configuration recreation is ${result.status}.`,

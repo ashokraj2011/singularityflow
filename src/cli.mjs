@@ -8549,8 +8549,8 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
     if (!['synced', 'superseded'].includes(result.status)) process.exitCode = 2;
   }
   else if (subcommand === 'recreate-sync') {
-    result = await import('./configuration-recreate-sync.mjs').then(({ recreateAndSyncConfiguration }) =>
-      recreateAndSyncConfiguration(root, { apply: optionBoolean(options, 'apply') }));
+    // Apply carries the reviewed preview's digest (or asks in a terminal); see commands/configuration-recreate-sync.mjs.
+    result = await import('./commands/configuration-recreate-sync.mjs').then(({ recreateSyncCommand }) => recreateSyncCommand({ root, options }));
     if (['not-synced', 'outcome-unknown'].includes(result.status)) process.exitCode = 2;
   }
   else if (subcommand === 'cleanup-history') {

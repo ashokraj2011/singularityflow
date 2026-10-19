@@ -2,7 +2,7 @@
 name: sflow-configuration
 description: Inspect, validate, publish, or explicitly recreate and sync governed configuration without Git merge questions.
 disable-model-invocation: true
-argument-hint: "show|explain [--pointer <JSON-POINTER>]|validate|save <path>|publish|transactions|reconcile <CFT-ID>|recreate-sync [--apply]|cleanup-history [--keep-recent 10]"
+argument-hint: "show|explain [--pointer <JSON-POINTER>]|validate|save <path>|publish|transactions|reconcile <CFT-ID>|recreate-sync [--apply --confirm <digest>]|cleanup-history [--keep-recent 10]"
 ---
 # Manage governed configuration
 
@@ -21,7 +21,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    the kernel re-observes shared authority and finishes only a verified transaction's reference sync.
    It never retries a push, accepts a proposal, or grants approval. Preserve `not-confirmed` or
    `sync-pending`; do not turn a prepared/cache record into an acceptance decision.
-2. For `recreate-sync`, always run the preview `singularity-flow configuration recreate-sync --json` first. Apply replays every unmerged proposal, teammates' unreviewed ones included: list each unmerged `proposals` branch and commit, the `files` and `replacements`. Add `--apply` only after the person confirms that exact list; a request to recreate is not that confirmation. The main-panel **Recreate & sync configuration** menu performs the same model-free operation. Preserve its backups and effects; never reset application code or Story history, and never apply merely because a proposal conflict was reported. The operation owns validation; do not add a pre-validation or another publication command.
+2. For `recreate-sync`, always run the preview `singularity-flow configuration recreate-sync --json` first. Apply replays every proposal, teammates' unreviewed ones included: list each `proposals` branch, commit, author, summary, `files` and `replacements`. Only after the person confirms that exact list (a request to recreate is not that confirmation), add `--apply --confirm <confirmation>` with that preview's value. On `CONFIGURATION_RECREATE_STALE`, show its new list and ask again; never reuse a digest. The main-panel **Recreate & sync configuration** menu performs the same model-free review. Preserve its backups and effects; never reset application code or Story history, and never apply merely because a proposal conflict was reported. The operation owns validation; do not add a pre-validation or another publication command.
 3. For `cleanup-history`, run `singularity-flow configuration cleanup-history --json` (preserve an explicit `--keep-recent`). Show the exact candidates and retained reasons, then obtain human confirmation of that packet before using its returned apply command and hash. Do not delete refs manually, retry a stale hash, or prune tags. The Configuration menu has the same model-free preview/confirmation path. This archives only immutable history branch refs; it never accepts proposals or changes Stories.
 4. For other writes, run `singularity-flow configuration validate --json` before proposing any write.
 5. For save, require the exact reviewed source path. For publish, show the changed governed files, target configuration branch, commit message, and remote state.

@@ -197,7 +197,7 @@ test('the authoring contract audit checks the route, the built-in steps and the 
   // Moving the selection check out of step 1 leaves the skill working before it re-reads its route.
   const [firstStep] = body.match(/^1\. .*$/m);
   assert.ok(errors(body.replace(firstStep, '1. Read the inputs.').replace(/^2\. /m, `2. ${firstStep.slice(3)} `)).some((error) => error.startsWith('step 1')));
-  assert.ok(errors(body.replace('show `policyReason`; stop', 'stop')).some((error) => error.includes('policyReason')));
+  assert.ok(errors(body.replace('show `policyReason`, offer', 'offer')).some((error) => error.includes('policyReason')));
   // Continuing on a built-in step whatever its route, or on the wrong built-in step, is refused.
   assert.ok(errors(body.replace('`effectiveAuthoringSkill` is `/sf-design`', '`authoringSkill` is `sf-design`')).length);
   assert.ok(errors(body.replace('`<phase>` = `design`', '`<phase>` = `requirements`')).some((error) => error.includes('built-in steps')));

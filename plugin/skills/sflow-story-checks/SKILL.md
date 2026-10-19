@@ -19,4 +19,4 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 2. Run `singularity-flow story checks --parent <STORY-KEY> --packet <SHA-256> --json`.
 3. Show each required check, its observed SHA, PR state, conformance freshness, and evidence hash.
 4. Do not execute repository build or test code locally; this command reads governance and configured GitHub repository evidence.
-5. If evidence is not ready, list exact blockers and do not approve.
+5. If evidence is not ready, list exact blockers and do not approve. A missing or pending check usually needs the submitted commit on the remote (a pending publication: Copilot `/sf-next`, Shell `singularity-flow sync <STORY-KEY>`), a pull request (`/sf-pr`) or CI to finish; then rerun step 2. A missing or signed-out `gh` needs the person to install it or run `gh auth login`. This reads GitHub (including GitHub Enterprise) check runs only; for another Git host say plainly that this skill cannot collect its evidence, and never mark a check passed.

@@ -1,9 +1,13 @@
 # Recreate & sync configuration
 
 Use **Recreate & sync configuration** in Configuration Center or from the command palette. It
-asks once, in a dialog that names what will change; that confirmed click authorizes one operation
-for the selected repository's configuration authority. It does not open a merge or a model
-conversation.
+previews first, then asks once in a dialog listing every proposal it will replay — branch, tip
+commit, author, summary and files, teammates' unreviewed proposals included. That confirmed click
+authorizes exactly that list for the selected repository's configuration authority: the apply
+carries the preview's `confirmation` digest, so a proposal pushed, moved or retired after the
+review is refused (`CONFIGURATION_RECREATE_STALE`, nothing applied) and the menu asks you to review
+the current list instead. With nothing pending it only refreshes references and asks nothing. It
+does not open a merge or a model conversation.
 
 The operation reads today's `sflow/config` and all pending workflow, capability, and onboarding
 proposals on that authority. It reconstructs their intended edits instead of merging historical
@@ -37,19 +41,27 @@ An atomic-update refusal preserves the original refs. No success is reported wit
 observation proving the new commit, backups and branch retirement. Click again after resolving
 remote access or a concurrently moved authority; a completed retry is a no-op.
 
-Terminal preview (read-only):
+Terminal preview (read-only). It lists each proposal and returns `confirmation` (`sha256:...`), a
+digest of the authority, approved base, every proposal tip in replay order and the resulting files:
 
 ```sh
 singularity-flow configuration recreate-sync --json
 ```
 
-Terminal execution (the flag is authorization, no further questions):
+Terminal execution of the reviewed preview, after reading that exact list:
 
 ```sh
-singularity-flow configuration recreate-sync --apply --json
+singularity-flow configuration recreate-sync --apply --confirm sha256:<PREVIEW> --json
 ```
 
-Copilot: `/sf-configuration recreate-sync --apply`. The main-panel action needs no model.
+If anything changed since that preview, apply refuses with `CONFIGURATION_RECREATE_STALE`; the
+refusal carries the fresh list and digest under `details.preview`, and nothing is applied. `--apply`
+without `--confirm` is refused (`CONFIGURATION_RECREATE_CONFIRMATION_REQUIRED`) while any proposal is
+pending, except in an interactive terminal without `--json`, where it prints the exact list and asks
+before applying that previewed packet. With nothing pending it is the reference-sync no-op.
+
+Copilot: `/sf-configuration recreate-sync` previews, shows the list and applies only after you
+confirm it. The main-panel action needs no model.
 
 ## Implementation boundary
 

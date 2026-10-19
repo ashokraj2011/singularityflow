@@ -8,6 +8,8 @@ import { initializeDefinition } from '../src/config.mjs';
 import { recreateAndSyncConfiguration } from '../src/configuration-recreate-sync.mjs';
 import { replayConfigurationIntent, replayConfigurationJson, replayConfigurationYaml } from '../src/configuration-intent-replay.mjs';
 import { runRemoteGitAsync } from '../src/git-execution.mjs';
+import { recreateSyncCommand as runRecreateCommand, recreateSyncReviewLines } from '../src/commands/configuration-recreate-sync.mjs';
+import { refusalDetails } from '../src/refusal-remediation.mjs';
 import { run } from '../src/util.mjs';
 
 test('intent replay keeps new approved policy and ignores old YAML formatting churn', () => {
@@ -88,6 +90,12 @@ async function fixture(t, { filtered = false } = {}) {
   return { base, seed, remote, caller, branch, proposal, approved, original };
 }
 
+/** Preview with the ordinary transport, then apply exactly that reviewed packet. */
+async function confirmed(root, options = {}) {
+  const preview = await recreateAndSyncConfiguration(root);
+  return recreateAndSyncConfiguration(root, { ...options, apply: true, confirm: preview.confirmation });
+}
+
 const remoteHead = (item, ref = 'sflow/config') => run('git', ['--git-dir', item.remote, 'rev-parse', ref]).stdout.trim();
 const callerState = item => [run('git', ['rev-parse', 'HEAD'], { cwd: item.caller }).stdout,
   run('git', ['write-tree'], { cwd: item.caller }).stdout,
@@ -108,7 +116,7 @@ test('preview reconstructs conflicting intent without updating any remote ref or
 test('one apply fast-forwards without a merge, atomically archives and retires proposals, and retries safely', async t => {
   const item = await fixture(t);
   const before = callerState(item);
-  const result = await recreateAndSyncConfiguration(item.caller, { apply: true });
+  const result = await confirmed(item.caller);
   assert.equal(result.status, 'synced', JSON.stringify(result));
   assert.equal(remoteHead(item), result.targetCommit);
   const parents = run('git', ['--git-dir', item.remote, 'show', '-s', '--format=%P', 'sflow/config']).stdout.trim();
@@ -128,7 +136,7 @@ test('one apply fast-forwards without a merge, atomically archives and retires p
 test('server rejection preserves config, original proposal and caller; no misleading success', async t => {
   const item = await fixture(t);
   const before = callerState(item);
-  const result = await recreateAndSyncConfiguration(item.caller, { apply: true,
+  const result = await confirmed(item.caller, {
     runRemoteCommand: (args, options) => args[0] === 'push'
       ? Promise.resolve({ status: 1, failure: { advice: 'Branch protection requires server review.' } })
       : runRemoteGitAsync(args, options) });
@@ -137,6 +145,7 @@ test('server rejection preserves config, original proposal and caller; no mislea
   assert.equal(remoteHead(item, item.branch), item.proposal);
   assert.deepEqual(callerState(item), before);
   assert.match(result.failure.message, /Branch protection/u);
+  assert.match(result.retryCommand, /--apply --confirm sha256:[a-f0-9]{64} --json$/u, 'a retry stays bound to the reviewed packet');
 });
 
 test('partial recreation never downloads application blobs or runs worktree filters', async t => {
@@ -144,7 +153,7 @@ test('partial recreation never downloads application blobs or runs worktree filt
   const applicationBlob = run('git', ['--git-dir', item.remote, 'rev-parse', 'sflow/config:app.txt']).stdout.trim();
   let stillMissing = false;
   const blobFetches = [];
-  const result = await recreateAndSyncConfiguration(item.caller, { apply: true,
+  const result = await confirmed(item.caller, {
     runRemoteCommand: async (args, options) => {
       if (args[0] === 'fetch' && args.includes('--no-write-fetch-head')) {
         blobFetches.push(args.slice(args.indexOf('--') + 2));
@@ -214,7 +223,7 @@ test('the public CLI previews in JSON without starting a separate approval or mu
 test('a concurrent proposal update rejects the entire atomic transaction, including backup installation', async t => {
   const item = await fixture(t);
   const before = callerState(item);
-  const result = await recreateAndSyncConfiguration(item.caller, { apply: true,
+  const result = await confirmed(item.caller, {
     runRemoteCommand: async (args, options) => {
       if (args[0] === 'push') run('git', ['--git-dir', item.remote, 'update-ref',
         `refs/heads/${item.branch}`, item.approved, item.proposal]);
@@ -230,7 +239,7 @@ test('a concurrent proposal update rejects the entire atomic transaction, includ
 
 test('lost push acknowledgement reconciles exact remote config, backups and retirement', async t => {
   const item = await fixture(t);
-  const result = await recreateAndSyncConfiguration(item.caller, { apply: true,
+  const result = await confirmed(item.caller, {
     runRemoteCommand: async (args, options) => {
       const result = await runRemoteGitAsync(args, options);
       return args[0] === 'push' ? { ...result, status: 1 } : result;
@@ -271,9 +280,189 @@ test('all proposal kinds and custom skill/instruction assets survive recreation 
   run('git', ['add', 'singularity/instruction-library'], { cwd: item.seed });
   run('git', ['commit', '-qm', 'custom capability assets'], { cwd: item.seed });
   run('git', ['push', '-q', 'origin', 'HEAD:refs/heads/sflow/config-change/capability/custom-assets'], { cwd: item.seed });
-  const result = await recreateAndSyncConfiguration(item.caller, { apply: true });
+  const result = await confirmed(item.caller);
   assert.equal(result.status, 'synced', JSON.stringify(result));
   assert.equal(result.proposals.length, 2);
   assert.match(run('git', ['--git-dir', item.remote, 'show',
     'sflow/config:singularity/instruction-library/demo/INSTRUCTIONS.md']).stdout, /Preserve the custom instructions/u);
+});
+
+const branchExists = (item, branch) => run('git', ['--git-dir', item.remote, 'show-ref', '--verify', `refs/heads/${branch}`],
+  { allowFailure: true }).status === 0;
+const recreateTags = item => run('git', ['--git-dir', item.remote, 'tag', '--list', 'sflow-config-recreate/*']).stdout.trim();
+
+async function pushCapabilityProposal(item, name = 'late-capability') {
+  run('git', ['switch', '-q', '-c', name, item.approved], { cwd: item.seed });
+  await mkdir(path.join(item.seed, 'singularity/instruction-library', name), { recursive: true });
+  await writeFile(path.join(item.seed, 'singularity/instruction-library', name, 'INSTRUCTIONS.md'),
+    `---\nname: ${name}\ndescription: Pushed after the review\n---\n\nNot reviewed by the person who previewed.\n`);
+  run('git', ['add', 'singularity/instruction-library'], { cwd: item.seed });
+  run('git', ['commit', '-qm', `${name} proposal`], { cwd: item.seed });
+  const branch = `sflow/config-change/capability/${name}`;
+  run('git', ['push', '-q', 'origin', `HEAD:refs/heads/${branch}`], { cwd: item.seed });
+  return branch;
+}
+
+test('the preview digests the exact proposals, tips and result; apply with that digest replays only them', async t => {
+  const item = await fixture(t);
+  const preview = await recreateAndSyncConfiguration(item.caller);
+  assert.match(preview.confirmation, /^sha256:[a-f0-9]{64}$/u);
+  assert.deepEqual(preview.proposals.map(({ branch, commit, merged }) => ({ branch, commit, merged })),
+    [{ branch: item.branch, commit: item.proposal, merged: false }]);
+  assert.equal(preview.proposals[0].author, 'Configuration Owner');
+  assert.equal(preview.proposals[0].summary, 'pending demo');
+  assert.deepEqual(preview.proposals[0].files, ['singularity/workflow.yml']);
+  assert.deepEqual(preview.commandGuidance.next.argv,
+    ['configuration', 'recreate-sync', '--apply', '--confirm', preview.confirmation, '--json']);
+  assert.equal((await recreateAndSyncConfiguration(item.caller)).confirmation, preview.confirmation, 'an unchanged remote previews the same digest');
+  const result = await recreateAndSyncConfiguration(item.caller, { apply: true, confirm: preview.confirmation });
+  assert.equal(result.status, 'synced', JSON.stringify(result));
+  assert.equal(remoteHead(item), result.targetCommit);
+  assert.equal(branchExists(item, item.branch), false);
+});
+
+test('a proposal pushed after the preview is refused with the fresh list; nothing is applied or archived', async t => {
+  const item = await fixture(t);
+  const before = callerState(item);
+  const preview = await recreateAndSyncConfiguration(item.caller);
+  const late = await pushCapabilityProposal(item);
+  const refusal = await recreateAndSyncConfiguration(item.caller, { apply: true, confirm: preview.confirmation }).then(
+    () => assert.fail('a stale digest must not apply'), error => error);
+  assert.equal(refusal.code, 'CONFIGURATION_RECREATE_STALE');
+  assert.match(refusal.message, /Nothing was applied/u);
+  assert.notEqual(refusal.details.preview.confirmation, preview.confirmation);
+  assert.match(refusal.details.preview.confirmation, /^sha256:[a-f0-9]{64}$/u);
+  assert.deepEqual(refusal.details.preview.proposals.map(entry => entry.branch).sort(), [item.branch, late].sort());
+  assert.equal(refusal.details.nextAction.command, 'singularity-flow configuration recreate-sync --json');
+  assert.equal(remoteHead(item), item.approved);
+  assert.equal(remoteHead(item, item.branch), item.proposal);
+  assert.ok(branchExists(item, late));
+  assert.equal(recreateTags(item), '', 'no backup tag was installed');
+  assert.deepEqual(callerState(item), before);
+  // The fresh digest covers the new list, so a person who reviews it can apply both.
+  const result = await recreateAndSyncConfiguration(item.caller, { apply: true, confirm: refusal.details.preview.confirmation });
+  assert.equal(result.status, 'synced', JSON.stringify(result));
+  assert.equal(result.proposals.length, 2);
+});
+
+test('a moved proposal tip or moved approved base invalidates the reviewed digest', async t => {
+  const item = await fixture(t);
+  const preview = await recreateAndSyncConfiguration(item.caller);
+  run('git', ['switch', '-q', '-c', 'moved-tip', item.proposal], { cwd: item.seed });
+  const workflow = path.join(item.seed, 'singularity/workflow.yml');
+  const later = YAML.parse(await readFile(workflow, 'utf8'));
+  later.workTypes.demo.label = 'Demo, edited after the review';
+  await writeFile(workflow, YAML.stringify(later));
+  run('git', ['add', workflow], { cwd: item.seed });
+  run('git', ['commit', '-qm', 'later edit'], { cwd: item.seed });
+  run('git', ['push', '-q', 'origin', `HEAD:refs/heads/${item.branch}`], { cwd: item.seed });
+  const moved = run('git', ['rev-parse', 'HEAD'], { cwd: item.seed }).stdout.trim();
+  await assert.rejects(recreateAndSyncConfiguration(item.caller, { apply: true, confirm: preview.confirmation }),
+    error => error.code === 'CONFIGURATION_RECREATE_STALE' && error.details.preview.proposals[0].commit === moved);
+  assert.equal(remoteHead(item), item.approved);
+  assert.equal(remoteHead(item, item.branch), moved);
+  // The approved base moving (another approval landing) changes what apply would publish too.
+  const reviewed = await recreateAndSyncConfiguration(item.caller);
+  run('git', ['switch', '-q', '-c', 'newer-approval', item.approved], { cwd: item.seed });
+  await mkdir(path.join(item.seed, 'singularity/instruction-library/newer'), { recursive: true });
+  await writeFile(path.join(item.seed, 'singularity/instruction-library/newer/INSTRUCTIONS.md'),
+    '---\nname: newer\ndescription: Approved after the review\n---\n\nApproved later.\n');
+  run('git', ['add', 'singularity/instruction-library'], { cwd: item.seed });
+  run('git', ['commit', '-qm', 'newer approval'], { cwd: item.seed });
+  run('git', ['push', '-q', 'origin', 'HEAD:refs/heads/sflow/config'], { cwd: item.seed });
+  const newer = run('git', ['rev-parse', 'HEAD'], { cwd: item.seed }).stdout.trim();
+  await assert.rejects(recreateAndSyncConfiguration(item.caller, { apply: true, confirm: reviewed.confirmation }),
+    error => error.code === 'CONFIGURATION_RECREATE_STALE' && error.details.preview.baseCommit === newer);
+  assert.equal(remoteHead(item), newer);
+  assert.equal(remoteHead(item, item.branch), moved);
+  await assert.rejects(recreateAndSyncConfiguration(item.caller, { apply: true, confirm: 'sha256:not-a-digest' }),
+    error => error.code === 'CONFIGURATION_RECREATE_STALE' && /not a recreate-sync preview digest/u.test(error.message));
+});
+
+test('apply without a digest is refused while anything is pending, and is a no-op sync once nothing is', async t => {
+  const item = await fixture(t);
+  await assert.rejects(recreateAndSyncConfiguration(item.caller, { apply: true }), error => {
+    assert.equal(error.code, 'CONFIGURATION_RECREATE_CONFIRMATION_REQUIRED');
+    assert.match(error.message, /teammates' unreviewed ones included/u);
+    assert.deepEqual(error.details.preview.proposals.map(entry => entry.branch), [item.branch]);
+    assert.equal(error.details.nextAction.command, 'singularity-flow configuration recreate-sync --json');
+    return true;
+  });
+  assert.equal(remoteHead(item), item.approved);
+  assert.equal(remoteHead(item, item.branch), item.proposal);
+  assert.equal(recreateTags(item), '');
+  const synced = await confirmed(item.caller);
+  assert.equal(synced.status, 'synced');
+  const current = await recreateAndSyncConfiguration(item.caller, { apply: true });
+  assert.equal(current.status, 'current', 'nothing pending: nothing unseen can be replayed');
+});
+
+test('the public CLI refuses an unconfirmed apply with the fresh list in its JSON refusal, then applies the reviewed digest', async t => {
+  const item = await fixture(t);
+  const { fileURLToPath } = await import('node:url');
+  const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+  const cliRun = argv => run(process.execPath, [cli, 'configuration', 'recreate-sync', ...argv],
+    { cwd: item.caller, timeoutMs: 60_000, allowFailure: true });
+  const refused = cliRun(['--apply', '--json']);
+  assert.notEqual(refused.status, 0);
+  const envelope = JSON.parse(refused.stdout.trim() || refused.stderr.trim());
+  assert.equal(envelope.error.code, 'CONFIGURATION_RECREATE_CONFIRMATION_REQUIRED');
+  const fresh = envelope.error.details.preview;
+  assert.match(fresh.confirmation, /^sha256:[a-f0-9]{64}$/u);
+  assert.equal(fresh.proposalCount, 1);
+  assert.deepEqual(fresh.proposals.map(entry => [entry.branch, entry.commit]), [[item.branch, item.proposal]]);
+  assert.equal(envelope.error.details.nextAction, 'singularity-flow configuration recreate-sync --json');
+  assert.equal(envelope.remediationPlan.steps.some(step => step.command?.includes('--apply')), false, 'recovery never applies blind');
+  assert.equal(remoteHead(item), item.approved);
+  const preview = JSON.parse(cliRun(['--json']).stdout);
+  assert.equal(preview.confirmation, fresh.confirmation);
+  const applied = cliRun(['--apply', '--confirm', preview.confirmation, '--json']);
+  assert.equal(applied.status, 0, applied.stderr);
+  assert.equal(JSON.parse(applied.stdout).status, 'synced');
+});
+
+test('a terminal apply without a digest shows the exact list and applies only the previewed packet on yes', async () => {
+  const preview = { status: 'preview', targetBranch: 'sflow/config', baseCommit: 'a'.repeat(40), confirmation: `sha256:${'c'.repeat(64)}`,
+    proposals: [{ branch: 'sflow/config-change/workflow/demo', commit: 'b'.repeat(40), merged: false, author: 'Teammate',
+      summary: 'add demo', files: ['singularity/workflow.yml'] }], files: ['singularity/workflow.yml'], replacements: [],
+    commandGuidance: { next: {} } };
+  for (const answer of ['y', 'n']) {
+    const calls = [], printed = [], asked = [];
+    const result = await runRecreateCommand({ root: '/repo', options: { apply: true }, interactive: true,
+      question: async text => { asked.push(text); return answer; }, print: text => printed.push(text),
+      recreate: async (root, options) => { calls.push(options); return options.apply ? { status: 'synced' } : preview; } });
+    assert.deepEqual(calls[0], { apply: false });
+    assert.ok(printed.some(text => text.includes('sflow/config-change/workflow/demo @ bbbbbbbbbbbb by Teammate — add demo')), printed.join('\n'));
+    assert.ok(printed.includes('      singularity/workflow.yml'));
+    assert.equal(asked.length, 1);
+    if (answer === 'y') {
+      assert.deepEqual(calls[1], { apply: true, confirm: preview.confirmation });
+      assert.equal(result.status, 'synced');
+    } else {
+      assert.equal(calls.length, 1, 'declined: nothing applied');
+      assert.equal(result.status, 'declined');
+      assert.equal(result.commandGuidance, undefined);
+    }
+  }
+  // JSON, a supplied digest, or no terminal never prompts: the engine enforces the digest itself.
+  for (const [options, interactive] of [[{ apply: true, json: true }, false], [{ apply: true }, false],
+    [{ apply: true, confirm: preview.confirmation }, true]]) {
+    const calls = [];
+    await runRecreateCommand({ root: '/repo', options, interactive, question: () => assert.fail('no prompt'),
+      recreate: async (root, value) => { calls.push(value); return { status: 'current' }; } });
+    assert.deepEqual(calls, [{ apply: true, confirm: options.confirm ?? null }]);
+  }
+  assert.match(recreateSyncReviewLines(preview).at(-1), /pushed after this preview is refused/u);
+});
+
+test('the refusal envelope carries only the recreate preview it recognizes', () => {
+  const preview = { resultType: 'sflow-configuration-recreate-sync', confirmation: `sha256:${'d'.repeat(64)}`, baseCommit: 'a'.repeat(40),
+    proposals: [{ branch: 'sflow/config-change/workflow/x', commit: 'b'.repeat(40), merged: false, files: ['singularity/workflow.yml'], secret: 'dropped' }],
+    files: ['singularity/workflow.yml'] };
+  const projected = refusalDetails({ preview }).preview;
+  assert.equal(projected.confirmation, preview.confirmation);
+  assert.equal(projected.proposalCount, 1);
+  assert.deepEqual(projected.proposals, [{ branch: 'sflow/config-change/workflow/x', commit: 'b'.repeat(40), merged: false, files: ['singularity/workflow.yml'] }]);
+  assert.equal(refusalDetails({ preview: { ...preview, resultType: 'other' } }), null);
+  assert.equal(refusalDetails({ preview: { ...preview, confirmation: 'sha256:short' } }), null);
 });

@@ -1373,6 +1373,15 @@ export function refusalDetails(details) {
     projected.relocation = { requiresConfirmation: true, argv: list(relocation.argv, text).slice(0, 16),
       useArgv: list(relocation.useArgv, text).slice(0, 8), path: text(relocation.path) };
   }
+  // A stale or unconfirmed recreate-sync apply: the current list and digest a person must review.
+  const recreate = details.preview;
+  if (recreate?.resultType === 'sflow-configuration-recreate-sync' && /^sha256:[a-f0-9]{64}$/u.test(recreate.confirmation ?? '')) {
+    projected.preview = compact({ resultType: recreate.resultType, confirmation: recreate.confirmation, baseCommit: text(recreate.baseCommit),
+      proposalCount: Array.isArray(recreate.proposals) ? recreate.proposals.length : null,
+      proposals: list(recreate.proposals, item => item && typeof item === 'object' ? compact({ branch: text(item.branch),
+        commit: text(item.commit), merged: typeof item.merged === 'boolean' ? item.merged : null, author: text(item.author),
+        summary: text(item.summary), files: list(item.files, text) }) : null), files: list(recreate.files, text) });
+  }
   if (details.publicationPreflight?.scope === 'transport-only') projected.publicationPreflight = {
     scope: 'transport-only', localHooks: 'not-run', remoteStoryBranch: 'not-updated',
     applicationFiles: 'not-modified-by-probe', index: 'not-modified-by-probe',

@@ -841,7 +841,7 @@ Usage:
   singularity-flow configuration propose [--message TEXT] [--json]  Propose every draft as one review
   singularity-flow configuration discard <NUMBER> | --all [--json]
   singularity-flow configuration approve [<PROPOSAL>] [--yes] [--json]  Show what a proposal changes, confirm, and activate exactly that revision
-  singularity-flow configuration recreate-sync [--apply] [--json]  Replay pending configuration intent, archive old refs, and sync without a Git merge; preview unless --apply
+  singularity-flow configuration recreate-sync [--apply --confirm sha256:<PREVIEW>] [--json]  Preview lists every proposal it replays (teammates' unreviewed ones too) and its confirmation; apply replays only that reviewed list and refuses if it changed
   singularity-flow configuration cleanup-history [--keep-recent 10] [--apply --confirm <HASH>] [--json]  Preview exact snapshot branches; archive commits as tags before retiring old branch refs (up to 100 per confirmed batch)
   singularity-flow configuration transactions [--json]     Inspect retained configuration operations; the journal grants no authority
   singularity-flow configuration reconcile <CFT-ID> [--json]  Reconcile a committed operation and finish reference sync; never retry a push blindly

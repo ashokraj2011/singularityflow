@@ -26,6 +26,7 @@ async function race() {
   await writeFile(path.join(first, 'README.md'), '# Replay\n'); flow(first, ['init']);
   const configPath = path.join(first, 'singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.worldModel.grounding = 'off'; config.documents.allowedPhases = ['intake']; config.approvalSecurity = { profile: 'poc' };
+  config.documents.storage = { allowed: ['git', 'local'], default: 'git' };
   for (const authority of Object.values(config.approvalAuthorities ?? {})) authority.allowAnyGitIdentity = true;
   for (const phase of Object.values(config.phases ?? {})) if (phase.approval && phase.approval !== 'none') phase.approval.allowSelfApproval = true;
   config.repositoryReadiness.requiredBeforeStory = false;

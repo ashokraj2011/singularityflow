@@ -132,7 +132,7 @@ export function evidenceCommands(target: EvidenceTarget, input: EvidenceInput): 
   // A Story imports a verified copy of one of its Epic's sources; the CLI checks it against the Epic.
   if (input.kind === 'epic-source') {
     return [['documents', 'fetch', '--provider', 'epic', '--ref', input.sourceId, '--name', input.name,
-      '--store', input.store ?? 'git', ...phaseArguments(input.phases)]];
+      '--store', input.store ?? 'local', ...phaseArguments(input.phases)]];
   }
   if (input.kind === 'url') {
     return target.kind === 'story'
@@ -140,9 +140,9 @@ export function evidenceCommands(target: EvidenceTarget, input: EvidenceInput): 
       : [['epic', 'sources', 'add', '--epic', target.id, '--url', input.url, '--label', input.label]];
   }
   if (target.kind === 'story') {
-    // Storage is always stated: a repository whose policy defaults to this machine must not turn a
-    // "Committed to Git" choice into a local copy. A folder (a Figma export) is always committed.
-    const store = input.kind === 'figma-export' ? 'git' : input.store ?? 'git';
+    // State the chosen policy explicitly, including for a folder/Figma export. New workflows
+    // keep bytes local; an older explicitly shared configuration retains its reviewed choice.
+    const store = input.store ?? 'local';
     return [[
       'documents', 'upload', ...input.paths,
       ...(input.names ?? []).flatMap((name) => ['--name', name]),
@@ -186,7 +186,7 @@ export function evidenceStorageChoices(policy: { storage?: { allowed?: unknown; 
   allowed: Array<'git' | 'local'>; default: 'git' | 'local';
 } {
   const kinds: Array<'git' | 'local'> = ['git', 'local'];
-  const shared = kinds[0]!;
+  const shared: 'local' = 'local';
   const configured = Array.isArray(policy?.storage?.allowed) ? policy!.storage!.allowed as unknown[] : [];
   const allowed = configured.length ? kinds.filter((kind) => configured.includes(kind)) : kinds;
   const usable = allowed.length ? allowed : kinds;

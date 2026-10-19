@@ -284,6 +284,31 @@ test('issued reviewer staging is allowed without granting artifact/source writes
   assert.equal((await mutationToolGuard(payload)).permissionDecision, 'deny');
 });
 
+test('document upload skills use kernel operations and exact restore works in read-only review turns', async t => {
+  const f = await fixture(t);
+  for (const skill of ['/sf-documents', '/sf-upload']) {
+    assert.equal(mutationTurnMode(skill), 'kernel-only');
+    const payload = await f.enter(skill, skill);
+    assert.equal((await mutationToolGuard(payload)).permissionDecision, 'deny', 'upload skills cannot edit application files');
+    assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: {
+      command: 'singularity-flow documents upload original.png --name "Original screen" --store local', cwd: f.root } }), {});
+  }
+  const payload = await f.enter('/sf-review-source', 'restore-review');
+  const shell = command => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  assert.deepEqual(await shell('singularity-flow documents restore DOC-001 --work-id PMC-1 --file "original screen.png" --json'), {});
+  for (const command of [
+    'singularity-flow documents restore DOC-001 --work-id OTHER --file original.png --json',
+    'singularity-flow documents restore DOC-001 --file original.png --store git',
+    'singularity-flow documents restore DOC-001 DOC-002 --file original.png',
+    'singularity-flow documents upload original.png --name "New source"'
+  ]) assert.equal((await shell(command)).permissionDecision, 'deny', command);
+  for (const skill of ['/sf-approve', '/sf-publish', '/sf-session']) {
+    const bound = await f.enter(skill, `restore-${skill}`);
+    assert.deepEqual(await mutationToolGuard({ ...bound, toolName: 'bash', toolArgs: {
+      command: 'singularity-flow documents restore DOC-001 --work-id PMC-1 --file original.png --json', cwd: f.root } }), {}, skill);
+  }
+});
+
 test('review tool protocol recovers in the same turn; standalone check/stage/retain remain permitted', async t => {
   const f = await fixture(t);
   // The step defines the scope, so it has a source review whatever it is called.

@@ -114,9 +114,13 @@ async function fixture(t, { document = 'file', notes = NOTES, spec = SPEC, extra
     : document === 'pdf'
       ? [{ id: 'DOC-001', type: 'file', status: 'active', path: `${ITEM}/inputs/brief.pdf`,
         mimeType: 'application/pdf', sha256: sha(Buffer.from(PDF)) }]
+      : document === 'opaque'
+        ? [{ id: 'DOC-001', type: 'file', status: 'active', path: `${ITEM}/inputs/brief.bin`,
+          mimeType: 'application/octet-stream', sha256: sha(Buffer.from(PDF)) }]
       : [{ id: 'DOC-001', type: 'url', status: 'active', url: 'https://example.test/notes' }];
   if (document === 'file') await put(root, `${ITEM}/inputs/notes.md`, notes);
   if (document === 'pdf') await put(root, `${ITEM}/inputs/brief.pdf`, PDF);
+  if (document === 'opaque') await put(root, `${ITEM}/inputs/brief.bin`, PDF);
   for (const extra of extraDocuments) {
     await put(root, extra.path, extra.text);
     documents.push({ id: extra.id, type: 'file', status: 'active', path: extra.path,
@@ -618,14 +622,14 @@ test('operation-scoped reviewer rejects cross-story/phase attachment and never m
 });
 
 test('a decision on an unreadable document carries over while that document is unchanged', async (t) => {
-  const { root, config, workflow } = await fixture(t, { document: 'pdf' });
+  const { root, config, workflow } = await fixture(t, { document: 'opaque' });
   const first = await sourceReviewInput(root, config, workflow, 'specification');
   assert.deepEqual(first.binding.unreadableSources, [{ id: 'DOC-001', code: 'no-text-layer', originalSha256: sha(Buffer.from(PDF)) }]);
   await retainReport(root, config, workflow, storyOnlyReport(first), first);
   await decide(root, config, workflow, 'unreadable:DOC-001');
   assert.equal((await readSourceReviewStatus(root, config, workflow, 'specification')).status, 'ready');
 
-  // A new generation needs a new report, but not a new decision on the unchanged PDF.
+  // A new generation needs a new report, but not a new decision on the unchanged opaque file.
   workflow.phases.specification.generation = 2;
   const second = await sourceReviewInput(root, config, workflow, 'specification');
   await retainReport(root, config, workflow, storyOnlyReport(second), second);
@@ -633,9 +637,9 @@ test('a decision on an unreadable document carries over while that document is u
   assert.equal(carried.status, 'ready');
   assert.deepEqual(carried.carriedDecisions.map((entry) => [entry.id, entry.carriedFrom.generation]), [['unreadable:DOC-001', 1]]);
 
-  // A replaced PDF is a different document as far as the decision is concerned.
+  // A replaced opaque file is a different document as far as the decision is concerned.
   const replaced = `${PDF}% revised\n`;
-  await put(root, `${ITEM}/inputs/brief.pdf`, replaced);
+  await put(root, `${ITEM}/inputs/brief.bin`, replaced);
   const manifest = JSON.parse(await readFile(path.join(root, ITEM, 'documents.json'), 'utf8'));
   manifest.documents[0].sha256 = sha(Buffer.from(replaced));
   await put(root, `${ITEM}/documents.json`, `${JSON.stringify(manifest)}\n`);
@@ -647,6 +651,24 @@ test('a decision on an unreadable document carries over while that document is u
   const fresh = await readSourceReviewStatus(root, config, workflow, 'specification');
   assert.equal(fresh.status, 'correction-required');
   assert.deepEqual(fresh.pendingDispositions.map((entry) => entry.id), ['unreadable:DOC-001']);
+});
+
+test('an upgraded reader preserves a retained older PDF review but uses visual inspection for a new generation', async t => {
+  const { root, config, workflow } = await fixture(t, { document: 'pdf' });
+  const current = await sourceReviewInput(root, config, workflow, 'specification');
+  assert.equal(current.visualSources[0].mimeType, 'application/pdf');
+  // Simulate the verified report retained before PDF tool receipts were supported.
+  const older = { ...current, visualSources: undefined, unreadableSources: [{ id: 'DOC-001', name: 'Brief',
+    code: 'no-text-layer', originalSha256: sha(Buffer.from(PDF)), reason: 'No text layer in the previous reader.' }] };
+  older.binding = sourceReviewBinding(older);
+  await retainReport(root, config, workflow, storyOnlyReport(older), older);
+  await decide(root, config, workflow, 'unreadable:DOC-001');
+  assert.equal((await readSourceReviewStatus(root, config, workflow, 'specification')).status, 'ready');
+  assert.deepEqual((await sourceReviewInput(root, config, workflow, 'specification')).binding, older.binding);
+  workflow.phases.specification.generation = 2;
+  assert.equal((await sourceReviewInput(root, config, workflow, 'specification')).visualSources[0].id, 'DOC-001');
+  await put(root, `${ITEM}/inputs/brief.pdf`, `${PDF}tampered`);
+  await assert.rejects(sourceReviewInput(root, config, workflow, 'specification'), { code: 'SOURCE_REVIEW_SOURCE_CHANGED' });
 });
 
 test('a scenario grounded only in an unreadable document is attested by a person', async (t) => {

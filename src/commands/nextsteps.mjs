@@ -204,7 +204,9 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
     const hold = await requiredStepActionHold(root, definition, workflow).catch(() => null);
     stepActionHold = hold ? { ...hold, reason: stepActionHoldSentence(hold) } : null;
   }
-  return {
+  const documentReadiness = active ? await (await import('../document-runtime.mjs')).phaseDocumentReadiness(
+    root, definition, workflow, active.id) : null;
+  const snapshot = {
     ...nextStepsSnapshot({
       branch: branch(root),
       workflow,
@@ -225,6 +227,11 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
     evidence: evidenceSummary(workflow),
     repositoryChecks: repositoryCheckStatus(root)
   };
+  if (documentReadiness?.status !== 'ready' && documentReadiness) return { ...snapshot,
+    state: 'documents-required', documentReadiness,
+    actions: documentReadiness.missing.map(record => ({ timing: 'now', ...record.commandGuidance,
+      reason: `Re-upload ${record.id} — ${record.name} on this laptop, preserving its existing ID and SHA-256. Then resume this phase.` })) };
+  return snapshot;
 }
 
 /** Only entry-capable authoring skills can compose inline; every other prerequisite survives. */

@@ -1,8 +1,8 @@
 /**
  * Where a Story document's bytes are kept.
  *
- * `git`, the default, commits them under the Story's `inputs/`. `local` keeps them on this machine
- * only, in the repository's Git directory, and commits only the document's name, size and SHA-256.
+ * Older approved `git` policy commits them under the Story's `inputs/`. New workflows use `local`
+ * in the repository's Git directory, committing only the document's name, size and SHA-256.
  * The bytes live beside, not inside, the Singularity Flow runtime directory: they are the only copy
  * of someone's file, while the runtime directory holds state a factory reset may discard. Every worktree of a clone shares that
  * directory, so an isolated Story worktree sees what its launch checkout stored. Another clone or
@@ -146,7 +146,7 @@ function sha256(bytes) {
  * Keep verified bytes on this machine and return the key the catalog commits. Storing bytes that
  * are already there under the same key is a no-op after verifying them.
  */
-export async function storeLocalDocument(root, workId, { bytes, sha256: expected, filename }) {
+export async function storeLocalDocument(root, workId, { bytes, sha256: expected, filename, replaceChanged = false }) {
   const actual = sha256(bytes);
   if (actual !== expected) fail('Document bytes changed before they could be kept on this machine.', 'STORY_DOCUMENT_CHANGED');
   const key = localDocumentKey(expected, filename);
@@ -156,21 +156,27 @@ export async function storeLocalDocument(root, workId, { bytes, sha256: expected
   const hashDirectory = path.join(storyDirectory, expected);
   await realDirectory(hashDirectory, { create: true });
   const target = path.join(hashDirectory, filename);
+  let preservedPath = null;
   const existing = await lstat(target).catch((error) => (error?.code === 'ENOENT' ? null : Promise.reject(error)));
   if (existing) {
     if (existing.isSymbolicLink() || !existing.isFile()) fail(`Machine-local document storage holds something other than a file at ${key}.`, 'DOCUMENT_LOCAL_STORE_UNSAFE');
     const stored = await readVerified(target, { size: bytes.length, sha256: expected });
-    if (!stored) fail(`Machine-local document ${key} does not match the bytes being stored.`, 'DOCUMENT_LOCAL_STORE_UNSAFE');
-    return { key };
+    if (stored) return { key };
+    if (!replaceChanged) fail(`Machine-local document ${key} does not match the bytes being stored.`, 'DOCUMENT_LOCAL_STORE_UNSAFE');
+    preservedPath = path.join(hashDirectory, `.previous-${randomUUID()}`);
+    await rename(target, preservedPath);
   }
   const temporary = path.join(hashDirectory, `.${randomUUID()}.partial`);
   try {
     await writeFile(temporary, bytes, { flag: 'wx', mode: 0o600 });
     await rename(temporary, target);
+  } catch (error) {
+    if (preservedPath && !(await lstat(target).catch(() => null))) await rename(preservedPath, target).catch(() => {});
+    throw error;
   } finally {
     await rm(temporary, { force: true }).catch(() => {});
   }
-  return { key };
+  return { key, ...(preservedPath ? { preservedPath } : {}) };
 }
 
 async function readVerified(file, { size, sha256: expected }) {
@@ -220,8 +226,8 @@ function unavailableMessage(record, status) {
   const who = record.addedBy?.name ?? record.addedBy?.login ?? record.addedBy?.email ?? 'the person who added it';
   const name = record.name ? ` (${record.name})` : '';
   return status === 'changed'
-    ? `Document '${record.id}'${name} is kept on this machine only, and the copy here no longer matches its committed SHA-256 ${record.sha256}. Re-attach the original file.`
-    : `Document '${record.id}'${name} is kept only on the machine where ${who} added it; this checkout does not have its bytes (SHA-256 ${record.sha256}). Ask them for the file, or ask them to commit it there with singularity-flow documents store ${record.id} --store git.`;
+    ? `Document '${record.id}'${name} is kept on this machine only, and the copy here no longer matches its committed SHA-256 ${record.sha256}. Restore the same original with singularity-flow documents restore ${record.id} --file <LOCAL-FILE>; the changed copy will be preserved locally.`
+    : `Document '${record.id}'${name} is kept only on the machine where ${who} added it; this checkout does not have its bytes (SHA-256 ${record.sha256}). Upload the same original on this laptop with singularity-flow documents restore ${record.id} --file <LOCAL-FILE>. This restores its existing ID without changing the Story or approvals.`;
 }
 
 /** The verified bytes of a machine-local document and where they are, or a refusal saying why not. */

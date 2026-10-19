@@ -1636,7 +1636,9 @@ Jira is optional. A manual YAML or JSON story can capture the audience, problem,
 
 In VS Code, use **Lifecycle → Attach evidence & designs**. Choose the Story or Epic when both are available, then select multiple files, a Figma export folder, a Figma design link, or another HTTPS reference. Story folders remain one package. Epic folders expand into deterministic pinned source records. The screen shows the target before the CLI validates, hashes, commits, and pushes the result. The Copilot equivalent is `/sf-upload`.
 
-Supporting files live under:
+New Story uploads, including images and PDFs, stay on this laptop in the clone's common Git
+directory, under `singularity-flow-documents/<WORK-ID>/<sha256>/`. Git shares only their names,
+hashes, sizes and phase scopes. Older Stories with explicitly approved Git storage retain their files under:
 
 ```text
 singularity/work-items/<WORK-ID>/inputs/DOC-nnn/<filename>
@@ -1649,6 +1651,8 @@ singularity-flow documents list WORK-123
 singularity-flow documents list WORK-123 --phase design
 singularity-flow documents view DOC-001 --work-id WORK-123
 singularity-flow documents view "Payment brief" --work-id WORK-123
+singularity-flow documents readiness --phase requirements --json
+singularity-flow documents restore DOC-001 --file ./original-brief.pdf --work-id WORK-123 --json
 singularity-flow documents upload ./brief.pdf ./wireframe.png --name "Payment brief" --name "Checkout wireframe"
 singularity-flow documents upload ./figma-export --kind figma-export --name "Checkout export" --phases design,implementation
 singularity-flow documents upload ./salary-bands.xlsx --name "Salary bands" --store local
@@ -1663,9 +1667,15 @@ singularity-flow epic sources detach SRC-001 --epic MOB-100 --reason "Source wit
 singularity-flow epic sources list --epic MOB-100 --all
 ```
 
-Each uploaded file receives a stable ID, content hash, MIME type, actor, agent, and phase. Directories are imported recursively in deterministic relative-path order, with symbolic links rejected. Upload is allowed only during the initial phases configured by the selected profile. Local files are copied and pushed; external Figma or reference URLs are cataloged without being downloaded.
+Each uploaded file receives a stable ID, content hash, MIME type, actor, agent, and phase. Directories are imported recursively in deterministic relative-path order, with symbolic links rejected. Upload is allowed only during the initial phases configured by the selected profile. New file bytes remain local; metadata is pushed. Another laptop asks to restore the same originals only when its current phase needs them. Exact restore preserves IDs, prompts, answers and approvals without changing Git. External Figma or reference URLs are cataloged without being downloaded.
 
 All prompt consumers use the same active-evidence renderer. Text is hash-verified, fenced, and embedded only up to the configured preview limit per document and 48 KiB per prompt across its documents (`documents.maxPromptEvidenceBytes`). Binary evidence is hash-verified and delivered as repository path, MIME type, byte count, and SHA-256 with an instruction to use the host file/image/PDF tools. Evidence is explicitly labeled untrusted source material. Detached records are excluded from prompts and prompt-cache keys.
+
+Local source text and exact file paths are delivered only in private runtime context, never committed
+prompt snapshots. Source review can cite present local text/Office sources and inspect images/PDFs
+through native tools, recording method, page/region and observations. It never infers a visual pass
+from upload success or invents text lines for an image. Without a suitable host tool it asks for
+inspection help or a text export; native visual inspection is not built-in OCR.
 
 Detaching requires a reason and exact confirmation. It never deletes bytes. Singularity Flow records an append-only decision, marks the prompt records of published work that used the document stale, reopens the earliest such phase up to the current one, invalidates its downstream approval cone, commits, and pushes through the lifecycle publication transaction. `--dry-run` previews exactly that. Unrelated phases remain valid. Use `/sf-documents` or `/sf-upload` for the same attach/list/view/detach flow in Copilot, or **Lifecycle → Manage evidence & designs** in VS Code.
 

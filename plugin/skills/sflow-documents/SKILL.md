@@ -19,11 +19,12 @@ Stop on `Out of sequence`; humans decide soft warnings. Story reads accept Work 
 
 - List: `singularity-flow documents list [WORK-ID] --active [--phase <PHASE>]` or `singularity-flow epic sources list --epic <EPIC-ID> --active`. Use `--all` only for requested detached history.
 - View: `singularity-flow documents view <DOCUMENT-ID|NAME> --work-id <WORK-ID>`; omit selector for attached Story. Open binaries at returned absolute paths.
-- Attached Story upload: `singularity-flow documents upload <PATH...> --name "<NAME>"`; ask for one Story-unique name per path, in order. Add `--phases <PHASE,...|all>` only for requested phase limits; `--store local` only for machine-local storage. Directories retain relative paths; files are hashed, attributed, committed and pushed.
+- Missing here: ask for the original, then `singularity-flow documents restore <ID> --file "<chosen-path>" --work-id <WORK-ID> --json`. Preserve ID/hash/answers. `singularity-flow documents readiness --phase <PHASE> --json` lists required originals.
+- Upload: `singularity-flow documents upload <PATH...> --name "<NAME>"`; one unique name per path. New workflows keep files/images here, sharing metadata only. Add `--phases <PHASE,...|all>` for requested limits. Preserve older explicit storage policy.
 - Record a Figma or other external reference with `singularity-flow documents upload --url <https-url> --name "<name>"`.
 - Scope: preview `singularity-flow documents scope <ID|NAME> --phases <PHASE,...|all> --reason "<reason>" --dry-run`; show retained published work. After explicit confirmation rerun without `--dry-run` with `--yes`.
-- Epic upload: `singularity-flow epic sources add --epic <EPIC-ID> --file <PATH>` once per file, expanding directories deterministically; authored text uses `singularity-flow epic sources note --epic <EPIC-ID> --text-file <PATH>`. HTTPS uses `singularity-flow epic sources add --epic <EPIC-ID> --url <URL> --label "<LABEL>"`. Add provider/MIME/label only when supplied or required.
-- Respect phase/provider/size policy; never fetch URLs implicitly or expose credentials. Report IDs, hashes, size, path/provider, commit/push and next action.
+- Epic: `singularity-flow epic sources add --epic <EPIC-ID> --file <PATH>` per file; text: `singularity-flow epic sources note --epic <EPIC-ID> --text-file <PATH>`; HTTPS: `singularity-flow epic sources add --epic <EPIC-ID> --url <URL> --label "<LABEL>"`.
+- Respect phase/provider/size policy; never fetch URLs implicitly or expose credentials. Report IDs, hashes, size, path, commit/push and next.
 
 To detach evidence:
 
@@ -33,4 +34,4 @@ To detach evidence:
 4. Require explicit human confirmation. Only after it, run `singularity-flow documents detach <DOCUMENT-ID> --reason "<reason>" --yes`; add `--scope package` only for the selected complete package. Epic: `singularity-flow epic sources detach <SOURCE-ID> --epic <EPIC-ID> --reason "<reason>" --yes` after the same preview/confirmation. `--yes` conveys consent; it never grants it.
 5. Report the decision, commit/publication, invalidated phases, and returned `/sf-*` action.
 
-Detached evidence is read-only; never delete bytes or edit manifest status.
+Detached evidence is read-only; preserve bytes and manifest status.

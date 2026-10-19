@@ -239,6 +239,8 @@ Every public operation is classified before its implementation module is importe
 | documents.fetch | mutation | never | — | — |
 | documents.list | read | never | — | — |
 | documents.preview | read | never | — | — |
+| documents.readiness | read | never | — | — |
+| documents.restore | mutation | never | — | — |
 | documents.scope | mutation | never | — | — |
 | documents.store | mutation | never | — | — |
 | documents.upload | mutation | never | — | — |

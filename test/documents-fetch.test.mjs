@@ -49,6 +49,7 @@ async function repository({ withEnvironmentDeclaration = false } = {}) {
   const configPath = path.join(root, 'singularity/workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.git.publish = 'off'; config.worldModel.grounding = 'off'; config.documents.allowedPhases = ['intake'];
+  config.documents.storage = { allowed: ['git', 'local'], default: 'git' };
   config.storage = { defaultProvider: 'onedrive', providers: { onedrive: { type: 'sharepoint', tenantId: 't', clientId: 'c', siteId: 's', driveId: 'd' } } };
   // These fixtures exercise supporting documents, not the pre-Story test-readiness gate.
   config.repositoryReadiness.requiredBeforeStory = false;

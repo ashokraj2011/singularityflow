@@ -14,10 +14,10 @@ const specificationRow = z.discriminatedUnion('outcome', [
     id, sourceId: id, outcome: z.literal('covered'),
     scenarioId: z.string().regex(/^S\d+$/u), clauseIds: z.array(id).min(1).max(2000),
     line: citation.line.optional(), quote: citation.quote.optional(),
-    attestation: text(1024).optional().describe('Only for unreadableSources: name the page, section or frame instead of line/quote.')
+    attestation: text(1024).optional().describe('For an actually inspected visual source, name page/region and observation instead of line/quote. Unreadable sources still need a separate human disposition.')
   }),
-  z.strictObject({ id, sourceId: id, ...citation, outcome: z.literal('excluded'), reason: text() }),
-  z.strictObject({ id, sourceId: id, ...citation, outcome: z.literal('question'), question: text() })
+  z.strictObject({ id, sourceId: id, line: citation.line.optional(), quote: citation.quote.optional(), attestation: text(1024).optional(), outcome: z.literal('excluded'), reason: text() }),
+  z.strictObject({ id, sourceId: id, line: citation.line.optional(), quote: citation.quote.optional(), attestation: text(1024).optional(), outcome: z.literal('question'), question: text() })
 ]);
 const planningRow = z.strictObject({
   id: id.optional(),
@@ -36,7 +36,7 @@ const reviewerFinding = z.strictObject({
   id, severity: z.enum(['blocking', 'advisory']),
   message: text().describe('Explain the evidence and gap in message; not explanation.'),
   clauseId: id.optional(), sourceId: id.optional(),
-  line: citation.line.optional(), quote: citation.quote.optional()
+  line: citation.line.optional(), quote: citation.quote.optional(), attestation: text(1024).optional()
 });
 
 function schema(kind) {
@@ -47,6 +47,8 @@ function schema(kind) {
     binding: z.record(z.string(), z.unknown()).describe('Copy the entire exact binding from context; never edit it.'),
     reviewer: z.strictObject({ agentId: id, readOnly: z.literal(true) }),
     sourcesReviewed: z.array(id).max(100),
+    visualSourcesReviewed: z.array(z.strictObject({ sourceId: id,
+      method: z.enum(['image-tool', 'pdf-tool']), locator: text(1024), observations: text() })).max(100).optional(),
     clarificationsReviewed: z.array(id).max(2).optional().describe('Read and acknowledge every record in context.clarifications. Omit only when none is pinned.'),
     rows: z.array(kind === 'planning' ? planningRow : specificationRow).min(kind === 'planning' ? 0 : 1).max(2000),
     findings: z.array(reviewerFinding).max(500)
@@ -95,7 +97,8 @@ export function sourceReviewReportTemplate(input) {
   return {
     schemaVersion: currentSchemaVersion('source-grounded-review'), resultType: 'source-grounded-review', kind: input.kind,
     binding: input.binding, reviewer: { agentId: input.reviewerAgentId, readOnly: true },
-    sourcesReviewed: input.sources.map((source) => source.id),
+    sourcesReviewed: [...input.sources, ...(input.visualSources ?? [])].map((source) => source.id),
+    ...(input.visualSources?.length ? { visualSourcesReviewed: [] } : {}),
     ...(input.clarifications?.length ? { clarificationsReviewed: [] } : {}), rows, findings: []
   };
 }
@@ -110,6 +113,7 @@ export function sourceReviewCitationGuide(input) {
   return {
     lineBasis: '1-based lines of sources[].text, not the JSON packet, original attachment, artifact or clarification record. In the agent view, read each source textFile with the native file tool; its line numbers are citation line numbers.',
     quoteRule: 'Copy an exact non-empty substring of that single line, at most 1024 characters. Do not paraphrase, normalize whitespace, include a line-number prefix, or combine lines.',
+    ...(input.visualSources?.length ? { visualRule: 'Inspect exact visualSources[].absolutePath with an actual native image/PDF tool. Acknowledge each in visualSourcesReviewed with method, locator and observations. A covered row cites sourceId and attestation naming the page/region and observed behavior; never invent line/quote for pixels.' } : {}),
     ...(input.kind === 'specification' ? {
       scenarioIds: [...sourceReviewScenarioIds(input.artifact.text)],
       ...clauses,

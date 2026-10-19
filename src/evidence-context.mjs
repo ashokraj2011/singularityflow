@@ -76,7 +76,7 @@ export async function renderActiveStoryEvidence(root, definition, workflow, { ph
         `- Bytes: ${record.size}`,
         `- SHA-256: \`${record.sha256}\``,
         '',
-        `Read it with \`singularity-flow documents view ${record.id}\` on the machine that holds it. If that reports it is unavailable, or you cannot run commands, do not guess its contents; say it was unavailable if this phase needed it.`,
+        `The private runtime evidence section supplies verified local text or file paths. Otherwise read it with \`singularity-flow documents view ${record.id}\`. Missing here: restore this existing ID from the same original; never guess its contents or add a duplicate.`,
         ''
       );
       entries.push({ id: record.id, name: record.name ?? null, type: 'file', storage: 'local', path: null, sha256: record.sha256, bytes: record.size, mimeType: mime, injectedBytes: 0, truncated: false, packageId: null });

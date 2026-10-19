@@ -112,6 +112,13 @@ export function agentAct(result) {
   // follow, never an action (pausing or resuming is only ever the person's explicit request).
   const mode = result.resultType === 'sflow-copilot-mode' ? result : result.data?.resultType === 'sflow-copilot-mode' ? result.data : null;
   if (mode) return mode.paused === true ? agentAct({ paused: true }) : { state: 'read', said: oneLine(mode.agentInstruction ?? '') || null, do: null };
+  const documents = result.resultType === 'document-readiness' ? result : result.documentReadiness;
+  if (documents?.status === 'upload-required') return { state: 'ask-person', do: null,
+    read: documents === result ? ['missing', 'instruction'] : ['documentReadiness', 'continuation', 'actions', 'next'],
+    said: 'Ask for the listed original documents on this laptop. Restore each existing ID with the chosen file; do not recreate the Story, change hashes, or repeat settled questions.' };
+  if (result.resultType === 'document-restored') return withRoute({ state: 'next', do: null,
+    read: ['documentId', 'effects', 'preservedPath', 'next'],
+    said: 'The exact original is restored locally under the same ID. Report any preserved changed copy. No Story phase, approval or Git ref changed; resume the returned same-Story route.' }, genericAction(result));
   if (result.resultType === 'intake-entry') {
     if (result.status === 'preflight-ready') return { state: 'next', do: null, read: ['preflight', 'intake'],
       said: 'The exact selected-base preview passed. Continue this invocation\'s Start step with identical explicit choices and the returned receipt, if any. Do not repeat preflight; creation still validates live authority.' };
@@ -159,6 +166,9 @@ export function agentAct(result) {
     do: done.commandGuidance ? { reason: oneLine(done.reason), copilot: done.commandGuidance.copilotCommand ?? null,
       shell: done.commandGuidance.command ?? null, vscode: done.commandGuidance.modelFreeCommand ?? null } : null };
   if (result.resultType === 'sflow-phase-entry') {
+    if (result.status === 'documents-required') return { state: 'ask-person', do: null,
+      read: ['documentReadiness', 'next'],
+      said: 'Ask the person to upload the missing original documents on this laptop. Restore the existing IDs with the exact returned commands and an explicitly chosen file; then resume this phase. Never recreate the Story, duplicate documents or repeat settled requirements questions.' };
     if (result.status === 'authoring-entry') return { state: 'author', do: null, read: ['mutationContract', 'authoringProgress', 'scopeReview', 'context'],
       said: `Authoring ${result.phase ?? 'this step'} is admitted: do this step's own drafting now, inside mutationContract. It is not a next action to relay.` };
     if (result.status === 'clarification-required') return { state: 'ask-person', do: null, read: ['clarification', 'context'],

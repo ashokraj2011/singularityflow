@@ -820,11 +820,13 @@ async function compose(root, options, {
         });
       }
       const destination = optionString(options, 'out');
+      const delivered = workflow ? await (await import('./document-runtime.mjs')).withLocalDocumentEvidence(
+        root, definition, workflow, phase.id, replyPrompt) : replyPrompt;
       if (destination) {
         await writeFile(path.resolve(root, destination), replyPrompt);
         console.log(`Composed prompt written to ${destination}.`);
-      } else if (!options['return-only']) process.stdout.write(replyPrompt);
-      return replyPrompt;
+      } else if (!options['return-only']) process.stdout.write(delivered);
+      return delivered;
     }
   }
   // The registered World Model was removed. Prompt receipts keep their fields and record exactly
@@ -1248,11 +1250,13 @@ async function compose(root, options, {
     });
   }
   const destination = optionString(options, 'out');
+  const delivered = workflow ? await (await import('./document-runtime.mjs')).withLocalDocumentEvidence(
+    root, definition, workflow, phase.id, replyPrompt) : replyPrompt;
   if (destination) {
     await writeFile(path.resolve(root, destination), composedText);
     console.log(`Composed prompt written to ${destination}.`);
-  } else if (!options['return-only']) process.stdout.write(replyPrompt);
-  return replyPrompt;
+  } else if (!options['return-only']) process.stdout.write(delivered);
+  return delivered;
 }
 
 /**

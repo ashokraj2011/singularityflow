@@ -29,6 +29,7 @@ async function repository(configure = () => {}) {
   await writeFile(path.join(root, 'README.md'), '# Storage\n'); flow(root, ['init']);
   const configPath = path.join(root, 'singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.worldModel.grounding = 'off'; config.documents.allowedPhases = ['intake'];
+  config.documents.storage = { allowed: ['git', 'local'], default: 'git' };
   // These fixtures exercise document storage, not the pre-Story test-readiness gate.
   config.repositoryReadiness.requiredBeforeStory = false;
   config.approvalSecurity = { profile: 'poc' };
@@ -45,8 +46,8 @@ async function repository(configure = () => {}) {
 
 const refusedWith = (code) => (error) => error?.code === code;
 
-test('document storage is git by default, local on request, and refuses what is not built yet', () => {
-  assert.equal(resolveDocumentStorage(null), 'git');
+test('document storage is local by default, honors existing approved policy, and refuses unimplemented stores', () => {
+  assert.equal(resolveDocumentStorage(null), 'local');
   assert.equal(resolveDocumentStorage('LOCAL'), 'local');
   assert.equal(resolveDocumentStorage(null, { storage: { default: 'local' } }), 'local');
   assert.throws(() => resolveDocumentStorage('onedrive'), (error) => error.code === 'DOCUMENT_STORAGE_UNSUPPORTED' && /not available yet/.test(error.message));
@@ -116,7 +117,7 @@ test('a document kept on this machine commits its identity only, and another clo
   const refused = flow(second, ['documents', 'view', 'DOC-001', '--work-id', 'LOCAL-1'], { allowFailure: true });
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr, /kept only on the machine where Storage Tester added it/);
-  assert.match(refused.stderr, /--store git/);
+  assert.match(refused.stderr, /documents restore DOC-001 --file/);
   const gate = flow(second, ['gate', 'LOCAL-1'], { allowFailure: true });
   assert.match(`${gate.stdout}${gate.stderr}`, /DOC-001 is kept on another machine; its integrity cannot be checked here/);
   assert.doesNotMatch(`${gate.stdout}${gate.stderr}`, /document integrity failed/);
@@ -145,9 +146,9 @@ test('a document kept on this machine is committed to Git under the same ID by t
   run('git', ['checkout', '--quiet', 'LOCAL-GIT-1'], second);
   const elsewhere = flow(second, ['documents', 'store', 'DOC-001', '--store', 'git'], { allowFailure: true });
   assert.notEqual(elsewhere.status, 0);
-  assert.match(elsewhere.stderr, /documents store DOC-001 --store git/);
+  assert.match(elsewhere.stderr, /documents restore DOC-001 --file/);
   assert.match(flow(second, ['documents', 'view', 'DOC-001', '--work-id', 'LOCAL-GIT-1'], { allowFailure: true }).stderr,
-    /ask them to commit it there with singularity-flow documents store DOC-001 --store git/);
+    /singularity-flow documents restore DOC-001 --file/);
 
   const refusedLocal = flow(root, ['documents', 'store', 'Rates', '--store', 'local'], { allowFailure: true });
   assert.match(refusedLocal.stderr, /cannot be moved to this machine/);
@@ -183,7 +184,7 @@ test('a document an earlier build kept inside the runtime directory moves out th
   await assert.rejects(() => stat(legacy), (error) => error.code === 'ENOENT', 'the emptied legacy store is removed');
 });
 
-test('folders, links and a Git-only policy refuse machine-local storage; a local default applies', async () => {
+test('folders support machine-local storage while links have no bytes and legacy Git-only policy remains explicit', async () => {
   const { root } = await repository((config) => { config.documents.storage = { allowed: ['git'] }; });
   const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-refusals-'));
   const notes = path.join(uploads, 'notes.md'); await writeFile(notes, '# Notes\n');
@@ -197,15 +198,13 @@ test('folders, links and a Git-only policy refuse machine-local storage; a local
 
   const open = await repository((config) => { config.documents.storage = { allowed: ['git', 'local'], default: 'local' }; });
   flow(open.root, ['start', 'LOCAL-3', '--from-branch', 'main', '--title', 'Local by default']);
-  const folderRefusal = flow(open.root, ['documents', 'upload', folder, '--name', 'Export'], { allowFailure: true });
-  assert.notEqual(folderRefusal.status, 0);
-  assert.match(folderRefusal.stderr, /Folders are committed to Git/);
+  flow(open.root, ['documents', 'upload', folder, '--name', 'Local export']);
   const linkRefusal = flow(open.root, ['documents', 'upload', '--url', 'https://example.com/brief', '--name', 'Brief', '--store', 'local'], { allowFailure: true });
   assert.match(linkRefusal.stderr, /A link has no bytes to keep on this machine/);
   flow(open.root, ['documents', 'upload', folder, '--name', 'Export', '--store', 'git']);
   flow(open.root, ['documents', 'upload', notes, '--name', 'Notes']);
   const records = JSON.parse(flow(open.root, ['documents', 'list', '--json']).stdout).filter((item) => item.id.startsWith('DOC-'));
-  assert.deepEqual(records.map((item) => [item.name, item.storage.kind]), [['Export/screen.md', 'git'], ['Notes', 'local']],
+  assert.deepEqual(records.map((item) => [item.name, item.storage.kind]), [['Local export/screen.md', 'local'], ['Export/screen.md', 'git'], ['Notes', 'local']],
     'the policy default applies when --store is not given');
 });
 

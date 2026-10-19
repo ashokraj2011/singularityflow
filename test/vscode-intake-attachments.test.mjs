@@ -70,7 +70,7 @@ test('each Story start document carries its own storage and phases', () => {
   const brief = { sourcePath: '/source/brief.md', displayName: 'brief.md', name: 'Brief' };
   const mockup = { sourcePath: '/source/checkout.png', displayName: 'checkout.png', name: 'Checkout mockup' };
   const plain = intakeCommand(story({ ...choices, storyAttachments: [brief, mockup, null, null] }));
-  assert.deepEqual(plain.slice(plain.indexOf('--document-store')), ['--document-store', 'git', '--document-store', 'git'],
+  assert.deepEqual(plain.slice(plain.indexOf('--document-store')), ['--document-store', 'local', '--document-store', 'local'],
     'storage is always stated; every phase is the default and needs no flag');
   const localOnly = {
     ...choices,
@@ -80,14 +80,14 @@ test('each Story start document carries its own storage and phases', () => {
   assert.deepEqual(policyCommand.slice(policyCommand.indexOf('--document-store')), ['--document-store', 'local'],
     'an unchosen document follows the workflow\'s default storage');
   const policyHtml = intakeHtml(story({ ...localOnly, storyAttachments: [brief, null, null, null] }));
-  assert.match(policyHtml, /<option value="local" selected>On this machine only/);
+  assert.match(policyHtml, /<option value="local" selected>On this laptop/);
   assert.doesNotMatch(policyHtml, /<option value="git"/, 'a storage the workflow does not allow is not offered');
   const each = intakeCommand(story({ ...choices, storyAttachments: [
     { ...brief, store: 'local', phases: ['specification', 'planning'] }, null, mockup, null
   ] }));
   assert.deepEqual(each.slice(each.indexOf('--document')), [
     '--document', '/source/brief.md', '--document-name', 'Brief', '--document', '/source/checkout.png', '--document-name', 'Checkout mockup',
-    '--document-store', 'local', '--document-store', 'git', '--document-phases', 'specification,planning', '--document-phases', 'all'
+    '--document-store', 'local', '--document-store', 'local', '--document-phases', 'specification,planning', '--document-phases', 'all'
   ], 'one value per document, in slot order, once any document differs from the defaults');
   const none = intakeCommand(story({ ...choices, storyAttachments: [null, null, null, null] }));
   assert.ok(!none.includes('--document-store') && !none.includes('--document-phases'), 'no document, no document options');
@@ -100,7 +100,7 @@ test('each Story start document carries its own storage and phases', () => {
   assert.match(html, /data-attachment-phase="0" data-phase="specification">/);
   assert.match(html, /data-attachment-phase="0" data-phase="planning" checked>/);
   assert.match(html, /data-attachment-phase="1" data-phase="specification" checked>/, 'every phase by default');
-  assert.match(html, /<select data-attachment-store="1"[^>]*>\s*<option value="git">[^<]*<\/option>\s*<option value="local" selected>/);
+  assert.match(html, /<select data-attachment-store="1"[^>]*>\s*<option value="local" selected>/);
   assert.match(intakeHtml(story({ ...choices, storyAttachments: [{ ...brief, phases: [] }, null, null, null] })),
     /Choose at least one phase that uses document 1 \(brief\.md\)\./);
   assert.match(INTAKE_SCRIPT, /type: 'attachmentStore',\s+index: Number\(el\.dataset\.attachmentStore\), value: el\.value/);
@@ -188,7 +188,7 @@ test('all Story start variants carry the four selected documents in slot order',
     ...storyAttachments.flatMap((entry, index) => [
       '--document', entry.sourcePath, '--document-name', `Source document ${index + 1}`
     ]),
-    ...storyAttachments.flatMap(() => ['--document-store', 'git'])
+    ...storyAttachments.flatMap(() => ['--document-store', 'local'])
   ];
   const choices = {
     storyWorkflows: [{ id: 'feature', label: 'Feature', description: '', phases: ['intake'] }],

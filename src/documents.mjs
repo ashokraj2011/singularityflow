@@ -661,6 +661,33 @@ export async function storeDocumentInGit(root, config, workflow, { documentId } 
   return record;
 }
 
+/** Restore an existing pinned document on a new laptop: local bytes only, never a new Story input. */
+export async function restoreLocalDocument(root, config, workflow, { documentId, file } = {}) {
+  const manifest = await loadManifest(root, config, workflow);
+  const record = resolveDocumentRecord(manifest.documents, documentId);
+  if (!isLocalDocument(record) || !evidenceIsActive(record)) throw new SingularityFlowError(
+    'Only an active machine-local document can be restored.', { code: 'DOCUMENT_RESTORE_INVALID' });
+  if (typeof file !== 'string' || !file.trim()) throw new SingularityFlowError(
+    'Choose the original file with --file <LOCAL-FILE>.', { code: 'DOCUMENT_RESTORE_FILE_REQUIRED' });
+  const source = path.resolve(file);
+  const captured = await readStableDocument(source, documentPolicy(workflow, config).maxFileBytes ?? 26214400);
+  if (captured.sha256 !== record.sha256 || captured.size !== record.size) throw new SingularityFlowError(
+    `The selected file is not the original for ${record.id}. Expected SHA-256 ${record.sha256} (${record.size} bytes), found ${captured.sha256} (${captured.size} bytes). The existing document and approvals were not changed.`,
+    { code: 'DOCUMENT_RESTORE_HASH_MISMATCH', details: { documentId: record.id,
+      expectedSha256: record.sha256, actualSha256: captured.sha256 } });
+  const declaration = loadEnvironmentDeclarationSync(root, { optional: true });
+  await assertDocumentInputNotEnvironmentLocal(root, declaration, { source }, workflow, config);
+  assertDocumentInputContainsNoSecret({ source: record.sourceName ?? source }, captured);
+  const restored = await storeLocalDocument(root, workflow.workItem.id, { bytes: captured.bytes, sha256: record.sha256,
+    filename: record.storage.key.split('/').at(-1), replaceChanged: true });
+  const viewed = await readLocalDocument(root, workflow.workItem.id, record);
+  return { resultType: 'document-restored', status: 'restored', workId: workflow.workItem.id,
+    documentId: record.id, name: record.name, sha256: record.sha256, absolutePath: viewed.absolutePath,
+    ...(restored.preservedPath ? { preservedPath: restored.preservedPath } : {}),
+    effects: { localBytesStored: true, committed: false, pushed: false, storyAdvanced: false,
+      approvalsChanged: false, documentIdChanged: false } };
+}
+
 async function writePackageIndexes(root, config, workflow, manifest, packageRecord) {
   const records = manifest.documents.filter((item) => item.packageId === packageRecord.id);
   const extensions = {}; const hashes = new Map(); let totalBytes = 0;
@@ -842,7 +869,7 @@ export async function addDocuments(root, config, workflow, {
   const offeredPhases = normalizeDocumentPhases(phases, workflow, { fromPhase: phase.id });
   // Where file bytes are kept; a link has none, so it is recorded the same way either way.
   const storage = resolveDocumentStorage(store, policy);
-  if (storage === 'local' && !files.length) {
+  if (storage === 'local' && !files.length && store != null) {
     throw new SingularityFlowError('A link has no bytes to keep on this machine; --store applies to files.', { code: 'DOCUMENT_STORAGE_INVALID' });
   }
   const verifiedUrl = url ? validateDocumentUrl(url) : null;
@@ -873,12 +900,6 @@ export async function addDocuments(root, config, workflow, {
         })
       })));
     } else throw new SingularityFlowError(`Document path is not a regular file or directory: ${candidate}`);
-  }
-  // A folder becomes a package whose inventory and gallery are committed and link to its files, so
-  // its members are committed too; keeping them on one machine would leave those pages broken.
-  if (storage === 'local' && fileInputs.some((input) => input.packageSource)) {
-    throw new SingularityFlowError('Folders are committed to Git. Attach their files one by one to keep them on this machine only.',
-      { code: 'DOCUMENT_STORAGE_UNSUPPORTED' });
   }
   const manifest = await loadManifest(root, config, workflow);
   assertAvailableDocumentNames(manifest.documents, [
@@ -927,6 +948,7 @@ export async function addDocuments(root, config, workflow, {
       );
       const { key } = await storeLocalDocument(root, workflow.workItem.id, { bytes: captured.bytes, sha256: captured.sha256, filename });
       const record = { id, type: 'file', name: documentName, label: documentName, kind: kind ?? 'reference', storage: { kind: 'local', key }, sourceName: path.basename(source), mimeType: mimeType(filename), size: captured.size, sha256: captured.sha256, phase: phase.id, phases: [...offeredPhases], addedAt: nowIso(), addedBy: session.actor, agent: session.agent, ...(atCreation ? { origin } : {}) };
+      if (packageSource) Object.assign(record, { packageId: packageMap.get(packageSource).id, sourceRelativePath });
       manifest.documents.push(record); added.push(record);
       continue;
     }
@@ -963,7 +985,13 @@ export async function addDocuments(root, config, workflow, {
     const id = nextId(manifest.documents); const record = { id, type: 'url', name: urlName, label: urlName, kind: kind ?? (/figma\.com/i.test(verifiedUrl) ? 'figma' : 'reference'), url: verifiedUrl, phase: phase.id, phases: [...offeredPhases], addedAt: nowIso(), addedBy: session.actor, agent: session.agent, ...(atCreation ? { origin } : {}) };
     manifest.documents.push(record); added.push(record);
   }
-  for (const packageRecord of packageMap.values()) await writePackageIndexes(root, config, workflow, manifest, packageRecord);
+  for (const packageRecord of packageMap.values()) {
+    if (storage === 'local') {
+      const members = added.filter(record => record.packageId === packageRecord.id);
+      Object.assign(packageRecord, { storage: { kind: 'local' }, fileCount: members.length,
+        totalBytes: members.reduce((total, record) => total + record.size, 0) });
+    } else await writePackageIndexes(root, config, workflow, manifest, packageRecord);
+  }
   manifest.updatedAt = nowIso(); await writeJson(manifestPath(root, config, workflow), manifest);
   workflow.documents = documentCounters(manifest, manifest.updatedAt);
   workflow.history.push({ at: manifest.updatedAt, actor: session.actor.login ?? session.actor.email ?? session.actor.name, agent: session.agent, event: 'documents_added', phase: phase.id, detail: added.map((item) => `${item.id} (${item.name})`).join(', ') });

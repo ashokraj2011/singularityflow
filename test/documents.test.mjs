@@ -29,6 +29,8 @@ async function repository(configure = () => {}) {
   await writeFile(path.join(root, 'README.md'), '# Documents\n'); flow(root, ['init']);
   const configPath = path.join(root, 'singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8')); config.git.publish = 'off'; config.worldModel.grounding = 'off'; config.documents.allowedPhases = ['intake'];
   config.approvalSecurity = { profile: 'poc' };
+  // Compatibility coverage for existing Stories whose approved policy shared document bytes.
+  config.documents.storage = { allowed: ['git', 'local'], default: 'git' };
   for (const authority of Object.values(config.approvalAuthorities ?? {})) authority.allowAnyGitIdentity = true;
   for (const phase of Object.values(config.phases ?? {})) if (phase.approval && phase.approval !== 'none') phase.approval.allowSelfApproval = true;
   // These fixtures exercise supporting documents, not the pre-Story test-readiness gate.

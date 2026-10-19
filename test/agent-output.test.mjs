@@ -80,6 +80,23 @@ test('a returned confirmation becomes an ask with its exact value, and its Copil
   assert.ok(act.do.copilot.includes(digest), act.do.copilot);
 });
 
+test('document handoff asks for files, never requirements again, and reports restore without claiming advancement', () => {
+  const readiness = { resultType: 'document-readiness', status: 'upload-required', missing: [{ id: 'DOC-001' }] };
+  const direct = agentAct(readiness);
+  assert.equal(direct.state, 'ask-person');
+  assert.deepEqual(direct.read, ['missing', 'instruction']);
+  for (const resultType of ['sflow-phase-entry', 'source-review-agent-context', 'source-review-status']) {
+    const act = agentAct({ resultType, documentReadiness: readiness });
+    assert.equal(act.state, 'ask-person');
+    assert.equal(act.do, null);
+    assert.match(act.said, /do not recreate the Story/);
+  }
+  const restored = agentAct({ resultType: 'document-restored', documentId: 'DOC-001',
+    next: [{ command: 'singularity-flow phase enter implementation --work-id HANDOFF --compose --for-agent --json' }] });
+  assert.match(restored.said, /No Story phase, approval or Git ref changed/);
+  assert.match(restored.do.shell, /phase enter implementation/);
+});
+
 test('source-review checks distinguish packet repair from retaining genuine reviewer findings', () => {
   assert.equal(agentAct({ resultType: 'source-review-agent-context', canReview: true }).state, 'review');
   const invalid = agentAct({ resultType: 'source-review-check', retentionReady: false,

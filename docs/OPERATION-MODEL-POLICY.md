@@ -198,6 +198,8 @@ Every public operation is classified before its implementation module is importe
 | decision.test-risk | mutation | never | — | — |
 | decision.visual-profile | mutation | never | — | — |
 | decision.witness | mutation | never | — | — |
+| decisions.record | mutation | never | — | — |
+| decisions.show | read | never | — | — |
 | delivery.assurance-evaluate | read | never | — | — |
 | delivery.authenticated-runner-status | read | never | — | — |
 | delivery.execution-status | read | never | — | — |

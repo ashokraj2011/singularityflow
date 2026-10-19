@@ -125,7 +125,10 @@ function findingLines(findings, labelOf, { indent = '  ', start = 'Story start r
   const lines = [];
   for (const entry of findings.filter((finding) => finding.severity !== 'note')) {
     lines.push(`${indent}${entry.severity.padEnd(8)} ${entry.title}${where(entry.location)}`);
-    const why = [entry.detail && entry.detail !== entry.title ? entry.detail : null, entry.severity === 'problem' ? stopsText(entry, labelOf, start) : null].filter(Boolean).join(' ');
+    const detail = entry.detail && entry.detail !== entry.title ? entry.detail : null;
+    // A detail that already says where the Story stops is not told twice.
+    const stops = entry.severity === 'problem' && !/\bstops when\b/iu.test(detail ?? '') ? stopsText(entry, labelOf, start) : null;
+    const why = [detail, stops].filter(Boolean).join(' ');
     if (why) lines.push(`${indent}         Why: ${indented(why, `${indent}              `)}`);
     if (entry.fix?.text) lines.push(`${indent}         Fix: ${indented(entry.fix.text, `${indent}              `)}`);
   }

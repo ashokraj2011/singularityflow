@@ -30,6 +30,8 @@ export function profilePixelSize(profile) {
 }
 
 export const NATIVE_CAPTURE_MAXIMUM_SCALE = 4;
+/** What a native capture record is, read and written as one string. */
+export const NATIVE_CAPTURE_FORMAT = 'sflow-visual-native-capture/v1';
 
 /**
  * The pixel scale at which a native screenshot fits a profile, or null. A simulator or device
@@ -100,7 +102,7 @@ async function nativeCaptures(directory, workflow) {
     try { record = JSON.parse(await readFile(path.join(recordsDirectory, name), 'utf8')); }
     catch (error) { errors.push(`Native capture '${name}' cannot be read: ${error.message}`); continue; }
     const prefix = `Native capture '${record?.id ?? name}'`;
-    if (record?.schemaVersion !== 1 || record.kind !== 'visual-native-capture' || record.evidenceMethod !== 'native-capture' || `${record.id}.json` !== name) { errors.push(`${prefix} is not a native capture record.`); continue; }
+    if (record?.format !== NATIVE_CAPTURE_FORMAT || record.kind !== 'visual-native-capture' || record.evidenceMethod !== 'native-capture' || `${record.id}.json` !== name) { errors.push(`${prefix} is not a native capture record.`); continue; }
     if (record.workId !== workflow.workItem.id) { errors.push(`${prefix} belongs to work item '${record.workId ?? 'unknown'}'.`); continue; }
     if (record.output?.mediaType !== 'image/png' || record.outputSha256 !== record.output?.sha256) { errors.push(`${prefix} does not bind a PNG output.`); continue; }
     try {

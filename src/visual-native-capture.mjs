@@ -19,7 +19,7 @@ import { isVisualVerificationPhase } from './phase-roles.mjs';
 import { readPngHeader } from './png-rgba8.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { nowIso, posix, secureRepositoryPath, SingularityFlowError, snapshot, writeAtomic, writeJson } from './util.mjs';
-import { NATIVE_CAPTURE_DIRECTORY, NATIVE_CAPTURE_SOURCES, nativeCaptureScale, nativeCaptureScaleRange, profilePixelSize } from './visual-coverage.mjs';
+import { NATIVE_CAPTURE_DIRECTORY, NATIVE_CAPTURE_FORMAT, NATIVE_CAPTURE_SOURCES, nativeCaptureScale, nativeCaptureScaleRange, profilePixelSize } from './visual-coverage.mjs';
 
 const MAX_BYTES = 25 * 1024 * 1024;
 const MAX_RECORDS = 5000;
@@ -97,7 +97,8 @@ export async function recordNativeVisualCapture(root, workflow, {
       await writeAtomic(target.absolute, bytes);
       const captured = await snapshot(target.absolute);
       const record = {
-        schemaVersion: 1,
+        // A format string, not a registered record family: the migration registry is locked.
+        format: NATIVE_CAPTURE_FORMAT,
         id,
         kind: 'visual-native-capture',
         // A native capture, never an MCP tool result: no server, no tool, and Flow did not observe it.

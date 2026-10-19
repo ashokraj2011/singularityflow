@@ -263,3 +263,154 @@ are never cached.
 5. **Copilot:** the skills, the guard and the authoring guidance.
 6. **Verification:** a real VS Code check against a Vite fixture and a JUnit fixture, plus docs and
    bundle budgets.
+
+## IDE-style run configurations (amendment, owner request 2026-10-19)
+
+The owner asked that starting an application follow the IDEs people already use, for every platform:
+
+| Platform | IDE | Its run configurations |
+|---|---|---|
+| Java, Kotlin | IntelliJ IDEA | `.run/*.run.xml`, `.idea/runConfigurations/*.xml`: Application, Spring Boot, Maven, Gradle |
+| Python | PyCharm | the same files: Python (script or module), Django server, FastAPI/uvicorn |
+| Node, TypeScript | WebStorm | the same files: Node.js, npm (script) |
+| Go | GoLand | the same files: Go Build |
+| .NET | Rider / Visual Studio | `Properties/launchSettings.json` profiles, Rider's `.run` files |
+| any | VS Code | `.vscode/launch.json` (types java, python/debugpy, node/pwa-node, go, coreclr) |
+
+Real applications need many options: JVM options, system properties, profiles, interpreter options,
+program arguments, environment variables, a working directory and a debug port. A start entry already
+holds any number of arguments (`argv`), and `environments.yml` already gives each environment its own
+variables (for example `SPRING_PROFILES_ACTIVE`, `DJANGO_SETTINGS_MODULE` or `NODE_ENV` as flags with a
+default, `DATABASE_URL` as an endpoint, passwords as secrets). Three things are added.
+
+### 1. Arguments per environment
+
+```yaml
+start:
+  - id: api
+    argv: [./mvnw, -q, spring-boot:run]
+    environments: [dev, qa]
+    arguments:                      # appended to argv for the chosen environment
+      dev: [-Dspring-boot.run.profiles=dev]
+      qa:  [-Dspring-boot.run.profiles=qa, "-Dspring-boot.run.jvmArguments=-Xmx2g"]
+```
+
+- Each key must be one of the entry's `environments`.
+- Each value is a list of 1 to 64 strings, validated like `argv`.
+- `app plan` shows the resolved argv per environment, and `commandSha256` covers it, so a changed
+  argument asks for confirmation again.
+- A long or machine-specific option set may instead live in an argument file in a `localFiles`
+  folder, e.g. `java @resources/dev/jvm.args`. It may change locally and is never committed.
+
+### 2. Debug start
+
+```yaml
+    debug:
+      runtime: java          # java | python | node | go | dotnet
+      port: 5005             # loopback; defaults: java 5005, python 5678, node 9229, go 2345
+      suspend: false         # java and node only: wait for the debugger before running
+```
+
+`app start <ID> --debug` starts the same entry with the runtime's debugger listening on `127.0.0.1`
+only. How the listener is added depends on the launcher, detected from `argv`:
+
+- **java**
+  - `java …`: add `-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=127.0.0.1:<port>`
+    before `-jar` or the main class.
+  - Maven `spring-boot:run`: merged into `-Dspring-boot.run.jvmArguments`, keeping any existing
+    value.
+  - Gradle `bootRun`: `--debug-jvm` is refused, because it binds every interface and suspends. Use
+    `JAVA_TOOL_OPTIONS` with the agent string, set for the application process only.
+- **python**: `python -m debugpy --listen 127.0.0.1:<port>` before the script or `-m module`, for
+  example `uvicorn` or `manage.py runserver --noreload`. A missing `debugpy` is a coded refusal that
+  names `pip install debugpy` for the person to run.
+- **node** (as WebStorm does)
+  - `node …`: add `--inspect=127.0.0.1:<port>` after `node`.
+  - `npm`, `pnpm`, `yarn` and `npx` scripts: `NODE_OPTIONS=--inspect=127.0.0.1:<port>` for the
+    application process only.
+- **go**: `go run <pkg> <args>` becomes
+  `dlv debug <pkg> --headless --listen=127.0.0.1:<port> --api-version=2 --accept-multiclient --continue -- <args>`.
+  A missing `dlv` is a coded refusal.
+- **dotnet**: no listener. The person attaches to the started process, whose pid `app status`
+  reports.
+
+An entry may give an explicit `debug.argv` (full replacement) or `debug.arguments` (appended)
+instead. It may also set `debug.environment` with only `NODE_OPTIONS`, `JAVA_TOOL_OPTIONS` or
+`JDK_JAVA_OPTIONS`, whose value must be the debugger flag alone. Every debug address must be
+loopback: a `0.0.0.0`, `*` or non-loopback address anywhere in the debug arguments is refused.
+
+When the debugger port accepts connections, `app start --debug` prints `Debugger listening at
+127.0.0.1:<port>`, then waits for the readiness check as usual. A suspended JVM becomes ready only
+after attach. `app status` reports `debug: { runtime, port, listening }`.
+
+### 3. Suggest entries from IDE run configurations
+
+`singularity-flow app suggest [--capability ID] [--json]` is a read. It reads the files in the table
+above, plus the platform's own markers when no IDE configuration exists (package.json scripts, the
+Spring Boot Maven/Gradle plugin, `manage.py`, a FastAPI/uvicorn app, a Go `main` package, a .NET
+project with launchSettings). It returns:
+
+```json
+{ "resultType": "sflow-app-suggestions", "capability": "payments-web",
+  "suggestions": [{ "source": { "kind": "intellij|pycharm|webstorm|goland|rider|vscode|launch-settings|detected",
+                                "file": ".run/Api.run.xml", "name": "Api (dev)" },
+                    "start": { "id": "api", "argv": [], "workingDirectory": "services/api",
+                               "url": "http://127.0.0.1:8080/", "ready": { "http": "/actuator/health", "timeoutMs": 180000 },
+                               "arguments": {}, "debug": { "runtime": "java", "port": 5005 } },
+                    "environmentNames": [{ "name": "SPRING_PROFILES_ACTIVE", "kind": "flag", "default": "dev" },
+                                         { "name": "DB_PASSWORD", "kind": "secret" }],
+                    "notes": ["IntelliJ computes the classpath; this runs through the Maven wrapper instead."] }],
+  "applicationDraft": "<YAML for the capability's application block>",
+  "environmentsDraft": "<YAML additions for singularity/environments.yml>" }
+```
+
+Rules:
+
+- **Translation:** IDE-only launches become build-tool launches that work from a terminal, with
+  options carried over. An IntelliJ Application or Spring Boot config becomes the Maven or Gradle
+  run. A PyCharm config uses the project interpreter path relative to the repository (for example
+  `.venv/bin/python`), else `python3`. A WebStorm npm config becomes `npm run <script>`.
+- **Several configurations for one app**, for example "Api (dev)" and "Api (qa)", that differ only in
+  arguments or variables, become one entry with `arguments` per environment when their names or
+  profiles map to declared environments.
+- **Secrets are never copied.** Any variable whose name looks secret (password, secret, token, key,
+  credential, private) or whose value looks like one becomes a `secret` name with no value. The
+  person binds it with `env bind`. A non-secret value becomes a `flag` default, or an `endpoint`
+  value when it is a URL with no credentials. The suggestion output never contains a secret value.
+- **Writing.** Nothing is written by `suggest`. The drafts go through the existing reviewed paths:
+  - `capability set <ID> --application-file <FILE>` (local), or
+    `capability edit <ID> --lead <URL> --application-file <FILE>` (proposal), for the application
+    block;
+  - the configuration proposal for `environments.yml`.
+
+### Surfaces
+
+- **VS Code**
+  - The Run & test section gains "Suggest from run configurations". It lists the suggestions with
+    their source files, and the person picks which to keep, then reviews and proposes them.
+  - Each start entry gains **Start (debug)**. Once `Debugger listening` appears, VS Code attaches
+    with a loopback attach configuration:
+    - Java: `type: java`;
+    - Python: `type: debugpy`, `connect` host and port;
+    - Node: `type: node`;
+    - Go: `type: go`, `mode: remote`;
+    - .NET: a coreclr attach with the pid.
+  - When the debugger extension for that language is missing, VS Code names the extension to install
+    instead of failing silently.
+- **Copilot:** `/sf-run-app` offers `--debug` and "suggest from run configurations". It shows the
+  drafts and proposes them only on the person's confirmation.
+
+### Milestones (amendment)
+
+7. **Engine:**
+   - per-environment `arguments`;
+   - the `debug` block, `app start --debug` and `app status` debug state;
+   - `app suggest` with readers for JetBrains `.run`/`.idea` XML, VS Code `launch.json` (with
+     comments), .NET launchSettings and the detected platform markers;
+   - `capability set|edit --application-file`.
+8. **VS Code:** Start (debug) with attach, the Suggest list, and the arguments shown per environment.
+9. **Copilot:** `/sf-run-app` debug and suggest.
+10. **Verification:**
+    - fixtures for Spring Boot (Maven), FastAPI, a Node npm script and a Go module;
+    - a real VS Code check of debug attach for every runtime whose debugger is available on the
+      machine; the others are reported as not verified.

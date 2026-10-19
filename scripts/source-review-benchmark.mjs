@@ -120,6 +120,8 @@ for (let sample = 0; sample < samples; sample++) {
   }
 }
 const result = { platform: process.platform, node: process.version, engine, runtime, samples, history, attachments, publicationTemperature,
-  scope: 'Fresh Node CLI processes and an isolated V8 compile cache per sample; cold = first review context on a disposable published Story; warm = immediate repeat with private Git fact storage and compiled code. Status follows retention. OS caches are not flushed. Excludes model reasoning, application tests and network push.', rows };
+  scope: publicationTemperature
+    ? 'Measured retention only: cold uses empty compile/Git caches separate from report setup; warm uses real review reads and explicit installed-definition preparation. OS caches are not flushed. Excludes setup, model, shell transport, application tests and network push.'
+    : 'Fresh Node CLI processes and an isolated V8 compile cache per sample; cold = first review context on a disposable published Story; warm = immediate repeat with private Git fact storage and compiled code. Status follows retention. OS caches are not flushed. Excludes model reasoning, application tests and network push.', rows };
 if (option('output')) await writeFile(path.resolve(option('output')), `${JSON.stringify(result, null, 2)}\n`);
 console.log(JSON.stringify(result, null, 2));

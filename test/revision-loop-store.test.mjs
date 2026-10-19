@@ -10,6 +10,9 @@ import { buildRevisionPrecheck } from '../src/revision/contracts.mjs';
 import { createRevisionLoopStore, hasRevisionLoopJournal } from '../src/revision/loop-store.mjs';
 import { assertNoInteractiveRevisionPublication } from '../src/revision/publication-absence.mjs';
 import { withSubjectLock } from '../src/subject-lock.mjs';
+import { currentInteractiveRevisionPublication } from '../src/revision/publication-adapter.mjs';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 
 const sha = (value) => `sha256:${recordSha256(value)}`;
 const digest = (letter) => `sha256:${letter.repeat(64)}`;
@@ -27,6 +30,15 @@ test('the no-loop publication probe checks safe absence under the Story lock wit
   await withSubjectLock(f.root, { kind: 'story', id: f.scope.workId }, async () => {
     assert.equal(await assertNoInteractiveRevisionPublication(f.root, execution), true);
   });
+  const originalRead = fs.readFileSync;
+  try {
+    fs.readFileSync = function(file, ...args) {
+      assert.ok(!String(file).endsWith('producer-lock.json'), 'absent REV must not hash the installed producer');
+      return originalRead.call(this, file, ...args);
+    };
+    syncBuiltinESMExports();
+    assert.equal(await currentInteractiveRevisionPublication(f.root, execution), null);
+  } finally { fs.readFileSync = originalRead; syncBuiltinESMExports(); }
   await mkdir(f.journal, { recursive: true, mode: 0o700 });
   await writeFile(path.join(f.journal, 'unexpected'), 'preserve');
   await assert.rejects(hasRevisionLoopJournal(f.root, f.scope), { code: 'REV_LOOP_CORRUPT' });

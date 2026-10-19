@@ -20,6 +20,7 @@ import {
   loadActiveRevisionStory, readPinnedRevisionContext, revisionLoopStore
 } from './product-context.mjs';
 import { assertCurrentRevisionPrecheck } from './precheck.mjs';
+import { hasRevisionLoopJournal } from './loop-store.mjs';
 import { revisionPublicationScope as publicationScope } from './publication-absence.mjs';
 export { assertNoInteractiveRevisionPublication } from './publication-absence.mjs';
 
@@ -65,6 +66,9 @@ export async function currentInteractiveRevisionPublication(root, acceptedExecut
   const provisional = { root, config, workflow, phaseId, phase, subject };
   const publicationGeneration = nextPhaseGeneration(phase);
   const state = await readRevisionInteractiveState(root, subject, { optional: true });
+  // This is only a preflight observation, never permission to publish: the writer repeats safe
+  // absence under its Story lease. Do not hash the installed producer to list a nonexistent loop.
+  if (!state && !await hasRevisionLoopJournal(root, subject)) return null;
   const loopStore = revisionLoopStore(provisional);
   const journal = await loopStore.list();
   const loop = journal.length ? await loopStore.read() : null;

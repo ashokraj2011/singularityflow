@@ -546,6 +546,8 @@ function applicabilityDecisionCommit(root, config, workflow, commit) {
     : changedList('riskDecisions') ? { list: 'riskDecisions', event: 'risk_decided', decision: 'risk' }
     // A step approver's test-run risk decision, revocation or renewal (`decision test-risk`).
     : changedList('testRunRisks') ? { list: 'testRunRisks', event: 'risk_decided', decision: 'test-risk' }
+    // A step approver's reuse of an earlier step's recorded test run, or its revocation (`decision evidence-reuse`).
+    : changedList('evidenceReuses') ? { list: 'evidenceReuses', event: 'evidence_reuse_decided', decision: 'evidence-reuse' }
     : changedList('qualityRiskDecisions') ? { list: 'qualityRiskDecisions', event: 'quality_risk_decided', decision: 'quality-risk' }
     : changedList('witnessRecords') ? { list: 'witnessRecords', event: 'witness_recorded', decision: 'witness' }
     : changedList('upstreamIssues') ? { list: 'upstreamIssues', event: 'upstream_issue_raised', decision: 'upstream-issue' }

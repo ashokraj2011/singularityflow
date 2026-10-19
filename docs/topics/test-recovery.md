@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 19
+version: 20
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -207,6 +207,21 @@ singularity-flow decision test-risk <WORK-ID> --phase <PHASE> --command <COMMAND
 - **How long:** the step then carries through approval, later steps and Story completion while the decision is active. The evidence matrix shows its criteria as satisfied with an exception, never as passed. Once the decision expires or is revoked (`decision test-risk --revoke TRR-001 --reason TEXT`), the next gate refuses again; a new decision on the same command carries the runs an earlier one let through.
 
 This needs no test-policy agreement at intake and works on any Story. The test-policy exception below is narrower and stricter: it covers only a missing executable, needs an agreement and named risk reviewers, and takes a decision for each transition.
+
+### Reusing a run an earlier step recorded
+
+A step whose output is test evidence may record no run of its own: its retained packet says `no-governed-tests-in-this-packet`. Tests an author ran by hand in that step are not a recorded run, and nothing may report them as one. When an earlier step (usually Code) recorded a passing run and the source has not changed since, a person who approves the reusing step can decide that run stands for it:
+
+```text
+singularity-flow decision evidence-reuse <WORK-ID> --phase <PHASE> --from-attempt <TA-ID> --reason "<why the recorded run stands for this step>" [--expires YYYY-MM-DD]
+```
+
+- **Who:** someone in an approval group of the reusing step (as for `decision test-risk`). An agent turn is refused; it shows the command and stops.
+- **Which run:** only a passed, structured attempt that an earlier, approved step's submission retained, read at that submission's commit and matching the digest it bound, with counts that meet the Story's minimums and no skipped test. A preflight attempt, a run kept only in one checkout, a failed run or a run a test-run risk let through cannot be named.
+- **Source binding:** the decision binds the attempt ID, its record digest, its source commit and the application source tree digest it ran on (every path except the Story's own records; separately hashed test inputs included). It is refused with `EVIDENCE_REUSE_SOURCE_CHANGED` while any of that differs, naming the changed paths, with two ways forward: repair (return the change to the step that ran the tests) or a fresh recorded run. A decision recorded on an unchanged source lapses by itself as soon as the source or the attempt record changes, or the step that recorded the run is reopened; nothing is written when it does.
+- **How it reads:** everywhere it is shown (the step's review, the retained execution evidence a later step and the conformance step receive) it reads `reused: <TA-ID> recorded by <step> at <commit>; approved for <PHASE> by <who> (ERU-NNN), not a run by <PHASE>`. A lapsed one says why it no longer applies. Revoke one with `decision evidence-reuse --revoke ERU-001 --reason TEXT`.
+
+Evidence reuse and test-run risk answer different questions. Test-run risk accepts that tests could not run in an environment and is shown as an exception, never a pass. Evidence reuse cites a run that did pass, by the step that recorded it, for a later step that recorded none; it is never shown as that later step's run.
 
 ### Review an unavailable runner without declaring tests passed
 

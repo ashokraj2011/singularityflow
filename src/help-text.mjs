@@ -782,6 +782,7 @@ Usage:
   singularity-flow decision plan [WORK-ID] [--fetch] [--owner PHASE] (--add-row CLAUSE=PATH[,PATH] [--test PATH]... [--fulfillment KIND] [--steps STEP,...] | --add-test CLAUSE=PATH | --remove-location CLAUSE=PATH | --replace-location CLAUSE=FROM:TO)... --reason TEXT [--upstream-issue UPI-ID] [--dry-run] [--json]
   singularity-flow decision risk [WORK-ID] [--fetch] (--obligation OBL-ID --category CATEGORY --expires YYYY-MM-DD [--transition terminal] | --revoke RISK-ID) --reason TEXT [--json]
   singularity-flow decision test-risk [WORK-ID] [--fetch] (--phase PHASE [--command ID [--argv-sha256 DIGEST]] --cause TEXT --expires YYYY-MM-DD | --revoke TRR-ID) --reason TEXT [--json]
+  singularity-flow decision evidence-reuse [WORK-ID] [--fetch] (--phase PHASE --from-attempt TA-ID [--expires YYYY-MM-DD] | --revoke ERU-ID) --reason TEXT [--json]
   singularity-flow decision witness [WORK-ID] [--fetch] --criterion AC-ID --slot SLOT --file PATH (--confirm ITEM | --deny ITEM)... --reason TEXT [--json]
   singularity-flow decision scope [WORK-ID] [--fetch] --item SRI-ID|DOC-ID --as included|existing|excluded|deferred|informative|duplicate|superseded [--clause ID,...] --reason TEXT [--json]
   singularity-flow upstream-issue raise --phase EARLIER --about ID|SECTION --problem TEXT [--assumption TEXT] [--impact TEXT] [--proposed KIND] [--authored human|governed-agent] [--supersedes UPI-ID] [--work-id WORK-ID] [--json]

@@ -15,6 +15,13 @@ import { phaseUpstreamDiscrepancies } from '../../phase-upstream-discrepancies.m
 import { openUpstreamIssues, upstreamIssueDecideCommand } from '../../upstream-issues.mjs';
 import { phaseAuthoringSummary } from '../../phase-authoring-summary.mjs';
 
+/** This step's evidence-reuse decisions, each with its honest label and whether it applies now; {} when none. */
+async function reusedTestEvidence(root, config, workflow, phase) {
+  if (!(workflow.evidenceReuses ?? []).some((entry) => !entry.revokes && entry.phase === phase.id)) return {};
+  const reuse = await (await import('../../evidence-reuse.mjs')).evidenceReuseFor(root, config, workflow, phase.id);
+  return { reusedTestEvidence: [...reuse.active, ...reuse.lapsed] };
+}
+
 export async function phaseReview(root, config, workflow, phase, { includeContinuation = false } = {}) {
   const documentRead = await measureCommandSpan('phase.document-catalog', () => createDocumentReadSession(root, config, workflow));
   const records = documentRead.records
@@ -144,6 +151,8 @@ export async function phaseReview(root, config, workflow, phase, { includeContin
       },
       notice: 'A criterion is judged by its own tagged test where the runner reports exact cases (Node, Jest, Vitest, JUnit 5); counts-only Node reports cannot verify it. Local observation is not independent attestation.'
     } : null,
+    // Runs an earlier step recorded that this step's approvers decided to reuse, labelled as theirs.
+    ...await reusedTestEvidence(root, config, workflow, phase),
     witnessReview,
     owedDecisions: reviewBinding ? await owedDecisions(root, config, workflow, stepsThrough(workflow, phase.id)) : null,
     documents,

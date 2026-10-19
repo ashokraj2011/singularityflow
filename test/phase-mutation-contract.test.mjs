@@ -445,11 +445,14 @@ test('no agent turn accepts that a step\'s tests cannot run here or decides spec
   const accept = 'singularity-flow decision test-risk PMC-1 --phase custom-step --command module-tests --cause "The Maven repository is unreachable." --reason "CI runs these tests before merge." --expires 2026-11-01';
   const revoke = 'singularity-flow decision test-risk PMC-1 --revoke TRR-001 --reason "The repository is reachable again from here."';
   const drift = 'singularity-flow spec drift decide TOY-001:AC-001 --accept --reason "The louder greeting is intended."';
+  // Reusing an earlier step's recorded run for a step is that step's approvers' decision too.
+  const reuse = 'singularity-flow decision evidence-reuse PMC-1 --phase custom-step --from-attempt TA-0123456789abcdef0123 --reason "Implementation recorded this run on the same source."';
+  const unreuse = 'singularity-flow decision evidence-reuse PMC-1 --revoke ERU-001 --reason "Verification records its own run now."';
   for (const [skill, mode] of [['/sf-phase', null], ['/sf-recover', 'kernel'], ['/sf-decide PMC-1', 'decider-3']]) {
     const payload = await f.enter(skill, mode ?? undefined);
     assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'singularity-flow spec drift --json', cwd: f.root } }), {},
       'reading drift is allowed');
-    for (const command of [accept, revoke, drift]) {
+    for (const command of [accept, revoke, drift, reuse, unreuse]) {
       const denied = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
       assert.equal(denied.permissionDecision, 'deny', `${skill}: ${command}`);
       assert.match(denied.permissionDecisionReason, /decided by a person who approves that step, in their own terminal, not by this turn/u, skill);

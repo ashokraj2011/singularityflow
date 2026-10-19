@@ -274,6 +274,9 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   // Code this Story changes that another closed Story's approved clause is bound to [spec-code sync].
   const driftAdvisories = phase.generationIntent?.status === 'open' && phaseRequiresCodeDelivery(phase)
     ? await foreignClauseDrift(root, config, workflow) : [];
+  // A report saying a criterion lacks human visual review while the Story recorded a valid one.
+  const witnessAdvisories = workflow.witnessRecords?.length && artifact?.exists
+    ? await (await import('./verification/witness-report-findings.mjs')).witnessReportAdvisories(root, workflow, phase, artifact) : [];
 
   const route = draftCorrectionRoute(codeEvidenceRepair, convergenceReview);
   const clarificationRoute = prospective && findings.some(finding => finding.category === 'clarification') ? {
@@ -326,7 +329,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       ...finding,
       message: finding.message ?? artifactFindingMessage(finding)
     }))),
-    advisories: Object.freeze([...advisories, ...coverageAdvisories, ...driftAdvisories, ...specificationAdvisories]),
+    advisories: Object.freeze([...advisories, ...coverageAdvisories, ...driftAdvisories, ...specificationAdvisories, ...witnessAdvisories]),
     documentation,
     coverage,
     traceabilityRepair,

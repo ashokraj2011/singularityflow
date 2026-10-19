@@ -39,7 +39,7 @@ async function composedPromptFile(root, workItemRoot, workId, phaseId, generatio
     const bytes = await readFile(path.join(root, relative));
     const sha256 = createHash('sha256').update(bytes).digest('hex');
     return sha256 === record.renderedSha256
-      ? { path: relative, sha256, bytes: bytes.length, differsFromText: 'omits the presentation-only reply personalization and any execution-evidence refresh added on reuse (the packet carries that evidence as retainedExecutionEvidence)' }
+      ? { path: relative, sha256, bytes: bytes.length, differsFromText: 'omits the presentation-only reply personalization and any execution-evidence or recorded-visual-review refresh added on reuse (the packet carries those as retainedExecutionEvidence and recordedVisualReviews)' }
       : null;
   } catch { return null; }
 }
@@ -68,6 +68,9 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
   const references = await measureCommandSpan('phase-entry.references', async () => verifyReferenceRepositories(root,
     await storyReferenceRepositories(root, definition, workflow)));
   const retainedExecutionEvidence = await measureCommandSpan('phase-entry.execution-evidence', () => phaseExecutionEvidence(root, definition, workflow, phase));
+  // The human visual reviews the Story recorded (decision witness), for a step that reports on them.
+  const recordedVisualReviews = workflow.witnessRecords?.length
+    ? await (await import('./verification/witness-decisions.mjs')).phaseWitnessDecisions(root, workflow, phase) : null;
   const scopeReview = await measureCommandSpan('phase-entry.scope-review', async () =>
     (await import('./scope/authoring.mjs')).scopeAuthoringCheckpoint(root, definition, workflow, phase));
   // What earlier steps left open, and at the closing step the final evaluation's preview [A7, B5].
@@ -213,7 +216,8 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
   return { ...base, repositoryChecks: repositoryCheckStatus(root), status, upstream, scopeReview, testEvidenceFrom, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
     ...(preparationAdmitted ? { successor: { targetGeneration: authoring.entry.targetGeneration,
       preparation: authoring.entry.preparation, automatic: false } } : {}),
-    authoring, recovery, retainedExecutionEvidence, references, clarification, context,
+    authoring, recovery, retainedExecutionEvidence, ...(recordedVisualReviews ? { recordedVisualReviews } : {}),
+    references, clarification, context,
     contextComposition: !compose ? 'not-requested' : context ? 'delivered' : 'not-admitted',
     next: clarificationAction ? [checkpoint.nextAction, ...nextActions.filter(action =>
       action.id !== `resolve-clarification:${phase.id}`)] : checkpoint.rebindAction ? [checkpoint.rebindAction, ...nextActions] : nextActions,

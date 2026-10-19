@@ -9,6 +9,7 @@ import {
   publicationPushOutcome, pushCommitToBranchAsync, refExists, refHead, refreshStalePublishedIndex, remoteContains
 } from './git.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
+import { publicationPushRefusal, publicationRemoteChangedRefusal } from './publication-retry-refusals.mjs';
 import {
   clearPublicationJournal,
   publicationJournalOwnedByCurrentProcess,
@@ -608,13 +609,15 @@ export async function completePendingStoryBranchPromotion(root, pending, {
           record: { ...record, pushOutcome: 'rejected' }
         });
       }
-      throw new SingularityFlowError(
-        `Story '${subject.id}' branch promotion push failed. The exact Candidate and recovery marker were retained.`,
-        {
-          code: 'STORY_PROMOTION_PUSH_FAILED',
-          details: { subject, targetBranch: record.targetBranch, outcome }
-        }
-      );
+      // Promotion retries push the same Candidate; a rule or hook refusal repeats on every retry.
+      throw publicationPushRefusal({
+        prefix: `Story '${subject.id}' branch promotion push failed. The exact Candidate and recovery marker were retained`,
+        code: 'STORY_PROMOTION_PUSH_FAILED', result: published.result, outcome, subject,
+        commit: record.commit, branch: record.targetBranch, remote: record.remote,
+        extraDetails: { targetBranch: record.targetBranch },
+        retryCommand: `singularity-flow story branch promote --parent ${subject.id} --mode direct`,
+        inspectCommand: `singularity-flow recover ${subject.id}`
+      });
     }
   }
   await clearPendingPublication(root, subject);
@@ -934,10 +937,11 @@ export async function syncPendingLifecyclePublication(root, options = {}) {
     try { authority = configuredRemoteAuthority(root, record.remote); } catch { /* fail below */ }
     if (!record.remoteFingerprint || !authority?.url
         || authority.fingerprint !== record.remoteFingerprint) {
-      throw new SingularityFlowError(
-        `${subject.kind} '${subject.id}' publication remote changed after its exact commit was retained.`,
-        { code: 'PENDING_PUBLICATION_REMOTE_CHANGED', details: { subject } }
-      );
+      // Name the change; this route has no confirmed rebind, so restoring the remote is the repair.
+      throw publicationRemoteChangedRefusal(root, {
+        label: `${subject.kind} '${subject.id}'`, subject, record,
+        message: `${subject.kind} '${subject.id}' publication remote changed after its exact commit was retained`
+      });
     }
     if (record.rootPublished === true) {
       const observed = await exactRemoteBranchObservationAsync(root, authority.url, record.branch);
@@ -977,11 +981,9 @@ export async function syncPendingLifecyclePublication(root, options = {}) {
             ...subject, record: { ...record, pushOutcome: 'rejected' }
           });
         }
-        throw new SingularityFlowError(
-          `Push still fails. ${result.failure?.advice
-            ?? 'Run workspace doctor --network and inspect Git access outside SFlow before retrying.'}`,
-          { code: 'PUBLICATION_PUSH_FAILED', details: { subject, outcome } }
-        );
+        throw publicationPushRefusal({
+          result, outcome, subject, commit: record.commit, branch: record.branch, remote: record.remote
+        });
       }
     }
     if (typeof options.finalize === 'function') {

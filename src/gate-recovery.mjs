@@ -152,12 +152,42 @@ function openStoryRecovery(workflow, code, ownerPhase, openStory) {
   };
 }
 
-function storyRecovery(workflow, code, ownerPhase, path, openStory = null) {
+/**
+ * The route that moves an unpublished Story. Only a retained commit gives sync something to send;
+ * without one, a remote that moved on needs a fetch and one that disagrees needs a person, or the
+ * gate is refused again by a sync that does nothing.
+ */
+function publicationRecovery(workflow, ownerPhase, { publicationPending = true, publication = null } = {}) {
   const workId = workflow.workItem.id;
-  if (code === 'gate.publication.remote-missing') return {
-    mode: 'automatic', ownerPhase, requiresReopen: false,
+  const route = { ownerPhase, requiresReopen: false };
+  if (publicationPending) return {
+    ...route, mode: 'automatic',
     command: 'singularity-flow sync', detail: 'Retry the already-created commit; lifecycle state remains unchanged.'
   };
+  const target = publication?.remote && publication?.branch ? `${publication.remote}/${publication.branch}` : 'the remote branch';
+  if (publication?.state === 'ahead') return {
+    ...route, mode: 'manual', command: null,
+    detail: `This checkout has commits that are not on ${target}, and none is a retained Flow commit, so sync has nothing to send. Push them yourself when they belong to this Story, or return the branch to ${target}, then rerun the gate.`
+  };
+  if (publication?.state === 'diverged') return {
+    ...route, mode: 'manual', command: null,
+    detail: `This checkout and ${target} have diverged, and no retained Flow commit is waiting. Compare both tips with whoever pushed and reconcile them, then rerun the gate; nothing was changed.`
+  };
+  if (publication?.state === 'unavailable') return {
+    ...route, mode: 'guided', command: 'singularity-flow workspace doctor --network',
+    detail: 'The remote could not be read, so publication cannot be proven. Restore access to it, then rerun the gate.'
+  };
+  return {
+    ...route, mode: 'guided', command: `singularity-flow recover ${workId} --fetch`,
+    detail: publication?.state === 'absent'
+      ? `${target} is gone (deleted, or removed after its pull request merged) and HEAD was not found on ${publication.base ?? 'its base'}. Fetch with recover --fetch and apply its exact confirmation so the gate can compare HEAD with the base it merged into, then rerun the gate. No retained commit is waiting for sync.`
+      : `${target} has commits this checkout lacks (another clone or a reviewer pushed). Fetch and fast-forward with recover --fetch, apply its exact confirmation, then rerun the gate. No retained commit is waiting for sync.`
+  };
+}
+
+function storyRecovery(workflow, code, ownerPhase, path, openStory = null, context = {}) {
+  const workId = workflow.workItem.id;
+  if (code === 'gate.publication.remote-missing') return publicationRecovery(workflow, ownerPhase, context);
   if (code === 'gate.protected-path.changed') return {
     mode: 'manual', ownerPhase: null, requiresReopen: false,
     command: path ? `git diff -- ${path}` : 'git diff -- singularity/workflow.yml',
@@ -282,11 +312,12 @@ export function verifyGateRecoveryReopenPlan(root, workflow, plan) {
  * Turn the gate's coded findings into recovery. Each finding arrives with its code, and the step and
  * path the gate knew; a bare message (from an older caller) is an unclassified validation failure.
  */
-export function classifyStoryGateFailures(workflow, findings, { openStory = null } = {}) {
+export function classifyStoryGateFailures(workflow, findings, { openStory = null, publicationPending = true } = {}) {
   const seen = new Set();
   return (findings ?? []).map((entry) => (typeof entry === 'string'
     ? { code: 'gate.validation.failed', message: entry, phase: null, path: null }
-    : { code: entry.code ?? 'gate.validation.failed', message: entry.message, phase: entry.phase ?? null, path: entry.path ?? null }))
+    : { code: entry.code ?? 'gate.validation.failed', message: entry.message, phase: entry.phase ?? null, path: entry.path ?? null,
+      publication: entry.publication ?? null }))
     .filter((entry) => !seen.has(entry.message) && seen.add(entry.message))
     .map((entry) => {
     const { code, message, path } = entry;
@@ -302,7 +333,7 @@ export function classifyStoryGateFailures(workflow, findings, { openStory = null
       value: null,
       stableState: 'unchanged',
       details: { message },
-      recovery: storyRecovery(workflow, code, phase, path, openStory)
+      recovery: storyRecovery(workflow, code, phase, path, openStory, { publicationPending, publication: entry.publication })
     };
   });
 }

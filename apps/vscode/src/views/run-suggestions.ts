@@ -110,7 +110,9 @@ export class RunSuggestionsPanel implements vscode.Disposable {
       return this.render();
     }
     this.set = set;
-    this.declaredIds = planned.status === 'fulfilled' ? appPlanFrom(planned.value).entries.map((entry) => entry.id) : [];
+    // Taken IDs: what the engine's draft keeps, and what app plan runs.
+    this.declaredIds = [...new Set([...(set.existing?.start ?? []).map((entry) => String(entry.id ?? '')).filter(Boolean),
+      ...(planned.status === 'fulfilled' ? appPlanFrom(planned.value).entries.map((entry) => entry.id) : [])])];
     this.selection = defaultSelection(set);
     this.problems = NO_PROBLEMS;
     this.render();
@@ -146,9 +148,10 @@ export class RunSuggestionsPanel implements vscode.Disposable {
     }
     if (!route) { this.notice = 'Nothing was proposed.'; return this.render(); }
     const kept = keptStarts(set, this.selection);
-    const applicationYaml = applicationDraftYaml(kept.map((item) => item.start));
+    if (!set.existing || !kept.length) { this.error = 'Nothing can be proposed: the engine drafted none of the kept entries.'; return this.render(); }
+    const applicationYaml = applicationDraftYaml(set.existing, kept.map((item) => item.entry));
     const accepted = await collectReviewConfirmation(suggestionReviewRequest({
-      capability: set.capability, kept, route, applicationYaml, environmentsDraft: set.environmentsDraft, declaredIds: this.declaredIds
+      capability: set.capability, kept, route, applicationYaml, environmentsDraft: set.environmentsDraft, existing: set.existing
     }));
     if (!accepted) { this.notice = 'Nothing was proposed or saved.'; return this.render(); }
     this.busy = true; this.render();

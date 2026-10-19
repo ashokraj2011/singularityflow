@@ -11,7 +11,7 @@
  * from `app plan`, or from `tests plan`) asks for confirmation on a review page, remembered for this
  * workspace; a changed command asks again.
  *
- * Start (debug) runs the same task with `--debug` and the debug block's own identity. Once
+ * Start (debug) runs the same task with `--debug`, confirmed separately (`<commandSha256>:debug`). Once
  * `app status` says the debugger listens (for .NET: once the process has a pid), VS Code attaches
  * with a loopback configuration built from the port or pid the engine reported, never from the
  * page. Ending the debug session leaves the application running; Stop still ends it.
@@ -24,7 +24,8 @@ import { showCompactWarningMessage } from '../compact-message.ts';
 import { collectReviewConfirmation } from './review-confirmation.ts';
 import {
   appPlanArgv, appPlanFrom, appPlanHereArgv, appStartArgv, appStatusArgv, appStatusFrom, appStopArgv, bindCommand, buildRunAndTestView,
-  capabilitiesHere, chooseEnvironment, CONFIRMED_COMMANDS_KEY, debugAttachPlan, debuggerReady, debugStartConfirmationRequest, entryEnvironment,
+  capabilitiesHere, chooseEnvironment, CONFIRMED_COMMANDS_KEY, debugAttachPlan, debugConfirmationKey, debuggerReady, debugLaunch,
+  debugStartConfirmationRequest, entryEnvironment,
   environmentOptions, environmentStatusWords, ENVIRONMENT_CHOICES_KEY, findCapability, loopbackUrl, missingDebuggerMessage, ownershipOf,
   rememberConfirmed, startConfirmationRequest, plannedIdentities, startRefusal, testPlanFrom, testsConfirmationKeys, testsConfirmationRequest,
   testsEnvironment, testsPlanArgv, testsRunArgv, unwrapResult, type DebugRuntime, type Ownership, type RunAndTestState, type StartEntry
@@ -295,8 +296,8 @@ export class RunAndTest implements vscode.Disposable {
   }
 
   /**
-   * Start one entry with its debugger, as a task, after trust and the first-run confirmation of the
-   * debug block's own identity; then attach once `app status` says the debugger listens.
+   * Start one entry with its debugger, as a task, after trust and the first-run confirmation of its
+   * debug start; then attach once `app status` says the debugger listens.
    */
   async startDebug(capability: string, entryId: string): Promise<void> {
     if (!this.trusted(capability)) return;
@@ -312,10 +313,13 @@ export class RunAndTest implements vscode.Disposable {
     const environment = entryEnvironment(entry, this.chosenEnvironment(capability));
     const refusal = startRefusal(entry, environment);
     if (refusal) return this.update(capability, { error: refusal, notice: null });
-    if (!await this.confirmed([entry.debug.commandSha256], debugStartConfirmationRequest(entry, environment))) {
+    // The engine would refuse it before anything runs (a missing debugpy or dlv, yarn): say so here.
+    const declined = debugLaunch(entry.debug, environment).refusal;
+    if (declined) return this.update(capability, { error: `${entryId} was not started: ${declined.message}`, notice: null });
+    if (!await this.confirmed([debugConfirmationKey(entry)], debugStartConfirmationRequest(entry, environment))) {
       return this.update(capability, { notice: 'Nothing was started.', error: null });
     }
-    const argv = appStartArgv(capability, entry.id, environment, entry.debug.commandSha256, true);
+    const argv = appStartArgv(capability, entry.id, environment, entry.commandSha256, true);
     this.log(argv);
     const execution = await this.execute(capability, this.task('app-start', capability, entry.id, environment, argv, true));
     if (!execution) return;

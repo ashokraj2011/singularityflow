@@ -39,7 +39,7 @@ function suggestionHtml(suggestion: Suggestion, choice: SuggestionChoice | undef
   const argumentsRows = Object.entries(start.arguments).map(([environment, list]) =>
     `<tr><td><code>${escape(environment)}</code></td><td><code class="sg-argv">${escape(maskedArgv(list).join(' '))}</code></td></tr>`).join('');
   const names = suggestion.environmentNames.map((name) => `<tr data-sg-name="${escape(name.name)}" data-sg-kind="${escape(name.kind)}">
-      <td><code>${escape(name.name)}</code></td><td>${escape(KIND_WORDS[name.kind] ?? name.kind)}</td>
+      <td><code>${escape(name.name)}</code>${name.environment ? ` <small class="muted">(${escape(name.environment)})</small>` : ''}</td><td>${escape(KIND_WORDS[name.kind] ?? name.kind)}</td>
       <td>${name.kind === 'secret' ? '<span class="muted">no value</span>' : name.default === null ? '<span class="muted">none</span>' : `<code>${escape(name.default)}</code>`}</td></tr>`).join('');
   const debug = start.debug
     ? `${start.debug.runtime}${start.debug.port ? ` on 127.0.0.1:${start.debug.port}` : start.debug.runtime === 'dotnet' ? ', attached by process ID' : ''}${start.debug.suspend ? ', waits for the debugger' : ''}`
@@ -52,7 +52,10 @@ function suggestionHtml(suggestion: Suggestion, choice: SuggestionChoice | undef
       ${source.file ? `<button type="button" class="link" data-sg-open="${index}">${escape(source.file)}</button>` : ''}
       ${source.name ? `<span class="muted">${escape(source.name)}</span>` : ''}
     </header>
-    ${problem ? `<p class="notice error" role="alert" data-sg-problem="${index}">${icon('blocked')}${escape(problem)}</p>` : ''}
+    ${problem ? `<p class="notice error" role="alert" data-sg-problem="${index}">${icon('blocked')}${escape(problem)}</p>`
+    : suggestion.refusal ? `<p class="notice" role="status" data-sg-refusal="${index}">${escape(suggestion.refusal)}</p>` : ''}
+    ${suggestion.variants.length ? `<p class="muted sg-variants">One entry from ${suggestion.variants.length} configurations: ${suggestion.variants.map((variant) =>
+    `${escape(variant.name ?? variant.file ?? 'a configuration')}${variant.environment ? ` → ${escape(variant.environment)}` : ''}`).join('; ')}</p>` : ''}
     <table class="sg-facts"><tbody>
       <tr><th>Command</th><td><code class="sg-argv">${escape(maskedArgv(start.argv).join(' '))}</code></td></tr>
       ${start.repository ? `<tr><th>Repository</th><td><code>${escape(start.repository)}</code></td></tr>` : ''}
@@ -92,7 +95,12 @@ export function runSuggestionsHtml(state: SuggestionsPageState): string {
     : set.environmentsNote ? `<section class="plain sg-environments"><p class="notice" role="status">${escape(set.environmentsNote)}</p></section>` : '';
   const declared = state.declaredIds.length
     ? `<p class="muted">${escape(set.capability)} already declares: ${state.declaredIds.map((id) => `<code>${escape(id)}</code>`).join(', ')}. Those stay as they are; a kept suggestion needs another ID.</p>` : '';
-  return `${header}${messages}${dropped}${declared}
+  const engine = set.notes.length || set.files.skipped.length || set.files.read !== null ? `<section class="plain sg-read">
+      ${set.files.read !== null ? `<p class="muted">Read ${set.files.read} file${set.files.read === 1 ? '' : 's'}.</p>` : ''}
+      ${set.notes.map((note) => `<p class="notice" role="status">${escape(note)}</p>`).join('')}
+      ${set.files.skipped.length ? `<details><summary>${set.files.skipped.length} configuration${set.files.skipped.length === 1 ? '' : 's'} not used</summary><ul>${set.files.skipped
+    .map((skipped) => `<li><code>${escape(skipped.file)}</code>: ${escape(skipped.reason)}</li>`).join('')}</ul></details>` : ''}</section>` : '';
+  return `${header}${messages}${engine}${dropped}${declared}
     <div class="sg-cards">${cards}</div>
     ${environments}
     ${state.problems.general ? `<p class="notice error" role="alert">${escape(state.problems.general)}</p>` : ''}

@@ -10812,23 +10812,27 @@ test('a window that opened its folder directly asks the engine which capability 
  * attaches with a loopback configuration from the port `app status` reports, and "Suggest from run
  * configurations" proposes kept entries through the capability page's route.
  */
-const RUN_DEBUG_SHA = `sha256:${'5'.repeat(64)}`;
-const runDebugPlan = () => ({ resultType: 'sflow-app-plan', capability: 'checkout-app', entries: [{
-  ...runPlanEntry(),
-  environments: [
-    { name: 'dev', status: 'bound', default: true, argv: [...runPlanEntry().argv, '--mode', 'development'] },
-    { name: 'qa', status: 'unbound', default: false, argv: [...runPlanEntry().argv, '--mode', 'qa'] }
-  ],
-  arguments: { dev: ['--mode', 'development'], qa: ['--mode', 'qa'] },
-  debug: { runtime: 'java', port: 5005, suspend: false, commandSha256: RUN_DEBUG_SHA }
-}] });
+/** The engine's shape: the debug start shares the entry's commandSha256 (which covers the debug block). */
+const runDebugPlan = () => {
+  const argv = runPlanEntry().argv;
+  const debugArgv = (mode) => [...argv, '--mode', mode, '-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=127.0.0.1:5005'];
+  return { resultType: 'sflow-app-plan', capability: 'checkout-app', entries: [{
+    ...runPlanEntry(),
+    environments: [
+      { name: 'dev', status: 'bound', default: true, argv: [...argv, '--mode', 'development'], debug: { argv: debugArgv('development'), environmentNames: [] } },
+      { name: 'qa', status: 'unbound', default: false, argv: [...argv, '--mode', 'qa'], debug: { argv: debugArgv('qa'), environmentNames: [] } }
+    ],
+    arguments: { dev: ['--mode', 'development'], qa: ['--mode', 'qa'] },
+    debug: { runtime: 'java', port: 5005, suspend: false, address: '127.0.0.1:5005', launcher: 'java', argv: debugArgv('development'), environmentNames: [], notes: [] }
+  }] };
+};
 const runDebugStatus = ({ started, listening, port = 5005 }) => {
   const answer = runStatus({ started, ready: false, environment: 'dev' });
   answer.entries[0].debug = started ? { runtime: 'java', port, listening } : null;
   return answer;
 };
 
-test('Start (debug) runs the debug identity as a task, attaches on 127.0.0.1 at the reported port, and names a missing debugger', async (t) => {
+test('Start (debug) runs app start --debug as a task, attaches on 127.0.0.1 at the reported port, and names a missing debugger', async (t) => {
   if (!requireBundle(t)) return;
   const { registered, cli, windowState } = await activatedWithRunAndTest(t);
   await cli.write('plan.json', runDebugPlan());
@@ -10844,17 +10848,18 @@ test('Start (debug) runs the debug identity as a task, attaches on 127.0.0.1 at 
   const starting = panel.post(rt('debug', { entry: 'web' }));
   const confirmation = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.reviewConfirmation' && entry.visible) ?? null);
   assert.equal(confirmation.title, 'Start web with its debugger for checkout-app');
-  assert.ok(confirmation.webview.html.includes(`Command identity: ${RUN_DEBUG_SHA}`));
-  assert.ok(confirmation.webview.html.includes(`singularity-flow app start web --capability checkout-app --environment dev --debug --expect-command ${RUN_DEBUG_SHA}`));
+  assert.ok(confirmation.webview.html.includes(`Command identity: ${RUN_SHA} (its debug start)`));
+  assert.ok(confirmation.webview.html.includes('address=127.0.0.1:5005'), 'the debug launch the engine resolved');
+  assert.ok(confirmation.webview.html.includes(`singularity-flow app start web --capability checkout-app --environment dev --debug --expect-command ${RUN_SHA}`));
   await confirmation.post({ type: 'confirmation.accept', acknowledged: true });
   await starting;
   assert.equal(registered.tasks.length, 1);
   const [{ task }] = registered.tasks;
   assert.equal(task.execution.kind, 'process');
-  assert.deepEqual(task.execution.args, [cli.wrapper, 'app', 'start', 'web', '--capability', 'checkout-app', '--environment', 'dev', '--debug', '--expect-command', RUN_DEBUG_SHA]);
+  assert.deepEqual(task.execution.args, [cli.wrapper, 'app', 'start', 'web', '--capability', 'checkout-app', '--environment', 'dev', '--debug', '--expect-command', RUN_SHA]);
   assert.deepEqual(task.definition, { type: 'singularityFlow', action: 'app-start', capability: 'checkout-app', entry: 'web', environment: 'dev', debug: true });
   assert.equal(task.name, 'Start web (debug) · checkout-app');
-  assert.deepEqual(windowState.get('singularityFlow.runAndTest.confirmedCommands'), [RUN_DEBUG_SHA], 'the debug start is confirmed on its own identity');
+  assert.deepEqual(windowState.get('singularityFlow.runAndTest.confirmedCommands'), [`${RUN_SHA}:debug`], 'the debug start is confirmed apart from the plain start');
 
   // Started but not listening yet: nothing is attached.
   await cli.write('status.json', runDebugStatus({ started: true, listening: false }));
@@ -10895,20 +10900,26 @@ test('Start (debug) runs the debug identity as a task, attaches on 127.0.0.1 at 
   assert.equal(registered.tasks[0].terminated, true);
 });
 
+const RUN_EXISTING = { id: 'web', argv: ['npm', 'run', 'dev'], workingDirectory: 'apps/web', url: 'http://127.0.0.1:5173/', ready: { http: '/', timeoutMs: 1000 } };
+const RUN_API = { id: 'api', argv: ['./mvnw', '-q', 'spring-boot:run'], workingDirectory: 'services/api', url: 'http://127.0.0.1:8080/',
+  ready: { http: '/actuator/health', timeoutMs: 180000 }, environments: ['dev', 'qa'],
+  arguments: { dev: ['-Dspring-boot.run.profiles=dev'], qa: ['-Dspring-boot.run.profiles=qa'] }, debug: { runtime: 'java', port: 5005 } };
+const RUN_SITE = { id: 'site', argv: ['npm', 'run', 'storybook'], workingDirectory: 'apps/web', url: 'http://127.0.0.1:6006/', ready: { http: '/', timeoutMs: 90000 },
+  debug: { runtime: 'node', port: 9229 } };
+/** `app suggest --json` as the engine answers it; the DB_PASSWORD default is what an engine bug could leak. */
 const runSuggestions = () => ({
-  resultType: 'sflow-app-suggestions', capability: 'checkout-app',
+  resultType: 'sflow-app-suggestions', capability: 'checkout-app', repository: 'mobile',
   suggestions: [
-    { source: { kind: 'intellij', file: '.run/Api.run.xml', name: 'Api (dev)' },
-      start: { id: 'web', argv: ['./mvnw', '-q', 'spring-boot:run'], workingDirectory: 'services/api', url: 'http://127.0.0.1:8080/',
-        ready: { http: '/actuator/health', timeoutMs: 180000 }, environments: ['dev', 'qa'],
-        arguments: { dev: ['-Dspring-boot.run.profiles=dev'], qa: ['-Dspring-boot.run.profiles=qa'] }, debug: { runtime: 'java', port: 5005 } },
+    { source: { kind: 'intellij', file: '.run/Api (dev).run.xml', name: 'Api (dev)' },
+      variants: [{ file: '.run/Api (dev).run.xml', name: 'Api (dev)', environment: 'dev' }, { file: '.run/Api (qa).run.xml', name: 'Api (qa)', environment: 'qa' }],
+      start: RUN_API,
       environmentNames: [{ name: 'SPRING_PROFILES_ACTIVE', kind: 'flag', default: 'dev' }, { name: 'DB_PASSWORD', kind: 'secret', default: 'leaked-by-a-bug' }],
       notes: ['IntelliJ computes the classpath; this runs through the Maven wrapper instead.'] },
-    { source: { kind: 'webstorm', file: 'package.json', name: 'dev' },
-      start: { id: 'site', argv: ['npm', 'run', 'dev'], workingDirectory: 'apps/web' }, environmentNames: [], notes: [] }
+    { source: { kind: 'webstorm', file: '.run/storybook.run.xml', name: 'storybook' }, start: { ...RUN_SITE, arguments: {} }, environmentNames: [], notes: [] }
   ],
-  applicationDraft: 'start: []\n',
-  environmentsDraft: 'environments:\n  dev:\n    requires:\n      - { name: DB_PASSWORD, kind: secret }\n'
+  applicationDraft: `# The application block for capability checkout-app: existing entries, then the suggested ones.\n${YAML.stringify({ start: [RUN_EXISTING, RUN_API, RUN_SITE], tests: [{ use: 'module-tests' }] })}`,
+  environmentsDraft: '# Additions for singularity/environments.yml.\nenvironments:\n  dev:\n    requires:\n      - { name: DB_PASSWORD, kind: secret }\n',
+  notes: [], files: { read: 3, skipped: [] }
 });
 
 test('Suggest from run configurations lists suggestions, then proposes the kept entries from a private file that is deleted', async (t) => {
@@ -10924,12 +10935,13 @@ test('Suggest from run configurations lists suggestions, then proposes the kept 
   assert.equal(page.title, 'Run configurations · checkout-app');
   assert.match(html, /Content-Security-Policy" content="default-src 'none'/);
   assert.ok((await cli.log()).some((entry) => entry.argv.join(' ') === 'app suggest --capability checkout-app --json'));
-  assert.match(html, /<span class="pill">IntelliJ IDEA<\/span>\s*<button type="button" class="link" data-sg-open="0">\.run\/Api\.run\.xml<\/button>/);
+  assert.match(html, /<span class="pill">IntelliJ IDEA<\/span>\s*<button type="button" class="link" data-sg-open="0">\.run\/Api \(dev\)\.run\.xml<\/button>/);
+  assert.match(html, /One entry from 2 configurations: Api \(dev\) → dev; Api \(qa\) → qa/);
   assert.match(html, /data-sg-name="DB_PASSWORD" data-sg-kind="secret">[\s\S]*no value/);
   assert.doesNotMatch(html, /leaked-by-a-bug/, 'a secret value never reaches the page');
   assert.match(html, /checkout-app already declares: <code>web<\/code>/);
 
-  // The suggested ID is already declared: refused on the page, nothing confirmed or written.
+  // An ID already declared: refused on the page, nothing confirmed or written.
   await page.post({ type: 'suggest.review', selection: [{ index: 0, keep: true, id: 'web' }, { index: 1, keep: false, id: 'site' }] });
   html = await until(() => page.webview.html.includes('data-sg-problem="0"') ? page.webview.html : null);
   assert.match(html, /web is already a start entry of checkout-app\. Choose another ID\./);
@@ -10940,9 +10952,10 @@ test('Suggest from run configurations lists suggestions, then proposes the kept 
   const reviewing = page.post({ type: 'suggest.review', selection: [{ index: 0, keep: true, id: 'api' }, { index: 1, keep: false, id: 'site' }] });
   const confirmation = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.reviewConfirmation' && entry.visible) ?? null);
   const review = confirmation.webview.html;
-  assert.match(review, /Start entries added: api \(from IntelliJ IDEA, \.run\/Api\.run\.xml\)/);
+  assert.match(review, /Start entries added: api \(from IntelliJ IDEA, \.run\/Api \(dev\)\.run\.xml\)/);
   assert.match(review, /Start entries already declared, kept as they are: web/);
-  assert.match(review, /start:\n  - id: api\n    argv: \[\.\/mvnw, -q, spring-boot:run\]/);
+  assert.match(review, /Tests already declared, kept as they are: 1/);
+  assert.match(review, /start:\n  - id: web\n    argv: \[npm, run, dev\][\s\S]*  - id: api\n    argv: \[\.\/mvnw, -q, spring-boot:run\]/);
   assert.match(review, /Additions for singularity\/environments\.yml\. VS Code does not write these/);
   assert.doesNotMatch(review, /leaked-by-a-bug/);
   await confirmation.post({ type: 'confirmation.accept', acknowledged: true });
@@ -10963,11 +10976,15 @@ test('Suggest from run configurations lists suggestions, then proposes the kept 
   assert.ok(path.basename(path.dirname(file)).startsWith('sflow-application-'));
   assert.equal(call.fileMode, 0o600);
   assert.equal(call.directoryMode, 0o700);
+  // The whole block replaces the capability's: the declared entry and tests, then the kept one.
   assert.equal(call.application, [
-    'start:', '  - id: api', '    argv: [./mvnw, -q, spring-boot:run]', '    workingDirectory: services/api', '    url: http://127.0.0.1:8080/',
+    'start:', '  - id: web', '    argv: [npm, run, dev]', '    workingDirectory: apps/web', '    url: http://127.0.0.1:5173/', '    ready:', '      http: /', '      timeoutMs: 1000',
+    '  - id: api', '    argv: [./mvnw, -q, spring-boot:run]', '    workingDirectory: services/api', '    url: http://127.0.0.1:8080/',
     '    ready:', '      http: /actuator/health', '      timeoutMs: 180000', '    environments: [dev, qa]', '    arguments:',
-    '      dev: [-Dspring-boot.run.profiles=dev]', '      qa: [-Dspring-boot.run.profiles=qa]', '    debug:', '      runtime: java', '      port: 5005', ''
+    '      dev: [-Dspring-boot.run.profiles=dev]', '      qa: [-Dspring-boot.run.profiles=qa]', '    debug:', '      runtime: java', '      port: 5005',
+    'tests:', '  - use: module-tests', ''
   ].join('\n'));
+  assert.deepEqual(YAML.parse(call.application), { start: [RUN_EXISTING, RUN_API], tests: [{ use: 'module-tests' }] });
   assert.doesNotMatch(call.application, /leaked-by-a-bug|DB_PASSWORD/);
   assert.equal(existsSync(file), false, 'the private file is deleted once the command returned');
   assert.equal(existsSync(path.dirname(file)), false);
@@ -10986,5 +11003,5 @@ test('Suggest from run configurations lists suggestions, then proposes the kept 
   await page.post({ type: 'suggest.open', file: '/etc/hosts' });
   const opened = registered.executedCommands.filter((entry) => entry.id === 'vscode.open');
   assert.equal(opened.length, 1);
-  assert.equal(opened[0].args[0].fsPath, path.join(lead, '.run/Api.run.xml'));
+  assert.equal(opened[0].args[0].fsPath, path.join(lead, '.run/Api (dev).run.xml'));
 });

@@ -59,12 +59,14 @@ function summary(overrides = {}) {
   };
 }
 
-test('app plan|status, tests summary|plan are reads; app start|stop and tests run execute; VS Code and the CLI agree', async () => {
+test('app plan|status|suggest, tests summary|plan are reads; app start|stop and tests run execute; VS Code and the CLI agree', async () => {
   const reads = [['app', 'plan', '--capability', 'x', '--json'], ['app', 'plan', '--json'], ['app', 'status', '--capability', 'x', '--json'],
     ['tests', 'summary', '--capability', 'x', '--json'], ['tests', 'summary', '--capability', 'x', '--run=RUN-1', '--json'],
-    ['tests', 'plan', '--capability', 'x', '--json'], ['app'], ['app', '--json'], ['tests'], ['tests', '--capability', 'x']];
+    ['tests', 'plan', '--capability', 'x', '--json'], ['app'], ['app', '--json'], ['tests'], ['tests', '--capability', 'x'],
+    ['app', 'suggest', '--capability', 'x', '--json']];
   const executions = [['app', 'start', 'web', '--capability', 'x', '--expect-command', SHA], ['app', 'stop', 'web', '--capability', 'x', '--json'],
-    ['tests', 'run', '--capability', 'x', '--expect-command', SHA], ['tests', 'run', '--capability', 'x', '--command', 'a', '--environment', 'qa']];
+    ['tests', 'run', '--capability', 'x', '--expect-command', SHA], ['tests', 'run', '--capability', 'x', '--command', 'a', '--environment', 'qa'],
+    ['app', 'start', 'web', '--capability', 'x', '--environment', 'dev', '--debug', '--expect-command', SHA]];
   for (const args of reads) assert.equal(commandClass(args), 'read', args.join(' '));
   for (const args of executions) assert.equal(commandClass(args), 'mutation', args.join(' '));
   assert.equal(commandClass(['app', 'unknown']), 'mutation', 'an unknown subcommand stays conservative');

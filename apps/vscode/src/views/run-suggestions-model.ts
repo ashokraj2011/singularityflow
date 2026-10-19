@@ -52,13 +52,22 @@ export interface SuggestedStart {
   debug: { runtime: DebugRuntime; port?: number; suspend?: boolean } | null;
 }
 
-/** An environment variable the configuration used: a name and its kind; a default only when it is not a secret. */
-export interface SuggestedName { name: string; kind: 'secret' | 'endpoint' | 'flag'; default: string | null }
+/**
+ * An environment variable the configuration used: a name and its kind, and for a flag its default or
+ * for an endpoint its URL. A secret never has a value. `environment` when it differs per environment.
+ */
+export interface SuggestedName { name: string; kind: 'secret' | 'endpoint' | 'flag'; default: string | null; environment: string | null }
+
+/** One of several IDE configurations merged into one entry with arguments per environment. */
+export interface SuggestionVariant { file: string | null; name: string | null; environment: string | null }
 
 export interface Suggestion {
   index: number;
   source: SuggestionSource;
+  variants: SuggestionVariant[];
   start: SuggestedStart;
+  /** The entry exactly as the engine's applicationDraft holds it (validated there); null when it left it out. */
+  draft: Record<string, unknown> | null;
   environmentNames: SuggestedName[];
   notes: string[];
   /** Why this one cannot be kept as written; null when it can. */
@@ -67,7 +76,17 @@ export interface Suggestion {
 
 export interface SuggestionSet {
   capability: string;
+  repository: string | null;
   suggestions: Suggestion[];
+  /**
+   * The capability's application block as the engine's applicationDraft keeps it: the start entries
+   * already declared and its tests. `--application-file` replaces the whole block, so these are
+   * written back unchanged around the kept suggestions. Null when the draft could not be read.
+   */
+  existing: { start: Array<Record<string, unknown>>; tests: unknown[] | null } | null;
+  /** The engine's own notes, and what it read and skipped. */
+  notes: string[];
+  files: { read: number | null; skipped: Array<{ file: string; reason: string }> };
   /** Suggestions the engine returned that VS Code cannot write exactly, with why. */
   dropped: string[];
   /** The engine's YAML additions for singularity/environments.yml: names, kinds and non-secret defaults. */
@@ -141,15 +160,18 @@ function namesFrom(value: unknown): SuggestedName[] {
     // A secret-looking name is a secret even when the engine called it something else.
     const kind = declared === 'secret' || SECRET_NAME.test(name) ? 'secret' : declared === 'endpoint' ? 'endpoint' : 'flag';
     const raw = typeof entry.default === 'string' && !CONTROL.test(entry.default) ? entry.default : null;
+    const given = typeof entry.value === 'string' && !CONTROL.test(entry.value) ? entry.value : null;
     let fallback: string | null = null;
-    if (kind === 'flag') fallback = raw;
-    if (kind === 'endpoint' && raw) {
+    const environment = text(entry.environment) && ENVIRONMENT.test(String(entry.environment)) ? String(entry.environment) : null;
+    if (kind === 'flag') fallback = raw ?? given;
+    if (kind === 'endpoint' && (given ?? raw)) {
+      const value = (given ?? raw)!;
       try {
-        const url = new URL(raw);
-        fallback = url.username || url.password ? null : raw;
+        const url = new URL(value);
+        fallback = url.username || url.password ? null : value;
       } catch { fallback = null; }
     }
-    return [{ name, kind, default: fallback }];
+    return [{ name, kind, default: fallback, environment }];
   });
 }
 
@@ -159,6 +181,13 @@ export function suggestionsFrom(raw: unknown): SuggestionSet | null {
   if (!answer || answer.resultType !== undefined && answer.resultType !== 'sflow-app-suggestions') return null;
   const capability = text(answer.capability);
   if (!capability || !CAPABILITY.test(capability)) return null;
+  const draft = draftBlock(answer.applicationDraft);
+  const suggestionIds = new Set((Array.isArray(answer.suggestions) ? answer.suggestions : [])
+    .map((item) => text(record(record(item)?.start)?.id)).filter(Boolean));
+  const drafted = new Map((draft?.start ?? []).flatMap((entry) => {
+    const id = text(entry.id);
+    return id && suggestionIds.has(id) ? [[id, entry] as const] : [];
+  }));
   const suggestions: Suggestion[] = [];
   const dropped: string[] = [];
   for (const [position, item] of (Array.isArray(answer.suggestions) ? answer.suggestions : []).entries()) {
@@ -188,7 +217,14 @@ export function suggestionsFrom(raw: unknown): SuggestionSet | null {
     const url = start.url == null ? null : loopbackUrl(text(start.url));
     if (start.url != null && !url) notes.push('Its URL was left out: a start entry opens only on 127.0.0.1, localhost or [::1].');
     const id = text(start.id)?.trim() ?? '';
-    const secret = [argv, ...Object.values(argumentsMap)].map(secretArgument).find(Boolean);
+    const own = drafted.get(id) ?? null;
+    const ownArguments = Object.values(record(own?.arguments) ?? {}).map((list) => strings(list, 64) ?? []);
+    const secret = [argv, ...Object.values(argumentsMap), strings(own?.argv) ?? [], ...ownArguments].map(secretArgument).find(Boolean);
+    const variants = (Array.isArray(entry.variants) ? entry.variants : []).flatMap((value): SuggestionVariant[] => {
+      const variant = record(value);
+      return variant ? [{ file: repositoryRelative(variant.file), name: text(variant.name) && !CONTROL.test(String(variant.name)) ? String(variant.name) : null,
+        environment: text(variant.environment) && ENVIRONMENT.test(String(variant.environment)) ? String(variant.environment) : null }] : [];
+    });
     suggestions.push({
       index: suggestions.length,
       source: {
@@ -196,6 +232,8 @@ export function suggestionsFrom(raw: unknown): SuggestionSet | null {
         words: SOURCE_WORDS[text(source?.kind) ?? 'detected'] ?? String(source?.kind),
         file: repositoryRelative(source?.file), name: text(source?.name)
       },
+      variants,
+      draft: own,
       start: {
         id, repository: text(start.repository) && ENVIRONMENT.test(String(start.repository)) ? String(start.repository) : null,
         argv, workingDirectory, url, ready: readyFrom(start.ready), environments, arguments: argumentsMap,
@@ -209,11 +247,43 @@ export function suggestionsFrom(raw: unknown): SuggestionSet | null {
       notes,
       refusal: secret
         ? `An argument looks like it carries the value of ${secret.name}. Move it to singularity/environments.yml as a secret and bind it with env bind; this suggestion cannot be kept as written.`
-        : null
+        : !draft ? 'The engine\'s application draft could not be read, so nothing can be proposed from it.'
+          : !own ? 'The engine left this one out of its application draft (its notes say why), so it cannot be kept.'
+            : null
     });
   }
   const checked = checkedEnvironmentsDraft(typeof answer.environmentsDraft === 'string' && answer.environmentsDraft.trim() ? answer.environmentsDraft : null);
-  return { capability, suggestions, dropped, environmentsDraft: checked.draft, environmentsNote: checked.note };
+  const files = record(answer.files);
+  return {
+    capability, repository: text(answer.repository), suggestions, dropped,
+    existing: draft ? { start: draft.start.filter((entry) => !suggestionIds.has(text(entry.id) ?? '')), tests: draft.tests } : null,
+    notes: (Array.isArray(answer.notes) ? answer.notes : []).filter((note): note is string => typeof note === 'string' && !CONTROL.test(note)),
+    files: {
+      read: typeof files?.read === 'number' && Number.isInteger(files.read) ? files.read : null,
+      skipped: (Array.isArray(files?.skipped) ? files.skipped : []).flatMap((value) => {
+        const skipped = record(value);
+        const path = repositoryRelative(skipped?.file);
+        const reason = text(skipped?.reason);
+        return path && reason && !CONTROL.test(reason) ? [{ file: path, reason }] : [];
+      })
+    },
+    environmentsDraft: checked.draft, environmentsNote: checked.note
+  };
+}
+
+/**
+ * The engine's applicationDraft: the capability's whole application block, its existing entries
+ * first, then the suggested ones (each one checked by the engine). '' means it drafted none.
+ */
+function draftBlock(value: unknown): { start: Array<Record<string, unknown>>; tests: unknown[] | null } | null {
+  if (typeof value !== 'string') return null;
+  if (!value.trim()) return { start: [], tests: null };
+  let parsed: unknown;
+  try { parsed = YAML.parse(value); } catch { return null; }
+  const block = record(parsed);
+  if (!block || !Array.isArray(block.start)) return null;
+  const start = block.start.flatMap((entry) => record(entry) ? [record(entry)!] : []);
+  return { start, tests: Array.isArray(block.tests) && block.tests.length ? block.tests : null };
 }
 
 /**
@@ -244,8 +314,9 @@ export function checkedEnvironmentsDraft(draft: string | null): { draft: string 
 /** Which suggestions the person keeps, and the start ID each one gets. */
 export interface SuggestionChoice { index: number; keep: boolean; id: string }
 
+/** Nothing is kept until the person ticks it: a repository can suggest many more entries than it wants. */
 export function defaultSelection(set: SuggestionSet): SuggestionChoice[] {
-  return set.suggestions.map((suggestion) => ({ index: suggestion.index, keep: !suggestion.refusal, id: suggestion.start.id }));
+  return set.suggestions.map((suggestion) => ({ index: suggestion.index, keep: false, id: suggestion.start.id }));
 }
 
 /** The page's ticks and IDs, for suggestions the page was shown; anything else is ignored. */
@@ -277,31 +348,21 @@ export function selectionProblems(set: SuggestionSet, selection: SuggestionChoic
   return { rows, general: kept.length ? null : 'Keep at least one suggestion to propose it.' };
 }
 
-/** The kept entries, renamed, in the order the engine suggested them. */
-export function keptStarts(set: SuggestionSet, selection: SuggestionChoice[]): Array<{ start: SuggestedStart; suggestion: Suggestion }> {
-  return selection.filter((choice) => choice.keep).map((choice) => {
+/** The kept entries, renamed, in the order the engine suggested them: each one as the engine drafted it. */
+export function keptStarts(set: SuggestionSet, selection: SuggestionChoice[]): Array<{ entry: Record<string, unknown>; id: string; suggestion: Suggestion }> {
+  return selection.filter((choice) => choice.keep && set.suggestions[choice.index]?.draft).map((choice) => {
     const suggestion = set.suggestions[choice.index]!;
-    return { suggestion, start: { ...suggestion.start, id: choice.id } };
+    return { suggestion, id: choice.id, entry: { ...suggestion.draft!, id: choice.id } };
   });
 }
 
 /**
- * The application block VS Code writes to the private file, exactly as the review page shows it:
- * `start:` with the kept entries. Short lists use the flow style singularity/capabilities.yml uses.
+ * The whole application block VS Code writes to the private file, exactly as the review page shows
+ * it: the entries already declared, unchanged, then the kept ones, then the declared tests. It is the
+ * engine's applicationDraft with only the person's choices applied. Short lists use flow style.
  */
-export function applicationDraftYaml(starts: SuggestedStart[]): string {
-  const start = starts.map((entry) => ({
-    id: entry.id,
-    ...(entry.repository ? { repository: entry.repository } : {}),
-    argv: entry.argv,
-    ...(entry.workingDirectory ? { workingDirectory: entry.workingDirectory } : {}),
-    ...(entry.url ? { url: entry.url } : {}),
-    ...(entry.ready ? { ready: entry.ready } : {}),
-    ...(entry.environments.length ? { environments: entry.environments } : {}),
-    ...(Object.keys(entry.arguments).length ? { arguments: entry.arguments } : {}),
-    ...(entry.debug ? { debug: entry.debug } : {})
-  }));
-  const document = new YAML.Document({ start });
+export function applicationDraftYaml(existing: NonNullable<SuggestionSet['existing']>, kept: Array<Record<string, unknown>>): string {
+  const document = new YAML.Document({ start: [...existing.start, ...kept], ...(existing.tests ? { tests: existing.tests } : {}) });
   YAML.visit(document, { Seq(_key, node, path) { if (path.length > 3) node.flow = true; } });
   return document.toString({ lineWidth: 0, flowCollectionPadding: false });
 }
@@ -346,23 +407,25 @@ export const TEMPORARY_FILE_WORDS = '<private temporary file>';
 
 /** The review page: the exact YAML written, the environments.yml additions to copy, and the command. */
 export function suggestionReviewRequest(input: {
-  capability: string; kept: Array<{ start: SuggestedStart; suggestion: Suggestion }>; route: ApplicationRoute;
-  applicationYaml: string; environmentsDraft: string | null; declaredIds: readonly string[];
+  capability: string; kept: Array<{ id: string; suggestion: Suggestion }>; route: ApplicationRoute;
+  applicationYaml: string; environmentsDraft: string | null; existing: NonNullable<SuggestionSet['existing']>;
 }): ReviewConfirmationRequest {
-  const { capability, kept, route, applicationYaml, environmentsDraft, declaredIds } = input;
+  const { capability, kept, route, applicationYaml, environmentsDraft, existing } = input;
+  const declaredIds = existing.start.map((entry) => text(entry.id)).filter(Boolean);
   const from = (suggestion: Suggestion) => [suggestion.source.words, suggestion.source.file].filter(Boolean).join(', ');
   return {
     title: route.kind === 'proposal' ? `Propose start entries for ${capability}` : `Save start entries for ${capability}`,
     summary: route.kind === 'proposal'
-      ? 'These start entries are added to the capability through a reviewed capability proposal. Its review page shows the resulting singularity/capabilities.yml before anything is approved.'
-      : 'These start entries are added to singularity/capabilities.yml in this checkout, as a local authoring change: nothing is proposed or committed.',
+      ? 'The capability\'s application block becomes the block below, through a reviewed capability proposal. Its review page shows the resulting singularity/capabilities.yml before anything is approved.'
+      : 'The capability\'s application block in singularity/capabilities.yml in this checkout becomes the block below, as a local authoring change: nothing is proposed or committed.',
     detail: [
       `Capability: ${capability}`,
-      `Start entries added: ${kept.map(({ start, suggestion }) => `${start.id} (from ${from(suggestion)})`).join('; ')}`,
+      `Start entries added: ${kept.map(({ id, suggestion }) => `${id} (from ${from(suggestion)})`).join('; ')}`,
       `Start entries already declared, kept as they are: ${declaredIds.length ? declaredIds.join(', ') : 'none'}`,
+      `Tests already declared, kept as they are: ${existing.tests ? existing.tests.length : 'none'}`,
       route.kind === 'proposal' ? `Proposed to: ${route.lead}` : 'Written to: singularity/capabilities.yml in this checkout',
       '',
-      'Application block. VS Code writes exactly this to a private temporary file, passes it to the command below, then deletes the file:',
+      'Application block. It replaces the capability\'s whole block; VS Code writes exactly this to a private temporary file, passes it to the command below, then deletes the file:',
       applicationYaml.trimEnd(),
       '',
       environmentsDraft

@@ -457,7 +457,14 @@ export function capabilityLeadRepository(capability) {
 }
 
 const APPLICATION_KEYS = Object.freeze(['start', 'tests']);
-const START_KEYS = Object.freeze(['id', 'repository', 'argv', 'workingDirectory', 'url', 'ready', 'environments']);
+const START_KEYS = Object.freeze(['id', 'repository', 'argv', 'workingDirectory', 'url', 'ready', 'environments', 'arguments', 'debug']);
+const DEBUG_KEYS = Object.freeze(['runtime', 'port', 'suspend', 'argv', 'arguments', 'environment']);
+/** The runtimes app start --debug knows, and each one's default loopback port. */
+export const APPLICATION_DEBUG_RUNTIMES = Object.freeze(['java', 'python', 'node', 'go', 'dotnet']);
+export const APPLICATION_DEBUG_DEFAULT_PORTS = Object.freeze({ java: 5005, python: 5678, node: 9229, go: 2345 });
+/** What debug.environment may set: one variable of the runtime, to the debugger flag alone. */
+const DEBUG_ENVIRONMENT_RUNTIMES = Object.freeze({ NODE_OPTIONS: 'node', JAVA_TOOL_OPTIONS: 'java', JDK_JAVA_OPTIONS: 'java' });
+const LOOPBACK_DEBUG_HOSTS = Object.freeze(['127.0.0.1', 'localhost', '::1', '[::1]']);
 const TEST_KEYS = Object.freeze(['use', 'environments']);
 const APPLICATION_ENTRY_ID = /^(?=.{1,64}$)[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const APPLICATION_ENVIRONMENT_ID = /^(?=.{1,64}$)[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u;
@@ -513,6 +520,146 @@ function applicationEnvironments(id, value, label) {
   return [...value];
 }
 
+function argumentList(id, value, label, startId, maximum = 256) {
+  if (typeof value === 'string') {
+    throw applicationError(id, `${label} must be a list of arguments, not a shell string; no shell runs it.`, { startId });
+  }
+  if (!Array.isArray(value) || !value.length || value.length > maximum
+      || value.some((entry) => typeof entry !== 'string' || !entry || entry.length > 4_096 || APPLICATION_CONTROL.test(entry))) {
+    throw applicationError(id, maximum === 256
+      ? `${label} must be a non-empty list of non-empty strings without control characters.`
+      : `${label} must be a list of 1 to ${maximum} non-empty strings without control characters.`, { startId });
+  }
+  return Object.freeze([...value]);
+}
+
+function hostPort(value) {
+  const text = String(value ?? '');
+  if (/^\d+$/u.test(text)) return { host: null, port: Number(text) };
+  const bracket = text.match(/^(\[[^\]]*\])(?::(\d+))?$/u);
+  if (bracket) return { host: bracket[1], port: bracket[2] == null ? null : Number(bracket[2]) };
+  const colon = text.lastIndexOf(':');
+  if (colon === -1) return { host: text, port: null };
+  const port = text.slice(colon + 1);
+  return { host: text.slice(0, colon), port: /^\d+$/u.test(port) ? Number(port) : null };
+}
+
+/**
+ * The debugger listeners arguments start (JDWP, also inside -Dspring-boot.run.jvmArguments=…; --inspect*;
+ * --listen) and why any is refused: every address must be loopback, and Gradle's --debug-jvm never is.
+ */
+export function debuggerListeners(tokens = []) {
+  const listeners = [];
+  const refusals = [];
+  const check = (kind, address, defaults, token) => {
+    const { host, port } = address === '' ? { host: null, port: null } : hostPort(address);
+    const effectiveHost = host ?? defaults.host;
+    if (effectiveHost == null) refusals.push(`${token} names no host; write ${kind === 'jdwp' ? 'address=' : '--listen='}127.0.0.1:PORT (without one it binds every interface on some runtimes).`);
+    else if (!LOOPBACK_DEBUG_HOSTS.includes(effectiveHost)) refusals.push(`${token} listens on '${effectiveHost || 'every interface'}'; a debugger listens on 127.0.0.1 only.`);
+    else listeners.push({ kind, host: effectiveHost, port: port ?? defaults.port ?? null, token });
+  };
+  for (const [index, raw] of tokens.entries()) {
+    const token = String(raw);
+    if (token === '--debug-jvm') refusals.push('--debug-jvm binds every interface and suspends; declare debug: { runtime: java } and use app start --debug.');
+    for (const match of token.matchAll(/(?:-agentlib:jdwp=|-Xrunjdwp:)([^\s"']*)/gu)) {
+      const address = match[1].split(',').find((option) => option.startsWith('address='));
+      if (!address) refusals.push(`${match[0]} names no address; write address=127.0.0.1:PORT.`);
+      else check('jdwp', address.slice('address='.length), { host: null }, match[0]);
+    }
+    for (const match of token.matchAll(/(?:^|[\s="'])(--inspect(?:-brk|-wait|-port)?)(?:=([^\s"']*))?(?=$|[\s"'])/gu)) {
+      check('inspector', match[2] ?? '', { host: '127.0.0.1', port: 9229 }, match[0].trim());
+    }
+    for (const match of token.matchAll(/(?:^|\s)--listen=([^\s"']*)/gu)) check('listen', match[1], { host: '127.0.0.1' }, match[0].trim());
+    if (token === '--listen' && index + 1 < tokens.length) check('listen', tokens[index + 1], { host: '127.0.0.1' }, `--listen ${tokens[index + 1]}`);
+  }
+  return { listeners, refusals };
+}
+
+function assertLoopbackDebugTokens(id, tokens, label, startId) {
+  const { refusals } = debuggerListeners(tokens);
+  if (refusals.length) throw applicationError(id, `${label}: ${refusals[0]}`, { startId, refusals });
+}
+
+function applicationArguments(id, value, label, environments, startId) {
+  if (value == null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw applicationError(id, `${label}.arguments must map an environment to the arguments appended for it.`, { startId });
+  }
+  const result = {};
+  for (const [environment, list] of Object.entries(value)) {
+    if (!environments.includes(environment)) {
+      throw applicationError(id, `${label}.arguments.${environment} names an environment the entry does not list`
+        + ` (environments: ${environments.join(', ') || 'none'}).`, { startId });
+    }
+    result[environment] = argumentList(id, list, `${label}.arguments.${environment}`, startId, 64);
+  }
+  return Object.freeze(result);
+}
+
+function applicationDebug(id, raw, label, startId, url) {
+  if (raw == null) return null;
+  const at = `${label}.debug`;
+  if (typeof raw !== 'object' || Array.isArray(raw)) throw applicationError(id, `${at} must be an object with a runtime.`, { startId });
+  closedKeys(id, raw, DEBUG_KEYS, at);
+  const { runtime } = raw;
+  if (!APPLICATION_DEBUG_RUNTIMES.includes(runtime)) {
+    throw applicationError(id, `${at}.runtime must be one of: ${APPLICATION_DEBUG_RUNTIMES.join(', ')}.`, { startId });
+  }
+  if (raw.port != null && (!Number.isInteger(raw.port) || raw.port < 1_024 || raw.port > 65_535)) {
+    throw applicationError(id, `${at}.port must be an integer from 1024 to 65535.`, { startId });
+  }
+  if (raw.suspend != null && typeof raw.suspend !== 'boolean') throw applicationError(id, `${at}.suspend must be true or false.`, { startId });
+  if (raw.suspend === true && !['java', 'node'].includes(runtime)) {
+    throw applicationError(id, `${at}.suspend is for java and node only.`, { startId });
+  }
+  if (runtime === 'dotnet' && (raw.port != null || raw.environment != null)) {
+    throw applicationError(id, `${at}: dotnet has no debugger listener (attach to the pid app status reports); remove port and environment.`, { startId });
+  }
+  if (raw.argv != null && raw.arguments != null) {
+    throw applicationError(id, `${at} takes argv (a full replacement) or arguments (appended), never both.`, { startId });
+  }
+  const argv = raw.argv == null ? null : argumentList(id, raw.argv, `${at}.argv`, startId);
+  const debugArguments = raw.arguments == null ? null : argumentList(id, raw.arguments, `${at}.arguments`, startId, 64);
+  let environment = null;
+  if (raw.environment != null) {
+    if (typeof raw.environment !== 'object' || Array.isArray(raw.environment) || Object.keys(raw.environment).length !== 1) {
+      throw applicationError(id, `${at}.environment sets exactly one of ${Object.keys(DEBUG_ENVIRONMENT_RUNTIMES).join(', ')}.`, { startId });
+    }
+    const [[name, value]] = Object.entries(raw.environment);
+    if (DEBUG_ENVIRONMENT_RUNTIMES[name] !== runtime) {
+      throw applicationError(id, `${at}.environment may set only ${Object.entries(DEBUG_ENVIRONMENT_RUNTIMES)
+        .filter(([, owner]) => owner === runtime).map(([key]) => key).join(' or ') || 'nothing'} for runtime ${runtime}.`, { startId });
+    }
+    const flag = runtime === 'node' ? /^--inspect(?:-brk|-wait)?(?:=[^\s"']+)?$/u : /^-agentlib:jdwp=[^\s"']+$/u;
+    if (typeof value !== 'string' || !flag.test(value)) {
+      throw applicationError(id, `${at}.environment.${name} must be the debugger flag alone (${runtime === 'node'
+        ? '--inspect=127.0.0.1:PORT' : '-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=127.0.0.1:PORT'}).`, { startId });
+    }
+    environment = Object.freeze({ [name]: value });
+  }
+  const explicit = [...(argv ?? []), ...(debugArguments ?? []), ...Object.values(environment ?? {})];
+  const { listeners, refusals } = debuggerListeners(explicit);
+  if (refusals.length) throw applicationError(id, `${at}: ${refusals[0]}`, { startId, refusals });
+  let port = runtime === 'dotnet' ? null : raw.port ?? APPLICATION_DEBUG_DEFAULT_PORTS[runtime];
+  if (explicit.length && runtime !== 'dotnet') {
+    const ports = [...new Set(listeners.map((listener) => listener.port ?? APPLICATION_DEBUG_DEFAULT_PORTS[runtime]))];
+    if (!ports.length) {
+      throw applicationError(id, `${at}.argv, arguments or environment must start a loopback debugger listener, such as --inspect=127.0.0.1:9229.`, { startId });
+    }
+    if (ports.length > 1 || (raw.port != null && ports[0] !== raw.port)) {
+      throw applicationError(id, `${at} listens on port ${ports.join(' and ')}${raw.port != null ? ` but port is ${raw.port}` : ''}; make them one port.`, { startId });
+    }
+    [port] = ports;
+  }
+  if (port != null && Number(new URL(url).port || (url.startsWith('https:') ? 443 : 80)) === port) {
+    throw applicationError(id, `${at}.port ${port} is the application's own port; choose another.`, { startId });
+  }
+  return Object.freeze({
+    runtime, port, suspend: raw.suspend === true,
+    ...(argv ? { argv } : {}), ...(debugArguments ? { arguments: debugArguments } : {}), ...(environment ? { environment } : {})
+  });
+}
+
 function applicationStartEntry(id, raw, index, repositories) {
   const label = `start[${index}]`;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw applicationError(id, `${label} must be an object.`);
@@ -520,13 +667,7 @@ function applicationStartEntry(id, raw, index, repositories) {
   if (typeof raw.id !== 'string' || !APPLICATION_ENTRY_ID.test(raw.id)) {
     throw applicationError(id, `${label}.id must be lower-kebab-case and at most 64 characters.`);
   }
-  if (typeof raw.argv === 'string') {
-    throw applicationError(id, `${label}.argv must be a list of arguments, not a shell string; no shell runs it.`, { startId: raw.id });
-  }
-  if (!Array.isArray(raw.argv) || !raw.argv.length || raw.argv.length > 256
-      || raw.argv.some((entry) => typeof entry !== 'string' || !entry || entry.length > 4_096 || APPLICATION_CONTROL.test(entry))) {
-    throw applicationError(id, `${label}.argv must be a non-empty list of non-empty strings without control characters.`, { startId: raw.id });
-  }
+  argumentList(id, raw.argv, `${label}.argv`, raw.id);
   let repository = raw.repository ?? null;
   if (repository != null && (typeof repository !== 'string' || !repositories.includes(repository))) {
     throw applicationError(id, `${label}.repository must be one of this capability's repositories: ${repositories.join(', ')}.`);
@@ -564,12 +705,26 @@ function applicationStartEntry(id, raw, index, repositories) {
   if (!Number.isInteger(timeoutMs) || timeoutMs < APPLICATION_READY_TIMEOUT_MS.minimum || timeoutMs > APPLICATION_READY_TIMEOUT_MS.maximum) {
     throw applicationError(id, `${label}.ready.timeoutMs must be an integer from 1000 to 600000.`);
   }
+  const environments = Object.freeze(applicationEnvironments(id, raw.environments, label));
+  const startArguments = applicationArguments(id, raw.arguments, label, environments, raw.id);
+  const debug = applicationDebug(id, raw.debug, label, raw.id, raw.url);
+  assertLoopbackDebugTokens(id, raw.argv, `${label}.argv`, raw.id);
+  for (const [environment, list] of Object.entries(startArguments ?? {})) {
+    assertLoopbackDebugTokens(id, list, `${label}.arguments.${environment}`, raw.id);
+  }
   return Object.freeze({
     id: raw.id, repository, argv: Object.freeze([...raw.argv]), workingDirectory: workingDirectory.replace(/^\.\/(?=.)/u, '').replace(/\/$/u, '') || '.',
     url: raw.url,
     ready: Object.freeze(ready.http != null ? { http: ready.http, timeoutMs } : { log: ready.log, timeoutMs }),
-    environments: Object.freeze(applicationEnvironments(id, raw.environments, label))
+    environments,
+    ...(startArguments ? { arguments: startArguments } : {}),
+    ...(debug ? { debug } : {})
   });
+}
+
+/** What a start entry runs in one environment: its argv, then the arguments declared for that environment. */
+export function applicationStartArgv(entry, environment = null) {
+  return [...entry.argv, ...(environment ? entry.arguments?.[environment] ?? [] : [])];
 }
 
 /**
@@ -606,10 +761,15 @@ export function normalizeCapabilityApplication(id, capability) {
   return Object.freeze({ start: Object.freeze(start), tests: Object.freeze(tests) });
 }
 
-/** The identity a person confirms before a start entry first runs: what runs, where, with which environments. */
+/**
+ * The identity a person confirms before a start entry first runs: what runs (per environment, and
+ * under the debugger), where, with which environments. Without arguments or debug it is unchanged.
+ */
 export function applicationStartCommandSha256(entry) {
   return `sha256:${recordSha256({ repository: entry.repository, workingDirectory: entry.workingDirectory, argv: [...entry.argv],
-    environments: [...entry.environments] })}`;
+    environments: [...entry.environments],
+    ...(entry.arguments ? { resolvedArgv: Object.fromEntries(entry.environments.map((name) => [name, applicationStartArgv(entry, name)])) } : {}),
+    ...(entry.debug ? { debug: entry.debug } : {}) })}`;
 }
 
 function validateCapabilityDelivery(id, capability, capabilities, portfolio) {

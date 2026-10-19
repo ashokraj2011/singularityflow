@@ -54,10 +54,11 @@ capabilities:
           workingDirectory: apps/web      # repository-relative
           url: http://127.0.0.1:5173/     # loopback only: 127.0.0.1, localhost or [::1]
           ready: { http: /, timeoutMs: 90000 }   # or { log: "ready in", timeoutMs: 90000 }
-          environment: qa                 # optional: an environments.yml environment
+          environments: [dev, qa]         # optional: environments.yml environments; the first is the default
       tests:                              # optional: absent means "what the code step runs"
         - use: module-tests               # a qualityCommands ID from workflow.yml
         - use: integration-tests
+          environments: [dev, qa]         # optional: the environments this command may run against
     policy:
       localIntegrationEvidence: allowed   # off (default) | allowed; inherited parent → child
 ```
@@ -73,8 +74,10 @@ Rules:
   - `http` is a path starting with `/`. Ready means any HTTP response below 500.
   - `log` is literal text of at most 200 characters, matched in the process output.
 - **`ready.timeoutMs`** is between 1,000 and 600,000.
-- **`start[].environment`** must name an environment declared in `environments.yml`. Its bound values
-  are given to that process only, as for an integration test below.
+- **`start[].environments` and `tests[].environments`** each list one or more environments declared
+  in `environments.yml` (`dev`, `qa`, `uat`, …), without duplicates. The first is the default.
+  A person picks one at run time with `--environment`. The chosen environment's bound values are
+  given to that process only, as for an integration test below.
 - **`tests[].use`** must name a `qualityCommands` ID that the code step resolves. This is checked when
   a run resolves it, because the workflow is a separate file. A missing ID refuses the run and names
   the IDs that are available.
@@ -86,7 +89,25 @@ Rules:
   that.
 
 No change to `environments.yml` or `workflow.yml` is required. An integration test is a quality
-command linked to an environment, which is how `checks` already links them.
+command linked to an environment: through `checks` in `environments.yml` (one environment), or
+through `tests[].environments` here (several).
+
+### Several environments (dev, qa, uat, …)
+
+`environments.yml` already declares any number of environments. Each has its own value names, its
+own `localFiles` (for example `resources/dev/**` and `resources/qa/**`) and its own private
+binding (`env bind dev --stdin`, `env bind qa --stdin`). A run names one environment:
+
+- **Which environments a run may use:** the start entry's or test entry's `environments`, else the
+  single environment `checks` links to the command. Any other environment is refused, and the
+  refusal names the allowed ones.
+- **Default:** the first listed environment. VS Code remembers the last one chosen per capability.
+- **What counts for a Story.** When `checks` links the command to an environment, only a run in that
+  environment counts for the step's obligation. Without a `checks` link, a run in any of the
+  command's declared environments counts. The receipt and every label name the environment used,
+  for example "Local integration run …, environment `dev` …".
+- **A run in another environment** is still shown, labelled with its environment and "does not count
+  for this step: it requires `qa`".
 
 ## Evidence classes
 
@@ -139,11 +160,12 @@ execution as governed evidence.") becomes:
 ## Commands (model-free; Shell, VS Code and Copilot use the same ones)
 
 - **`singularity-flow app plan [START-ID] [--capability ID] [--json]`** returns
-  `{ capability, repository, id, argv, workingDirectory, url, ready, environment: { name, status } | null, commandSha256 }`
+  `{ capability, repository, id, argv, workingDirectory, url, ready, environments: [{ name, status, default }], commandSha256 }`
   for each start entry, or for the one named. When `--capability` is omitted, the capability is the
   one that owns the current checkout.
-- **`singularity-flow app start [START-ID] [--capability ID]`** runs the application in the
-  foreground with the environment's values (if any) given to that process only.
+- **`singularity-flow app start [START-ID] [--capability ID] [--environment ENV]`** runs the
+  application in the foreground, with the chosen environment's values (if any) given to that process
+  only.
   - It prints `Ready at <url>` once the readiness check passes, or a coded refusal after the timeout,
     which also stops the process.
   - Ctrl+C or `app stop` stops the whole process tree.
@@ -153,7 +175,7 @@ execution as governed evidence.") becomes:
   started (pid alive), ready (URL responds), and the URL.
 - **`singularity-flow app stop [START-ID] [--capability ID]`** stops only a process that `app start`
   recorded.
-- **`singularity-flow tests run [--capability ID | --work-id ID [--phase PHASE]] [--command ID]... [--json]`**
+- **`singularity-flow tests run [--capability ID | --work-id ID [--phase PHASE]] [--command ID]... [--environment ENV] [--json]`**
   resolves the commands: the capability's `tests`, or what the code step runs, or the named
   commands.
   - **Capability scope** saves a `local-preview` run under the Git common directory at
@@ -168,7 +190,8 @@ execution as governed evidence.") becomes:
   { "resultType": "sflow-test-summary", "schemaVersion": 1,
     "scope": { "kind": "capability|story", "capability": "payments-web", "workId": null, "phase": null },
     "run": { "id": "RUN-…|TA-…", "evidenceClass": "local-preview|local-integration|governed",
-             "label": "…", "startedAt": "…", "commit": "…", "uncommittedChanges": false, "ranBy": "…" },
+             "label": "…", "environment": "dev|null", "countsForStep": true,
+             "startedAt": "…", "commit": "…", "uncommittedChanges": false, "ranBy": "…" },
     "totals": { "discovered": 0, "passed": 0, "failed": 0, "skipped": 0, "flaky": 0, "durationMs": 0 },
     "commands": [{ "id": "module-tests", "kind": "test", "adapter": "junit-xml", "status": "passed",
                    "exitCode": 0, "tests": { }, "perCase": true, "note": null }],
@@ -193,6 +216,9 @@ are never cached.
   - For each start entry: Start, Stop and Open in browser, with the readiness state shown.
   - Run tests: all, or one command.
   - The last run in one line, with "Open test summary".
+- **Environment picker:** for each environment, shows whether it is bound ("qa: not bound"). An
+  unbound one shows the command to run with the person's own secret helper,
+  `singularity-flow env bind qa --stdin`; VS Code never asks for or holds a value.
 - **Starting:** runs `singularity-flow app start <id>` as a VS Code task (a process execution with
   argv, never a shell string). Its terminal shows the log, Stop ends the task, and the page reads
   `app status --json`.
@@ -211,7 +237,8 @@ are never cached.
 
 ## Copilot
 
-- `/sf-run-app` (start, status, stop) and `/sf-test` (run and summarise) are guided skills.
+- `/sf-run-app` (start, status, stop) and `/sf-test` (run and summarise) are guided skills. When
+  several environments are allowed and none was named, they ask which one.
 - The authoring turns' local-verification guidance names `app plan` and `app start` and
   `tests run`, instead of letting the agent guess a dev command.
 - The Copilot guard permits `app plan|start|status|stop` and `tests run|summary` in authoring turns

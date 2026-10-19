@@ -206,6 +206,39 @@ test('branch-local init refuses to carry uncommitted changes to the Work-ID bran
   assert.equal(git(root, 'branch', '--show-current'), 'main');
 });
 
+test('without --base, the setup branch is cut from the remote default branch, not main', async () => {
+  // A repository whose default branch is not `main` used to get its setup branch from `main`
+  // (or from nothing). The remote's recorded default is local knowledge, so no network is needed.
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-init-remote-default-'));
+  const source = path.join(base, 'source');
+  const remote = path.join(base, 'remote.git');
+  const root = path.join(base, 'clone');
+  await mkdir(source);
+  git(source, 'init', '-b', 'main');
+  git(source, 'config', 'user.name', 'Remote Default Tester');
+  git(source, 'config', 'user.email', 'remote-default@example.com');
+  await writeFile(path.join(source, 'README.md'), '# Fixture\n');
+  git(source, 'add', 'README.md');
+  git(source, 'commit', '-m', 'main history');
+  git(source, 'switch', '-c', 'develop');
+  await writeFile(path.join(source, 'DEVELOP.md'), '# Develop\n');
+  git(source, 'add', 'DEVELOP.md');
+  git(source, 'commit', '-m', 'develop history');
+  git(base, 'clone', '--bare', source, remote);
+  git(remote, 'symbolic-ref', 'HEAD', 'refs/heads/develop');
+  git(base, 'clone', remote, root);
+  git(root, 'config', 'user.name', 'Remote Default Tester');
+  git(root, 'config', 'user.email', 'remote-default@example.com');
+  git(root, 'switch', 'main');
+  const developCommit = git(root, 'rev-parse', 'origin/develop');
+  assert.notEqual(developCommit, git(root, 'rev-parse', 'main'));
+
+  run(process.execPath, [cli, 'init', '--work-id', 'WORK-DEVELOP'], root);
+
+  assert.equal(git(root, 'branch', '--show-current'), 'setup/WORK-DEVELOP');
+  assert.equal(git(root, 'rev-parse', 'setup/WORK-DEVELOP'), developCommit);
+});
+
 test('init check finds missing assets and repair restores them without overwriting custom files', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-init-repair-'));
   git(root, 'init', '-b', 'main');

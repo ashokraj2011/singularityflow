@@ -38,6 +38,8 @@ to re-run the failing command with a raised level rather than guessing:
 SINGULARITY_FLOW_LOG_LEVEL=all singularity-flow <the failing command>
 ```
 
+In PowerShell: `$env:SINGULARITY_FLOW_LOG_LEVEL="all"; singularity-flow <the failing command>` (it stays set for that session).
+
 ## How to read what you find
 
 - `command.failed` carries the exact message, exit code, duration, and stack. Report the message and the failing command, not a paraphrase.

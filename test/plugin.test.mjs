@@ -1063,7 +1063,9 @@ test('code explanation skill uses one read-only computed route and keeps narrati
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-explain-code', 'SKILL.md'), 'utf8');
   assert.match(content, /^name: sflow-explain-code$/m);
   assert.match(content, /disable-model-invocation:\s*true/);
-  assert.match(content, /singularity-flow session current --for-agent --json/);
+  // `explain code` and `--repository` both work without a Story, so the skill needs only a repository.
+  assert.match(content, /singularity-flow pause status --json/);
+  assert.match(content, /\*\*Boundary:\*\* no Story required; cwd=opened Git root/);
   assert.match(content, /singularity-flow explain code \$ARGUMENTS --json/);
   assert.match(content, /explicitly asks for a narrative or walkthrough/);
   assert.match(content, /Narrative — advisory, not a record/);

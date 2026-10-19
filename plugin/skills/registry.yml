@@ -116,7 +116,7 @@ skills:
   sflow-docs: { class: echo, executionBoundary: machine }
   sflow-evidence: { class: echo, executionBoundary: repository }
   sflow-explain: { class: conversational }
-  sflow-explain-code: { class: conversational, kernelModelPolicy: conditional }
+  sflow-explain-code: { class: conversational, executionBoundary: repository, kernelModelPolicy: conditional }
   sflow-import: { class: mutation, executionBoundary: repository }
   sflow-specify: { class: generative }
   sflow-plan: { class: generative, maximumTokenOverride: 815, exception: "It ends with `phase prepublish --publish-if-ready`, which publishes and returns the review in the same command instead of three Copilot round trips, so it names when not to run `commands.publish` itself. Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open." }

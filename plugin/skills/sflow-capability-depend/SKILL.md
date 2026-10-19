@@ -18,4 +18,4 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 2. Run once after confirmation:
    `singularity-flow capability depend <TARGET>@<REFERENCE> [--from <SOURCE>] [--contract <ID>] --json`.
 3. Confirm the result records an exact version, content SHA-256, publication SHA-256, and publisher authority. A movable reference such as `latest` must not appear in authoritative dependency state.
-4. Relay the proposal or refusal and stop. Never invent missing contract identity fields, activate, or edit YAML.
+4. Relay the proposal or refusal. For a proposal, give the next action the CLI names for it: review with `singularity-flow capability proposal <BRANCH> --lead <LEAD-URL> --json`; after approval, activation through `/sf-capability-map` (`singularity-flow capability activate <BRANCH> --lead <LEAD-URL> --confirm <COMMIT> --json`). Stop. Never invent missing contract identity fields, activate yourself, or edit YAML.

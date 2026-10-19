@@ -25,8 +25,9 @@ access, and no model is invoked.
    not a simulation — that is the point of showing them.
 3. State the two facts the summary reports and people most often doubt: zero model
    invocations and no network access.
-4. Then offer the next step for their own work: `singularity-flow init` for a
-   repository they already have, or `singularity-flow bootstrap <REPOSITORY-URL>`
-   to set up a new capability with its configuration branch and ledger.
+4. Then offer the next step for their own work: `/sf-init` for a repository they
+   already have (Shell: `singularity-flow init --check --json`), or
+   `singularity-flow bootstrap <REPOSITORY-URL> --capability <ID>` to set up a new
+   capability with its configuration branch and ledger.
 5. Keep this read-only with respect to the user's repository. The sandbox is
    created and removed inside the command.

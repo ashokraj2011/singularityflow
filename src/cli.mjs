@@ -38,7 +38,7 @@ import { activateWorkflowConfigurationProposal, assertLocalConfigurationAuthorin
 import { chmod, lstat, mkdir, mkdtemp, open, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { SingularityFlowError, commandExists, commandLineFile, didYouMean, exists, gitHeadIsUnborn, nearestNames, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, repoRelative, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
-import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, hasUpstream, head, identity, localBranches, pullFastForward, refHead, remoteBranches, repoRoot } from './git.mjs';
+import { add, assertClean, branch, changedFiles, changes, checkout, commit, defaultBranchName, fastForwardTo, fetchOrigin, fetchRemote, hasUpstream, head, identity, localBranches, pullFastForward, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 
 import { currentPhase } from './phase-generation.mjs';
@@ -478,8 +478,11 @@ async function initCommand(options) {
   if (workId) {
     validateId({ idPattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' }, workId);
     assertClean(root);
+    // Without --base, cut the setup branch from the remote's own default branch (recorded locally,
+    // no network), not a hard-coded `main`: a repository on `master`, `develop` or `trunk` would
+    // otherwise get a setup branch from the wrong history, or none.
     await checkout(root, `setup/${workId}`, {
-      base: optionString(options, 'base', 'main'),
+      base: optionString(options, 'base') ?? defaultBranchName(root),
       fetch: optionBoolean(options, 'fetch')
     });
   }

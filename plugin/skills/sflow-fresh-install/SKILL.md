@@ -16,7 +16,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 This is the broadest local reset: it removes validated managed workspace roots and clones, clears managed local and Copilot state, replaces installed product surfaces, and preserves unregistered repositories and personal skills.
 
-1. Require the Singularity Flow source checkout and run `singularity-flow fresh-install --checkout "<CHECKOUT>"` without `--yes`.
+1. Require the Singularity Flow source checkout and run `singularity-flow fresh-install --checkout "<CHECKOUT>"` without `--yes`. Fresh install works only from a source checkout. With only a promoted release directory, say so and stop; the person may instead choose `/sf-local-reset` for machine state and then the release install `sf-install --release-dir "<DIR>" --artifact-key "<PUBLIC-KEY>" --dry-run`, previewed and confirmed as in `/sf-reinstall`.
 2. Show every remove, preserve, and install target. Do not summarize away physical workspace deletion.
 3. Stop for a separate explicit confirmation.
 4. Only then repeat the command with `--yes`, preserving any requested corporate `--registry`, `--cli-only`, or telemetry option.

@@ -33,25 +33,25 @@ For explicitly requested smart or zero-manual initialization, require a fresh re
 On `INI_RECOVERY_REQUIRED`, run only its exact
 `singularity-flow init --recover --proposal <SHA256> --json`; never edit its journal.
 
-For ordinary `init`, `--check`, or `--repair`, continue with the compatible workflow below.
+For ordinary `init`, `--check`, or `--repair`:
 
 1. Run `singularity-flow init --check --json` first. Show branch, completeness, missing files, and
    validation errors.
 2. Validate a supplied Work ID as letters, numbers, `.`, `_`, or `-`. If `setup/<WORK-ID>` is current, use
-   `singularity-flow init --repair`. Otherwise require a clean tree and run
-   `singularity-flow init --repair --work-id <WORK-ID> --base <BASE> --fetch`
-   to create, reuse, or fast-forward the setup branch. Never initialize the Story branch itself;
-   leave it available for `singularity-flow start <WORK-ID> --from-branch setup/<WORK-ID>` after setup is committed
-   and published. Default to `main` only for a new setup branch; never modify base.
+   `singularity-flow init --repair`. Otherwise require a clean tree, ask for the base branch and run
+   `singularity-flow init --repair --work-id <WORK-ID> [--base <BASE>] --fetch`; omitted `--base` means
+   the remote default, never an assumed `main`. It creates, reuses or fast-forwards the setup branch.
+   Never initialize the Story branch; leave it for `singularity-flow start <WORK-ID> --from-branch setup/<WORK-ID>`
+   after setup is committed and published. Never modify base.
 3. When no Work ID was supplied and the check reports missing assets, run
    `singularity-flow init --repair` on the current branch.
 4. Restore only missing packaged files; never replace customization. Restore invalid files from Git.
 5. Rerun `singularity-flow init --check --json`, then run
    `singularity-flow doctor --offline --json`. Report every remaining failure
    and warning with its exact fix.
-6. Show `git status --short` and added files. Do not commit or push repair automatically.
+6. Show `git status --short` and added files. Do not commit or push repair automatically; after review,
+   offer `/sf-configuration publish` to commit and push the setup branch.
 7. Before the first Story, offer `/sf-ready` and
    `singularity-flow precheck --run --scope dependency-test --json`.
 
-If the initial check is complete, make no changes and say that the branch is
-already initialized.
+If the initial check is complete, change nothing and say the branch is initialized.

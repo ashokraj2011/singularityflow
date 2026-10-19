@@ -69,7 +69,7 @@ are medians. These are process-cold requests, not flushed-disk or freshly booted
 | Status, first after retention | 1,132 | 905 | 37 → 16 |
 | Status, repeated | 1,148 | 864 | 36 → 15 |
 
-The normal context → stage → check → retain → status sequence fell from a median 8,033 ms to
+The kernel-staging context → stage → check → retain → status sequence fell from a median 8,033 ms to
 5,894 ms (27%); Git children fell from 307 to 161 (48%). Staging reports one input load and one
 snapshot hit; retention reports three independent input loads and one final fresh binding check.
 The first post-retention status can reuse immutable facts proved during retention, so its “cold”
@@ -87,9 +87,32 @@ Cold context improved from 779 to 719 ms; warm context from 721 to 633 ms; priva
 are the same as the source-mode table. Every staged packet reused one input snapshot and every
 retention performed exactly one fresh binding check. These results qualify the installed command
 path, not just the development dispatcher; no model reasoning or network publication is timed.
+This sequence uses the supported `review-source stage` kernel route. A Copilot host that writes
+the issued private staging file directly omits that CLI step; its end-to-end gain will differ.
 
 The separate hosted macOS runner (Node 22.23.3, source runtime) showed smaller sequence gains:
 4,432 → 4,300 ms (3%) for the larger corpus and 3,471 → 3,090 ms (11%) with no extra attachments
 or history. Some individual larger-corpus steps were 8–9% slower even though Git children fell.
 Three-sample measurements are directional, not a universal latency guarantee; fixed startup,
 catalog loading and filesystem costs remain, and counts are more stable than short wall timings.
+
+## Native Windows installed-bundle measurements
+
+A temporary Windows runner, Node 22.23.3, built both CLI bundles from the same baseline and
+optimized sources. Three samples per engine used the same harness and corpus dimensions.
+
+| Larger corpus step | Before ms | After ms | Git children before → after |
+| --- | ---: | ---: | ---: |
+| Context, cold | 1,650 | 1,348 | 40 → 24 |
+| Context, warm | 1,568 | 1,120 | 35 → 19 |
+| Private staging | 2,000 | 957 | 52 → 14 |
+| Report check | 1,246 | 783 | 29 → 11 |
+| Retain, including final fresh check | 5,070 | 3,784 | 150 → 99 |
+| Status, first after retention | 1,633 | 1,108 | 41 → 22 |
+| Status, repeated | 1,531 | 1,112 | 39 → 22 |
+
+The sequence median fell from 11,570 to 8,050 ms (30%). On the small corpus (no extra attachments
+or history), it fell from 8,330 to 7,741 ms (7%); cold context was essentially flat, 1,229 versus
+1,231 ms. A bundle-specific check also verified shared staging snapshots and exactly one fresh
+binding check in each of the six optimized retention runs. Native Windows qualification uses a
+hosted runner, not an office laptop with its security filters, cloud storage and shell setup.

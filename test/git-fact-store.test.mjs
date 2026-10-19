@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
 import { chmod, copyFile, link, lstat, mkdtemp, readdir, readFile, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -61,7 +62,9 @@ test('the next process of a session reuses every answer the previous one proved,
   const second = ask();
   assert.equal(second.storeHits, questions.length, 'every question was answered from the session store');
   assert.deepEqual(second.answers, first.answers.slice(0, questions.length));
-  assert.equal(path.resolve(second.answers[0].stdout.trim()), await import('node:fs').then((fs) => fs.realpathSync(root)));
+  // Git expands Windows 8.3 aliases; the JS realpath fallback can preserve RUNNER~1. Compare
+  // native canonical paths on both sides, while still requiring byte-identical cached answers.
+  assert.equal(realpathSync.native(second.answers[0].stdout.trim()), realpathSync.native(root));
 
   const [file] = await storeFiles();
   const text = await readFile(path.join(store, 'git-facts', 'v1', file), 'utf8');

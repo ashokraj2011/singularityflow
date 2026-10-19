@@ -295,7 +295,8 @@ const REQUIRED_BEFORE_APPROVE = new Map([
     detail: 'This is not a publication blocker. Keep the honest verdict: the step that delivered the clause owns the gap. Raise an upstream issue against it if none exists for that clause; its approvers decide it before this step is approved. Never upgrade the verdict to clear a check.' }]
 ]);
 const INFORMATION_DETAILS = new Map([
-  ['conformance.verdict-contradicted', 'The table says matched, the discrepancy text says partial or missing: use the honest verdict in the table. Information for the author and the reviewer, not a publication blocker.']
+  ['conformance.verdict-contradicted', 'The table says matched, the discrepancy text says partial or missing: use the honest verdict in the table. Information for the author and the reviewer, not a publication blocker.'],
+  ['conformance.verdict-summary-stale', 'The engine-written Verdict summary is older than the clause table or its upstream issues. Prepare the step again to refresh it; the table alone states verdicts. Not a publication blocker.']
 ]);
 
 /** Advice belongs to a separate lane. It cannot reserve repairs or manufacture a human hold. */

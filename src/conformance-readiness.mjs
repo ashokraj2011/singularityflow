@@ -172,6 +172,51 @@ export function inspectConformanceVerdictAdvisories(markdown, { workflow = null,
   ];
 }
 
+export const VERDICT_SUMMARY_START = '<!-- singularity-flow:verdict-summary:start -->';
+export const VERDICT_SUMMARY_END = '<!-- singularity-flow:verdict-summary:end -->';
+const VERDICT_SUMMARY = /<!-- singularity-flow:verdict-summary:start -->[\s\S]*?<!-- singularity-flow:verdict-summary:end -->/u;
+
+function verdictCoverage(gap) {
+  const owner = gap.owner ?? 'the delivering step';
+  if (gap.status === 'decided') {
+    return `covered by ${gap.issue} (${gap.outcome === 'accept-risk' ? `accepted risk until ${String(gap.expiresAt ?? '').slice(0, 10)}` : 'dismissed'}).`;
+  }
+  if (gap.status === 'expired') return `${gap.issue}'s accepted risk expired; ${owner}'s approvers decide it again.`;
+  if (gap.status === 'undecided') return `${gap.issue} raised against ${owner}; not decided yet.`;
+  return `no issue raised yet; ${owner} owns it.`;
+}
+
+/**
+ * One verdict source [owner decision 2026-10-19, D]. The clause table is the only place a verdict is
+ * stated; this engine-written block repeats each partial or missing one with the upstream issue
+ * that covers it, so no prose has to restate a verdict. It is read from the table without itself.
+ */
+export function verdictSummaryBlock(markdown, workflow, phaseId, { now = undefined } = {}) {
+  const table = String(markdown ?? '').replace(VERDICT_SUMMARY, '');
+  const gaps = conformanceGapDecisions(workflow, phaseId, conformanceVerdictGaps(table), { now });
+  return [
+    VERDICT_SUMMARY_START,
+    'Engine-written from the clause table; keep it. The table is the only place a verdict is stated.', '',
+    ...(gaps.length ? gaps.map((gap) => `- \`${gap.clauseId}\`: ${gap.verdict}; ${verdictCoverage(gap)}`) : ['- No clause in the table is partial or missing.']),
+    VERDICT_SUMMARY_END
+  ].join('\n');
+}
+
+/** The report with its Verdict summary refreshed in place, or added under its own heading. */
+export function withVerdictSummary(markdown, workflow, phaseId, options = {}) {
+  const text = String(markdown ?? '');
+  const block = verdictSummaryBlock(text, workflow, phaseId, options);
+  if (VERDICT_SUMMARY.test(text)) return text.replace(VERDICT_SUMMARY, () => block);
+  return `${text.trimEnd()}\n\n## Verdict summary\n\n${block}\n`;
+}
+
+/** Whether the report's Verdict summary says what its table and the upstream issues say now. */
+export function verdictSummaryStatus(markdown, workflow, phaseId, options = {}) {
+  const present = String(markdown ?? '').match(VERDICT_SUMMARY)?.[0] ?? null;
+  const expected = verdictSummaryBlock(markdown, workflow, phaseId, options);
+  return Object.freeze({ present: present != null, current: present === expected, expected });
+}
+
 /**
  * Inspect only the immutable policy captured by this Story, never the current workspace default.
  *
@@ -184,9 +229,9 @@ export async function inspectPhaseQualifiedConformance(root, config, workflow, p
   return (await inspectPhaseConformance(root, config, workflow, phase)).findings;
 }
 
-/** The report's blocking findings and its verdict advisories, read once. */
+/** The report's blocking findings, its verdict advisories and its Verdict summary, read once. */
 export async function inspectPhaseConformance(root, config, workflow, phase) {
-  if (phase?.requiredArtifact?.kind !== 'conformance-report') return { findings: [], advisories: [] };
+  if (phase?.requiredArtifact?.kind !== 'conformance-report') return { findings: [], advisories: [], summary: null };
   const qualified = workflow.resolution?.spec?.conformanceRows === 'qualified';
   const itemDirectory = path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
   const relative = path.posix.join(
@@ -196,7 +241,7 @@ export async function inspectPhaseConformance(root, config, workflow, phase) {
   const safe = await secureRepositoryPath(root, relative, {
     label: `Conformance report for phase '${phase.id}'`, mustExist: qualified, type: 'file'
   });
-  if (!qualified && !safe.exists) return { findings: [], advisories: [] };
+  if (!qualified && !safe.exists) return { findings: [], advisories: [], summary: null };
   const markdown = await readFile(safe.absolute, 'utf8');
   const clauseIds = qualified ? [...new Set((await loadActiveSpecRecords(itemDirectory, workflow)).indexes
     .flatMap((index) => (index.clauses ?? []).map((clause) => clause.id)))] : [];
@@ -213,5 +258,5 @@ export async function inspectPhaseConformance(root, config, workflow, phase) {
   }));
   const advisories = inspectConformanceVerdictAdvisories(markdown, { workflow, phaseId: phase.id })
     .map((entry) => Object.freeze({ ...entry, path: relative }));
-  return { findings, advisories };
+  return { findings, advisories, summary: verdictSummaryStatus(markdown, workflow, phase.id) };
 }

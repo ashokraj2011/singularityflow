@@ -120,7 +120,7 @@ import {
 } from './generation-boundary.mjs';
 import { conformanceVerdictGaps } from './conformance-verdicts.mjs';
 import { CONFORMANCE_GAP_RULE, conformanceGapRefusal } from './upstream-routes.mjs';
-import { inspectPhaseQualifiedConformance, withSelfApprovalDisclosures } from './conformance-readiness.mjs';
+import { inspectPhaseQualifiedConformance, withSelfApprovalDisclosures, withVerdictSummary } from './conformance-readiness.mjs';
 import { runQualityCommand } from './quality-command-runner.mjs';
 import { classifyRequiredTestFailure } from './test-execution-diagnostics.mjs';
 import {
@@ -2266,6 +2266,9 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
     if (!artifactExistedBeforePreparation && phase.requiredArtifact?.kind === 'conformance-report') {
       text = withSelfApprovalDisclosures(text, workflow);
     }
+    // One verdict source: every prepare writes, or refreshes in an existing draft, the engine-owned
+    // Verdict summary read from the clause table, so no prose has to restate a verdict.
+    if (phase.requiredArtifact?.kind === 'conformance-report') text = withVerdictSummary(text, workflow, phase.id);
     if (!artifactExistedBeforePreparation && referenceContext) text = `${referenceContext}\n\n${text}`;
     if (!artifactExistedBeforePreparation) {
       const initialized = repairPreparedArtifactMetadata(text, { canonicalMetadata });

@@ -184,6 +184,14 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     })));
     // A partial or missing verdict publishes; a person decides it before approval.
     conformanceAdvisories = comparison.advisories;
+    // The engine writes the Verdict summary at prepare; an editable draft whose table or upstream
+    // issues moved on since is told to prepare again, never to edit the block by hand.
+    if (prospective && comparison.summary && !comparison.summary.current) conformanceAdvisories = [...conformanceAdvisories, Object.freeze({
+      code: 'conformance.verdict-summary-stale', category: 'traceability', blocking: false, requiredBefore: null,
+      path: comparison.advisories[0]?.path ?? artifact.path, line: null, value: null,
+      details: { refreshCommand: `singularity-flow prepare ${phase.id}`, present: comparison.summary.present },
+      message: `The engine-written Verdict summary does not match the clause table and its upstream issues. Run singularity-flow prepare ${phase.id} to refresh it; never edit it by hand.`
+    })];
   }
 
   // Surface the exact missing source/test witness while the code generation is still editable. The

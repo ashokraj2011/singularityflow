@@ -12,6 +12,10 @@ Use the complete governed anchors from the approved specification, for example
 bind release evidence to the approved clause. Put one exact qualified approved clause ID in
 each Clause row; a planned source tag or test tag alone is not a release verdict.
 
+The clause table is the only place a verdict is stated. Under `## Upstream discrepancies`, describe each
+problem and its owner, never a verdict; the engine-written Verdict summary lists each gap with the
+upstream issue that covers it.
+
 | Clause | Evidence | Verdict |
 |---|---|---|
 | `{{work.id}}:REQ-001` | TODO: exact source/test evidence | TODO: matched/partial/missing/deviated/unplanned |

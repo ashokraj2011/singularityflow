@@ -146,6 +146,26 @@ test('an honest partial verdict publishes and submits, and approval waits for a 
   assert.deepEqual(contradicted.map((entry) => [entry.clauseId, entry.blocking, entry.details.stated]), [[AC2, false, 'partial']]);
   assert.match(contradicted[0].message, /the table says matched, the Upstream discrepancies text says partial: use the honest verdict/u);
 
+  // One verdict source: prepare wrote the Verdict summary from the template's sample row; the
+  // table has changed since, so the check says so, and preparing again refreshes the block.
+  assert.match(text, /The clause table is the only place a verdict is stated\./u, 'the template tells authors where verdicts live');
+  const stale = draft.advisories.find((entry) => entry.code === 'conformance.verdict-summary-stale');
+  assert.equal(stale?.blocking, false);
+  assert.equal(stale.details.refreshCommand, 'singularity-flow prepare conformance');
+  cli('prepare', 'conformance');
+  const summarized = await readFile(report, 'utf8');
+  assert.equal(summarized.split('<!-- singularity-flow:verdict-summary:start -->').length, 2, 'one managed summary');
+  assert.match(summarized, new RegExp(`^- \`${AC1}\`: partial; no issue raised yet; implementation owns it\\.$`, 'mu'));
+  const block = summarized.slice(summarized.indexOf('<!-- singularity-flow:verdict-summary:start -->'),
+    summarized.indexOf('<!-- singularity-flow:verdict-summary:end -->'));
+  assert.doesNotMatch(block, new RegExp(AC2, 'u'), 'only partial and missing clauses are listed');
+  assert.ok(summarized.includes('remain partial until a recorded run exists'), 'preparing again keeps every authored byte');
+  const refreshed = completeAgentResult(cli('phase', 'draft-check', 'conformance', '--json').stdout);
+  assert.equal(refreshed.status, 'ready');
+  assert.equal(refreshed.advisories.some((entry) => entry.code === 'conformance.verdict-summary-stale'), false);
+  assert.equal(refreshed.advisories.filter((entry) => entry.code === 'conformance.verdict-contradicted').length, 1,
+    'the summary never counts as discrepancy text');
+
   const prepublish = completeAgentResult(cli('phase', 'prepublish', 'conformance', '--json').stdout);
   assert.equal(prepublish.status, 'ready', JSON.stringify(prepublish.findings));
   assert.notEqual(prepublish.correction.class, 'agent-authoring');

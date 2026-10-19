@@ -15,6 +15,10 @@ evidence. A browser observation supports review but is not an independent struct
 Use one exact qualified approved clause ID per row. Cite planned `@clause:` product-source
 and `@ac:` executable-test witnesses where applicable, then review actual behavior separately.
 
+The clause table is the only place a verdict is stated. Under `## Upstream discrepancies`, describe each
+problem and its owner, never a verdict; the engine-written Verdict summary lists each gap with the
+upstream issue that covers it.
+
 | Clause ID | Approved requirement | Code and structured test evidence | Playwright observation | Verdict | Deviation |
 |---|---|---|---|---|---|
 | `{{work.id}}:AC-001` | TODO | TODO | TODO | TODO: matched/partial/missing/deviated/unplanned | TODO |

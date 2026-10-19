@@ -23,7 +23,7 @@ const CODE_SECTIONS = new Map(Object.entries({
   'SPEC_COVERAGE_INCOMPLETE': ['spec_coverage_incomplete'],
   // An honest partial or missing verdict, its approval refusal and its gate code share one entry.
   'conformance.verdict-incomplete': ['conformance.verdict-incomplete', 'conformance_blocking_verdicts', 'gate.conformance.blocking-verdict'],
-  'conformance.verdict-contradicted': ['conformance.verdict-contradicted'],
+  'conformance.verdict-contradicted': ['conformance.verdict-contradicted', 'conformance.verdict-summary-stale'],
   'plan_evidence_correction_review_required': ['plan_evidence_correction_review_required'],
   'phase_quality_risk_pending_tests': ['phase_quality_risk_pending_tests'],
   'generation.document.published-changed': ['generation.document.published-changed'],

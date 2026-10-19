@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { inspectConformanceVerdictAdvisories } from '../src/conformance-readiness.mjs';
+import { inspectConformanceVerdictAdvisories, verdictSummaryStatus, withVerdictSummary } from '../src/conformance-readiness.mjs';
 import { conformanceVerdictGaps, contradictedConformanceVerdicts } from '../src/conformance-verdicts.mjs';
 import { phaseResolutionProjection } from '../src/phase-resolution.mjs';
 import { refusalDetails, refusalRemediationPlan } from '../src/refusal-remediation.mjs';
@@ -157,4 +157,26 @@ test('a table that contradicts its own discrepancy text is called out, conservat
   assert.equal(advisory.blocking, false);
   assert.equal(advisory.requiredBefore, null);
   assert.match(advisory.message, /the table says matched, the Upstream discrepancies text says partial: use the honest verdict/u);
+});
+
+test('the Verdict summary is written from the table alone and refreshed in place', () => {
+  const raised = story({ issues: [issue('UPI-001', `${W}:AC-001`)], decisions: [decision('UPI-001', 'accept-risk', '2026-11-01T00:00:00.000Z')] });
+  const discrepancy = `${REPORT}\n\n## Upstream discrepancies\n\n- implementation: the delivered change is short of ${W}:REQ-001.\n`;
+  const once = withVerdictSummary(discrepancy, raised, 'release', { now: NOW });
+  assert.equal(withVerdictSummary(once, raised, 'release', { now: NOW }), once, 'refreshing an unchanged report changes nothing');
+  assert.match(once, /\n## Verdict summary\n\n<!-- singularity-flow:verdict-summary:start -->\nEngine-written from the clause table; keep it\. The table is the only place a verdict is stated\.\n\n/u);
+  assert.match(once, new RegExp(`^- \`${W}:REQ-001\`: partial; no issue raised yet; implementation owns it\\.$`, 'mu'));
+  assert.match(once, new RegExp(`^- \`${W}:AC-001\`: missing; covered by UPI-001 \\(accepted risk until 2026-11-01\\)\\.$`, 'mu'));
+  assert.equal(verdictSummaryStatus(once, raised, 'release', { now: NOW }).current, true);
+  // The block is neither a verdict table nor discrepancy text, so it changes no check.
+  assert.deepEqual(conformanceVerdictGaps(once), conformanceVerdictGaps(REPORT));
+  assert.deepEqual(contradictedConformanceVerdicts(once), []);
+  // When the table or a decision moves on, the summary is stale until the next prepare refreshes it.
+  const fixed = once.replace(`| \`${W}:REQ-001\` | src/a.mjs | partial |`, `| \`${W}:REQ-001\` | src/a.mjs | matched |`);
+  assert.equal(verdictSummaryStatus(fixed, raised, 'release', { now: NOW }).current, false);
+  assert.equal(verdictSummaryStatus(once, raised, 'release', { now: LATER }).current, false, 'an expiry changes the summary');
+  const refreshed = withVerdictSummary(fixed, raised, 'release', { now: NOW });
+  assert.equal(refreshed.split('## Verdict summary').length, 2, 'refreshed in place, never appended twice');
+  assert.doesNotMatch(refreshed, /REQ-001`: partial/u);
+  assert.match(withVerdictSummary('# Report\n', raised, 'release', { now: NOW }), /^- No clause in the table is partial or missing\.$/mu);
 });

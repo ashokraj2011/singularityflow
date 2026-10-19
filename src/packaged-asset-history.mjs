@@ -130,10 +130,12 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/prompts/copilot-planning.md': Object.freeze([
     'd4a47524fb1563faa4a07d63bec271a0c8e3361689fdf75e1d99ea78851af9b6'
   ]),
-  // Before the release conformance report disclosed self-approval like every conformance report.
+  // Before the release conformance report disclosed self-approval like every conformance report,
+  // and before it said the clause table alone states verdicts (2026-10-19).
   'singularity/templates/spec-driven/release.md': Object.freeze([
     'bd63555c657657c238da547e8794ca053affbf14c45bd4322a51401bd09fb82f',
-    'a78b2eb703b2dfc70ccb33d30d94b24fe39247ca06ba79e6a988054e94a737b7'
+    'a78b2eb703b2dfc70ccb33d30d94b24fe39247ca06ba79e6a988054e94a737b7',
+    '3d6717eace80085585d04c9c3f5c67f10d7a2e9c4e535a862c8b5aa900d556fe'
   ]),
   // Before the chore intake said which files a chore may change, and before it became the chore's
   // scope-and-plan checkpoint.
@@ -378,7 +380,9 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   // Before the 2026-10-19 template audit: kernel-accepted planned tables, test-run risk and
   // not-applicable routes, visible Agent briefs and repository-neutral examples.
   'singularity/templates/bugfix/reproduction.md': Object.freeze(['083e0361f6ffe9e84905b21558554c8335ab1a036719cb37f104e03f255f3567']),
-  'singularity/templates/classic-delivery/code-checking.md': Object.freeze(['cb2a69e08768ab6d38ef3ee3e4326f47f854ec80d9012362d5765f88f58ecda1']),
+  'singularity/templates/classic-delivery/code-checking.md': Object.freeze(['cb2a69e08768ab6d38ef3ee3e4326f47f854ec80d9012362d5765f88f58ecda1',
+    // Before the conformance templates said the clause table alone states verdicts (2026-10-19).
+    'bd0074995046a178f5bbb89135789a7be7fc941894009129d41a1b52ef175ccf']),
   'singularity/templates/classic-delivery/testing.md': Object.freeze(['d84b65e54ff4210a7fab6cc1af3a2ea45bbba61fbee383a1ef985f31848ff177']),
   'singularity/templates/common/verification.md': Object.freeze(['31e8dc7c915c96c7bce79e3138af0537875f077350a13af5250e50c4c571728b']),
   'singularity/templates/demo-check-repair-close/intake.md': Object.freeze(['b711a8f37bebf0dda05a99d4bf3efdcbb1bfc424d70d8f69d5c9289c2a6e2b2f']),
@@ -386,8 +390,14 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/document-test-repair/intake.md': Object.freeze(['93554c5483a2b117dfb48612a432531950b6c0c96c122d83d023344b23e37906']),
   'singularity/templates/figma-mobile/visual-verification.md': Object.freeze(['aca2f864d6cc1b5321e466f80d0751ab4874049271b2fabab03dde7b0ec0e835']),
   'singularity/templates/poc-workflow/intake.md': Object.freeze(['511fa3a7c281bf8a4c84977668478392b5f73d14273d3149db6392eeba3b805d']),
-  'singularity/templates/spec-code-test-loop/conformance.md': Object.freeze(['b22de4f73720b8bf645faef0e2484031838d511fe4ea06810c6bf9b16c8bae1a']),
-  'singularity/templates/spec-code-test-loop/testing.md': Object.freeze(['eef65b164a45b3df7843d76ef071e9d9932304ec9861c8ed19c646db105f9284'])
+  'singularity/templates/spec-code-test-loop/conformance.md': Object.freeze(['b22de4f73720b8bf645faef0e2484031838d511fe4ea06810c6bf9b16c8bae1a',
+    // Before the conformance templates said the clause table alone states verdicts (2026-10-19).
+    'b86045aa0edc066a83733e08afc5f5313a7d6a69bb51eaf2f0515cce4ed29bc7']),
+  'singularity/templates/spec-code-test-loop/testing.md': Object.freeze(['eef65b164a45b3df7843d76ef071e9d9932304ec9861c8ed19c646db105f9284']),
+  // Before the conformance templates said the clause table alone states verdicts (2026-10-19).
+  'singularity/templates/benchmark/conformance.md': Object.freeze(['6a767297e22cab241d2dfff38c6c5b3fe8298e21c65399825c657f014411ced8']),
+  'singularity/templates/common/conformance.md': Object.freeze(['4d0d9502b65b257e2d8b315634b7e6c17c64c531a9efe42849c37be1b3366b1b']),
+  'singularity/templates/figma-mobile/conformance.md': Object.freeze(['f96e5271156d2dadca7cbf5687599724c4e47e328db6635ccf46b4adacaac147'])
 });
 
 // Exact profiles shipped before native entry reuse; preserve upgrade provenance, not custom edits.
@@ -474,7 +484,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/impact.yml': 'e91000c4f19ba8f8c08812ebea1d3e825919f5b31dadd1f3e22f1749e3b05313',
   'singularity/modelTiers.yml': 'da16ef4023221a14aba0b5a87fd80b395d3ea7d48b0ecf65481c291180aec23a',
   'singularity/prompts/copilot-planning.md': '4128acc6930949e4ba1e50e8b8c7c4f7beb23f4361c2e8428475b081712b77db',
-  'singularity/templates/benchmark/conformance.md': '6a767297e22cab241d2dfff38c6c5b3fe8298e21c65399825c657f014411ced8',
+  'singularity/templates/benchmark/conformance.md': '417aeb68ea4af698cbfbdf4b2b1aa17fa5d12c447bc1a1f8a1b9ed300402ff0a',
   'singularity/templates/benchmark/design.md': 'fe3cdb987ebbe39d1e42464cf176f437e45287b589ffc66456c7ba4438bc025d',
   'singularity/templates/benchmark/implementation.md': 'e25ab3d9104c4ddaef541191d544ea032c35f551b9538ad77a38628ca1a58db6',
   'singularity/templates/benchmark/intake.md': '49107281e2e461ede0e000edb51bf9f22aec85ddc84acbd1781680076f795f5c',
@@ -484,10 +494,10 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/bugfix/intake.md': 'c0aa89555e400e9c78c782021b1928175607f32ad20773c70fae04b28ced320c',
   'singularity/templates/bugfix/reproduction.md': 'f134541a5c15fdd80e958741e0576df94bf0de63a3d095717ede84e6fd0adbfb',
   'singularity/templates/chore/intake.md': '7fe95857aaee8f87eb8762e362a2c09bb3d9c7d62d02a4b6a161f0dabecd59d8',
-  'singularity/templates/classic-delivery/code-checking.md': 'bd0074995046a178f5bbb89135789a7be7fc941894009129d41a1b52ef175ccf',
+  'singularity/templates/classic-delivery/code-checking.md': '16a83f4541e9267591ae6b08204b8746f9a2a3271b0e35bc24b422025a273796',
   'singularity/templates/classic-delivery/intake.md': '54e29e22388aebec1dfd70e9046dfd3f88b60b6479b2ee4a58b93200fbd581eb',
   'singularity/templates/classic-delivery/testing.md': 'af701aa3de1057e07f62f88753dfdd633185e7e66d83bc6ae7c66e93ed507bd9',
-  'singularity/templates/common/conformance.md': '4d0d9502b65b257e2d8b315634b7e6c17c64c531a9efe42849c37be1b3366b1b',
+  'singularity/templates/common/conformance.md': 'be71314c915f967e1f1c3d5789fed1d192fda5ed33371cb1aff94b665669b9da',
   'singularity/templates/common/implementation.md': '2d1d1dc1ab8e94760cda8df39cf07aef51ef7ce191d76218558d19a6ffcc1a54',
   'singularity/templates/common/intake.md': 'e16cd8b47f472973823a1a53294c77ac6551285c4df75e916c739611c3bc1d23',
   'singularity/templates/common/verification.md': 'fdda5ab9e701142bd6d1f12e90b85b4e24dddffb0f4f5d89c5b534bd9137e4e0',
@@ -499,7 +509,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/feature/intake.md': 'eb53814f46f12ea3d93d1629164bd7ff22a3a54feceff7f7dd55670caeb5dbab',
   'singularity/templates/feature/requirements.md': '32016db8ed6fadd6596e7dc702647cff95cdee1a203b38395d7ba5626dd8134e',
   'singularity/templates/figma-mobile/component-mapping.md': 'cdea8a1e3defa73ade72bdaaac162ecd9b8b43817aa319d7e712e2de2eb296a3',
-  'singularity/templates/figma-mobile/conformance.md': 'f96e5271156d2dadca7cbf5687599724c4e47e328db6635ccf46b4adacaac147',
+  'singularity/templates/figma-mobile/conformance.md': 'bc82839bff97575e16deddd8beb1a35a110180651ac2f78aeedbd95aee45b185',
   'singularity/templates/figma-mobile/design-intake.md': '5cb9495b64189d9f73d6aae23201197d7634cbf46d03176544badfc7683518ef',
   'singularity/templates/figma-mobile/design-inventory.md': '822ea61a75a25ec5a6b42dd887c842d5126233b36f7f0fc875402f9a43125079',
   'singularity/templates/figma-mobile/implementation.md': '69b5b75886dcc41da4e3063c7ceb6ff805251f98dd40ee41b2bf5de660dc74da',
@@ -570,12 +580,12 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/quick-fix/implement.md': 'dff093133a1be4c93115cfbbb0d994c8ce391fc19279caee30b441ec27a05c0a',
   'singularity/templates/quick-fix/intake.md': '3a90e48c46e2fa39dbf8c382d1a278f97d58807f8670b4d27b0008c6da6a8e23',
   'singularity/templates/quick-fix/verify.md': 'a21900d99d044d35de501f0e43888a8a3ebcfe860e702a5d1b3eec61fdd06f27',
-  'singularity/templates/spec-code-test-loop/conformance.md': 'b86045aa0edc066a83733e08afc5f5313a7d6a69bb51eaf2f0515cce4ed29bc7',
+  'singularity/templates/spec-code-test-loop/conformance.md': 'bb2f9e6d23b3814949db9e1538ae140a8b24d47e2debe4cc54682c95851a1ebc',
   'singularity/templates/spec-code-test-loop/specification.md': '5965d2f0454046cc19c3bcfc079028bfc90ce308992f439da2c3daaab0c5398b',
   'singularity/templates/spec-code-test-loop/testing.md': 'dfc7d52ec93a94c33507ba76bada5459577895d714160136f4ec46bfcf0660d2',
   'singularity/templates/spec-driven/convergence.md': 'eb257477afca0229ed858875499736c57498015aaee0a527b714356819a9dde2',
   'singularity/templates/spec-driven/plan.md': 'e8dca233e783eac51fbcd75fe989d27cf163f6c42e4763e0a006cf671082be92',
-  'singularity/templates/spec-driven/release.md': '3d6717eace80085585d04c9c3f5c67f10d7a2e9c4e535a862c8b5aa900d556fe',
+  'singularity/templates/spec-driven/release.md': '8f3e84e8e19dfc851d9948f20fbd48c0e43e5d8df9c747404d602106930e14fe',
   'singularity/templates/spec-driven/spec.md': 'c6e1ea9cb3d43631d47fedc023295faf39204e7efa40da81db1a51c3d4c0f1d9',
   'singularity/templates/starter-packs/skp-team-notes/README.md': 'ab3e66d1654df81922a6022c491ac85868cb3b644e0eace77c4f9089c4f599ea',
   'singularity/templates/starter-packs/skp-team-notes/draft-input.json': 'fbc136911e7dfecf14be06091b6d759770fa72c133c39de74710511bfee57410'

@@ -116,7 +116,7 @@ The conformance comparison is honest and found the delivery short. It is an advi
 
 ### conformance.verdict-contradicted
 
-The report's clause table says matched while its own `## Upstream discrepancies` or Impact text calls the same clause partial or missing. Information for the author and the reviewer, never a blocker: use the honest verdict in the table. The discrepancy text describes the problem and its owner; it does not restate a verdict.
+The report's clause table says matched while its own `## Upstream discrepancies` or Impact text calls the same clause partial or missing. Information for the author and the reviewer, never a blocker: use the honest verdict in the table. The discrepancy text describes the problem and its owner; it does not restate a verdict. The table is the only place a verdict is stated: every prepare writes a Verdict summary from it, listing each partial or missing clause with the upstream issue that covers it, and keeps it between its engine markers. When the table or its upstream issues change, `conformance.verdict-summary-stale` says so; `sflow prepare <PHASE>` refreshes the summary, which is never edited by hand.
 
 ### Upstream input findings
 

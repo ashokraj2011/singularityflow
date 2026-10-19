@@ -14,6 +14,10 @@ Use one exact namespace-qualified approved clause ID per Criterion row (for exam
 `{{work.id}}:AC-001`), not a bare or combined display label. Cite the planned source
 `@clause:` witness and executable `@ac:` test where applicable; tags alone do not prove behavior.
 
+The clause table is the only place a verdict is stated. Under `## Upstream discrepancies`, describe each
+problem and its owner, never a verdict; the engine-written Verdict summary lists each gap with the
+upstream issue that covers it.
+
 | Criterion | Intake evidence | Design evidence | Code evidence | Test evidence | Verdict |
 |---|---|---|---|---|---|
 | `{{work.id}}:AC-001` | TODO | TODO | TODO | TODO | TODO: matched/partial/missing/deviated/unplanned |

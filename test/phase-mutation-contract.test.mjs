@@ -407,6 +407,38 @@ test('/sf-confirm turns run only the command carrying the digest the person type
   assert.match(ended.permissionDecisionReason, /PHASE_MUTATION_DECISION_TURN_ENDED/u);
 });
 
+test('/sf-run-app and /sf-test turns run the declared application and tests; no turn binds environment values', async t => {
+  const f = await fixture(t);
+  assert.equal(mutationTurnMode('sf-run-app'), 'run-and-test');
+  assert.equal(mutationTurnMode('sflow-test'), 'run-and-test');
+  assert.equal(f.contract('run-and-test').allow.application, false);
+  assert.deepEqual(f.contract('run-and-test').allow.artifacts, []);
+  for (const skill of ['/sf-run-app web', '/sf-test']) {
+    const payload = await f.enter(skill, `runner-${skill}`);
+    const shell = command => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+    for (const command of ['singularity-flow app plan --json', 'singularity-flow app start web --environment qa',
+      'singularity-flow app status --json', 'singularity-flow app stop web', 'singularity-flow tests run --environment dev --json',
+      'singularity-flow tests run --work-id PMC-1 --phase custom-step --command integration-tests --json',
+      'singularity-flow tests summary --run RUN-001 --json']) {
+      assert.deepEqual(await shell(command), {}, `${skill}: ${command}`);
+    }
+    for (const command of ['singularity-flow env bind qa --stdin', 'singularity-flow env unbind qa',
+      'singularity-flow submit custom-step', 'singularity-flow approve custom-step', 'singularity-flow prepare custom-step',
+      'npm run dev', 'singularity-flow app start web && echo unsafe']) {
+      assert.equal((await shell(command)).permissionDecision, 'deny', `${skill}: ${command}`);
+    }
+    assert.equal((await mutationToolGuard({ ...payload, toolArgs: { path: 'src/App.jsx' } })).permissionDecision, 'deny', 'no file edits');
+  }
+  // An authoring turn may start the app and run tests, but never binds values either.
+  const author = await f.enter('/sf-phase', 'author-env');
+  const shell = command => mutationToolGuard({ ...author, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  assert.deepEqual(await shell('singularity-flow app start web'), {});
+  assert.deepEqual(await shell('singularity-flow tests run --json'), {});
+  const bind = await shell('singularity-flow env bind qa --stdin');
+  assert.equal(bind.permissionDecision, 'deny');
+  assert.match(bind.permissionDecisionReason, /bound only by the person.*env bind <ENV> --stdin/u);
+});
+
 test('/sf-decide turns permit only the bound decision commands its skill runs', async t => {
   const f = await fixture(t); const payload = await f.enter('/sf-decide PMC-1');
   assert.equal(mutationTurnMode('sf-decide'), 'decision-only');

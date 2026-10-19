@@ -284,6 +284,8 @@ function shellAllowed(call, mode, value) {
   if (!safe) return false;
   const { positionals, options } = parseArgs(safe.argv);
   if (['hook', 'run', 'exec'].includes(positionals[0])) return false;
+  // Environment values come only from the person's own secret helper on standard input, in no turn.
+  if (positionals[0] === 'env' && ['bind', 'unbind'].includes(positionals[1])) return false;
   let classification;
   try { classification = resolveOperation({ requestedCommand: positionals[0], positionals, options }).classification; }
   catch { return false; }
@@ -326,6 +328,9 @@ function shellAllowed(call, mode, value) {
   if (mode === 'publish-only') return positionals[0] === 'phase'
     && (positionals[1] === 'publish' || positionals[1] === 'prepublish' && options['publish-if-ready'] === true)
     && positionals[2] === value.contract.phaseId && (!options['work-id'] || options['work-id'] === value.contract.workId);
+  // The /sf-run-app and /sf-test turns: the declared application and tests, nothing else.
+  if (mode === 'run-and-test') return (positionals[0] === 'app' && ['start', 'stop'].includes(positionals[1]))
+    || (positionals[0] === 'tests' && positionals[1] === 'run');
   // The /sf-import-team turn: its own three commands; every other mutation stays refused.
   if (mode === 'import-team') return positionals[0] === 'workflow' && positionals[1] === 'import-team'
     && IMPORT_TEAM_COMMANDS.includes(positionals[2]) && positionals.length === 3;
@@ -392,6 +397,14 @@ function upstreamIssueDecision(call, value) {
   return positionals[0] === 'upstream-issue' && UPSTREAM_ISSUE_DECISIONS.includes(positionals[1]);
 }
 
+/** A verified `env bind` or `env unbind`: only the person supplies or removes environment values. */
+function environmentBinding(call, value) {
+  const safe = verifiedShellForm(call, value);
+  if (!safe) return false;
+  const { positionals } = parseArgs(safe.argv);
+  return positionals[0] === 'env' && ['bind', 'unbind'].includes(positionals[1]);
+}
+
 /** A verified `recover --set-aside`: a person's decision about changes held for review. */
 function setAsideDecision(call, value) {
   const safe = verifiedShellForm(call, value);
@@ -430,6 +443,8 @@ function bootstrapAllowed(call, record) {
   if (mode === 'session-only') return shellAllowed(call, mode, record);
   // A confirmed setup command runs before any Story exists; only its typed digest is allowed.
   if (mode === 'confirm') return shellAllowed(call, mode, record);
+  // Starting the application or running a capability's tests needs no Story.
+  if (mode === 'run-and-test') return shellAllowed(call, mode, record);
   // Repository setup has no Story yet. Its registered CLI operations retain their existing
   // configuration authority and confirmations; this exception never authorizes file tools.
   const setup = ['admin', 'init', 'configuration', 'workflows', 'workflow-rules', 'skills', 'instructions',
@@ -619,6 +634,8 @@ export async function mutationToolGuard(payload = {}) {
       const kernel = shellAllowed(call, contract.turnMode, value);
       if (!kernel && value.findings.length) return mutationDenial({ ...contract, next: recoveryRoutes(contract) }, 'PHASE_MUTATION_REPAIR_REQUIRED');
       if (!kernel) {
+        if (environmentBinding(call, value)) return mutationDenial(contract,
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: environment values are bound only by the person, who pipes their own secret helper into `singularity-flow env bind <ENV> --stdin` in their own terminal. Give them that command; never ask for, type or pipe a value');
         if (setAsideDecision(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: setting held changes aside removes them from the checkout (after a private recovery copy); the person who looked at them runs it in their own terminal. Show the user the listed files and the command, and stop; do not retry it');
         if (decisionListRecord(call, value)) return mutationDenial(contract,

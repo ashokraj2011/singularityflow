@@ -112,7 +112,7 @@ async function pendingDecisionLead(workflow, gate, upstream, openStory) {
     .map((finding) => ({ report: finding.phase, clauseId: finding.details.clauseId, verdict: finding.details.verdict,
       owner: finding.details.owner, status: finding.details.status, issue: finding.details.issue ?? null }));
   if (!gaps.length && !upstream.some((entry) => entry.code === 'UPSTREAM_ISSUES_OPEN')) return null;
-  const [{ decisionRefusalLead }, { upstreamIssueStates }] = await Promise.all([import('../decision-list.mjs'), import('../upstream-routes.mjs')]);
+  const [{ decisionRefusalLead }, { upstreamIssueStates }] = await Promise.all([import('../decision-list-facts.mjs'), import('../upstream-routes.mjs')]);
   const order = workflow.phaseOrder ?? [];
   const phaseId = openStory?.phase ?? [...order].reverse().find((id) => workflow.phases?.[id]?.status !== 'skipped') ?? null;
   return phaseId ? decisionRefusalLead(workflow, phaseId, { gaps, issues: upstreamIssueStates(workflow), includeAllIssues: true }) : null;

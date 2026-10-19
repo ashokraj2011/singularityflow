@@ -5879,7 +5879,7 @@ export async function approvePhase(root, config, workflow, {
       { now: approvedAt, reused: await conformanceEvidenceReuse(root, config, workflow, phase.id, approvedAt) });
     if (refusal) {
       // One plain sentence and the decision list first; each clause's own routes stay in details.
-      const [{ decisionRefusalLead }, { phaseEndsStory }] = await Promise.all([import('./decision-list.mjs'), import('./decision-list-facts.mjs')]);
+      const { decisionRefusalLead, phaseEndsStory } = await import('./decision-list-facts.mjs');
       const lead = decisionRefusalLead(workflow, phase.id, { gaps: refusal.gaps.map((gap) => ({ ...gap, report: phase.id })),
         issues: upstreamIssueStates(workflow, approvedAt), includeAllIssues: phaseEndsStory(workflow, phase) });
       throw new SingularityFlowError(

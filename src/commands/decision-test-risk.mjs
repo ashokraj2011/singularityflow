@@ -21,21 +21,17 @@ import { emitCommandResult } from '../narration/emit.mjs';
 import { loadSession } from '../session.mjs';
 import { workDirRelative } from '../story-paths.mjs';
 import { actorKey, assertNoPendingPublication, loadConfig, transactStory } from '../state-stores.mjs';
-import { recordTestRunRisk, recordTestRunRiskRevocation, testRunRiskAuthorities, testRunRiskIneligibility, testRunRiskState } from '../test-run-risk.mjs';
+import { recordTestRunRisk, recordTestRunRiskRevocation, testRunRiskAuthorities, testRunRiskIneligibility } from '../test-run-risk.mjs';
 import { nowIso, optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
-import { stepAttempts } from '../verification/attempts.mjs';
+import { latestStepAttempts } from '../verification/attempts.mjs';
 import { actionActor } from './kernel.mjs';
 
 // Pure, so the decision list can say who decides without loading this command.
 export { testRunRiskAuthorities } from '../test-run-risk.mjs';
 
 /** The latest recorded run of each test command of a step, by command. */
-async function latestAttempts(root, config, workflow, phaseId) {
-  const latest = new Map();
-  for (const attempt of await stepAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, phaseId)) {
-    latest.set(attempt.commandId, attempt);
-  }
-  return latest;
+function latestAttempts(root, config, workflow, phaseId) {
+  return latestStepAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, phaseId);
 }
 
 function chooseAttempt(latest, commandId, phaseId, argvSha256 = null) {
@@ -110,17 +106,6 @@ export async function recordTestRunRiskDecision(root, config, workflow, {
     }
   );
   return { record, publication };
-}
-
-/**
- * The test commands of `phaseId` whose latest recorded run failed or was blocked before any test
- * executed and that no active decision covers at `at`: what a person may accept as a risk now.
- */
-export async function testRunRiskCandidates(root, config, workflow, phaseId, { at = nowIso() } = {}) {
-  return [...(await latestAttempts(root, config, workflow, phaseId)).values()]
-    .filter((attempt) => !testRunRiskIneligibility(attempt)
-      && testRunRiskState(workflow, { phaseId, commandId: attempt.commandId, argvSha256: attempt.argvSha256 }, { at })?.state !== 'active')
-    .sort((left, right) => left.commandId.localeCompare(right.commandId));
 }
 
 export async function decisionTestRiskCommand(positionals, options) {

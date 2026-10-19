@@ -18,11 +18,11 @@
 import { matchApprovalAuthority, normalizeApprovalAuthorities } from './approval-authority.mjs';
 import { recordSha256 } from './records.mjs';
 import { testRunRiskAuthorities } from './test-run-risk.mjs';
-import { CONFORMANCE_GAP_RULE, OPEN_UPSTREAM_ISSUE_STATUSES, decisionHeadline, decisionListRoute, decisionListRouteLine, issueNamesClause,
-  stepName } from './upstream-routes.mjs';
+import { decisionGroups, decisionRefusalLead } from './decision-list-facts.mjs';
+import { CONFORMANCE_GAP_RULE, decisionHeadline, issueNamesClause, stepName } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
 
-export { decisionHeadline, stepName };
+export { decisionGroups, decisionHeadline, decisionRefusalLead, stepName };
 export const DECISION_LIST_REVISION = 'decision-list-v1';
 /** Options that write only upstream-issue records (a raise needs no authority; a decision needs its step's approvers). */
 export const ISSUE_ONLY_OPTIONS = Object.freeze(['accept-risk', 'dismiss', 'return']);
@@ -296,41 +296,6 @@ function testRiskItem(workflow, context, risk) {
     details: { phase: risk.phase, commandId: risk.commandId, attemptId: risk.attemptId ?? null, status: risk.status, exitCode: risk.exitCode ?? null,
       commands: [`singularity-flow decision test-risk ${workflow.workItem.id} --phase ${risk.phase} --command ${risk.commandId} --cause "<what stops it>" --reason "<why>" --expires <YYYY-MM-DD>`] }
   };
-}
-
-/**
- * The underlying problems, grouped the same way wherever they are counted: a gap with the open issue
- * that names it is one problem (all of that issue's clauses together); gaps no open issue names are one
- * problem per report and owning step. Superseded issues never appear; their replacement carries them.
- */
-export function decisionGroups(workflow, { gaps = [], issues = [], includeAllIssues = false } = {}) {
-  const open = new Map(issues.filter((state) => OPEN_UPSTREAM_ISSUE_STATUSES.includes(state.status)).map((state) => [state.issue.id, state]));
-  const groups = new Map();
-  for (const gap of gaps) {
-    const issue = gap.issue && open.has(gap.issue) ? open.get(gap.issue) : null;
-    const key = issue ? `issue:${issue.issue.id}` : `unraised:${gap.report}:${gap.owner}`;
-    if (!groups.has(key)) groups.set(key, { kind: 'conformance-gap', issue: issue ? { ...issue.issue, status: issue.status, decision: issue.decision } : null,
-      owner: issue?.issue.phase ?? gap.owner, gaps: [] });
-    groups.get(key).gaps.push(gap);
-  }
-  const named = new Set([...groups.values()].map((group) => group.issue?.id).filter(Boolean));
-  const issueGroupsList = includeAllIssues ? [...open.values()].filter((state) => !named.has(state.issue.id))
-    .map((state) => ({ kind: 'upstream-issue', state })) : [];
-  return [...groups.values(), ...issueGroupsList];
-}
-
-
-/**
- * What a refusal for pending decisions leads with: the plain sentence, its count from the same
- * grouping the list uses, and the decision-list route. `gaps` are undecided conformance gaps
- * (each with its report step); `issues` the upstream issue states.
- */
-export function decisionRefusalLead(workflow, phaseId, { gaps = [], issues = [], includeAllIssues = false } = {}) {
-  const count = decisionGroups(workflow, { gaps, issues, includeAllIssues }).length;
-  if (!count) return null;
-  const workId = workflow.workItem.id;
-  return { count, headline: decisionHeadline(workflow, phaseId, count, { refused: true }), route: decisionListRouteLine(workId),
-    nextAction: decisionListRoute(workId) };
 }
 
 /** The commands a person or script uses to record, with the packet digest. */

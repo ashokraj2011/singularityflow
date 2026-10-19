@@ -292,6 +292,8 @@ function shellAllowed(call, mode, value) {
       || positionals[1] === 'begin' && positionals[2] === action && positionals[3] === value.contract.workId);
     if (classification === 'read') return true;
     if (value.decisionEnded || options['work-id'] && options['work-id'] !== value.contract.workId) return false;
+    // /sf-approve opens the decision list in its own turn when pending decisions hold the approval.
+    if (positionals[0] === 'decisions') return decisionListChatRecord(positionals, options, value.contract.workId);
     return positionals[0] === action && (!positionals[1] || positionals[1] === value.originPhase);
   }
   if (classification === 'read') return true;

@@ -1,6 +1,6 @@
 ---
 name: sflow-decide
-description: Answer a workflow decision a Story waits for, whether a left-out responsibility applies, a scope statement's disposition or a scope completeness review, recording the person's choice and reason.
+description: Show everything a step waits for people to decide as one plain-words list and record the person's choices with one confirmation, or answer a workflow decision, a left-out responsibility, a scope statement's disposition or a scope completeness review.
 disable-model-invocation: true
 argument-hint: "[WORK-ID]"
 
@@ -16,9 +16,9 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 **Boundary:** reuse entry `ready`/`workId`, cwd=`repositoryPath`; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
 <!-- sflow-turn-boundary: decision-only -->
-**Turn boundary — decision-only:** `singularity-flow decision choose|applicability|scope|completeness|plan` and `singularity-flow upstream-issue decide` are the only permitted mutations. Never edit files, run tests or builds, raw `git`, submit, approve, reject or `next`. The person types every choice and reason; never supply, infer or default one. Any refusal ends this turn.
+**Turn boundary — decision-only:** `singularity-flow decision choose|applicability|scope|completeness|plan`, `singularity-flow upstream-issue decide` and `singularity-flow decisions record` (issue options, after an explicit yes) are the only permitted mutations. Never edit files, run tests or builds, raw `git`, submit, approve, reject or `next`. The person types every choice and reason; never supply, infer or default one. List answers come from `ask_user`; the person accepts or replaces each default. Any refusal ends this turn.
 
-1. Run `singularity-flow decision show <WORK-ID> --json`. Act on what it returns open (`pending`: step 2; unsatisfied `applicability`: 6; `upstreamIssues`: 10) and on the routed scope, completeness or plan command (7-9); none: say nothing is waiting, show `ahead`, stop.
+1. Run `singularity-flow decisions <WORK-ID> --for-agent --json`; with `data.items`, do 11-14 first. Then run `singularity-flow decision show <WORK-ID> --json`. Act on what it returns open (`pending`: step 2; unsatisfied `applicability`: 6; `upstreamIssues` the list did not show: 10) and on the routed scope, completeness or plan command (7-9); none: say nothing is waiting, show `ahead`, stop.
 2. Show `pending.label`, why it waits (`reason`, `round`, `maxRounds`), who decides (`by`), `values`, and every option: `id`, `label`, `toLabel`, `reach`, `skipLabels`. With `anyStep`, a step ID or `end` may be named instead.
 3. Ask for the option ID, or a step, and a reason.
 4. Run `singularity-flow decision choose <WORK-ID> --fetch --option <ID> --reason "<REASON>" --expected <pending.key>`, or `--to <STEP>` in place of `--option`.
@@ -28,3 +28,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 8. Completeness review, only when `structurallyComplete`: show `inventorySha256`; ask for each article (completeness, ambiguity, consistency, verifiability, boundary-conditions, non-functional) as satisfied, exception or not-applicable. Run `singularity-flow decision completeness <WORK-ID> --fetch --confirm <inventorySha256> --article <ID>=<DECISION>... --reason "<REASON>"`. A review, not proof of correct scope.
 9. Unplanned path: ask for its row, or its supporting class and why. Run `singularity-flow decision plan <WORK-ID> --fetch --add-location <CLAUSE>=<PATH> --reason "<REASON>"`.
 10. Upstream issues: show each `id`, `phase`, `about`. Outcomes: plan-correction (`--link PRC-NNN`), amend (`--link FAM-NNN`, approved), return (opens its change request), accept-risk (`--expires YYYY-MM-DD`) or dismiss. Run `singularity-flow upstream-issue decide <UPI-ID> --work-id <WORK-ID> --outcome <OUTCOME> --reason "<REASON>"`.
+11. Lead with `data.headline`; show each item's `title` and `why` (IDs and flags stay in `details`/`effects`). Not yours (`decidedBy.allowed` false): say `decidedBy.words`, give `decidedBy.share`, skip it.
+12. `ask_user` per other item: option `label`s (recommended first) plus Not now, then each `needs` value with its `default`.
+13. Preview: `singularity-flow decisions <WORK-ID> --choose <ID>=<OPTION>... --for-agent --json`, adding `--reason|--expires|--cause <ID>=<VALUE>` only for changed values; show `data.preview.summary` and `refused` `words`/`share`.
+14. `data.preview.record.recordInChat`: after an explicit yes run `data.preview.record.command` once, exactly; report it. Otherwise give the person that command for their own terminal (reused runs and test-run risks are theirs to record). Never type or change a digest; `DECISIONS_PACKET_CHANGED`: show the fresh list, restart at 11.

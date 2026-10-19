@@ -440,12 +440,20 @@ test('a /sf-decide turn records only the decision list\'s upstream-issue options
   }
   const reuse = await shell(decide, `singularity-flow decisions record PMC-1 --choose d1=reuse --confirm ${digest}`);
   assert.match(reuse.permissionDecisionReason, /recording the decision list is the person's own step: they run the exact decisions record command in their own terminal/u);
-  for (const [skill, mode] of [['/sf-phase', null], ['/sf-recover', 'kernel'], ['/sf-approve', 'approver']]) {
+  for (const [skill, mode] of [['/sf-phase', null], ['/sf-recover', 'kernel']]) {
     const payload = await f.enter(skill, mode ?? undefined);
     assert.deepEqual(await shell(payload, 'singularity-flow decisions PMC-1 --json'), {}, `${skill} may read the list`);
     const denied = await shell(payload, `singularity-flow decisions record PMC-1 --choose d1=dismiss --confirm ${digest}`);
     assert.equal(denied.permissionDecision, 'deny', skill);
   }
+  // /sf-approve opens the list in its own turn: the same issue-only rule, until the approval turn has ended.
+  const approve = await f.enter('/sf-approve', 'approver');
+  const issueOnly = `singularity-flow decisions record PMC-1 --choose d1=dismiss --confirm ${digest}`;
+  assert.deepEqual(await shell(approve, issueOnly), {});
+  assert.equal((await shell(approve, `singularity-flow decisions record PMC-1 --choose d1=reuse --confirm ${digest}`)).permissionDecision, 'deny');
+  await endMutationDecisionTurns(f.root);
+  assert.equal((await shell(approve, issueOnly)).permissionDecision, 'deny', 'an ended approval turn records nothing');
+  assert.deepEqual(await shell(approve, 'singularity-flow decisions PMC-1 --json'), {}, 'reading stays available');
 });
 
 test('an authoring turn may raise an upstream issue but never decide one', async t => {

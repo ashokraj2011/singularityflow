@@ -20,7 +20,8 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { conformancePhasesOf, isConformancePhase } from './phase-roles.mjs';
-import { OPEN_UPSTREAM_ISSUE_STATUSES, conformanceGapDecisions, upstreamIssueStates } from './upstream-routes.mjs';
+import { OPEN_UPSTREAM_ISSUE_STATUSES, conformanceGapDecisions, decisionHeadline, decisionListRoute, decisionListRouteLine,
+  upstreamIssueStates } from './upstream-routes.mjs';
 import { workDir } from './story-paths.mjs';
 import { SingularityFlowError } from './util.mjs';
 
@@ -132,15 +133,21 @@ async function reuseCandidates(root, config, workflow, reports) {
   return { candidates, problems };
 }
 
+/**
+ * The step's test commands whose latest recorded run failed or was blocked before any test executed
+ * and that no active decision covers: what `decision test-risk` would accept now, read the same way.
+ */
 async function testRisks(root, config, workflow, phase, at) {
   if (phase?.status !== 'in_progress') return [];
-  const [{ testRunRiskCandidates }, { testRunRiskState }] = await Promise.all([
-    import('./commands/decision-test-risk.mjs'), import('./test-run-risk.mjs')]);
-  return (await testRunRiskCandidates(root, config, workflow, phase.id, { at })).map((attempt) => ({
-    phase: phase.id, commandId: attempt.commandId, attemptId: attempt.attemptId ?? null, status: attempt.status,
-    exitCode: Number.isInteger(attempt.exitCode) ? attempt.exitCode : null, argvSha256: attempt.argvSha256 ?? null,
-    lapsed: testRunRiskState(workflow, { phaseId: phase.id, commandId: attempt.commandId, argvSha256: attempt.argvSha256 }, { at })?.state ?? null
-  }));
+  const [{ latestStepAttempts }, { testRunRiskIneligibility, testRunRiskState }, { workDirRelative }] = await Promise.all([
+    import('./verification/attempts.mjs'), import('./test-run-risk.mjs'), import('./story-paths.mjs')]);
+  const latest = await latestStepAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, phase.id);
+  return [...latest.values()].map((attempt) => ({ attempt,
+    state: testRunRiskState(workflow, { phaseId: phase.id, commandId: attempt.commandId, argvSha256: attempt.argvSha256 }, { at })?.state ?? null }))
+    .filter(({ attempt, state }) => !testRunRiskIneligibility(attempt) && state !== 'active')
+    .sort((left, right) => left.attempt.commandId.localeCompare(right.attempt.commandId))
+    .map(({ attempt, state }) => ({ phase: phase.id, commandId: attempt.commandId, attemptId: attempt.attemptId ?? null, status: attempt.status,
+      exitCode: Number.isInteger(attempt.exitCode) ? attempt.exitCode : null, argvSha256: attempt.argvSha256 ?? null, lapsed: state }));
 }
 
 /**
@@ -184,14 +191,46 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
 }
 
 /**
+ * The underlying problems, grouped the same way wherever they are counted: a gap with the open issue
+ * that names it is one problem (all of that issue's clauses together); gaps no open issue names are one
+ * problem per report and owning step. Superseded issues never appear; their replacement carries them.
+ */
+export function decisionGroups(workflow, { gaps = [], issues = [], includeAllIssues = false } = {}) {
+  const open = new Map(issues.filter((state) => OPEN_UPSTREAM_ISSUE_STATUSES.includes(state.status)).map((state) => [state.issue.id, state]));
+  const groups = new Map();
+  for (const gap of gaps) {
+    const issue = gap.issue && open.has(gap.issue) ? open.get(gap.issue) : null;
+    const key = issue ? `issue:${issue.issue.id}` : `unraised:${gap.report}:${gap.owner}`;
+    if (!groups.has(key)) groups.set(key, { kind: 'conformance-gap', issue: issue ? { ...issue.issue, status: issue.status, decision: issue.decision } : null,
+      owner: issue?.issue.phase ?? gap.owner, gaps: [] });
+    groups.get(key).gaps.push(gap);
+  }
+  const named = new Set([...groups.values()].map((group) => group.issue?.id).filter(Boolean));
+  const issueGroupsList = includeAllIssues ? [...open.values()].filter((state) => !named.has(state.issue.id))
+    .map((state) => ({ kind: 'upstream-issue', state })) : [];
+  return [...groups.values(), ...issueGroupsList];
+}
+
+/**
+ * What a refusal for pending decisions leads with: the plain sentence, its count from the same
+ * grouping the list uses, and the decision-list route. `gaps` are undecided conformance gaps
+ * (each with its report step); `issues` the upstream issue states.
+ */
+export function decisionRefusalLead(workflow, phaseId, { gaps = [], issues = [], includeAllIssues = false } = {}) {
+  const count = decisionGroups(workflow, { gaps, issues, includeAllIssues }).length;
+  if (!count) return null;
+  const workId = workflow.workItem.id;
+  return { count, headline: decisionHeadline(workflow, phaseId, count, { refused: true }), route: decisionListRouteLine(workId),
+    nextAction: decisionListRoute(workId) };
+}
+
+/**
  * How many decisions hold `phase` back from approval or the Story's end, and the one route to them:
  * Copilot `/sf-decide WORK-ID`, Shell `singularity-flow decisions WORK-ID`. Null when none.
  */
 export async function pendingDecisionSummary(root, config, workflow, phase, { at = new Date().toISOString() } = {}) {
   if (!decisionsMayBePending(workflow, phase)) return null;
-  const [facts, { decisionGroups }, { decisionHeadline }] = await Promise.all([
-    decisionListFacts(root, config, workflow, { phaseId: phase.id, at, candidates: false, includeTestRisks: false }),
-    import('./decision-list.mjs'), import('./upstream-routes.mjs')]);
+  const facts = await decisionListFacts(root, config, workflow, { phaseId: phase.id, at, candidates: false, includeTestRisks: false });
   const count = decisionGroups(workflow, { gaps: facts.gaps, issues: facts.issues, includeAllIssues: facts.endsStory }).length;
   if (!count) return null;
   const workId = workflow.workItem.id;

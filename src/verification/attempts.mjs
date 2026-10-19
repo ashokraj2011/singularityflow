@@ -82,6 +82,13 @@ export async function stepAttempts(root, itemRelative, workId, phaseId) {
     `${left.process?.completedAt ?? ''}\u0000${left.attemptId}`.localeCompare(`${right.process?.completedAt ?? ''}\u0000${right.attemptId}`));
 }
 
+/** The latest recorded run of each test command of a step, by command ID. */
+export async function latestStepAttempts(root, itemRelative, workId, phaseId) {
+  const latest = new Map();
+  for (const attempt of await stepAttempts(root, itemRelative, workId, phaseId)) latest.set(attempt.commandId, attempt);
+  return latest;
+}
+
 /**
  * Run-result → attempt. Parses the run's own report when it produced one, keeps its raw bytes and
  * the attempt in private storage, and returns the attempt with its Story path and digest.

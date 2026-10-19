@@ -45,7 +45,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // clarification-paths, phase-input-policy and phase-inspection-generation helpers split out of modules it already
     // loaded, plus the source-review snapshot cache.
     assert.ok(closure.files.size <= 455, `${file} loads ${closure.files.size} local files (budget 455; retired graph 597)`);
-    assert.ok(closure.bytes <= 9_000_000, `${file} exceeds the 9 MB eager-source budget`);
+    // 9,005,000 (next 5,000 boundary): phase-lifecycle.mjs grew from 8,993,692 (main 4a8e6c42) to 9,004,129 with the
+    // capability application block's per-environment arguments and debug validation in capabilities.mjs and the
+    // launcher rules it reads (RUN amendment), together with 2ca46d6d's conformance issue ownership; no new file.
+    assert.ok(closure.bytes <= 9_005_000, `${file} exceeds the 9 MB eager-source budget`);
   }
 });
 
@@ -57,7 +60,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // before repository discovery), execution-context-scope.mjs (f62c3107) and small additions to cli-entry and Git transport.
   // 775,000: 769,967 grew to 772,758 with the source-review batching (f79ec1fa, 5a25abe8, d18afdc6): git-fact-cache.mjs
   // +1,810, util.mjs +713, utility-entry.mjs +268; no new file.
-  assert.ok(root.bytes <= 775_000, `root dispatch loads ${root.bytes} source bytes`);
+  // 780,000: 774,999 at main 4a8e6c42 grew to 775,081 with the --debug boolean flag (util.mjs) and the app suggest
+  // and --application-file registry entries (command-registry.mjs); no new file.
+  assert.ok(root.bytes <= 780_000, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   for (const entry of ['commands/session-entry.mjs', 'commands/choices-entry.mjs']) {

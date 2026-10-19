@@ -460,13 +460,15 @@ export async function startApplication(root, context, entry, {
         `${subject} debugs on ${debugLaunch.address}, and something already listens there. Stop it, or give the entry another debug.port. Nothing ran.`,
         { code: 'APP_DEBUG_PORT_IN_USE', details: { startId: entry.id, port: debugLaunch.port } });
     }
-    Object.assign(env, debugLaunch.environment);
     output.write(`Debug start: ${debugLaunch.argv.join(' ')}${debugLaunch.environmentNames.length ? ` (with ${debugLaunch.environmentNames.join(', ')} set for the application only)` : ''}\n`);
     for (const note of debugLaunch.notes) output.write(`${note}\n`);
   }
+  // Before-launch steps get the application's environment without the debugger's variables: a build
+  // step must not start a JDWP agent or an inspector on the port the application will debug on.
   if (command.beforeLaunch.length && await runBeforeLaunch(root, entry, command.beforeLaunch, { env, platform, output, errorOutput, materialized, signals })) {
     return { capability: context.capabilityId, id: entry.id, outcome: 'stopped', ready: false, exitCode: 0 };
   }
+  if (debugLaunch) Object.assign(env, debugLaunch.environment);
   const files = filesToWrite(command.files, debugLaunch?.files);
   const written = [...files.map((file) => file.path), ...(debugLaunch ? [debugPaths.gradleInitScript, debugPaths.goBinary] : [])];
   const launchArgv = debugLaunch?.argv ?? command.argv;

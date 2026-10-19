@@ -20,6 +20,7 @@ http.createServer((request, response) => { response.statusCode = 204; response.e
 `;
 const BUILD = `import { writeFileSync } from 'node:fs';
 writeFileSync('built.txt', String(process.env.FEATURE_FLAGS));
+writeFileSync('built-debug.txt', String(process.env.NODE_OPTIONS ?? process.env.npm_config_node_options ?? 'unset'));
 console.log('build sees token ' + (process.env.API_TOKEN ?? 'none'));
 process.exit(Number(process.argv[2] ?? 0));
 `;
@@ -197,6 +198,22 @@ test('app start --debug starts a typed node entry with the inspector after node,
   const server = JSON.parse(await readFile(path.join(root, 'server', 'server-started.json'), 'utf8'));
   assert.deepEqual(server.execArgv, [`--inspect=127.0.0.1:${debugPort}`, '--enable-source-maps']);
   assert.deepEqual(json(root, ['app', 'status', '--json']).entries[0].debug, { runtime: 'node', port: debugPort, listening: true });
+  assert.equal(json(root, ['app', 'stop', '--json']).stopped, true);
+  await started.exited;
+});
+
+test('under --debug the before-launch steps run without the debugger\'s variables, which reach the application only', async (t) => {
+  const port = await freePort();
+  const debugPort = await freePort();
+  const root = await fixture(t, [{
+    id: 'web', argv: ['node', 'server.mjs', String(port)], workingDirectory: 'server', beforeLaunch: [{ argv: ['node', 'build.mjs'] }],
+    url: `http://127.0.0.1:${port}/`, ready: { http: '/', timeoutMs: 15_000 },
+    debug: { runtime: 'node', port: debugPort, environment: { NODE_OPTIONS: `--inspect=127.0.0.1:${debugPort}` } }
+  }]);
+  const started = startInBackground(root, ['--debug']);
+  await started.waitFor(/Ready at/u);
+  assert.match(started.output(), new RegExp(`Debugger listening at 127\\.0\\.0\\.1:${debugPort}`, 'u'));
+  assert.equal(await readFile(path.join(root, 'server', 'built-debug.txt'), 'utf8'), 'unset', 'a build step never starts the debugger');
   assert.equal(json(root, ['app', 'stop', '--json']).stopped, true);
   await started.exited;
 });

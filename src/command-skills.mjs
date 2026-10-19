@@ -99,6 +99,8 @@ const entries = {
   review: ['sf-review'],
   'review-source': ['sf-review-source', 'sf-review-decide'],
   workflow: ['sf-workflows', 'sf-import-team', 'sf-build-workflow', 'sf-fix-workflow'],
+  app: ['sf-run-app'],
+  tests: ['sf-test'],
   skill: ['sf-skill'],
   instruction: ['sf-instructions'],
   assign: ['sf-assign'],
@@ -214,6 +216,8 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     '--subject': 'sf-explain'
   }),
   precheck: route('sf-ready'),
+  app: route('sf-run-app'),
+  tests: route('sf-test'),
   choices: route('sf-start', {
     'begin start': 'sf-start',
     'begin approve': 'sf-approve'

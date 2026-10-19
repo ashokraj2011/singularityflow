@@ -6,6 +6,7 @@ import { realpathSync } from 'node:fs';
 export default async function* reporter(events) {
   const root = realpathSync(process.env.SINGULARITY_FLOW_NODE_TEST_ROOT ?? process.cwd());
   const stacks = new Map();
+  const files = new Map();
   const occurrences = [];
   let incomplete = false;
   async function* observe() {
@@ -18,7 +19,14 @@ export default async function* reporter(events) {
         stacks.set(data.file, stack);
       }
       if (['test:pass', 'test:fail'].includes(event.type) && data.details?.type !== 'suite') {
-        const file = data.file ? path.relative(root, data.file).replaceAll('\\', '/') : '';
+        // Windows temp/cwd paths can use an 8.3 alias while the root is canonical. Resolve
+        // both sides before containment/identity checks; outside or missing files still fail.
+        // One resolution per reported file avoids another filesystem read per test case.
+        if (data.file && !files.has(data.file)) {
+          try { files.set(data.file, path.relative(root, realpathSync(data.file)).replaceAll('\\', '/')); }
+          catch { files.set(data.file, ''); }
+        }
+        const file = files.get(data.file) ?? '';
         const ancestors = (stacks.get(data.file) ?? []).slice(0, data.nesting);
         if (!file || file === '..' || file.startsWith('../') || path.isAbsolute(file)
             || !Number.isInteger(data.line) || data.line < 1 || typeof data.name !== 'string'

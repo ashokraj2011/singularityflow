@@ -13,6 +13,7 @@ import { withSubjectLock } from '../src/subject-lock.mjs';
 import { currentInteractiveRevisionPublication } from '../src/revision/publication-adapter.mjs';
 import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
+import { secureWindowsAuthAcl } from '../src/mcp-auth-profile.mjs';
 
 const sha = (value) => `sha256:${recordSha256(value)}`;
 const digest = (letter) => `sha256:${letter.repeat(64)}`;
@@ -39,7 +40,7 @@ test('the no-loop publication probe checks safe absence under the Story lock wit
     syncBuiltinESMExports();
     assert.equal(await currentInteractiveRevisionPublication(f.root, execution), null);
   } finally { fs.readFileSync = originalRead; syncBuiltinESMExports(); }
-  await mkdir(f.journal, { recursive: true, mode: 0o700 });
+  await privateJournalFixture(f);
   await writeFile(path.join(f.journal, 'unexpected'), 'preserve');
   await assert.rejects(hasRevisionLoopJournal(f.root, f.scope), { code: 'REV_LOOP_CORRUPT' });
   assert.equal(await readFile(path.join(f.journal, 'unexpected'), 'utf8'), 'preserve');
@@ -91,6 +92,23 @@ function openRequest(value, idempotencyKey = 'open-1') {
     context: value.context, idempotencyKey,
     transition: { type: 'open-loop', loopId: 'LOOP-1', initialCandidate: candidate('a') }
   };
+}
+
+// Hand-authored historical/corrupt fixtures must satisfy the same private-storage contract
+// as kernel-created journals before they can exercise record validation on either platform.
+async function privateJournalFixture(value) {
+  await mkdir(value.journal, { recursive: true, mode: 0o700 });
+  if (process.platform === 'win32') {
+    for (const directory of [path.dirname(path.dirname(value.journal)), path.dirname(value.journal), value.journal]) {
+      await secureWindowsAuthAcl(directory, { directory: true });
+    }
+  }
+}
+
+async function writeHistoricalEntry(value, name, entry) {
+  const file = path.join(value.journal, name);
+  await writeFile(file, canonicalJson(entry), { mode: 0o600 });
+  if (process.platform === 'win32') await secureWindowsAuthAcl(file);
 }
 
 function legacyEntry(value, request, {
@@ -336,10 +354,8 @@ test('producerless v1 journals remain readable and replayable but cannot grant n
   const value = await fixture(t);
   const request = openRequest(value);
   const historical = legacyEntry(value, request);
-  await mkdir(value.journal, { recursive: true, mode: 0o700 });
-  await writeFile(path.join(value.journal, '0000000000.json'), canonicalJson(historical), {
-    mode: 0o600
-  });
+  await privateJournalFixture(value);
+  await writeHistoricalEntry(value, '0000000000.json', historical);
 
   const head = await value.store.read();
   assert.equal(head.revision, 0);
@@ -355,9 +371,7 @@ test('producerless v1 journals remain readable and replayable but cannot grant n
     previousEntrySha256: historical.entrySha256,
     committedAt: '2026-09-16T00:01:00.000Z'
   });
-  await writeFile(path.join(value.journal, '0000000001.json'), canonicalJson(historicalCommit), {
-    mode: 0o600
-  });
+  await writeHistoricalEntry(value, '0000000001.json', historicalCommit);
   const committedHead = await value.store.read();
   assert.equal(committedHead.revision, 1);
   assert.equal(committedHead.head.candidateRefSha256, candidate('b').candidateRefSha256);

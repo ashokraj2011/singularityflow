@@ -4,10 +4,10 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "279443295ac30c4866a0eb418b432619b84da91c",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-19-TYPESCRIPT-PLAYWRIGHT.md",
+    "reviewedAtCommit": "8322711c4453bfa04baf888528d70c2bb04e4005",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-19-PUBLICATION-CONTEXT.md",
     "companionIds": [
-      "workflow-configuration"
+      "publication-unit-of-work"
     ]
   },
   "companions": [
@@ -84,7 +84,7 @@
     {
       "id": "publication-unit-of-work",
       "path": "src/publication-unit-of-work.mjs",
-      "sha256": "sha256:40c741224e7cc4d89a1b4171b692527bbc1cb89aff8e89ec8a15d875c8d42af0"
+      "sha256": "sha256:443f59dcd45fbad7f2fc968985da63b58e5d2d148aef5a182c3d668ddc8541db"
     },
     {
       "id": "action-authorization",

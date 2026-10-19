@@ -285,19 +285,15 @@ async function landedCheck(record, { landed, preview, check }) {
 }
 
 /**
- * A send-back target the workflow does not have before its step, with the one move that repoints
- * it: the step's sign-off as this workflow runs it, sent back to the targets that still fit, or to
- * the step itself when none does.
+ * A send-back target the workflow does not have before its step. The check names the one move that
+ * repoints it (src/workflow-check.mjs, for every surface); the builder says it as that move.
  */
 function withSendBackMove(finding, workflow) {
-  const step = finding.code === 'WORKFLOW_REJECTION_TARGET' ? workflow?.steps.find((entry) => entry.id === finding.subject?.step) : null;
-  if (!step || step.approval?.mode === 'none') return finding;
-  const before = workflow.phases.slice(0, workflow.phases.indexOf(step.id) + 1);
-  const kept = (step.sendBackTo ?? []).filter((id) => before.includes(id));
-  const move = { move: 'step.change', id: step.id, signOff: { groups: [...step.approval.authorities], minimum: step.approval.minimum, sendBackTo: kept.length ? kept : [step.id] } };
-  const names = move.signOff.sendBackTo.map((id) => workflow.steps.find((entry) => entry.id === id)?.label ?? id);
+  const move = finding.code === 'WORKFLOW_REJECTION_TARGET' ? finding.fix?.move : null;
+  if (!move) return finding;
   const { groups, minimum, sendBackTo } = move.signOff;
-  return { ...finding, fix: { move, text: `Send rejected work back to ${names.join(' or ')} instead, with one move: step.change ${step.id}`
+  const names = sendBackTo.map((id) => workflow?.steps.find((entry) => entry.id === id)?.label ?? id);
+  return { ...finding, fix: { move, text: `Send rejected work back to ${names.join(' or ')} instead, with one move: step.change ${move.id}`
     + ` with signOff { groups: [${groups.join(', ')}], minimum: ${minimum}, sendBackTo: [${sendBackTo.join(', ')}] }.` } };
 }
 

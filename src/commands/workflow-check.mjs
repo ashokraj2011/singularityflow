@@ -10,13 +10,17 @@ import { SingularityFlowError, commandLineFile, optionBoolean, optionString } fr
 const SEVERITY_WORDS = { problem: 'problem', warning: 'warning', note: 'note' };
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
 const countWords = (counts) => ['problem', 'warning', 'note'].map((severity) => plural(counts[severity] ?? 0, severity)).join(', ');
+const countsOf = (findings) => Object.fromEntries(['problem', 'warning', 'note'].map((severity) => [severity, findings.filter((entry) => entry.severity === severity).length]));
 const where = (location) => (location ? `  (${location.file}${location.line ? `:${location.line}` : ''})` : '');
+
+/** A finding's text; a fix that shows a table keeps its lines under the first. */
+const block = (text, indent) => String(text).split('\n').join(`\n${indent}`);
 
 function printFindings(findings, indent) {
   for (const entry of findings) {
     console.log(`${indent}${SEVERITY_WORDS[entry.severity].padEnd(8)} ${entry.title}${where(entry.location)}`);
-    if (entry.detail && entry.detail !== entry.title) console.log(`${indent}         ${entry.detail}`);
-    if (entry.fix) console.log(`${indent}         Fix: ${entry.fix.text}`);
+    if (entry.detail && entry.detail !== entry.title) console.log(`${indent}         ${block(entry.detail, `${indent}         `)}`);
+    if (entry.fix) console.log(`${indent}         Fix: ${block(entry.fix.text, `${indent}              `)}`);
   }
 }
 
@@ -32,10 +36,14 @@ function printSteps(explanation) {
 }
 
 export function printWorkflowCheck(result, { steps = false } = {}) {
-  if (!result.configuration.valid) {
+  if (!result.configuration.valid && !result.workflows.length) {
     console.log(result.changeSet ? 'These changes cannot be applied yet, so nothing else was checked:' : 'The workflow configuration cannot be read, so nothing else was checked:');
     printFindings(result.repository.findings, '  ');
     return;
+  }
+  if (!result.configuration.valid) {
+    console.log('The workflow configuration cannot be read until every step has exactly one agent that drafts it. The workflows were checked without agents:');
+    printFindings(result.repository.findings.filter((entry) => entry.blocksStart), '  ');
   }
   for (const workflow of result.workflows) {
     console.log(`${workflow.label} (${workflow.id}): ${workflow.explanation.summary}`);
@@ -44,9 +52,10 @@ export function printWorkflowCheck(result, { steps = false } = {}) {
     if (workflow.findings.length) printFindings(workflow.findings, '  ');
     else console.log('  Nothing to fix.');
   }
-  if (result.repository.findings.length) {
-    console.log(`Agents, skills and instructions: ${countWords(result.repository.counts)}`);
-    printFindings(result.repository.findings, '  ');
+  const others = result.configuration.valid ? result.repository.findings : result.repository.findings.filter((entry) => !entry.blocksStart);
+  if (others.length) {
+    console.log(`Agents, skills and instructions: ${countWords(result.configuration.valid ? result.repository.counts : countsOf(others))}`);
+    printFindings(others, '  ');
   }
   console.log(`In all: ${countWords(result.counts)}.`);
 }
@@ -74,7 +83,7 @@ export async function run(argv, { positionals, options }) {
     else {
       const findings = plan.problems.map((problem) => ({
         id: `change-${plan.problems.indexOf(problem) + 1}`, code: problem.code, area: 'flow', severity: 'problem',
-        title: String(problem.message).split(/(?<=[.!?])\s+/u)[0], detail: problem.message,
+        title: String(problem.message).split(/(?<=[.!?])\s+/u)[0], detail: problem.message, blocksStart: true,
         subject: problem.subject ? { [problem.subject.kind === 'phase' ? 'step' : problem.subject.kind]: problem.subject.id } : {},
         ...(problem.located?.[0]?.line ? { location: { file: problem.located[0].file, line: problem.located[0].line } } : {})
       }));

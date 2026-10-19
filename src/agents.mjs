@@ -183,13 +183,40 @@ export function validateAgentCatalog(agents, definition) {
       }
     }
   }
-  for (const phaseId of phaseIds) {
-    const compatible = agents.filter((agent) => !agent.phases.length || agent.phases.includes(phaseId));
-    if (!compatible.length) throw new SingularityFlowError(`Phase '${phaseId}' has no compatible agent.`);
-    const defaults = compatible.filter((agent) => agent.defaultFor.includes(phaseId));
-    if (defaults.length !== 1) throw new SingularityFlowError(`Phase '${phaseId}' requires exactly one default agent; found ${defaults.length}.`);
+  const unmapped = agentMappingProblems(agents, phaseIds);
+  if (unmapped.length) {
+    // Refused with the first step's message, as before; the details carry every step that needs an
+    // agent, so `workflow check` and `workflow validate` can say where to fix each one.
+    const [first] = unmapped;
+    throw new SingularityFlowError(first.message, { code: first.code, details: { ...first, subjectKind: 'configuration', problems: unmapped } });
   }
   return agents;
+}
+
+/** An agent as a mapping refusal names it: its ID, where it is declared, and whose it is. */
+const mappedAgent = (agent) => ({ id: agent.id, label: agent.label ?? agent.id, scope: agent.scope ?? null, source: agent.source ?? null });
+
+/**
+ * Every step that has no agent to draft it: none can run it (AGENT_PHASE_UNMAPPED), none is its
+ * default (AGENT_PHASE_DEFAULT_MISSING), or several are (AGENT_PHASE_DEFAULT_AMBIGUOUS). A step
+ * gets its agent from `sflow-phases` (may draft it) and `sflow-default-for` (drafts it) in
+ * exactly one agent file.
+ */
+export function agentMappingProblems(agents, phaseIds) {
+  const problems = [];
+  for (const phaseId of phaseIds) {
+    const compatible = agents.filter((agent) => !agent.phases.length || agent.phases.includes(phaseId));
+    const defaults = compatible.filter((agent) => agent.defaultFor.includes(phaseId));
+    if (compatible.length && defaults.length === 1) continue;
+    const code = !compatible.length ? 'AGENT_PHASE_UNMAPPED' : defaults.length ? 'AGENT_PHASE_DEFAULT_AMBIGUOUS' : 'AGENT_PHASE_DEFAULT_MISSING';
+    problems.push({
+      code, phaseId,
+      message: !compatible.length ? `Phase '${phaseId}' has no compatible agent.` : `Phase '${phaseId}' requires exactly one default agent; found ${defaults.length}.`,
+      compatible: compatible.filter((agent) => agent.phases.length).map(mappedAgent),
+      defaults: defaults.map(mappedAgent)
+    });
+  }
+  return problems;
 }
 
 export function resolvePhaseAgent(agents, phaseId, { requestedAgent = null, nativeCopilotAgent = null } = {}) {

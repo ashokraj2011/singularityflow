@@ -301,12 +301,19 @@ export async function workflowDiff(root, id) {
  * readable as `migration-required` so it cannot hide every other workflow or strand historical
  * Stories; this report returns invalid and Story start refuses it. Current authored workflows fail
  * closed before write. The report makes the topology visible instead of reducing validation to a
- * silent exit code.
+ * silent exit code. `definition` is one the caller already loaded (`workflow validate` reads the
+ * workflows without agents when only a step's agent stops the configuration from loading).
  */
-export async function validateWorkflowCatalog(root, requestedId = null) {
-  const definition = await loadDefinition(root);
+export async function validateWorkflowCatalog(root, requestedId = null, { definition: loaded = null } = {}) {
+  const definition = loaded ?? await loadDefinition(root);
   const ids = requestedId == null ? Object.keys(definition.workTypes) : [requestedId];
-  for (const id of ids) if (!definition.workTypes[id]) throw new SingularityFlowError(`Unknown workflow '${id}'.`);
+  for (const id of ids) {
+    if (!definition.workTypes[id]) {
+      const known = Object.keys(definition.workTypes);
+      throw new SingularityFlowError(`Unknown workflow '${id}'. Workflows here: ${known.join(', ') || 'none'}.`,
+        { code: 'WORKFLOW_UNKNOWN', details: { workflow: id, workflows: known } });
+    }
+  }
   const workflows = ids.map((id) => {
     const resolved = resolveWorkType(definition, id);
     const plannedClaims = resolved.plannedClaims;

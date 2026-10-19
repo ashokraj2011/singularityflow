@@ -401,8 +401,9 @@ function generatedReadinessReportPaths(commands) {
 
 /**
  * The capability's declared start entries for this checkout [RUN M1], used by the start smoke
- * check instead of a detected start command. An entry that needs an environment's private values
- * is not smoke-started here: readiness never reads a binding. Any resolution problem means none.
+ * check instead of a detected start command. An entry that needs an environment's private values,
+ * or more than its argv (variables, before-launch steps, a private file), is not smoke-started here:
+ * readiness never reads a binding. Any resolution problem means none.
  */
 async function declaredStartCommands(root, options) {
   if (options.declaredStartCommands !== undefined) return options.declaredStartCommands ?? [];
@@ -411,7 +412,7 @@ async function declaredStartCommands(root, options) {
     const { resolveCapabilityApplication } = await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'capability-application-context.mjs')).href);
     const context = await resolveCapabilityApplication(root);
     return context.application.start
-      .filter((entry) => !entry.environments.length
+      .filter((entry) => !entry.environments.length && entry.startsFromArgv !== false
         && (context.repositories.length <= 1 || entry.repository === context.repositoryId))
       .map((entry) => ({ id: `start-${entry.id}`, argv: [...entry.argv], workingDirectory: entry.workingDirectory }));
   } catch {

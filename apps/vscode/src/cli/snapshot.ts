@@ -1547,6 +1547,8 @@ export interface VisualAssuranceSnapshot {
     covered: Array<{ profileId: string; recordId: string; outputSha256?: string; dimensions?: { width: number; height: number } | null }>;
     uncovered: string[]; stale: string[];
     duplicates: Array<{ profileId: string; records: string[] }>;
+    /** Screen sizes a person decided do not apply to this Story (`decision visual-profile`); never covered. */
+    notApplicable?: Array<{ profileId: string; decisionId: string; reason: string; actor?: string | null; authorityGroup?: string | null; at?: string | null }>;
     warnings: string[]; errors: string[];
   } | null;
   comparisons: VisualComparison[];

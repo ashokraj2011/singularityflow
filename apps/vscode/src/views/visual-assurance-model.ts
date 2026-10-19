@@ -4,8 +4,10 @@ import type {
 } from '../cli/snapshot.ts';
 
 export interface VisualProfileView {
-  id: string; label: string; dimensions: string; status: 'covered' | 'missing' | 'stale';
+  id: string; label: string; dimensions: string; status: 'covered' | 'missing' | 'stale' | 'not-applicable';
   recordId: string | null;
+  /** A person's decision that this screen size does not apply to the Story: who, through which group, and why. */
+  notApplicable?: { decisionId: string; reason: string; decidedBy: string; at: string | null } | null;
 }
 
 export interface VisualAssuranceView {
@@ -20,7 +22,7 @@ export interface VisualAssuranceView {
   servers: Array<{
     id: string; label: string; readiness: string; reasons: string[]; configured: boolean; tools: string[];
   }>;
-  summary: { designSources: number; profilesCovered: number; profilesTotal: number; comparisonsPassed: number; evidence: number };
+  summary: { designSources: number; profilesCovered: number; profilesNotApplicable: number; profilesTotal: number; comparisonsPassed: number; evidence: number };
 }
 
 function profileViews(visual: VisualAssuranceSnapshot): VisualProfileView[] {
@@ -28,16 +30,23 @@ function profileViews(visual: VisualAssuranceSnapshot): VisualProfileView[] {
   if (!coverage) return [];
   const covered = new Map(coverage.covered.map((entry) => [entry.profileId, entry]));
   const stale = new Set(coverage.stale);
+  const decided = new Map((coverage.notApplicable ?? []).map((entry) => [entry.profileId, entry]));
   return coverage.profiles.map((profile) => {
     const evidence = covered.get(profile.id);
+    const decision = evidence ? null : decided.get(profile.id) ?? null;
     return {
       id: profile.id,
       label: profile.label ?? profile.id,
       dimensions: profile.width && profile.height
         ? `${profile.width} × ${profile.height}${profile.deviceScaleFactor ? ` @${profile.deviceScaleFactor}x` : ''}`
         : 'dimensions not declared',
-      status: stale.has(profile.id) ? 'stale' : evidence ? 'covered' : 'missing',
-      recordId: evidence?.recordId ?? null
+      status: decision ? 'not-applicable' : stale.has(profile.id) ? 'stale' : evidence ? 'covered' : 'missing',
+      recordId: evidence?.recordId ?? null,
+      ...(decision ? { notApplicable: {
+        decisionId: decision.decisionId, reason: decision.reason,
+        decidedBy: [decision.actor, decision.authorityGroup ? `through ${decision.authorityGroup}` : null].filter(Boolean).join(' ') || 'a person who approves the step',
+        at: decision.at ?? null
+      } } : {})
     };
   });
 }
@@ -72,6 +81,7 @@ export function buildVisualAssuranceView(snapshot: RepositorySnapshot | null): V
     summary: {
       designSources: records.filter((entry) => entry.kind === 'design-source').length,
       profilesCovered: profiles.filter((entry) => entry.status === 'covered').length,
+      profilesNotApplicable: profiles.filter((entry) => entry.status === 'not-applicable').length,
       profilesTotal: profiles.length,
       comparisonsPassed: comparisons.filter((entry) => entry.status === 'pass').length,
       evidence: records.length

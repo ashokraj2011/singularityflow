@@ -61,13 +61,29 @@ function sourceSection(view: VisualAssuranceView): string {
   </section>`;
 }
 
-function coverageSection(view: VisualAssuranceView): string {
-  return `<section class="plain assurance-section"><div class="section-heading"><div><p class="eyebrow">Expected surfaces</p><h2>${icon('compare')}Viewport coverage</h2></div>
-    <span class="pill ${view.summary.profilesTotal && view.summary.profilesCovered === view.summary.profilesTotal ? 'ok' : 'wait'}">${view.summary.profilesCovered}/${view.summary.profilesTotal} covered</span></div>
-    ${view.profiles.length ? `<div class="profile-grid">${view.profiles.map((profile) => `<article class="profile-card ${statusClass(profile.status)}">
+/** A screen size decided not to apply: named as such, with who decided and why, never as missing or passed. */
+function profileCard(profile: VisualAssuranceView['profiles'][number]): string {
+  const decision = profile.notApplicable;
+  if (profile.status === 'not-applicable' && decision) {
+    return `<article class="profile-card wait" data-profile-status="not-applicable">
+      <div>${icon('info')}<strong>${escape(profile.label)}</strong><span class="pill">Not applicable</span></div>
+      <span>${escape(profile.dimensions)}</span>
+      <small>Decided by ${escape(decision.decidedBy)}${decision.at ? ` on ${escape(decision.at.slice(0, 10))}` : ''} (${escape(decision.decisionId)}): ${escape(decision.reason)}</small>
+      <small>An exception for this Story, not passing evidence.</small>
+    </article>`;
+  }
+  return `<article class="profile-card ${statusClass(profile.status)}">
       <div>${icon(profile.status === 'covered' ? 'ok' : profile.status === 'stale' ? 'stale' : 'warning')}<strong>${escape(profile.label)}</strong></div>
       <span>${escape(profile.dimensions)}</span><small>${escape(profile.recordId ?? 'No matching visual artifact')}</small>
-    </article>`).join('')}</div>` : '<div class="empty-state">No visual verification profiles are configured for this Story workflow.</div>'}
+    </article>`;
+}
+
+function coverageSection(view: VisualAssuranceView): string {
+  const required = view.summary.profilesTotal - view.summary.profilesNotApplicable;
+  const notApplicable = view.summary.profilesNotApplicable ? ` · ${view.summary.profilesNotApplicable} not applicable` : '';
+  return `<section class="plain assurance-section"><div class="section-heading"><div><p class="eyebrow">Expected surfaces</p><h2>${icon('compare')}Viewport coverage</h2></div>
+    <span class="pill ${required && view.summary.profilesCovered === required ? 'ok' : 'wait'}">${view.summary.profilesCovered}/${required} covered${notApplicable}</span></div>
+    ${view.profiles.length ? `<div class="profile-grid">${view.profiles.map(profileCard).join('')}</div>` : '<div class="empty-state">No visual verification profiles are configured for this Story workflow.</div>'}
     <div class="section-heading subheading"><h3>${icon('artifact')}Captured implementation visuals</h3></div>
     <div class="table-wrap"><table><thead><tr><th>Record</th><th>MCP source</th><th>Phase</th><th>Profile / screen</th><th>Hash / agent</th><th>Artifact</th></tr></thead><tbody>${evidenceRows(view.visualArtifacts)}</tbody></table></div>
   </section>`;
@@ -134,7 +150,7 @@ export function visualAssuranceHtml(view: VisualAssuranceView, notice: string | 
     ${notice ? `<div class="notice ok">${icon('ok')}${escape(notice)}</div>` : ''}${operationError ? `<div class="notice error">${icon('blocked')}${escape(operationError)}</div>` : ''}${notices(view)}
     <section class="plain"><div class="summary-grid assurance-summary">
       <div class="summary-card"><strong>${view.summary.designSources}</strong><span>Design sources</span></div>
-      <div class="summary-card"><strong>${view.summary.profilesCovered}/${view.summary.profilesTotal}</strong><span>Profiles covered</span></div>
+      <div class="summary-card"><strong>${view.summary.profilesCovered}/${view.summary.profilesTotal - view.summary.profilesNotApplicable}</strong><span>Profiles covered${view.summary.profilesNotApplicable ? ` · ${view.summary.profilesNotApplicable} not applicable` : ''}</span></div>
       <div class="summary-card"><strong>${view.summary.comparisonsPassed}/${view.comparisons.length}</strong><span>Comparisons passed</span></div>
       <div class="summary-card"><strong>${view.summary.evidence}</strong><span>Evidence records</span></div>
     </div><p class="muted">Current phase: <strong>${escape(view.phase ?? '—')}</strong> · Evidence root: <code>${escape(view.itemDirectory ?? '—')}</code></p></section>

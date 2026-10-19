@@ -74,3 +74,36 @@ test('visual assurance renders a useful empty state before a Story is selected',
   assert.equal(view.available, false);
   assert.match(visualAssuranceHtml(view, null, null), /Start or resume a Story/);
 });
+
+test('Visual Assurance shows a screen size decided not to apply as not applicable, with who decided and why', () => {
+  const coverage = {
+    status: 'warn', mode: 'enforce', phase: 'visual-verification', generation: 1,
+    profiles: [{ id: 'phone', label: 'Phone', width: 390, height: 844, deviceScaleFactor: 1 }, { id: 'tablet', label: 'Tablet', width: 834, height: 1194, deviceScaleFactor: 1 }],
+    covered: [{ profileId: 'phone', recordId: 'NVC-001' }], uncovered: [], stale: [], duplicates: [], warnings: [], errors: [],
+    notApplicable: [{ profileId: 'tablet', decisionId: 'VPD-001', reason: 'This app ships to phones only; there is no tablet layout.',
+      actor: 'design.reviewer@example.invalid', authorityGroup: 'design-reviewers', at: '2026-10-19T10:00:00.000Z' }]
+  };
+  const snapshot = { workItems: [], initiatives: [], mcp: { servers: [] }, visualAssurance: {
+    schemaVersion: 1, configured: true, workId: 'MOB-1', phase: 'visual-verification', itemDirectory: 'singularity/work-items/MOB-1', policy: {},
+    designSources: { approvedSet: null, candidates: [], stale: [], errors: [], warnings: [], passes: [] }, inventory: null,
+    evidence: { records: [], errors: [], warnings: [], passes: [] }, coverage, comparisons: [],
+    readiness: { status: 'attention', errors: [], warnings: [], passes: [] } } };
+  const view = buildVisualAssuranceView(snapshot);
+  assert.deepEqual(view.profiles.map((profile) => [profile.id, profile.status]), [['phone', 'covered'], ['tablet', 'not-applicable']]);
+  assert.deepEqual(view.profiles[1].notApplicable, { decisionId: 'VPD-001', reason: 'This app ships to phones only; there is no tablet layout.',
+    decidedBy: 'design.reviewer@example.invalid through design-reviewers', at: '2026-10-19T10:00:00.000Z' });
+  assert.deepEqual([view.summary.profilesCovered, view.summary.profilesNotApplicable, view.summary.profilesTotal], [1, 1, 2]);
+  const html = visualAssuranceHtml(view, null, null);
+  const card = html.slice(html.indexOf('data-profile-status="not-applicable"'));
+  assert.match(card, /<strong>Tablet<\/strong><span class="pill">Not applicable<\/span>/u);
+  assert.match(card, /Decided by design\.reviewer@example\.invalid through design-reviewers on 2026-10-19 \(VPD-001\): This app ships to phones only/u);
+  assert.match(card, /An exception for this Story, not passing evidence\./u);
+  assert.doesNotMatch(card.slice(0, card.indexOf('</article>')), /No matching visual artifact/u, 'never shown as missing');
+  assert.match(html, /1\/1 covered · 1 not applicable/u);
+  // Without a decision the same screen size is missing, exactly as before.
+  delete coverage.notApplicable;
+  coverage.uncovered = ['tablet'];
+  const missing = buildVisualAssuranceView(snapshot);
+  assert.equal(missing.profiles[1].status, 'missing');
+  assert.match(visualAssuranceHtml(missing, null, null), /1\/2 covered<\/span>/u);
+});

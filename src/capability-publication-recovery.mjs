@@ -9,29 +9,8 @@ import {
 import { recordSha256 } from './records.mjs';
 import { nowIso } from './util.mjs';
 
-const CAPABILITY_PUBLICATION_IDENTITY_FIELDS = Object.freeze([
-  'schemaVersion', 'repository', 'root', 'remote', 'branch', 'commit', 'destinationRef',
-  'remoteFingerprint', 'expectedRemoteSha'
-]);
-
-function capabilityPublicationIdentity(entry) {
-  const fields = (entry?.schemaVersion ?? 1) >= 2
-    ? [...CAPABILITY_PUBLICATION_IDENTITY_FIELDS, 'baseCommit', 'candidate']
-    : CAPABILITY_PUBLICATION_IDENTITY_FIELDS;
-  return Object.fromEntries(fields.map((field) => [
-    field,
-    entry?.[field] === undefined ? null : entry[field]
-  ]));
-}
-
-export function capabilityPublicationEntrySha256(entry) {
-  return `sha256:${recordSha256(capabilityPublicationIdentity(entry))}`;
-}
-
-/** Immutable cross-repository transport authority bound into the governed root event digest. */
-export function capabilityPublicationPlanSha256(entries = []) {
-  return `sha256:${recordSha256(entries.map(capabilityPublicationIdentity))}`;
-}
+import { capabilityPublicationIdentity, capabilityPublicationEntrySha256, capabilityPublicationPlanSha256 } from './capability-publication-identity.mjs';
+export { capabilityPublicationEntrySha256, capabilityPublicationPlanSha256 };
 
 export function verifyCapabilityPublicationRecoveryPlan(record) {
   const failures = [];

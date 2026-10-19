@@ -20,6 +20,7 @@ import { requireApprovalAuthority } from '../approval-authority.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { withFreshSourceReviewSnapshot } from '../source-review-snapshot.mjs';
+import { measureCommandSpan } from '../dx-timing-context.mjs';
 
 export async function run(argv, { positionals, options }) {
   return withCommandObservability(positionals[0], argv, options,
@@ -103,7 +104,7 @@ export async function reviewSourceCommand(positionals, options) {
     throw new SingularityFlowError(`Source review ${action} requires current in-progress phase '${phaseId}'.`);
   }
   if (action !== 'check' && action !== 'decision-context') {
-    const { assertNoPendingPublication } = await import('../state-stores.mjs');
+    const { assertNoPendingPublication } = await import('../story-publication-pending.mjs');
     await assertNoPendingPublication(root, config, workflow, `record source review ${action}`);
   }
   if (action === 'stage') {
@@ -160,7 +161,7 @@ export async function reviewSourceCommand(positionals, options) {
     }
     const session = scopedSourceReviewerSession(input, await loadSession(root));
     const evaluation = evaluateSubmittedSourceReview(report, input, session);
-    const { transactStory } = await import('../state-stores.mjs');
+    const { transactStory } = await measureCommandSpan('publication.writer-load', () => import('../story-publication-store.mjs'));
     let retained;
     const { publication } = await transactStory(root, config, workflow, {
       type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId, generation: phase.generation,
@@ -212,7 +213,7 @@ export async function reviewSourceCommand(positionals, options) {
     return;
   }
   assertSourceReviewDecisionConfirmation(decisionPacket, optionString(options, 'confirm'));
-  const { transactStory } = await import('../state-stores.mjs');
+  const { transactStory } = await measureCommandSpan('publication.writer-load', () => import('../story-publication-store.mjs'));
   let retained;
   const { publication } = await transactStory(root, config, workflow, {
     type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId, generation: phase.generation,

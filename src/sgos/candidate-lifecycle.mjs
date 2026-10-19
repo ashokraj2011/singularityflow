@@ -27,6 +27,7 @@ import { canonicalJson } from '../records.mjs';
 import { buildRepositorySubjectIndex } from '../repository-subject-index.mjs';
 import { run, SingularityFlowError, nowIso } from '../util.mjs';
 import { readLocalGitBlobs } from '../git-blob-batch.mjs';
+import { publicationGitRead } from '../publication-context.mjs';
 import { resolvePlatformProcess, tryWindowsTaskkill } from '../platform-process.mjs';
 import { withTrustedSgosConfigurationRead } from './authority-trust.mjs';
 import {
@@ -112,6 +113,10 @@ function publicationTransportReceiptPath(root, candidateId, packetSha256) {
 }
 
 function gitResult(root, args, { env = process.env, input = undefined, maximumBytes = 32 * 1024 * 1024 } = {}) {
+  return publicationGitRead(root, args, { env, input, maximumBytes }, objectEnv => gitResultUnshared(root, args, { env: objectEnv, input, maximumBytes }));
+}
+
+function gitResultUnshared(root, args, { env, input, maximumBytes }) {
   const result = run('git', args, {
     cwd: root,
     env: { ...env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' },
@@ -152,6 +157,15 @@ function tryGitResult(root, args, { env = process.env, input = undefined, maximu
 
 function gitText(root, args, options = {}) {
   return gitResult(root, args, options).toString('utf8').trim();
+}
+
+/** One process, two exact object answers; never ignore trailing or malformed output. */
+function gitObjectPair(root, specs, options = {}) {
+  const rows = gitText(root, ['rev-parse', ...specs], options).split(/\r?\n/u);
+  if (rows.length !== 2 || rows.some(row => !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(row))) {
+    fail('Git did not return two exact Candidate object identities.', 'SGOS_CANDIDATE_GIT_INVALID');
+  }
+  return rows;
 }
 
 function parseNameStatus(buffer) {
@@ -637,11 +651,9 @@ export async function verifySgosLifecycleCandidate(root, candidateId, {
     if (signal?.aborted) fail('Lifecycle Candidate verification was cancelled.', 'AUTO_STOP_REQUESTED');
     // `rev-parse`, `read-tree`, `write-tree`, `diff`, `ls-tree`, and `cat-file` operate only on Git
     // objects/index bytes. None checks out a path, invokes a hook/filter, or contacts a remote.
-    const observedCommit = gitText(root, [
-      'rev-parse', '--verify', `${retained.repository.candidateCommit}^{commit}`
-    ], { env });
-    const observedCommitTree = gitText(root, [
-      'rev-parse', '--verify', `${observedCommit}^{tree}`
+    const [observedCommit, observedCommitTree] = gitObjectPair(root, [
+      `${retained.repository.candidateCommit}^{commit}`,
+      `${retained.repository.candidateCommit}^{tree}`
     ], { env });
     gitResult(root, ['read-tree', observedCommit], { env });
     const observedIndexTree = gitText(root, ['write-tree'], { env });
@@ -996,8 +1008,8 @@ export async function readSgosRetainedCandidate(root, candidateId) {
       fail('Retained Candidate has an invalid Git object binding.', 'SGOS_CANDIDATE_CORRUPT', { field });
     }
   }
-  const observedCommit = gitText(root, ['rev-parse', repository.retainedRef]);
-  const observedTree = gitText(root, ['rev-parse', `${observedCommit}^{tree}`]);
+  const [observedCommit, observedTree] = gitObjectPair(root, [repository.retainedRef,
+    `${repository.candidateCommit}^{tree}`]);
   if (observedCommit !== repository.candidateCommit || observedTree !== repository.candidateTree) {
     fail('Candidate retention ref no longer names the frozen tree.', 'SGOS_CANDIDATE_RETENTION_LOST');
   }

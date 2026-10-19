@@ -25,7 +25,7 @@ function bundledEntryUrl(installRoot, entry, env) {
         || !manifest.entries.includes('cli.mjs') || !manifest.entries.includes(entry)) return null;
     if (manifest.format === 2) {
       if (manifest.layout !== 'coarse-esm' || !Array.isArray(manifest.outputs)
-          || manifest.outputs.length > 20 || !manifest.outputs.some(output => output.file === entry)) return null;
+          || manifest.outputs.length > 21 || !manifest.outputs.some(output => output.file === entry)) return null;
       // One bounded directory roster, not twenty stat calls (particularly costly on Windows).
       // Only the generated regular files qualify; partial deployments fall back to sources.
       const files = new Set(readdirSync(directory, { withFileTypes: true })

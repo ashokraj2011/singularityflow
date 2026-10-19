@@ -20,6 +20,8 @@ import {
   loadActiveRevisionStory, readPinnedRevisionContext, revisionLoopStore
 } from './product-context.mjs';
 import { assertCurrentRevisionPrecheck } from './precheck.mjs';
+import { revisionPublicationScope as publicationScope } from './publication-absence.mjs';
+export { assertNoInteractiveRevisionPublication } from './publication-absence.mjs';
 
 function fail(code, message) { throw new SingularityFlowError(message, { code }); }
 function digest(value) { return `sha256:${recordSha256(value)}`; }
@@ -30,27 +32,13 @@ function sameSubject(left, right) {
     && left?.phaseGeneration === right?.phaseGeneration;
 }
 
-function publicationScope(acceptedExecution) {
-  const config = acceptedExecution?.definition ?? acceptedExecution?.config ?? null;
-  const workflow = acceptedExecution?.workflow ?? null;
-  if (!config || !workflow) {
-    fail('REV_PUBLICATION_CONTEXT_REQUIRED',
-      'REV publication requires the already accepted Story execution definition and workflow.');
-  }
-  const phaseId = workflow.currentPhase;
-  const phase = workflow.phases?.[phaseId];
-  const subject = {
-    workId: workflow.workItem.id, phaseId, phaseGeneration: Number(phase?.generation ?? 0)
-  };
-  return { config, workflow, phaseId, phase, subject };
-}
 
 /**
  * Repeat an earlier "no REV" observation while the Story publication lease is held. Interactive
  * pointer writes and loop-journal CAS now share that lease, so absence remains stable through ref
  * advancement instead of becoming a stale, pre-lock permission to bypass a newly opened loop.
  */
-export async function assertNoInteractiveRevisionPublication(root, acceptedExecution) {
+export async function verifyNoInteractiveRevisionPublication(root, acceptedExecution) {
   const scope = publicationScope(acceptedExecution);
   if (!phaseRequiresCodeDelivery(scope.phase)) return true;
   if (!currentSubjectLockOwner(root, { kind: 'story', id: scope.subject.workId })) {

@@ -7,12 +7,30 @@ import path from 'node:path';
 import test from 'node:test';
 import { canonicalJson, recordSha256 } from '../src/records.mjs';
 import { buildRevisionPrecheck } from '../src/revision/contracts.mjs';
-import { createRevisionLoopStore } from '../src/revision/loop-store.mjs';
+import { createRevisionLoopStore, hasRevisionLoopJournal } from '../src/revision/loop-store.mjs';
+import { assertNoInteractiveRevisionPublication } from '../src/revision/publication-absence.mjs';
+import { withSubjectLock } from '../src/subject-lock.mjs';
 
 const sha = (value) => `sha256:${recordSha256(value)}`;
 const digest = (letter) => `sha256:${letter.repeat(64)}`;
 const producer = Object.freeze({
   id: 'revision-test', version: '1', implementationSha256: digest('f')
+});
+
+test('the no-loop publication probe checks safe absence under the Story lock without a producer', async t => {
+  const f = await fixture(t);
+  assert.equal(await hasRevisionLoopJournal(f.root, f.scope), false);
+  const execution = { definition: {}, workflow: { workItem: { id: f.scope.workId }, currentPhase: f.scope.phaseId,
+    phases: { [f.scope.phaseId]: { id: f.scope.phaseId, generation: f.scope.phaseGeneration,
+      generationPolicy: { requirement: 'required', producer: 'agent', task: 'code' } } } } };
+  await assert.rejects(assertNoInteractiveRevisionPublication(f.root, execution), { code: 'REV_PUBLICATION_LOCK_REQUIRED' });
+  await withSubjectLock(f.root, { kind: 'story', id: f.scope.workId }, async () => {
+    assert.equal(await assertNoInteractiveRevisionPublication(f.root, execution), true);
+  });
+  await mkdir(f.journal, { recursive: true, mode: 0o700 });
+  await writeFile(path.join(f.journal, 'unexpected'), 'preserve');
+  await assert.rejects(hasRevisionLoopJournal(f.root, f.scope), { code: 'REV_LOOP_CORRUPT' });
+  assert.equal(await readFile(path.join(f.journal, 'unexpected'), 'utf8'), 'preserve');
 });
 const requiredChecks = [
   'candidateIntegrity', 'candidateFreeze', 'parentResultLineage', 'scope', 'protectedPaths',

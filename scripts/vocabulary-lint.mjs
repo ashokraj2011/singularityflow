@@ -24,8 +24,10 @@ const PRODUCER_EVENT_ARGUMENT = new Map([
 // are not member producers, so their dynamic forwarding is the one centrally registered exception.
 const TRUSTED_DYNAMIC_FORWARDERS = new Map([
   ['src/lifecycle-event.mjs', new Set(['assertLifecycleEvent'])],
-  ['src/state.mjs', new Set(['commitAndPublish'])],
+  ['src/story-publication-service.mjs', new Set(['commitAndPublish'])],
   ['src/initiative-state.mjs', new Set(['commitInitiativeChange'])],
+  ['src/story-publication-store.mjs', new Set(['publish'])],
+  // Initiative publication still uses the original store wrapper; Story moved to its narrow gateway.
   ['src/state-stores.mjs', new Set(['publish'])],
   // CLI Initiative transitions are deliberately executed inside this single publication adapter.
   // The adapter forwards the already-created draft to commitInitiativeChange(), whose runtime

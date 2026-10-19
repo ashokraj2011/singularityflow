@@ -403,7 +403,7 @@ test('the sflow-docs skill contracts to relay, not to recall', async () => {
   // The three promises that make the surface grounded rather than merely helpful.
   assert.match(skill, /must come from the served bytes/);
   assert.match(skill, /Do not answer the question from memory/);
-  assert.match(skill, /singularity-flow explain "\$ARGUMENTS" --json/);
+  assert.match(skill, /singularity-flow explain '\$ARGUMENTS' --json`, one single-quoted argument/);
   assert.match(skill, /Do not map the question to a topic from model memory/);
   assert.match(skill, /nextsteps/, 'judgment questions are not redirected');
   assert.match(skill, /concise-relay/, 'the skill is not held to the relay output contract');

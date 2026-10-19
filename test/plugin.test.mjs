@@ -1148,7 +1148,7 @@ test('source review follows the returned schema and a bounded read-only format c
 
 test('help skill serves natural questions from cited docs and delegates work IDs to the guide', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-help', 'SKILL.md'), 'utf8');
-  assert.match(content, /singularity-flow explain "\$ARGUMENTS" --json/);
+  assert.match(content, /singularity-flow explain '\$ARGUMENTS' --json`, one single-quoted argument/);
   assert.match(content, /singularity-flow guide <WORK-ID>/);
   assert.match(content, /HELP\.md.*canonical product manual/);
   assert.match(content, /Never answer product behavior from model memory/);

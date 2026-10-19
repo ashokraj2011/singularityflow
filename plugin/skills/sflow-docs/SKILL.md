@@ -15,7 +15,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 <!-- sflow-execution-boundary -->
 **Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-1. Pass the exact question or topic through the model-free resolver: run `singularity-flow explain "$ARGUMENTS" --json`. With no argument, run `singularity-flow explain --json` for the topic catalog. Do not map the question to a topic from model memory.
+1. Pass the exact question or topic through the model-free resolver: run `singularity-flow explain '$ARGUMENTS' --json`, one single-quoted argument with each inner `'` as `'\''` (PowerShell `''`) so nothing expands. With no argument, run `singularity-flow explain --json` for the topic catalog. Do not map the question to a topic from model memory.
 2. Read the served bytes from `data.served.text` and preserve `data.helpIntent`, provenance, and warnings.
 3. Answer using that content. The substance of the reply must come from the served bytes — if the topic does not say it, do not say it.
 4. End with the citation from `data.citation`, verbatim. It names the topic id, its version, and the docs commit.

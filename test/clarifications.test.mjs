@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   assertClarificationRecordingAllowed,
+  clarificationCheckpoint,
   clarificationRecordRelative,
   normalizeClarificationPolicy,
   recordClarificationResponses,
@@ -86,6 +87,22 @@ test('composed clarification refers to the verified source recovery route while 
     assert.match(composed, contract);
   }
   assert.ok(Buffer.byteLength(composed) < Buffer.byteLength(standalone));
+});
+
+test('when-needed clarification records only what was asked; a reply without ask_user is recorded, then work continues', () => {
+  const missing = { recordState: 'missing', record: null, errors: [] };
+  const conditional = clarificationCheckpoint({ mode: 'when-needed' }, missing);
+  assert.doesNotMatch(conditional.instruction, /Recording remains required/u);
+  assert.match(conditional.instruction, /with no material ambiguity, continue without a record/u);
+  assert.match(clarificationCheckpoint({ mode: 'required' }, missing).instruction, /Recording remains required before authoring\.$/u);
+  const protocol = renderClarificationProtocol({ mode: 'when-needed' }, 'design');
+  assert.match(protocol, /until the checkpoint is complete: no material ambiguity found, or the answers to what you asked recorded/u);
+  assert.match(renderClarificationProtocol({ mode: 'required' }, 'design'), /until the checkpoint is complete\.$/mu);
+  assert.match(protocol, /When the person replies, stage their answers at responseStagingPath, run recordAction, then continue/u);
+  assert.match(protocol, /approved upstream artifacts, repository brief, or contradictions/u);
+  assert.doesNotMatch(protocol, /world model/iu, 'the registered World Model was removed');
+  assert.match(renderClarificationProtocol({ mode: 'required' }, 'design'),
+    /a workflow with no scope step raises it with `upstream-issue raise --proposed amend`/u);
 });
 
 test('off clarification refuses recording with a stable recovery contract', async () => {

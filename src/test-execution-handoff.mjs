@@ -43,13 +43,16 @@ export function testExecutionHandoff(testExecution, { published = false, command
   if (!available) return {
     runnerStatus: 'unavailable', configurationRequired: null, repositoryEditsRequired: null,
     executionOwner: null, command: null, onSuccess: null,
-    guidance: 'Follow the reported runner or lifecycle repair action; no executable test handoff is ready.'
+    guidance: 'Follow the reported runner or lifecycle repair action; no executable test handoff is ready. '
+      + 'No runner: /sf-test-setup, or a reviewer previews `story test-policy amend --reason TEXT`. '
+      + 'Tests cannot run here (none executed): a step approver may run `decision test-risk`. '
+      + 'Tests that already failed before this Story: `story test-policy risks --json` shows whether a delegated reviewer can accept them. Each is a person\'s decision; never skip or weaken tests to get past one.'
   };
   const owner = published ? 'submission' : 'publication';
   return {
     runnerStatus: 'ready', configurationRequired: false, repositoryEditsRequired: false,
     executionOwner: owner, command, onSuccess: `continue-${owner}`,
-    guidance: `The runner is resolved. Do not edit package scripts or test configuration merely to add reporter flags already supplied by the resolved command; no repository edit is required for this handoff. argv: null with argvWithheld: true means approved arguments are hidden, not missing; do not request configuration adoption for this. ${published
+    guidance: `The runner is resolved. Do not edit repository build/test scripts or runner configuration merely to add reporter flags already supplied by the resolved command; no repository edit is required for this handoff. argv: null with argvWithheld: true means approved arguments are hidden, not missing; do not request configuration adoption for this. ${published
       ? 'Use the returned submit route only when submission readiness permits it; do not republish an unchanged generation.'
       : 'Use returned commands.publish when prepublish is ready.'} ${owner === 'publication' ? 'Publication' : 'Submission'} runs the exact resolved command and validates fresh results, then continues automatically when required tests pass. Diagnostic development tests are allowed during admitted authoring; they never replace this fresh required run. Do not stop for runner adoption or repeat a separate test run merely because arguments are withheld. Tests do not waive other findings or required human approval.`
   };

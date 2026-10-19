@@ -67,6 +67,9 @@ test('cached authoring prompts receive local verification guidance without rewri
   assert.ok(delivered.startsWith(pinned), 'retained prompt and source bytes remain canonical');
   assert.ok(delivered.endsWith(`${AUTHORING_VERIFICATION_PROTOCOL}\n`));
   assert.match(delivered, /overrides older generic standalone-SFlow-only or no-pre-run wording/u);
+  // Any stack: a service or a simulator/emulator, started only when this step's verification needs one.
+  assert.match(AUTHORING_VERIFICATION_PROTOCOL, /start the application, service or simulator\/emulator only when this step's verification needs it/u);
+  assert.doesNotMatch(AUTHORING_VERIFICATION_PROTOCOL, /browser or screenshot evidence/u);
   assert.equal(withAgentPathProtocol(delivered, { normalizeLegacy: false, authoringVerification: true }), delivered);
   assert.ok(!withAgentPathProtocol(pinned, { normalizeLegacy: false }).includes(AUTHORING_VERIFICATION_PROTOCOL), 'reviewers do not receive an authoring grant');
 });

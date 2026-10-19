@@ -71,25 +71,43 @@ export function phaseAuthoringContract(definition, workflow, phase) {
  * stopped. The section it asks for is optional, so a phase with nothing to report has no extra
  * heading, and `upstreamDiscrepancies` (phase-upstream-discrepancies.mjs) shows it to reviewers.
  */
-export const UPSTREAM_DISCREPANCY_PROTOCOL = '- Upstream discrepancies: approved earlier-phase artifacts are fixed evidence. If one is wrong, incomplete or contradicts another input or the pinned source, do not edit it and do not stop: continue on the most conservative reading consistent with the pinned source, and list each item under `## Upstream discrepancies` (producer phase, exact clause or section, problem, assumption used, impact, proposed owner action), then file them once with `singularity-flow upstream-issue raise --from-artifact`; the producer\'s approvers decide them. Stop only for a refusal about changed or unapproved input bytes (use its restore or return route), or when no reading satisfies the pinned source.';
+export const UPSTREAM_DISCREPANCY_PROTOCOL = '- Upstream discrepancies: approved earlier-phase artifacts are fixed evidence. If one is wrong, incomplete or contradicts another input or the pinned source, do not edit it and do not stop: continue on the most conservative reading consistent with the pinned source, and list each item under `## Upstream discrepancies` (producer phase, exact clause or section, problem, assumption used, impact, proposed owner action), then file them once with `singularity-flow upstream-issue raise --from-artifact`; the producer\'s approvers decide them. Stop only for a refusal about changed or unapproved input bytes (use its restore or return route), or when no reading satisfies the pinned source: then (after asking the person, if this step\'s clarification mode allows questions) raise it with `singularity-flow upstream-issue raise --phase <EARLIER> --about <ID|SECTION> --problem "<TEXT>" --proposed amend` (or `--proposed return`) and end the turn.';
 
-export function phaseAuthoringContractLines(contract, { deterministicOnly = false } = {}) {
+/**
+ * `specificationSections` says which optional specification tables this scope step asks for (its
+ * policy, required headings or template); null keeps the full contract for a caller that cannot tell.
+ */
+export function phaseAuthoringContractLines(contract, { deterministicOnly = false, specificationSections = null } = {}) {
   if (!contract) return [];
+  const scenarios = contract.verificationIntent && (specificationSections?.scenarioCoverage ?? true);
+  const intent = contract.verificationIntent && (specificationSections?.verificationIntent ?? true);
+  // A step that both defines the clauses and plans them (a quick fix's intake) has no approved
+  // clauses to inherit: it plans the ones it writes.
+  const definesClauses = Boolean(contract.verificationIntent);
   return [
     `- Paths: ${CLI_PATH_CONTRACT}`,
     '- Repair boundary: the configured producer repairs this open draft in place; regenerate kernel-owned artifacts, never hand-edit them. Draft defects do not forbid repairs. Preserve prior approved artifacts and decisions; never re-author an earlier phase to satisfy a new template. Publication and any configured approvals remain separate checks.',
-    '- Readiness: advisories are not current blockers. Documentation comments need no human approval; unplanned-path advice names work to account for before approval. When prepublish is ready and returns commands.publish, continue that publication attempt; required tests still run there. A resolved runner does not require editing package scripts just to emit its configured report.',
+    '- Readiness: advisories are not current blockers. Documentation comments need no human approval; unplanned-path advice names work to account for before approval. When prepublish is ready and returns commands.publish, continue that publication attempt; required tests still run there. A resolved runner does not require editing repository build/test scripts or runner configuration just to emit its configured report.',
     ...(deterministicOnly ? [] : [UPSTREAM_DISCREPANCY_PROTOCOL]),
-    '- Configuration: manifests, lockfiles and build/test/CI/runtime settings are configuration, never product code or executable test declarations. Do not add code traceability tags or API documentation to them. Account for tooling under Supporting files with a reason, or use fulfillment configuration for a requirement changing runtime settings. Keep these bytes in scope review, candidate hashes and required tests; governed configuration still uses its separate authority.',
+    '- Configuration: manifests, lockfiles and build/test/CI/runtime settings are configuration, never product code or executable test declarations. Do not add code traceability tags or API documentation to them. When such a file is the requested change itself (a CI pipeline, container or runtime setting), an approved clause claims it with Fulfillment `configuration`; otherwise account for tooling under Supporting files with a reason. Keep these bytes in scope review, candidate hashes and required tests; governed configuration still uses its separate authority.',
     ...(contract.requirementCoverage && !deterministicOnly ? [REQUIREMENT_AUTHORING_PROTOCOL] : []),
-    ...(contract.verificationIntent ? [
-      '- Scenario coverage: author S-number situations with substantive Given/When/Then acceptance cases and a `## Scenario coverage` table: Clause | Scenario | Outcome (success/failure/boundary/empty). Cover every behavior and acceptance clause; repeat rows for multiple outcomes. Approved rejection/error behavior needs a distinct invalid-input case with an observable error, not only failure-state prose. Use pinned request/clarification facts, not invented error wording or extra scope. Lexical hints are advisory; independent source review still judges semantic completeness.',
+    ...(scenarios ? [
+      '- Scenario coverage: author S-number situations with substantive Given/When/Then acceptance cases and a `## Scenario coverage` table: Clause | Scenario | Outcome (success/failure/boundary/empty). Cover every behavior and acceptance clause; repeat rows for multiple outcomes. Approved rejection/error behavior needs a distinct invalid-input case with an observable error, not only failure-state prose. Use pinned request/clarification facts, not invented error wording or extra scope. Lexical hints are advisory; independent source review still judges semantic completeness.'
+    ] : []),
+    ...(intent ? [
       '- Specification: author a `## Verification intent` table with Clause | Methods | Criterion, one row per declared clause. Methods = test, visual, inspection, or a comma-separated combination (all required). AC Criterion is its own ID; a visual/inspection requirement names the AC proving it. Test-only requirements may use -. Choose from pinned source obligations: screenshot/visual acceptance is not an executable-test exemption. Resolve material ambiguity here, not in Planning.'
     ] : []),
+    ...(contract.verificationIntent && !(scenarios && intent) ? [
+      `- Optional tables: this step's template and policy ask for no ${[!scenarios && '`## Scenario coverage`', !intent && '`## Verification intent`'].filter(Boolean).join(' or ')} section; do not add one (a malformed optional table still refuses publication). Write each acceptance criterion as an observable pass/fail result.`
+    ] : []),
     ...(contract.planning ? [
-      '- Planning rows: cover every approved requirement and acceptance ID from the authoritative clause capsule; preserve its meaning. Use a bare - for an empty path cell, never `-` (which names a file).',
+      definesClauses
+        ? '- Planning rows: cover every requirement and acceptance ID this draft defines. Use a bare - for an empty path cell, never `-` (which names a file).'
+        : '- Planning rows: cover every approved requirement and acceptance ID from the authoritative clause capsule; preserve its meaning. Use a bare - for an empty path cell, never `-` (which names a file).',
       `- Evidence planning: put retained files under ${contract.planning.retainedEvidencePrefix} in that clause's Expected paths with Fulfillment \`evidence\`; do not assign screenshot obligations to another clause.`,
-      '- Verification: inherit approved clause verification methods, without downgrading required proof to supporting or any-of. Use the actual `## Verification contracts` table: exact approved AC Criterion, lower-hyphen Slot, test/inspection/visual Method, primary/supporting Role; visual assurance = source-bound. Put scenario/reviewer prose outside these cells. For non-executable proof put verification: <AC-ID> in Planned tests and define its primary visual/inspection slot. not-applicable: <reason> is only a genuine exemption requiring human disposition, not a screenshot check. File presence is not a passing witness.'
+      definesClauses
+        ? `- Verification: this draft defines its clauses, so there are no approved methods to inherit: ${intent ? 'plan the methods its own `## Verification intent` rows state' : 'each clause is proved by its planned tests'}. Add a \`## Verification contracts\` table only for non-test proof: exact AC Criterion, lower-hyphen Slot, visual/inspection Method, primary Role, visual assurance = source-bound, and verification: <AC-ID> in Planned tests. not-applicable: <reason> is only a genuine exemption requiring human disposition. File presence is not a passing witness.`
+        : '- Verification: inherit approved clause verification methods, without downgrading required proof to supporting or any-of. Use the actual `## Verification contracts` table: exact approved AC Criterion, lower-hyphen Slot, test/inspection/visual Method, primary/supporting Role; visual assurance = source-bound. Put scenario/reviewer prose outside these cells. For non-executable proof put verification: <AC-ID> in Planned tests and define its primary visual/inspection slot. not-applicable: <reason> is only a genuine exemption requiring human disposition, not a screenshot check. File presence is not a passing witness.'
     ] : [])
   ];
 }

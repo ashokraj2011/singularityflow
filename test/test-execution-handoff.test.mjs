@@ -30,7 +30,7 @@ test('a configured runner is ready even though its arguments and arbitrary id ar
   assert.equal(handoff.command, null, 'runner availability alone cannot grant publication');
   assert.equal(handoff.onSuccess, 'continue-publication');
   assert.match(handoff.guidance, /hidden, not missing/u);
-  assert.match(handoff.guidance, /Do not edit package scripts/u);
+  assert.match(handoff.guidance, /Do not edit repository build\/test scripts or runner configuration/u);
   assert.match(handoff.guidance, /Diagnostic development tests are allowed during admitted authoring/u);
   assert.match(handoff.guidance, /never replace this fresh required run/u);
 });
@@ -68,6 +68,11 @@ test('missing, invalid, unverified or unavailable runner plans never gain an exe
     assert.equal(handoff.repositoryEditsRequired, null);
     assert.equal(handoff.command, null);
     assert.equal(handoff.onSuccess, null);
+    // Every stall a code step hits here names the person-decided route, never a way around the tests.
+    assert.match(handoff.guidance, /No runner: \/sf-test-setup, or a reviewer previews `story test-policy amend --reason TEXT`/u);
+    assert.match(handoff.guidance, /Tests cannot run here \(none executed\): a step approver may run `decision test-risk`/u);
+    assert.match(handoff.guidance, /already failed before this Story: `story test-policy risks --json`/u);
+    assert.match(handoff.guidance, /never skip or weaken tests/u);
   }
 });
 

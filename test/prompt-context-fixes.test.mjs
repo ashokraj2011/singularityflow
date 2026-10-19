@@ -159,6 +159,11 @@ test('Auto receives the on-demand skills it cannot fetch; other prompts are unch
   const withSkills = renderAutoAuthoringPrompt({ ...base, onDemandSkills: expanded });
   assert.ok(withSkills.indexOf('# On-demand skills') > withSkills.indexOf('# Composed'));
   assert.ok(withSkills.indexOf('# On-demand skills') < withSkills.indexOf('# Ratified Auto execution boundary'));
+  // Auto runs no SFlow command, so the routes the composed prompt names are reported where reviewers see them.
+  assert.match(without, /Routes named above as Singularity Flow commands \(upstream issues, clarification, decisions, intent amendments\) are not run here: put an earlier step's problem under `## Upstream discrepancies`/u);
+  const deterministic = renderAutoAuthoringPrompt({ ...base, deterministic: true });
+  assert.match(deterministic, /The phase artifact is kernel-built/u);
+  assert.doesNotMatch(deterministic, /## Upstream discrepancies/u);
 });
 
 test('a pending prompt is stale once a change request for its phase opens or closes', () => {

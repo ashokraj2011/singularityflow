@@ -326,7 +326,7 @@ const REVISION_MUTATION_SUBCOMMANDS = Object.freeze([
 const REVISION_SUBCOMMANDS = Object.freeze([
   ...REVISION_READ_SUBCOMMANDS, ...REVISION_MUTATION_SUBCOMMANDS, 'attachments', 'checks'
 ]);
-const VISUAL_SUBCOMMANDS = Object.freeze(['status', 'compare']);
+const VISUAL_SUBCOMMANDS = Object.freeze(['status', 'compare', 'record']);
 const MCP_SUBCOMMANDS = Object.freeze([
   'attest', 'auth', 'design-sources', 'doctor', 'list', 'probe', 'record', 'scaffold', 'serve',
   'smoke', 'sources', 'status', 'verify-offline', 'warm', 'host'
@@ -824,7 +824,7 @@ function resolveDeliveryOperation(definition, positionals) {
 function resolveVisualOperation(definition, positionals) {
   const subcommand = positionals[1] ?? 'status';
   if (subcommand === 'status') return never('visual.status', definition, 'read');
-  if (subcommand === 'compare') return never('visual.compare', definition, 'mutation');
+  if (['compare', 'record'].includes(subcommand)) return never(`visual.${subcommand}`, definition, 'mutation');
   return unknownSubcommand('visual', subcommand, VISUAL_SUBCOMMANDS);
 }
 
@@ -1874,6 +1874,7 @@ export function operationCatalog() {
     never('delivery.readiness', deliveryDefinition, 'read'),
     never('visual.status', visualDefinition, 'read'),
     never('visual.compare', visualDefinition, 'mutation'),
+    never('visual.record', visualDefinition, 'mutation'),
     ...['list', 'status', 'doctor', 'probe', 'serve', 'sources'].map((name) => never(`mcp.${name}`, mcpDefinition, 'read')),
     ...['attest', 'record', 'scaffold', 'smoke', 'verify-offline', 'warm'].map((name) => never(`mcp.${name}`, mcpDefinition, 'mutation')),
     never('mcp.host.add', mcpDefinition, 'mutation'),

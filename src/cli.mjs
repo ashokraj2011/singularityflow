@@ -85,8 +85,6 @@ import { discoverAgents, lockAgent, prepareRemoteOutputs, syncAgent } from './ag
 import { attestMcpHost, clearPlaywrightAuthProfile, importPlaywrightAuthProfile, mcpDoctor, mcpStatus, playwrightAuthProfileStatus, previewClearPlaywrightAuthProfile, previewPlaywrightAuthImport, probeMcpHost, recordMcpEvidence, removePlaywrightAuthProfile, scaffoldFigmaMcp, scaffoldMcpServer, scaffoldPlaywrightMcp, serveMcpHost, smokeMcpHost, verifyMcpHostOffline, warmMcpHost } from './mcp.mjs';
 import { message as gatewayMessage } from './gateway/messages.mjs';
 import { approvedDesignSourceBinding, verifyDesignSourceLifecycle } from './design-sources.mjs';
-import { evaluateVisualCoverage } from './visual-coverage.mjs';
-import { compareVisualArtifacts, listVisualComparisons } from './visual-compare.mjs';
 import { bootstrapWorkspacePortfolio, deleteConfigurationFile, deleteConfigurationTemplate, exportConfigurationBundle, repositorySnapshot, publishEditorConfiguration, readConfigurationFile, saveConfigurationFile, selectEditorAgent, validateEditorConfiguration } from './editor.mjs';
 import { publishCurrentIdentityToConfiguration } from './configuration-people.mjs';
 import { redactCommandArgv, repositoryLogger } from './logging.mjs';
@@ -3388,34 +3386,6 @@ async function mcpCommand(positionals, options) {
     return;
   }
   throw new SingularityFlowError(`Unknown mcp subcommand: ${subcommand}`);
-}
-
-async function visualCommand(positionals, options) {
-  const root = repoRoot(), config = await loadConfig(root), workflow = await loadStoryAggregate(root, config);
-  const action = positionals[1] ?? 'status';
-  if (action === 'status') {
-    const coverage = await evaluateVisualCoverage(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
-    const comparisons = await listVisualComparisons(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
-    const result = { coverage, comparisons };
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Visual coverage: ${coverage.status} (${coverage.covered.length}/${coverage.profiles.length} profiles)`);
-    coverage.warnings.forEach((entry) => console.warn(`Warning: ${entry}`));
-    coverage.errors.forEach((entry) => console.error(`Error: ${entry}`));
-    for (const comparison of comparisons) console.log(`${comparison.id}\t${comparison.status}\t${comparison.differingPixels} differing pixels`);
-    return;
-  }
-  if (action === 'compare') {
-    const result = await compareVisualArtifacts(root, workflow, {
-      expected: optionString(options, 'expected'), actual: optionString(options, 'actual'),
-      profileId: optionString(options, 'profile'), itemDirectory: workDir(root, config, workflow.workItem.id)
-    });
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Visual comparison ${result.id}: ${result.status}; ${result.differingPixels} pixels (${(result.differingPixelRatio * 100).toFixed(3)}%).`);
-    console.log(`Summary: ${result.path}${result.diffImage ? `\nDiff: ${result.diffImage.path}` : ''}`);
-    if (result.status === 'fail') throw new SingularityFlowError('Visual comparison exceeds enforced thresholds.', { code: 'VISUAL_COMPARISON_FAILED' });
-    return;
-  }
-  throw new SingularityFlowError(`Unknown visual action '${action}'.`);
 }
 
 async function artifactCommand(positionals, options) {
@@ -11821,7 +11791,7 @@ async function dispatch(command, positionals, options, argv) {
     imports: () => importsCommand(positionals, options),
     marketplace: () => marketplaceCommand(positionals, options),
     mcp: () => mcpCommand(positionals, options),
-    visual: () => visualCommand(positionals, options),
+    visual: async () => (await import('./commands/visual.mjs')).visualCommand(positionals, options),
     documents: () => documentsCommand(positionals, options),
     "prepare": async () => (await import('./commands/prepare.mjs')).prepareCommand(positionals, options),
     clarification: () => clarificationCommand(positionals, options),

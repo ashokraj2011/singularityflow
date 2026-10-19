@@ -1391,6 +1391,11 @@ export function refusalDetails(details) {
     }
     if (Object.keys(budget).length) projected.modelBudget = budget;
   }
+  // A visual capture at the wrong size, so every surface names the expected and actual sizes.
+  const size = (value) => (Number.isSafeInteger(value?.width) && Number.isSafeInteger(value?.height) ? { width: value.width, height: value.height } : null);
+  if (text(details.profileId) && size(details.expected) && size(details.actual)) {
+    projected.capture = { profileId: text(details.profileId), expected: size(details.expected), actual: size(details.actual) };
+  }
   if (details.coverage && typeof details.coverage === 'object') {
     const coverage = compact(Object.fromEntries(['unimplemented', 'testPresenceOnly', 'unclaimedChangedPaths', 'withdrawnButClaimed']
       .map((key) => [key, list(details.coverage[key], text)]).filter(([, entries]) => entries.length)));

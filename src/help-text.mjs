@@ -709,6 +709,8 @@ Usage:
   singularity-flow mcp design-sources promote <RECORD-ID> --confirm <RECORD-ID> [--reason TEXT]
   singularity-flow visual status [--json]
   singularity-flow visual compare --expected RECORD-OR-PATH --actual RECORD-OR-PATH [--profile ID] [--json]
+  singularity-flow visual record --phase VISUAL-STEP --profile-id ID --screen-id ID --state-id ID --file PNG-PATH
+    --source simulator|emulator|device --device NAME [--os-version VERSION] [--note TEXT] [--json]
   singularity-flow wm design-inventory --from-records [--json]
   singularity-flow documents list [WORK-ID] [--phase PHASE] [--active|--all] [--json]
   singularity-flow documents artifacts [ARTIFACT-ID] [--version draft|approved] [--work-id ID] [--json]

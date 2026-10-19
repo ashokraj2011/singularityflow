@@ -88,7 +88,7 @@ async function createRecord(payload, record, root, accepted, previous = null) {
   const definition = accepted.definition ?? accepted.config;
   const requestedMode = mutationTurnMode(record.skill);
   const mode = previous?.originPhase && previous.originPhase !== workflow.currentPhase
-    && !['approval-only', 'session-only', 'import-team', 'build-workflow', 'fix-workflow'].includes(requestedMode) ? 'read' : requestedMode;
+    && !['approval-only', 'session-only', 'import-team', 'build-workflow', 'fix-workflow', 'run-and-test'].includes(requestedMode) ? 'read' : requestedMode;
   const phase = workflow.phases?.[workflow.currentPhase];
   const evidence = mode === 'authoring' && phase?.generationIntent?.status === 'open'
     ? await (await import('./delivery-evidence.mjs')).plannedEvidencePaths(root, definition, workflow, phase).catch(() => [])
@@ -112,7 +112,8 @@ async function createRecord(payload, record, root, accepted, previous = null) {
     ...(record.confirmDigest ? { confirmDigest: record.confirmDigest } : {}),
     ...(previous?.importTeamStaging ? { importTeamStaging: previous.importTeamStaging } : {}),
     ...(previous?.buildStaging ? { buildStaging: previous.buildStaging } : {}),
-    ...(previous?.fixStaging ? { fixStaging: previous.fixStaging } : {}) };
+    ...(previous?.fixStaging ? { fixStaging: previous.fixStaging } : {}),
+    ...(previous?.appDraftStaging ? { appDraftStaging: previous.appDraftStaging } : {}) };
   return value;
 }
 
@@ -328,9 +329,16 @@ function shellAllowed(call, mode, value) {
   if (mode === 'publish-only') return positionals[0] === 'phase'
     && (positionals[1] === 'publish' || positionals[1] === 'prepublish' && options['publish-if-ready'] === true)
     && positionals[2] === value.contract.phaseId && (!options['work-id'] || options['work-id'] === value.contract.workId);
-  // The /sf-run-app and /sf-test turns: the declared application and tests, nothing else.
+  // The /sf-run-app and /sf-test turns: the declared application and tests, and proposing exactly the
+  // application block draft `app suggest` issued to this turn (a local map, or a reviewed proposal).
   if (mode === 'run-and-test') return (positionals[0] === 'app' && ['start', 'stop'].includes(positionals[1]))
-    || (positionals[0] === 'tests' && positionals[1] === 'run');
+    || (positionals[0] === 'tests' && positionals[1] === 'run')
+    || (positionals[0] === 'capability' && positionals.length === 3 && typeof options['application-file'] === 'string'
+      && path.isAbsolute(options['application-file']) && (value.appDraftStaging ?? []).includes(path.resolve(options['application-file']))
+      && (positionals[1] === 'set'
+        ? Object.keys(options).every(key => ['application-file', 'json'].includes(key))
+        : positionals[1] === 'edit' && options.mode === 'set' && typeof options.lead === 'string'
+          && Object.keys(options).every(key => ['application-file', 'lead', 'mode', 'json'].includes(key))));
   // The /sf-import-team turn: its own three commands; every other mutation stays refused.
   if (mode === 'import-team') return positionals[0] === 'workflow' && positionals[1] === 'import-team'
     && IMPORT_TEAM_COMMANDS.includes(positionals[2]) && positionals.length === 3;
@@ -542,6 +550,35 @@ async function fixWorkflowGuard(payload, record, toolCalls) {
 }
 
 /**
+ * /sf-run-app and /sf-test: reads, `app start|stop`, `tests run`, edits to exactly the application
+ * block draft `app suggest` issued to this turn, and proposing that draft. They need no Story, edit no
+ * repository file, never bind environment values and do not delegate.
+ */
+async function runAndTestGuard(payload, record, toolCalls) {
+  const value = await importTeamTurn(payload, record);
+  const issued = (value?.appDraftStaging ?? []).map(file => path.resolve(file));
+  const scope = { ...record, repositoryRoot: value?.contract?.repositoryRoot ?? value?.repositoryRoot, appDraftStaging: issued };
+  const deny = reason => ({ permissionDecision: 'deny', next: [], permissionDecisionReason: reason });
+  for (const call of toolCalls) {
+    if (DELEGATION.has(call.name)) return deny('RUN_AND_TEST_DELEGATION_NOT_ALLOWED: start the application or run the tests in this turn; it does not delegate');
+    if (TERMINALS.has(call.name)) {
+      if (shellAllowed(call, 'run-and-test', scope)) continue;
+      if (environmentBinding(call, scope)) return deny('PHASE_MUTATION_OPERATION_NOT_ALLOWED: environment values are bound only by the person, who pipes their own secret helper into `singularity-flow env bind <ENV> --stdin` in their own terminal. Give them that command; never ask for, type or pipe a value');
+      return deny('RUN_AND_TEST_OPERATION_NOT_ALLOWED: run one standalone SFlow read, app start|stop, tests run, or capability set|edit --application-file <the draft app suggest issued>; no other mutations, chains or wrappers');
+    }
+    if (!isEdit(call.name)) continue;
+    const paths = targets(call.args);
+    const cwd = call.args.cwd ?? payload.cwd ?? scope.repositoryRoot ?? process.cwd();
+    const outside = paths.filter(target => !issued.includes(editTarget(target, cwd)));
+    if (paths.length && !outside.length) continue;
+    return deny(issued.length
+      ? `RUN_AND_TEST_PATH_DENIED (${outside.join(', ') || 'no target'}): write only the issued application draft at exactly ${issued.join(', ')}; this turn edits no repository file`
+      : 'RUN_AND_TEST_PATH_DENIED: this turn edits no file. To draft start entries run singularity-flow app suggest --json and write only its draft.applicationFile');
+  }
+  return {};
+}
+
+/**
  * /sf-build-workflow: reads, its own `workflow build` commands, and edits to exactly the proposal
  * files `workflow build` issued to this turn. Like /sf-import-team it needs no Story, edits no
  * repository and does not delegate.
@@ -611,6 +648,7 @@ export async function mutationToolGuard(payload = {}) {
   if (mutationTurnMode(record.skill) === 'import-team') return importTeamGuard(payload, record, toolCalls);
   if (mutationTurnMode(record.skill) === 'build-workflow') return buildWorkflowGuard(payload, record, toolCalls);
   if (mutationTurnMode(record.skill) === 'fix-workflow') return fixWorkflowGuard(payload, record, toolCalls);
+  if (mutationTurnMode(record.skill) === 'run-and-test') return runAndTestGuard(payload, record, toolCalls);
   let value;
   try { value = await currentContract(payload, record); }
   catch {
@@ -708,6 +746,13 @@ export async function mutationPostToolGuard(payload = {}) {
       fixStaging: (value?.fixStaging ?? []).map(file => path.resolve(file)) };
     if (value && terminals.every(call => shellAllowed(call, 'fix-workflow', scope))) return {};
     return postFinding(mutationDenial(null, 'FIX_WORKFLOW_TURN_ENDED: the fix-workflow turn ended or expired; run /sf-fix-workflow again'));
+  }
+  if (mutationTurnMode(record.skill) === 'run-and-test') {
+    const value = await importTeamTurn(payload, record);
+    const scope = { ...record, repositoryRoot: value?.contract?.repositoryRoot ?? value?.repositoryRoot,
+      appDraftStaging: (value?.appDraftStaging ?? []).map(file => path.resolve(file)) };
+    if (value && terminals.every(call => shellAllowed(call, 'run-and-test', scope))) return {};
+    return postFinding(mutationDenial(null, 'RUN_AND_TEST_TURN_ENDED: the run-and-test turn ended or expired; run /sf-run-app or /sf-test again'));
   }
   let value;
   try { value = await currentContract(payload, record); }
@@ -925,6 +970,29 @@ export async function issueFixWorkflowStaging(target, { root = null } = {}) {
     const owner = value.contract?.repositoryRoot ?? value.repositoryRoot ?? null;
     if (owner && resolvedRoot && owner !== resolvedRoot) continue;
     value.fixStaging = [...new Set([...(value.fixStaging ?? []), path.resolve(target)])].slice(-16);
+    await atomicRecord(file, value);
+    issued += 1;
+  }
+  return issued;
+}
+
+/**
+ * Let live /sf-run-app and /sf-test turns write `target`, the application block draft `app suggest`
+ * just named as draft.applicationFile, and propose exactly that file. Returns how many turns received it.
+ */
+export async function issueRunAppDraftStaging(target, { root = null } = {}) {
+  if (readCopilotMode().paused) return 0;
+  const resolvedRoot = root ? await realpath(root).catch(() => path.resolve(root)) : null;
+  let issued = 0;
+  for (const name of (await readdir(directory()).catch(() => [])).filter(name => /^[a-f0-9]{64}\.mutation\.json$/u.test(name))) {
+    const file = path.join(directory(), name);
+    const value = await boundedRecord(file).catch(() => null);
+    if (!value || mutationTurnMode(value.skill) !== 'run-and-test') continue;
+    const record = await turn({ sessionId: value.sessionId });
+    if (!record || !await importTeamTurn({ sessionId: value.sessionId }, record)) continue;
+    const owner = value.contract?.repositoryRoot ?? value.repositoryRoot ?? null;
+    if (owner && resolvedRoot && owner !== resolvedRoot) continue;
+    value.appDraftStaging = [...new Set([...(value.appDraftStaging ?? []), path.resolve(target)])].slice(-16);
     await atomicRecord(file, value);
     issued += 1;
   }

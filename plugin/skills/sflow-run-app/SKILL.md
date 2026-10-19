@@ -2,7 +2,7 @@
 name: sflow-run-app
 description: Start, check or stop this capability's application with the start command its capability declares, in the environment the person picks.
 disable-model-invocation: true
-argument-hint: "[start|status|stop] [START-ID] [--environment ENV]"
+argument-hint: "[start|status|stop|suggest] [START-ID] [--environment ENV] [--debug]"
 ---
 # Run the application
 
@@ -15,8 +15,9 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 The capability's `application.start` entries say how to start it; never guess a dev command.
 
-1. Run `singularity-flow app plan --json` (add `--capability <ID>` only when the person named one). With no start entry, show the refusal's fix: a reviewed capability proposal adds `application.start`.
+1. Run `singularity-flow app plan --json` (add `--capability <ID>` only when the person named one). With no start entry, or when the person asks to suggest entries, go to step 6.
 2. Pick the start entry named in `$ARGUMENTS`, else the only one, else ask with `ask_user`. Pick the environment named, else the only one listed, else ask which of `environments[].name`, showing each binding `status`. For an environment that is not bound, give the person `singularity-flow env bind <ENV> --stdin` to run in their own terminal, piped from their own secret helper; never ask for, type or pipe a value, and never run `singularity-flow env bind` yourself.
-3. To start: run `singularity-flow app start <ID> [--environment <ENV>]` with your terminal tool's background (async) mode so it keeps running, then run `singularity-flow app status --json` until that entry is `ready` or reports its failure, within its `ready.timeoutMs`. Report the URL.
+3. To start: run `singularity-flow app start <ID> [--environment <ENV>]` with your terminal tool's background (async) mode so it keeps running, then run `singularity-flow app status --json` until that entry is `ready` or reports its failure, within its `ready.timeoutMs`. Report the URL. To debug, add `--debug` when the entry has a `debug` block without a `refusal`. Report `Debugger listening at 127.0.0.1:<port>` and the attach target: the editor's attach configuration for that runtime, or the pid for dotnet. A `debug.refusal` names what the person installs; show it.
 4. To check: `singularity-flow app status --json`. To stop: `singularity-flow app stop <ID>`; it stops only what `singularity-flow app start` recorded. Never kill any other process.
 5. Report the entry, environment, URL and state, and the next action (run the tests with `/sf-test`, or stop it).
+6. To suggest entries: run `singularity-flow app suggest --json`. Show each suggestion's source file, `start.argv`, per-environment `arguments`, `debug` and `environmentNames` (secrets are names only), and its `notes`. Ask with `ask_user` which to keep and their ids. Write only the kept entries, as the application block, to `draft.applicationFile` with a file-edit tool. Show it, and only on the person's confirmation run, with `<URL>` from `singularity-flow capability leads --json`, `singularity-flow capability edit <CAPABILITY> --lead <URL> --application-file <draft.applicationFile> --mode set --json` (for a local map: `singularity-flow capability set <CAPABILITY> --application-file <draft.applicationFile> --json`). Show `environmentsDraft` for the person to propose through `/sf-configuration`; never add a value for a secret.

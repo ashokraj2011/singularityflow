@@ -16,6 +16,6 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 1. Run `singularity-flow secrets scan --json`, adding `--staged` only when requested.
 2. Report file paths, rule IDs, and remediation without reproducing detected credential values.
-3. Before `singularity-flow secrets protect --json`, say it writes this checkout's Git `pre-commit` hook and require an explicit request. Use `--force` only after separately reviewing an existing installation conflict. Afterwards, name the exact `data.hook` path it returns, and say protection is inactive while `core.hooksPath` is set or when that path is under `.git/worktrees/` (a linked worktree), because Git then runs a different hooks directory.
+3. Before `singularity-flow secrets protect --json`, say it writes the `pre-commit` hook Git runs for this repository (shared by its worktrees) and require an explicit request. Use `--force` only after separately reviewing an existing installation conflict. Afterwards, name the exact `data.hook` path. Claim protection only when `data.active` is true; otherwise relay `data.manualSteps` exactly and never edit that hooks directory or Git config yourself.
 4. Secret scanning is deterministic and never sends file content to a model. Never print environment variables or add a detected secret to chat, logs, commits, or prompt context.
 

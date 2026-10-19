@@ -23,6 +23,7 @@ const rows = [];
 for (let sample = 0; sample < samples; sample++) {
   const cleanups = [];
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-benchmark-'));
+  try {
   const { root, phaseId } = await publishedSpecificationStory({ after: fn => cleanups.push(fn) }, { humanAnswers: true });
   const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_BUNDLE: runtime === 'source' ? 'off' : 'on',
     SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1', SINGULARITY_FLOW_GIT_FACT_STORE: path.join(directory, 'git-facts'),
@@ -53,7 +54,6 @@ for (let sample = 0; sample < samples; sample++) {
       provenanceHits: counter('source-review.provenance-hits'), freshBindings: counter('source-review.fresh-bindings') });
     return completeAgentResult(answer.stdout);
   }
-  try {
     const base = 'singularity/work-items/REVIEW-1';
     const documents = [];
     await mkdir(path.join(root, base, 'inputs'), { recursive: true });

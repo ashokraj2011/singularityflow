@@ -51,8 +51,10 @@ Inspect `--timings` for `source-review.inputs`, `source-review.git-batch`,
 `source-review.provenance`, `source-review.fresh-binding` and their input-load, blob-hit,
 snapshot-hit, provenance-hit and fresh-binding counters alongside `git.spawns`/`git.requests`.
 This does not measure Copilot reasoning or human reading time, and makes no full-Story speed claim.
+The driver launches Node directly, so PowerShell startup and VS Code/Copilot transport overhead
+are outside the measurement. V8's normal compile cache is not forcibly cleared between samples.
 
-## Local Mac measurements
+## Local Mac source-mode measurements
 
 Three samples per engine on this Mac, Node 22.14.0, against baseline `8dcb3a27`; milliseconds below
 are medians. These are process-cold requests, not flushed-disk or freshly booted machine tests.
@@ -75,3 +77,19 @@ label is not a claim that the provenance store is empty. Only successful fixture
 latency samples. One separate local attempt refused during accepted-Story bootstrap because a
 creation-history Git object was unavailable, before source-review input loading; its refusal was
 not masked or counted as a successful sample. The subsequent complete three-sample run passed.
+
+## Local Mac installed-bundle measurements
+
+With both cold-layout CLI bundles built and explicitly selected, the same three-sample corpus
+improved from a median 4,996 ms to 4,206 ms for context → stage → check → retain → status (16%).
+Cold context improved from 779 to 719 ms; warm context from 721 to 633 ms; private staging from
+878 to 611 ms; check from 591 to 532 ms; retention from 2,029 to 1,801 ms. Git-child reductions
+are the same as the source-mode table. Every staged packet reused one input snapshot and every
+retention performed exactly one fresh binding check. These results qualify the installed command
+path, not just the development dispatcher; no model reasoning or network publication is timed.
+
+The separate hosted macOS runner (Node 22.23.3, source runtime) showed smaller sequence gains:
+4,432 → 4,300 ms (3%) for the larger corpus and 3,471 → 3,090 ms (11%) with no extra attachments
+or history. Some individual larger-corpus steps were 8–9% slower even though Git children fell.
+Three-sample measurements are directional, not a universal latency guarantee; fixed startup,
+catalog loading and filesystem costs remain, and counts are more stable than short wall timings.

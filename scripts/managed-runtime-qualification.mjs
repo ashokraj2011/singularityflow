@@ -27,6 +27,10 @@ let bundle;
 let releaseFixture;
 try {
   const env = { ...process.env, HOME: home, USERPROFILE: home, SINGULARITY_FLOW_ENGINE_HOME: engine };
+  await mkdir(engine, { mode: 0o700 });
+  const stalePreparation = path.join(engine, '.runtime-lock');
+  if (process.platform === 'win32') await writeFile(stalePreparation, 'preserved old preparation marker');
+  else await mkdir(stalePreparation, { mode: 0o700 });
   const bootstrapStart = performance.now();
   const bootstrap = process.platform === 'win32'
     ? { executable: path.join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
@@ -38,6 +42,9 @@ try {
   assert.equal((await installerProcess(node, ['--version'], { capture: true })).stdout.trim(), 'v26.12.0');
   report.timings.bootstrapMs = performance.now() - bootstrapStart;
   report.cases.push('pinned private Node bootstrap; global Node not required by bootstrap');
+  assert.ok((await lstat(stalePreparation))[process.platform === 'win32' ? 'isFile' : 'isDirectory']());
+  if (process.platform === 'win32') assert.equal(await readFile(stalePreparation, 'utf8'), 'preserved old preparation marker');
+  report.cases.push('stale preparation markers are preserved and cannot strand atomic Node publication');
   // Repeat from the prepared runtime with a PATH that cannot resolve global node/npm.
   const nodeFreePath = path.join(directory, 'tools without node');
   await mkdir(nodeFreePath);

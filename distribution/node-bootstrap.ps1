@@ -24,7 +24,6 @@ if (Test-Path -LiteralPath $runtimeTarget) {
 }
 $runtimeStage = Join-Path $runtimeRoot "runtimes/.prepare-$([Guid]::NewGuid().ToString('N'))"
 [void][IO.Directory]::CreateDirectory($runtimeStage)
-$runtimeLocked = $false
 try {
   $runtimeFile = Join-Path $runtimeStage $runtimeArchive
   if ($env:SINGULARITY_FLOW_NODE_ARCHIVE_DIR) {
@@ -49,14 +48,11 @@ try {
   if (-not (Test-Path -LiteralPath (Join-Path $runtimeUnpacked 'LICENSE'))) { throw 'Node archive is incomplete.' }
   if ((& (Join-Path $runtimeUnpacked 'node.exe') --version) -ne "v$runtimeVersion" -or $LASTEXITCODE -ne 0) { throw 'Private Node version mismatch.' }
   [IO.File]::WriteAllText((Join-Path $runtimeUnpacked '.sflow-archive-sha256'), "$runtimeSha`n")
-  $runtimeLock = Join-Path $runtimeRoot '.runtime-lock'
-  # Directory.CreateDirectory is not exclusive; use a CreateNew lock file on Windows.
-  $runtimeHandle = [IO.File]::Open($runtimeLock, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
-  $runtimeLocked = $true
+  # Same-filesystem Directory.Move refuses an existing target atomically. A persistent preparation
+  # lock is unnecessary and would strand a machine without Node if its owner crashed.
   if (Test-Path -LiteralPath $runtimeTarget) { throw 'Another installer prepared Node; retry installation.' }
   [IO.Directory]::Move($runtimeUnpacked, $runtimeTarget)
   Write-Output $runtimeNode
 } finally {
-  if ($runtimeLocked) { $runtimeHandle.Dispose(); Remove-Item -LiteralPath $runtimeLock -Force }
   Remove-Item -LiteralPath $runtimeStage -Recurse -Force
 }

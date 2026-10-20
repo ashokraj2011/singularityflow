@@ -56,12 +56,9 @@ runtime_unpacked="$runtime_stage/unpack/node-v${runtime_version}-${runtime_os}-$
 [[ -f "$runtime_unpacked/LICENSE" && -x "$runtime_unpacked/bin/node" && ! -L "$runtime_unpacked/bin/node" ]] || exit 1
 [[ "$("$runtime_unpacked/bin/node" --version)" == "v$runtime_version" ]] || exit 1
 printf '%s\n' "$runtime_sha" > "$runtime_unpacked/.sflow-archive-sha256"
-# A concurrent installer may have prepared the same immutable runtime. Never merge/overwrite it.
-if mkdir "$runtime_root/.runtime-lock" 2>/dev/null; then
-  trap 'rmdir "$runtime_root/.runtime-lock" 2>/dev/null || true; rm -rf -- "$runtime_stage"' EXIT
-  [[ ! -e "$runtime_target" ]] || { printf '%s\n' 'Another installer prepared Node; retry installation.' >&2; exit 1; }
-  mv "$runtime_unpacked" "$runtime_target"
-else
-  printf '%s\n' 'Another runtime preparation is active. Retry after it finishes; do not delete recovery files.' >&2; exit 1
-fi
+# Publish a complete nonempty directory by same-filesystem rename. Passing the parent (not the
+# final directory) prevents mv from nesting inside a concurrently published runtime. No persistent
+# preparation lease can strand a Node-free machine after an interrupted bootstrap.
+[[ ! -e "$runtime_target" ]] || { printf '%s\n' 'Another installer prepared Node; retry installation.' >&2; exit 1; }
+mv "$runtime_unpacked" "$runtime_root/runtimes/"
 printf '%s\n' "$runtime_node"

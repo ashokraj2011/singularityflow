@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -37,7 +38,7 @@ function git(root, args) {
   return run(root, 'git', args).stdout.trim();
 }
 
-async function repository() {
+async function repository({ documentStorage = null } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-planning-'));
   git(root, ['init', '-b', 'main']);
   git(root, ['config', 'user.name', actor]);
@@ -50,6 +51,7 @@ async function repository() {
   workflow.worldModel.grounding = 'off';
   // These fixtures exercise planning; repository-readiness policy has its own coverage.
   workflow.repositoryReadiness.requiredBeforeStory = false;
+  if (documentStorage) workflow.documents.storage = documentStorage;
   await writeFile(workflowFile, YAML.stringify(workflow));
   const portfolioFile = path.join(root, 'singularity/portfolio.yml');
   const portfolio = YAML.parse(await readFile(portfolioFile, 'utf8'));
@@ -68,7 +70,9 @@ async function repository() {
 }
 
 test('story planning creates a private immutable context pack and promotes only reviewed output', async () => {
-  const root = await repository();
+  // Compatibility coverage for Stories whose approved policy shares document bytes through Git;
+  // the local default has its own test below.
+  const root = await repository({ documentStorage: { allowed: ['git', 'local'], default: 'git' } });
   run(root, process.execPath, [bin, 'start', 'PLAN-101', '--from-branch', 'main', '--title', 'Plan customer onboarding']);
   const requirement = path.join(await mkdtemp(path.join(os.tmpdir(), 'sflow-business-input-')), 'requirements.md');
   await writeFile(requirement, '# Business requirement\n\nSupport an auditable, low-friction onboarding journey.\n');
@@ -89,6 +93,7 @@ test('story planning creates a private immutable context pack and promotes only 
   assert.equal(context.manifest.target.id, 'artifact');
   assert.ok(context.manifest.sources.some((source) => source.kind === 'agent'));
   assert.ok(context.manifest.sources.some((source) => source.kind === 'uploaded-document'));
+  assert.equal(context.localContext, undefined, 'Git-backed documents need no private overlay');
   assert.match(context.context, /Define a measurable onboarding outcome/);
   assert.match(context.context, /Stay in Copilot Plan mode/);
   assert.match(context.context, /Support an auditable, low-friction onboarding journey/);
@@ -117,6 +122,77 @@ test('story planning creates a private immutable context pack and promotes only 
   assert.equal(audit.repository.root, undefined);
   assert.match(audit.context.path, /^singularity\/work-items\/PLAN-101\/context\/planning\//);
   assert.match(git(root, ['log', '-1', '--format=%s']), /\[PLAN-101\]\[phase:intake\]\[planning\] promote reviewed plan/);
+});
+
+test('Story planning under the local default reads uploads privately and never commits their text', async (t) => {
+  const root = await repository();
+  t.after(() => Promise.all([root, `${root}.git`].map((directory) => rm(directory, { recursive: true, force: true }))));
+  run(root, process.execPath, [bin, 'start', 'PLAN-LOCAL', '--from-branch', 'main', '--title', 'Plan from a laptop-local upload']);
+  const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-planning-local-input-'));
+  t.after(() => rm(uploads, { recursive: true, force: true }));
+  const requirement = path.join(uploads, 'requirements.md');
+  const marker = 'PLANNING_LOCAL_DOCUMENT_TEXT_271828: a saved application resumes where it stopped.';
+  await writeFile(requirement, `# Business requirement\n\n${marker}\n`);
+  run(root, process.execPath, [bin, 'documents', 'upload', requirement, '--name', 'Laptop requirement']);
+  const commonDirectory = await realpath(path.resolve(root, git(root, ['rev-parse', '--git-common-dir'])));
+  const before = git(root, ['rev-parse', 'HEAD']);
+  const context = await createPlanningContext(root, {
+    scope: 'work-item', id: 'PLAN-LOCAL', phase: 'intake', agent: 'product-owner', target: 'artifact',
+    objective: 'Define the resume outcome.'
+  });
+
+  const local = context.manifest.sources.find((source) => source.kind === 'machine-local-document');
+  assert.ok(local, 'the pack pins the local document by identity');
+  assert.equal(local.path, null, 'a pack that promotion commits never names a laptop path');
+  assert.equal(local.sha256, createHash('sha256').update(await readFile(requirement)).digest('hex'));
+  assert.equal(context.manifest.sources.some((source) => source.kind === 'uploaded-document'), false);
+
+  // Copilot receives the verified text through the same Git-private overlay phase entry uses.
+  assert.match(context.context, new RegExp(marker));
+  assert.equal(context.localContext.storage, 'local');
+  const privateText = await readFile(context.localContext.path, 'utf8');
+  assert.match(privateText, new RegExp(marker));
+  assert.match(privateText, /Laptop-local supporting evidence/);
+  assert.equal(context.localContext.sha256, createHash('sha256').update(privateText).digest('hex'));
+  assert.ok(context.context.startsWith(privateText.trimEnd()), 'the returned context is the private file plus presentation only');
+  assert.equal(path.relative(commonDirectory, context.localContext.path).split(path.sep)[0] === '..', false,
+    'the private overlay lives under the Git common directory');
+  assert.match(path.basename(path.dirname(context.localContext.path)), /^document-context$/);
+
+  // The pack that promotion copies into Git stays metadata-only.
+  const pack = await readFile(context.contextPath, 'utf8');
+  assert.doesNotMatch(pack, new RegExp(marker));
+  assert.match(pack, /Kept on one machine only/);
+  const manifestText = await readFile(context.manifestPath, 'utf8');
+  assert.doesNotMatch(manifestText, new RegExp(marker));
+  assert.equal(manifestText.includes(context.localContext.path), false);
+  assert.equal(git(root, ['rev-parse', 'HEAD']), before);
+  assert.equal(git(root, ['status', '--short']), '');
+
+  await promotePlanningArtifact(root, {
+    sessionId: context.sessionId,
+    agent: 'product-owner',
+    content: '# Intake decision\n\nOutcome: a saved application resumes at its last completed step.\n\n## Acceptance signal\n\nResume rate and abandonment are measured against an approved baseline.\n'
+  });
+  const committed = git(root, ['show', '--name-only', '--format=', 'HEAD']).split('\n');
+  assert.ok(committed.some((file) => /context\/planning\/intake-gen1\/plan-[^/]+\/context\.md$/.test(file)), committed.join('\n'));
+  assert.equal(committed.some((file) => /(?:^|\/)inputs\//.test(file)), false, committed.join('\n'));
+  assert.equal(git(root, ['ls-files', 'singularity/work-items/PLAN-LOCAL/inputs']), '');
+  const history = run(root, 'git', ['log', '--all', '-p', '--format=']).stdout;
+  assert.equal(history.includes(marker), false, 'no commit carries the local document text');
+  assert.equal(history.includes(context.localContext.path), false, 'no commit names the private overlay');
+
+  // Another laptop without the original is told to restore it before planning, not after.
+  const store = path.join(commonDirectory, 'singularity-flow-documents', 'PLAN-LOCAL');
+  await rename(store, `${store}.away`);
+  const planningRoot = path.join(commonDirectory, 'singularity-flow', 'planning');
+  const packs = (await readdir(planningRoot)).length;
+  await assert.rejects(createPlanningContext(root, {
+    scope: 'work-item', id: 'PLAN-LOCAL', phase: 'intake', agent: 'product-owner', target: 'artifact'
+  }), (error) => error.code === 'DOCUMENT_REUPLOAD_REQUIRED'
+    && error.details.documentReadiness.missing[0].id === local.evidenceId
+    && error.details.actions[0].argv.includes('restore'));
+  assert.equal((await readdir(planningRoot)).length, packs, 'a refused planning context leaves no pack');
 });
 
 test('Story planning uses its saved root, agent, and planning prompt after live policy changes', async () => {

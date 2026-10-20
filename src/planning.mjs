@@ -604,6 +604,17 @@ export async function createPlanningContext(root, {
     'phase.contract': parts.contract,
     'governed.context': fitted.value
   });
+  // Laptop-local Story documents reach Copilot as phase entry delivers them: verified text in a
+  // Git-private file beside the pack. context.md is copied into Git on promotion, so it keeps their
+  // identity only. A missing original refuses here with its restore route, as promotion would,
+  // rather than letting Copilot plan against a document it cannot read.
+  let delivered = rendered;
+  let localContext = null;
+  if (workflow) {
+    const runtime = await import('./document-runtime.mjs');
+    delivered = await runtime.withLocalDocumentEvidence(root, definition, workflow, parts.phase.id, rendered);
+    if (delivered !== rendered) localContext = await runtime.writePrivateDocumentContext(root, delivered);
+  }
   const sessionId = `plan-${randomUUID()}`;
   const directory = planningDirectory(root, sessionId);
   await ensureDir(directory);
@@ -636,7 +647,8 @@ export async function createPlanningContext(root, {
     sessionId,
     contextPath,
     manifestPath,
-    context: withReplyPersonalization(rendered, resolvePersonalization({ root })),
+    context: withReplyPersonalization(delivered, resolvePersonalization({ root })),
+    ...(localContext ? { localContext } : {}),
     manifest,
     phase: parts.phase,
     target: parts.target,

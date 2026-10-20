@@ -11,9 +11,10 @@ does not receive those bytes. Store cleanup must continue to preserve these user
 
 ## Another laptop
 
-Phase entry, next steps, preparation, source review and prepublication check only active local
-documents offered to that phase. If any are missing or changed, they return their existing IDs,
-names, expected hashes and exact restore routes. The person chooses the same original file:
+Phase entry, Copilot planning, next steps, preparation, source review and prepublication check
+only active local documents offered to that phase. If any are missing or changed, they return their
+existing IDs, names, expected hashes and exact restore routes. The person chooses the same original
+file:
 
 ```sh
 singularity-flow documents restore DOC-001 --work-id WORK-ID --file "/chosen/original.png" --json
@@ -32,6 +33,11 @@ The complete delivered context gets a private file and exact CLI-issued read pat
 snapshots contain metadata only. A manually requested `wm compose --out` writes the durable prompt,
 not this private overlay. Reading evidence with Copilot still uses its normal model/tool channel;
 local Git storage does not mean that a model can inspect a file without receiving its content.
+
+Copilot planning receives the same private overlay. The planning pack's `context.md`, which
+promotion copies into Git, keeps each local document's ID, name and hash only; the result's
+`localContext` names the private file under the Git directory that carries the verified text.
+Planning a phase whose local original is missing is refused with the same restore route.
 
 Images and PDFs get verified native-inspection paths. Source review requires a receipt containing
 the actual tool method, page/region and observations, plus source mappings. It does not invent text

@@ -1,10 +1,13 @@
 /** Laptop-specific evidence delivery. Never persist this text in a committed prompt or receipt. */
+import { createHash } from 'node:crypto';
+import path from 'node:path';
+import { gitDir } from './git-execution.mjs';
 import { loadManifest, evidenceIsActive, viewDocument } from './documents-read.mjs';
 import { documentOfferedToPhase } from './document-identity.mjs';
 import { isLocalDocument, localDocumentAvailability } from './document-storage.mjs';
 import { effectiveDocumentMimeType } from './source-text.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
-import { SingularityFlowError } from './util.mjs';
+import { SingularityFlowError, writeAtomic, ensureSecureRepositoryDirectory } from './util.mjs';
 
 async function localDocuments(root, definition, workflow, phaseId) {
   // Read only the supporting-document manifest. Building the full artifact/system catalog here
@@ -74,4 +77,21 @@ export async function withLocalDocumentEvidence(root, definition, workflow, phas
     await (await import('./copilot-mutation-guard.mjs')).issueMutationReadPaths(root, paths);
   }
   return `${prompt.trimEnd()}\n\n${lines.join('\n')}`;
+}
+
+/**
+ * Keep the complete delivered context, including this laptop's verified document text, in a
+ * Git-private file. Phase entry and planning both hand Copilot this file beside their durable
+ * prompt or pack, which stay metadata-only because they are committed or copied into Git.
+ */
+export async function writePrivateDocumentContext(root, text) {
+  const sha256 = createHash('sha256').update(text).digest('hex');
+  const localPath = path.join(gitDir(root), 'singularity-flow', 'document-context', `${sha256}.md`);
+  await ensureSecureRepositoryDirectory(gitDir(root), path.dirname(localPath), { label: 'Private document context' });
+  await writeAtomic(localPath, text, { mode: 0o600 });
+  if (globalThis.__SFLOW_EXTENSION_HOST__ !== true) {
+    await (await import('./copilot-mutation-guard.mjs')).issueMutationReadPaths(root, [localPath]);
+  }
+  return { path: localPath, sha256, bytes: Buffer.byteLength(text), storage: 'local',
+    instruction: 'Exact complete runtime context, including this laptop\'s verified documents. Never copy it into the repository or a committed prompt.' };
 }

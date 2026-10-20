@@ -117,6 +117,17 @@ test('a redirected runtime parent is refused before any executable is launched',
   assert.equal(f.calls.length, 0);
 });
 
+test('equivalent parent path aliases bind the same private runtime without permitting redirected runtime leaves', async t => {
+  const f = await fixture(t);
+  const alias = `${f.home}.alias`;
+  await symlink(f.home, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  t.after(() => rm(alias, { force: true }));
+  const candidate = await f.archive();
+  const installed = await installManagedRelease({ ...candidate, root: path.join(alias, 'engine') });
+  assert.equal(installed.installed, true);
+  assert.equal(resolver.resolveManagedEngine({ environment: { SINGULARITY_FLOW_ENGINE_HOME: f.root } }).release, candidate.sha256);
+});
+
 test('rollback refuses a redirected retained runtime before executing or changing the active pair', async t => {
   const f = await fixture(t);
   await installManagedRelease(await f.archive());

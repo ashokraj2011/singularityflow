@@ -4,7 +4,7 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmod, lstat, mkdir, readFile, readdir, rename, rm, rmdir, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, readdir, realpath, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import resolver from './resolve.cjs';
@@ -139,7 +139,7 @@ export async function installManagedRelease({ tarball, sha256, nodeExecutable = 
   const runtimeRoot = path.resolve(path.dirname(nodeExecutable), process.platform === 'win32' ? '.' : '..');
   const runtime = path.basename(runtimeRoot);
   if (!/^node-v26\.\d+\.\d+-(darwin|linux|win32)-(arm64|x64)$/.test(runtime)
-      || path.dirname(runtimeRoot) !== path.join(root, 'runtimes')) throw new Error('Managed activation requires the private, pinned Node runtime.');
+      || await realpath(path.dirname(runtimeRoot)) !== await realpath(path.join(root, 'runtimes'))) throw new Error('Managed activation requires the private, pinned Node runtime.');
   for (const directory of [root, path.join(root, 'runtimes'), runtimeRoot, path.dirname(nodeExecutable)]) await privateDirectory(directory);
   const nodeInfo = await lstat(nodeExecutable);
   if (!nodeInfo.isFile() || nodeInfo.isSymbolicLink()) throw new Error('Private Node must be an ordinary executable.');

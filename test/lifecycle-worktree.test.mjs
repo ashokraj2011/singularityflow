@@ -35,7 +35,10 @@ async function report(root, name = 'node-tests.json', content = '{"passed":16}\n
 
 for (const format of ['sha1', 'sha256']) test(`regular untracked reports are preserved without blocking decisions (${format})`, async t => {
   const root = await repo(t, format);
-  const relative = await report(root, 'report with spaces "quoted".json');
+  // Win32 forbids double quotes in filenames. Keep whitespace/quoting-sensitive paths on both
+  // hosts and exercise literal double quotes through the POSIX filesystem and byte-parser cases.
+  const relative = await report(root, process.platform === 'win32'
+    ? 'report with spaces [quoted].json' : 'report with spaces "quoted".json');
   const before = git(root, 'status', '--porcelain=v1', '--untracked-files=all');
   const index = git(root, 'write-tree');
   const result = assertLifecycleWorktreeClean(root, null, null, { workId: 'story-1' });

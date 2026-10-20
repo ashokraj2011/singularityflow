@@ -2044,11 +2044,8 @@ test('a gitignored configured report outside SFlow results is restored after ref
 });
 
 test('a runner symlink swap cannot overwrite an external sentinel during report restoration', async (t) => {
-  if (process.platform === 'win32') {
-    t.skip('Creating a symlink requires a Windows privilege not available on every test host.');
-    return;
-  }
   const resultPath = 'test-results/unit.json';
+  const proofPath = 'test-results/swap-observed.txt';
   const previousBytes = '{"run":"previous","tests":{"discovered":1,"passed":1,"failed":0,"skipped":0}}\n';
   const external = await mkdtemp(path.join(os.tmpdir(), 'sflow-report-sentinel-'));
   t.after(() => rm(external, { recursive: true, force: true }));
@@ -2067,8 +2064,9 @@ test('a runner symlink swap cannot overwrite an external sentinel during report 
   await mkdir(path.join(context.root, 'test-results'), { recursive: true });
   await writeFile(path.join(context.root, resultPath), previousBytes);
   await writeFile(path.join(context.root, 'test-runner.mjs'), [
-    "import { symlinkSync } from 'node:fs';",
+    "import { symlinkSync, lstatSync, writeFileSync } from 'node:fs';",
     `symlinkSync(${JSON.stringify(sentinel)}, ${JSON.stringify(resultPath)});`,
+    `writeFileSync(${JSON.stringify(proofPath)}, String(lstatSync(${JSON.stringify(resultPath)}).isSymbolicLink()));`,
     'process.exit(23);', ''
   ].join('\n'));
 
@@ -2076,6 +2074,8 @@ test('a runner symlink swap cannot overwrite an external sentinel during report 
     context.root, context.config, context.workflow,
     { phaseId: 'implementation', authorship: AUTHORSHIP, persist: false }
   )));
+  assert.equal(await readFile(path.join(context.root, proofPath), 'utf8'), 'true',
+    'the runner must execute the actual symlink swap, not merely fail before it');
   assert.equal(await readFile(path.join(context.root, resultPath), 'utf8'), previousBytes);
   assert.equal(await readFile(sentinel, 'utf8'), '{"secret":"untouched"}\n');
   assert.equal(context.phase.generation, 0);

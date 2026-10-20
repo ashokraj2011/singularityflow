@@ -12,6 +12,21 @@ if (Test-Path -LiteralPath $managedActive -PathType Leaf) {
     $managedNode = Join-Path $managedRoot "runtimes/$managedRuntime/node.exe"
     $managedCli = Join-Path $managedRoot "releases/$managedRelease/node_modules/singularity-flow/bin/singularity-flow.mjs"
     if ((Test-Path -LiteralPath $managedNode -PathType Leaf) -and (Test-Path -LiteralPath $managedCli -PathType Leaf)) {
+      if ($Action -in @('boundary-guard', 'boundary-after', 'boundary-end')) {
+        $managedMode = if ($env:SINGULARITY_FLOW_COPILOT_MODE_FILE) { $env:SINGULARITY_FLOW_COPILOT_MODE_FILE } else { Join-Path $env:USERPROFILE '.singularity-flow/copilot-mode.json' }
+        if ([IO.Path]::IsPathRooted($managedMode) -and $managedMode -notmatch '[\\/]\.\.?([\\/]|$)' -and $managedMode -notmatch '[\\/]$') {
+          $managedBoundaries = Join-Path (Split-Path -Parent $managedMode) 'copilot-boundaries'
+          $managedOccupied = $false
+          try {
+            if ([IO.Directory]::Exists($managedBoundaries)) {
+              foreach ($entry in [IO.Directory]::EnumerateFileSystemEntries($managedBoundaries)) {
+                if (-not [IO.Path]::GetFileName($entry).StartsWith('.')) { $managedOccupied = $true; break }
+              }
+            }
+          } catch { $managedOccupied = $true }
+          if (-not $managedOccupied) { [void][Console]::In.ReadToEnd(); Write-Output '{}'; exit 0 }
+        }
+      }
       & $managedNode (Join-Path $PSScriptRoot 'hook-launcher.mjs') $Action $managedCli
       exit $LASTEXITCODE
     }

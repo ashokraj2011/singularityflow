@@ -586,6 +586,8 @@ export interface CliLocation {
   /** Absolute path to bin/singularity-flow.mjs. */
   cli: string;
   source: 'setting' | 'bundled' | 'path' | 'managed';
+  /** Explicit operator override, not an engine-selected executable. */
+  nodeOverride?: string;
 }
 
 export interface ResolveOptions {
@@ -619,7 +621,8 @@ export function resolveCli(options: ResolveOptions = {}): CliLocation {
   // An invalid existing managed installation is an error, not permission to run a stale fallback.
   const managed = options.managedEngine ? options.managedEngine()
     : runtimeResolver.resolveManagedEngine();
-  if (managed) return { executable: configuredNode?.trim() || managed.executable, cli: managed.cli, source: 'managed' };
+  if (managed) return { executable: configuredNode?.trim() || managed.executable, cli: managed.cli, source: 'managed',
+    ...(configuredNode?.trim() ? { nodeOverride: configuredNode.trim() } : {}) };
 
   if (extensionPath) {
     // Both the packaged layout (cli/ beside the bundle) and the in-repo layout (apps/vscode/../..).
@@ -644,6 +647,8 @@ export function resolveCli(options: ResolveOptions = {}): CliLocation {
 
 export interface ClientOptions {
   location: CliLocation;
+  /** Resolve one atomic managed selection at invocation start; injected by tests. */
+  managedEngine?: () => { executable: string; cli: string } | null;
   repository: string;
   /**
    * Secrets are supplied by VS Code SecretStorage and exist only in the child process. A function is
@@ -682,7 +687,13 @@ export class SingularityFlowClient {
   constructor(options: ClientOptions) { this.options = options; }
 
   get repository(): string { return this.options.repository; }
-  get location(): CliLocation { return this.options.location; }
+  get location(): CliLocation {
+    const initial = this.options.location;
+    if (initial.source !== 'managed') return initial;
+    const selected = (this.options.managedEngine || runtimeResolver.resolveManagedEngine)();
+    if (!selected) throw new Error('The managed SFlow engine selection is missing. Repair the managed installation; no global fallback was selected.');
+    return { ...initial, cli: selected.cli, executable: initial.nodeOverride || selected.executable };
+  }
   /** Pin optional intake work to its launch repository even if the main window navigates away. */
   forkForRepository(repository: string): SingularityFlowClient {
     return new SingularityFlowClient({ ...this.options, repository });
@@ -746,8 +757,12 @@ export class SingularityFlowClient {
     const key = mutationKey(repository);
     repositoryMutationEpochs.set(key, (repositoryMutationEpochs.get(key) ?? 0) + 1);
     this.invalidateReadResults();
-    const loaded = warmReaders.get(path.resolve(path.dirname(this.location.cli), '..', 'src', 'read-worker-client.mjs'));
-    if (loaded) void loaded.then(reader => reader?.invalidateReadWorkers(repository));
+    const locations = [this.options.location];
+    try { locations.push(this.location); } catch { /* Disposal/invalidation must work during an installation repair. */ }
+    for (const location of locations) {
+      const loaded = warmReaders.get(path.resolve(path.dirname(location.cli), '..', 'src', 'read-worker-client.mjs'));
+      if (loaded) void loaded.then(reader => reader?.invalidateReadWorkers(repository));
+    }
   }
 
   dispose(): void { this.invalidateReads(); this.invalidateReadResults(true); }
@@ -805,6 +820,7 @@ export class SingularityFlowClient {
     // must never change which command a previously requested read eventually launches.
     args = [...args];
     const repository = this.options.repository;
+    const location = this.location;
     // JSON stdout is the read model, not progress. Streaming it into VS Code's Output channel made
     // every structured payload exist three times (runner buffer, Output channel, parsed object) and
     // could flood the UI with megabytes of implementation detail. Human progress and diagnostics
@@ -828,8 +844,8 @@ export class SingularityFlowClient {
     )).digest('hex');
     const readEpoch = this.readEpoch;
     const mutationEpoch = repositoryMutationEpochs.get(mutationKey(repository)) ?? 0;
-    const sharedKey = cacheable ? JSON.stringify([mutationKey(repository), this.location.executable,
-      this.location.cli, environmentDigest, mutationEpoch, this.options.warmReads !== false, args]) : null;
+    const sharedKey = cacheable ? JSON.stringify([mutationKey(repository), location.executable,
+      location.cli, environmentDigest, mutationEpoch, this.options.warmReads !== false, args]) : null;
     const cacheKey = sharedKey ? JSON.stringify([readEpoch, sharedKey]) : null;
     if (classification === 'read' && signal?.aborted) {
       return Promise.reject(new Error('The Singularity Flow command was cancelled.'));
@@ -842,8 +858,8 @@ export class SingularityFlowClient {
       if (cached) this.readResults.delete(cacheKey);
     }
     const invocation = {
-      executable: this.options.location.executable,
-      cli: this.options.location.cli,
+      executable: location.executable,
+      cli: location.cli,
       repository,
       args,
       json,

@@ -14,11 +14,22 @@ runtime_id="node-v${runtime_version}-${runtime_os}-${runtime_arch}"
 runtime_target="$runtime_root/runtimes/$runtime_id"
 runtime_node="$runtime_target/bin/node"
 umask 077
+runtime_check_private() {
+  local candidate="$1" permissions
+  [[ -O "$candidate" && ! -L "$candidate" ]] || { printf '%s\n' 'Private Node paths must be owned by this user and must not be links.' >&2; exit 1; }
+  if [[ "$runtime_os" == darwin ]]; then permissions="$(stat -f '%Lp' "$candidate")"; else permissions="$(stat -c '%a' "$candidate")"; fi
+  [[ "$permissions" =~ ^[0-7]{3,4}$ ]] && (( (8#$permissions & 8#022) == 0 )) \
+    || { printf '%s\n' 'Private Node paths must not be writable by other users.' >&2; exit 1; }
+}
 for runtime_dir in "$runtime_root" "$runtime_root/runtimes"; do
   [[ ! -L "$runtime_dir" ]] || { printf '%s\n' 'SFlow runtime directories must not be symbolic links.' >&2; exit 1; }
   mkdir -p "$runtime_dir"
+  runtime_check_private "$runtime_dir"
 done
 if [[ -e "$runtime_target" ]]; then
+  runtime_check_private "$runtime_target"
+  runtime_check_private "$runtime_target/bin"
+  runtime_check_private "$runtime_node"
   [[ ! -L "$runtime_target" && -f "$runtime_node" && ! -L "$runtime_node" && -f "$runtime_target/.sflow-archive-sha256" \
     && "$(<"$runtime_target/.sflow-archive-sha256")" == "$runtime_sha" ]] || { printf '%s\n' 'Existing private Node is incomplete; preserve it and repair the installation.' >&2; exit 1; }
   [[ "$("$runtime_node" --version)" == "v$runtime_version" ]] || exit 1
@@ -33,7 +44,7 @@ else
   runtime_mirror="${SINGULARITY_FLOW_NODE_MIRROR:-https://nodejs.org/dist}"
   [[ "$runtime_mirror" == https://* && "$runtime_mirror" != *'@'* && "$runtime_mirror" != *'?'* && "$runtime_mirror" != *'#'* ]] || { printf '%s\n' 'Node mirror must use HTTPS without embedded credentials.' >&2; exit 1; }
   printf 'Preparing private Node %s for %s/%s…\n' "$runtime_version" "$runtime_os" "$runtime_arch" >&2
-  curl --fail --location --proto '=https' --proto-redir '=https' --connect-timeout 30 --max-time 600 --retry 2 \
+  curl --fail --location --proto '=https' --proto-redir '=https' --connect-timeout 30 --max-time 600 \
     --output "$runtime_file" "${runtime_mirror%/}/v$runtime_version/$runtime_archive" >&2
 fi
 if command -v shasum >/dev/null 2>&1; then runtime_actual="$(shasum -a 256 "$runtime_file")"; else runtime_actual="$(sha256sum "$runtime_file")"; fi

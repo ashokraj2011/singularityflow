@@ -3036,7 +3036,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       lazyPanels().AboutPanel.show(context, {
         read: () => registry.run(['about', '--json', '--extension-path', context.extensionPath]),
         window: () => ({ version: String(context.extension.packageJSON.version), build: loadedBuild,
-          editorVersion: vscode.version, reloadRequired: loadedBundle.replaced() })
+          editorVersion: vscode.version, hostNode: process.versions.node, reloadRequired: loadedBundle.replaced() })
       });
     } catch (error) { showRefusal(error, { headline: 'Build information is unavailable' }); }
   }));

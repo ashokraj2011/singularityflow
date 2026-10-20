@@ -13,6 +13,8 @@ import { localWorkJournalRoot } from './local-work-journal.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { withMachineStateResetBarrier } from './machine-state-reset.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
+import { PACKAGE_ROOT } from './package-root.mjs';
+import runtimeResolver from '../runtime/resolve.cjs';
 
 export const FRESH_INSTALL_CONFIRMATION = 'RESET EVERYTHING';
 export const LOCAL_RESET_CONFIRMATION = 'RESET LOCAL';
@@ -809,6 +811,7 @@ async function machineResetPlan({
 }
 
 export async function freshInstallResetPlan(options = {}) {
+  runtimeResolver.assertLegacyInstallerAllowed(PACKAGE_ROOT);
   return machineResetPlan({
     ...options,
     operation: 'fresh-install-reset',
@@ -822,6 +825,7 @@ export async function freshInstallResetPlan(options = {}) {
 
 /** Preview either machine-state-only cleanup or validated workspace deletion. */
 export async function localResetPlan(options = {}) {
+  runtimeResolver.assertLegacyInstallerAllowed(PACKAGE_ROOT);
   const forgetOnly = options.forgetOnly === true;
   return machineResetPlan({
     ...options,
@@ -1040,6 +1044,7 @@ async function applyMachineReset(plan, { confirmation, fault = null }, { lockPat
 
 /** Delete only the boundary proven by freshInstallResetPlan. Reinstallation remains install.sh's job. */
 export async function freshInstallReset(options = {}) {
+  runtimeResolver.assertLegacyInstallerAllowed(PACKAGE_ROOT);
   const lockLocations = await resolveMachineResetLocations(options);
   const localStateRoot = lockLocations.localState.path;
   const state = Object.fromEntries(Object.entries(lockLocations.stateProofs)
@@ -1057,6 +1062,7 @@ export async function freshInstallReset(options = {}) {
 
 /** Apply the selected local mode while preserving every installed product surface. */
 export async function localReset(options = {}) {
+  runtimeResolver.assertLegacyInstallerAllowed(PACKAGE_ROOT);
   const lockLocations = await resolveMachineResetLocations(options);
   const localStateRoot = lockLocations.localState.path;
   const state = Object.fromEntries(Object.entries(lockLocations.stateProofs)

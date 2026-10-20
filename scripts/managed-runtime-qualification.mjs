@@ -45,7 +45,7 @@ try {
     for (const key of Object.keys(bootstrapEnvironment)) if (key.toLowerCase() === 'path') delete bootstrapEnvironment[key];
     bootstrapEnvironment.PATH = path.join(process.env.SystemRoot, 'System32');
   } else {
-    for (const tool of ['uname', 'awk', 'dirname', 'mkdir']) {
+    for (const tool of ['uname', 'awk', 'dirname', 'mkdir', 'cat', 'stat']) {
       const located = (await installerProcess('/usr/bin/which', [tool], { capture: true })).stdout.trim();
       await symlink(located, path.join(nodeFreePath, tool));
     }
@@ -92,8 +92,17 @@ try {
   assert.ok(before.length > 0, 'installation must prepare real cache files');
   await installerProcess(node, [selected.cli, '--build'], { capture: true, env: commandEnv, cwd: directory });
   await installerProcess(node, [selected.cli, 'about', '--json'], { capture: true, env: commandEnv, cwd: directory });
+  const packageRoot = path.dirname(path.dirname(selected.cli));
+  const hookEnvironment = { ...bootstrapEnvironment,
+    SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(home, '.singularity-flow/copilot-mode.json') };
+  const hook = process.platform === 'win32'
+    ? { executable: bootstrap.executable, args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(packageRoot, 'plugin/hook-launcher.ps1'), 'boundary-after'] }
+    : { executable: '/bin/bash', args: [path.join(packageRoot, 'plugin/hook-launcher.sh'), 'boundary-after'] };
+  assert.deepEqual(JSON.parse((await installerProcess(hook.executable, hook.args, { capture: true, env: hookEnvironment, cwd: directory })).stdout), {});
+  assert.deepEqual(JSON.parse((await installerProcess(node, [path.join(packageRoot, 'plugin/hook-launcher.mjs'), 'boundary-after', selected.cli], { capture: true, env: hookEnvironment, cwd: directory })).stdout), {});
   assert.deepEqual(await cacheSnapshot(), before);
   report.cases.push('foreground commands do not write prepared compile-cache files');
+  report.cases.push('Copilot shell/PowerShell hooks work without global Node and do not write the prepared cache');
   // Exercise the authenticated distribution route with a real engine archive and a fixture key.
   releaseFixture = await distributionFixture();
   const fixtureReceiptFile = path.join(releaseFixture.directory, 'ARTIFACT-RECEIPT.json');

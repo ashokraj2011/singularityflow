@@ -37,7 +37,8 @@ async function main() {
   await installerProcess(process.execPath, [npm, 'ci', '--no-audit', '--no-fund'], { cwd: source, env, timeoutMs: 600_000 });
   const { buildReinstallBundle, reinstallSourceDigest } = await import('../src/reinstall.mjs');
   const sourceSha256 = await reinstallSourceDigest(source);
-  const registry = process.env.SINGULARITY_FLOW_NPM_REGISTRY || process.env.NPM_CONFIG_REGISTRY || 'https://registry.npmjs.org/';
+  const registry = process.env.SINGULARITY_FLOW_NPM_REGISTRY || process.env.NPM_CONFIG_REGISTRY
+    || (await installerProcess(process.execPath, [npm, 'config', 'get', 'registry'], { cwd: source, env, capture: true })).stdout.trim();
   const bundle = await buildReinstallBundle({ checkout: source, registry,
     cliOnly: args.includes('--cli-only'), skipTests: args.includes('--skip-tests'), sourceSha256 });
   try {

@@ -16,6 +16,19 @@ if [[ "$managed_root" == /* && -f "$managed_root/active" ]]; then
     managed_node="$managed_root/runtimes/$managed_runtime/bin/node"
     managed_cli="$managed_root/releases/$managed_release/node_modules/singularity-flow/bin/singularity-flow.mjs"
     if [[ -x "$managed_node" && -f "$managed_cli" ]]; then
+      case "$action" in
+        boundary-guard|boundary-after|boundary-end)
+          managed_mode=${SINGULARITY_FLOW_COPILOT_MODE_FILE:-${HOME:-}/.singularity-flow/copilot-mode.json}
+          if [[ "$managed_mode" == /* && "$managed_mode" != */ && "$managed_mode" != *'/./'* && "$managed_mode" != *'/../'* ]]; then
+            shopt -s nullglob
+            managed_boundaries=("${managed_mode%/*}/copilot-boundaries"/*)
+            shopt -u nullglob
+            if (( ${#managed_boundaries[@]} == 0 )); then
+              cat >/dev/null 2>&1 || true
+              printf '%s\n' '{}'; exit 0
+            fi
+          fi ;;
+      esac
       exec "$managed_node" "$launcher_dir/hook-launcher.mjs" "$action" "$managed_cli"
     fi
   fi

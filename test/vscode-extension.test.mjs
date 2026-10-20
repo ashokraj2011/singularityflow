@@ -40,11 +40,23 @@ const { resolveCli, SingularityFlowClient, commandClass } = await import(source(
 test('VS Code selects one managed runtime/engine pair without changing the extension host', () => {
   const engine = { executable: path.resolve('private node'), cli: path.resolve('managed engine/bin/singularity-flow.mjs') };
   assert.deepEqual(resolveCli({ extensionPath: '/extension', managedEngine: () => engine }), { ...engine, source: 'managed' });
-  assert.deepEqual(resolveCli({ configuredNode: '/approved/node', managedEngine: () => engine }), { ...engine, executable: '/approved/node', source: 'managed' });
+  assert.deepEqual(resolveCli({ configuredNode: '/approved/node', managedEngine: () => engine }), { ...engine, executable: '/approved/node', source: 'managed', nodeOverride: '/approved/node' });
   assert.throws(() => resolveCli({ managedEngine: () => { throw new Error('invalid managed selection'); } }), /invalid managed selection/);
   const custom = path.resolve('explicit/bin/singularity-flow.mjs');
   assert.equal(resolveCli({ configuredCli: custom, exists: () => true,
     managedEngine: () => { throw new Error('must not resolve managed installation'); } }).cli, custom);
+});
+test('an existing VS Code client follows managed upgrades as one pair without reloading the editor', () => {
+  let selected = { executable: '/private/runtime-one/node', cli: '/private/release-one/cli.mjs' };
+  const client = new SingularityFlowClient({ location: { ...selected, source: 'managed' }, repository: '/repo',
+    managedEngine: () => selected });
+  assert.equal(client.location.cli, selected.cli);
+  selected = { executable: '/private/runtime-two/node', cli: '/private/release-two/cli.mjs' };
+  assert.deepEqual(client.location, { ...selected, source: 'managed' });
+  const override = new SingularityFlowClient({ location: { ...selected, source: 'managed', nodeOverride: '/approved/node' },
+    repository: '/repo', managedEngine: () => selected });
+  assert.equal(override.location.executable, '/approved/node');
+  assert.equal(override.location.cli, selected.cli);
 });
 const { phasesInOrder, packsWithMembers, storiesByRepository, isApprovalPinned } =
   await import(source('cli/snapshot.ts'));

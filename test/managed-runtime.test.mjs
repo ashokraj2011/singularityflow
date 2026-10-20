@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import resolver from '../runtime/resolve.cjs';
@@ -124,6 +124,20 @@ test('an archive integrity failure preserves the current engine and creates no r
   await assert.rejects(lstat(path.join(f.root, 'releases', candidate.sha256)), { code: 'ENOENT' });
 });
 
+test('a failed never-activated npm stage is preserved and automatically restaged on retry', async t => {
+  const f = await fixture(t);
+  const candidate = await f.archive();
+  await assert.rejects(installManagedRelease({ ...candidate, execute: async (exe, args, options) => {
+    if (args[1] === 'install') throw new Error('interrupted npm stage');
+    return f.execute(exe, args, options);
+  } }), /interrupted npm stage/);
+  await assert.rejects(lstat(path.join(f.root, 'active')), { code: 'ENOENT' });
+  const notices = [];
+  assert.equal((await installManagedRelease({ ...candidate, log: value => notices.push(value) })).installed, true);
+  assert.ok(notices.some(value => /never-activated/.test(value)));
+  assert.ok((await readdir(path.join(f.root, 'releases'))).some(name => name.startsWith(`${candidate.sha256}.failed-`)));
+});
+
 test('smoke failures preserve the selected engine and failed candidate for inspection', async t => {
   const f = await fixture(t);
   await installManagedRelease(await f.archive());
@@ -165,6 +179,11 @@ test('managed resolver rejects selections from another host', async t => {
 
 test('managed engine homes must be absolute', () => {
   assert.throws(() => resolver.engineHome({ environment: { SINGULARITY_FLOW_ENGINE_HOME: '../repository' } }), /must be absolute/);
+});
+
+test('managed engine maintenance cannot silently mutate legacy global npm or delete its own runtime', () => {
+  assert.throws(() => resolver.assertLegacyInstallerAllowed(path.join(path.parse(process.cwd()).root, 'private', 'releases', 'a'.repeat(64), 'node_modules', 'singularity-flow')), /Legacy global npm/);
+  assert.doesNotThrow(() => resolver.assertLegacyInstallerAllowed(path.resolve('source checkout')));
 });
 
 test('legacy recovery is preserved and must finish before a managed activation', async t => {

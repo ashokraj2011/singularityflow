@@ -17,7 +17,7 @@ export async function installerProcess(executable, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, { shell: false, windowsHide: true,
       detached: process.platform !== 'win32', stdio: capture ? ['ignore', 'pipe', 'pipe'] : 'inherit', ...rest });
-    let stdout = '', stderr = '', timeout = false;
+    let stdout = '', stderr = '', timeout = false, interrupted = null;
     const stop = () => {
       if (!child.pid) return;
       if (process.platform === 'win32') {
@@ -26,12 +26,15 @@ export async function installerProcess(executable, args, options = {}) {
       } else { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already settled */ } }
     };
     const timer = setTimeout(() => { timeout = true; stop(); }, timeoutMs);
+    const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'].map(signal => [signal, () => { interrupted = signal; stop(); }]);
+    for (const [signal, handler] of signals) process.once(signal, handler);
+    const settled = () => { clearTimeout(timer); for (const [signal, handler] of signals) process.removeListener(signal, handler); };
     child.stdout?.on('data', bytes => { stdout += bytes; if (stdout.length > 1024 * 1024) stop(); });
     child.stderr?.on('data', bytes => { stderr += bytes; if (stderr.length > 1024 * 1024) stop(); });
-    child.once('error', error => { clearTimeout(timer); reject(error); });
+    child.once('error', error => { settled(); reject(error); });
     child.once('close', (code, signal) => {
-      clearTimeout(timer);
-      if (code !== 0 || signal || timeout) reject(new Error(`${path.basename(executable)} failed (${timeout ? `deadline ${timeoutMs}ms` : signal || `exit ${code}`}): ${stderr.trim()}`));
+      settled();
+      if (code !== 0 || signal || timeout || interrupted) reject(new Error(`${path.basename(executable)} failed (${timeout ? `deadline ${timeoutMs}ms` : interrupted || signal || `exit ${code}`}): ${stderr.trim()}`));
       else resolve({ stdout, stderr });
     });
   });
@@ -126,7 +129,23 @@ export async function installManagedRelease({ tarball, sha256, nodeExecutable = 
     await writeFile(path.join(lock, 'owner.json'), JSON.stringify({ pid: process.pid }), { mode: 0o600, flag: 'wx' });
     const previous = await readFile(activeFile, 'utf8').catch(error => { if (error.code === 'ENOENT') return null; throw error; });
     if (previous) resolver.resolveManagedEngine({ environment: { SINGULARITY_FLOW_ENGINE_HOME: root } });
-    const exists = await lstat(release).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+    let exists = await lstat(release).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+    if (exists?.isDirectory() && !exists.isSymbolicLink()) {
+      const archiveMarker = await lstat(path.join(release, '.archive-sha256')).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+      const treeMarker = await lstat(path.join(release, '.package-tree-sha256')).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+      if (!archiveMarker || !treeMarker) {
+        const owner = JSON.parse(await readFile(path.join(release, '.install-owner.json'), 'utf8'));
+        const priorReceipt = JSON.parse(await readFile(receiptFile, 'utf8').catch(error => { if (error.code === 'ENOENT') return '{}'; throw error; }));
+        const selected = [previous, priorReceipt.previous, priorReceipt.candidate].filter(Boolean);
+        if (owner.sha256 !== sha256 || owner.status !== 'staging'
+            || selected.some(value => value.includes(`|${sha256}\n`))
+            || digest(await readFile(path.join(release, 'singularity-flow.tgz'))) !== sha256) throw new Error('Incomplete release needs manual review; accepted/recovery bytes were preserved.');
+        const quarantine = `${release}.failed-${randomUUID()}`;
+        await rename(release, quarantine);
+        log(`Preserved an interrupted, never-activated candidate at ${quarantine}; restaging its verified archive.`);
+        exists = null;
+      }
+    }
     if (exists) {
       if (!exists.isDirectory() || exists.isSymbolicLink()
           || (await readFile(path.join(release, '.archive-sha256'), 'utf8')).trim() !== sha256) throw new Error('Existing release is incomplete; it was preserved for recovery.');
@@ -134,6 +153,7 @@ export async function installManagedRelease({ tarball, sha256, nodeExecutable = 
       await privateDirectory(release);
       const retained = path.join(release, 'singularity-flow.tgz');
       await writeFile(retained, bytes, { mode: 0o600, flag: 'wx' });
+      await writeFile(path.join(release, '.install-owner.json'), JSON.stringify({ status: 'staging', sha256 }), { mode: 0o600, flag: 'wx' });
       // Only this build/install child environment selects private Node. Application environments do not.
       const env = { ...process.env, PATH: `${path.dirname(nodeExecutable)}${path.delimiter}${process.env.PATH || ''}`,
         NPM_CONFIG_CACHE: path.join(release, '.npm-cache'), NODE_COMPILE_CACHE: undefined,
@@ -174,6 +194,7 @@ export async function installManagedRelease({ tarball, sha256, nodeExecutable = 
       // The engine/runtime selection is committed in one atomic filesystem operation.
       await atomic(activeFile, candidate);
       try {
+        await atomic(path.join(release, '.install-owner.json'), JSON.stringify({ status: 'activated', sha256 }));
         await atomic(receiptFile, `${JSON.stringify({ schemaVersion: 1, status: 'complete', previous,
           candidate, build, version: manifest.version, createdAt: new Date().toISOString() }, null, 2)}\n`);
       } catch (error) { log(`Engine activation committed; completion receipt remains prepared: ${error.message}`); }

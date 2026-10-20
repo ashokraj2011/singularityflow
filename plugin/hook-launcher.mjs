@@ -5,7 +5,8 @@ import { pathToFileURL } from 'node:url';
 
 // Node validates its bytecode cache against runtime and module bytes. Unsupported, disabled or
 // unwritable caches fall back to normal execution; no permission/approval result is cached.
-try { (await import('node:module')).enableCompileCache?.(); } catch { /* optional startup optimization */ }
+// Enable only after resolving the selected engine below: managed foreground hooks must not
+// accidentally create a separate writable cache in the user's temporary directory.
 
 const [action, ...candidates] = process.argv.slice(2);
 const actions = new Set(['boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end', 'agent-start']);
@@ -57,6 +58,11 @@ try {
     const root = candidates.map(packageFor).find(Boolean);
     if (!root) unavailable();
     else {
+      try {
+        const cache = path.join(root, 'runtime/cache.cjs');
+        if (existsSync(cache)) (await import(pathToFileURL(cache).href)).default.enableEngineCache(root);
+        else (await import('node:module')).enableCompileCache?.();
+      } catch { /* optional startup optimization */ }
       const selector = await import(pathToFileURL(path.join(root, 'src/bundled-cli.mjs')).href)
         .catch(() => null);
       const hookSource = path.join(root, 'src/copilot-hook-runtime.mjs');

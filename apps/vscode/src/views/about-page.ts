@@ -14,6 +14,7 @@ export interface AboutInfo {
 }
 export interface AboutWindow {
   version: string; build: string; editorVersion: string; reloadRequired: boolean;
+  hostNode?: string;
 }
 
 export function isAboutInfo(value: unknown): value is AboutInfo {
@@ -49,7 +50,8 @@ export function aboutHtml(info: AboutInfo | null, window: AboutWindow, error: st
     ${window.reloadRequired ? '<p class="notice warning" role="alert">The extension on disk changed after this window loaded. These are different observations. <button data-about="reload">Reload VS Code</button></p>' : ''}
     <h2>This VS Code window</h2><dl class="about-facts"><dt>Extension version</dt><dd>${escape(window.version)}</dd>
       <dt>Loaded UI build</dt><dd><code>${escape(window.build)}</code></dd><dt>UI build date (UTC)</dt><dd>${escape(loadedDate)}</dd>
-      <dt>VS Code editor version</dt><dd>${escape(window.editorVersion)}</dd></dl>
+      <dt>VS Code editor version</dt><dd>${escape(window.editorVersion)}</dd>
+      ${window.hostNode ? `<dt>Extension-host Node</dt><dd>${escape(window.hostNode)} (separate from the SFlow engine)</dd>` : ''}</dl>
     <h2>Installed product builds</h2>
     ${info ? `<p class="notice${info.alignment === 'mismatch' ? ' warning' : ''}">CLI / VS Code alignment: <strong>${escape(info.alignment)}</strong>.</p>
       <div class="about-table"><table><thead><tr><th>Surface</th><th>Version</th><th>Build identity</th><th>Build date (UTC)</th><th>Read status</th></tr></thead><tbody>

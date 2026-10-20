@@ -115,6 +115,20 @@ test('a redirected runtime parent is refused before any executable is launched',
   assert.equal(f.calls.length, 0);
 });
 
+test('rollback refuses a redirected retained runtime before executing or changing the active pair', async t => {
+  const f = await fixture(t);
+  await installManagedRelease(await f.archive());
+  await installManagedRelease(await f.archive());
+  const selected = await readFile(path.join(f.root, 'active'), 'utf8');
+  const retained = `${f.runtime}.retained`;
+  await rename(f.runtime, retained);
+  await symlink(retained, f.runtime, process.platform === 'win32' ? 'junction' : 'dir');
+  const before = f.calls.length;
+  await assert.rejects(rollbackManagedRelease({ root: f.root, execute: f.execute }), /Unsafe SFlow/);
+  assert.equal(f.calls.length, before);
+  assert.equal(await readFile(path.join(f.root, 'active'), 'utf8'), selected);
+});
+
 test('an archive integrity failure preserves the current engine and creates no release', async t => {
   const f = await fixture(t);
   await installManagedRelease(await f.archive());

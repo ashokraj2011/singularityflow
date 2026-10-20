@@ -50,6 +50,10 @@ async function atomic(file, text) {
 
 async function privateDirectory(directory) {
   await mkdir(directory, { recursive: true, mode: 0o700 });
+  await assertPrivateDirectory(directory);
+}
+
+async function assertPrivateDirectory(directory) {
   const info = await lstat(directory);
   if (!info.isDirectory() || info.isSymbolicLink()
       || (process.platform !== 'win32' && ((info.mode & 0o022) || (process.getuid && info.uid !== process.getuid())))) throw new Error(`Unsafe SFlow installation directory: ${directory}`);
@@ -216,6 +220,11 @@ export async function rollbackManagedRelease({ root = resolver.engineHome(), exe
   const executable = path.join(root, 'runtimes', runtime, ...(process.platform === 'win32' ? ['node.exe'] : ['bin', 'node']));
   const cli = path.join(root, 'releases', release, 'node_modules', 'singularity-flow', 'bin', 'singularity-flow.mjs');
   const packageRoot = path.dirname(path.dirname(cli));
+  for (const directory of [root, path.join(root, 'runtimes'), path.dirname(path.dirname(executable)),
+    path.dirname(executable), path.join(root, 'releases'), path.join(root, 'releases', release),
+    path.dirname(packageRoot), packageRoot, path.dirname(cli)]) await assertPrivateDirectory(directory);
+  const nodeInfo = await lstat(executable);
+  if (!nodeInfo.isFile() || nodeInfo.isSymbolicLink()) throw new Error('Rollback Node must be an ordinary executable.');
   const tree = await packageTreeDigest(packageRoot);
   if ((await readFile(path.join(root, 'releases', release, '.package-tree-sha256'), 'utf8')).trim() !== tree) throw new Error('Rollback package changed; current engine was preserved.');
   await execute(executable, [cli, '--build'], { capture: true, cwd: root, timeoutMs: 30_000 });

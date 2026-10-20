@@ -1,5 +1,5 @@
 /** Explicit model-free refresh. No preparation, tests, publication, approval or remote fetch. */
-import { phaseEntryContext } from '../phase-entry.mjs';
+import { phaseEntryContext } from '../phase-entry-context.mjs';
 import { recoveryPlan } from '../collaboration.mjs';
 import { repoRoot, head, branch } from '../git.mjs';
 import { loadDefinition } from '../config.mjs';

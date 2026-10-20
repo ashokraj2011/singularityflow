@@ -944,6 +944,12 @@ test('only governed supporting Markdown is placeholder-checked without scanning 
   assert.deepEqual(reviewArtifacts.artifacts.map((artifact) => path.basename(artifact.path)), [
     'intake.md', 'review-notes.md'
   ], 'an advisory artifact became part of the governed repair fingerprint');
+  const observed = [];
+  const primaryOnly = await phaseAuthoredReviewArtifacts(context.root, context.config, context.workflow, context.phase,
+    { primaryOnly: true, observeFile: relative => observed.push(relative) });
+  assert.equal(primaryOnly.artifacts.length, 1);
+  assert.equal(primaryOnly.artifacts[0].scope, 'primary');
+  assert.deepEqual(observed, [primaryOnly.artifacts[0].path], 'draft progress must not reread supporting artifacts');
   await inContext(context.root, async () => assert.rejects(
     () => publishGeneration(context.root, context.config, context.workflow, {
       phaseId: 'intake', authorship: AUTHORSHIP

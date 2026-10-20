@@ -39,7 +39,7 @@ const failures = [];
 const checked = [];
 const execFileAsync = promisify(execFile);
 
-for (const relative of ['src/agent-hooks.mjs', 'src/worldmodel.mjs']) {
+for (const relative of ['src/agent-hooks.mjs', 'src/worldmodel.mjs', 'src/phase-prompt-composer.mjs']) {
   const text = await readFile(path.join(root, relative), 'utf8');
   if (/cwd for every shell and file tool|Resolve every named path inside|Paths in Flow output are relative to one of these two roots/u.test(text)) {
     failures.push(`${relative}: runtime guidance must not rebase CLI-issued absolute paths`);

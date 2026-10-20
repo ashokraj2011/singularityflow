@@ -18,7 +18,7 @@ export async function inputsCommand(positionals, options) {
   if (positionals[1] === 'restore') return (await import('./input-restore.mjs')).inputsRestoreCommand(repoRoot(), positionals, options);
   const forAgent = optionBoolean(options, 'for-agent');
   if (forAgent) (await import('../agent-entry-options.mjs')).validateAgentEntryRequest('inputs', { positionals, options });
-  const { phaseEntryContext } = await import('../phase-entry.mjs');
+  const { phaseEntryContext } = await import('../phase-entry-context.mjs');
   const entry = forAgent ? await phaseEntryContext({ phaseId: positionals[1] ?? null }) : null;
   if (entry?.packet.paused || (entry && !entry.packet.ready)) {
     console.log(JSON.stringify(entry.packet));

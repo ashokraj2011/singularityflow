@@ -120,6 +120,12 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   }
   assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7 * 1024 * 1024,
     'phase-review reads retain their existing byte ceiling after moving families');
+  assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
+    'phase binding must not fall through to the compatibility/admin bundle');
+  const phaseCode = await readFile(path.join(outdir, 'cold-phases.mjs'), 'utf8');
+  assert.match(phaseCode, /function completePhaseEntry\b/u);
+  assert.match(phaseCode, /function composePhasePrompt\b/u,
+    'passive composition belongs in the existing prepared phase family, not the model/admin dispatcher');
   assert.ok(catalogClosure.reduce((sum, item) => sum + item.bytes, 0) < 5 * 1024 * 1024,
     'catalog parsing stays bounded instead of pulling in the entire administration bundle');
   for (const name of ['cold-compatibility.mjs', 'cold-models.mjs', 'cold-intake.mjs', 'cold-phases.mjs', 'cold-hook-context.mjs']) {

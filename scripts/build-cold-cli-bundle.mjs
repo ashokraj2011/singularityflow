@@ -6,7 +6,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const FAMILIES = Object.freeze([
-  ['core', ['cli-bundle-entry.mjs', 'command-loaders.mjs', 'deferred-index-refresh.mjs',
+  ['core', ['cli-bundle-entry.mjs', 'command-loaders.mjs', 'deferred-index-refresh.mjs', 'build-stamp-reader.mjs',
     'commands/skill-request.mjs', 'commands/instruction-request.mjs']],
   ['status', ['commands/status.mjs', 'commands/progress.mjs', 'commands/report.mjs',
     'command-observability.mjs', 'logging.mjs', 'accounting-projection.mjs', 'read-worker-service.mjs']],
@@ -24,7 +24,10 @@ const FAMILIES = Object.freeze([
     'accepted-story-execution.mjs', 'story-workflow-read.mjs',
     'commands/review-source.mjs', 'source-review-agent-context.mjs', 'story-publication-pending.mjs']],
   ['light', ['commands/about.mjs', 'commands/pause.mjs', 'commands/workspace.mjs', 'commands/capability.mjs',
-    'commands/intake-entry.mjs', 'commands/snapshot.mjs', 'commands/phase.mjs', 'agent-output.mjs', 'agent-catalog-presentation.mjs',
+    // Optional exact context/provenance reads must not fall through to compatibility. Keep their
+    // dynamic ownership out of every hook/output helper's static closure and its existing ceiling.
+    'workspace-membership.mjs', 'workspace-manifest.mjs', 'story-tree-read.mjs', 'decision-list-facts.mjs',
+    'commands/intake-entry.mjs', 'commands/snapshot.mjs', 'commands/phase.mjs', 'phase-entry.mjs', 'agent-output.mjs', 'agent-catalog-presentation.mjs',
     'commands/logs.mjs', 'commands/help.mjs', 'commands/explain.mjs']],
   // Claim catalog definitions before authoring closures. Leaving these dynamic roots unassigned
   // put every list/show in compatibility, importing the entire administration/model dispatcher.
@@ -46,7 +49,13 @@ const FAMILIES = Object.freeze([
     'commands/story-entry.mjs', 'story-worktree-preparation.mjs',
     'local-work-journal.mjs', 'history-index.mjs']],
   ['reads', ['commands/inbox.mjs', 'commands/home.mjs', 'editor.mjs']],
-  ['phases', ['first-run-pass.mjs', 'configuration-review-pass.mjs',
+  ['phases', ['phase-entry-authoring.mjs', 'phase-prompt-composer.mjs', 'document-runtime.mjs',
+    'copilot-story-follow.mjs',
+    'evidence-consistency-read.mjs', 'scope/authoring.mjs', 'owed-decisions.mjs',
+    'phase-repair-journal.mjs', 'phase-appeals.mjs', 'phase-quality-risk.mjs', 'source-review-lifecycle.mjs',
+    'verification/witness-decisions.mjs', 'evidence/terminal.mjs', 'evidence/graph.mjs',
+    'evidence/evaluate.mjs', 'verification/contracts.mjs',
+    'first-run-pass.mjs', 'configuration-review-pass.mjs',
     'commands/phase.mjs', 'commands/prepare.mjs', 'commands/inputs.mjs', 'commands/review-source.mjs',
     'commands/submit.mjs', 'commands/approve.mjs', 'commands/nextsteps-deferred.mjs']],
   ['models', ['commands/wm.mjs', 'commands/comprehension.mjs']]

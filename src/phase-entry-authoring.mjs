@@ -80,7 +80,7 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
   let context = null;
   if (compose && canCompose) {
     // The existing composer owns pinned inputs, immutable reuse, authority replay and locking.
-    const { composePhasePrompt } = await import('./worldmodel.mjs');
+    const { composePhasePrompt } = await import('./phase-prompt-composer.mjs');
     const text = await composePhasePrompt(root, { workId: actualId, phase: phase.id });
     // The composer writes the prompt of the generation to author next. A published step's inspection
     // generation is the one before it, so naming that file offered the previous generation's prompt.

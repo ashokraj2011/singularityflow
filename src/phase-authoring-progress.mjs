@@ -39,7 +39,7 @@ export function phaseAuthoringProgress(workflow, phase, { draftEvidence = null }
 /** Only inspect the current prospective primary artifact; never recheck approved phases. */
 export async function readPhaseDraftEvidence(root, definition, workflow, phase, { changedPaths = null, observeFile = null } = {}) {
   if (!phase?.requiredArtifact?.path) return { draftExists: false, draftModified: false };
-  const review = await phaseAuthoredReviewArtifacts(root, definition, workflow, phase, { observeFile });
+  const review = await phaseAuthoredReviewArtifacts(root, definition, workflow, phase, { observeFile, primaryOnly: true });
   const primary = review.artifacts.find(artifact => artifact.scope === 'primary');
   const baseline = phase.authoringBaseline;
   const changed = !baseline && primary?.exists

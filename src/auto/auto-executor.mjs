@@ -15,7 +15,7 @@ import { loadStoryAggregate } from '../story-aggregate-read.mjs';
 import { recordSha256 } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { tryWindowsTaskkill } from '../platform-process.mjs';
-import { composePhasePrompt } from '../worldmodel.mjs';
+import { composePhasePrompt } from '../phase-prompt-composer.mjs';
 import { buildRepositoryChangeSet } from '../repository-change-set.mjs';
 import { evaluateStoryProtectedPaths } from '../configuration-materialization.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from '../work-intervals.mjs';

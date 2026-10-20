@@ -5,6 +5,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { createWarmReadFixture, bindPhaseReadFixture } from '../scripts/warm-read-fixture.mjs';
+import { buildCliBundle } from '../scripts/build-cli-bundle.mjs';
 
 for (const storyMode of ['legacy', 'pinned', 'amended']) {
   test(`bound ${storyMode} phase entry composes context and worker guidance observes the same binding`, { timeout: 180_000 }, async t => {
@@ -87,4 +88,26 @@ test('composition reloads under its lease rather than inheriting an advisory acc
     } finally { await writeFile(f.statePath, saved); }
   });
   await assert.rejects(readFile(path.join(path.dirname(f.statePath), 'context', `${f.phaseId}-gen1.json`)), { code: 'ENOENT' });
+});
+
+test('installed bound phase, composition and nextsteps do not load compatibility or model dispatch', { timeout: 180_000 }, async t => {
+  const f = await createWarmReadFixture({ storyMode: 'pinned', phaseReady: true, artifacts: 8 });
+  t.after(() => f.cleanup()); await bindPhaseReadFixture(f); await buildCliBundle({ root: f.engine });
+  const log = path.join(f.directory, 'module-roster.log'), hook = path.join(f.directory, 'module-hook.mjs');
+  await writeFile(hook, `import { register } from 'node:module';\nregister(new URL('./module-loader.mjs', import.meta.url));\n`);
+  await writeFile(path.join(f.directory, 'module-loader.mjs'), `import { appendFileSync } from 'node:fs';\nexport async function resolve(specifier, context, next) { const result = await next(specifier, context); if (/cold-(?:compatibility|models)\\.mjs$/.test(result.url)) appendFileSync(process.env.SFLOW_MODULE_ROSTER, '[edge ' + context.parentURL + ' -> ' + specifier + ']\\n'); return result; }\nexport async function load(url, context, next) { appendFileSync(process.env.SFLOW_MODULE_ROSTER, url + '\\n'); return next(url, context); }\n`);
+  for (const args of [
+    ['phase', 'enter', f.phaseId, '--for-agent', '--json'],
+    ['phase', 'enter', f.phaseId, '--compose', '--for-agent', '--json'],
+    ['nextsteps', f.workId, '--for-agent', '--json']
+  ]) {
+    await writeFile(log, '');
+    const result = spawnSync(process.execPath, [f.cli, ...args], { cwd: f.repository,
+      env: { ...f.env, SINGULARITY_FLOW_BUNDLE: 'on', SINGULARITY_FLOW_AGENT_OUTPUT: 'raw',
+        SFLOW_MODULE_ROSTER: log, NODE_OPTIONS: `--import=${pathToFileURL(hook).href}` },
+      encoding: 'utf8', timeout: 90_000, maxBuffer: 40 * 1024 * 1024 });
+    assert.equal(result.status, 0, result.stderr); assert.equal(JSON.parse(result.stdout).ready, true);
+    assert.doesNotMatch(await readFile(log, 'utf8'), /\/(?:cold-compatibility|cold-models)\.mjs(?:\n|$)/u,
+      `${args.join(' ')} imported an unrelated installed command domain`);
+  }
 });

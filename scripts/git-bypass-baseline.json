@@ -1578,7 +1578,7 @@
       },
       "digest": "2ed8be49365d2f3c805e80828f9e12498d08e65490ca8f79c273a561bfa9a555"
     },
-    "src/worldmodel.mjs": {
+    "src/phase-prompt-composer.mjs": {
       "counts": {
         "command-run": 1
       },

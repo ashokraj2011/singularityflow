@@ -10,7 +10,7 @@ import { phaseKernelOwned, phaseRequiresCodeDelivery } from './code-delivery-pol
 import { phaseAuthoringSummary } from './phase-authoring-summary.mjs';
 import { gitDir } from './git-execution.mjs';
 import { storyReferenceRepositories, verifyReferenceRepositories } from './reference-repositories.mjs';
-import { SingularityFlowError, writeAtomic, ensureSecureRepositoryDirectory } from './util.mjs';
+import { SingularityFlowError } from './util.mjs';
 import { recoveryActionGuidance } from './recovery-action-guidance.mjs';
 import { phaseContextAdmission, phaseAdmissionActions } from './phase-entry-admission.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
@@ -103,15 +103,7 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     const durableFile = await composedPromptFile(root, definition.workItemRoot, actualId, phase.id, generation);
     let file = durableFile;
     if (documentReadiness.localDocumentCount) {
-      const sha256 = createHash('sha256').update(text).digest('hex');
-      const localPath = path.join(gitDir(root), 'singularity-flow', 'document-context', `${sha256}.md`);
-      await ensureSecureRepositoryDirectory(gitDir(root), path.dirname(localPath), { label: 'Private document context' });
-      await writeAtomic(localPath, text, { mode: 0o600 });
-      if (globalThis.__SFLOW_EXTENSION_HOST__ !== true) {
-        await (await import('./copilot-mutation-guard.mjs')).issueMutationReadPaths(root, [localPath]);
-      }
-      file = { path: localPath, sha256, bytes: Buffer.byteLength(text), storage: 'local',
-        instruction: 'Exact complete runtime context, including this laptop\'s verified documents. Never copy it into the repository or a committed prompt.' };
+      file = await (await import('./document-runtime.mjs')).writePrivateDocumentContext(root, text);
     }
     context = { text, deliveredSha256: createHash('sha256').update(text).digest('hex'),
       renderedSha256: durableFile?.sha256 ?? null, generation, ...(file ? { file } : {}),

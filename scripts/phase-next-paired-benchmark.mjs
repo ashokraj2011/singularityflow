@@ -14,6 +14,7 @@ const baseline = option('baseline-engine');
 const profiles = option('profiles', 'legacy,pinned,amended').split(',');
 const output = option('output');
 const runtimePrewarm = option('prewarmed', 'true') === 'true';
+const requestTimings = option('request-timings', 'true') === 'true';
 if (!baseline || !path.isAbsolute(baseline) || !Number.isSafeInteger(samples) || samples < 2 || samples > 8 || samples % 2
     || profiles.some(value => !['legacy', 'pinned', 'amended'].includes(value)) || new Set(profiles).size !== profiles.length) {
   throw new Error('Use --baseline-engine=<absolute-checkout> --samples=<even 2..8> --profiles=legacy,pinned,amended.');
@@ -42,7 +43,7 @@ function observation(cli, args, repository, env, cache, allowKnownRefusal = fals
     SINGULARITY_FLOW_AGENT_OUTPUT: 'raw', SINGULARITY_FLOW_PERF_TRACE: '0' };
   delete environment.NODE_DISABLE_COMPILE_CACHE;
   const started = performance.now();
-  const result = spawnSync(process.execPath, [cli, ...args, '--timings'], {
+  const result = spawnSync(process.execPath, [cli, ...args, ...(requestTimings ? ['--timings'] : [])], {
     cwd: repository, env: environment, encoding: 'utf8', timeout: 180_000, maxBuffer: 16 * 1024 * 1024
   });
   const durationMs = performance.now() - started;
@@ -145,8 +146,8 @@ try {
         row.summary[temperature] = { baseline: a, candidate: b,
           outcome: baselineRefused ? 'baseline-skill-compose-refused-candidate-succeeded-not-a-speed-comparison' : 'both-succeeded',
           reductionPercent: baselineRefused ? null : Math.round(1000 * (a.medianMs - b.medianMs) / a.medianMs) / 10,
-          gitSpawns: { baseline: median(observations.baseline[temperature].map(value => value.counters['git.spawns'] ?? 0)),
-            candidate: median(observations.candidate[temperature].map(value => value.counters['git.spawns'] ?? 0)) } };
+          gitSpawns: requestTimings ? { baseline: median(observations.baseline[temperature].map(value => value.counters['git.spawns'] ?? 0)),
+            candidate: median(observations.candidate[temperature].map(value => value.counters['git.spawns'] ?? 0)) } : null };
       }
       if (runtimePrewarm) row.runtimePreparation = Object.fromEntries(Object.entries(preparations)
         .map(([engine, values]) => [engine, summary(values)]));
@@ -201,11 +202,13 @@ try {
     sources: sourceIdentities,
     protocol: { samples, profiles, boundAgent: true, composedContextRequired: true, gitFactStore: 'off; private accepted-provenance receipts enabled', order: 'alternating A/B and B/A', runtime: 'installed cold-layout bundles',
       bundleBuilder: 'each frozen engine uses its own scripts/build-cli-bundle.mjs and chunk ownership',
+      requestTimings,
       cold: 'fresh Node process, empty private V8 cache, fresh local clone without advisory/provenance receipts',
       warm: 'immediate new Node process with the same code/provenance caches; not a persistent worker',
       runtimePrewarmed: runtimePrewarm ? 'independent fresh clone and V8 cache; definitions prepared only, no prior request/provenance receipt; preparation reported separately' : 'not measured',
       filesystem: 'OS page cache is not flushed', network: 'none during measured reads', modelCalls: 0,
-      setup: 'fixture creation, engine build and local cloning are excluded', fileCounters: 'secured configuration sources/catalogs only, not every filesystem operation' }, rows,
+      setup: 'fixture creation, engine build and local cloning are excluded', fileCounters: requestTimings
+        ? 'secured configuration sources/catalogs only, not every filesystem operation' : 'not collected; ordinary requests without --timings' }, rows,
     limitations: ['Synthetic bound entries and actual prompt composition; not application authoring or native Copilot tool/LLM latency.',
       'A native Windows result requires runtime.platform=win32.', 'Four-pair medians are directional, not universal speed guarantees.'] };
   const json = `${JSON.stringify(report, null, 2)}\n`;

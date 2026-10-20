@@ -57,6 +57,12 @@ test('the switch does the opposite of what it shows, and is read only after a co
   const auxiliary = extension.slice(extension.indexOf('const startAuxiliaryReadsAfterConfirmedSnapshot'),
     extension.indexOf('const discover = ()', extension.indexOf('const startAuxiliaryReadsAfterConfirmedSnapshot')));
   assert.match(auxiliary, /void refreshPromptLog\(scope\);/, 'status is read once per confirmed repository, off the activation path');
-  assert.match(extension, /client\.useRepository\(canonicalTarget\);\s*sidebar\.setPromptLog\(null\);/,
+  // The reset belongs to the same synchronous step that moves the client: other repository-scoped
+  // views (the performance report, for one) are retargeted alongside it, but no await may separate
+  // the move from the reset, or the switch would paint the previous repository's setting meanwhile.
+  const moved = extension.search(/(?<![\w.])client\.useRepository\(canonicalTarget\);/);
+  assert.notEqual(moved, -1, 'the workspace switch moves the CLI client to the selected repository');
+  const sameStep = extension.slice(moved, extension.indexOf('await ', moved));
+  assert.match(sameStep, /\n\s*sidebar\.setPromptLog\(null\);/,
     'a workspace switch must not keep showing the previous repository\'s setting');
 });

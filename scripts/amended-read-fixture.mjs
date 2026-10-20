@@ -23,7 +23,7 @@ const domainHash = (domain, value) => qualified(Buffer.concat([
 
 export async function fixture(t, { secondSkill = false, approvalMinimum = 1, runtime = false } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-skp-amendment-'));
-  t.after(() => rm(base, { recursive: true, force: true }));
+  t.after(() => rm(base, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 }));
   const application = path.join(base, 'application');
   const remote = path.join(base, 'approved.git');
   const publisher = path.join(base, 'publisher');

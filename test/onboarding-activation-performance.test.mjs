@@ -10,6 +10,7 @@ import {
   CAPABILITY_AUTHORITY_LINK_PATH, createCapabilityAuthorityLink, publishCapabilityAuthorityLink
 } from '../src/capability-authority-link.mjs';
 import { runRemoteGitAsync } from '../src/git-execution.mjs';
+import { remoteFingerprint } from '../src/git-remote-diagnostics.mjs';
 import { resolveGitCommitIdentity } from '../src/git.mjs';
 import { createLedgerIntent, initializeLedger, prepareLedgerAppend, publishToStateBranch } from '../src/ledger.mjs';
 
@@ -17,7 +18,7 @@ const ledger = { enabled: true, branch: 'state', remote: 'origin', signing: 'off
 const git = (cwd, args, options = {}) => run('git', args, { cwd, ...options });
 const readGit = (cwd, args) => git(cwd, args).stdout.trim();
 
-async function fixture(t, { objectFormat = 'sha1' } = {}) {
+async function fixture(t, { objectFormat = 'sha1', configurationObjectStore } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-activation-contract-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const application = path.join(directory, 'application');
@@ -36,10 +37,15 @@ async function fixture(t, { objectFormat = 'sha1' } = {}) {
     SINGULARITY_FLOW_LEAD_REGISTRY: path.join(directory, 'leads.json'),
     SINGULARITY_FLOW_ORGANISATION_CACHE: path.join(directory, 'organisation-cache'),
     SINGULARITY_FLOW_AUTHORITY_CACHE: path.join(directory, 'authority-cache'),
-    SINGULARITY_FLOW_TRANSPORT_OUTBOX: path.join(directory, 'outbox')
+    SINGULARITY_FLOW_TRANSPORT_OUTBOX: path.join(directory, 'outbox'),
+    // undefined = the product default (the private configuration object pool); 'off' = the
+    // original disposable-clone path. Never inherited from whoever runs the suite.
+    SINGULARITY_FLOW_CONFIGURATION_OBJECT_STORE: configurationObjectStore
   };
   const previous = Object.fromEntries(Object.keys(environment).map(key => [key, process.env[key]]));
-  Object.assign(process.env, environment);
+  for (const [key, value] of Object.entries(environment)) {
+    if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  }
   t.after(() => { for (const [key, value] of Object.entries(previous)) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;
   } });
@@ -59,24 +65,33 @@ async function timed(action) {
   return { result, counters: timer.finish().counters };
 }
 
+// Activation reads the approved configuration through a private object pool kept in the Git
+// directory of the process's working directory, which for the CLI is the initiating repository.
+// Run it from the fixture's application checkout, as the CLI would be, so the pool starts cold and
+// belongs to this fixture. Otherwise the transfer counts depend on what other tests left in the
+// checkout that runs the suite: eight authorities fill that pool and it is declined (falling back
+// to a clone), and another file holding its lease declines it the same way.
 async function activate(f, proposed) {
-  return activateCapabilityProposal(f.lead, proposed.branch, {
-    confirm: proposed.commit, acknowledgeUnprotected: true,
-    initiatingRoot: f.application, initiatingEnv: f.env
-  });
+  const workingDirectory = process.cwd();
+  process.chdir(f.application);
+  try {
+    return await activateCapabilityProposal(f.lead, proposed.branch, {
+      confirm: proposed.commit, acknowledgeUnprotected: true,
+      initiatingRoot: f.application, initiatingEnv: f.env
+    });
+  } finally { process.chdir(workingDirectory); }
 }
 
-test('first activation publishes root, audit and projection together without cloning application history', async t => {
-  const f = await fixture(t);
-  const proposed = await mapCapability(f.lead, { capabilityId: 'service', kind: 'delivery', repositoryUrl: f.delivery });
-  const { result, counters } = await timed(() => activate(f, proposed));
+const configurationPool = f => path.join(f.application, '.git', 'singularity-flow',
+  'configuration-objects-complete-v1', remoteFingerprint(f.lead));
+
+function assertFirstActivation(f, result, counters) {
   assert.equal(result.status, 'activated');
   assert.equal(result.audit.recorded, true);
   assert.equal(result.audit.sequence, 1);
   assert.equal(result.projection.published, true);
   assert.equal(result.portability.portable, true);
   assert.equal(result.proposalCleanup.status, 'deleted');
-  assert.equal(counters['git.remote.command.clone'], 1, 'only the approved configuration checkout is cloned');
   assert.equal(counters['git.remote.command.push'], 4,
     'configuration, combined audit/mirror, delivery link, then exact proposal retirement');
   assert.ok(counters['git.spawns'] <= 145, `unexpected Git process fan-out: ${counters['git.spawns']}`);
@@ -87,6 +102,35 @@ test('first activation publishes root, audit and projection together without clo
   assert.equal(rootHead.sequence, 0);
   assert.equal(readGit(f.lead, ['rev-list', '--parents', '-n', '1', `${audit}^`]).split(' ').length, 1);
   for (const remote of [f.lead, f.delivery]) assert.equal(readGit(remote, ['rev-parse', 'main']), f.main);
+}
+
+test('first activation publishes root, audit and projection together without cloning application history', async t => {
+  const f = await fixture(t);
+  const proposed = await mapCapability(f.lead, { capabilityId: 'service', kind: 'delivery', repositoryUrl: f.delivery });
+  const approved = readGit(f.lead, ['rev-parse', 'sflow/config']);
+  const { result, counters } = await timed(() => activate(f, proposed));
+  assertFirstActivation(f, result, counters);
+  assert.equal(counters['git.remote.command.clone'] ?? 0, 0, 'a cold object pool replaces the configuration clone');
+  assert.equal(counters['configuration.object-store-fetch'], 1, 'the approved configuration objects transfer once');
+  assert.equal(counters['configuration.object-store-checkout'], 1);
+  assert.equal(counters['git.remote.command.fetch'], 2, 'configuration authority, then only the exact proposal');
+  const pool = configurationPool(f);
+  assert.equal(git(pool, ['cat-file', '-e', `${approved}^{commit}`], { allowFailure: true }).status, 0,
+    'the pool, not a clone, carried the approved configuration');
+  assert.notEqual(git(pool, ['cat-file', '-e', `${f.main}^{commit}`], { allowFailure: true }).status, 0,
+    'application history never enters the configuration object pool');
+});
+
+test('first activation through the disposable-clone path clones only the approved configuration', async t => {
+  const f = await fixture(t, { configurationObjectStore: 'off' });
+  const proposed = await mapCapability(f.lead, { capabilityId: 'service', kind: 'delivery', repositoryUrl: f.delivery });
+  const { result, counters } = await timed(() => activate(f, proposed));
+  assertFirstActivation(f, result, counters);
+  assert.equal(counters['git.remote.command.clone'], 1, 'only the approved configuration checkout is cloned');
+  assert.equal(counters['git.remote.command.fetch'], 1, 'the checkout then fetches only the exact proposal');
+  assert.equal(counters['configuration.object-store-checkout'] ?? 0, 0);
+  await assert.rejects(lstat(path.join(f.application, '.git', 'singularity-flow')), { code: 'ENOENT' },
+    'switching the object pool off leaves no derived cache behind');
 });
 
 test('first activation retains sequential recovery when the server does not advertise atomic push', async t => {

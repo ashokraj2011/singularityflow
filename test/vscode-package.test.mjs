@@ -16,7 +16,7 @@ import {
 } from '../scripts/vscode-dev.mjs';
 import {
   PACKAGING_COMMIT, PACKAGING_TREE, STAMPED_BUILD_INFO_SHA256,
-  reproducibleBuildEnvironment, resolveSourceDateEpoch, vscodeBuildIdentity
+  exactGitRoot, reproducibleBuildEnvironment, resolveSourceDateEpoch, vscodeBuildIdentity
 } from '../scripts/reproducible-build.mjs';
 import { stampBuildInfo } from '../src/build-info-stamp.mjs';
 import { bundledCliUrl } from '../src/bundled-cli.mjs';
@@ -28,6 +28,22 @@ import {
 } from '../src/vsix-source-manifest.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+test('exact packaging root accepts filesystem aliases but rejects a nested export or sibling directory', async t => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-package-root-alias-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const repository = path.join(base, 'long repository directory'), alias = path.join(base, 'alias');
+  const nested = path.join(repository, 'nested-export'), sibling = path.join(base, 'sibling');
+  await mkdir(nested, { recursive: true }); await mkdir(sibling);
+  const initialized = spawnSync('git', ['init', '-q'], { cwd: repository, encoding: 'utf8' });
+  assert.equal(initialized.status, 0, initialized.stderr);
+  await symlink(repository, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  assert.notEqual(exactGitRoot(repository), null, 'the Windows temp-directory short alias is still this repository');
+  assert.notEqual(exactGitRoot(alias), null);
+  assert.equal(exactGitRoot(nested), null, 'Git searching the parent never admits a nested export');
+  assert.equal(exactGitRoot(sibling), null);
+  assert.equal(exactGitRoot(path.join(base, 'missing')), null);
+});
 
 test('the VS Code builder recognizes an entrypoint reached through a directory alias', async () => {
   const realDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-entry-real-'));

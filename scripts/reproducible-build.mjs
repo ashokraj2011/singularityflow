@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { stampBuildInfo } from '../src/build-info-stamp.mjs';
@@ -48,7 +48,16 @@ export function exactGitRoot(root) {
   const topLevel = git(root, ['rev-parse', '--show-toplevel'], { allowFailure: true });
   // Git searches parent directories by default. A copied/Git-less package nested below another
   // checkout must not silently inherit that parent's commit identity.
-  if (topLevel == null || canonicalPath(topLevel) !== canonicalPath(root)) return null;
+  if (topLevel == null) return null;
+  try {
+    const top = statSync(topLevel, { bigint: true }), selected = statSync(root, { bigint: true });
+    if (!top.isDirectory() || !selected.isDirectory()) return null;
+    // Git expands Windows 8.3 aliases that Node's non-native realpath can retain. Compare the
+    // exact filesystem directory identity, not a case-folded or prefix-matched path spelling.
+    if (top.ino > 0n && selected.ino > 0n) {
+      if (top.dev !== selected.dev || top.ino !== selected.ino) return null;
+    } else if (canonicalPath(topLevel) !== canonicalPath(root)) return null;
+  } catch { return null; }
   return topLevel;
 }
 

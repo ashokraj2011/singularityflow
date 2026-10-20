@@ -5,6 +5,14 @@ associated output branches (15 to 10 conservative shell candidates). It delegate
 choice to the canonical installer, which checks the recovery lease before its single pull.
 No new process owner, Git operation or recovery bypass is admitted by this reduced fingerprint.
 
+Immutable review artifact verification adds one exact-commit, literal-path `ls-tree -z` site,
+only for SHA/size-proven uniform newline representations. It verifies regular Git modes, not
+worktree links. Paths are batched within 8192 characters, reads have a five-second deadline and
+128-KiB output bound, and failed reads retain their refusal. The helper is loaded only at review
+verification, from the installed package. It has no transport, mutation or general process owner.
+The metadata writer shares the same two reviewed text-policy probes as publication reconciliation;
+their enclosing helper fingerprint changes, but the existing state's 27 call sites do not increase.
+
 The artifact-registration owner adds two bounded, read-only policy probes for an exact newline-only
 mismatch: `check-attr -z` for text/eol/filter/encoding and, only if needed, the effective
 `core.autocrlf` value. It never runs a clean filter, text conversion executable, transport or history

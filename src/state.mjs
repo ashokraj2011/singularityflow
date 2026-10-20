@@ -793,7 +793,14 @@ async function updateArtifactMetadata(root, config, workflow, phase) {
   const text = await readFile(file, 'utf8');
   const block = artifactMetadataBlock(storyArtifactMetadata(workflow, phase));
   const pattern = /^<!-- singularity-flow:metadata\r?\n[\s\S]*?\r?\n-->/;
-  await writeText(file, pattern.test(text) ? text.replace(pattern, block) : `${block}\n\n${text}`);
+  let updated = pattern.test(text) ? text.replace(pattern, block) : `${block}\n\n${text}`;
+  const lf = updated.replaceAll('\r\n', '\n');
+  // Freeze the same governed text that Git will retain, before its registration/review hashes
+  // are captured. Otherwise a mixed editor draft can publish, yet its submission packet names
+  // bytes that no commit ever contained. No user filter or alternate encoding is executed here.
+  if (updated !== lf && !/[\r\0\uFFFD]/u.test(lf) && !lf.startsWith('\uFEFF')
+      && artifactGitNormalizesText(root, requiredRepoPath(config, workflow, phase))) updated = lf;
+  await writeText(file, updated);
   // Managed metadata is part of the durable artifact bytes. Any lifecycle transition that rewrites
   // it must keep an existing registration in lockstep, otherwise a later submit compares the new
   // engine-owned bytes with the pre-transition digest and incorrectly reports user tampering. Do
@@ -2398,6 +2405,11 @@ function artifactGitTextCheckoutMatches(root, relativePath, published, current) 
   const canonical = value => value.replaceAll('\r\n', '\n');
   const left = canonical(published), right = canonical(current);
   if (left !== right || left.includes('\r') || left.includes('\0') || left.includes('\uFFFD') || left.startsWith('\uFEFF')) return false;
+  return artifactGitNormalizesText(root, relativePath);
+}
+
+/** Prove only Git's built-in text conversion; never invoke repository clean filters. */
+function artifactGitNormalizesText(root, relativePath) {
   const output = gitReadOutput(run('git', ['check-attr', '-z', 'text', 'eol', 'filter', 'working-tree-encoding', '--', relativePath], {
     cwd: root, allowFailure: true, timeoutMs: 5_000, maxBuffer: 128 * 1024
   }), 'Artifact checkout attributes');
@@ -3693,42 +3705,6 @@ export async function publishGeneration(root, config, workflow, {
     ].sort((left, right) => left.generation - right.generation);
   }
 
-  /**
-   * Canonical provenance for this generation's artifacts `[SPK:REQ-043]`.
-   *
-   * Written here because this is the one place a generation becomes governed, and written by the
-   * kernel rather than by whoever authored the artifact — which is the entire point. The records
-   * land under `context/sidecars/`, outside the `artifact-only` scope checked a few lines above, so
-   * a model that tried to write one would already have been refused `[SPK:CON-023]`.
-   */
-  const sidecarDir = workDirRelative(config, workflow.workItem.id);
-  phase.sidecars = [];
-  for (const artifact of phase.artifacts ?? []) {
-    if (!artifact.sha256) continue;
-    const relative = sidecarRelativePath(sidecarDir, phase.id, phase.generation, artifact.path);
-    const record = buildArtifactSidecar({
-      subject: { kind: 'story', id: workflow.workItem.id },
-      phase: phase.id,
-      generation: phase.generation,
-      artifact: { path: artifact.path, sha256: artifact.sha256, bytes: artifact.size ?? null, role: artifact.kind ?? null },
-      configuration: { sha256: workflow.resolution?.configSha256 ?? null, revision: workflow.resolution?.configurationSource?.commit ?? null },
-      template: {
-        path: workflow.resolution?.templates?.[phase.id]?.path ?? null,
-        sha256: workflow.resolution?.templates?.[phase.id]?.sha256 ?? null
-      },
-      inputs: (phase.inputs ?? []).map((entry) => ({ path: entry.path, sha256: entry.sha256 ?? null, kind: entry.kind ?? null })),
-      producer: {
-        kind: effectiveAuthorship.producer,
-        actor: session.actor?.email ?? session.actor?.name ?? null,
-        agent: phase.generatedAgent
-      },
-      // The commit is not known until the publication transaction closes, so the binding records
-      // the branch and time now and is completed by the transaction rather than guessed at here.
-      publication: { commit: null, branch: workflow.workItem.branch ?? null, publishedAt }
-    });
-    await writeText(path.join(root, relative), serializeArtifactSidecar(record));
-    phase.sidecars.push({ path: relative, artifact: artifact.path, integritySha256: record.integritySha256 });
-  }
   if (clarification.record) {
     phase.clarifications ??= [];
     phase.clarifications = [
@@ -3770,6 +3746,39 @@ export async function publishGeneration(root, config, workflow, {
   phase.telemetry = [...(phase.telemetry ?? []).filter((item) => item.generation !== phase.generation), phaseTelemetrySummary(telemetry)];
   await updateArtifactMetadata(root, config, workflow, phase);
   await scanArtifacts(root, config, workflow, phase.id);
+  /**
+   * Canonical provenance for this generation's final artifacts `[SPK:REQ-043]`.
+   *
+   * Capture only after lifecycle metadata and checkout representation have settled. The kernel
+   * owns `context/sidecars/`, outside the artifact-only scope already checked above [SPK:CON-023].
+   */
+  const sidecarDir = workDirRelative(config, workflow.workItem.id);
+  phase.sidecars = [];
+  for (const artifact of phase.artifacts ?? []) {
+    if (!artifact.sha256) continue;
+    const relative = sidecarRelativePath(sidecarDir, phase.id, phase.generation, artifact.path);
+    const record = buildArtifactSidecar({
+      subject: { kind: 'story', id: workflow.workItem.id },
+      phase: phase.id,
+      generation: phase.generation,
+      artifact: { path: artifact.path, sha256: artifact.sha256, bytes: artifact.size ?? null, role: artifact.kind ?? null },
+      configuration: { sha256: workflow.resolution?.configSha256 ?? null, revision: workflow.resolution?.configurationSource?.commit ?? null },
+      template: {
+        path: workflow.resolution?.templates?.[phase.id]?.path ?? null,
+        sha256: workflow.resolution?.templates?.[phase.id]?.sha256 ?? null
+      },
+      inputs: (phase.inputs ?? []).map((entry) => ({ path: entry.path, sha256: entry.sha256 ?? null, kind: entry.kind ?? null })),
+      producer: {
+        kind: effectiveAuthorship.producer,
+        actor: session.actor?.email ?? session.actor?.name ?? null,
+        agent: phase.generatedAgent
+      },
+      // The commit is not known until the publication transaction closes.
+      publication: { commit: null, branch: workflow.workItem.branch ?? null, publishedAt }
+    });
+    await writeText(path.join(root, relative), serializeArtifactSidecar(record));
+    phase.sidecars.push({ path: relative, artifact: artifact.path, integritySha256: record.integritySha256 });
+  }
   // Generate the downstream projection from the exact generation bytes that this publication
   // commits. Submission later binds these hashes into its immutable review packet; subsequent
   // approval metadata must not redefine what the reviewer and downstream consumer received.

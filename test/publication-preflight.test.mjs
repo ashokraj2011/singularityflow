@@ -1760,6 +1760,15 @@ test('mixed editor endings require exact Git text conversion policy, never custo
     + '## Scope and constraints\r\n\r\nOnly Git text conversion is permitted.\n\n'
     + '## Evidence\r\n\r\nRaw hashes remain distinct and no filter is executed.\n');
   await inContext(context.root, () => publishGoverned(context.root, context.config, context.workflow, 'intake'));
+  const published = await readFile(context.target, 'utf8');
+  assert.equal(published.includes('\r'), false, 'publication freezes the exact Git-retained text before hashing');
+  const primary = context.phase.artifacts.find(entry => entry.path.endsWith('/intake.md'));
+  const sidecar = context.phase.sidecars.find(entry => entry.artifact === primary.path);
+  const provenance = JSON.parse(await readFile(path.join(context.root, sidecar.path), 'utf8'));
+  assert.equal(provenance.artifact.sha256, primary.sha256, 'provenance binds final metadata, not the pre-publication draft');
+  assert.equal(provenance.artifact.bytes, primary.size);
+  await writeFile(context.target, published.replaceAll('\n', '\r\n')
+    .replace('without changing the reviewed meaning.\r\n', 'without changing the reviewed meaning.\n'));
   let inspection = await inspectRequiredArtifactRegistration(context.root, context.config, context.workflow, context.phase);
   assert.ok(['current', 'repairable'].includes(inspection.status), JSON.stringify(inspection));
   assert.notEqual(inspection.currentAuthoredSha256, inspection.publishedAuthoredSha256);

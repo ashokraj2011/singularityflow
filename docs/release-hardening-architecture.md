@@ -37,6 +37,18 @@ size and SHA-256. Invalid UTF-8, binary NUL and BOM-bearing variants are ineligi
 snapshot records remain unchanged. A later approved repair owner is checked by the same rule;
 an unapproved content edit is not a successor and remains stale.
 
+The managed artifact writer uses LF only when the current Git text policy proves that exact
+conversion and no filter/alternate encoding applies. Registration and submission therefore bind
+bytes that the commit can actually retain, including when an editor started from a mixed draft.
+Generation sidecars are captured after final metadata and the artifact scan, never from the draft
+that preceded the lifecycle rewrite.
+
+Historical review replay may prove an exact uniform LF/CRLF counterpart only after verifying its
+regular Git mode at the evidence commit. The immutable packet is not changed; the derived result
+discloses both raw identities. Mixed endings, content edits, wrong sizes and link modes remain
+refused. Exceptional mode reads are batched and bounded. This narrow reader is loaded on demand
+from a package-owned file URL, keeping the existing eager bundle byte/module ceilings unchanged.
+
 ## Explicit MCP setup
 
 Windows host attestation and warm-up may secure a legacy MCP container after explicit confirmation

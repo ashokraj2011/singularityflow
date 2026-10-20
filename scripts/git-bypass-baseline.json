@@ -1441,7 +1441,7 @@
       "counts": {
         "command-run": 27
       },
-      "digest": "b4a8221c130c7b3059e60e435681dce9e3a53aec1e1b85c97dc06fcbbbf6e783"
+      "digest": "5d7cc752ee3c3cf9ff951bc220c94fa19914cb711049d32ec9b65c8c851ddc1d"
     },
     "src/story-intake-verification.mjs": {
       "counts": {
@@ -1454,6 +1454,12 @@
         "command-run": 10
       },
       "digest": "3f93e9845684dbbce519941193f1d458d361a51472a87709ae9daf716367e6ff"
+    },
+    "src/story-review-artifact-read.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "8c7afc9b4202a08f4885b4ca4e093483ec70e0e64c0ed4ebe22c7793d018816b"
     },
     "src/story-stack.mjs": {
       "counts": {

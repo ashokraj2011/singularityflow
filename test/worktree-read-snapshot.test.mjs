@@ -122,3 +122,28 @@ test('draft-specific lookup uses literal paths and does not run broad diffs or c
   assert.equal(counters['git.local.command.ls-files'] ?? 0, 0);
   assert.throws(() => pathHasChanges(f.root, '../outside'));
 });
+
+test('draft-specific lookup is exact under host literal, glob and case-insensitive pathspec modes', t => {
+  const f = fixture(t), name = 'draft[1].md'; f.write(name, 'draft\n');
+  f.git(['add', '.']); f.git(['-c', 'commit.gpgsign=false', 'commit', '-qm', 'Draft']);
+  f.write('draft1.md', 'not the selected draft\n');
+  const keys = ['GIT_LITERAL_PATHSPECS', 'GIT_GLOB_PATHSPECS', 'GIT_NOGLOB_PATHSPECS', 'GIT_ICASE_PATHSPECS'];
+  const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  try {
+    for (const key of keys) {
+      for (const clear of keys) delete process.env[clear];
+      process.env[key] = '1';
+      assert.equal(pathHasChanges(f.root, name), false, key);
+    }
+    f.write(name, 'authored draft\n');
+    for (const key of keys) {
+      for (const clear of keys) delete process.env[clear];
+      process.env[key] = '1';
+      assert.equal(pathHasChanges(f.root, name), true, key);
+    }
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  }
+});

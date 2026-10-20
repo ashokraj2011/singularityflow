@@ -2247,8 +2247,16 @@ export function pathHasChanges(root, relative) {
   }
   const projected = simpleWorktreeObservation(root);
   if (projected) return projected.some(entry => entry.path.value === relative);
+  // Exact issued paths must stay literal even when the host exports Git pathspec modes.
+  // Preserve repository/index selectors, but do not let glob/icase or literal mode reinterpret
+  // a magic prefix (or expand a bracket in the artifact name).
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (/^GIT_(?:LITERAL|GLOB|NOGLOB|ICASE)_PATHSPECS$/iu.test(key)) delete env[key];
+  }
+  env.GIT_LITERAL_PATHSPECS = '1';
   return git(['--no-optional-locks', 'status', '--porcelain=v2', '-z', '--untracked-files=all',
-    '--', `:(literal)${relative}`], { cwd: root, encoding: 'buffer' }).stdout.length > 0;
+    '--', relative], { cwd: root, env, encoding: 'buffer' }).stdout.length > 0;
 }
 
 // Without the refresh, a file rewritten with the same bytes still reads as modified because its

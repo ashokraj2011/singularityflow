@@ -29,6 +29,9 @@ async function storyPastIntake() {
   for (const authority of Object.values(config.approvalAuthorities ?? {})) authority.allowAnyGitIdentity = true;
   for (const phase of Object.values(config.phases ?? {})) if (phase.approval && phase.approval !== 'none') phase.approval.allowSelfApproval = true;
   config.repositoryReadiness.requiredBeforeStory = false;
+  // The editor states the storage it shows, here `--store git`. New templates allow only local
+  // storage, so this fixture approves the older policy that also allows Git.
+  config.documents.storage = { allowed: ['git', 'local'], default: 'git' };
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', 'README.md', 'singularity', '.github/agents'], root); run('git', ['commit', '-m', 'initialize'], root);
   run('git', ['init', '--bare', '-b', 'main', `${root}.git`], root); run('git', ['remote', 'add', 'origin', `${root}.git`], root); run('git', ['push', '-u', 'origin', 'main'], root);

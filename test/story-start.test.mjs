@@ -37,7 +37,7 @@ function run(command, args, cwd) {
   return result;
 }
 
-async function repository({ configurationAuthority = false } = {}) {
+async function repository({ configurationAuthority = false, gitDocumentStorage = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-desktop-story-'));
   run('git', ['init', '-b', 'main'], root);
   run('git', ['config', 'user.name', 'Desktop Story Tester'], root);
@@ -50,6 +50,9 @@ async function repository({ configurationAuthority = false } = {}) {
   // These legacy Story-intake fixtures exercise publication and document behavior. Dedicated
   // readiness tests opt into the newly seeded pre-Story execution requirement explicitly.
   definition.repositoryReadiness.requiredBeforeStory = false;
+  // New templates keep Story uploads on this laptop. Tests of the opening commit's document blobs
+  // need an explicitly approved older policy that still commits uploads to Git.
+  if (gitDocumentStorage) definition.documents.storage = { allowed: ['git', 'local'], default: 'git' };
   await writeFile(definitionPath, YAML.stringify(definition));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
@@ -402,7 +405,7 @@ test('Story document publication refuses captured bytes replaced after preflight
 });
 
 test('Story start refuses document storage excluded by Git ignore policy', async (t) => {
-  const root = await repository();
+  const root = await repository({ gitDocumentStorage: true });
   t.after(() => Promise.all([
     rm(root, { recursive: true, force: true }),
     rm(`${root}.git`, { recursive: true, force: true })
@@ -436,7 +439,7 @@ test('Story start refuses document storage excluded by Git ignore policy', async
 });
 
 test('Story start sanitizes a .git source name and commits the evidence blob', async (t) => {
-  const root = await repository();
+  const root = await repository({ gitDocumentStorage: true });
   t.after(() => Promise.all([
     rm(root, { recursive: true, force: true }),
     rm(`${root}.git`, { recursive: true, force: true })
@@ -591,7 +594,7 @@ test('FOS:AC-016 onboarding and Story intake avoid discovery, composition, AST a
 });
 
 test('Story opening refuses and rolls back a manifest or blob changed after state write', async (t) => {
-  const root = await repository({ configurationAuthority: true });
+  const root = await repository({ configurationAuthority: true, gitDocumentStorage: true });
   t.after(() => Promise.all([
     rm(root, { recursive: true, force: true }),
     rm(`${root}.git`, { recursive: true, force: true })
@@ -690,7 +693,7 @@ test('Story start exposes both the initiating error and an automatic recovery fa
 });
 
 test('desktop Story intake freezes documents before mutation and a retry cannot duplicate them', async (t) => {
-  const root = await repository({ configurationAuthority: true });
+  const root = await repository({ configurationAuthority: true, gitDocumentStorage: true });
   t.after(() => Promise.all([
     rm(root, { recursive: true, force: true }),
     rm(`${root}.git`, { recursive: true, force: true })

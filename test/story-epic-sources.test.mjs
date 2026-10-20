@@ -50,6 +50,9 @@ async function releasedStory() {
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
   workflow.worldModel.grounding = 'off'; workflow.approvalSecurity = { profile: 'poc' };
   workflow.repositoryReadiness.requiredBeforeStory = false;
+  // The imported copy is checked at its committed path. New templates keep Story documents on this
+  // laptop, so this fixture approves the older policy that commits them to Git.
+  workflow.documents.storage = { allowed: ['git', 'local'], default: 'git' };
   await writeFile(workflowFile, YAML.stringify(workflow));
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'Initialize lead'], { cwd: root });

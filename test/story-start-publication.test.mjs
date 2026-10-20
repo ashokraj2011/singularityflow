@@ -220,9 +220,9 @@ export async function runRemoteGitAsync(args, options) { return fixtureRetarget(
   await writeFile(loader, `export async function load(url, context, nextLoad) {
     const result = await nextLoad(url, context); if (url !== ${JSON.stringify(execution)}) return result;
     const source = String(result.source);
-    if (!source.includes('export function runRemoteGit(args, {') || !source.includes('export async function runRemoteGitAsync(args, {')) throw new Error('Fixture transport signature changed');
-    return { ...result, source: source.replace('export function runRemoteGit(args, {', 'function fixtureOriginalRemote(args, {')
-      .replace('export async function runRemoteGitAsync(args, {', 'async function fixtureOriginalRemoteAsync(args, {') + ${JSON.stringify(wrapper)} };
+    if (!source.includes('export function runRemoteGit(args, options = {}) {') || !source.includes('export async function runRemoteGitAsync(args, options = {}) {')) throw new Error('Fixture transport signature changed');
+    return { ...result, source: source.replace('export function runRemoteGit(args, options = {}) {', 'function fixtureOriginalRemote(args, options = {}) {')
+      .replace('export async function runRemoteGitAsync(args, options = {}) {', 'async function fixtureOriginalRemoteAsync(args, options = {}) {') + ${JSON.stringify(wrapper)} };
   }`);
 
   const refused = flow(root, ['start', id, '--json'], {

@@ -253,3 +253,11 @@ Source-validation acceptance requires a complete clean-checkout aggregate, deter
 clean worktree after diagnostic packaging, and successful branch publication without force-pushes.
 Release acceptance additionally requires the separately signed artifact receipt, the exact retained
 tarball and VSIX, and the complete externally reviewed six-cell aggregate.
+
+For a hardening investigation, `npm run poc:release-gate -- --continue-on-failure` exercises all
+bounded stages instead of stopping at the first ordinary stage failure. This lets packaging,
+installation/recovery and the automated Story journey expose their own failures even when a latency
+budget fails first. The final result still fails if any stage fails, and the normal release gate
+remains fail-fast. An execution-owner exception still stops immediately because quiescence cannot
+be assumed. This diagnostic option grants no exception, approval or release authority; retain the
+complete full-suite results and exact platform/artifact evidence separately.

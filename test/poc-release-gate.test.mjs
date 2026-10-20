@@ -150,6 +150,58 @@ test('artifact-consumer arguments are an explicit fail-closed pair', () => {
   ], { cwd }), /requires one \.tgz package and one \.vsix extension/);
 });
 
+test('release qualification remains fail-fast unless diagnostic continuation is explicitly selected', async () => {
+  const observed = [];
+  await assert.rejects(runPocReleaseGate({
+    async runStage(stage) {
+      observed.push(stage.label);
+      return { status: observed.length === 2 ? 7 : 0, error: null, timedOut: false };
+    }
+  }), (error) => error.exitCode === 7 && /Developer-experience latency budgets/u.test(error.message));
+  assert.equal(observed.length, 2);
+});
+
+test('diagnostic continuation runs every bounded stage but preserves all failures and refuses qualification', async () => {
+  const observed = [];
+  await assert.rejects(runPocReleaseGate({
+    continueOnFailure: true,
+    async runStage(stage) {
+      observed.push(stage.label);
+      return { status: observed.length === 2 || observed.length === 4 ? 1 : 0,
+        error: null, timedOut: observed.length === 4 };
+    }
+  }), (error) => {
+    assert.equal(error.exitCode, 1);
+    assert.equal(error.failures.length, 2);
+    assert.equal(error.stageCount, pocReleaseStages().length);
+    assert.match(error.failures[1].detail, /deadline/u);
+    assert.match(error.message, /no release qualification was established/u);
+    assert.ok(Object.isFrozen(error.failures));
+    return true;
+  });
+  assert.equal(observed.length, pocReleaseStages().length);
+  assert.ok(observed.some(label => /installation/u.test(label)), 'latency failure hid install/recovery coverage');
+});
+
+test('diagnostic continuation never absorbs a thrown execution-owner failure', async () => {
+  const failure = new Error('execution owner could not establish quiescence');
+  let invoked = 0;
+  await assert.rejects(runPocReleaseGate({ continueOnFailure: true, async runStage() {
+    invoked += 1;
+    throw failure;
+  } }), error => error === failure);
+  assert.equal(invoked, 1);
+});
+
+test('diagnostic continuation is explicit, bounded to one flag and cannot weaken artifact input validation', async () => {
+  assert.deepEqual(parsePocReleaseArguments(['--continue-on-failure']), {
+    artifactPackage: null, artifactVsix: null, continueOnFailure: true
+  });
+  assert.throws(() => parsePocReleaseArguments(['--continue-on-failure', '--continue-on-failure']), /more than once/u);
+  assert.throws(() => parsePocReleaseArguments(['--continue-on-failure', '--artifact-package', 'candidate.tgz']), /requires both/u);
+  await assert.rejects(runPocReleaseGate({ continueOnFailure: 'yes' }), /must be a boolean/u);
+});
+
 test('a stage deadline force-cleans the process tree and settles without a child close event', async () => {
   const child = new EventEmitter();
   child.pid = 4242;

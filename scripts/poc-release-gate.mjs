@@ -293,8 +293,12 @@ export async function runPocReleaseGate({
   rootDir = root,
   runStage = runPocReleaseStage,
   artifactPackage = null,
-  artifactVsix = null
+  artifactVsix = null,
+  continueOnFailure = false
 } = {}) {
+  if (typeof continueOnFailure !== 'boolean') {
+    throw new TypeError('continueOnFailure must be a boolean.');
+  }
   const artifactConsumer = artifactConsumerInputs({ artifactPackage, artifactVsix });
   if (artifactConsumer) {
     for (const [label, file] of Object.entries({ package: artifactPackage, VSIX: artifactVsix })) {
@@ -311,6 +315,7 @@ export async function runPocReleaseGate({
     artifactPackage: artifactConsumer?.packagePath,
     artifactVsix: artifactConsumer?.vsixPath
   });
+  const failures = [];
   try {
     for (const [index, stage] of stages.entries()) {
       process.stdout.write(`\n[POC ${index + 1}/${stages.length}] ${stage.label}\n`);
@@ -320,14 +325,27 @@ export async function runPocReleaseGate({
         const detail = result.timedOut
           ? `exceeded its ${stage.timeoutMs}ms deadline`
           : (result.error?.message ?? `exit ${result.status ?? 'unknown'}`);
-        throw Object.assign(new Error(`POC release gate failed at "${stage.label}" (${detail}).`), {
+        const failure = Object.assign(new Error(`POC release gate failed at "${stage.label}" (${detail}).`), {
           exitCode: result.status || 1
         });
+        if (!continueOnFailure) throw failure;
+        // Diagnostic coverage only: each stage is still bounded and every failure remains fatal.
+        // In particular a latency failure must not prevent us from exercising recovery and the
+        // installed Story journey. No stage or failed outcome becomes a release exception.
+        failures.push(Object.freeze({ stage: stage.label, detail, exitCode: failure.exitCode }));
+        console.error(failure.message);
+        continue;
       }
       process.stdout.write(`[POC] passed in ${((Date.now() - started) / 1000).toFixed(1)}s\n`);
     }
   } finally {
     rmSync(machineState, { recursive: true, force: true });
+  }
+  if (failures.length) {
+    throw Object.assign(new Error([
+      `POC release gate failed: ${failures.length} of ${stages.length} stages failed; no release qualification was established.`,
+      ...failures.map(({ stage, detail }) => `  - ${stage}: ${detail}`)
+    ].join('\n')), { exitCode: 1, failures: Object.freeze(failures), stageCount: stages.length });
   }
   console.log(artifactConsumer ? [
     '',
@@ -354,6 +372,11 @@ export function parsePocReleaseArguments(values, { cwd = process.cwd() } = {}) {
   const parsed = { artifactPackage: null, artifactVsix: null };
   while (remaining.length) {
     const name = remaining.shift();
+    if (name === '--continue-on-failure') {
+      if (parsed.continueOnFailure) throw new Error(`${name} was provided more than once.`);
+      parsed.continueOnFailure = true;
+      continue;
+    }
     const field = name === '--artifact-package'
       ? 'artifactPackage'
       : (name === '--artifact-vsix' ? 'artifactVsix' : null);

@@ -10,6 +10,13 @@ import { withStoryPathHistoryReader } from './story-path-history.mjs';
 const contexts = new AsyncLocalStorage();
 const OID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 
+export function withStoryProvenance(root, itemRelative, read) {
+  const namespaces = ['context/skill-amendments', 'context/test-recovery/command-amendments', 'config/wfa/snapshots']
+    .map(relative => `${itemRelative}/${relative}`);
+  return withStoryTreeReads(root, [`${itemRelative}/workflow.json`, ...namespaces],
+    () => withStoryHistoryBatch(root, namespaces, read));
+}
+
 export function withStoryTreeReads(root, paths, read) {
   const existing = contexts.getStore();
   if (existing?.root === path.resolve(root) && paths.every(value => existing.paths.includes(value))) return read();

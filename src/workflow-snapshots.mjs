@@ -1937,10 +1937,7 @@ export async function verifyStoryRejectionAudit(root, config, workflow) {
 
 async function withWorkflowProvenance(root, config, workflow, read) {
   provenanceTrees ??= await import('./story-tree-read.mjs');
-  const namespaces = ['context/skill-amendments', 'context/test-recovery/command-amendments', 'config/wfa/snapshots']
-    .map(relative => storyRelative(config, workflow.workItem.id, relative));
-  return provenanceTrees.withStoryTreeReads(root, [storyRelative(config, workflow.workItem.id, 'workflow.json'), ...namespaces],
-    () => provenanceTrees.withStoryHistoryBatch(root, namespaces, read));
+  return provenanceTrees.withStoryProvenance(root, storyRelative(config, workflow.workItem.id), read);
 }
 
 export function verifyRejectedSkillVersionReviews(root, config, workflow) {

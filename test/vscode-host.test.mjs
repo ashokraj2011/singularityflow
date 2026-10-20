@@ -4763,11 +4763,12 @@ test('Approvals preserves snapshot errors instead of claiming no Story or offeri
   loadExtension(api);
   const { ApprovalsPanel } = hostRequire(path.join(packageRoot, 'apps/vscode/dist/lazy-panels-runtime.cjs'));
   const decisions = [];
+  let changed;
   const store = {
     current: { snapshot: { workflow: null, initiative: null },
       error: new Error('Native snapshot refusal: <exact binding>'), stale: false, loading: false },
     acquireSlices: async () => ({ dispose() {} }),
-    onDidChange: () => ({ dispose() {} })
+    onDidChange: listener => { changed = listener; return { dispose() {} }; }
   };
   const shown = await ApprovalsPanel.show(context(), store, message => decisions.push(message));
   const panel = registered.panels.find(entry => entry.id === 'singularityFlow.approvals');
@@ -4776,13 +4777,17 @@ test('Approvals preserves snapshot errors instead of claiming no Story or offeri
   assert.doesNotMatch(panel.webview.html, /No Story or Initiative|data-approve=|<exact binding>/);
   await panel.post({ type: 'approve', id: 'story-phase:intake' });
   assert.equal(decisions.length, 0);
-  shown.dispose();
   store.current.error = null;
   store.current.stale = true;
-  const stale = await ApprovalsPanel.show(context(), store, message => decisions.push(message));
-  assert.match(registered.panels.at(-1).webview.html, /Confirming the current repository/);
-  assert.doesNotMatch(registered.panels.at(-1).webview.html, /data-approve=/);
-  stale.dispose();
+  changed(store.current, { kind: 'cache', revisionChanged: true, changedSlices: [] });
+  assert.match(panel.webview.html, /Confirming the current repository/);
+  assert.doesNotMatch(panel.webview.html, /data-approve=/);
+  store.current.stale = false;
+  changed(store.current, { kind: 'snapshot', revisionChanged: false, changedSlices: [] });
+  assert.doesNotMatch(panel.webview.html, /Confirming the current repository|Approvals could not be read/);
+  assert.match(panel.webview.html, /No Story or Initiative/,
+    'only the confirmed empty snapshot may claim no Story, even on a not-modified receipt');
+  shown.dispose();
 });
 
 test('the approvals panel opens under the same CSP and leads with what is yours', async (t) => {

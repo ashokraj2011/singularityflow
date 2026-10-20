@@ -146,8 +146,15 @@ export class ApprovalsPanel {
       () => this.render(),
       ['repository', 'lifecycle', 'configuration']
     );
-    this.subscription = store.onDidChange((_state, change) =>
-      this.snapshotRenders.changed(change.kind, change.changedSlices));
+    let unavailable = Boolean(store.current.error || store.current.stale);
+    this.subscription = store.onDidChange((state, change) => {
+      const next = Boolean(state.error || state.stale);
+      const availabilityChanged = next !== unavailable;
+      unavailable = next;
+      // A fresh not-modified receipt still clears a cached/error notice. Content-slice equality
+      // must not leave the view permanently saying it is waiting for repository confirmation.
+      this.snapshotRenders.changed(availabilityChanged ? 'availability' : change.kind, change.changedSlices);
+    });
 
     /**
      * The three messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`

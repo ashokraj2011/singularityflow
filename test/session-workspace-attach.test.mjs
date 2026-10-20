@@ -164,7 +164,10 @@ syncBuiltinESMExports();
 
     await t.test('offloaded: nothing changes, and the refusal says how to download it or clone it elsewhere', async () => {
       let storageFixture = {};
-      if (process.platform === 'win32') {
+      const portableStorageFixture = process.platform === 'win32'
+        || process.env.SINGULARITY_FLOW_TEST_STORAGE_OBSERVATION === '1';
+      const observations = path.join(base, 'unavailable-file-observations.log');
+      if (portableStorageFixture) {
         // Windows has no POSIX FIFO. Inject only an unavailable-file observation and its bounded
         // download failure; the real detector, session CLI, Git clone and recovery still execute.
         // This is not a claim to qualify a live OneDrive provider or Windows placeholder bits.
@@ -174,16 +177,28 @@ syncBuiltinESMExports();
 import cp from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 const unavailable = ${JSON.stringify(unavailableFile)};
+const observations = ${JSON.stringify(observations)};
+// A Windows temp path can use RUNNER~1 while the selected workspace uses its long real path.
+// The same is true of /var and /private/var on macOS. Match the actual file, not its spelling.
+const sameFile = file => {
+  try { return fs.realpathSync.native(file).toLowerCase() === fs.realpathSync.native(unavailable).toLowerCase(); }
+  catch { return false; }
+};
 const lstat = fs.lstatSync;
 fs.lstatSync = function(file, ...args) {
   const stat = Reflect.apply(lstat, this, [file, ...args]);
-  if (String(file) === unavailable) stat.blocks = 0;
+  if (sameFile(file)) { stat.blocks = 0; fs.appendFileSync(observations, 'stat\\n'); }
   return stat;
 };
 const spawn = cp.spawnSync;
 cp.spawnSync = function(command, args, options) {
-  if (command === process.execPath && args?.[0] === '-e' && typeof options?.input === 'string'
-      && options.input.includes(JSON.stringify(unavailable))) {
+  let downloads = [];
+  if (args?.[0] === '-e' && options?.input) {
+    try { downloads = JSON.parse(String(options.input)); } catch { /* Not the downloader. */ }
+  }
+  if (String(command).toLowerCase() === process.execPath.toLowerCase() && Array.isArray(downloads)
+      && downloads.some(sameFile)) {
+    fs.appendFileSync(observations, 'download\\n');
     return { status: null, signal: 'SIGKILL', error: Object.assign(new Error('Fixture file unavailable'),
       { code: 'ETIMEDOUT' }), stdout: '', stderr: '' };
   }
@@ -198,6 +213,11 @@ syncBuiltinESMExports();
       const offloaded = { ...env, ...storageFixture, SINGULARITY_FLOW_GIT_STORAGE_CHECK: 'always', SINGULARITY_FLOW_GIT_STORAGE_DOWNLOAD_TIMEOUT_MS: '500' };
       const started = performance.now();
       const refused = attach(offloaded);
+      if (portableStorageFixture) {
+        const observed = readFileSync(observations, 'utf8');
+        assert.match(observed, /stat\n/, 'the native process must observe the exact unavailable file');
+        assert.match(observed, /download\n/, 'the real detector must attempt its bounded download');
+      }
       assert.ok(performance.now() - started < 60_000);
       assert.notEqual(refused.status, 0);
       const packet = JSON.parse(refused.stdout);

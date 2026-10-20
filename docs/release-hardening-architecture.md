@@ -112,6 +112,7 @@ The frozen code point is `3a0f0cd9cb50f5a8bd6f0f5d45b2b6de74f15fc8`.
 | --- | --- |
 | Local Mac, Node 22 | 122 isolated publication, immutable-review, execution-evidence, sidecar and complete specification-to-release Story tests passed; zero skips. |
 | Native Mac and Windows, Node 20 and 22 | 39 focused reader/runtime/bundle tests passed in each cell, zero skips; run `39390249048`. This is not the full repository suite. |
+| Native Mac and Windows, Node 22, frozen code | Packaged intake through submission, independent fixture approval, Copilot handoff and restart passed on both hosts. The separate specification-through-release Story and exact VSIX-contained engine check also passed on both hosts; run `39390249048`. Intake took about 79 seconds on Mac and 292 seconds on Windows; the full specification Story took about 122 and 490 seconds respectively. These are single-run durations, not a matched performance comparison. |
 | Native Windows packaged intake | Seven tests passed, zero skips, including intake, submission, independent fixture approval, Copilot handoff and restart; run `39389479908` at parent code point `b1a78cc3`. The later removal-proof change is covered by the frozen native reader tests. |
 | Mac packaged gate | Eleven of twelve stages passed at `1077c5cc`, including 237 regression tests, packaged intake, contained-engine verification and isolated CLI installation. The latency-budget stage failed. |
 | Locked dependencies | The audit at this qualification run reported zero vulnerabilities. |
@@ -123,6 +124,11 @@ The separate specification-to-release CLI fixture does exercise the full phase s
 Whole-suite qualification is still incomplete. The original complete Mac baseline at `97499663`
 executed 11,531 tests: 11,491 passed, 26 failed and 14 skipped. Later fixes and focused reruns do not
 retroactively change that receipt. The newer whole-suite rerun has no accepted passing aggregate.
+That rerun is bound to `1077c5cc`, not the frozen code point above. Its completed shards already
+include platform-specific skips and a fixture cleanup failure (`ENOTEMPTY`), so it cannot qualify
+the release even if all remaining shards pass. The generated-file check also failed on that older
+snapshot; its stale Windows-wrapper Git audit fingerprint was corrected in `654d0d06`, but that
+focused correction does not replace a new whole-suite receipt.
 The native Windows baseline also exposed portability failures and an incomplete timed-out shard;
 there is no passing complete Windows aggregate.
 

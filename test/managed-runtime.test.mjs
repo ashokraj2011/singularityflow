@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import resolver from '../runtime/resolve.cjs';
 import { installManagedRelease, installerProcess, managedLauncher, recoverManagedActivation, rollbackManagedRelease } from '../runtime/install.mjs';
 import { observeProductSurfaces, planProductAlignment, applyProductAlignment } from '../src/product-alignment.mjs';
 import { stampBuildInfo } from '../src/build-info-stamp.mjs';
+import { resolveWindowsBatchProcess } from '../src/platform-process.mjs';
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const runtimeId = `node-v26.12.0-${process.platform}-${process.arch}`;
@@ -263,6 +265,40 @@ test('stable launchers reference the active pair, quote paths and do not export 
     assert.match(body, windows ? /%\*/ : /"\$@"/);
   }
   assert.throws(() => managedLauncher('../node'), /Unsupported/);
+});
+
+test('the native command shim executes the selected CLI and preserves literal arguments', async t => {
+  const f = await fixture(t);
+  // Only the shim is under test here. Actual pinned-version/archive admission is qualified by
+  // the isolated native installer script; this tiny CLI fixture avoids a full npm installation.
+  await copyFile(process.execPath, f.node); await chmod(f.node, 0o700);
+  const release = 'a'.repeat(64);
+  const cli = path.join(f.root, 'releases', release, 'node_modules', 'singularity-flow', 'bin', 'singularity-flow.mjs');
+  await mkdir(path.dirname(cli), { recursive: true });
+  await writeFile(cli, 'console.log(JSON.stringify(process.argv.slice(2)));');
+  const selection = `1|${runtimeId}|${release}\n`;
+  await writeFile(path.join(f.root, 'active'), selection);
+  await mkdir(path.join(f.root, 'bin'));
+  const shim = path.join(f.root, 'bin', process.platform === 'win32' ? 'singularity-flow.cmd' : 'singularity-flow');
+  await writeFile(shim, managedLauncher('singularity-flow', { windows: process.platform === 'win32' }), { mode: 0o700 });
+  const args = ['literal space & (round) [square] ^ caret "quoted", semi;', ''];
+  const batch = process.platform === 'win32' ? resolveWindowsBatchProcess(shim, args) : null;
+  try {
+    const output = await installerProcess(batch?.executable || shim, batch?.arguments || args, {
+      capture: true, cwd: f.home, ...batch?.spawnOptions });
+    assert.deepEqual(JSON.parse(output.stdout), args);
+  } catch (error) {
+    if (process.platform === 'win32') {
+      const findstr = path.join(process.env.SystemRoot, 'System32', 'findstr.exe');
+      const pattern = `1|node-v26[.][0-9][0-9]*[.][0-9][0-9]*-win32-${process.arch}|[0-9a-f][0-9a-f]*`;
+      const diagnostics = [['/r', '/x', `/c:${pattern}`], [`/c:${pattern}`, '/r', '/x'], ['/r', pattern], ['/l', '/c:1|node-v26.12.0']].map(options => {
+        const result = spawnSync(findstr, [...options, path.join(f.root, 'active')], { encoding: 'utf8' });
+        return { options, status: result.status, stdout: result.stdout, stderr: result.stderr };
+      });
+      console.error(JSON.stringify({ selection, diagnostics }));
+    }
+    throw error;
+  }
 });
 
 test('managed installer deadlines retain timeout details and stop the owned process tree', async t => {

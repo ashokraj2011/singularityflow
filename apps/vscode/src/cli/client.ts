@@ -722,9 +722,10 @@ export class SingularityFlowClient {
     const env = { ...((typeof this.options.environment === 'function'
       ? this.options.environment() : this.options.environment) ?? process.env) };
     try {
-      const reader = await warmReader(this.location.cli);
+      const location = this.location;
+      const reader = await warmReader(location.cli);
       if (controller.signal.aborted || epoch !== this.readEpoch || repository !== this.repository) return;
-      await reader?.prewarmReadWorker?.({ ...this.location, repository, env, signal: controller.signal,
+      await reader?.prewarmReadWorker?.({ ...location, repository, env, signal: controller.signal,
         onWorkerStarted: recordHostBackgroundProcessStarted, onWorkerExited: recordHostBackgroundProcessCompleted });
     } catch { /* Optional definition preparation never denies an interactive request. */ }
     finally { signal?.removeEventListener('abort', abort); this.readPreparations.delete(controller); }

@@ -58,6 +58,21 @@ test('an existing VS Code client follows managed upgrades as one pair without re
   assert.equal(override.location.executable, '/approved/node');
   assert.equal(override.location.cli, selected.cli);
 });
+test('background preparation retains one managed pair across its asynchronous adapter load', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-managed-prewarm-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(path.join(root, 'src'));
+  const output = path.join(root, 'observed.json');
+  await writeFile(path.join(root, 'src/read-worker-client.mjs'),
+    `import {writeFile} from 'node:fs/promises'; export async function prewarmReadWorker({executable,cli}) { await writeFile(${JSON.stringify(output)}, JSON.stringify({executable,cli})); }`);
+  let resolutions = 0;
+  const selected = { executable: process.execPath, cli: path.join(root, 'bin/singularity-flow.mjs') };
+  const client = new SingularityFlowClient({ location: { ...selected, source: 'managed' }, repository: root,
+    managedEngine: () => ++resolutions === 1 ? selected : { executable: '/changed/node', cli: '/changed/cli' } });
+  await client.prewarmReads();
+  assert.equal(resolutions, 1);
+  assert.deepEqual(JSON.parse(await readFile(output, 'utf8')), selected);
+});
 const { phasesInOrder, packsWithMembers, storiesByRepository, isApprovalPinned } =
   await import(source('cli/snapshot.ts'));
 const { renderReworkRollForwardPreview } = await import(source('views/rework-roll-forward-preview.ts'));

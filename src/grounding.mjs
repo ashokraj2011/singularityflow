@@ -1,4 +1,4 @@
-import { nextPhaseGeneration } from './phase-generation.mjs';
+export { groundingRecordRelative } from './grounding-paths.mjs';
 import { createHash } from 'node:crypto';
 import { readlink } from 'node:fs/promises';
 import path from 'node:path';
@@ -292,8 +292,4 @@ export async function worldModelSourceSnapshot(root, definition = {}) {
 export function worldModelCommit(root, outputDir) {
   return gitReadOutput(run('git', ['log', '-1', '--format=%H', '--', outputDir], { cwd: root, allowFailure: true }),
     `World model '${outputDir}' commit`, { absentWhen: () => gitHeadIsUnborn(root) })?.trim() || null;
-}
-
-export function groundingRecordRelative(definition, workflow, phase, generation = nextPhaseGeneration(phase)) {
-  return posix(path.join(definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', `${phase.id}-gen${generation}.json`));
 }

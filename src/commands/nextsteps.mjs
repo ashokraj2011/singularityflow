@@ -23,6 +23,7 @@ import { authoringSkillCatalog } from '../authoring-skills.mjs';
 import { agentOrIndentedJson, agentPacketPresentation } from '../agent-packet-presentation.mjs';
 import { measureCommandSpan } from '../dx-timing-context.mjs';
 import { repositoryCheckStatus } from '../repository-check-cache.mjs';
+import { groundingRecordRelative } from '../grounding-paths.mjs';
 
 async function localSession(root) {
   const target = path.join(gitDir(root), 'singularity-flow', 'session.json');
@@ -129,7 +130,6 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
 
 /** Whether the phase's next generation has a composed prompt whose snapshot still matches its record. */
 async function composedPromptCurrent(root, definition, workflow, phase, observeFile = null) {
-  const { groundingRecordRelative } = await import('./nextsteps-deferred.mjs');
   const relative = groundingRecordRelative(definition, workflow, phase);
   await observeFile?.(relative);
   const record = await readJson(path.join(root, relative)).catch(() => null);

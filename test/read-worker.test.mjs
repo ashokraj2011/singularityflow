@@ -34,6 +34,9 @@ test('worker vocabulary excludes mutations, author/reviewer packets and unqualif
   assert.deepEqual(warmReadRequest(['nextsteps', 'PERF-001', '--for-agent', '--json']), {
     method: 'nextsteps', workId: 'PERF-001', forAgent: true
   });
+  assert.deepEqual(warmReadRequest(['nextsteps', '--for-agent', '--json']), {
+    method: 'nextsteps', workId: null, forAgent: true
+  });
 });
 
 test('unstamped editable sources use CLI fallback', async () => {

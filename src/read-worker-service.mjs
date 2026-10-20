@@ -29,7 +29,8 @@ export async function prepareReadWorkerDefinitions({ policy = false } = {}) {
   await Promise.all([import('./commands/status.mjs'), import('./commands/progress.mjs'),
     import('./commands/report.mjs')]);
   if (policy) {
-    await Promise.all([import('./commands/nextsteps.mjs'), import('./phase-entry-context.mjs')]);
+    await Promise.all([import('./commands/nextsteps.mjs'), import('./phase-entry-context.mjs'),
+      import('./phase-authoring-progress.mjs'), import('./document-runtime.mjs'), import('./agent-output.mjs')]);
     // First policy reads otherwise import reset owners after the ready handshake. Preparation
     // clears process maps only; it performs no repository/configuration read or author binding.
     await reset(true);

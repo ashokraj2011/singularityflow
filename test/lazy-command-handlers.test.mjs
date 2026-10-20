@@ -85,6 +85,14 @@ test('the common session projection does not import attach, state stores or publ
   assert.ok(current.bytes <= 3_900_000, `session current loads ${current.bytes} source bytes`);
 });
 
+test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {
+  assert.equal((await graph('phase-entry.mjs')).files.has(path.join(sourceRoot, 'phase-entry-authoring.mjs')), false);
+  const leaf = await graph('grounding-paths.mjs');
+  for (const file of ['grounding.mjs', 'source-review-lifecycle.mjs', 'inputs.mjs', 'worldmodel.mjs']) {
+    assert.equal(leaf.files.has(path.join(sourceRoot, file)), false, file);
+  }
+});
+
 test('extracted legacy helpers remain part of the development build identity', async () => {
   const identity = await readFile(path.join(sourceRoot, 'build-identity.mjs'), 'utf8');
   const helpers = (await commandModuleFiles()).map(file => file.split(path.sep).join('/'))

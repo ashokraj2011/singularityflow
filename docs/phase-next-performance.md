@@ -14,6 +14,7 @@
   changes still invalidate them. The configurable 30-minute default is unchanged.
 - Phase entry validates syntax through a narrow leaf and resolves the current binding before
   importing authoring/recovery services. Read-only next guidance imports only the binding owner.
+  Constructing a grounding-record path no longer loads source-review/input readers.
 - The parent-owned VS Code worker accepts the closed `nextsteps [ID] --for-agent --json` form.
   It uses the canonical binding, pause, guidance and output-presentation owners. Each request
   resets mutable observations. Background preparation loads reset owners before reporting ready.

@@ -6,9 +6,9 @@ import path from 'node:path';
 import { sessionRepositoryAuthority } from './shared/session-repository-authority.mjs';
 import { sessionDiscoveryConfiguration } from './shared/session-discovery-configuration.mjs';
 import { existsSync, lstatSync, readFileSync } from 'node:fs';
-import { WORKFLOW_PATH, validateDefinition } from '../config.mjs';
+import { WORKFLOW_PATH, validateDefinition, loadDefinition as loadConfig } from '../config.mjs';
 import { loadStoryAggregate } from '../story-aggregate-read.mjs';
-import { loadConfig, validateId } from '../state-stores.mjs';
+import { validateId } from '../work-id.mjs';
 import { requireCopilotWorkItemSelection, agentSessionStatus, loadSession, activateWorkItemSession, loadCopilotSession } from '../session.mjs';
 import { branch, head, gitDir, gitCommonDir, repoRoot, fetchRemote, refHead, isAncestor, assertClean, changes, checkout, fastForwardTo, removeCleanAttachStagingWorktree } from '../git.mjs';
 import { printCommandRoutes } from './shared/print-command-routes.mjs';
@@ -367,115 +367,7 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
     }
     return;
   }
-  if (subcommand === 'current') {
-    let context = null;
-    try {
-      context = await resolveWorkspaceExecutionContext(
-        activeWorkspaceFile(), workspaceRegistryFile(), { cwd: process.cwd() }
-      );
-    } catch (error) {
-      if (optionBoolean(options, 'json')) {
-        return console.log(JSON.stringify({
-          ready: false,
-          code: error.code ?? 'ACTIVE_SUBJECT_UNAVAILABLE',
-          message: error.message,
-          details: error.details ?? null
-        }, null, 2));
-      }
-      throw error;
-    }
-    if (!context) {
-      const resolved = await resolveSessionRepository();
-      if (!resolved.root) {
-        const empty = {
-          ready: false, workId: null, repositoryPath: null,
-          selectionSource: null, reason: resolved.reason, detail: resolved.detail
-        };
-        return console.log(optionBoolean(options, 'json')
-          ? JSON.stringify(empty, null, 2)
-          : `No Singularity Flow execution context is active. ${resolved.detail}`);
-      }
-      context = {
-        repositoryPath: resolved.root,
-        canonicalRepositoryPath: resolved.root,
-        checkoutPath: resolved.root,
-        workspaceId: resolved.workspaceId,
-        workspaceName: null,
-        repositoryId: null,
-        storyId: null,
-        branch: branch(resolved.root),
-        head: head(resolved.root),
-        selectionSource: resolved.resolvedFrom,
-        selectionStatus: 'ready',
-        storyWorktree: gitDir(resolved.root) !== gitCommonDir(resolved.root)
-      };
-    }
-    const executionRoot = path.resolve(context.repositoryPath);
-    const authority = await sessionRepositoryAuthority(executionRoot);
-    const { definition } = await sessionDiscoveryConfiguration(executionRoot, authority);
-    let workflow = null;
-    try { workflow = await loadStoryAggregate(executionRoot, definition); }
-    catch (error) { if (error.code !== 'STORY_NOT_FOUND') throw error; }
-    const actualWorkId = workflow?.workItem?.id ?? null;
-    if (context.storyId && actualWorkId !== context.storyId) {
-      throw new SingularityFlowError(
-        `Selected Story '${context.storyId}' does not match checkout Story '${actualWorkId ?? 'none'}'. Nothing was changed.`,
-        {
-          code: 'ACTIVE_SUBJECT_MISMATCH',
-          details: {
-            expectedWorkId: context.storyId,
-            actualWorkId,
-            repositoryPath: executionRoot,
-            nextCommand: `singularity-flow session attach ${context.storyId} --json`
-          }
-        }
-      );
-    }
-    const phaseSession = workflow
-      ? await agentSessionStatus(executionRoot, definition, workflow)
-      : null;
-    const result = {
-      ready: context.selectionStatus === 'ready' && (phaseSession?.ready ?? true),
-      workspaceId: context.workspaceId ?? null,
-      workspaceName: context.workspaceName ?? null,
-      repositoryId: context.repositoryId ?? null,
-      repositoryPath: executionRoot,
-      canonicalRepositoryPath: context.canonicalRepositoryPath ?? executionRoot,
-      checkoutPath: context.checkoutPath ?? executionRoot,
-      storyWorktree: context.storyWorktree === true,
-      workId: actualWorkId,
-      branch: branch(executionRoot),
-      head: head(executionRoot),
-      phase: workflow?.currentPhase ?? null,
-      status: workflow?.status ?? null,
-      activeAgent: phaseSession?.activeAgent ?? null,
-      phaseAgent: phaseSession?.phaseAgent ?? {
-        required: false, phaseId: null, expectedAgent: null, sessionPhaseId: null,
-        activeAgent: null, valid: true, reason: 'no-active-story', handoff: null
-      },
-      selectionSource: context.selectionSource ?? null,
-      selectionStatus: context.selectionStatus ?? 'ready'
-    };
-    result.executionContext = await (await import('../execution-context.mjs')).captureExecutionContext(executionRoot, {
-      workflow, configurationPin: workflow?.resolution?.configurationSource ?? null, fresh: true
-    });
-    if (agentEntry) return console.log(JSON.stringify(agentEntry.sessionAgentResult(result, definition.workItemRoot)));
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Repository: ${result.repositoryPath}`);
-    console.log(`Story: ${result.workId ?? 'not selected'} · branch ${result.branch}`);
-    console.log(`Phase: ${result.phase ?? '—'} · status ${result.status ?? '—'}`);
-    if (result.phaseAgent.required) {
-      console.log(`Phase agent: ${result.activeAgent ?? 'not ready'} · ${result.phaseAgent.reason}`);
-      if (result.phaseAgent.handoff) {
-        printCommandRoutes(result.phaseAgent.handoff.command, {
-          skill: result.phaseAgent.handoff.copilotCommand,
-          label: 'Rebind the phase session'
-        });
-      }
-    } else if (result.phase) console.log('Phase agent: not required (deterministic phase).');
-    console.log(`Selection: ${result.selectionSource} · ${result.selectionStatus}`);
-    return result;
-  }
+  if (subcommand === 'current') return (await import('./session-current.mjs')).sessionCurrent(options, { agentEntry });
   if (subcommand === 'doctor') {
     const selected = await readActiveWorkspaceContext(
       activeWorkspaceFile(), workspaceRegistryFile(), { refresh: false }
@@ -642,7 +534,7 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
     return console.log(optionBoolean(options, 'json') ? JSON.stringify(empty, null, 2) : `No Singularity Flow repository is active. ${resolved.detail}`);
   }
   const discovery = await sessionDiscoveryConfiguration(root, resolved.authority, {
-    storyBootstrap: subcommand === 'status'
+    storyBootstrap: ['status', 'context'].includes(subcommand)
   });
   const config = discovery.definition;
   if (subcommand === 'context') {

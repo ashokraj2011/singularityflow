@@ -12,8 +12,8 @@ import { compileEvidencePacket, EVIDENCE_PACKET_SLICES, expandEvidencePacketHand
 import { head } from './git.mjs';
 import { recordSha256 } from './records.mjs';
 import { withWorldModelSourceScope, worldModelSourceScope } from './source-scope.mjs';
-import { loadStoryAggregate } from './story-aggregate-read.mjs';
-import { loadConfig } from './state-stores.mjs';
+import { loadStoryAggregateWithExecution } from './story-aggregate-read.mjs';
+import { loadDefinition } from './config.mjs';
 import { secureRepositoryPath } from './util.mjs';
 
 export const CONTEXT_BRIEF_RESULT_VERSION = 1; // schema-transient: bounded gateway result, never persisted
@@ -148,8 +148,13 @@ export async function composeContextBrief(root, {
     });
   }
   const budget = Math.min(MAX_OUTPUT_BYTES, Math.max(4096, Number(maxOutputBytes) || DEFAULT_MAX_OUTPUT_BYTES));
-  const config = await loadConfig(root);
-  const workflow = await loadStoryAggregate(root, config, workId);
+  const bootstrap = await loadDefinition(root, { storyBootstrap: true });
+  // This is guidance, not an admission receipt. Preserve the ordinary aggregate's forensic
+  // read contract, but keep the verified interpretation when amended/custom phases require it.
+  const loaded = await loadStoryAggregateWithExecution(root, bootstrap, workId);
+  const { workflow } = loaded;
+  const config = loaded.executionCatalog?.effectiveDefinition
+    ?? (workflow.workflowSnapshot ? bootstrap : await loadDefinition(root));
   return composeContextBriefFromState(root, config, workflow, { slice, maxOutputBytes: budget });
 }
 

@@ -12,6 +12,10 @@
     "scripts/gal-matrix-cell.mjs"
   ],
   "sites": {
+    "scripts/shared-read-paired-benchmark.mjs": {
+      "counts": { "process-import": 1, "process-launch": 2 },
+      "digest": "3cd76a11a49b16b379441e17971580c90a3dc9e0d2c23ac066018deaea174054"
+    },
     "scripts/classified-performance-benchmark.mjs": {
       "counts": { "process-import": 1, "process-launch": 2 },
       "digest": "6a70fd8bb347865b9afc10531985d1ff0ce18c1df18eb551b32e49053737a29b"

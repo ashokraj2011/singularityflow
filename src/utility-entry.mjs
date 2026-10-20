@@ -6,6 +6,9 @@ const FORMS = Object.freeze({
   status: { max: 2, options: ['json', 'for-agent', 'submission-readiness', 'brief'] },
   progress: { max: 2, options: ['json', 'for-agent'] },
   nextsteps: { max: 2, options: ['json', 'for-agent'] },
+  'session current': { min: 2, max: 2, options: ['json', 'for-agent', 'no-model'] },
+  'session status': { min: 2, max: 2, options: ['json', 'no-model'] },
+  'session context': { min: 2, max: 2, options: ['json', 'no-model', 'work-id', 'slice', 'max-output-bytes'] },
   'phase show': { min: 2, max: 3, options: ['json', 'for-agent'] },
   'review-source context': { min: 2, max: 3, options: ['json', 'for-agent', 'no-model', 'work-id'] },
   'review-source status': { min: 3, max: 3, options: ['json', 'work-id'] },
@@ -39,6 +42,8 @@ export function scopedUtilityRead(positionals, options = {}) {
 
 export function validateUtilityEntry(positionals, options) {
   if (options['utility-entry'] !== true || options.json !== true || options['for-agent'] !== true
+      // Session has its own agent envelope/guard. Share its read scope, not a second wrapper.
+      || positionals[0] === 'session'
       || !scopedUtilityRead(positionals, options)) {
     throw Object.assign(new Error('--utility-entry requires an allowlisted read with --for-agent --json; mutations, output files and unknown options are not admitted.'), {
       code: 'UTILITY_ENTRY_REQUEST_INVALID'

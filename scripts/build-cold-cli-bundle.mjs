@@ -20,7 +20,7 @@ const FAMILIES = Object.freeze([
     'agent-packet-presentation.mjs']],
   // Claim strict next-step reads before broad catalog/review families. Sharing their slot with
   // phase review caused every nextsteps call to load document, receipt and lifecycle writers.
-  ['narrow-reads', ['commands/nextsteps.mjs', 'commands/status-details.mjs',
+  ['narrow-reads', ['commands/nextsteps.mjs', 'commands/status-details.mjs', 'commands/session-current.mjs',
     'accepted-story-execution.mjs', 'story-workflow-read.mjs',
     'commands/review-source.mjs', 'source-review-agent-context.mjs', 'story-publication-pending.mjs']],
   ['light', ['commands/about.mjs', 'commands/pause.mjs', 'commands/workspace.mjs', 'commands/capability.mjs',

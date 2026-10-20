@@ -39,3 +39,14 @@ export function validatePortableWorkId(value, {
   }
   return value;
 }
+
+/** Pure configured-ID validation; session discovery must not load publication writers for it. */
+export function validateId(config, id) {
+  const portableId = validatePortableWorkId(id);
+  if (!(new RegExp(config.idPattern ?? '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')).test(portableId)) throw new SingularityFlowError(`Work ID ${portableId} does not match ${config.idPattern}.`);
+  const reserved = new Set(['main', 'master', String(config.defaultBaseBranch ?? '').trim()]
+    .filter(Boolean).map((value) => value.toLocaleLowerCase('en-US')));
+  if (reserved.has(portableId.toLocaleLowerCase('en-US'))) {
+    throw new SingularityFlowError(`Work ID '${portableId}' is reserved for application integration and cannot identify work.`);
+  }
+}

@@ -21,7 +21,7 @@ const DECIDING_MODULES = Object.freeze([
   'configuration-read-worker.mjs', 'configuration-read-worker-client.mjs', 'config.mjs',
   'read-worker.mjs', 'read-worker-client.mjs', 'read-worker-protocol.mjs', 'read-worker-service.mjs',
   'command-observability.mjs', 'command-confirmation.mjs', 'phase-generation.mjs', 'cli-steps.mjs',
-  'commands/session.mjs', 'commands/session-entry.mjs', 'commands/choices.mjs', 'commands/choices-entry.mjs',
+  'commands/session.mjs', 'commands/session-entry.mjs', 'commands/session-current.mjs', 'commands/choices.mjs', 'commands/choices-entry.mjs',
   'commands/phase-lifecycle.mjs', 'commands/prepare.mjs', 'commands/inputs.mjs',
   'commands/review-source.mjs', 'commands/submit.mjs', 'commands/approve.mjs',
   'commands/help.mjs', 'commands/inbox.mjs', 'commands/progress.mjs', 'commands/report.mjs',

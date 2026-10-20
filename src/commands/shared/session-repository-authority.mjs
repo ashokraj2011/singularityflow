@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { WORKFLOW_PATH } from '../../config.mjs';
-import { CONFIGURATION_SOURCE_PATH, CONFIGURATION_BRANCH } from '../../configuration-branch.mjs';
+import { CONFIGURATION_SOURCE_PATH, CONFIGURATION_BRANCH } from '../../configuration-assets.mjs';
 import { sessionRepositoryRemotes } from './session-repository-remotes.mjs';
 import { fileAtRef, refExists } from '../../git.mjs';
 import { configuredRemoteIdentity, frozenRemoteTransport } from '../../git-remote-diagnostics.mjs';

@@ -66,8 +66,8 @@ import {
   gitRepositoryComparisonKey, sameGitRepository
 } from './git-repository-identity.mjs';
 
-export const CONFIGURATION_BRANCH = 'sflow/config';
-export const CONFIGURATION_SOURCE_PATH = 'singularity/configuration-source.json';
+import { CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH } from './configuration-assets.mjs';
+export { CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH };
 export const STATE_CONFIGURATION_BRANCH = 'state';
 export const STATE_CONFIGURATION_MANIFEST = 'configuration/manifest.json';
 export const STATE_CONFIGURATION_FORMAT = 'singularity-flow-configuration-mirror/v2';

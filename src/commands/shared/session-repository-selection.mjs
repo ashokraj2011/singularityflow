@@ -3,7 +3,7 @@ import path from 'node:path';
 import { SingularityFlowError } from '../../util.mjs';
 import { repoRoot } from '../../git.mjs';
 import { WORKFLOW_PATH } from '../../config.mjs';
-import { readWorkspace } from '../../workspace.mjs';
+import { readWorkspace } from '../../workspace-manifest.mjs';
 import { workspaceRegistryFile, activeWorkspaceFile, buildWorkspaceContext, readActiveWorkspaceContext } from '../../workspace-context.mjs';
 import { sessionRepositoryAuthority } from './session-repository-authority.mjs';
 import { boundExecutionContextRoot } from '../../execution-context-scope.mjs';

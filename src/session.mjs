@@ -8,7 +8,8 @@ import { normalizeSessionPolicy } from './config.mjs';
 import { currentSchemaVersion, readRecord, stampCurrentRecord } from './schema-migrations.mjs';
 import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
 import { phaseKernelOwned } from './code-delivery-policy.mjs';
-import { identity } from './git.mjs';
+import { identity, gitDir } from './git.mjs';
+import { inReadScope } from './read-scope.mjs';
 
 const SESSION_FAMILY = 'session-registry';
 const COPILOT_SESSION_FAMILY = 'copilot-session';
@@ -16,6 +17,11 @@ const COPILOT_TURN_FAMILY = 'copilot-turn-intent';
 export const SESSION_SCHEMA_VERSION = currentSchemaVersion(SESSION_FAMILY);
 
 function localGitDir(root) {
+  // Root discovery already proved the private directory. Only an explicit read snapshot may
+  // reuse it; session selection/writes keep their original fresh query and fallback below.
+  if (inReadScope()) {
+    try { return gitDir(root); } catch { /* Preserve the ordinary Git/fallback result. */ }
+  }
   const resolved = run('git', ['rev-parse', '--absolute-git-dir'], { cwd: root, allowFailure: true });
   return resolved.status === 0 ? path.resolve(resolved.stdout.trim()) : path.join(root, '.git');
 }

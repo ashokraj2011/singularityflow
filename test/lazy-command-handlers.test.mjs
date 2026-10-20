@@ -76,6 +76,15 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   }
 });
 
+test('the common session projection does not import attach, state stores or publication writers', async () => {
+  const current = await graph('commands/session-current.mjs');
+  for (const file of ['commands/session.mjs', 'state-stores.mjs', 'state.mjs', 'workspace.mjs', 'story-publication-service.mjs']) {
+    assert.equal(current.files.has(path.join(sourceRoot, file)), false, `session current eagerly loads ${file}`);
+  }
+  assert.ok(current.files.size <= 220, `session current reaches ${current.files.size} files; old session handler reached 429`);
+  assert.ok(current.bytes <= 3_900_000, `session current loads ${current.bytes} source bytes`);
+});
+
 test('extracted legacy helpers remain part of the development build identity', async () => {
   const identity = await readFile(path.join(sourceRoot, 'build-identity.mjs'), 'utf8');
   const helpers = (await commandModuleFiles()).filter(file => file.startsWith('commands/shared/'));

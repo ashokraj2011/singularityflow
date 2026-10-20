@@ -1,5 +1,9 @@
 import path from 'node:path';
 
+// Location declarations are shared by readers and writers without loading bootstrap/clone code.
+export const CONFIGURATION_BRANCH = 'sflow/config';
+export const CONFIGURATION_SOURCE_PATH = 'singularity/configuration-source.json';
+
 const DEFAULT_RUNTIME_ROOTS = Object.freeze([
   '.sdlc',
   '.sflow',

@@ -10,7 +10,8 @@ import { propose, acceptAmendment } from './amended-read-fixture.mjs';
 import { withoutAutomaticGitMaintenance } from '../src/platform-process.mjs';
 
 const source = fileURLToPath(new URL('..', import.meta.url));
-export async function createWarmReadFixture({ files = 0, branches = 0, storyMode = 'legacy', historyCommits = 0, artifacts = 0 } = {}) {
+export async function createWarmReadFixture({ files = 0, branches = 0, storyMode = 'legacy', historyCommits = 0, artifacts = 0,
+  engineSource = source } = {}) {
   if (!['legacy', 'pinned', 'amended'].includes(storyMode)) throw new Error('Unknown qualification Story mode.');
   if (!Number.isSafeInteger(historyCommits) || historyCommits < 0 || historyCommits > 1000
       || !Number.isSafeInteger(artifacts) || artifacts < 0 || artifacts > 64) throw new Error('Invalid qualification stress dimensions.');
@@ -22,8 +23,8 @@ export async function createWarmReadFixture({ files = 0, branches = 0, storyMode
     await mkdir(engine); await mkdir(repository);
     await Promise.all(['src', 'bin', 'templates', 'plugin', 'schemas', 'package.json', 'scripts',
       'distribution', 'docs', 'revision-trace-manifest.json'].map(name =>
-      cp(path.join(source, name), path.join(engine, name), { recursive: true })));
-    await symlink(path.join(source, 'node_modules'), path.join(engine, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
+      cp(path.join(engineSource, name), path.join(engine, name), { recursive: true })));
+    await symlink(path.join(engineSource, 'node_modules'), path.join(engine, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
     const stamp = path.join(engine, 'src/build-info.mjs');
     await writeFile(stamp, (await readFile(stamp, 'utf8')).replace('commit: null', `commit: '${'1'.repeat(40)}'`));
     const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1',

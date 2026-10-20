@@ -1,5 +1,11 @@
 # GAL Git bypass regression gate
 
+The shared-read paired benchmark has two bounded launch sites: read-only Git source identity
+(30 seconds, 4 MiB) and fixed Node CLI reads against its owned temporary clones (180 seconds,
+16 MiB). Setup uses the existing warm-read fixture owner. It alternates installed baseline and
+candidate engines with independent compile/provenance caches; no production process owner,
+model permission or transport capability is added. Only its exact reviewed site digest is added.
+
 `scripts/classified-performance-benchmark.mjs` has two reviewed Node launch sites:
 fixture initialization and alternating traced/untraced allowlisted reads. Both
 use structured argv, a 60-second timeout and a 4-MiB output ceiling. They execute

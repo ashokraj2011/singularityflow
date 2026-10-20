@@ -170,10 +170,14 @@ test('distribution bootstrap executes npm only from a private verified snapshot'
 test('distribution bootstrap and Windows wrappers preserve reviewed argv through real cmd and where', {
   skip: process.platform === 'win32' ? false : 'Windows-native bootstrap coverage'
 }, async (t) => {
-  const release = await distributionFixture({
+  const fixture = await distributionFixture({
     directoryPrefix: 'sflow Windows (release) & fixture-',
     keyDirectoryPrefix: 'sflow Windows (trusted key) & fixture-'
   });
+  // PowerShell resolves 8.3 temporary-directory aliases to their long paths. Bind the same
+  // real files on both sides rather than treating equivalent Windows spellings as argv drift.
+  const release = { ...fixture, directory: await realpath(fixture.directory),
+    publicKeyPath: await realpath(fixture.publicKeyPath) };
   const harness = await windowsNpmHarness(t);
   t.after(() => Promise.all([
     rm(release.directory, { recursive: true, force: true }),

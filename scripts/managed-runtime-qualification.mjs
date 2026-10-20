@@ -61,7 +61,7 @@ try {
   const firstBytes = await readFile(bundle.tarball);
   const first = digest(firstBytes);
   const installed = await installManagedRelease({ tarball: bundle.tarball, sha256: first,
-    nodeExecutable: node, root: engine, log: message => console.error(message) });
+    nodeExecutable: node, root: engine, homeDirectory: home, log: message => console.error(message) });
   const selected = resolver.resolveManagedEngine({ environment: env });
   assert.equal(selected.executable, node);
   const batch = process.platform === 'win32'
@@ -140,7 +140,7 @@ try {
   const secondBytes = gzipSync(gunzipSync(firstBytes), { level: 1 });
   const second = digest(secondBytes); assert.notEqual(second, first);
   await writeFile(secondArchive, secondBytes);
-  await installManagedRelease({ tarball: secondArchive, sha256: second, nodeExecutable: node, root: engine });
+  await installManagedRelease({ tarball: secondArchive, sha256: second, nodeExecutable: node, root: engine, homeDirectory: home });
   assert.equal(resolver.resolveManagedEngine({ environment: env }).release, second);
   await rollbackManagedRelease({ root: engine });
   assert.equal(resolver.resolveManagedEngine({ environment: env }).release, first);

@@ -44,7 +44,7 @@ async function fixture(t) {
     const bytes = Buffer.from(`reviewed fixture ${archiveNumber++}`);
     const tarball = path.join(home, `candidate-${archiveNumber}.tgz`);
     await writeFile(tarball, bytes);
-    return { tarball, sha256: sha(bytes), nodeExecutable: node, root, execute };
+    return { tarball, sha256: sha(bytes), nodeExecutable: node, root, homeDirectory: home, execute };
   };
   return { root, home, node, runtime, archive, calls, execute };
 }
@@ -234,6 +234,18 @@ test('legacy recovery is preserved and must finish before a managed activation',
   await writeFile(path.join(legacy, 'activation-current.json'), record);
   await assert.rejects(installManagedRelease(await f.archive()), /existing installation recovery/);
   assert.equal(await readFile(path.join(legacy, 'activation-current.json'), 'utf8'), record);
+});
+
+test('a custom engine root cannot bypass the user-level legacy recovery journal', async t => {
+  const f = await fixture(t);
+  const legacy = path.join(f.home, '.singularity-flow', 'installations');
+  await mkdir(legacy, { recursive: true });
+  const file = path.join(legacy, 'activation-current.json');
+  const record = JSON.stringify({ status: 'rolling-back' });
+  await writeFile(file, record);
+  await assert.rejects(installManagedRelease(await f.archive()), /existing installation recovery/);
+  assert.equal(await readFile(file, 'utf8'), record);
+  await assert.rejects(lstat(path.join(f.root, 'active')), { code: 'ENOENT' });
 });
 
 test('a live installer lease cannot be recovered or bypassed by rollback', async t => {

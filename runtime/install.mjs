@@ -6,6 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { chmod, lstat, mkdir, readFile, readdir, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
 import resolver from './resolve.cjs';
 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -108,22 +109,25 @@ export function managedLauncher(name, { windows = false } = {}) {
   return `#!/usr/bin/env bash\nset -euo pipefail\nengine_root="$(cd -- "$(dirname -- "\${BASH_SOURCE[0]}")/.." && pwd -P)"\nIFS='|' read -r schema runtime release extra < "$engine_root/active"\n[[ "$schema" == 1 && -z "\${extra:-}" && "$runtime" != *[!a-zA-Z0-9.-]* && "$runtime" == node-v26.* && "$release" =~ ^[a-f0-9]{64}$ ]] || { printf '%s\\n' 'SFlow engine selection is invalid. Repair the managed installation.' >&2; exit 1; }\nexec "$engine_root/runtimes/$runtime/bin/node" "$engine_root/releases/$release/node_modules/singularity-flow/bin/${entry}.mjs" "$@"\n`;
 }
 
-async function assertNoLegacyRecovery(root) {
+async function assertNoLegacyRecovery(root, homeDirectory) {
   // A managed install must not erase/bypass an unfinished legacy activation or uninstall.
-  const installations = path.join(path.dirname(root), 'installations');
-  for (const name of ['activation-current.json', 'distribution-install-pending.json', 'uninstall-pending.json']) {
-    const file = path.join(installations, name);
-    const info = await lstat(file).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
-    if (!info) continue;
-    if (!info.isFile() || info.isSymbolicLink() || info.size > 1024 * 1024) throw new Error(`Preserved installation recovery needs review: ${file}`);
-    const record = JSON.parse(await readFile(file, 'utf8'));
-    if (!['complete', 'rolled-back'].includes(record.status)) throw new Error(`Finish the existing installation recovery before managed activation: ${file}`);
+  const directories = new Set([path.join(path.dirname(root), 'installations'),
+    path.join(homeDirectory, '.singularity-flow', 'installations')]);
+  for (const installations of directories) {
+    for (const name of ['activation-current.json', 'distribution-install-pending.json', 'uninstall-pending.json']) {
+      const file = path.join(installations, name);
+      const info = await lstat(file).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+      if (!info) continue;
+      if (!info.isFile() || info.isSymbolicLink() || info.size > 1024 * 1024) throw new Error(`Preserved installation recovery needs review: ${file}`);
+      const record = JSON.parse(await readFile(file, 'utf8'));
+      if (!['complete', 'rolled-back'].includes(record.status)) throw new Error(`Finish the existing installation recovery before managed activation: ${file}`);
+    }
   }
 }
 
 /** Install at a final content-addressed path before smoke/prewarm, then change one small pointer. */
 export async function installManagedRelease({ tarball, sha256, nodeExecutable = process.execPath,
-  root = resolver.engineHome(), execute = installerProcess, log = console.log } = {}) {
+  root = resolver.engineHome(), homeDirectory = os.homedir(), execute = installerProcess, log = console.log } = {}) {
   if (!/^[a-f0-9]{64}$/.test(sha256 || '')) throw new Error('A trusted archive SHA-256 is required.');
   root = path.resolve(root);
   // Windows command shims cannot safely represent shell expansion characters in their own path.
@@ -143,7 +147,7 @@ export async function installManagedRelease({ tarball, sha256, nodeExecutable = 
   if (runtime !== `node-${version}-${process.platform}-${process.arch}`) throw new Error('Private Node version/host mismatch.');
   const npm = path.join(runtimeRoot, ...(process.platform === 'win32' ? ['node_modules', 'npm'] : ['lib', 'node_modules', 'npm']), 'bin', 'npm-cli.js');
   await privateDirectory(root);
-  await assertNoLegacyRecovery(root);
+  await assertNoLegacyRecovery(root, homeDirectory);
   for (const directory of ['releases', 'bin', 'cache']) await privateDirectory(path.join(root, directory));
   const lock = path.join(root, '.activation-lock');
   await mkdir(lock, { mode: 0o700 }).catch(() => { throw new Error('Another managed activation or interrupted activation needs recovery. The current engine was preserved.'); });

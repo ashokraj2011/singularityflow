@@ -120,25 +120,37 @@ try {
         try {
           for (let sample = 0; sample < samples; sample++) {
             const checkout = path.join(f.directory, `worker-${sample}`);
+            const preparedCheckout = path.join(f.directory, `prepared-worker-${sample}`);
             f.git(['clone', '-q', '--no-hardlinks', '--single-branch', '--branch', f.workId, f.repository, checkout]);
             try {
               await bindPhaseReadFixture(f, checkout);
               const options = { executable: process.execPath, cli: after.cli, repository: checkout,
                 env: { ...f.env, SINGULARITY_FLOW_BUNDLE: 'on', SINGULARITY_FLOW_AGENT_OUTPUT: 'raw',
                   NODE_COMPILE_CACHE: path.join(f.directory, 'worker-compile', String(sample)) }, args };
-              const read = async () => { const started = performance.now(), value = await adapter.readWithWorker(options);
+              const read = async (selected = options) => { const started = performance.now(), value = await adapter.readWithWorker(selected);
                 if (value?.kind !== 'value' || value.value.ready !== true || value.value.workId !== f.workId) throw new Error('Worker did not return bound guidance.');
                 return { durationMs: performance.now() - started, transport: value.transport, semantic: semantic(value.value) }; };
               const first = await read(), warm = await read();
               adapter.disposeReadWorkers();
-              const prepared = await adapter.prewarmReadWorker(options);
+              f.git(['clone', '-q', '--no-hardlinks', '--single-branch', '--branch', f.workId, f.repository, preparedCheckout]);
+              await bindPhaseReadFixture(f, preparedCheckout);
+              const preparedOptions = { ...options, repository: preparedCheckout,
+                env: { ...options.env, NODE_COMPILE_CACHE: path.join(f.directory, 'prepared-compile', String(sample)) } };
+              const preparationStarted = performance.now();
+              const prepared = await adapter.prewarmReadWorker(preparedOptions);
+              const preparationMs = performance.now() - preparationStarted;
               if (prepared.status !== 'prepared') throw new Error('Worker preparation unavailable.');
-              const prewarmed = await read();
+              const prewarmed = await read(preparedOptions);
               if (JSON.stringify(first.semantic) !== JSON.stringify(warm.semantic) || JSON.stringify(first.semantic) !== JSON.stringify(prewarmed.semantic)) throw new Error('Worker binding changed.');
-              row.worker.samples.push({ first, warm, prewarmed });
-            } finally { adapter.disposeReadWorkers(); await rm(checkout, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 }); }
+              row.worker.samples.push({ first, warm, prewarmed, preparationMs });
+            } finally {
+              adapter.disposeReadWorkers();
+              for (const folder of [checkout, preparedCheckout]) await rm(folder, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 });
+            }
           }
           row.worker.summary = Object.fromEntries(['first', 'warm', 'prewarmed'].map(key => [key, summary(row.worker.samples.map(value => value[key].durationMs))]));
+          row.worker.preparation = summary(row.worker.samples.map(value => value.preparationMs));
+          row.worker.prewarmedState = 'independent fresh clone and V8 cache; definitions prepared but no prior request/provenance receipt';
         } finally { adapter.disposeReadWorkers(); }
       }
       rows.push(row);

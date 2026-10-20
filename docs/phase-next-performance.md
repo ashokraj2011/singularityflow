@@ -43,7 +43,10 @@ The low-level cross-process Git fact store is disabled to isolate these owners. 
 each sample, Git counters, coarse stages and named spans. Nested spans are not additive.
 Summaries use the upper observed median, not an interpolated average or a confidence bound.
 
-Worker-start, repeated-worker and definition-prewarmed requests are reported separately. Worker
-preparation does no repository reads and is excluded only from the explicitly prewarmed row.
+Worker-start, repeated-worker and definition-prewarmed requests are reported separately. The
+prewarmed case uses an independent fresh clone and V8 cache, not the repeated request's receipts.
+Worker preparation does no repository reads; its measured cost is reported separately and is
+excluded only from the explicitly prewarmed request row. Raw agent JSON retains complete binding
+fields for measurement; default bounded presentation is covered by the worker parity regressions.
 The baseline's amended skill composition refuses with the missing-definition error; that row has
 no percentage gain. Native Windows results require `runtime.platform=win32`.

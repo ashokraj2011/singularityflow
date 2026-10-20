@@ -1,11 +1,14 @@
 /** Private runtime bindings for names declared in singularity/environments.yml. */
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
+import { repositoryGitPath } from './git-directory.mjs';
 import { gitCommonDir } from './git.mjs';
 import {
-  ENVIRONMENT_IDENTIFIER, loadEnvironmentDeclaration
+  ENVIRONMENT_IDENTIFIER, isExactEnvironmentFilePath, loadEnvironmentDeclaration
 } from './environment-declaration.mjs';
 import {
   readPrivateSidecar, safePrivateSidecarDirectory, writeMutablePrivateSidecar
@@ -236,10 +239,22 @@ export async function resolveEnvironmentBinding(root, environmentId, { commandId
   return (await resolveBinding(root, environmentId, { commandId })).resolution;
 }
 
+/**
+ * Whether a run here may have environment files to place [ENVF]: an exact localFiles path, this
+ * clone's environment-file registry, or workspace-level environment-file state on this machine
+ * (beside the workspace registry, as environment-files.mjs keeps it). Two lstats; nothing is loaded.
+ */
+export function environmentFilesInPlay(root, declaration, env = process.env) {
+  if (Object.values(declaration?.environments ?? {}).some((entry) => (entry.localFiles ?? []).some(isExactEnvironmentFilePath))) return true;
+  const registry = env.SINGULARITY_FLOW_WORKSPACE_REGISTRY || path.join(os.homedir(), '.singularity-flow', 'workspaces.json');
+  return existsSync(repositoryGitPath(root, 'singularity-flow', 'environment-files', 'v1', 'registry.json'))
+    || existsSync(path.join(path.dirname(path.resolve(registry)), 'environment-files', 'v1'));
+}
+
 /** The public resolution plus, for a complete binding only, the private effective bindings. */
 async function resolveBinding(root, environmentId, { commandId = null } = {}) {
-  const outcome = (resolution, privateBindings = null, environment = null) => ({ resolution, privateBindings, environment });
   const declaration = await loadEnvironmentDeclaration(root, { optional: true });
+  const outcome = (resolution, privateBindings = null, environment = null) => ({ resolution, privateBindings, environment, declaration });
   if (environmentId == null && commandId != null) {
     environmentId = declaration?.checks?.[commandId]?.environment ?? null;
   }
@@ -309,19 +324,28 @@ async function resolveBinding(root, environmentId, { commandId = null } = {}) {
  * passes to spawn (`childEnvironment`). `redact` and `streamRedactor` replace every bound secret
  * of four or more characters with `[redacted:NAME]`. Serializing the result shows exactly the
  * public metadata `env status` shows, never a value or a value-derived hash.
+ *
+ * `files` ({ checkout, sourceRoots, workingDirectory, platform }) places the environment's files for
+ * this run first (environment-files.mjs), refusing with ENV_FILE_MISSING before anything starts, and
+ * redacts their secret-looking values as `[redacted:FILE-KEY]`; `environmentFiles` (non-enumerable)
+ * names what was placed, paths only. Without an environment file nothing more is loaded.
  */
-export async function materializeEnvironmentBinding(root, environmentId, { commandId = null } = {}) {
-  const { resolution, privateBindings, environment } = await resolveBinding(root, environmentId, { commandId });
+export async function materializeEnvironmentBinding(root, environmentId, { commandId = null, files = null } = {}) {
+  const { resolution, privateBindings, environment, declaration } = await resolveBinding(root, environmentId, { commandId });
   const result = { status: resolution.status, environment: resolution.environment, missing: resolution.missing };
   if (resolution.status !== 'bound' || !privateBindings || !environment) return Object.freeze(result);
   const values = new Map(environment.requires.map((entry) => [entry.name, privateBindings[entry.name]?.value]));
   if ([...values.values()].some((value) => typeof value !== 'string')) {
     return Object.freeze({ ...result, status: 'unavailable', missing: Object.freeze([...values.keys()].sort()) });
   }
+  const placed = files && environmentFilesInPlay(root, declaration)
+    ? await (await import('./environment-files.mjs')).placeEnvironmentFilesForRun(root, resolution.environment.name, { declaration, ...files })
+    : null;
   const { createStreamRedactor, redactText, redactionEntries } = await import('./output-redaction.mjs');
-  const secrets = redactionEntries(environment.requires
-    .filter((entry) => entry.kind === 'secret').map((entry) => ({ name: entry.name, value: values.get(entry.name) })));
+  const secrets = redactionEntries([...environment.requires
+    .filter((entry) => entry.kind === 'secret').map((entry) => ({ name: entry.name, value: values.get(entry.name) })), ...(placed?.redactions ?? [])]);
   Object.defineProperties(result, {
+    environmentFiles: { enumerable: false, value: placed },
     childEnvironment: { enumerable: false, value: (base = process.env) => {
       const names = new Set(values.keys());
       const env = Object.fromEntries(Object.entries(base).filter(([key]) => !names.has(key.toUpperCase())));

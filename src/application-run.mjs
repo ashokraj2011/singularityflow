@@ -429,10 +429,16 @@ export async function startApplication(root, context, entry, {
       throw localIntegrationPolicyRefusal({ capabilityId: context.capabilityId, environment, subject });
     }
     const { materializeEnvironmentBinding } = await import('./environment-bindings.mjs');
-    materialized = await materializeEnvironmentBinding(root, environment);
+    // The environment's files are placed here first (in the capability's sourceRoots, else the entry's
+    // working directory), or the start is refused naming the missing file [ENVF].
+    materialized = await materializeEnvironmentBinding(root, environment, { files: {
+      sourceRoots: context.capability?.sourceRoots ?? [], workingDirectory: entry.workingDirectory, platform } });
     if (materialized.status !== 'bound') {
       throw environmentBindingRefusal({ environment, status: materialized.status, missing: materialized.missing, subject });
     }
+    const placedFiles = materialized.environmentFiles;
+    if (placedFiles?.paths.length) output.write(`Environment files for ${environment}: ${placedFiles.paths.join(', ')}\n`);
+    for (const note of placedFiles?.notes ?? []) output.write(`${note}\n`);
   }
   const cwd = (await secureRepositoryPath(root, entry.workingDirectory, {
     label: `${subject} working directory`, mustExist: true, type: 'directory'
@@ -484,6 +490,9 @@ export async function startApplication(root, context, entry, {
     format: APP_RUN_FORMAT, capability: context.capabilityId, id: entry.id, pid: child.pid,
     url: entry.url, startedAt: new Date().toISOString(), commandSha256,
     processStartedAt: processStartIdentity(child.pid, { platform }), environment, readyAt: null,
+    // Paths only: another environment's run refuses to switch a shared file while this one runs.
+    ...(materialized?.environmentFiles?.paths.length ? { environmentFiles: {
+      checkout: materialized.environmentFiles.checkout, paths: [...materialized.environmentFiles.paths] } } : {}),
     ...(debugLaunch ? { debug: { runtime: debugLaunch.runtime, port: debugLaunch.port, listeningAt: null } } : {})
   };
   await writeAppRecord(root, record);

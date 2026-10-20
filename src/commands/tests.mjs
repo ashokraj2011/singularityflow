@@ -184,6 +184,18 @@ async function caseMessages(root, receipt, contents, { materialized = null } = {
   return redactor?.redactsAnything ? messages.map((message) => (message == null ? null : redactor.redact(message))) : messages;
 }
 
+/**
+ * Every environment file the runs need, proven before any command runs [ENVF]: a missing one refuses
+ * the whole run with ENV_FILE_MISSING naming both fixes. Nothing more loads without one.
+ */
+async function assertEnvironmentFilesReady(root, declaration, runs) {
+  if (!runs.length) return;
+  const { environmentFilesInPlay } = await import('../environment-bindings.mjs');
+  if (!environmentFilesInPlay(root, declaration)) return;
+  const { placeEnvironmentFilesForRun } = await import('../environment-files.mjs');
+  for (const run of runs) await placeEnvironmentFilesForRun(root, run.environment, { declaration, ...run, check: true });
+}
+
 // ---------------------------------------------------------------------------------------------
 // Capability scope: a local preview, never evidence.
 
@@ -236,6 +248,14 @@ async function runCapability(root, options) {
       .map((plan) => `${plan.command.id}: ${(plan.listed.length ? plan.listed : [plan.linked]).join(', ')}`).join('; ') || 'None declares an environment.'}`,
     'RUN_ENVIRONMENT_NOT_ALLOWED', { requested });
   }
+  const allowed = application.policy?.localIntegrationEvidence === 'allowed';
+  const environmentFor = (plan) => ((plan.listed.length || plan.linked) ? runEnvironment.selectRunEnvironment({
+    listed: plan.listed, linked: plan.linked, declaration, subject: `Test command '${plan.command.id}'`,
+    requested: requested && (plan.listed.includes(requested) || plan.linked === requested) ? requested : null
+  }) : null);
+  const sourceRoots = application.capability?.sourceRoots ?? [];
+  await assertEnvironmentFilesReady(root, declaration, allowed ? plans.filter((plan) => !plan.invalid && environmentFor(plan))
+    .map((plan) => ({ environment: environmentFor(plan), sourceRoots, workingDirectory: plan.command.workingDirectory ?? '.' })) : []);
   const ranBy = await localActorKey(root);
   const runId = store.newTestRunId();
   const startedAt = new Date().toISOString();
@@ -243,11 +263,7 @@ async function runCapability(root, options) {
   const uncommittedChanges = await worktreeChanged(root);
   const entries = [];
   for (const [index, plan] of plans.entries()) {
-    const usesEnvironment = plan.listed.length || plan.linked;
-    const environment = usesEnvironment ? runEnvironment.selectRunEnvironment({
-      listed: plan.listed, linked: plan.linked, declaration, subject: `Test command '${plan.command.id}'`,
-      requested: requested && (plan.listed.includes(requested) || plan.linked === requested) ? requested : null
-    }) : null;
+    const environment = environmentFor(plan);
     const command = plan.command;
     let materialized = null;
     let note = plan.invalid;
@@ -256,8 +272,14 @@ async function runCapability(root, options) {
       note = runEnvironment.localIntegrationPolicyRefusal({ capabilityId: application.capabilityId, environment, subject: `Test command '${command.id}'` }).message;
     } else if (environment) {
       const { materializeEnvironmentBinding } = await import('../environment-bindings.mjs');
-      materialized = await materializeEnvironmentBinding(root, environment, { commandId: plan.linked === environment ? command.id : null });
-      if (materialized.status !== 'bound') {
+      materialized = await materializeEnvironmentBinding(root, environment, { commandId: plan.linked === environment ? command.id : null,
+        files: { sourceRoots, workingDirectory: command.workingDirectory ?? '.' } }).catch((error) => {
+        if (!String(error?.code ?? '').startsWith('ENV_FILE_')) throw error;
+        note = error.message;
+        return null;
+      });
+      if (note) materialized = null;
+      else if (materialized.status !== 'bound') {
         note = runEnvironment.environmentBindingRefusal({ environment, status: materialized.status, missing: materialized.missing,
           subject: `Test command '${command.id}'` }).message;
         materialized = null;
@@ -475,6 +497,12 @@ async function runStory(root, options) {
     select: async (commands) => {
       const selected = context.select(commands);
       await assertExpectedCommands(options, context.withEnvironments(selected));
+      // The environment each command's run uses, as the gate chooses it: the requested one when it may, else the linked or first listed.
+      const requested = optionString(options, 'environment', null);
+      const sourceRoots = context.workflow.resolution?.capability?.sourceScope?.sourceRoots ?? [];
+      await assertEnvironmentFilesReady(root, context.declaration, context.allowed ? context.withEnvironments(selected).filter((plan) => plan.allowed.length)
+        .map((plan) => ({ environment: requested && plan.listed.includes(requested) ? requested : plan.linked ?? plan.allowed[0],
+          sourceRoots, workingDirectory: plan.command.workingDirectory ?? '.' })) : []);
       return selected;
     }
   });

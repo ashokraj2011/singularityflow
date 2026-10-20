@@ -4355,10 +4355,10 @@ async function storyLocalIntegration(root, workflow, localRun = null) {
   };
 }
 
-async function materializeQualityEnvironment(root, environmentId) {
+async function materializeQualityEnvironment(root, environmentId, files) {
   const runtimeUrl = pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'environment-bindings.mjs')).href;
   environmentBindingRuntimePromise ??= import(runtimeUrl);
-  return (await environmentBindingRuntimePromise).materializeEnvironmentBinding(root, environmentId);
+  return (await environmentBindingRuntimePromise).materializeEnvironmentBinding(root, environmentId, { files });
 }
 
 export function effectiveEnvironmentQualityCommandCatalog(
@@ -4455,12 +4455,15 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     // The runner boundary: values for this one process, never a durable field [RUN rule 3].
     let materialized = null;
     if (environmentGate.run) {
-      materialized = await materializeQualityEnvironment(root, environmentGate.run.environmentId).catch(() => null);
+      // Its environment files are placed in the checkout the command runs in [ENVF]; a missing one blocks it.
+      materialized = await materializeQualityEnvironment(root, environmentGate.run.environmentId, { checkout: isolation?.root ?? root,
+        sourceRoots: workflow?.resolution?.capability?.sourceScope?.sourceRoots ?? [], workingDirectory: policy.workingDirectory })
+        .catch((error) => (String(error?.code).startsWith('ENV_FILE_') ? { refusal: error } : null));
       if (materialized?.status !== 'bound') {
         checks.push(environmentBlockedCheck(policy, {
           environment: safeEnvironmentMetadata(materialized?.environment, environmentGate.run.environmentId),
-          errorCode: 'ENVIRONMENT_BINDING_UNAVAILABLE',
-          reason: `Environment '${environmentGate.run.environmentId}' is unavailable for quality command '${policy.id}'. Bind the declared environment before retrying; the command was not executed.`,
+          errorCode: materialized?.refusal?.code ?? 'ENVIRONMENT_BINDING_UNAVAILABLE',
+          reason: materialized?.refusal?.message ?? `Environment '${environmentGate.run.environmentId}' is unavailable for quality command '${policy.id}'. Bind the declared environment before retrying; the command was not executed.`,
           sourceCommit, sourceTreeSha256, startedAt
         }));
         continue;

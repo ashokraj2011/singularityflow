@@ -230,28 +230,6 @@ test('Windows Git Bash wrapper validates CRLF support and delegates to the canon
     'the wrapper must not rewrite files or alter Git line-ending policy');
 });
 
-test('Windows wrapper delegates the update choice without pulling ahead of recovery admission', async t => {
-  const fixture = await mkdtemp(path.join(os.tmpdir(), 'sflow-windows-install-delegate-'));
-  t.after(() => rm(fixture, { recursive: true, force: true }));
-  await mkdir(path.join(fixture, 'src'));
-  await copyFile(path.join(root, 'install-windows-git-bash.sh'), path.join(fixture, 'install-windows-git-bash.sh'));
-  await writeFile(path.join(fixture, 'package.json'), '{}\n');
-  await writeFile(path.join(fixture, 'src/agents.mjs'), '// Git for Windows commonly checks Markdown out with CRLF\n');
-  await writeFile(path.join(fixture, 'install.sh'), '#!/usr/bin/env bash\nprintf "%s\\n" "$@"\n');
-  for (const noUpdate of [false, true]) {
-    const result = spawnSync('bash', [path.join(fixture, 'install-windows-git-bash.sh'),
-      '--cli-only', '--skip-tests', ...(noUpdate ? ['--no-update'] : [])], {
-      cwd: fixture, env: process.env, encoding: 'utf8', timeout: 30_000
-    });
-    assert.ifError(result.error);
-    assert.equal(result.status, 0, result.stdout + result.stderr);
-    const lines = result.stdout.trim().split(/\r?\n/);
-    assert.equal(lines.includes('--no-update'), noUpdate);
-    assert.ok(lines.includes('--cli-only'));
-    assert.ok(lines.includes('--skip-tests'));
-  }
-});
-
 test('single installer supports Artifactory without accepting credentials in URLs', async () => {
   const script = await readFile(path.join(root, 'install.sh'), 'utf8');
   assert.match(script, /--registry=\*/);

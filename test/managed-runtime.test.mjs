@@ -6,6 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import resolver from '../runtime/resolve.cjs';
 import { installManagedRelease, installerProcess, managedLauncher, recoverManagedActivation, rollbackManagedRelease } from '../runtime/install.mjs';
+import { observeProductSurfaces, planProductAlignment, applyProductAlignment } from '../src/product-alignment.mjs';
+import { stampBuildInfo } from '../src/build-info-stamp.mjs';
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const runtimeId = `node-v26.12.0-${process.platform}-${process.arch}`;
@@ -184,6 +186,28 @@ test('managed engine homes must be absolute', () => {
 test('managed engine maintenance cannot silently mutate legacy global npm or delete its own runtime', () => {
   assert.throws(() => resolver.assertLegacyInstallerAllowed(path.join(path.parse(process.cwd()).root, 'private', 'releases', 'a'.repeat(64), 'node_modules', 'singularity-flow')), /Legacy global npm/);
   assert.doesNotThrow(() => resolver.assertLegacyInstallerAllowed(path.resolve('source checkout')));
+});
+
+test('managed product/first-mutation alignment never inventories or repairs global npm', async t => {
+  const f = await fixture(t);
+  const candidate = await f.archive(); await installManagedRelease(candidate);
+  const pkg = path.join(f.root, 'releases', candidate.sha256, 'node_modules', 'singularity-flow');
+  await mkdir(path.join(pkg, 'src'));
+  await writeFile(path.join(pkg, 'src/version.mjs'), "export const VERSION = '0.9.0';\n");
+  const source = await readFile(new URL('../src/build-info.mjs', import.meta.url), 'utf8');
+  await writeFile(path.join(pkg, 'src/build-info.mjs'), stampBuildInfo(source, { commit: 'a'.repeat(40), sourceSha256: null,
+    branch: null, dirty: false, builtAt: '2026-10-21T00:00:00.000Z' }));
+  const options = { homeDirectory: f.home, environment: { ...process.env, SINGULARITY_FLOW_ENGINE_HOME: f.root },
+    exists: () => false, execute: () => { throw new Error('No global command should run'); },
+    inspectProduct: () => { throw new Error('Global npm inventory must not run'); } };
+  const observed = await observeProductSurfaces(options);
+  const plan = planProductAlignment(observed);
+  assert.equal(plan.managed, true);
+  assert.equal(plan.verdict, 'aligned');
+  assert.deepEqual(plan.actions, []);
+  const result = await applyProductAlignment({ ...options, runningBuild: '0.9.0 (managed-fixture)' });
+  assert.equal(result.status, 'aligned');
+  assert.equal(result.plan.managed, true);
 });
 
 test('legacy recovery is preserved and must finish before a managed activation', async t => {

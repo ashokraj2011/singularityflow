@@ -36,8 +36,15 @@ try {
     # PowerShell 5.1 and modern PowerShell both support this bounded download.
     Invoke-WebRequest -UseBasicParsing -Uri "$runtimeMirror/v$runtimeVersion/$runtimeArchive" -OutFile $runtimeFile -TimeoutSec 600
   }
-  if ((Get-FileHash -LiteralPath $runtimeFile -Algorithm SHA256).Hash.ToLowerInvariant() -ne $runtimeSha) { throw 'Node archive checksum mismatch; nothing was activated.' }
-  Expand-Archive -LiteralPath $runtimeFile -DestinationPath (Join-Path $runtimeStage 'unpack')
+  # Use .NET primitives: office hosts may launch Windows PowerShell from PowerShell 7 with a
+  # PSModulePath that cannot autoload the Get-FileHash/Expand-Archive script modules.
+  $runtimeHasher = [Security.Cryptography.SHA256]::Create()
+  $runtimeStream = [IO.File]::OpenRead($runtimeFile)
+  try { $runtimeActual = [BitConverter]::ToString($runtimeHasher.ComputeHash($runtimeStream)).Replace('-', '').ToLowerInvariant() }
+  finally { $runtimeStream.Dispose(); $runtimeHasher.Dispose() }
+  if ($runtimeActual -ne $runtimeSha) { throw 'Node archive checksum mismatch; nothing was activated.' }
+  [void][Reflection.Assembly]::LoadWithPartialName('System.IO.Compression.FileSystem')
+  [IO.Compression.ZipFile]::ExtractToDirectory($runtimeFile, (Join-Path $runtimeStage 'unpack'))
   $runtimeUnpacked = Join-Path $runtimeStage "unpack/node-v$runtimeVersion-win-$runtimeArch"
   if (-not (Test-Path -LiteralPath (Join-Path $runtimeUnpacked 'LICENSE'))) { throw 'Node archive is incomplete.' }
   if ((& (Join-Path $runtimeUnpacked 'node.exe') --version) -ne "v$runtimeVersion" -or $LASTEXITCODE -ne 0) { throw 'Private Node version mismatch.' }

@@ -384,6 +384,10 @@ export const MESSAGES = Object.freeze({
     headline: () => 'Every Singularity Flow surface on this machine runs the installed build.',
     preserves: true
   },
+  'product.managed': {
+    headline: () => 'SFlow uses its managed engine/runtime pair. Global Node/npm were not inspected or changed; any UI or Copilot integration gaps are listed separately.',
+    preserves: true
+  },
   'product.repairable': {
     headline: (s) => `${slot(s.count)} surface(s) run a different build than the installed one; \`singularity-flow product align\` brings them to it from the build retained on this machine.`,
     preserves: true

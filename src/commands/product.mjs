@@ -82,6 +82,7 @@ function statusData(plan, records = { configurationReviews: null, requirements: 
     resultType: 'product-status',
     schemaVersion: 1, // schema-transient: public CLI result envelope
     verdict: plan.verdict,
+    ...(plan.managed ? { managed: true } : {}),
     surfaces: plan.surfaces.map((entry) => ({ ...entry })),
     actions: plan.actions.map((entry) => ({ ...entry })),
     split: plan.split ? { ...plan.split } : null,
@@ -132,7 +133,7 @@ function printSurfaces(plan, log = console.log) {
 
 function verdictOutcome(plan) {
   const slots = { count: plan.actions.length };
-  return succeeded(`product.${plan.verdict}`, slots);
+  return succeeded(plan.managed ? 'product.managed' : `product.${plan.verdict}`, slots);
 }
 
 /**

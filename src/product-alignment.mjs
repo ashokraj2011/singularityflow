@@ -22,6 +22,7 @@ import {
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import runtimeResolver from '../runtime/resolve.cjs';
 import { stampedBuildLine, parseBuildLine, compareBuilds } from './build-stamp-reader.mjs';
 export { parseStampedBuildInfo, parseVersionSource, stampedBuildLine, parseBuildLine, compareBuilds } from './build-stamp-reader.mjs';
 import { PRODUCT_ALIGNMENT_SWITCH } from './product-alignment-gate.mjs';
@@ -236,6 +237,25 @@ export async function observeProductSurfaces({
 } = {}) {
   ({ execute, exists } = withCodeCommand(execute, exists, environment));
   const installations = installationsDirectory(homeDirectory);
+  const managed = runtimeResolver.resolveManagedEngine({ environment, homeDirectory });
+  if (managed) {
+    // Managed engine selection is its own owner. Never inspect/repair the user's global npm
+    // installation from a managed command or its first-mutation advisory pass.
+    const packageRoot = path.dirname(path.dirname(managed.cli));
+    let build = null;
+    try { build = stampedBuildLine(
+      fs.readFileSync(path.join(packageRoot, 'src/version.mjs'), 'utf8'),
+      fs.readFileSync(path.join(packageRoot, 'src/build-info.mjs'), 'utf8')); } catch { /* explicit unverifiable below */ }
+    const directory = extensionPath ? path.resolve(extensionPath)
+      : installedExtensionDirectory({ homeDirectory, environment, version: build?.version });
+    const vscodeBuild = directory ? extensionDirectoryBuild(directory) : null;
+    const copilotAvailable = exists('copilot');
+    const verification = copilotAvailable ? copilotPluginVerification((command, args, options) => (
+      command === 'singularity-flow' ? execute(managed.executable, [managed.cli, ...args], options) : execute(command, args, options)
+    ), environment) : null;
+    return Object.freeze({ installations, receipt: Object.freeze({ status: 'managed', path: path.join(managed.root, 'active') }),
+      managed: Object.freeze({ ...managed, build, vscodeBuild, extensionPath: directory, copilotAvailable, verification }) });
+  }
   const receipt = await readInstallationReceipt(installations);
   if (receipt.status !== 'present') {
     // Nothing to compare the surfaces with, so no inventory and none of its subprocesses.
@@ -325,6 +345,20 @@ function binarySurface(id, { recorded, installed, live, available }) {
  */
 export function planProductAlignment(observation) {
   const receipt = observation.receipt;
+  if (receipt.status === 'managed') {
+    const { build, vscodeBuild, extensionPath, copilotAvailable, verification } = observation.managed;
+    const surfaces = [
+      { id: 'cli', state: build ? 'aligned' : 'unverifiable', live: build?.line ?? null,
+        reason: 'The managed engine/runtime pair is selected atomically; global npm was not inspected.' },
+      { id: 'vscode', state: !extensionPath ? 'not-installed' : vscodeBuild?.line === build?.line && build ? 'aligned' : 'unverifiable',
+        live: vscodeBuild?.line ?? null, reason: !extensionPath ? 'No matching installed UI was selected; this is not an attestation about another running window.' : 'Managed mode never silently replaces a VSIX. Install the retained matching UI when its build differs.' },
+      { id: 'copilot', state: !copilotAvailable ? 'unavailable' : verification?.verified ? 'aligned' : 'unverifiable',
+        reason: !copilotAvailable ? 'The standalone Copilot manager is unavailable; no plugin installation was claimed.' : verification?.verified ? 'The selected managed engine verified its Copilot integration.' : verification?.reason }
+    ];
+    return Object.freeze({ managed: true, verdict: surfaces.some(item => item.state === 'unverifiable') ? 'split' : 'aligned',
+      surfaces: Object.freeze(surfaces.map(Object.freeze)), actions: Object.freeze([]), split: null,
+      next: Object.freeze([{ command: 'singularity-flow about', reason: 'Managed engine mode preserves global Node/npm. Use the retained VSIX and managed plugin install route for any reported integration mismatch.' }]) });
+  }
   if (receipt.status !== 'present') {
     return Object.freeze({
       verdict: receipt.status === 'absent' ? 'no-receipt' : 'receipt-invalid',

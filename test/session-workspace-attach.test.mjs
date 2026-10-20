@@ -17,7 +17,6 @@ import { bootstrapRepository } from '../src/bootstrap.mjs';
  * files, loose objects named pipes.
  */
 const bin = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
-const posix = process.platform !== 'win32';
 
 function run(command, args, cwd, env = process.env) {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8', env, timeout: 180_000 });
@@ -60,7 +59,7 @@ function shape(directory) {
 const sha = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
 
 test('attach clones an absent workspace repository, fast-forwards a present one, and leaves an offloaded one untouched',
-  { skip: !posix, timeout: 300_000 }, async (t) => {
+  { timeout: 300_000 }, async (t) => {
     const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-attach-'));
     t.after(() => rm(base, { recursive: true, force: true }));
     const remote = path.join(base, 'remote.git');
@@ -69,6 +68,7 @@ test('attach clones an absent workspace repository, fast-forwards a present one,
     run('git', ['init', '-b', 'main', seed], base);
     run('git', ['config', 'user.name', 'Attach Seed'], seed);
     run('git', ['config', 'user.email', 'attach.seed@example.invalid'], seed);
+    await writeFile(path.join(seed, '.gitattributes'), '* text eol=lf\n');
     await writeFile(path.join(seed, 'README.md'), '# Workspace attach\n');
     run('git', ['add', '.'], seed);
     run('git', ['commit', '-m', 'initial'], seed);
@@ -162,11 +162,40 @@ syncBuiltinESMExports();
       assert.equal(JSON.parse(caughtUp.stdout).commit, remoteHead());
     });
 
-    await t.test('offloaded: nothing changes, and the refusal says how to download it or clone it elsewhere', () => {
-      evict(path.join(repository, '.git'), path.join(base, 'saved-objects'));
+    await t.test('offloaded: nothing changes, and the refusal says how to download it or clone it elsewhere', async () => {
+      let storageFixture = {};
+      if (process.platform === 'win32') {
+        // Windows has no POSIX FIFO. Inject only an unavailable-file observation and its bounded
+        // download failure; the real detector, session CLI, Git clone and recovery still execute.
+        // This is not a claim to qualify a live OneDrive provider or Windows placeholder bits.
+        const unavailableFile = path.join(repository, '.git', 'HEAD');
+        const preload = path.join(base, 'unavailable-file-preload.mjs');
+        await writeFile(preload, `import fs from 'node:fs';
+import cp from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+const unavailable = ${JSON.stringify(unavailableFile)};
+const lstat = fs.lstatSync;
+fs.lstatSync = function(file, ...args) {
+  const stat = Reflect.apply(lstat, this, [file, ...args]);
+  if (String(file) === unavailable) stat.blocks = 0;
+  return stat;
+};
+const spawn = cp.spawnSync;
+cp.spawnSync = function(command, args, options) {
+  if (command === process.execPath && args?.[0] === '-e' && typeof options?.input === 'string'
+      && options.input.includes(JSON.stringify(unavailable))) {
+    return { status: null, signal: 'SIGKILL', error: Object.assign(new Error('Fixture file unavailable'),
+      { code: 'ETIMEDOUT' }), stdout: '', stderr: '' };
+  }
+  return Reflect.apply(spawn, this, arguments);
+};
+syncBuiltinESMExports();
+`);
+        storageFixture = { NODE_OPTIONS: `--import=${pathToFileURL(preload).href}` };
+      } else evict(path.join(repository, '.git'), path.join(base, 'saved-objects'));
       const before = shape(repository);
       const manifest = sha(path.join(workspacePath, 'workspace.json'));
-      const offloaded = { ...env, SINGULARITY_FLOW_GIT_STORAGE_CHECK: 'always', SINGULARITY_FLOW_GIT_STORAGE_DOWNLOAD_TIMEOUT_MS: '500' };
+      const offloaded = { ...env, ...storageFixture, SINGULARITY_FLOW_GIT_STORAGE_CHECK: 'always', SINGULARITY_FLOW_GIT_STORAGE_DOWNLOAD_TIMEOUT_MS: '500' };
       const started = performance.now();
       const refused = attach(offloaded);
       assert.ok(performance.now() - started < 60_000);

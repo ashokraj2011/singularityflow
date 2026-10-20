@@ -87,10 +87,10 @@ test('tampering, an oversized receipt, and disabled caching compile without trus
   assert.equal(f.count(), 4);
 });
 
-test('unsafe cache ancestors decline caching without following the link', { skip: process.platform === 'win32' }, async t => {
+test('unsafe cache ancestors decline caching without following the link', async t => {
   const f = await fixture(t);
   const outside = path.join(f.root, 'outside'); await mkdir(outside);
-  await symlink(outside, path.join(f.root, '.git/singularity-flow'), 'dir');
+  await symlink(outside, path.join(f.root, '.git/singularity-flow'), process.platform === 'win32' ? 'junction' : 'dir');
   await compiledConfiguration(f.root, f.root, f.assets, f.compile, cacheOn);
   assert.equal(f.count(), 1);
   assert.deepEqual(await import('node:fs/promises').then(fs => fs.readdir(outside)), []);

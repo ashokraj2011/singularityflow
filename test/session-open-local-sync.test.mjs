@@ -57,6 +57,8 @@ test('session open fast-forwards an existing local Story checkout, and never mer
     };
 
     must('git', ['init', '-q', '-b', 'main', root], base);
+    // Assert exact checkout bytes regardless of the host's global core.autocrlf setting.
+    await writeFile(path.join(root, '.gitattributes'), '* text eol=lf\n');
     await writeFile(path.join(root, 'README.md'), '# Local sync\n');
     must(process.execPath, [cli, '--no-model', 'init']);
     const definitionPath = path.join(root, 'singularity/workflow.yml');

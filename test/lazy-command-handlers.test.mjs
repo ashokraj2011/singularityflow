@@ -87,7 +87,8 @@ test('the common session projection does not import attach, state stores or publ
 
 test('extracted legacy helpers remain part of the development build identity', async () => {
   const identity = await readFile(path.join(sourceRoot, 'build-identity.mjs'), 'utf8');
-  const helpers = (await commandModuleFiles()).filter(file => file.startsWith('commands/shared/'));
+  const helpers = (await commandModuleFiles()).map(file => file.split(path.sep).join('/'))
+    .filter(file => file.startsWith('commands/shared/'));
   assert.ok(helpers.length > 0);
   for (const helper of helpers) {
     assert.ok(identity.includes(`'${helper}'`), `${helper} no longer invalidates a pre-extraction build receipt`);

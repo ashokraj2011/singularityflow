@@ -54,7 +54,7 @@ function repositoryHtml(view: EnvironmentFilesView, group: RepositoryGroup): str
 function tabsHtml(view: EnvironmentFilesView): string {
   if (!view.tabs.length) return '';
   return `<div class="ef-tabs" role="tablist" aria-label="Environments">${view.tabs.map((tab) => `<button type="button" role="tab" class="ef-tab" data-ef-environment="${escape(tab.name)}" aria-selected="${tab.selected}"${
-    view.busy ? ' disabled' : ''}>${escape(tab.name)} <small class="muted">${tab.total ? `${tab.total}${tab.missing ? ` · ${tab.missing} missing` : ''}` : 'none'}</small></button>`).join('')}</div>`;
+    view.busy ? ' disabled' : ''}>${escape(tab.name)} <small class="muted">${tab.total ? `${tab.total} file${tab.total === 1 ? '' : 's'}${tab.missing ? ` · ${tab.missing} missing` : ''}` : 'no files'}</small></button>`).join('')}</div>`;
 }
 
 function workspaceHtml(view: EnvironmentFilesView): string {
@@ -143,7 +143,7 @@ export const ENVIRONMENT_FILES_STYLE = `
 .ef-tabs { display:flex; flex-wrap:wrap; gap:.25rem; margin:1rem 0 .75rem; border-bottom:var(--sf-border); }
 .ef-tab { padding:.4rem .8rem; border:0; border-bottom:2px solid transparent; border-radius:0; color:var(--vscode-foreground); background:transparent; font:inherit; cursor:pointer; }
 .ef-tab[aria-selected="true"] { border-bottom-color:var(--sf-accent); font-weight:600; }
-.ef-tab small { font-weight:400; }
+.ef-tab small { margin-left:.4rem; font-weight:400; }
 .ef-workspace { display:flex; flex-wrap:wrap; gap:.6rem 1.2rem; align-items:center; justify-content:space-between; }
 .ef-root { display:flex; flex-wrap:wrap; gap:.4rem .6rem; align-items:center; min-width:0; }
 .ef-buttons { display:inline-flex; flex-wrap:wrap; gap:.4rem; align-items:center; margin:0; }

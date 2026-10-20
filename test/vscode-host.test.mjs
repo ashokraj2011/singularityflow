@@ -10455,15 +10455,16 @@ async function runAndTestCli(base) {
         const save = () => writeFileSync(state + '/env-files.json', JSON.stringify(list));
         if (action === 'path') out({ location: (entry && entry.location) || store });
         else if (action === 'suggest') out(read('env-suggest.json'));
+        else if (args.includes('--workspace') && existsSync(state + '/env-files-workspace.json')) out(read('env-files-workspace.json'));
         else if (action === 'create') {
           // What the template copy holds is the engine's business; this one holds a secret no page may show.
           mkdirSync(dirname(store), { recursive: true });
           writeFileSync(store, 'DB_PASSWORD=' + ${JSON.stringify(ENV_SECRET)} + '\\n', { mode: 0o600 });
-          Object.assign(entry, { status: 'placed-here', source: 'store', location: store, excluded: true }); save();
+          if (entry) Object.assign(entry, { status: 'placed-here', source: 'store', location: store, excluded: true }); save();
           out({ created: true, location: store });
-        } else if (action === 'link') { Object.assign(entry, { status: 'placed-here', source: 'linked', location: args[args.indexOf('--to') + 1] }); save(); out({ linked: true }); }
-        else if (action === 'unlink') { Object.assign(entry, { status: 'missing', source: 'store', location: store }); save(); out({ unlinked: true }); }
-        else if (action === 'adopt') { Object.assign(entry, { status: 'placed-here', source: 'store', location: store, excluded: true }); save(); out({ adopted: true }); }
+        } else if (action === 'link') { if (entry) Object.assign(entry, { status: 'placed-here', source: 'linked', location: args[args.indexOf('--to') + 1] }); save(); out({ linked: true }); }
+        else if (action === 'unlink') { if (entry) Object.assign(entry, { status: 'missing', source: 'store', location: store }); save(); out({ unlinked: true }); }
+        else if (action === 'adopt') { if (entry) Object.assign(entry, { status: 'placed-here', source: 'store', location: store, excluded: true }); save(); out({ adopted: true }); }
         else if (action === 'add') {
           list.files.push({ repository: 'mobile', app: null, environment: args[3], path: args[4], kind: 'personal', template: null, source: 'store', location: store, status: 'missing', excluded: false,
             placedFor: null, placement: null, problem: null });
@@ -11816,7 +11817,7 @@ test('Environment Files: tabs, then repository and app; Open opens the real file
   let html = await until(() => page.webview.html.includes('data-ef-file=') ? page.webview.html : null);
   assert.equal(page.title, 'Environment Files · dev');
   assert.match(html, /Content-Security-Policy" content="default-src 'none'/);
-  assert.match(html, /data-ef-environment="dev" aria-selected="true">dev <small class="muted">2 · 1 missing<\/small>[\s\S]*data-ef-environment="qa" aria-selected="false">qa <small class="muted">2<\/small>/);
+  assert.match(html, /data-ef-environment="dev" aria-selected="true">dev <small class="muted">2 files · 1 missing<\/small>[\s\S]*data-ef-environment="qa" aria-selected="false">qa <small class="muted">2 files<\/small>/);
   assert.match(html, /data-ef-repository="mobile">[\s\S]*mobile \(this window\)[\s\S]*data-ef-app="checkout-app"><h3>[\s\S]*Checkout app \(checkout-app\)<\/h3>/);
   assert.match(html, /data-ef-status="missing">[\s\S]*?apps\/web\/\.env\.dev[\s\S]*?Missing[\s\S]*?Create from template/);
   assert.match(html, new RegExp(`<code class="ef-location">${cli.state.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}/store/dev/apps/web/\\.env\\.local</code>`));
@@ -11850,7 +11851,7 @@ test('Environment Files: tabs, then repository and app; Open opens the real file
   assert.equal(registered.openedDocuments.at(-1).fsPath, path.join(cli.state, 'store', 'dev', 'apps', 'web', '.env.dev'));
   html = page.webview.html;
   assert.match(html, /Created apps\/web\/\.env\.dev for dev from its template and opened it\./);
-  assert.match(html, /data-ef-environment="dev" aria-selected="true">dev <small class="muted">2<\/small>/, 'the engine\'s answer, read again');
+  assert.match(html, /data-ef-environment="dev" aria-selected="true">dev <small class="muted">2 files<\/small>/, 'the engine\'s answer, read again');
 
   // Use existing file…: nothing chosen changes nothing; a chosen file is linked with --to.
   registered.pickedFile = null;
@@ -11861,6 +11862,7 @@ test('Environment Files: tabs, then repository and app; Open opens the real file
   await page.post({ type: 'envFiles.action', action: 'link', key: envKey('dev', 'apps/web/.env.dev') });
   assert.deepEqual((await cli.envLog()).slice(-2), [['env', 'files', 'link', 'dev', 'apps/web/.env.dev', '--to', registered.pickedFile, '--json'], ['env', 'files', '--json']]);
   assert.equal(registered.openDialogs.at(-1).canSelectFiles, true);
+  assert.equal(registered.openDialogs.at(-1).defaultUri.fsPath, os.homedir(), 'from the home folder, never the private store last opened');
 
   // qa: Adopt the unmanaged file, Stop using the linked one.
   await page.post({ type: 'envFiles.environment', environment: 'qa' });
@@ -12009,4 +12011,35 @@ test('a run whose environment file is missing shows the fixes instead of a task,
   assert.deepEqual(registered.executedCommands.filter((entry) => entry.id === 'singularityFlow.openEnvironmentFiles').at(-1).args,
     [{ capability: 'checkout-app' }], 'an environment the configuration does not name is not passed on');
   for (const surface of [panel.webview.html, page.webview.html, registered.output.join('\n'), JSON.stringify(registered.warnings)]) assert.ok(!surface.includes(ENV_SECRET));
+});
+
+test('in a workspace, a run also needs the workspace\'s own files: a missing root .env is said before any task, and its page opens on the workspace', async (t) => {
+  if (!requireBundle(t)) return;
+  const { registered, cli } = await activatedWithRunAndTest(t);
+  const ready = envFilesFixture(cli.state);
+  ready.files[0] = { ...ready.files[0], status: 'placed-here', placedFor: 'dev', placement: 'symlink', excluded: true };
+  await cli.write('env-files.json', { ...ready, workspace: { id: 'local--shop', path: '/tmp/ws/shop' } });
+  await cli.write('env-files-workspace.json', { schemaVersion: 1, resultType: 'sflow-env-files', scope: 'workspace', environment: 'dev', environments: ['dev', 'qa'], roots: {},
+    files: [{ repository: null, app: null, environment: 'dev', path: '.env', kind: 'personal', template: null, source: 'store', location: `${cli.state}/workspace-store/dev/.env`,
+      status: 'missing', excluded: null, placedFor: null, placement: null, problem: null }], repositories: [], workspace: { id: 'local--shop', path: '/tmp/ws/shop', files: [] } });
+  const panel = await openRunAndTest(registered);
+  await until(() => panel.webview.html.includes('data-rt-environment="dev">dev: 2 files</button>'));
+  const message = 'web was not started: environment dev needs the workspace\'s .env, which is missing on this computer. Create it, or use an existing file. Nothing ran.';
+  registered.warningAnswers = ['Open Environment Files'];
+  await panel.post(rt('start', { entry: 'web' }));
+  await until(() => registered.warnings.includes(message));
+  assert.deepEqual(registered.warningActions.at(-1), ['Use existing file…', 'Open Environment Files'], 'no template: no Create from template');
+  assert.equal(registered.tasks.length, 0);
+  assert.equal(registered.reviewConfirmations.length, 0);
+  assert.ok((await cli.envLog()).some((argv) => argv.join(' ') === 'env files dev --workspace --json'), 'asked for that environment alone');
+  const page = await envFilesPage(registered);
+  await until(() => (page.webview.html.includes('data-ef-repository=""')));
+  assert.match(page.webview.html, /data-ef-scope="workspace" aria-pressed="true"/);
+  assert.match(page.webview.html, /Workspace[\s\S]*Workspace root[\s\S]*<code class="ef-path">\.env<\/code>/);
+  assert.deepEqual((await cli.envLog()).at(-1), ['env', 'files', '--workspace', '--json']);
+
+  // Use existing file… for the workspace's own file names --workspace.
+  registered.pickedFile = path.join(cli.state, 'mine', 'workspace.env');
+  await page.post({ type: 'envFiles.action', action: 'link', key: JSON.stringify(['#workspace', 'dev', '.env']) });
+  await eventually(async () => (await cli.envLog()).some((argv) => argv.join(' ') === `env files link dev .env --to ${registered.pickedFile} --workspace --json`));
 });

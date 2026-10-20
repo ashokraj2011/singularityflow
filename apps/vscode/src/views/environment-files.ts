@@ -16,6 +16,7 @@
  * The run pre-flight (run-and-test.ts) offers the same Create from template and Use existing file…
  * through the helpers below, so the page and a refused run act alike.
  */
+import os from 'node:os';
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import type { CapabilityNode } from '../cli/snapshot.ts';
@@ -26,7 +27,7 @@ import { enumField, registerMessageRouter, stringField } from './messages.ts';
 import {
   actionArgv, actionNotice, buildEnvironmentFilesView, CHANGING_ACTIONS, envFilesAddArgv, envFilesArgv, envFilesCreateArgv, envFilesLinkArgv,
   envFilesPathArgv, envFilesRootArgv, envFilesSuggestArgv, environmentFilesFrom, environmentFilesUnsupported, FILE_ACTIONS, fileActions, fileByKey,
-  locationFrom, personalPathProblem, refusalWords, relativeFilePath, suggestionFrom,
+  locationFrom, personalPathProblem, refusalWords, relativeFilePath, repositoryAt, suggestionFrom,
   type EnvironmentFile, type EnvironmentFileSuggestion, type EnvironmentFilesReading, type FileAction, type RepositoryTarget
 } from './environment-files-model.ts';
 import { environmentFilesHtml, ENVIRONMENT_FILES_SCRIPT, ENVIRONMENT_FILES_STYLE } from './environment-files-page.ts';
@@ -98,7 +99,8 @@ export async function createEnvironmentFile(host: EnvironmentFilesHost, file: En
 export async function useExistingEnvironmentFile(host: EnvironmentFilesHost, file: EnvironmentFile, target: RepositoryTarget): Promise<boolean> {
   if (!trustedToChange()) return false;
   const picked = await vscode.window.showOpenDialog({
-    canSelectFiles: true, canSelectFolders: false, canSelectMany: false, openLabel: 'Use this file',
+    // From the home folder, not the last folder opened: that may be the private store, which cannot be linked.
+    canSelectFiles: true, canSelectFolders: false, canSelectMany: false, openLabel: 'Use this file', defaultUri: vscode.Uri.file(os.homedir()),
     title: `Use an existing file for ${file.path} (${file.environment})`
   });
   const chosen = picked?.[0]?.fsPath;
@@ -165,8 +167,13 @@ export class EnvironmentFilesPanel implements vscode.Disposable {
     await action();
   }
 
+  /** This window's repository: as the window knows it, else the listed repository checked out here. */
+  private activeRepository(): string | null {
+    return this.host.activeRepositoryId?.() ?? (this.reading ? repositoryAt(this.reading, this.host.client.repository) : null);
+  }
+
   private target(): RepositoryTarget {
-    return { activeRepository: this.host.activeRepositoryId?.() ?? null, scope: this.scope };
+    return { activeRepository: this.activeRepository(), scope: this.scope };
   }
 
   /** Read the files as they stand now; a failed read keeps the last list on screen with the error. */
@@ -258,7 +265,7 @@ export class EnvironmentFilesPanel implements vscode.Disposable {
     let notice = '';
     if (action === 'root-set') {
       const picked = await vscode.window.showOpenDialog({
-        canSelectFiles: false, canSelectFolders: true, canSelectMany: false, openLabel: `Use for ${environment}`,
+        canSelectFiles: false, canSelectFolders: true, canSelectMany: false, openLabel: `Use for ${environment}`, defaultUri: vscode.Uri.file(os.homedir()),
         title: `Folder for ${environment} files, for every repository of the workspace`
       });
       const directory = picked?.[0]?.fsPath;
@@ -320,7 +327,7 @@ export class EnvironmentFilesPanel implements vscode.Disposable {
     const view = buildEnvironmentFilesView(this.reading, {
       environment: this.environment, scope: this.scope, trusted: vscode.workspace.isTrusted === true, busy: this.busy,
       notice: this.notice, error: this.error, unsupported: this.unsupported, suggestion: this.suggestion,
-      activeRepository: this.host.activeRepositoryId?.() ?? null, appNames: this.appNames()
+      activeRepository: this.activeRepository(), appNames: this.appNames()
     });
     this.environment = view.environment;
     const title = view.environment ? `Environment Files · ${view.environment}` : 'Environment Files';

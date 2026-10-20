@@ -57,6 +57,10 @@ export interface EnvironmentFilesReading {
   roots: Record<string, string>;
   /** Entries left out because the engine's answer for them is incomplete. */
   dropped: number;
+  /** The workspace the checkout belongs to: a run in it also places the workspace's own files. */
+  workspace: string | null;
+  /** Each listed repository's checkout, to know which is this window's when the window does not say. */
+  checkouts: Record<string, string>;
 }
 
 export type FileAction = 'create' | 'create-empty' | 'open' | 'link' | 'adopt' | 'reveal' | 'unlink' | 'remove';
@@ -181,8 +185,21 @@ export function environmentFilesFrom(raw: unknown): EnvironmentFilesReading | nu
     files: unique,
     environments: [...new Set([...named, ...unique.map((file) => file.environment)])],
     roots: rootsFrom(answer),
+    workspace: text(record(answer.workspace)?.id),
+    checkouts: Object.fromEntries((Array.isArray(answer.repositories) ? answer.repositories : []).flatMap((item) => {
+      const entry = record(item);
+      const id = text(entry?.id);
+      const checkout = absoluteLocation(entry?.checkout);
+      return id && REPOSITORY.test(id) && checkout ? [[id, checkout]] : [];
+    })),
     dropped
   };
+}
+
+/** The listed repository whose checkout is this one (macOS reports /tmp as /private/tmp either way). */
+export function repositoryAt(reading: Pick<EnvironmentFilesReading, 'checkouts'>, checkout: string): string | null {
+  const plain = (value: string) => value.replace(/^\/private(?=\/)/u, '').replace(/[\\/]+$/u, '');
+  return Object.entries(reading.checkouts).find(([, listed]) => plain(listed) === plain(checkout))?.[0] ?? null;
 }
 
 /** The identity of one row: its repository (or the workspace), environment and path. */
@@ -260,8 +277,12 @@ function baseDetail(file: EnvironmentFile): string {
       : file.template ? `Create it from ${file.template}, or use a file you already have.` : 'There is no template beside it: create an empty file, or use a file you already have.';
     case 'ready': return 'The real file is on this computer; a run in this environment places it in the checkout.';
     case 'linked': return 'It uses a file you chose; a run in this environment places it in the checkout.';
-    case 'placed-here': return file.placement === 'copy'
-      ? 'It is in place in this checkout as a copy, refreshed at each run in this environment.' : 'It is in place in this checkout, linked to the real file, for runs in this environment.';
+    case 'placed-here': {
+      // The workspace's own file sits at the workspace root, beside its repositories.
+      const where = file.workspaceLevel ? 'at the workspace root' : 'in this checkout';
+      return file.placement === 'copy'
+        ? `It is in place ${where} as a copy, refreshed at each run in this environment.` : `It is in place ${where}, linked to the real file, for runs in this environment.`;
+    }
     case 'unmanaged': return 'A file is already at this path in the checkout and is never overwritten. Adopt moves it into the private store and links it back.';
     default: return 'The engine reported a status VS Code does not know; refresh after updating Singularity Flow.';
   }
@@ -294,7 +315,7 @@ export interface FileRow {
   source: string | null;
   /** Where the real file is (or will be, while missing): a path, never what it holds. */
   location: string | null;
-  locationLabel: 'Real file' | 'Expected at';
+  locationLabel: 'Real file' | 'Expected at' | 'Adopt moves it to';
   template: string | null;
   excluded: string | null;
   actions: Array<{ action: FileAction; label: string; changes: boolean }>;
@@ -341,7 +362,7 @@ function rowFrom(file: EnvironmentFile): FileRow {
   return {
     key: fileKey(file), path: file.path, kind: file.kind, kindWords: file.kind === 'personal' ? 'Personal, this computer only' : 'Declared for the team',
     status: file.status, statusWords: STATUS_WORDS[file.status], tone: STATUS_TONE[file.status], detail: statusDetail(file),
-    source: sourceWords(file), location: file.location, locationLabel: file.status === 'missing' ? 'Expected at' : 'Real file',
+    source: sourceWords(file), location: file.location, locationLabel: file.status === 'missing' ? 'Expected at' : file.status === 'unmanaged' ? 'Adopt moves it to' : 'Real file',
     template: file.template, excluded: excludedWords(file),
     actions: fileActions(file).map((action) => ({ action, label: ACTION_LABELS[action], changes: CHANGING_ACTIONS.has(action) }))
   };
@@ -554,7 +575,12 @@ export function suggestionFrom(raw: unknown): EnvironmentFileSuggestion | null {
 // Before a run: which files of the environment are missing, and the plain words for it
 
 /** One file a run needs that is not on this computer. */
-export interface MissingFile { repository: string | null; environment: string; path: string; template: string | null; commands: string[] }
+export interface MissingFile {
+  repository: string | null;
+  /** The workspace's own file (its root .env), which every run of a member repository places too. */
+  workspaceLevel: boolean;
+  environment: string; path: string; template: string | null; commands: string[];
+}
 
 /** What a run places: its repository, its capability's source roots, else the working directories of what runs. */
 export interface RunScope {
@@ -584,10 +610,18 @@ export function placedByRun(file: EnvironmentFile, scope: Omit<RunScope, 'enviro
   return !roots.length || roots.some((root) => root === null || under(file.path, root));
 }
 
+const asMissing = (file: EnvironmentFile): MissingFile => ({ repository: file.repository, workspaceLevel: file.workspaceLevel, environment: file.environment,
+  path: file.path, template: linkedHere(file) ? null : file.template, commands: [] });
+
 /** The files of the environment a run would need and that are missing here. */
 export function missingForRun(files: readonly EnvironmentFile[], scope: RunScope): MissingFile[] {
   return files.filter((file) => file.environment === scope.environment && file.status === 'missing' && file.problem !== 'tracked' && placedByRun(file, scope))
-    .map((file) => ({ repository: file.repository, environment: file.environment, path: file.path, template: linkedHere(file) ? null : file.template, commands: [] }));
+    .map(asMissing);
+}
+
+/** The workspace's own files of the environment that are missing: a run of any member repository places them. */
+export function missingAtWorkspaceLevel(files: readonly EnvironmentFile[], environment: string): MissingFile[] {
+  return files.filter((file) => file.workspaceLevel && file.environment === environment && file.status === 'missing').map(asMissing);
 }
 
 /** Per environment, how many files a run of the capability places and how many of them are missing. */
@@ -619,15 +653,17 @@ export function missingFromRefusal(result: unknown): MissingFile[] {
     const filePath = relativeFilePath(entry?.path);
     if (!entry || !environment || !ENVIRONMENT.test(environment) || !filePath) return [];
     const raw = Array.isArray(entry.commands) ? entry.commands : Object.values(record(entry.commands) ?? {});
-    return [{ repository: text(entry.repository) && REPOSITORY.test(String(entry.repository)) ? String(entry.repository) : null, environment, path: filePath,
-      template: relativeFilePath(entry.template),
-      commands: raw.filter((command): command is string => typeof command === 'string' && command.startsWith('singularity-flow ') && !CONTROL.test(command)) }];
+    const commands = raw.filter((command): command is string => typeof command === 'string' && command.startsWith('singularity-flow ') && !CONTROL.test(command));
+    return [{ repository: text(entry.repository) && REPOSITORY.test(String(entry.repository)) ? String(entry.repository) : null,
+      // The engine names a workspace-level file's fixes with --workspace.
+      workspaceLevel: commands.some((command) => / --workspace(?: |$)/u.test(command)), environment, path: filePath,
+      template: relativeFilePath(entry.template), commands }];
   });
 }
 
 /** A missing file as a row an action can act on (it has no location yet). */
 export const missingAsFile = (missing: MissingFile): EnvironmentFile => ({
-  repository: missing.repository, workspaceLevel: false, app: null, environment: missing.environment, path: missing.path, kind: 'declared',
+  repository: missing.repository, workspaceLevel: missing.workspaceLevel, app: null, environment: missing.environment, path: missing.path, kind: 'declared',
   template: missing.template, source: null, location: null, status: 'missing', excluded: null, placedFor: null, placement: null, problem: null
 });
 
@@ -653,7 +689,7 @@ export function preflightMessage(run: { kind: 'start' | 'debug' | 'tests'; label
   const ended = typeof run.exitCode === 'number';
   const what = ended ? `${run.label} ended with exit code ${run.exitCode}`
     : run.kind === 'tests' ? `${run.label} were not run` : `${run.label} was not started${run.kind === 'debug' ? ' with its debugger' : ''}`;
-  const names = missing.map((file) => file.path);
+  const names = missing.map((file) => file.workspaceLevel ? `the workspace's ${file.path}` : file.path);
   const list = names.length <= 3 ? names.join(', ') : `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`;
   const needs = missing.length === 1 ? `needs ${list}, which is missing on this computer` : `needs ${missing.length} files that are missing on this computer: ${list}`;
   const fix = missing.length === 1

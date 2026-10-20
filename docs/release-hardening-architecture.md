@@ -20,12 +20,22 @@ with the old import path retained as a compatibility export.
 
 ## Artifact checkout representation
 
-Publication reconciliation recognizes only exact authored text or a uniform LF/CRLF checkout
-representation. It retains the distinct raw worktree and immutable-blob hashes. Mixed endings,
-arbitrary carriage returns, BOMs, whitespace changes, missing newlines and content changes remain
-refused. Managed metadata accepts either uniform envelope format and is replaced, not duplicated.
+Publication reconciliation recognizes exact authored text or a uniform LF/CRLF checkout
+representation. It retains the distinct raw worktree and immutable-blob hashes. A mixed editor draft
+is eligible only when CRLF-to-LF conversion reproduces the exact immutable authored text and Git's
+current text/eol/autocrlf policy explicitly performs that conversion. Custom filters, alternate
+encodings, binary/NUL data and absent conversion policy cannot establish that exception. No filter
+is executed. Arbitrary carriage returns, BOMs, whitespace changes, missing newlines and content
+changes remain refused. Managed metadata accepts either uniform envelope format and is replaced,
+not duplicated.
 This follows the existing distinction between immutable Git bytes and checkout text; it does not
 relabel different raw hashes as equal or waive review/publication requirements.
+
+The terminal approval-integrity check applies the same narrow rule to source/test snapshots after
+a stable, no-follow byte read. The alternate representation must reproduce the exact approved raw
+size and SHA-256. Invalid UTF-8, binary NUL and BOM-bearing variants are ineligible. Original
+snapshot records remain unchanged. A later approved repair owner is checked by the same rule;
+an unapproved content edit is not a successor and remains stale.
 
 ## Explicit MCP setup
 

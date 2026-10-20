@@ -76,6 +76,23 @@ export function artifactTextCheckoutMatches(published, current) {
   return (published === lf || published === crlf) && (current === lf || current === crlf);
 }
 
+/** Match an approved raw snapshot without relabeling either raw hash as equal. */
+export function artifactSnapshotCheckoutMatches(expected, bytes) {
+  if (!expected?.exists || !Buffer.isBuffer(bytes)) return false;
+  const matches = value => Buffer.byteLength(value) === expected.size
+    && createHash('sha256').update(value).digest('hex') === expected.sha256;
+  if (matches(bytes)) return true;
+  const text = bytes.toString('utf8');
+  // Only lossless ordinary UTF-8 text may have a checkout representation. In particular no
+  // replacement characters, binary NUL, BOM removal, trimming or arbitrary CR normalization.
+  if (!Buffer.from(text, 'utf8').equals(bytes) || text.includes('\0') || text.startsWith('\uFEFF')) return false;
+  const lf = text.replaceAll('\r\n', '\n');
+  if (lf.includes('\r')) return false;
+  const crlf = lf.replaceAll('\n', '\r\n');
+  if (text !== lf && text !== crlf) return false;
+  return matches(lf) || matches(crlf);
+}
+
 /** Whitespace-only padding cannot make an untouched prepared template look authored. */
 export function authoredArtifactFingerprint(text) {
   const normalized = authoredArtifactText(text)
@@ -188,7 +205,7 @@ export async function readPinnedReviewArtifact(root, relative, label, {
  * unreliable on Windows), a second pinned read must produce exactly the same bytes before those
  * bytes can become governed review evidence.
  */
-export async function readReviewArtifact(root, relative, label) {
+export async function readReviewArtifactBytes(root, relative, label) {
   const opened = await readPinnedReviewArtifact(root, relative, label);
   if (opened == null) return null;
   if (opened.verifyBytes) {
@@ -197,7 +214,12 @@ export async function readReviewArtifact(root, relative, label) {
       throw unsafeReviewArtifact(label, relative, 'content-race');
     }
   }
-  return opened.bytes.toString('utf8');
+  return opened.bytes;
+}
+
+export async function readReviewArtifact(root, relative, label) {
+  const bytes = await readReviewArtifactBytes(root, relative, label);
+  return bytes == null ? null : bytes.toString('utf8');
 }
 
 export function reviewableMarkdownPath(relativePath) {

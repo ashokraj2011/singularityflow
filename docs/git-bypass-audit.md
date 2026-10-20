@@ -1,5 +1,11 @@
 # GAL Git bypass regression gate
 
+The artifact-registration owner adds two bounded, read-only policy probes for an exact newline-only
+mismatch: `check-attr -z` for text/eol/filter/encoding and, only if needed, the effective
+`core.autocrlf` value. It never runs a clean filter, text conversion executable, transport or history
+walk. Ordinary exact or uniform-checkout matches use neither probe. Failed Git reads preserve their
+refusal. Only these two frozen call sites are added; no new process owner is registered.
+
 The release-hardening change retains the isolated Golden Journey verifier's single process import
 and single launch site. Its fingerprint changes because the same bounded launch now uses the
 central Windows-safe resolver in `runGoldenCommand`, preserves native launch/timeout diagnostics,

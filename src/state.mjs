@@ -2392,6 +2392,32 @@ function exactAuthoredArtifactSha256(text) {
   return `sha256:${createHash('sha256').update(authoredArtifactText(text)).digest('hex')}`;
 }
 
+/** Git may normalize a mixed editor draft; prove that policy without executing clean filters. */
+function artifactGitTextCheckoutMatches(root, relativePath, published, current) {
+  if (artifactTextCheckoutMatches(published, current)) return true;
+  const canonical = value => value.replaceAll('\r\n', '\n');
+  const left = canonical(published), right = canonical(current);
+  if (left !== right || left.includes('\r') || left.includes('\0') || left.includes('\uFFFD') || left.startsWith('\uFEFF')) return false;
+  const output = gitReadOutput(run('git', ['check-attr', '-z', 'text', 'eol', 'filter', 'working-tree-encoding', '--', relativePath], {
+    cwd: root, allowFailure: true, timeoutMs: 5_000, maxBuffer: 128 * 1024
+  }), 'Artifact checkout attributes');
+  const fields = output.split('\0');
+  if (fields.at(-1) !== '' || fields.length !== 13) return false;
+  const attributes = {};
+  for (let index = 0; index < fields.length - 1; index += 3) {
+    if (fields[index] !== relativePath || Object.hasOwn(attributes, fields[index + 1])) return false;
+    attributes[fields[index + 1]] = fields[index + 2];
+  }
+  if (!['unspecified', 'unset'].includes(attributes.filter)
+      || attributes['working-tree-encoding'] !== 'unspecified' || attributes.text === 'unset') return false;
+  if (['set', 'auto'].includes(attributes.text) || ['lf', 'crlf'].includes(attributes.eol)) return true;
+  if (attributes.text !== 'unspecified') return false;
+  const autocrlf = gitReadOutput(run('git', ['config', '--get', 'core.autocrlf'], {
+    cwd: root, allowFailure: true, timeoutMs: 5_000, maxBuffer: 4096
+  }), 'Artifact checkout conversion', { absentStatus: 1 });
+  return ['true', 'input'].includes(String(autocrlf ?? '').trim().toLowerCase());
+}
+
 function artifactMetadataCandidate(workflow, phase, overrides = {}) {
   const candidate = structuredClone(phase);
   Object.assign(candidate, overrides);
@@ -2434,7 +2460,7 @@ export async function inspectRequiredArtifactRegistration(root, config, workflow
     currentAuthoredSha256, publishedAuthoredSha256
   };
   if (currentAuthoredSha256 !== publishedAuthoredSha256
-      && !artifactTextCheckoutMatches(authoredArtifactText(publishedText), authoredArtifactText(currentText))) {
+      && !artifactGitTextCheckoutMatches(root, relativePath, authoredArtifactText(publishedText), authoredArtifactText(currentText))) {
     return { ...base, status: 'unsafe', reason: 'authored-content-changed' };
   }
 

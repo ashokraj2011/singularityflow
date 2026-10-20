@@ -1751,6 +1751,37 @@ test('submit recognizes a uniform checkout line-ending conversion but refuses a 
   assert.equal(inspection.reason, 'authored-content-changed');
 });
 
+test('mixed editor endings require exact Git text conversion policy, never custom filters or encoding', async t => {
+  const context = await fixture('submit-mixed-editor-newlines', { followingPhase: true });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  git(context.root, 'config', 'core.autocrlf', 'true');
+  await writeFile(context.target, '# Intake\r\n\r\n## Requested outcome\r\n\r\n'
+    + 'A native editor adds LF prose to a CRLF checkout without changing the reviewed meaning.\n\n'
+    + '## Scope and constraints\r\n\r\nOnly Git text conversion is permitted.\n\n'
+    + '## Evidence\r\n\r\nRaw hashes remain distinct and no filter is executed.\n');
+  await inContext(context.root, () => publishGoverned(context.root, context.config, context.workflow, 'intake'));
+  let inspection = await inspectRequiredArtifactRegistration(context.root, context.config, context.workflow, context.phase);
+  assert.ok(['current', 'repairable'].includes(inspection.status), JSON.stringify(inspection));
+  assert.notEqual(inspection.currentAuthoredSha256, inspection.publishedAuthoredSha256);
+  git(context.root, 'config', 'core.autocrlf', 'false');
+  inspection = await inspectRequiredArtifactRegistration(context.root, context.config, context.workflow, context.phase);
+  assert.equal(inspection.reason, 'authored-content-changed', 'mixed endings cannot self-authorize normalization');
+  const relative = context.phase.artifacts.find(entry => entry.path.endsWith('/intake.md')).path;
+  await writeFile(path.join(context.root, '.gitattributes'), `${relative} text eol=lf\n`);
+  inspection = await inspectRequiredArtifactRegistration(context.root, context.config, context.workflow, context.phase);
+  assert.ok(['current', 'repairable'].includes(inspection.status), JSON.stringify(inspection));
+  for (const attributes of ['text eol=lf filter=unconfigured', 'text eol=lf working-tree-encoding=UTF-16', '-text']) {
+    await writeFile(path.join(context.root, '.gitattributes'), `${relative} ${attributes}\n`);
+    inspection = await inspectRequiredArtifactRegistration(context.root, context.config, context.workflow, context.phase);
+    assert.equal(inspection.reason, 'authored-content-changed', attributes);
+  }
+  await rm(path.join(context.root, '.gitattributes'));
+  git(context.root, 'config', 'core.autocrlf', 'true');
+  await inContext(context.root, () => submitPhase(context.root, context.config, context.workflow,
+    { phaseId: 'intake', runChecks: false, persist: false }));
+  assert.equal(context.phase.status, 'approved');
+});
+
 test('artifact scan cannot bless authored changes made after the immutable generation', async () => {
   const context = await fixture('submit-authored-change');
   await writeFile(context.target, [

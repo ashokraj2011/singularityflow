@@ -56,6 +56,7 @@ import { commitLandedOn, localCommit } from './branch-landing.mjs';
 import { storyPublicationPending } from './story-publication-read.mjs';
 import { resolveStoryExecutionDefinition } from './story-execution-context.mjs';
 import { verifyPhaseApprovalWaiver } from './approval-waiver.mjs';
+import { artifactSnapshotCheckoutMatches, readReviewArtifactBytes } from './artifact-review-read.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
 
@@ -620,6 +621,14 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     for (const artifact of phase.artifacts) {
       const current = await snapshot(path.join(root, artifact.path));
       if (current.exists !== artifact.exists || current.size !== artifact.size || current.sha256 !== artifact.sha256) {
+        const bytes = current.exists && artifact.exists
+          ? await readReviewArtifactBytes(root, artifact.path, 'Approved artifact') : null;
+        const rebound = bytes != null && bytes.length === current.size
+          && createHash('sha256').update(bytes).digest('hex') === current.sha256;
+        if (rebound && artifactSnapshotCheckoutMatches(artifact, bytes)) {
+          passes.push(`approved checkout representation verified: ${phaseId}/${artifact.path}`);
+          continue;
+        }
         // A later approved phase may deliberately repair a file owned by an earlier delivery
         // (notably a bounded test-repair step). Its exact current artifact record supersedes the
         // earlier snapshot; an out-of-band edit still matches no later approved owner and fails.
@@ -627,7 +636,8 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         const superseded = (workflow.phaseOrder ?? []).slice(phaseIndex + 1).some((laterId) =>
           workflow.phases?.[laterId]?.status === 'approved'
           && (workflow.phases[laterId].artifacts ?? []).some((entry) => entry.path === artifact.path
-            && entry.exists === current.exists && entry.size === current.size && entry.sha256 === current.sha256));
+            && ((entry.exists === current.exists && entry.size === current.size && entry.sha256 === current.sha256)
+              || (rebound && artifactSnapshotCheckoutMatches(entry, bytes)))));
         if (superseded) passes.push(`approved successor owns current artifact: ${phaseId}/${artifact.path}`);
         else refuse('gate.approval.stale', `STALE ${phaseId} approval: ${artifact.path} changed after approval`, { phase: phaseId, path: artifact.path });
       }

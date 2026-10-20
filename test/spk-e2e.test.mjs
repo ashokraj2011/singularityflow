@@ -147,6 +147,8 @@ test('a Story runs specification through release from a fresh clone', async (t) 
 
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-e2e-clone-'));
   shell('git', ['clone', '-q', '-b', 'main', origin, '.'], root);
+  // The later genuine commit/revert rail reproduces Windows checkout conversion on every OS.
+  git(root, 'config', 'core.autocrlf', 'true');
   git(root, 'config', 'user.name', 'End To End');
   git(root, 'config', 'user.email', 'e2e@example.invalid');
   // Singularity Flow must never start Git's automatic maintenance. In this clone any maintenance

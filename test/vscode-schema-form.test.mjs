@@ -11,13 +11,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { ARGUMENT_SCHEMAS } from '../src/gateway/argument-schemas.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const view = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name);
-const { confirmationMatches, formValues, schemaForm } = await import(view('schema-form-model.ts'));
+const { confirmationMatches, formValues, schemaForm } = await import(pathToFileURL(view('schema-form-model.ts')).href);
 
 const schemaFor = (id) => ARGUMENT_SCHEMAS.find((entry) => entry.id === id);
 

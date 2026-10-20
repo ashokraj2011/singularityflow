@@ -1,10 +1,16 @@
 /** Canonical Story paths and branch membership, with no lifecycle mutation imports. */
 import path from 'node:path';
 import { posix } from './util.mjs';
+import { nextPhaseGeneration } from './phase-generation.mjs';
 
 export function workDir(root, config, id) { return path.join(root, config.workItemRoot ?? 'singularity/work-items', id); }
 
 export function workDirRelative(config, id) { return posix(path.join(config.workItemRoot ?? 'singularity/work-items', id)); }
+
+/** Read-only guidance uses the canonical path without importing composition or review writers. */
+export function groundingRecordRelative(definition, workflow, phase, generation = nextPhaseGeneration(phase)) {
+  return posix(path.join(definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', `${phase.id}-gen${generation}.json`));
+}
 
 export function workflowPath(root, config, id) { return path.join(workDir(root, config, id), 'workflow.json'); }
 

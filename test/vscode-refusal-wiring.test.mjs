@@ -9,7 +9,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { codeOccurrences } from './source-text.mjs';
 import { storyPublicationPreflightError } from '../src/story-publication-preflight.mjs';
@@ -17,10 +17,10 @@ import { refusalEnvelope } from '../src/refusal-remediation.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const view = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name);
-const { fidelityNote, refusalFor } = await import(view('refusal.ts'));
-const { resultCardHtml } = await import(view('result-card-page.ts'));
-const { commandGuidance } = await import(path.join(root, 'apps', 'vscode', 'src', 'copilot-command.ts'));
-const { terminalCommand } = await import(path.join(root, 'apps', 'vscode', 'src', 'cli', 'runner.ts'));
+const { fidelityNote, refusalFor } = await import(pathToFileURL(view('refusal.ts')).href);
+const { resultCardHtml } = await import(pathToFileURL(view('result-card-page.ts')).href);
+const { commandGuidance } = await import(pathToFileURL(path.join(root, 'apps', 'vscode', 'src', 'copilot-command.ts')).href);
+const { terminalCommand } = await import(pathToFileURL(path.join(root, 'apps', 'vscode', 'src', 'cli', 'runner.ts')).href);
 
 function expectedGuidance(command, argv, skill, copilotCommand = skill, modelFreeCommand = null) {
   const rendered = ['singularity-flow', ...argv].map((entry) => `'${entry}'`).join(' ');

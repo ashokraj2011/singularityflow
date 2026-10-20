@@ -4,6 +4,7 @@ import { mkdtemp, readFile, writeFile, rm, symlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { constitutionPolicyChoices, renderStudioConstitution, studioConstitutions } from '../src/studio-constitution.mjs';
@@ -133,7 +134,7 @@ async function repository(t, { owned = true } = {}) {
   run('git', ['init', '-b', 'main'], root);
   run('git', ['config', 'user.name', 'Constitution Tester'], root); run('git', ['config', 'user.email', 'constitution@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Constitution editor\n');
-  run(process.execPath, [new URL('../bin/singularity-flow.mjs', import.meta.url).pathname, 'init'], root);
+  run(process.execPath, [fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url)), 'init'], root);
   if (owned) await repositoryOwnedWorkflows(root);
   run('git', ['add', '-A'], root); run('git', ['commit', '-m', 'fixture'], root);
   return root;

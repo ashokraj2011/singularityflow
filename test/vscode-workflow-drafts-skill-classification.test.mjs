@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { WCA_SKP_LOCAL_PRODUCER_PROFILE } from '../src/wca-skp-finalization.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const { SharedWorkflowDraftController } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-model.ts'));
-const { sharedWorkflowDraftsHtml, SHARED_WORKFLOW_DRAFTS_SCRIPT } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-page.ts'));
+const { SharedWorkflowDraftController } = await import(pathToFileURL(path.join(root, 'apps/vscode/src/views/workflow-drafts-model.ts')).href);
+const { sharedWorkflowDraftsHtml, SHARED_WORKFLOW_DRAFTS_SCRIPT } = await import(pathToFileURL(path.join(root, 'apps/vscode/src/views/workflow-drafts-page.ts')).href);
 const { WORKFLOW_DRAFT_SKILL_PRODUCER_PROFILE, WORKFLOW_DRAFT_GUIDE_FIELDS, addWorkflowDraftStage,
-  editWorkflowDraftGuide, selectWorkflowDraftCatalog, workflowDraftSkillProducerClassification } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-guide.ts'));
+  editWorkflowDraftGuide, selectWorkflowDraftCatalog, workflowDraftSkillProducerClassification } = await import(pathToFileURL(path.join(root, 'apps/vscode/src/views/workflow-drafts-guide.ts')).href);
 const repository = path.resolve('/explicit/skill-classification-repository');
 const authority = '/approved/skill-classification.git';
 const draftId = 'WFD-SKPGUIDE1';

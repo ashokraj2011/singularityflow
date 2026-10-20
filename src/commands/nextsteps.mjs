@@ -15,7 +15,7 @@ import { withApprovedConfigurationRead } from '../approved-configuration-reader.
 import { effectivePhasePublicationProducer } from '../manual-authorship.mjs';
 import { storyRequiresStepActions } from '../step-actions.mjs';
 import { requiresProspectivePhaseInspection } from '../phase-inspection-generation.mjs';
-import { groundingRecordRelative } from '../grounding-paths.mjs';
+import { groundingRecordRelative } from '../story-paths.mjs';
 import { sourceReviewRequired } from '../source-review-policy.mjs';
 import { phaseContinuation } from '../phase-continuation.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';

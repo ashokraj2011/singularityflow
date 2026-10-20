@@ -12,7 +12,7 @@ import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import YAML from 'yaml';
 
 import { invokeModel } from '../src/model-runner.mjs';
@@ -167,8 +167,8 @@ test('the packaged mapping sends only the summarize tier, at efficiency and low 
 
 test('VS Code: the Model routing tab marks the params sent to Copilot and says which tiers send', async () => {
   const views = path.join(packageRoot, 'apps', 'vscode', 'src', 'views');
-  const { configurationCenterView } = await import(path.join(views, 'configuration-center-model.ts'));
-  const { configurationCenterHtml } = await import(path.join(views, 'configuration-center-page.ts'));
+  const { configurationCenterView } = await import(pathToFileURL(path.join(views, 'configuration-center-model.ts')).href);
+  const { configurationCenterHtml } = await import(pathToFileURL(path.join(views, 'configuration-center-page.ts')).href);
   const snapshot = {
     identities: { git: { name: 'Developer Dev', email: 'developer@example.com', login: 'fixturedev' }, github: 'fixturedev' },
     configurationSource: { editor: 'effective', effective: null, candidate: null },

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Suite routing: this test imports apps/vscode TypeScript sources directly.
@@ -32,12 +32,12 @@ const {
   teamOnboardingProblems,
   teamOnboardingProposalPreview,
   teamOnboardingRepository
-} = await import(source('views/team-onboarding-model.ts'));
+} = await import(pathToFileURL(source('views/team-onboarding-model.ts')).href);
 const {
   TEAM_ONBOARDING_MESSAGE_TYPES,
   TEAM_ONBOARDING_SCRIPT,
   teamOnboardingHtml
-} = await import(source('views/team-onboarding-page.ts'));
+} = await import(pathToFileURL(source('views/team-onboarding-page.ts')).href);
 
 const authority = {
   id: 'authority:platform',

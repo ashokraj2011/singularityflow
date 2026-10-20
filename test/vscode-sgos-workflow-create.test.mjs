@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
   sgosRatificationPreviewArguments, sgosTerminalCommand, sgosWorkflowCreateArguments,
   sgosWorkflowCreateReview, sgosWorkflowOutputPaths, sgosWorkspaceBindingIssue,
   sgosEligibleVerifiers, sgosWorkflowSelectionIssue, validSgosDraftPath, validSgosInputPath
-} = await import(path.join(root, 'apps', 'vscode', 'src', 'sgos-workflow-create-model.ts'));
+} = await import(pathToFileURL(path.join(root, 'apps', 'vscode', 'src', 'sgos-workflow-create-model.ts')).href);
 
 const sha = `sha256:${'a'.repeat(64)}`;
 

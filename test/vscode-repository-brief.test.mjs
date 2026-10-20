@@ -6,10 +6,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const { BRIEF_TABS, REPOSITORY_BRIEF_SCRIPT, repositoryBriefBody } = await import(path.join(root, 'apps', 'vscode', 'src', 'views', 'repository-brief-page.ts'));
+const { BRIEF_TABS, REPOSITORY_BRIEF_SCRIPT, repositoryBriefBody } = await import(pathToFileURL(path.join(root, 'apps', 'vscode', 'src', 'views', 'repository-brief-page.ts')).href);
 
 const brief = {
   repository: 'orders', commit: '0123456789abcdef', phase: 'intake',

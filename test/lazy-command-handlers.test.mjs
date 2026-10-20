@@ -41,6 +41,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
       assert.equal(closure.files.has(path.join(sourceRoot, 'commands/shared/phase-review.mjs')), false,
         `${file} eagerly loads optional full-document rendering for the compact agent route`);
     }
+    if (file === 'commands/phase-lifecycle.mjs') {
+      assert.equal(closure.files.has(path.join(sourceRoot, 'model-runner.mjs')), false,
+        'begin/prepublish cannot eagerly load the provider runtime used for publication attribution');
+    }
     // 455: phase-lifecycle.mjs reached 455 with the source-review batching (f79ec1fa, 5a25abe8, d18afdc6): the
     // clarification-paths, phase-input-policy and phase-inspection-generation helpers split out of modules it already
     // loaded, plus the source-review snapshot cache.

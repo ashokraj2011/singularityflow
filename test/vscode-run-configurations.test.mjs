@@ -12,16 +12,16 @@ import { spawnSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import YAML from 'yaml';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (name) => path.join(root, 'apps', 'vscode', 'src', name);
-const model = await import(source('views/run-and-test-model.ts'));
-const { runAndTestHtml, RUN_AND_TEST_SCRIPT } = await import(source('views/run-and-test-page.ts'));
-const suggest = await import(source('views/run-suggestions-model.ts'));
-const { runSuggestionsHtml, RUN_SUGGESTIONS_SCRIPT } = await import(source('views/run-suggestions-page.ts'));
-const { commandClass } = await import(source('cli/client.ts'));
+const model = await import(pathToFileURL(source('views/run-and-test-model.ts')).href);
+const { runAndTestHtml, RUN_AND_TEST_SCRIPT } = await import(pathToFileURL(source('views/run-and-test-page.ts')).href);
+const suggest = await import(pathToFileURL(source('views/run-suggestions-model.ts')).href);
+const { runSuggestionsHtml, RUN_SUGGESTIONS_SCRIPT } = await import(pathToFileURL(source('views/run-suggestions-page.ts')).href);
+const { commandClass } = await import(pathToFileURL(source('cli/client.ts')).href);
 
 const SHA = `sha256:${'a'.repeat(64)}`;
 const capability = { id: 'payments-web', name: 'Payments web', kind: 'delivery', delivery: true, repository: 'payments-web', repositories: ['payments-web'], children: [] };
@@ -442,7 +442,7 @@ test('the suggestion page lists sources, variants, commands, arguments, debug an
 });
 
 test('VS Code reads the real engine, and the engine takes the block VS Code writes: app plan, status, suggest, capability set', async (t) => {
-  const { ideRepository, FAKE_SECRETS } = await import(path.join(root, 'test', 'helpers', 'ide-run-configurations.mjs'));
+  const { ideRepository, FAKE_SECRETS } = await import(pathToFileURL(path.join(root, 'test', 'helpers', 'ide-run-configurations.mjs')).href);
   const yaml = [
     '    policy: { localIntegrationEvidence: allowed }',
     '    application:',

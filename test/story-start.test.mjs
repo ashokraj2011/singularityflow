@@ -18,6 +18,7 @@ import {
   stageInitialStoryDocuments, storyDocumentCaptureStorePath
 } from '../src/story-start-documents.mjs';
 import { documentSetSha256 } from '../src/document-publication.mjs';
+import { readLocalDocument } from '../src/document-storage.mjs';
 import {
   ensureConfigurationBranch, resolveStoryConfigurationAuthority
 } from '../src/configuration-branch.mjs';
@@ -37,7 +38,7 @@ function run(command, args, cwd) {
   return result;
 }
 
-async function repository({ configurationAuthority = false } = {}) {
+async function repository({ configurationAuthority = false, documentStore = null } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-desktop-story-'));
   run('git', ['init', '-b', 'main'], root);
   run('git', ['config', 'user.name', 'Desktop Story Tester'], root);
@@ -50,6 +51,8 @@ async function repository({ configurationAuthority = false } = {}) {
   // These legacy Story-intake fixtures exercise publication and document behavior. Dedicated
   // readiness tests opt into the newly seeded pre-Story execution requirement explicitly.
   definition.repositoryReadiness.requiredBeforeStory = false;
+  // Explicit legacy Git-storage cases must not change the seeded laptop-local default elsewhere.
+  if (documentStore) definition.documents.storage = { allowed: [documentStore], default: documentStore };
   await writeFile(definitionPath, YAML.stringify(definition));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
@@ -402,7 +405,7 @@ test('Story document publication refuses captured bytes replaced after preflight
 });
 
 test('Story start refuses document storage excluded by Git ignore policy', async (t) => {
-  const root = await repository();
+  const root = await repository({ documentStore: 'git' });
   t.after(() => Promise.all([
     rm(root, { recursive: true, force: true }),
     rm(`${root}.git`, { recursive: true, force: true })
@@ -436,7 +439,7 @@ test('Story start refuses document storage excluded by Git ignore policy', async
 });
 
 test('Story start sanitizes a .git source name and commits the evidence blob', async (t) => {
-  const root = await repository();
+  const root = await repository({ documentStore: 'git' });
   t.after(() => Promise.all([
     rm(root, { recursive: true, force: true }),
     rm(`${root}.git`, { recursive: true, force: true })
@@ -591,7 +594,7 @@ test('FOS:AC-016 onboarding and Story intake avoid discovery, composition, AST a
 });
 
 test('Story opening refuses and rolls back a manifest or blob changed after state write', async (t) => {
-  const root = await repository({ configurationAuthority: true });
+  const root = await repository({ configurationAuthority: true, documentStore: 'git' });
   t.after(() => Promise.all([
     rm(root, { recursive: true, force: true }),
     rm(`${root}.git`, { recursive: true, force: true })
@@ -701,7 +704,7 @@ test('desktop Story intake freezes documents before mutation and a retry cannot 
   const source = manualStorySource('WORK-DOC-PREFLIGHT', {
     title: 'Capture intake evidence',
     description: 'The Story must not exist without its requested evidence.',
-    acceptanceCriteria: 'The evidence is committed exactly once.'
+    acceptanceCriteria: 'The evidence identity is committed exactly once; its bytes stay on this laptop.'
   });
   const originalHead = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
 
@@ -742,7 +745,9 @@ test('desktop Story intake freezes documents before mutation and a retry cannot 
     }
   });
   assert.equal(created.documents.length, 2);
-  assert.equal(await readFile(path.join(root, created.documents[0].path), 'utf8'), capturedBytes);
+  assert.equal(created.documents[0].storage.kind, 'local');
+  assert.equal(created.documents[0].path, undefined, 'the local document must have no repository blob path');
+  assert.equal((await readLocalDocument(root, 'WORK-DOC-PREFLIGHT', created.documents[0])).bytes.toString('utf8'), capturedBytes);
   assert.equal(created.documents[1].url, referenceUrl);
   await rm(sourceFile);
   const resumed = await startStory(root, {
@@ -754,6 +759,8 @@ test('desktop Story intake freezes documents before mutation and a retry cannot 
     path.join(root, 'singularity/work-items/WORK-DOC-PREFLIGHT/documents.json'), 'utf8'
   ));
   assert.equal(manifest.documents.length, 2);
+  assert.equal(manifest.documents[0].id, created.documents[0].id);
+  assert.equal((await readLocalDocument(root, 'WORK-DOC-PREFLIGHT', manifest.documents[0])).bytes.toString('utf8'), capturedBytes);
   assert.equal(manifest.documents[1].url, referenceUrl,
     'the explicit URL survives the corrected retry and is not silently skipped');
   const log = run('git', ['log', '--format=%s'], root).stdout;

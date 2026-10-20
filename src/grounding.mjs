@@ -1,4 +1,4 @@
-export { groundingRecordRelative } from './grounding-paths.mjs';
+export { groundingRecordRelative } from './story-paths.mjs';
 import { createHash } from 'node:crypto';
 import { readlink } from 'node:fs/promises';
 import path from 'node:path';

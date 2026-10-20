@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (...parts) => path.join(packageRoot, 'apps', 'vscode', 'src', ...parts);
@@ -12,7 +12,7 @@ const lazyPanels = await readFile(source('lazy-panels-runtime.ts'), 'utf8');
 const packageJson = JSON.parse(await readFile(
   path.join(packageRoot, 'apps', 'vscode', 'package.json'), 'utf8'));
 const { TEAM_ONBOARDING_MESSAGE_TYPES } = await import(
-  source('views', 'team-onboarding-page.ts'));
+  pathToFileURL(source('views', 'team-onboarding-page.ts')).href);
 
 function methodBody(name) {
   const signature = new RegExp(`\\n  private (?:async )?${name}\\(`, 'u').exec(panel);

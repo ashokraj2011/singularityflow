@@ -361,8 +361,8 @@ export function resolvePlatformProcess(command, args = [], {
     // pin the real executable before changing cwd to a repository-controlled worktree.
     let executable = logicalCommand;
     if (logicalCommand === 'git') {
-      const canonicalCwd = typeof cwd === 'string' && path.isAbsolute(cwd)
-        ? (() => { try { return realpathSyncCommand(cwd); } catch { return path.resolve(cwd); } })()
+      const canonicalCwd = typeof cwd === 'string' && path.posix.isAbsolute(cwd)
+        ? (() => { try { return realpathSyncCommand(cwd); } catch { return path.posix.resolve(cwd); } })()
         : null;
       // `/` contains every absolute executable path, but it is not a meaningful checkout-local
       // trust boundary. VS Code can legitimately start with `/` as its process cwd before a
@@ -373,17 +373,17 @@ export function resolvePlatformProcess(command, args = [], {
       // marker proves that it is itself a checkout. A bare repository has no `.git` entry, so its
       // canonical HEAD/object/refs/config layout is also an exclusion boundary.
       let rootHasCheckoutMarker = false;
-      if (canonicalCwd != null && canonicalCwd === path.parse(canonicalCwd).root) {
+      if (canonicalCwd != null && canonicalCwd === path.posix.parse(canonicalCwd).root) {
         try {
-          lstatSyncCommand(path.join(canonicalCwd, '.git'));
+          lstatSyncCommand(path.posix.join(canonicalCwd, '.git'));
           rootHasCheckoutMarker = true;
         } catch { /* A host root without `.git` is not a repository boundary. */ }
         if (!rootHasCheckoutMarker) {
           try {
-            const head = lstatSyncCommand(path.join(canonicalCwd, 'HEAD'));
-            const objects = lstatSyncCommand(path.join(canonicalCwd, 'objects'));
-            const refs = lstatSyncCommand(path.join(canonicalCwd, 'refs'));
-            const config = lstatSyncCommand(path.join(canonicalCwd, 'config'));
+            const head = lstatSyncCommand(path.posix.join(canonicalCwd, 'HEAD'));
+            const objects = lstatSyncCommand(path.posix.join(canonicalCwd, 'objects'));
+            const refs = lstatSyncCommand(path.posix.join(canonicalCwd, 'refs'));
+            const config = lstatSyncCommand(path.posix.join(canonicalCwd, 'config'));
             rootHasCheckoutMarker = head.isFile?.() === true
               && objects.isDirectory?.() === true && refs.isDirectory?.() === true
               && config.isFile?.() === true;
@@ -391,20 +391,20 @@ export function resolvePlatformProcess(command, args = [], {
         }
       }
       const checkoutBoundary = canonicalCwd != null
-        && (canonicalCwd !== path.parse(canonicalCwd).root || rootHasCheckoutMarker)
+        && (canonicalCwd !== path.posix.parse(canonicalCwd).root || rootHasCheckoutMarker)
         ? canonicalCwd : null;
       executable = null;
       let appleGit = null;
       const entries = gitHostSearchDirectories(environment, platform);
       for (const directory of entries) {
-        if (!path.isAbsolute(directory)) continue;
+        if (!path.posix.isAbsolute(directory)) continue;
         try {
-          const resolved = realpathSyncCommand(path.join(directory, 'git'));
-          const relative = checkoutBoundary == null ? null : path.relative(checkoutBoundary, resolved);
+          const resolved = realpathSyncCommand(path.posix.join(directory, 'git'));
+          const relative = checkoutBoundary == null ? null : path.posix.relative(checkoutBoundary, resolved);
           if (relative === '' || (relative != null && relative !== '..'
-              && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))) continue;
+              && !relative.startsWith(`..${path.posix.sep}`) && !path.posix.isAbsolute(relative))) continue;
           const info = lstatSyncCommand(resolved);
-          if (path.isAbsolute(resolved) && info.isFile?.()
+          if (path.posix.isAbsolute(resolved) && info.isFile?.()
               && (typeof info.mode !== 'number' || (info.mode & 0o111) !== 0)) {
             // Apple Git can require a licensed developer toolchain. Standalone Git avoids that
             // optional dependency; select it before any operation, never retry a failed mutation.

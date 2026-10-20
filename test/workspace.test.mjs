@@ -1389,7 +1389,7 @@ test('workspace capability drop isolates Git evidence and retains non-ref local 
     const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
     const before = await readFile(manifestFile, 'utf8');
     const hook = path.join(root, 'hide-all-fsmonitor.sh');
-    await writeFile(hook, "#!/bin/sh\nprintf 'sflow-token\\0'\n", { mode: 0o700 });
+    await writeFile(hook, "#!/bin/sh\nprintf 'called\\n' >> \"$0.calls\"\nprintf 'sflow-token\\0'\n", { mode: 0o700 });
     run('git', ['config', 'core.fsmonitor', hook], { cwd: fixture.apiCheckout });
     run('git', ['config', 'core.fsmonitorHookVersion', '2'], { cwd: fixture.apiCheckout });
     assert.equal(run('git', ['status', '--porcelain=v1'], {
@@ -1403,9 +1403,13 @@ test('workspace capability drop isolates Git evidence and retains non-ref local 
     const modified = original.replace(/^./, (character) => character === '#' ? '!' : '#');
     assert.equal(Buffer.byteLength(modified), Buffer.byteLength(original));
     await writeFile(readme, modified);
-    assert.equal(run('git', ['status', '--porcelain=v1'], {
+    const ambientStatus = run('git', ['status', '--porcelain=v1'], {
       cwd: fixture.apiCheckout
-    }).stdout, '', 'the configured executable incorrectly hides the tracked modification');
+    }).stdout;
+    // Some Git builds independently invalidate the forged monitor state. The deletion proof must
+    // reject the changed bytes on both those builds and builds where the hook hides the change.
+    assert.ok(ambientStatus === '' || /^ M README\.md\r?\n?$/u.test(ambientStatus), ambientStatus);
+    const callsBeforeProof = await readFile(`${hook}.calls`, 'utf8').catch(() => '');
 
     await assert.rejects(
       () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
@@ -1416,6 +1420,8 @@ test('workspace capability drop isolates Git evidence and retains non-ref local 
     assert.equal(await readFile(manifestFile, 'utf8'), before);
     assert.equal(await readFile(readme, 'utf8'), modified,
       'the tracked bytes hidden by the repository-local monitor remain untouched');
+    assert.equal(await readFile(`${hook}.calls`, 'utf8').catch(() => ''), callsBeforeProof,
+      'the deletion proof must not execute the repository-controlled filesystem monitor');
     assert.ok(await stat(path.join(fixture.apiCheckout, '.git')),
       'the checkout is retained after the destructive proof refuses it');
   });
@@ -1945,7 +1951,7 @@ test('workspace capability reattach refuses a concurrent checkout at a registere
   const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
   const before = await readFile(manifestFile, 'utf8');
 
-  run('git', ['clone', '--quiet', fixture.apiRemote, fixture.apiCheckout], {
+  run('git', ['clone', '--config', 'core.autocrlf=false', '--quiet', fixture.apiRemote, fixture.apiCheckout], {
     cwd: path.dirname(fixture.apiCheckout)
   });
   await assert.rejects(
@@ -2950,10 +2956,12 @@ test('workspace adoption never persists credentials embedded in an origin URL', 
     /reviewerone|office-token/);
 });
 
-test('workspace adoption preserves literal query characters in a local Git authority', async (t) => {
+test('workspace adoption preserves literal URL marker characters in a local Git authority', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-adopt-literal-remote-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const remote = await remoteRepository(root, 'authority?blue');
+  // '?' is not a representable Windows filename. '#' exercises the same URL-sanitization boundary
+  // with a native legal path there; POSIX retains the literal-query fixture.
+  const remote = await remoteRepository(root, process.platform === 'win32' ? 'authority#blue' : 'authority?blue');
   const clone = path.join(root, 'existing-clone');
   run('git', ['clone', remote, clone], { cwd: root });
 

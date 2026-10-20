@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (name) => path.join(root, 'apps', 'vscode', 'src', name);
 const { LatestSingleFlight, MicrotaskCoalescer, RetainedPanelRenderGate } =
-  await import(source('single-flight.ts'));
+  await import(pathToFileURL(source('single-flight.ts')).href);
 
 const turn = () => new Promise((resolve) => setImmediate(resolve));
 

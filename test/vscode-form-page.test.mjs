@@ -4,13 +4,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { ARGUMENT_SCHEMAS } from '../src/gateway/argument-schemas.mjs';
 import { formModel, terminalEquivalent } from '../src/gateway/form-model.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const { FORM_STYLE, formHtml } = await import(path.join(root, 'apps', 'vscode', 'src', 'views', 'form-page.ts'));
+const { FORM_STYLE, formHtml } = await import(pathToFileURL(path.join(root, 'apps', 'vscode', 'src', 'views', 'form-page.ts')).href);
 
 test('a confirmation renders as a placeholder and never as a value', () => {
   /**

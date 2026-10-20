@@ -5,20 +5,20 @@ import { access, readFile, stat, rm, mkdir, mkdtemp, realpath } from 'node:fs/pr
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { runInNewContext } from 'node:vm';
 import { initializeDefinition } from '../src/config.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const execute = promisify(execFile);
-const { SharedWorkflowDraftController, WORKFLOW_DRAFT_INPUT_MAX_BYTES, workflowDraftCopilotContextIssue } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-model.ts'));
-const { withWorkflowDraftInputFile } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-input.ts'));
-const { createWorkflowDraftRecoveryStore } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-recovery.ts'));
-const { SingularityFlowClient } = await import(path.join(root, 'apps/vscode/src/cli/client.ts'));
-const { cliRefusalCode } = await import(path.join(root, 'apps/vscode/src/cli/runner.ts'));
-const { sharedWorkflowDraftsHtml, SHARED_WORKFLOW_DRAFTS_SCRIPT } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-page.ts'));
-const { addWorkflowDraftStage, editWorkflowDraftGuide, workflowDraftGuide, reorderWorkflowDraftStage, selectWorkflowDraftCatalog, prepareWorkflowDraftChange, WORKFLOW_DRAFT_STAGES } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-guide.ts'));
+const { SharedWorkflowDraftController, WORKFLOW_DRAFT_INPUT_MAX_BYTES, workflowDraftCopilotContextIssue } = await import(pathToFileURL(path.join(root, 'apps/vscode/src/views/workflow-drafts-model.ts')).href);
+const { withWorkflowDraftInputFile } = await import(pathToFileURL(path.join(root, 'apps/vscode/src/views/workflow-drafts-input.ts')).href);
+const { createWorkflowDraftRecoveryStore } = await import(pathToFileURL(path.join(root, 'apps/vscode/src/views/workflow-drafts-recovery.ts')).href);
+const { SingularityFlowClient } = await import(pathToFileURL(path.join(root, 'apps/vscode/src/cli/client.ts')).href);
+const { cliRefusalCode } = await import(pathToFileURL(path.join(root, 'apps/vscode/src/cli/runner.ts')).href);
+const { sharedWorkflowDraftsHtml, SHARED_WORKFLOW_DRAFTS_SCRIPT } = await import(pathToFileURL(path.join(root, 'apps/vscode/src/views/workflow-drafts-page.ts')).href);
+const { addWorkflowDraftStage, editWorkflowDraftGuide, workflowDraftGuide, reorderWorkflowDraftStage, selectWorkflowDraftCatalog, prepareWorkflowDraftChange, WORKFLOW_DRAFT_STAGES } = await import(pathToFileURL(path.join(root, 'apps/vscode/src/views/workflow-drafts-guide.ts')).href);
 
 const repository = path.resolve('/opened/explicit repository');
 const draftId = 'WFD-ABC123';

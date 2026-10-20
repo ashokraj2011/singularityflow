@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { assertNoSecrets, exactFileAtObject, governedCommitIdentity, localRefHeads, prefetchExactObjectFiles,
   shallowBoundaryCommit, stagedEntriesForPaths } from '../src/git.mjs';
 
-const gitModule = fileURLToPath(new URL('../src/git.mjs', import.meta.url));
+const gitModule = new URL('../src/git.mjs', import.meta.url).href;
 
 function git(root, args, input) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', input });

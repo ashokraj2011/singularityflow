@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { codeOnly } from './source-text.mjs';
 import { REASON_CODES } from '../src/gateway/catalog.mjs';
@@ -21,9 +21,9 @@ import { homeOverviewResult } from '../src/gateway/planners/home-overview.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const view = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name);
-const { buildResultCard, gateSummary } = await import(view('result-card-model.ts'));
-const { RESULT_CARD_SCRIPT, RESULT_CARD_STYLE, resultCardHtml } = await import(view('result-card-page.ts'));
-const { RESULT_MESSAGES, fill, message } = await import(view('result-messages.ts'));
+const { buildResultCard, gateSummary } = await import(pathToFileURL(view('result-card-model.ts')).href);
+const { RESULT_CARD_SCRIPT, RESULT_CARD_STYLE, resultCardHtml } = await import(pathToFileURL(view('result-card-page.ts')).href);
+const { RESULT_MESSAGES, fill, message } = await import(pathToFileURL(view('result-messages.ts')).href);
 
 const blocked = (blockers) => workReadinessResult({
   id: 'PAY-1187', kind: 'story', phase: 'implement', generation: 3, group: 'active',

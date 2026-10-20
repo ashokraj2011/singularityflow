@@ -20,7 +20,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const views = path.join(root, 'apps', 'vscode', 'src', 'views');
@@ -33,7 +33,7 @@ async function injectedScripts() {
     // A view that cannot be imported on its own is not this test's subject; the extension test
     // covers loading, and swallowing that here keeps one failure from being reported as many.
     try {
-      module = await import(path.join(views, entry));
+      module = await import(pathToFileURL(path.join(views, entry)).href);
     } catch {
       continue;
     }

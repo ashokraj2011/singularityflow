@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import YAML from 'yaml';
 
@@ -10,7 +10,7 @@ const source = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name)
 const {
   astPolicyPreset, astPolicyView, astRepositoryScopeView, astWorkspaceRepositoryInventory,
   parseAstLanguageRows, parseAstPredicateRows, updateAstPolicyYaml, validateAstPolicyDraft
-} = await import(source('ast-intelligence-model.ts'));
+} = await import(pathToFileURL(source('ast-intelligence-model.ts')).href);
 
 const policy = {
   mode: 'auto', fallback: 'host-and-text', evidence: { mode: 'identified', store: 'local-directory' }, generatedRoots: ['generated/types'],

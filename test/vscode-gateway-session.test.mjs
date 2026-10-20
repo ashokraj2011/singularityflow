@@ -12,7 +12,7 @@ import { fork, spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { codeOnly } from './source-text.mjs';
 
@@ -114,7 +114,7 @@ test('the host gateway refuses to start without being told which planners exist'
 });
 
 test('a card carries its handle in the model and never in the markup', async () => {
-  const model = await import(path.join(root, 'apps', 'vscode', 'src', 'views', 'result-card-model.ts'));
+  const model = await import(pathToFileURL(path.join(root, 'apps', 'vscode', 'src', 'views', 'result-card-model.ts')).href);
   const { workReadinessResult } = await import('../src/gateway/planners/work-readiness.mjs');
   const result = workReadinessResult({
     id: 'PAY-1187', kind: 'story', phase: 'implement', generation: 1, group: 'active',
@@ -125,7 +125,7 @@ test('a card carries its handle in the model and never in the markup', async () 
   const action = card.checklist.find((row) => row.action)?.action;
   assert.ok(action.handle, 'the model has the handle to dispatch with');
 
-  const { resultCardHtml } = await import(path.join(root, 'apps', 'vscode', 'src', 'views', 'result-card-page.ts'));
+  const { resultCardHtml } = await import(pathToFileURL(path.join(root, 'apps', 'vscode', 'src', 'views', 'result-card-page.ts')).href);
   assert.ok(!resultCardHtml(card).includes(action.handle), 'the webview never sees it');
 });
 
@@ -165,7 +165,7 @@ test('every gateway surface uses the validated active repository context', async
 });
 
 test('changing workspace identity retires the previous gateway session', async () => {
-  const gateway = await import(path.join(root, 'apps', 'vscode', 'src', 'gateway-session.ts'));
+  const gateway = await import(pathToFileURL(path.join(root, 'apps', 'vscode', 'src', 'gateway-session.ts')).href);
   const first = {
     root: '/tmp/sflow-context-root', workspaceId: 'workspace-a', workspaceName: 'A',
     repositoryId: 'lead', origin: 'test'
@@ -184,7 +184,7 @@ test('changing workspace identity retires the previous gateway session', async (
 });
 
 test('changing the Goal-owning lead repository retires handles even when the selected member stays put', async () => {
-  const gateway = await import(path.join(root, 'apps', 'vscode', 'src', 'gateway-session.ts'));
+  const gateway = await import(pathToFileURL(path.join(root, 'apps', 'vscode', 'src', 'gateway-session.ts')).href);
   const first = {
     root: '/tmp/sflow-member-repository', leadRepositoryPath: '/tmp/sflow-lead-a',
     workspaceId: 'workspace-a', workspaceName: 'A', repositoryId: 'member', origin: 'test'

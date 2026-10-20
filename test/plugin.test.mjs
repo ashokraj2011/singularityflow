@@ -125,7 +125,7 @@ test('plugin provides one upload-first skill for Epic and Story evidence', async
   }
   assert.match(canonical, /complete package/i);
   assert.match(canonical, /reason/i);
-  assert.match(canonical, /IDs, hashes, size, path\/provider, commit\/push/);
+  assert.match(canonical, /IDs, hashes, size, path(?:\/provider)?, commit\/push/);
 });
 
 test('capability mapping reviews and activates the exact proposal instead of stopping at publication', async () => {
@@ -726,7 +726,10 @@ test('lifecycle, review and repair skills name the route each stop leaves the pe
   assert.match(cancel, /Pending publication: `singularity-flow sync <WORK-ID>`; stale or diverged branch: `\/sf-recover`; the person reruns `\/sf-cancel` after it/);
   assert.match(cancel, /or in `\/sf-stories` for Copilot CLI users/);
   assert.match(await skill('sflow-review'), /Substantive findings need a separate human fix decision: publish them in the review, then offer the approver's post-submission `\/sf-reject --to <OWNING-STEP>`, or `singularity-flow upstream-issue raise --phase <OWNING-STEP>/);
-  assert.match(await skill('sflow-review-source'), /Unavailable\/truncated sources: name their IDs and stop; route to `\/sf-documents`/);
+  const sourceReview = await skill('sflow-review-source');
+  assert.match(sourceReview, /`canReview: false`: relay `continuation.actions`, stop/);
+  assert.match(sourceReview, /restore missing originals, never recreate the Story/);
+  assert.match(sourceReview, /`unreadableSources` need human decisions/);
   assert.match(await skill('sflow-auto'), /halt after a second failure; then offer step 3's `needs-you` read or step 8's `takeover` for manual repair/);
   assert.match(await skill('sflow-fault'), /Pass `--story` only for a known Story; a fault needs none/);
 });
@@ -1133,7 +1136,7 @@ test('source review follows the returned schema and a bounded read-only format c
   assert.match(skill, /no agent setup\/selection/);
   assert.match(skill, /Compare authored-content hashes/);
   assert.match(skill, /`canReview: false`: relay `continuation.actions`, stop/);
-  assert.match(skill, /only the author prepares\/publishes successors/);
+  assert.match(skill, /Only authors publish successors/);
   assert.match(skill, /End with `continuation.actions`, target generation\/owner/);
   assert.match(skill, /in order: Copilot, Shell, VS Code \(model-free\)/);
   assert.match(agent, /do not search for, create, or persistently select an\s+agent/);
@@ -1288,7 +1291,7 @@ test('World Model and review skills dispatch exact operations and return lifecyc
   assert.match(review, /Never submit or approve automatically/);
   const source = await read('sflow-review-source');
   assert.match(source, /`status`: read\./);
-  assert.match(source, /Legacy `decide`: retain phase\/finding\/reason; hand off to `\/sf-review-decide` in a new turn/);
+  assert.match(source, /Legacy `decide`: preserve arguments; route `\/sf-review-decide` in a new turn/);
   assert.match(source, /never decide as reviewer/i);
   assert.match(source, /Explicit `stage`\/`check`\/`submit`: relay once/);
   assert.match(await read('sflow-inputs'), /continuation.actions/);

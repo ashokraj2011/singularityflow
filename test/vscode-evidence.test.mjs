@@ -3,14 +3,14 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
   defaultEvidencePhases, evidenceCatalog, evidenceCommands, evidenceDetachCommand, evidenceDetachPreviewCommand, evidenceScopeCommand,
   evidenceStorageChoices, evidenceStorageLabel, evidenceUsesLabel, evidenceTargets, expandEpicEvidenceDirectory,
   suggestedEvidenceName, validateEvidenceName, validateEvidenceUrl
-} = await import(path.join(packageRoot, 'apps/vscode/src/evidence.ts'));
+} = await import(pathToFileURL(path.join(packageRoot, 'apps/vscode/src/evidence.ts')).href);
 
 test('evidence targets use the governed Story and Epic identities from the snapshot', () => {
   assert.deepEqual(evidenceTargets({
@@ -162,7 +162,7 @@ test('VS Code separates active and detached evidence and builds shell-free detac
 });
 
 test('a tree row opens every active Story document, including links and documents kept on one machine', async () => {
-  const { storyEvidenceNode } = await import(path.join(packageRoot, 'apps/vscode/src/views/tree-model.ts'));
+  const { storyEvidenceNode } = await import(pathToFileURL(path.join(packageRoot, 'apps/vscode/src/views/tree-model.ts')).href);
   const committed = storyEvidenceNode('MOB-1', { id: 'DOC-001', name: 'Brief', type: 'file', path: 'singularity/work-items/MOB-1/inputs/DOC-001/brief.md', mimeType: 'text/markdown', storage: { kind: 'git' } });
   assert.equal(committed.path, 'singularity/work-items/MOB-1/inputs/DOC-001/brief.md');
   assert.equal(committed.runCommand, undefined);

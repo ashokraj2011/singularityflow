@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { existsSync, lstatSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, lstatSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -26,7 +26,7 @@ import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, frozenRemoteTransport,
   isPortableAbsoluteGitPath, remoteFingerprint, safeGitDiagnosticReference, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
-import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
+import { enterpriseGitEnvironment, inheritEnterpriseGitEnvironment, remoteGitEnvironment } from './git-enterprise-environment.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import {
   GitRemoteSession, requireRemoteObservation, runRemoteGitAsync
@@ -1476,7 +1476,7 @@ function canonicalWorkspaceDropSafetyPath(target, label) {
       continue;
     }
     try {
-      return path.resolve(realpathSync(cursor), ...suffix);
+      return path.resolve(realpathSync.native(cursor), ...suffix);
     } catch (error) {
       throw new SingularityFlowError(
         `Local-drop safety could not resolve ${label} path ${resolved}: ${error.message}. Nothing was detached or deleted.`,
@@ -1486,12 +1486,27 @@ function canonicalWorkspaceDropSafetyPath(target, label) {
   }
 }
 
+/** Directory identity also catches native short-name/junction aliases with different spellings. */
+function workspaceDropSafetyIdentity(target, label) {
+  try {
+    const info = statSync(target, { bigint: true });
+    return info.isDirectory() && info.ino > 0n ? dropDirectoryIdentity(info) : null;
+  } catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return null;
+    throw new SingularityFlowError(
+      `Local-drop safety could not verify ${label} directory identity: ${error.message}. Nothing was detached or deleted.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED' }
+    );
+  }
+}
+
 function assertWorkspaceCapabilityDropPathsIsolated(workspace, candidates) {
   if (!candidates.length) return;
   const candidateIds = new Set(candidates.map((candidate) => candidate.id));
   const candidatePaths = candidates.map((candidate) => ({
     ...candidate,
     resolved: path.resolve(candidate.path),
+    identity: workspaceDropSafetyIdentity(candidate.path, `repository '${candidate.id}' candidate`),
     canonical: canonicalWorkspaceDropSafetyPath(
       candidate.path, `repository '${candidate.id}' candidate`
     )
@@ -1503,6 +1518,7 @@ function assertWorkspaceCapabilityDropPathsIsolated(workspace, candidates) {
       return {
         id,
         resolved: path.resolve(retainedPath),
+        identity: workspaceDropSafetyIdentity(retainedPath, `retained repository '${id}'`),
         canonical: canonicalWorkspaceDropSafetyPath(
           retainedPath, `retained repository '${id}'`
         )
@@ -1513,7 +1529,8 @@ function assertWorkspaceCapabilityDropPathsIsolated(workspace, candidates) {
       const first = candidatePaths[left];
       const second = candidatePaths[right];
       if (!workspaceDropPathsOverlap(first.resolved, second.resolved)
-          && !workspaceDropPathsOverlap(first.canonical, second.canonical)) continue;
+          && !workspaceDropPathsOverlap(first.canonical, second.canonical)
+          && !sameDropDirectoryIdentity(first.identity, second.identity)) continue;
       throw new SingularityFlowError(
         `Repositories '${first.id}' and '${second.id}' cannot be dropped together because their checkout paths overlap. Nothing was detached or deleted.`,
         {
@@ -1531,7 +1548,8 @@ function assertWorkspaceCapabilityDropPathsIsolated(workspace, candidates) {
   for (const candidate of candidatePaths) {
     for (const retained of retainedPaths) {
       if (!workspaceDropPathsOverlap(candidate.resolved, retained.resolved)
-          && !workspaceDropPathsOverlap(candidate.canonical, retained.canonical)) continue;
+          && !workspaceDropPathsOverlap(candidate.canonical, retained.canonical)
+          && !sameDropDirectoryIdentity(candidate.identity, retained.identity)) continue;
       throw new SingularityFlowError(
         `Repository '${candidate.id}' cannot be dropped because its checkout path overlaps retained repository '${retained.id}'. Nothing was detached or deleted.`,
         {
@@ -1568,8 +1586,8 @@ export function workspaceDropGitConfigurationOverrides(platform = process.platfo
 }
 
 export function workspaceDropGitEnvironment(env = null) {
-  const base = env ?? enterpriseGitEnvironment();
-  if (workspaceDropGitEnvironments.has(base)) return base;
+  if (env && workspaceDropGitEnvironments.has(env)) return env;
+  const base = remoteGitEnvironment(env ?? process.env);
   // A deletion proof is read-only and must never hydrate a partial clone merely to inspect its
   // object database. Besides avoiding an unexpected network side effect, this keeps an offline
   // proof bounded when a promisor remote is unavailable. Disable repository-local filesystem
@@ -1587,6 +1605,10 @@ export function workspaceDropGitEnvironment(env = null) {
     isolated[`GIT_CONFIG_KEY_${configurationOffset + index}`] = key;
     isolated[`GIT_CONFIG_VALUE_${configurationOffset + index}`] = value;
   });
+  // Remote fetch must retain these exact internal safety overrides when it freezes its transport.
+  // An unmarked spread was re-isolated at that boundary, dropping core.fsmonitor=false and letting
+  // Git execute a repository-controlled hook during the otherwise read-only deletion proof.
+  inheritEnterpriseGitEnvironment(base, isolated);
   workspaceDropGitEnvironments.add(isolated);
   return isolated;
 }

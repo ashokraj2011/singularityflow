@@ -4,7 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
-import { groundingRecordRelative } from '../src/grounding-paths.mjs';
+import { groundingRecordRelative } from '../src/story-paths.mjs';
 import { groundingRecordRelative as compatibilityPath } from '../src/grounding.mjs';
 
 test('read-only grounding paths preserve the exact writer path and generation watermark', () => {
@@ -25,14 +25,14 @@ test('read-only grounding paths preserve the exact writer path and generation wa
 
 test('a read-only path lookup cannot pull composition, lifecycle review or input writers into its closure', async () => {
   const root = fileURLToPath(new URL('..', import.meta.url));
-  const result = await build({ absWorkingDir: root, entryPoints: ['src/grounding-paths.mjs'],
+  const result = await build({ absWorkingDir: root, entryPoints: ['src/story-paths.mjs'],
     bundle: true, platform: 'node', format: 'esm', write: false, metafile: true, logLevel: 'silent' });
   const inputs = Object.keys(result.metafile.inputs).map(file => file.split(path.sep).join('/'));
   for (const owner of ['grounding.mjs', 'inputs.mjs', 'source-review-lifecycle.mjs', 'state.mjs']) {
     assert.equal(inputs.some(file => file.endsWith(`/${owner}`)), false, owner);
   }
   const command = await readFile(new URL('../src/commands/nextsteps.mjs', import.meta.url), 'utf8');
-  assert.match(command, /import \{ groundingRecordRelative \} from '\.\.\/grounding-paths\.mjs'/u);
+  assert.match(command, /import \{ groundingRecordRelative \} from '\.\.\/story-paths\.mjs'/u);
   assert.doesNotMatch(command, /const \{ groundingRecordRelative \} = await import/u);
   assert.match(command, /requiresProspectivePhaseInspection \} from '\.\.\/phase-inspection-generation\.mjs'/u);
 });

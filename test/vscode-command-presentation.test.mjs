@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { commandGuidanceHtml, commandGuidanceText, safeCommandPair } = await import(
-  path.join(root, 'apps', 'vscode', 'src', 'views', 'command-guidance.ts'));
+  pathToFileURL(path.join(root, 'apps', 'vscode', 'src', 'views', 'command-guidance.ts')).href);
 const { modelFreeRouteHtml, modelFreeRouteText, setChatModelsAvailable } = await import(
-  path.join(root, 'apps', 'vscode', 'src', 'copilot-command.ts'));
+  pathToFileURL(path.join(root, 'apps', 'vscode', 'src', 'copilot-command.ts')).href);
 
 test('shared VS Code continuation presentation renders and copies both validated routes', () => {
   const html = commandGuidanceHtml({

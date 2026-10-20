@@ -8,16 +8,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (name) => path.join(root, 'apps', 'vscode', 'src', name);
-const model = await import(source('views/run-and-test-model.ts'));
-const { runAndTestHtml, RUN_AND_TEST_SCRIPT } = await import(source('views/run-and-test-page.ts'));
-const summaryModel = await import(source('views/test-summary-model.ts'));
-const { testSummaryHtml, TEST_SUMMARY_SCRIPT } = await import(source('views/test-summary-page.ts'));
-const { bodyHtml, SCRIPT } = await import(source('views/capability-page.ts'));
-const { commandClass } = await import(source('cli/client.ts'));
+const model = await import(pathToFileURL(source('views/run-and-test-model.ts')).href);
+const { runAndTestHtml, RUN_AND_TEST_SCRIPT } = await import(pathToFileURL(source('views/run-and-test-page.ts')).href);
+const summaryModel = await import(pathToFileURL(source('views/test-summary-model.ts')).href);
+const { testSummaryHtml, TEST_SUMMARY_SCRIPT } = await import(pathToFileURL(source('views/test-summary-page.ts')).href);
+const { bodyHtml, SCRIPT } = await import(pathToFileURL(source('views/capability-page.ts')).href);
+const { commandClass } = await import(pathToFileURL(source('cli/client.ts')).href);
 
 const SHA = `sha256:${'a'.repeat(64)}`;
 const SHA2 = `sha256:${'b'.repeat(64)}`;
@@ -70,8 +70,8 @@ test('app plan|status|suggest, tests summary|plan are reads; app start|stop and 
   for (const args of reads) assert.equal(commandClass(args), 'read', args.join(' '));
   for (const args of executions) assert.equal(commandClass(args), 'mutation', args.join(' '));
   assert.equal(commandClass(['app', 'unknown']), 'mutation', 'an unknown subcommand stays conservative');
-  const { resolveOperation } = await import(path.join(root, 'src', 'command-registry.mjs'));
-  const { parseArgs } = await import(path.join(root, 'src', 'util.mjs'));
+  const { resolveOperation } = await import(pathToFileURL(path.join(root, 'src', 'command-registry.mjs')).href);
+  const { parseArgs } = await import(pathToFileURL(path.join(root, 'src', 'util.mjs')).href);
   const engine = (args) => resolveOperation({ requestedCommand: args[0], ...parseArgs(args) }).classification;
   for (const args of [...reads, ...executions]) assert.equal(commandClass(args), engine(args), `engine and VS Code: ${args.join(' ')}`);
 });

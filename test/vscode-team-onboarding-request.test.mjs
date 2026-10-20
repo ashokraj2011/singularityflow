@@ -2,16 +2,16 @@ import assert from 'node:assert/strict';
 import { access, readFile, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (...parts) => path.join(packageRoot, 'apps', 'vscode', 'src', ...parts);
 
 const { TEAM_ONBOARDING_REQUEST_MAX_BYTES, withTeamOnboardingRequestFile } = await import(
-  source('views', 'team-onboarding-request.ts'));
-const { formatCliArgsForDisplay } = await import(source('cli', 'runner.ts'));
+  pathToFileURL(source('views', 'team-onboarding-request.ts')).href);
+const { formatCliArgsForDisplay } = await import(pathToFileURL(source('cli', 'runner.ts')).href);
 const { CAPABILITY_TEAM_REQUEST_FILE_MAX_BYTES } = await import(
-  path.join(packageRoot, 'src', 'commands', 'capability.mjs'));
+  pathToFileURL(path.join(packageRoot, 'src', 'commands', 'capability.mjs')).href);
 
 const request = Object.freeze({
   teamId: 'payments-platform',

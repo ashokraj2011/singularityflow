@@ -78,7 +78,7 @@ test('a work interval keeps checkpoints local and records a final governed recon
   await writeFile(path.join(context.root, 'src/app.js'), 'export const value = 2;\n');
   const checkpoint = await createLocalCheckpoint(context.root, context.workflow, { name: 'safe point' });
   assert.equal(git(context.root, ['rev-parse', 'HEAD']), startHead, 'checkpoint must not commit source');
-  assert.match(checkpoint.path, new RegExp(`${path.sep}\.git${path.sep}singularity-flow${path.sep}checkpoints${path.sep}`));
+  assert.ok(checkpoint.path.includes(path.join('.git', 'singularity-flow', 'checkpoints') + path.sep));
   assert.equal(checkpoint.files[0].path, 'src/app.js');
   assert.equal(checkpoint.durability, 'local');
   assert.equal(checkpoint.hasUncommittedBytes, true);

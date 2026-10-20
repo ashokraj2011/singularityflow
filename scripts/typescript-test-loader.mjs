@@ -6,13 +6,14 @@
  * instead of silently dropping those files.
  */
 import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 export async function load(url, context, nextLoad) {
   if (!url.startsWith('file:') || !url.endsWith('.ts')) return nextLoad(url, context);
   const source = await readFile(new URL(url), 'utf8');
   const result = ts.transpileModule(source, {
-    fileName: new URL(url).pathname,
+    fileName: fileURLToPath(url),
     reportDiagnostics: true,
     compilerOptions: {
       target: ts.ScriptTarget.ES2022,

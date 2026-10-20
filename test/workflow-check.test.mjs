@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { guidanceConflicts, linkKind, scanGuidanceText } from '../src/guidance-scan.mjs';
 
@@ -273,7 +273,7 @@ test('Studio\'s own check keeps the step its warnings are about', async () => {
 test('the Studio board asks for a check of the draft and shows it: counts, findings by area, marks on steps, the step explained', async () => {
   const root = await paymentsRepository();
   const { buildStudioModel } = await import('../src/workflow-studio.mjs');
-  const { WORKFLOW_STUDIO_SCRIPT } = await import(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts'));
+  const { WORKFLOW_STUDIO_SCRIPT } = await import(pathToFileURL(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts')).href);
   const model = await buildStudioModel(root);
   const posted = [];
   const listeners = {};

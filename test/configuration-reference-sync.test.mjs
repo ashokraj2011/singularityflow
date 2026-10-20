@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { syncConfigurationReferences } from '../src/configuration-reference-sync.mjs';
 
 const remote = 'https://git.example.test/config.git';
@@ -7,7 +8,7 @@ const commit = 'a'.repeat(40);
 function fixture(overrides = {}) {
   const calls = [];
   const services = {
-    readRegistry: async () => [{ path: '/workspace', leadRepositoryPath: '/workspace/repos/ui' }, { path: '/unrelated' }],
+    readRegistry: async () => [{ path: path.resolve('/workspace'), leadRepositoryPath: path.resolve('/workspace/repos/ui') }, { path: path.resolve('/unrelated') }],
     readWorkspace: async path => { calls.push(['workspace', path]); return { path,
       repositories: { ui: { path: 'repos/ui' }, api: { path: 'repos/api' } } }; },
     git: (_exe, _args, { cwd }) => ({ status: 0,
@@ -21,15 +22,15 @@ function fixture(overrides = {}) {
 
 test('one sync updates known selected-workspace pins, not Story pins or unrelated workspaces', async () => {
   const f = fixture();
-  const root = '/workspace/.singularity-flow/story-worktrees/story';
+  const root = path.resolve('/workspace/.singularity-flow/story-worktrees/story');
   const result = await syncConfigurationReferences(root, remote, commit, { services: f.services });
   assert.equal(result.status, 'complete');
   assert.ok(result.results.some(item => item.path === root && item.status === 'preserved'));
   assert.deepEqual(f.calls.filter(item => item[0] === 'refresh'), [
-    ['refresh', '/workspace/repos/ui', { expectedConfigCommit: commit }],
-    ['refresh', '/workspace/repos/api', { expectedConfigCommit: commit }]
+    ['refresh', path.resolve('/workspace/repos/ui'), { expectedConfigCommit: commit }],
+    ['refresh', path.resolve('/workspace/repos/api'), { expectedConfigCommit: commit }]
   ]);
-  assert.equal(f.calls.some(item => item[1] === '/unrelated'), false);
+  assert.equal(f.calls.some(item => item[1] === path.resolve('/unrelated')), false);
 });
 
 test('missing, unattached and differently pinned checkouts are not cloned or redirected', async () => {

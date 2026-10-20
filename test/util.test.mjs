@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
-  NETWORK_TIMEOUT_MS, SUBPROCESS_MAX_BUFFER_BYTES, defaultTimeoutFor, networkDisabled, parseArgs, run, writeJson, writeText
+  NETWORK_TIMEOUT_MS, SUBPROCESS_MAX_BUFFER_BYTES, defaultTimeoutFor, networkDisabled, parseArgs, run, writeAtomic, writeJson, writeText
 } from '../src/util.mjs';
 
 test('roster table is a boolean flag and cannot swallow a selector or positional value', () => {
@@ -43,6 +43,37 @@ test('shared atomic writers remove temporary files after replacement failure', a
   await assert.rejects(() => writeText(target, 'cannot replace a directory'));
 
   assert.deepEqual(await readdir(root), ['existing-directory']);
+});
+
+test('Windows atomic replacement retries only bounded sharing failures without deleting the destination', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-atomic-sharing-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const target = path.join(root, 'state.json');
+  await writeFile(target, 'old');
+  let attempts = 0;
+  const waits = [];
+  await writeAtomic(target, 'new', { platform: 'win32', wait: async ms => waits.push(ms),
+    renameCommand: async (temporary, destination) => {
+      assert.equal(await readFile(destination, 'utf8'), 'old');
+      assert.equal(await readFile(temporary, 'utf8'), 'new');
+      if (++attempts < 3) throw Object.assign(new Error('busy'), { code: 'EPERM' });
+      await rename(temporary, destination);
+    }
+  });
+  assert.equal(await readFile(target, 'utf8'), 'new');
+  assert.deepEqual(waits, [20, 40]);
+  for (const [platform, code, expectedAttempts] of [
+    ['win32', 'EACCES', 6], ['win32', 'ENOSPC', 1], ['darwin', 'EPERM', 1]
+  ]) {
+    attempts = 0;
+    const failure = Object.assign(new Error('retained failure'), { code });
+    await assert.rejects(() => writeAtomic(target, 'refused', { platform, wait: async () => {},
+      renameCommand: async () => { attempts += 1; throw failure; }
+    }), error => error === failure);
+    assert.equal(attempts, expectedAttempts);
+    assert.equal(await readFile(target, 'utf8'), 'new');
+    assert.deepEqual(await readdir(root), ['state.json']);
+  }
 });
 
 test('a command that reaches the network gets a bound, and a timeout is not a refusal', () => {

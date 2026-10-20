@@ -10,13 +10,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const views = path.join(root, 'apps/vscode/src/views');
 const source = (relative) => readFile(path.join(root, 'apps/vscode/src', relative), 'utf8');
 
-const { NAV_SCRIPT, repositoryWebLink, repositoryWebTarget, repositoryWebUrl } = await import(path.join(views, 'webview.ts'));
+const { NAV_SCRIPT, repositoryWebLink, repositoryWebTarget, repositoryWebUrl } = await import(pathToFileURL(path.join(views, 'webview.ts')).href);
 
 /** The public host, assembled as repository-source hygiene requires (scripts/check.mjs). */
 const GITHUB = ['github', 'com'].join('.');

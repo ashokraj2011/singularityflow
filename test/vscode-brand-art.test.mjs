@@ -9,6 +9,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
+import path from 'node:path';
 import { BRAND_ART_STYLE, brandBanner, brandCard } from '../apps/vscode/src/views/brand-art.ts';
 import { ABOUT_STYLE, aboutHtml } from '../apps/vscode/src/views/about-page.ts';
 
@@ -61,7 +62,7 @@ test('About shows the navy card and My Work shows the banner; no other page uses
   const users = [];
   for (const name of await readdir(root, { recursive: true })) {
     if (!name.endsWith('.ts') || name.endsWith('brand-art.ts')) continue;
-    if (/brandBanner\(|brandCard\(/.test(await readFile(new URL(name, root), 'utf8'))) users.push(name);
+    if (/brandBanner\(|brandCard\(/.test(await readFile(new URL(name, root), 'utf8'))) users.push(name.split(path.sep).join('/'));
   }
   assert.deepEqual(users.sort(), ['views/about-page.ts', 'views/result-panel.ts']);
 });

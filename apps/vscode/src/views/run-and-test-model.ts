@@ -95,6 +95,18 @@ export interface StartStatus {
   debug: { runtime: string | null; port: number | null; listening: boolean } | null;
 }
 
+/** A capability's `policy.localIntegrationEvidence`: whether its environments' values may reach a local process. */
+export type LocalIntegrationPolicy = 'off' | 'allowed';
+
+/**
+ * The capability's policy as `tests plan --json` reports it (`localIntegrationEvidence`, the same
+ * folded policy `app start` checks); null when the engine does not say, so the engine decides.
+ */
+export function localIntegrationPolicy(raw: unknown): LocalIntegrationPolicy | null {
+  const value = record(unwrapResult(raw))?.localIntegrationEvidence;
+  return value === 'off' || value === 'allowed' ? value : null;
+}
+
 /** One command `tests run` would run, from `tests plan --json` when the engine offers it. */
 export interface TestCommandPlan {
   id: string;
@@ -437,7 +449,13 @@ export function entryEnvironment(entry: Pick<StartEntry, 'environments'>, chosen
  * refuse an incomplete binding or an undeclared environment after the task opened, so it is said
  * here, plainly, with what the person does about it. Null when it can run.
  */
-export function startRefusal(entry: Pick<StartEntry, 'id' | 'environments'>, environment: string | null): string | null {
+export function startRefusal(entry: Pick<StartEntry, 'id' | 'environments'> & Partial<Pick<StartEntry, 'capability'>>, environment: string | null,
+  policy: LocalIntegrationPolicy | null = null): string | null {
+  // The engine refuses any start in an environment while the capability keeps values from local processes.
+  if (environment && policy === 'off') {
+    return `${entry.id} was not started: it needs environment ${environment}, whose values are given to a local process only when capability`
+      + ` ${entry.capability ?? 'its capability'} sets policy.localIntegrationEvidence to allowed. It is off. Change it through a capability proposal; nothing ran.`;
+  }
   const choice = environment ? entry.environments.find((item) => item.name === environment) : null;
   // Only a status the engine reported as not runnable; an unknown one is left to the engine.
   if (!choice || !['unbound', 'unavailable', 'partial', 'partially-bound', 'missing', 'not-bound', 'none', 'undeclared'].includes(choice.status)) return null;
@@ -787,6 +805,8 @@ export interface RunAndTestState {
   planNote?: string | null;
   status?: StartStatus[] | null;
   tests?: TestCommandPlan[] | null;
+  /** The capability's local integration policy, from `tests plan`; null when unknown. */
+  localIntegration?: LocalIntegrationPolicy | null;
   lastRun?: TestSummary | null;
   lastRunNote?: string | null;
   tasks?: Record<string, StartTaskState>;

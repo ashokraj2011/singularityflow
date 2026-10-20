@@ -11671,3 +11671,22 @@ test('the Testing view lists test commands and cases with their file and line, r
   assert.deepEqual(controller.runs[3].events, [['enqueued', 'checkout-app/module-tests'], ['skipped', 'checkout-app/module-tests']]);
   assert.deepEqual(controller.runs[3].output, ['No tests were run.\r\n']);
 });
+
+test('Run refuses a start in an environment before any task opens while the capability policy keeps values from local processes', async (t) => {
+  if (!requireBundle(t)) return;
+  const { registered, cli } = await activatedWithRunAndTest(t, { application: true, prepare: withRunWidgetHost });
+  await cli.write('tests-plan.json', { ...runTestsPlan(), localIntegrationEvidence: 'off' });
+  await until(() => registered.runItem('configuration')?.shown);
+  await registered.commands.get('singularityFlow.refreshRunConfigurations')();
+  registered.informationAnswer = 'Run this command';
+  await registered.commands.get('singularityFlow.runSelectedConfiguration')();
+  await until(() => registered.warnings.some((message) => message.startsWith('web was not started: it needs environment dev')));
+  assert.match(registered.warnings.find((message) => message.startsWith('web was not started')), /capability checkout-app sets policy\.localIntegrationEvidence to allowed\. It is off\./);
+  assert.equal(registered.tasks.length, 0, 'no task opened to fail with an exit code');
+  assert.equal(registered.reviewConfirmations.length, 0);
+  // Allowed: the same Run starts it.
+  await cli.write('tests-plan.json', runTestsPlan());
+  await registered.commands.get('singularityFlow.runSelectedConfiguration')();
+  assert.equal(registered.tasks.length, 1);
+  assert.deepEqual(registered.tasks[0].task.execution.args, [cli.wrapper, 'app', 'start', 'web', '--capability', 'checkout-app', '--environment', 'dev', '--expect-command', RUN_SHA]);
+});

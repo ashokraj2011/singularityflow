@@ -30,7 +30,7 @@ import {
   appPlanArgv, appPlanFrom, appPlanHereArgv, appStartArgv, appStatusArgv, appStatusFrom, appStopArgv, bindCommand, buildRunAndTestView,
   capabilitiesHere, chooseEnvironment, CONFIRMED_COMMANDS_KEY, debugAttachPlan, debugConfirmationKey, debuggerReady, debugLaunch,
   debugStartConfirmationRequest, entryEnvironment,
-  environmentOptions, environmentStatusWords, ENVIRONMENT_CHOICES_KEY, findCapability, loopbackUrl, missingDebuggerMessage, ownershipOf,
+  environmentOptions, environmentStatusWords, ENVIRONMENT_CHOICES_KEY, findCapability, localIntegrationPolicy, loopbackUrl, missingDebuggerMessage, ownershipOf,
   rememberConfirmed, startConfirmationRequest, plannedIdentities, startRefusal, testPlanFrom, testsConfirmationKeys, testsConfirmationRequest,
   testsEnvironment, testsPlanArgv, testsRunArgv, unwrapResult, type DebugRuntime, type Ownership, type RunAndTestState, type StartEntry
 } from './run-and-test-model.ts';
@@ -234,6 +234,7 @@ export class RunAndTest implements vscode.Disposable {
         : parsed?.dropped.length ? `Not shown, because the engine's answer for them is incomplete: ${parsed.dropped.join(', ')}.` : null,
       status: status.status === 'fulfilled' ? appStatusFrom(status.value) : null,
       tests: tests.status === 'fulfilled' ? testPlanFrom(tests.value) : null,
+      localIntegration: tests.status === 'fulfilled' ? localIntegrationPolicy(tests.value) : null,
       lastRun: summary?.run ? summary : null,
       lastRunNote: summary?.run || last.status === 'fulfilled' || /NO_|NOT_FOUND|NONE/.test(lastCode) ? null
         : `The last test run could not be read: ${(last.reason as Error).message}`
@@ -337,7 +338,7 @@ export class RunAndTest implements vscode.Disposable {
     const entry = this.stateOf(capability).plan?.find((item) => item.id === entryId);
     if (!entry) return this.update(capability, { error: `${entryId} is not a start entry of ${capability} any more.`, notice: null });
     const environment = entryEnvironment(entry, this.chosenEnvironment(capability));
-    const refusal = startRefusal(entry, environment);
+    const refusal = startRefusal(entry, environment, this.stateOf(capability).localIntegration ?? null);
     if (refusal) return this.update(capability, { error: refusal, notice: null });
     if (!await this.confirmed([entry.commandSha256], startConfirmationRequest(entry, environment))) {
       return this.update(capability, { notice: 'Nothing was started.', error: null });
@@ -369,7 +370,7 @@ export class RunAndTest implements vscode.Disposable {
       return this.update(capability, { error: entry.debugIssue ? `${entryId} was not started: ${entry.debugIssue}.` : `${entryId} declares no debug block in singularity/capabilities.yml.`, notice: null });
     }
     const environment = entryEnvironment(entry, this.chosenEnvironment(capability));
-    const refusal = startRefusal(entry, environment);
+    const refusal = startRefusal(entry, environment, this.stateOf(capability).localIntegration ?? null);
     if (refusal) return this.update(capability, { error: refusal, notice: null });
     // The engine would refuse it before anything runs (a missing debugpy or dlv, yarn): say so here.
     const declined = debugLaunch(entry.debug, environment).refusal;

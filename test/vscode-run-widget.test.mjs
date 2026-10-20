@@ -395,3 +395,21 @@ test('a typed entry\'s confirmation shows its before-launch steps, the variables
   const bare = runModel.appPlanFrom({ entries: [{ ...api, id: 'bare', environments: [], resolved: { ...api.resolved, beforeLaunch: [['node', 'x.mjs']] } }] }).entries[0];
   assert.deepEqual(runModel.launchDetail(bare, null).beforeLaunch, [{ argv: ['node', 'x.mjs'], workingDirectory: null }], 'a bare argv list is a step too');
 });
+
+test('a start in an environment is refused before its task opens while the capability keeps values from local processes', () => {
+  // Seen in a real VS Code: with policy.localIntegrationEvidence off, Run opened a task that failed with
+  // "exit code 1"; only the task terminal said why. tests plan reports the same folded policy.
+  assert.equal(runModel.localIntegrationPolicy({ resultType: 'sflow-test-plan', localIntegrationEvidence: 'off', commands: [] }), 'off');
+  assert.equal(runModel.localIntegrationPolicy({ resultType: 'command-result', data: { localIntegrationEvidence: 'allowed', commands: [] } }), 'allowed');
+  assert.equal(runModel.localIntegrationPolicy({ commands: [] }), null, 'an engine that does not say leaves it to the engine');
+  assert.equal(runModel.localIntegrationPolicy({ localIntegrationEvidence: 'maybe' }), null);
+  const [entry] = runModel.appPlanFrom({ entries: [typed()] }).entries;
+  assert.equal(runModel.startRefusal(entry, 'dev', 'off'),
+    'api was not started: it needs environment dev, whose values are given to a local process only when capability payments-web sets '
+    + 'policy.localIntegrationEvidence to allowed. It is off. Change it through a capability proposal; nothing ran.');
+  assert.match(runModel.startRefusal(entry, 'qa', 'off'), /needs environment qa/, 'checked before the binding, as the engine does');
+  assert.equal(runModel.startRefusal(entry, 'dev', 'allowed'), null);
+  assert.equal(runModel.startRefusal(entry, 'dev', null), null);
+  assert.equal(runModel.startRefusal(entry, null, 'off'), null, 'an entry without environments reads no values');
+  assert.match(runModel.startRefusal(entry, 'qa', 'allowed'), /environment qa is not bound/);
+});

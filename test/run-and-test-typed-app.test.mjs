@@ -92,8 +92,9 @@ function startInBackground(root, args = []) {
   };
 }
 
-const JAVA_FILES = { mvnw: '#!/bin/sh\n', 'mvnw.cmd': '@echo off\r\n', 'services/api/pom.xml': '<project/>', '.venv/bin/python': '#!/bin/sh\n', 'apps/web/package.json': '{}' };
+const JAVA_FILES = { mvnw: '#!/bin/sh\n', 'mvnw.cmd': '@echo off\r\n', 'services/api/pom.xml': '<project/>', '.venv/bin/python': '#!/bin/sh\n', '.venv/Scripts/python.exe': '', 'apps/web/package.json': '{}' };
 const MAVEN_WRAPPER = process.platform === 'win32' ? '../../mvnw.cmd' : '../../mvnw';
+const PYTHON_INTERPRETER = process.platform === 'win32' ? '../../.venv/Scripts/python.exe' : '../../.venv/bin/python';
 
 test('app plan shows a typed entry\'s type, name, fields and, per environment, what it resolves to', async (t) => {
   const root = await fixture(t, [
@@ -129,8 +130,8 @@ test('app plan shows a typed entry\'s type, name, fields and, per environment, w
   assert.deepEqual(web.resolved, { argv: ['npm', 'run', 'dev', '--', '--host', '127.0.0.1', '--port', '5173'], envNames: [], beforeLaunch: [] });
   assert.deepEqual(web.argv, web.resolved.argv);
   assert.deepEqual(web.debug.environmentNames, ['npm_config_node_options']);
-  assert.deepEqual(pricing.resolved.argv, ['../../.venv/bin/python', '-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8000', '--reload']);
-  assert.deepEqual(pricing.debug.argv, ['../../.venv/bin/python', '-m', 'debugpy', '--listen', '127.0.0.1:5678', '-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8000']);
+  assert.deepEqual(pricing.resolved.argv, [PYTHON_INTERPRETER, '-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8000', '--reload']);
+  assert.deepEqual(pricing.debug.argv, [PYTHON_INTERPRETER, '-m', 'debugpy', '--listen', '127.0.0.1:5678', '-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8000']);
   assert.equal(pricing.name, 'pricing', 'the name defaults to the id');
   // The whole block as capabilities.yml holds it, typed fields as written, for an editor to write back.
   const written = JSON.parse(await readFile(path.join(root, 'singularity', 'capabilities.yml'), 'utf8')).capabilities.web.application;

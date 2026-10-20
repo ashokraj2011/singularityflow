@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { realpathSync } from 'node:fs';
+import { realpathSync, statSync } from 'node:fs';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -923,7 +923,12 @@ test('FOS:AC-022 raw object worker ignores replacements and untrusted Git enviro
     assert.equal(calls.length, 1);
     assert.equal(path.isAbsolute(calls[0].command), true);
     const commonDir = calls[0].options.cwd;
-    assert.equal(realpathSync(commonDir), realpathSync(path.join(root, '.git')));
+    const directoryIdentity = directory => {
+      const info = statSync(directory, { bigint: true });
+      return [info.dev, info.ino];
+    };
+    assert.deepEqual(directoryIdentity(commonDir), directoryIdentity(path.join(root, '.git')),
+      'Git may expand Windows 8.3 aliases; both spellings must identify this exact directory');
     assert.equal(calls[0].options.shell, false);
     assert.equal(calls[0].options.windowsHide, true);
     assert.equal(calls[0].options.detached, false);

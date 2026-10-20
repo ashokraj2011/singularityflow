@@ -113,6 +113,9 @@ export async function endRepositoryBoundaryTurn(payload = {}) {
 export async function repositoryToolGuard(payload = {}) {
   if (!(await hasBoundaryTurn(payload))) return {};
   try {
+    // Environment files hold secrets: no turn mode reads, searches or edits them (SPEC-ENVIRONMENT-FILES).
+    const environmentFile = await (await import('./copilot-environment-files-guard.mjs')).environmentFilesToolGuard(payload);
+    if (environmentFile) return environmentFile;
     const mutation = await (await import('./copilot-mutation-guard.mjs')).mutationToolGuard(payload);
     // Awaited here, so a failing discovery guard denies like any other guard failure instead of
     // escaping this catch to the hook's outer handler, which answers with no decision.

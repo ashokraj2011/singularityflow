@@ -2895,7 +2895,7 @@ Detached evidence is read-only; preserve bytes and manifest status.
     <details>
       <summary>
         <span class="skill-number">034</span>
-        <span class="skill-title"><strong>sflow-environment</strong><span>Inspect declared QA/UAT environment requirements and private binding readiness without exposing values.</span></span>
+        <span class="skill-title"><strong>sflow-environment</strong><span>Inspect declared QA/UAT environment requirements, private binding readiness and environment files without exposing values.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
       <div class="skill-content">
@@ -2904,11 +2904,11 @@ Detached evidence is read-only; preserve bytes and manifest status.
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~738 body tokens</span>
+          <span class="pill">~940 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-environment</code></dd></div>
-          <div><dt>Arguments</dt><dd><code>status | audit | unbind &lt;environment&gt;</code></dd></div>
+          <div><dt>Arguments</dt><dd><code>status | audit | unbind &lt;environment&gt; | files [&lt;environment&gt;]</code></dd></div>
           <div><dt>Model-capable operations</dt><dd>none</dd></div>
           <div><dt>Source</dt><dd><code>plugin/skills/sflow-environment/SKILL.md</code></dd></div>
         </dl>
@@ -2918,9 +2918,9 @@ Detached evidence is read-only; preserve bytes and manifest status.
         </div>
         <pre data-source="sflow-environment"><code>---
 name: sflow-environment
-description: Inspect declared QA/UAT environment requirements and private binding readiness without exposing values.
+description: Inspect declared QA/UAT environment requirements, private binding readiness and environment files without exposing values.
 disable-model-invocation: true
-argument-hint: &quot;status | audit | unbind &lt;environment&gt;&quot;
+argument-hint: &quot;status | audit | unbind &lt;environment&gt; | files [&lt;environment&gt;]&quot;
 ---
 # Inspect environment bindings safely
 
@@ -2936,7 +2936,8 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 2. Report environment names, bound/partial/unbound status, missing names, declaration digest, opaque binding revision, and fingerprint. Never print values, provider references, environment variables, private-sidecar paths, or raw resolver errors.
 3. Never ask the user to paste a secret into Copilot Chat. To bind, give this terminal-only shape: `singularity-flow env bind &lt;environment&gt; --stdin`; explain that a bounded JSON object is read from standard input and the value must not be placed in argv or shell history.
 4. Run `singularity-flow env unbind &lt;environment&gt; --json` only after the user explicitly requests removal and the exact environment is known. Report that private machine-local state was removed; the committed declaration is unchanged.
-5. `ENVIRONMENT_ISOLATED_RUNNER_REQUIRED` means that environment-bound check cannot run in SFlow yet: no approved isolated runner exists. Preserve that status and say so; offer `/sf-configuration` to propose removing the check&#39;s environment mapping as a reviewed change, or `/sf-recover`. Never substitute a developer-local pass or claim gate evidence.
+5. `ENVIRONMENT_ISOLATED_RUNNER_REQUIRED` means the capability&#39;s `policy.localIntegrationEvidence` is off, so that environment-bound check cannot run here. Preserve that status and say so; offer the capability proposal its refusal names, `/sf-configuration` to propose removing the check&#39;s environment mapping as a reviewed change, or `/sf-recover`. Never substitute a developer-local pass or claim gate evidence.
+6. Environment files (`application-uat.yml`, `.env.uat`, `appsettings.UAT.json`, …): run `singularity-flow env files [&lt;environment&gt;] --json` and report each file&#39;s environment, path, status and location (a path, never contents). For a missing file with a template, run `singularity-flow env files create &lt;environment&gt; &lt;path&gt; --from-template --json` and give the person its location to fill in. Never read, search or edit an environment file, the store or a linked file yourself; the guard refuses it. Using an existing file (`singularity-flow env files link`), a folder per environment (`singularity-flow env files root`), `adopt` and personal files are the person&#39;s commands in their own terminal, or VS Code: Singularity Flow: Environment Files.
 </code></pre>
       </div>
     </details>

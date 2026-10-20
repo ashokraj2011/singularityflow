@@ -443,7 +443,7 @@ async function main() {
       const env = { ...process.env, NPM_CONFIG_CACHE: path.join(snapshot, 'npm-cache'),
         PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH || ''}` };
       const status = await runNpm({ command: process.execPath,
-        arguments: [npm, 'install', '--prefix', candidate, '--offline', '--ignore-scripts', '--no-bin-links', '--no-audit', '--no-fund', path.join(snapshotRelease, npmBinding.name)],
+        arguments: [npm, 'install', '--prefix', candidate, '--offline', '--ignore-scripts', '--global=false', '--workspaces=false', '--no-bin-links', '--no-audit', '--no-fund', path.join(snapshotRelease, npmBinding.name)],
         options: { shell: false } }, { cwd: snapshot, environment: env, timeoutMs: 300_000 });
       if (status !== 0) fail(`Private package staging failed with exit ${status}.`);
       if (forwarded.includes('--dry-run')) {

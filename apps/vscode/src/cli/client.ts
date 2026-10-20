@@ -1,11 +1,10 @@
 /**
  * Which CLI to run, and the small set of commands the extension actually needs.
  *
- * Resolution order is explicit setting → the CLI shipped beside this extension → `singularity-flow`
- * on PATH. The middle case matters most: an extension bundled with its own engine must not silently
- * drive a different version that happens to be installed globally, because the two can disagree
- * about a resolution's meaning. Whichever is chosen is reported, so a mismatch is diagnosable
- * instead of mysterious.
+ * Resolution order is explicit setting → the active SFlow-managed pair → the CLI shipped beside
+ * this extension → the explicit SINGULARITY_FLOW_CLI path. Managed selection is machine-local,
+ * never repository-provided, and refreshes atomically at invocation start. A legacy extension's
+ * bundled engine still wins over an unrelated global installation. Every choice is reported.
  */
 import { existsSync, realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';

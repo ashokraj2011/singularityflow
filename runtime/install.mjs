@@ -159,7 +159,7 @@ export async function installManagedRelease({ tarball, sha256, nodeExecutable = 
         NPM_CONFIG_CACHE: path.join(release, '.npm-cache'), NODE_COMPILE_CACHE: undefined,
         NODE_COMPILE_CACHE_READONLY: undefined, NODE_OPTIONS: undefined };
       await execute(nodeExecutable, [npm, 'install', '--prefix', release, '--offline', '--ignore-scripts',
-        '--no-bin-links', '--omit=dev', '--no-audit', '--no-fund', retained], { cwd: root, env });
+        '--global=false', '--workspaces=false', '--no-bin-links', '--omit=dev', '--no-audit', '--no-fund', retained], { cwd: root, env });
       await writeFile(path.join(release, '.archive-sha256'), `${sha256}\n`, { mode: 0o600, flag: 'wx' });
     }
     const packageRoot = path.join(release, 'node_modules', 'singularity-flow');

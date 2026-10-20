@@ -99,3 +99,44 @@ command shims and preserves launch, timeout and signal details. Installation and
 are separate checks; neither is represented as real renderer activation or independent human review.
 An installation timeout or signal retains the owned profile and reports its path rather than
 deleting under an unconfirmed child. Ordinary completed success/failure still cleans that profile.
+
+## Qualification record — 2026-10-20
+
+**Not qualified for 1.0.** The product remains 0.9.0. This record grants no release approval,
+waiver, publication or merge permission. Skipped, cancelled and TODO tests still fail release
+verification; no platform-applicability exception was introduced.
+
+The frozen code point is `3a0f0cd9cb50f5a8bd6f0f5d45b2b6de74f15fc8`.
+
+| Evidence | Scope and result |
+| --- | --- |
+| Local Mac, Node 22 | 122 isolated publication, immutable-review, execution-evidence, sidecar and complete specification-to-release Story tests passed; zero skips. |
+| Native Mac and Windows, Node 20 and 22 | 39 focused reader/runtime/bundle tests passed in each cell, zero skips; run `39390249048`. This is not the full repository suite. |
+| Native Windows packaged intake | Seven tests passed, zero skips, including intake, submission, independent fixture approval, Copilot handoff and restart; run `39389479908` at parent code point `b1a78cc3`. The later removal-proof change is covered by the frozen native reader tests. |
+| Mac packaged gate | Eleven of twelve stages passed at `1077c5cc`, including 237 regression tests, packaged intake, contained-engine verification and isolated CLI installation. The latency-budget stage failed. |
+| Locked dependencies | The audit at this qualification run reported zero vulnerabilities. |
+
+These are automated fixture observations, not real Copilot authoring, a human pilot or real VS Code
+renderer activation. The packaged intake check does not claim completion of every POC phase.
+The separate specification-to-release CLI fixture does exercise the full phase sequence and rework.
+
+Whole-suite qualification is still incomplete. The original complete Mac baseline at `97499663`
+executed 11,531 tests: 11,491 passed, 26 failed and 14 skipped. Later fixes and focused reruns do not
+retroactively change that receipt. The newer whole-suite rerun has no accepted passing aggregate.
+The native Windows baseline also exposed portability failures and an incomplete timed-out shard;
+there is no passing complete Windows aggregate.
+
+Remaining release blockers include platform/filesystem-specific skips, the unqualified whole-suite
+results, and absolute latency budgets. The local latency run was contended and had no matching
+accepted baseline: it is a failed gate, not evidence of a measured regression or speedup.
+Native interactive-host and genuine human acceptance are not established by these fixtures.
+
+Reproduce strict whole-suite qualification on each supported native host, from a clean checkout:
+
+```sh
+node scripts/run-test-aggregate.mjs all --shards=16 --workers=4 --require-clean --fail-on-skipped
+npm run poc:release-gate -- --continue-on-failure
+```
+
+Diagnostic continuation collects failures; it never changes a failed gate into a successful one.
+Do not remove platform skips, lower budgets or discard recovery merely to produce a green receipt.

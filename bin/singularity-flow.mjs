@@ -4,7 +4,10 @@ globalThis.__SINGULARITY_FLOW_PROCESS_STARTED_AT = process.hrtime.bigint();
 globalThis.__SINGULARITY_FLOW_INVOCATION_DIRECTORY ??= process.cwd();
 // Reuse V8's compiled code for the engine's modules across runs (Node 22.1+). Node checks every
 // entry against its source and honours NODE_DISABLE_COMPILE_CACHE=1; a failure only skips it.
-try { (await import('node:module')).enableCompileCache?.(); } catch { /* an acceleration only */ }
+try {
+  const { enableEngineCache } = (await import('../runtime/cache.cjs')).default;
+  enableEngineCache((await import('node:url')).fileURLToPath(new URL('..', import.meta.url)));
+} catch { /* an acceleration only */ }
 // An installed build runs its bundle: one file where the sources are about 480 (src/bundled-cli.mjs).
 const { bundledCliUrl } = await import('../src/bundled-cli.mjs');
 const { fileURLToPath } = await import('node:url');

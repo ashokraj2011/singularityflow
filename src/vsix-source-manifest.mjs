@@ -5,6 +5,7 @@ import path from 'node:path';
 export const VSIX_SOURCE_MANIFEST_ENV = 'SINGULARITY_FLOW_VSIX_SOURCE_MANIFEST';
 export const VSIX_SOURCE_MANIFEST_SHA256_ENV = 'SINGULARITY_FLOW_VSIX_SOURCE_MANIFEST_SHA256';
 export const VSIX_CLI_PAYLOAD = Object.freeze([
+  'runtime',
   'bin', 'src', 'docs', 'templates', 'plugin', 'schemas',
   'examples/demo-tagged-workflow.xml', 'examples/demo-intent-workflow.xml',
   'scripts/install-staged-artifacts.mjs',

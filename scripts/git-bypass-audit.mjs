@@ -10,7 +10,7 @@ import ts from 'typescript';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const baselinePath = path.join(root, 'scripts', 'git-bypass-baseline.json');
-const productionDirectories = ['src', 'bin', 'apps/vscode/src', 'plugin/extensions', 'scripts', 'distribution'];
+const productionDirectories = ['src', 'bin', 'runtime', 'apps/vscode/src', 'plugin/extensions', 'scripts', 'distribution'];
 const sourceExtensions = new Set(['.mjs', '.cjs', '.js', '.jsx', '.ts', '.tsx', '.mts', '.cts', '.sh', '.bash', '.ps1', '.cmd', '.bat']);
 const shellExtensions = new Set(['.sh', '.bash', '.ps1', '.cmd', '.bat']);
 const processPackages = new Set(['node:child_process', 'child_process', 'execa', 'cross-spawn', 'shelljs']);

@@ -1,5 +1,5 @@
 /** Machine-local build inventory. No Git, repository lookup, receipt authority or product mutation. */
-import { lstat, readFile, readdir } from 'node:fs/promises';
+import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +7,7 @@ import { BUILD_INFO, versionLine } from './build-info.mjs';
 import { parseBuildLine, stampedBuildLine } from './build-stamp-reader.mjs';
 import { VERSION } from './version.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
+import runtimeResolver from '../runtime/resolve.cjs';
 
 const EXTENSION = 'singularityflow.singularity-flow-vscode';
 const MAX_FILE_BYTES = 1024 * 1024;
@@ -117,8 +118,15 @@ export async function aboutBuilds({ execute = null, environment = process.env, h
     receipt = { status: 'present', path: receiptPath };
   } catch (error) { receipt = { status: error.code === 'ENOENT' ? 'missing' : 'invalid', path: receiptPath,
     ...(error.code === 'ENOENT' ? {} : { reason: error.message }) }; }
+  let managed = null;
+  try { managed = runtimeResolver.resolveManagedEngine({ environment, homeDirectory }); }
+  catch (error) { warnings.push(`Managed runtime: ${error.message}`); }
+  const actualExecutable = await realpath(process.execPath).catch(() => process.execPath);
   return { schemaVersion: 1, resultType: 'sflow-about', version: VERSION, checkedAt: now().toISOString(),
-    running, cli, vscode, alignment, runningMatchesPath, receipt, warnings, runtime: { node: process.versions.node, platform: process.platform } };
+    running, cli, vscode, alignment, runningMatchesPath, receipt, warnings, runtime: {
+      node: process.versions.node, executable: process.execPath, platform: process.platform,
+      architecture: process.arch, managed: Boolean(managed && managed.executable === actualExecutable),
+      selected: managed ? { node: managed.runtime, executable: managed.executable, cli: managed.cli } : null } };
 }
 
 const cell = value => String(value ?? 'unknown').replace(/[\r\n]+/gu, ' ').replace(/\|/gu, '\\|').replace(/`/gu, "'");
@@ -129,6 +137,8 @@ export function aboutBuildsMarkdown(report) {
     '| Surface | Version | Build identity | Build date (UTC) |', '| --- | --- | --- | --- |',
     ...rows.map(item => `| ${cell(item.label)} | ${cell(item.version)} | ${cell(item.identity ?? (item.status === 'development' ? 'development checkout' : null))} | ${cell(item.builtAt)} |`), '',
     `CLI / VS Code alignment: ${report.alignment}. Installation receipt: ${report.receipt.status}.`,
+    `Engine Node: ${cell(report.runtime?.node)} (${report.runtime?.managed ? 'SFlow-managed' : 'external / host runtime'}).`,
+    `Engine executable: ${cell(report.runtime?.executable)}.`,
     ...rows.filter(item => item.reason).map(item => `${cell(item.label)}: ${cell(item.reason)}`),
     ...report.warnings.map(warning => `Warning: ${cell(warning)}`), '',
     'Dates are recorded build stamps, not installation times. Unknown values are not inferred from matching version numbers.',

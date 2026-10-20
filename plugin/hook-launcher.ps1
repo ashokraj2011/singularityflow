@@ -3,6 +3,23 @@ $ErrorActionPreference = 'Stop'
 if ($Action -notin @('boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end', 'agent-start')) {
   Write-Output '{}'; exit 0
 }
+$managedRoot = if ($env:SINGULARITY_FLOW_ENGINE_HOME) { $env:SINGULARITY_FLOW_ENGINE_HOME } else { Join-Path $env:USERPROFILE '.singularity-flow/engine' }
+$managedActive = Join-Path $managedRoot 'active'
+if (Test-Path -LiteralPath $managedActive -PathType Leaf) {
+  $managedSelection = [IO.File]::ReadAllText($managedActive)
+  if ($managedSelection -match '^1\|(node-v26\.\d+\.\d+-win32-(?:x64|arm64))\|([a-f0-9]{64})\r?\n?$') {
+    $managedRuntime = $Matches[1]; $managedRelease = $Matches[2]
+    $managedNode = Join-Path $managedRoot "runtimes/$managedRuntime/node.exe"
+    $managedCli = Join-Path $managedRoot "releases/$managedRelease/node_modules/singularity-flow/bin/singularity-flow.mjs"
+    if ((Test-Path -LiteralPath $managedNode -PathType Leaf) -and (Test-Path -LiteralPath $managedCli -PathType Leaf)) {
+      & $managedNode (Join-Path $PSScriptRoot 'hook-launcher.mjs') $Action $managedCli
+      exit $LASTEXITCODE
+    }
+  }
+  if ($Action -eq 'boundary-guard') { Write-Output '{"permissionDecision":"deny","permissionDecisionReason":"SFLOW_HOOK_RUNTIME_UNAVAILABLE: The managed SFlow engine is incomplete. Repair its installation; preserve the Story."}' }
+  else { Write-Output '{}' }
+  exit 0
+}
 $node = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 $nodePath = if ($node) { $node.Source } else { $null }
 if (-not $nodePath) {

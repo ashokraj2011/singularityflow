@@ -8,6 +8,23 @@ case "$action" in
   *) printf '%s\n' '{}'; exit 0 ;;
 esac
 launcher_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+managed_root="${SINGULARITY_FLOW_ENGINE_HOME:-${HOME:-}/.singularity-flow/engine}"
+if [[ "$managed_root" == /* && -f "$managed_root/active" ]]; then
+  IFS='|' read -r managed_schema managed_runtime managed_release managed_extra < "$managed_root/active"
+  if [[ "$managed_schema" == 1 && -z "${managed_extra:-}" && "$managed_runtime" == node-v26.* \
+    && "$managed_runtime" != *[!a-zA-Z0-9.-]* && "$managed_release" =~ ^[a-f0-9]{64}$ ]]; then
+    managed_node="$managed_root/runtimes/$managed_runtime/bin/node"
+    managed_cli="$managed_root/releases/$managed_release/node_modules/singularity-flow/bin/singularity-flow.mjs"
+    if [[ -x "$managed_node" && -f "$managed_cli" ]]; then
+      exec "$managed_node" "$launcher_dir/hook-launcher.mjs" "$action" "$managed_cli"
+    fi
+  fi
+  # A broken managed selection must not silently fall through to a different engine/version.
+  if [[ "$action" == boundary-guard ]]; then
+    printf '%s\n' '{"permissionDecision":"deny","permissionDecisionReason":"SFLOW_HOOK_RUNTIME_UNAVAILABLE: The managed SFlow engine is incomplete. Repair its installation; preserve the Story."}'
+  else printf '%s\n' '{}'; fi
+  exit 0
+fi
 node_path=$(command -v node 2>/dev/null || true)
 if [[ "$node_path" != /* || ! -x "$node_path" ]]; then
   node_path=''

@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Explicit managed-runtime rollout: legacy install/recovery stays byte-for-byte addressable.
+# The separate bootstrap also supports a machine with no global node or npm.
+if [[ "${1:-}" == '--managed-runtime' ]]; then
+  shift
+  managed_entry="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+  exec bash "$managed_entry/install-managed.sh" "$@"
+fi
+
 # A normal source install runs this file by pathname. The guarded `fresh-install` command instead
 # supplies the already-verified Git bytes on stdin, closing the check-to-exec replacement window;
 # in that form BASH_SOURCE is empty and the verified checkout is the process working directory.
@@ -101,6 +109,7 @@ step_end() { printf '%s\n' "  ${STEP_LABEL}: $((SECONDS - STEP_STARTED))s"; }
 usage() {
   printf '%s\n' \
     'Usage: ./install.sh [--registry URL] [--no-copilot-telemetry] [--cli-only | --vscode-only | --skip-vscode | --skip-copilot] [--no-update] [--skip-tests] [--refresh-vsce-toolchain] [--no-workspace-configuration-refresh]' \
+    '       ./install.sh --managed-runtime [--skip-tests] [--cli-only] [--rollback | --recover]' \
     '       ./install.sh --from-staged-artifacts' \
     '       ./install.sh --clean-reinstall [--dry-run | --confirm "REINSTALL SINGULARITY FLOW <fingerprint>"] [--registry URL] [--cli-only] [--skip-tests]' \
     '       singularity-flow fresh-install [--checkout DIRECTORY] [--yes] [--registry URL] [--cli-only]' \

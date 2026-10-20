@@ -20,6 +20,7 @@ import {
 import type { RepositorySnapshot, SnapshotSlice } from './snapshot.ts';
 import { recordHostBackgroundProcessStarted, recordHostBackgroundProcessCompleted } from '../host-performance.ts';
 import { performanceActionId } from '../../../../src/dx-timing-context.mjs';
+import runtimeResolver from '../../../../runtime/resolve.cjs';
 
 export const CORE_SNAPSHOT_SLICES: readonly SnapshotSlice[] = Object.freeze([
   'repository', 'lifecycle', 'capabilities', 'executionContext'
@@ -584,10 +585,12 @@ export interface CliLocation {
   executable: string;
   /** Absolute path to bin/singularity-flow.mjs. */
   cli: string;
-  source: 'setting' | 'bundled' | 'path';
+  source: 'setting' | 'bundled' | 'path' | 'managed';
 }
 
 export interface ResolveOptions {
+  /** Machine-local resolver; injected by tests. Never derive runtime authority from a repository. */
+  managedEngine?: () => { executable: string; cli: string } | null;
   /** `singularityFlow.cliPath`, when the user has set one. */
   configuredCli?: string;
   /** `singularityFlow.nodePath`, when the user has set one. */
@@ -611,6 +614,12 @@ export function resolveCli(options: ResolveOptions = {}): CliLocation {
     if (!exists(cli)) throw new Error(`singularityFlow.cliPath points at a file that does not exist: ${cli}`);
     return { executable, cli, source: 'setting' };
   }
+
+  // Keep the UI in VS Code's extension host, but run the engine in its selected private Node.
+  // An invalid existing managed installation is an error, not permission to run a stale fallback.
+  const managed = options.managedEngine ? options.managedEngine()
+    : runtimeResolver.resolveManagedEngine();
+  if (managed) return { executable: configuredNode?.trim() || managed.executable, cli: managed.cli, source: 'managed' };
 
   if (extensionPath) {
     // Both the packaged layout (cli/ beside the bundle) and the in-repo layout (apps/vscode/../..).

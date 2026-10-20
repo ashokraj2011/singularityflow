@@ -10,7 +10,7 @@ export interface AboutInfo {
   schemaVersion: number; resultType: string; checkedAt: string; alignment: string;
   running: AboutSurface; cli: AboutSurface; vscode: AboutSurface[];
   receipt: { status: string; path: string }; warnings: string[];
-  runtime: { node: string; platform: string };
+  runtime: { node: string; platform: string; executable?: string; architecture?: string; managed?: boolean };
 }
 export interface AboutWindow {
   version: string; build: string; editorVersion: string; reloadRequired: boolean;
@@ -59,6 +59,8 @@ export function aboutHtml(info: AboutInfo | null, window: AboutWindow, error: st
       </tbody></table></div><p class="muted">Observed ${escape(info.checkedAt)}. Dates are build stamps, not installation times. Unknown fields are not inferred.</p>
       ${info.warnings.map(warning => `<p class="notice warning">${escape(warning)}</p>`).join('')}
       <details><summary>Runtime and local paths</summary><dl class="about-facts"><dt>Node / platform</dt><dd>${escape(info.runtime.node)} / ${escape(info.runtime.platform)}</dd>
+        <dt>Engine runtime</dt><dd>${info.runtime.managed ? 'SFlow-managed' : 'External / host runtime'}${info.runtime.architecture ? ` · ${escape(info.runtime.architecture)}` : ''}</dd>
+        ${info.runtime.executable ? `<dt>Node executable</dt><dd><code>${escape(info.runtime.executable)}</code></dd>` : ''}
         <dt>Installation receipt</dt><dd>${escape(info.receipt.status)} · <code>${escape(info.receipt.path)}</code></dd>
         ${[info.running, ...info.vscode].filter(item => item.path).map(item => `<dt>${escape(item.label)}</dt><dd><code>${escape(item.path)}</code></dd>`).join('')}</dl></details>`
       : !error ? '<p role="status" aria-live="polite">Reading local build information…</p>' : ''}

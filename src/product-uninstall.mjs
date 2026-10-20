@@ -4,6 +4,8 @@ import {
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { PACKAGE_ROOT } from './package-root.mjs';
+import runtimeResolver from '../runtime/resolve.cjs';
 
 import { uninstallDirectSkills } from './direct-skills.mjs';
 import { inspectLocalProduct, REINSTALL_SURFACES } from './reinstall.mjs';
@@ -126,6 +128,7 @@ export async function prepareProductUninstall({
   homeDirectory = os.homedir(),
   environment = process.env
 } = {}) {
+  runtimeResolver.assertLegacyInstallerAllowed(PACKAGE_ROOT);
   const installed = inspectLocalProduct({
     execute, exists, homeDirectory, environment, strict: true
   });
@@ -549,6 +552,7 @@ export async function applyProductUninstall(plan, {
   environment = process.env,
   uninstallAliases = uninstallDirectSkills
 } = {}) {
+  runtimeResolver.assertLegacyInstallerAllowed(PACKAGE_ROOT);
   if (confirmation !== plan.confirmation) {
     throw new SingularityFlowError(`Uninstall requires exact confirmation '${plan.confirmation}'.`);
   }

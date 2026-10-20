@@ -37,6 +37,15 @@ const {
 } =
   await import(source('cli/runner.ts'));
 const { resolveCli, SingularityFlowClient, commandClass } = await import(source('cli/client.ts'));
+test('VS Code selects one managed runtime/engine pair without changing the extension host', () => {
+  const engine = { executable: path.resolve('private node'), cli: path.resolve('managed engine/bin/singularity-flow.mjs') };
+  assert.deepEqual(resolveCli({ extensionPath: '/extension', managedEngine: () => engine }), { ...engine, source: 'managed' });
+  assert.deepEqual(resolveCli({ configuredNode: '/approved/node', managedEngine: () => engine }), { ...engine, executable: '/approved/node', source: 'managed' });
+  assert.throws(() => resolveCli({ managedEngine: () => { throw new Error('invalid managed selection'); } }), /invalid managed selection/);
+  const custom = path.resolve('explicit/bin/singularity-flow.mjs');
+  assert.equal(resolveCli({ configuredCli: custom, exists: () => true,
+    managedEngine: () => { throw new Error('must not resolve managed installation'); } }).cli, custom);
+});
 const { phasesInOrder, packsWithMembers, storiesByRepository, isApprovalPinned } =
   await import(source('cli/snapshot.ts'));
 const { renderReworkRollForwardPreview } = await import(source('views/rework-roll-forward-preview.ts'));

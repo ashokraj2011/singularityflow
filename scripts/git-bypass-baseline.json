@@ -12,6 +12,18 @@
     "scripts/gal-matrix-cell.mjs"
   ],
   "sites": {
+    "runtime/install.mjs": {
+      "counts": { "process-import": 1, "process-launch": 2 },
+      "digest": "7660bbccd5641f3ea5153ca8295e3d88d484ee4a7518715da97e4e37cf134eb7"
+    },
+    "install-managed.sh": {
+      "counts": { "shell-process": 2 },
+      "digest": "2a33f9736a2bc059c5f789f08c45116dcf17e7ce19611a0ef2ca54cb9b4c3e31"
+    },
+    "distribution/install.cmd": {
+      "counts": { "shell-process": 1 },
+      "digest": "68415ff7edd7e6a2c28a6482ac402fe356b1919cf6c23d1fdaac6327e6f06fff"
+    },
     "scripts/shared-read-paired-benchmark.mjs": {
       "counts": { "process-import": 1, "process-launch": 2 },
       "digest": "3cd76a11a49b16b379441e17971580c90a3dc9e0d2c23ac066018deaea174054"
@@ -228,9 +240,9 @@
     },
     "distribution/install.sh": {
       "counts": {
-        "shell-process": 2
+        "shell-process": 5
       },
-      "digest": "582d5fd8810d0742abeb2e30e33211618752381d45092d4d5acf7034001b74bb"
+      "digest": "f8b760c2b2f39d37931a3be261d31224d25c97a2a02d29425932d2bae5fc4a5d"
     },
     "distribution/uninstall.sh": {
       "counts": {
@@ -246,9 +258,9 @@
     },
     "install.sh": {
       "counts": {
-        "shell-process": 42
+        "shell-process": 43
       },
-      "digest": "99c1ee6994a9b7885cb79195db7d58d3be6f78909960a3c39a4a7dc0b5afd1c2"
+      "digest": "3a532fea9d412263e01db9e591d61df47908e34e2c30ed60eef3ef71da508cdd"
     },
     "plugin/extensions/documents/extension.mjs": {
       "counts": {

@@ -6,6 +6,8 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { stampBuildInfoFile } from './build-info-stamp.mjs';
+import { PACKAGE_ROOT } from './package-root.mjs';
+import runtimeResolver from '../runtime/resolve.cjs';
 import {
   installDirectSkills, isManagedDirectSkill, uninstallDirectSkills
 } from './direct-skills.mjs';
@@ -778,6 +780,7 @@ export async function prepareLocalReinstall({
   build = buildReinstallBundle,
   log = console.log
 }) {
+  runtimeResolver.assertLegacyInstallerAllowed(PACKAGE_ROOT);
   assertReinstallNodeVersion();
   if (typeof skipTests !== 'boolean') throw new SingularityFlowError('skipTests must be a boolean.');
   const validated = await validateReinstallCheckout(requestedCheckout);
@@ -860,6 +863,7 @@ export async function prepareDistributionInstall({
   environment = process.env,
   tempRoot = os.tmpdir()
 }) {
+  runtimeResolver.assertLegacyInstallerAllowed(PACKAGE_ROOT);
   assertReinstallNodeVersion();
   const interrupted = await loadDistributionTransaction({ homeDirectory, environment });
   if (interrupted) {
@@ -2412,6 +2416,7 @@ export async function applyLocalReinstall(plan, {
   repairMissingReceipt = false,
   log = console.warn
 } = {}) {
+  runtimeResolver.assertLegacyInstallerAllowed(PACKAGE_ROOT);
   await validatePreparedPlan(plan);
   if (repairMissingReceipt && (plan.operation !== 'local-product-reinstall' || plan.cliOnly
       || plan.skipTests !== true || !plan.installed.npmVersion)) {

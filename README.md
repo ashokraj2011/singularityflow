@@ -201,6 +201,9 @@ that a change was proved. See `sflow explain goals-and-outcomes`.
 ## Requirements
 
 - Node.js 20 or newer for the CLI and VS Code extension build.
+- Alternatively, the opt-in [SFlow-managed runtime](docs/managed-node-runtime.md) bootstraps a private,
+  pinned Node without replacing the application's Node/npm: `./install.sh --managed-runtime`
+  or `install-managed.ps1` on Windows. Legacy installation/recovery remains available.
 - Git with a configured identity.
 - A Git remote when `git.publish: required` is configured.
 - GitHub CLI authentication is recommended so lifecycle events can record the authenticated GitHub login as well as Git identity.

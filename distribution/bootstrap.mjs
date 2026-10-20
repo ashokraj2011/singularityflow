@@ -17,7 +17,7 @@ import {
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const MAX_JSON_BYTES = 16 * 1024 * 1024;
 const MAX_ARTIFACT_BYTES = 512 * 1024 * 1024;
@@ -353,12 +353,13 @@ async function main() {
     fail('first argument must be install or uninstall.');
   }
   const forwarded = [];
+  const managedRuntime = arguments_.includes('--managed-runtime');
   let keyFile = process.env.SINGULARITY_FLOW_ARTIFACT_PUBLIC_KEY || null;
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
     if (argument === '--artifact-key') { keyFile = takeValue(arguments_, index, argument); index += 1; }
     else if (argument.startsWith('--artifact-key=')) keyFile = argument.slice('--artifact-key='.length);
-    else forwarded.push(argument);
+    else if (argument !== '--managed-runtime') forwarded.push(argument);
   }
   if (!keyFile) {
     fail('provide --artifact-key <trusted-builder-public.pem> or SINGULARITY_FLOW_ARTIFACT_PUBLIC_KEY.');
@@ -430,6 +431,40 @@ async function main() {
       );
     }
     const npmBinding = authority.byKind.get('cli-and-copilot-plugin');
+    if (managedRuntime) {
+      if (action !== 'install') fail('managed runtime mode applies to installation only.');
+      if (forwarded.some(arg => !['--cli-only', '--dry-run', '--json'].includes(arg))) fail('Managed distribution install supports --cli-only, --dry-run and --json.');
+      // All product bytes/signatures are verified above. Only the pinned private Node/npm runs
+      // here; neither a global npm command nor npm exec/PATH-selected package code is involved.
+      const runtimeRoot = path.resolve(path.dirname(process.execPath), process.platform === 'win32' ? '.' : '..');
+      if (!/^node-v26\.\d+\.\d+-(darwin|linux|win32)-(arm64|x64)$/.test(path.basename(runtimeRoot))) fail('Run the managed distribution installer entrypoint to prepare private Node first.');
+      const npm = path.join(runtimeRoot, ...(process.platform === 'win32' ? ['node_modules', 'npm'] : ['lib', 'node_modules', 'npm']), 'bin', 'npm-cli.js');
+      const candidate = path.join(snapshot, 'candidate');
+      const env = { ...process.env, NPM_CONFIG_CACHE: path.join(snapshot, 'npm-cache'),
+        PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH || ''}` };
+      const status = await runNpm({ command: process.execPath,
+        arguments: [npm, 'install', '--prefix', candidate, '--offline', '--ignore-scripts', '--no-bin-links', '--no-audit', '--no-fund', path.join(snapshotRelease, npmBinding.name)],
+        options: { shell: false } }, { cwd: snapshot, environment: env, timeoutMs: 300_000 });
+      if (status !== 0) fail(`Private package staging failed with exit ${status}.`);
+      if (forwarded.includes('--dry-run')) {
+        console.log(JSON.stringify({ status: 'verified', managedRuntime: true, activated: false,
+          artifactSha256: npmBinding.sha256, runtime: process.version }));
+        return;
+      }
+      const module = await import(pathToFileURL(path.join(candidate, 'node_modules', 'singularity-flow', 'runtime', 'install.mjs')).href);
+      const installed = await module.installManagedRelease({
+        tarball: path.join(snapshotRelease, npmBinding.name), sha256: npmBinding.sha256.replace(/^sha256:/, '') });
+      if (!forwarded.includes('--cli-only')) {
+        const { copyFile } = await import('node:fs/promises');
+        const vsix = authority.byKind.get('vscode-extension');
+        const retained = path.join(installed.root, 'releases', npmBinding.sha256.replace(/^sha256:/, ''), 'singularity-flow.vsix');
+        await copyFile(path.join(snapshotRelease, vsix.name), retained);
+        installed.vsix = retained;
+      }
+      console.log(JSON.stringify({ ...installed, managedRuntime: true,
+        integrations: 'Engine installed. Use the retained VSIX to update VS Code and the managed CLI plugin install command for Copilot; no external surfaces changed.' }, null, 2));
+      return;
+    }
     const runner = action === 'install' ? 'sf-install' : 'sf-uninstall';
     const runnerArguments = [
       'exec', '--yes', '--offline', '--package', path.join(snapshotRelease, npmBinding.name), '--', runner,

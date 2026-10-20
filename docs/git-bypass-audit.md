@@ -1,5 +1,10 @@
 # GAL Git bypass regression gate
 
+The release-hardening change retains the isolated Golden Journey verifier's single process import
+and single launch site. Its fingerprint changes because the same bounded launch now uses the
+central Windows-safe resolver in `runGoldenCommand`, preserves native launch/timeout diagnostics,
+and remains injectable in tests. It adds no Git transport, shell mode, or registered process owner.
+
 `scripts/classified-performance-benchmark.mjs` has two reviewed Node launch sites:
 fixture initialization and alternating traced/untraced allowlisted reads. Both
 use structured argv, a 60-second timeout and a 4-MiB output ceiling. They execute

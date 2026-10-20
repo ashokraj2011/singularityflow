@@ -38,3 +38,24 @@ the resulting ACL are reverified. Doctor/readiness never repair permissions impl
 The source directory entry is checked before opening and rebound after reading. Descriptor identity
 uses BigInt file IDs, including on Windows where `O_NOFOLLOW` may be unavailable. Symbolic links,
 replacement races and writes during staging are refused before a prompt snapshot is handed off.
+
+## Qualification and recovery ownership
+
+The POC gate gives every stage a throwaway home and all machine-state pointers, not merely an
+alternate workspace registry. The strict skipped-test policy remains enabled. Caller Node loaders
+and recursive test markers are not inherited by the qualification children.
+
+Diagnostic continuation is permitted only after the process owner reports quiescence. An unknown
+cleanup outcome or thrown execution-owner failure stops the run and retains the owned scratch
+directory, reporting its exact path without deleting potentially active recovery state. A late
+native child acknowledgement cannot turn the bounded refusal into an unhandled exception.
+
+Opportunistic workspace cleanup now keeps the worker's IPC channel alive through asynchronous
+imports and journal publication. The parent unreferences its own handles immediately; the worker
+disconnects after completion or retained failure. Foreground Story operations do not wait for it.
+
+The isolated VS Code installation smoke uses the centralized native process resolver for Windows
+command shims and preserves launch, timeout and signal details. Installation and a stub-host journey
+are separate checks; neither is represented as real renderer activation or independent human review.
+An installation timeout or signal retains the owned profile and reports its path rather than
+deleting under an unconfirmed child. Ordinary completed success/failure still cleans that profile.

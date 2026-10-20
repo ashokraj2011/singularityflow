@@ -290,7 +290,7 @@
         "process-import": 1,
         "process-launch": 1
       },
-      "digest": "74bfd1d280b654235b1ee0b99dc6397bd5a02f18d3360e2051b2950383a6db68"
+      "digest": "3ca51aa21eb4bbdf53df520900d3a3ebf08760084014d8c6143017c5eea6c6d9"
     },
     "scripts/proposal-performance-benchmark.mjs": {
       "counts": {

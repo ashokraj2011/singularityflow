@@ -78,6 +78,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
 
 test('extracted legacy helpers remain part of the development build identity', async () => {
   const identity = await readFile(path.join(sourceRoot, 'build-identity.mjs'), 'utf8');
+  assert.ok((await commandModuleFiles()).every(file => !file.includes('\\')),
+    'command source IDs must use portable import separators on every host');
   const helpers = (await commandModuleFiles()).filter(file => file.startsWith('commands/shared/'));
   assert.ok(helpers.length > 0);
   for (const helper of helpers) {

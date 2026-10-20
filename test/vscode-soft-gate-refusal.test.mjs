@@ -46,13 +46,14 @@ async function storyPastIntake() {
 test('the editor recognises a real soft-gate refusal and its retry with the override succeeds', async () => {
   const { root, file } = await storyPastIntake();
   const invoke = (args) => invokeCli({ executable: process.execPath, cli: bin, repository: root, args, env, json: false, commandClass: 'mutation', timeoutMs: 120_000 });
-  const upload = ['documents', 'upload', file, '--name', 'Late note', '--store', 'git'];
+  const upload = ['documents', 'upload', file, '--name', 'Late note', '--store', 'local'];
   const refusal = await invoke(upload).then(() => null, (error) => error);
   assert.ok(refusal instanceof CliError, `expected a CLI refusal, got ${refusal}`);
   assert.equal(softSequenceGate(refusal), 'documentPhase');
   await invoke([...upload, '--confirm-override', 'continue:documentPhase']);
   const listed = JSON.parse(run(process.execPath, [bin, 'documents', 'list', '--json'], root).stdout);
   assert.deepEqual(listed.filter((item) => item.id?.startsWith('DOC-')).map((item) => [item.id, item.name]), [['DOC-001', 'Late note']]);
+  assert.equal(listed.find(item => item.id === 'DOC-001').storage.kind, 'local');
 });
 
 test('a refusal that only mentions an override for another gate is not offered as a soft gate', () => {

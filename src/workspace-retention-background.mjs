@@ -29,7 +29,10 @@ export async function scheduleWorkspaceRetention(workspacePath, { protect = [], 
     // The worker's cwd is the workspace, not the terminal that launched it. Preserve the
     // caller's actual directory too, even when this command selects another Story/window.
     child.send({ workspacePath: path.resolve(workspacePath), protect: protectedPaths }, () => {
-      if (child.connected) child.disconnect();
+      // The worker owns disconnect after its asynchronous imports and journal writes finish.
+      // Closing IPC here can let it exit with a pending import and no referenced event-loop work.
+      // Unref only our side so foreground success never waits for maintenance.
+      child.channel?.unref();
       child.unref();
     });
     return true;

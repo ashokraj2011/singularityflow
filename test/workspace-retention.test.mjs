@@ -178,12 +178,15 @@ test('background worker finishes independently and repeat foreground launches ar
   const file = path.join(f.workspacePath, '.singularity-flow/cleanup-state.json');
   const deadline = Date.now() + 90000;
   let result;
+  let failure;
   while (Date.now() < deadline) {
     result = await readFile(file, 'utf8').then(JSON.parse).catch(() => null);
     if (result?.status === 'completed') break;
+    failure = await readFile(path.join(f.workspacePath, '.singularity-flow/cleanup-error.json'), 'utf8').catch(() => null);
+    if (failure) break;
     await new Promise(resolve => setTimeout(resolve, 100));
   }
-  assert.equal(result?.status, 'completed');
+  assert.equal(result?.status, 'completed', failure ?? 'worker exited or did not publish its completion journal');
   assert.equal(await scheduleWorkspaceRetention(f.workspacePath, options), false);
   await new Promise(resolve => setTimeout(resolve, 150));
 });

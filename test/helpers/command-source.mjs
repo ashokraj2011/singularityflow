@@ -33,7 +33,7 @@ export async function commandModuleFiles(directory = 'commands') {
   const files = [];
   for (const entry of entries.sort((left, right) =>
     (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))) {
-    const relative = path.join(directory, entry.name);
+    const relative = path.posix.join(directory, entry.name);
     if (entry.isDirectory()) files.push(...await commandModuleFiles(relative));
     else if (entry.isFile() && entry.name.endsWith('.mjs')) files.push(relative);
   }

@@ -729,7 +729,7 @@ test('confirmed refresh failures never disclose allowlisted proxy or credential-
   await rememberWorkspace(registry, manifest);
   const changed = {
     GIT_CONFIG_GLOBAL: globalConfig,
-    GIT_CONFIG_SYSTEM: os.devNull,
+    GIT_CONFIG_SYSTEM: gitEmptyConfigPath(),
     SINGULARITY_FLOW_GIT_PREFLIGHT_TIMEOUT_MS: '2000'
   };
   const previous = Object.fromEntries(Object.keys(changed).map((key) => [key, process.env[key]]));

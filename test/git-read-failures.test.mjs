@@ -1,3 +1,4 @@
+import { gitEmptyConfigPath } from '../src/git-isolation-paths.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -29,7 +30,7 @@ function refusal(label) {
 async function isolatedEnvironment(parent) {
   const empty = path.join(parent, 'empty.gitconfig');
   await writeFile(empty, '');
-  const env = { ...process.env, GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_SYSTEM: os.devNull };
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_SYSTEM: gitEmptyConfigPath() };
   delete env.SINGULARITY_FLOW_TEST_IDENTITY;
   delete env.NODE_ENV;
   return env;

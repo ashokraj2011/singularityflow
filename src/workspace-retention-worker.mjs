@@ -10,5 +10,7 @@ process.once('message', async packet => {
     // Existing journals/quarantines remain preserved. Explicit maintenance replays real errors.
     await (await import('./workspace-retention.mjs')).recordWorkspaceRetentionFailure(packet.workspacePath, error).catch(() => {});
     process.exitCode = 1;
+  } finally {
+    if (process.connected) process.disconnect();
   }
 });

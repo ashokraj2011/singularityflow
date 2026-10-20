@@ -1,3 +1,4 @@
+import { gitEmptyConfigPath } from '../src/git-isolation-paths.mjs';
 /**
  * Mapping an organisation, and building a workspace out of it.
  *
@@ -4742,7 +4743,7 @@ test('activation uses repository-local identity from an editor-equivalent initia
     ...process.env,
     NODE_ENV: 'production',
     GIT_CONFIG_GLOBAL: emptyGlobal,
-    GIT_CONFIG_SYSTEM: os.devNull,
+    GIT_CONFIG_SYSTEM: gitEmptyConfigPath(),
     GIT_DIR: path.join(attacker, '.git'),
     GIT_WORK_TREE: attacker
   };
@@ -4806,7 +4807,7 @@ test('projection recovery freezes repository-local identity before its isolated 
     ...process.env,
     NODE_ENV: 'production',
     GIT_CONFIG_GLOBAL: emptyGlobal,
-    GIT_CONFIG_SYSTEM: os.devNull
+    GIT_CONFIG_SYSTEM: gitEmptyConfigPath()
   };
   delete initiatingEnv.SINGULARITY_FLOW_TEST_IDENTITY;
 
@@ -4867,7 +4868,7 @@ test('required SSH signing survives activation and state projection isolation', 
     ...process.env,
     NODE_ENV: 'production',
     GIT_CONFIG_GLOBAL: emptyGlobal,
-    GIT_CONFIG_SYSTEM: os.devNull
+    GIT_CONFIG_SYSTEM: gitEmptyConfigPath()
   };
   delete initiatingEnv.SINGULARITY_FLOW_TEST_IDENTITY;
 
@@ -4928,7 +4929,7 @@ test('a proposal that enables signing preflights its post-merge policy before au
     ...process.env,
     NODE_ENV: 'production',
     GIT_CONFIG_GLOBAL: emptyGlobal,
-    GIT_CONFIG_SYSTEM: os.devNull
+    GIT_CONFIG_SYSTEM: gitEmptyConfigPath()
   };
   delete initiatingEnv.SINGULARITY_FLOW_TEST_IDENTITY;
   const before = run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim();
@@ -4988,7 +4989,7 @@ test('activation obeys signing policy added to the authority after proposal revi
     ...process.env,
     NODE_ENV: 'production',
     GIT_CONFIG_GLOBAL: emptyGlobal,
-    GIT_CONFIG_SYSTEM: os.devNull
+    GIT_CONFIG_SYSTEM: gitEmptyConfigPath()
   };
   delete initiatingEnv.SINGULARITY_FLOW_TEST_IDENTITY;
 

@@ -28,17 +28,20 @@ const SECRET = 'Zk3q9Vb7Lp2Xw8Rt5Ny1Hc6Md4Gs0Jf';
 const file = (overrides = {}) => ({
   repository: 'shop', app: 'payments-api', environment: 'dev', path: 'services/api/src/main/resources/application-dev.yml', kind: 'declared',
   template: 'services/api/src/main/resources/application-dev.example.yml', source: 'store',
-  location: `${STORE}/dev/services/api/src/main/resources/application-dev.yml`, status: 'placed-here', excluded: true, ...overrides
+  location: `${STORE}/dev/services/api/src/main/resources/application-dev.yml`, status: 'placed-here', excluded: true,
+  placedFor: 'dev', placement: 'symlink', problem: null, ...overrides
 });
 const FILES = [
   file(),
-  file({ app: 'payments-web', path: 'apps/web/.env.dev', template: 'apps/web/.env.dev.example', source: null, location: null, status: 'missing', excluded: false }),
-  file({ app: null, path: '.env.local', kind: 'personal', template: null, location: `${STORE}/dev/.env.local`, status: 'ready', excluded: null }),
-  file({ environment: 'uat', app: 'payments-web', path: 'apps/web/.env.uat', template: null, source: 'linked', location: '/Users/someone/secrets/web-uat.env', status: 'linked' }),
+  file({ app: 'payments-web', path: 'apps/web/.env.dev', template: 'apps/web/.env.dev.example', source: 'store', location: `${STORE}/dev/apps/web/.env.dev`, status: 'missing',
+    excluded: false, placedFor: null, placement: null }),
+  file({ app: null, path: '.env.local', kind: 'personal', template: null, location: `${STORE}/dev/.env.local`, status: 'ready', excluded: false, placedFor: null, placement: null }),
+  file({ environment: 'uat', app: 'payments-web', path: 'apps/web/.env.uat', template: null, source: 'linked', location: '/Users/someone/secrets/web-uat.env', status: 'linked', placedFor: null, placement: null }),
   file({ environment: 'uat', path: 'services/api/src/main/resources/application-uat.yml', template: 'services/api/src/main/resources/application-uat.example.yml',
-    source: null, location: null, status: 'unmanaged', excluded: false })
+    source: 'store', location: `${STORE}/uat/services/api/src/main/resources/application-uat.yml`, status: 'unmanaged', excluded: false, placedFor: null, placement: null })
 ];
-const answer = (files = FILES, extra = {}) => ({ resultType: 'command-result', data: { resultType: 'sflow-env-files', schemaVersion: 1, files, ...extra } });
+const answer = (files = FILES, extra = {}) => ({ schemaVersion: 1, resultType: 'sflow-env-files', scope: 'repository', environment: null, environments: [],
+  roots: {}, files, repositories: [], workspace: null, ...extra });
 const reading = (files = FILES, extra = {}) => model.environmentFilesFrom(answer(files, extra));
 const HERE = { activeRepository: 'shop', scope: 'repository' };
 
@@ -71,37 +74,33 @@ test('VS Code classifies every env files command as the engine does', async (t) 
   }
 });
 
-test('the list is read flat, from its envelope, or nested by repository and app; an incomplete entry is left out and counted', () => {
+test('the list is the engine\'s flat files[]; repository null is this repository, or in a workspace read the workspace\'s own file', () => {
   const flat = reading();
   assert.equal(flat.files.length, 5);
   assert.deepEqual(flat.environments, ['dev', 'uat']);
   assert.equal(flat.dropped, 0);
-  assert.deepEqual(flat.files[1], { repository: 'shop', app: 'payments-web', environment: 'dev', path: 'apps/web/.env.dev', kind: 'declared',
-    template: 'apps/web/.env.dev.example', source: null, location: null, status: 'missing', excluded: false });
-  assert.deepEqual(model.environmentFilesFrom(FILES).files, flat.files, 'a bare array is a list too');
+  assert.deepEqual(flat.files[1], { repository: 'shop', workspaceLevel: false, app: 'payments-web', environment: 'dev', path: 'apps/web/.env.dev', kind: 'declared',
+    template: 'apps/web/.env.dev.example', source: 'store', location: `${STORE}/dev/apps/web/.env.dev`, status: 'missing', excluded: false,
+    placedFor: null, placement: null, problem: null });
+  assert.deepEqual(model.environmentFilesFrom({ data: answer() }).files, flat.files, 'a command-result envelope is read too');
 
-  const nested = model.environmentFilesFrom({ scope: 'workspace', environments: ['dev', 'uat', 'prod'], repositories: [
-    { id: 'shop', files: [{ environment: 'dev', path: '.env.dev', status: 'ready' }],
-      apps: [{ id: 'payments-web', files: [{ environment: 'dev', path: 'apps/web/.env.dev', status: 'missing', template: 'apps/web/.env.dev.example' }] }] },
-    { id: 'billing', files: [{ environment: 'uat', path: 'config/settings/uat.py', status: 'linked', source: 'linked', location: '/Users/someone/billing-uat.py' }] }
-  ], workspace: { files: [{ environment: 'dev', path: '.env', status: 'missing', kind: 'personal' }] }, roots: { uat: '/Volumes/secure/uat' } });
-  assert.equal(nested.scope, 'workspace');
-  assert.deepEqual(nested.files.map((entry) => [entry.repository, entry.app, entry.path]),
-    [['shop', null, '.env.dev'], ['shop', 'payments-web', 'apps/web/.env.dev'], ['billing', null, 'config/settings/uat.py'], [null, null, '.env']]);
-  assert.deepEqual(nested.environments, ['dev', 'uat', 'prod'], 'declared environments without files are tabs too');
-  assert.deepEqual(nested.roots, { uat: '/Volumes/secure/uat' });
-  assert.deepEqual(model.environmentFilesFrom({ files: [], roots: [{ environment: 'dev', directory: '/srv/dev' }, { environment: 'qa', directory: 'relative/not-allowed' }] }).roots,
-    { dev: '/srv/dev' }, 'a folder is an absolute path');
+  const alone = reading([file({ repository: null })]);
+  assert.deepEqual([alone.scope, alone.files[0].repository, alone.files[0].workspaceLevel], ['repository', null, false],
+    'a repository that belongs to no workspace has no ID; its files are not the workspace\'s');
+  const workspace = model.environmentFilesFrom(answer([file({ repository: 'billing', path: 'config/dev.yml' }), file({ repository: null, app: null, path: '.env', excluded: null })],
+    { scope: 'workspace', environments: ['dev', 'uat', 'prod'], roots: { uat: '/Volumes/secure/uat', qa: 'relative/not-allowed' } }));
+  assert.deepEqual(workspace.files.map((entry) => [entry.repository, entry.workspaceLevel, entry.path]), [['billing', false, 'config/dev.yml'], [null, true, '.env']]);
+  assert.deepEqual(workspace.environments, ['dev', 'uat', 'prod'], 'declared environments without files are tabs too');
+  assert.deepEqual(workspace.roots, { uat: '/Volumes/secure/uat' }, 'a folder is an absolute path');
 
   const odd = reading([
     file({ path: '/etc/passwd' }), file({ path: '../outside/.env' }), file({ path: 'apps/*/.env.dev' }), file({ environment: 'no spaces' }),
-    file({ path: 'apps/web/.env.qa', status: 'exploded', location: 'relative/location' }), file({ repository: 'bad repo' }), { path: 'x' }, null
+    file({ path: 'apps/web/.env.qa', status: 'exploded', location: 'relative/location', placement: 'teleport', problem: 'weird' }), file({ repository: 'bad repo' }), { path: 'x' }, null
   ]);
   assert.equal(odd.files.length, 1, 'absolute, escaping and glob paths, bad names and non-entries are not rows');
   assert.equal(odd.dropped, 7);
-  assert.equal(odd.files[0].status, 'unknown', 'an unknown status offers nothing');
-  assert.equal(odd.files[0].location, null, 'a location is an absolute path or nothing');
-  assert.deepEqual(model.fileActions(odd.files[0]), []);
+  assert.deepEqual([odd.files[0].status, odd.files[0].location, odd.files[0].placement, odd.files[0].problem], ['unknown', null, null, null]);
+  assert.deepEqual(model.fileActions(odd.files[0]), [], 'an unknown status offers nothing');
   assert.equal(reading([file(), file()]).files.length, 1, 'one row per repository, environment and path');
   assert.equal(model.environmentFilesFrom({ resultType: 'something-else' }), null, 'not a file list at all');
   assert.equal(model.environmentFilesFrom(null), null);
@@ -147,7 +146,9 @@ test('every env files command is exact argv; another repository or a workspace f
   const billing = { ...missing, repository: 'billing' };
   assert.deepEqual(model.envFilesCreateArgv(missing, true, workspace), ['env', 'files', 'create', 'dev', 'apps/web/.env.dev', '--from-template', '--json'], 'this window\'s own repository');
   assert.deepEqual(model.envFilesCreateArgv(billing, true, workspace), ['env', 'files', 'create', 'dev', 'apps/web/.env.dev', '--from-template', '--repository', 'billing', '--json']);
-  assert.deepEqual(model.envFilesPathArgv({ ...ready, repository: null }, workspace), ['env', 'files', 'path', 'dev', 'services/api/src/main/resources/application-dev.yml', '--workspace', '--json']);
+  assert.deepEqual(model.envFilesPathArgv({ ...ready, repository: null, workspaceLevel: true }, workspace), ['env', 'files', 'path', 'dev', 'services/api/src/main/resources/application-dev.yml', '--workspace', '--json']);
+  assert.deepEqual(model.envFilesPathArgv({ ...ready, repository: null }, workspace), ['env', 'files', 'path', 'dev', 'services/api/src/main/resources/application-dev.yml', '--json'],
+    'a repository of no workspace is this checkout');
 
   for (const bad of [() => model.envFilesAddArgv('dev', '../outside'), () => model.envFilesAddArgv('dev', '/abs/.env'), () => model.envFilesAddArgv('d e v', '.env'),
     () => model.envFilesLinkArgv(missing, 'relative/file', HERE), () => model.envFilesRootArgv('uat', 'relative'), () => model.envFilesAddArgv('dev', 'apps/*/.env')]) {
@@ -194,12 +195,14 @@ test('the page groups by repository then app under environment tabs, with each f
   assert.match(nothing, /data-ef-workspace="suggest">[\s\S]*Declare for the team<\/button>/, 'with nothing declared, the team\'s draft is still offered');
   assert.doesNotMatch(nothing, /data-ef-workspace="add"/, 'a personal file needs an environment');
 
-  const workspace = model.buildEnvironmentFilesView(model.environmentFilesFrom([
+  const workspace = model.buildEnvironmentFilesView(model.environmentFilesFrom(answer([
     file({ repository: 'billing', path: 'config/.env.dev' }), file({ repository: null, app: null, path: '.env' }), file({ path: '.env.dev' })
-  ]), { activeRepository: 'shop', scope: 'workspace' });
+  ], { scope: 'workspace' })), { activeRepository: 'shop', scope: 'workspace' });
   assert.deepEqual(workspace.repositories.map((group) => [group.id, group.label, group.apps.map((app) => app.label)]),
     [['shop', 'shop (this window)', ['payments-api']], ['billing', 'billing', ['payments-api']], ['', 'Workspace', ['Workspace root']]],
     'this window\'s repository first, workspace-level files last');
+  const alone = model.buildEnvironmentFilesView(reading([file({ repository: null })]), { activeRepository: null });
+  assert.deepEqual(alone.repositories.map((group) => [group.id, group.label]), [['.', 'This repository']], 'a repository of no workspace is this repository');
 });
 
 test('untrusted, busy and unsupported pages change nothing; the page escapes everything and never holds contents', () => {
@@ -279,38 +282,57 @@ test('the page script posts only what the markup names; a disabled button posts 
 });
 
 test('Declare for the team shows the engine\'s environments.yml draft and the proposal command; VS Code writes neither', () => {
-  const draft = 'environments:\n  dev:\n    localFiles: [apps/web/.env.dev]\n';
-  const suggestion = model.suggestionFrom({ data: { candidates: [
-    { framework: 'Node', environment: 'dev', path: 'apps/web/.env.dev', template: 'apps/web/.env.dev.example' },
-    { framework: 'Spring', environment: 'uat', path: 'services/api/src/main/resources/application-uat.yml', template: null },
-    { framework: 'Bad', path: '/etc/hosts' }
-  ], draft } });
-  assert.deepEqual(suggestion.candidates.map((entry) => entry.path), ['apps/web/.env.dev', 'services/api/src/main/resources/application-uat.yml']);
-  assert.equal(suggestion.draft, draft);
+  const document = 'schemaVersion: 1\nenvironments:\n  dev:\n    requires:\n      - { name: API_BASE_URL, kind: endpoint, value: "https://dev.example.test" }\n    localFiles: [apps/web/.env.dev]\n';
+  const engine = { schemaVersion: 1, resultType: 'sflow-env-files-suggest', repository: null, checkout: '/x', declaration: 'ready',
+    candidates: [
+      { framework: 'node', environment: 'dev', path: 'apps/web/.env.dev', app: null, template: 'apps/web/.env.dev.example', exists: false, tracked: false, declared: false, protected: false },
+      { framework: 'spring', environment: 'uat', path: 'services/api/src/main/resources/application-uat.yml', app: null, template: null, exists: true, tracked: true, declared: false, protected: false },
+      { framework: 'node', environment: null, path: '.env', app: null, template: null, exists: true, tracked: false, declared: true, protected: true },
+      { framework: 'bad', path: '/etc/hosts' }
+    ],
+    draft: { path: 'singularity/environments.yml', localFiles: { dev: ['apps/web/.env.dev', '../escape'] }, undeclaredEnvironments: { qa: ['apps/web/.env.qa'] }, document, valid: true },
+    proposal: { command: 'singularity-flow configuration save singularity/environments.yml --propose', stdin: 'draft.document' },
+    notes: ['Environment(s) qa are not declared; declaring one needs at least one requires entry, so they are not in the draft.'], truncated: false };
+  const suggestion = model.suggestionFrom(engine);
+  assert.deepEqual(suggestion.candidates.map((entry) => [entry.path, entry.declared, entry.tracked]),
+    [['apps/web/.env.dev', false, false], ['services/api/src/main/resources/application-uat.yml', false, true], ['.env', true, false]]);
+  assert.equal(suggestion.draft, document, 'the whole file, as the engine drafted it');
+  assert.equal(suggestion.valid, true);
+  assert.deepEqual(suggestion.additions, [{ environment: 'dev', paths: ['apps/web/.env.dev'], declared: true }, { environment: 'qa', paths: ['apps/web/.env.qa'], declared: false }]);
   assert.equal(suggestion.command, 'singularity-flow configuration save singularity/environments.yml --propose');
-  const fromObject = model.suggestionFrom({ localFiles: { dev: ['apps/web/.env.dev', '../escape'], uat: { localFiles: ['services/api/application-uat.yml'] } },
-    proposal: { command: 'singularity-flow configuration save singularity/environments.yml --propose --message "Declare environment files"' } });
-  assert.equal(fromObject.draft, 'environments:\n  dev:\n    localFiles:\n      - apps/web/.env.dev\n  uat:\n    localFiles:\n      - services/api/application-uat.yml\n');
-  assert.match(fromObject.command, /--message "Declare environment files"$/);
-  assert.equal(model.suggestionFrom({ proposalCommand: 'rm -rf /', candidates: [] }).command, model.PROPOSE_ENVIRONMENTS_COMMAND, 'only a singularity-flow command is shown');
-  assert.equal(model.suggestionFrom({ resultType: 'x' }), null);
   const html = environmentFilesHtml(model.buildEnvironmentFilesView(reading(), { suggestion }));
-  assert.match(html, /<pre class="ef-draft" data-ef-draft><code>environments:\n  dev:\n    localFiles: \[apps\/web\/\.env\.dev\]\n<\/code><\/pre>/);
-  assert.match(html, /data-ef-workspace="copy-draft">Copy the additions/);
+  assert.match(html, /The draft is the whole singularity\/environments\.yml with these paths added:[\s\S]*<pre class="ef-draft" data-ef-draft><code>schemaVersion: 1\nenvironments:/);
+  assert.match(html, /data-ef-workspace="copy-draft">Copy the draft/);
   assert.match(html, /<code>singularity-flow configuration save singularity\/environments\.yml --propose<\/code> <button[^>]*data-ef-workspace="copy-command">Copy/);
+  assert.match(html, /<strong>qa<\/strong> <small class="muted">\(not declared yet: not in the draft\)<\/small>/);
+  assert.match(html, /tracked in Git<\/span>/);
+  assert.match(html, /every environment · node/);
+  assert.match(html, /Environment\(s\) qa are not declared/);
   assert.match(html, /VS Code never writes singularity\/environments\.yml\./);
+
+  const invalid = model.suggestionFrom({ ...engine, draft: { ...engine.draft, valid: false, error: 'bad' }, proposal: null });
+  assert.deepEqual([invalid.valid, invalid.command], [false, null]);
+  const invalidHtml = environmentFilesHtml(model.buildEnvironmentFilesView(reading(), { suggestion: invalid }));
+  assert.match(invalidHtml, /does not pass its own check, so it is not offered for review/);
+  assert.doesNotMatch(invalidHtml, /copy-draft|copy-command/);
+  const nothing = model.suggestionFrom({ ...engine, candidates: [], draft: { path: 'x', localFiles: {}, undeclaredEnvironments: {}, document: null, valid: true }, proposal: null,
+    notes: ['No framework environment file was found by name.'] });
+  assert.match(environmentFilesHtml(model.buildEnvironmentFilesView(reading(), { suggestion: nothing })), /No framework environment file was found[\s\S]*There is nothing to add to singularity\/environments\.yml\./);
+  assert.equal(model.suggestionFrom({ ...engine, proposal: { command: 'rm -rf /' } }).command, null, 'only a singularity-flow command is shown');
+  assert.equal(model.suggestionFrom({ resultType: 'x' }), null);
 });
 
 test('before a run: the files of its environment it places, by repository, app, source roots or working directory', () => {
-  const files = reading([
+  const files = model.environmentFilesFrom(answer([
     file({ path: 'services/api/application-dev.yml', status: 'missing', app: 'payments-api', template: 'services/api/application-dev.example.yml' }),
     file({ path: 'apps/web/.env.dev', status: 'missing', app: null, template: null }),
     file({ path: '.env', status: 'missing', app: null, template: '.env.example' }),
     file({ path: 'apps/web/.env.local', status: 'ready', app: null }),
     file({ repository: 'billing', path: 'billing/.env.dev', status: 'missing', app: null }),
     file({ repository: null, path: 'workspace/.env', status: 'missing', app: null }),
-    file({ environment: 'uat', path: 'apps/web/.env.uat', status: 'missing', app: null })
-  ]).files;
+    file({ environment: 'uat', path: 'apps/web/.env.uat', status: 'missing', app: null }),
+    file({ path: 'apps/web/config.yml', status: 'unmanaged', app: null, problem: 'tracked' })
+  ], { scope: 'workspace' })).files;
   const paths = (scope) => model.missingForRun(files, { environment: 'dev', capability: 'payments-web', repositories: ['shop'], ...scope }).map((entry) => entry.path);
   assert.deepEqual(paths({ sourceRoots: [], workingDirectories: [] }), ['services/api/application-dev.yml', 'apps/web/.env.dev', '.env'],
     'no roots: the whole repository; never another repository, a workspace-level file or another environment');
@@ -325,8 +347,12 @@ test('before a run: the files of its environment it places, by repository, app, 
     { repository: 'shop', environment: 'dev', path: 'apps/web/.env.dev', template: null, commands: [] });
 
   assert.deepEqual(model.environmentFileCounts(files, { capability: 'payments-web', repositories: ['shop'], sourceRoots: [], workingDirectories: [] }, ['dev', 'uat', 'qa']), [
-    { environment: 'dev', total: 4, missing: 3, words: '4 files · 3 missing' }, { environment: 'uat', total: 1, missing: 1, words: '1 file · 1 missing' }
+    { environment: 'dev', total: 5, missing: 3, words: '5 files · 3 missing' }, { environment: 'uat', total: 1, missing: 1, words: '1 file · 1 missing' }
   ], 'an environment with no file is not counted');
+  assert.deepEqual(model.trackedForRun(files, { environment: 'dev', capability: 'payments-web', repositories: ['shop'], sourceRoots: ['apps/web'] }), ['apps/web/config.yml'],
+    'a path Git tracks is not missing; the run is refused for it all the same');
+  assert.equal(model.trackedMessage({ kind: 'start', label: 'web' }, 'dev', ['apps/web/config.yml']),
+    'web was not started: environment dev uses apps/web/config.yml, which Git tracks, so it cannot be an environment file. Remove the path from the repository (git rm --cached) and keep its values in an environment file. Nothing ran.');
 });
 
 test('a missing file is said plainly with the two fixes; the engine\'s ENV_FILE_MISSING refusal reads the same', () => {
@@ -353,8 +379,8 @@ test('a missing file is said plainly with the two fixes; the engine\'s ENV_FILE_
   assert.deepEqual(model.missingFromRefusal({ error: { code: 'ENV_FILE_MISSING', details: { environment: 'uat', files: [{ path: 'a/.env.uat' }, { path: '/abs' }] } } })
     .map((entry) => [entry.environment, entry.path]), [['uat', 'a/.env.uat']]);
   assert.deepEqual(model.missingFromRefusal({ error: { code: 'APP_COMMAND_CHANGED', details: { environment: 'dev', path: 'x' } } }), []);
-  assert.deepEqual(model.missingAsFile(one[0]), { repository: 'shop', app: null, environment: 'dev', path: 'apps/web/.env.dev', kind: 'declared',
-    template: 'apps/web/.env.dev.example', source: null, location: null, status: 'missing', excluded: null });
+  assert.deepEqual(model.missingAsFile(one[0]), { repository: 'shop', workspaceLevel: false, app: null, environment: 'dev', path: 'apps/web/.env.dev', kind: 'declared',
+    template: 'apps/web/.env.dev.example', source: null, location: null, status: 'missing', excluded: null, placedFor: null, placement: null, problem: null });
   assert.equal(model.locationFrom({ data: { location: '/Users/someone/x/.env.dev' } }), '/Users/someone/x/.env.dev');
   assert.equal(model.locationFrom({ location: 'relative/path' }), null);
 });
@@ -384,4 +410,101 @@ test('the Run/Debug Configurations editor links each environment tab to its file
   const state = (tab) => ({ capability: 'payments-api', draft: { configurations: [{ key: 'k1', entry }] }, block: {}, facts: [], selected: 'k1', tab });
   assert.match(tabsRegionHtml(state('uat')), /<button type="button" class="link" data-cf-action="env-files" data-cf-environment="uat">Environment files for uat…<\/button>/);
   assert.match(tabsRegionHtml(state('base')), /data-cf-environment="dev">Environment files for dev…<\/button>/, 'Base: the default environment');
+});
+
+test('a tracked path offers nothing but says why; a path placed for another environment and a copy are said plainly', () => {
+  const [tracked, elsewhere, copy, missing] = reading([
+    file({ path: 'apps/web/.env.dev', status: 'unmanaged', problem: 'tracked', placedFor: null, placement: null }),
+    file({ environment: 'uat', path: '.env', status: 'ready', placedFor: 'dev', placement: 'symlink' }),
+    file({ path: 'apps/web/.env.local', status: 'placed-here', placement: 'copy' }),
+    file({ path: 'apps/web/.env.qa', status: 'missing', placedFor: null, placement: null, problem: 'no-longer-declared', kind: 'personal', template: null })
+  ]).files;
+  assert.deepEqual(model.fileActions(tracked), [], 'nothing is created, linked or adopted while Git tracks the path');
+  const view = model.buildEnvironmentFilesView(reading([tracked, elsewhere, copy, missing].map((entry) => ({ ...entry }))), { environment: 'dev' });
+  const rows = view.repositories.flatMap((group) => group.apps.flatMap((app) => app.files));
+  assert.match(rows.find((row) => row.path === 'apps/web/.env.dev').detail, /^Git tracks this path, so it cannot be an environment file/);
+  assert.match(rows.find((row) => row.path === 'apps/web/.env.local').detail, /as a copy, refreshed at each run/);
+  const retired = rows.find((row) => row.path === 'apps/web/.env.qa');
+  assert.match(retired.detail, /The team no longer declares it; its real file is kept\.$/);
+  assert.equal(retired.locationLabel, 'Expected at', 'a missing file\'s location is where it will be');
+  const html = environmentFilesHtml(view);
+  assert.match(html, /<dt>Expected at<\/dt><dd><code class="ef-location">[^<]*\/dev\/apps\/web\/\.env\.dev<\/code>|<dt>Expected at<\/dt>/);
+  const uat = model.buildEnvironmentFilesView(reading([elsewhere]), { environment: 'uat' }).repositories[0].apps[0].files[0];
+  assert.match(uat.detail, /In this checkout the path is placed for dev now; a run in uat switches it\./);
+  assert.equal(uat.locationLabel, 'Real file');
+});
+
+test('the engine\'s refusals of an action or a run are said plainly, with what to do next', () => {
+  const refusal = (code, details = {}, message = 'engine words.') => Object.assign(new Error(message), { result: { schemaVersion: 1, status: 'failed', error: { code, message, details } } });
+  assert.equal(model.refusalWords(refusal('ENV_FILE_TRACKED', { paths: ['apps/web/.env.dev'] })),
+    'Git tracks apps/web/.env.dev, so it cannot be an environment file. Remove it from the repository (git rm --cached), keep its values in an environment file, then try again.');
+  assert.equal(model.refusalWords(refusal('ENV_FILE_IN_USE', { paths: ['.env'], startId: 'web', capability: 'shop-web', runningEnvironment: 'dev',
+    recoveryCommand: 'singularity-flow app stop web --capability shop-web' })),
+  '.env is in use by web of shop-web, running in dev. Stop it first (singularity-flow app stop web --capability shop-web), then try again.');
+  assert.match(model.refusalWords(refusal('ENV_FILES_WORKSPACE_REQUIRED')), /^A folder for an environment belongs to a workspace, and this repository is not open from one\. Open it from Workspaces/);
+  assert.equal(model.refusalWords(refusal('ENV_FILES_ROOT_INVALID', {}, "/x is inside repository 'mono', where Git could pick its files up. Choose a folder outside every checkout.")),
+    "That folder cannot hold environment files: /x is inside repository 'mono', where Git could pick its files up. Choose a folder outside every checkout.");
+  assert.match(model.refusalWords(refusal('ENVIRONMENT_POLICY_UNAVAILABLE')), /could not read which paths are environment files, so it changed and admitted nothing/);
+  assert.equal(model.refusalWords(refusal('ENV_FILE_EXISTS', {}, 'apps/web/.env.dev already exists for \'dev\'.')), 'apps/web/.env.dev already exists for \'dev\'.', 'any other refusal: the engine\'s words');
+  assert.equal(model.refusalWords(new Error('plain failure')), 'plain failure');
+});
+
+test('the real engine\'s answers read into the page: list, create, path, suggest and the missing-file refusal', { timeout: 180_000 }, async (t) => {
+  const { repository } = await import(path.join(root, 'test', 'helpers', 'environment-files-fixture.mjs'));
+  const repo = await repository(t, { files: {
+    'apps/web/.env.dev.example': 'API_TOKEN=CHANGE_ME\n',
+    'services/api/src/main/resources/application-uat.example.yml': 'spring:\n  datasource:\n    password: CHANGE_ME\n'
+  } });
+  const listed = repo.json(['env', 'files']);
+  assert.equal(listed.status, 0, listed.stderr);
+  const reading = model.environmentFilesFrom(listed.value);
+  assert.equal(reading.scope, 'repository');
+  assert.deepEqual(reading.environments, ['dev', 'uat']);
+  const web = reading.files.find((entry) => entry.environment === 'dev' && entry.path === 'apps/web/.env.dev');
+  assert.deepEqual([web.repository, web.workspaceLevel, web.status, web.source, web.template], [null, false, 'missing', 'store', 'apps/web/.env.dev.example']);
+  assert.match(web.location, /\/\.git\/singularity-flow\/environment-files\/v1\/dev\/apps\/web\/\.env\.dev$/);
+  assert.deepEqual(model.fileActions(web), ['create', 'link']);
+  const view = model.buildEnvironmentFilesView(reading, { environment: 'dev' });
+  assert.deepEqual(view.repositories.map((group) => group.label), ['This repository']);
+  assert.equal(reading.files.some((entry) => /\*/.test(entry.path)), false, 'a glob only protects; it is not a row');
+
+  // The exact argv the page runs, against the engine.
+  const here = { activeRepository: null, scope: 'repository' };
+  const created = repo.json(model.envFilesCreateArgv(web, true, here).slice(0, -1));
+  assert.equal(created.status, 0, created.stderr);
+  assert.equal(model.locationFrom(created.value), web.location);
+  assert.equal(created.value.entry.status, 'placed-here');
+  const where = repo.json(model.envFilesPathArgv(web, here).slice(0, -1));
+  assert.equal(model.locationFrom(where.value), web.location);
+  const after = model.environmentFilesFrom(repo.json(['env', 'files']).value).files.find((entry) => entry.path === 'apps/web/.env.dev' && entry.environment === 'dev');
+  assert.deepEqual([after.status, after.placement, after.excluded], ['placed-here', 'symlink', true]);
+  assert.deepEqual(model.fileActions(after), ['open', 'reveal', 'link']);
+  const outside = path.join(repo.base, 'mine-uat.env');
+  await (await import('node:fs/promises')).writeFile(outside, 'API_TOKEN=x\n', { mode: 0o600 });
+  const uat = model.environmentFilesFrom(repo.json(['env', 'files']).value).files.find((entry) => entry.environment === 'uat' && entry.path === 'apps/web/.env.uat');
+  assert.equal(repo.json(model.envFilesLinkArgv(uat, outside, here).slice(0, -1)).status, 0);
+  assert.equal(repo.json(model.envFilesUnlinkArgv(uat, here).slice(0, -1)).status, 0);
+  assert.equal(repo.json(model.envFilesAddArgv('dev', 'apps/web/.env.local').slice(0, -1)).status, 0);
+  const personal = model.environmentFilesFrom(repo.json(['env', 'files']).value).files.find((entry) => entry.path === 'apps/web/.env.local');
+  assert.deepEqual([personal.kind, model.fileActions(personal)], ['personal', ['create-empty', 'link', 'remove']]);
+  assert.equal(repo.json(model.envFilesRemoveArgv(personal, here).slice(0, -1)).status, 0);
+  const noWorkspace = repo.json(model.envFilesRootArgv('uat', repo.base).slice(0, -1));
+  assert.equal(noWorkspace.value.error.code, 'ENV_FILES_WORKSPACE_REQUIRED');
+  assert.match(model.refusalWords({ message: noWorkspace.value.error.message, result: noWorkspace.value }), /belongs to a workspace/);
+  const workspaceRead = repo.json(model.envFilesArgv({ scope: 'workspace' }).slice(0, -1));
+  assert.equal(workspaceRead.value.error.code, 'ENV_FILES_WORKSPACE_REQUIRED', '--workspace is accepted as a flag, then refused without a workspace');
+
+  const suggested = repo.json(model.envFilesSuggestArgv().slice(0, -1));
+  assert.equal(suggested.status, 0, suggested.stderr);
+  const suggestion = model.suggestionFrom(suggested.value);
+  assert.ok(suggestion, 'the engine\'s suggest answer is read');
+  assert.ok(suggestion.candidates.some((candidate) => candidate.path === 'apps/web/.env.dev' && candidate.declared));
+
+  // A run's refusal for a missing file reads as the pre-flight's rows.
+  const refused = repo.json(['env', 'files', 'place', 'uat']);
+  const missing = model.missingFromRefusal(refused.value);
+  assert.equal(refused.value.error.code, 'ENV_FILE_MISSING');
+  assert.deepEqual(missing.map((entry) => [entry.environment, entry.path, entry.template]), [['uat', '.env', null], ['uat', 'apps/web/.env.uat', null],
+    ['uat', 'services/api/src/main/resources/application-uat.yml', 'services/api/src/main/resources/application-uat.example.yml']]);
+  assert.deepEqual(missing[1].commands, ['singularity-flow env files create uat apps/web/.env.uat', 'singularity-flow env files link uat apps/web/.env.uat --to <FILE>']);
 });

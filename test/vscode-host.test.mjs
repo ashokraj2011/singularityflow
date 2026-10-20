@@ -10462,10 +10462,11 @@ async function runAndTestCli(base) {
           Object.assign(entry, { status: 'placed-here', source: 'store', location: store, excluded: true }); save();
           out({ created: true, location: store });
         } else if (action === 'link') { Object.assign(entry, { status: 'placed-here', source: 'linked', location: args[args.indexOf('--to') + 1] }); save(); out({ linked: true }); }
-        else if (action === 'unlink') { Object.assign(entry, { status: 'missing', source: null, location: null }); save(); out({ unlinked: true }); }
+        else if (action === 'unlink') { Object.assign(entry, { status: 'missing', source: 'store', location: store }); save(); out({ unlinked: true }); }
         else if (action === 'adopt') { Object.assign(entry, { status: 'placed-here', source: 'store', location: store, excluded: true }); save(); out({ adopted: true }); }
         else if (action === 'add') {
-          list.files.push({ repository: 'mobile', app: null, environment: args[3], path: args[4], kind: 'personal', template: null, source: null, location: null, status: 'missing', excluded: false });
+          list.files.push({ repository: 'mobile', app: null, environment: args[3], path: args[4], kind: 'personal', template: null, source: 'store', location: store, status: 'missing', excluded: false,
+            placedFor: null, placement: null, problem: null });
           save(); out({ added: true });
         } else if (action === 'remove') { list.files = list.files.filter((file) => file !== entry); save(); out({ removed: true }); }
         else if (action === 'root') { list.roots = list.roots || {}; if (args[4] === '--clear') delete list.roots[args[3]]; else list.roots[args[3]] = args[4]; save(); out({ changed: true }); }
@@ -11791,15 +11792,16 @@ test('Run refuses a start in an environment before any task opens while the capa
  * from env-files.json and changes it as the engine would, so the page's re-read after each action
  * shows the engine's new state. A created file holds ENV_SECRET: no page, message or log may show it.
  */
-const envFilesFixture = (state) => ({ resultType: 'sflow-env-files', schemaVersion: 1, environments: ['dev', 'qa'], files: [
+const envFilesFixture = (state) => ({ schemaVersion: 1, resultType: 'sflow-env-files', scope: 'repository', environment: null, environments: ['dev', 'qa'], roots: {}, files: [
   { repository: 'mobile', app: 'checkout-app', environment: 'dev', path: 'apps/web/.env.dev', kind: 'declared', template: 'apps/web/.env.dev.example',
-    source: null, location: null, status: 'missing', excluded: false },
+    source: 'store', location: `${state}/store/dev/apps/web/.env.dev`, status: 'missing', excluded: false, placedFor: null, placement: null, problem: null },
   { repository: 'mobile', app: 'checkout-app', environment: 'dev', path: 'apps/web/.env.local', kind: 'personal', template: null,
-    source: 'store', location: `${state}/store/dev/apps/web/.env.local`, status: 'placed-here', excluded: true },
+    source: 'store', location: `${state}/store/dev/apps/web/.env.local`, status: 'placed-here', excluded: true, placedFor: 'dev', placement: 'symlink', problem: null },
   { repository: 'mobile', app: 'checkout-app', environment: 'qa', path: 'apps/web/.env.qa', kind: 'declared', template: null,
-    source: 'linked', location: `${state}/mine/web-qa.env`, status: 'linked', excluded: true },
-  { repository: 'mobile', app: null, environment: 'qa', path: '.env', kind: 'declared', template: '.env.example', source: null, location: null, status: 'unmanaged', excluded: false }
-] });
+    source: 'linked', location: `${state}/mine/web-qa.env`, status: 'linked', excluded: true, placedFor: null, placement: null, problem: null },
+  { repository: 'mobile', app: null, environment: 'qa', path: '.env', kind: 'declared', template: '.env.example', source: 'store', location: `${state}/store/qa/.env`,
+    status: 'unmanaged', excluded: false, placedFor: null, placement: null, problem: null }
+], repositories: [], workspace: null });
 const envKey = (environment, filePath) => JSON.stringify(['mobile', environment, filePath]);
 const envFilesPage = (registered) => until(() => registered.panels.filter((entry) => entry.id === 'singularityFlow.environmentFiles' && entry.visible).at(-1) ?? null);
 
@@ -11891,13 +11893,16 @@ test('Environment Files: tabs, then repository and app; Open opens the real file
   assert.deepEqual((await cli.envLog()).slice(-2), [['env', 'files', 'remove', 'qa', 'apps/web/.env.qa.local', '--personal', '--json'], ['env', 'files', '--json']]);
 
   // Declare for the team: the engine's draft and the proposal command, copied, never written.
-  await cli.write('env-suggest.json', { candidates: [{ framework: 'Node', environment: 'dev', path: 'apps/web/.env.dev', template: 'apps/web/.env.dev.example' }],
-    draft: 'environments:\n  dev:\n    localFiles: [apps/web/.env.dev]\n' });
+  const document = 'schemaVersion: 1\nenvironments:\n  dev:\n    localFiles: [apps/web/.env.dev]\n';
+  await cli.write('env-suggest.json', { schemaVersion: 1, resultType: 'sflow-env-files-suggest', repository: 'mobile', declaration: 'ready',
+    candidates: [{ framework: 'node', environment: 'dev', path: 'apps/web/.env.dev', app: null, template: 'apps/web/.env.dev.example', exists: false, tracked: false, declared: false, protected: false }],
+    draft: { path: 'singularity/environments.yml', localFiles: { dev: ['apps/web/.env.dev'] }, undeclaredEnvironments: {}, document, valid: true },
+    proposal: { command: 'singularity-flow configuration save singularity/environments.yml --propose', stdin: 'draft.document' }, notes: [], truncated: false });
   await page.post({ type: 'envFiles.workspace', action: 'suggest' });
   assert.deepEqual((await cli.envLog()).at(-1), ['env', 'files', 'suggest', '--json']);
   assert.match(page.webview.html, /data-ef-team>[\s\S]*localFiles: \[apps\/web\/\.env\.dev\]/);
   await page.post({ type: 'envFiles.workspace', action: 'copy-draft' });
-  assert.equal(registered.clipboard.at(-1), 'environments:\n  dev:\n    localFiles: [apps/web/.env.dev]\n');
+  assert.equal(registered.clipboard.at(-1), document);
   await page.post({ type: 'envFiles.workspace', action: 'copy-command' });
   assert.equal(registered.clipboard.at(-1), 'singularity-flow configuration save singularity/environments.yml --propose');
 

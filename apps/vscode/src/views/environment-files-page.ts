@@ -29,7 +29,7 @@ function fileHtml(view: EnvironmentFilesView, row: FileRow): string {
   const facts = [
     row.template ? `<dt>Template</dt><dd><code>${escape(row.template)}</code></dd>` : '<dt>Template</dt><dd class="muted">None beside it</dd>',
     row.source ? `<dt>Kept in</dt><dd>${escape(row.source)}</dd>` : '',
-    row.location ? `<dt>Real file</dt><dd><code class="ef-location">${escape(row.location)}</code></dd>` : '',
+    row.location ? `<dt>${row.locationLabel}</dt><dd><code class="ef-location">${escape(row.location)}</code></dd>` : '',
     row.excluded ? `<dt>Git</dt><dd>${escape(row.excluded)}</dd>` : ''
   ].join('');
   return `<li class="ef-file" data-ef-file="${escape(row.key)}" data-ef-status="${escape(row.status)}">
@@ -79,20 +79,28 @@ function suggestionHtml(view: EnvironmentFilesView): string {
   const suggestion = view.suggestion;
   if (!suggestion) return '';
   const candidates = suggestion.candidates.length
-    ? `<ul class="ef-candidates">${suggestion.candidates.map((candidate) => `<li><code>${escape(candidate.path)}</code>${candidate.environment ? ` <small class="muted">${escape(candidate.environment)}</small>` : ''}${
-      candidate.framework ? ` <small class="muted">${escape(candidate.framework)}</small>` : ''}${candidate.template ? ` <small>template <code>${escape(candidate.template)}</code></small>` : ' <small class="muted">no template yet</small>'}</li>`).join('')}</ul>`
+    ? `<ul class="ef-candidates">${suggestion.candidates.map((candidate) => `<li><code>${escape(candidate.path)}</code> <small class="muted">${escape(candidate.environment ?? 'every environment')}${
+      candidate.framework ? ` · ${escape(candidate.framework)}` : ''}</small>${candidate.template ? ` <small>template <code>${escape(candidate.template)}</code></small>` : ' <small class="muted">no template yet</small>'}${
+      candidate.declared ? ' <span class="pill ok">declared</span>' : ''}${candidate.tracked ? ' <span class="pill bad">tracked in Git</span>' : ''}</li>`).join('')}</ul>`
     : '<p class="muted">The engine found no framework file to suggest in this repository.</p>';
-  const draft = suggestion.draft
-    ? `<pre class="ef-draft" data-ef-draft><code>${escape(suggestion.draft)}</code></pre>
-      <p class="ef-buttons"><button type="button" class="secondary compact-action" data-ef-workspace="copy-draft">Copy the additions</button></p>`
-    : '<p class="muted">There is nothing to add to singularity/environments.yml.</p>';
+  const additions = suggestion.additions.length
+    ? `<ul class="ef-candidates" data-ef-additions>${suggestion.additions.map((entry) => `<li><strong>${escape(entry.environment)}</strong>${
+      entry.declared ? '' : ' <small class="muted">(not declared yet: not in the draft)</small>'}: ${entry.paths.map((item) => `<code>${escape(item)}</code>`).join(', ')}</li>`).join('')}</ul>` : '';
+  const draft = suggestion.draft && suggestion.valid
+    ? `<p>The draft is the whole singularity/environments.yml with these paths added:</p>
+      <pre class="ef-draft" data-ef-draft><code>${escape(suggestion.draft)}</code></pre>
+      <p class="ef-buttons"><button type="button" class="secondary compact-action" data-ef-workspace="copy-draft">Copy the draft</button></p>`
+    : suggestion.draft ? '<p class="notice warning">The engine\'s draft does not pass its own check, so it is not offered for review.</p>'
+      : '<p class="muted">There is nothing to add to singularity/environments.yml.</p>';
+  const command = suggestion.command
+    ? `<p>Propose it for review, with the draft on standard input:</p>
+      <p class="ef-command"><code>${escape(suggestion.command)}</code> <button type="button" class="secondary compact-action" data-ef-workspace="copy-command">Copy</button></p>` : '';
   return `<section class="plain ef-team" data-ef-team>
     <h2>${icon('team')}Declare for the team</h2>
     <p>Declared files are exact paths in an environment's <code>localFiles</code> in singularity/environments.yml. The team commits each template, which holds placeholders only; the real files never reach Git.</p>
-    ${candidates}
-    ${draft}
-    <p>Copy the additions into singularity/environments.yml, then propose the whole file for review, with the file on standard input:</p>
-    <p class="ef-command"><code>${escape(suggestion.command)}</code> <button type="button" class="secondary compact-action" data-ef-workspace="copy-command">Copy</button></p>
+    ${candidates}${additions}
+    ${suggestion.notes.map((note) => `<p class="muted">${escape(note)}</p>`).join('')}
+    ${draft}${command}
     <p class="muted">VS Code never writes singularity/environments.yml.</p>
   </section>`;
 }

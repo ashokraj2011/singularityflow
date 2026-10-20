@@ -15,15 +15,20 @@
  *
  * Pure on purpose (no `vscode` import, no file system), so the tests pin every row, action and argv.
  */
-import YAML from 'yaml';
 
 export type EnvironmentFileKind = 'declared' | 'personal';
 export type EnvironmentFileSource = 'store' | 'linked' | 'root';
 export type EnvironmentFileStatus = 'missing' | 'ready' | 'linked' | 'unmanaged' | 'placed-here' | 'unknown';
 
-/** One file of one environment, as `env files --json` reports it. `repository` null: a workspace-level file. */
+/**
+ * One file of one environment, as `env files --json` reports it in `files[]`. `repository` is the
+ * workspace member's ID; null for a repository that belongs to no workspace, and for a file of the
+ * workspace itself (`workspaceLevel`), which only a `--workspace` read lists.
+ */
 export interface EnvironmentFile {
   repository: string | null;
+  /** A file outside every repository, kept by the workspace (its root .env). */
+  workspaceLevel: boolean;
   /** The capability or source root the file belongs to; null for the repository as a whole. */
   app: string | null;
   environment: string;
@@ -36,6 +41,11 @@ export interface EnvironmentFile {
   status: EnvironmentFileStatus;
   /** Whether the path is in this clone's `.git/info/exclude`; null when the engine does not say. */
   excluded: boolean | null;
+  /** The environment the path is placed for in this checkout now, and how (a link, or a copy on Windows). */
+  placedFor: string | null;
+  placement: 'symlink' | 'copy' | null;
+  /** What is wrong with the path: Git tracks it, or the team no longer declares it. */
+  problem: 'tracked' | 'no-longer-declared' | null;
 }
 
 export interface EnvironmentFilesReading {
@@ -103,20 +113,23 @@ export function absoluteLocation(value: unknown): string | null {
   return candidate.startsWith('/') || /^[A-Za-z]:[\\/]/u.test(candidate) || candidate.startsWith('\\\\') ? candidate : null;
 }
 
-function fileFrom(value: unknown, inherited: { repository?: string | null; app?: string | null; environment?: string | null }): EnvironmentFile | null {
+function fileFrom(value: unknown, workspaceScope: boolean): EnvironmentFile | null {
   const entry = record(value);
   if (!entry) return null;
-  const environment = text(entry.environment) ?? inherited.environment ?? null;
+  const environment = text(entry.environment);
   const filePath = relativeFilePath(entry.path);
   if (!environment || !ENVIRONMENT.test(environment) || !filePath) return null;
-  const repository = entry.repository === null ? null : text(entry.repository) ?? inherited.repository ?? null;
+  const repository = text(entry.repository);
   if (repository !== null && !REPOSITORY.test(repository)) return null;
   const app = text(entry.app);
   const status = text(entry.status);
   const source = text(entry.source);
+  const placedFor = text(entry.placedFor);
   return {
     repository,
-    app: app && !CONTROL.test(app) && app.length <= 256 ? app : inherited.app ?? null,
+    // In a workspace read, a file of no repository is the workspace's own.
+    workspaceLevel: workspaceScope && repository === null,
+    app: app && !CONTROL.test(app) && app.length <= 256 ? app : null,
     environment,
     path: filePath,
     kind: entry.kind === 'personal' ? 'personal' : 'declared',
@@ -124,59 +137,39 @@ function fileFrom(value: unknown, inherited: { repository?: string | null; app?:
     source: SOURCES.includes(source as EnvironmentFileSource) ? source as EnvironmentFileSource : null,
     location: absoluteLocation(entry.location),
     status: STATUSES.includes(status as EnvironmentFileStatus) ? status as EnvironmentFileStatus : 'unknown',
-    excluded: typeof entry.excluded === 'boolean' ? entry.excluded : null
+    excluded: typeof entry.excluded === 'boolean' ? entry.excluded : null,
+    placedFor: placedFor && ENVIRONMENT.test(placedFor) ? placedFor : null,
+    placement: entry.placement === 'symlink' || entry.placement === 'copy' ? entry.placement : null,
+    problem: entry.problem === 'tracked' || entry.problem === 'no-longer-declared' ? entry.problem : null
   };
 }
 
-/** `roots: { ENV: DIR }` or `roots: [{ environment, directory | path | root }]`, from the answer or its workspace. */
+/** `roots: { ENV: DIR }`: the workspace's folder per environment. */
 function rootsFrom(answer: Record<string, unknown>): Record<string, string> {
-  const raw = answer.roots ?? record(answer.workspace)?.roots;
   const roots: Record<string, string> = {};
-  const add = (environment: unknown, directory: unknown) => {
-    const name = text(environment);
+  for (const [name, directory] of Object.entries(record(answer.roots) ?? {})) {
     const location = absoluteLocation(directory);
-    if (name && ENVIRONMENT.test(name) && location) roots[name] = location;
-  };
-  if (Array.isArray(raw)) for (const item of raw) { const entry = record(item); add(entry?.environment, entry?.directory ?? entry?.path ?? entry?.root); }
-  else for (const [name, directory] of Object.entries(record(raw) ?? {})) add(name, typeof directory === 'string' ? directory : record(directory)?.directory ?? record(directory)?.path);
+    if (ENVIRONMENT.test(name) && location) roots[name] = location;
+  }
   return roots;
 }
 
 /**
- * The files from `env files --json`: a flat `files` list (the spec's shape), or files nested under
- * `repositories[].files` and `repositories[].apps[].files`, and workspace-level `workspace.files`.
+ * The files from `env files --json` (`sflow-env-files`): its flat `files[]`, every repository's and,
+ * in a `--workspace` read, the workspace's own. The grouped `repositories[]` view is not needed.
  * Null when the answer is not a file list at all.
  */
 export function environmentFilesFrom(raw: unknown): EnvironmentFilesReading | null {
   const value = unwrap(raw);
   const answer = Array.isArray(value) ? { files: value } : record(value);
-  if (!answer) return null;
+  if (!answer || !Array.isArray(answer.files)) return null;
+  const workspaceScope = answer.scope === 'workspace';
   const files: EnvironmentFile[] = [];
   let dropped = 0;
-  let found = false;
-  const take = (list: unknown, inherited: Parameters<typeof fileFrom>[1]) => {
-    if (!Array.isArray(list)) return;
-    found = true;
-    for (const item of list) {
-      if (files.length >= MAX_FILES) { dropped += 1; continue; }
-      const file = fileFrom(item, inherited);
-      if (file) files.push(file); else dropped += 1;
-    }
-  };
-  take(answer.files, {});
-  for (const item of Array.isArray(answer.repositories) ? answer.repositories : []) {
-    const repository = record(item);
-    const id = text(repository?.id) ?? text(repository?.repository);
-    if (!repository || !id) continue;
-    take(repository.files, { repository: id });
-    for (const appItem of Array.isArray(repository.apps) ? repository.apps : []) {
-      const app = record(appItem);
-      take(app?.files, { repository: id, app: text(app?.id) ?? text(app?.app) });
-    }
+  for (const item of answer.files) {
+    const file = files.length < MAX_FILES ? fileFrom(item, workspaceScope) : null;
+    if (file) files.push(file); else dropped += 1;
   }
-  take(record(answer.workspace)?.files ?? answer.workspaceFiles, { repository: null });
-  if (!found) return null;
-  // One row per file: a nested answer that also lists the file flat is not shown twice.
   const seen = new Set<string>();
   const unique = files.filter((file) => { const key = fileKey(file); if (seen.has(key)) return false; seen.add(key); return true; });
   const named = (Array.isArray(answer.environments) ? answer.environments : []).flatMap((item) => {
@@ -184,7 +177,7 @@ export function environmentFilesFrom(raw: unknown): EnvironmentFilesReading | nu
     return name && ENVIRONMENT.test(name) ? [name] : [];
   });
   return {
-    scope: answer.scope === 'workspace' || answer.workspace === true ? 'workspace' : 'repository',
+    scope: workspaceScope ? 'workspace' : 'repository',
     files: unique,
     environments: [...new Set([...named, ...unique.map((file) => file.environment)])],
     roots: rootsFrom(answer),
@@ -192,9 +185,9 @@ export function environmentFilesFrom(raw: unknown): EnvironmentFilesReading | nu
   };
 }
 
-/** The identity of one row: its repository, environment and path. */
-export const fileKey = (file: Pick<EnvironmentFile, 'repository' | 'environment' | 'path'>): string =>
-  JSON.stringify([file.repository ?? null, file.environment, file.path]);
+/** The identity of one row: its repository (or the workspace), environment and path. */
+export const fileKey = (file: Pick<EnvironmentFile, 'repository' | 'workspaceLevel' | 'environment' | 'path'>): string =>
+  JSON.stringify([file.workspaceLevel ? '#workspace' : file.repository ?? null, file.environment, file.path]);
 
 /** The row a page message names, looked up in the files read last; null when it is not one of them. */
 export function fileByKey(files: readonly EnvironmentFile[], key: unknown): EnvironmentFile | null {
@@ -225,7 +218,8 @@ const linkedHere = (file: EnvironmentFile): boolean => file.source === 'linked' 
 export function fileActions(file: EnvironmentFile): FileAction[] {
   const actions: FileAction[] = [];
   const linked = linkedHere(file);
-  switch (file.status) {
+  // Git tracks the path: nothing is created, linked or placed there until it leaves the repository.
+  switch (file.problem === 'tracked' ? 'unknown' : file.status) {
     case 'missing':
       actions.push(...(linked ? ['link', 'unlink'] as const : [file.template ? 'create' as const : 'create-empty' as const, 'link' as const]));
       break;
@@ -250,13 +244,24 @@ const STATUS_TONE: Record<EnvironmentFileStatus, '' | 'ok' | 'wait' | 'bad'> = {
 };
 
 function statusDetail(file: EnvironmentFile): string {
+  if (file.problem === 'tracked') {
+    return 'Git tracks this path, so it cannot be an environment file: nothing is created or placed there. Remove it from the repository (git rm --cached) and keep the values in an environment file.';
+  }
+  const elsewhere = file.placedFor && file.placedFor !== file.environment && file.status !== 'placed-here'
+    ? ` In this checkout the path is placed for ${file.placedFor} now; a run in ${file.environment} switches it.` : '';
+  const retired = file.problem === 'no-longer-declared' ? ' The team no longer declares it; its real file is kept.' : '';
+  return `${baseDetail(file)}${elsewhere}${retired}`;
+}
+
+function baseDetail(file: EnvironmentFile): string {
   switch (file.status) {
     case 'missing': return linkedHere(file)
       ? 'The file it is linked to is not there any more. Use another existing file, or stop using the linked one.'
       : file.template ? `Create it from ${file.template}, or use a file you already have.` : 'There is no template beside it: create an empty file, or use a file you already have.';
     case 'ready': return 'The real file is on this computer; a run in this environment places it in the checkout.';
     case 'linked': return 'It uses a file you chose; a run in this environment places it in the checkout.';
-    case 'placed-here': return 'It is in place in this checkout for runs in this environment.';
+    case 'placed-here': return file.placement === 'copy'
+      ? 'It is in place in this checkout as a copy, refreshed at each run in this environment.' : 'It is in place in this checkout, linked to the real file, for runs in this environment.';
     case 'unmanaged': return 'A file is already at this path in the checkout and is never overwritten. Adopt moves it into the private store and links it back.';
     default: return 'The engine reported a status VS Code does not know; refresh after updating Singularity Flow.';
   }
@@ -287,8 +292,9 @@ export interface FileRow {
   tone: '' | 'ok' | 'wait' | 'bad';
   detail: string;
   source: string | null;
-  /** Where the real file is: a path, never what it holds. */
+  /** Where the real file is (or will be, while missing): a path, never what it holds. */
   location: string | null;
+  locationLabel: 'Real file' | 'Expected at';
   template: string | null;
   excluded: string | null;
   actions: Array<{ action: FileAction; label: string; changes: boolean }>;
@@ -299,11 +305,16 @@ export interface RepositoryGroup { id: string; label: string; apps: AppGroup[]; 
 export interface EnvironmentTab { name: string; total: number; missing: number; selected: boolean }
 
 export interface EnvironmentFileSuggestion {
-  /** The `environments.yml` additions: names and paths only. */
+  /** The whole singularity/environments.yml with the additions (`draft.document`): names and paths, never a value. */
   draft: string | null;
-  candidates: Array<{ framework: string | null; environment: string | null; path: string; template: string | null }>;
-  /** The command that proposes the edited file for review. */
-  command: string;
+  /** Whether that draft passes the engine's own check; only a valid one is offered for review. */
+  valid: boolean;
+  /** The paths added per environment, and those of environments not declared yet (not in the draft). */
+  additions: Array<{ environment: string; paths: string[]; declared: boolean }>;
+  candidates: Array<{ framework: string | null; environment: string | null; path: string; template: string | null; declared: boolean; tracked: boolean }>;
+  /** The command that proposes the drafted file for review, reading it on standard input; null without a valid draft. */
+  command: string | null;
+  notes: string[];
 }
 
 export interface EnvironmentFilesView {
@@ -330,7 +341,8 @@ function rowFrom(file: EnvironmentFile): FileRow {
   return {
     key: fileKey(file), path: file.path, kind: file.kind, kindWords: file.kind === 'personal' ? 'Personal, this computer only' : 'Declared for the team',
     status: file.status, statusWords: STATUS_WORDS[file.status], tone: STATUS_TONE[file.status], detail: statusDetail(file),
-    source: sourceWords(file), location: file.location, template: file.template, excluded: excludedWords(file),
+    source: sourceWords(file), location: file.location, locationLabel: file.status === 'missing' ? 'Expected at' : 'Real file',
+    template: file.template, excluded: excludedWords(file),
     actions: fileActions(file).map((action) => ({ action, label: ACTION_LABELS[action], changes: CHANGING_ACTIONS.has(action) }))
   };
 }
@@ -366,17 +378,20 @@ export function buildEnvironmentFilesView(reading: EnvironmentFilesReading | nul
     return { name, total: of.length, missing: of.filter((file) => file.status === 'missing').length, selected: name === selected };
   });
   const shown = files.filter((file) => file.environment === selected);
-  const order = [...new Set(shown.map((file) => file.repository ?? '\u0000workspace'))].sort((left, right) =>
-    Number(right === activeRepository) - Number(left === activeRepository) || Number(left === '\u0000workspace') - Number(right === '\u0000workspace'));
+  // A repository that belongs to no workspace has no ID: its files are this window's repository's.
+  const groupOf = (file: EnvironmentFile): string => file.workspaceLevel ? '\u0000workspace' : file.repository ?? '\u0000here';
+  const order = [...new Set(shown.map(groupOf))].sort((left, right) =>
+    Number(right === activeRepository || right === '\u0000here') - Number(left === activeRepository || left === '\u0000here')
+      || Number(left === '\u0000workspace') - Number(right === '\u0000workspace'));
   const repositories = order.map((id): RepositoryGroup => {
-    const mine = shown.filter((file) => (file.repository ?? '\u0000workspace') === id);
+    const mine = shown.filter((file) => groupOf(file) === id);
     const apps = [...new Set(mine.map((file) => file.app ?? ''))].map((app) => ({
       id: app, label: id === '\u0000workspace' && !app ? 'Workspace root' : appLabel(app || null, appNames),
       files: mine.filter((file) => (file.app ?? '') === app).map(rowFrom)
     }));
     return {
-      id: id === '\u0000workspace' ? '' : id,
-      label: id === '\u0000workspace' ? 'Workspace' : `${id}${id === activeRepository ? ' (this window)' : ''}`,
+      id: id === '\u0000workspace' ? '' : id === '\u0000here' ? '.' : id,
+      label: id === '\u0000workspace' ? 'Workspace' : id === '\u0000here' ? 'This repository' : `${id}${id === activeRepository ? ' (this window)' : ''}`,
       apps, total: mine.length, missing: mine.filter((file) => file.status === 'missing').length
     };
   });
@@ -407,10 +422,9 @@ export interface RepositoryTarget { activeRepository: string | null; scope: 'rep
  * `--repository ID` for a member repository other than this window's, `--workspace` for a
  * workspace-level file; nothing for this window's own repository, which every command assumes.
  */
-export function targetArgs(file: Pick<EnvironmentFile, 'repository'>, target: RepositoryTarget): string[] {
-  if (target.scope !== 'workspace') return [];
-  if (file.repository === null) return ['--workspace'];
-  if (file.repository === target.activeRepository) return [];
+export function targetArgs(file: Pick<EnvironmentFile, 'repository' | 'workspaceLevel'>, target: RepositoryTarget): string[] {
+  if (file.workspaceLevel) return ['--workspace'];
+  if (target.scope !== 'workspace' || file.repository === null || file.repository === target.activeRepository) return [];
   return ['--repository', required(file.repository, 'Repository', (item) => REPOSITORY.test(item))];
 }
 
@@ -500,40 +514,40 @@ export function actionNotice(action: FileAction | 'add' | 'root' | 'root-clear',
 // ---------------------------------------------------------------------------------------------
 // Declare for the team
 
-/** The proposal route VS Code names: it never writes environments.yml itself. */
-export const PROPOSE_ENVIRONMENTS_COMMAND = 'singularity-flow configuration save singularity/environments.yml --propose';
+const pathList = (value: unknown): string[] =>
+  (Array.isArray(value) ? value : []).flatMap((item) => { const relative = relativeFilePath(item); return relative ? [relative] : []; });
 
-function draftYaml(value: unknown): string | null {
-  if (typeof value === 'string') return value.trim() ? `${value.trimEnd()}\n` : null;
-  const object = record(value);
-  if (!object) return null;
-  const environments = record(object.environments) ?? object;
-  const block: Record<string, { localFiles: string[] }> = {};
-  for (const [name, entry] of Object.entries(environments)) {
-    const list = Array.isArray(entry) ? entry : record(entry)?.localFiles;
-    const paths = (Array.isArray(list) ? list : []).flatMap((item) => { const relative = relativeFilePath(item); return relative ? [relative] : []; });
-    if (ENVIRONMENT.test(name) && paths.length) block[name] = { localFiles: paths };
-  }
-  return Object.keys(block).length ? YAML.stringify({ environments: block }) : null;
-}
-
-/** `env files suggest --json`: the candidates and the draft, or null when the answer is neither. */
+/**
+ * `env files suggest --json` (`sflow-env-files-suggest`): the candidates, and `draft` — the whole
+ * singularity/environments.yml with the additions (`draft.document`), whether it is `valid`, the
+ * paths added per environment (`localFiles`) and those of undeclared environments — with the
+ * review route in `proposal.command` (the document on standard input). Null for any other answer.
+ */
 export function suggestionFrom(raw: unknown): EnvironmentFileSuggestion | null {
   const answer = record(unwrap(raw));
-  if (!answer) return null;
-  const candidates = (Array.isArray(answer.candidates) ? answer.candidates : Array.isArray(answer.suggestions) ? answer.suggestions : []).flatMap((item) => {
+  if (!answer || !Array.isArray(answer.candidates)) return null;
+  const candidates = answer.candidates.flatMap((item) => {
     const entry = record(item);
     const filePath = relativeFilePath(entry?.path);
     if (!entry || !filePath) return [];
     const environment = text(entry.environment);
     const framework = text(entry.framework);
     return [{ framework: framework && !CONTROL.test(framework) ? framework.slice(0, 80) : null, environment: environment && ENVIRONMENT.test(environment) ? environment : null,
-      path: filePath, template: relativeFilePath(entry.template) }];
+      path: filePath, template: relativeFilePath(entry.template), declared: entry.declared === true, tracked: entry.tracked === true }];
   });
-  const draft = draftYaml(answer.draft ?? answer.localFilesDraft ?? answer.environmentsDraft ?? answer.environmentsYml ?? answer.localFiles ?? null);
-  if (!draft && !candidates.length && !Array.isArray(answer.candidates) && !Array.isArray(answer.suggestions)) return null;
-  const proposal = text(record(answer.proposal)?.command) ?? text(answer.proposalCommand);
-  return { draft, candidates, command: proposal && proposal.startsWith('singularity-flow ') && !CONTROL.test(proposal) ? proposal : PROPOSE_ENVIRONMENTS_COMMAND };
+  const draft = record(answer.draft) ?? {};
+  const document = typeof draft.document === 'string' && draft.document.trim() && !draft.document.includes('\u0000') ? `${draft.document.trimEnd()}\n` : null;
+  const additions = [
+    ...Object.entries(record(draft.localFiles) ?? {}).map(([environment, paths]) => ({ environment, paths: pathList(paths), declared: true })),
+    ...Object.entries(record(draft.undeclaredEnvironments) ?? {}).map(([environment, paths]) => ({ environment, paths: pathList(paths), declared: false }))
+  ].filter((entry) => ENVIRONMENT.test(entry.environment) && entry.paths.length);
+  const proposal = text(record(answer.proposal)?.command);
+  const valid = draft.valid !== false && Boolean(document);
+  return {
+    draft: document, valid, additions, candidates,
+    command: valid && proposal && proposal.startsWith('singularity-flow ') && !CONTROL.test(proposal) ? proposal : null,
+    notes: (Array.isArray(answer.notes) ? answer.notes : []).filter((note): note is string => typeof note === 'string' && !CONTROL.test(note)).slice(0, 10)
+  };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -562,8 +576,8 @@ const under = (filePath: string, root: string): boolean => filePath === root || 
  * places; this only says early what it would.
  */
 export function placedByRun(file: EnvironmentFile, scope: Omit<RunScope, 'environment'>): boolean {
-  if (file.repository === null) return false;
-  if (scope.repositories.length && !scope.repositories.includes(file.repository)) return false;
+  if (file.workspaceLevel) return false;
+  if (scope.repositories.length && file.repository && !scope.repositories.includes(file.repository)) return false;
   if (file.app === scope.capability) return true;
   // A root that is the repository itself ("." or none) places every file of the repository.
   const roots = (scope.sourceRoots.length ? scope.sourceRoots : scope.workingDirectories ?? []).map((root) => root ? relativeFilePath(root) : null);
@@ -572,7 +586,7 @@ export function placedByRun(file: EnvironmentFile, scope: Omit<RunScope, 'enviro
 
 /** The files of the environment a run would need and that are missing here. */
 export function missingForRun(files: readonly EnvironmentFile[], scope: RunScope): MissingFile[] {
-  return files.filter((file) => file.environment === scope.environment && file.status === 'missing' && placedByRun(file, scope))
+  return files.filter((file) => file.environment === scope.environment && file.status === 'missing' && file.problem !== 'tracked' && placedByRun(file, scope))
     .map((file) => ({ repository: file.repository, environment: file.environment, path: file.path, template: linkedHere(file) ? null : file.template, commands: [] }));
 }
 
@@ -613,8 +627,8 @@ export function missingFromRefusal(result: unknown): MissingFile[] {
 
 /** A missing file as a row an action can act on (it has no location yet). */
 export const missingAsFile = (missing: MissingFile): EnvironmentFile => ({
-  repository: missing.repository, app: null, environment: missing.environment, path: missing.path, kind: 'declared',
-  template: missing.template, source: null, location: null, status: 'missing', excluded: null
+  repository: missing.repository, workspaceLevel: false, app: null, environment: missing.environment, path: missing.path, kind: 'declared',
+  template: missing.template, source: null, location: null, status: 'missing', excluded: null, placedFor: null, placement: null, problem: null
 });
 
 export const PREFLIGHT_CREATE = 'Create from template';
@@ -647,4 +661,44 @@ export function preflightMessage(run: { kind: 'start' | 'debug' | 'tests'; label
     : missing.every((file) => file.template) ? 'Create them from their templates, or use existing files, on Environment Files.'
       : 'Create each one, or use an existing file, on Environment Files.';
   return `${what}: environment ${environment} ${needs}. ${fix}${ended ? '' : ' Nothing ran.'}`;
+}
+
+/** The environment's paths a run places that Git tracks: the engine refuses that run (ENV_FILE_TRACKED). */
+export function trackedForRun(files: readonly EnvironmentFile[], scope: RunScope): string[] {
+  return files.filter((file) => file.environment === scope.environment && file.problem === 'tracked' && placedByRun(file, scope)).map((file) => file.path);
+}
+
+const listWords = (value: unknown): string => (Array.isArray(value) ? value : []).filter((item): item is string => typeof item === 'string').slice(0, 5).join(', ');
+
+/** A run the engine would refuse because Git tracks one of its environment's paths, said before it starts. */
+export function trackedMessage(run: { kind: 'start' | 'debug' | 'tests'; label: string }, environment: string, paths: readonly string[]): string {
+  const what = run.kind === 'tests' ? `${run.label} were not run` : `${run.label} was not started`;
+  return `${what}: environment ${environment} uses ${paths.join(', ')}, which Git tracks, so ${paths.length === 1 ? 'it' : 'they'} cannot be an environment file. `
+    + 'Remove the path from the repository (git rm --cached) and keep its values in an environment file. Nothing ran.';
+}
+
+/**
+ * The engine's refusal of an environment-file action, in plain words with what to do next. The
+ * engine's own message is the answer for every other refusal.
+ */
+export function refusalWords(error: unknown): string {
+  const result = record((error as { result?: unknown } | null)?.result);
+  const refusal = record(result?.error) ?? result;
+  const details = record(refusal?.details) ?? {};
+  const message = String((error as Error | null)?.message ?? error ?? '');
+  switch (refusal?.code) {
+    case 'ENV_FILE_TRACKED':
+      return `Git tracks ${listWords(details.paths) || 'this path'}, so it cannot be an environment file. Remove it from the repository (git rm --cached), keep its values in an environment file, then try again.`;
+    case 'ENV_FILE_IN_USE':
+      return `${listWords(details.paths) || 'The file'} is in use by ${text(details.startId) ?? 'an application'} of ${text(details.capability) ?? 'its capability'}, running in ${text(details.runningEnvironment) ?? 'another environment'}. `
+        + `Stop it first (${text(details.recoveryCommand) ?? 'singularity-flow app stop'}), then try again.`;
+    case 'ENV_FILES_WORKSPACE_REQUIRED':
+      return 'A folder for an environment belongs to a workspace, and this repository is not open from one. Open it from Workspaces, or select one with singularity-flow workspace use <WORKSPACE>, then try again.';
+    case 'ENV_FILES_ROOT_INVALID':
+      return `That folder cannot hold environment files: ${message}`;
+    case 'ENVIRONMENT_POLICY_UNAVAILABLE':
+      return 'Singularity Flow could not read which paths are environment files, so it changed and admitted nothing. Refresh; if it keeps failing, run singularity-flow env files in a terminal to see why.';
+    default:
+      return message;
+  }
 }

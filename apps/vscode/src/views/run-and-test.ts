@@ -47,7 +47,7 @@ import { testsSummaryArgv, testSummaryFrom, totalsLine } from './test-summary-mo
 import { TestSummaryPanel } from './test-summary.ts';
 import {
   envFilesArgv, environmentFilesFrom, missingAsFile, missingForRun, missingFromRefusal, preflightButtons, preflightMessage,
-  PREFLIGHT_CREATE, PREFLIGHT_LINK, PREFLIGHT_OPEN, type EnvironmentFile, type MissingFile
+  PREFLIGHT_CREATE, PREFLIGHT_LINK, PREFLIGHT_OPEN, refusalWords, trackedForRun, trackedMessage, type EnvironmentFile, type MissingFile
 } from './environment-files-model.ts';
 import { createEnvironmentFile, EnvironmentFilesPanel, onEnvironmentFilesChanged, useExistingEnvironmentFile } from './environment-files.ts';
 
@@ -348,7 +348,18 @@ export class RunAndTest implements vscode.Disposable {
     // The engine's own refusal of the plan read (ENV_FILE_MISSING) counts as much as what the list says.
     const refused = (this.refusals.get(this.key(capability, '#files')) ?? []).filter((file) => file.environment === environment);
     const files = this.filesHere();
-    const listed = files ? missingForRun(files, { environment, ...this.runScope(capability, workingDirectories) }) : [];
+    const scope = { environment, ...this.runScope(capability, workingDirectories) };
+    // A path Git tracks is refused by the engine whatever else is ready: said first, with the page to look at.
+    const tracked = files ? trackedForRun(files, scope) : [];
+    if (tracked.length) {
+      const message = trackedMessage(run, environment, tracked);
+      this.update(capability, { error: message, notice: null, prompted: message });
+      void showCompactWarningMessage(message, PREFLIGHT_OPEN).then((choice) => {
+        if (choice === PREFLIGHT_OPEN) EnvironmentFilesPanel.show(this.host, { environment, capability });
+      });
+      return true;
+    }
+    const listed = files ? missingForRun(files, scope) : [];
     const missing = [...listed, ...refused.filter((file) => !listed.some((other) => other.path === file.path && other.repository === file.repository))];
     if (!missing.length) return false;
     this.refuseMissing(capability, environment, run, missing);
@@ -381,7 +392,7 @@ export class RunAndTest implements vscode.Disposable {
         EnvironmentFilesPanel.show(this.host, { environment, capability });
       }
     } catch (error) {
-      this.update(capability, { error: (error as Error).message, notice: null, prompted: null });
+      this.update(capability, { error: refusalWords(error), notice: null, prompted: null });
     }
   }
 

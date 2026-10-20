@@ -26,7 +26,7 @@ import { enumField, registerMessageRouter, stringField } from './messages.ts';
 import {
   actionArgv, actionNotice, buildEnvironmentFilesView, CHANGING_ACTIONS, envFilesAddArgv, envFilesArgv, envFilesCreateArgv, envFilesLinkArgv,
   envFilesPathArgv, envFilesRootArgv, envFilesSuggestArgv, environmentFilesFrom, environmentFilesUnsupported, FILE_ACTIONS, fileActions, fileByKey,
-  locationFrom, personalPathProblem, relativeFilePath, suggestionFrom,
+  locationFrom, personalPathProblem, refusalWords, relativeFilePath, suggestionFrom,
   type EnvironmentFile, type EnvironmentFileSuggestion, type EnvironmentFilesReading, type FileAction, type RepositoryTarget
 } from './environment-files-model.ts';
 import { environmentFilesHtml, ENVIRONMENT_FILES_SCRIPT, ENVIRONMENT_FILES_STYLE } from './environment-files-page.ts';
@@ -107,7 +107,7 @@ export async function useExistingEnvironmentFile(host: EnvironmentFilesHost, fil
   return true;
 }
 
-const messageOf = (error: unknown): string => (error as Error)?.message || String(error);
+const messageOf = (error: unknown): string => refusalWords(error) || String(error);
 
 export class EnvironmentFilesPanel implements vscode.Disposable {
   private static current: EnvironmentFilesPanel | null = null;
@@ -244,11 +244,11 @@ export class EnvironmentFilesPanel implements vscode.Disposable {
     if (!action) return;
     this.notice = null; this.error = null;
     if (action === 'copy-draft' || action === 'copy-command') {
-      const value = action === 'copy-draft' ? this.suggestion?.draft : this.suggestion?.command;
+      const value = action === 'copy-draft' ? this.suggestion?.valid ? this.suggestion.draft : null : this.suggestion?.command;
       if (!value) return;
       await vscode.env.clipboard.writeText(value);
       void vscode.window.setStatusBarMessage(action === 'copy-draft'
-        ? '$(clippy) Copied the singularity/environments.yml additions. They hold paths, never values.' : '$(clippy) Copied the command.', 4_000);
+        ? '$(clippy) Copied the drafted singularity/environments.yml. It holds names and paths, never a secret value.' : '$(clippy) Copied the command.', 4_000);
       return;
     }
     if (action === 'suggest') return this.suggest();

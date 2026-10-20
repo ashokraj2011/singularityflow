@@ -287,6 +287,13 @@ test('the native command shim executes the selected CLI and preserves literal ar
     const output = await installerProcess(batch?.executable || shim, batch?.arguments || args, {
       capture: true, cwd: f.home, ...batch?.spawnOptions });
     assert.deepEqual(JSON.parse(output.stdout), args);
+    for (const invalid of [`2|${runtimeId}|${release}\n`, `1|${runtimeId}|${'g'.repeat(64)}\n`,
+      `1|${runtimeId}|${release}|extra\n`, `1|${runtimeId}|${release.slice(1)}\n`,
+      `1|${runtimeId}|${release.slice(1)}&\n`]) {
+      await writeFile(path.join(f.root, 'active'), invalid);
+      await assert.rejects(installerProcess(batch?.executable || shim, batch?.arguments || args, {
+        capture: true, cwd: f.home, ...batch?.spawnOptions }), /failed/);
+    }
   } catch (error) {
     if (process.platform === 'win32') {
       const findstr = path.join(process.env.SystemRoot, 'System32', 'findstr.exe');

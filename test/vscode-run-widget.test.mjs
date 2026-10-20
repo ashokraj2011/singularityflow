@@ -346,3 +346,52 @@ test('the real engine\'s app plan and app status become run configurations, rows
   assert.deepEqual(configurations.map((item) => model.configurationRow(item).contextValue),
     ['sflow.runConfiguration.stopped.debuggable', 'sflow.runConfiguration.stopped']);
 });
+
+test('a typed entry\'s confirmation shows its before-launch steps, the variables it sets, and every environment it covers', () => {
+  // Seen in a real VS Code: the page showed only the command line, while app start also ran the
+  // before-launch step and set FEATURE_FLAGS, and the one confirmation also let qa run unseen.
+  const api = {
+    capability: 'shop', repository: 'shop', id: 'api', name: 'Api', type: 'node', argv: ['node', 'server/api.mjs', '--label', 'base'],
+    workingDirectory: '.', url: 'http://127.0.0.1:8091/', ready: { http: '/health', timeoutMs: 30000 }, commandSha256: SHA,
+    resolved: { argv: ['node', 'server/api.mjs', '--label', 'base'], envNames: ['FEATURE_FLAGS'], beforeLaunch: [{ argv: ['node', 'scripts/prepare.mjs'], workingDirectory: '.' }] },
+    environments: [
+      { name: 'dev', status: 'bound', default: true, resolved: { argv: ['node', 'server/api.mjs', '--label', 'dev'], envNames: ['FEATURE_FLAGS'],
+        beforeLaunch: [{ argv: ['node', 'scripts/prepare.mjs'], workingDirectory: '.' }] } },
+      { name: 'qa', status: 'bound', default: false, resolved: { argv: ['node', 'server/api.mjs', '--label', 'qa'], envNames: ['FEATURE_FLAGS', 'QA_ONLY'],
+        beforeLaunch: [{ argv: ['node', 'scripts/prepare.mjs', '--qa'], workingDirectory: 'tools' }, { argv: ['node', 'scripts/seed.mjs'], workingDirectory: '.' }] } }
+    ],
+    debug: { runtime: 'node', port: 9231, suspend: false, argv: ['node', '--inspect=127.0.0.1:9231', 'server/api.mjs'], environmentNames: [], notes: [] }
+  };
+  const { entries, dropped } = runModel.appPlanFrom({ entries: [api] });
+  assert.deepEqual(dropped, []);
+  const [entry] = entries;
+  assert.deepEqual(runModel.launchDetail(entry, 'qa'), { beforeLaunch: [{ argv: ['node', 'scripts/prepare.mjs', '--qa'], workingDirectory: 'tools' },
+    { argv: ['node', 'scripts/seed.mjs'], workingDirectory: '.' }], envNames: ['FEATURE_FLAGS', 'QA_ONLY'] });
+  assert.deepEqual(runModel.launchDetail(entry, null).envNames, ['FEATURE_FLAGS'], 'without an environment, the entry\'s own');
+  const request = runModel.startConfirmationRequest(entry, 'dev');
+  assert.equal(request.title, 'Start Api for shop');
+  assert.ok(request.detail.includes([
+    'Start entry: api (Api, node)',
+    'Command: ["node","server/api.mjs","--label","dev"]',
+    'Before launch, step 1 of 1: ["node","scripts/prepare.mjs"]',
+    'Sets for the application only: FEATURE_FLAGS'
+  ].join('\n')), request.detail);
+  assert.ok(request.detail.includes([
+    'This confirmation also covers its other environment:',
+    '  qa: ["node","server/api.mjs","--label","qa"]',
+    '    Before launch, step 1 of 2: ["node","scripts/prepare.mjs","--qa"] in tools',
+    '    Before launch, step 2 of 2: ["node","scripts/seed.mjs"]',
+    '    Sets for the application only: FEATURE_FLAGS, QA_ONLY'
+  ].join('\n')), request.detail);
+  const debug = runModel.debugStartConfirmationRequest(entry, 'qa').detail;
+  assert.match(debug, /Before launch, step 2 of 2: \["node","scripts\/seed.mjs"\]/);
+  assert.match(debug, /This confirmation also covers its other environment:\n {2}dev: \["node","--inspect=127\.0\.0\.1:9231","server\/api\.mjs"\]/);
+  // An entry without environments or launch details reads exactly as before.
+  const plainRequest = runModel.startConfirmationRequest(runModel.appPlanFrom([plain()]).entries[0], null).detail;
+  assert.doesNotMatch(plainRequest, /Before launch|Sets for the application|also covers/);
+  // A step VS Code cannot show exactly would run unseen: the entry is not offered at all.
+  const hidden = runModel.appPlanFrom({ entries: [{ ...api, id: 'hidden', resolved: { ...api.resolved, beforeLaunch: [{ argv: 'npm ci' }] } }] });
+  assert.deepEqual([hidden.entries.length, hidden.dropped], [0, ['hidden']]);
+  const bare = runModel.appPlanFrom({ entries: [{ ...api, id: 'bare', environments: [], resolved: { ...api.resolved, beforeLaunch: [['node', 'x.mjs']] } }] }).entries[0];
+  assert.deepEqual(runModel.launchDetail(bare, null).beforeLaunch, [{ argv: ['node', 'x.mjs'], workingDirectory: null }], 'a bare argv list is a step too');
+});

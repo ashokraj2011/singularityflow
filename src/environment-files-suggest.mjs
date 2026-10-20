@@ -121,6 +121,7 @@ async function candidatesIn(checkout, directories, directory, files) {
 }
 
 function draftDocument(source, additions) {
+  if (!additions.length) return { document: null, valid: true, error: null };
   if (!source) return { document: null, valid: false, error: `${ENVIRONMENT_DECLARATION_PATH} does not exist yet` };
   const document = YAML.parseDocument(source.toString('utf8'));
   for (const [environment, paths] of additions) {
@@ -173,6 +174,7 @@ export async function suggestEnvironmentFiles(scope) {
   const shared = shown.filter((candidate) => !candidate.environment && !candidate.declared);
   if (shared.length) notes.push(`${shared.map((candidate) => candidate.path).join(', ')} ${shared.length === 1 ? 'is' : 'are'} shared by every environment: declare ${shared.length === 1 ? 'it' : 'each'} under each environment that uses it; a run switches the link.`);
   if (shown.some((candidate) => candidate.tracked)) notes.push('A tracked candidate is already in Git: remove it from the repository before declaring it.');
+  if (!candidates.length || !additions.size) notes.push(candidates.length ? 'Every candidate is already declared or tracked; there is nothing to draft.' : 'No framework environment file was found by name.');
   if (truncated) notes.push(`The walk stopped after ${MAXIMUM_ENTRIES} entries; candidates deeper in the tree are not listed.`);
   return {
     schemaVersion: 1, resultType: 'sflow-env-files-suggest', repository: scope.repositoryId, checkout: scope.checkout,

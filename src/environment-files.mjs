@@ -385,7 +385,7 @@ async function pathState(scope, relative, placements, managed) {
     const link = path.resolve(path.dirname(target), await readlink(target));
     const environment = managed.get(link) ?? (record?.location === link ? record.environment : null)
       ?? (inside(scope.store, link) ? path.relative(scope.store, link).split(path.sep)[0] : null);
-    return environment ? { kind: 'placed', mode: 'symlink', target, link, environment } : { kind: 'unmanaged', target, reason: 'a link SFlow did not make' };
+    return environment ? { kind: 'placed', mode: 'symlink', target, link, environment } : { kind: 'unmanaged', target, reason: 'a link' };
   }
   if (info.isFile() && record?.mode === 'copy' && sameIdentity(record.identity, info)) {
     return { kind: 'placed', mode: 'copy', target, environment: record.environment, location: record.location };
@@ -598,8 +598,11 @@ export async function placeEnvironmentFiles(scope, files, environment, { platfor
     const state = states.get(file.path);
     if (state.kind === 'unmanaged') {
       result.unmanaged.push({ path: file.path, reason: state.reason });
-      result.notes.push(`${file.path} is ${state.reason} SFlow did not place, so it was left alone and the run uses it. Move it into the store and link it back with singularity-flow env files adopt ${shellWord(environment)} ${shellWord(file.path)}${scopeSuffix(scope)}.`);
-      if (state.reason === 'a regular file') result.reads.push({ path: file.path, location: state.target });
+      const adoptable = state.reason === 'a regular file';
+      result.notes.push(state.reason === 'not a file' ? `${file.path} is not a file; it was left alone and nothing was placed there.`
+        : `${file.path} is ${state.reason} SFlow did not place, so it was left alone and the run uses it.${adoptable ? ` Move it into the store and link it back with singularity-flow env files adopt ${shellWord(environment)} ${shellWord(file.path)}${scopeSuffix(scope)}.` : ''}`);
+      // The run reads what is there; its values are blanked like a placed file's.
+      if (state.reason !== 'not a file') result.reads.push({ path: file.path, location: state.target });
       continue;
     }
     if (file.source === 'store' && process.platform !== 'win32') {
@@ -697,7 +700,8 @@ async function reportFiles(scope, files) {
     const state = states.get(file.path);
     shown.push({
       environment: file.environment, path: file.path, origin: file.origin, template: await templateFor(scope.checkout, file.path),
-      source: file.source, location: file.location, status: fileStatus(file, state), excluded: excluded.has(file.path),
+      // Outside every repository there is nothing to exclude.
+      source: file.source, location: file.location, status: fileStatus(file, state), excluded: scope.kind === 'repository' ? excluded.has(file.path) : null,
       placedFor: state.kind === 'placed' ? state.environment : null,
       placement: state.kind === 'placed' ? state.mode : null,
       problem: tracked.has(file.path) ? 'tracked' : file.origin === 'declared' && !file.declared ? 'no-longer-declared' : null

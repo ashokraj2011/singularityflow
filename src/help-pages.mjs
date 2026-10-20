@@ -1261,6 +1261,9 @@ const PAGES = Object.freeze({
       '--environment). Their bound values are given to that process only, and only when the capability policy',
       'localIntegrationEvidence is allowed; output is shown with every bound secret replaced by [redacted:NAME].',
       'Values are bound by the person with env bind <ENV> --stdin from their own secret helper, never here.',
+      'The environment\'s files (exact localFiles and personal files, see env files) are placed into the checkout first,',
+      'under the capability\'s sourceRoots or the entry\'s working directory; a missing one refuses the start with',
+      'ENV_FILE_MISSING naming env files create and env files link, and their secret-looking values show as [redacted:FILE-KEY].',
       'An entry may add arguments per environment (arguments: { qa: [...] }, appended to argv) and a debug block',
       '(runtime java|python|node|go|dotnet, port, suspend). app start --debug adds the runtime\'s debugger on',
       '127.0.0.1 only (JDWP for java, Maven jvmArguments or a private Gradle init script; debugpy; --inspect, or npm\'s',
@@ -1313,7 +1316,8 @@ const PAGES = Object.freeze({
       '@ac requirement tags from the evidence matrix\'s scanners, the untagged count and the run history.',
       'A command linked to an environment runs with that environment\'s values only when the capability policy',
       'localIntegrationEvidence is allowed and the binding is complete; its output shows each bound secret as',
-      '[redacted:NAME]. --environment picks one of the environments the command may use.'
+      '[redacted:NAME]. --environment picks one of the environments the command may use. The environment\'s files',
+      '(env files) are placed first and a missing one refuses the whole run before any command runs (ENV_FILE_MISSING).'
     ],
     options: [
       ['--capability ID', 'A local preview of this delivery capability; by default the one that owns this checkout.'],

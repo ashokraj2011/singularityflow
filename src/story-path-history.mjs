@@ -3,6 +3,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 import { run, SingularityFlowError } from './util.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
+import { freshGitFactsRequired } from './git-fact-cache.mjs';
 
 const readers = new AsyncLocalStorage();
 /** The deferred provenance owner supplies a scoped batch, never a cross-command observation. */
@@ -12,7 +13,7 @@ export function withStoryPathHistoryReader(root, reader, read) {
 
 export function readStoryPathHistory(root, relative, label, { runCommand = run } = {}) {
   const reader = readers.getStore();
-  const batch = runCommand === run && reader?.root === path.resolve(root) ? reader.reader(relative, label) : null;
+  const batch = runCommand === run && !freshGitFactsRequired() && reader?.root === path.resolve(root) ? reader.reader(relative, label) : null;
   if (batch) return batch;
   const read = () => {
     incrementCommandCounter('story.history-batches');

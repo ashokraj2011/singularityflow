@@ -6,6 +6,8 @@ import path from 'node:path';
 import { run } from '../src/util.mjs';
 import { readStoryPathHistory } from '../src/story-path-history.mjs';
 import { storyTreeListing, withStoryTreeReads, withStoryHistoryBatch } from '../src/story-tree-read.mjs';
+import { withFreshGitFacts } from '../src/git-fact-cache.mjs';
+import { withCommandTiming } from '../src/dx-timing-context.mjs';
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provenance-batch-'));
@@ -80,4 +82,20 @@ test('optional combined inventories cannot trigger promisor network hydration', 
   const start = source.indexOf("run('git', ['log'");
   assert.ok(start > 0);
   assert.match(source.slice(start, source.indexOf('if (result.status', start)), /GIT_NO_LAZY_FETCH: '1'/u);
+});
+
+test('fresh final bindings bypass an enclosing history and tree inventory', async t => {
+  const f = await fixture(t), counters = {};
+  const timer = { increment: (name, amount = 1) => { counters[name] = (counters[name] ?? 0) + amount; },
+    measure: (_name, read) => read() };
+  await withCommandTiming(timer, () => withStoryHistoryBatch(f.root, ['story/evidence'], () => {
+    const first = readStoryPathHistory(f.root, 'story/evidence/a.json', 'a');
+    const before = counters['git.spawns'];
+    assert.deepEqual(withFreshGitFacts(() => readStoryPathHistory(f.root, 'story/evidence/a.json', 'a')), first);
+    assert.equal(counters['git.spawns'] - before, 1, 'fresh binding must ask Git, not the enclosing batch');
+  }));
+  withStoryTreeReads(f.root, ['story/evidence'], () => {
+    assert.ok(storyTreeListing(f.root, 'HEAD', ['story/evidence/a.json']));
+    assert.equal(withFreshGitFacts(() => storyTreeListing(f.root, 'HEAD', ['story/evidence/a.json'])), null);
+  });
 });

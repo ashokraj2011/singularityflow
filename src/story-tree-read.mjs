@@ -2,7 +2,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 import { run, SingularityFlowError } from './util.mjs';
-import { gitFactRequest, gitFactSnapshot } from './git-fact-cache.mjs';
+import { freshGitFactsRequired, gitFactRequest, gitFactSnapshot } from './git-fact-cache.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 
 import { withStoryPathHistoryReader } from './story-path-history.mjs';
@@ -24,6 +24,7 @@ export function withStoryTreeReads(root, paths, read) {
 }
 
 export function storyTreeListing(root, commit, selected) {
+  if (freshGitFactsRequired()) return null;
   const context = contexts.getStore();
   if (!context || context.root !== path.resolve(root) || !(OID.test(commit) || commit === 'HEAD')
       || !selected.every(value => context.paths.some(prefix => value === prefix || value.startsWith(prefix + '/')))) return null;

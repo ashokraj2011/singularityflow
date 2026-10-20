@@ -888,6 +888,17 @@ action ID, `--limit 1` for the latest invocation, or `--timeline --json` for its
 bounded timeline. Summaries omit span arrays by default.
 The report never reruns the action or reconstructs Git history.
 
+In VS Code, open **Activity & logs → Performance**, or run **Singularity Flow:
+Performance Report** from the Command Palette. The view reads up to 64 recent
+local command summaries, with category elapsed shares, call counts, physical Git
+spawns, coverage, host timings when available, and the ten slowest recorded
+operations per command. Filter by command/action ID, outcome, request temperature
+and time range, select a command, or Refresh. Filters apply to the loaded window.
+**Trace settings** opens the capture setting; opening the report never enables
+capture, fetches a remote, calls a model or reruns the measured command. Saved
+traces can still be read while capture is off. The report follows this window's
+selected repository and discards superseded reads on a workspace switch.
+
 The eight categories are remote/network operations, local Git, Copilot/model
 requests, shared/targeted file access, Node loading/compute, workflow execution,
 external processes and waiting. It separates inclusive/exclusive service time

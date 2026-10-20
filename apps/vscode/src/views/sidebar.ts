@@ -51,6 +51,7 @@ const ACTION_COMMANDS: Record<string, string> = {
   journal: 'singularityFlow.openJournal',
   diagnostics: 'singularityFlow.openDiagnostics',
   'activity-log': 'singularityFlow.openActivityLog',
+  performance: 'singularityFlow.openPerformanceReport',
   'logs-open': 'singularityFlow.openWorkspaceLogs',
   'logs-refresh': 'singularityFlow.refreshWorkspaceLogs',
   'configuration-center': 'singularityFlow.openConfigurationCenter',
@@ -114,6 +115,7 @@ export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
   { id: 'flow-impact', label: 'Flow impact', description: 'studies and reports', icon: 'impact', command: ACTION_COMMANDS['flow-impact']! },
   { id: 'logs-open', label: 'Workspace logs', description: 'combined workspace timeline', icon: 'commit', command: ACTION_COMMANDS['logs-open']! },
   { id: 'activity-log', label: 'Activity log', description: 'what happened, in order', icon: 'commit', command: ACTION_COMMANDS['activity-log']! },
+  { id: 'performance', label: 'Performance', description: 'category timings, call counts and slow operations', icon: 'impact', command: ACTION_COMMANDS.performance! },
   { id: 'prompt-audit', label: 'Prompt audit', description: 'what was sent to models', icon: 'prompt', command: ACTION_COMMANDS['prompt-audit']! },
   { id: 'help-open', label: 'Help Center', description: 'offline guides and commands', icon: 'help', command: ACTION_COMMANDS['help-open']! }
 ]);
@@ -404,7 +406,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       'work-tools': { title: 'Work tools', ids: ['current-work-actions', 'story-intake', 'artifacts', 'story-analytics', 'understand-changes', 'adhoc-work', 'goals', 'impact-form', 'epic-stories', 'command-center', 'flow-impact'] },
       'understand-changes': { title: 'Understand changes', ids: ['change-explorer', 'code-explainer', 'repository-knowledge', 'code-explanation', 'comprehension-center'] },
       'help-tools': { title: 'Help & diagnostics', ids: ['about', 'help-open', 'diagnostics', 'fault-repairs', 'after-install', 'local-reset'] },
-      'activity-tools': { title: 'Activity & logs', ids: ['logs-open', 'activity-log', 'prompt-audit', 'journal'] }
+      'activity-tools': { title: 'Activity & logs', ids: ['logs-open', 'activity-log', 'performance', 'prompt-audit', 'journal'] }
     };
     const selected = groups[group];
     if (!selected) return;

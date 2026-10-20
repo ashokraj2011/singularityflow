@@ -163,12 +163,34 @@ test('report projects untrusted diagnostic fields, ignores invalid records and j
   const report = await readPerformanceReport(root);
   assert.equal(report.traces[0].host.queueMs, 3);
   assert.doesNotMatch(JSON.stringify(report), /private|example/u);
+  assert.equal(report.traces[0].slowOperations[0].name, 'file.read');
+  assert.equal(report.traces[0].timeline, undefined, 'slow-operation summaries require no full timeline response');
   assert.match(performanceReportText(report), /host: 10\.0ms/u);
   assert.equal(report.warnings.length, 1);
   host.actionId = randomUUID();
   await writeFile(path.join(root, 'performance', `${record.parentSpanId}.host.json`), JSON.stringify(host));
   assert.equal((await readPerformanceReport(root)).traces[0].host, null);
   await assert.rejects(readPerformanceReport(root, { actionId: '../../private' }), /opaque action/u);
+});
+
+test('report summaries include only the ten slowest sanitized operations, never stage spans or full timelines', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'sflow-slow-operations-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  let now = 0n;
+  const trace = createPerformanceTrace({ clock: () => now, started: 0n });
+  for (let index = 0; index < 20; index++) {
+    const span = trace.begin('file', `file.read-${index}`);
+    now += BigInt(index + 1) * 1000000n;
+    span.end();
+  }
+  trace.stage('execute', 0, 210);
+  await writePerformanceTrace(root, trace.finish());
+  const summary = (await readPerformanceReport(root)).traces[0];
+  assert.equal(summary.timeline, undefined);
+  assert.equal(summary.slowOperations.length, 10);
+  assert.deepEqual(summary.slowOperations.map(row => row.durationMs), [20, 19, 18, 17, 16, 15, 14, 13, 12, 11]);
+  assert.equal(summary.slowOperations[0].name, 'file.read-19');
+  assert.deepEqual(Object.keys(summary.slowOperations[0]).sort(), ['category', 'durationMs', 'name', 'outcome']);
 });
 
 test('host observations use the exact main/linked-worktree store without Git requests or recreating reset stores', async t => {

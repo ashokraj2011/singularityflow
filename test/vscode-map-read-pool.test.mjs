@@ -113,6 +113,7 @@ test('workflow proposal inventory is read-only while proposal status and owner r
   const f = await fixture(t);
   const c = f.client();
   for (const args of [
+    ['logs', 'performance'],
     ['workflow', 'proposal-status'], ['workflow', 'author', 'read'],
     ['configuration', 'validate'], ['revision', 'attachments', 'status'], ['revision', 'card'],
     ['factory-reset', '--dry-run']

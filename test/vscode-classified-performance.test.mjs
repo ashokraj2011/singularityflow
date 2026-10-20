@@ -39,6 +39,9 @@ test('host tracing is opt-in, preserves payloads and propagates only opaque corr
   assert.ok(timings[1].performance.processMs >= timings[1].performance.launchCallMs);
   await invoke({ SINGULARITY_FLOW_PERF_TRACE: '1', SINGULARITY_FLOW_PERF_ACTION_ID: '/private/not-an-id' });
   assert.match(timings[2].performance.actionId, /^[a-f0-9-]{36}$/u);
+  await invokeCli({ executable: 'node', cli: '/unused', repository, args: ['logs', 'performance', '--json'],
+    env: { SINGULARITY_FLOW_PERF_TRACE: '1' }, spawnImpl: () => fakeChild(), onTiming: timing => timings.push(timing) });
+  assert.equal(timings[3].performance, undefined, 'reading a report must not evict real traces with orphan host records');
 });
 
 test('action context is async-local, nested actions retain their parent and separate actions do not leak', async () => {

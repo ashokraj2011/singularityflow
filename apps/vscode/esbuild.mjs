@@ -71,6 +71,7 @@ const options = {
     'gateway-status-worker': 'src/gateway-status-worker.ts',
     'help-runtime': 'src/help-runtime.ts',
     'performance-runtime': '../../src/performance-trace-store.mjs',
+    'performance-view-runtime': 'src/performance-view-runtime.ts',
     'runtime-prewarm': 'src/runtime-prewarm.ts',
     'lazy-panels-runtime': 'src/lazy-panels-runtime.ts',
     'support-runtime': 'src/support-runtime.ts',

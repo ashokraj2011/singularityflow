@@ -138,6 +138,10 @@ export async function readPerformanceReport(base, { actionId = null, limit = 20,
       startedAt: trace.startedAt, platform: trace.platform, temperature: trace.temperature, outcome: trace.outcome,
       cpu: trace.cpu, memory: trace.memory, counters: trace.counters,
       ...summarizePerformanceTrace(trace), spanCount: trace.spans.length,
+      slowOperations: trace.spans.filter(span => span.kind === 'operation')
+        .sort((a, b) => (b.endMs - b.startMs) - (a.endMs - a.startMs)).slice(0, 10)
+        .map(span => ({ name: span.name, category: span.category, outcome: span.outcome,
+          durationMs: Math.round((span.endMs - span.startMs) * 1000) / 1000 })),
       ...(includeTimeline ? { timeline, timelineTruncated: timeline.length < trace.spans.length } : {}) });
   }
   for (const trace of traces) {

@@ -298,6 +298,8 @@ function cacheableRead(args: string[]): boolean {
   return !args.includes('--for-agent') && !['check', 'review-source', 'choices', 'phase', 'decisions', 'app', 'tests'].includes(args[0] ?? '')
     && !args.includes('--submission-readiness') && !args.includes('--submit-if-ready')
     && !(args[0] === 'configuration' && args[1] === 'validate')
+    // Refresh must see traces appended by another CLI/Copilot host, not a previous report read.
+    && !(args[0] === 'logs' && args[1] === 'performance')
     // An explicit test-setup inspection must reread the selected module manifests, including
     // edits made since the previous click; suggestions are not a cached readiness receipt.
     && !(args[0] === 'capability' && args[1] === 'test-setup')

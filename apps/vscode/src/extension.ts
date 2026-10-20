@@ -165,6 +165,15 @@ const REPOSITORY_SETUP_CHANGED_MESSAGE =
 
 type LazyPanelsRuntime = typeof import('./lazy-panels-runtime.ts');
 let lazyPanelsRuntime: LazyPanelsRuntime | null = null;
+type PerformanceViewRuntime = typeof import('./performance-view-runtime.ts');
+let performanceViewRuntime: PerformanceViewRuntime | null = null;
+function performanceViews(): PerformanceViewRuntime {
+  if (performanceViewRuntime) return performanceViewRuntime;
+  const started = performance.now();
+  performanceViewRuntime = require(path.join(__dirname, 'performance-view-runtime.cjs')) as PerformanceViewRuntime;
+  recordHostRuntimeLoad('panels', performance.now() - started);
+  return performanceViewRuntime;
+}
 // Repository runtimes can be bound more than once per activation; Copilot Chat counting starts once.
 let copilotChatCountingStarted = false;
 function lazyPanels(): LazyPanelsRuntime {
@@ -982,7 +991,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.startApplication', 'singularityFlow.runTests', 'singularityFlow.testSummary', 'singularityFlow.editRunConfigurations', ...RUN_CONFIGURATION_COMMANDS,
     'singularityFlow.publishConfiguration',
     'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.togglePromptLog', 'singularityFlow.openActivityLog',
-    'singularityFlow.openWorkspaceLogs', 'singularityFlow.refreshWorkspaceLogs', 'singularityFlow.openSpecificationTrace',
+    'singularityFlow.openWorkspaceLogs', 'singularityFlow.refreshWorkspaceLogs', 'singularityFlow.openPerformanceReport', 'singularityFlow.openSpecificationTrace',
     'singularityFlow.inspectCompositionCache', 'singularityFlow.checkLedgerDeployment',
     'singularityFlow.openCopilot', 'singularityFlow.openMeteredCopilot',
     'singularityFlow.countCopilotChatUsage', 'singularityFlow.stopCountingCopilotChatUsage',
@@ -5621,6 +5630,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     inboxRepositoryBinding = null;
     resultPanelRepositoryChanged(canonicalTarget);
     client.useRepository(canonicalTarget);
+    performanceViewRuntime?.PerformanceReportPanel.repositoryChanged(client);
     sidebar.setPromptLog(null);
     watchGovernedRepository(canonicalTarget, targetGitCommonDirectory);
     workspaceLabel = selected.workspaceName;
@@ -9111,6 +9121,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const { WorkspaceLogsPanel } = lazyPanels();
       return WorkspaceLogsPanel.show(context, client, 'activity');
     },
+    'singularityFlow.openPerformanceReport': () => performanceViews().PerformanceReportPanel.show(context, client),
     'singularityFlow.openGoals': async () => {
       const { GoalsPanel } = lazyPanels();
       return GoalsPanel.show(context, client, () => [

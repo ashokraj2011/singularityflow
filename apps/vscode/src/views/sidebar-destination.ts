@@ -18,7 +18,8 @@ export function sidebarDestination(viewType: string | null, home = false): strin
     'singularityFlow.afterInstall': 'after-install',
     'singularityFlow.about': 'about',
     'singularityFlow.helpCenter': 'help-tools',
-    'singularityFlow.workspaceLogs': 'activity-tools'
+    'singularityFlow.workspaceLogs': 'activity-tools',
+    'singularityFlow.performanceReport': 'activity-tools'
   };
   return routes[type] ?? null;
 }

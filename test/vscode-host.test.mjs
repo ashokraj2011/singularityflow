@@ -31,6 +31,8 @@ import { createAutoFlightState, readAutoFlightState } from '../src/auto/auto-fli
 import { publishOrganisationCapabilityMap } from '../src/organisation.mjs';
 import { run } from '../src/util.mjs';
 import { readLocalDocument } from '../src/document-storage.mjs';
+import { createPerformanceTrace } from '../src/performance-trace.mjs';
+import { writePerformanceTrace } from '../src/performance-trace-store.mjs';
 import { isolatedHomeEnvironment, isolatedMachineEnvironment } from '../scripts/test-machine-state.mjs';
 
 process.env.NODE_ENV = 'test';
@@ -254,6 +256,7 @@ function stubVscode() {
   }
 
   const windowState = new EventEmitter();
+  const configurationChanged = new EventEmitter();
   const api = {
     EventEmitter,
     TreeItem,
@@ -268,6 +271,7 @@ function stubVscode() {
     ExtensionContext: null,
     workspace: {
       workspaceFolders: null,
+      onDidChangeConfiguration: configurationChanged.event,
       registerTextDocumentContentProvider: () => ({ dispose() {} }),
       getConfiguration: () => ({ get: () => '' }),
       onDidSaveTextDocument: (listener) => { registered.saveListeners.push(listener); return { dispose() {} }; },
@@ -414,6 +418,7 @@ function stubVscode() {
     api.window.state = { focused };
     windowState.fire(api.window.state);
   };
+  registered.fireConfigurationChanged = event => configurationChanged.fire(event);
   registered.warningActions = [];
   api.window.showWarningMessage = async (message, ...rest) => {
     registered.warnings.push(message);
@@ -2140,6 +2145,57 @@ async function activated(options = {}) {
   await extension.activate(context());
   return { root, api, registered, extension };
 }
+
+test('Performance opens from Activity & logs and the palette, reads real saved traces, filters locally and refreshes', async t => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  const { api, registered } = stubVscode();
+  const settingListeners = new Set();
+  api.workspace.onDidChangeConfiguration = listener => {
+    settingListeners.add(listener); return { dispose: () => settingListeners.delete(listener) };
+  };
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api), hostContext = context();
+  t.after(() => { for (const disposable of hostContext.subscriptions) disposable.dispose?.(); });
+  await extension.activate(hostContext);
+  const runtime = path.join(packageRoot, 'apps/vscode/dist/performance-view-runtime.cjs');
+  assert.equal(hostRequire.cache[hostRequire.resolve(runtime)], undefined, 'the report is absent from activation');
+  const base = path.join(root, '.git', 'singularity-flow', 'dx');
+  await mkdir(base, { recursive: true });
+  const record = createPerformanceTrace({ command: 'phase' });
+  record.run(() => record.measure('file', 'file.read', () => Buffer.from('fixture')));
+  const first = record.finish({ counters: { 'git.spawns': 2 }, outcome: 'success' });
+  await writePerformanceTrace(base, first);
+  const before = run('git', ['status', '--porcelain'], { cwd: root }).stdout;
+  api.window.showQuickPick = async (items, options) => {
+    registered.quickPicks.push({ items, options }); return items.find(item => item.id === 'performance');
+  };
+  const navigation = registered.webviewViews.get('singularityFlow.navigation');
+  await navigation.post({ type: 'action', action: 'activity-tools' });
+  const panel = await until(() => registered.panels.find(entry => entry.id === 'singularityFlow.performanceReport'));
+  await until(() => panel.webview.html.includes(first.invocationId));
+  assert.equal(registered.quickPicks.at(-1).options.title, 'Activity & logs');
+  assert.match(panel.webview.html, /Capture off/);
+  assert.match(panel.webview.html, /file.read/);
+  assert.match(panel.webview.html, /Where the time went/);
+  assert.match(panel.webview.html, /Content-Security-Policy/);
+  assert.equal(run('git', ['status', '--porcelain'], { cwd: root }).stdout, before);
+  await panel.post({ type: 'filters', filters: { search: '', command: '', outcome: 'timeout', temperature: '', hours: '' } });
+  assert.match(panel.webview.html, /No commands match/);
+  await panel.post({ type: 'filters', filters: { search: '', command: '', outcome: '', temperature: '', hours: '' } });
+  await panel.post({ type: 'settings' });
+  assert.ok(registered.executedCommands.some(entry => entry.id === 'workbench.action.openSettings'
+    && entry.args[0] === 'singularityFlow.performanceTrace'));
+  const next = createPerformanceTrace({ command: 'status' });
+  next.run(() => next.measure('git-local', 'git.status', () => 'okay'));
+  const second = next.finish({ outcome: 'success' }); await writePerformanceTrace(base, second);
+  await panel.post({ type: 'refresh' });
+  await until(() => panel.webview.html.includes(second.invocationId));
+  await registered.commands.get('singularityFlow.openPerformanceReport')();
+  assert.equal(registered.panels.filter(entry => entry.id === 'singularityFlow.performanceReport').length, 1);
+  await until(() => !panel.webview.html.includes('Refreshing…'));
+  assert.deepEqual(registered.errors, []);
+});
 
 test('the explain menus open the Change Explorer on a file, and on the change at the cursor', async (t) => {
   if (!requireBundle(t)) return;

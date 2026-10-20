@@ -57,6 +57,7 @@ export const LINK_HELP: Readonly<Record<string, NavigatorHelp>> = Object.freeze(
   'fault-repairs': { summary: 'Record a failure and recover from it safely.', cli: 'singularity-flow fault', topic: 'fault-intake-and-repair' },
   journal: { summary: 'Your private, machine-local work history. Never evidence.', cli: 'singularity-flow journal', topic: 'local-work-journal' },
   'activity-log': { summary: 'The activity recorded for this workspace.', cli: 'singularity-flow logs', topic: 'activity-and-prompt-audit' },
+  performance: { summary: 'Classified local timings, operation counts and slow operations. No actions are rerun.', cli: 'singularity-flow logs performance', topic: 'activity-and-prompt-audit' },
   'prompt-audit': { summary: 'Exactly what was sent to a model, and when.', cli: 'singularity-flow prompt-log', topic: 'activity-and-prompt-audit' },
   'local-reset': { summary: 'Preview and clean up machine-local Singularity Flow data.', cli: 'singularity-flow factory-reset', topic: 'resets-and-cleanup' },
   'logs-open': { summary: 'Open the combined workspace timeline.', cli: 'singularity-flow logs', topic: 'activity-and-prompt-audit' },

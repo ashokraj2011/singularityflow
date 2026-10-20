@@ -65,6 +65,8 @@ export const VSCODE_GENERATED_FILES = new Set([
   'dist/gateway-runtime.cjs',
   'dist/gateway-status-worker.cjs',
   'dist/help-runtime.cjs',
+  'dist/performance-runtime.cjs',
+  'dist/performance-view-runtime.cjs',
   'dist/runtime-prewarm.cjs',
   'dist/lazy-panels-runtime.cjs',
   'dist/support-runtime.cjs',

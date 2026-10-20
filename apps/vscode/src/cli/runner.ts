@@ -1889,7 +1889,8 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
   // A refusal printed as prose also carries its structured record, so a text run's refusal card
   // shows the engine's reasons and actions rather than generic diagnostics [E2G criterion 16].
   const childEnv: NodeJS.ProcessEnv = { ...env, SINGULARITY_FLOW_REFUSAL_ENVELOPE: 'stderr-v1', ...(progress ? { SINGULARITY_FLOW_PROGRESS: 'stderr-v1' } : {}) };
-  const traceEnabled = env.SINGULARITY_FLOW_PERF_TRACE === '1';
+  const traceEnabled = env.SINGULARITY_FLOW_PERF_TRACE === '1'
+    && !(args[0] === 'logs' && args[1] === 'performance');
   const opaqueId = (value: string | undefined): string | null => value && /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/u.test(value) ? value : null;
   const actionId = traceEnabled ? opaqueId(env.SINGULARITY_FLOW_PERF_ACTION_ID) ?? randomUUID() : null;
   const parentSpanId = traceEnabled ? randomUUID() : null;

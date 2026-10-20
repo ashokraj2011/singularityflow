@@ -409,7 +409,7 @@ export const RUN_CONFIGURATIONS_STYLE = `
 .cf-command-line { white-space:pre-wrap; overflow-wrap:anywhere; }
 .cf-errors { margin:.4rem 0; padding-left:1rem; color:var(--vscode-errorForeground); }
 .cf-errors li { overflow-wrap:anywhere; }
-.cf-footer { position:sticky; bottom:0; display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; padding:.5rem 0; margin-top:.75rem; border-top:var(--sf-border); background:var(--vscode-editor-background); }
+.cf-footer { position:sticky; bottom:0; z-index:3; display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; padding:.5rem 0; margin-top:.75rem; border-top:var(--sf-border); background:var(--vscode-editor-background); }
 .cf-footer .grow { flex:1; }
 .cf-dirty { color:var(--vscode-gitDecoration-modifiedResourceForeground, #d7a000); font-weight:600; }
 .cf-apply-problem { color:var(--vscode-errorForeground); }

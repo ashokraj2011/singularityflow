@@ -521,3 +521,13 @@ test('the Run & test section opens the editor, for the capability and for one st
   assert.match(html, /data-rt="configurations" data-rt-capability="payments-web">[^<]*<svg[^]*?<\/svg>Edit configurations…<\/button>/);
   assert.match(html, /data-rt="configurations" data-rt-capability="payments-web" data-rt-entry="api" title="Edit this run configuration">/);
 });
+
+test('the sticky footer paints above the sticky configuration list, so a narrow editor never shows one through the other', () => {
+  // Seen in a real VS Code with the editor in a narrow split: the list (sticky, z-index 2) slid over
+  // the footer's status and Discard / Keep editing / Apply / OK row.
+  const style = pageModule.RUN_CONFIGURATIONS_STYLE;
+  const layer = (selector) => Number(new RegExp(`(?:^|\\n)${selector.replace('.', '\\.')} \\{[^}]*z-index:(\\d+)`).exec(style)?.[1] ?? 0);
+  assert.ok(layer('.cf-side') > 0, 'the list is a sticky layer');
+  assert.ok(layer('.cf-footer') > layer('.cf-side'), 'the footer is above it');
+  assert.match(style, /\.cf-footer \{[^}]*position:sticky[^}]*background:var\(--vscode-editor-background\)/, 'and opaque');
+});

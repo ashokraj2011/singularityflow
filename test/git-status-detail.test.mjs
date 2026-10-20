@@ -190,8 +190,11 @@ test('real Git output round-trips a rename with whitespace and a dirty tracked p
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.name', 'GAL Test']);
   git(['config', 'user.email', 'gal@example.com']);
-  const source = 'old\tline\nname';
-  const target = 'new space\tname';
+  // Win32 filenames cannot contain tabs/newlines. Exercise real Git's lossless rename framing
+  // with supported whitespace there; the raw-byte parser cases above cover control bytes on
+  // every host, while POSIX also round-trips them through a real filesystem.
+  const source = process.platform === 'win32' ? 'old space name' : 'old\tline\nname';
+  const target = process.platform === 'win32' ? 'new space name' : 'new space\tname';
   await writeFile(path.join(root, source), 'original\n');
   git(['add', '--', source]);
   git(['commit', '-qm', 'initial']);

@@ -557,6 +557,7 @@ test('managed Playwright launch revalidation blocks ACL failure and verify-to-sp
           packageDirectory, 'node_modules/@playwright/mcp/cli.replacement.js'
         );
         await writeFile(replacement, await readFile(executable));
+        if (process.platform === 'win32') await secureWindowsAuthAcl(replacement, { directory: false, apply: true });
         await rename(replacement, executable);
       },
       spawnCommand() { starts += 1; throw new Error('must not spawn'); }
@@ -701,6 +702,11 @@ test('Playwright warm rejects a symlinked package parent before acquisition can 
   const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-mcp-outside-'));
   await writeFile(path.join(outside, 'sentinel'), 'unchanged\n');
   await mkdir(packages, { recursive: true });
+  // Reach the traversal boundary with an otherwise qualified private container; a legacy
+  // inherited ACL is independently refused before this adversarial symlink is inspected.
+  if (process.platform === 'win32') await secureWindowsAuthAcl(path.dirname(packages), {
+    directory: true, recursive: true, apply: true
+  });
   await symlink(outside, path.join(packages, 'playwright'), process.platform === 'win32' ? 'junction' : 'dir');
   let npmInvocations = 0;
 

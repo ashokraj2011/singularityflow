@@ -37,6 +37,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     'commands/prepare.mjs', 'commands/review-source.mjs', 'commands/submit.mjs', 'commands/approve.mjs', 'commands/phase-lifecycle.mjs']) {
     const closure = await graph(file);
     assert.equal(closure.files.has(path.join(sourceRoot, 'cli.mjs')), false, `${file} re-imported the monolith`);
+    if (file === 'commands/start.mjs') assert.equal(closure.files.has(path.join(sourceRoot, 'onboard.mjs')), false,
+      'pinned resume and isolated authority handoff cannot eagerly load optional onboarding');
     if (['commands/approve.mjs', 'commands/phase-lifecycle.mjs'].includes(file)) {
       assert.equal(closure.files.has(path.join(sourceRoot, 'commands/shared/phase-review.mjs')), false,
         `${file} eagerly loads optional full-document rendering for the compact agent route`);

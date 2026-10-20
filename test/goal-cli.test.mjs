@@ -122,8 +122,12 @@ test('goal sync reports a killed pre-commit creation as recovered instead of not
   }, null, 2)}\n`);
   const killed = spawnSync(process.execPath, [
     path.join(packageRoot, 'test', 'fixtures', 'governed-goal-crash-child.mjs'), control
-  ], { encoding: 'utf8', timeout: 20_000 });
-  assert.equal(killed.signal, 'SIGKILL', killed.stderr || killed.stdout);
+  ], { encoding: 'utf8', timeout: process.platform === 'win32' ? 120_000 : 20_000 });
+  assert.equal(killed.error, undefined, killed.error?.message);
+  if (process.platform === 'win32') {
+    assert.equal(killed.status, 1, killed.stderr || killed.stdout);
+    assert.equal(killed.signal, null, 'Windows TerminateProcess has no POSIX signal receipt');
+  } else assert.equal(killed.signal, 'SIGKILL', killed.stderr || killed.stdout);
 
   const recovered = JSON.parse(cli(['goal', 'sync', id, '--json'], env, base));
   assert.equal(recovered.outcome.messageId, 'goal.precommit-recovered');

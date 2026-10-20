@@ -128,7 +128,11 @@ test('approved skill snapshot rejects a Git submodule entry', async (t) => {
 test('approved skill snapshot rejects tree paths excluded by configuration traversal', async (t) => {
   const value = await fixture(t);
   const commit = publish(value, { unsafeTreePath: 'singularity/skills/exact/bad:name.md' });
-  await assert.rejects(loadStoryConfigurationSnapshot(authority(value, commit)), {
-    code: 'SKP_PATH_REFUSED'
+  await assert.rejects(loadStoryConfigurationSnapshot(authority(value, commit)), error => {
+    if (error.code === 'SKP_PATH_REFUSED') return true;
+    // Native Git/NTFS can refuse this exact hostile tree even before SKP materialization.
+    // No other failure (notably timeout, authentication or an unreadable tree) satisfies it.
+    return process.platform === 'win32'
+      && String(error.message).includes("invalid path 'singularity/skills/exact/bad:name.md'");
   });
 });

@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { parseImmutableJson } from './immutable-json-read.mjs';
-import { readStoryPathHistory, withStoryHistoryBatch } from './story-path-history.mjs';
-import { storyTreeListing, withStoryTreeReads } from './story-tree-read.mjs';
+import { readStoryPathHistory } from './story-path-history.mjs';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 import { constants as fsConstants } from 'node:fs';
 import { lstat, mkdir, open, rm } from 'node:fs/promises';
@@ -1740,6 +1739,7 @@ function ensureCompleteStoryCreationHistory(root, label) {
  */
 const exactCommitListings = new Map();
 const FULL_COMMIT_ID = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u;
+let provenanceTrees = null;
 
 function listExactCommit(root, commit, selected, listing) {
   if (!FULL_COMMIT_ID.test(commit) || process.env.GIT_DIR || process.env.GIT_OBJECT_DIRECTORY) return listing();
@@ -1761,7 +1761,7 @@ function gitTreeEntries(root, commit, paths, label, {
   const entries = new Map();
   for (let offset = 0; offset < paths.length; offset += 256) {
     const selected = paths.slice(offset, offset + 256);
-    const listed = storyTreeListing(root, commit, selected) ?? listExactCommit(root, commit, selected, () => run('git', ['ls-tree', '-z', commit, '--', ...selected], {
+    const listed = provenanceTrees?.storyTreeListing(root, commit, selected) ?? listExactCommit(root, commit, selected, () => run('git', ['ls-tree', '-z', commit, '--', ...selected], {
       cwd: root, encoding: 'buffer', allowFailure: true,
       env: { ...process.env, GIT_NO_LAZY_FETCH: '1' },
       maxBuffer: Math.max(64 * 1024, selected.length * 1024)
@@ -1923,7 +1923,7 @@ function rejectionBindingVersion(binding) {
   catch { fail('Rejected review binding has no registered audit reader.', 'WFA_AMENDMENT_INVALID'); }
 }
 
-/** Audited rejections remain bound to the immutable decision commit without selecting a new pin. */
+/** Share rejection proofs only through the existing routine-verification boundary. */
 export async function verifyStoryRejectionAudit(root, config, workflow) {
   if (!amendmentSummaries(workflow).length && !(workflow.resolution?.phases ?? []).some(phase => phase.kind === 'skill')) return;
   const { cachedRepositoryCheck } = await import('./repository-check-cache.mjs');
@@ -1935,11 +1935,12 @@ export async function verifyStoryRejectionAudit(root, config, workflow) {
   }));
 }
 
-function withWorkflowProvenance(root, config, workflow, read) {
+async function withWorkflowProvenance(root, config, workflow, read) {
+  provenanceTrees ??= await import('./story-tree-read.mjs');
   const namespaces = ['context/skill-amendments', 'context/test-recovery/command-amendments', 'config/wfa/snapshots']
     .map(relative => storyRelative(config, workflow.workItem.id, relative));
-  return withStoryTreeReads(root, [storyRelative(config, workflow.workItem.id, 'workflow.json'), ...namespaces],
-    () => withStoryHistoryBatch(root, namespaces, read));
+  return provenanceTrees.withStoryTreeReads(root, [storyRelative(config, workflow.workItem.id, 'workflow.json'), ...namespaces],
+    () => provenanceTrees.withStoryHistoryBatch(root, namespaces, read));
 }
 
 export function verifyRejectedSkillVersionReviews(root, config, workflow) {

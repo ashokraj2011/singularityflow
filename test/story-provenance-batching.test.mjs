@@ -4,8 +4,8 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { run } from '../src/util.mjs';
-import { readStoryPathHistory, withStoryHistoryBatch } from '../src/story-path-history.mjs';
-import { storyTreeListing, withStoryTreeReads } from '../src/story-tree-read.mjs';
+import { readStoryPathHistory } from '../src/story-path-history.mjs';
+import { storyTreeListing, withStoryTreeReads, withStoryHistoryBatch } from '../src/story-tree-read.mjs';
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provenance-batch-'));

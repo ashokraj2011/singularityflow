@@ -201,9 +201,7 @@ async function cachedCheck(root, { kind, identity, files, env, settingsRoot = ro
     environment: repositoryCheckKey(Object.entries(env).filter(([name]) => HOST_ENV.test(name) && !PRESENTATION_ENV.has(name))
       .sort(([a], [b]) => a.localeCompare(b))) });
   const stamp = directory ? dependencyStamp(root, files, env, advisoryPreview, metadataOnly, directory) : null;
-  // Raw and normalized retained Stories can both be valid inputs in one entry. One file per
-  // kind evicted them in turn, forcing full ancestry verification even on every warm request.
-  // Keep exact identities, not a relaxed key, in four bounded private slots per provenance kind.
+  // Four exact provenance identities prevent raw/normalized input thrashing without unbounded storage.
   const provenancePrefix = PROVENANCE_KINDS.has(kind) ? `provenance-${repositoryCheckKey(kind).slice(0, 16)}-` : null;
   const file = directory ? path.join(directory, provenancePrefix ? `${provenancePrefix}${key}.json`
     : `${repositoryCheckKey({ kind, runtime, ...(partition ? { partition } : {}) })}.json`) : null;

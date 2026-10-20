@@ -14,6 +14,7 @@ const samples = Number(option('samples', '4'));
 const baseline = option('baseline-engine');
 const profiles = option('profiles', 'legacy,pinned,amended').split(',');
 const output = option('output');
+const runtimePrewarm = option('prewarmed', 'true') === 'true';
 if (!baseline || !path.isAbsolute(baseline) || !Number.isSafeInteger(samples) || samples < 2 || samples > 8 || samples % 2
     || profiles.some(value => !['legacy', 'pinned', 'amended'].includes(value)) || new Set(profiles).size !== profiles.length) {
   throw new Error('Use --baseline-engine=<absolute-checkout> --samples=<even 2..8> --profiles=legacy,pinned,amended.');
@@ -56,7 +57,10 @@ function observation(cli, args, repository, env, cache, allowKnownRefusal = fals
   const spans = Object.fromEntries([...(result.stderr.split(' spans:')[1] ?? '').matchAll(/(?:^|\s)([a-z][a-z0-9.-]+)=([\d.]+)ms/gu)].map(match => [match[1], Number(match[2])]));
   const stages = Object.fromEntries([...result.stderr.matchAll(/(?:^|\s)(root-dispatch|module-load|execute|total)=([\d.]+)ms/gu)]
     .map(match => [match[1], Number(match[2])]));
+  const startup = Object.fromEntries([...(result.stderr.split('[sflow startup]')[1] ?? '')
+    .matchAll(/(?:^|\s)(bootstrap|compile-cache-flush)=([\d.]+)ms/gu)].map(match => [match[1], Number(match[2])]));
   return { durationMs: Math.round(durationMs * 100) / 100, counters, stages, spans, responseBytes: Buffer.byteLength(result.stdout),
+    startup,
     outcome: knownRefusal ? 'refused' : 'success', errorCode: knownRefusal ? value.error.code : null,
     semantic: knownRefusal ? { errorCode: value.error.code } : semantic(value) };
 }
@@ -77,7 +81,10 @@ try {
       composed: ['phase', 'enter', f.phaseId, '--work-id', f.workId, '--compose', '--for-agent', '--json']
     };
     for (const [name,args] of Object.entries(cases)) {
-      const observations = { baseline: { cold: [], warm: [] }, candidate: { cold: [], warm: [] } };
+      const temperatures = ['cold', 'warm', ...(runtimePrewarm ? ['runtime-prewarmed'] : [])];
+      const observations = Object.fromEntries(['baseline', 'candidate'].map(engine => [engine,
+        Object.fromEntries(temperatures.map(temperature => [temperature, []]))]));
+      const preparations = { baseline: [], candidate: [] };
       for (let sample = 0; sample < samples; sample++) {
         let expected;
         for (const engine of sample % 2 ? ['candidate', 'baseline'] : ['baseline', 'candidate']) {
@@ -100,11 +107,34 @@ try {
               if (JSON.stringify(expected) !== JSON.stringify(cold.semantic)) throw new Error(`${profile}/${name} engines disagree on the returned binding.`);
             }
             observations[engine].cold.push(cold); observations[engine].warm.push(warm);
+            if (runtimePrewarm) {
+              // A separate checkout avoids warmed provenance, product verdicts and composed files.
+              const preparedCheckout = path.join(f.directory, `runtime-${name}-${sample}-${engine}`);
+              try {
+                f.git(['clone', '-q', '--no-hardlinks', '--single-branch', '--branch', f.workId, f.repository, preparedCheckout]);
+                f.git(['remote', 'remove', 'origin'], { cwd: preparedCheckout });
+                f.git(['config', 'user.name', 'Read Benchmark'], { cwd: preparedCheckout });
+                f.git(['config', 'user.email', 'read.benchmark@example.invalid'], { cwd: preparedCheckout });
+                await bindPhaseReadFixture(f, preparedCheckout);
+                const preparedCache = path.join(f.directory, 'prepared-runtime', name, String(sample), engine);
+                const preparationStarted = performance.now();
+                const prepared = spawnSync(process.execPath, [engines[engine].cli, '--warm-runtime'], {
+                  cwd: preparedCheckout, env: { ...f.env, SINGULARITY_FLOW_BUNDLE: 'on', NODE_COMPILE_CACHE: preparedCache },
+                  encoding: 'utf8', timeout: 180_000, maxBuffer: 4 * 1024 * 1024
+                });
+                if (prepared.status !== 0 || prepared.error || !JSON.parse(prepared.stdout).prepared) throw new Error(`Runtime preparation failed: ${prepared.stderr}`);
+                preparations[engine].push(performance.now() - preparationStarted);
+                const first = observation(engines[engine].cli, args, preparedCheckout, f.env, preparedCache,
+                  engine === 'baseline' && knownAmendedRead);
+                if (JSON.stringify(first.semantic) !== JSON.stringify(cold.semantic)) throw new Error('Prepared runtime changed the first request binding.');
+                observations[engine]['runtime-prewarmed'].push(first);
+              } finally { await rm(preparedCheckout, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 }); }
+            }
           } finally { await rm(checkout, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 }); }
         }
       }
       const row = { profile, command: name, dimensions, observations, summary: {} };
-      for (const temperature of ['cold', 'warm']) {
+      for (const temperature of temperatures) {
         const a = summary(observations.baseline[temperature].map(value => value.durationMs));
         const b = summary(observations.candidate[temperature].map(value => value.durationMs));
         const baselineRefused = observations.baseline[temperature].some(value => value.outcome === 'refused');
@@ -114,6 +144,8 @@ try {
           gitSpawns: { baseline: median(observations.baseline[temperature].map(value => value.counters['git.spawns'] ?? 0)),
             candidate: median(observations.candidate[temperature].map(value => value.counters['git.spawns'] ?? 0)) } };
       }
+      if (runtimePrewarm) row.runtimePreparation = Object.fromEntries(Object.entries(preparations)
+        .map(([engine, values]) => [engine, summary(values)]));
       if (name === 'nextsteps') {
         const adapter = await import(pathToFileURL(path.join(after.engine, 'src/read-worker-client.mjs')).href);
         row.worker = { protocol: 'candidate parent-owned IPC; not a shell/native Copilot transport', samples: [] };
@@ -166,6 +198,7 @@ try {
     protocol: { samples, profiles, boundAgent: true, composedContextRequired: true, gitFactStore: 'off; private accepted-provenance receipts enabled', order: 'alternating A/B and B/A', runtime: 'installed cold-layout bundles',
       cold: 'fresh Node process, empty private V8 cache, fresh local clone without advisory/provenance receipts',
       warm: 'immediate new Node process with the same code/provenance caches; not a persistent worker',
+      runtimePrewarmed: runtimePrewarm ? 'independent fresh clone and V8 cache; definitions prepared only, no prior request/provenance receipt; preparation reported separately' : 'not measured',
       filesystem: 'OS page cache is not flushed', network: 'none during measured reads', modelCalls: 0,
       setup: 'fixture creation, engine build and local cloning are excluded', fileCounters: 'secured configuration sources/catalogs only, not every filesystem operation' }, rows,
     limitations: ['Synthetic bound entries and actual prompt composition; not application authoring or native Copilot tool/LLM latency.',

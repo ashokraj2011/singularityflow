@@ -19,8 +19,21 @@ if (process.argv.length === 3 && process.argv[2] === '--warm-runtime') {
 // Keep the process alive until the dispatcher and every acquired mutation lease settle. Relying on
 // incidental filesystem or worker handles made a fast command able to exit 0 while `main()` was
 // still awaiting lock readiness, so callers (including VS Code) observed success with no result.
-  await main(process.argv.slice(2)).catch(async (error) => {
-    const { reportCliFailure } = bundled ?? await import('../src/cli-failure.mjs');
-    await reportCliFailure(error, process.argv.slice(2));
-  });
+  const bootstrapMs = Number(process.hrtime.bigint() - globalThis.__SINGULARITY_FLOW_PROCESS_STARTED_AT) / 1e6;
+  try {
+    await main(process.argv.slice(2)).catch(async (error) => {
+      const { reportCliFailure } = bundled ?? await import('../src/cli-failure.mjs');
+      await reportCliFailure(error, process.argv.slice(2));
+    });
+  } finally {
+    // Node normally writes newly compiled bytecode at exit, after the command's terminal timing.
+    // Attribute that first-request cost explicitly when requested, without changing stdout or
+    // enabling a cache the host disabled. Ordinary invocations retain Node's original exit path.
+    if (process.argv.includes('--timings')) {
+      const started = process.hrtime.bigint();
+      try { (await import('node:module')).flushCompileCache?.(); } catch { /* acceleration only */ }
+      const flushMs = Number(process.hrtime.bigint() - started) / 1e6;
+      process.stderr.write(`[sflow startup] bootstrap=${bootstrapMs.toFixed(1)}ms compile-cache-flush=${flushMs.toFixed(1)}ms\n`);
+    }
+  }
 }

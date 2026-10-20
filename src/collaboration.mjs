@@ -23,6 +23,7 @@ import { reviewedWorktreeCommitAction } from './recovery-worktree-commit.mjs';
 import { recoveryActionGuidance } from './recovery-action-guidance.mjs';
 import { evidenceContractRecoveryActions } from './phase-evidence-amendment.mjs';
 import { inspectDraftEvidenceHold } from './draft-evidence-hold.mjs';
+import { withWorktreeReadScope } from './read-scope.mjs';
 
 /** A lock older than this is not a Git command still at work; a crashed one left it. */
 export const STALE_INDEX_LOCK_MS = 5 * 60 * 1000;
@@ -183,6 +184,10 @@ export function watchText(item) {
 }
 
 export async function recoveryPlan(root, config, workflow, { fetch = false, phaseId = null, inspectActivePhase = false, modelEnabled = true } = {}) {
+  return withWorktreeReadScope(() => readRecoveryPlan(root, config, workflow, { fetch, phaseId, inspectActivePhase, modelEnabled }));
+}
+
+async function readRecoveryPlan(root, config, workflow, { fetch, phaseId, inspectActivePhase, modelEnabled }) {
   const actions = [];
   const blockers = [];
   const pending = await inspectPendingPublication(root, {

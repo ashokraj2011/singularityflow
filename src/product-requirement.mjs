@@ -26,14 +26,12 @@ import { chmod, lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'n
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
-import { inspectNpmTarballBuildSources } from '../scripts/install-staged-artifacts.mjs';
 import { BUILD_INFO, versionLine } from './build-info.mjs';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
-import { applyLocalReinstall, prepareDistributionInstall } from './reinstall.mjs';
 import {
   compareBuilds, parseBuildLine, parseStampedBuildInfo, stampedBuildLine
-} from './product-alignment.mjs';
+} from './build-stamp-reader.mjs';
 import { PRODUCT_ALIGNMENT_SWITCH } from './product-alignment-gate.mjs';
 import {
   priorRequirementCheck, PRODUCT_UPDATE_SWITCH, requirementChecksFile, requirementRepositoryKey
@@ -293,7 +291,7 @@ async function releaseTarball(directory) {
  */
 async function releaseBuild(tarball) {
   let inspected;
-  try { inspected = await inspectNpmTarballBuildSources(tarball); }
+  try { inspected = await (await import('../scripts/install-staged-artifacts.mjs')).inspectNpmTarballBuildSources(tarball); }
   catch (error) {
     throw new SingularityFlowError(`The release's npm tarball has no readable build stamp (${error.message}).`, {
       code: 'PRODUCT_RELEASE_UNSTAMPED'
@@ -352,8 +350,8 @@ export async function installRequiredRelease(requirement, {
   running = BUILD_INFO,
   tempRoot = os.tmpdir(),
   fetchImpl = globalThis.fetch,
-  prepare = prepareDistributionInstall,
-  apply = applyLocalReinstall
+  prepare = (...args) => import('./reinstall.mjs').then(module => module.prepareDistributionInstall(...args)),
+  apply = (...args) => import('./reinstall.mjs').then(module => module.applyLocalReinstall(...args))
 } = {}) {
   const release = await materializeRelease(requirement.release.source, { fetchImpl, tempRoot });
   const keyDirectory = await mkdtemp(path.join(tempRoot, 'sflow-release-key-'));

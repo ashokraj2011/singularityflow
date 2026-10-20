@@ -35,7 +35,9 @@ const FAMILIES = Object.freeze([
     'configuration-drafts.mjs', 'logging.mjs', 'harness-events.mjs']],
   // Preserve existing read-family ownership before claiming the focused mutation closure.
   // One additional coarse file avoids loading the legacy generation/model engine on first writes.
-  ['publication', ['story-publication-store.mjs', 'story-publication-service.mjs']],
+  // The ordinary product requirement verdict must not import the entire phase/installer family.
+  // Its actual installer dependencies are lazy; share this existing bounded local-gate slot.
+  ['publication', ['story-publication-store.mjs', 'story-publication-service.mjs', 'product-requirement.mjs']],
   ['hook-context', ['commands/phase-show.mjs', 'commands/shared/session-repository-authority.mjs', 'agent-hooks.mjs',
     'accepted-story-execution.mjs', 'delivery-evidence.mjs', 'worktree-fingerprint.mjs']],
   ['session', ['commands/session-entry.mjs', 'commands/session-open.mjs', 'commands/session-open-local.mjs',
@@ -44,7 +46,7 @@ const FAMILIES = Object.freeze([
     'commands/story-entry.mjs', 'story-worktree-preparation.mjs',
     'local-work-journal.mjs', 'history-index.mjs']],
   ['reads', ['commands/inbox.mjs', 'commands/home.mjs', 'editor.mjs']],
-  ['phases', ['first-run-pass.mjs', 'product-requirement.mjs', 'configuration-review-pass.mjs',
+  ['phases', ['first-run-pass.mjs', 'configuration-review-pass.mjs',
     'commands/phase.mjs', 'commands/prepare.mjs', 'commands/inputs.mjs', 'commands/review-source.mjs',
     'commands/submit.mjs', 'commands/approve.mjs', 'commands/nextsteps-deferred.mjs']],
   ['models', ['commands/wm.mjs', 'commands/comprehension.mjs']]

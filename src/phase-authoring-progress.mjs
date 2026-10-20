@@ -43,7 +43,8 @@ export async function readPhaseDraftEvidence(root, definition, workflow, phase, 
   const primary = review.artifacts.find(artifact => artifact.scope === 'primary');
   const baseline = phase.authoringBaseline;
   const changed = !baseline && primary?.exists
-    ? (changedPaths ?? (await import('./git.mjs')).changedFiles(root)).includes(primary.path)
+    ? changedPaths ? changedPaths.includes(primary.path)
+      : (await import('./git.mjs')).pathHasChanges(root, primary.path)
     : false;
   return { draftExists: Boolean(primary?.exists), draftModified: Boolean(primary?.exists
     && (changed || (baseline?.path === phase.requiredArtifact.path && baseline.fingerprint

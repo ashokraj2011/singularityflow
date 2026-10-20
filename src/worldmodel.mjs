@@ -54,7 +54,6 @@ import {
   loadEnvironmentDeclaration, withEnvironmentWorldModelExclusions
 } from './environment-declaration.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
-import { astCommand } from './ast-intelligence.mjs';
 import { resolveImpactPromptOverride } from './impact.mjs';
 import { compilePromptSections } from './prompt-budget.mjs';
 import { tokenEconomyDigest } from './token-economy.mjs';
@@ -62,10 +61,8 @@ import { activeClauseCapsule, CLAUSE_CAPSULE_RENDERER } from './active-clause-ca
 import { phaseAuthoringContract, phaseAuthoringContractLines } from './phase-authoring-contract.mjs';
 import { withRequirementAuthoringProtocol } from './requirement-coverage.mjs';
 import { stakeholderPromptContext, stakeholderRequestDrift } from './stakeholder-prompt-context.mjs';
-import {
-  fwmReadCommand, fwmReadContractCommand, fwmReadViewsCommand
-} from './fwm/read.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
+import { withWorktreeReadScope, withoutReadScope } from './read-scope.mjs';
 import {
   referenceRepositoryGroundingContext, storyReferenceRepositories
 } from './reference-repositories.mjs';
@@ -380,6 +377,10 @@ async function workflowPlannedPaths(root, workItemRoot, workflow) {
 }
 
 function workflowChangedPaths(root, definition, workflow) {
+  return withWorktreeReadScope(() => readWorkflowChangedPaths(root, definition, workflow));
+}
+
+function readWorkflowChangedPaths(root, definition, workflow) {
   const pending = changedFiles(root);
   const pathContext = applicationPathContext(definition, workflow);
   const base = workflow?.workItem?.baseCommit ?? workflow?.workItem?.baseBranch;
@@ -669,11 +670,18 @@ async function compose(root, options, {
     throw new SingularityFlowError('Provide a valid work ID containing only letters, numbers, dots, underscores, or hyphens.');
   }
   const requestedPhase = optionString(options, 'phase');
+  const dryRun = optionBoolean(options, 'dry-run');
+  const renderOnly = optionBoolean(options, 'render-only');
+  if (workId && !dryRun && !renderOnly && !storyLockHeld) {
+    // Phase entry already resolved an exact Story ID. Reuse that selector, not its mutable state:
+    // acquire the lease first and perform the full accepted-context load once inside it. Do not
+    // inherit an advisory caller's pre-lease read scope when waiting for another writer.
+    return withSubjectLock(root, { kind: 'story', id: workId }, () => withoutReadScope(() =>
+      compose(root, options, { storyLockHeld: true, beforeFinalAuthorityCheck })));
+  }
   let config = await load(root, { agent, workId, phase: requestedPhase });
   let definition = config.definition ?? await loadDefinition(root);
   let workflow = config.workflow ?? null;
-  const dryRun = optionBoolean(options, 'dry-run');
-  const renderOnly = optionBoolean(options, 'render-only');
   if (workflow && !dryRun && !renderOnly && !storyLockHeld) {
     const storyId = workflow.workItem.id;
     // Pin the Story discovered before acquisition. The second call reloads all Story state inside
@@ -681,7 +689,7 @@ async function compose(root, options, {
     // still holding this Story's lock.
     const lockedOptions = workId ? options : { ...options, 'work-id': storyId };
     return withSubjectLock(root, { kind: 'story', id: storyId }, () => (
-      compose(root, lockedOptions, { storyLockHeld: true, beforeFinalAuthorityCheck })
+      withoutReadScope(() => compose(root, lockedOptions, { storyLockHeld: true, beforeFinalAuthorityCheck }))
     ));
   }
   // A terminal session can still name the actor that completed the previous phase. It is not
@@ -1438,7 +1446,7 @@ async function showPrompt(root, options) {
 
 export async function worldModelCommand(root, positionals, options) {
   const command = positionals[1];
-  if (command === 'ast') return astCommand(root, positionals.slice(2), options);
+  if (command === 'ast') return (await import('./ast-intelligence.mjs')).astCommand(root, positionals.slice(2), options);
   if (command === 'knowledge') {
     // Loaded on use, through a non-literal specifier, so editor bundles that import this module do not carry the analysis engine.
     const { knowledgeCommand } = await import(KNOWLEDGE_COMMAND_MODULE);
@@ -1451,13 +1459,13 @@ export async function worldModelCommand(root, positionals, options) {
         'Usage: singularity-flow wm read <ncg.skeleton|ncg.callers|ncg.map> [--paths ROOT] [--symbol ID] [--json]'
       );
     }
-    return fwmReadCommand(root, reference, options);
+    return (await import('./fwm/read.mjs')).fwmReadCommand(root, reference, options);
   }
-  if (command === 'read-views') return fwmReadViewsCommand(options);
+  if (command === 'read-views') return (await import('./fwm/read.mjs')).fwmReadViewsCommand(options);
   if (command === 'read-contract') {
     const reference = positionals[2];
     if (!reference) throw new SingularityFlowError('Usage: singularity-flow wm read-contract <view> [--json]');
-    return fwmReadContractCommand(reference, options);
+    return (await import('./fwm/read.mjs')).fwmReadContractCommand(reference, options);
   }
   if (command === 'cache') {
     const action = positionals[2] ?? 'status';

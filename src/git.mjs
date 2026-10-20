@@ -23,7 +23,8 @@ import {
   configuredRemoteIdentity, frozenRemoteTransport, safeGitDiagnosticReference, isPortableAbsoluteGitPath
 } from './git-remote-diagnostics.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
-import { scopedReadSync } from './read-scope.mjs';
+import { inWorktreeReadScope, scopedReadSync } from './read-scope.mjs';
+import { freshGitFactsRequired } from './git-fact-cache.mjs';
 import { scannablePath, scannedAsExtractedText, scanEntries, secretRefusal } from './secrets.mjs';
 import { extractSourceTextForPath } from './source-text.mjs';
 import {
@@ -820,14 +821,25 @@ export function changes(root, { refreshIndex = false } = {}) {
   // Ordinary UI/read snapshots still avoid optional index locks. Explicit host policy wins,
   // including differently cased Windows environment names; no file content or staged OID changes.
   const refresh = refreshIndex && !Object.keys(process.env).some(key => key.toUpperCase() === 'GIT_OPTIONAL_LOCKS');
-  return scopedReadSync(`git.changes:${path.resolve(root)}${refreshIndex ? ':refresh' : ''}`, () =>
+  const projected = !refreshIndex && simpleWorktreeObservation(root);
+  if (projected) return projected.map(entry => `${entry.type === 'untracked' ? '??' : entry.xy.raw.replaceAll('.', ' ')} ${entry.path.value}\n`).join('');
+  const read = () =>
     git(['status', '--porcelain=v1', '--untracked-files=all'], { cwd: root,
-      ...(refresh ? { env: { ...process.env, GIT_OPTIONAL_LOCKS: '1' } } : {}) }).stdout);
+      ...(refresh ? { env: { ...process.env, GIT_OPTIONAL_LOCKS: '1' } } : {}) }).stdout;
+  return freshGitFactsRequired() ? read()
+    : scopedReadSync(`git.changes:${path.resolve(root)}${refreshIndex ? ':refresh' : ''}`, read);
 }
 
 /** Exact local status roster for lifecycle decisions; paths are never quote/line parsed. */
 export function worktreeStatusDetail(root) {
   const env = immutableLocalGitEnvironment();
+  const read = () => readWorktreeStatusDetail(root, env);
+  // Explicit read-only scope only. A final fresh check cannot inherit an earlier observation.
+  return inWorktreeReadScope() && !freshGitFactsRequired()
+    ? scopedReadSync(`git.worktree-status:${path.resolve(root)}:${JSON.stringify(env)}`, read) : read();
+}
+
+function readWorktreeStatusDetail(root, env) {
   const objectFormat = repositoryObjectFormat(root, { env });
   if (!objectFormat) {
     throw new SingularityFlowError('Git could not establish the repository object format for the worktree status.', {
@@ -838,6 +850,20 @@ export function worktreeStatusDetail(root) {
     cwd: root, env, encoding: 'buffer'
   }).stdout;
   return parsePorcelainV2Status(bytes, { objectFormat });
+}
+
+function simpleWorktreeObservation(root) {
+  if (!inWorktreeReadScope() || freshGitFactsRequired()) return null;
+  const env = immutableLocalGitEnvironment();
+  // Legacy queries honour ambient selectors. Never substitute the sanitized lifecycle index.
+  if (Object.entries(process.env).some(([key, value]) => env[key] !== value
+    && /^(?:GIT_(?:DIR|WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|COMMON_DIR|NAMESPACE|SHALLOW_FILE|REPLACE_REF_BASE|CONFIG(?:_.*)?|NO_REPLACE_OBJECTS|NO_LAZY_FETCH))$/iu.test(key))) return null;
+  const { entries } = worktreeStatusDetail(root);
+  // Preserve the original exact Git renderer/diff for renames, submodules, conflicts and quoted
+  // or byte paths. Ordinary ASCII paths can be projected without changing porcelain-v1 semantics.
+  return entries.every(entry => ['ordinary', 'untracked'].includes(entry.type)
+    && !entry.submodule?.isSubmodule && entry.path.kind === 'utf8'
+    && /^[A-Za-z0-9._/-]+$/u.test(entry.path.value)) ? entries : null;
 }
 
 /** One lossless status observation replaces separate tracked, staged and untracked scans. */
@@ -2200,14 +2226,29 @@ export function trackedPaths(root, paths) {
 }
 
 export function changedFiles(root) {
-  return scopedReadSync(`git.changedFiles:${path.resolve(root)}`, () => {
+  const projected = simpleWorktreeObservation(root);
+  if (projected) return [...new Set(projected.map(entry => entry.path.value))].sort();
+  const read = () => {
     // Porcelain diff can refresh clean entries' stat data. A path inspection must not rewrite the
     // index that a recovery checkpoint is preserving, even when diff.autoRefreshIndex is enabled.
     const unstaged = nullList(git(['--no-optional-locks', '-c', 'diff.autoRefreshIndex=false', 'diff', '--name-only', '-z', 'HEAD'], { cwd: root }).stdout);
     const staged = nullList(git(['--no-optional-locks', '-c', 'diff.autoRefreshIndex=false', 'diff', '--name-only', '-z', '--cached', 'HEAD'], { cwd: root }).stdout);
     const untracked = nullList(git(['--no-optional-locks', 'ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout);
     return [...new Set([...contentChanged(root, unstaged), ...staged, ...untracked])].sort();
-  });
+  };
+  return freshGitFactsRequired() ? read() : scopedReadSync(`git.changedFiles:${path.resolve(root)}`, read);
+}
+
+/** A drafting hint about one issued artifact does not need a repository-wide changed-file roster. */
+export function pathHasChanges(root, relative) {
+  if (typeof relative !== 'string' || !relative || path.isAbsolute(relative)
+      || /^[A-Za-z]:/u.test(relative) || relative.includes('\0') || relative.split('/').includes('..')) {
+    throw new SingularityFlowError('Draft inspection requires an exact repository-relative path.');
+  }
+  const projected = simpleWorktreeObservation(root);
+  if (projected) return projected.some(entry => entry.path.value === relative);
+  return git(['--no-optional-locks', 'status', '--porcelain=v2', '-z', '--untracked-files=all',
+    '--', `:(literal)${relative}`], { cwd: root, encoding: 'buffer' }).stdout.length > 0;
 }
 
 // Without the refresh, a file rewritten with the same bytes still reads as modified because its
@@ -3196,6 +3237,10 @@ function deferIndexRefresh(root, commit, result) {
  * the index.
  */
 export function storyIndexDrift(root, prefix) {
+  const observedIndex = simpleWorktreeObservation(root);
+  // A HEAD/index mismatch must appear in porcelain's index column. An unstaged-only or clean
+  // observation cannot be a lagging index; do not walk its parent and tree merely to prove that.
+  if (observedIndex && observedIndex.every(entry => entry.type === 'untracked' || entry.xy.index === '.')) return [];
   const markers = ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply'];
   // Git remains the owner of private/worktree/override path semantics. Batch these independent
   // path questions, not the mutable marker contents or the subsequent index/HEAD evidence.

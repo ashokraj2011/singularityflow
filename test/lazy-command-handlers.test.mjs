@@ -93,6 +93,13 @@ test('early phase and grounding-path entries exclude the deferred authoring and 
   }
 });
 
+test('a product requirement verdict does not eagerly load the release installer', async () => {
+  const closure = await graph('product-requirement.mjs');
+  for (const file of ['reinstall.mjs', '../scripts/install-staged-artifacts.mjs']) {
+    assert.equal(closure.files.has(path.resolve(sourceRoot, file)), false, file);
+  }
+});
+
 test('extracted legacy helpers remain part of the development build identity', async () => {
   const identity = await readFile(path.join(sourceRoot, 'build-identity.mjs'), 'utf8');
   const helpers = (await commandModuleFiles()).map(file => file.split(path.sep).join('/'))

@@ -29,8 +29,18 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 const scopes = new AsyncLocalStorage();
 const COMMAND_READ = Symbol('command-read-context');
+const WORKTREE_READ = Symbol('worktree-read-context');
 
 export function inCommandReadScope() { return scopes.getStore()?.get(COMMAND_READ) === true; }
+
+/** Advisory recovery reads share one lossless worktree observation, never across a write/lease. */
+export function withWorktreeReadScope(fn) {
+  const current = scopes.getStore();
+  if (current?.get(WORKTREE_READ)) return fn();
+  return scopes.run(new Map([...(current ?? []), [WORKTREE_READ, true]]), fn);
+}
+
+export function inWorktreeReadScope() { return scopes.getStore()?.get(WORKTREE_READ) === true; }
 
 /** Only the CLI's closed read vocabulary may share resolved Story context, never a writer. */
 export function withCommandReadScope(fn) {

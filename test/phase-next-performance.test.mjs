@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -28,6 +29,13 @@ for (const storyMode of ['legacy', 'pinned', 'amended']) {
       assert.equal(value.effects.testsRun, false); assert.equal(value.effects.storyAdvanced, false);
       assert.equal(value.effects.committed, false); assert.equal(value.effects.pushed, false);
     }
+    const composed = spawnSync(process.execPath, [f.cli, 'phase', 'enter', '--compose', '--for-agent', '--json', '--timings'],
+      { cwd: f.repository, env: f.env, encoding: 'utf8', timeout: 90_000, maxBuffer: 40 * 1024 * 1024 });
+    assert.equal(composed.status, 0, composed.stderr);
+    assert.equal(JSON.parse(composed.stdout).contextAdmission.allowed, true);
+    assert.match(composed.stderr, /story\.context-load=2(?:\s|$)/u,
+      'entry plus one accepted load under the composition lease; no extra pre-lease policy load');
+    assert.match(composed.stderr, /\[sflow startup\].*compile-cache-flush=[\d.]+ms/u);
     const args = ['nextsteps', f.workId, '--for-agent', '--json'];
     const read = () => adapter.readWithWorker({ executable: process.execPath, cli: f.cli,
       repository: f.repository, env: f.env, args });
@@ -62,4 +70,21 @@ test('bound legacy composition survives native checkout conversion without chang
   assert.equal(value.ready, true);
   assert.equal(value.contextAdmission.allowed, true);
   assert.ok(value.context?.text);
+});
+
+test('composition reloads under its lease rather than inheriting an advisory accepted-context memo', { timeout: 180_000 }, async t => {
+  const f = await createWarmReadFixture({ phaseReady: true });
+  t.after(() => f.cleanup()); await bindPhaseReadFixture(f);
+  const load = await import(pathToFileURL(path.join(f.engine, 'src/accepted-story-execution.mjs')));
+  const scope = await import(pathToFileURL(path.join(f.engine, 'src/read-scope.mjs')));
+  const composer = await import(pathToFileURL(path.join(f.engine, 'src/worldmodel.mjs')));
+  await scope.withCommandReadScope(async () => {
+    assert.equal((await load.loadAcceptedStoryExecution(f.repository, f.workId)).workflow.workItem.id, f.workId);
+    const saved = await readFile(f.statePath);
+    try {
+      await writeFile(f.statePath, '{broken workflow');
+      await assert.rejects(composer.composePhasePrompt(f.repository, { workId: f.workId, phase: f.phaseId }));
+    } finally { await writeFile(f.statePath, saved); }
+  });
+  await assert.rejects(readFile(path.join(path.dirname(f.statePath), 'context', `${f.phaseId}-gen1.json`)), { code: 'ENOENT' });
 });

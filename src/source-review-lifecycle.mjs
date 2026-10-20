@@ -9,7 +9,7 @@ import { matchApprovalAuthority } from './approval-authority.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { documentOfferedToPhase } from './document-identity.mjs';
-import { isLocalDocument } from './document-storage.mjs';
+import { isLocalDocument, readLocalDocument } from './document-storage.mjs';
 import { authoredArtifactText, inspectManagedArtifactMetadata } from './artifact-review-read.mjs';
 import { clarificationRecordRelative } from './clarification-paths.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
@@ -147,42 +147,55 @@ async function storySources(root, config, workflow, phaseId) {
     originalSha256: source.sha256
   }];
   const unreadable = [];
+  const visualSources = [];
   const manifestRelative = `${base}/documents.json`;
   const manifest = await secureRepositoryPath(root, manifestRelative, { label: 'Story document catalog' });
-  if (!manifest.exists) return { sources, unreadable };
+  if (!manifest.exists) return { sources, unreadable, visualSources };
   const catalog = readRecord('document-manifest',
     (await checkedFile(root, manifestRelative, 'Story document catalog')).bytes).record;
   if (catalog.workId !== workflow.workItem.id || !Array.isArray(catalog.documents)) throw new SingularityFlowError('Story document catalog is malformed.', {
     code: 'SOURCE_REVIEW_INPUT_UNAVAILABLE'
   });
+  // Software upgrades must not invalidate an existing reviewed generation just because a newer
+  // reader can now inspect its sources. Preserve only the exact older read modes of a verified,
+  // committed report; current source identities still bind afresh, so changed bytes remain stale.
+  const retained = await readCurrentRecord(root, config, workflow, phaseId);
+  const retainedReadModes = new Map((retained?.record?.report?.binding?.unreadableSources ?? [])
+    .filter(entry => ['machine-local-storage', 'no-text-layer'].includes(entry.code))
+    .map(entry => [entry.id, entry]));
   await prefetchSourceReviewFiles(root, catalog.documents.filter(entry => entry?.status !== 'detached'
     && documentOfferedToPhase(entry, phaseId) && !isLocalDocument(entry) && entry.type === 'file'
     && typeof entry.path === 'string' && posix(entry.path).startsWith(`${base}/inputs/`))
     .map(entry => posix(entry.path)));
   for (const document of catalog.documents.filter((entry) => entry?.status !== 'detached' && documentOfferedToPhase(entry, phaseId))) {
     const name = document.name ?? document.id;
-    // A review is re-checked on other machines, which do not have a machine-local document's bytes.
-    if (isLocalDocument(document)) {
-      unreadable.push({ id: document.id, name, code: 'machine-local-storage', originalSha256: document.sha256,
-        reason: 'it is kept on one machine only' });
-      continue;
-    }
     if (document.type === 'url') {
       unreadable.push({ id: document.id, name, code: 'external-reference', reason: `it is a link (${document.url}) with no pinned bytes` });
       continue;
     }
-    if (document.type !== 'file' || !document.path || !SHA256.test(String(document.sha256 ?? ''))) {
+    const local = isLocalDocument(document);
+    const formerMode = retainedReadModes.get(document.id);
+    if (document.type !== 'file' || (!local && !document.path) || !SHA256.test(String(document.sha256 ?? ''))) {
       throw new SingularityFlowError(`Attachment '${document.id ?? 'unknown'}' has no pinned reviewable file bytes.`, {
         code: 'SOURCE_REVIEW_INPUT_UNREADABLE'
       });
     }
-    const relative = posix(document.path);
-    if (!relative.startsWith(`${base}/inputs/`)) throw new SingularityFlowError(
+    const relative = local ? `local-document:${document.id}` : posix(document.path);
+    if (!local && !relative.startsWith(`${base}/inputs/`)) throw new SingularityFlowError(
       `Attachment '${document.id}' is outside the Story input directory.`, { code: 'SOURCE_REVIEW_INPUT_UNAVAILABLE' }
     );
     // An oversized attachment is a decision for a person, not a refusal of the whole review.
-    const file = await checkedFile(root, relative, `Attachment '${document.id}'`, document.sha256,
+    let file;
+    if (local) {
+      const stored = await readLocalDocument(root, workflow.workItem.id, document);
+      file = { bytes: stored.bytes, absolute: stored.absolutePath, sha256: document.sha256 };
+    } else file = await checkedFile(root, relative, `Attachment '${document.id}'`, document.sha256,
       { maxBytes: Number.POSITIVE_INFINITY });
+    if (formerMode && (local || formerMode.code === 'no-text-layer')) {
+      unreadable.push({ id: document.id, name, code: formerMode.code, originalSha256: document.sha256,
+        reason: 'this published generation retains its reviewed source-readability contract' });
+      continue;
+    }
     if (file.bytes.length > MAX_SOURCE_BYTES) {
       unreadable.push({ id: document.id, name, code: 'too-large-to-cite', originalSha256: file.sha256,
         reason: `the file is larger than the ${MAX_SOURCE_BYTES}-byte review limit` });
@@ -191,7 +204,18 @@ async function storySources(root, config, workflow, phaseId) {
     let text;
     // An older record whose stored name lost its extension is typed from its original name.
     const mime = effectiveDocumentMimeType(document);
-    const typedName = path.extname(relative) ? relative : (document.sourceName ?? relative);
+    if (mime.startsWith('image/') || mime === 'application/pdf') {
+      if (visualSources.length >= MAX_CITED_SOURCES - 1) {
+        unreadable.push({ id: document.id, name, code: 'review-budget-exceeded', originalSha256: file.sha256,
+          reason: `the review already admits ${MAX_CITED_SOURCES} sources including the Story` });
+        continue;
+      }
+      visualSources.push({ id: document.id, name, path: relative, originalSha256: file.sha256,
+        mimeType: mime, absolutePath: file.absolute, bytes: file.bytes.length,
+        instruction: 'Use an actual native image/PDF tool to inspect these exact bytes. Record method, page/region and observations in visualSourcesReviewed; a file path is not proof of inspection. If no suitable tool is available, ask the human for a text export or help inspecting the source; never invent a reading.' });
+      continue;
+    }
+    const typedName = local ? document.sourceName ?? relative : path.extname(relative) ? relative : (document.sourceName ?? relative);
     if (isTextualSource(mime, typedName)) text = utf8(file.bytes, `Attachment '${document.id}'`);
     else {
       const extracted = extractSourceText(file.bytes, mime);
@@ -220,15 +244,15 @@ async function storySources(root, config, workflow, phaseId) {
   let totalBytes = Buffer.byteLength(sources[0].text, 'utf8');
   for (const entry of sources.slice(1)) {
     const bytes = Buffer.byteLength(entry.text, 'utf8');
-    if (cited.length >= MAX_CITED_SOURCES || totalBytes + bytes > MAX_TOTAL_TEXT_BYTES) {
+    if (cited.length + visualSources.length >= MAX_CITED_SOURCES || totalBytes + bytes > MAX_TOTAL_TEXT_BYTES) {
       unreadable.push({ id: entry.id, name: entry.name, code: 'review-budget-exceeded', originalSha256: entry.originalSha256,
-        reason: `the review already cites ${cited.length} sources and ${totalBytes} bytes of text, its limit` });
+        reason: `the review already cites ${cited.length + visualSources.length} sources and ${totalBytes} bytes of text, its limit` });
       continue;
     }
     cited.push(entry);
     totalBytes += bytes;
   }
-  return { sources: cited.map(({ name: _name, ...entry }) => entry), unreadable };
+  return { sources: cited.map(({ name: _name, ...entry }) => entry), unreadable, visualSources };
 }
 
 async function phaseArtifact(root, config, workflow, phaseId) {
@@ -330,7 +354,7 @@ async function loadSourceReviewInput(root, config, workflow, phaseId) {
       step.requiredArtifact?.path ? posix(path.join(base, step.requiredArtifact.path)) : null,
       ...(step.clarifications ?? []).filter(entry => entry.generation === step.generation).map(entry => entry.path)
     ])]);
-  const { sources, unreadable } = await storySources(root, config, workflow, phaseId);
+  const { sources, unreadable, visualSources } = await storySources(root, config, workflow, phaseId);
   const artifact = await phaseArtifact(root, config, workflow, phaseId);
   const upstreamSpec = approved ? await phaseArtifact(root, config, workflow, approved.id) : null;
   const clarifications = [
@@ -339,7 +363,8 @@ async function loadSourceReviewInput(root, config, workflow, phaseId) {
   ].filter(Boolean);
   const context = {
     kind, workId: workflow.workItem.id, phase: phaseId, generation: phase.generation,
-    sources, ...(unreadable.length ? { unreadableSources: unreadable } : {}), artifact, ...(upstreamSpec ? { upstreamSpec } : {}),
+    sources, ...(visualSources.length ? { visualSources } : {}),
+    ...(unreadable.length ? { unreadableSources: unreadable } : {}), artifact, ...(upstreamSpec ? { upstreamSpec } : {}),
     ...(clarifications.length ? { clarifications } : {}),
     authorAgentId: phase.generatedAgent ?? 'human-author', reviewerAgentId, reviewerAgentSha256,
     recovery: sourceReviewAuthorConflict(workflow, phase) ? phaseGovernanceHold(workflow, phase) : null
@@ -614,6 +639,13 @@ async function loadSourceReviewStatus(root, config, workflow, phaseId) {
       findings: [{ code: 'source-review-successor-unpublished', message: 'Publish the prepared successor before independently reviewing it. Earlier review evidence remains preserved.' }],
       continuation: sourceReviewContinuation(workflow, phase) };
   }
+  const documentReadiness = await (await import('./document-runtime.mjs')).phaseDocumentReadiness(root, config, workflow, phaseId);
+  if (documentReadiness.status !== 'ready') return {
+    schemaVersion: 1, resultType: 'source-review-status', workId: workflow.workItem.id, phase: phaseId,
+    generation: phase.generation, status: 'documents-required', reportPath: null, reportSha256: null,
+    binding: null, documentReadiness, pendingDispositions: [],
+    findings: [{ code: 'DOCUMENT_REUPLOAD_REQUIRED', message: documentReadiness.instruction }],
+    continuation: { actions: documentReadiness.missing.map(record => ({ ...record.commandGuidance, reason: record.instruction })) } };
   const input = await sourceReviewInput(root, config, workflow, phaseId);
   return evaluateRetainedSourceReview(root, config, workflow, phaseId, input);
 }
@@ -659,6 +691,12 @@ export async function sourceReviewContext(root, config, workflow, phaseId, stagi
 
 async function loadSourceReviewContext(root, config, workflow, phaseId, stagingPath) {
   const phase = checkPublishedGeneration(workflow, phaseId);
+  const documentReadiness = await (await import('./document-runtime.mjs')).phaseDocumentReadiness(root, config, workflow, phaseId);
+  if (documentReadiness.status !== 'ready') return {
+    schemaVersion: 1, resultType: 'source-review-context', workId: workflow.workItem.id,
+    phase: phaseId, canReview: false, status: 'documents-required', binding: null, stagingPath: null,
+    documentReadiness, continuation: { actions: documentReadiness.missing.map(record => ({
+      ...record.commandGuidance, reason: record.instruction })) } };
   if (workflow.currentPhase === phaseId && phase.status === 'in_progress'
       && phaseNeedsGeneration(workflow, phase) && !sourceReviewAuthorConflict(workflow, phase)) {
     return { schemaVersion: 1, resultType: 'source-review-context', workId: workflow.workItem.id, // schema-transient
@@ -669,6 +707,8 @@ async function loadSourceReviewContext(root, config, workflow, phaseId, stagingP
   }
   const input = await sourceReviewInput(root, config, workflow, phaseId);
   const status = await evaluateRetainedSourceReview(root, config, workflow, phaseId, input);
+  if (globalThis.__SFLOW_EXTENSION_HOST__ !== true && input.visualSources?.length) await (await import('./copilot-mutation-guard.mjs')).issueMutationReadPaths(
+    root, input.visualSources.map(source => source.absolutePath));
   // The report's kind is what the step does (specification or planning), never the step's name:
   // the evaluator compares it with that, so a renamed or copied step's review is accepted too.
   const reportTemplate = sourceReviewReportTemplate(input);
@@ -693,6 +733,8 @@ async function loadSourceReviewContext(root, config, workflow, phaseId, stagingP
     sources: input.sources.map((source) => ({ id: source.id, path: source.path,
       originalSha256: source.originalSha256, textSha256: sha256(Buffer.from(source.text, 'utf8')),
       text: source.text })),
+    ...(input.visualSources?.length ? { visualSources: input.visualSources,
+      visualGuidance: 'Inspect each exact file with a native image/PDF tool. Record actual method, page/region and observations in visualSourcesReviewed. Cite that page/region in a row attestation instead of inventing line numbers. File availability or metadata alone is not inspection. If the host cannot read it, ask the person for help or a text export; do not claim completion.' } : {}),
     ...(input.clarifications?.length ? { clarifications: input.clarifications,
       clarificationGuidance: 'Read every pinned human question/answer and acknowledge its id in clarificationsReviewed. Reconcile source wording with answered clarifications before raising a gap; deferred answers are not confirmed decisions. Clarifications may refine ambiguity but are not blanket waivers or silent intent amendments. Cite phase, generation and question id in the review rationale. If an existing artifact already follows the recorded answer, correct the review of this generation rather than demanding a new artifact just to repeat that answer. A scenario an answer shaped is mapped with a covered row to the source line that answer clarifies; never edit a clarification record.' } : {}),
     // Not for the reviewer to cite: each needs a person's recorded decision instead.
@@ -736,7 +778,8 @@ export function checkSourceReviewReport(report, input) {
     'row-id-invalid', 'attestation-invalid', 'citation-line-invalid', 'citation-quote-invalid',
     'source-unknown', 'clause-list-invalid', 'clause-row-invalid', 'plan-row-mismatch',
     'review-finding-invalid', 'review-findings-invalid', 'sources-reviewed-invalid', 'sources-not-all-reviewed',
-    'clarifications-reviewed-invalid', 'clarifications-not-all-reviewed']);
+    'clarifications-reviewed-invalid', 'clarifications-not-all-reviewed', 'visual-sources-not-reviewed',
+    'visual-inspection-invalid', 'visual-citation-invalid']);
   const bindingAndCitationFindings = evaluation?.findings.filter((entry) => invalid.has(entry.code) || entry.code === 'review-binding-stale') ?? [];
   const checked = { format, evaluation,
     retentionReady: format.status === 'ready' && evaluation.status !== 'stale' && !bindingAndCitationFindings.length,

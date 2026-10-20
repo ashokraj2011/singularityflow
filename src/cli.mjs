@@ -46,7 +46,7 @@ import { workflowBranchAllowed, workDir } from './story-paths.mjs';
 import { actorKey, assertNoPendingPublication, cancelWorkflow, commitAndPublish, completionPhaseOf, CONFIG_PATH, decideStory, loadConfig, preparePhaseInputs, promoteDesignSource, registerArtifact, rejectPhase, reopenWorkflow, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, syncPublication, validateId, workflowPublicationBranch } from './state-stores.mjs';
 import { generationSkillForPhase, workflowAuthoringRoutes } from './code-delivery-policy.mjs';
 import { phasePreparationCommandLines } from './phase-preparation-guidance.mjs';
-import { renderChangeDirectoryCommand, renderPlatformCommand } from './safe-command-guidance.mjs';
+import { renderChangeDirectoryCommand, renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { applicationPathContext } from './work-intervals.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
@@ -73,7 +73,7 @@ import { explainChangeFlightPlanFinding, previewChangeFlightPlan, readChangeFlig
 import { registerReference, resolveReference } from './harness-imports.mjs';
 import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from './harness-events.mjs';
 import { activateWorkItemSession, loadSession, selectAgent, setAgentSession } from './session.mjs';
-import { addDocuments, browseEpicSources, detachDocuments, documentCatalog, fetchRemoteDocument, importableEpicSources, jiraAttachments, listRemoteDocuments, pendingPromptRelative, previewDocument, scopeDocuments, storeDocumentInGit, viewDocument } from './documents.mjs';
+import { addDocuments, browseEpicSources, detachDocuments, documentCatalog, fetchRemoteDocument, importableEpicSources, jiraAttachments, listRemoteDocuments, pendingPromptRelative, previewDocument, scopeDocuments, storeDocumentInGit, restoreLocalDocument, viewDocument } from './documents.mjs';
 import { documentOfferedToPhase, resolveDocumentRecord } from './document-identity.mjs';
 import { phaseArtifactCatalog, viewPhaseArtifact } from './phase-artifact-browser.mjs';
 import { documentSetLifecycleBinding } from './document-publication.mjs';
@@ -2104,6 +2104,8 @@ const DOCUMENTS_SUBCOMMAND_OPTIONS = Object.freeze({
   detach: ['reason', 'scope', 'dry-run', 'yes'],
   scope: ['phases', 'reason', 'scope', 'dry-run', 'yes'],
   store: ['store'],
+  restore: ['file'],
+  readiness: ['phase'],
   upload: ['url', 'name', 'label', 'kind', 'phases', 'store', 'confirm-override'],
   add: ['url', 'name', 'label', 'kind', 'phases', 'store', 'confirm-override'],
   fetch: ['provider', 'ref', 'name', 'filename', 'label', 'kind', 'phases', 'store', 'confirm-override']
@@ -2176,6 +2178,31 @@ function documentTitle(record) {
 async function documentsCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'documents subcommand'); const root = repoRoot();
   refuseNearMissDocumentOptions(subcommand, options);
+  if (subcommand === 'readiness') {
+    const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
+    const phaseId = optionString(options, 'phase') ?? workflow.currentPhase;
+    if (!workflow.phases[phaseId]) throw new SingularityFlowError(`This Story has no phase '${phaseId}'.`, { code: 'DOCUMENT_PHASES_INVALID' });
+    const result = await (await import('./document-runtime.mjs')).phaseDocumentReadiness(root, config, workflow, phaseId);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(result.instruction);
+    for (const record of result.missing) {
+      console.log(`${record.id} — ${record.name} (${record.bytes} bytes; SHA-256 ${record.sha256})`);
+      printCommandRoutes(record.commandGuidance.command);
+    }
+    return;
+  }
+  if (subcommand === 'restore') {
+    const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
+    const result = await restoreLocalDocument(root, config, workflow, {
+      documentId: requirePositional(positionals, 2, 'document ID or name'), file: optionString(options, 'file') });
+    // Restore may run during independent review, publication or authoring. Let the canonical read
+    // resolver choose the current continuation; never send a reviewer blindly back to authoring.
+    const next = safeCommandGuidance({ argv: ['nextsteps', '--for-agent', '--json'] });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...result, next: next ? [next] : [] }, null, 2));
+    console.log(`Restored ${result.documentId} — ${result.name} on this laptop. No Story, approval, or Git ref changed.`);
+    printCommandRoutes(next.command, { label: 'Resolve this Story’s current continuation' });
+    return;
+  }
   if (subcommand === 'artifacts') {
     const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
     const result = positionals[2] ? await viewPhaseArtifact(root, config, workflow, positionals[2], optionString(options, 'version', 'draft'))

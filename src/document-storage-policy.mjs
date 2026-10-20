@@ -9,14 +9,14 @@ function fail(message, code, details) {
 }
 
 export const DOCUMENT_STORAGE_KINDS = Object.freeze(['git', 'local']);
-/** The storage used when a policy allows it and names no default: everyone on the Story gets the file. */
-const SHARED_STORAGE = DOCUMENT_STORAGE_KINDS[0];
+/** New uploads stay on this laptop unless approved policy explicitly requests shared storage. */
+const DEFAULT_STORAGE = 'local';
 /** Destinations people ask for that have no implementation yet; refused by name, not as unknown. */
 const PLANNED_STORAGE_KINDS = Object.freeze(['onedrive', 'sharepoint', 'jira']);
 
 /**
  * What a document policy lets a person choose: the allowed storage, in a stable order, and the one
- * used when they choose nothing (the policy default, else Git when allowed, else the only choice).
+ * used when they choose nothing (the approved default, else local when allowed).
  * Editors offer exactly these, so a choice they show is never one the CLI then refuses.
  */
 export function documentStorageChoices(policy = {}) {
@@ -24,12 +24,12 @@ export function documentStorageChoices(policy = {}) {
   const allowed = Array.isArray(configured.allowed) && configured.allowed.length
     ? DOCUMENT_STORAGE_KINDS.filter((kind) => configured.allowed.includes(kind))
     : [...DOCUMENT_STORAGE_KINDS];
-  const fallback = allowed.includes(SHARED_STORAGE) ? SHARED_STORAGE : allowed[0];
+  const fallback = allowed.includes(DEFAULT_STORAGE) ? DEFAULT_STORAGE : allowed[0];
   return { allowed, default: allowed.includes(configured.default) ? configured.default : fallback };
 }
 
 /**
- * The storage a new document uses: the one asked for, else the policy default, else Git (or the
+ * The storage a new document uses: the one asked for, else the policy default, else local (or the
  * only storage the policy allows). The policy (`documents.storage: {allowed, default}`) may narrow
  * what a Story accepts.
  */

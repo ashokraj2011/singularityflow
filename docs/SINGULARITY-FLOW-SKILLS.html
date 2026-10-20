@@ -2833,7 +2833,7 @@ First run `singularity-flow phase enter --compose --for-agent --json` once; it c
           <span class="pill">mutation</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1114 body tokens</span>
+          <span class="pill">~1118 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-documents</code></dd></div>
@@ -2866,11 +2866,12 @@ Stop on `Out of sequence`; humans decide soft warnings. Story reads accept Work 
 
 - List: `singularity-flow documents list [WORK-ID] --active [--phase &lt;PHASE&gt;]` or `singularity-flow epic sources list --epic &lt;EPIC-ID&gt; --active`. Use `--all` only for requested detached history.
 - View: `singularity-flow documents view &lt;DOCUMENT-ID|NAME&gt; --work-id &lt;WORK-ID&gt;`; omit selector for attached Story. Open binaries at returned absolute paths.
-- Attached Story upload: `singularity-flow documents upload &lt;PATH...&gt; --name &quot;&lt;NAME&gt;&quot;`; ask for one Story-unique name per path, in order. Add `--phases &lt;PHASE,...|all&gt;` only for requested phase limits; `--store local` only for machine-local storage. Directories retain relative paths; files are hashed, attributed, committed and pushed.
+- Missing here: ask for the original, then `singularity-flow documents restore &lt;ID&gt; --file &quot;&lt;chosen-path&gt;&quot; --work-id &lt;WORK-ID&gt; --json`. Preserve ID/hash/answers. `singularity-flow documents readiness --phase &lt;PHASE&gt; --json` lists required originals.
+- Upload: `singularity-flow documents upload &lt;PATH...&gt; --name &quot;&lt;NAME&gt;&quot;`; one unique name per path. New workflows keep files/images here, sharing metadata only. Add `--phases &lt;PHASE,...|all&gt;` for requested limits. Preserve older explicit storage policy.
 - Record a Figma or other external reference with `singularity-flow documents upload --url &lt;https-url&gt; --name &quot;&lt;name&gt;&quot;`.
 - Scope: preview `singularity-flow documents scope &lt;ID|NAME&gt; --phases &lt;PHASE,...|all&gt; --reason &quot;&lt;reason&gt;&quot; --dry-run`; show retained published work. After explicit confirmation rerun without `--dry-run` with `--yes`.
-- Epic upload: `singularity-flow epic sources add --epic &lt;EPIC-ID&gt; --file &lt;PATH&gt;` once per file, expanding directories deterministically; authored text uses `singularity-flow epic sources note --epic &lt;EPIC-ID&gt; --text-file &lt;PATH&gt;`. HTTPS uses `singularity-flow epic sources add --epic &lt;EPIC-ID&gt; --url &lt;URL&gt; --label &quot;&lt;LABEL&gt;&quot;`. Add provider/MIME/label only when supplied or required.
-- Respect phase/provider/size policy; never fetch URLs implicitly or expose credentials. Report IDs, hashes, size, path/provider, commit/push and next action.
+- Epic: `singularity-flow epic sources add --epic &lt;EPIC-ID&gt; --file &lt;PATH&gt;` per file; text: `singularity-flow epic sources note --epic &lt;EPIC-ID&gt; --text-file &lt;PATH&gt;`; HTTPS: `singularity-flow epic sources add --epic &lt;EPIC-ID&gt; --url &lt;URL&gt; --label &quot;&lt;LABEL&gt;&quot;`.
+- Respect phase/provider/size policy; never fetch URLs implicitly or expose credentials. Report IDs, hashes, size, path, commit/push and next.
 
 To detach evidence:
 
@@ -2880,7 +2881,7 @@ To detach evidence:
 4. Require explicit human confirmation. Only after it, run `singularity-flow documents detach &lt;DOCUMENT-ID&gt; --reason &quot;&lt;reason&gt;&quot; --yes`; add `--scope package` only for the selected complete package. Epic: `singularity-flow epic sources detach &lt;SOURCE-ID&gt; --epic &lt;EPIC-ID&gt; --reason &quot;&lt;reason&gt;&quot; --yes` after the same preview/confirmation. `--yes` conveys consent; it never grants it.
 5. Report the decision, commit/publication, invalidated phases, and returned `/sf-*` action.
 
-Detached evidence is read-only; never delete bytes or edit manifest status.
+Detached evidence is read-only; preserve bytes and manifest status.
 </code></pre>
       </div>
     </details>
@@ -9328,7 +9329,7 @@ Human-decision-only: no direct repository edits, reviewer retention, tests, publ
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1375 body tokens</span>
+          <span class="pill">~1374 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-review-source</code></dd></div>
@@ -9358,13 +9359,13 @@ Review: first run `singularity-flow review-source context --for-agent --json` on
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** reuse this invocation&#39;s review entry: require `ready`/`workId`, valid `phaseAgent`; cwd=`repositoryPath`. Use returned `workItemRoot`/artifact and Git-private staging paths; never `$HOME`. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-Explicit `stage`/`check`/`submit`: relay once. `status`: read. Legacy `decide`: retain phase/finding/reason; hand off to `/sf-review-decide` in a new turn. Never confirm/decide as reviewer. Unknown: help, stop.
+Explicit `stage`/`check`/`submit`: relay once. `status`: read. Legacy `decide`: preserve arguments; route `/sf-review-decide` in a new turn. Never confirm/decide as reviewer. Unknown: help, stop.
 
 Read pinned `clarifications`/`clarificationGuidance`; acknowledge `clarificationsReviewed` IDs and phase/generation/question. Never re-ask settled answers. Deferred answers waive nothing. Correct mistaken reviews in this generation; real gaps need successors.
 
-1. Read `reviewGuide.readOrder`; no inventory rescans. Include explicit phase initially. `canReview: false`: relay `continuation.actions`, stop; only the author prepares/publishes successors. Require published `reportTemplate.binding`, `kind: specification|planning`. Unavailable/truncated sources: name their IDs and stop; route to `/sf-documents`. `unreadableSources` need human `unreadable:&lt;DOC-id&gt;` decisions (step 5), never quotes.
-2. Follow `reviewer.effectiveInstructions` when supplied, otherwise `reviewer.instructions`; no agent setup/selection. Retain as `requiredReviewerAgentId`, preserving author. `blocked-author-conflict`: relay `recovery.actions`. Compare authored-content hashes. Never edit sources, artifacts, tests, workflow, approvals or history.
-3. Fill `reportTemplate` against `reportSchema`; preserve binding/metadata. `citationGuide`: source text-file lines, not JSON; exact single-line quotes. Map all scenarios/clauses, including clarified ones; real gaps need blocking findings. Attest only unreadable sources. Planning: singular `clauseId`, exact `expectedPaths`/`plannedTests`; test-only needs no product paths. Replace `unreviewed` honestly. Findings: `id`, `severity`, `message`. Never mark a real gap supported merely to pass validation.
+1. Read `reviewGuide.readOrder`; no rescans. `canReview: false`: relay `continuation.actions`; restore missing originals, never recreate the Story. Require published `reportTemplate.binding`, `kind: specification|planning`. Inspect `visualSources` with native image/PDF tools; fill `visualSourcesReviewed` with actual method, page/region and observations. Cite via row attestation, never invented text lines. No suitable tool: ask for help or a text export. Other `unreadableSources` need human decisions (step 5).
+2. Follow `reviewer.effectiveInstructions`, else `reviewer.instructions`; no setup. Retain as `requiredReviewerAgentId`, preserving author. `blocked-author-conflict`: relay `recovery.actions`. Compare authored-content hashes. Never edit sources, artifacts, tests, workflow, approvals or history.
+3. Fill `reportTemplate` against `reportSchema`; preserve binding/metadata. `citationGuide`: source text-file lines, not JSON; exact single-line quotes. Map all scenarios/clauses, including clarified ones; real gaps need blocking findings. Planning: singular `clauseId`, exact `expectedPaths`/`plannedTests`; test-only needs no product paths. Replace `unreviewed` honestly. Findings: `id`, `severity`, `message`. Never mark a real gap supported merely to pass validation.
 4. Use `stagingProtocol`: file-edit tool at its exact path; terminal-only: `kernelStage` with shell-quoted JSON. Native file-read; no shell writers/parsers, mkdir, pipes/chains. Run `singularity-flow review-source check &lt;phase&gt; --report-file &lt;that-path&gt; --json` standalone. Apply `repair` citation/mapping hints now, at most two changed-packet repair attempts; never unchanged retries. If `retentionReady` is false afterward, stop without commit/push; list remaining fields. Otherwise retain once with `stagingProtocol.retain`, including honest gaps; correction-required is not retention failure or approval. Tool-form refusal: correct form, not judgments.
 5. Only `pendingDispositions` allow `/sf-review-decide &lt;phase&gt; --finding &lt;ID&gt; --reason &lt;TEXT&gt;` in a separate human turn; never decide as reviewer. End with `continuation.actions`, target generation/owner; absent: `singularity-flow review-source status &lt;phase&gt; --json`. Never waive, publish, advance or acknowledge amendments for the person.
 </code></pre>

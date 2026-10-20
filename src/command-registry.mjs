@@ -297,8 +297,8 @@ const WORKFLOW_STUDIO_ACTIONS = Object.freeze(['show', 'apply']);
 const WORKFLOW_IMPORT_TEAM_ACTIONS = Object.freeze(['inspect', 'compile', 'status']);
 const WORKFLOW_BUILD_ACTIONS = Object.freeze(['start', 'add', 'status', 'source', 'propose', 'decide', 'answer', 'check', 'finish']);
 const WORKFLOW_SUBCOMMANDS = Object.freeze([...WORKFLOW_READ_SUBCOMMANDS, ...WORKFLOW_MUTATION_SUBCOMMANDS, 'author', 'studio', 'import-team', 'build', 'markup', 'intent']);
-const DOCUMENTS_READ_SUBCOMMANDS = Object.freeze(['list', 'view', 'preview', 'browse', 'artifacts']);
-const DOCUMENTS_MUTATION_SUBCOMMANDS = Object.freeze(['detach', 'scope', 'store', 'upload', 'add', 'fetch']);
+const DOCUMENTS_READ_SUBCOMMANDS = Object.freeze(['list', 'view', 'preview', 'browse', 'artifacts', 'readiness']);
+const DOCUMENTS_MUTATION_SUBCOMMANDS = Object.freeze(['detach', 'scope', 'store', 'upload', 'add', 'fetch', 'restore']);
 const DOCUMENTS_SUBCOMMANDS = Object.freeze([...DOCUMENTS_READ_SUBCOMMANDS, ...DOCUMENTS_MUTATION_SUBCOMMANDS]);
 // A person's choice at a workflow decision is governed like approve and reject; reading one is not.
 const DECISION_READ_SUBCOMMANDS = Object.freeze(['show']);

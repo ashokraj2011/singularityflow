@@ -81,7 +81,7 @@ function unreadableBinding(entry) {
 }
 
 /** Build the binding expected in the independent report from current, trusted input bytes. */
-export function sourceReviewBinding({ kind, workId, phase, generation, sources, artifact, upstreamSpec = null, unreadableSources = [], clarifications = [] }) {
+export function sourceReviewBinding({ kind, workId, phase, generation, sources, visualSources = [], artifact, upstreamSpec = null, unreadableSources = [], clarifications = [] }) {
   if (!['specification', 'planning'].includes(kind)) throw new SingularityFlowError('Review kind must be specification or planning.');
   requireId(workId, 'Review work ID');
   requireId(phase, 'Review phase');
@@ -90,12 +90,18 @@ export function sourceReviewBinding({ kind, workId, phase, generation, sources, 
     throw new SingularityFlowError(`Review needs 1 to ${MAX_SOURCES} pinned sources.`);
   }
   const boundSources = sources.map(sourceBinding).sort((left, right) => left.id.localeCompare(right.id));
-  if (new Set(boundSources.map((source) => source.id)).size !== boundSources.length) {
-    throw new SingularityFlowError('Review source IDs must be unique.');
-  }
+  if (!Array.isArray(visualSources) || sources.length + visualSources.length > MAX_SOURCES) throw new SingularityFlowError('Review source inventory exceeds its bound.');
+  const visual = visualSources.map(entry => {
+    const id = requireId(entry.id, 'Visual source id');
+    if (!SHA256.test(entry.originalSha256 ?? '') || !(entry.mimeType?.startsWith('image/') || entry.mimeType === 'application/pdf')) {
+      throw new SingularityFlowError(`Visual source '${id}' needs exact image/PDF identity.`);
+    }
+    return { id, path: requiredText(entry.path, 'Visual source path', 1024), originalSha256: entry.originalSha256, mimeType: entry.mimeType };
+  }).sort((a, b) => a.id.localeCompare(b.id));
+  if (new Set([...boundSources, ...visual].map(entry => entry.id)).size !== boundSources.length + visual.length) throw new SingularityFlowError('Review source IDs must be unique.');
   if (kind === 'planning' && !upstreamSpec) throw new SingularityFlowError('Planning review needs the approved specification.');
   const unreadable = (unreadableSources ?? []).map(unreadableBinding).sort((left, right) => left.id.localeCompare(right.id));
-  if (unreadable.some((entry) => boundSources.some((source) => source.id === entry.id))) {
+  if (unreadable.some((entry) => [...boundSources, ...visual].some((source) => source.id === entry.id))) {
     throw new SingularityFlowError('A source cannot be both cited and unreadable.');
   }
   if (!Array.isArray(clarifications) || clarifications.length > 2) throw new SingularityFlowError('Review admits only its current and approved-scope clarification records.');
@@ -114,6 +120,7 @@ export function sourceReviewBinding({ kind, workId, phase, generation, sources, 
   return {
     workId, phase, generation,
     sources: boundSources,
+    ...(visual.length ? { visualSources: visual } : {}),
     // Present only when an attachment cannot be cited, so an all-readable review binds as before.
     ...(unreadable.length ? { unreadableSources: unreadable } : {}),
     ...(boundClarifications.length ? { clarifications: boundClarifications } : {}),
@@ -192,12 +199,29 @@ function reviewedSourceSet(report, binding, findings) {
     findings.push(finding('sources-reviewed-invalid', 'The report must list each reviewed source ID once.'));
     return;
   }
-  const expected = binding.sources.map((source) => source.id);
+  const expected = [...binding.sources, ...(binding.visualSources ?? [])].map((source) => source.id);
   const missing = expected.filter((id) => !reviewed.includes(id));
   const unknown = reviewed.filter((id) => !expected.includes(id));
   if (missing.length || unknown.length) findings.push(finding('sources-not-all-reviewed',
     `Review source inventory differs from the pinned set; missing: ${missing.join(', ') || 'none'}; unknown: ${unknown.join(', ') || 'none'}.`,
     { missing, unknown }));
+}
+
+function reviewedVisualSet(report, binding, findings) {
+  const expected = binding.visualSources ?? [];
+  const receipts = report.visualSourcesReviewed ?? [];
+  if (!Array.isArray(receipts) || receipts.some(entry => !entry || typeof entry !== 'object')
+      || receipts.length !== expected.length || new Set(receipts.map(entry => entry.sourceId)).size !== receipts.length) {
+    findings.push(finding('visual-sources-not-reviewed', 'Inspect and acknowledge each exact image/PDF once; metadata alone is not reading.'));
+    return;
+  }
+  for (const receipt of receipts) {
+    const source = expected.find(entry => entry.id === receipt.sourceId);
+    const requiredMethod = source?.mimeType === 'application/pdf' ? 'pdf-tool' : 'image-tool';
+    if (!source || receipt.method !== requiredMethod || !String(receipt.locator ?? '').trim()
+        || !String(receipt.observations ?? '').trim()) findings.push(finding('visual-inspection-invalid',
+      'Visual review needs the actual tool method, inspected page/region and concrete observations.', { sourceId: receipt.sourceId }));
+  }
 }
 
 function evaluateSpecificationRows(report, context, binding, findings, pendingDispositions) {
@@ -208,6 +232,7 @@ function evaluateSpecificationRows(report, context, binding, findings, pendingDi
   }
   const sources = new Map(context.sources.map((source) => [source.id, source]));
   const unreadable = new Map((context.unreadableSources ?? []).map((entry) => [entry.id, entry]));
+  const visuals = new Map((context.visualSources ?? []).map(entry => [entry.id, entry]));
   const scenarios = sourceReviewScenarioIds(context.artifact.text);
   const clauses = extractClauses(context.artifact.text, { sourcePath: context.artifact.path });
   const authoritative = new Set(clauses.map((clause) => clause.id));
@@ -225,9 +250,13 @@ function evaluateSpecificationRows(report, context, binding, findings, pendingDi
       findings.push(finding('row-id-invalid', `${label} needs a unique stable id.`));
     } else rowIds.add(row.id);
     const uncitable = unreadable.get(row.sourceId);
-    if (uncitable) {
-      // A clause grounded in a PDF, image, link or machine-local file cannot be quoted. The reviewer
-      // says where in the document it is; a person then attests it, as with an exclusion.
+    if (visuals.has(row.sourceId)) {
+      if (typeof row.attestation !== 'string' || !row.attestation.trim() || row.attestation.length > 1024) {
+        findings.push(finding('visual-citation-invalid', `${label} must cite the inspected page or image region and observation.`));
+      } else mappedSources.add(row.sourceId);
+    } else if (uncitable) {
+      // Unsupported sources and older retained readability contracts still need a person's
+      // attestation; current text and native visual sources use their own exact read receipts.
       if (row.outcome !== 'covered' || typeof row.attestation !== 'string' || !row.attestation.trim()
           || row.attestation.length > 1024) {
         findings.push(finding('attestation-invalid', `${label} cites unreadable source '${uncitable.id}'; only a covered row that says where in it the scenario is grounded may do so.`));
@@ -258,7 +287,7 @@ function evaluateSpecificationRows(report, context, binding, findings, pendingDi
       if (!String(row.question ?? '').trim()) findings.push(finding('question-text-missing', `${label} needs the unresolved question.`));
     } else findings.push(finding('row-outcome-invalid', `${label} outcome must be covered, excluded, or question.`));
   }
-  for (const source of binding.sources) if (!mappedSources.has(source.id)) findings.push(finding('source-unmapped',
+  for (const source of [...binding.sources, ...(binding.visualSources ?? [])]) if (!mappedSources.has(source.id)) findings.push(finding('source-unmapped',
     `Pinned source '${source.id}' has no cited mapping or proposed exclusion.`, { sourceId: source.id }));
   // D-14: a source counts as reviewed only when every requirement statement in it has a row. One row
   // on one line of a document never stands for the rest of it [E2G-006].
@@ -380,6 +409,7 @@ export function evaluateSourceGroundedReview(report, context) {
     findings.push(finding('reviewer-not-independent', 'A trusted, read-only reviewer distinct from the artifact author is required.'));
   }
   reviewedSourceSet(report, binding, findings);
+  reviewedVisualSet(report, binding, findings);
   reviewedClarificationSet(report, binding, findings);
   // The reviewer cannot cite these; a person records that the phase proceeds without them.
   for (const entry of context.unreadableSources ?? []) pendingDispositions.push({
@@ -404,8 +434,13 @@ export function evaluateSourceGroundedReview(report, context) {
         continue;
       }
       ids.add(entry.id);
-      if (entry.sourceId) citedSource(entry, new Map(context.sources.map((source) => [source.id, source])), findings,
-        `Reviewer finding '${entry.id}'`, `findings[${index}]`);
+      if (entry.sourceId) {
+        if (context.visualSources?.some(source => source.id === entry.sourceId)) {
+          if (!String(entry.attestation ?? '').trim()) findings.push(finding('visual-citation-invalid',
+            'A visual finding must identify its inspected page/region and observation.', { sourceId: entry.sourceId }));
+        } else citedSource(entry, new Map(context.sources.map((source) => [source.id, source])), findings,
+          `Reviewer finding '${entry.id}'`, `findings[${index}]`);
+      }
       if (entry.severity === 'blocking') findings.push(finding('reviewer-blocker',
         `Reviewer finding '${entry.id}': ${entry.message}`, { reviewFindingId: entry.id }));
     }

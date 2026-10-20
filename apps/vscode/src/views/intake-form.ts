@@ -1279,7 +1279,7 @@ function referenceRepositoriesHtml(form: IntakeForm): string {
 /** Where the chosen workflow lets Story documents be kept; both, Git first, when it does not say. */
 export function storyDocumentStorage(form: IntakeForm): { allowed: Array<'git' | 'local'>; default: 'git' | 'local' } {
   return form.storyWorkflows.find((workflow) => workflow.id === form.workType)?.documentStorage
-    ?? { allowed: ['git', 'local'], default: 'git' };
+    ?? { allowed: ['local'], default: 'local' };
 }
 
 /** Where one staged document is kept and which phases use it. */
@@ -1291,7 +1291,7 @@ function storyAttachmentOptionsHtml(form: IntakeForm, entry: StoryAttachmentDraf
   const store = storyAttachmentStore(form, entry);
   const labels = {
     git: 'Committed to Git — everyone on the Story gets it',
-    local: 'On this machine only — Git records name, size and SHA-256'
+    local: 'On this laptop — another laptop asks for the same file when needed'
   };
   return `<div class="attachment-options">
       <label>Keep it

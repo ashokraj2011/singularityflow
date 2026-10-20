@@ -459,7 +459,7 @@ test('VS Code reads the real engine, and the engine takes the block VS Code writ
   const { root: repository } = await ideRepository(t, { capability: { yaml } });
   const cli = (...args) => {
     const result = spawnSync(process.execPath, [path.join(root, 'bin', 'singularity-flow.mjs'), ...args], { cwd: repository, encoding: 'utf8' });
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
     return JSON.parse(result.stdout);
   };
   const { entries, dropped } = model.appPlanFrom(cli('app', 'plan', '--capability', 'shop', '--json'));

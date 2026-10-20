@@ -734,6 +734,8 @@ Usage:
   singularity-flow documents scope <DOCUMENT-ID|NAME> --phases PHASE,...|all --reason TEXT [--scope file|package] [--dry-run] [--yes] [--json]
   singularity-flow documents detach <DOCUMENT-ID|NAME> [--scope file|package] --reason TEXT [--dry-run] [--yes]
   singularity-flow documents store <DOCUMENT-ID|NAME> --store git [--json]
+  singularity-flow documents readiness [--phase PHASE] [--work-id ID] [--json]
+  singularity-flow documents restore <DOCUMENT-ID|NAME> --file LOCAL-FILE [--work-id ID] [--json]
   singularity-flow revision activation [--json]
   singularity-flow revision capabilities [--json]
   singularity-flow revision status [--json]

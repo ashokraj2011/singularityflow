@@ -39,7 +39,7 @@ export function mutationTurnMode(skill) {
   if (AUTHORING_SKILL_DECLARATION[`sflow-${name}`]) return 'authoring';
   // Kernel actions have their own authority checks. This never permits direct source edits.
   if (['inputs', 'next', 'recover', 'appeal', 'clarify', 'revise', 'submit', 'converge', 'continue',
-    'admin', 'init', 'configuration', 'workflows', 'workflow-rules', 'skills', 'instructions',
+    'admin', 'init', 'configuration', 'documents', 'upload', 'workflows', 'workflow-rules', 'skills', 'instructions',
     'capability-map', 'workspace', 'worldmodel', 'start', 'test-setup'].includes(name)) return 'kernel-only';
   return 'read';
 }

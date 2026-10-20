@@ -327,6 +327,7 @@ faultRepair:
     - infra/production
 
 documents:
+  storage: { allowed: [local], default: local }
   allowedPhases: [intake, requirements, design, implementation-spec, reproduction, fix-design, fix-spec]
   maxFileBytes: 26214400
   maxPreviewBytes: 1048576

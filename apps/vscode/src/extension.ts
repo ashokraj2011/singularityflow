@@ -6543,7 +6543,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         label: 'Commit to Git', description: 'Everyone working on this Story gets the file', value: 'git' as const
       }, {
         label: 'Keep on this machine only',
-        description: 'Git records its name, size and SHA-256; other machines cannot open it', value: 'local' as const
+        description: 'Only metadata is shared; another laptop asks you to re-upload the same file when needed', value: 'local' as const
       }].sort((left, right) => Number(right.value === policy.default) - Number(left.value === policy.default));
       const choice = await vscode.window.showQuickPick(options,
         { title: plural ? 'Where should these files be kept?' : 'Where should this file be kept?', ignoreFocusOut: true });
@@ -6591,19 +6591,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void showCompactWarningMessage('The selected Figma export folder contains no files. Nothing was attached.');
         return;
       }
-      if (target.kind === 'story') {
-        const policy = evidenceStorageChoices(
-          (store.current.snapshot?.workflow?.resolution as { documents?: { storage?: { allowed?: unknown; default?: unknown } } } | undefined)?.documents);
-        if (!policy.allowed.some((kind) => kind === 'git')) {
-          void showCompactWarningMessage('A Figma export folder is committed to Git, and this Story keeps documents on this machine only. Attach its files one by one instead. Nothing was attached.');
-          return;
-        }
-      }
       const names = await askNames(target.kind === 'story' ? paths : []);
       if (!names) return;
       const phases = await askPhases();
       if (phases === undefined) return;
-      input = { kind: 'figma-export', paths, names, store: 'git', phases };
+      const folderStore = target.kind === 'story' ? await askStorage(true) : 'local';
+      if (!folderStore) return;
+      input = { kind: 'figma-export', paths, names, store: folderStore, phases };
     } else if (source.value === 'epic-source') {
       if (target.kind !== 'story') {
         void showCompactInformationMessage('An Epic\'s sources are imported into a Story released from it. Choose that Story as the owner.');
@@ -6748,10 +6742,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     if (item.storage === 'local') {
       if (item.availability !== 'available') {
-        void showCompactWarningMessage(item.availability === 'changed'
-          ? `${item.id} (${item.label}) is kept on this machine, but the copy here no longer matches its committed SHA-256.`
-          : `${item.id} (${item.label}) is kept on another machine; this checkout does not have its bytes.`);
-        return;
+        const chosen = await vscode.window.showOpenDialog({ canSelectFiles: true, canSelectFolders: false,
+          canSelectMany: false, openLabel: 'Restore this document',
+          title: `Re-upload the original for ${item.id} — ${item.label}` });
+        if (!chosen?.[0]) return;
+        try {
+          await client.run(['documents', 'restore', item.id, '--work-id', item.target.id,
+            '--file', chosen[0].fsPath, '--json']);
+          item.availability = 'available';
+          await refreshAfterKnownMutation();
+        } catch (error) {
+          showRefusal(error, { headline: `Could not restore ${item.id}; choose the same original file` });
+          return;
+        }
       }
       return openVerifiedEvidence(item);
     }

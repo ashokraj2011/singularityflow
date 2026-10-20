@@ -2036,6 +2036,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   await verifyAcceptedTestCommandAmendment(root, config, workflow);
   if (!dryRun) await assertNoPendingPublication(root, config, workflow, 'prepare or change phase inputs');
   const phase = await assertPhaseSequence(root, workflow, 'prepare', { requestedPhase: requested });
+  await (await import('./document-runtime.mjs')).requirePhaseDocuments(root, config, workflow, phase.id);
   // A required after-step action holds every later step (prepare, publish, submit) until its
   // approved delivery has a receipt.
   if (!dryRun) await assertRequiredStepActionsRecorded(root, config, workflow, `${phase.id} cannot be prepared`);
@@ -3211,6 +3212,7 @@ export async function publishGeneration(root, config, workflow, {
   await verifyAcceptedTestCommandAmendment(root, config, workflow);
   await assertNoPendingPublication(root, config, workflow, 'publish a generation');
   const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId });
+  await (await import('./document-runtime.mjs')).requirePhaseDocuments(root, config, workflow, phase.id);
   const { assertStoryDocumentRiskGates } = await import('./trp-document-runtime.mjs');
   await assertStoryDocumentRiskGates(root, config, workflow, phase, 'publish');
   await assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase);

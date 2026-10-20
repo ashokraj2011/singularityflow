@@ -73,6 +73,7 @@ async function repository() {
   await writeFile(path.join(root, 'README.md'), '# Office\n'); flow(root, ['init']);
   const configPath = path.join(root, 'singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.git.publish = 'off'; config.worldModel.grounding = 'off'; config.documents.allowedPhases = ['intake'];
+  config.documents.storage = { allowed: ['git', 'local'], default: 'git' };
   config.approvalSecurity = { profile: 'poc' };
   // These fixtures exercise supporting documents, not the pre-Story test-readiness gate.
   config.repositoryReadiness.requiredBeforeStory = false;

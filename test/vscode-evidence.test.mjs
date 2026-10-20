@@ -27,11 +27,11 @@ test('Story evidence keeps multi-file and Figma-folder uploads in one governed c
   assert.deepEqual(evidenceCommands(target, {
     kind: 'files', paths: ['/tmp/a.pdf', '/tmp/b.png'], names: ['Payment brief', 'Checkout screen']
   }), [
-    ['documents', 'upload', '/tmp/a.pdf', '/tmp/b.png', '--name', 'Payment brief', '--name', 'Checkout screen', '--store', 'git']
+    ['documents', 'upload', '/tmp/a.pdf', '/tmp/b.png', '--name', 'Payment brief', '--name', 'Checkout screen', '--store', 'local']
   ]);
   assert.deepEqual(evidenceCommands(target, { kind: 'figma-export', paths: ['/tmp/figma'], names: ['Checkout export'], store: 'local' }), [
-    ['documents', 'upload', '/tmp/figma', '--name', 'Checkout export', '--kind', 'figma-export', '--store', 'git']
-  ], 'a folder is always committed to Git');
+    ['documents', 'upload', '/tmp/figma', '--name', 'Checkout export', '--kind', 'figma-export', '--store', 'local']
+  ], 'folder members can remain on this laptop too');
   assert.deepEqual(evidenceCommands(target, {
     kind: 'url', url: 'https://www.figma.com/design/abc', label: 'Checkout design'
   }), [['documents', 'upload', '--url', 'https://www.figma.com/design/abc', '--name', 'Checkout design']],
@@ -46,7 +46,7 @@ test('Story attachments pass where the bytes are kept and which phases use them'
   assert.deepEqual(evidenceCommands(target, { kind: 'files', paths: ['/tmp/a.md'], names: ['A'], store: 'git', phases: null }),
     [['documents', 'upload', '/tmp/a.md', '--name', 'A', '--store', 'git']],
     'storage is always stated, so a local default policy cannot keep a "Committed to Git" file on one machine');
-  assert.deepEqual(evidenceStorageChoices(null), { allowed: ['git', 'local'], default: 'git' });
+  assert.deepEqual(evidenceStorageChoices(null), { allowed: ['git', 'local'], default: 'local' });
   assert.deepEqual(evidenceStorageChoices({ storage: { allowed: ['local', 'git'], default: 'local' } }), { allowed: ['git', 'local'], default: 'local' });
   assert.deepEqual(evidenceStorageChoices({ storage: { allowed: ['local'] } }), { allowed: ['local'], default: 'local' });
   assert.deepEqual(evidenceStorageChoices({ storage: { allowed: ['git'], default: 'local' } }), { allowed: ['git'], default: 'git' });
@@ -188,6 +188,6 @@ test('a Story imports one of its Epic\'s sources through documents fetch, storag
     ['documents', 'fetch', '--provider', 'epic', '--ref', 'SRC-6C9812569F6A', '--name', 'Ledger brief', '--store', 'local', '--phases', 'intake,requirements']
   ]);
   assert.deepEqual(evidenceCommands(target, { kind: 'epic-source', sourceId: 'SRC-6C9812569F6A', name: 'Ledger brief', phases: null }), [
-    ['documents', 'fetch', '--provider', 'epic', '--ref', 'SRC-6C9812569F6A', '--name', 'Ledger brief', '--store', 'git']
+    ['documents', 'fetch', '--provider', 'epic', '--ref', 'SRC-6C9812569F6A', '--name', 'Ledger brief', '--store', 'local']
   ]);
 });

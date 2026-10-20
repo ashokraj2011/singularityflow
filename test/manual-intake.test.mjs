@@ -36,6 +36,7 @@ async function repository() {
   flow(root, ['init']);
   const configPath = path.join(root, 'singularity/workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.documents.storage = { allowed: ['git', 'local'], default: 'git' };
   config.git.publish = 'off';
   // These fixtures exercise supporting documents, not the pre-Story test-readiness gate.
   config.repositoryReadiness.requiredBeforeStory = false;

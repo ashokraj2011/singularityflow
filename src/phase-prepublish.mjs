@@ -362,6 +362,7 @@ async function staticPublicationBlockers(root, config, workflow, phase, { retain
  * publication transaction: tests and remote state can change after this read.
  */
 export async function phasePrepublish(root, config, workflow, phase, options = {}) {
+  await (await import('./document-runtime.mjs')).requirePhaseDocuments(root, config, workflow, phase.id);
   const draft = await phaseDraftCheck(root, config, workflow, phase, options);
   const scopeReview = await (await import('./scope/authoring.mjs')).scopeAuthoringCheckpoint(root, config, workflow, phase);
   const retained = workflow.currentPhase === phase.id && phase.status === 'in_progress'

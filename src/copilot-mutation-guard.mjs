@@ -290,6 +290,12 @@ function shellAllowed(call, mode, value) {
   let classification;
   try { classification = resolveOperation({ requestedCommand: positionals[0], positionals, options }).classification; }
   catch { return false; }
+  // Rehydrating exact pinned document bytes changes no governed files, identities or approvals.
+  // It is safe in any Story-bound turn; upload/add remain ordinary phase-governed mutations.
+  if (positionals[0] === 'documents' && positionals[1] === 'restore') return Boolean(value.contract?.workId)
+    && positionals.length === 3 && typeof options.file === 'string'
+    && (!options['work-id'] || options['work-id'] === value.contract.workId)
+    && Object.keys(options).every(key => ['file', 'work-id', 'json', 'for-agent'].includes(key));
   if (mode === 'approval-only') {
     const action = value.skill?.replace(/^\/?(?:sf|sflow)-/u, '');
     if (positionals[0] === 'choices') return positionals[1] === 'status' || !value.decisionEnded && (positionals[1] === 'answer'

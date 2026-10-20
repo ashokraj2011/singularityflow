@@ -10,7 +10,7 @@ import { phaseKernelOwned, phaseRequiresCodeDelivery } from './code-delivery-pol
 import { phaseAuthoringSummary } from './phase-authoring-summary.mjs';
 import { gitDir } from './git-execution.mjs';
 import { storyReferenceRepositories, verifyReferenceRepositories } from './reference-repositories.mjs';
-import { SingularityFlowError } from './util.mjs';
+import { SingularityFlowError, writeAtomic, ensureSecureRepositoryDirectory } from './util.mjs';
 import { recoveryActionGuidance } from './recovery-action-guidance.mjs';
 import { phaseContextAdmission, phaseAdmissionActions } from './phase-entry-admission.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
@@ -62,6 +62,7 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
       detail: 'This session has not selected a Story; attach the one this checkout holds.'
     })], authoringAllowed: false };
   const authoring = await measureCommandSpan('phase-entry.authoring', () => phaseAuthoringSummary(root, definition, workflow, phase, { includeEntry: true }));
+  const documentReadiness = await (await import('./document-runtime.mjs')).phaseDocumentReadiness(root, definition, workflow, phase.id);
   const recovery = await measureCommandSpan('phase-entry.recovery', () => recoveryPlan(root, definition, workflow, {
     phaseId: phase.id, inspectActivePhase: true, modelEnabled
   }));
@@ -85,6 +86,11 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     && action.confirmation !== 'none');
   const contextAdmission = phaseContextAdmission({ authoring, recovery, references,
     deterministic: phaseKernelOwned(phase) });
+  if (documentReadiness.status !== 'ready') {
+    contextAdmission.allowed = false;
+    contextAdmission.blockers.push({ code: 'DOCUMENT_REUPLOAD_REQUIRED', message: documentReadiness.instruction,
+      documents: documentReadiness.missing.map(({ id, name, sha256 }) => ({ id, name, sha256 })) });
+  }
   const canCompose = contextAdmission.allowed;
   let context = null;
   if (compose && canCompose) {
@@ -94,9 +100,22 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     // The composer writes the prompt of the generation to author next. A published step's inspection
     // generation is the one before it, so naming that file offered the previous generation's prompt.
     const generation = nextPhaseGeneration(phase);
-    const file = await composedPromptFile(root, definition.workItemRoot, actualId, phase.id, generation);
+    const durableFile = await composedPromptFile(root, definition.workItemRoot, actualId, phase.id, generation);
+    let file = durableFile;
+    if (documentReadiness.localDocumentCount) {
+      const sha256 = createHash('sha256').update(text).digest('hex');
+      const localPath = path.join(gitDir(root), 'singularity-flow', 'document-context', `${sha256}.md`);
+      await ensureSecureRepositoryDirectory(gitDir(root), path.dirname(localPath), { label: 'Private document context' });
+      await writeAtomic(localPath, text, { mode: 0o600 });
+      if (globalThis.__SFLOW_EXTENSION_HOST__ !== true) {
+        await (await import('./copilot-mutation-guard.mjs')).issueMutationReadPaths(root, [localPath]);
+      }
+      file = { path: localPath, sha256, bytes: Buffer.byteLength(text), storage: 'local',
+        instruction: 'Exact complete runtime context, including this laptop\'s verified documents. Never copy it into the repository or a committed prompt.' };
+    }
     context = { text, deliveredSha256: createHash('sha256').update(text).digest('hex'),
-      renderedSha256: file?.sha256 ?? null, generation, ...(file ? { file } : {}) };
+      renderedSha256: durableFile?.sha256 ?? null, generation, ...(file ? { file } : {}),
+      ...(documentReadiness.localDocumentCount ? { durableFile } : {}) };
   }
   const clarification = await measureCommandSpan('phase-entry.clarification', () => verifyClarificationRecord(root, definition, workflow, phase, {
     generation: base.inspectionGeneration
@@ -185,7 +204,8 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     && !recovery.requiresRecovery && !requiresDecision && references.status !== 'blocked';
   // Unanswered questions are the authoring skill's own next step (compose, then ask), not a hold:
   // reported as attention-required, a skill relayed itself as the next action and stopped.
-  const status = authoring.entry?.status === 'retained-generation' ? 'retained-generation'
+  const status = documentReadiness.status !== 'ready' ? 'documents-required'
+    : authoring.entry?.status === 'retained-generation' ? 'retained-generation'
     : preparationAdmitted ? 'successor-preparation-required' : authoringAllowed ? 'authoring-entry'
       : canCompose && authoring.entry?.status === 'authoring-entry' && checkpoint.questioningAllowed ? 'clarification-required'
         : 'attention-required';
@@ -199,6 +219,10 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     scope: 'draft-only', evidenceAccepted: false, publicationReviewRequired: true
   }, ...next];
   const nextActions = phaseAdmissionActions(next, contextAdmission, { authoring, recovery }).map(recoveryActionGuidance);
+  if (documentReadiness.status !== 'ready') nextActions.unshift(...documentReadiness.missing.map(record => ({
+    id: `restore-document:${record.id}`, safe: true, automatic: false, confirmation: 'choose-local-file',
+    detail: record.instruction, ...record.commandGuidance, commandGuidance: record.commandGuidance,
+    scope: 'machine-local-document-only' })));
   if (authoringAllowed && authoringProgress?.next) nextActions.unshift({
     id: `resume-authoring:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
     detail: authoringProgress.instruction, ...authoringProgress.next,
@@ -219,7 +243,7 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     ...(preparationAdmitted ? { successor: { targetGeneration: authoring.entry.targetGeneration,
       preparation: authoring.entry.preparation, automatic: false } } : {}),
     authoring, recovery, retainedExecutionEvidence, evidenceConsistency, ...(recordedVisualReviews ? { recordedVisualReviews } : {}),
-    references, clarification, context,
+    references, documentReadiness, clarification, context,
     contextComposition: !compose ? 'not-requested' : context ? 'delivered' : 'not-admitted',
     next: clarificationAction ? [checkpoint.nextAction, ...nextActions.filter(action =>
       action.id !== `resolve-clarification:${phase.id}`)] : checkpoint.rebindAction ? [checkpoint.rebindAction, ...nextActions] : nextActions,

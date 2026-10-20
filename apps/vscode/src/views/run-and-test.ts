@@ -19,6 +19,12 @@
  * The capability page, the run widget, the Run view and the Testing view (run-widget.ts,
  * run-testing.ts) all act through this one controller, so trust, the confirmations, the tasks and
  * the state they show are the same wherever a run starts.
+ *
+ * Before a run in an environment, the files of that environment it would place are checked in the
+ * `env files --json` read the plan is read with. A missing one stops the run before any task opens,
+ * with plain words and the fixes (Create from template, Use existing file…, Open Environment Files)
+ * instead of a refusal in a terminal; a run whose task ended with an error is checked the same way.
+ * [ENVF, docs/SPEC-ENVIRONMENT-FILES-v1.md]
  */
 import path from 'node:path';
 import * as vscode from 'vscode';
@@ -39,6 +45,11 @@ import { RunConfigurationsPanel } from './run-configurations.ts';
 import { runAndTestHtml } from './run-and-test-page.ts';
 import { testsSummaryArgv, testSummaryFrom, totalsLine } from './test-summary-model.ts';
 import { TestSummaryPanel } from './test-summary.ts';
+import {
+  envFilesArgv, environmentFilesFrom, missingAsFile, missingForRun, missingFromRefusal, preflightButtons, preflightMessage,
+  PREFLIGHT_CREATE, PREFLIGHT_LINK, PREFLIGHT_OPEN, type EnvironmentFile, type MissingFile
+} from './environment-files-model.ts';
+import { createEnvironmentFile, EnvironmentFilesPanel, onEnvironmentFilesChanged, useExistingEnvironmentFile } from './environment-files.ts';
 
 export interface RunAndTestHost extends Omit<RunSuggestionsHost, 'client' | 'output'> {
   client: SingularityFlowClient;
@@ -70,6 +81,8 @@ export interface RunAndTestReading extends Readonly<RunAndTestState> {
 
 interface Held {
   execution: vscode.TaskExecution; capability: string; entry: string | null; stopping: boolean;
+  /** The environment it runs in, for the environment-file check when it ends with an error. */
+  environment?: string | null;
   /** Started with --debug: attach once `app status` says the debugger listens. */
   debug?: { runtime: DebugRuntime; attached: boolean };
 }
@@ -101,8 +114,16 @@ export class RunAndTest implements vscode.Disposable {
   /** The capability the engine resolves for this checkout (`app plan --json`), per repository. */
   private here: { repository: string; capability: string | null } | null = null;
   private hereReading: Promise<string | null> | null = null;
+  /** This repository's environment files, read with the plan; null when the engine has no `env files`. */
+  private environmentFiles: { repository: string; files: EnvironmentFile[] | null } | null = null;
+  /** Missing environment files the engine named when it refused a plan read (ENV_FILE_MISSING), per capability. */
+  private readonly refusals = new Map<string, MissingFile[]>();
 
   private constructor(private host: RunAndTestHost) {
+    // A file created, linked or moved anywhere (the Environment Files page) changes the counts here.
+    this.subscriptions.push(onEnvironmentFilesChanged((repository) => {
+      if (repository === this.host.client.repository) void this.readEnvironmentFiles();
+    }));
     const tasks = (vscode as { tasks?: typeof vscode.tasks }).tasks;
     if (tasks?.onDidEndTaskProcess) this.subscriptions.push(tasks.onDidEndTaskProcess((event) => this.ended(event.execution, event.exitCode ?? null)));
     // A process that never started still ends its task; that is the only signal it gives.
@@ -192,7 +213,7 @@ export class RunAndTest implements vscode.Disposable {
   refreshStatus(capability: string): Promise<void> { return this.readStatus(capability); }
 
   /** Forget the last notice and error, before an action whose own words should be shown. */
-  clearMessages(capability: string): void { this.update(capability, { error: null, notice: null }); }
+  clearMessages(capability: string): void { this.update(capability, { error: null, notice: null, prompted: null }); }
 
   /** The task terminal a start entry's log is in: its current task, else the last one this window ran. */
   taskName(capability: string, entry: string): string | null {
@@ -211,18 +232,44 @@ export class RunAndTest implements vscode.Disposable {
       if (held.capability === capability.id && held.entry) tasks[held.entry] = { running: true, ...(held.debug ? { debug: true } : {}) };
     }
     return runAndTestHtml(buildRunAndTestView(capability, ownership, {
-      ...state, tasks, environment: this.remembered(capability.id), testsRunning: this.held.has(this.key(capability.id))
+      ...state, tasks, environment: this.remembered(capability.id), testsRunning: this.held.has(this.key(capability.id)),
+      environmentFiles: this.filesHere()
     }));
+  }
+
+  /** The environment files read last for this window's repository; null when unknown or unsupported. */
+  private filesHere(): EnvironmentFile[] | null {
+    return this.environmentFiles?.repository === this.host.client.repository ? this.environmentFiles.files : null;
+  }
+
+  private keepEnvironmentFiles(repository: string, answer: PromiseSettledResult<unknown>): void {
+    // An engine without `env files`, or a failed read, shows no counts and checks nothing: the engine still refuses.
+    const files = answer.status === 'fulfilled' ? environmentFilesFrom(answer.value)?.files ?? null : null;
+    this.environmentFiles = { repository, files };
+  }
+
+  /** `env files --json` again, after something changed a file; every section here redraws. */
+  private async readEnvironmentFiles(): Promise<EnvironmentFile[] | null> {
+    const repository = this.host.client.repository;
+    const [answer] = await Promise.allSettled([this.host.client.run(envFilesArgv())]);
+    this.keepEnvironmentFiles(repository, answer);
+    this.changed.fire('*');
+    return this.filesHere();
   }
 
   /** Plan, status, the test plan (when the engine offers it) and the last run, read together. */
   async load(capability: string): Promise<void> {
     this.update(capability, { loading: true });
     const { client } = this.host;
-    const [plan, status, tests, last] = await Promise.allSettled([
+    const repository = client.repository;
+    const [plan, status, tests, last, files] = await Promise.allSettled([
       client.run(appPlanArgv(capability)), client.run(appStatusArgv(capability)),
-      client.run(testsPlanArgv(capability)), client.run(testsSummaryArgv({ kind: 'capability', capability }))
+      client.run(testsPlanArgv(capability)), client.run(testsSummaryArgv({ kind: 'capability', capability })),
+      client.run(envFilesArgv())
     ]);
+    this.keepEnvironmentFiles(repository, files);
+    this.refusals.set(this.key(capability, '#files'), [plan, tests].flatMap((answer) =>
+      answer.status === 'rejected' ? missingFromRefusal((answer.reason as { result?: unknown } | null)?.result) : []));
     const parsed = plan.status === 'fulfilled' ? appPlanFrom(plan.value) : null;
     const summary = last.status === 'fulfilled' ? testSummaryFrom(last.value) : null;
     const lastCode = last.status === 'rejected' ? failureCode(last.reason) : '';
@@ -284,6 +331,75 @@ export class RunAndTest implements vscode.Disposable {
     return false;
   }
 
+  /** What a run of the capability places, for the environment-file check: its repositories and roots. */
+  private runScope(capability: string, workingDirectories: Array<string | null>) {
+    const node = findCapability(this.host.capabilities(), capability);
+    const repositories = node?.repositories?.length ? node.repositories : node?.repository ? [node.repository] : [];
+    return { capability, repositories, sourceRoots: node?.sourceRoots ?? [], workingDirectories };
+  }
+
+  /**
+   * Before a run in an environment: when a file of it that this run places is missing here, the run
+   * is not started; the person sees why and the fixes instead of a refusal in a task terminal.
+   */
+  private filesMissing(capability: string, environment: string | null, run: { kind: 'start' | 'debug' | 'tests'; label: string },
+    workingDirectories: Array<string | null>): boolean {
+    if (!environment) return false;
+    // The engine's own refusal of the plan read (ENV_FILE_MISSING) counts as much as what the list says.
+    const refused = (this.refusals.get(this.key(capability, '#files')) ?? []).filter((file) => file.environment === environment);
+    const files = this.filesHere();
+    const listed = files ? missingForRun(files, { environment, ...this.runScope(capability, workingDirectories) }) : [];
+    const missing = [...listed, ...refused.filter((file) => !listed.some((other) => other.path === file.path && other.repository === file.repository))];
+    if (!missing.length) return false;
+    this.refuseMissing(capability, environment, run, missing);
+    return true;
+  }
+
+  private refuseMissing(capability: string, environment: string, run: { kind: 'start' | 'debug' | 'tests'; label: string; exitCode?: number | null },
+    missing: MissingFile[]): void {
+    const message = preflightMessage(run, environment, missing);
+    for (const command of missing.flatMap((file) => file.commands)) this.host.output?.appendLine(`  ${command}`);
+    this.update(capability, { error: message, notice: null, prompted: message });
+    void this.offerFixes(capability, environment, missing, message);
+  }
+
+  /** The message with its fixes; whatever the person picks runs through the Environment Files actions. */
+  private async offerFixes(capability: string, environment: string, missing: MissingFile[], message: string): Promise<void> {
+    const choice = await showCompactWarningMessage(message, ...preflightButtons(missing));
+    const target = { activeRepository: this.host.activeRepositoryId(), scope: 'repository' as const };
+    try {
+      if (choice === PREFLIGHT_CREATE) {
+        for (const file of missing) await createEnvironmentFile(this.host, missingAsFile(file), true, target);
+        this.update(capability, { error: null, prompted: null, notice: missing.length === 1
+          ? `Created ${missing[0]!.path} for ${environment} from its template and opened it. Fill in its values, then run again.`
+          : `Created ${missing.length} files for ${environment} from their templates and opened them. Fill in their values, then run again.` });
+      } else if (choice === PREFLIGHT_LINK) {
+        if (await useExistingEnvironmentFile(this.host, missingAsFile(missing[0]!), target)) {
+          this.update(capability, { error: null, prompted: null, notice: `${missing[0]!.path} now uses the file you chose for ${environment}. Run again.` });
+        }
+      } else if (choice === PREFLIGHT_OPEN) {
+        EnvironmentFilesPanel.show(this.host, { environment, capability });
+      }
+    } catch (error) {
+      this.update(capability, { error: (error as Error).message, notice: null, prompted: null });
+    }
+  }
+
+  /**
+   * A run that ended with an error may have been refused for a missing file (the file went after the
+   * check, or another check of the engine's): read the files again and offer the same fixes.
+   */
+  private async checkFilesAfter(held: Held, exitCode: number | null, readAgain = true): Promise<void> {
+    if (held.stopping || !held.environment || exitCode === null || exitCode === 0) return;
+    const files = readAgain ? await this.readEnvironmentFiles() : this.filesHere();
+    if (!files) return;
+    const entry = held.entry ? this.stateOf(held.capability).plan?.find((item) => item.id === held.entry) : null;
+    const working = held.entry ? [entry?.workingDirectory ?? null] : (this.stateOf(held.capability).tests ?? []).map((command) => command.workingDirectory);
+    const missing = missingForRun(files, { environment: held.environment, ...this.runScope(held.capability, working) });
+    if (missing.length) this.refuseMissing(held.capability, held.environment, { kind: held.entry ? 'start' : 'tests',
+      label: held.entry ?? `Tests for ${held.capability}`, exitCode }, missing);
+  }
+
   /** Ask once per command identity; remember the answer for this workspace. */
   private async confirmed(keys: string[], request: Parameters<typeof collectReviewConfirmation>[0]): Promise<boolean> {
     const known = this.host.state.get<string[]>(CONFIRMED_COMMANDS_KEY, []) ?? [];
@@ -340,6 +456,7 @@ export class RunAndTest implements vscode.Disposable {
     const environment = entryEnvironment(entry, this.chosenEnvironment(capability));
     const refusal = startRefusal(entry, environment, this.stateOf(capability).localIntegration ?? null);
     if (refusal) return this.update(capability, { error: refusal, notice: null });
+    if (this.filesMissing(capability, environment, { kind: 'start', label: entry.id }, [entry.workingDirectory])) return;
     if (!await this.confirmed([entry.commandSha256], startConfirmationRequest(entry, environment))) {
       return this.update(capability, { notice: 'Nothing was started.', error: null });
     }
@@ -347,7 +464,7 @@ export class RunAndTest implements vscode.Disposable {
     this.log(argv);
     const execution = await this.execute(capability, this.task('app-start', capability, entry.id, environment, argv));
     if (!execution) return;
-    this.held.set(this.key(capability, entry.id), { execution, capability, entry: entry.id, stopping: false });
+    this.held.set(this.key(capability, entry.id), { execution, capability, entry: entry.id, stopping: false, environment });
     const tasks = { ...(this.stateOf(capability).tasks ?? {}) };
     delete tasks[entry.id];
     this.update(capability, { tasks, notice: `Starting ${entry.id}${environment ? ` against ${environment}` : ''}. Its log is in the task terminal.`, error: null });
@@ -375,6 +492,7 @@ export class RunAndTest implements vscode.Disposable {
     // The engine would refuse it before anything runs (a missing debugpy or dlv, yarn): say so here.
     const declined = debugLaunch(entry.debug, environment).refusal;
     if (declined) return this.update(capability, { error: `${entryId} was not started: ${declined.message}`, notice: null });
+    if (this.filesMissing(capability, environment, { kind: 'debug', label: entry.id }, [entry.workingDirectory])) return;
     if (!await this.confirmed([debugConfirmationKey(entry)], debugStartConfirmationRequest(entry, environment))) {
       return this.update(capability, { notice: 'Nothing was started.', error: null });
     }
@@ -382,7 +500,7 @@ export class RunAndTest implements vscode.Disposable {
     this.log(argv);
     const execution = await this.execute(capability, this.task('app-start', capability, entry.id, environment, argv, true));
     if (!execution) return;
-    this.held.set(this.key(capability, entry.id), { execution, capability, entry: entry.id, stopping: false, debug: { runtime: entry.debug.runtime, attached: false } });
+    this.held.set(this.key(capability, entry.id), { execution, capability, entry: entry.id, stopping: false, environment, debug: { runtime: entry.debug.runtime, attached: false } });
     const tasks = { ...(this.stateOf(capability).tasks ?? {}) };
     delete tasks[entry.id];
     this.update(capability, {
@@ -489,6 +607,8 @@ export class RunAndTest implements vscode.Disposable {
     const tests = this.stateOf(capability).tests ?? [];
     const commands = typeof command === 'string' ? [command] : [...new Set(command ?? [])];
     const environment = testsEnvironment(tests, this.chosenEnvironment(capability), commands);
+    const planned = commands.length ? tests.filter((item) => commands.includes(item.id)) : tests;
+    if (this.filesMissing(capability, environment, { kind: 'tests', label: `Tests for ${capability}` }, planned.map((item) => item.workingDirectory))) return null;
     const argv = testsRunArgv(capability, commands, environment, plannedIdentities(tests, commands));
     if (!await this.confirmed(testsConfirmationKeys(tests, argv, commands), testsConfirmationRequest(capability, tests, commands, environment))) {
       this.update(capability, { notice: 'No tests were run.', error: null });
@@ -497,7 +617,7 @@ export class RunAndTest implements vscode.Disposable {
     this.log(argv);
     const execution = await this.execute(capability, this.task('tests-run', capability, null, environment, argv));
     if (!execution) return null;
-    this.held.set(this.key(capability), { execution, capability, entry: null, stopping: false });
+    this.held.set(this.key(capability), { execution, capability, entry: null, stopping: false, environment });
     this.update(capability, { notice: `Running ${commands.length ? commands.join(', ') : 'every test'}${environment ? ` against ${environment}` : ''}. Output is in the task terminal.`, error: null });
     return execution;
   }
@@ -525,7 +645,7 @@ export class RunAndTest implements vscode.Disposable {
         notice: held.stopping ? `${held.entry} was stopped.` : `${held.entry} ended${exitCode === null ? '' : ` with exit code ${exitCode}`}.`
       });
       await this.readStatus(held.capability);
-      if (!held.stopping) return;
+      if (!held.stopping) return void await this.checkFilesAfter(held, exitCode);
       // Ending the task ends the CLI, which stops the tree and clears its record a moment later.
       const stillStarted = () => this.stateOf(held.capability).status?.find((item) => item.id === held.entry)?.started === true;
       for (let attempt = 0; attempt < STOP_SETTLE_READS && stillStarted(); attempt += 1) {
@@ -539,6 +659,7 @@ export class RunAndTest implements vscode.Disposable {
     this.update(held.capability, {
       notice: held.stopping ? 'The test run was cancelled.' : `The test run finished${exitCode === null ? '' : ` with exit code ${exitCode}`}.`
     });
+    const before = this.stateOf(held.capability).lastRun?.run?.id ?? null;
     await this.load(held.capability);
     const last = this.stateOf(held.capability).lastRun;
     if (!held.stopping && last?.run) {
@@ -547,6 +668,8 @@ export class RunAndTest implements vscode.Disposable {
     }
     TestSummaryPanel.refreshFor({ kind: 'capability', capability: held.capability });
     this.testsEnded.fire({ capability: held.capability, execution: held.execution, exitCode, cancelled: held.stopping });
+    // The engine records no run when it refused one; a missing environment file is said with its fixes.
+    if (!last?.run || last.run.id === before) await this.checkFilesAfter(held, exitCode, false);
   }
 
   async setEnvironment(capability: string, environment: string): Promise<void> {
@@ -588,6 +711,7 @@ export class RunAndTest implements vscode.Disposable {
       case 'summary': return void TestSummaryPanel.show(this.host.client, { kind: 'capability', capability });
       case 'environment': return this.setEnvironment(capability, environment);
       case 'copy-bind': return this.copyBind(capability, environment);
+      case 'env-files': return void EnvironmentFilesPanel.show(this.host, { environment: environment || null, capability });
       default: return undefined;
     }
   }

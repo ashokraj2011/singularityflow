@@ -58,6 +58,15 @@ function environmentHtml(view: RunAndTestView): string {
     </label>${bind}`;
 }
 
+/** "Environment files: dev: 2 files · 1 missing", each opening the Environment Files page at that environment. */
+function environmentFilesLine(view: RunAndTestView): string {
+  if (!view.environmentFiles) return '';
+  const links = view.environmentFiles.map((count) => `<button type="button" class="link${count.missing ? ' rt-env-missing' : ''}"${attributes(view, 'env-files', { environment: count.environment })}>${
+    escape(`${count.environment}: ${count.words}`)}</button>`).join('<span class="muted"> · </span>');
+  return `<p class="rt-env-files">${icon('document')}<span>Environment files:</span> ${links
+    || `<button type="button" class="link"${attributes(view, 'env-files', { environment: view.environment ?? '' })}>none declared; open Environment Files</button>`}</p>`;
+}
+
 function testsHtml(view: RunAndTestView): string {
   const commands = view.testCommands.map((command) =>
     `<button type="button" class="secondary compact-action"${attributes(view, 'tests', { command })}${view.testsRunning ? ' disabled' : ''}>Run ${escape(command)}</button>`).join('');
@@ -96,6 +105,7 @@ export function runAndTestHtml(view: RunAndTestView | null): string {
     ${view.error ? `<p class="notice error" role="alert">${icon('blocked')}${escape(view.error)}</p>` : ''}
     ${view.notice ? `<p class="notice ok" role="status">${escape(view.notice)}</p>` : ''}
     ${environmentHtml(view)}
+    ${environmentFilesLine(view)}
     <h3>${icon('delivery')}Application</h3>
     ${starts}
     <p class="rt-suggest"><button type="button" class="secondary compact-action"${attributes(view, 'configurations')}>${icon('configuration')}Edit configurations…</button>
@@ -114,6 +124,8 @@ export const RUN_AND_TEST_STYLE = `
 .rt-actions { display:flex; flex-wrap:wrap; gap:.4rem; }
 .rt-environment { max-width:28rem; }
 .rt-bind code { overflow-wrap:anywhere; }
+.rt-env-files { display:flex; flex-wrap:wrap; gap:.3rem; align-items:center; margin:.5rem 0 0; }
+.rt-env-files .rt-env-missing { color:var(--sf-bad); }
 .rt-last { margin:.6rem 0 0; }
 .run-and-test .rt-tests { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
 .run-and-test .rt-tests > button { margin:0; }

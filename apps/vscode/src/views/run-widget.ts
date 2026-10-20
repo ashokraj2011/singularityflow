@@ -200,9 +200,10 @@ export class RunWidget implements vscode.Disposable {
     for (const capability of this.capabilities) {
       const since = this.acted.get(capability);
       if (!since || Date.now() - since > SURFACE_MS) continue;
-      const { error = null, notice = null } = this.controller.reading(capability);
+      const { error = null, notice = null, prompted = null } = this.controller.reading(capability);
       const last = this.shown.get(capability);
-      if (error && error !== last?.error) void showCompactWarningMessage(error);
+      // A missing environment file was already shown with its fixes; it is not shown again bare.
+      if (error && error !== last?.error && error !== prompted) void showCompactWarningMessage(error);
       else if (notice && notice !== last?.notice) vscode.window.setStatusBarMessage(`$(info) ${notice}`, 5_000);
       this.shown.set(capability, { error, notice });
     }

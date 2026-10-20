@@ -622,6 +622,11 @@
         "icon": "$(gear)"
       },
       {
+        "command": "singularityFlow.openEnvironmentFiles",
+        "title": "Singularity Flow: Environment Files",
+        "icon": "$(file-symlink-file)"
+      },
+      {
         "command": "singularityFlow.selectRunConfiguration",
         "category": "Singularity Flow",
         "title": "Select Run Configuration…",

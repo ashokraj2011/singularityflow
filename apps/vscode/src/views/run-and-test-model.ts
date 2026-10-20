@@ -15,6 +15,7 @@ import { createHash } from 'node:crypto';
 import type { CapabilityNode } from '../cli/snapshot.ts';
 import type { ReviewConfirmationRequest } from './review-confirmation-page.ts';
 import { evidenceClassLabel, totalsLine, type TestSummary } from './test-summary-model.ts';
+import { environmentFileCounts, type EnvironmentFile } from './environment-files-model.ts';
 
 /** One environment a start entry or test command may run against, as `env status` sees it. */
 export interface EnvironmentChoice { name: string; status: string; default: boolean }
@@ -815,6 +816,10 @@ export interface RunAndTestState {
   loading?: boolean;
   error?: string | null;
   notice?: string | null;
+  /** The error already shown with its fixes (a missing environment file): not shown a second time. */
+  prompted?: string | null;
+  /** This repository's environment files (`env files --json`); null when the engine has none to report. */
+  environmentFiles?: EnvironmentFile[] | null;
 }
 
 export interface RunAndTestView {
@@ -833,6 +838,8 @@ export interface RunAndTestView {
   testsRunning: boolean;
   lastRun: LastRunLine | null;
   lastRunNote: string | null;
+  /** Per environment, the files a run places and how many are missing; null without `env files`. */
+  environmentFiles: Array<{ environment: string; words: string; missing: number; current: boolean }> | null;
 }
 
 /** The section for one capability: start entries, environment picker, test buttons, the last run. */
@@ -881,6 +888,11 @@ export function buildRunAndTestView(capability: CapabilityNode, ownership: Owner
       .map((command) => `${command.id}${command.environment ? ` (${command.environment})` : ''}: ${command.note ?? 'not run'}`)
   } : null;
   const fromSummary = (state.lastRun?.commands ?? []).map((command) => command.id).filter((id) => ID.test(id));
+  const repositories = capability.repositories?.length ? capability.repositories : capability.repository ? [capability.repository] : [];
+  const workingDirectories = [...plan.map((entry) => entry.workingDirectory), ...tests.map((command) => command.workingDirectory)];
+  const environmentFiles = state.environmentFiles ? environmentFileCounts(state.environmentFiles, {
+    capability: capability.id, repositories, sourceRoots: capability.sourceRoots ?? [], workingDirectories
+  }, options.map((choice) => choice.name)).map((count) => ({ environment: count.environment, words: count.words, missing: count.missing, current: count.environment === environment })) : null;
   return {
     capability: capability.id,
     name: capability.name ?? capability.id,
@@ -901,6 +913,7 @@ export function buildRunAndTestView(capability: CapabilityNode, ownership: Owner
     testCommands: tests.length ? tests.map((command) => command.id) : [...new Set(fromSummary)],
     testsRunning: state.testsRunning === true,
     lastRun,
-    lastRunNote: state.lastRunNote ?? (state.lastRun === null ? 'No test run yet.' : null)
+    lastRunNote: state.lastRunNote ?? (state.lastRun === null ? 'No test run yet.' : null),
+    environmentFiles
   };
 }

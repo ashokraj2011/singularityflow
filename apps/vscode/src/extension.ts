@@ -989,6 +989,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.decideStory', 'singularityFlow.decisions',
     'singularityFlow.startApplication', 'singularityFlow.runTests', 'singularityFlow.testSummary', 'singularityFlow.editRunConfigurations', ...RUN_CONFIGURATION_COMMANDS,
+    'singularityFlow.openEnvironmentFiles',
     'singularityFlow.publishConfiguration',
     'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.togglePromptLog', 'singularityFlow.openActivityLog',
     'singularityFlow.openWorkspaceLogs', 'singularityFlow.refreshWorkspaceLogs', 'singularityFlow.openPerformanceReport', 'singularityFlow.openSpecificationTrace',
@@ -8906,6 +8907,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.testSummary': (target?: unknown) => lazyPanels().runAndTestCommand('summary', runAndTestHost(), target),
     // The Run/Debug Configurations editor; other surfaces pass `{ capability, configuration }` (a start entry ID to select).
     'singularityFlow.editRunConfigurations': (target?: unknown) => lazyPanels().editRunConfigurationsCommand(runAndTestHost(), target),
+    // Environment files; other surfaces pass `{ environment, capability }`.
+    'singularityFlow.openEnvironmentFiles': (target?: unknown) => lazyPanels().environmentFilesCommand(runAndTestHost(), target),
     // The run widget and the Run view: a row, `{ key }` or `{ capability, configuration }` names a configuration.
     ...Object.fromEntries(RUN_CONFIGURATION_COMMANDS.map((id) => [id, (target?: unknown) => runWidget().command(id, target)])),
     // Workflow Studio, optionally at one section: `{ view: 'changes' }` opens the proposals waiting

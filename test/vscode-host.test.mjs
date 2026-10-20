@@ -10357,6 +10357,8 @@ test('an approval held by pending decisions says so on the approval page and ope
  * exactly, and a task's end is fired by the test.
  */
 const RUN_SHA = `sha256:${'1'.repeat(64)}`;
+/** A value an environment file could hold: no page, message or log may ever carry it. */
+const ENV_SECRET = 'Pq7Wd2Lk9Xs4Bn6Rt1Hy8Mv3Jc5Fz0Ga';
 const RUN_SHA_CHANGED = `sha256:${'2'.repeat(64)}`;
 const RUN_W = 'RUN-STORY-1';
 const runPlanEntry = (sha = RUN_SHA) => ({
@@ -10401,7 +10403,7 @@ async function runAndTestCli(base) {
   const realCli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
   const wrapper = path.join(base, 'run-and-test-cli.mjs');
   await writeFile(wrapper, `
-    import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs';
+    import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
     import { dirname } from 'node:path';
     const state = ${JSON.stringify(state)};
     const read = (name) => JSON.parse(readFileSync(state + '/' + name, 'utf8'));
@@ -10441,13 +10443,44 @@ async function runAndTestCli(base) {
       out(read('review.json'));
     } else if (args[0] === 'decisions' && args[1] === ${JSON.stringify(RUN_W)}) {
       out({ resultType: 'command-result', data: { items: [], status: 'nothing-to-decide' } });
+    } else if (args[0] === 'env' && args[1] === 'files') {
+      // A small env files engine over env-files.json; without it, an engine that has no env files.
+      appendFileSync(state + '/env-log.jsonl', JSON.stringify({ argv: args, cwd: process.cwd() }) + '\\n');
+      if (!existsSync(state + '/env-files.json')) refuse('UNKNOWN_SUBCOMMAND', 'env has no subcommand files.');
+      else {
+        const list = read('env-files.json');
+        const action = args[2];
+        const entry = list.files.find((file) => file.environment === args[3] && file.path === args[4]);
+        const store = state + '/store/' + args[3] + '/' + args[4];
+        const save = () => writeFileSync(state + '/env-files.json', JSON.stringify(list));
+        if (action === 'path') out({ location: (entry && entry.location) || store });
+        else if (action === 'suggest') out(read('env-suggest.json'));
+        else if (action === 'create') {
+          // What the template copy holds is the engine's business; this one holds a secret no page may show.
+          mkdirSync(dirname(store), { recursive: true });
+          writeFileSync(store, 'DB_PASSWORD=' + ${JSON.stringify(ENV_SECRET)} + '\\n', { mode: 0o600 });
+          Object.assign(entry, { status: 'placed-here', source: 'store', location: store, excluded: true }); save();
+          out({ created: true, location: store });
+        } else if (action === 'link') { Object.assign(entry, { status: 'placed-here', source: 'linked', location: args[args.indexOf('--to') + 1] }); save(); out({ linked: true }); }
+        else if (action === 'unlink') { Object.assign(entry, { status: 'missing', source: null, location: null }); save(); out({ unlinked: true }); }
+        else if (action === 'adopt') { Object.assign(entry, { status: 'placed-here', source: 'store', location: store, excluded: true }); save(); out({ adopted: true }); }
+        else if (action === 'add') {
+          list.files.push({ repository: 'mobile', app: null, environment: args[3], path: args[4], kind: 'personal', template: null, source: null, location: null, status: 'missing', excluded: false });
+          save(); out({ added: true });
+        } else if (action === 'remove') { list.files = list.files.filter((file) => file !== entry); save(); out({ removed: true }); }
+        else if (action === 'root') { list.roots = list.roots || {}; if (args[4] === '--clear') delete list.roots[args[3]]; else list.roots[args[3]] = args[4]; save(); out({ changed: true }); }
+        else out(list);
+      }
     } else {
       await import(${JSON.stringify(pathToFileURL(realCli).href)});
     }
   `);
-  const log = async () => (existsSync(path.join(state, 'log.jsonl'))
-    ? (await readFile(path.join(state, 'log.jsonl'), 'utf8')).trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)) : []);
-  return { wrapper, write, remove, log };
+  const lines = async (name) => (existsSync(path.join(state, name))
+    ? (await readFile(path.join(state, name), 'utf8')).trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)) : []);
+  const log = () => lines('log.jsonl');
+  /** Every env files call, kept apart so the app and tests log reads as before. */
+  const envLog = async () => (await lines('env-log.jsonl')).map((entry) => entry.argv);
+  return { wrapper, write, remove, log, envLog, state };
 }
 
 /** What VS Code's task API needs here: tasks are recorded, never spawned; the test ends them. */
@@ -11751,4 +11784,224 @@ test('Run refuses a start in an environment before any task opens while the capa
   await registered.commands.get('singularityFlow.runSelectedConfiguration')();
   assert.equal(registered.tasks.length, 1);
   assert.deepEqual(registered.tasks[0].task.execution.args, [cli.wrapper, 'app', 'start', 'web', '--capability', 'checkout-app', '--environment', 'dev', '--expect-command', RUN_SHA]);
+});
+
+/**
+ * Environment files [docs/SPEC-ENVIRONMENT-FILES-v1.md, milestone 2]. The wrapper answers `env files`
+ * from env-files.json and changes it as the engine would, so the page's re-read after each action
+ * shows the engine's new state. A created file holds ENV_SECRET: no page, message or log may show it.
+ */
+const envFilesFixture = (state) => ({ resultType: 'sflow-env-files', schemaVersion: 1, environments: ['dev', 'qa'], files: [
+  { repository: 'mobile', app: 'checkout-app', environment: 'dev', path: 'apps/web/.env.dev', kind: 'declared', template: 'apps/web/.env.dev.example',
+    source: null, location: null, status: 'missing', excluded: false },
+  { repository: 'mobile', app: 'checkout-app', environment: 'dev', path: 'apps/web/.env.local', kind: 'personal', template: null,
+    source: 'store', location: `${state}/store/dev/apps/web/.env.local`, status: 'placed-here', excluded: true },
+  { repository: 'mobile', app: 'checkout-app', environment: 'qa', path: 'apps/web/.env.qa', kind: 'declared', template: null,
+    source: 'linked', location: `${state}/mine/web-qa.env`, status: 'linked', excluded: true },
+  { repository: 'mobile', app: null, environment: 'qa', path: '.env', kind: 'declared', template: '.env.example', source: null, location: null, status: 'unmanaged', excluded: false }
+] });
+const envKey = (environment, filePath) => JSON.stringify(['mobile', environment, filePath]);
+const envFilesPage = (registered) => until(() => registered.panels.filter((entry) => entry.id === 'singularityFlow.environmentFiles' && entry.visible).at(-1) ?? null);
+
+test('Environment Files: tabs, then repository and app; Open opens the real file; each action runs its exact env files command and the list is read again', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered, cli } = await activatedWithRunAndTest(t);
+  await cli.write('env-files.json', envFilesFixture(cli.state));
+  await mkdir(path.join(cli.state, 'store', 'dev', 'apps', 'web'), { recursive: true });
+  await writeFile(path.join(cli.state, 'store', 'dev', 'apps', 'web', '.env.local'), `API_TOKEN=${ENV_SECRET}\n`, { mode: 0o600 });
+  await registered.commands.get('singularityFlow.openEnvironmentFiles')({ environment: 'dev' });
+  const page = await envFilesPage(registered);
+  let html = await until(() => page.webview.html.includes('data-ef-file=') ? page.webview.html : null);
+  assert.equal(page.title, 'Environment Files · dev');
+  assert.match(html, /Content-Security-Policy" content="default-src 'none'/);
+  assert.match(html, /data-ef-environment="dev" aria-selected="true">dev <small class="muted">2 · 1 missing<\/small>[\s\S]*data-ef-environment="qa" aria-selected="false">qa <small class="muted">2<\/small>/);
+  assert.match(html, /data-ef-repository="mobile">[\s\S]*mobile \(this window\)[\s\S]*data-ef-app="checkout-app"><h3>[\s\S]*Checkout app \(checkout-app\)<\/h3>/);
+  assert.match(html, /data-ef-status="missing">[\s\S]*?apps\/web\/\.env\.dev[\s\S]*?Missing[\s\S]*?Create from template/);
+  assert.match(html, new RegExp(`<code class="ef-location">${cli.state.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}/store/dev/apps/web/\\.env\\.local</code>`));
+  assert.deepEqual(await cli.envLog(), [['env', 'files', '--json']]);
+
+  // Open asks where the real file is now and opens it in an ordinary editor tab; Reveal shows it in the OS.
+  await page.post({ type: 'envFiles.action', action: 'open', key: envKey('dev', 'apps/web/.env.local') });
+  assert.deepEqual((await cli.envLog()).at(-1), ['env', 'files', 'path', 'dev', 'apps/web/.env.local', '--json']);
+  assert.equal(registered.openedDocuments.at(-1).fsPath, path.join(cli.state, 'store', 'dev', 'apps', 'web', '.env.local'));
+  await page.post({ type: 'envFiles.action', action: 'reveal', key: envKey('dev', 'apps/web/.env.local') });
+  assert.deepEqual(registered.executedCommands.filter((entry) => entry.id === 'revealFileInOS').map((entry) => entry.args[0].fsPath),
+    [path.join(cli.state, 'store', 'dev', 'apps', 'web', '.env.local')]);
+  assert.equal((await cli.envLog()).length, 3, 'Open and Reveal change nothing, so nothing is read again');
+
+  // An action the row does not offer is ignored, whatever the page says.
+  await page.post({ type: 'envFiles.action', action: 'adopt', key: envKey('dev', 'apps/web/.env.dev') });
+  await page.post({ type: 'envFiles.action', action: 'create', key: envKey('dev', 'nope') });
+  assert.equal((await cli.envLog()).length, 3);
+
+  // Untrusted: nothing that changes a file runs.
+  api.workspace.isTrusted = false;
+  await page.post({ type: 'envFiles.action', action: 'create', key: envKey('dev', 'apps/web/.env.dev') });
+  assert.equal((await cli.envLog()).length, 3);
+  assert.ok(registered.warnings.some((message) => /not trusted, so Singularity Flow creates, links and moves no environment file/.test(message)));
+  assert.match(page.webview.html, /data-ef-untrusted/);
+  api.workspace.isTrusted = true;
+
+  // Create from template: the engine creates and places it, VS Code opens the location it printed, and reads the list again.
+  await page.post({ type: 'envFiles.action', action: 'create', key: envKey('dev', 'apps/web/.env.dev') });
+  assert.deepEqual((await cli.envLog()).slice(-2), [['env', 'files', 'create', 'dev', 'apps/web/.env.dev', '--from-template', '--json'], ['env', 'files', '--json']]);
+  assert.equal(registered.openedDocuments.at(-1).fsPath, path.join(cli.state, 'store', 'dev', 'apps', 'web', '.env.dev'));
+  html = page.webview.html;
+  assert.match(html, /Created apps\/web\/\.env\.dev for dev from its template and opened it\./);
+  assert.match(html, /data-ef-environment="dev" aria-selected="true">dev <small class="muted">2<\/small>/, 'the engine\'s answer, read again');
+
+  // Use existing file…: nothing chosen changes nothing; a chosen file is linked with --to.
+  registered.pickedFile = null;
+  await page.post({ type: 'envFiles.action', action: 'link', key: envKey('dev', 'apps/web/.env.local') });
+  assert.equal((await cli.envLog()).at(-1).join(' '), 'env files --json', 'no command: the last call is still the read');
+  assert.match(page.webview.html, /No file was chosen; nothing changed\./);
+  registered.pickedFile = path.join(cli.state, 'mine', 'web-dev.env');
+  await page.post({ type: 'envFiles.action', action: 'link', key: envKey('dev', 'apps/web/.env.dev') });
+  assert.deepEqual((await cli.envLog()).slice(-2), [['env', 'files', 'link', 'dev', 'apps/web/.env.dev', '--to', registered.pickedFile, '--json'], ['env', 'files', '--json']]);
+  assert.equal(registered.openDialogs.at(-1).canSelectFiles, true);
+
+  // qa: Adopt the unmanaged file, Stop using the linked one.
+  await page.post({ type: 'envFiles.environment', environment: 'qa' });
+  assert.equal(page.title, 'Environment Files · qa');
+  await page.post({ type: 'envFiles.action', action: 'adopt', key: envKey('qa', '.env') });
+  assert.deepEqual((await cli.envLog()).slice(-2), [['env', 'files', 'adopt', 'qa', '.env', '--json'], ['env', 'files', '--json']]);
+  await page.post({ type: 'envFiles.action', action: 'unlink', key: envKey('qa', 'apps/web/.env.qa') });
+  assert.deepEqual((await cli.envLog()).slice(-2), [['env', 'files', 'unlink', 'qa', 'apps/web/.env.qa', '--json'], ['env', 'files', '--json']]);
+  assert.match(page.webview.html, /data-ef-status="missing">[\s\S]*?apps\/web\/\.env\.qa/);
+
+  // The workspace folder for qa: set from a folder picker, then cleared.
+  registered.pickedFolder = path.join(cli.state, 'secure-qa');
+  await page.post({ type: 'envFiles.workspace', action: 'root-set' });
+  assert.deepEqual((await cli.envLog()).slice(-2), [['env', 'files', 'root', 'qa', registered.pickedFolder, '--json'], ['env', 'files', '--json']]);
+  assert.match(page.webview.html, /<strong>Folder for qa<\/strong> <code class="ef-location">[^<]*secure-qa<\/code>/);
+  await page.post({ type: 'envFiles.workspace', action: 'root-clear' });
+  assert.deepEqual((await cli.envLog()).slice(-2), [['env', 'files', 'root', 'qa', '--clear', '--json'], ['env', 'files', '--json']]);
+
+  // A personal file: added from a typed path, removed after a modal confirmation.
+  registered.answers = ['./apps/web/.env.qa.local'];
+  await page.post({ type: 'envFiles.workspace', action: 'add' });
+  assert.deepEqual((await cli.envLog()).slice(-2), [['env', 'files', 'add', 'qa', 'apps/web/.env.qa.local', '--personal', '--json'], ['env', 'files', '--json']]);
+  assert.equal(typeof registered.inputBoxes.at(-1).validateInput, 'function');
+  assert.match(registered.inputBoxes.at(-1).validateInput('../outside'), /inside the repository/);
+  registered.warningAnswers = [undefined];
+  await page.post({ type: 'envFiles.action', action: 'remove', key: envKey('qa', 'apps/web/.env.qa.local') });
+  assert.equal((await cli.envLog()).at(-1).join(' '), 'env files --json', 'cancelled: nothing removed');
+  registered.warningAnswers = ['Remove'];
+  await page.post({ type: 'envFiles.action', action: 'remove', key: envKey('qa', 'apps/web/.env.qa.local') });
+  assert.deepEqual((await cli.envLog()).slice(-2), [['env', 'files', 'remove', 'qa', 'apps/web/.env.qa.local', '--personal', '--json'], ['env', 'files', '--json']]);
+
+  // Declare for the team: the engine's draft and the proposal command, copied, never written.
+  await cli.write('env-suggest.json', { candidates: [{ framework: 'Node', environment: 'dev', path: 'apps/web/.env.dev', template: 'apps/web/.env.dev.example' }],
+    draft: 'environments:\n  dev:\n    localFiles: [apps/web/.env.dev]\n' });
+  await page.post({ type: 'envFiles.workspace', action: 'suggest' });
+  assert.deepEqual((await cli.envLog()).at(-1), ['env', 'files', 'suggest', '--json']);
+  assert.match(page.webview.html, /data-ef-team>[\s\S]*localFiles: \[apps\/web\/\.env\.dev\]/);
+  await page.post({ type: 'envFiles.workspace', action: 'copy-draft' });
+  assert.equal(registered.clipboard.at(-1), 'environments:\n  dev:\n    localFiles: [apps/web/.env.dev]\n');
+  await page.post({ type: 'envFiles.workspace', action: 'copy-command' });
+  assert.equal(registered.clipboard.at(-1), 'singularity-flow configuration save singularity/environments.yml --propose');
+
+  // Whole workspace reads every member repository.
+  await page.post({ type: 'envFiles.scope', scope: 'workspace' });
+  assert.deepEqual((await cli.envLog()).at(-1), ['env', 'files', '--workspace', '--json']);
+
+  // What a file holds never reaches the page, a message to it, the clipboard or the output channel.
+  for (const surface of [page.webview.html, JSON.stringify(page.sent), JSON.stringify(registered.clipboard), registered.output.join('\n'),
+    JSON.stringify(registered.warnings), JSON.stringify(registered.infos)]) assert.ok(!surface.includes(ENV_SECRET));
+  assert.ok(registered.output.some((line) => line.includes('$ singularity-flow env files create dev apps/web/.env.dev --from-template --json')));
+});
+
+test('a run whose environment file is missing shows the fixes instead of a task, from Run & test, the run widget, the Testing view\'s runner and the editor', async (t) => {
+  if (!requireBundle(t)) return;
+  const { registered, cli } = await activatedWithRunAndTest(t, { application: true, prepare: withRunWidgetHost });
+  await cli.write('env-files.json', envFilesFixture(cli.state));
+  await cli.write('tests-plan.json', runTestsPlan());
+  const panel = await openRunAndTest(registered);
+  let html = await until(() => panel.webview.html.includes('rt-env-files') ? panel.webview.html : null);
+  assert.match(html, /Environment files:<\/span> <button type="button" class="link rt-env-missing" data-rt="env-files" data-rt-capability="checkout-app" data-rt-environment="dev">dev: 2 files · 1 missing<\/button>/);
+  assert.match(html, /data-rt-environment="qa">qa: 1 file<\/button>/, 'qa\'s .env is not under apps/web, so a run of web does not place it');
+
+  // Start: refused before any confirmation or task, with plain words and the fixes.
+  const message = 'web was not started: environment dev needs apps/web/.env.dev, which is missing on this computer. Create it from its template apps/web/.env.dev.example, or use an existing file. Nothing ran.';
+  registered.warningAnswers = [undefined];
+  await panel.post(rt('start', { entry: 'web' }));
+  await until(() => registered.warnings.includes(message));
+  assert.deepEqual(registered.warningActions.at(-1), ['Create from template', 'Use existing file…', 'Open Environment Files']);
+  assert.match(panel.webview.html, /role="alert">[\s\S]*web was not started: environment dev needs apps\/web\/\.env\.dev/);
+  assert.equal(registered.tasks.length, 0);
+  assert.equal(registered.reviewConfirmations.length, 0);
+
+  // Create from template: the engine creates it, VS Code opens it; the next start runs.
+  registered.warningAnswers = ['Create from template'];
+  await panel.post(rt('start', { entry: 'web' }));
+  await eventually(async () => (await cli.envLog()).some((argv) => argv.join(' ') === 'env files create dev apps/web/.env.dev --from-template --json'));
+  await until(() => registered.openedDocuments.some((document) => document.fsPath === path.join(cli.state, 'store', 'dev', 'apps', 'web', '.env.dev')));
+  html = await until(() => panel.webview.html.includes('Fill in its values, then run again.') ? panel.webview.html : null);
+  assert.match(html, /Created apps\/web\/\.env\.dev for dev from its template and opened it\. Fill in its values, then run again\./);
+  await until(() => panel.webview.html.includes('data-rt-environment="dev">dev: 2 files</button>'));
+  registered.informationAnswer = 'Run this command';
+  await panel.post(rt('start', { entry: 'web' }));
+  await until(() => registered.tasks.length === 1);
+  assert.deepEqual(registered.tasks[0].task.execution.args.slice(1, 4), ['app', 'start', 'web']);
+  registered.endTask(registered.tasks[0], 0);
+  await until(() => panel.webview.html.includes('web ended with exit code 0.'));
+  await settle();
+
+  // The run widget: the same refusal, said once (its own error notice does not repeat it); Open Environment Files opens the page at dev.
+  await cli.write('env-files.json', envFilesFixture(cli.state));
+  await until(() => registered.runItem('configuration')?.shown);
+  const before = registered.warnings.filter((entry) => entry === message).length;
+  registered.warningAnswers = ['Open Environment Files'];
+  await registered.commands.get('singularityFlow.runSelectedConfiguration')();
+  const page = await envFilesPage(registered);
+  await until(() => page.webview.html.includes('data-ef-file='));
+  assert.equal(page.title, 'Environment Files · dev');
+  await settle();
+  assert.equal(registered.warnings.filter((entry) => entry === message).length, before + 1, 'said once, with its fixes');
+  assert.equal(registered.tasks.length, 1, 'no second task');
+
+  // Use existing file… from the refusal links the chosen file.
+  registered.pickedFile = path.join(cli.state, 'mine', 'web-dev.env');
+  registered.warningAnswers = ['Use existing file…'];
+  await registered.commands.get('singularityFlow.runSelectedConfiguration')();
+  await eventually(async () => (await cli.envLog()).some((argv) => argv.join(' ') === `env files link dev apps/web/.env.dev --to ${registered.pickedFile} --json`));
+  await until(() => panel.webview.html.includes('apps/web/.env.dev now uses the file you chose for dev. Run again.'));
+
+  // Tests (the Testing view runs through the same controller): an environment's missing file stops them too.
+  await cli.write('env-files.json', envFilesFixture(cli.state));
+  registered.warningAnswers = [undefined];
+  const tasks = registered.tasks.length;
+  await panel.post(rt('tests', { command: 'integration-tests' }));
+  await until(() => registered.warnings.some((entry) => entry.startsWith('Tests for checkout-app were not run: environment dev needs apps/web/.env.dev')));
+  assert.equal(registered.tasks.length, tasks);
+  const testing = await until(() => registered.testControllers[0]);
+  await testing.resolveHandler(undefined);
+  registered.warningAnswers = [undefined];
+  await testing.profiles[0].runHandler({ include: [testing.items.get('checkout-app/integration-tests')], exclude: [] }, cancellation());
+  assert.equal(registered.tasks.length, tasks, 'the Testing view runs nothing either');
+  assert.deepEqual(testing.runs.at(-1).events, [['enqueued', 'checkout-app/integration-tests'], ['skipped', 'checkout-app/integration-tests']]);
+  assert.match(testing.runs.at(-1).output.join(''), /^Tests for checkout-app were not run: environment dev needs apps\/web\/\.env\.dev/);
+  registered.informationAnswer = 'Run these tests';
+  await panel.post(rt('tests', { command: 'module-tests' }));
+  await until(() => registered.tasks.length === tasks + 1);
+  assert.ok(!registered.tasks.at(-1).task.execution.args.includes('--environment'), 'a command with no environment needs no environment file');
+
+  // Entries: the counts in Run & test and the Run/Debug Configurations editor's environment tabs open the page there.
+  await panel.post(rt('env-files', { environment: 'qa' }));
+  await until(() => page.title === 'Environment Files · qa');
+  await cli.write('plan.json', typedRunPlan());
+  await cli.write('preview.json', typedRunPreview());
+  await panel.post(rt('refresh'));
+  await until(() => panel.webview.html.includes('data-rt-entry="api"'));
+  await panel.post(rt('configurations', { entry: 'api' }));
+  const editor = await editorPage(registered);
+  await until(() => editor.webview.html.includes('data-cf-group="spring-boot"'));
+  assert.match(editor.webview.html, /data-cf-action="env-files" data-cf-environment="dev">Environment files for dev…<\/button>/);
+  await editor.post({ type: 'config.action', action: 'env-files', key: 'c2', tab: 'qa', field: '', environment: 'qa' });
+  assert.deepEqual(registered.executedCommands.filter((entry) => entry.id === 'singularityFlow.openEnvironmentFiles').at(-1).args,
+    [{ capability: 'checkout-app', environment: 'qa' }]);
+  await editor.post({ type: 'config.action', action: 'env-files', key: 'c2', tab: 'dev', field: '', environment: 'prod' });
+  assert.deepEqual(registered.executedCommands.filter((entry) => entry.id === 'singularityFlow.openEnvironmentFiles').at(-1).args,
+    [{ capability: 'checkout-app' }], 'an environment the configuration does not name is not passed on');
+  for (const surface of [panel.webview.html, page.webview.html, registered.output.join('\n'), JSON.stringify(registered.warnings)]) assert.ok(!surface.includes(ENV_SECRET));
 });

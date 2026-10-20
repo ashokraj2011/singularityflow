@@ -115,7 +115,9 @@ export function tabsRegionHtml(state: EditorPageState): string {
     tab.id === environments[0] ? ' <small class="muted">default</small>' : ''}${tab.status && tab.status !== 'bound' ? ` <small class="muted">${escape(tab.status === 'undeclared' ? 'not declared' : 'not bound')}</small>` : ''}${
     tab.count ? ` <span class="cf-badge" title="${tab.count} field${tab.count === 1 ? '' : 's'} differ from Base">${tab.count}</span>` : ''}</button>`).join('')}</div>
     <p class="muted cf-tabs-note">${state.tab === 'base' ? 'Base applies to every environment. Choose an environment to override fields for it alone.'
-    : `A field you change here applies to ${escape(state.tab)} only and is marked "differs from Base". Use Base takes the override away.`}</p>`;
+    : `A field you change here applies to ${escape(state.tab)} only and is marked "differs from Base". Use Base takes the override away.`}
+      <button type="button" class="link" data-cf-action="env-files" data-cf-environment="${escape(state.tab === 'base' ? environments[0] ?? '' : state.tab)}">${
+    escape(`Environment files for ${state.tab === 'base' ? environments[0] : state.tab}…`)}</button></p>`;
 }
 
 /** The note under one field: the refusal or the engine's error for it, and whether it differs from Base. */

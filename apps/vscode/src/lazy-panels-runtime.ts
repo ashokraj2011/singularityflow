@@ -54,3 +54,4 @@ export { DecisionListPanel } from './views/decision-list.ts';
 export { RunAndTest, runAndTestCommand, editRunConfigurationsCommand } from './views/run-and-test.ts';
 export { TestSummaryPanel } from './views/test-summary.ts';
 export { RunWidget } from './views/run-widget.ts';
+export { EnvironmentFilesPanel, environmentFilesCommand } from './views/environment-files.ts';

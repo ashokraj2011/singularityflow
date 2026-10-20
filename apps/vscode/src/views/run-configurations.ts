@@ -56,7 +56,7 @@ export interface RunConfigurationsHost extends ApplicationWriteHost {
 const drafts = new Map<string, { draft: EditorDraft; block: DeclaredBlock; selected: string | null; tab: Tab }>();
 
 const ACTIONS = ['copy', 'remove', 'up', 'down', 'import', 'browse', 'reset-field', 'copy-bind', 'copy-environments', 'discard', 'discard-cancel',
-  'discard-confirm', 'refresh', 'apply', 'ok'] as const;
+  'discard-confirm', 'refresh', 'apply', 'ok', 'env-files'] as const;
 /** Edits after which the form itself changes (fields appear, go or are cleared): the page is drawn again. */
 const STRUCTURAL = new Set(['environments', 'ready.kind', 'debug.enabled', 'debug.runtime', 'script', 'module']);
 const NOTE_FIELDS = ['name', 'id', 'workingDirectory', 'env', 'beforeLaunch', 'url', 'ready.value', 'ready.timeout', 'environments', 'repository',
@@ -346,6 +346,14 @@ export class RunConfigurationsPanel implements vscode.Disposable {
         await vscode.env.clipboard.writeText(bindWords(environment));
         void vscode.window.setStatusBarMessage('$(clippy) Copied. Run it in a terminal with your own secret helper.', 4_000);
         return;
+      }
+      case 'env-files': {
+        // The files this environment's runs read (application-uat.yml, .env.uat): the Environment Files page.
+        const environment = stringField(message, 'environment');
+        const environments = Array.isArray(selected?.entry.environments) ? selected!.entry.environments : [];
+        return void vscode.commands.executeCommand('singularityFlow.openEnvironmentFiles', {
+          capability: this.capability, ...(environment && environments.includes(environment) ? { environment } : {})
+        });
       }
       case 'copy-environments':
         if (!this.environmentsDraft) return;

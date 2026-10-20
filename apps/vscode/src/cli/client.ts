@@ -298,6 +298,8 @@ function cacheableRead(args: string[]): boolean {
   return !args.includes('--for-agent') && !['check', 'review-source', 'choices', 'phase', 'decisions', 'app', 'tests'].includes(args[0] ?? '')
     && !args.includes('--submission-readiness') && !args.includes('--submit-if-ready')
     && !(args[0] === 'configuration' && args[1] === 'validate')
+    // Environment files change with every create, link or run, and in other hosts: read them now.
+    && !(args[0] === 'env' && args[1] === 'files')
     // Refresh must see traces appended by another CLI/Copilot host, not a previous report read.
     && !(args[0] === 'logs' && args[1] === 'performance')
     // An explicit test-setup inspection must reread the selected module manifests, including
@@ -408,6 +410,9 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'decision') return (args[1] ?? 'show') === 'show' ? 'read' : 'mutation';
   // The decision list and a preview of choices read; only `decisions record` writes.
   if (args[0] === 'decisions') return args[1] === 'record' ? 'mutation' : 'read';
+  // Environment files: the list, a file's location and the suggestions read; every other files
+  // action creates, links, moves or records a file on this computer. [ENVF]
+  if (args[0] === 'env' && args[1] === 'files') return ['create', 'link', 'unlink', 'adopt', 'add', 'remove', 'root', 'place'].includes(args[2] ?? '') ? 'mutation' : 'read';
   // Run and test: plan, status, suggest, summary (and the plan of a test run) read; start, stop and
   // run execute repository code, so they are never reads.
   // Without a subcommand `app` shows status and `tests` the summary, as the CLI resolves them.

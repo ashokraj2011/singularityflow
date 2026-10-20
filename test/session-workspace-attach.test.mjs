@@ -120,7 +120,7 @@ syncBuiltinESMExports();
       assert.equal(readFileSync(fetches, 'utf8').split('\n').filter(Boolean).length, 1, 'the Story branch is fetched once');
       assert.equal(attached.status, 0, `${attached.stdout}\n${attached.stderr}`);
       const result = JSON.parse(attached.stdout);
-      assert.equal(realpathSync(result.repositoryPath), realpathSync(repository));
+      assert.equal(realpathSync.native(result.repositoryPath), realpathSync.native(repository));
       assert.equal(run('git', ['branch', '--show-current'], repository).stdout.trim(), storyBranch);
       assert.equal(result.commit, remoteHead());
     });
@@ -252,7 +252,7 @@ syncBuiltinESMExports();
       const moved = spawnSync(process.execPath, [bin, 'session', 'attach', 'ATT-101', '--json'],
         { cwd: base, env: offloaded, encoding: 'utf8', timeout: 180_000 });
       assert.equal(moved.status, 0, `${moved.stdout}\n${moved.stderr}`);
-      assert.equal(realpathSync(JSON.parse(moved.stdout).repositoryPath), realpathSync(path.join(fresh, 'attachws-local', 'repos', 'application')));
+      assert.equal(realpathSync.native(JSON.parse(moved.stdout).repositoryPath), realpathSync.native(path.join(fresh, 'attachws-local', 'repos', 'application')));
       assert.equal(JSON.parse(moved.stdout).commit, remoteHead());
       rmSync(path.join(base, 'saved-objects'), { recursive: true, force: true });
     });

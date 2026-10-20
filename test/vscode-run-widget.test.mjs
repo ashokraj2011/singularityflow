@@ -13,7 +13,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const source = (name) => pathToFileURL(path.join(root, 'apps', 'vscode', 'src', name)).href;
+const source = (name) => pathToFileURL(path.join(root, 'apps', 'vscode', 'src', name));
 const runModel = await import(source('views/run-and-test-model.ts'));
 const summaryModel = await import(source('views/test-summary-model.ts'));
 const model = await import(source('views/run-widget-model.ts'));

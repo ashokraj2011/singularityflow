@@ -13,7 +13,7 @@ import {
 import { loadEnvironmentDeclarationSync } from './environment-declaration.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { commitAndPublish } from './state-stores.mjs';
-import { gitCommonDir } from './git.mjs';
+import { gitCommonDir, withEnvironmentFilesRegistry } from './git.mjs';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
 import { documentSetLifecycleBinding } from './document-publication.mjs';
 import { assertAvailableDocumentNames, assignDocumentNames, normalizeDocumentPhases } from './document-identity.mjs';
@@ -431,7 +431,8 @@ export async function preflightInitialStoryDocuments(inputs = [], {
   // An environment-local file is refused by the path it has in this repository, which the private
   // capture below no longer carries. An isolated start runs in its own worktree, while the operator's
   // paths name files in the checkout it was launched from, so both are checked.
-  const declaration = hasLocalFiles ? loadEnvironmentDeclarationSync(repositoryRoot, { optional: true }) : null;
+  const declaration = hasLocalFiles
+    ? withEnvironmentFilesRegistry(repositoryRoot, loadEnvironmentDeclarationSync(repositoryRoot, { optional: true })) : null;
   const environmentRoots = [...new Set([repositoryRoot, launchRepository].filter(Boolean))];
   const assertSource = declaration
     ? async (source) => {

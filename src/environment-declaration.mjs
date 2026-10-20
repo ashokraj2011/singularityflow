@@ -520,6 +520,17 @@ function globRegex(pattern) {
   return new RegExp(`${source}$`, 'u');
 }
 
+/**
+ * An exact repository-relative file path: a localFiles entry without glob characters, which `env
+ * files` can create and place, or a path in this machine's environment-file registry.
+ */
+export function isExactEnvironmentFilePath(value) {
+  return typeof value === 'string' && value.length > 0 && value.length <= 256 && value === value.normalize('NFC')
+    && !/[^\x20-\x7e]|[*?[\]{}\\]/u.test(value) && !value.startsWith('!') && !path.posix.isAbsolute(value)
+    && !path.win32.isAbsolute(value) && value !== ENVIRONMENT_DECLARATION_PATH
+    && !value.split('/').some((segment) => ['', '.', '..', '.git'].includes(segment.toLowerCase()));
+}
+
 /** Return the exact declaration rule which makes a repository-relative path environment-local. */
 export function matchEnvironmentLocalPath(declaration, relativePath) {
   if (!declaration) return null;
@@ -541,6 +552,11 @@ export function matchEnvironmentLocalPath(declaration, relativePath) {
         return Object.freeze({ environmentId, kind: 'local-file', pattern });
       }
     }
+  }
+  // This machine's environment-file registry paths (git.mjs withEnvironmentFilesRegistry), exact.
+  for (const [environmentId, paths] of Object.entries(declaration.environmentFiles ?? {})) {
+    const pattern = paths.find((entry) => portableFilesystemPathIdentity(entry) === candidateIdentity);
+    if (pattern) return Object.freeze({ environmentId, kind: 'environment-file', pattern });
   }
   return null;
 }

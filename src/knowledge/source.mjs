@@ -13,7 +13,7 @@ import path from 'node:path';
 import { comprehensionDefinition, comprehensionPathContext, isExplainedPath } from '../comprehension/code-scope.mjs';
 import { loadEnvironmentDeclarationSync, matchEnvironmentLocalPath } from '../environment-declaration.mjs';
 import { readRefTreeResult } from '../git-ref-tree.mjs';
-import { head } from '../git.mjs';
+import { head, withEnvironmentFilesRegistry } from '../git.mjs';
 import { normalizeSourceRoots } from '../source-scope.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { readApprovedRequirements } from './requirements.mjs';
@@ -52,7 +52,7 @@ function isCandidateSource(relative, pathContext) {
 function excludedSource(root, definition) {
   let declaration;
   try {
-    declaration = loadEnvironmentDeclarationSync(root, { optional: true });
+    declaration = withEnvironmentFilesRegistry(root, loadEnvironmentDeclarationSync(root, { optional: true }));
   } catch (error) {
     throw new SingularityFlowError(`singularity/environments.yml could not be read, so no source was read: ${error.message}`, {
       code: 'KNOWLEDGE_SCOPE_INVALID'

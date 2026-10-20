@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 // Synchronous, because `identity()` is synchronous and called from synchronous code throughout.
 import {
-  accessSync, constants as FS_CONSTANTS, existsSync, mkdirSync, mkdtempSync, readFileSync,
+  accessSync, constants as FS_CONSTANTS, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync,
   realpathSync, rmSync, statSync, writeFileSync
 } from 'node:fs';
 import { SingularityFlowError, gitReadOutput, invariant, isGitRefName, run, writeAtomic, removeTemporaryTree } from './util.mjs';
@@ -27,8 +27,8 @@ import { scopedReadSync } from './read-scope.mjs';
 import { scannablePath, scannedAsExtractedText, scanEntries, secretRefusal } from './secrets.mjs';
 import { extractSourceTextForPath } from './source-text.mjs';
 import {
-  ENVIRONMENT_DECLARATION_PATH, loadEnvironmentDeclarationSync, matchEnvironmentLocalPath,
-  parseEnvironmentDeclaration
+  ENVIRONMENT_DECLARATION_PATH, ENVIRONMENT_IDENTIFIER, isExactEnvironmentFilePath, loadEnvironmentDeclarationSync,
+  matchEnvironmentLocalPath, parseEnvironmentDeclaration
 } from './environment-declaration.mjs';
 import { configurationReadRootForPath } from './configuration-read-scope.mjs';
 import { parsePorcelainV2Status } from './git-status-detail.mjs';
@@ -2618,8 +2618,8 @@ export function add(root, paths) {
  * second gate. The declaration contains names and path rules only, so diagnostics can identify the
  * offending path and rule without ever reading or printing an environment value.
  */
-function assertNoEnvironmentLocalPaths(declarations, paths, { label }) {
-  const policies = (Array.isArray(declarations) ? declarations : [declarations]).filter(Boolean);
+function assertNoEnvironmentLocalPaths(root, declarations, paths, { label }) {
+  const policies = [declarations, environmentFilesRegistryPolicySync(root)].flat().filter(Boolean);
   if (!policies.length) return;
   const findings = [...new Set((paths ?? []).filter(Boolean).map((item) => item.replaceAll('\\', '/')))]
     // The names-only declaration is the policy source, not environment-local content. A broad
@@ -2636,8 +2636,8 @@ function assertNoEnvironmentLocalPaths(declarations, paths, { label }) {
   if (!findings.length) return;
   const rendered = findings.map(({ path: item, match }) => {
     const rule = match.pattern ?? match.rule ?? match.source ?? 'environment-local';
-    const owner = match.environmentId
-      ? `environments.${match.environmentId}.localFiles` : 'neverCommit';
+    const owner = match.kind === 'environment-file' ? `this machine's env files registry (${match.environmentId})`
+      : match.environmentId ? `environments.${match.environmentId}.localFiles` : 'neverCommit';
     return `- ${item} matches ${owner} rule '${rule}'`;
   }).join('\n');
   throw new SingularityFlowError(
@@ -2648,6 +2648,43 @@ function assertNoEnvironmentLocalPaths(declarations, paths, { label }) {
       details: { paths: findings.map((entry) => entry.path) }
     }
   );
+}
+
+/**
+ * This machine's environment-file registry (`env files`, docs/SPEC-ENVIRONMENT-FILES-v1.md) as a policy
+ * matchEnvironmentLocalPath reads: recorded paths by environment, never contents. No registry costs one
+ * lstat and is null; a registry that cannot be read or validated fails closed.
+ */
+export function environmentFilesRegistryPolicySync(root) {
+  const environmentFiles = {};
+  const file = repositoryGitPath(root, 'singularity-flow', 'environment-files', 'v1', 'registry.json');
+  // Where real files live: the store, and each linked file (canonical when linked). Document intake refuses them.
+  const environmentFileLocations = [];
+  try {
+    let info;
+    try { info = lstatSync(file); } catch (error) { if (['ENOENT', 'ENOTDIR'].includes(error?.code)) return null; throw error; }
+    const record = info.isFile() && info.size <= 262_144 ? JSON.parse(readFileSync(file, 'utf8')) : null;
+    if (record?.kind !== 'environment-files-registry' || !Array.isArray(record.entries)) throw new Error('invalid');
+    for (const { environment, path: item, linkedPath } of record.entries) {
+      if (typeof environment !== 'string' || !ENVIRONMENT_IDENTIFIER.test(environment) || !isExactEnvironmentFilePath(item)) {
+        throw new Error('invalid');
+      }
+      (environmentFiles[environment] ??= []).push(item);
+      if (typeof linkedPath === 'string') environmentFileLocations.push(linkedPath);
+    }
+    environmentFileLocations.push(realpathSync(path.dirname(file)));
+  } catch {
+    throw new SingularityFlowError('The environment-file registry could not be read, so nothing was admitted. Run singularity-flow env files to inspect it.',
+      { code: 'ENVIRONMENT_POLICY_UNAVAILABLE' });
+  }
+  return Object.freeze({ neverCommit: [], environments: {}, environmentFiles, environmentFileLocations });
+}
+
+/** A declaration's local-path rules with the registry's paths, for path matching only. */
+export function withEnvironmentFilesRegistry(root, declaration) {
+  const registry = environmentFilesRegistryPolicySync(root);
+  return registry ? Object.freeze({ ...(declaration ?? registry), environmentFiles: registry.environmentFiles,
+    environmentFileLocations: registry.environmentFileLocations }) : declaration;
 }
 
 function hasConfigurationOverlay(root) {
@@ -2821,7 +2858,7 @@ export function admitExactProspectiveTree(root, {
     });
   }
 
-  assertNoEnvironmentLocalPaths([
+  assertNoEnvironmentLocalPaths(root, [
     exactEnvironmentDeclarationAtRef(root, baselineCommit, env),
     exactEnvironmentDeclarationAtRef(root, candidateTree, env)
   ], treePaths(root, candidateTree, env), { label });
@@ -2940,7 +2977,7 @@ function assertCommitEnvironmentPolicy(root, paths, { label }) {
   if (!paths?.length) {
     const env = immutableLocalGitEnvironment();
     const prospective = exactIndexedEnvironmentDeclaration(root, env);
-    assertNoEnvironmentLocalPaths([baseline, prospective], indexPaths(root, env), { label });
+    assertNoEnvironmentLocalPaths(root, [baseline, prospective], indexPaths(root, env), { label });
     return;
   }
 
@@ -2964,7 +3001,11 @@ function assertCommitEnvironmentPolicy(root, paths, { label }) {
     }
     git(['add', '-A', '--', ...paths], { cwd: root, env });
     const prospective = exactIndexedEnvironmentDeclaration(root, env);
-    assertNoEnvironmentLocalPaths([baseline, prospective], indexPaths(root, env), { label });
+    // `commit --only` also takes paths force-added to the index that the clone ignores (a placed
+    // environment file is excluded), which `add -A` skips; list them only when a policy exists.
+    const forced = baseline || prospective || environmentFilesRegistryPolicySync(root)
+      ? nullList(git(['ls-files', '-z', '--', ...paths], { cwd: root, env: baselineEnv }).stdout) : [];
+    assertNoEnvironmentLocalPaths(root, [baseline, prospective], [...indexPaths(root, env), ...forced], { label });
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }

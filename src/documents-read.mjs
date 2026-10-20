@@ -8,7 +8,7 @@ import { SingularityFlowError, exists, posix, snapshot } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { documentOfferedToPhase, resolveDocumentRecord } from './document-identity.mjs';
 import { agentBriefReviewDocuments } from './agent-briefs.mjs';
-import { exactFileAtObject, head } from './git.mjs';
+import { exactFileAtObject, head, withEnvironmentFilesRegistry } from './git.mjs';
 import { SOURCE_TEXT_EXTRACTOR_VERSION, TEXT_SOURCE_EXTENSIONS, documentMimeType as mimeTypeForName, effectiveDocumentMimeType, extractSourceText, hasTextExtractor } from './source-text.mjs';
 import { isLocalDocument, localDocumentAvailability, readLocalDocument } from './document-storage.mjs';
 import { loadEnvironmentDeclarationSync, matchEnvironmentLocalPath } from './environment-declaration.mjs';
@@ -65,8 +65,8 @@ export function documentPolicy(workflow, config) {
 
 export function environmentLocalRefusal(candidate, match) {
   const rule = match.pattern ?? match.rule ?? match.source ?? 'environment-local';
-  const owner = match.environmentId
-    ? `environments.${match.environmentId}.localFiles` : 'neverCommit';
+  const owner = match.kind === 'environment-file' ? `this machine's env files registry${match.environmentId ? ` (${match.environmentId})` : ''}`
+    : match.environmentId ? `environments.${match.environmentId}.localFiles` : 'neverCommit';
   return new SingularityFlowError(
     `Document upload was refused: '${candidate}' matches ${owner} rule '${rule}'. `
       + 'Environment-local files must remain in the machine-local binding and cannot become Story documents.',
@@ -93,7 +93,7 @@ export async function governedDocumentPath(root, config, workflow, record) {
     throw new SingularityFlowError(`Document '${record.id}' is outside work item ${workflow.workItem.id}.`);
   }
   if (repositoryArtifact) {
-    const declaration = loadEnvironmentDeclarationSync(root, { optional: true });
+    const declaration = withEnvironmentFilesRegistry(root, loadEnvironmentDeclarationSync(root, { optional: true }));
     const match = matchEnvironmentLocalPath(declaration, posix(record.path));
     if (match) throw environmentLocalRefusal(record.path, match);
   }

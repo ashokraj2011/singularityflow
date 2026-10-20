@@ -2,7 +2,7 @@ import { nextPhaseGeneration } from './phase-generation.mjs';
 import { createHash } from 'node:crypto';
 import { readlink } from 'node:fs/promises';
 import path from 'node:path';
-import { exactEnvironmentDeclarationAtRef } from './git.mjs';
+import { environmentFilesRegistryPolicySync, exactEnvironmentDeclarationAtRef } from './git.mjs';
 import {
   gitHeadIsUnborn, gitReadOutput, mapLimit, posix, run, secureRepositoryPath, SingularityFlowError, snapshot
 } from './util.mjs';
@@ -182,7 +182,7 @@ function matchesEnvironmentSourcePolicy(declarations, file) {
 async function currentEnvironmentSourcePolicies(root) {
   const current = await loadEnvironmentDeclaration(root, { optional: true });
   const committed = exactEnvironmentDeclarationAtRef(root, 'HEAD');
-  return environmentSourcePolicies(current, committed);
+  return [...environmentSourcePolicies(current, committed), environmentFilesRegistryPolicySync(root)].filter(Boolean);
 }
 
 /**

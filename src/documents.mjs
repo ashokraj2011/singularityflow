@@ -14,7 +14,7 @@ import { downloadJiraAttachment } from './jira.mjs';
 import { epicSourceById, pinnedStorySource, readStoryEpicSource, storyEpicSources } from './story-epic-sources.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { DOCUMENT_MEMBER_NAME_MAXIMUM_LENGTH, assertAvailableDocumentNames, assignDocumentNames, documentOfferedToPhase, normalizeDocumentPhases, resolveDocumentRecord, validateDocumentName } from './document-identity.mjs';
-import { head } from './git.mjs';
+import { head, withEnvironmentFilesRegistry } from './git.mjs';
 import { TEXT_RENDITION_SUFFIX, extractSourceText, hasTextExtractor } from './source-text.mjs';
 import { isLocalDocument, readLocalDocument, resolveDocumentStorage, storeLocalDocument } from './document-storage.mjs';
 import { loadEnvironmentDeclarationSync, matchEnvironmentLocalPath } from './environment-declaration.mjs';
@@ -675,7 +675,7 @@ export async function restoreLocalDocument(root, config, workflow, { documentId,
     `The selected file is not the original for ${record.id}. Expected SHA-256 ${record.sha256} (${record.size} bytes), found ${captured.sha256} (${captured.size} bytes). The existing document and approvals were not changed.`,
     { code: 'DOCUMENT_RESTORE_HASH_MISMATCH', details: { documentId: record.id,
       expectedSha256: record.sha256, actualSha256: captured.sha256 } });
-  const declaration = loadEnvironmentDeclarationSync(root, { optional: true });
+  const declaration = withEnvironmentFilesRegistry(root, loadEnvironmentDeclarationSync(root, { optional: true }));
   await assertDocumentInputNotEnvironmentLocal(root, declaration, { source }, workflow, config);
   assertDocumentInputContainsNoSecret({ source: record.sourceName ?? source }, captured);
   const restored = await storeLocalDocument(root, workflow.workItem.id, { bytes: captured.bytes, sha256: record.sha256,
@@ -773,6 +773,25 @@ async function repositoryRelativeSource(root, source) {
   return posix(relative);
 }
 
+/**
+ * The source's own repository path with its last link not followed: a placed environment file is a
+ * link into the private store, so only this spelling names it. Also refuse a real environment file
+ * by where it lives (the store or a linked file) [ENVF].
+ */
+async function environmentFileSourceCandidates(root, declaration, source) {
+  const absolute = path.resolve(source);
+  const [canonicalRoot, parent] = await Promise.all([realpath(path.resolve(root)), realpath(path.dirname(absolute))]).catch(() => []);
+  const relative = parent ? path.relative(canonicalRoot, path.join(parent, path.basename(absolute))) : '';
+  const lexical = relative && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative) ? posix(relative) : null;
+  const match = lexical ? matchEnvironmentLocalPath(declaration, lexical) : null;
+  if (match) throw environmentLocalRefusal(lexical, match);
+  const canonical = await realpath(absolute).catch(() => null);
+  if (canonical && (declaration?.environmentFileLocations ?? []).some((location) => canonical === location || canonical.startsWith(`${location}${path.sep}`))) {
+    throw environmentLocalRefusal(source, { kind: 'environment-file', pattern: 'a private environment-file location' });
+  }
+  return lexical ? [lexical] : [];
+}
+
 /** Refuse environment-local input before the first byte is copied into governed Story state. */
 async function assertDocumentInputNotEnvironmentLocal(root, declaration, input, workflow, config, {
   additionalCandidates = [], sourceIsLocalPath = true
@@ -784,6 +803,7 @@ async function assertDocumentInputNotEnvironmentLocal(root, declaration, input, 
     : filename;
   const candidates = [...new Set([
     sourceIsLocalPath ? await repositoryRelativeSource(root, input.source) : null,
+    ...(sourceIsLocalPath ? await environmentFileSourceCandidates(root, declaration, input.source) : []),
     input.sourceRelativePath ? posix(input.sourceRelativePath) : null,
     filename,
     // Use a stable placeholder for the generated document ID. Glob matching is path-based and the
@@ -807,9 +827,10 @@ async function assertDocumentInputNotEnvironmentLocal(root, declaration, input, 
  */
 export async function assertStartDocumentNotEnvironmentLocal(root, declaration, source) {
   if (!declaration) return;
-  const relative = await repositoryRelativeSource(root, source);
-  const match = relative ? matchEnvironmentLocalPath(declaration, relative) : null;
-  if (match) throw environmentLocalRefusal(relative, match);
+  for (const relative of [await repositoryRelativeSource(root, source), ...await environmentFileSourceCandidates(root, declaration, source)]) {
+    const match = relative ? matchEnvironmentLocalPath(declaration, relative) : null;
+    if (match) throw environmentLocalRefusal(relative, match);
+  }
 }
 
 function assertDocumentInputContainsNoSecret(input, captured) {
@@ -920,7 +941,7 @@ export async function addDocuments(root, config, workflow, {
     if (input.info.size > (policy.maxFileBytes ?? 26214400)) throw new SingularityFlowError(`Document exceeds the ${(policy.maxFileBytes ?? 26214400)} byte limit: ${input.source}`);
     assertCapabilityMime(workflow, mimeType(input.source), input.source);
   }
-  const environmentDeclaration = loadEnvironmentDeclarationSync(root, { optional: true });
+  const environmentDeclaration = withEnvironmentFilesRegistry(root, loadEnvironmentDeclarationSync(root, { optional: true }));
   const capturedBySource = new Map();
   for (const input of fileInputs) {
     await assertDocumentInputNotEnvironmentLocal(root, environmentDeclaration, input, workflow, config);
@@ -1145,7 +1166,7 @@ export async function fetchRemoteDocument(root, config, workflow, {
   if (fetchedBytes.length > maxBytes) throw new SingularityFlowError(`Fetched document exceeds the ${maxBytes} byte limit: ${remoteRef}`);
   const filename = safeName(requestedFilename ?? headMeta?.name ?? String(remoteRef));
   assertCapabilityMime(workflow, result.mimeType ?? headMeta?.mimeType ?? mimeType(filename), remoteRef);
-  const environmentDeclaration = loadEnvironmentDeclarationSync(root, { optional: true });
+  const environmentDeclaration = withEnvironmentFilesRegistry(root, loadEnvironmentDeclarationSync(root, { optional: true }));
   const input = {
     source: filename, info: { size: fetchedBytes.length }, packageName: null,
     packageSource: null, sourceRelativePath: null

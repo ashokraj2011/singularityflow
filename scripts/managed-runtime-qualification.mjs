@@ -12,6 +12,7 @@ import { installManagedRelease, installerProcess, rollbackManagedRelease } from 
 import resolver from '../runtime/resolve.cjs';
 import { distributionFixture } from '../test/helpers/distribution-artifacts.mjs';
 import { signReleaseArtifactReceipt } from '../src/release-artifact-receipt.mjs';
+import { resolveWindowsBatchProcess } from '../src/platform-process.mjs';
 
 const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow native managed engine ')));
@@ -63,12 +64,13 @@ try {
     nodeExecutable: node, root: engine, log: message => console.error(message) });
   const selected = resolver.resolveManagedEngine({ environment: env });
   assert.equal(selected.executable, node);
-  const command = process.platform === 'win32'
-    ? { executable: path.join(process.env.SystemRoot, 'System32', 'cmd.exe'), args: ['/d', '/s', '/c', `""${path.join(installed.bin, 'singularity-flow.cmd')}" --version"`] }
-    : { executable: path.join(installed.bin, 'singularity-flow'), args: ['--version'] };
+  const batch = process.platform === 'win32'
+    ? resolveWindowsBatchProcess(path.join(installed.bin, 'singularity-flow.cmd'), ['--version'], { environment: env }) : null;
+  const command = batch ? { executable: batch.executable, args: batch.arguments, options: batch.spawnOptions }
+    : { executable: path.join(installed.bin, 'singularity-flow'), args: ['--version'], options: {} };
   const commandEnv = { ...env, PATH: `${installed.bin}${path.delimiter}${originalPath}` };
   const start = performance.now();
-  const value = await installerProcess(command.executable, command.args, { capture: true, env: commandEnv, cwd: directory });
+  const value = await installerProcess(command.executable, command.args, { capture: true, env: commandEnv, cwd: directory, ...command.options });
   report.timings.firstVersionMs = performance.now() - start;
   assert.equal(value.stdout.trim(), '0.9.0');
   const about = JSON.parse((await installerProcess(node, [selected.cli, 'about', '--json'], { capture: true, env: commandEnv, cwd: directory })).stdout);
@@ -104,7 +106,7 @@ try {
   report.cases.push('foreground commands do not write prepared compile-cache files');
   report.cases.push('Copilot shell/PowerShell hooks work without global Node and do not write the prepared cache');
   // Exercise the authenticated distribution route with a real engine archive and a fixture key.
-  releaseFixture = await distributionFixture();
+  releaseFixture = await distributionFixture({ directoryPrefix: 'sflow managed (release) & fixture-', keyDirectoryPrefix: 'sflow managed (key) & fixture-' });
   const fixtureReceiptFile = path.join(releaseFixture.directory, 'ARTIFACT-RECEIPT.json');
   const unsigned = JSON.parse(await readFile(fixtureReceiptFile, 'utf8')); delete unsigned.signature;
   unsigned.artifacts.find(item => item.kind === 'cli-and-copilot-plugin').sha256 = `sha256:${first}`;
@@ -125,6 +127,14 @@ try {
     '--artifact-key', releaseFixture.publicKeyPath, '--cli-only', '--json'], { env, cwd: directory, capture: true, timeoutMs: 300_000 });
   assert.equal(resolver.resolveManagedEngine({ environment: env }).release, first);
   report.cases.push('signed distribution installs the exact engine without global npm or external surface changes');
+  if (process.platform === 'win32') {
+    const batch = resolveWindowsBatchProcess(path.join(releaseFixture.directory, 'install-managed.cmd'),
+      ['--artifact-key', releaseFixture.publicKeyPath, '--cli-only', '--json'], { environment: bootstrapEnvironment });
+    await installerProcess(batch.executable, batch.arguments, { capture: true, env: bootstrapEnvironment,
+      cwd: directory, ...batch.spawnOptions, timeoutMs: 300_000 });
+    assert.equal(resolver.resolveManagedEngine({ environment: env }).release, first);
+    report.cases.push('Node-free managed CMD entry preserves quoted release/key paths through native PowerShell');
+  }
   // Recompression changes artifact identity without inventing another product/build identity.
   const secondArchive = path.join(directory, 'second valid engine.tgz');
   const secondBytes = gzipSync(gunzipSync(firstBytes), { level: 1 });

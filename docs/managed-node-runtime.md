@@ -49,10 +49,12 @@ Use the existing authenticated distribution and independently supplied artifact-
 
 ```powershell
 .\install.ps1 --managed-runtime --artifact-key C:\trusted\artifact-builder-public.pem
-# Command Prompt: install.cmd --managed-runtime --artifact-key C:\trusted\artifact-builder-public.pem
+# Command Prompt: install-managed.cmd --artifact-key C:\trusted\artifact-builder-public.pem
 ```
 
-Put `--managed-runtime` first so a Node-free bootstrap can select the private runtime. The authenticated
+Put `--managed-runtime` first for the shell/PowerShell entrypoints so a Node-free bootstrap can select
+the private runtime. The separate `install-managed.cmd` avoids reparsing CMD's escaped arguments;
+the legacy `install.cmd` remains unchanged. The authenticated
 operator launcher and reviewed runtime lock are the initial trust root. The existing Ed25519 receipt
 and exact npm/VSIX hashes are verified before any SFlow package code executes. The managed route stages
 the signed npm archive offline using private npm with lifecycle scripts disabled. It never invokes

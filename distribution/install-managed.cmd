@@ -1,0 +1,6 @@
+@echo off
+setlocal EnableExtensions DisableDelayedExpansion
+rem Do not inspect/reparse incoming batch arguments: preserve their reviewed escaping.
+set "SINGULARITY_FLOW_MANAGED_DISTRIBUTION=1"
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" %*
+exit /b %ERRORLEVEL%

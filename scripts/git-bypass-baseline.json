@@ -20,9 +20,9 @@
       "counts": { "shell-process": 2 },
       "digest": "2a33f9736a2bc059c5f789f08c45116dcf17e7ce19611a0ef2ca54cb9b4c3e31"
     },
-    "distribution/install.cmd": {
+    "distribution/install-managed.cmd": {
       "counts": { "shell-process": 1 },
-      "digest": "68415ff7edd7e6a2c28a6482ac402fe356b1919cf6c23d1fdaac6327e6f06fff"
+      "digest": "5bf8be9fde73d2c785812b5980b0f8b1ee4a1f651d4560bbf3d6fb52dda75bdf"
     },
     "scripts/shared-read-paired-benchmark.mjs": {
       "counts": { "process-import": 1, "process-launch": 2 },

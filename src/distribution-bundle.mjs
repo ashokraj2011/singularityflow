@@ -15,6 +15,7 @@ const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/u;
 export const DISTRIBUTION_OPERATOR_SCRIPTS = Object.freeze([
   'bootstrap.mjs',
   'node-bootstrap.sh', 'node-bootstrap.ps1', 'node-runtime.lock',
+  'install-managed.cmd',
   'install.cmd', 'install.ps1', 'install.sh',
   'uninstall.cmd', 'uninstall.ps1', 'uninstall.sh'
 ]);

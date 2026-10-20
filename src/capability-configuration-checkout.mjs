@@ -11,10 +11,18 @@ export async function cloneCapabilityConfiguration(scratch, {
   remote, transport, authorityCommit, fullHistory = false,
   cacheRoot = process.cwd(), runRemoteCommand, env = process.env
 }) {
-  const pool = fullHistory ? await prepareConfigurationObjectCheckout(cacheRoot, scratch, {
-    remote, transport, authorityCommit, completeObjects: true, independent: true,
-    runRemoteCommand, env
-  }) : null;
+  let pool = null;
+  try {
+    pool = fullHistory ? await prepareConfigurationObjectCheckout(cacheRoot, scratch, {
+      remote, transport, authorityCommit, completeObjects: true, independent: true,
+      runRemoteCommand, env
+    }) : null;
+  } catch (error) {
+    // A failed pool transfer is this checkout's transfer result, reported like a failed clone.
+    // It is never retried through a clone: that would repeat the same network failure.
+    if (error.remoteResult) return error.remoteResult;
+    throw error;
+  }
   if (pool) {
     // --dissociate completed synchronously: this checkout no longer depends on borrowed objects.
     await pool.release({ cleanupConfirmed: true });

@@ -56,6 +56,12 @@ import {
 } from '../src/ledger.mjs';
 import { changedLines, foldYamlFile, LONG_DESCRIPTION } from './helpers/folded-yaml.mjs';
 
+// These tests read configuration through the clone path unless one names its own pool. The
+// default pool lives in the running checkout's .git, so its contents would come from whatever
+// ran before, and the tests would write pools into the checkout running them.
+process.env.SINGULARITY_FLOW_CONFIGURATION_OBJECT_STORE = 'off';
+const pooledEnvironment = () => ({ ...process.env, SINGULARITY_FLOW_CONFIGURATION_OBJECT_STORE: 'on' });
+
 test('repository identifiers use the final segment for Windows, UNC, URL and POSIX remotes', () => {
   assert.equal(repositoryIdOf(String.raw`C:\work\payments-api.git`), 'payments-api');
   assert.equal(repositoryIdOf('C:\\work\\payments-api.GIT\\'), 'payments-api');
@@ -131,6 +137,7 @@ test('capability inbox reuses exact configuration objects and resolves ordinary 
   await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
   const pending = await mapCapability(org.platform, { capabilityId: 'new-service', kind: 'collection' });
   const cacheRoot = path.join(org.base, 'platform-seed');
+  const env = pooledEnvironment();
   const transfers = [], histories = [];
   const original = childProcess.spawnSync;
   childProcess.spawnSync = function (program, args, options) {
@@ -139,7 +146,7 @@ test('capability inbox reuses exact configuration objects and resolves ordinary 
   };
   syncBuiltinESMExports();
   try {
-    const inspect = () => listCapabilityProposals(org.platform, { cacheRoot, includeDiff: false,
+    const inspect = () => listCapabilityProposals(org.platform, { cacheRoot, env, includeDiff: false,
       runRemoteCommand: async (args, options) => {
         transfers.push(args); return runRemoteGitAsync(args, options);
       } });
@@ -151,7 +158,7 @@ test('capability inbox reuses exact configuration objects and resolves ordinary 
     assert.equal(transfers.length, initialTransfers, 'warm inspection transfers no configuration history');
     assert.deepEqual(histories, [], 'one-commit proposals resolve their exact base from local objects');
     const other = await mapCapability(org.platform, { capabilityId: 'later-service', kind: 'collection' });
-    const unavailable = await listCapabilityProposals(org.platform, { cacheRoot, includeDiff: false,
+    const unavailable = await listCapabilityProposals(org.platform, { cacheRoot, env, includeDiff: false,
       runRemoteCommand: async (args, options) => args[0] === 'fetch' && args.includes(other.commit)
         ? { status: 1, failure: { code: 'REMOTE_UNKNOWN', advice: 'Fixture transport unavailable.' } }
         : runRemoteGitAsync(args, options) });
@@ -5657,15 +5664,20 @@ test('proposal clone and fetch failures retain structured remote diagnosis and a
   };
 
   const unavailable = path.join(org.base, 'authority-does-not-exist.git');
-  await assert.rejects(listCapabilityProposals(unavailable, {
-    remoteSession: advertisedOnly
-  }), (error) => {
+  const diagnosed = (error) => {
     assert.equal(error.details.remoteFailure.classification, 'remote-not-found');
     assert.match(error.details.remoteFailure.evidence.diagnosticSha256, /^[a-f0-9]{64}$/);
     assert.match(error.details.diagnosticAction.command,
       /workspace doctor --network --repository/);
     return true;
-  });
+  };
+  await assert.rejects(listCapabilityProposals(unavailable, {
+    remoteSession: advertisedOnly
+  }), diagnosed);
+  // The object pool's failed transfer reports the same diagnosis and doctor route as a failed clone.
+  await assert.rejects(listCapabilityProposals(unavailable, {
+    remoteSession: advertisedOnly, cacheRoot: path.join(org.base, 'platform-seed'), env: pooledEnvironment()
+  }), diagnosed);
 
   const proposals = await listCapabilityProposals(org.platform, {
     remoteSession: advertisedOnly,

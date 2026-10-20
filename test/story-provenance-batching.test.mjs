@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { run } from '../src/util.mjs';
@@ -73,4 +73,11 @@ test('failed Git history is refused rather than accepted as a missing immutable 
     f.git('config', 'extensions.refStorage', 'unsupported-fixture-storage');
     readStoryPathHistory(f.root, 'story/evidence/a.json', 'evidence');
   }), { code: 'WFA_DEPENDENCY_UNAVAILABLE' });
+});
+
+test('optional combined inventories cannot trigger promisor network hydration', async () => {
+  const source = await readFile(new URL('../src/story-tree-read.mjs', import.meta.url), 'utf8');
+  const start = source.indexOf("run('git', ['log'");
+  assert.ok(start > 0);
+  assert.match(source.slice(start, source.indexOf('if (result.status', start)), /GIT_NO_LAZY_FETCH: '1'/u);
 });

@@ -82,7 +82,7 @@
     },
     "src/story-tree-read.mjs": {
       "counts": { "command-run": 2 },
-      "digest": "d48f069fec08d70bad761de0f6afc774cc00109ac2777bfdf815b39fc78b6b23"
+      "digest": "ff849bc9f5ad9f89c24746a6c799b03c5f3d37fe520818d597e4e643ece989cd"
     },
     "scripts/phase-next-paired-benchmark.mjs": {
       "counts": { "process-import": 1, "process-launch": 2 },

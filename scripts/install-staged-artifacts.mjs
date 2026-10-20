@@ -842,7 +842,11 @@ export async function acquireActivationLease({
     }
   }
   if (mode === 'create' && existing && !['complete', 'rolled-back'].includes(existing.status)) {
-    fail(`activation journal '${existing.operationId}' is ${existing.status}; run its exact --from-staged-artifacts recovery before starting another install.`);
+    fail(`activation journal '${existing.operationId}' is ${existing.status}; run its exact --from-staged-artifacts recovery before starting another install.`
+      + `\nPreserved recovery journal: ${JSON.stringify(journalFile)}`
+      + `\nRecorded recovery command (review before running): ${JSON.stringify(existing.recoveryCommand)}`
+      + `\nRecorded checkout: ${JSON.stringify(existing.checkout)}. The installer and validator must match their retained digests.`
+      + '\nDo not delete the journal or staged artifacts; finish the recorded recovery before updating this checkout.');
   }
   const initial = mode === 'resume' ? existing : null;
   if (initial?.status === 'complete') fail('activation journal is already complete; no staged recovery is pending.');

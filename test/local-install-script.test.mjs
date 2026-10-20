@@ -82,6 +82,8 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.ok((await stat(scriptPath)).mode & 0o100, 'install.sh must be executable');
   assert.match(script, /git status --porcelain/);
   assert.match(script, /git pull --ff-only/);
+  assert.ok(script.indexOf('\nacquire_activation_lease create\n') < script.indexOf('\n  git pull --ff-only\n'),
+    'active recovery must be refused before a pull can replace its exact installer/validator');
   assert.match(script, /npm ci --registry="\$REGISTRY"/);
   assert.match(script, /export NPM_CONFIG_REGISTRY="\$REGISTRY"/);
   assert.match(script, /npm run vscode:build/);

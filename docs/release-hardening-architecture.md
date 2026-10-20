@@ -51,6 +51,13 @@ replacement races and writes during staging are refused before a prompt snapshot
 
 ## Qualification and recovery ownership
 
+A normal source install claims/checks the activation lease before `git pull`, so an interrupted
+activation cannot lose its exact installer/validator merely because someone retries with
+`--skip-tests`. A pending journal refusal reports its exact path, checkout and recorded recovery
+command for review; it never deletes, replaces or resets that operation. Already-drifted legacy
+installers still require their exact retained source to be restored through reviewed recovery;
+this change does not invent authority to run different recovery code.
+
 The POC gate gives every stage a throwaway home and all machine-state pointers, not merely an
 alternate workspace registry. The strict skipped-test policy remains enabled. Caller Node loaders
 and recursive test markers are not inherited by the qualification children.

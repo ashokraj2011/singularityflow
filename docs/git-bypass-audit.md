@@ -8,7 +8,9 @@ cleanup. No real Story, provider or remote is contacted, and no production Git
 owner or transport permission is added.
 
 Workspace retention adds one bounded maintenance launcher for a shipped, fixed Node worker;
-its message accepts only an absolute workspace and protected paths. It never runs a model,
+its launch packet accepts only an absolute workspace and protected paths. The packet is one
+environment variable the worker removes before any work, not an IPC message: an ES-module
+worker is evaluated asynchronously and dropped a message that arrived first. It never runs a model,
 publication or approval. The foreground skips disabled/not-due work, and the worker rechecks
 policy and owns the maintenance lease. The retention proof uses the existing isolated Git
 environment, local configuration checks, exhaustive worktree fingerprint, bounded Git reads and

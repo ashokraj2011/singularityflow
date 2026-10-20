@@ -54,7 +54,7 @@
     },
     "src/workspace-retention-background.mjs": {
       "counts": { "process-import": 1, "process-launch": 1 },
-      "digest": "fcbac40580263cd2112d823da0101c3b21995f4a879acf2687e381bf1d4cf94c"
+      "digest": "4ef037612e7c099464e64de6e615fe59ec92348b3db2ca1b6db5c48a643dc2e2"
     },
     "scripts/session-listing-benchmark.mjs": {
       "counts": { "process-import": 1, "process-launch": 1 },

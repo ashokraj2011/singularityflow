@@ -177,15 +177,34 @@ test('background worker finishes independently and repeat foreground launches ar
   assert.equal(await scheduleWorkspaceRetention(f.workspacePath, options), true);
   const file = path.join(f.workspacePath, '.singularity-flow/cleanup-state.json');
   const deadline = Date.now() + 90000;
-  let result;
+  let result, leased = true;
+  // Done means the journal says completed and the worker has released its lease: after that it
+  // writes nothing, so removing the fixture cannot race its last file operations.
   while (Date.now() < deadline) {
     result = await readFile(file, 'utf8').then(JSON.parse).catch(() => null);
-    if (result?.status === 'completed') break;
+    leased = await lstat(`${file}.lock`).then(() => true, () => false);
+    if (result?.status === 'completed' && !leased) break;
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   assert.equal(result?.status, 'completed');
+  assert.equal(leased, false, 'the worker released its maintenance lease');
   assert.equal(await scheduleWorkspaceRetention(f.workspacePath, options), false);
-  await new Promise(resolve => setTimeout(resolve, 150));
+});
+
+test('the background worker refuses to start without a valid launch packet', async t => {
+  const { RETENTION_WORKER_PACKET } = await import('../src/workspace-retention-background.mjs');
+  const worker = fileURLToPath(new URL('../src/workspace-retention-worker.mjs', import.meta.url));
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-retention-packet-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  for (const packet of [undefined, '{bad', JSON.stringify({ workspacePath: 'relative', protect: [] }),
+    JSON.stringify({ workspacePath: base, protect: ['relative'] }),
+    JSON.stringify({ workspacePath: base, protect: Array.from({ length: 33 }, (_, index) => path.join(base, String(index))) })]) {
+    const env = { ...process.env };
+    if (packet === undefined) delete env[RETENTION_WORKER_PACKET]; else env[RETENTION_WORKER_PACKET] = packet;
+    const result = spawnSync(process.execPath, [worker], { cwd: base, env, encoding: 'utf8', timeout: 30000 });
+    assert.equal(result.status, 1, `${packet}: ${result.stderr}`);
+  }
+  assert.deepEqual(await readdir(base), [], 'a refused launch writes nothing');
 });
 
 test('unused superseded clones have their own retention clock and selected clones survive', { timeout: 180000 }, async t => {

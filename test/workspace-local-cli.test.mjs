@@ -6,14 +6,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { executeGitQuery } from '../src/git-query.mjs';
-import { run } from '../src/util.mjs';
+import { removeTemporaryTree, run } from '../src/util.mjs';
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url));
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 
-/** A bare repository to act as the workspace's source, and an isolated registry. */
-async function environment() {
+/** A bare repository to act as the workspace's source, and an isolated registry, removed after the test. */
+async function environment(t) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-ws-local-'));
+  t.after(() => removeTemporaryTree(base));
   const source = path.join(base, 'source.git');
   run('git', ['init', '--bare', '-q', source], { cwd: base });
   const seed = path.join(base, 'seed');
@@ -30,7 +31,8 @@ async function environment() {
     env: {
       ...process.env,
       SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(base, 'registry.json'),
-      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(base, 'active.json')
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(base, 'active.json'),
+      SINGULARITY_FLOW_AUTOMATIC_CLEANUP: 'off'
     }
   };
 }
@@ -85,10 +87,10 @@ async function approveDeliveryCapability(base, source, capabilityId) {
   run('git', ['push', '-q', source, 'HEAD:sflow/config'], { cwd: seed });
 }
 
-test('a workspace can be created with no tracker at all', async () => {
+test('a workspace can be created with no tracker at all', async (t) => {
   // The local anchor must remain reachable through the public CLI so a Jira-less team can
   // not create a workspace once the desktop is out of the picture.
-  const { base, source, env } = await environment();
+  const { base, source, env } = await environment(t);
   const workspaces = path.join(base, 'workspaces');
   const preview = JSON.parse(cli(['workspace', 'create', '--local', '--id', 'demo-team',
     '--base', workspaces, '--lead', 'app', '--repository', `app=${source}`,
@@ -138,8 +140,8 @@ test('a workspace can be created with no tracker at all', async () => {
   assert.equal(await stat(path.join(workspaces, 'demo-team', 'repos', 'app')).catch(() => null), null);
 });
 
-test('workspace create can explicitly clone and targeted repair materializes only the requested repository', async () => {
-  const { base, source, env } = await environment();
+test('workspace create can explicitly clone and targeted repair materializes only the requested repository', async (t) => {
+  const { base, source, env } = await environment(t);
   const workspaces = path.join(base, 'workspaces-on-demand');
   const created = JSON.parse(cli(['workspace', 'create', '--local', '--id', 'deferred',
     '--base', workspaces, '--lead', 'app', '--repository', `app=${source}`,
@@ -157,8 +159,8 @@ test('workspace create can explicitly clone and targeted repair materializes onl
   assert.equal(cloned.status.repositories[0].state, 'ready');
 });
 
-test('workspace status and targeted repair resolve the saved workspace from its current directory', async () => {
-  const { base, source, env } = await environment();
+test('workspace status and targeted repair resolve the saved workspace from its current directory', async (t) => {
+  const { base, source, env } = await environment(t);
   const created = JSON.parse(cli(['workspace', 'create', '--local', '--id', 'deferred',
     '--base', path.join(base, 'workspaces'), '--lead', 'app', '--repository', `app=${source}`,
     '--confirm', 'deferred', '--json'], env).stdout);
@@ -206,7 +208,7 @@ test('workspace status and targeted repair resolve the saved workspace from its 
 
 test('workspace cwd inference follows physical directories and refuses a symlink escape', async (t) => {
   if (process.platform === 'win32') t.skip('creating directory symlinks can require Windows developer mode');
-  const { base, source, env } = await environment();
+  const { base, source, env } = await environment(t);
   const created = JSON.parse(cli(['workspace', 'create', '--local', '--id', 'physical',
     '--base', path.join(base, 'workspaces'), '--lead', 'app', '--repository', `app=${source}`,
     '--confirm', 'physical', '--json'], env).stdout);
@@ -226,16 +228,16 @@ test('workspace cwd inference follows physical directories and refuses a symlink
     'an escaped cwd must not materialize a repository');
 });
 
-test('workspace create still refuses an ambiguous invocation', async () => {
-  const { env } = await environment();
+test('workspace create still refuses an ambiguous invocation', async (t) => {
+  const { env } = await environment(t);
   const failure = cli(['workspace', 'create'], env, { allowFailure: true });
   assert.notEqual(failure.status, 0);
   // The error now names both routes rather than demanding a Jira key that may not exist.
   assert.match(failure.stderr, /--jira KEY, or --local --id ID/);
 });
 
-test('--dry-run previews a local workspace without creating it', async () => {
-  const { base, source, env } = await environment();
+test('--dry-run previews a local workspace without creating it', async (t) => {
+  const { base, source, env } = await environment(t);
   const workspaces = path.join(base, 'workspaces-dry');
   const preview = JSON.parse(cli(['workspace', 'create', '--local', '--id', 'dry-team',
     '--base', workspaces, '--lead', 'app', '--repository', `app=${source}`, '--dry-run'], env).stdout);
@@ -245,8 +247,8 @@ test('--dry-run previews a local workspace without creating it', async () => {
   assert.doesNotMatch(listed.stdout, /dry-team/, 'a preview must not register anything');
 });
 
-test('workspace capability preview and apply remain exact across CLI processes', async () => {
-  const { base, source, env } = await environment();
+test('workspace capability preview and apply remain exact across CLI processes', async (t) => {
+  const { base, source, env } = await environment(t);
   await approveDeliveryCapability(base, source, 'payments');
   const workspaces = path.join(base, 'workspaces-capability');
   const directory = path.join(workspaces, 'commerce');
@@ -311,11 +313,11 @@ test('workspace capability preview and apply remain exact across CLI processes',
     'a plan from before another process changed the manifest cannot apply');
 });
 
-test('workspace capability changes finish under an older selection without a workspace path', async () => {
+test('workspace capability changes finish under an older selection without a workspace path', async (t) => {
   // Older active-workspace selections did not record a workspace path, and the v1->v2 migration
   // does not add one. Such a selection cannot be proven to name this workspace, so it is not
   // cleared; the change it follows has already been applied and must still be reported.
-  const { base, source, env } = await environment();
+  const { base, source, env } = await environment(t);
   await approveDeliveryCapability(base, source, 'payments');
   const workspaces = path.join(base, 'workspaces-older-selection');
   const directory = path.join(workspaces, 'commerce');
@@ -363,8 +365,8 @@ test('workspace capability changes finish under an older selection without a wor
   assert.equal(await readFile(env.SINGULARITY_FLOW_ACTIVE_WORKSPACE, 'utf8'), selection);
 });
 
-test('archive and restore round-trip, and archiving demands exact confirmation', async () => {
-  const { base, source, env } = await environment();
+test('archive and restore round-trip, and archiving demands exact confirmation', async (t) => {
+  const { base, source, env } = await environment(t);
   const workspaces = path.join(base, 'workspaces');
   cli(['workspace', 'create', '--local', '--id', 'demo-team',
     '--base', workspaces, '--lead', 'app', '--repository', `app=${source}`,
@@ -392,8 +394,8 @@ test('archive and restore round-trip, and archiving demands exact confirmation',
   assert.match(restored.stdout, /Restored/);
 });
 
-test('forgetting the active workspace also clears the active selection', async () => {
-  const { base, source, env } = await environment();
+test('forgetting the active workspace also clears the active selection', async (t) => {
+  const { base, source, env } = await environment(t);
   const workspaces = path.join(base, 'workspaces');
   const directory = path.join(workspaces, 'throwaway');
   cli(['workspace', 'create', '--local', '--id', 'throwaway', '--base', workspaces,
@@ -406,11 +408,11 @@ test('forgetting the active workspace also clears the active selection', async (
   assert.deepEqual(current, { active: false });
 });
 
-test('a repository describes itself, so a workspace never has to be told its URL', async () => {
+test('a repository describes itself, so a workspace never has to be told its URL', async (t) => {
   // Adding a repository by typing an identifier and a clone URL is how a workspace ends up pointing
   // at the wrong fork, or at a branch nobody uses. These rules belong in the engine, where
   // neither the CLI nor the editor could reach them.
-  const { base, source, env } = await environment();
+  const { base, source, env } = await environment(t);
   const checkout = path.join(base, 'Payments API');
   run('git', ['clone', '-q', source, checkout], { cwd: base });
 
@@ -421,8 +423,8 @@ test('a repository describes itself, so a workspace never has to be told its URL
   assert.equal(inspected.localPath, await realpath(checkout));
 });
 
-test('workspace root query uses one registered read and never resolves empty Git output to cwd', async () => {
-  const { base, source } = await environment();
+test('workspace root query uses one registered read and never resolves empty Git output to cwd', async (t) => {
+  const { base, source } = await environment(t);
   const checkout = path.join(base, 'existing-checkout');
   run('git', ['clone', '-q', source, checkout], { cwd: base });
   const nested = path.join(checkout, 'nested');
@@ -446,8 +448,8 @@ test('workspace root query uses one registered read and never resolves empty Git
   }), null);
 });
 
-test('a folder that cannot join a workspace says so while you are choosing', async () => {
-  const { base, env } = await environment();
+test('a folder that cannot join a workspace says so while you are choosing', async (t) => {
+  const { base, env } = await environment(t);
 
   const plain = path.join(base, 'not-a-repo');
   await mkdir(plain, { recursive: true });
@@ -472,10 +474,10 @@ test('a folder that cannot join a workspace says so while you are choosing', asy
   assert.match(inner.stderr, /repository root instead of a nested folder|not a safe Git repository/);
 });
 
-test('a repository can be inspected by URL, without cloning it first', async () => {
+test('a repository can be inspected by URL, without cloning it first', async (t) => {
   // Requiring a checkout first is backwards: the repositories a team governs are named by URL long
   // before anyone clones them. ls-remote answers both questions the form needs over the network.
-  const { source, env } = await environment();
+  const { source, env } = await environment(t);
   const inspected = JSON.parse(cli(['workspace', 'inspect', `file://${source}`, '--json'], env).stdout);
   assert.equal(inspected.url, `file://${source}`);
   assert.equal(inspected.defaultBranch, 'main', 'read from the remote HEAD, not assumed');
@@ -484,10 +486,10 @@ test('a repository can be inspected by URL, without cloning it first', async () 
   assert.equal(inspected.id, 'source', 'the identifier comes from the last path segment');
 });
 
-test('inspection reports whether the workflow state branch already exists', async () => {
+test('inspection reports whether the workflow state branch already exists', async (t) => {
   // Whether a repository is joining a workspace that already records governance history, or
   // starting one, is decided at this moment and is worth showing while somebody is adding it.
-  const { base, source, env } = await environment();
+  const { base, source, env } = await environment(t);
   const work = path.join(base, 'seed-state');
   run('git', ['clone', '-q', source, work], { cwd: base });
   run('git', ['checkout', '-q', '--orphan', 'state'], { cwd: work });
@@ -502,8 +504,8 @@ test('inspection reports whether the workflow state branch already exists', asyn
   assert.equal(inspected.stateBranch, 'state');
 });
 
-test('a URL that cannot be reached is refused while it is being typed', async () => {
-  const { base, env } = await environment();
+test('a URL that cannot be reached is refused while it is being typed', async (t) => {
+  const { base, env } = await environment(t);
   const missing = cli(['workspace', 'inspect', `file://${path.join(base, 'no-such-repo.git')}`, '--json'],
     env, { allowFailure: true });
   assert.notEqual(missing.status, 0);
@@ -515,11 +517,11 @@ test('a URL that cannot be reached is refused while it is being typed', async ()
   assert.match(JSON.parse(nonsense.stdout).error.message, /is not available|not a safe Git repository|is not a clone URL/);
 });
 
-test('a bare repository path is somewhere to clone from, not a checkout to read', async () => {
+test('a bare repository path is somewhere to clone from, not a checkout to read', async (t) => {
   // `file://` is a scheme people rarely type. A plain absolute path to a bare repository — a local
   // mirror, a network share, a fixture — was read as a working checkout and refused with "not a safe
   // Git repository", which describes the wrong thing entirely: it is a perfectly good remote.
-  const { source, env } = await environment();
+  const { source, env } = await environment(t);
   const inspected = JSON.parse(cli(['workspace', 'inspect', source, '--json'], env).stdout);
   assert.equal(inspected.url, source);
   assert.equal(inspected.defaultBranch, 'main', 'read from the remote HEAD');
@@ -561,10 +563,10 @@ async function describe(base, source, { portfolio = true } = {}) {
   run('git', ['push', '-q', source, 'HEAD:sflow/config'], { cwd: seed });
 }
 
-test('a lead repository reports what the organisation builds without being cloned', async () => {
+test('a lead repository reports what the organisation builds without being cloned', async (t) => {
   // A workspace is chosen as capabilities, and the map that lists them is inside the lead. Reading
   // it has to happen before anything is cloned, or the choice comes after the consequence.
-  const { base, source, env } = await environment();
+  const { base, source, env } = await environment(t);
   await describe(base, source);
 
   const map = JSON.parse(cli(['workspace', 'capabilities', source, '--json'], env).stdout);
@@ -583,20 +585,20 @@ test('a lead repository reports what the organisation builds without being clone
   assert.equal(web.url, null, 'the portfolio does not declare it');
 });
 
-test('a lead repository with no map says so, which is a state and not a failure', async () => {
+test('a lead repository with no map says so, which is a state and not a failure', async (t) => {
   // A new organisation has not described itself yet. Refusing to proceed would make the product
   // unusable on day one, so this reports the absence and lets the caller offer its fallback.
-  const { source, env } = await environment();
+  const { source, env } = await environment(t);
   const map = JSON.parse(cli(['workspace', 'capabilities', source, '--json'], env).stdout);
   assert.equal(map.capabilities, null);
   assert.match(map.reason, /has no approved sflow\/config configuration branch/);
   assert.deepEqual(map.deliveries, []);
 });
 
-test('a workspace records the capabilities it is for, not only the repositories it holds', async () => {
+test('a workspace records the capabilities it is for, not only the repositories it holds', async (t) => {
   // "Workspace is capabilities plus a working directory" is the concept; a manifest that recorded
   // only the repositories would have lost what the workspace was actually about.
-  const { base, source, env } = await environment();
+  const { base, source, env } = await environment(t);
   await approveCapabilities(base, source, ['commerce', 'payments']);
   const created = JSON.parse(cli([
     'workspace', 'create', '--local', '--json', '--id', 'commerce-platform',
@@ -623,10 +625,10 @@ test('a workspace records the capabilities it is for, not only the repositories 
   assert.match(JSON.parse(refused.stdout).error.message, /must be lower-case kebab-case/);
 });
 
-test('a workspace can be copied into a different working directory', async () => {
+test('a workspace can be copied into a different working directory', async (t) => {
   // A workspace is local and disposable: the same capabilities and repositories, somewhere else to
   // work on them. Nothing governed lives in it that a second copy would fork.
-  const { base, source, env } = await environment();
+  const { base, source, env } = await environment(t);
   await approveCapabilities(base, source, ['commerce', 'payments']);
   const workspaces = path.join(base, 'workspaces');
   cli(['workspace', 'create', '--local', '--json', '--id', 'commerce',
@@ -651,11 +653,11 @@ test('a workspace can be copied into a different working directory', async () =>
   assert.equal(original.name, 'commerce');
 });
 
-test('no two workspaces may share a working directory', async () => {
+test('no two workspaces may share a working directory', async (t) => {
   // `workspace create` resumes when it finds the same workspace already there, which is right for
   // creation and wrong for copying: a duplicate landing on its own source would silently return the
   // original and report success.
-  const { base, source, env } = await environment();
+  const { base, source, env } = await environment(t);
   const workspaces = path.join(base, 'workspaces');
   for (const id of ['alpha', 'beta']) {
     cli(['workspace', 'create', '--local', '--json', '--id', id, '--base', workspaces,
@@ -697,8 +699,8 @@ test('no two workspaces may share a working directory', async () => {
   assert.match(onOccupied.stderr, /not empty/);
 });
 
-test('a copy can be given a different name and a different base', async () => {
-  const { base, source, env } = await environment();
+test('a copy can be given a different name and a different base', async (t) => {
+  const { base, source, env } = await environment(t);
   const workspaces = path.join(base, 'workspaces');
   const elsewhere = path.join(base, 'elsewhere');
   cli(['workspace', 'create', '--local', '--json', '--id', 'commerce', '--base', workspaces,
@@ -721,10 +723,10 @@ test('a copy can be given a different name and a different base', async () => {
   assert.equal(new Set(paths).size, paths.length, 'no two registry entries share a directory');
 });
 
-test('a workspace can be renamed without restating everything about it', async () => {
+test('a workspace can be renamed without restating everything about it', async (t) => {
   // Renaming is the safest edit there is, and it did not work: `workspace update --name` passed no
   // repositories to the validator and was refused for having none. An edit changes what it names.
-  const { base, source, env } = await environment();
+  const { base, source, env } = await environment(t);
   await approveCapabilities(base, source, ['checkout', 'payments', 'storefront']);
   const workspaces = path.join(base, 'workspaces');
   cli(['workspace', 'create', '--local', '--json', '--id', 'commerce', '--base', workspaces,
@@ -754,11 +756,11 @@ test('a workspace can be renamed without restating everything about it', async (
   assert.equal(manifest.path, await realpath(workspace));
 });
 
-test('a clone URL written with a trailing slash still yields a clean identifier', async () => {
+test('a clone URL written with a trailing slash still yields a clean identifier', async (t) => {
   // `.git$` does not match a string ending in a slash, so stripping the suffix before the slash
   // left `platform.git` as the repository identifier — and identifiers end up in paths, in the
   // capability map, and in every Story record.
-  const { source, env } = await environment();
+  const { source, env } = await environment(t);
   const inspected = JSON.parse(cli(['workspace', 'inspect', `${source}/`, '--json'], env).stdout);
   assert.equal(inspected.id, 'source');
 });

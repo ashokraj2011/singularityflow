@@ -19,7 +19,8 @@ import { exactFileAtObject, isAncestor } from './git.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { workDir } from './story-paths.mjs';
 import { initiativeRelative } from './state-stores.mjs';
-import { SingularityFlowError, snapshot } from './util.mjs';
+import { SingularityFlowError, posix } from './util.mjs';
+import { artifactSnapshotCheckoutMatches, readReviewArtifactBytes } from './artifact-review-read.mjs';
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
@@ -27,15 +28,33 @@ const STATE_LIMIT = 16 * 1024 * 1024;
 const MANIFEST_LIMIT = 4 * 1024 * 1024;
 const RECORD_LIMIT = 1024 * 1024;
 
+/** Stable Story source bytes; retain the immutable LF identity separately from checkout bytes. */
+export async function pinnedStorySourceSnapshot(root, config, workflow) {
+  const sourcePath = path.join(workDir(root, config, workflow.workItem.id), 'source.json');
+  const relative = posix(path.relative(root, sourcePath));
+  const checkout = await readReviewArtifactBytes(root, relative, 'Story source snapshot');
+  if (checkout == null) return null;
+  const checkoutSha256 = sha256(checkout);
+  const expected = workflow.resolution?.sourceSha256;
+  let bytes = checkout;
+  if (expected && checkoutSha256 !== expected) {
+    // Story creation pins the exact JSON-with-LF bytes, not an arbitrary canonical JSON value.
+    // Only Git's uniform CRLF representation may reproduce them; this does not permit a
+    // whitespace/content edit, mixed endings, BOM removal or invalid UTF-8 replacement.
+    const lf = Buffer.from(checkout.toString('utf8').replaceAll('\r\n', '\n'));
+    if (!artifactSnapshotCheckoutMatches({ exists: true, sha256: expected, size: lf.length }, checkout)) {
+      throw new SingularityFlowError('source.json differs from the immutable Story source snapshot.', { code: 'WORK_SOURCE_HASH_MISMATCH' });
+    }
+    bytes = lf;
+  }
+  return { bytes, record: { path: relative, sha256: sha256(bytes), bytes: bytes.length },
+    checkout: { sha256: checkoutSha256, bytes: checkout.length } };
+}
+
 /** The Story's source.json, only while it matches the hash pinned when the Story started. */
 export async function pinnedStorySource(root, config, workflow) {
-  const sourcePath = path.join(workDir(root, config, workflow.workItem.id), 'source.json');
-  const info = await snapshot(sourcePath);
-  if (!info.exists) return null;
-  if (workflow.resolution?.sourceSha256 && info.sha256 !== workflow.resolution.sourceSha256) {
-    throw new SingularityFlowError('source.json differs from the immutable Story source snapshot.', { code: 'WORK_SOURCE_HASH_MISMATCH' });
-  }
-  return JSON.parse(await readFile(sourcePath, 'utf8'));
+  const snapshot = await pinnedStorySourceSnapshot(root, config, workflow);
+  return snapshot ? JSON.parse(snapshot.bytes.toString('utf8')) : null;
 }
 
 function storyBaseCommit(workflow) {

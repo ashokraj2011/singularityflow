@@ -222,9 +222,9 @@
     },
     "install-windows-git-bash.sh": {
       "counts": {
-        "shell-process": 15
+        "shell-process": 10
       },
-      "digest": "ce68a8bbbd892a629e0c1ce9828ea10bc727118baf3e917a7903a2bf5d8119ed"
+      "digest": "a0c57349aa29c6e696300e07cc392c70491d3d372b97335a2ae0b150cbc362c2"
     },
     "install.sh": {
       "counts": {

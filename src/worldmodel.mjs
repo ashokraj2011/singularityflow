@@ -5,7 +5,7 @@ import { withoutAttachedSkills, withoutTableSection } from './skill-library.mjs'
 import { resolvePersonalization, withReplyPersonalization } from './personalization.mjs';
 import { withAgentPathProtocol } from './safe-command-guidance.mjs';
 import { readFile, writeFile } from 'node:fs/promises';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -72,6 +72,7 @@ import {
 import { resolveStoryExecutionContext } from './story-execution-context.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { tokenReductionShadowFailure } from './token-reduction/shadow-record.mjs';
+import { pinnedStorySourceSnapshot } from './story-epic-sources.mjs';
 
 // Repository knowledge is loaded on use, through non-literal specifiers, so editor bundles that import
 // this module do not carry the analysis engine.
@@ -711,18 +712,15 @@ async function compose(root, options, {
     await assertPhaseSequence(root, workflow, 'compose and record a generation prompt', { requestedPhase });
     if ((workflow.sequenceOverrides?.length ?? 0) > overridesBefore) await saveStoryDraft(root, definition, workflow);
   }
-  const sourcePath = workflow ? path.join(root, workItemRoot, workflow.workItem.id, 'source.json') : null;
-  const source = sourcePath && existsSync(sourcePath) ? JSON.parse(readFileSync(sourcePath, 'utf8')) : null;
-  const sourceInfo = sourcePath ? await snapshot(sourcePath) : null;
-  const sourceRelative = sourcePath ? posix(path.relative(root, sourcePath)) : null;
-  if (workflow?.resolution?.sourceSha256 && sourceInfo?.sha256 !== workflow.resolution.sourceSha256) {
+  const sourceSnapshot = workflow ? await pinnedStorySourceSnapshot(root, { workItemRoot }, workflow) : null;
+  const source = sourceSnapshot ? JSON.parse(sourceSnapshot.bytes.toString('utf8')) : null;
+  if (workflow?.resolution?.sourceSha256 && !sourceSnapshot) {
     throw new SingularityFlowError('source.json differs from the immutable Story source snapshot.', {
       code: 'WORK_SOURCE_HASH_MISMATCH'
     });
   }
-  const workSource = workSourcePromptContext(workflow, source, sourceInfo?.exists ? {
-    path: sourceRelative, sha256: sourceInfo.sha256, bytes: sourceInfo.size
-  } : null, { definition, phase: workflow?.phases?.[requestedPhase ?? workflow?.currentPhase] ?? null });
+  const workSource = workSourcePromptContext(workflow, source, sourceSnapshot?.record ?? null,
+    { definition, phase: workflow?.phases?.[requestedPhase ?? workflow?.currentPhase] ?? null });
   const signals = {
     agent,
     phase: requestedPhase ?? workflow?.currentPhase ?? null,

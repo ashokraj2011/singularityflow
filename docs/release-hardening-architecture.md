@@ -57,6 +57,15 @@ activation cannot lose its exact installer/validator merely because someone retr
 command for review; it never deletes, replaces or resets that operation. Already-drifted legacy
 installers still require their exact retained source to be restored through reviewed recovery;
 this change does not invent authority to run different recovery code.
+The Windows Git Bash wrapper delegates its update choice to that same owner; it performs no
+separate repository/status/pull operation before admission.
+
+Story-source readers share a stable, no-follow byte read. Story creation pins JSON-with-LF bytes;
+only an unchanged uniform CRLF checkout may reproduce that immutable SHA-256. Raw checkout and
+immutable identities remain separate. Prompt composition receives the original pinned identity,
+not a rewritten workflow pin. Documents, Epic-source inspection and the legacy configuration
+integrity gate use the same reader. Mixed endings, BOM, whitespace/content edits and missing
+sources do not synthesize or change Story intent.
 
 The POC gate gives every stage a throwaway home and all machine-state pointers, not merely an
 alternate workspace registry. The strict skipped-test policy remains enabled. Caller Node loaders

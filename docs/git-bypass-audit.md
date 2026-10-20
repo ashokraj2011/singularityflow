@@ -1,5 +1,10 @@
 # GAL Git bypass regression gate
 
+The Windows source-install wrapper removes its own Git repository/status/pull operations and
+associated output branches (15 to 10 conservative shell candidates). It delegates the update
+choice to the canonical installer, which checks the recovery lease before its single pull.
+No new process owner, Git operation or recovery bypass is admitted by this reduced fingerprint.
+
 The artifact-registration owner adds two bounded, read-only policy probes for an exact newline-only
 mismatch: `check-attr -z` for text/eol/filter/encoding and, only if needed, the effective
 `core.autocrlf` value. It never runs a clean filter, text conversion executable, transport or history

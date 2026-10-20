@@ -57,6 +57,7 @@ import { storyPublicationPending } from './story-publication-read.mjs';
 import { resolveStoryExecutionDefinition } from './story-execution-context.mjs';
 import { verifyPhaseApprovalWaiver } from './approval-waiver.mjs';
 import { artifactSnapshotCheckoutMatches, readReviewArtifactBytes } from './artifact-review-read.mjs';
+import { pinnedStorySourceSnapshot } from './story-epic-sources.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
 
@@ -316,8 +317,13 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       if (present.sha256 !== template.sha256) refuse('gate.template.snapshot-drift', `template snapshot changed for ${phaseId}: ${template.path}`, { phase: phaseId, path: template.path });
     }
     if (workflow.resolution.sourceSha256) {
-      const source = await snapshot(path.join(workDir(root, config, workflow.workItem.id), 'source.json'));
-      if (source.sha256 !== workflow.resolution.sourceSha256) refuse('gate.source.snapshot-drift', 'source.json differs from the immutable source snapshot');
+      try {
+        const source = await pinnedStorySourceSnapshot(root, config, workflow);
+        if (!source) refuse('gate.source.snapshot-drift', 'source.json differs from the immutable source snapshot');
+      } catch (error) {
+        refuse(error.code === 'WORK_SOURCE_HASH_MISMATCH' ? 'gate.source.snapshot-drift'
+          : error.code ?? 'gate.source.snapshot-unavailable', error.message);
+      }
     }
     if (workflow.resolution.impact?.sha256) {
       if (workflow.measurement?.plan?.kind === 'prompt-set-randomized') {

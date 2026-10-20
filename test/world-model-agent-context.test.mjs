@@ -44,6 +44,12 @@ test('actual phase composition injects pinned workflow and agent skills without 
     source: { type: 'manual', key: id, title: 'Verify scoped skill composition', description: 'Verify session-independent exact skill injection.', acceptanceCriteria: ['Both scopes are composed from retained bytes.'] }
   });
   git(root, 'add', '.'); git(root, 'commit', '-qm', 'accept Story');
+  const sourceRelative = `singularity/work-items/${id}/source.json`;
+  const sourceText = await readFile(path.join(root, sourceRelative), 'utf8');
+  git(root, 'config', 'core.autocrlf', 'true');
+  await rm(path.join(root, sourceRelative));
+  git(root, 'checkout-index', '--force', '--', sourceRelative);
+  assert.equal(await readFile(path.join(root, sourceRelative), 'utf8'), sourceText.replaceAll('\n', '\r\n'));
   const render = () => composePhasePrompt(root, { workId: id, phase: 'specification', agent: 'product-owner' }, { renderOnly: true });
   const withSession = await render();
   await rename(path.join(root, '.git/singularity-flow/session.json'), path.join(root, '.git/singularity-flow/session.preserved.json'));

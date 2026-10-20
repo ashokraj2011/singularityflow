@@ -48,6 +48,8 @@ regular Git mode at the evidence commit. The immutable packet is not changed; th
 discloses both raw identities. Mixed endings, content edits, wrong sizes and link modes remain
 refused. Exceptional mode reads are batched and bounded. This narrow reader is loaded on demand
 from a package-owned file URL, keeping the existing eager bundle byte/module ceilings unchanged.
+Removal claims use a successful listing at that exact commit; an unreadable blob is never treated
+as proof that the file was deleted.
 
 ## Explicit MCP setup
 

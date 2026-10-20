@@ -27,6 +27,16 @@ test('review checkout mode verification refuses an oversized path before launchi
     error.code === 'STORY_REVIEW_EVIDENCE_INVALID' && /8192-character/u.test(error.message));
 });
 
+test('a failed immutable tree read cannot establish an artifact removal', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-removal-read-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, ['init', '-q', '-b', 'main']);
+  assert.throws(() => reviewArtifactBindings(root, 'a'.repeat(40), [{
+    path: 'singularity/work-items/REV-CHECKOUT/artifacts/removed.md', removed: true, sha256: null, size: 0
+  }], () => assert.fail('removal must use a successful exact-tree proof, never a failed blob read')),
+  /Submitted artifact checkout modes/u);
+});
+
 test('immutable review replay discloses uniform checkout bytes without accepting edits or link modes', async t => {
   const lf = Buffer.from('# Review evidence\n\nExact submitted meaning.\n');
   const crlf = Buffer.from(lf.toString().replaceAll('\n', '\r\n'));
@@ -37,7 +47,9 @@ test('immutable review replay discloses uniform checkout bytes without accepting
     { id: 'mixed', expected: Buffer.from(lf.toString().replace('\n', '\r\n')), actual: lf },
     { id: 'size', expected: crlf, actual: lf, wrongSize: true },
     { id: 'link', expected: crlf, actual: lf, link: true },
-    { id: 'binary', expected: binary, actual: binary, accepted: true, exact: true }
+    { id: 'binary', expected: binary, actual: binary, accepted: true, exact: true },
+    { id: 'removed-absent', expected: null, actual: null, removed: true, accepted: true, exact: true },
+    { id: 'removed-present', expected: null, actual: lf, removed: true }
   ]) {
     const root = await mkdtemp(path.join(os.tmpdir(), `sflow-review-checkout-${item.id}-`));
     t.after(() => rm(root, { recursive: true, force: true }));
@@ -46,9 +58,9 @@ test('immutable review replay discloses uniform checkout bytes without accepting
     git(root, ['config', 'user.email', 'review@example.test']);
     git(root, ['config', 'core.autocrlf', 'true']);
     const artifactPath = 'singularity/work-items/REV-CHECKOUT/artifacts/intake.md';
-    const rawSha256 = createHash('sha256').update(item.expected).digest('hex');
+    const rawSha256 = item.expected ? createHash('sha256').update(item.expected).digest('hex') : null;
     const artifacts = [{ path: artifactPath, kind: 'document', sha256: rawSha256,
-      size: item.expected.length + (item.wrongSize ? 1 : 0) }];
+      size: (item.expected?.length ?? 0) + (item.wrongSize ? 1 : 0), ...(item.removed ? { removed: true } : {}) }];
     const base = { schemaVersion: currentSchemaVersion('story-submission-packet'),
       workId: 'REV-CHECKOUT', phase: 'intake', generation: 1, artifacts, checks: [],
       submissionEvidence: { testExecutions: [], checksSha256: createHash('sha256').update('[]').digest('hex'),
@@ -56,6 +68,7 @@ test('immutable review replay discloses uniform checkout bytes without accepting
     const packetSha256 = createHash('sha256').update(JSON.stringify(base)).digest('hex');
     const packetPath = `singularity/work-items/REV-CHECKOUT/submissions/intake/${packetSha256}.json`;
     for (const [relative, bytes] of [[artifactPath, item.actual], [packetPath, JSON.stringify({ ...base, packetSha256 })]]) {
+      if (bytes == null) continue;
       await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
       await writeFile(path.join(root, relative), bytes);
     }

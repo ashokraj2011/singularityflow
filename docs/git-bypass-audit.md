@@ -6,8 +6,9 @@ choice to the canonical installer, which checks the recovery lease before its si
 No new process owner, Git operation or recovery bypass is admitted by this reduced fingerprint.
 
 Immutable review artifact verification adds one exact-commit, literal-path `ls-tree -z` site,
-only for SHA/size-proven uniform newline representations. It verifies regular Git modes, not
-worktree links. Paths are batched within 8192 characters, reads have a five-second deadline and
+for SHA/size-proven uniform newline representations and removal claims. It verifies regular Git
+modes and actual absence, never absence inferred from a failed blob read. Paths are batched within
+8192 characters, reads have a five-second deadline and
 128-KiB output bound, and failed reads retain their refusal. The helper is loaded only at review
 verification, from the installed package. It has no transport, mutation or general process owner.
 The metadata writer shares the same two reviewed text-policy probes as publication reconciliation;

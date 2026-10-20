@@ -4,8 +4,8 @@ import { artifactSnapshotCheckoutMatches } from './artifact-review-read.mjs';
 import { gitReadOutput, run, SingularityFlowError } from './util.mjs';
 
 /** Bound Windows argv while verifying only exceptional, newline-equivalent file modes. */
-function regularCheckoutArtifacts(root, commit, paths) {
-  const regular = new Set();
+function checkoutArtifactModes(root, commit, paths) {
+  const modes = new Map();
   let offset = 0;
   while (offset < paths.length) {
     const chunk = [];
@@ -26,21 +26,22 @@ function regularCheckoutArtifacts(root, commit, paths) {
       const tab = entry.indexOf('\t');
       const [mode, type] = entry.slice(0, tab).split(' ');
       const relative = entry.slice(tab + 1);
-      if (requested.has(relative) && ['100644', '100755'].includes(mode) && type === 'blob') regular.add(relative);
+      if (requested.has(relative)) modes.set(relative, { mode, type });
     }
   }
-  return regular;
+  return modes;
 }
 
 /** Never read the worktree or rewrite submitted identities to repair a historical packet. */
 export function reviewArtifactBindings(root, commit, artifacts, readBlob) {
   const representations = [];
+  const removed = [];
   for (const artifact of artifacts) {
     if (artifact.removed === true) {
-      if (!artifact.path || artifact.sha256 != null || ![0, null].includes(artifact.size ?? null)
-          || readBlob(root, commit, artifact.path).status === 0) {
+      if (!artifact.path || artifact.sha256 != null || ![0, null].includes(artifact.size ?? null)) {
         return { valid: false, reason: `does not show ${artifact.path || 'a removed artifact'} removed` };
       }
+      removed.push(artifact.path);
       continue;
     }
     if (!artifact.path || !artifact.sha256 || !Number.isInteger(artifact.size) || artifact.size < 0) {
@@ -58,12 +59,15 @@ export function reviewArtifactBindings(root, commit, artifacts, readBlob) {
     }
     if (checkout) representations.push({ path: artifact.path, submittedSha256, committedSha256: actualSha256 });
   }
-  if (representations.length) {
+  if (representations.length || removed.length) {
     const paths = representations.map(item => item.path);
-    const regular = regularCheckoutArtifacts(root, commit, paths);
-    if (paths.some(relative => !regular.has(relative))) {
+    const modes = checkoutArtifactModes(root, commit, [...paths, ...removed]);
+    if (paths.some(relative => !['100644', '100755'].includes(modes.get(relative)?.mode)
+        || modes.get(relative)?.type !== 'blob')) {
       return { valid: false, reason: 'has a non-regular artifact checkout representation' };
     }
+    const present = removed.find(relative => modes.has(relative));
+    if (present) return { valid: false, reason: `does not show ${present} removed` };
   }
   return { valid: true, representations };
 }

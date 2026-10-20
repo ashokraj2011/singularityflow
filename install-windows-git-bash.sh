@@ -134,21 +134,6 @@ fi
 
 [[ -f "$PROJECT_DIR/package.json" ]] || fail "package.json was not found beside this script: $PROJECT_DIR"
 [[ -f "$PROJECT_DIR/install.sh" ]] || fail "install.sh was not found beside this script: $PROJECT_DIR"
-git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 || fail "not a Git checkout: $PROJECT_DIR"
-
-if [[ -n "$(git -C "$PROJECT_DIR" status --porcelain)" ]]; then
-  printf '%s\n' 'The Singularity Flow checkout has uncommitted changes:' >&2
-  git -C "$PROJECT_DIR" status --short >&2
-  fail 'commit or stash those changes, then run this script again.'
-fi
-
-if [[ "$UPDATE_CHECKOUT" == "on" ]]; then
-  printf '%s\n' 'Updating Singularity Flow with a fast-forward-only pull...'
-  git -C "$PROJECT_DIR" pull --ff-only
-else
-  printf '%s\n' 'Using the exact current clean checkout (--no-update); no Git fetch or pull was run.'
-fi
-
 # The Windows installer failure fixed in August 2026 was caused by treating CRLF
 # Agent Markdown as if its frontmatter were absent. Check for the regression before
 # the normal installer enters its longer build and test stages.
@@ -161,9 +146,9 @@ INSTALL_ARGS=()
 [[ "$CLI_ONLY" == "on" ]] && INSTALL_ARGS+=(--cli-only)
 [[ "$VSCODE_ONLY" == "on" ]] && INSTALL_ARGS+=(--vscode-only)
 [[ "$SKIP_COPILOT" == "on" ]] && INSTALL_ARGS+=(--skip-copilot)
-# The wrapper already made the one explicit update decision above. Prevent the canonical installer
-# from repeating the pull, and bind its build to the exact checkout the wrapper just validated.
-INSTALL_ARGS+=(--no-update)
+# The canonical installer owns the recovery lease and the sole checkout update. Pulling here
+# could replace the exact installer/validator needed by an interrupted activation.
+[[ "$UPDATE_CHECKOUT" == "off" ]] && INSTALL_ARGS+=(--no-update)
 [[ "$SKIP_TESTS" == "on" ]] && INSTALL_ARGS+=(--skip-tests)
 [[ "$TELEMETRY" == "off" ]] && INSTALL_ARGS+=(--no-copilot-telemetry)
 [[ "$WORKSPACE_CONFIGURATION_REFRESH" == "off" ]] && INSTALL_ARGS+=(--no-workspace-configuration-refresh)

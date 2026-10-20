@@ -212,7 +212,9 @@ test('Windows Git Bash wrapper validates CRLF support and delegates to the canon
   assert.equal(packageJson.scripts['install:windows'], 'bash ./install-windows-git-bash.sh');
   assert.ok((await stat(scriptPath)).mode & 0o100, 'Windows Git Bash wrapper must be executable');
   assert.match(script, /Node\.js 20 or newer is required/);
-  assert.match(script, /git -C "\$PROJECT_DIR" pull --ff-only/);
+  assert.doesNotMatch(script, /git -C|git pull|git status/,
+    'only the canonical installer may update source, after taking the recovery lease');
+  assert.match(script, /\[\[ "\$UPDATE_CHECKOUT" == "off" \]\] && INSTALL_ARGS\+=\(--no-update\)/);
   assert.match(script, /Git for Windows commonly checks Markdown out with CRLF/);
   assert.match(script, /exec bash "\$PROJECT_DIR\/install\.sh"/);
   assert.match(script, /--registry/);
@@ -226,6 +228,28 @@ test('Windows Git Bash wrapper validates CRLF support and delegates to the canon
   assert.match(script, /--no-workspace-workflow-sync/);
   assert.doesNotMatch(script, /core\.autocrlf|git config|dos2unix|sed -i/,
     'the wrapper must not rewrite files or alter Git line-ending policy');
+});
+
+test('Windows wrapper delegates the update choice without pulling ahead of recovery admission', async t => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), 'sflow-windows-install-delegate-'));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  await mkdir(path.join(fixture, 'src'));
+  await copyFile(path.join(root, 'install-windows-git-bash.sh'), path.join(fixture, 'install-windows-git-bash.sh'));
+  await writeFile(path.join(fixture, 'package.json'), '{}\n');
+  await writeFile(path.join(fixture, 'src/agents.mjs'), '// Git for Windows commonly checks Markdown out with CRLF\n');
+  await writeFile(path.join(fixture, 'install.sh'), '#!/usr/bin/env bash\nprintf "%s\\n" "$@"\n');
+  for (const noUpdate of [false, true]) {
+    const result = spawnSync('bash', [path.join(fixture, 'install-windows-git-bash.sh'),
+      '--cli-only', '--skip-tests', ...(noUpdate ? ['--no-update'] : [])], {
+      cwd: fixture, env: process.env, encoding: 'utf8', timeout: 30_000
+    });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    const lines = result.stdout.trim().split(/\r?\n/);
+    assert.equal(lines.includes('--no-update'), noUpdate);
+    assert.ok(lines.includes('--cli-only'));
+    assert.ok(lines.includes('--skip-tests'));
+  }
 });
 
 test('single installer supports Artifactory without accepting credentials in URLs', async () => {

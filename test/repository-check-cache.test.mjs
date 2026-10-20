@@ -82,6 +82,22 @@ test('a refused explicit refresh invalidates the previous success before verific
   assert.equal(calls, 2, 'the old successful result was not resurrected');
 });
 
+test('exact provenance variants share bounded slots rather than evicting each other on every phase entry', async t => {
+  const f = await fixture(t); let calls = 0;
+  const read = variant => operation('phase.enter', () => cachedRepositoryCheck(f.root,
+    { ...f.options, identity: { ...f.options.identity, variant } }, async () => ({ n: ++calls })));
+  assert.equal((await read('raw')).n, 1);
+  assert.equal((await read('normalized')).n, 2);
+  assert.equal((await read('raw')).n, 1);
+  assert.equal((await read('normalized')).n, 2);
+  for (let index = 0; index < 10; index++) await read(`changed-${index}`);
+  const retained = (await readdir(f.directory)).filter(name => name.startsWith('provenance-') && name.endsWith('.json'));
+  assert.equal(retained.length, 4, 'private acceleration must not grow without a bound');
+  await operation('phase.publish', () => cachedRepositoryCheck(f.root,
+    { ...f.options, identity: { ...f.options.identity, variant: 'changed-9' } }, async () => ({ n: ++calls })));
+  assert.equal(calls, 13, 'matching retained inputs never make a writer eligible');
+});
+
 test('cached mode expires at the configured boundary; manual refresh does not become a hidden TTL', async t => {
   const f = await fixture(t); let calls = 0;
   const run = () => operation('nextsteps', () => cachedRepositoryCheck(f.root, f.options, async () => ({ n: ++calls })));

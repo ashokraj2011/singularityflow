@@ -707,7 +707,7 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
     });
   }
   const phaseEntry = definition.name === 'phase' && positionals[1] === 'enter';
-  if (phaseEntry) (await import('./commands/phase.mjs')).validatePhaseEntryRequest({ positionals, options });
+  if (phaseEntry) (await import('./phase-entry-request.mjs')).validatePhaseEntryRequest({ positionals, options });
   if (definition.name === 'session' && positionals[1] === 'takeover') {
     (await import('./commands/session-takeover.mjs')).validateSessionTakeoverRequest({ positionals, options });
     if (options['for-agent'] && readCopilotMode().paused) return console.log(JSON.stringify(copilotModePresentation(readCopilotMode())));

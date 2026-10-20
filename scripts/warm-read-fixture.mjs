@@ -10,7 +10,7 @@ import { propose, acceptAmendment } from './amended-read-fixture.mjs';
 import { withoutAutomaticGitMaintenance } from '../src/platform-process.mjs';
 
 const source = fileURLToPath(new URL('..', import.meta.url));
-export async function createWarmReadFixture({ files = 0, branches = 0, storyMode = 'legacy', historyCommits = 0, artifacts = 0,
+export async function createWarmReadFixture({ files = 0, branches = 0, storyMode = 'legacy', historyCommits = 0, artifacts = 0, phaseReady = false,
   engineSource = source } = {}) {
   if (!['legacy', 'pinned', 'amended'].includes(storyMode)) throw new Error('Unknown qualification Story mode.');
   if (!Number.isSafeInteger(historyCommits) || historyCommits < 0 || historyCommits > 1000
@@ -71,7 +71,7 @@ export async function createWarmReadFixture({ files = 0, branches = 0, storyMode
     };
     let statePath = path.join(repository, 'singularity/work-items/PERF-001/workflow.json');
     await mkdir(path.dirname(statePath), { recursive: true });
-    if (storyMode === 'pinned' || artifacts > 0) {
+    if (storyMode === 'pinned' || artifacts > 0 || phaseReady) {
       await mkdir(path.join(repository, '.github/agents'), { recursive: true });
       await writeFile(path.join(repository, '.github/agents/developer.agent.md'),
         '---\nname: developer\ndescription: Read qualification\nmetadata:\n  sflow-phases: intake\n---\n# Developer\n\nDraft only the approved intake.\n');
@@ -112,6 +112,11 @@ export async function createWarmReadFixture({ files = 0, branches = 0, storyMode
       for (let index = 0; index < branches; index++) git(['branch', `unrelated-${index}`]);
     }
     const phaseId = state.currentPhase, phase = state.phases[phaseId], workId = state.workItem.id;
+    if (phaseReady) {
+      await writeFile(path.join(path.dirname(statePath), 'source.json'), JSON.stringify({ type: 'manual',
+        key: workId, title: 'Bound phase performance qualification', description: 'Describe the requested change without application edits.',
+        acceptanceCriteria: ['Preserve exact Story binding and current-phase authoring checks.'] }, null, 2) + '\n');
+    }
     if (artifacts) {
       const item = path.dirname(statePath);
       const primary = path.join(item, phase.requiredArtifact.path);
@@ -126,7 +131,7 @@ export async function createWarmReadFixture({ files = 0, branches = 0, storyMode
           sha256: createHash('sha256').update(bytes).digest('hex') });
       }
     }
-    if (artifacts || storyMode === 'amended') {
+    if (artifacts || storyMode === 'amended' || phaseReady) {
       await writeFile(statePath, JSON.stringify(state)); git(['add', '.']);
       git(['-c', 'commit.gpgsign=false', 'commit', '-qm', 'Retain multi-artifact read fixture']);
     }
@@ -162,4 +167,14 @@ export async function createWarmReadFixture({ files = 0, branches = 0, storyMode
     catch (cleanup) { console.warn(`Qualification fixture cleanup failed: ${cleanup.code ?? cleanup.message}`); }
     throw error;
   }
+}
+
+/** Private session setup belongs outside timing and must be repeated in each cloned checkout. */
+export async function bindPhaseReadFixture(fixture, repository = fixture.repository) {
+  const { loadAcceptedStoryExecution } = await import(pathToFileURL(path.join(fixture.engine, 'src/accepted-story-execution.mjs')));
+  const { setAgentSession } = await import(pathToFileURL(path.join(fixture.engine, 'src/session.mjs')));
+  const { definition, workflow } = await loadAcceptedStoryExecution(repository, fixture.workId);
+  const phase = workflow.phases[workflow.currentPhase];
+  return setAgentSession(repository, definition, { name: 'Phase Read Tester', email: 'phase.read@example.invalid' },
+    phase.defaultAgent, workflow.workItem.id, { phaseId: phase.id, source: 'test' });
 }

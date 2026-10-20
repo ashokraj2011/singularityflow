@@ -564,7 +564,7 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
       ? `\n## Configured artifact template\n\n${template.trim()}`
       : '\n> No resolved template snapshot is available for this legacy phase.'
   ].join('\n');
-  const collected = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative });
+  const collected = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative, definition });
   if (collected.errors.length) throw phaseInputsNotReadyError(workflow, phase, collected);
   const evidence = await renderActiveStoryEvidence(root, definition, workflow, { phaseId: phase.id });
   return {

@@ -6,7 +6,7 @@ import { buildRepositorySubjectIndex, resolveContext } from './repository-subjec
 import { normalizeCurrentWorkflow } from './story-state-normalization.mjs';
 import { needsAcceptedPhaseInterpretation } from './phase-semantics.mjs';
 import { resolveStoryExecutionCatalog, verifyStoryCatalogAmendments } from './story-execution-context.mjs';
-import { verifyRejectedSkillVersionReviews } from './workflow-snapshots.mjs';
+import { verifyStoryRejectionAudit } from './workflow-snapshots.mjs';
 import { workflowBranchAllowed } from './story-paths.mjs';
 
 export function attachLegacyGovernedRoots(workflow, config) {
@@ -81,7 +81,7 @@ async function readWorkflow(root, config, id, includeExecution) {
       await verifyAcceptedTestCommandAmendment(root, config, workflow, verified);
     }
   }
-  verifyRejectedSkillVersionReviews(root, config, workflow);
+  await verifyStoryRejectionAudit(root, config, workflow);
   if (!executionCatalog && needsAcceptedPhaseInterpretation(workflow)) {
     executionCatalog = await resolveStoryExecutionCatalog(root, config, workflow);
   }

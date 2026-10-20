@@ -28,14 +28,20 @@ async function reset(full = false) {
 export async function prepareReadWorkerDefinitions({ policy = false } = {}) {
   await Promise.all([import('./commands/status.mjs'), import('./commands/progress.mjs'),
     import('./commands/report.mjs')]);
-  if (policy) await import('./commands/nextsteps.mjs');
+  if (policy) {
+    await Promise.all([import('./commands/nextsteps.mjs'), import('./phase-entry-context.mjs')]);
+    // First policy reads otherwise import reset owners after the ready handshake. Preparation
+    // clears process maps only; it performs no repository/configuration read or author binding.
+    await reset(true);
+  }
 }
 
 export async function readWorkerValue(root, args) {
   const request = warmReadRequest(args);
   if (!request) return { kind: 'unsupported' };
   const operation = resolveOperation({ requestedCommand: request.method,
-    positionals: [request.method, ...(request.workId ? [request.workId] : [])], options: { json: true } });
+    positionals: [request.method, ...(request.workId ? [request.workId] : [])],
+    options: { json: true, ...(request.forAgent ? { 'for-agent': true } : {}) } });
   if (operation.classification !== 'read' || operation.modelPolicy !== 'never') return { kind: 'unsupported' };
   await reset(!['status', 'progress', 'report'].includes(request.method));
   try {
@@ -59,7 +65,12 @@ export async function readWorkerValue(root, args) {
         const { readReport } = await import('./commands/report.mjs');
         return readReport(root, request.workId);
       }
-      const { resolveSnapshot } = await import('./commands/nextsteps.mjs');
+      const { resolveSnapshot, nextStepsAgentPacket } = await import('./commands/nextsteps.mjs');
+      if (request.forAgent) {
+        const packet = await nextStepsAgentPacket(request.workId, { cwd: root });
+        const { boundedAgentOutput, agentOutputGoverned } = await import('./agent-output.mjs');
+        return agentOutputGoverned() ? JSON.parse(await boundedAgentOutput(JSON.stringify(packet), { cwd: root })) : packet;
+      }
       return resolveSnapshot([request.method, ...(request.workId ? [request.workId] : [])], { root });
     }))));
     // Console-only diagnostics are not a private protocol. Successful structured warning fields

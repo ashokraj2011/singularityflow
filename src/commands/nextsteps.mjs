@@ -259,9 +259,9 @@ export function snapshotContinuation(workflow, snapshot) {
   return phaseContinuation(workflow, { snapshot });
 }
 
-export async function nextStepsAgentPacket(workId = null) {
-  const { phaseEntryContext } = await import('../phase-entry.mjs');
-  const entry = await phaseEntryContext({ workId, allowTerminal: true, turnMode: 'kernel-only' });
+export async function nextStepsAgentPacket(workId = null, { cwd = process.cwd() } = {}) {
+  const { phaseEntryContext } = await import('../phase-entry-context.mjs');
+  const entry = await phaseEntryContext({ cwd, workId, allowTerminal: true, turnMode: 'kernel-only' });
   const { packet } = entry;
   if (packet.paused) return packet;
   if (!packet.ready) return { ...packet, resultType: 'sflow-nextsteps', state: 'binding-required',

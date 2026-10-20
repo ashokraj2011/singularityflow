@@ -23,13 +23,17 @@ function comparable(value) {
 
 test('worker vocabulary excludes mutations, author/reviewer packets and unqualified full snapshots', () => {
   for (const args of [[], ['snapshot', '--json'], ['snapshot', '--include', 'diagnostics', '--json'],
-    ['status', '--submission-readiness', '--json'], ['nextsteps', '--for-agent', '--json'],
+    ['status', '--submission-readiness', '--json'], ['nextsteps', '--for-agent', '--for-agent', '--json'],
+    ['nextsteps', '--for-agent', '--fetch', '--json'], ['status', '--for-agent', '--json'],
     ['status', '../escape', '--json'], ['phase', 'prepublish', 'intake', '--json'],
     ['approve', 'intake', '--json'], ['status', '--json', '--json']]) assert.equal(warmReadRequest(args), null, args.join(' '));
   assert.deepEqual(warmReadRequest(['snapshot', '--include', 'repository', '--json']), {
     method: 'snapshot', included: ['repository'], ifRevision: null
   });
   assert.deepEqual(warmReadRequest(['nextsteps', 'PERF-001', '--json']), { method: 'nextsteps', workId: 'PERF-001' });
+  assert.deepEqual(warmReadRequest(['nextsteps', 'PERF-001', '--for-agent', '--json']), {
+    method: 'nextsteps', workId: 'PERF-001', forAgent: true
+  });
 });
 
 test('unstamped editable sources use CLI fallback', async () => {
@@ -44,7 +48,8 @@ test('private worker matches cold canonical reads and freshly observes repositor
     cli: f.cli, repository: f.repository, env: f.env, args, ...overrides });
   for (const args of [['snapshot', '--include', 'repository', '--json'],
     ['snapshot', '--include', 'repository', '--include', 'lifecycle', '--include', 'capabilities', '--json'],
-    ['status', 'PERF-001', '--json'], ['nextsteps', 'PERF-001', '--json']]) {
+    ['status', 'PERF-001', '--json'], ['nextsteps', 'PERF-001', '--json'],
+    ['nextsteps', 'PERF-001', '--for-agent', '--json']]) {
     const cold = f.cold(args), warm = await read(args);
     assert.equal(warm?.kind, 'value', args.join(' '));
     assert.deepEqual(comparable(warm.value), comparable(cold), `canonical parity except read-time clocks: ${args.join(' ')}`);

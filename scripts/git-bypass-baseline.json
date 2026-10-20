@@ -76,9 +76,18 @@
     },
     "src/story-path-history.mjs": {
       "counts": {
+        "command-run": 1,
         "command-runCommand": 1
       },
-      "digest": "868ea7fe45d7ee1c202d8614de8237d71e85db4ba3cd637c31492e3fd8264d38"
+      "digest": "e9d8c8ab599581d327b0cffc521b4a9ecc6cdf9474edc84e74a3d9c9bda3dc3b"
+    },
+    "src/story-tree-read.mjs": {
+      "counts": { "command-run": 1 },
+      "digest": "d15b8399d226a2eab83b7e8def9b370e37bc107ef73b5fc52b627f9d380e4575"
+    },
+    "scripts/phase-next-paired-benchmark.mjs": {
+      "counts": { "process-import": 1, "process-launch": 2 },
+      "digest": "3cd76a11a49b16b379441e17971580c90a3dc9e0d2c23ac066018deaea174054"
     },
     "scripts/amended-read-fixture.mjs": {
       "counts": {

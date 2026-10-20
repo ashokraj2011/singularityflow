@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { parseImmutableJson } from './immutable-json-read.mjs';
-import { readStoryPathHistory } from './story-path-history.mjs';
+import { readStoryPathHistory, withStoryHistoryBatch } from './story-path-history.mjs';
+import { storyTreeListing, withStoryTreeReads } from './story-tree-read.mjs';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 import { constants as fsConstants } from 'node:fs';
 import { lstat, mkdir, open, rm } from 'node:fs/promises';
@@ -1760,7 +1761,7 @@ function gitTreeEntries(root, commit, paths, label, {
   const entries = new Map();
   for (let offset = 0; offset < paths.length; offset += 256) {
     const selected = paths.slice(offset, offset + 256);
-    const listed = listExactCommit(root, commit, selected, () => run('git', ['ls-tree', '-z', commit, '--', ...selected], {
+    const listed = storyTreeListing(root, commit, selected) ?? listExactCommit(root, commit, selected, () => run('git', ['ls-tree', '-z', commit, '--', ...selected], {
       cwd: root, encoding: 'buffer', allowFailure: true,
       env: { ...process.env, GIT_NO_LAZY_FETCH: '1' },
       maxBuffer: Math.max(64 * 1024, selected.length * 1024)
@@ -1923,6 +1924,24 @@ function rejectionBindingVersion(binding) {
 }
 
 /** Audited rejections remain bound to the immutable decision commit without selecting a new pin. */
+export async function verifyStoryRejectionAudit(root, config, workflow) {
+  if (!amendmentSummaries(workflow).length && !(workflow.resolution?.phases ?? []).some(phase => phase.kind === 'skill')) return;
+  const { cachedRepositoryCheck } = await import('./repository-check-cache.mjs');
+  await cachedRepositoryCheck(root, { kind: 'story-rejection-audit', identity: { workflow, workItemRoot: config.workItemRoot },
+    files: [path.join(root, storyRelative(config, workflow.workItem.id, 'workflow.json'))]
+  }, () => withWorkflowProvenance(root, config, workflow, () => {
+    verifyRejectedSkillVersionReviews(root, config, workflow);
+    return { verified: true };
+  }));
+}
+
+function withWorkflowProvenance(root, config, workflow, read) {
+  const namespaces = ['context/skill-amendments', 'context/test-recovery/command-amendments', 'config/wfa/snapshots']
+    .map(relative => storyRelative(config, workflow.workItem.id, relative));
+  return withStoryTreeReads(root, [storyRelative(config, workflow.workItem.id, 'workflow.json'), ...namespaces],
+    () => withStoryHistoryBatch(root, namespaces, read));
+}
+
 export function verifyRejectedSkillVersionReviews(root, config, workflow) {
   const workId = workflow?.workItem?.id;
   const workflowRelative = storyRelative(config, workId, 'workflow.json');
@@ -2805,8 +2824,12 @@ export async function verifyWorkflowSnapshot(root, config, workflow, options = {
 }
 
 async function verifyWorkflowSnapshotUncached(root, config, workflow, options = {}) {
+  return withWorkflowProvenance(root, config, workflow, () => verifyWorkflowSnapshotCore(root, config, workflow, options));
+}
+
+async function verifyWorkflowSnapshotCore(root, config, workflow, options = {}) {
   const { retainBytes = false, requireAccepted = false } = options;
-  if (requireAccepted) verifyRejectedSkillVersionReviews(root, config, workflow);
+  if (requireAccepted) await verifyStoryRejectionAudit(root, config, workflow);
   let storedReference = workflow.workflowSnapshot ?? null;
   if (!storedReference) return {
     status: 'legacy', enrolled: false, closure: 'unproven', reason: 'snapshot-reference-absent'

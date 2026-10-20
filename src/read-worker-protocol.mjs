@@ -8,11 +8,17 @@ export const READ_WORKER_MAX_REPLY_BYTES = 40 * 1024 * 1024;
 export const READ_WORKER_MAX_QUEUE = 16;
 const SLICES = new Set(['repository', 'lifecycle', 'capabilities', 'configuration', 'integrations']);
 
-/** Eligibility is narrower than command classification: no author/review packets or mutation flags. */
+/** Eligibility is narrower than classification: next guidance is read-only; no author/review mutations. */
 export function warmReadRequest(args) {
   if (!Array.isArray(args) || args.length > 32 || args.some(a => typeof a !== 'string' || a.length > 1024)
       || args.at(-1) !== '--json') return null;
   const [method, ...rest] = args.slice(0, -1);
+  if (method === 'nextsteps' && rest.includes('--for-agent')) {
+    const identity = rest.filter(value => value !== '--for-agent');
+    if (rest.filter(value => value === '--for-agent').length !== 1 || identity.length > 1
+        || identity.some(value => !/^[\p{L}\p{N}][\p{L}\p{N}._-]{0,255}$/u.test(value))) return null;
+    return { method, workId: identity[0] ?? null, forAgent: true };
+  }
   if (['status', 'nextsteps', 'progress'].includes(method)) {
     if (rest.length > 1 || rest.some(value => !/^[\p{L}\p{N}][\p{L}\p{N}._-]{0,255}$/u.test(value))) return null;
     return { method, workId: rest[0] ?? null };

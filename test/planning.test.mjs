@@ -50,6 +50,9 @@ async function repository() {
   workflow.worldModel.grounding = 'off';
   // These fixtures exercise planning; repository-readiness policy has its own coverage.
   workflow.repositoryReadiness.requiredBeforeStory = false;
+  // The context pack inlines a committed upload's text. New templates keep uploads on this laptop,
+  // so this fixture approves the older policy that commits them to Git.
+  workflow.documents.storage = { allowed: ['git', 'local'], default: 'git' };
   await writeFile(workflowFile, YAML.stringify(workflow));
   const portfolioFile = path.join(root, 'singularity/portfolio.yml');
   const portfolio = YAML.parse(await readFile(portfolioFile, 'utf8'));

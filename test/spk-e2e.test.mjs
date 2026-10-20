@@ -95,6 +95,7 @@ test('a Story runs specification through release from a fresh clone', async (t) 
 
   // ---- a fresh clone, with a remote, exactly as a team would have -------------------------------
   const origin = await mkdtemp(path.join(os.tmpdir(), 'sflow-e2e-origin-'));
+  t.after(() => rm(origin, { recursive: true, force: true, maxRetries: 6 }));
   // -b main: a bare repository's HEAD otherwise points at this git's default branch name, and a
   // clone of it checks out a branch that does not exist — an empty tree that fails much later.
   shell('git', ['init', '-q', '--bare', '-b', 'main', '.'], origin);
@@ -103,9 +104,13 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   git(origin, 'config', 'maintenance.auto', 'false');
   git(origin, 'config', 'receive.autogc', 'false');
   const seed = await mkdtemp(path.join(os.tmpdir(), 'sflow-e2e-seed-'));
+  t.after(() => rm(seed, { recursive: true, force: true, maxRetries: 6 }));
   git(seed, 'init', '-b', 'main');
   git(seed, 'config', 'user.name', 'End To End');
   git(seed, 'config', 'user.email', 'e2e@example.invalid');
+  // The drift/revert rail asserts byte-exact approval restoration. Keep the fixture's checkout
+  // bytes stable even when the host enables core.autocrlf (Git for Windows defaults to it).
+  await write(seed, '.gitattributes', '* text eol=lf\n');
   await write(seed, 'README.md', '# Payments\n');
   await write(seed, 'src/payments/attempts.ts', 'export const attempts = [];\n');
   git(seed, 'add', '-A');
@@ -146,6 +151,7 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   git(seed, 'push', '-q', 'origin', 'main');
 
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-e2e-clone-'));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 6 }));
   shell('git', ['clone', '-q', '-b', 'main', origin, '.'], root);
   git(root, 'config', 'user.name', 'End To End');
   git(root, 'config', 'user.email', 'e2e@example.invalid');
@@ -438,7 +444,9 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   assert.deepEqual(intentBlocked.allowedNext, ['propose-intent-amendment']);
 
   // ---- corrected intent: proposal, authority decision, acknowledgement and selective replay -----
-  const amendmentFile = path.join(await mkdtemp(path.join(os.tmpdir(), 'sflow-e2e-amendment-')), 'spec.md');
+  const amendmentDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-e2e-amendment-'));
+  t.after(() => rm(amendmentDirectory, { recursive: true, force: true, maxRetries: 6 }));
+  const amendmentFile = path.join(amendmentDirectory, 'spec.md');
   await writeFile(amendmentFile, [
     '# Specification — Retry a failed payment', '',
     '## Agent brief', '',

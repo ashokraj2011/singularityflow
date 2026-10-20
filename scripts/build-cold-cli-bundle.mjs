@@ -10,7 +10,8 @@ const FAMILIES = Object.freeze([
     'commands/skill-request.mjs', 'commands/instruction-request.mjs']],
   ['status', ['commands/status.mjs', 'commands/progress.mjs', 'commands/report.mjs',
     'command-observability.mjs', 'logging.mjs', 'accounting-projection.mjs', 'read-worker-service.mjs']],
-  ['hooks', ['copilot-hook-runtime.mjs', 'copilot-repository-boundary.mjs', 'copilot-mutation-guard.mjs']],
+  ['hooks', ['copilot-hook-runtime.mjs', 'copilot-repository-boundary.mjs', 'copilot-mutation-guard.mjs',
+    'copilot-environment-files-guard.mjs']],
   // Small worker/presentation helper closures share a slot without increasing deployment files.
   // Claim output before policy reads: otherwise even status pays to load the policy chunk when
   // rendering --for-agent. Entry programs remain private; helper imports never start a worker.

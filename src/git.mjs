@@ -2675,7 +2675,7 @@ export function environmentFilesRegistryPolicySync(root) {
     environmentFileLocations.push(realpathSync(path.dirname(file)));
   } catch {
     throw new SingularityFlowError('The environment-file registry could not be read, so nothing was admitted. Run singularity-flow env files to inspect it.',
-      { code: 'ENVIRONMENT_POLICY_UNAVAILABLE' });
+      { code: 'ENVIRONMENT_POLICY_UNAVAILABLE', details: { recoveryCommand: 'singularity-flow env files --json' } });
   }
   return Object.freeze({ neverCommit: [], environments: {}, environmentFiles, environmentFileLocations });
 }

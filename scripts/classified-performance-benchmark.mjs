@@ -39,6 +39,6 @@ try {
   }
   console.log(JSON.stringify({ kind: 'sflow-classified-performance-local-qualification', platform: process.platform,
     runtime: process.version, mode: 'fresh-node-process-with-warm-filesystem', rows,
-    limitations: ['Not Windows qualification.', 'Not native Copilot latency/token qualification.',
+    limitations: ['Synthetic local fixture, not representative end-to-end host qualification.', 'Not native Copilot latency/token qualification.',
       'No OS page-cache flush; paired medians include normal local timing persistence.', 'No real provider requests or remote Git operations.'] }, null, 2));
 } finally { await f.cleanup(); }

@@ -9180,7 +9180,7 @@ test('a schema-v2 local reset marker clears all extension-owned global state but
     'singularityFlow.storage.index', 'singularityFlow.storage.design'
   ]) assert.equal(values.get(`secret:${key}`), undefined, `${key} is cleared from SecretStorage`);
   assert.deepEqual(updates.map(({ key, target }) => ({ key, target })), [
-    'cliPath', 'nodePath', 'modelMode', 'userName', 'role', 'warmReads',
+    'cliPath', 'nodePath', 'modelMode', 'userName', 'role', 'warmReads', 'performanceTrace',
     'repositoryCheckMode', 'repositoryCheckIntervalMinutes'
   ].map((key) => ({ key, target: api.ConfigurationTarget.Global })));
   assert.equal(await readFile(process.env.SINGULARITY_FLOW_VSCODE_RESET_MARKER, 'utf8').catch(() => null), null);

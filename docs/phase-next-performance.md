@@ -19,6 +19,8 @@
   It uses the canonical binding, pause, guidance and output-presentation owners. Each request
   resets mutable observations. Background preparation loads reset owners before reporting ready.
   Authoring, composition, review, tests, publication and approvals remain outside this worker.
+  The VS Code tool-policy gateway retains its original fresh verification path and does not
+  embed the CLI batching graph; existing bundle limits are unchanged.
 - Composing a skill phase passes the accepted definition into input collection. The prior missing
   handoff was a correctness failure, not a performance result.
 
@@ -50,3 +52,9 @@ excluded only from the explicitly prewarmed request row. Raw agent JSON retains 
 fields for measurement; default bounded presentation is covered by the worker parity regressions.
 The baseline's amended skill composition refuses with the missing-definition error; that row has
 no percentage gain. Native Windows results require `runtime.platform=win32`.
+
+Qualification targets portable entry, cache, worker, snapshot/amendment, test-command epoch and
+published-contract regressions. It is not a full-suite or 1.0 release qualification. The unmodified
+POSIX terminal reattestation ceremony is outside the Windows performance selection; release skip
+policy and human-terminal authorization are unchanged. Native checkout conversion is enabled;
+fixture authority files retain exact bytes and recovery assertions compare Git-rendered bytes.

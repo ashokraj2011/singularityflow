@@ -1,4 +1,4 @@
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { nextPhaseGeneration, groundingRecordRelative } from './phase-generation.mjs';
 import { clarificationRecordRelative } from './clarification-paths.mjs';
 export { clarificationRecordRelative };
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
@@ -6,7 +6,6 @@ import { directCopilotSkill } from './copilot-guidance.mjs';
 import path from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { markerPolicy, markerQuestionHash } from './clarification-markers.mjs';
-import { groundingRecordRelative } from './grounding-paths.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
   exists, nowIso, posix, readJson, SingularityFlowError, snapshot, writeJson

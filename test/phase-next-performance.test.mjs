@@ -56,7 +56,7 @@ test('bound legacy composition survives native checkout conversion without chang
   t.after(() => f.cleanup());
   f.env.SINGULARITY_FLOW_AGENT_OUTPUT = 'raw';
   const checkout = path.join(f.directory, 'converted-checkout');
-  f.git(['-c', 'core.autocrlf=true', 'clone', '-q', '--no-hardlinks', '--single-branch', '--branch', f.workId, f.repository, checkout]);
+  f.git(['clone', '--config', 'core.autocrlf=true', '-q', '--no-hardlinks', '--single-branch', '--branch', f.workId, f.repository, checkout]);
   await bindPhaseReadFixture(f, checkout);
   const value = f.cold(['phase', 'enter', f.phaseId, '--compose', '--for-agent', '--json'], { cwd: checkout });
   assert.equal(value.ready, true);

@@ -887,7 +887,9 @@ test('a person sets aside changes that hold a document step, keeping a recovery 
   assert.deepEqual(setAside.removed, [stray]);
   assert.deepEqual(setAside.restored, ['README.md']);
   assert.match(setAside.checkpoint, /^PCP-[0-9a-f]{64}$/);
-  assert.equal(await readFile(path.join(item.root, 'README.md'), 'utf8'), '# Entry fixture\n');
+  const checkout = spawnSync('git', ['cat-file', '--filters', 'HEAD:README.md'], { cwd: item.root, encoding: 'utf8' });
+  assert.equal(checkout.status, 0, checkout.stderr);
+  assert.equal(await readFile(path.join(item.root, 'README.md'), 'utf8'), checkout.stdout);
   assert.equal(git(item.root, 'status', '--porcelain=v1', '--untracked-files=all'), '');
   const shown = completeAgentResult(item.invoke('appeal', 'checkpoint-show', setAside.checkpoint, '--work-id', 'ENTRY-1', '--phase', 'qa-intake', '--json').stdout);
   assert.ok(JSON.stringify(shown).includes(stray), 'the recovery copy keeps the set-aside file');

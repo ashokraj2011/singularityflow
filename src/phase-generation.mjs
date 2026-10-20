@@ -1,4 +1,5 @@
-import { invariant, SingularityFlowError } from './util.mjs';
+import path from 'node:path';
+import { invariant, posix, SingularityFlowError } from './util.mjs';
 
 /** Pure selection, shared with the persistence API without importing that API. */
 export function currentPhase(workflow) {
@@ -6,6 +7,11 @@ export function currentPhase(workflow) {
   const phase = workflow.phases[workflow.currentPhase];
   invariant(phase, `Unknown current phase ${workflow.currentPhase}.`);
   return phase;
+}
+
+/** Pure context-record location, without grounding, source-review or input readers. */
+export function groundingRecordRelative(definition, workflow, phase, generation = nextPhaseGeneration(phase)) {
+  return posix(path.join(definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', `${phase.id}-gen${generation}.json`));
 }
 
 /**

@@ -23,7 +23,7 @@ import { authoringSkillCatalog } from '../authoring-skills.mjs';
 import { agentOrIndentedJson, agentPacketPresentation } from '../agent-packet-presentation.mjs';
 import { measureCommandSpan } from '../dx-timing-context.mjs';
 import { repositoryCheckStatus } from '../repository-check-cache.mjs';
-import { groundingRecordRelative } from '../grounding-paths.mjs';
+import { groundingRecordRelative } from '../phase-generation.mjs';
 
 async function localSession(root) {
   const target = path.join(gitDir(root), 'singularity-flow', 'session.json');

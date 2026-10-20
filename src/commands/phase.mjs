@@ -1,7 +1,7 @@
 import { operationContext } from '../operation-context.mjs';
 import { optionBoolean, optionString } from '../util.mjs';
 import { agentOrIndentedJson, phaseEntryAgentPresentation } from '../agent-packet-presentation.mjs';
-import { validatePhaseEntryRequest } from '../phase-entry-request.mjs';
+import { validatePhaseEntryRequest } from '../agent-entry-options.mjs';
 export { validatePhaseEntryRequest };
 
 let lifecycleModule, publicationModule;

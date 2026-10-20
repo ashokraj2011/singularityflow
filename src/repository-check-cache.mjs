@@ -6,7 +6,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants, closeSync, fstatSync, lstatSync, openSync, readFileSync } from 'node:fs';
-import { mkdir, rename, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { serialize, deserialize } from 'node:v8';
 import path from 'node:path';
 import { freshGitFactsRequired, gitFactCheckout, gitFactFingerprint, gitFactRequest, gitFactSnapshot } from './git-fact-cache.mjs';
@@ -89,6 +89,20 @@ function readCache(file, key, stamp, settings, now) {
     return { value: deserialize(payload), checkedAt: record.checkedAt };
   } catch { return null; }
   finally { if (fd !== undefined) closeSync(fd); }
+}
+
+async function pruneProvenanceSlots(directory, prefix, current) {
+  const candidates = [];
+  for (const name of await readdir(directory)) {
+    if (!name.startsWith(prefix) || !/^[a-f0-9]{64}\.json$/u.test(name.slice(prefix.length))) continue;
+    const file = path.join(directory, name);
+    try {
+      const info = lstatSync(file);
+      if (info.isFile() && owned(info) && info.nlink === 1) candidates.push({ file, modified: info.mtimeMs });
+    } catch { /* Another request can retire a cache slot concurrently. */ }
+  }
+  candidates.sort((a, b) => Number(b.file === current) - Number(a.file === current) || b.modified - a.modified);
+  for (const entry of candidates.slice(4)) await unlink(entry.file).catch(() => {});
 }
 
 /** No Git processes: reuse the existing cross-platform HEAD/config/object visibility observers. */
@@ -222,8 +236,7 @@ async function cachedCheck(root, { kind, identity, files, env, settingsRoot = ro
       // schema-transient: bounded private acceleration cache, never authority or lifecycle state.
       await writeFile(temporary, record, { flag: 'wx', mode: 0o600 });
       await rename(temporary, file);
-      if (provenancePrefix) await (await import('./repository-check-prune.mjs'))
-        .pruneProvenanceSlots(directory, provenancePrefix, file, owned);
+      if (provenancePrefix) await pruneProvenanceSlots(directory, provenancePrefix, file);
     } catch { /* An unavailable cache never blocks the original verification. */ }
     finally { if (temporary) await unlink(temporary).catch(() => {}); }
     return value;

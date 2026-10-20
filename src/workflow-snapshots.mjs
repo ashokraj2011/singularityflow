@@ -1936,8 +1936,13 @@ export async function verifyStoryRejectionAudit(root, config, workflow) {
 }
 
 async function withWorkflowProvenance(root, config, workflow, read) {
-  provenanceTrees ??= await import('./story-tree-read.mjs');
-  return provenanceTrees.withStoryProvenance(root, storyRelative(config, workflow.workItem.id), read);
+  // The extension's policy gateway retains the original fresh owner. CLI/owned read workers
+  // acquire batched inputs; do not embed their acceleration graph in every tool-use hook.
+  if (globalThis.__SFLOW_EXTENSION_HOST__ === true) return read();
+  else {
+    provenanceTrees ??= await import('./story-tree-read.mjs');
+    return provenanceTrees.withStoryProvenance(root, storyRelative(config, workflow.workItem.id), read);
+  }
 }
 
 export function verifyRejectedSkillVersionReviews(root, config, workflow) {

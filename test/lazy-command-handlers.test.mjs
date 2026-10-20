@@ -87,7 +87,7 @@ test('the common session projection does not import attach, state stores or publ
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {
   assert.equal((await graph('phase-entry.mjs')).files.has(path.join(sourceRoot, 'phase-entry-authoring.mjs')), false);
-  const leaf = await graph('grounding-paths.mjs');
+  const leaf = await graph('phase-generation.mjs');
   for (const file of ['grounding.mjs', 'source-review-lifecycle.mjs', 'inputs.mjs', 'worldmodel.mjs']) {
     assert.equal(leaf.files.has(path.join(sourceRoot, file)), false, file);
   }

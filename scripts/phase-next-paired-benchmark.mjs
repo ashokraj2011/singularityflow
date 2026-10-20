@@ -5,7 +5,6 @@ import { readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { buildCliBundle } from './build-cli-bundle.mjs';
 import { createWarmReadFixture, bindPhaseReadFixture } from './warm-read-fixture.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -70,7 +69,12 @@ try {
   const before = await keep({ engineSource: baseline });
   const after = await keep({});
   const engines = { baseline: before, candidate: after };
-  for (const engine of Object.values(engines)) await buildCliBundle({ root: engine.engine });
+  // Bundle ownership is part of the experiment. Building the baseline with this
+  // checkout's builder would apply candidate chunk decisions to both revisions.
+  for (const engine of Object.values(engines)) {
+    const { buildCliBundle } = await import(pathToFileURL(path.join(engine.engine, 'scripts/build-cli-bundle.mjs')).href);
+    await buildCliBundle({ root: engine.engine });
+  }
   const rows = [];
   for (const profile of profiles) {
     const dimensions = profile === 'legacy' ? { files: 20 } : { files: 1000, historyCommits: 50, artifacts: 8 };
@@ -196,6 +200,7 @@ try {
     platform: process.platform, architecture: process.arch, node: process.version, loadAverage: os.loadavg() },
     sources: sourceIdentities,
     protocol: { samples, profiles, boundAgent: true, composedContextRequired: true, gitFactStore: 'off; private accepted-provenance receipts enabled', order: 'alternating A/B and B/A', runtime: 'installed cold-layout bundles',
+      bundleBuilder: 'each frozen engine uses its own scripts/build-cli-bundle.mjs and chunk ownership',
       cold: 'fresh Node process, empty private V8 cache, fresh local clone without advisory/provenance receipts',
       warm: 'immediate new Node process with the same code/provenance caches; not a persistent worker',
       runtimePrewarmed: runtimePrewarm ? 'independent fresh clone and V8 cache; definitions prepared only, no prior request/provenance receipt; preparation reported separately' : 'not measured',

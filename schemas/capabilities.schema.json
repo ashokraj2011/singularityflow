@@ -170,7 +170,10 @@
                 "maxItems": 32,
                 "items": {
                   "type": "object",
-                  "required": ["id", "argv", "url", "ready"],
+                  "required": ["id", "url", "ready"],
+                  "if": { "anyOf": [{ "not": { "required": ["type"] } }, { "required": ["type"], "properties": { "type": { "const": "command" } } }] },
+                  "then": { "required": ["argv"] },
+                  "else": { "not": { "required": ["argv"] } },
                   "properties": {
                     "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 64 },
                     "repository": { "description": "Required when the capability has several repositories.", "type": "string", "minLength": 1 },
@@ -193,17 +196,84 @@
                     },
                     "environments": { "$ref": "#/$defs/environmentList" },
                     "arguments": {
-                      "description": "Arguments appended to argv for one environment; each key is one of the entry's environments.",
-                      "type": "object",
-                      "additionalProperties": {
-                        "type": "array", "minItems": 1, "maxItems": 64,
-                        "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+                      "description": "A map: arguments appended for one environment, each key one of the entry's environments. A list, for types maven, gradle, npm and dotnet: the type's own arguments.",
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array", "minItems": 1, "maxItems": 64,
+                            "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+                          }
+                        },
+                        { "$ref": "#/$defs/argumentList" }
+                      ]
+                    },
+                    "name": { "description": "Display name; defaults to id.", "type": "string", "minLength": 1, "maxLength": 128 },
+                    "type": {
+                      "description": "How the entry starts (docs/topics/run-and-test.md, Run configuration types); command, the default, runs argv as written.",
+                      "enum": ["spring-boot", "jar", "application", "maven", "gradle", "python", "django", "fastapi", "flask", "node", "npm", "go", "dotnet", "command"]
+                    },
+                    "launcher": { "description": "spring-boot: maven | gradle; application: maven-exec | gradle-run. Defaults from the nearest build file.", "enum": ["maven", "gradle", "maven-exec", "gradle-run"] },
+                    "mainClass": { "description": "spring-boot, application: the Java main class.", "type": "string", "pattern": "^[A-Za-z_$][\\w$]*(?:\\.[A-Za-z_$][\\w$]*)*$" },
+                    "vmOptions": { "description": "spring-boot, jar, application: JVM options.", "$ref": "#/$defs/argumentList" },
+                    "programArguments": { "description": "spring-boot, jar, application, go: the program's own arguments.", "$ref": "#/$defs/argumentList" },
+                    "activeProfiles": { "description": "spring-boot: active profiles.", "$ref": "#/$defs/nameList" },
+                    "jar": { "description": "jar: the jar to run.", "$ref": "#/$defs/repositoryPath" },
+                    "goals": { "description": "maven: goals; options go in arguments.", "$ref": "#/$defs/goalList" },
+                    "tasks": { "description": "gradle: tasks; options go in arguments.", "$ref": "#/$defs/goalList" },
+                    "profiles": { "description": "maven: profiles (-P).", "$ref": "#/$defs/nameList" },
+                    "properties": {
+                      "description": "maven: -Dname=value; gradle: -Pname=value. Never a secret.",
+                      "type": "object", "maxProperties": 64, "propertyNames": { "pattern": "^[A-Za-z_][\\w.-]{0,127}$" },
+                      "additionalProperties": { "type": ["string", "number", "boolean"] }
+                    },
+                    "script": { "description": "python, node: the script (repository-relative); npm: the package.json script.", "type": "string", "minLength": 1 },
+                    "module": { "description": "python: the module run with -m.", "type": "string", "pattern": "^[A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)*$" },
+                    "interpreter": { "description": "python types: a command on PATH or a repository-relative path; defaults to .venv/bin/python, then python3.", "type": "string", "minLength": 1 },
+                    "interpreterOptions": { "description": "python types: interpreter options.", "$ref": "#/$defs/argumentList" },
+                    "parameters": { "description": "python types: script, module or server parameters.", "$ref": "#/$defs/argumentList" },
+                    "manage": { "description": "django: manage.py; defaults to the working directory's.", "$ref": "#/$defs/repositoryPath" },
+                    "host": { "description": "django, fastapi, flask: loopback only; defaults to the url's host.", "enum": ["127.0.0.1", "localhost", "::1"] },
+                    "port": { "description": "django, fastapi, flask: defaults to, and must equal, the url's port.", "type": "integer", "minimum": 1, "maximum": 65535 },
+                    "settings": { "description": "django: --settings module.", "type": "string", "pattern": "^[A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)*$" },
+                    "noReload": { "description": "django: --noreload.", "type": "boolean" },
+                    "app": { "description": "fastapi: module:attribute; flask: module, module:attribute or module:factory().", "type": "string", "minLength": 1 },
+                    "reload": { "description": "fastapi, flask: --reload (left off under the debugger).", "type": "boolean" },
+                    "nodeOptions": { "description": "node: Node options.", "$ref": "#/$defs/argumentList" },
+                    "applicationParameters": { "description": "node: the script's arguments.", "$ref": "#/$defs/argumentList" },
+                    "nodeInterpreter": { "description": "node: a command on PATH or a repository-relative path; defaults to node.", "type": "string", "minLength": 1 },
+                    "packageManager": { "description": "npm: defaults from the nearest lock file, else npm.", "enum": ["npm", "pnpm", "yarn"] },
+                    "kind": { "description": "go: what target names; defaults to package.", "enum": ["package", "file", "directory"] },
+                    "target": { "description": "go: a package, or a repository-relative file or directory.", "type": "string", "minLength": 1 },
+                    "goToolArguments": { "description": "go: go run flags.", "$ref": "#/$defs/argumentList" },
+                    "project": { "description": "dotnet: the project file or directory.", "$ref": "#/$defs/repositoryPath" },
+                    "launchProfile": { "description": "dotnet: --launch-profile.", "type": "string", "minLength": 1 },
+                    "configuration": { "description": "dotnet: -c.", "type": "string", "minLength": 1 },
+                    "env": {
+                      "description": "Literal variables for the application only: UPPER_CASE, not reserved, never a secret (secrets stay in environments.yml).",
+                      "type": "object", "maxProperties": 64, "propertyNames": { "pattern": "^[A-Z][A-Z0-9_]{0,127}$" },
+                      "additionalProperties": { "type": ["string", "number", "boolean"] }
+                    },
+                    "beforeLaunch": {
+                      "description": "Steps run in order before the application, like IntelliJ's Before launch; a failing step stops the start.",
+                      "type": "array", "maxItems": 8,
+                      "items": {
+                        "type": "object", "required": ["argv"],
+                        "properties": {
+                          "argv": { "type": "array", "minItems": 1, "maxItems": 256, "items": { "type": "string", "minLength": 1, "maxLength": 4096 } },
+                          "workingDirectory": { "$ref": "#/$defs/repositoryPath" },
+                          "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 1800000 }
+                        },
+                        "additionalProperties": false
                       }
                     },
+                    "perEnvironment": {
+                      "description": "Per environment (one of environments): the type's fields it replaces, env it merges by name and beforeLaunch it replaces.",
+                      "type": "object", "additionalProperties": { "type": "object" }
+                    },
                     "debug": {
-                      "description": "How app start --debug runs this entry with a debugger listening on 127.0.0.1 only.",
+                      "description": "How app start --debug runs this entry with a debugger listening on 127.0.0.1 only. runtime is required for type command; a typed entry's follows from its type.",
                       "type": "object",
-                      "required": ["runtime"],
                       "properties": {
                         "runtime": { "enum": ["java", "python", "node", "go", "dotnet"] },
                         "port": { "description": "Loopback port; defaults java 5005, python 5678, node 9229, go 2345. dotnet has none.", "type": "integer", "minimum": 1024, "maximum": 65535 },
@@ -392,6 +462,14 @@
     }
   },
   "$defs": {
+    "argumentList": {
+      "description": "Shell-free arguments; no shell runs them.",
+      "type": "array", "maxItems": 64,
+      "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+    },
+    "nameList": { "type": "array", "maxItems": 32, "items": { "type": "string", "pattern": "^[A-Za-z0-9][\\w.-]{0,63}$" } },
+    "goalList": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "type": "string", "pattern": "^[^\\s-][^\\s]*$" } },
+    "repositoryPath": { "description": "Repository-relative, without '..'.", "type": "string", "minLength": 1 },
     "environmentList": {
       "description": "Environments declared in singularity/environments.yml; the first is the default.",
       "type": "array",

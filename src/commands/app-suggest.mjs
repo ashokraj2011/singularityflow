@@ -27,10 +27,12 @@ export async function applicationDraftPath(root, capabilityId, { env = process.e
 export async function run(root, application, { json = false } = {}) {
   const { loadEnvironmentDeclaration } = await import('../environment-declaration.mjs');
   const { suggestApplication } = await import('../app-suggestions.mjs');
+  const { appRunPaths } = await import('../application-run.mjs');
   const declaration = await loadEnvironmentDeclaration(root, { optional: true });
   const result = await suggestApplication(root, {
     capabilityId: application.capabilityId, capability: application.capability, repositoryId: application.repositoryId,
-    repositories: application.repositories, declaration, policy: application.policy
+    repositories: application.repositories, declaration, policy: application.policy,
+    pathsFor: (startId) => appRunPaths(root, application.capabilityId, startId)
   });
   if (result.applicationDraft) {
     result.draft = { applicationFile: await applicationDraftPath(root, result.capability) };
@@ -48,7 +50,7 @@ export async function run(root, application, { json = false } = {}) {
     const from = suggestion.variants
       ? suggestion.variants.map((variant) => `'${variant.name}'`).join(', ')
       : `'${source.name}'`;
-    console.log(`  ${start.id}: ${start.argv.join(' ')} · in ${start.workingDirectory} · ${start.url}`);
+    console.log(`  ${start.id}${suggestion.configuration ? ` (${suggestion.configuration.type})` : ''}: ${start.argv.join(' ')} · in ${start.workingDirectory} · ${start.url}`);
     console.log(`    from ${SOURCE_WORDS[source.kind] ?? source.kind} ${source.file} ${from}`);
     for (const [environment, list] of Object.entries(start.arguments ?? {})) console.log(`    ${environment}: + ${list.join(' ')}`);
     const names = suggestion.environmentNames.map((entry) => `${entry.name} (${entry.kind}${entry.environment ? `, ${entry.environment}` : ''})`);

@@ -63,7 +63,14 @@ test('IntelliJ: Spring Boot configurations per environment become one Maven entr
   assert.equal(gradle.start.ready.http, '/', 'no actuator dependency: readiness asks the root');
   assert.ok(gradle.notes.some((note) => /--debug-jvm was dropped: it binds every interface/u.test(note)));
   const worker = byId(result, 'worker');
-  assert.deepEqual(worker.start.argv, ['gradle', 'run', '--args=--queue orders']);
+  // A typed application entry carries its main class to Gradle's run task through the run's private init script.
+  assert.deepEqual(worker.start.argv, ['gradle', '--init-script', worker.start.argv[2], 'run', '--args=--queue orders']);
+  assert.match(worker.start.argv[2], /[\\/]singularity-flow[\\/]app[\\/]shop[\\/]worker\.run\.init\.gradle$/u);
+  assert.deepEqual(worker.configuration, {
+    id: 'worker', name: 'Worker', type: 'application', launcher: 'gradle-run', mainClass: 'com.example.shop.worker.Main',
+    programArguments: ['--queue', 'orders'], workingDirectory: 'worker', url: 'http://127.0.0.1:8080/', ready: { http: '/', timeoutMs: 180_000 },
+    debug: { port: 5005 }
+  });
   assert.equal(worker.start.workingDirectory, 'worker', 'the configuration\'s module directory, found by name');
   assert.ok(worker.notes.some((note) => /own debugger options were dropped/u.test(note)));
   // VS Code's Java configuration takes its Spring profile into the plugin's profiles.

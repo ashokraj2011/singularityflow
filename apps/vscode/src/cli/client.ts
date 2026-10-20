@@ -409,6 +409,8 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   // Run and test: plan, status, suggest, summary (and the plan of a test run) read; start, stop and
   // run execute repository code, so they are never reads.
   // Without a subcommand `app` shows status and `tests` the summary, as the CLI resolves them.
+  // `app config preview` validates and resolves a block from a file: a read (the editor's Command line).
+  if (args[0] === 'app' && args[1] === 'config') return args[2] === 'preview' ? 'read' : 'mutation';
   if (args[0] === 'app') return ['plan', 'status', 'suggest'].includes(args[1] && !args[1].startsWith('-') ? args[1] : 'status') ? 'read' : 'mutation';
   if (args[0] === 'tests') return ['summary', 'plan'].includes(args[1] && !args[1].startsWith('-') ? args[1] : 'summary') ? 'read' : 'mutation';
   if (args[0] === 'mcp' && args[1] === 'sources') return 'read';

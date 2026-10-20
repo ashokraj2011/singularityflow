@@ -141,9 +141,10 @@ async function assertExpectedCommands(options, entries) {
   }
 }
 
-async function rawReportLocations(root, receipt, workId) {
-  if (receipt.adapter !== 'junit-xml' || !receipt.rawReports?.length) return null;
-  const [{ gitDir }, { junitCaseLocations }] = await Promise.all([import('../git.mjs'), import('../code-delivery-tests.mjs')]);
+/** The raw report bytes an attempt retained, each checked against its digest, or null. */
+async function rawReportContents(root, receipt, workId) {
+  if (!receipt.rawReports?.length) return null;
+  const { gitDir } = await import('../git.mjs');
   const contents = [];
   for (const report of receipt.rawReports) {
     let bytes = null;
@@ -153,7 +154,34 @@ async function rawReportLocations(root, receipt, workId) {
     if (!bytes || createHash('sha256').update(bytes).digest('hex') !== report.sha256) return null;
     contents.push(bytes);
   }
+  return contents;
+}
+
+async function rawReportLocations(receipt, contents) {
+  if (receipt.adapter !== 'junit-xml' || !contents) return null;
+  const { junitCaseLocations } = await import('../code-delivery-tests.mjs');
   try { return junitCaseLocations(contents); } catch { return null; }
+}
+
+/**
+ * Each occurrence's failure message, redacted. A run given an environment's values is redacted with
+ * them: `materialized` when the caller holds the binding, else the binding as it is now, and only
+ * when it is still the one the run used (same fingerprint). Otherwise no message is shown at all.
+ */
+async function caseMessages(root, receipt, contents, { materialized = null } = {}) {
+  if (!contents || !receipt.occurrences?.length) return null;
+  const { testCaseMessages } = await import('../test-case-messages.mjs');
+  const messages = testCaseMessages(receipt.adapter, contents, receipt.occurrences.length);
+  if (!messages) return null;
+  let redactor = materialized;
+  const bound = receipt.boundEnvironment;
+  if (!redactor && bound?.name) {
+    const { materializeEnvironmentBinding } = await import('../environment-bindings.mjs');
+    const current = await materializeEnvironmentBinding(root, bound.name).catch(() => null);
+    if (current?.status !== 'bound' || !bound.fingerprintSha256 || current.environment?.fingerprintSha256 !== bound.fingerprintSha256) return null;
+    redactor = current;
+  }
+  return redactor?.redactsAnything ? messages.map((message) => (message == null ? null : redactor.redact(message))) : messages;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -252,11 +280,15 @@ async function runCapability(root, options) {
     if (parsed?.adapter === 'junit-xml') {
       try { junitLocations = junitCaseLocations(parsed.rawReports.map((report) => report.contents)); } catch { junitLocations = null; }
     }
+    // Kept with this private run record, redacted with the values the run was given.
+    const messages = parsed?.rawReports?.length
+      ? await caseMessages(root, receipt, parsed.rawReports.map((report) => report.contents), { materialized }) : null;
     entries.push({
       receipt, kind: command.kind ?? 'test', environment, countsForStep: false,
       ...(environment && materialized ? { boundEnvironment: materialized.environment } : {}),
       clauses: await summary.occurrenceClauses(root, { occurrences: receipt.occurrences, profile, locations: junitLocations }),
       ...(junitLocations ? { locations: junitLocations } : {}),
+      ...(messages ? { messages } : {}),
       ...(note ? { note } : {}),
       ...(check.stderr && check.status !== 'passed' ? { diagnostic: String(check.stderr).slice(0, 2_000) } : {})
     });
@@ -366,9 +398,11 @@ async function storySummary(root, options, { localRunId = null } = {}) {
   if (!group) return summary.buildTestSummary({ scope, run: null, entries: [], history });
   const entries = [];
   for (const attempt of group.members) {
-    const locations = await rawReportLocations(root, attempt, workflow.workItem.id);
+    const contents = await rawReportContents(root, attempt, workflow.workItem.id);
+    const locations = await rawReportLocations(attempt, contents);
+    const messages = await caseMessages(root, attempt, contents);
     entries.push({
-      receipt: attempt, kind: 'test', locations, ...await attemptMeaning(attempt, declaration),
+      receipt: attempt, kind: 'test', locations, ...(messages ? { messages } : {}), ...await attemptMeaning(attempt, declaration),
       clauses: await summary.occurrenceClauses(root, { occurrences: attempt.occurrences ?? [], profile: attempt.profile, locations })
     });
   }

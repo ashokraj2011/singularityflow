@@ -202,8 +202,12 @@ function goLaunch(argv, { port, paths }) {
 /**
  * The debug start of one entry in one environment: the argv and the variables added for the
  * application process only, the loopback address it listens on, and any private file it needs.
+ * `inject`, from a typed run configuration (run-configurations.mjs), places the debugger where its
+ * type keeps VM, Node or interpreter options instead of reading the launcher from argv; it receives
+ * the loopback JDWP agent, inspector flag and debugpy address and returns the launch. Every other
+ * rule here (declared, explicit, already configured, dotnet, the final loopback check) still applies.
  */
-export function resolveDebugLaunch(entry, { argv, environmentArguments = [], environment = {}, paths = null, platform = process.platform } = {}) {
+export function resolveDebugLaunch(entry, { argv, environmentArguments = [], environment = {}, paths = null, platform = process.platform, inject = null } = {}) {
   const debug = entry.debug;
   if (!debug) {
     throw refusal('APP_DEBUG_NOT_DECLARED',
@@ -229,10 +233,11 @@ export function resolveDebugLaunch(entry, { argv, environmentArguments = [], env
     return finish({ ...base, launcher: 'dotnet', argv: [...argv],
       notes: ['dotnet has no debugger listener: attach a .NET debugger to the process id app status reports.'] });
   }
-  const launch = runtime === 'java' ? javaLaunch(argv, { port, suspend, paths })
-    : runtime === 'python' ? pythonLaunch(argv, { port, platform })
-      : runtime === 'node' ? nodeLaunch(argv, { port, suspend, environment })
-        : goLaunch(argv, { port, paths });
+  const launch = inject?.({ agent: jdwpAgent(port, suspend), inspect: `--inspect${suspend ? '-brk' : ''}=${DEBUG_HOST}:${port}`, listen: `${DEBUG_HOST}:${port}` })
+    ?? (runtime === 'java' ? javaLaunch(argv, { port, suspend, paths })
+      : runtime === 'python' ? pythonLaunch(argv, { port, platform })
+        : runtime === 'node' ? nodeLaunch(argv, { port, suspend, environment })
+          : goLaunch(argv, { port, paths }));
   return finish({ ...base, ...launch, environment: launch.environment ?? {}, files: launch.files ?? [], notes: launch.notes ?? [], requires: launch.requires ?? {} });
 
   function finish(result) {

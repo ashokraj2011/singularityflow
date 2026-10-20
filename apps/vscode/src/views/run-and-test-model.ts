@@ -55,6 +55,10 @@ export interface StartEntry {
   capability: string;
   repository: string | null;
   id: string;
+  /** The display name of a typed run configuration (`name`); null shows the ID. [RUN IntelliJ amendment §1] */
+  name: string | null;
+  /** Its type (`spring-boot`, `npm`, …); null for an entry written as argv (type `command`). */
+  type: string | null;
   argv: string[];
   workingDirectory: string | null;
   url: string | null;
@@ -65,10 +69,18 @@ export interface StartEntry {
   arguments: Record<string, string[]>;
   /** The argv each environment runs, as the engine resolved it (`environments[].argv`). */
   resolvedArgv: Record<string, string[]>;
+  /**
+   * What runs around the command line, per environment (`''` without one): a typed entry's
+   * before-launch steps and the names of the variables it sets (`resolved.beforeLaunch`, `envNames`).
+   */
+  launch: Record<string, LaunchDetail>;
   debug: DebugPlan | null;
   /** Why a declared `debug` block is not offered: the engine's answer for it is incomplete. */
   debugIssue: string | null;
 }
+
+/** A typed entry's before-launch steps (run in order before the application) and the variable names it sets. */
+export interface LaunchDetail { beforeLaunch: Array<{ argv: string[]; workingDirectory: string | null }>; envNames: string[] }
 
 /** One line of `app status --json`. */
 export interface StartStatus {
@@ -83,10 +95,24 @@ export interface StartStatus {
   debug: { runtime: string | null; port: number | null; listening: boolean } | null;
 }
 
+/** A capability's `policy.localIntegrationEvidence`: whether its environments' values may reach a local process. */
+export type LocalIntegrationPolicy = 'off' | 'allowed';
+
+/**
+ * The capability's policy as `tests plan --json` reports it (`localIntegrationEvidence`, the same
+ * folded policy `app start` checks); null when the engine does not say, so the engine decides.
+ */
+export function localIntegrationPolicy(raw: unknown): LocalIntegrationPolicy | null {
+  const value = record(unwrapResult(raw))?.localIntegrationEvidence;
+  return value === 'off' || value === 'allowed' ? value : null;
+}
+
 /** One command `tests run` would run, from `tests plan --json` when the engine offers it. */
 export interface TestCommandPlan {
   id: string;
   kind: string | null;
+  /** The report adapter (`junit-xml`, …), when `tests plan` names it. */
+  adapter: string | null;
   argv: string[] | null;
   workingDirectory: string | null;
   environments: EnvironmentChoice[];
@@ -100,6 +126,7 @@ const SHA256 = /^(?:sha256:)?[a-f0-9]{64}$/;
 const ID = /^[a-z0-9][a-z0-9-]*$/;
 const ENVIRONMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+const TYPE = /^[a-z][a-z0-9-]{0,31}$/;
 
 const text = (value: unknown): string | null => (typeof value === 'string' && value.trim() ? value : null);
 const record = (value: unknown): Record<string, unknown> | null =>
@@ -202,6 +229,25 @@ function debugFrom(value: unknown, environments: Array<{ name: string; debug?: u
   };
 }
 
+/**
+ * `resolved: { beforeLaunch, envNames }`, or 'invalid' when a step is not an argv VS Code can show
+ * exactly: a step that would run unseen makes the entry one VS Code does not run.
+ */
+function launchDetailFrom(value: unknown): LaunchDetail | 'invalid' | null {
+  const resolved = record(value);
+  if (!resolved) return null;
+  const steps = Array.isArray(resolved.beforeLaunch) ? resolved.beforeLaunch : [];
+  const beforeLaunch = steps.flatMap((step) => {
+    // `{ argv, workingDirectory }` as app plan answers it; a bare argv list is read the same way.
+    const object = record(step);
+    const argv = argvFrom(Array.isArray(step) ? step : object?.argv);
+    return argv ? [{ argv, workingDirectory: text(object?.workingDirectory) }] : [];
+  });
+  if (beforeLaunch.length !== steps.length) return 'invalid';
+  const envNames = (Array.isArray(resolved.envNames) ? resolved.envNames : []).filter((name): name is string => typeof name === 'string' && VARIABLE_NAME.test(name));
+  return { beforeLaunch, envNames };
+}
+
 /** The start entries `app plan --json` returned; an entry VS Code cannot run exactly is left out. */
 export function appPlanFrom(raw: unknown): { entries: StartEntry[]; dropped: string[] } {
   const entries: StartEntry[] = [];
@@ -210,7 +256,9 @@ export function appPlanFrom(raw: unknown): { entries: StartEntry[]; dropped: str
     const entry = record(item);
     if (!entry) continue;
     const id = text(entry.id);
-    const argv = argvFrom(entry.argv);
+    // A typed entry may answer only its resolved command line (`resolved.argv`, per environment).
+    const resolvedFirst = (Array.isArray(entry.environments) ? entry.environments : []).map((value) => record(record(value)?.resolved)?.argv)[0];
+    const argv = argvFrom(entry.argv) ?? argvFrom(record(entry.resolved)?.argv) ?? argvFrom(resolvedFirst);
     const sha = text(entry.commandSha256);
     const capability = text(entry.capability);
     if (!id || !ID.test(id) || !argv || !sha || !SHA256.test(sha) || !capability || !ID.test(capability)) {
@@ -223,16 +271,26 @@ export function appPlanFrom(raw: unknown): { entries: StartEntry[]; dropped: str
     const planned = (Array.isArray(entry.environments) ? entry.environments : []).flatMap((value) => {
       const object = record(value);
       const name = text(object?.name);
-      return object && name && names.includes(name) ? [{ name, argv: object.argv, debug: object.debug }] : [];
+      return object && name && names.includes(name) ? [{ name, argv: record(object.resolved)?.argv ?? object.argv, debug: object.debug, resolved: object.resolved }] : [];
     });
+    const launches = [['', launchDetailFrom(entry.resolved)] as const, ...planned.map((environment) => [environment.name, launchDetailFrom(environment.resolved)] as const)];
+    if (launches.some(([, launch]) => launch === 'invalid')) {
+      dropped.push(id);
+      continue;
+    }
+    const launch: Record<string, LaunchDetail> = Object.fromEntries(launches.filter((pair): pair is readonly [string, LaunchDetail] => pair[1] !== null && pair[1] !== 'invalid'));
     const resolvedArgv: Record<string, string[]> = {};
     for (const environment of planned) {
       const resolved = argvFrom(environment.argv);
       if (resolved) resolvedArgv[environment.name] = resolved;
     }
     const { debug, issue } = debugFrom(entry.debug, planned);
+    const name = text(entry.name);
+    const type = text(entry.type);
     entries.push({
       capability, repository: text(entry.repository), id, argv,
+      name: name && name.length <= 120 && !CONTROL.test(name) ? name.trim() : null,
+      type: type && TYPE.test(type) ? type : null,
       workingDirectory: text(entry.workingDirectory), url: text(entry.url),
       ready: ready ? {
         ...(typeof ready.http === 'string' ? { http: ready.http } : {}),
@@ -243,6 +301,7 @@ export function appPlanFrom(raw: unknown): { entries: StartEntry[]; dropped: str
       commandSha256: sha,
       arguments: argvMap(entry.arguments, names),
       resolvedArgv,
+      launch,
       debug,
       debugIssue: issue
     });
@@ -257,6 +316,11 @@ export function appPlanFrom(raw: unknown): { entries: StartEntry[]; dropped: str
 export function resolvedArgv(entry: Pick<StartEntry, 'argv' | 'arguments' | 'resolvedArgv'>, environment: string | null): string[] {
   if (!environment) return entry.argv;
   return entry.resolvedArgv[environment] ?? [...entry.argv, ...(entry.arguments[environment] ?? [])];
+}
+
+/** The before-launch steps and variable names in an environment: that environment's own, else the entry's. */
+export function launchDetail(entry: Pick<StartEntry, 'launch'>, environment: string | null): LaunchDetail {
+  return (environment ? entry.launch?.[environment] : null) ?? entry.launch?.[''] ?? { beforeLaunch: [], envNames: [] };
 }
 
 /** The debug launch in an environment: that environment's own, else the block's (the first environment's). */
@@ -294,7 +358,7 @@ export function testPlanFrom(raw: unknown): TestCommandPlan[] {
     if (!entry || !id || !ID.test(id)) return [];
     const sha = text(entry.commandSha256);
     return [{
-      id, kind: text(entry.kind), argv: argvFrom(entry.argv), workingDirectory: text(entry.workingDirectory),
+      id, kind: text(entry.kind), adapter: text(entry.adapter), argv: argvFrom(entry.argv), workingDirectory: text(entry.workingDirectory),
       environments: environmentsFrom(entry), commandSha256: sha && SHA256.test(sha) ? sha : null
     }];
   });
@@ -385,7 +449,13 @@ export function entryEnvironment(entry: Pick<StartEntry, 'environments'>, chosen
  * refuse an incomplete binding or an undeclared environment after the task opened, so it is said
  * here, plainly, with what the person does about it. Null when it can run.
  */
-export function startRefusal(entry: Pick<StartEntry, 'id' | 'environments'>, environment: string | null): string | null {
+export function startRefusal(entry: Pick<StartEntry, 'id' | 'environments'> & Partial<Pick<StartEntry, 'capability'>>, environment: string | null,
+  policy: LocalIntegrationPolicy | null = null): string | null {
+  // The engine refuses any start in an environment while the capability keeps values from local processes.
+  if (environment && policy === 'off') {
+    return `${entry.id} was not started: it needs environment ${environment}, whose values are given to a local process only when capability`
+      + ` ${entry.capability ?? 'its capability'} sets policy.localIntegrationEvidence to allowed. It is off. Change it through a capability proposal; nothing ran.`;
+  }
   const choice = environment ? entry.environments.find((item) => item.name === environment) : null;
   // Only a status the engine reported as not runnable; an unknown one is left to the engine.
   if (!choice || !['unbound', 'unavailable', 'partial', 'partially-bound', 'missing', 'not-bound', 'none', 'undeclared'].includes(choice.status)) return null;
@@ -575,21 +645,50 @@ const environmentLine = (entry: StartEntry, environment: string | null): string 
 const argumentsLine = (entry: StartEntry, environment: string | null): string[] =>
   environment && entry.arguments[environment]?.length ? [`Arguments for ${environment}: ${JSON.stringify(entry.arguments[environment])}`] : [];
 
+/** A typed entry's before-launch steps, in order, and the variables it sets for the application. */
+const launchLines = (entry: StartEntry, environment: string | null): string[] => {
+  const launch = launchDetail(entry, environment);
+  return [
+    ...launch.beforeLaunch.map((step, index) => `Before launch, step ${index + 1} of ${launch.beforeLaunch.length}: ${JSON.stringify(step.argv)}`
+      + `${step.workingDirectory && step.workingDirectory !== '.' ? ` in ${step.workingDirectory}` : ''}`),
+    ...(launch.envNames.length ? [`Sets for the application only: ${launch.envNames.join(', ')}`] : [])
+  ];
+};
+
+/**
+ * One confirmation covers the entry in every environment (its command identity covers each one's
+ * resolved form), so what the other environments run is shown too, not only the one starting now.
+ */
+const otherEnvironmentLines = (entry: StartEntry, environment: string | null, command: (name: string) => string[]): string[] => {
+  const others = environment ? entry.environments.filter((choice) => choice.name !== environment) : [];
+  if (!others.length) return [];
+  return ['', `This confirmation also covers ${others.length === 1 ? 'its other environment' : 'its other environments'}:`,
+    ...others.flatMap((choice) => [`  ${choice.name}: ${JSON.stringify(command(choice.name))}`, ...launchLines(entry, choice.name).map((line) => `    ${line}`)])];
+};
+
+/** "api (Api, node)" when the configuration has a name or type of its own. */
+const entryWords = (entry: StartEntry): string => {
+  const extra = [entry.name && entry.name !== entry.id ? entry.name : null, entry.type].filter(Boolean);
+  return extra.length ? `${entry.id} (${extra.join(', ')})` : entry.id;
+};
+
 /** The review page shown before a start entry first runs, and again whenever its command changes. */
 export function startConfirmationRequest(entry: StartEntry, environment: string | null): ReviewConfirmationRequest {
   return {
-    title: `Start ${entry.id} for ${entry.capability}`,
+    title: `Start ${entry.name ?? entry.id} for ${entry.capability}`,
     summary: 'This command comes from singularity/capabilities.yml and runs on this computer. Review it once; you are asked again when it changes.',
     detail: [
       `Capability: ${entry.capability}`,
-      `Start entry: ${entry.id}`,
+      `Start entry: ${entryWords(entry)}`,
       `Command: ${JSON.stringify(resolvedArgv(entry, environment))}`,
       ...argumentsLine(entry, environment),
+      ...launchLines(entry, environment),
       `Working directory: ${entry.workingDirectory ?? '.'}${entry.repository ? ` (repository ${entry.repository})` : ''}`,
       `Opens at: ${entry.url ?? 'no URL declared'}`,
       `Ready when: ${readiness(entry.ready)}`,
       environmentLine(entry, environment),
       `Command identity: ${entry.commandSha256}`,
+      ...otherEnvironmentLines(entry, environment, (name) => resolvedArgv(entry, name)),
       '',
       `VS Code runs it as a task: ${displayCommand(appStartArgv(entry.capability, entry.id, environment, entry.commandSha256))}`
     ].join('\n'),
@@ -606,14 +705,15 @@ export function debugStartConfirmationRequest(entry: StartEntry, environment: st
   const launch = debugLaunch(debug, environment);
   const attach = debugAttachConfiguration(debug.runtime, debugSessionName(entry.capability, entry.id), { port: debug.port, pid: 1 });
   return {
-    title: `Start ${entry.id} with its debugger for ${entry.capability}`,
+    title: `Start ${entry.name ?? entry.id} with its debugger for ${entry.capability}`,
     summary: 'This command comes from singularity/capabilities.yml and runs on this computer with a debugger that listens on 127.0.0.1 only. Review it once; you are asked again when it changes.',
     detail: [
       `Capability: ${entry.capability}`,
-      `Start entry: ${entry.id}`,
+      `Start entry: ${entryWords(entry)}`,
       launch.argv ? `Command: ${JSON.stringify(launch.argv)}`
         : `Command: ${JSON.stringify(resolvedArgv(entry, environment))}, with the debugger the engine adds for ${debug.runtime}`,
       ...argumentsLine(entry, environment),
+      ...launchLines(entry, environment),
       ...(launch.environmentNames.length ? [`Set for the application only, by the engine: ${launch.environmentNames.join(', ')}`] : []),
       ...debug.notes.map((note) => `Note: ${note}`),
       `Working directory: ${entry.workingDirectory ?? '.'}${entry.repository ? ` (repository ${entry.repository})` : ''}`,
@@ -625,6 +725,7 @@ export function debugStartConfirmationRequest(entry: StartEntry, environment: st
       `Ready when: ${readiness(entry.ready)}${debug.suspend ? ', after the debugger attaches' : ''}`,
       environmentLine(entry, environment),
       `Command identity: ${entry.commandSha256} (its debug start)`,
+      ...otherEnvironmentLines(entry, environment, (name) => debugLaunch(debug, name).argv ?? resolvedArgv(entry, name)),
       '',
       `VS Code runs it as a task: ${displayCommand(appStartArgv(entry.capability, entry.id, environment, entry.commandSha256, true))}`,
       `Ending the debug session leaves ${entry.id} running; Stop ends it.`
@@ -704,6 +805,8 @@ export interface RunAndTestState {
   planNote?: string | null;
   status?: StartStatus[] | null;
   tests?: TestCommandPlan[] | null;
+  /** The capability's local integration policy, from `tests plan`; null when unknown. */
+  localIntegration?: LocalIntegrationPolicy | null;
   lastRun?: TestSummary | null;
   lastRunNote?: string | null;
   tasks?: Record<string, StartTaskState>;

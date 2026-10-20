@@ -414,3 +414,135 @@ Rules:
     - fixtures for Spring Boot (Maven), FastAPI, a Node npm script and a Go module;
     - a real VS Code check of debug attach for every runtime whose debugger is available on the
       machine; the others are reported as not verified.
+
+## IntelliJ-style run configurations (amendment, owner request 2026-10-20: "a proper one like IntelliJ")
+
+A start entry was a command line. People who use IntelliJ, PyCharm or WebStorm expect *typed* run
+configurations, edited in a form, run from an always-visible run widget, with tests in the editor's
+test tree. This amendment adds all three. Plain `argv` entries keep working unchanged as type
+`command`.
+
+### 1. Typed run configurations (engine)
+
+```yaml
+start:
+  - id: api
+    name: Api                       # display name; defaults to id
+    type: spring-boot               # see the table
+    launcher: maven                 # spring-boot: maven | gradle
+    mainClass: com.example.api.ApiApplication
+    vmOptions: [-Xmx1g, -Dfile.encoding=UTF-8]
+    programArguments: [--server.port=8080]
+    activeProfiles: [dev]
+    workingDirectory: services/api
+    env: { FEATURE_FLAGS: "a,b" }   # literal non-secret values only; secrets stay in environments.yml
+    beforeLaunch:                   # optional, like IntelliJ's "Before launch"
+      - argv: [../../mvnw, -q, compile]
+    perEnvironment:                 # any field above, overridden per environment
+      qa: { activeProfiles: [qa], vmOptions: [-Xmx2g] }
+    environments: [dev, qa]
+    url: http://127.0.0.1:8080/
+    ready: { http: /actuator/health, timeoutMs: 180000 }
+    debug: { port: 5005 }           # runtime follows from the type
+```
+
+| Type | Fields | Runs as |
+|---|---|---|
+| `spring-boot` | launcher, mainClass, vmOptions, programArguments, activeProfiles | Maven `spring-boot:run` (`-Dspring-boot.run.main-class`, `.jvmArguments`, `.arguments`, `.profiles`); Gradle `bootRun` (arguments via `--args`, JVM options and profiles through the same private init-script route the debugger uses) |
+| `jar` | jar, vmOptions, programArguments | `java <vmOptions> -jar <jar> <programArguments>` |
+| `application` | launcher (maven-exec \| gradle-run), mainClass, vmOptions, programArguments | Maven `exec:java -Dexec.mainClass=…`, or the Gradle `run` task |
+| `maven` / `gradle` | goals or tasks, profiles, properties, arguments | the wrapper when present, else `mvn`/`gradle` |
+| `python` | script or module, interpreter, interpreterOptions, parameters | `<interpreter> <interpreterOptions> <script \| -m module> <parameters>`; interpreter defaults to `.venv/bin/python`, then `python3` |
+| `django` | manage (path), host, port, settings | `<python> manage.py runserver 127.0.0.1:<port>` (`--settings` when set) |
+| `fastapi` / `flask` | app (`module:attribute`), port, reload | `<python> -m uvicorn <app> --host 127.0.0.1 --port <port>`; `flask --app … run --host 127.0.0.1` |
+| `node` | script, nodeOptions, applicationParameters, nodeInterpreter | `node <nodeOptions> <script> <applicationParameters>` |
+| `npm` | packageManager (npm \| pnpm \| yarn), script, arguments | `<pm> run <script> -- <arguments>` |
+| `go` | kind (package \| file \| directory), target, goToolArguments, programArguments | `go run <goToolArguments> <target> <programArguments>` |
+| `dotnet` | project, launchProfile, configuration, arguments | `dotnet run --project … [--launch-profile …] [-c …] -- <arguments>` |
+| `command` | argv | as written (the existing form) |
+
+Rules:
+
+- Every field is validated as `argv` is: strings with no control characters, and repository-relative
+  paths without `..`.
+- Hosts are pinned to loopback where the type takes a host.
+- `env` refuses reserved variables and any value that looks secret, as `app suggest` judges it.
+- `beforeLaunch` steps run in order, and a failing step stops the start.
+- `app plan` returns `type`, `name`, the fields, and per environment
+  `resolved: { argv, envNames, beforeLaunch }`.
+- `commandSha256` covers the resolved form. A field change asks for confirmation again.
+- Debug injection uses the type: it knows where VM options or interpreter options go.
+- `app suggest` emits typed entries when the source is typed. An IntelliJ Spring Boot configuration
+  becomes `type: spring-boot` with its own fields, so it reads back as the person wrote it.
+- **`app config preview --application-file <FILE> [--json]` (a read)** validates a whole application
+  block and returns, per entry and environment, the resolved command line or the located errors. The
+  editor shows it as IntelliJ shows "Command line" in its run configuration preview.
+- **Writing** uses the existing `capability set|edit --application-file`.
+
+### 2. VS Code: Run/Debug Configurations editor
+
+**"Singularity Flow: Edit Run Configurations…"** opens a page laid out like IntelliJ's dialog. It is
+also reachable from the run widget and from the capability page.
+
+- **Left:** the configurations grouped by type with type icons, and a toolbar with these actions:
+  - **Add**, from templates per type;
+  - **Copy**, **Remove**, **Move up/down**;
+  - **Import from IDE run configurations**, which uses `app suggest`.
+- **Right:** a form for the selected configuration's type:
+  - name, the type's fields, and working directory with a folder picker;
+  - environment variables as a name/value table. Secrets are shown as "bound privately on this
+    computer" with the `env bind` command and are never typed into the form;
+  - **Before launch** steps;
+  - URL and readiness, and debug port and suspend;
+  - a tab strip **Base | dev | qa | …** for per-environment overrides, showing which fields differ.
+- **Command line:** a read-only preview per environment, from `app config preview`, with inline errors.
+- **Saving:** **Apply** / **OK** show a review page with the YAML diff of the application block, then
+  write it through the existing local or proposal route. Unsaved changes are marked and kept across
+  reloads of the page.
+
+### 3. VS Code: run widget and Run view
+
+- **Status bar run widget**, like IntelliJ's toolbar: `$(play) Api · dev`.
+  - Clicking the name opens a quick pick of configurations and environments, plus "Edit
+    Configurations…".
+  - Next to it: **Run**, **Debug**, and **Stop** while running, which become **Rerun** and **Stop**
+    once started.
+  - Palette commands **Run Selected Configuration** / **Debug Selected Configuration** / **Stop**
+    exist without default keybindings, because IntelliJ's macOS defaults clash with VS Code's;
+    people can bind them.
+- **"Run" view** in the Singularity Flow container, like IntelliJ's Services window:
+  - one row per configuration, with a state icon (stopped, starting, ready, debugging, failed), the
+    environment and the URL;
+  - inline Run / Debug / Stop / Open in browser / Show log;
+  - a context menu with Edit, Copy command line and Run in environment ▸.
+- **Logs:** each run keeps its own terminal tab (existing tasks), named by configuration and
+  environment.
+
+### 4. VS Code: tests in the Testing view
+
+A `vscode.tests` controller, **Singularity Flow**:
+
+- **Tree:** one node per test command from `tests plan`, with its test cases from the latest
+  `tests summary`, each with a file and line so VS Code shows ▶/✓/✗ beside each test.
+- **Run profile:** runs `tests run --command <id>` for the selected commands (environment from the
+  run widget). Each case's result comes from the new summary: passed, failed with its message,
+  skipped, with duration.
+- **"Re-run failed tests"** reruns the commands that have failures.
+- **Labels:** results stay labelled by evidence class in the Test summary page. The Testing view
+  shows the engine's label in each run's output.
+- A debug profile for tests is out of this amendment.
+
+### Milestones (amendment)
+
+11. **Engine:**
+    - the typed configurations and their resolution, per-environment overrides, `env` and
+      `beforeLaunch`;
+    - type-aware debug injection;
+    - typed `app suggest`;
+    - `app config preview`.
+12. **VS Code:** the Run/Debug Configurations editor.
+13. **VS Code:** the status bar run widget, the Run view, and the Testing view controller.
+14. **Copilot and verification:**
+    - `/sf-run-app` reads the typed plan;
+    - a real VS Code check with Spring Boot (Maven, typed), Node (npm, typed) and a Python FastAPI
+      fixture, as far as their tools exist here.

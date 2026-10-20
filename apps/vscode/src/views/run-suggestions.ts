@@ -8,9 +8,6 @@
  * `capability edit --lead` proposal for an explicit map, `capability set` for an implicit or local
  * one. environments.yml is never written here; its additions are copied by the person.
  */
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
@@ -18,11 +15,11 @@ import { navigateTo } from './navigate.ts';
 import { integerField, registerMessageRouter } from './messages.ts';
 import { containedWorkingPath } from './change-explorer-source.ts';
 import { collectReviewConfirmation } from './review-confirmation.ts';
-import { appPlanArgv, appPlanFrom, displayCommand } from './run-and-test-model.ts';
+import { chooseApplicationRoute, writeApplicationBlock } from './application-block-write.ts';
+import { appPlanArgv, appPlanFrom } from './run-and-test-model.ts';
 import {
-  appSuggestArgv, applicationDraftYaml, applicationRoute, applicationWriteArgv, applicationWriteOutcome, defaultSelection,
-  keptStarts, selectionFrom, selectionProblems, suggestionReviewRequest, suggestionsFrom, TEMPORARY_FILE_WORDS,
-  type ApplicationRoute, type SuggestionChoice, type SuggestionSet
+  appSuggestArgv, applicationDraftYaml, defaultSelection, keptStarts, selectionFrom, selectionProblems, suggestionReviewRequest,
+  suggestionsFrom, type ApplicationRoute, type SuggestionChoice, type SuggestionSet
 } from './run-suggestions-model.ts';
 import { runSuggestionsHtml, RUN_SUGGESTIONS_SCRIPT, RUN_SUGGESTIONS_STYLE } from './run-suggestions-page.ts';
 
@@ -88,8 +85,6 @@ export class RunSuggestionsPanel implements vscode.Disposable {
     'suggest.open': (message) => this.open(integerField(message, 'index'))
   });
 
-  private log(argv: string[]): void { this.host.output?.appendLine(`\n$ ${displayCommand(argv)}`); }
-
   /** `app suggest` and `app plan` together: the suggestions, and the start IDs already taken. */
   async load({ keepNotice = false }: { keepNotice?: boolean } = {}): Promise<void> {
     const generation = ++this.generation;
@@ -120,22 +115,6 @@ export class RunSuggestionsPanel implements vscode.Disposable {
     this.render();
   }
 
-  /** Where the block goes, by the capability page's rule; several registered leads ask which. */
-  private async route(): Promise<ApplicationRoute | null> {
-    const { mode = null, authorityRepository = null } = this.host.capabilityAuthority?.() ?? {};
-    let leads: string[] = [];
-    if (mode !== 'implicit' && !authorityRepository?.trim()) {
-      const answer = await this.host.client.run<Array<{ url?: unknown }>>(['capability', 'leads', '--json']);
-      leads = (Array.isArray(answer) ? answer : []).flatMap((entry) => typeof entry?.url === 'string' && entry.url ? [entry.url] : []);
-    }
-    const route = applicationRoute(mode, authorityRepository, leads);
-    if (route.kind !== 'pick') return route;
-    const picked = await vscode.window.showQuickPick(route.leads.map((lead) => ({ label: lead, lead })), {
-      title: 'Choose capability-map authority', placeHolder: 'The repository that owns the capability map', ignoreFocusOut: true
-    });
-    return picked ? { kind: 'proposal', lead: picked.lead } : null;
-  }
-
   private async review(raw: unknown): Promise<void> {
     const set = this.set;
     if (!set || this.busy) return;
@@ -144,7 +123,7 @@ export class RunSuggestionsPanel implements vscode.Disposable {
     this.notice = null; this.error = null;
     if (Object.keys(this.problems.rows).length || this.problems.general) return this.render();
     let route: ApplicationRoute | null;
-    try { route = await this.route(); } catch (error) {
+    try { route = await chooseApplicationRoute(this.host); } catch (error) {
       this.error = `The capability map's authority could not be read: ${(error as Error).message}`;
       return this.render();
     }
@@ -166,17 +145,12 @@ export class RunSuggestionsPanel implements vscode.Disposable {
   }
 
   /**
-   * The file exists only while the command reads it: 0600 inside a fresh 0700 directory. True when
-   * this checkout's map changed (a local save); a proposal changes nothing here until approved.
+   * The file exists only while the command reads it (application-block-write.ts). True when this
+   * checkout's map changed (a local save); a proposal changes nothing here until approved.
    */
   private async write(route: ApplicationRoute, capability: string, applicationYaml: string): Promise<boolean> {
-    const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-application-'));
     try {
-      const file = path.join(directory, 'application.yml');
-      await writeFile(file, applicationYaml, { mode: 0o600, flag: 'wx' });
-      const argv = applicationWriteArgv(route, capability, file);
-      this.log(applicationWriteArgv(route, capability, TEMPORARY_FILE_WORDS));
-      const outcome = applicationWriteOutcome(route, await this.host.client.run(argv));
+      const outcome = await writeApplicationBlock(this.host, route, capability, applicationYaml);
       if (outcome.kind === 'proposal') {
         this.notice = `Proposal ${outcome.branch} was created on ${outcome.lead}. Review it on its page; nothing is applied before it is approved.`;
         this.host.openCapabilityProposal?.(outcome.lead, outcome.branch, capability);
@@ -189,8 +163,6 @@ export class RunSuggestionsPanel implements vscode.Disposable {
       }
     } catch (error) {
       this.error = (error as Error).message;
-    } finally {
-      await rm(directory, { recursive: true, force: true });
     }
     return false;
   }

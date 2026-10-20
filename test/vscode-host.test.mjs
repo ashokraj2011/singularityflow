@@ -10347,14 +10347,17 @@ async function runAndTestCli(base) {
     const out = (value, code = 0) => { process.stdout.write(JSON.stringify(value)); process.exitCode = code; };
     const refuse = (code, message) => out({ schemaVersion: 1, resultType: 'sflow-refusal-plan', status: 'failed', error: { code, message } }, 1);
     if (args[0] === 'app' || args[0] === 'tests') {
-      appendFileSync(state + '/log.jsonl', JSON.stringify({ argv: args, cwd: process.cwd() }) + '\\n');
+      // app config preview reads a private file: its bytes and permissions are logged while it exists.
+      const block = args.includes('--application-file') ? args[args.indexOf('--application-file') + 1] : null;
+      appendFileSync(state + '/log.jsonl', JSON.stringify({ argv: args, cwd: process.cwd(), ...(block ? { previewApplication: readFileSync(block, 'utf8'),
+        fileMode: statSync(block).mode & 0o777, directoryMode: statSync(dirname(block)).mode & 0o777 } : {}) }) + '\\n');
       const key = args[0] + ' ' + args[1];
-      let file = { 'app plan': 'plan.json', 'app status': 'status.json', 'app suggest': 'suggest.json', 'tests plan': 'tests-plan.json', 'tests summary': 'summary.json' }[key];
+      let file = { 'app plan': 'plan.json', 'app status': 'status.json', 'app suggest': 'suggest.json', 'app config': 'preview.json', 'tests plan': 'tests-plan.json', 'tests summary': 'summary.json' }[key];
       const run = args.find((value) => value.startsWith('--run='));
       if (key === 'tests summary' && run) file = 'summary-' + run.slice('--run='.length) + '.json';
       else if (key === 'tests summary' && args.includes('--work-id')) file = 'story-summary.json';
       if (key === 'app stop') out(existsSync(state + '/stop.json') ? read('stop.json') : { capability: 'checkout-app', id: args[2], stopped: true, pid: 4242, reason: 'stopped' });
-      else if (file && existsSync(state + '/' + file)) out(read(file));
+      else if (file && existsSync(state + '/' + file)) out(read(file), read(file)?.status === 'failed' ? 1 : 0);
       else if (key === 'tests summary') out({ resultType: 'sflow-test-summary', schemaVersion: 1,
         scope: { kind: 'capability', capability: 'checkout-app', workId: null, phase: null }, run: null,
         totals: { discovered: 0, passed: 0, failed: 0, skipped: 0, flaky: 0, durationMs: 0 }, commands: [], cases: [], truncated: false, untagged: 0, history: [] });
@@ -10422,8 +10425,10 @@ function withTaskHost(api, registered) {
 /**
  * A workspace whose lead repository is `mobile`, selected with no folder open, so this window knows
  * its repository ID; the lead's map adds `checkout-app`, a delivery capability shipping from it.
+ * `application` declares its application block in the map, which is what makes the run widget,
+ * the Run view and the Testing view appear; `prepare` extends the stub before activation.
  */
-async function activatedWithRunAndTest(t) {
+async function activatedWithRunAndTest(t, { application = false, prepare = null } = {}) {
   const source = await demoRepository();
   const base = path.dirname(source);
   t.after(() => removeFixture(base));
@@ -10450,12 +10455,13 @@ async function activatedWithRunAndTest(t) {
     kind: delivery
     parent: product
     repositories: [mobile]
-`);
+${application ? RUN_APPLICATION_YAML : ''}`);
   const cli = await runAndTestCli(base);
   await cli.write('plan.json', runPlan());
   await cli.write('status.json', runStatus({ started: false, ready: false }));
   const { api, registered } = stubVscode();
   withTaskHost(api, registered);
+  prepare?.(api, registered);
   api.workspace.workspaceFolders = null;
   api.workspace.getConfiguration = () => ({ get: (key) => key === 'cliPath' ? cli.wrapper : '', update: async () => {} });
   const windowState = new Map();
@@ -10858,7 +10864,7 @@ test('Start (debug) runs app start --debug as a task, attaches on 127.0.0.1 at t
   assert.equal(task.execution.kind, 'process');
   assert.deepEqual(task.execution.args, [cli.wrapper, 'app', 'start', 'web', '--capability', 'checkout-app', '--environment', 'dev', '--debug', '--expect-command', RUN_SHA]);
   assert.deepEqual(task.definition, { type: 'singularityFlow', action: 'app-start', capability: 'checkout-app', entry: 'web', environment: 'dev', debug: true });
-  assert.equal(task.name, 'Start web (debug) · checkout-app');
+  assert.equal(task.name, 'Start web · dev (debug) · checkout-app', 'its own terminal, named by configuration and environment');
   assert.deepEqual(windowState.get('singularityFlow.runAndTest.confirmedCommands'), [`${RUN_SHA}:debug`], 'the debug start is confirmed apart from the plain start');
 
   // Started but not listening yet: nothing is attached.
@@ -11055,4 +11061,632 @@ test('Suggest from run configurations saves with capability set when the map has
   const html = await until(() => page.webview.html.includes('Saved to singularity/capabilities.yml in this checkout') && page.webview.html.includes('data-sg-index="1"') ? page.webview.html : null);
   assert.doesNotMatch(html, /Reading the run configurations/);
   assert.equal(registered.panels.some((entry) => entry.id === 'singularityFlow.capabilityProposal'), false, 'nothing was proposed');
+});
+
+/**
+ * The Run/Debug Configurations editor (docs/SPEC-RUN-AND-TEST-v1.md, IntelliJ amendment §2). `app plan`
+ * reports the declared block under `application`; `app config preview` and `app suggest` answer from
+ * fixtures in the amendment's shapes; `capability set|edit --application-file` is logged with the
+ * bytes of the file and its permissions while it exists.
+ */
+const RUN_API_TYPED = {
+  id: 'api', name: 'Api', type: 'spring-boot', launcher: 'maven', mainClass: 'com.example.api.ApiApplication',
+  vmOptions: ['-Xmx1g'], activeProfiles: ['dev'], workingDirectory: 'services/api', env: { FEATURE_FLAGS: 'a,b' },
+  perEnvironment: { qa: { activeProfiles: ['qa'], vmOptions: ['-Xmx2g'] } }, environments: ['dev', 'qa'],
+  url: 'http://127.0.0.1:8080/', ready: { http: '/actuator/health', timeoutMs: 180000 }, debug: { port: 5005 }
+};
+const RUN_API_ARGV = ['./mvnw', '-q', 'spring-boot:run', '-Dspring-boot.run.main-class=com.example.api.ApiApplication', '-Dspring-boot.run.jvmArguments=-Xmx1g'];
+const RUN_FAKE_SECRET = 'Zk3q9Vb7Lp2Xw8Rt5Ny1Hc6Md4Gs0Jf';
+/** `app plan --json` with typed entries and the declared block, as the amendment describes it. */
+const typedRunPlan = () => ({
+  ...runPlan(),
+  application: { start: [RUN_EXISTING, RUN_API_TYPED], tests: [{ use: 'module-tests' }] },
+  entries: [runPlanEntry(), {
+    capability: 'checkout-app', repository: 'mobile', ...RUN_API_TYPED, argv: [...RUN_API_ARGV, '-Dspring-boot.run.profiles=dev'], commandSha256: RUN_SHA,
+    environments: [
+      { name: 'dev', status: 'bound', default: true, resolved: { argv: [...RUN_API_ARGV, '-Dspring-boot.run.profiles=dev'], envNames: ['FEATURE_FLAGS', 'DB_PASSWORD'], beforeLaunch: [] } },
+      { name: 'qa', status: 'unbound', default: false, resolved: { argv: [...RUN_API_ARGV, '-Dspring-boot.run.profiles=qa'], envNames: ['FEATURE_FLAGS', 'DB_PASSWORD'], beforeLaunch: [] } }
+    ]
+  }]
+});
+/** `app config preview --json`: each entry's command line per environment. */
+const typedRunPreview = () => ({
+  resultType: 'sflow-app-config-preview', capability: 'checkout-app', valid: true, errors: [],
+  entries: [
+    { index: 0, id: 'web', environments: [], resolved: { argv: ['npm', 'run', 'dev'], envNames: [], beforeLaunch: [] } },
+    { index: 1, id: 'api', type: 'spring-boot', errors: [], environments: [
+      { name: 'dev', default: true, resolved: { argv: [...RUN_API_ARGV, '-Dspring-boot.run.profiles=dev'], envNames: ['FEATURE_FLAGS', 'DB_PASSWORD'], beforeLaunch: [] } },
+      { name: 'qa', default: false, resolved: { argv: ['./mvnw', '-q', 'spring-boot:run', '-Dspring-boot.run.jvmArguments=-Xmx2g', '-Dspring-boot.run.profiles=qa'], envNames: ['FEATURE_FLAGS', 'DB_PASSWORD'], beforeLaunch: [] } }
+    ] }
+  ]
+});
+
+/** until(), for a reader that has to await (the wrapper's log). */
+async function eventually(read) {
+  for (let attempt = 0; attempt < 1200; attempt += 1) {
+    const value = await read();
+    if (value) return value;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Timed out waiting for: ${read.toString().replace(/\s+/g, ' ').slice(0, 160)}`);
+}
+const editorPage = (registered) => until(() => registered.panels.filter((entry) => entry.id === 'singularityFlow.runConfigurations' && entry.visible).at(-1) ?? null);
+const previewCalls = async (cli) => (await cli.log()).filter((entry) => entry.argv[0] === 'app' && entry.argv[1] === 'config');
+const lastPatch = (page) => page.sent.filter((message) => message.type === 'config.patch').at(-1);
+const region = (message, id) => message?.regions.find((entry) => entry.id === id)?.html ?? '';
+
+test('Edit Run Configurations: grouped typed list, Command line per environment from a private file, overrides marked, secrets refused, then the whole block proposed', async (t) => {
+  if (!requireBundle(t)) return;
+  const { registered, cli, windowState } = await activatedWithRunAndTest(t);
+  await cli.write('plan.json', typedRunPlan());
+  await cli.write('preview.json', typedRunPreview());
+  const panel = await openRunAndTest(registered);
+  assert.match(panel.webview.html, /data-rt="configurations" data-rt-capability="checkout-app">[^]*?Edit configurations…/);
+  assert.match(panel.webview.html, /data-rt="configurations" data-rt-capability="checkout-app" data-rt-entry="api"/);
+  await panel.post(rt('configurations', { entry: 'api' }));
+  const page = await editorPage(registered);
+  let html = await until(() => page.webview.html.includes('data-cf-group="spring-boot"') ? page.webview.html : null);
+  assert.equal(page.title, 'Run Configurations · checkout-app');
+  assert.match(html, /Content-Security-Policy" content="default-src 'none'/);
+  assert.match(html, /data-cf-group="spring-boot">[^]*Spring Boot<\/div>[^]*data-cf-select="c2" aria-current="true">/, 'the entry the section named is selected');
+  assert.match(html, /data-cf-group="command">[^]*Command<\/div>[^]*data-cf-select="c1"/);
+  assert.match(html, /data-cf-tab="qa" aria-selected="false">qa <small class="muted">not bound<\/small> <span class="cf-badge"[^>]*>2<\/span>/);
+  assert.match(html, /<code>DB_PASSWORD<\/code>: <strong>bound privately on this computer<\/strong>/);
+
+  // The Command line comes from app config preview of the whole block, read from a private file.
+  const preview = await eventually(async () => (await previewCalls(cli))[0] ?? null);
+  const file = preview.argv[preview.argv.indexOf('--application-file') + 1];
+  assert.deepEqual(preview.argv, ['app', 'config', 'preview', '--capability', 'checkout-app', '--application-file', file, '--json']);
+  assert.equal(preview.fileMode, 0o600);
+  assert.equal(preview.directoryMode, 0o700);
+  assert.ok(path.basename(path.dirname(file)).startsWith('sflow-application-'));
+  assert.deepEqual(YAML.parse(preview.previewApplication), { start: [RUN_EXISTING, RUN_API_TYPED], tests: [{ use: 'module-tests' }] });
+  await until(() => !existsSync(file));
+  assert.equal(existsSync(path.dirname(file)), false, 'the private file and its folder are removed after the call');
+  const shown = await until(() => region(lastPatch(page), 'preview').includes('cf-command-line') ? region(lastPatch(page), 'preview') : null);
+  assert.match(shown, /<tr data-cf-preview-env="dev" class="current"><th>dev <small class="muted">default<\/small><\/th>\s*<td><code class="cf-command-line">\.\/mvnw -q spring-boot:run -Dspring-boot\.run\.main-class=com\.example\.api\.ApiApplication -Dspring-boot\.run\.jvmArguments=-Xmx1g -Dspring-boot\.run\.profiles=dev<\/code>/);
+  assert.match(shown, /data-cf-preview-env="qa"><th>qa<\/th>[^]*-Dspring-boot\.run\.jvmArguments=-Xmx2g -Dspring-boot\.run\.profiles=qa/);
+
+  // qa: an override is marked "differs from Base", the footer says unsaved, the preview runs again.
+  await page.post({ type: 'config.tab', key: 'c2', tab: 'qa' });
+  html = await until(() => page.webview.html.includes('data-cf-tab="qa"') && page.webview.html.includes('data-cf-key="c2" data-cf-current-tab="qa"') ? page.webview.html : null);
+  assert.match(html, /<textarea data-cf-field="vmOptions"[^>]*>-Xmx2g<\/textarea>[^]*data-cf-differs="vmOptions">differs from Base/);
+  const before = (await previewCalls(cli)).length;
+  await page.post({ type: 'config.field', key: 'c2', tab: 'qa', field: 'vmOptions', value: '-Xmx3g\n-XX:+UseZGC' });
+  const patched = lastPatch(page);
+  assert.match(region(patched, 'note-vmOptions'), /differs from Base/);
+  assert.match(region(patched, 'status'), /● Unsaved changes/);
+  assert.match(region(patched, 'list'), /data-cf-select="c2"[^]*data-cf-modified>●/);
+  assert.equal(page.title, '● Run Configurations · checkout-app');
+  assert.deepEqual(patched.state.configurations[1].entry.perEnvironment.qa, { activeProfiles: ['qa'], vmOptions: ['-Xmx3g', '-XX:+UseZGC'] }, 'the page keeps the draft (webview state)');
+  await eventually(async () => (await previewCalls(cli)).length > before);
+  assert.deepEqual(YAML.parse((await previewCalls(cli)).at(-1).previewApplication).start[1].perEnvironment.qa.vmOptions, ['-Xmx3g', '-XX:+UseZGC']);
+
+  // A secret is refused in the table and in an argument; it is never kept, shown, sent or written.
+  await page.post({ type: 'config.tab', key: 'c2', tab: 'base' });
+  await page.post({ type: 'config.env', key: 'c2', tab: 'base', rows: [{ name: 'FEATURE_FLAGS', value: 'a,b' }, { name: 'SESSION_SEED', value: RUN_FAKE_SECRET }] });
+  html = await until(() => page.webview.html.includes('looks like a secret') ? page.webview.html : null);
+  assert.match(html, /data-cf-region="note-env"><span class="cf-field-error" role="alert">[^]*SESSION_SEED looks like a secret, so it was not kept\. Secrets are never typed into VS Code[^]*singularity-flow env bind dev --stdin/);
+  await page.post({ type: 'config.field', key: 'c2', tab: 'base', field: 'vmOptions', value: `-Xmx1g\n-Dapi.token=${RUN_FAKE_SECRET}` });
+  html = await until(() => page.webview.html.includes('api.token looks like a secret') ? page.webview.html : null);
+  assert.match(html, /<textarea data-cf-field="vmOptions"[^>]*>-Xmx1g<\/textarea>/, 'the field shows what was kept');
+  for (const [where, text] of [['page', page.webview.html], ['messages', JSON.stringify(page.sent)], ['workspace state', JSON.stringify([...windowState.entries()])],
+    ['previews', JSON.stringify(await previewCalls(cli))]]) assert.ok(!text.includes(RUN_FAKE_SECRET), `${where} holds the secret`);
+
+  // Add from a template; the list groups it under npm.
+  await page.post({ type: 'config.add', configurationType: 'npm' });
+  html = await until(() => page.webview.html.includes('data-cf-group="npm"') ? page.webview.html : null);
+  assert.match(html, /data-cf-group="npm">[^]*data-cf-select="c3" aria-current="true">[^]*npm<\/span>\s*<small class="muted">web-2<\/small>/);
+  await page.post({ type: 'config.field', key: 'c3', tab: 'base', field: 'script', value: 'storybook' });
+
+  // Apply: the review page shows the YAML difference of the whole block; accepting proposes it.
+  const keptBeforeSaving = lastPatch(page).state;
+  registered.reviewConfirmationManual = true;
+  const applying = page.post({ type: 'config.action', action: 'apply', key: 'c3', tab: 'base' });
+  const confirmation = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.reviewConfirmation' && entry.visible) ?? null);
+  assert.equal(confirmation.title, 'Propose run configurations for checkout-app');
+  const review = confirmation.webview.html;
+  assert.match(review, /Added: web-2\nChanged: api\nRemoved: none\nKept as they are: web\nTests already declared, kept as they are: 1/);
+  assert.match(review, /\n-         vmOptions: \[-Xmx2g\]\n\+         vmOptions: \[-Xmx3g, -XX:\+UseZGC\]\n/);
+  assert.match(review, /\n\+   - id: web-2\n\+     name: npm\n\+     type: npm\n\+     packageManager: npm\n\+     script: storybook\n/);
+  assert.match(review, /\n    - use: module-tests\n/);
+  assert.ok(!review.includes(RUN_FAKE_SECRET));
+  await confirmation.post({ type: 'confirmation.accept', acknowledged: true });
+  await applying;
+  const call = await eventually(async () => (await cli.log()).find((entry) => entry.argv[0] === 'capability' && entry.application !== undefined) ?? null);
+  const written = call.argv[call.argv.indexOf('--application-file') + 1];
+  assert.deepEqual(call.argv, ['capability', 'edit', 'checkout-app', '--lead', call.argv[4], '--mode', 'set', '--application-file', written, '--json']);
+  assert.equal(call.fileMode, 0o600);
+  assert.equal(call.directoryMode, 0o700);
+  assert.equal(existsSync(written), false);
+  const block = YAML.parse(call.application);
+  assert.deepEqual(block.start[0], RUN_EXISTING, 'an untouched entry is written exactly as declared');
+  assert.deepEqual(block.start[1], { ...RUN_API_TYPED, perEnvironment: { qa: { activeProfiles: ['qa'], vmOptions: ['-Xmx3g', '-XX:+UseZGC'] } } });
+  assert.deepEqual(block.start[2], { id: 'web-2', name: 'npm', type: 'npm', packageManager: 'npm', script: 'storybook', url: 'http://127.0.0.1:5173/',
+    ready: { http: '/', timeoutMs: 90000 }, debug: { port: 9229 } });
+  assert.deepEqual(block.tests, [{ use: 'module-tests' }], 'the declared tests are kept');
+  assert.ok(!call.application.includes(RUN_FAKE_SECRET));
+  assert.ok(registered.output.some((line) => line.includes('capability edit checkout-app --lead') && line.includes('--application-file "<private temporary file>"')));
+  // The proposal opens for review; the plan is read again and the Run & test section redrawn.
+  await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.capabilityProposal') ?? null);
+  html = await until(() => page.webview.html.includes('Proposal sflow/config-change/capability/set-checkout-app was created') && page.webview.html.includes('data-cf-clean')
+    ? page.webview.html : null);
+  assert.match(html, /Nothing changes here until it is approved/);
+  assert.match(html, /No unsaved changes/, 'the draft went into the proposal');
+  await page.post({ type: 'config.ready', saved: keptBeforeSaving });
+  assert.match(page.webview.html, /No unsaved changes/, 'the state the page held before the save is not adopted again');
+  const plans = (await cli.log()).filter((entry) => entry.argv.join(' ') === 'app plan --capability checkout-app --json');
+  assert.ok(plans.length >= 4, `app plan read again after the save (${plans.length} reads)`);
+});
+
+test('Edit Run Configurations from the command: selected configuration, Import from IDE run configurations, a folder picker inside the repository, the draft kept, OK saves locally', async (t) => {
+  if (!requireBundle(t)) return;
+  // A folder opened directly, whose checkout has no remote: no capability-map authority, so edits are local.
+  const root = await demoRepository();
+  t.after(() => removeFixture(path.dirname(root)));
+  const map = path.join(root, 'singularity/capabilities.yml');
+  await writeFile(map, `${await readFile(map, 'utf8')}
+  checkout-app:
+    name: Checkout app
+    kind: delivery
+    parent: product
+    repositories: [mobile]
+`);
+  run('git', ['remote', 'remove', 'origin'], { cwd: root });
+  await mkdir(path.join(root, 'services', 'web'), { recursive: true });
+  const cli = await runAndTestCli(path.dirname(root));
+  await cli.write('plan.json', typedRunPlan());
+  await cli.write('status.json', runStatus({ started: false, ready: false }));
+  await cli.write('leads.json', []);
+  // An engine whose block is refused with located errors, exiting non-zero.
+  await cli.write('preview.json', { schemaVersion: 1, resultType: 'sflow-refusal-plan', status: 'failed',
+    error: { code: 'CAPABILITY_APPLICATION_INVALID', message: 'The application block is invalid.', details: { errors: [{ path: 'start[1].mainClass', message: 'mainClass must name a Java class.' }] } } });
+  await cli.write('suggest.json', {
+    resultType: 'sflow-app-suggestions', capability: 'checkout-app',
+    suggestions: [
+      { source: { kind: 'pycharm', file: '.run/Pricing.run.xml', name: 'Pricing (dev)' }, start: { id: 'pricing', type: 'fastapi' },
+        environmentNames: [{ name: 'PRICING_API_KEY', kind: 'secret' }], notes: [] },
+      { source: { kind: 'vscode', file: '.vscode/launch.json', name: 'Leaky' }, start: { id: 'leaky', type: 'node', script: 'x.js', nodeOptions: [`--auth-token=${RUN_FAKE_SECRET}`] } }
+    ],
+    applicationDraft: YAML.stringify({ start: [RUN_EXISTING, RUN_API_TYPED, { id: 'pricing', name: 'Pricing', type: 'fastapi', app: 'pricing.main:app', port: 8001,
+      env: { PRICING_MODE: 'fast', PRICING_SEED: RUN_FAKE_SECRET }, url: 'http://127.0.0.1:8001/', ready: { http: '/docs', timeoutMs: 60000 }, debug: { port: 5678 } }],
+    tests: [{ use: 'module-tests' }] }),
+    environmentsDraft: 'environments:\n  dev:\n    requires:\n      - { name: PRICING_API_KEY, kind: secret }\n'
+  });
+  const { api, registered } = stubVscode();
+  withTaskHost(api, registered);
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  api.workspace.getConfiguration = () => ({ get: (key) => key === 'cliPath' ? cli.wrapper : '', update: async () => {} });
+  await loadExtension(api).activate(context());
+  assert.ok(registered.commands.has('singularityFlow.editRunConfigurations'));
+  await registered.commands.get('singularityFlow.editRunConfigurations')({ capability: 'checkout-app', configuration: 'api' });
+  let page = await editorPage(registered);
+  let html = await until(() => page.webview.html.includes('data-cf-select="c2" aria-current="true"') ? page.webview.html : null);
+  // The refused preview's located error is said under its field and in the Command line.
+  html = await until(() => page.webview.html.includes('mainClass must name') || region(lastPatch(page), 'note-mainClass').includes('mainClass must name')
+    ? `${page.webview.html}${region(lastPatch(page), 'note-mainClass')}${region(lastPatch(page), 'preview')}` : null);
+  assert.match(html, /<span class="cf-field-error" role="alert" data-cf-engine-error>[^]*mainClass must name a Java class\./);
+  assert.match(region(lastPatch(page), 'status'), /No unsaved changes/);
+
+  // The page's own kept draft (webview state) is adopted on a new panel's first load, when this window
+  // kept none; never later, so Discard is not undone by the state the page still held before it.
+  const kept = JSON.parse(page.webview.html.match(/<script type="application\/json" id="cf-saved">([^<]*)<\/script>/)[1]);
+  kept.configurations[1].entry.mainClass = 'com.example.api.KeptMain';
+  await page.post({ type: 'config.ready', saved: kept });
+  html = await until(() => page.webview.html.includes('value="com.example.api.KeptMain"') ? page.webview.html : null);
+  assert.match(html, /● Unsaved changes/);
+  const leaking = structuredClone(kept);
+  leaking.configurations[1].entry.env = { SESSION_SEED: RUN_FAKE_SECRET };
+  await page.post({ type: 'config.action', action: 'discard' });
+  assert.match(region(lastPatch(page), 'status'), /Discard every unsaved change\?/);
+  await page.post({ type: 'config.action', action: 'discard-confirm' });
+  html = await until(() => page.webview.html.includes('The unsaved changes were discarded.') ? page.webview.html : null);
+  assert.match(html, /value="com\.example\.api\.ApiApplication"/);
+  for (const saved of [kept, leaking]) {
+    await page.post({ type: 'config.ready', saved });
+    assert.match(page.webview.html, /No unsaved changes/, 'a later page load never brings a discarded draft back');
+    assert.ok(!page.webview.html.includes(RUN_FAKE_SECRET));
+  }
+
+  // Import: the picked IDE configuration is added as a typed entry; no secret value is copied.
+  await page.post({ type: 'config.action', action: 'import' });
+  html = await until(() => page.webview.html.includes('data-cf-group="fastapi"') ? page.webview.html : null);
+  const pick = registered.quickPicks.at(-1);
+  assert.equal(pick.options.title, 'Import from IDE run configurations');
+  assert.equal(pick.options.canPickMany, true);
+  assert.deepEqual(pick.items.map((item) => [item.label, item.description, item.detail]), [['Pricing (dev)', 'FastAPI · PyCharm', '.run/Pricing.run.xml']], 'one that carries a secret cannot be picked');
+  assert.match(pick.options.placeHolder, /1 cannot be imported as written/);
+  assert.ok((await cli.log()).some((entry) => entry.argv.join(' ') === 'app suggest --capability checkout-app --json'));
+  assert.match(html, /Imported pricing\. Review them, then Apply\. PRICING_SEED, PRICING_API_KEY are secrets: declare them by name in singularity\/environments\.yml and bind the values privately/);
+  assert.match(html, /<input type="text" data-cf-field="app" aria-label="Application"[^>]*value="pricing\.main:app"/);
+  assert.match(html, /data-cf-env-name value="PRICING_MODE"/);
+  assert.ok(!html.includes(RUN_FAKE_SECRET));
+  await page.post({ type: 'config.action', action: 'copy-environments' });
+  assert.match(registered.clipboard.at(-1), /PRICING_API_KEY, kind: secret/);
+
+  // The folder picker: inside the repository only.
+  registered.pickedFolder = path.join(root, 'services', 'web');
+  await page.post({ type: 'config.action', action: 'browse', key: 'c3', tab: 'base', field: 'workingDirectory' });
+  html = await until(() => page.webview.html.includes('value="services/web"') ? page.webview.html : null);
+  assert.equal(registered.openDialogs.at(-1).canSelectFolders, true);
+  assert.equal(registered.openDialogs.at(-1).defaultUri.fsPath, await realpath(root));
+  registered.pickedFolder = os.tmpdir();
+  await page.post({ type: 'config.action', action: 'browse', key: 'c3', tab: 'base', field: 'workingDirectory' });
+  html = await until(() => page.webview.html.includes('Choose a folder inside this repository') ? page.webview.html : null);
+  assert.match(html, /value="services\/web"/, 'the refused folder is not kept');
+
+  // Closing the page keeps the unsaved draft for this window; reopening shows it, marked.
+  page.dispose();
+  await registered.commands.get('singularityFlow.editRunConfigurations')({ capability: 'checkout-app' });
+  page = await editorPage(registered);
+  html = await until(() => page.webview.html.includes('data-cf-group="fastapi"') ? page.webview.html : null);
+  assert.match(html, /● Unsaved changes/);
+  assert.equal(page.title, '● Run Configurations · checkout-app');
+
+  // OK saves through capability set in this checkout (no authority), then closes the page.
+  registered.reviewConfirmationManual = true;
+  await cli.write('preview.json', typedRunPreview());
+  const saving = page.post({ type: 'config.action', action: 'ok' });
+  const confirmation = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.reviewConfirmation' && entry.visible) ?? null);
+  assert.match(confirmation.webview.html, /Written to: singularity\/capabilities\.yml in this checkout/);
+  assert.ok(confirmation.webview.html.includes('capability set checkout-app --application-file &quot;&lt;private temporary file&gt;&quot; --json'));
+  await confirmation.post({ type: 'confirmation.accept', acknowledged: true });
+  await saving;
+  const call = await eventually(async () => (await cli.log()).find((entry) => entry.argv[0] === 'capability' && entry.application !== undefined) ?? null);
+  const file = call.argv[call.argv.indexOf('--application-file') + 1];
+  assert.deepEqual(call.argv, ['capability', 'set', 'checkout-app', '--application-file', file, '--json']);
+  const block = YAML.parse(call.application);
+  assert.deepEqual(block.start.slice(0, 2), [RUN_EXISTING, RUN_API_TYPED], 'the declared entries, untouched');
+  assert.deepEqual(block.start[2], { id: 'pricing', name: 'Pricing', type: 'fastapi', app: 'pricing.main:app', port: 8001, workingDirectory: 'services/web',
+    env: { PRICING_MODE: 'fast' }, url: 'http://127.0.0.1:8001/', ready: { http: '/docs', timeoutMs: 60000 }, debug: { port: 5678 } });
+  assert.deepEqual(block.tests, [{ use: 'module-tests' }]);
+  assert.ok(!call.application.includes(RUN_FAKE_SECRET));
+  assert.ok((await cli.log()).some((entry) => entry.argv.join(' ') === 'capability leads --json'), 'no authority, so the registered leads are asked; there are none');
+  await until(() => !page.visible);
+  assert.equal(registered.panels.some((entry) => entry.id === 'singularityFlow.capabilityProposal'), false, 'nothing was proposed');
+});
+
+/**
+ * IntelliJ-style run configurations (docs/SPEC-RUN-AND-TEST-v1.md, IntelliJ amendment, milestone 13):
+ * the status bar run widget, the Run view and the Testing view, driven through the bundle against
+ * the same CLI wrapper. Each acts through the Run & test controller, so the argv a task runs, its
+ * confirmation and its trust check are asserted exactly as the capability page's are.
+ */
+const RUN_APPLICATION_YAML = `    application:
+      start:
+        - { id: web, argv: [npm, run, dev], workingDirectory: apps/web, url: "http://127.0.0.1:5173/", ready: { http: /, timeoutMs: 1000 }, environments: [dev, qa] }
+`;
+
+/** Status bar items keep their arguments, and hiding one is visible; a Testing API that records. */
+function withRunWidgetHost(api, registered) {
+  const create = api.window.createStatusBarItem;
+  registered.runItems = () => registered.statusBars.filter((item) => String(item.args?.[0] ?? '').startsWith('singularityFlow.run.'));
+  registered.runItem = (id) => registered.statusBars.find((item) => item.args?.[0] === `singularityFlow.run.${id}`);
+  api.window.createStatusBarItem = (...args) => {
+    const item = create();
+    item.args = args;
+    item.hide = function hide() { this.shown = false; };
+    return item;
+  };
+  api.window.terminals = [];
+  registered.runContext = () => registered.executedCommands.filter((entry) => entry.id === 'setContext' && entry.args[0] === 'singularityFlow.runConfigurations').at(-1)?.args[1];
+  class Items {
+    constructor() { this.map = new Map(); }
+    get size() { return this.map.size; }
+    replace(items) { this.map = new Map(items.map((item) => [item.id, item])); }
+    add(item) { this.map.set(item.id, item); }
+    get(id) { return this.map.get(id); }
+    delete(id) { this.map.delete(id); }
+    forEach(callback) { for (const item of this.map.values()) callback(item, this); }
+    [Symbol.iterator]() { return this.map.entries(); }
+  }
+  registered.testControllers = [];
+  api.TestRunProfileKind = { Run: 1, Debug: 2, Coverage: 3 };
+  api.TestMessage = class { constructor(message) { this.message = message; } };
+  api.Location = class { constructor(uri, range) { this.uri = uri; this.range = range; } };
+  api.tests = {
+    createTestController: (id, label) => {
+      const controller = {
+        id, label, items: new Items(), profiles: [], runs: [], disposed: false,
+        createTestItem: (itemId, itemLabel, uri) => ({ id: itemId, label: itemLabel, uri, children: new Items(), canResolveChildren: false }),
+        createRunProfile: (profileLabel, kind, runHandler, isDefault) => {
+          const profile = { label: profileLabel, kind, runHandler, isDefault, dispose() {} };
+          controller.profiles.push(profile);
+          return profile;
+        },
+        createTestRun: (request, name, persist) => {
+          const events = [];
+          const run = {
+            request, name, persist, events, output: [], ended: false,
+            enqueued: (item) => events.push(['enqueued', item.id]), started: (item) => events.push(['started', item.id]),
+            passed: (item, duration) => events.push(['passed', item.id, duration]),
+            failed: (item, message, duration) => events.push(['failed', item.id, message.message, duration, message.location?.range?.start.line ?? null]),
+            errored: (item, message, duration) => events.push(['errored', item.id, message.message, duration]),
+            skipped: (item) => events.push(['skipped', item.id]),
+            appendOutput: (text) => run.output.push(text), end: () => { run.ended = true; }
+          };
+          controller.runs.push(run);
+          return run;
+        },
+        dispose() { controller.disposed = true; }
+      };
+      registered.testControllers.push(controller);
+      return controller;
+    }
+  };
+}
+
+const cancellation = () => {
+  const listeners = [];
+  return { isCancellationRequested: false, onCancellationRequested: (listener) => { listeners.push(listener); return { dispose() {} }; },
+    cancel() { this.isCancellationRequested = true; for (const listener of listeners) listener(); } };
+};
+
+test('without an application the window shows no run widget, no Run view rows and no test controller, and runs no app or tests command', async (t) => {
+  if (!requireBundle(t)) return;
+  const { registered, cli } = await activatedWithRunAndTest(t, { prepare: withRunWidgetHost });
+  // The first confirmed snapshot paints the status bar; the run widget's check follows it.
+  await until(() => registered.statusBars[0]?.text && !registered.statusBars[0].text.includes('loading'));
+  await settle(); await settle(); await settle();
+  assert.deepEqual(registered.runItems(), [], 'no run widget item is even created');
+  assert.ok(registered.trees.has('singularityFlow.run'), 'the Run view has its provider in every window');
+  assert.deepEqual(await registered.trees.get('singularityFlow.run').treeDataProvider.getChildren(), []);
+  assert.equal(registered.runContext(), undefined, 'the Run view stays hidden');
+  assert.deepEqual(registered.testControllers, []);
+  assert.deepEqual(await cli.log(), [], 'the check is a read of the capability map file, never the CLI');
+});
+
+test('the run widget shows the selected configuration and environment, and Run, Debug, Rerun and Stop act through the Run & test controller', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered, cli, windowState } = await activatedWithRunAndTest(t, { application: true, prepare: withRunWidgetHost });
+  const configuration = await until(() => registered.runItem('configuration')?.shown ? registered.runItem('configuration') : null);
+  assert.equal(configuration.text, '$(play) web · dev');
+  assert.equal(configuration.command, 'singularityFlow.selectRunConfiguration');
+  assert.deepEqual(configuration.args, ['singularityFlow.run.configuration', 1, 9999], 'left, beside the branch');
+  assert.equal(configuration.name, 'Singularity Flow: Run Configuration');
+  assert.deepEqual([registered.runItem('run').text, registered.runItem('run').command, registered.runItem('run').shown], ['$(play)', 'singularityFlow.runSelectedConfiguration', true]);
+  assert.equal(registered.runItem('debug').shown, false, 'no debug block, no Debug');
+  assert.equal(registered.runItem('stop').shown, false);
+  assert.equal(registered.runContext(), true, 'the Run view and the palette commands show');
+  assert.deepEqual([...new Set((await cli.log()).map((entry) => entry.argv.slice(0, 2).join(' ')))].sort(), ['app plan', 'app status', 'tests plan', 'tests summary']);
+  const tree = registered.trees.get('singularityFlow.run').treeDataProvider;
+  const [row] = await tree.getChildren();
+  const item = await tree.getTreeItem(row);
+  assert.deepEqual([item.label, item.description, item.contextValue, item.iconPath.id], ['web', 'dev · http://127.0.0.1:5173/', 'sflow.runConfiguration.stopped', 'circle-large-outline']);
+  assert.deepEqual(item.command, { command: 'singularityFlow.selectRunConfiguration', title: 'Select', arguments: [{ key: 'checkout-app/web' }] });
+
+  // The quick pick: the configuration with its type icon and state, its environments, Edit Configurations….
+  const choose = (match) => { api.window.showQuickPick = async (items, options) => { registered.quickPicks.push({ items, options }); return items.find(match); }; };
+  choose((entry) => entry.label.endsWith(' qa'));
+  await registered.commands.get('singularityFlow.selectRunConfiguration')();
+  assert.deepEqual(registered.quickPicks.at(-1).items.map((entry) => entry.label),
+    ['$(terminal) web', '$(check) dev', '$(circle-large-outline) qa', '$(gear) Edit Configurations…']);
+  assert.equal(registered.quickPicks.at(-1).items[2].detail, 'Bind its values with your own secret helper: singularity-flow env bind qa --stdin');
+  assert.deepEqual(windowState.get('singularityFlow.runAndTest.environments'), { 'checkout-app': 'qa' }, 'the same per-capability choice the page remembers');
+  await until(() => configuration.text === '$(play) web · qa');
+
+  // qa is not bound: Run refuses plainly, in a message, and nothing is asked or run.
+  await registered.commands.get('singularityFlow.runSelectedConfiguration')();
+  await until(() => registered.warnings.some((message) => message.startsWith('web was not started: environment qa is not bound')));
+  assert.equal(registered.tasks.length, 0);
+  assert.equal(registered.reviewConfirmations.length, 0);
+  choose((entry) => entry.label.endsWith(' dev'));
+  await registered.commands.get('singularityFlow.selectRunConfiguration')();
+  await until(() => configuration.text === '$(play) web · dev');
+
+  // Untrusted: nothing runs.
+  api.workspace.isTrusted = false;
+  await registered.commands.get('singularityFlow.runSelectedConfiguration')();
+  assert.equal(registered.tasks.length, 0);
+  assert.ok(registered.warnings.some((message) => /not trusted/.test(message)));
+  api.workspace.isTrusted = true;
+
+  // Run: the first-run confirmation, then the controller's task of the CLI argv.
+  registered.informationAnswer = 'Run this command';
+  await registered.commands.get('singularityFlow.runSelectedConfiguration')();
+  assert.equal(registered.reviewConfirmations.at(-1).title, 'Start web for checkout-app');
+  assert.equal(registered.tasks.length, 1);
+  assert.deepEqual(registered.tasks[0].task.execution.args, [cli.wrapper, 'app', 'start', 'web', '--capability', 'checkout-app', '--environment', 'dev', '--expect-command', RUN_SHA]);
+  assert.equal(registered.tasks[0].task.name, 'Start web · dev · checkout-app', 'its own terminal, named by configuration and environment');
+  assert.deepEqual(windowState.get('singularityFlow.runWidget.selection'), { capability: 'checkout-app', entries: { 'checkout-app': 'web' } });
+  await until(() => configuration.text === '$(loading~spin) web · dev');
+  assert.deepEqual([registered.runItem('run').text, registered.runItem('run').command], ['$(debug-restart)', 'singularityFlow.rerunSelectedConfiguration']);
+  assert.deepEqual([registered.runItem('stop').text, registered.runItem('stop').shown], ['$(debug-stop)', true]);
+  assert.equal((await tree.getTreeItem((await tree.getChildren())[0])).contextValue, 'sflow.runConfiguration.starting');
+
+  // Ready: the controller's status read moves it; Open in browser and Copy command line act on the row.
+  await cli.write('status.json', runStatus({ started: true, ready: true, environment: 'dev' }));
+  await until(() => configuration.text === '$(vm-running) web · dev');
+  const ready = (await tree.getChildren())[0];
+  assert.equal((await tree.getTreeItem(ready)).contextValue, 'sflow.runConfiguration.ready.browsable');
+  await registered.commands.get('singularityFlow.openConfigurationInBrowser')(ready);
+  assert.deepEqual(registered.opened, ['http://127.0.0.1:5173/']);
+  await registered.commands.get('singularityFlow.copyConfigurationCommandLine')(ready);
+  assert.equal(registered.clipboard.at(-1), 'npm run dev -- --host 127.0.0.1 --port 5173', 'the engine\'s resolved argv for dev, not the task wrapper');
+  const terminal = { name: 'Task - Start web · dev · checkout-app', shown: false, show() { this.shown = true; } };
+  api.window.terminals = [{ name: 'other', show() { throw new Error('the wrong terminal'); } }, terminal];
+  await registered.commands.get('singularityFlow.showConfigurationLog')(ready);
+  assert.equal(terminal.shown, true, 'Show log reveals its task terminal');
+
+  // Rerun: stop the task, wait until it has stopped, then start it again the same way.
+  await cli.write('status.json', runStatus({ started: false, ready: false }));
+  await registered.commands.get('singularityFlow.rerunSelectedConfiguration')();
+  assert.equal(registered.tasks[0].terminated, true);
+  assert.equal(registered.tasks.length, 2);
+  assert.deepEqual(registered.tasks[1].task.execution.args, registered.tasks[0].task.execution.args);
+  assert.equal(registered.reviewConfirmations.filter((entry) => entry.title === 'Start web for checkout-app').length, 1, 'the confirmed identity is not asked again');
+
+  // Stop (the widget's): ends the task.
+  await registered.commands.get('singularityFlow.stopRunningConfiguration')();
+  assert.equal(registered.tasks[1].terminated, true);
+  await until(() => configuration.text === '$(play) web · dev');
+  assert.equal(registered.runItem('stop').shown, false);
+
+  // Debug: a plan with a debug block shows Debug; it runs app start --debug through its own confirmation.
+  await cli.write('plan.json', runDebugPlan());
+  await registered.commands.get('singularityFlow.refreshRunConfigurations')();
+  await until(() => registered.runItem('debug').shown);
+  assert.equal(registered.runItem('debug').command, 'singularityFlow.debugSelectedConfiguration');
+  assert.equal((await tree.getTreeItem((await tree.getChildren())[0])).contextValue, 'sflow.runConfiguration.stopped.debuggable');
+  await registered.commands.get('singularityFlow.debugSelectedConfiguration')();
+  assert.equal(registered.reviewConfirmations.at(-1).title, 'Start web with its debugger for checkout-app');
+  assert.deepEqual(registered.tasks.at(-1).task.execution.args, [cli.wrapper, 'app', 'start', 'web', '--capability', 'checkout-app', '--environment', 'dev', '--debug', '--expect-command', RUN_SHA]);
+  await registered.commands.get('singularityFlow.stopConfiguration')((await tree.getChildren())[0]);
+  assert.equal(registered.tasks.at(-1).terminated, true);
+  assert.equal(Object.keys(manifestKeybindings()).length, 0, 'no default keybindings');
+});
+
+/** The extension's contributed keybindings: none, so people bind the commands themselves. */
+function manifestKeybindings() {
+  return JSON.parse(readFileSync(path.join(packageRoot, 'apps/vscode/package.json'), 'utf8')).contributes.keybindings ?? {};
+}
+
+test('the Run view context menu: Edit opens the Run/Debug Configurations editor when present, Run in environment picks and runs', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered, cli, windowState } = await activatedWithRunAndTest(t, { application: true, prepare: withRunWidgetHost });
+  await until(() => registered.runItem('configuration')?.shown);
+  const tree = registered.trees.get('singularityFlow.run').treeDataProvider;
+  const [row] = await tree.getChildren();
+
+  // The editor is in this build: Edit opens it.
+  await registered.commands.get('singularityFlow.editConfiguration')(row);
+  assert.ok(await editorPage(registered), 'Edit opened the Run/Debug Configurations editor');
+  // With the editor: the configuration it was asked from.
+  const edited = [];
+  registered.commands.set('singularityFlow.editRunConfigurations', (target) => { edited.push(target); });
+  await registered.commands.get('singularityFlow.editConfiguration')(row);
+  await registered.commands.get('singularityFlow.editConfiguration')({ capability: 'checkout-app', configuration: 'web' });
+  assert.deepEqual(edited, [{ capability: 'checkout-app', configuration: 'web' }, { capability: 'checkout-app', configuration: 'web' }]);
+  // From the widget's quick pick too.
+  api.window.showQuickPick = async (items, options) => { registered.quickPicks.push({ items, options }); return items.at(-1); };
+  await registered.commands.get('singularityFlow.selectRunConfiguration')();
+  assert.equal(edited.length, 3);
+
+  // Run in environment ▸: pick dev; it is remembered and runs, through the confirmation.
+  api.window.showQuickPick = async (items, options) => { registered.quickPicks.push({ items, options }); return items.find((entry) => entry.name === 'dev'); };
+  registered.informationAnswer = 'Run this command';
+  await registered.commands.get('singularityFlow.runConfigurationInEnvironment')(row);
+  assert.deepEqual(registered.quickPicks.at(-1).items.map((entry) => [entry.label, entry.description]), [['dev', 'bound · current'], ['qa', 'not bound']]);
+  assert.deepEqual(windowState.get('singularityFlow.runAndTest.environments'), { 'checkout-app': 'dev' });
+  assert.deepEqual(registered.tasks.at(-1).task.execution.args, [cli.wrapper, 'app', 'start', 'web', '--capability', 'checkout-app', '--environment', 'dev', '--expect-command', RUN_SHA]);
+  // A row command naming a configuration that is not declared does nothing.
+  const before = registered.tasks.length;
+  await registered.commands.get('singularityFlow.runConfiguration')({ capability: 'checkout-app', configuration: 'not-declared' });
+  assert.equal(registered.tasks.length, before);
+});
+
+test('the Testing view lists test commands and cases with their file and line, runs through the controller, and reports the run\'s summary', async (t) => {
+  if (!requireBundle(t)) return;
+  const { registered, cli, lead } = await activatedWithRunAndTest(t, { application: true, prepare: async (api, registered) => withRunWidgetHost(api, registered) });
+  await cli.write('tests-plan.json', runTestsPlan());
+  await cli.write('summary.json', runSummary());
+  await until(() => registered.runItem('configuration')?.shown);
+  await registered.commands.get('singularityFlow.refreshRunConfigurations')();
+  const controller = await until(() => registered.testControllers[0]);
+  assert.deepEqual([controller.id, controller.label], ['singularityFlow', 'Singularity Flow']);
+  await controller.resolveHandler(undefined);
+  const ids = () => [...controller.items].map(([id]) => id);
+  assert.deepEqual(ids(), ['checkout-app/module-tests', 'checkout-app/integration-tests', 'checkout-app/lint'], 'tests plan, then what only the summary names');
+  const moduleTests = controller.items.get('checkout-app/module-tests');
+  assert.equal(moduleTests.description, 'junit-xml');
+  assert.equal(moduleTests.canResolveChildren, true);
+  assert.equal(controller.items.get('checkout-app/lint').canResolveChildren, false, 'a totals-only report has no cases');
+  assert.equal(moduleTests.children.size, 0, 'cases are made when asked for');
+  await controller.resolveHandler(moduleTests);
+  const cases = [...moduleTests.children].map(([, item]) => item);
+  assert.deepEqual(cases.map((item) => [item.id, item.label, item.uri.fsPath, item.range.start.line]), [
+    ['["Cart","adds an item"]', 'adds an item', path.join(lead, 'src', 'cart.test.js'), 11],
+    ['["Cart","removes an item"]', 'removes an item', path.join(lead, 'src', 'cart.test.js'), 29]
+  ]);
+  const [profile] = controller.profiles;
+  assert.deepEqual([profile.label, profile.kind, profile.isDefault], ['Run', 1, true]);
+
+  // Rerun the failed case: its command runs (the engine runs whole commands), after the confirmation.
+  registered.informationAnswer = 'Run these tests';
+  const token = cancellation();
+  const running = profile.runHandler({ include: [cases[1]], exclude: [] }, token);
+  const task = await until(() => registered.tasks.find((entry) => entry.task.definition.action === 'tests-run'));
+  assert.deepEqual(task.task.execution.args, [cli.wrapper, 'tests', 'run', '--capability', 'checkout-app', '--command', 'module-tests',
+    '--expect-command', TESTS_SHA_MODULE]);
+  assert.equal(registered.reviewConfirmations.at(-1).title, 'Run tests for checkout-app');
+  const recorded = runSummary({
+    run: { ...runSummary().run, id: 'RUN-3', startedAt: '2026-10-20T11:00:00Z' },
+    commands: [{ id: 'module-tests', kind: 'test', adapter: 'junit-xml', status: 'failed', exitCode: 1, tests: { discovered: 3, passed: 1, failed: 1, skipped: 1 }, perCase: true, note: null },
+      runSummary().commands[1]],
+    cases: [
+      { command: 'module-tests', suite: 'Cart', name: 'adds an item', file: 'src/cart.test.js', line: 12, outcome: 'passed', durationMs: 5, clauses: [] },
+      { command: 'module-tests', suite: 'Cart', name: 'removes an item', file: 'src/cart.test.js', line: 30, outcome: 'failed', durationMs: 35, clauses: [], message: 'expected 1 to equal 0' },
+      { command: 'module-tests', suite: 'Cart', name: 'new one', file: 'src/cart.test.js', line: 50, outcome: 'skipped', durationMs: null, clauses: [] }
+    ]
+  });
+  await cli.write('summary.json', recorded);
+  await cli.write('summary-RUN-3.json', recorded);
+  registered.endTask(task, 1);
+  await running;
+  const [run] = controller.runs;
+  assert.equal(run.ended, true);
+  assert.deepEqual(run.events, [
+    ['enqueued', 'checkout-app/module-tests'], ['started', 'checkout-app/module-tests'],
+    ['passed', '["Cart","adds an item"]', 5],
+    ['failed', '["Cart","removes an item"]', 'expected 1 to equal 0', 35, 29],
+    ['skipped', '["Cart","new one"]'],
+    ['failed', 'checkout-app/module-tests', '1 passed, 1 failed, 1 skipped of 3', undefined, null]
+  ]);
+  assert.deepEqual(run.output.slice(0, 2), ['Local preview, not evidence [local-preview]\r\n',
+    'Run RUN-3, environment dev, commit abc1234: 1 passed, 1 failed of 3.\r\n'], 'the engine\'s label and evidence class lead the output');
+  assert.ok((await cli.log()).some((entry) => entry.argv.join(' ') === 'tests summary --capability checkout-app --run=RUN-3 --json'));
+  assert.equal(moduleTests.children.get('["Cart","new one"]').range.start.line, 49, 'a case the run found is listed for the editor');
+
+  // A totals-only command is reported on its own item.
+  const lint = controller.items.get('checkout-app/lint');
+  assert.ok(lint, 'still listed: the latest summary names it');
+  const linting = profile.runHandler({ include: [lint], exclude: [] }, cancellation());
+  const lintTask = await until(() => registered.tasks.filter((entry) => entry.task.definition.action === 'tests-run')[1]);
+  assert.deepEqual(lintTask.task.execution.args, [cli.wrapper, 'tests', 'run', '--capability', 'checkout-app', '--command', 'lint']);
+  const totalsOnly = runSummary({ run: { ...runSummary().run, id: 'RUN-4' }, commands: [runSummary().commands[1]], cases: [] });
+  await cli.write('summary.json', totalsOnly);
+  await cli.write('summary-RUN-4.json', totalsOnly);
+  registered.endTask(lintTask, 0);
+  await linting;
+  assert.deepEqual(controller.runs[1].events, [['enqueued', 'checkout-app/lint'], ['started', 'checkout-app/lint'], ['passed', 'checkout-app/lint', undefined]]);
+  assert.ok(controller.runs[1].output.includes('lint: Totals only: a junit-xml report would list each test case.\r\n'));
+
+  // Cancelling ends the task; nothing is reported as passed.
+  const cancelled = cancellation();
+  const stopping = profile.runHandler({ include: [moduleTests], exclude: [] }, cancelled);
+  const third = await until(() => registered.tasks.filter((entry) => entry.task.definition.action === 'tests-run')[2]);
+  await until(() => controller.runs[2]?.events.some(([kind]) => kind === 'started'));
+  cancelled.cancel();
+  await stopping;
+  assert.equal(third.terminated, true);
+  assert.deepEqual(controller.runs[2].events, [['enqueued', 'checkout-app/module-tests'], ['started', 'checkout-app/module-tests'], ['skipped', 'checkout-app/module-tests']]);
+  assert.deepEqual(controller.runs[2].output, ['The test run was cancelled.\r\n']);
+
+  // Declined confirmation of a changed command: nothing runs, and the run says why.
+  await cli.write('tests-plan.json', { ...runTestsPlan(), commands: runTestsPlan().commands.map((entry) => ({ ...entry, commandSha256: `sha256:${'9'.repeat(64)}` })) });
+  registered.informationAnswer = undefined;
+  const count = registered.tasks.length;
+  await profile.runHandler({ include: [moduleTests], exclude: [] }, cancellation());
+  assert.equal(registered.tasks.length, count);
+  assert.deepEqual(controller.runs[3].events, [['enqueued', 'checkout-app/module-tests'], ['skipped', 'checkout-app/module-tests']]);
+  assert.deepEqual(controller.runs[3].output, ['No tests were run.\r\n']);
+});
+
+test('Run refuses a start in an environment before any task opens while the capability policy keeps values from local processes', async (t) => {
+  if (!requireBundle(t)) return;
+  const { registered, cli } = await activatedWithRunAndTest(t, { application: true, prepare: withRunWidgetHost });
+  await cli.write('tests-plan.json', { ...runTestsPlan(), localIntegrationEvidence: 'off' });
+  await until(() => registered.runItem('configuration')?.shown);
+  await registered.commands.get('singularityFlow.refreshRunConfigurations')();
+  registered.informationAnswer = 'Run this command';
+  await registered.commands.get('singularityFlow.runSelectedConfiguration')();
+  await until(() => registered.warnings.some((message) => message.startsWith('web was not started: it needs environment dev')));
+  assert.match(registered.warnings.find((message) => message.startsWith('web was not started')), /capability checkout-app sets policy\.localIntegrationEvidence to allowed\. It is off\./);
+  assert.equal(registered.tasks.length, 0, 'no task opened to fail with an exit code');
+  assert.equal(registered.reviewConfirmations.length, 0);
+  // Allowed: the same Run starts it.
+  await cli.write('tests-plan.json', runTestsPlan());
+  await registered.commands.get('singularityFlow.runSelectedConfiguration')();
+  assert.equal(registered.tasks.length, 1);
+  assert.deepEqual(registered.tasks[0].task.execution.args, [cli.wrapper, 'app', 'start', 'web', '--capability', 'checkout-app', '--environment', 'dev', '--expect-command', RUN_SHA]);
 });

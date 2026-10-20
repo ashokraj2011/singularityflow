@@ -36,11 +36,28 @@ process.on('message', message => {
       || message.nonce !== binding.nonce || !Number.isSafeInteger(message.id) || message.id < 1
       || !warmReadRequest(message.args) || ++pending > READ_WORKER_MAX_QUEUE) return process.exit(1);
   const args = [...message.args], id = message.id;
+  const requestStarted = message.performance ? process.hrtime.bigint() : null;
   drain = drain.then(async () => {
+    const queueEnded = requestStarted == null ? null : process.hrtime.bigint();
     const build = await readWorkerBuildFingerprint(cli);
     if (build?.fingerprint !== binding.build) return process.exit(1);
     const { readWorkerValue } = await import('./read-worker-service.mjs');
-    const result = await readWorkerValue(binding.repository, args);
+    let result;
+    if (message.performance) {
+      const { createPerformanceTrace } = await import('./performance-trace.mjs');
+      const { commandTimer, withCommandTiming, recordCommandTiming } = await import('./dx-command-timing.mjs');
+      const trace = createPerformanceTrace({ command: warmReadRequest(args).method,
+        actionId: message.performance.actionId, parentSpanId: message.performance.parentSpanId, temperature: 'prewarmed', started: requestStarted });
+      const timer = commandTimer(warmReadRequest(args).method, { invocationId: trace.invocationId, trace, commandClass: 'read', mode: 'prewarmed', started: requestStarted });
+      trace.stage('worker-queue', 0, Number(queueEnded - requestStarted) / 1e6);
+      trace.stage('worker-preflight', Number(queueEnded - requestStarted) / 1e6, Number(process.hrtime.bigint() - requestStarted) / 1e6);
+      try {
+        result = await withCommandTiming(timer, () => timer.measure('worker.execute', () => readWorkerValue(binding.repository, args)));
+      } finally {
+        const event = timer.finish({ outcome: result?.kind === 'value' ? 'success' : 'error' });
+        await recordCommandTiming(binding.repository, event, trace.finish({ outcome: event.outcome, counters: event.counters }));
+      }
+    } else result = await readWorkerValue(binding.repository, args);
     reply({ type: 'result', format: READ_WORKER_FORMAT, nonce: binding.nonce, id, result });
   }).catch(() => {
     // The CLI owns refusal formatting and remediation. An unavailable optimization falls back

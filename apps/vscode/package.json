@@ -118,6 +118,10 @@
     "configuration": {
       "title": "Singularity Flow",
       "properties": {
+        "singularityFlow.performanceTrace": {
+          "type": "boolean", "default": false,
+          "description": "Record bounded, laptop-local classified performance traces for SFlow CLI requests. No prompts, document contents, credentials or URLs are captured. Inspect with singularity-flow logs performance."
+        },
         "singularityFlow.repositoryCheckMode": {
           "type": "string", "default": "cached", "scope": "resource",
           "enum": ["always", "cached", "manual"],

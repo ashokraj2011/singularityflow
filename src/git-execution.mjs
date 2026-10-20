@@ -32,6 +32,7 @@ import {
 import {
   gitReadOutput, invariant, networkDisabled, recordSubprocessTiming, run, signalProcessTree, SingularityFlowError
 } from './util.mjs';
+import { measurePerformance } from './dx-timing-context.mjs';
 
 const positive = (value, fallback) => {
   const parsed = Number(value);
@@ -323,7 +324,11 @@ function throwRemoteFailure(observed) {
  * `allowFailure` defaults to true because most callers need to distinguish a missing ref from an
  * unavailable authority. Setting it false turns the same structured result into a safe refusal.
  */
-export function runRemoteGit(args, {
+export function runRemoteGit(args, options = {}) {
+  return measurePerformance('network', 'git.remote', () => runRemoteGitImpl(args, options));
+}
+
+function runRemoteGitImpl(args, {
   cwd = process.cwd(),
   env = process.env,
   operation = 'remote-probe',
@@ -392,7 +397,12 @@ export function runRemoteGit(args, {
  * turns office proxy latency into their sum. This form keeps the same timeout, environment, and
  * classification contract while allowing bounded `mapLimit` concurrency.
  */
-export async function runRemoteGitAsync(args, {
+export async function runRemoteGitAsync(args, options = {}) {
+  return measurePerformance(options.operation === 'local-read' ? 'git-local' : 'network',
+    options.operation === 'local-read' ? 'git.async-read' : 'git.remote', () => runRemoteGitAsyncImpl(args, options));
+}
+
+async function runRemoteGitAsyncImpl(args, {
   cwd = process.cwd(), env = process.env, operation = 'remote-probe',
   timeoutMs = timeoutFor(operation, env), allowFailure = true,
   maxBuffer = 16 * 1024 * 1024, spawnCommand = spawn, signal = null,
@@ -408,7 +418,7 @@ export async function runRemoteGitAsync(args, {
     timeoutMs = localReadDeadlineTimeoutMs(positive(timeoutMs, timeoutFor(operation, env)));
   }
   if (networkDisabled(env) && !localRead) {
-    return runRemoteGit(args, {
+    return runRemoteGitImpl(args, {
       cwd, env, operation, timeoutMs, allowFailure,
       runCommand() { throw new Error('offline Git execution must not spawn'); }
     });

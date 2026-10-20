@@ -47,6 +47,7 @@ export function commandTimer(command, input = {}) {
   });
   return {
     invocationId,
+    trace: options.trace ?? null,
     startEvent() {
       return {
         schemaVersion: currentSchemaVersion('dx-command-timing'),
@@ -62,6 +63,7 @@ export function commandTimer(command, input = {}) {
       if (finished) throw new Error('Command timing is already terminal.');
       const now = clock();
       stages[name] = (stages[name] ?? 0) + (Number(now - checkpoint) / 1e6);
+      options.trace?.stage(name, Number(checkpoint - started) / 1e6, Number(now - started) / 1e6);
       checkpoint = now;
     },
     async measure(name, action) {
@@ -71,7 +73,9 @@ export function commandTimer(command, input = {}) {
       }
       const spanStarted = clock();
       try {
-        return await action();
+        return await (options.trace ? options.trace.measure(
+          /(?:source-io|\.file|\.read-file)/u.test(name) ? 'file'
+            : /(?:[.-](?:parse|hash|serialize)|^dispatch\.)/u.test(name) ? 'node' : /\.queue|\.lock|\.backoff/u.test(name) ? 'waiting' : 'workflow', name, action) : action());
       } finally {
         spans[name] = (spans[name] ?? 0) + (Number(clock() - spanStarted) / 1e6);
       }
@@ -194,7 +198,7 @@ async function maintainCommandTimingLog(directory, now = Date.now()) {
     }));
 }
 
-export async function recordCommandTiming(root, event) {
+export async function recordCommandTiming(root, event, trace = null) {
   if (!root || process.env.SINGULARITY_FLOW_DISABLE_TIMING_LOG === '1') return;
   try {
     // Timing is diagnostic, but it still writes inside the repository-local runtime that factory
@@ -214,6 +218,7 @@ export async function recordCommandTiming(root, event) {
       const file = path.join(directory, LOG_NAME);
       await appendFile(file, `${JSON.stringify(event)}\n`, { encoding: 'utf8', mode: 0o600 });
       await chmod(file, 0o600).catch(() => {});
+      if (trace && globalThis.__SFLOW_EXTENSION_HOST__ !== true) await (await import('./performance-trace-store.mjs')).writePerformanceTrace(directory, trace);
     } finally {
       await releaseSubjectLock(root, subject, owner);
     }

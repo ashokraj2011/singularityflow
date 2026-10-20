@@ -12,6 +12,10 @@
     "scripts/gal-matrix-cell.mjs"
   ],
   "sites": {
+    "scripts/classified-performance-benchmark.mjs": {
+      "counts": { "process-import": 1, "process-launch": 2 },
+      "digest": "6a70fd8bb347865b9afc10531985d1ff0ce18c1df18eb551b32e49053737a29b"
+    },
     "src/application-run.mjs": {
       "counts": {
         "process-import": 1,

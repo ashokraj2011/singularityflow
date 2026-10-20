@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,6 +11,7 @@ import { COMMAND_REGISTRY } from '../src/command-registry.mjs';
 import { COMMAND_LOADERS } from '../src/command-loaders.mjs';
 import { bundledCliUrl, bundledCopilotHookUrl } from '../src/bundled-cli.mjs';
 import { buildCliBundle } from '../scripts/build-cli-bundle.mjs';
+import { readPerformanceReport } from '../src/performance-trace-store.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const cli = path.join(root, 'bin', 'singularity-flow.mjs');
@@ -199,6 +200,22 @@ export async function load(url, context, next) {
     }
     if (args[0] !== '--version') assert.ok(source.modules.length > 35, `${args.join(' ')} from the sources opened ${source.modules.length}`);
   }
+
+  // Classified capture must share the timer through the coarse lazy chunks, not just source ESM.
+  const traceAction = randomUUID();
+  for (const bundled of [false, true]) {
+    const result = spawnSync(process.execPath, [cli, 'logs', 'path'], { cwd: repo, encoding: 'utf8', timeout: 30_000,
+      env: { ...env, SINGULARITY_FLOW_DISABLE_TIMING_LOG: '0', SINGULARITY_FLOW_PERF_TRACE: '1',
+        SINGULARITY_FLOW_PERF_ACTION_ID: traceAction,
+        ...(bundled ? { SINGULARITY_FLOW_BUNDLE_DIR: outdir } : { SINGULARITY_FLOW_BUNDLE: 'off' }) } });
+    assert.equal(result.status, 0, result.stderr);
+  }
+  const traced = await readPerformanceReport(path.join(repo, '.git', 'singularity-flow', 'dx'),
+    { actionId: traceAction, includeTimeline: true });
+  assert.equal(traced.traces.length, 2);
+  for (const trace of traced.traces) assert.ok(trace.timeline.some(span => span.category === 'git-local'));
+  const counts = trace => Object.fromEntries(Object.entries(trace.counters).filter(([key]) => !key.includes('service-ms')));
+  assert.deepEqual(counts(traced.traces[0]), counts(traced.traces[1]), 'physical requests match; observed durations legitimately differ');
 
   // The launcher must actually select the dedicated bundle, not just a manifest URL. Real turn
   // capture and edit denials replay identically, while the bundled entry opens only a few files.

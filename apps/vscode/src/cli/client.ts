@@ -19,6 +19,7 @@ import {
 } from './runner.ts';
 import type { RepositorySnapshot, SnapshotSlice } from './snapshot.ts';
 import { recordHostBackgroundProcessStarted, recordHostBackgroundProcessCompleted } from '../host-performance.ts';
+import { performanceActionId } from '../../../../src/dx-timing-context.mjs';
 
 export const CORE_SNAPSHOT_SLICES: readonly SnapshotSlice[] = Object.freeze([
   'repository', 'lifecycle', 'capabilities', 'executionContext'
@@ -804,7 +805,8 @@ export class SingularityFlowClient {
     if (this.options.surfaceBinding !== false) env.SINGULARITY_FLOW_SURFACE_CONTEXT = JSON.stringify({ schemaVersion: 1, repositoryPath: path.resolve(repository) });
     else delete env.SINGULARITY_FLOW_SURFACE_CONTEXT;
     const environmentDigest = createHash('sha256').update(JSON.stringify(
-      Object.entries(env).filter(([, value]) => value !== undefined).sort(([a], [b]) => a.localeCompare(b))
+      Object.entries(env).filter(([key, value]) => value !== undefined
+        && !['SINGULARITY_FLOW_PERF_ACTION_ID', 'SINGULARITY_FLOW_PERF_PARENT_SPAN_ID'].includes(key)).sort(([a], [b]) => a.localeCompare(b))
     )).digest('hex');
     const readEpoch = this.readEpoch;
     const mutationEpoch = repositoryMutationEpochs.get(mutationKey(repository)) ?? 0;
@@ -828,7 +830,8 @@ export class SingularityFlowClient {
       args,
       json,
       input,
-      env,
+      env: env.SINGULARITY_FLOW_PERF_TRACE === '1' && performanceActionId()
+        ? { ...env, SINGULARITY_FLOW_PERF_ACTION_ID: performanceActionId()! } : env,
       timeoutMs,
       commandClass: classification,
       onOutput: visibleOutput,

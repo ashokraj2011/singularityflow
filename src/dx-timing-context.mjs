@@ -1,8 +1,25 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { randomUUID } from 'node:crypto';
 
 // Kept in a dependency-light module so low-level Git execution can emit counters without creating
 // a git-execution -> dx-command-timing -> git.mjs import cycle.
 const commandTimingContext = new AsyncLocalStorage();
+// CommonJS lazy runtimes contain separate copies of this module. Correlation, unlike policy or
+// repository state, is host-wide and must survive that bundle boundary.
+const actionKey = Symbol.for('singularity-flow.performance-action.v1');
+const actions = globalThis[actionKey] ??= { context: new AsyncLocalStorage(), enabled: false };
+const actionContext = actions.context;
+export function configurePerformanceActions(enabled) { actions.enabled = enabled === true; }
+export function performanceAction(action) { return actions.enabled ? withPerformanceAction(action) : action(); }
+export function withPerformanceAction(action, id) { return actionContext.getStore() ? action() : actionContext.run(id ?? randomUUID(), action); }
+export function performanceActionId() { return actionContext.getStore() ?? null; }
+export function measurePerformance(category, name, action, fields) {
+  const trace = commandTimingContext.getStore()?.trace;
+  return trace ? trace.measure(category, name, action, typeof fields === 'function' ? fields() : fields) : action();
+}
+export function beginPerformanceSpan(category, name, fields) {
+  return commandTimingContext.getStore()?.trace?.begin(category, name, fields) ?? null;
+}
 
 /**
  * Story start and publication report stages on stderr when the caller asks with
@@ -23,7 +40,7 @@ function reportProgress(name) {
 }
 
 export function withCommandTiming(timer, action) {
-  return commandTimingContext.run(timer, action);
+  return commandTimingContext.run(timer, () => timer.trace ? timer.trace.run(action) : action());
 }
 
 export function incrementCommandCounter(name, amount = 1) {

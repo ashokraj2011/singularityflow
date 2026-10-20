@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
 
-import { incrementCommandCounter } from './dx-timing-context.mjs';
+import { incrementCommandCounter, measurePerformance } from './dx-timing-context.mjs';
 import { createGitRuntime } from './git-access.mjs';
 import { nonInteractiveGitEnvironment } from './git-execution.mjs';
 import { resolvePlatformProcess } from './platform-process.mjs';
@@ -493,6 +493,10 @@ export class FosGitObjectService {
   get closed() { return this.#closed; }
 
   async read(oid, { signal } = {}) {
+    return measurePerformance('git-local', 'git.object-read', () => this.#read(oid, { signal }));
+  }
+
+  async #read(oid, { signal } = {}) {
     if (!OID.test(oid ?? '')) throw error('Object service requires one full SHA-1 or SHA-256 object ID.', 'OBJECT_ID_INVALID');
     const began = Date.now();
     await this.#prepare([oid], signal, began);
@@ -526,6 +530,11 @@ export class FosGitObjectService {
   }
 
   async readBatch(oids, { signal } = {}) {
+    return measurePerformance('git-local', 'git.object-batch', () => this.#readBatch(oids, { signal }),
+      () => ({ items: Array.isArray(oids) ? oids.length : 0 }));
+  }
+
+  async #readBatch(oids, { signal } = {}) {
     if (!Array.isArray(oids) || oids.some((oid) => !OID.test(oid ?? ''))) {
       throw error('Object batch requires bounded full SHA-1 or SHA-256 object IDs.', 'OBJECT_ID_INVALID');
     }

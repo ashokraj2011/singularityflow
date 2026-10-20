@@ -1,5 +1,12 @@
 # GAL Git bypass regression gate
 
+`scripts/classified-performance-benchmark.mjs` has two reviewed Node launch sites:
+fixture initialization and alternating traced/untraced allowlisted reads. Both
+use structured argv, a 60-second timeout and a 4-MiB output ceiling. They execute
+only the copied warm-read fixture, with private machine state and unconditional
+cleanup. No real Story, provider or remote is contacted, and no production Git
+owner or transport permission is added.
+
 Workspace retention adds one bounded maintenance launcher for a shipped, fixed Node worker;
 its message accepts only an absolute workspace and protected paths. It never runs a model,
 publication or approval. The foreground skips disabled/not-due work, and the worker rechecks

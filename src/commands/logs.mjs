@@ -1,6 +1,7 @@
 /** Activity log reads do not load lifecycle mutation handlers. */
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { repoRoot, gitDir } from '../git-execution.mjs';
 import { optionBoolean, optionString, optionNumber } from '../util.mjs';
 import { filterLogEntries, logFilePath, normalizeLogLevel, parseLogLines, resolveLogging } from '../logging.mjs';
@@ -13,6 +14,16 @@ export async function run(_argv, { positionals, options }) {
 }
 
 export async function logsCommand(positionals, options) {
+  if (positionals[1] === 'performance') {
+    const { readPerformanceReport, performanceReportText } = await import('../performance-trace-store.mjs');
+    const report = await readPerformanceReport(path.join(gitDir(repoRoot()), 'singularity-flow', 'dx'), {
+      actionId: optionString(options, 'action'), limit: optionNumber(options, 'limit', 20),
+      includeTimeline: optionBoolean(options, 'timeline')
+    });
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(report, null, 2));
+    else process.stdout.write(performanceReportText(report));
+    return report;
+  }
   if (positionals[1] === 'workspace') {
     const { collectWorkspaceLogs } = await import('../workspace-logs.mjs');
     const report = await collectWorkspaceLogs({

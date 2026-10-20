@@ -1,7 +1,7 @@
 /** Canonical governed document reads, independent of upload/detach/remote management. */
 import { createHash } from 'node:crypto';
-import { incrementCommandCounter } from './dx-timing-context.mjs';
-import { lstat, readFile, realpath } from 'node:fs/promises';
+import { incrementCommandCounter, measurePerformance } from './dx-timing-context.mjs';
+import { lstat, readFile as rawReadFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { workDir } from './story-paths.mjs';
 import { SingularityFlowError, exists, posix, snapshot } from './util.mjs';
@@ -14,6 +14,7 @@ import { isLocalDocument, localDocumentAvailability, readLocalDocument } from '.
 import { loadEnvironmentDeclarationSync, matchEnvironmentLocalPath } from './environment-declaration.mjs';
 
 export const DOCUMENT_MANIFEST_SCHEMA_VERSION = currentSchemaVersion('document-manifest');
+const readFile = (...args) => measurePerformance('file', 'file.read-document', () => rawReadFile(...args));
 
 // One list for prompts and source review, so a format shown to a phase as text can also be cited.
 export const TEXT_EXTENSIONS = TEXT_SOURCE_EXTENSIONS;

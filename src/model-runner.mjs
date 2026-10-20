@@ -17,6 +17,7 @@ import { prepareTelemetryLaunch } from './telemetry-provision.mjs';
 import { repositoryLogger } from './logging.mjs';
 import { recordPromptAudit } from './prompt-audit.mjs';
 import { canonicalJson } from './records.mjs';
+import { measurePerformance } from './dx-timing-context.mjs';
 import { assessTokenAdmission } from './token-admission.mjs';
 import {
   modelRequestIsStoryScoped, normalizePromptExecutionContext
@@ -745,16 +746,18 @@ export async function invokeModel(request) {
         transport: promptTransport, promptBytes: staged.bytes
       });
       try {
-        if (openSession) {
-          if (!session.live) {
-            session.live = await openSession(invocation);
-            session.shape = shape;
+        result = await measurePerformance('copilot', 'model.request', async () => {
+          if (openSession) {
+            if (!session.live) {
+              session.live = await openSession(invocation);
+              session.shape = shape;
+            }
+            const value = await session.live.prompt(invocation);
+            session.turns += 1;
+            return value;
           }
-          result = await session.live.prompt(invocation);
-          session.turns += 1;
-        } else {
-          result = await provider(invocation);
-        }
+          return provider(invocation);
+        }, { attempt: index + 1, bytes: staged.bytes, cache: openSession && session.live ? 'reuse' : 'none' });
         log.info('model.provider.completed', null, {
           provider: providerId, model: candidate, attempt: index + 1,
           transport: promptTransport, promptBytes: staged.bytes,

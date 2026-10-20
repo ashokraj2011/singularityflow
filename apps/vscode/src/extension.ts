@@ -26,6 +26,7 @@ import { WorkspaceStore } from './state.ts';
 import { EXECUTION_CONTEXT_COMMANDS, executionContextHandlers } from './execution-context-commands.ts';
 import { synchronizeChatProfile } from './personalization.ts';
 import { saveRepositoryCheckSettings } from '../../../src/repository-check-settings.mjs';
+import { configurePerformanceActions, withPerformanceAction } from '../../../src/dx-timing-context.mjs';
 import { StepActionDeliveryMonitor } from './step-action-deliveries.ts';
 import { RepositorySnapshotFileCache } from './snapshot-file-cache.ts';
 import { IntakeCatalogCache } from './intake-catalog-cache.ts';
@@ -710,6 +711,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // this client's custom environment. Common Git roots remain beneath the selected workspace
     // even when an isolated Story worktree is elsewhere.
     const userPerformance = vscode.workspace.getConfiguration('singularityFlow');
+    if (userPerformance.get<boolean>('performanceTrace', false)) environment.SINGULARITY_FLOW_PERF_TRACE = '1';
+    configurePerformanceActions(environment.SINGULARITY_FLOW_PERF_TRACE === '1');
     await saveRepositoryCheckSettings({
       mode: userPerformance.inspect?.<string>('repositoryCheckMode')?.globalValue ?? 'cached',
       intervalMinutes: userPerformance.inspect?.<number>('repositoryCheckIntervalMinutes')?.globalValue ?? 30
@@ -740,7 +743,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   if (pendingFreshReset) {
     const settings = vscode.workspace.getConfiguration('singularityFlow');
-    const globalSettingKeys = ['cliPath', 'nodePath', 'modelMode', 'userName', 'role', 'warmReads', 'repositoryCheckMode', 'repositoryCheckIntervalMinutes'];
+    const globalSettingKeys = ['cliPath', 'nodePath', 'modelMode', 'userName', 'role', 'warmReads', 'performanceTrace', 'repositoryCheckMode', 'repositoryCheckIntervalMinutes'];
     const globalKeys = typeof context.globalState.keys === 'function'
       ? context.globalState.keys()
       : ['onboardingComplete', START_WIZARD_KEY];
@@ -770,6 +773,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (event.affectsConfiguration('singularityFlow.modelMode')
       || event.affectsConfiguration('singularityFlow.userName')
       || event.affectsConfiguration('singularityFlow.warmReads')
+      || event.affectsConfiguration('singularityFlow.performanceTrace')
       || event.affectsConfiguration('singularityFlow.repositoryCheckMode')
       || event.affectsConfiguration('singularityFlow.repositoryCheckIntervalMinutes')) cliEnvironment = await resolvedCliEnvironment();
     if (event.affectsConfiguration('singularityFlow.role')
@@ -1326,7 +1330,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const dispatch = async (): Promise<unknown> => {
         if (id === 'singularityFlow.startWork' && await prepareDeferredWorkspaceForWork()) return;
         const handler = handlers.get(id);
-        if (handler) return handler(...args);
+        if (handler) return cliEnvironment.SINGULARITY_FLOW_PERF_TRACE === '1'
+          ? withPerformanceAction(() => handler(...args)) : handler(...args);
         // Capability/setup reviews are machine-wide and must remain reachable before a workspace
         // exists. Phase decisions still require the repository-bound Reviews screen above.
         if (id === 'singularityFlow.openReviews') {

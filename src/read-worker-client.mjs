@@ -103,7 +103,8 @@ export async function readWithWorker({ executable, cli, repository: selected, ar
   if (signal?.aborted) throw cancelled(signal);
   // Secret/permission/environment changes create a different scope. Values are never diagnostic output.
   const scope = createHash('sha256').update(JSON.stringify([repository, cli, executable, build.fingerprint,
-    Object.entries(env).filter(([, value]) => value !== undefined).sort(([a], [b]) => a.localeCompare(b))])).digest('hex');
+    Object.entries(env).filter(([key, value]) => value !== undefined
+      && !['SINGULARITY_FLOW_PERF_ACTION_ID', 'SINGULARITY_FLOW_PERF_PARENT_SPAN_ID'].includes(key)).sort(([a], [b]) => a.localeCompare(b))])).digest('hex');
   let worker = workers.get(scope);
   for (const prior of [...workers.values()]) {
     if (prior.repository === repository && prior.key !== scope) stop(prior);
@@ -156,7 +157,9 @@ export async function readWithWorker({ executable, cli, repository: selected, ar
       current.pending.set(id, { finish: value => {
         clearTimeout(timer); current.pending.delete(id); resolve(value);
       } });
-      current.child.send({ type: 'read', format: READ_WORKER_FORMAT, nonce: current.nonce, id, args },
+      current.child.send({ type: 'read', format: READ_WORKER_FORMAT, nonce: current.nonce, id, args,
+        ...(env.SINGULARITY_FLOW_PERF_TRACE === '1' ? { performance: {
+          actionId: env.SINGULARITY_FLOW_PERF_ACTION_ID, parentSpanId: env.SINGULARITY_FLOW_PERF_PARENT_SPAN_ID } } : {}) },
         error => { if (error) stop(current); });
     });
     if (signal?.aborted) throw cancelled(signal);

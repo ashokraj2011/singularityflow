@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
-import { incrementCommandCounter } from './dx-timing-context.mjs';
+import { incrementCommandCounter, measurePerformance } from './dx-timing-context.mjs';
 import { signalProcessTree, recordSubprocessTiming } from './util.mjs';
 
 const MAXIMUM_BATCH_OBJECTS = 512;
@@ -20,6 +20,13 @@ function refuse(code, result = null) { throw new LocalBlobReadError(code, result
 
 /** A byte-preserving local subprocess boundary, with one deadline shared by every batch stage. */
 async function runLocalGitBytes(executable, args, {
+  cwd, env, input = null, maxBuffer, signal, deadlineAt
+}) {
+  return measurePerformance('git-local', 'git.blob-read', () => runLocalGitBytesImpl(executable, args,
+    { cwd, env, input, maxBuffer, signal, deadlineAt }));
+}
+
+async function runLocalGitBytesImpl(executable, args, {
   cwd, env, input = null, maxBuffer, signal, deadlineAt
 }) {
   if (signal?.aborted) return { status: 1, stdout: Buffer.alloc(0), aborted: true };

@@ -742,6 +742,13 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
     started: globalThis.__SINGULARITY_FLOW_PROCESS_STARTED_AT ?? process.hrtime.bigint(),
     commandClass: 'unknown', operationId: null, mode: timingMode(options)
   };
+  if (process.env.SINGULARITY_FLOW_PERF_TRACE === '1' && !(definition.name === 'logs' && positionals[1] === 'performance')) {
+    timingInput.trace = (await import('./performance-trace.mjs')).createPerformanceTrace({
+      command: definition.name, started: timingInput.started,
+      temperature: process.env.SINGULARITY_FLOW_PERF_TEMPERATURE
+    });
+    timingInput.invocationId = timingInput.trace.invocationId;
+  }
   const timer = commandTimer(definition.name, timingInput);
   // An explicit window/chat binding beats the profile default. It is only a selector: the
   // existing command still verifies Git, accepted Story, permissions and publication freshness.
@@ -1019,7 +1026,8 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
     // an older renderer.
     timer.feedback();
     const event = timer.finish({ outcome: 'success' });
-    if (!LOCAL_STATE_RESET_COMMANDS.has(definition.name) && !smartInitDryRun) await recordCommandTiming(root, event);
+    if (!LOCAL_STATE_RESET_COMMANDS.has(definition.name) && !smartInitDryRun) await recordCommandTiming(root, event,
+      timer.trace?.finish({ firstFeedbackMs: event.firstFeedbackMs, counters: event.counters, outcome: event.outcome, operationId: event.operationId, commandClass: event.commandClass }));
     if (options.timings === true) writeCommandTimings(event);
     return result;
   } catch (error) {
@@ -1036,7 +1044,8 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
       ...terminal,
       errorClass: error?.name ?? 'Error'
     });
-    if (!LOCAL_STATE_RESET_COMMANDS.has(definition.name) && !smartInitDryRun) await recordCommandTiming(root, event);
+    if (!LOCAL_STATE_RESET_COMMANDS.has(definition.name) && !smartInitDryRun) await recordCommandTiming(root, event,
+      timer.trace?.finish({ firstFeedbackMs: event.firstFeedbackMs, counters: event.counters, outcome: event.outcome, operationId: event.operationId, commandClass: event.commandClass }));
     if (options.timings === true) writeCommandTimings(event);
     throw error;
   }

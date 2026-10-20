@@ -875,7 +875,63 @@ singularity-flow logs --json               # machine-readable, for piping
 singularity-flow logs path                 # where the file is
 singularity-flow logs workspace --json     # combined active-workspace timeline
 singularity-flow logs level                # effective levels and their source
+singularity-flow logs performance --json   # opt-in local performance breakdown
 ```
+
+### Classified performance traces
+
+Enable `singularityFlow.performanceTrace` in VS Code for SFlow-owned commands, or
+set `SINGULARITY_FLOW_PERF_TRACE=1` in the shell that launches the CLI. Then run
+the original action and read `singularity-flow logs performance` (or
+`/sf-logs performance` in Copilot). Add `--action <UUID>` to select a returned
+action ID, `--limit 1` for the latest invocation, or `--timeline --json` for its
+bounded timeline. Summaries omit span arrays by default.
+The report never reruns the action or reconstructs Git history.
+
+The eight categories are remote/network operations, local Git, Copilot/model
+requests, shared/targeted file access, Node loading/compute, workflow execution,
+external processes and waiting. It separates inclusive/exclusive service time
+from elapsed wall time; overlapping categories and uninstrumented time have
+their own buckets. Operation counts are not physical Git spawns: use the Git
+counters for that. Explicit SFlow-owned model attempts are measured, not native
+Copilot's private model/thinking/tool schedule. Missing host evidence, token
+usage and provider cost remain unavailable, not zero. Remote Git duration
+includes Git, credentials and local work, not just network transfer. CPU is a
+process aggregate, not a per-category estimate.
+
+Opaque action IDs correlate registered VS Code actions, shared-router webview
+messages and warm-worker requests, including across lazy UI bundles.
+Separately dispatched messages outside that router or native shell turns can have separate
+IDs; set `SINGULARITY_FLOW_PERF_ACTION_ID` to a fresh UUID to explicitly correlate
+a measured shell scenario. IDs do not affect read-cache/worker identity. Host
+observations, when available, distinguish queue, spawn-call return, first bytes,
+process lifetime and parsing; first bytes are not necessarily useful feedback.
+Source-run CLI traces cannot observe pre-Node launch or post-exit rendering.
+The existing `spawnMs` host field remains a process-lifetime alias, not OS startup.
+
+Tracing is off by default, bounded and machine-local under the checkout's Git
+administrative directory, `singularity-flow/dx/performance/`. It stores fixed
+operation labels, timings, numeric counts and opaque IDs, never prompts,
+documents, argv, URLs, credentials or source paths. It does not change lifecycle
+authority, test behavior or approval. Detailed modules load only when requested.
+The trace/report is a diagnostic, not shared governance evidence.
+
+Defaults: 2,048 spans per invocation, 64 stored command/host records and seven
+days retention. Override with `SINGULARITY_FLOW_PERF_MAX_SPANS` (cap 8,192),
+`SINGULARITY_FLOW_PERF_MAX_RECORDS` (cap 512), and
+`SINGULARITY_FLOW_PERF_RETENTION_DAYS` (cap 90). Truncated/incomplete traces say
+partial. `SINGULARITY_FLOW_DISABLE_TIMING_LOG=1` disables command persistence.
+Reports read at most 32 MiB, return at most 64 command summaries and include at
+most 8,192 timeline spans in total when explicitly requested.
+Use `SINGULARITY_FLOW_PERF_TEMPERATURE=cold|warm|prewarmed` only for a controlled
+benchmark; otherwise it is unknown. Disabling the setting/environment stops new
+capture; existing records age out on subsequent traced writes.
+
+For an isolated local capture-overhead comparison, run
+`node scripts/classified-performance-benchmark.mjs --samples=5`. It alternates
+tracing off/on on fixture reads, reports complete child-process time and Git
+spawns, and cleans its fixture. It does not claim a cold filesystem, native
+Copilot savings, Windows qualification or a before/after product speedup.
 
 `logs workspace` is a strictly read-only view of the **active workspace**. It
 reads only repositories declared by that workspace; it never searches the home

@@ -25,6 +25,8 @@
  * the open type set, which is the part with no defence at all.
  */
 
+import { performanceAction } from '../../../../src/dx-timing-context.mjs';
+
 /** A message as it arrives: an object with a string `type`, and nothing else assumed. */
 export type InboundMessage = Readonly<Record<string, unknown>> & { readonly type: string };
 
@@ -72,7 +74,7 @@ export function createMessageRouter<T extends Record<string, (message: InboundMe
         onUnknown(message.type, panel);
         return undefined;
       }
-      return handler(message);
+      return performanceAction(() => handler(message));
     }
   };
 }

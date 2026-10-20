@@ -324,6 +324,8 @@ Usage:
   singularity-flow approvals [WORK-ID] [--json]            phase documents, authority and decisions (alias: approval-chain)
   singularity-flow logs [--tail N] [--level LEVEL] [--event PATTERN] [--since WHEN] [--json]
   singularity-flow logs path|level
+  singularity-flow logs performance [--action UUID] [--limit N] [--timeline] [--json]
+      local classified traces; opt in with SINGULARITY_FLOW_PERF_TRACE=1
   singularity-flow logs workspace [--source all|activity|prompt|telemetry|workspace]
       [--repository ID] [--work-id ID] [--phase ID] [--agent ID]
       [--level error|warn|info|debug] [--since ISO-TIMESTAMP] [--limit N] [--json]

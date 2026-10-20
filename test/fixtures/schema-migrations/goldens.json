@@ -1,5 +1,6 @@
 {
   "phase-repair-loop-event": [{ "schemaVersion": 1 }],
+  "performance-trace": [{ "schemaVersion": 1, "resultType": "sflow-performance-trace" }],
   "phase-continuation-event": [{ "schemaVersion": 1 }],
   "phase-appeal": [{ "schemaVersion": 1 }],
   "phase-appeal-decision": [{ "schemaVersion": 1 }],

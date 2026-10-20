@@ -12,7 +12,7 @@
  * plain Node process against a fake spawn. The shared read descriptor has no process imports.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
@@ -96,7 +96,7 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'opt-out', 'optional', 'parallel', 'polish', 'portable-discovery', 'prefetch', 'preview', 'probe', 'propose', 'publish', 'push',
   'query-stdin', 'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'run', 'feedback-stdin', 'saved-buffers-confirmed',
   'remove-stale', 'repair-projections', 'replace', 'replace-server', 'replay', 'resume', 'review-only', 'risk-status', 'send-test', 'set', 'set-aside', 'sign', 'solo',
-  'refresh-readiness', 'review-ui', 'search-known', 'selected-base-only', 'semantic', 'shadow', 'skip-checks', 'smart-detect', 'staged', 'stale', 'state-only', 'stdin', 'strict', 'submission-readiness', 'table', 'terminal', 'timings', 'today', 'update', 'write',
+  'refresh-readiness', 'review-ui', 'search-known', 'selected-base-only', 'semantic', 'shadow', 'skip-checks', 'smart-detect', 'staged', 'stale', 'state-only', 'stdin', 'strict', 'submission-readiness', 'table', 'terminal', 'timeline', 'timings', 'today', 'update', 'write',
   'yes', 'verbose', 'show-artifact', 'brief', 'without-defaults', 'launch', 'allow-not-ready',
   'compose', 'for-agent', 'publish-if-ready', 'submit-if-ready', 'review-packet', 'background-sync',
   'attach-if-missing', 'migrate-world-model', 'hard-cutover', 'cached', 'debug'
@@ -1781,6 +1781,10 @@ export interface CliCommandTiming {
   priority: 'interactive' | 'normal' | 'background' | 'direct';
   /** Queue wait in the shared read pool, then the process itself. The sum is what the caller felt. */
   stages: { queueMs: number; spawnMs: number };
+  /** Opt-in: spawnMs above remains the legacy process-lifetime alias, not OS launch time. */
+  performance?: { actionId: string; parentSpanId: string; launchCallMs: number | null;
+    firstByteMs: number | null; processMs: number; parseMs: number; postCloseMs: number;
+    coverage: 'host-observed-child-process' };
 }
 
 const TIMING_COMMANDS = new Set([
@@ -1884,10 +1888,20 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
   const progress = onProgress ? new ProgressLineSplitter(onProgress) : null;
   // A refusal printed as prose also carries its structured record, so a text run's refusal card
   // shows the engine's reasons and actions rather than generic diagnostics [E2G criterion 16].
-  const childEnv = { ...env, SINGULARITY_FLOW_REFUSAL_ENVELOPE: 'stderr-v1', ...(progress ? { SINGULARITY_FLOW_PROGRESS: 'stderr-v1' } : {}) };
+  const childEnv: NodeJS.ProcessEnv = { ...env, SINGULARITY_FLOW_REFUSAL_ENVELOPE: 'stderr-v1', ...(progress ? { SINGULARITY_FLOW_PROGRESS: 'stderr-v1' } : {}) };
+  const traceEnabled = env.SINGULARITY_FLOW_PERF_TRACE === '1';
+  const opaqueId = (value: string | undefined): string | null => value && /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/u.test(value) ? value : null;
+  const actionId = traceEnabled ? opaqueId(env.SINGULARITY_FLOW_PERF_ACTION_ID) ?? randomUUID() : null;
+  const parentSpanId = traceEnabled ? randomUUID() : null;
+  if (actionId && parentSpanId) {
+    childEnv.SINGULARITY_FLOW_PERF_ACTION_ID = actionId;
+    childEnv.SINGULARITY_FLOW_PERF_PARENT_SPAN_ID = parentSpanId;
+  }
 
   const startedAt = process.hrtime.bigint();
   const startedAtWall = new Date().toISOString();
+  let launchCallMs: number | null = null, firstByteMs: number | null = null, parseMs = 0, closedAt: bigint | null = null;
+  const elapsed = (): number => Number(process.hrtime.bigint() - startedAt) / 1e6;
   return new Promise<T>((resolve, reject) => {
     let child: ChildProcess | undefined;
     // Keep every decoded chunk once and join once at completion. Repeated `output += chunk` copies
@@ -1940,8 +1954,21 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
           priority: priority ?? 'direct',
           stages: { queueMs: Number.isFinite(queuedMs) && queuedMs > 0 ? queuedMs : 0, spawnMs: durationMs }
         };
+        if (actionId && parentSpanId) {
+          const processMs = closedAt == null ? durationMs : Number(closedAt - startedAt) / 1e6;
+          event.performance = { actionId, parentSpanId, launchCallMs, firstByteMs,
+            processMs, parseMs, postCloseMs: durationMs - processMs, coverage: 'host-observed-child-process' };
+        }
         recentTimings.push(event);
         if (recentTimings.length > 128) recentTimings.shift();
+        if (event.performance) void (async () => {
+          // Keep detailed diagnostic code out of activation and every normal command bundle.
+          const store: typeof import('../../../../src/performance-trace-store.mjs') =
+            (globalThis as typeof globalThis & { __SFLOW_EXTENSION_HOST__?: boolean }).__SFLOW_EXTENSION_HOST__ === true
+              ? require(path.join(__dirname, 'performance-runtime.cjs'))
+              : await import('../../../../src/performance-trace-store.mjs');
+          await store.writeHostPerformanceTrace(repository, event);
+        })().catch(() => {});
         onTiming?.(structuredClone(event));
       } catch { /* diagnostic only */ }
     };
@@ -1982,6 +2009,7 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
 
     const collect = (target: string[], chunk: Buffer, stream: OutputStream): void => {
       if (settled || pendingFailure) return;
+      if (traceEnabled && firstByteMs == null && chunk.length) firstByteMs = elapsed();
       outputBytes += chunk.length;
       if (outputBytes > MAX_OUTPUT_BYTES) {
         terminate(new Error('The Singularity Flow CLI returned too much data to display.'), 'error');
@@ -2009,6 +2037,7 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true
       });
+      if (traceEnabled) launchCallMs = elapsed();
       cleanupStatus = 'unknown';
       recordHostCliProcessStarted(child.pid);
       child.once('close', onHostClose);
@@ -2030,6 +2059,7 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
     child.on('error', onChildError);
     child.on('close', onChildClose);
     function onChildClose(code: number | null) {
+      if (traceEnabled) closedAt = process.hrtime.bigint();
       cleanupStatus = 'closed';
       if (settled) return;
       // The termination supervisor also observes `close` and owns settlement for a timeout or
@@ -2081,7 +2111,9 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
         return succeed({ output: stdout.trim() } as T);
       }
       try {
+        const parsingAt = traceEnabled ? process.hrtime.bigint() : null;
         const value = JSON.parse(stdout) as T;
+        if (parsingAt != null) parseMs = Number(process.hrtime.bigint() - parsingAt) / 1e6;
         reportTiming('success', code);
         succeed(value);
       } catch {

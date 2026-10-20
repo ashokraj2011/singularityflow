@@ -27,12 +27,11 @@ singularity-flow logs --level warn           # failures and refusals
 singularity-flow logs --event hook           # why a tool call was refused
 singularity-flow logs --event copilot        # what a native Copilot handoff did
 singularity-flow logs --tail 200             # more history
-singularity-flow logs --since 2026-07-25     # from a point in time
 singularity-flow logs level                  # effective levels and the log path
+singularity-flow logs performance --limit 1  # latest opt-in classified timing
 ```
 
-When the log is empty or too sparse to explain the problem, ask the contributor
-to re-run the failing command with a raised level rather than guessing:
+For sparse logs, ask for a raised-level capture:
 
 ```bash
 SINGULARITY_FLOW_LOG_LEVEL=all singularity-flow <the failing command>
@@ -41,6 +40,9 @@ SINGULARITY_FLOW_LOG_LEVEL=all singularity-flow <the failing command>
 In PowerShell: `$env:SINGULARITY_FLOW_LOG_LEVEL="all"; singularity-flow <the failing command>` (it stays set for that session).
 
 ## How to read what you find
+
+For `performance`, never sum nested/parallel time; missing model metrics are
+unavailable, not zero. Capture is opt-in; never rerun mutations for timings.
 
 - `command.failed` carries the exact message, exit code, duration, and stack. Report the message and the failing command, not a paraphrase.
 - `hook.guard.deny` means Singularity Flow refused a tool call. The `reason` field says which selection was missing. Fix the cause — usually `/sf-session` — rather than retrying the same call.

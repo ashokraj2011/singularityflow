@@ -7,7 +7,7 @@ import { constants as bufferConstants } from 'node:buffer';
 import { link, lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
-import { incrementCommandCounter } from './dx-timing-context.mjs';
+import { incrementCommandCounter, beginPerformanceSpan, measurePerformance } from './dx-timing-context.mjs';
 import { configurationReadRootForPath } from './configuration-read-scope.mjs';
 import {
   isFullyQualifiedWindowsPath, resolvePlatformProcess, resolveWindowsPathExecutable,
@@ -135,7 +135,7 @@ export { displayWidth, padDisplay, terminalWidth, truncateDisplay };
  */
 export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'heartbeat', 'not-applicable',
-  'purge',
+  'purge', 'timeline',
   'review-only', 'review-ui', 'send-test', 'compose', 'for-agent', 'publish-if-ready', 'submit-if-ready', 'review-packet', 'background-sync',
   'commit-reviewed', 'set-aside',
   'attach-if-missing', 'migrate-world-model', 'hard-cutover',
@@ -671,7 +671,7 @@ function waitOutIndexLock(result, args, { cwd, env, spawnAgain }) {
     seen ||= refused.exists || existsSync(refused.lock);
     const waited = Date.now() - started;
     if (waited >= budget || (!seen && attempts >= 2)) break;
-    Atomics.wait(INDEX_LOCK_SLEEP, 0, 0, Math.min(pause, budget - waited));
+    measurePerformance('waiting', 'git.lock-backoff', () => Atomics.wait(INDEX_LOCK_SLEEP, 0, 0, Math.min(pause, budget - waited)));
     pause = Math.min(pause * 2, 1000);
     attempts += 1;
     incrementCommandCounter('git.spawns');
@@ -816,7 +816,12 @@ export function run(command, args = [], {
     if (gitFactStoreHits() > storeHitsBefore) incrementCommandCounter('git.fact-store-hits');
   }
   const factBefore = factRequest && !cachedFact ? gitFactSnapshot(factRequest) : null;
+  const performanceSpan = command === 'git' && !recordGitTiming ? null : beginPerformanceSpan(
+    command === 'git' ? 'git-local' : command === 'copilot' ? 'copilot' : NETWORK_COMMANDS.has(command) ? 'network' : 'external',
+    command === 'git' ? `git.${timedGitVerb ?? 'operation'}` : NETWORK_COMMANDS.has(command) ? 'provider.command' : 'process.run',
+    { cache: cachedFact ? 'hit' : 'miss' });
   let result = cachedFact;
+  if (cachedFact) performanceSpan?.end(cachedFact);
   if (!cachedFact) try {
     const spawnOnce = () => spawnSyncCommand(launch.executable, launch.arguments, {
       cwd, encoding, stdio, timeout: timeoutMs, killSignal,
@@ -840,10 +845,18 @@ export function run(command, args = [], {
       // explicitly supplied non-null value opens and writes the child stdin pipe.
       ...(input == null ? {} : { input: Buffer.isBuffer(input) ? input : Buffer.from(String(input), 'utf8') })
     });
-    result = spawnOnce();
-    // Reads never fail on the index lock; a scoped read's deadline is never stretched by waiting.
-    if (command === 'git' && !scopedGitRead) result = waitOutIndexLock(result, args, { cwd, env, spawnAgain: spawnOnce });
+    const execute = () => {
+      result = spawnOnce();
+      // Reads never fail on the index lock; a scoped read's deadline is never stretched by waiting.
+      if (command === 'git' && !scopedGitRead) result = waitOutIndexLock(result, args, { cwd, env, spawnAgain: spawnOnce });
+    };
+    if (performanceSpan) performanceSpan.run(execute);
+    else execute();
+  } catch (error) {
+    performanceSpan?.end(null, error);
+    throw error;
   } finally {
+    performanceSpan?.end(result);
     if (ownsGitTiming) {
       const elapsed = Math.max(0, Math.round(performance.now() - serviceStarted));
       incrementCommandCounter('git.service-ms', elapsed);
@@ -1138,7 +1151,7 @@ export async function removeTemporaryTree(directory, {
 
 export async function exists(filePath) {
   try {
-    await stat(filePath);
+    await measurePerformance('file', 'file.stat', () => stat(filePath));
     return true;
   } catch (error) {
     if (error?.code === 'ENOENT') return false;
@@ -1148,7 +1161,8 @@ export async function exists(filePath) {
 
 export async function readJson(filePath) {
   try {
-    return JSON.parse(await readFile(filePath, 'utf8'));
+    const content = await measurePerformance('file', 'file.read-json', () => readFile(filePath, 'utf8'));
+    return measurePerformance('node', 'json.parse', () => JSON.parse(content), () => ({ bytes: Buffer.byteLength(content) }));
   } catch (error) {
     if (error?.code === 'ENOENT') throw new SingularityFlowError(`Required file not found: ${filePath}`);
     if (error instanceof SyntaxError) throw new SingularityFlowError(`Invalid JSON in ${filePath}: ${error.message}`);
@@ -1160,11 +1174,11 @@ export async function writeAtomic(filePath, value, { mode = undefined } = {}) {
   await ensureDir(path.dirname(filePath));
   const temp = `${filePath}.tmp-${process.pid}-${randomUUID()}`;
   try {
-    await writeFile(temp, value, {
+    await measurePerformance('file', 'file.write', () => writeFile(temp, value, {
       ...(Buffer.isBuffer(value) || value instanceof Uint8Array ? {} : { encoding: 'utf8' }),
       ...(mode == null ? {} : { mode })
-    });
-    await rename(temp, filePath);
+    }), () => ({ bytes: Buffer.byteLength(value) }));
+    await measurePerformance('file', 'file.rename', () => rename(temp, filePath));
   } finally {
     await rm(temp, { force: true }).catch(() => {});
   }
@@ -1210,10 +1224,11 @@ export async function writeBytes(filePath, value) {
 
 export async function snapshot(filePath) {
   try {
-    const info = await stat(filePath);
+    const info = await measurePerformance('file', 'file.stat', () => stat(filePath));
     if (!info.isFile()) return { exists: true, size: info.size, sha256: null };
-    const content = await readFile(filePath);
-    return { exists: true, size: info.size, sha256: createHash('sha256').update(content).digest('hex') };
+    const content = await measurePerformance('file', 'file.read', () => readFile(filePath));
+    return { exists: true, size: info.size, sha256: measurePerformance('node', 'file.hash',
+      () => createHash('sha256').update(content).digest('hex'), { bytes: content.length }) };
   } catch (error) {
     if (error?.code === 'ENOENT') return { exists: false, size: 0, sha256: null };
     throw error;

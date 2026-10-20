@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { access, mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -8,6 +8,8 @@ import { invokeModel, listModelInvocations } from '../src/model-runner.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
 import { listPromptAudits, setPromptAudit } from '../src/prompt-audit.mjs';
 import { run } from '../src/util.mjs';
+import { createPerformanceTrace } from '../src/performance-trace.mjs';
+import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 
 function request(root, overrides = {}) {
   const providerConfig = {
@@ -38,6 +40,21 @@ const snapshotExecutionContext = Object.freeze({
 test('the model runner rejects calls without registered operation context', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-model-runner-'));
   await assert.rejects(() => invokeModel(request(root)), (error) => error.code === 'MODEL_CONTEXT_MISSING');
+});
+
+test('SFlow-owned model calls emit one content-free provider span without an extra invocation', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-model-trace-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-q'], { cwd: root });
+  const trace = createPerformanceTrace({ command: 'phase' });
+  const result = await withCommandTiming(commandTimer('phase', { trace }), () => withOperationContext({
+    operation: { id: 'model.test', modelPolicy: 'required' }, modelMode: { enabled: true }, root, command: 'test'
+  }, () => invokeModel(request(root, { prompt: { text: 'private prompt canary' } }))));
+  assert.equal(result.output, 'ok');
+  const record = trace.finish();
+  assert.equal(record.spans.filter(span => span.category === 'copilot' && span.name === 'model.request').length, 1);
+  assert.equal(record.spans.find(span => span.name === 'model.request').outcome, 'success');
+  assert.doesNotMatch(JSON.stringify(record), /private|prompt canary|sflow-model-trace/u);
 });
 
 test('the model runner audits and cleans the exact staged attachment bytes', async () => {

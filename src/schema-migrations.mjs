@@ -3320,6 +3320,8 @@ const families = [
     ],
     paths: [/^\$git\/(?:dx\/timings(?:-[^/]+)?|performance\/commands)\.jsonl$/]
   }),
+  family({ id: 'performance-trace', currentVersion: 1,
+    paths: [/^\$git\/dx\/performance\/[a-f0-9-]{36}(?:\.host)?\.json$/] }),
   family({
     id: 'vscode-reset-marker', currentVersion: 2,
     steps: [migration(1, 2, vscodeResetMarkerV1ToV2)],

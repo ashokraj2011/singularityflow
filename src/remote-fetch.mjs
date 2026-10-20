@@ -15,6 +15,7 @@ import { request as httpsRequest } from 'node:https';
 import path from 'node:path';
 import { BlockList, isIP } from 'node:net';
 import { SingularityFlowError } from './util.mjs';
+import { measurePerformance } from './dx-timing-context.mjs';
 
 export const DEFAULT_REMOTE_MAX_BYTES = 1024 * 1024;
 export const HARD_REMOTE_MAX_BYTES = 10 * 1024 * 1024;
@@ -163,7 +164,11 @@ async function fixtureResponse(url) {
  * Fetch exact bytes from a public HTTPS URL. Returns `{ bytes, size, sha256, url, resolvedUrl }`.
  * `label` names the thing being read in every refusal.
  */
-export async function fetchRemoteBytes(url, {
+export async function fetchRemoteBytes(url, options = {}) {
+  return measurePerformance('network', 'http.download', () => fetchRemoteBytesImpl(url, options));
+}
+
+async function fetchRemoteBytesImpl(url, {
   maxBytes = DEFAULT_REMOTE_MAX_BYTES,
   fetchImpl = globalThis.fetch,
   timeoutMs = 30000,

@@ -7,6 +7,7 @@ import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
 import { isPublicRemoteAddress } from './remote-fetch.mjs';
+import { measurePerformance } from './dx-timing-context.mjs';
 
 const MAX_RESPONSE_BYTES = 16 * 1024;
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
@@ -25,7 +26,11 @@ export function boundedDetail(text) {
  * unless the target is marked private, redirects never followed, the answer bounded. Returns the
  * answer, or `transport` with an attempt result when no answer came.
  */
-export async function pinnedHttpRequest({
+export async function pinnedHttpRequest(options) {
+  return measurePerformance('network', 'http.request', () => pinnedHttpRequestImpl(options));
+}
+
+async function pinnedHttpRequestImpl({
   url, method = 'POST', headers = {}, body = null, timeoutMs, network = 'public', lookupImpl = dnsLookup, maxResponseBytes = MAX_RESPONSE_BYTES
 }) {
   const parsed = new URL(url);
@@ -36,7 +41,7 @@ export async function pinnedHttpRequest({
   }
   let addresses;
   try {
-    addresses = isIP(host) ? [{ address: host, family: isIP(host) }] : await lookupImpl(host, { all: true, verbatim: true });
+    addresses = isIP(host) ? [{ address: host, family: isIP(host) }] : await measurePerformance('network', 'http.dns', () => lookupImpl(host, { all: true, verbatim: true }));
   } catch (error) {
     return { transport: { outcome: 'retry', code: 'STEP_ACTION_DNS_FAILED', detail: boundedDetail(error?.message) } };
   }

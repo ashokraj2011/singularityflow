@@ -10,10 +10,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const source = (name) => path.join(root, 'apps', 'vscode', 'src', name);
+const source = (name) => pathToFileURL(path.join(root, 'apps', 'vscode', 'src', name)).href;
 const runModel = await import(source('views/run-and-test-model.ts'));
 const summaryModel = await import(source('views/test-summary-model.ts'));
 const model = await import(source('views/run-widget-model.ts'));
@@ -318,7 +318,7 @@ test('the run widget, the Run view and the Testing view stay out of activation a
 
 test('the real engine\'s app plan and app status become run configurations, rows and widget text', async (t) => {
   const { spawnSync } = await import('node:child_process');
-  const { ideRepository } = await import(path.join(root, 'test', 'helpers', 'ide-run-configurations.mjs'));
+  const { ideRepository } = await import(pathToFileURL(path.join(root, 'test', 'helpers', 'ide-run-configurations.mjs')).href);
   const yaml = [
     '    application:',
     '      start:',

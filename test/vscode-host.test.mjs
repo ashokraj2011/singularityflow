@@ -30,6 +30,7 @@ import { createInitiative, initiativeDir, prepareInitiativePhase, saveInitiative
 import { createAutoFlightState, readAutoFlightState } from '../src/auto/auto-flight-store.mjs';
 import { publishOrganisationCapabilityMap } from '../src/organisation.mjs';
 import { run } from '../src/util.mjs';
+import { readLocalDocument } from '../src/document-storage.mjs';
 import { isolatedHomeEnvironment, isolatedMachineEnvironment } from '../scripts/test-machine-state.mjs';
 
 process.env.NODE_ENV = 'test';
@@ -3327,10 +3328,15 @@ for (const deferredWorkspace of [false, true]) test(deferredWorkspace
   assert.equal(documentCatalog.documents.length, 1);
   assert.equal(documentCatalog.documents[0].sourceName, 'story-brief.markdown');
   assert.equal(documentCatalog.documents[0].mimeType, 'text/markdown');
+  assert.equal(documentCatalog.documents[0].storage.kind, 'local');
+  assert.equal(documentCatalog.documents[0].path, undefined, 'local uploads have no committed payload path');
   assert.match(
-    run('git', ['show', `HEAD:${documentCatalog.documents[0].path}`], { cwd: storyRoot }).stdout,
+    (await readLocalDocument(storyRoot, 'STORY-UI', documentCatalog.documents[0])).bytes.toString('utf8'),
     /area operator accepts two dimensions/
   );
+  const uploadedBlob = run('git', ['hash-object', supportingDocument], { cwd: storyRoot }).stdout.trim();
+  assert.notEqual(run('git', ['cat-file', '-e', uploadedBlob], { cwd: remote, allowFailure: true }).status, 0,
+    'the published Story carries document identity, never local upload bytes');
   assert.equal(run('git', ['status', '--porcelain'], { cwd: root }).stdout.trim(), '');
   assert.equal(
     run('git', ['ls-remote', 'origin', 'refs/heads/STORY-UI'], { cwd: root }).stdout.split(/\s+/)[0],

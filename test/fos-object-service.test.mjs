@@ -589,6 +589,34 @@ test('GAL:AC-023 a later oversized or corrupt batch frame fails the whole batch'
   } finally { await corrupt.close(); }
 });
 
+test('a corrupt frame retires the tree before stdin EOF can remove its Windows PID', async () => {
+  const root = await repository();
+  const oid = git(['rev-parse', 'HEAD:source.bin'], root);
+  const bytes = Buffer.from([0, 10, 255, 13, 10]);
+  const eofAtTermination = [];
+  let generations = 0;
+  const service = new FosGitObjectService(root, {
+    capabilities: verifiedBatchCommandCapabilities(),
+    spawnCommand: () => {
+      const body = ++generations === 1 ? Buffer.from([1, 10, 255, 13, 10]) : bytes;
+      const child = scriptedChild([Buffer.concat([Buffer.from(`${oid} blob ${body.length}\n`), body, Buffer.from('\n')])])();
+      const kill = child.kill;
+      child.kill = () => {
+        eofAtTermination.push(child.stdin.writableEnded);
+        // Model taskkill's refusal when cat-file already exited because we sent EOF first.
+        return child.stdin.writableEnded ? false : kill();
+      };
+      return child;
+    }
+  });
+  try {
+    await assert.rejects(service.read(oid), { code: 'OBJECT_INTEGRITY_INVALID' });
+    assert.deepEqual((await service.read(oid)).bytes, bytes);
+    assert.deepEqual(eofAtTermination, [false]);
+    assert.equal(generations, 2);
+  } finally { await service.close(); }
+});
+
 test('GAL:AC-025 a queued batch can cancel without writing or disturbing the active frame', async () => {
   const root = await repository();
   const activeOid = git(['rev-parse', 'HEAD:source.bin'], root);
@@ -894,8 +922,8 @@ test('FOS:AC-022 raw object worker ignores replacements and untrusted Git enviro
     assert.deepEqual((await service.read(oid)).bytes, original);
     assert.equal(calls.length, 1);
     assert.equal(path.isAbsolute(calls[0].command), true);
-    const commonDir = realpathSync(path.join(root, '.git'));
-    assert.equal(calls[0].options.cwd, commonDir);
+    const commonDir = calls[0].options.cwd;
+    assert.equal(realpathSync(commonDir), realpathSync(path.join(root, '.git')));
     assert.equal(calls[0].options.shell, false);
     assert.equal(calls[0].options.windowsHide, true);
     assert.equal(calls[0].options.detached, false);

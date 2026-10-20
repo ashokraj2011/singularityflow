@@ -187,8 +187,6 @@ async function stopChild(child, force, {
       deadline = setTimeout(() => finish(false), boundedTimeoutMs);
     }
   });
-  try { child.stdin?.end?.(); } catch { /* The child may already have exited. */ }
-
   const signalTree = async (treeSignal, remainingMs) => {
     try {
       return await terminateTree(child, treeSignal, {
@@ -201,6 +199,8 @@ async function stopChild(child, force, {
     } catch { return false; }
   };
   if (force) {
+    // Do not end stdin before terminating the tree. cat-file can exit on EOF before Windows
+    // taskkill /T observes its PID, turning a recoverable frame failure into unverified cleanup.
     // `close` can fire as soon as the direct Git child exits while taskkill /T is still retiring
     // its helpers. Do not certify cleanup until both independently bounded observations settle.
     const [treeTerminated, childClosed] = await Promise.all([
@@ -209,6 +209,7 @@ async function stopChild(child, force, {
     return treeTerminated && childClosed;
   }
 
+  try { child.stdin?.end?.(); } catch { /* The child may already have exited. */ }
   const natural = await Promise.race([
     closed,
     new Promise((resolve) => setTimeout(() => resolve(false),

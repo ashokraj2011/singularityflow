@@ -122,7 +122,7 @@ test('typed sources become typed entries that read back as the person wrote them
   assert.equal(draft.start.find((entry) => entry.id === 'api').type, 'spring-boot');
   assert.deepEqual(draft.start.find((entry) => entry.id === 'admin-ui-npm').argv, ['npm', 'run-script', 'dev']);
   const text = cli(root, ['app', 'suggest']).stdout;
-  assert.match(text, /api \(spring-boot\): \.\.\/\.\.\/mvnw spring-boot:run/u);
+  assert.match(text, /api \(spring-boot\): \.\.\/\.\.\/mvnw(?:\.cmd)? spring-boot:run/u);
   for (const secret of Object.values(FAKE_SECRETS)) {
     assert.equal(JSON.stringify(result).includes(secret), false, `a secret reached the output: ${secret.slice(0, 4)}…`);
   }

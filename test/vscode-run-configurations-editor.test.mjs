@@ -11,19 +11,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import YAML from 'yaml';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const source = (name) => path.join(root, 'apps', 'vscode', 'src', name);
+const source = (name) => pathToFileURL(path.join(root, 'apps', 'vscode', 'src', name)).href;
 const model = await import(source('views/run-configurations-model.ts'));
 const pageModule = await import(source('views/run-configurations-page.ts'));
 const { commandClass } = await import(source('cli/client.ts'));
 const { runAndTestHtml } = await import(source('views/run-and-test-page.ts'));
 const runAndTest = await import(source('views/run-and-test-model.ts'));
-const engine = await import(path.join(root, 'src', 'app-suggestions.mjs'));
-const { declarableEnvironmentVariable } = await import(path.join(root, 'src', 'environment-declaration.mjs'));
-const { FAKE_SECRETS } = await import(path.join(root, 'test', 'helpers', 'ide-run-configurations.mjs'));
+const engine = await import(pathToFileURL(path.join(root, 'src', 'app-suggestions.mjs')).href);
+const { declarableEnvironmentVariable } = await import(pathToFileURL(path.join(root, 'src', 'environment-declaration.mjs')).href);
+const { FAKE_SECRETS } = await import(pathToFileURL(path.join(root, 'test', 'helpers', 'ide-run-configurations.mjs')).href);
 
 const SHA = `sha256:${'a'.repeat(64)}`;
 const WEB = { id: 'web', argv: ['npm', 'run', 'dev'], workingDirectory: 'apps/web', url: 'http://127.0.0.1:5173/', ready: { http: '/', timeoutMs: 1000 } };

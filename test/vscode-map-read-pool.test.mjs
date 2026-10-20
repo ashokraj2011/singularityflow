@@ -8,6 +8,10 @@ import { EventEmitter } from 'node:events';
 import { invokeCli, recentCliCommandTimings } from '../apps/vscode/src/cli/runner.ts';
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+function processAlive(pid) {
+  try { process.kill(pid, 0); return true; }
+  catch (error) { if (error.code === 'ESRCH') return false; throw error; }
+}
 async function until(predicate) {
   const end = Date.now() + 10_000;
   while (!(await predicate())) {
@@ -39,8 +43,8 @@ async function fixture(t) {
   t.after(async () => {
     await until(async () => {
       const rows = await events();
-      return rows.filter((row) => row.kind === 'start').length
-        === rows.filter((row) => row.kind !== 'start').length;
+      return rows.filter((row) => row.kind === 'start').every(start =>
+        rows.some(row => row.pid === start.pid && row.kind !== 'start') || !processAlive(start.pid));
     });
     await rm(directory, { recursive: true, force: true });
   });
@@ -167,8 +171,9 @@ test('last-subscriber cancellation terminates native work without poisoning a la
   b.abort();
   assert.match((await first).message, /cancelled/);
   assert.match((await second).message, /cancelled/);
+  const cancelledPid = (await f.events()).find(row => row.kind === 'start').pid;
+  await until(() => !processAlive(cancelledPid));
   const fresh = c.run(args);
-  await until(async () => (await f.events()).some((row) => row.kind === 'stop'));
   assert.equal((await fresh).nested.value, 1);
   assert.equal((await f.events()).filter((row) => row.kind === 'start').length, 2);
 });
@@ -188,7 +193,11 @@ test('a final subscriber timeout terminates the child and remains an error rathe
   await until(() => timings.length === 1);
   assert.equal(timings[0].outcome, 'error');
   assert.equal(timings[0].cancelled, false);
-  assert.equal((await f.events()).filter((row) => row.kind === 'stop').length, 1);
+  const rows = await f.events();
+  assert.equal(processAlive(rows.find(row => row.kind === 'start').pid), false,
+    'cancellation settles only after the native process is gone');
+  // Windows taskkill terminates Node without delivering a POSIX SIGTERM handler.
+  assert.equal(rows.filter((row) => row.kind === 'stop').length, process.platform === 'win32' ? 0 : 1);
 });
 
 test('native read concurrency is bounded across separate clients; a queued abort never spawns', async (t) => {
@@ -227,7 +236,7 @@ test('repository switching cancels old reads with a stable code without clearing
   assert.match(refusal.message, /superseded/);
   assert.equal(refusal.code, 'CLI_READ_SUPERSEDED');
   const result = await second;
-  assert.equal(result.cwd, await realpath(os.tmpdir()));
+  assert.equal(await realpath(result.cwd), await realpath(os.tmpdir()));
   assert.equal((await c.run(args)).pid, result.pid);
 });
 

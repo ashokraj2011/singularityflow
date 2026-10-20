@@ -92,7 +92,8 @@ function startInBackground(root, args = []) {
   };
 }
 
-const JAVA_FILES = { mvnw: '#!/bin/sh\n', 'services/api/pom.xml': '<project/>', '.venv/bin/python': '#!/bin/sh\n', 'apps/web/package.json': '{}' };
+const JAVA_FILES = { mvnw: '#!/bin/sh\n', 'mvnw.cmd': '@echo off\r\n', 'services/api/pom.xml': '<project/>', '.venv/bin/python': '#!/bin/sh\n', 'apps/web/package.json': '{}' };
+const MAVEN_WRAPPER = process.platform === 'win32' ? '../../mvnw.cmd' : '../../mvnw';
 
 test('app plan shows a typed entry\'s type, name, fields and, per environment, what it resolves to', async (t) => {
   const root = await fixture(t, [
@@ -113,7 +114,7 @@ test('app plan shows a typed entry\'s type, name, fields and, per environment, w
     programArguments: ['--server.port=8080'], activeProfiles: ['dev'] });
   assert.deepEqual(api.env, { FEATURE_FLAGS: 'a,b' });
   assert.deepEqual(api.perEnvironment, { qa: { activeProfiles: ['qa'], vmOptions: ['-Xmx2g'] } });
-  const mvn = ['../../mvnw', 'spring-boot:run', '-Dspring-boot.run.main-class=com.example.api.ApiApplication'];
+  const mvn = [MAVEN_WRAPPER, 'spring-boot:run', '-Dspring-boot.run.main-class=com.example.api.ApiApplication'];
   assert.deepEqual(api.environments.map((environment) => [environment.name, environment.resolved]), [
     ['dev', { argv: [...mvn, '-Dspring-boot.run.jvmArguments=-Xmx1g -Dfile.encoding=UTF-8', '-Dspring-boot.run.arguments=--server.port=8080',
       '-Dspring-boot.run.profiles=dev'], envNames: ['FEATURE_FLAGS'], beforeLaunch: [{ argv: ['../../mvnw', '-q', 'compile'], workingDirectory: 'services/api', timeoutMs: 600_000 }] }],
@@ -137,8 +138,8 @@ test('app plan shows a typed entry\'s type, name, fields and, per environment, w
   assert.equal(Object.hasOwn(plan.application, 'tests'), false, 'nothing is added to the block');
   // The human plan names the type and each environment's command line.
   const human = cli(root, ['app', 'plan']).stdout;
-  assert.match(human, /api \(Api\) · spring-boot: \.\.\/\.\.\/mvnw spring-boot:run/u);
-  assert.match(human, /qa: \.\.\/\.\.\/mvnw spring-boot:run .*-Dspring-boot\.run\.profiles=qa \(with FEATURE_FLAGS set\)/u);
+  assert.match(human, /api \(Api\) · spring-boot: \.\.\/\.\.\/mvnw(?:\.cmd)? spring-boot:run/u);
+  assert.match(human, /qa: \.\.\/\.\.\/mvnw(?:\.cmd)? spring-boot:run .*-Dspring-boot\.run\.profiles=qa \(with FEATURE_FLAGS set\)/u);
   assert.match(human, /before launch: \.\.\/\.\.\/mvnw -q compile \(in services\/api\)/u);
   // app status is unchanged plus the name.
   const status = json(root, ['app', 'status', '--json']);
@@ -166,7 +167,8 @@ test('app start runs the before-launch steps in order with the entry\'s variable
   const server = JSON.parse(await readFile(path.join(root, 'server', 'server-started.json'), 'utf8'));
   assert.deepEqual([server.rest, server.flags], [['--mode', 'typed'], 'qa-flags']);
   assert.equal(json(root, ['app', 'stop', '--json']).stopped, true);
-  assert.equal(await started.exited, 0);
+  assert.equal(await started.exited, process.platform === 'win32' ? 1 : 0,
+    'Windows taskkill returns a native exit code instead of a POSIX termination signal');
 });
 
 test('a failing or overrunning before-launch step stops the start: the application never runs', async (t) => {
@@ -249,8 +251,8 @@ test('app config preview checks a whole block from a file and resolves it per en
   const [api, jobs, web, report] = preview.entries;
   assert.deepEqual([api.id, api.name, api.type, api.errors], ['api', 'Api', 'spring-boot', []]);
   assert.deepEqual(api.environments.map((environment) => [environment.name, environment.resolved.argv]), [
-    ['dev', ['../../mvnw', 'spring-boot:run', '-Dspring-boot.run.main-class=com.example.api.ApiApplication', '-Dspring-boot.run.profiles=dev']],
-    ['qa', ['../../mvnw', 'spring-boot:run', '-Dspring-boot.run.main-class=com.example.api.ApiApplication', '-Dspring-boot.run.profiles=qa']]
+    ['dev', [MAVEN_WRAPPER, 'spring-boot:run', '-Dspring-boot.run.main-class=com.example.api.ApiApplication', '-Dspring-boot.run.profiles=dev']],
+    ['qa', [MAVEN_WRAPPER, 'spring-boot:run', '-Dspring-boot.run.main-class=com.example.api.ApiApplication', '-Dspring-boot.run.profiles=qa']]
   ]);
   assert.deepEqual(api.environments.map((environment) => environment.default), [true, false]);
   assert.match(api.commandSha256, /^sha256:[a-f0-9]{64}$/u);

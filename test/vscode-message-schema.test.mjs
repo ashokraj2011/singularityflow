@@ -10,13 +10,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { codeOnly } from './source-text.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const views = path.join(root, 'apps', 'vscode', 'src');
-const messages = await import(path.join(views, 'views', 'messages.ts'));
+const messages = await import(pathToFileURL(path.join(views, 'views', 'messages.ts')).href);
 
 /**
  * How many message handlers have not moved to the router yet.

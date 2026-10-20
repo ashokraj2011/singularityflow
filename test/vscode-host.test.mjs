@@ -11548,9 +11548,9 @@ test('the Run view context menu: Edit opens the Run/Debug Configurations editor 
   const tree = registered.trees.get('singularityFlow.run').treeDataProvider;
   const [row] = await tree.getChildren();
 
-  // No editor in this build: say where a run configuration is edited, and offer Capabilities.
+  // The editor is in this build: Edit opens it.
   await registered.commands.get('singularityFlow.editConfiguration')(row);
-  assert.match(registered.infos.at(-1), /^This build has no Run\/Debug Configurations editor\. A run configuration is an application\.start entry of checkout-app in singularity\/capabilities\.yml/);
+  assert.ok(await editorPage(registered), 'Edit opened the Run/Debug Configurations editor');
   // With the editor: the configuration it was asked from.
   const edited = [];
   registered.commands.set('singularityFlow.editRunConfigurations', (target) => { edited.push(target); });

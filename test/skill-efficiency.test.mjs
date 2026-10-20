@@ -55,9 +55,9 @@ test('every public skill has a bounded class and output contract', async () => {
   // the skills whose JSON reads carry `--for-agent` (a bounded result with `act` first).
   // 2026-10-19: the guard and anti-stall sentences a budget trim had removed are restored; their skills
   // carry a raised override with that reason instead of losing the guard again.
-  const overridden = ['sflow-appeal', 'sflow-approve', 'sflow-code', 'sflow-converge', 'sflow-decide', 'sflow-design', 'sflow-document-intake',
+  const overridden = ['sflow-appeal', 'sflow-approve', 'sflow-code', 'sflow-converge', 'sflow-decide', 'sflow-design', 'sflow-document-intake', 'sflow-documents',
     'sflow-home', 'sflow-mcp', 'sflow-phase', 'sflow-plan', 'sflow-ready', 'sflow-recover', 'sflow-reinstall', 'sflow-reject',
-    'sflow-release', 'sflow-requirements', 'sflow-run-app', 'sflow-scenario-check', 'sflow-session', 'sflow-specify', 'sflow-start',
+    'sflow-release', 'sflow-requirements', 'sflow-review-source', 'sflow-run-app', 'sflow-scenario-check', 'sflow-session', 'sflow-specify', 'sflow-start',
     'sflow-story-start', 'sflow-submit', 'sflow-verify', 'sflow-workflows'];
   assert.deepEqual(result.rows.filter((row) => row.bodyTokens - row.pathContractTokens - row.commandPresentationTokens - row.artifactPresentationTokens - (row.refusalHandlingTokens ?? 0) - (row.applicabilityTokens ?? 0) - (row.approvedInputsTokens ?? 0) - row.pauseGuardTokens > 800).map((row) => row.name), overridden);
   for (const name of overridden) assert.ok(policy.skills[name].exception, `${name} explains its token override`);

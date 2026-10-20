@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import resolver from '../runtime/resolve.cjs';
-import { installManagedRelease, installerProcess, managedLauncher, recoverManagedActivation, rollbackManagedRelease } from '../runtime/install.mjs';
+import { installManagedRelease, installerProcess, managedInstallTimeoutMs, managedLauncher, recoverManagedActivation, rollbackManagedRelease } from '../runtime/install.mjs';
 import { observeProductSurfaces, planProductAlignment, applyProductAlignment } from '../src/product-alignment.mjs';
 import { stampBuildInfo } from '../src/build-info-stamp.mjs';
 import { resolveWindowsBatchProcess } from '../src/platform-process.mjs';
@@ -54,6 +54,14 @@ test('managed resolution is optional when no engine has been installed', async t
   assert.equal(resolver.resolveManagedEngine({ environment: { SINGULARITY_FLOW_ENGINE_HOME: f.root } }), null);
 });
 
+test('only offline installer staging has a configurable bounded 5–60 minute deadline', () => {
+  assert.equal(managedInstallTimeoutMs({}), 900_000);
+  for (const value of ['300000', '900000', '3600000']) assert.equal(managedInstallTimeoutMs({ SINGULARITY_FLOW_ENGINE_INSTALL_TIMEOUT_MS: value }), Number(value));
+  for (const value of ['0', '299999', '3600001', 'Infinity', 'NaN', '', '900000ms']) {
+    assert.throws(() => managedInstallTimeoutMs({ SINGULARITY_FLOW_ENGINE_INSTALL_TIMEOUT_MS: value }), /5–60 minutes/);
+  }
+});
+
 test('activation binds the exact runtime/release and does not use global npm or mutate the application PATH', async t => {
   const f = await fixture(t);
   const before = { ...process.env };
@@ -69,6 +77,7 @@ test('activation binds the exact runtime/release and does not use global npm or 
   assert.equal(npm.executable, f.node);
   assert.ok(npm.args.includes('--offline'));
   assert.ok(npm.args.includes('--ignore-scripts'));
+  assert.equal(npm.options.timeoutMs, managedInstallTimeoutMs());
   assert.ok(!npm.args.includes('--global'));
   assert.ok(npm.options.env.PATH.startsWith(path.dirname(f.node)));
   assert.equal(f.calls.find(call => call.args[1] === '--build').options.env.PATH, before.PATH);

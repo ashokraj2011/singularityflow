@@ -442,9 +442,14 @@ async function main() {
       const candidate = path.join(snapshot, 'candidate');
       const env = { ...process.env, NPM_CONFIG_CACHE: path.join(snapshot, 'npm-cache'),
         PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH || ''}` };
+      const rawTimeout = process.env.SINGULARITY_FLOW_ENGINE_INSTALL_TIMEOUT_MS;
+      const installTimeout = rawTimeout === undefined ? 900_000 : Number(rawTimeout);
+      if (rawTimeout !== undefined && (!/^\d+$/.test(rawTimeout) || !Number.isSafeInteger(installTimeout)
+        || installTimeout < 300_000 || installTimeout > 3_600_000)) fail('SINGULARITY_FLOW_ENGINE_INSTALL_TIMEOUT_MS must be an integer from 300000 to 3600000 (5–60 minutes).');
+      console.error(`Staging the authenticated engine archive offline (deadline ${installTimeout / 1000}s).`);
       const status = await runNpm({ command: process.execPath,
         arguments: [npm, 'install', '--prefix', candidate, '--offline', '--ignore-scripts', '--global=false', '--workspaces=false', '--no-bin-links', '--no-audit', '--no-fund', path.join(snapshotRelease, npmBinding.name)],
-        options: { shell: false } }, { cwd: snapshot, environment: env, timeoutMs: 300_000 });
+        options: { shell: false } }, { cwd: snapshot, environment: env, timeoutMs: installTimeout });
       if (status !== 0) fail(`Private package staging failed with exit ${status}.`);
       if (forwarded.includes('--dry-run')) {
         console.log(JSON.stringify({ status: 'verified', managedRuntime: true, activated: false,

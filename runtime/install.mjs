@@ -13,6 +13,16 @@ const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const bins = ['singularity-flow', 'sflow', 'sflow-about', 'sflow-inbox', 'sflow-next', 'sflow-agent',
   'sf-reset-all', 'sf-local-reset', 'sf-reinstall', 'sf-install', 'sf-uninstall'];
 
+export function managedInstallTimeoutMs(environment = process.env) {
+  const raw = environment.SINGULARITY_FLOW_ENGINE_INSTALL_TIMEOUT_MS;
+  if (raw === undefined) return 900_000;
+  const value = Number(raw);
+  if (!/^\d+$/.test(String(raw)) || !Number.isSafeInteger(value) || value < 300_000 || value > 3_600_000) {
+    throw new Error('SINGULARITY_FLOW_ENGINE_INSTALL_TIMEOUT_MS must be an integer from 300000 to 3600000 (5–60 minutes).');
+  }
+  return value;
+}
+
 export async function installerProcess(executable, args, options = {}) {
   const { timeoutMs = 300_000, capture = false, ...rest } = options;
   return new Promise((resolve, reject) => {
@@ -187,8 +197,14 @@ export async function installManagedRelease({ tarball, sha256, nodeExecutable = 
       const env = { ...process.env, PATH: `${path.dirname(nodeExecutable)}${path.delimiter}${process.env.PATH || ''}`,
         NPM_CONFIG_CACHE: path.join(release, '.npm-cache'), NODE_COMPILE_CACHE: undefined,
         NODE_COMPILE_CACHE_READONLY: undefined, NODE_OPTIONS: undefined };
-      await execute(nodeExecutable, [npm, 'install', '--prefix', release, '--offline', '--ignore-scripts',
-        '--global=false', '--workspaces=false', '--no-bin-links', '--omit=dev', '--no-audit', '--no-fund', retained], { cwd: root, env });
+      const timeoutMs = managedInstallTimeoutMs();
+      log(`Staging the verified engine archive offline (deadline ${timeoutMs / 1000}s).`);
+      try {
+        await execute(nodeExecutable, [npm, 'install', '--prefix', release, '--offline', '--ignore-scripts',
+          '--global=false', '--workspaces=false', '--no-bin-links', '--omit=dev', '--no-audit', '--no-fund', retained], { cwd: root, env, timeoutMs });
+      } catch (error) {
+        throw new Error(`Managed engine offline package staging failed: ${error.message}. Active selection was not changed. Retry this managed install; SINGULARITY_FLOW_ENGINE_INSTALL_TIMEOUT_MS configures only this installer stage.`, { cause: error });
+      }
       await writeFile(path.join(release, '.archive-sha256'), `${sha256}\n`, { mode: 0o600, flag: 'wx' });
     }
     const packageRoot = path.join(release, 'node_modules', 'singularity-flow');

@@ -99,7 +99,7 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'refresh-readiness', 'review-ui', 'search-known', 'selected-base-only', 'semantic', 'shadow', 'skip-checks', 'smart-detect', 'staged', 'stale', 'state-only', 'stdin', 'strict', 'submission-readiness', 'table', 'terminal', 'timeline', 'timings', 'today', 'update', 'write',
   'yes', 'verbose', 'show-artifact', 'brief', 'without-defaults', 'launch', 'allow-not-ready',
   'compose', 'for-agent', 'publish-if-ready', 'submit-if-ready', 'review-packet', 'background-sync',
-  'attach-if-missing', 'migrate-world-model', 'hard-cutover', 'cached', 'debug'
+  'attach-if-missing', 'migrate-world-model', 'hard-cutover', 'cached', 'debug', 'personal', 'from-template', 'clear'
 ]);
 
 const DISPLAY_SECRET_KEY = /(token|secret|password|passwd|credential|authorization|cookie|api[-_]?key|access[-_]?key|private[-_]?key|signature|(?:^|[_.-])pat(?:$|[_.-])|[a-z]pat(?![a-z]))/i;

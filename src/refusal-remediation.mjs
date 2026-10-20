@@ -1324,6 +1324,14 @@ export function refusalDetails(details) {
   });
   const paths = list(details.paths, text);
   if (paths.length) projected.paths = paths;
+  // A missing environment file: its environment, path, template and both fixes, so an editor can offer them [ENVF].
+  if (text(details.environment) && Array.isArray(details.commands)) {
+    const file = (entry) => (entry && typeof entry === 'object' && text(entry.path)
+      ? { path: text(entry.path), template: text(entry.template), commands: list(entry.commands, text) } : null);
+    Object.assign(projected, { environment: text(details.environment), ...file(details) });
+    const missing = list(details.missing, file);
+    if (missing.length) projected.missing = missing;
+  }
   // The earlier phases that own the cause, so no surface mistakes them for the phase to repair.
   const upstreamPhases = list(details.upstreamPhases, text);
   if (upstreamPhases.length) projected.upstreamPhases = upstreamPhases;

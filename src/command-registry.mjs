@@ -246,7 +246,9 @@ const WORKSPACE_IMPACT_READ_OPERATIONS = new Set(['list', 'show']);
 export const SECRETS_SUBCOMMANDS = Object.freeze(['scan', 'protect']);
 export const ENV_READ_SUBCOMMANDS = Object.freeze(['status', 'audit']);
 export const ENV_MUTATION_SUBCOMMANDS = Object.freeze(['bind', 'unbind']);
-export const ENV_SUBCOMMANDS = Object.freeze([...ENV_READ_SUBCOMMANDS, ...ENV_MUTATION_SUBCOMMANDS]);
+export const ENV_SUBCOMMANDS = Object.freeze([...ENV_READ_SUBCOMMANDS, ...ENV_MUTATION_SUBCOMMANDS, 'files']);
+// `env files` [ENVF]: the first three read; the others change machine-local environment-file state.
+const ENV_FILES_ACTIONS = Object.freeze(['list', 'path', 'suggest', 'create', 'link', 'adopt', 'add', 'remove', 'root', 'place']);
 /**
  * `status` only reads; `align` replaces installed product surfaces with the installed build;
  * `reviews` opens this build's configuration reviews, pushing review branches only.
@@ -548,6 +550,10 @@ function resolveEnvironmentOperation(definition, positionals) {
   const subcommand = positionals[1] ?? 'status';
   if (!ENV_SUBCOMMANDS.includes(subcommand)) {
     return unknownSubcommand('env', subcommand, ENV_SUBCOMMANDS);
+  }
+  if (subcommand === 'files') {
+    const action = ENV_FILES_ACTIONS.includes(positionals[2]) ? positionals[2] : 'list';
+    return never(`env.files.${action}`, definition, ENV_FILES_ACTIONS.indexOf(action) < 3 ? 'read' : 'mutation');
   }
   return never(`env.${subcommand}`, definition,
     ENV_READ_SUBCOMMANDS.includes(subcommand) ? 'read' : 'mutation');
@@ -1804,6 +1810,7 @@ export function operationCatalog() {
     never('secrets.protect', secretsDefinition, 'mutation'),
     ...ENV_READ_SUBCOMMANDS.map((name) => never(`env.${name}`, envDefinition, 'read')),
     ...ENV_MUTATION_SUBCOMMANDS.map((name) => never(`env.${name}`, envDefinition, 'mutation')),
+    ...ENV_FILES_ACTIONS.map((name, index) => never(`env.files.${name}`, envDefinition, index < 3 ? 'read' : 'mutation')),
     never('product.status', productDefinition, 'read'),
     never('product.align.preview', productDefinition, 'read'),
     never('product.align', productDefinition, 'mutation'),

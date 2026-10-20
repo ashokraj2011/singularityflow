@@ -9,11 +9,11 @@ import {
 import {
   loadEnvironmentDeclaration, matchEnvironmentLocalPath
 } from '../environment-declaration.mjs';
-import { environmentAuditGitSnapshot, repoRoot } from '../git.mjs';
+import { environmentAuditGitSnapshot, environmentFilesRegistryPolicySync, repoRoot } from '../git.mjs';
 import { scanEntries, scannablePath } from '../secrets.mjs';
 import { optionBoolean, SingularityFlowError } from '../util.mjs';
 
-const SUBCOMMANDS = Object.freeze(['status', 'audit', 'bind', 'unbind']);
+const SUBCOMMANDS = Object.freeze(['status', 'audit', 'bind', 'unbind', 'files']);
 const MAXIMUM_STDIN_BYTES = 256 * 1024;
 const MAXIMUM_AUDIT_FILE_BYTES = 1024 * 1024;
 const MAXIMUM_AUDIT_BYTES = 16 * 1024 * 1024;
@@ -117,21 +117,23 @@ async function auditEnvironment(root) {
     maximumTotalBytes: MAXIMUM_AUDIT_BYTES
   });
   const { tracked, untracked, ignored, headPaths, headEntries } = gitSnapshot;
-  const worktreePolicies = environmentPolicySet(
+  // This machine's environment-file registry (env files) protects its paths like localFiles.
+  const registry = environmentFilesRegistryPolicySync(root);
+  const worktreePolicies = [...environmentPolicySet(
     worktreeDeclaration,
     gitSnapshot.declarations.candidateIndex,
     gitSnapshot.declarations.lastPublication
-  );
-  const candidatePolicies = environmentPolicySet(
+  ), registry].filter(Boolean);
+  const candidatePolicies = [...environmentPolicySet(
     gitSnapshot.declarations.candidateIndex,
     worktreeDeclaration,
     gitSnapshot.declarations.lastPublication
-  );
-  const lastPublicationPolicies = environmentPolicySet(
+  ), registry].filter(Boolean);
+  const lastPublicationPolicies = [...environmentPolicySet(
     gitSnapshot.declarations.lastPublication,
     gitSnapshot.declarations.candidateIndex,
     worktreeDeclaration
-  );
+  ), registry].filter(Boolean);
   const findings = [];
   const localFiles = [];
   for (const relative of tracked) {
@@ -239,12 +241,14 @@ function emit(value, json) {
   return value;
 }
 
-export async function run(_argv, { positionals, options }) {
+export async function run(argv, { positionals, options }) {
   const subcommand = positionals[1] ?? 'status';
   if (!SUBCOMMANDS.includes(subcommand)) {
     fail(`Unknown env subcommand '${subcommand}'. Supported: ${SUBCOMMANDS.join(', ')}.`,
       'UNKNOWN_SUBCOMMAND');
   }
+  // Environment files (docs/SPEC-ENVIRONMENT-FILES-v1.md) load only for `env files`.
+  if (subcommand === 'files') return (await import('./environment-files.mjs')).run(argv, { positionals, options });
   const root = repoRoot(process.cwd());
   const json = optionBoolean(options, 'json');
   if (subcommand === 'status') {

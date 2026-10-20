@@ -156,8 +156,8 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'verbose', 'show-artifact', 'brief', 'table',
   // Imports.
   'without-defaults', 'launch', 'allow-not-ready',
-  // Run and test: app start --debug.
-  'debug'
+  // Run and test: app start --debug. Environment files: env files add|remove --personal, create --from-template, root|link --clear.
+  'debug', 'personal', 'from-template', 'clear'
 ]));
 
 export function parseArgs(argv) {

@@ -1329,8 +1329,8 @@ export function refusalDetails(details) {
     const file = (entry) => (entry && typeof entry === 'object' && text(entry.path)
       ? { path: text(entry.path), template: text(entry.template), commands: list(entry.commands, text) } : null);
     Object.assign(projected, { environment: text(details.environment), ...file(details) });
-    const missing = list(details.missing, file);
-    if (missing.length) projected.missing = missing;
+    const files = list(details.files, file);
+    if (files.length) projected.files = files;
   }
   // The earlier phases that own the cause, so no surface mistakes them for the phase to repair.
   const upstreamPhases = list(details.upstreamPhases, text);

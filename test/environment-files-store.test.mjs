@@ -20,11 +20,17 @@ test('create from template writes a private store file, links it here, excludes 
   const created = repo.json(['env', 'files', 'create', 'dev', SPRING, '--from-template']);
   assert.equal(created.status, 0, created.stderr);
   const store = path.join(repo.root, '.git', 'singularity-flow', 'environment-files', 'v1');
-  assert.deepEqual(created.value, {
+  const { entry, ...result } = created.value;
+  assert.deepEqual(result, {
     schemaVersion: 1, resultType: 'sflow-env-file-created', scope: 'repository', repository: null, workspace: null,
-    environment: 'dev', path: SPRING, origin: 'declared', source: 'store', location: path.join(store, 'dev', ...SPRING.split('/')),
+    environment: 'dev', path: SPRING, kind: 'declared', source: 'store', location: path.join(store, 'dev', ...SPRING.split('/')),
     fromTemplate: 'services/api/src/main/resources/application-dev.example.yml',
     placement: { placed: [SPRING], unchanged: [], unmanaged: [], excluded: [SPRING], notes: [] }
+  });
+  // The resulting entry, shaped as env files lists it.
+  assert.deepEqual(entry, {
+    repository: null, app: null, environment: 'dev', path: SPRING, kind: 'declared', template: 'services/api/src/main/resources/application-dev.example.yml',
+    source: 'store', location: result.location, status: 'placed-here', excluded: true, placedFor: 'dev', placement: 'symlink', problem: null
   });
   assert.equal(await readFile(created.value.location, 'utf8'), TEMPLATE_TEXT);
   assert.equal(await mode(created.value.location), 0o600);
@@ -72,7 +78,7 @@ test('env files lists each file with its status, source, location, template and 
   const dev = Object.fromEntries(app.environments.find((entry) => entry.name === 'dev').files.map((file) => [file.path, file]));
   assert.deepEqual(Object.keys(dev).sort(), ['.env', 'apps/web/.env.dev', SPRING].sort(), 'globs stay protection only');
   assert.deepEqual({ ...dev['apps/web/.env.dev'], location: null }, {
-    path: 'apps/web/.env.dev', origin: 'declared', template: 'apps/web/.env.dev.example', source: 'store', location: null,
+    path: 'apps/web/.env.dev', kind: 'declared', template: 'apps/web/.env.dev.example', source: 'store', location: null,
     status: 'placed-here', excluded: true, placedFor: 'dev', placement: 'symlink', problem: null
   });
   assert.equal(dev['.env'].status, 'unmanaged');
@@ -83,6 +89,14 @@ test('env files lists each file with its status, source, location, template and 
   assert.doesNotMatch(JSON.stringify(listed.value), /SECRET_VALUE_IN_UNMANAGED|API_TOKEN/u);
   const one = repo.json(['env', 'files', 'uat']);
   assert.deepEqual(one.value.repositories[0].apps[0].environments.map((entry) => entry.name), ['uat']);
+  // The flat view the editor page reads: every file with its repository and app, every environment, the folders.
+  assert.deepEqual(listed.value.environments, ['dev', 'uat']);
+  assert.deepEqual(listed.value.roots, {});
+  assert.deepEqual(listed.value.files.map((file) => `${file.environment}:${file.path}:${file.status}`), [
+    'dev:.env:unmanaged', 'dev:apps/web/.env.dev:placed-here', `dev:${SPRING}:missing`,
+    'uat:.env:unmanaged', 'uat:apps/web/.env.uat:missing', 'uat:services/api/src/main/resources/application-uat.yml:missing']);
+  assert.deepEqual(Object.keys(listed.value.files[0]), ['repository', 'app', 'environment', 'path', 'kind', 'template', 'source', 'location',
+    'status', 'excluded', 'placedFor', 'placement', 'problem']);
   const unknown = repo.json(['env', 'files', 'staging']);
   assert.equal(unknown.value.error.code, 'ENVIRONMENT_UNKNOWN');
 });
@@ -112,7 +126,7 @@ test('a missing file refuses with ENV_FILE_MISSING naming the file, its template
   assert.equal(details.path, '.env');
   assert.equal(details.template, null);
   assert.deepEqual(details.commands, ['singularity-flow env files create uat .env', 'singularity-flow env files link uat .env --to <FILE>']);
-  assert.deepEqual(details.missing.find((entry) => entry.path === 'apps/web/.env.uat'), {
+  assert.deepEqual(details.files.find((entry) => entry.path === 'apps/web/.env.uat'), {
     path: 'apps/web/.env.uat', template: 'apps/web/.env.uat.example',
     commands: ['singularity-flow env files create uat apps/web/.env.uat --from-template', 'singularity-flow env files link uat apps/web/.env.uat --to <FILE>']
   });
@@ -173,18 +187,18 @@ test('personal files: added and excluded at once, created, then removed with the
   assert.equal(repo.json(['env', 'files', 'add', 'dev', '.env', '--personal']).value.error.code, 'ENV_FILE_ALREADY_DECLARED');
   assert.equal(repo.json(['env', 'files', 'add', 'qa', 'x.env', '--personal']).value.error.code, 'ENVIRONMENT_UNKNOWN');
   const created = repo.json(['env', 'files', 'create', 'dev', 'notes/mine.env']);
-  assert.equal(created.value.origin, 'personal');
+  assert.equal(created.value.kind, 'personal');
   const listed = repo.json(['env', 'files', 'dev']).value.repositories[0].apps[0].environments[0].files.find((file) => file.path === 'notes/mine.env');
-  assert.deepEqual([listed.origin, listed.status], ['personal', 'placed-here']);
+  assert.deepEqual([listed.kind, listed.status], ['personal', 'placed-here']);
   const removed = repo.json(['env', 'files', 'remove', 'dev', 'notes/mine.env', '--personal']);
   assert.equal(removed.status, 0, removed.stderr);
-  assert.deepEqual([removed.value.removed, removed.value.removedLink, removed.value.kept], [true, true, created.value.location]);
+  assert.deepEqual([removed.value.removed, removed.value.removedLink, removed.value.kept, removed.value.entry], [true, true, created.value.location, null]);
   assert.equal(await lstat(path.join(repo.root, 'notes/mine.env')).catch(() => null), null);
   assert.ok((await lstat(created.value.location)).isFile(), 'the real file is kept');
   assert.equal(repo.json(['env', 'files', 'remove', 'dev', '.env', '--personal']).value.error.code, 'ENV_FILE_NOT_PERSONAL');
 });
 
-test('link uses an existing readable file, refuses directories, loops, unreadable, tracked and in-checkout files, and --clear stops', async (t) => {
+test('link uses an existing readable file, refuses directories, loops, unreadable, tracked and in-checkout files, and unlink stops', async (t) => {
   const repo = await repository(t);
   const outside = path.join(repo.base, 'mine');
   await writeFiles(outside, { 'dev.env': 'TOKEN=abc\n', 'locked.env': 'X=1\n' });
@@ -209,9 +223,10 @@ test('link uses an existing readable file, refuses directories, loops, unreadabl
   git(other, ['add', '-A']);
   git(other, ['commit', '-q', '-m', 'other']);
   assert.match(refusal(path.join(other, 'tracked.env')).message, /is tracked in the Git repository/u);
-  const cleared = repo.json(['env', 'files', 'link', 'dev', '.env', '--clear']);
+  const cleared = repo.json(['env', 'files', 'unlink', 'dev', '.env']);
   assert.equal(cleared.status, 0, cleared.stderr);
-  assert.deepEqual([cleared.value.source, cleared.value.exists], ['store', false]);
+  assert.deepEqual([cleared.value.resultType, cleared.value.source, cleared.value.exists, cleared.value.entry.status], ['sflow-env-file-unlinked', 'store', false, 'missing']);
+  assert.equal(repo.json(['env', 'files', 'link', 'dev', '.env', '--clear']).status, 0, 'link --clear stays an alias of unlink');
   assert.equal(await lstat(path.join(repo.root, '.env')).catch(() => null), null, 'the link to the file no longer used is removed');
   assert.equal(await readFile(path.join(outside, 'dev.env'), 'utf8'), 'TOKEN=abc\n', 'the linked file itself is never touched');
 });

@@ -248,7 +248,7 @@ export const ENV_READ_SUBCOMMANDS = Object.freeze(['status', 'audit']);
 export const ENV_MUTATION_SUBCOMMANDS = Object.freeze(['bind', 'unbind']);
 export const ENV_SUBCOMMANDS = Object.freeze([...ENV_READ_SUBCOMMANDS, ...ENV_MUTATION_SUBCOMMANDS, 'files']);
 // `env files` [ENVF]: the first three read; the others change machine-local environment-file state.
-const ENV_FILES_ACTIONS = Object.freeze(['list', 'path', 'suggest', 'create', 'link', 'adopt', 'add', 'remove', 'root', 'place']);
+const ENV_FILES_ACTIONS = Object.freeze(['list', 'path', 'suggest', 'create', 'link', 'unlink', 'adopt', 'add', 'remove', 'root', 'place']);
 /**
  * `status` only reads; `align` replaces installed product surfaces with the installed build;
  * `reviews` opens this build's configuration reviews, pushing review branches only.

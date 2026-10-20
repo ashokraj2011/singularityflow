@@ -184,9 +184,10 @@ export async function suggestEnvironmentFiles(scope) {
       path: ENVIRONMENT_DECLARATION_PATH,
       localFiles: Object.fromEntries([...additions].filter(([environment]) => declaredEnvironments.includes(environment)).sort(([left], [right]) => left.localeCompare(right))),
       undeclaredEnvironments: Object.fromEntries(undeclared.map((environment) => [environment, additions.get(environment)])),
-      document: draft.document, valid: draft.valid, ...(draft.error ? { error: draft.error } : {}),
-      proposal: 'Save the draft through Configuration Center (or your configuration proposal) and merge it; env files never edits the declaration itself.'
+      document: draft.document, valid: draft.valid, ...(draft.error ? { error: draft.error } : {})
     },
+    // The reviewed route for the draft: the document goes on standard input; env files never edits the declaration.
+    proposal: draft.valid && draft.document ? { command: `singularity-flow configuration save ${ENVIRONMENT_DECLARATION_PATH} --propose`, stdin: 'draft.document' } : null,
     notes, truncated
   };
 }
@@ -203,7 +204,7 @@ export function suggestionText(result) {
   if (entries.length) {
     lines.push(`Draft localFiles for ${result.draft.path}:`);
     for (const [environment, paths] of entries) lines.push(`  ${environment}: ${paths.join(', ')}`);
-    lines.push(result.draft.proposal);
+    if (result.proposal) lines.push(`Propose it for review: pipe the draft document (--json: draft.document) into ${result.proposal.command}`);
   }
   for (const note of result.notes) lines.push(note);
   return lines.join('\n');

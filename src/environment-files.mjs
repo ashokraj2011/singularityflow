@@ -33,7 +33,8 @@ import {
 } from './private-sidecar.mjs';
 import { ensureSecureRepositoryDirectory, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
-export const ENVIRONMENT_FILES_SCHEMA_VERSION = 1;
+// Record versions these readers accept, as environment bindings keep theirs (machine-local records only).
+const supportedRecordVersions = Object.freeze({ 1: true });
 const MAXIMUM_RECORD_BYTES = 256 * 1024;
 const MAXIMUM_TEMPLATE_BYTES = 1024 * 1024;
 const MAXIMUM_ENTRIES = 1_024;
@@ -179,7 +180,7 @@ function parseRegistry(bytes, where) {
   let record;
   try { record = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); } catch { throw invalidRegistry(where); }
   const keys = record && typeof record === 'object' && !Array.isArray(record) ? Object.keys(record).sort().join() : '';
-  if (keys !== 'entries,kind,schemaVersion' || record.schemaVersion !== 1 || record.kind !== 'environment-files-registry'
+  if (keys !== 'entries,kind,schemaVersion' || supportedRecordVersions[record.schemaVersion] !== true || record.kind !== 'environment-files-registry'
       || !Array.isArray(record.entries) || record.entries.length > MAXIMUM_ENTRIES) throw invalidRegistry(where);
   const seen = new Set();
   for (const entry of record.entries) {
@@ -199,7 +200,7 @@ function parseRegistry(bytes, where) {
 
 function registryBytes(entries) {
   const sorted = [...entries].sort((left, right) => left.environment.localeCompare(right.environment) || left.path.localeCompare(right.path));
-  return `${JSON.stringify({ schemaVersion: ENVIRONMENT_FILES_SCHEMA_VERSION, kind: 'environment-files-registry', entries: sorted.map((entry) => Object.fromEntries(ENTRY_KEYS.map((key) => [key, entry[key] ?? null]))) }, null, 2)}\n`;
+  return `${JSON.stringify({ schemaVersion: 1, kind: 'environment-files-registry', entries: sorted.map((entry) => Object.fromEntries(ENTRY_KEYS.map((key) => [key, entry[key] ?? null]))) }, null, 2)}\n`;
 }
 
 function upsert(entries, environment, relative, patch) {
@@ -224,7 +225,7 @@ async function readRoots() {
   if (!bytes) return {};
   let record;
   try { record = JSON.parse(bytes.toString('utf8')); } catch { record = null; }
-  if (record?.kind !== 'environment-files-roots' || record.schemaVersion !== 1 || !record.workspaces || typeof record.workspaces !== 'object') {
+  if (record?.kind !== 'environment-files-roots' || supportedRecordVersions[record.schemaVersion] !== true || !record.workspaces || typeof record.workspaces !== 'object') {
     fail(`The environment-file folder settings in ${workspaceFilesBase()} are invalid. Repair or remove roots.json.`, 'ENVIRONMENT_FILES_REGISTRY_INVALID');
   }
   return record.workspaces;
@@ -503,7 +504,7 @@ export function missingFilesRefusal(scope, environment, missing) {
   return new SingularityFlowError(
     `Environment '${environment}' needs ${missing.length === 1 ? 'a file' : `${missing.length} files`} of ${scope.label} that ${missing.length === 1 ? 'is' : 'are'} missing on this machine: ${missing.map((file) => file.path).join(', ')}. `
       + `Create ${missing.length === 1 ? 'it' : 'each'} ${first.template ? `from its template (${first.commands[0]})` : `(${first.commands[0]})`}, or use a file you already have (${first.commands[1]}). Nothing ran.`,
-    { code: 'ENV_FILE_MISSING', details: { environment, path: first.path, template: first.template, commands: first.commands, missing: listed,
+    { code: 'ENV_FILE_MISSING', details: { environment, path: first.path, template: first.template, commands: first.commands, files: listed,
       recoveryCommands: [...first.commands, `singularity-flow env files ${shellWord(environment)}${suffix} --json`] } });
 }
 
@@ -699,7 +700,7 @@ async function reportFiles(scope, files) {
   for (const file of resolved) {
     const state = states.get(file.path);
     shown.push({
-      environment: file.environment, path: file.path, origin: file.origin, template: await templateFor(scope.checkout, file.path),
+      environment: file.environment, path: file.path, kind: file.origin, template: await templateFor(scope.checkout, file.path),
       // Outside every repository there is nothing to exclude.
       source: file.source, location: file.location, status: fileStatus(file, state), excluded: scope.kind === 'repository' ? excluded.has(file.path) : null,
       placedFor: state.kind === 'placed' ? state.environment : null,
@@ -722,8 +723,10 @@ async function repositoryReport(scope, environment, { strict = false } = {}) {
   const shown = await reportFiles(scope, files);
   const apps = await capabilityApps(scope);
   const groups = new Map();
+  const listed = [];
   for (const file of shown) {
     const app = appFor(apps, file.path);
+    listed.push(listedEntry(scope, app, file));
     const key = app?.id ?? '';
     if (!groups.has(key)) groups.set(key, { id: app?.id ?? null, kind: app ? 'capability' : 'repository', sourceRoots: app ? [...app.sourceRoots] : [], environments: new Map() });
     const group = groups.get(key);
@@ -734,12 +737,22 @@ async function repositoryReport(scope, environment, { strict = false } = {}) {
   const declared = declaration?.error ? 'invalid' : declaration ? 'ready' : 'missing';
   const environments = declaration?.error || !declaration ? [] : Object.keys(declaration.environments).sort();
   return {
-    id: scope.repositoryId, checkout: scope.checkout, store: scope.store,
-    declaration: declared, environments,
-    apps: [...groups.values()].sort((left, right) => (left.id ?? '').localeCompare(right.id ?? '')).map((group) => ({
-      ...group, environments: [...group.environments].sort(([left], [right]) => left.localeCompare(right)).map(([name, list]) => ({ name, files: list }))
-    }))
+    report: {
+      id: scope.repositoryId, checkout: scope.checkout, store: scope.store,
+      declaration: declared, environments,
+      apps: [...groups.values()].sort((left, right) => (left.id ?? '').localeCompare(right.id ?? '')).map((group) => ({
+        ...group, environments: [...group.environments].sort(([left], [right]) => left.localeCompare(right)).map(([name, list]) => ({ name, files: list }))
+      }))
+    },
+    files: listed,
+    environments: [...new Set([...environments, ...entries.map((entry) => entry.environment)])]
   };
+}
+
+function finishReport(result, environments, roots) {
+  result.environments = [...new Set([...environments, ...result.files.map((file) => file.environment)])].sort();
+  result.roots = { ...roots };
+  return result;
 }
 
 async function memberCheckouts(scope) {
@@ -772,26 +785,35 @@ export async function commandScope(root, { repository = null, workspace = false 
 /** `env files [ENV] [--repository ID | --workspace]`: every file with its status, never its contents. */
 export async function environmentFilesReport(root, { environment = null, repository = null, workspace = false } = {}) {
   if (environment) environmentArgument(environment);
-  const result = { schemaVersion: ENVIRONMENT_FILES_SCHEMA_VERSION, resultType: 'sflow-env-files', scope: workspace ? 'workspace' : 'repository', environment, repositories: [], workspace: null };
+  const result = { schemaVersion: 1, resultType: 'sflow-env-files', scope: workspace ? 'workspace' : 'repository', environment,
+    environments: [], roots: {}, files: [], repositories: [], workspace: null };
   if (!workspace) {
     const scope = await commandScope(root, { repository });
-    result.repositories.push(await repositoryReport(scope, environment, { strict: true }));
+    const shown = await repositoryReport(scope, environment, { strict: true });
+    result.repositories.push(shown.report);
+    result.files.push(...shown.files);
     result.workspace = workspaceSummary(scope.workspace);
-    return result;
+    return finishReport(result, shown.environments, scope.roots);
   }
   const level = await commandScope(root, { workspace: true });
+  const environments = [];
   for (const member of await memberCheckouts(level)) {
     if (!repositoryGitDirectory(member.checkout)) {
       result.repositories.push({ id: member.id, checkout: member.checkout, store: null, declaration: 'not-cloned', environments: [], apps: [] });
       continue;
     }
     const scope = await repositoryScope(member.checkout, { member: { repositoryId: member.id, workspace: level.workspace, mapRoot: member.checkout } });
-    result.repositories.push(await repositoryReport(scope, environment));
+    const shown = await repositoryReport(scope, environment);
+    result.repositories.push(shown.report);
+    result.files.push(...shown.files);
+    environments.push(...shown.environments);
   }
   const files = scopeFiles(null, await level.readRegistry(), { workspaceLevel: true }).filter((file) => !environment || file.environment === environment);
+  const levelFiles = (await reportFiles(level, files)).map((file) => listedEntry(level, null, file));
+  result.files.push(...levelFiles);
   result.workspace = { ...workspaceSummary(level.workspace), store: level.store, roots: { ...level.roots },
-    files: (await reportFiles(level, files)).map((file) => ({ ...file, problem: null })) };
-  return result;
+    files: levelFiles.map(({ repository: _repository, app: _app, ...file }) => file) };
+  return finishReport(result, environments, level.roots);
 }
 
 async function knownFile(scope, environment, relative, { declaration = undefined } = {}) {
@@ -818,7 +840,7 @@ export async function environmentFilePath(scope, environment, relative) {
   const [shown] = resolved;
   return {
     schemaVersion: 1, resultType: 'sflow-env-file-path', scope: scope.kind, repository: scope.repositoryId, workspace: workspaceSummary(scope.workspace),
-    environment, path: relative, origin: file.origin, source: shown.source, location: shown.location, exists: shown.exists,
+    environment, path: relative, kind: file.origin, source: shown.source, location: shown.location, exists: shown.exists,
     status: fileStatus(shown, states.get(relative))
   };
 }
@@ -832,12 +854,26 @@ async function placeSingle(scope, file, environment, platform) {
   }
 }
 
-function changeResult(resultType, scope, environment, relative, extra, placement) {
+/** One file as the flat `files[]` of env files lists it. */
+function listedEntry(scope, app, file) {
+  return { repository: scope.kind === 'repository' ? scope.repositoryId : null, app: app?.id ?? null, ...file,
+    ...(scope.kind === 'workspace' ? { problem: null } : {}) };
+}
+
+async function entryFor(scope, environment, relative) {
+  const { file } = await knownFile(scope, environment, relative);
+  if (!file) return null;
+  const [shown] = await reportFiles(scope, [file]);
+  return listedEntry(scope, scope.kind === 'repository' ? appFor(await capabilityApps(scope), relative) : null, shown);
+}
+
+async function changeResult(resultType, scope, environment, relative, extra, placement) {
   return {
     schemaVersion: 1, resultType, scope: scope.kind, repository: scope.repositoryId, workspace: workspaceSummary(scope.workspace),
     environment, path: relative, ...extra,
     placement: placement ? { placed: placement.placed.map((file) => file.path), unchanged: placement.unchanged.map((file) => file.path),
-      unmanaged: placement.unmanaged.map((file) => file.path), excluded: placement.excluded ?? [], notes: placement.notes } : null
+      unmanaged: placement.unmanaged.map((file) => file.path), excluded: placement.excluded ?? [], notes: placement.notes } : null,
+    entry: await entryFor(scope, environment, relative)
   };
 }
 
@@ -866,7 +902,7 @@ export async function createEnvironmentFile(scope, environment, relative, { from
   if (!file) throw undeclared(scope, environment, relative);
   const resolved = await resolveFile(scope, file);
   if (resolved.source === 'linked') {
-    fail(`${relative} uses the linked file ${resolved.location}${resolved.exists ? '' : ', which is missing'}. Edit that file, link another with env files link --to, or stop using it with singularity-flow env files link ${shellWord(environment)} ${shellWord(relative)} --clear${scopeSuffix(scope)}.`,
+    fail(`${relative} uses the linked file ${resolved.location}${resolved.exists ? '' : ', which is missing'}. Edit that file, link another with env files link --to, or stop using it with singularity-flow env files unlink ${shellWord(environment)} ${shellWord(relative)}${scopeSuffix(scope)}.`,
       'ENV_FILE_LINKED', { environment, path: relative, location: resolved.location });
   }
   if (resolved.exists) {
@@ -886,7 +922,7 @@ export async function createEnvironmentFile(scope, environment, relative, { from
   await scope.writeRegistry(entries);
   const placement = await placeSingle(scope, file, environment, platform);
   return changeResult('sflow-env-file-created', scope, environment, relative, {
-    origin: file.origin, source: resolved.source, location: resolved.location, fromTemplate: fromTemplate ? template : null
+    kind: file.origin, source: resolved.source, location: resolved.location, fromTemplate: fromTemplate ? template : null
   }, placement);
 }
 
@@ -959,7 +995,12 @@ export async function linkEnvironmentFile(scope, environment, relative, { to = n
   await scope.writeRegistry(entries);
   const linked = { ...file, entry: entries.find((entry) => entry.environment === environment && entry.path === relative) };
   const placement = await placeSingle(scope, linked, environment, platform);
-  return changeResult('sflow-env-file-linked', scope, environment, relative, { origin: file.origin, source: 'linked', location: real }, placement);
+  return changeResult('sflow-env-file-linked', scope, environment, relative, { kind: file.origin, source: 'linked', location: real }, placement);
+}
+
+/** `env files unlink`: stop using a linked file; it falls back to the workspace folder or the store, and is never deleted. */
+export async function unlinkEnvironmentFile(scope, environment, relative, options = {}) {
+  return linkEnvironmentFile(scope, environment, relative, { ...options, clear: true });
 }
 
 /** `env files adopt`: move an unmanaged file at the path into the store and link it back. */
@@ -967,7 +1008,7 @@ export async function adoptEnvironmentFile(scope, environment, relative, { platf
   const { file, entries } = await knownFile(scope, environment, relative);
   if (!file) throw undeclared(scope, environment, relative);
   if (file.entry?.source === 'linked') {
-    fail(`${relative} uses the linked file ${file.entry.linkedPath}; stop using it first with singularity-flow env files link ${shellWord(environment)} ${shellWord(relative)} --clear${scopeSuffix(scope)}.`,
+    fail(`${relative} uses the linked file ${file.entry.linkedPath}; stop using it first with singularity-flow env files unlink ${shellWord(environment)} ${shellWord(relative)}${scopeSuffix(scope)}.`,
       'ENV_FILE_LINKED', { environment, path: relative, location: file.entry.linkedPath });
   }
   const { states } = await describe(scope, [file]);
@@ -994,7 +1035,7 @@ export async function adoptEnvironmentFile(scope, environment, relative, { platf
   upsert(entries, environment, relative, { origin: file.origin, source: 'store', linkedPath: null });
   await scope.writeRegistry(entries);
   const placement = await placeSingle(scope, { ...file, entry: entries.find((entry) => entry.environment === environment && entry.path === relative) }, environment, platform);
-  return changeResult('sflow-env-file-adopted', scope, environment, relative, { origin: file.origin, source: 'store', location: destination }, placement);
+  return changeResult('sflow-env-file-adopted', scope, environment, relative, { kind: file.origin, source: 'store', location: destination }, placement);
 }
 
 /** `env files add --personal`: a file only this person uses, protected exactly like a declared one. */
@@ -1024,7 +1065,7 @@ export async function addPersonalEnvironmentFile(scope, environment, relative) {
   const file = { environment, path: relative, origin: 'personal', declared: false, entry: existing ?? entries.find((entry) => entry.environment === environment && entry.path === relative) };
   const resolved = await resolveFile(scope, file);
   return changeResult('sflow-env-file-added', scope, environment, relative, {
-    origin: 'personal', added: !existing, source: resolved.source, location: resolved.location, exists: resolved.exists,
+    kind: 'personal', added: !existing, source: resolved.source, location: resolved.location, exists: resolved.exists,
     next: resolved.exists ? [] : fixCommands(environment, { path: relative, template: await templateFor(scope.checkout, relative) }, scopeSuffix(scope))
   }, { placed: [], unchanged: [], unmanaged: [], excluded, notes: [] });
 }
@@ -1083,7 +1124,7 @@ export async function setEnvironmentRoot(root, environment, directory, { clear =
 /** `env files place ENV`: place now what a run would place (runs do it themselves). */
 export async function placeForCommand(root, environment, { capability = null, workspace = false, platform = process.platform } = {}) {
   const result = { schemaVersion: 1, resultType: 'sflow-env-files-placed', environment, capability, repositories: [], workspace: null };
-  const run = async (scope, sourceRoots) => {
+  const placeIn = async (scope, sourceRoots) => {
     const declaration = await loadEnvironmentDeclaration(scope.checkout, { optional: true });
     const files = runFiles(scopeFiles(declaration, await scope.readRegistry()), environment, { sourceRoots });
     const placed = await placeEnvironmentFiles(scope, files, environment, { platform });
@@ -1097,13 +1138,13 @@ export async function placeForCommand(root, environment, { capability = null, wo
       const { resolveCapabilityApplication } = await import('./capability-application-context.mjs');
       sourceRoots = (await resolveCapabilityApplication(root, { capabilityId: capability, readApplication: false })).capability?.sourceRoots ?? [];
     }
-    result.repositories.push(await run(scope, sourceRoots));
+    result.repositories.push(await placeIn(scope, sourceRoots));
     return result;
   }
   const level = await commandScope(root, { workspace: true });
   for (const member of await memberCheckouts(level)) {
     if (!repositoryGitDirectory(member.checkout)) continue;
-    result.repositories.push(await run(await repositoryScope(member.checkout, { member: { repositoryId: member.id, workspace: level.workspace, mapRoot: member.checkout } }), []));
+    result.repositories.push(await placeIn(await repositoryScope(member.checkout, { member: { repositoryId: member.id, workspace: level.workspace, mapRoot: member.checkout } }), []));
   }
   const files = runFiles(scopeFiles(null, await level.readRegistry(), { workspaceLevel: true }), environment, {});
   const placed = await placeEnvironmentFiles(level, files, environment, { platform });

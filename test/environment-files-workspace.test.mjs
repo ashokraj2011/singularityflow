@@ -117,8 +117,12 @@ test('a two-repository workspace: one store per repository, one view across them
   assert.deepEqual(placed.value.repositories.map((repository) => [repository.id, repository.files]), [['api', ['config/dev.yml']], ['app', ['.env.dev']]]);
   assert.deepEqual(placed.value.workspace.files, ['.env']);
   const after = ws.json(['env', 'files', 'dev', '--workspace']).value;
-  assert.deepEqual(after.workspace.files.map((file) => [file.path, file.origin, file.status]), [['.env', 'personal', 'placed-here']]);
+  assert.deepEqual(after.workspace.files.map((file) => [file.path, file.kind, file.status, file.excluded]), [['.env', 'personal', 'placed-here', null]]);
   assert.deepEqual(after.workspace.roots, { uat: folder });
+  assert.deepEqual(after.roots, { uat: folder });
+  assert.deepEqual(after.environments, ['dev', 'uat'], 'every declared environment, with files or not');
+  assert.deepEqual(after.files.map((file) => [file.repository, file.environment, file.path, file.status]), [
+    ['api', 'dev', 'config/dev.yml', 'placed-here'], ['app', 'dev', '.env.dev', 'placed-here'], [null, 'dev', '.env', 'placed-here']]);
 
   // A run in a member repository places the workspace-level file too.
   await rm(path.join(ws.directory, '.env'));

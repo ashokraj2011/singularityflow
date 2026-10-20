@@ -63,6 +63,7 @@ test('env files suggest finds framework environment files by name only and draft
   assert.equal(draft.valid, true, draft.error);
   assert.match(draft.document, /apps\/web\/\.env\.uat/u);
   assert.match(draft.document, /apps\/web\/\.env\.dev/u, 'the existing declaration is kept');
+  assert.deepEqual(suggested.value.proposal, { command: 'singularity-flow configuration save singularity/environments.yml --propose', stdin: 'draft.document' });
   assert.ok(suggested.value.notes.some((note) => /not declared; declaring one needs at least one requires entry/u.test(note)));
   assert.ok(suggested.value.notes.some((note) => /shared by every environment/u.test(note)));
   const text = repo.sflow(['env', 'files', 'suggest']);

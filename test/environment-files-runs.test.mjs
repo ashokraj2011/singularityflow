@@ -220,8 +220,12 @@ test('a Story step\'s local run and its publish gate place the file, block witho
   assert.equal(published.status, 0, `${published.stdout}\n${published.stderr}`);
   const attemptsDirectory = path.join(repo.root, 'singularity/work-items/QF-1/context/code-delivery/tests/attempts/implement');
   const attempts = await Promise.all((await readdir(attemptsDirectory)).map(async (name) => JSON.parse(await readFile(path.join(attemptsDirectory, name), 'utf8'))));
-  const gate = attempts.find((attempt) => attempt.commandId === 'integration-tests' && attempt.purpose === 'preflight');
-  assert.equal(gate.status, 'passed');
+  // The first publication's attempt was blocked by the missing file; the second one's passed.
+  const preflights = attempts.filter((attempt) => attempt.commandId === 'integration-tests' && attempt.purpose === 'preflight');
+  // (The refusal itself was asserted on the publication output above; an attempt keeps no diagnostic.)
+  assert.ok(preflights.some((attempt) => attempt.status === 'blocked'), JSON.stringify(preflights.map((attempt) => attempt.status)));
+  const gate = preflights.find((attempt) => attempt.status === 'passed');
+  assert.ok(gate, JSON.stringify(preflights.map((attempt) => attempt.status)));
   const rawDirectory = path.join(repo.root, 'singularity/work-items/QF-1/context/code-delivery/tests/raw');
   const raw = (await Promise.all(gate.rawReports.map((report) => readFile(path.join(rawDirectory, path.basename(report.path)), 'utf8')))).join('\n');
   assert.match(raw, /qa file: QA_SECRET_TOKEN=\[redacted:ENV_QA-QA_SECRET_TOKEN\]/u);

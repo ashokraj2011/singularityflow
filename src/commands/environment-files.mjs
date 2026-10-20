@@ -8,16 +8,18 @@ import path from 'node:path';
 
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
-export const ENV_FILES_ACTIONS = Object.freeze(['create', 'link', 'adopt', 'add', 'remove', 'path', 'root', 'place', 'suggest']);
+export const ENV_FILES_ACTIONS = Object.freeze(['create', 'link', 'unlink', 'adopt', 'add', 'remove', 'path', 'root', 'place', 'suggest']);
 const OPTIONS = Object.freeze({
   list: ['repository', 'workspace'], create: ['from-template', 'repository', 'workspace'], link: ['to', 'clear', 'repository', 'workspace'],
+  unlink: ['repository', 'workspace'],
   adopt: ['repository', 'workspace'], add: ['personal', 'repository', 'workspace'], remove: ['personal', 'repository', 'workspace'],
   path: ['repository', 'workspace'], root: ['clear'], place: ['capability', 'workspace'], suggest: ['repository']
 });
 const USAGE = Object.freeze({
   list: 'env files [ENV] [--repository ID | --workspace] [--json]',
   create: 'env files create <ENV> <PATH> [--from-template] [--repository ID | --workspace] [--json]',
-  link: 'env files link <ENV> <PATH> --to <FILE> | --clear [--repository ID | --workspace] [--json]',
+  link: 'env files link <ENV> <PATH> --to <FILE> [--repository ID | --workspace] [--json]',
+  unlink: 'env files unlink <ENV> <PATH> [--repository ID | --workspace] [--json]',
   adopt: 'env files adopt <ENV> <PATH> [--repository ID | --workspace] [--json]',
   add: 'env files add <ENV> <PATH> --personal [--repository ID | --workspace] [--json]',
   remove: 'env files remove <ENV> <PATH> --personal [--repository ID | --workspace] [--json]',
@@ -52,7 +54,7 @@ function words(action, positionals, { minimum, maximum }) {
 
 function fileLine(file) {
   const where = file.status === 'missing' ? `missing (expected at ${file.location})` : `${file.status} · ${file.source} · ${file.location}`;
-  const notes = [file.origin === 'personal' ? 'personal' : null, file.template ? `template ${file.template}` : null,
+  const notes = [file.kind === 'personal' ? 'personal' : null, file.template ? `template ${file.template}` : null,
     file.excluded ? null : 'not excluded yet', file.placedFor && file.placedFor !== file.environment && file.status !== 'placed-here' ? `placed for ${file.placedFor}` : null,
     file.problem].filter(Boolean);
   return `${file.path}: ${where}${notes.length ? ` (${notes.join(', ')})` : ''}`;
@@ -174,9 +176,11 @@ export async function run(_argv, { positionals, options = {} }) {
   if (action === 'link') {
     const clear = optionBoolean(options, 'clear');
     const to = optionString(options, 'to', null);
-    if (clear === Boolean(to)) fail(`Usage: singularity-flow ${USAGE.link}`);
+    if (clear === Boolean(to)) fail(`Usage: singularity-flow ${USAGE.link}, or singularity-flow ${USAGE.unlink}`);
     return emit(await engine.linkEnvironmentFile(scope, environment, relative, { to: to ? path.resolve(process.cwd(), to) : null, clear }), json, changeText);
   }
+  // `link --clear` stays an alias of unlink.
+  if (action === 'unlink') return emit(await engine.unlinkEnvironmentFile(scope, environment, relative), json, changeText);
   if (action === 'adopt') return emit(await engine.adoptEnvironmentFile(scope, environment, relative), json, changeText);
   if (action === 'add') return emit(await engine.addPersonalEnvironmentFile(scope, environment, relative), json, changeText);
   return emit(await engine.removePersonalEnvironmentFile(scope, environment, relative), json, changeText);

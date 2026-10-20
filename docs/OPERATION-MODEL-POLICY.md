@@ -259,6 +259,7 @@ Every public operation is classified before its implementation module is importe
 | env.files.remove | mutation | never | — | — |
 | env.files.root | mutation | never | — | — |
 | env.files.suggest | read | never | — | — |
+| env.files.unlink | mutation | never | — | — |
 | env.status | read | never | — | — |
 | env.unbind | mutation | never | — | — |
 | epic | mutation | never | — | — |

@@ -62,6 +62,7 @@ function observation(cli, args, repository, env, cache, allowKnownRefusal = fals
 }
 
 try {
+  const sourceIdentities = { baseline: identity(baseline), candidate: identity(root) };
   const before = await keep({ engineSource: baseline });
   const after = await keep({});
   const engines = { baseline: before, candidate: after };
@@ -144,9 +145,12 @@ try {
       console.error(`${profile}/${name}: ${JSON.stringify(row.summary)}`);
     }
   }
+  if (JSON.stringify(sourceIdentities) !== JSON.stringify({ baseline: identity(baseline), candidate: identity(root) })) {
+    throw new Error('Benchmark source changed during measurement; discard this run and repeat on frozen revisions.');
+  }
   const report = { schemaVersion: 1, resultType: 'sflow-bound-phase-next-paired-benchmark', runtime: {
     platform: process.platform, architecture: process.arch, node: process.version, loadAverage: os.loadavg() },
-    sources: { baseline: identity(baseline), candidate: identity(root) },
+    sources: sourceIdentities,
     protocol: { samples, profiles, boundAgent: true, composedContextRequired: true, gitFactStore: 'off; private accepted-provenance receipts enabled', order: 'alternating A/B and B/A', runtime: 'installed cold-layout bundles',
       cold: 'fresh Node process, empty private V8 cache, fresh local clone without advisory/provenance receipts',
       warm: 'immediate new Node process with the same code/provenance caches; not a persistent worker',

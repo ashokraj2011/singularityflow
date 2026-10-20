@@ -1,6 +1,7 @@
 /** Reusable exact Git objects; fresh remote advertisements and disposable indexes remain mandatory. */
 import path from 'node:path';
-import { chmod, lstat, readdir } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { chmod, lstat, readdir, rename, rm } from 'node:fs/promises';
 import { gitCommonDir } from './git.mjs';
 import { acquireFileLease } from './file-lease.mjs';
 import { ConfigurationObjectReader } from './configuration-object-reader.mjs';
@@ -12,6 +13,10 @@ import { run, SingularityFlowError } from './util.mjs';
 const OID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 const MAXIMUM_BYTES = 64 * 1024 * 1024;
 const MAXIMUM_FILES = 8_192;
+// Authority pools kept per repository. A new remote evicts the least recently borrowed idle pool.
+const MAXIMUM_AUTHORITIES = 8;
+const AUTHORITY = /^[a-f0-9]{64}$/u;
+const EVICTED = /^\.evicted-[a-f0-9]{64}-[a-f0-9-]{36}$/u;
 const privacy = { enforceWindowsAcl: true };
 
 async function qualifiedTree(root) {
@@ -31,6 +36,40 @@ async function qualifiedTree(root) {
     }
   }
   return true;
+}
+
+/**
+ * Make room for a new authority: remove the least recently borrowed pools nobody holds, oldest
+ * first, until `needed` are gone. The caller holds the allocation lease and every borrow is taken
+ * under it, so a pool whose borrow lease we can acquire is idle and cannot gain a borrower before it
+ * is removed. That lease is released before the move (Windows cannot rename a directory with an
+ * open file inside). A borrowed or quarantined pool (an unproven cleanup) refuses the lease and is
+ * kept. Each borrow adds and removes the pool's borrow.lock, so the directory's modification time
+ * is its last use. Returns how many pools were removed.
+ */
+async function evictIdleAuthorities(local, authorities, needed) {
+  // An earlier eviction's leftover directory never counts as a pool; finish removing it.
+  for (const name of (await readdir(local)).filter(name => EVICTED.test(name))) {
+    await rm(path.join(local, name), { recursive: true, force: true }).catch(() => {});
+  }
+  const used = await Promise.all(authorities.map(async name => {
+    const info = await lstat(path.join(local, name)).catch(() => null);
+    return info?.isDirectory() && !info.isSymbolicLink() ? { name, at: info.mtimeMs } : null;
+  }));
+  let removed = 0;
+  for (const { name } of used.filter(Boolean).sort((a, b) => a.at - b.at || a.name.localeCompare(b.name))) {
+    if (removed >= needed) break;
+    const pool = path.join(local, name);
+    const idle = await acquireFileLease(path.join(pool, 'borrow.lock'), { waitMs: 0 }).catch(() => null);
+    if (!idle) continue;
+    await idle.release({ cleanupConfirmed: true }).catch(() => {});
+    const retired = path.join(local, `.evicted-${name}-${randomUUID()}`);
+    try { await rename(pool, retired); } catch { continue; }
+    await rm(retired, { recursive: true, force: true }).catch(() => {});
+    incrementCommandCounter('configuration.object-store-evicted');
+    removed += 1;
+  }
+  return removed;
 }
 
 async function qualifiedConfig(root, store) {
@@ -66,8 +105,9 @@ export async function prepareConfigurationObjectCheckout(root, scratch, {
     const allocation = await acquireFileLease(path.join(local, 'allocation.lock'), { waitMs: 250 });
     if (!allocation) return null;
     try {
-      const authorities = (await readdir(local)).filter(name => /^[a-f0-9]{64}$/u.test(name));
-      if (!authorities.includes(key) && authorities.length >= 8) return null;
+      const authorities = (await readdir(local)).filter(name => AUTHORITY.test(name));
+      const needed = authorities.includes(key) ? 0 : authorities.length - MAXIMUM_AUTHORITIES + 1;
+      if (needed > 0 && await evictIdleAuthorities(local, authorities, needed) < needed) return null;
       store = path.join(local, key);
       await safePrivateSidecarDirectory(root, store, { ...privacy, create: true });
       lease = await acquireFileLease(path.join(store, 'borrow.lock'), { waitMs: 250 });
@@ -119,9 +159,15 @@ export async function prepareConfigurationObjectCheckout(root, scratch, {
         ...(completeObjects ? [] : ['--filter=blob:none']),
         '--recurse-submodules=no', '--', transport.remote, ...missing],
       { cwd: store, operation: 'remote-configuration', env: transport.env });
-      if (fetched.status !== 0) throw new SingularityFlowError(fetched.failure?.advice ?? 'Configuration object transfer failed.', {
-        code: fetched.failure?.code ?? 'WORKFLOW_PROPOSAL_AUTHORITY_UNAVAILABLE'
-      });
+      if (fetched.status !== 0) {
+        const error = new SingularityFlowError(fetched.failure?.advice ?? 'Configuration object transfer failed.', {
+          code: fetched.failure?.code ?? 'WORKFLOW_PROPOSAL_AUTHORITY_UNAVAILABLE'
+        });
+        // The transfer's own result, so a caller reports it exactly as it reports a failed clone:
+        // classified diagnosis and a doctor route. Not enumerable: raw output never reaches JSON.
+        Object.defineProperty(error, 'remoteResult', { value: fetched });
+        throw error;
+      }
       incrementCommandCounter('configuration.object-store-fetch');
     } else incrementCommandCounter('configuration.object-store-hit');
     if (!await qualifiedTree(store) || !await qualifiedConfig(root, store)) throw new SingularityFlowError(

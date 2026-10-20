@@ -133,8 +133,9 @@ need legacy orphan-branch filtering and Story-lineage decorations.
 
 Capability proposal inspection reuses exact configuration objects locally, with fresh remote-ref
 observations on each request. Remap/review checkouts own their objects independently so retained
-recovery never depends on that cache. Set `SINGULARITY_FLOW_CONFIGURATION_OBJECT_STORE=off` to use
-the original disposable-clone path. Story-scoped reconciliation uses its state-index branch when
+recovery never depends on that cache. The cache keeps up to eight lead repositories per checkout;
+a new one replaces the least recently used one that no command is reading. Set
+`SINGULARITY_FLOW_CONFIGURATION_OBJECT_STORE=off` to use the original disposable-clone path. Story-scoped reconciliation uses its state-index branch when
 available; unindexed legacy Stories retain discovery, and unscoped `ledger reconcile` remains the
 repository-wide recovery operation.
 

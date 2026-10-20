@@ -5038,20 +5038,29 @@ export async function listCapabilityProposals(url, {
   let proposalBudgetUsed = 0;
   let objectStore = null;
   try {
-    objectStore = await prepareConfigurationObjectCheckout(cacheRoot, scratch, {
-      remote, transport, authorityCommit: advertisedTargetCommit, runRemoteCommand, env,
-      completeObjects: true
-    });
-    if (!objectStore) {
+    // A failed pool transfer is reported exactly like a failed clone, and never retried through one.
+    let failedTransfer = null;
+    try {
+      objectStore = await prepareConfigurationObjectCheckout(cacheRoot, scratch, {
+        remote, transport, authorityCommit: advertisedTargetCommit, runRemoteCommand, env,
+        completeObjects: true
+      });
+    } catch (error) {
+      if (!error.remoteResult) throw error;
+      failedTransfer = error.remoteResult;
+    }
+    if (!objectStore && !failedTransfer) {
     const cloned = await runRemoteCommand([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
       '--no-checkout',
       '--branch', CONFIGURATION_BRANCH, transport.remote, scratch
     ], { operation: 'remote-configuration', env: transport.env });
-    if (cloned.status !== 0) {
-      const remoteFailure = publicRemoteFailure(cloned.failure);
-      throw new SingularityFlowError(`Cannot read '${sanitizeRemote(remote)}'. ${cloned.failure?.advice ?? 'Git clone failed.'}`, {
-        code: cloned.failure?.code ?? 'CAPABILITY_AUTHORITY_UNAVAILABLE',
+    if (cloned.status !== 0) failedTransfer = cloned;
+    }
+    if (failedTransfer) {
+      const remoteFailure = publicRemoteFailure(failedTransfer.failure);
+      throw new SingularityFlowError(`Cannot read '${sanitizeRemote(remote)}'. ${failedTransfer.failure?.advice ?? 'Git clone failed.'}`, {
+        code: failedTransfer.failure?.code ?? 'CAPABILITY_AUTHORITY_UNAVAILABLE',
         details: {
           remoteFailure,
           diagnosticAction: {
@@ -5060,7 +5069,6 @@ export async function listCapabilityProposals(url, {
           }
         }
       });
-    }
     }
     const targetCommit = run('git', ['rev-parse', 'HEAD'], {
       cwd: scratch, env: transport.env

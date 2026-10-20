@@ -83,7 +83,28 @@ async function packageTreeDigest(root) {
 export function managedLauncher(name, { windows = false } = {}) {
   if (!bins.includes(name)) throw new Error('Unsupported SFlow launcher.');
   const entry = name === 'sflow' ? 'singularity-flow' : name;
-  if (windows) return `@echo off\r\nsetlocal DisableDelayedExpansion\r\n"%SystemRoot%\\System32\\findstr.exe" /r /x /c:"1|node-v26[.][0-9][0-9]*[.][0-9][0-9]*-win32-${process.arch}|[0-9a-f][0-9a-f]*" "%~dp0..\\active" >nul\r\nif errorlevel 1 (echo SFlow engine selection is invalid. Repair the managed installation. 1>&2& exit /b 1)\r\nset "runtime="\r\nset "release="\r\nfor /f "usebackq tokens=1-3 delims=|" %%A in ("%~dp0..\\active") do if "%%A"=="1" (set "runtime=%%B"& set "release=%%C")\r\nif not defined runtime exit /b 1\r\nif not defined release exit /b 1\r\nif not "%release:~64%"=="" exit /b 1\r\nif "%release:~63,1%"=="" exit /b 1\r\n"%~dp0..\\runtimes\\%runtime%\\node.exe" "%~dp0..\\releases\\%release%\\node_modules\\singularity-flow\\bin\\${entry}.mjs" %*\r\nexit /b %errorlevel%\r\n`;
+  if (windows) return [
+    '@echo off',
+    'setlocal EnableExtensions DisableDelayedExpansion',
+    'for %%Z in ("%~dp0..\\active") do if %%~zZ GTR 256 exit /b 1',
+    // FINDSTR /x requires CRLF; the shared atomic record deliberately uses LF on every host.
+    // Reject unsafe/trailing bytes before CMD expands any file content, then match its prefix.
+    `"%SystemRoot%\\System32\\findstr.exe" /r /c:"[^0-9a-z.|-]" /c:"-win32-${process.arch}|[0-9a-f]*[^0-9a-f]" "%~dp0..\\active" >nul`,
+    'if errorlevel 2 exit /b 1',
+    'if not errorlevel 1 exit /b 1',
+    `"%SystemRoot%\\System32\\findstr.exe" /r /b /c:"1|node-v26[.][0-9][0-9]*[.][0-9][0-9]*-win32-${process.arch}|[0-9a-f][0-9a-f]*" "%~dp0..\\active" >nul`,
+    'if errorlevel 1 (echo SFlow engine selection is invalid. Repair the managed installation. 1>&2& exit /b 1)',
+    'set "runtime="', 'set "release="',
+    'for /f "usebackq tokens=1-4 delims=|" %%A in ("%~dp0..\\active") do (',
+    '  if defined runtime exit /b 1',
+    '  if not "%%A"=="1" exit /b 1',
+    '  if not "%%D"=="" exit /b 1',
+    '  set "runtime=%%B"', '  set "release=%%C"', ')',
+    'if not defined runtime exit /b 1', 'if not defined release exit /b 1',
+    'if not "%release:~64%"=="" exit /b 1', 'if "%release:~63,1%"=="" exit /b 1',
+    `"%~dp0..\\runtimes\\%runtime%\\node.exe" "%~dp0..\\releases\\%release%\\node_modules\\singularity-flow\\bin\\${entry}.mjs" %*`,
+    'exit /b %errorlevel%', ''
+  ].join('\r\n');
   return `#!/usr/bin/env bash\nset -euo pipefail\nengine_root="$(cd -- "$(dirname -- "\${BASH_SOURCE[0]}")/.." && pwd -P)"\nIFS='|' read -r schema runtime release extra < "$engine_root/active"\n[[ "$schema" == 1 && -z "\${extra:-}" && "$runtime" != *[!a-zA-Z0-9.-]* && "$runtime" == node-v26.* && "$release" =~ ^[a-f0-9]{64}$ ]] || { printf '%s\\n' 'SFlow engine selection is invalid. Repair the managed installation.' >&2; exit 1; }\nexec "$engine_root/runtimes/$runtime/bin/node" "$engine_root/releases/$release/node_modules/singularity-flow/bin/${entry}.mjs" "$@"\n`;
 }
 

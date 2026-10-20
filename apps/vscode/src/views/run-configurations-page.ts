@@ -350,9 +350,10 @@ export function runConfigurationsHtml(state: EditorPageState): string {
 
 export const RUN_CONFIGURATIONS_STYLE = `
 .cf-layout { display:grid; grid-template-columns:minmax(14rem,18rem) minmax(0,1fr); gap:1rem; align-items:start; }
-@media (max-width:760px) { .cf-layout { grid-template-columns:1fr; } }
-.cf-side { position:sticky; top:.5rem; z-index:2; border:var(--sf-border); border-radius:6px; padding:.4rem; }
+.cf-side { position:sticky; top:.5rem; z-index:2; border:var(--sf-border); border-radius:6px; padding:.4rem; background:var(--vscode-editor-background); }
 .cf-list { max-height:calc(100vh - 13rem); overflow:auto; }
+/* One column: the list stacks above the form and scrolls away with the page. After the rules it overrides. */
+@media (max-width:760px) { .cf-layout { grid-template-columns:1fr; } .cf-side { position:static; } .cf-list { max-height:16rem; } }
 .cf-toolbar { display:flex; flex-wrap:wrap; gap:.25rem; align-items:center; padding-bottom:.4rem; border-bottom:var(--sf-border); margin-bottom:.4rem; }
 .cf-toolbar .compact-action, .cf-add summary { padding:.2rem .45rem; }
 .cf-add { position:relative; }

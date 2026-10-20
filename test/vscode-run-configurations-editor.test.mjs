@@ -531,3 +531,14 @@ test('the sticky footer paints above the sticky configuration list, so a narrow 
   assert.ok(layer('.cf-footer') > layer('.cf-side'), 'the footer is above it');
   assert.match(style, /\.cf-footer \{[^}]*position:sticky[^}]*background:var\(--vscode-editor-background\)/, 'and opaque');
 });
+
+test('in a narrow editor the configuration list stacks above the form instead of sliding over it', () => {
+  // Seen in a real VS Code with the editor in a narrow split: the single-column layout kept the list
+  // sticky and see-through, so the form's fields and Command line showed through its rows.
+  const style = pageModule.RUN_CONFIGURATIONS_STYLE;
+  const narrow = style.indexOf('@media (max-width:760px) { .cf-layout { grid-template-columns:1fr; } .cf-side { position:static; }');
+  assert.ok(narrow > 0, 'one column: the list scrolls away with the page');
+  // The override has the same specificity as the sticky rule, so it must come after it to win.
+  assert.ok(narrow > style.indexOf('.cf-side { position:sticky;'), 'and it comes after the sticky rule it overrides');
+  assert.match(style, /(?:^|\n)\.cf-side \{[^}]*background:var\(--vscode-editor-background\)/, 'and where it is sticky, it is opaque');
+});

@@ -1,24 +1,26 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isTestNamePatternExclusion } from '../scripts/release-test-reporter.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const reporter = path.join(root, 'scripts', 'release-test-reporter.mjs');
+const reporter = new URL('../scripts/release-test-reporter.mjs', import.meta.url).href;
 
 async function runFixture(source, { namePattern = null } = {}) {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-release-reporter-'));
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow reporter % #-'));
   const fixture = path.join(directory, 'fixture.test.mjs');
   try {
     await writeFile(fixture, source, 'utf8');
+    const localReporter = path.join(directory, 'release reporter % #.mjs');
+    await copyFile(fileURLToPath(reporter), localReporter);
     const environment = { ...process.env };
     delete environment.NODE_TEST_CONTEXT;
     const result = spawnSync(process.execPath, [
-      '--test-reporter', reporter,
+      '--test-reporter', pathToFileURL(localReporter).href,
       ...(namePattern ? [`--test-name-pattern=${namePattern}`] : []),
       '--test', fixture
     ], { cwd: root, encoding: 'utf8', env: environment });

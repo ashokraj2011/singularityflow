@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 /**
  * Return the Node flags required to execute the extension's TypeScript sources directly.
@@ -15,5 +16,5 @@ export function nodeTypeScriptFlags(rootDir, version = process.versions.node) {
   }
   return major > 22 || (major === 22 && minor >= 6)
     ? ['--experimental-strip-types', '--no-warnings=ExperimentalWarning']
-    : ['--experimental-loader', path.join(rootDir, 'scripts', 'typescript-test-loader.mjs')];
+    : ['--experimental-loader', pathToFileURL(path.join(rootDir, 'scripts', 'typescript-test-loader.mjs')).href];
 }

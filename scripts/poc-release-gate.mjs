@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { lstatSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolvePlatformProcess } from '../src/platform-process.mjs';
 import { signalProcessTree } from '../src/util.mjs';
 import { nodeTypeScriptFlags } from './typescript-runtime.mjs';
@@ -43,7 +43,7 @@ export function pocReleaseStages({
   const artifactConsumer = artifactConsumerInputs({ artifactPackage, artifactVsix });
   const typescriptTestFlags = nodeTypeScriptFlags(rootDir, nodeVersion);
   const releaseReporterFlags = [
-    '--test-reporter', path.join(rootDir, 'scripts', 'release-test-reporter.mjs')
+    '--test-reporter', pathToFileURL(path.join(rootDir, 'scripts', 'release-test-reporter.mjs')).href
   ];
   return Object.freeze([
     Object.freeze({

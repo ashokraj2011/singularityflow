@@ -3,7 +3,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readRevisionPilotOptIn } from '../src/revision/runtime.mjs';
 import { validateRevisionTraceManifest } from '../src/revision/trace-manifest.mjs';
 import { runPocReleaseStage } from './poc-release-gate.mjs';
@@ -44,7 +44,7 @@ try {
       label: 'active REV exact witness suite',
       command: process.execPath,
       args: [
-        '--test-reporter', path.join(root, 'scripts', 'release-test-reporter.mjs'),
+        '--test-reporter', pathToFileURL(path.join(root, 'scripts', 'release-test-reporter.mjs')).href,
         '--test', ...files
       ],
       timeoutMs: ACTIVE_WITNESS_TIMEOUT_MS

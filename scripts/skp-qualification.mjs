@@ -240,7 +240,7 @@ async function targetAvailable(target) {
 export async function runQualificationTarget(target) {
   if (!SKP_QUALIFICATION_TARGETS.includes(target)) fail('SKP_QUALIFICATION_TARGET_INVALID');
   if (!(await targetAvailable(target))) return { id: target.id, status: 'unavailable', code: 'SKP_QUALIFICATION_LOCAL_PTY_UNAVAILABLE' };
-  const args = ['--test', '--test-concurrency=2', `--test-reporter=${SELF}`];
+  const args = ['--test', '--test-concurrency=2', `--test-reporter=${import.meta.url}`];
   if (target.pattern) args.push(`--test-name-pattern=${target.pattern}`);
   args.push(...target.files);
   const env = withoutGitProcessOverrides(process.env);

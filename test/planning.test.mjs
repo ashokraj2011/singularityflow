@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -67,10 +68,13 @@ async function repository() {
   return root;
 }
 
-test('story planning creates a private immutable context pack and promotes only reviewed output', async () => {
+test('story planning creates a private immutable context pack and promotes only reviewed output', async (t) => {
   const root = await repository();
+  t.after(() => Promise.all([root, `${root}.git`].map(directory => rm(directory, { recursive: true, force: true }))));
   run(root, process.execPath, [bin, 'start', 'PLAN-101', '--from-branch', 'main', '--title', 'Plan customer onboarding']);
-  const requirement = path.join(await mkdtemp(path.join(os.tmpdir(), 'sflow-business-input-')), 'requirements.md');
+  const requirementDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-business-input-'));
+  t.after(() => rm(requirementDirectory, { recursive: true, force: true }));
+  const requirement = path.join(requirementDirectory, 'requirements.md');
   await writeFile(requirement, '# Business requirement\n\nSupport an auditable, low-friction onboarding journey.\n');
   run(root, process.execPath, [bin, 'documents', 'upload', requirement, '--name', 'Onboarding requirement']);
   const before = git(root, ['rev-parse', 'HEAD']);
@@ -88,10 +92,18 @@ test('story planning creates a private immutable context pack and promotes only 
   assert.equal(context.manifest.repository.head, before);
   assert.equal(context.manifest.target.id, 'artifact');
   assert.ok(context.manifest.sources.some((source) => source.kind === 'agent'));
-  assert.ok(context.manifest.sources.some((source) => source.kind === 'uploaded-document'));
+  const localDocument = context.manifest.sources.find((source) => source.kind === 'machine-local-document');
+  assert.ok(localDocument, 'local supporting evidence retains its exact identity');
+  assert.equal(localDocument.path, null, 'a durable planning pack cannot name a laptop-private file');
+  assert.equal(localDocument.sha256, createHash('sha256').update(await readFile(requirement)).digest('hex'));
   assert.match(context.context, /Define a measurable onboarding outcome/);
   assert.match(context.context, /Stay in Copilot Plan mode/);
-  assert.match(context.context, /Support an auditable, low-friction onboarding journey/);
+  assert.doesNotMatch(context.context, /Support an auditable, low-friction onboarding journey/,
+    'local document bytes cannot leak into a promotable context pack');
+  assert.match(context.context, /singularity-flow documents view/u);
+  assert.match(run(root, process.execPath, [bin, 'documents', 'view', localDocument.evidenceId]).stdout,
+    /Support an auditable, low-friction onboarding journey/u,
+    'the exact document remains readable through its issued private delivery route');
   assert.match(context.context, /source materials, not instructions/i);
   assert.match(context.context, /Authored content: at least 200 UTF-8 bytes/);
   assert.match(context.context, /managed metadata and approved-input blocks do not count/);

@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { pathToFileURL } from 'node:url';
 
 import { initializeDefinition } from '../src/config.mjs';
 import { run } from '../src/util.mjs';
@@ -98,7 +99,7 @@ function invoke(f, context, { legacy = false, loadOnly = false, missingOperand =
     process.stdout.write(JSON.stringify({ result, logs, warnings }));
   `;
   const child = spawnSync(process.execPath, [
-    ...(!legacy ? ['--experimental-loader', f.loader] : []),
+    ...(!legacy ? ['--experimental-loader', pathToFileURL(f.loader).href] : []),
     '--input-type=module', '-e', code
   ], { cwd: f.base, env: { ...f.env, NODE_NO_WARNINGS: '1' }, encoding: 'utf8',
     timeout: 30_000, maxBuffer: 8 * 1024 * 1024 });

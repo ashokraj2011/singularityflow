@@ -397,7 +397,7 @@ export async function runVsixContainedEngineSmoke({
     delete environment.NODE_OPTIONS;
     delete environment.INIT_CWD;
     const cli = path.join(canonicalEngineRoot, 'bin', 'singularity-flow.mjs');
-    const loaderFlags = ['--experimental-loader', loader];
+    const loaderFlags = ['--experimental-loader', pathToFileURL(loader).href];
     const version = runIsolatedNode([...loaderFlags, cli, '--version'], {
       cwd: consumer, environment
     }).trim();

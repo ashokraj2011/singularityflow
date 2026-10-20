@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { availableParallelism, tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { signalProcessTree } from '../src/util.mjs';
 import {
@@ -47,7 +47,7 @@ if (needsStripping && flags.includes('--experimental-loader')) {
   console.warn(`Node ${process.versions.node} will execute TypeScript-dependent tests through the bounded repository loader.`);
 }
 const releaseReporterFlags = failOnSkippedFiles
-  ? ['--test-reporter', path.join(root, 'scripts', 'release-test-reporter.mjs')]
+  ? ['--test-reporter', pathToFileURL(path.join(root, 'scripts', 'release-test-reporter.mjs')).href]
   : [];
 
 /**

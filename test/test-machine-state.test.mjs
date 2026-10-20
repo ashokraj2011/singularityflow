@@ -110,6 +110,8 @@ test('a test run gets a home of its own, and nothing points back into the develo
   assert.equal(env.npm_config_user_agent, 'npm/11');
   assert.equal(env.SINGULARITY_FLOW_TEST_IDENTITY, 'Kept');
   assert.equal(env.SINGULARITY_FLOW_REPOSITORY_CHECK_PREFERENCES, path.join(state, 'run', 'repository-checks.json'));
+  // No fixture command starts a background cleanup worker that outlives its test.
+  assert.equal(env.SINGULARITY_FLOW_AUTOMATIC_CLEANUP, 'off');
 
   // Children see it: Node's home directory and Git's global identity both come from the new home.
   const child = spawnSync(process.execPath, ['-e', 'process.stdout.write(require("node:os").homedir())'], { env, encoding: 'utf8' });

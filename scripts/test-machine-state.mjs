@@ -82,10 +82,15 @@ export function isolatedHomeEnvironment(root, env = process.env) {
   return { set: { HOME: home, USERPROFILE: home, GIT_CONFIG_GLOBAL: gitConfig }, unset };
 }
 
-/** `env` as a test run sees it: its own machine state under `root` and a home of its own. */
+/**
+ * `env` as a test run sees it: its own machine state under `root` and a home of its own.
+ * Automatic workspace cleanup is off: a background worker launched by a fixture's `workspace use`
+ * or `session open` would outlive the test and race its fixture's removal. Tests of cleanup
+ * pass their own environment.
+ */
 export function isolatedTestEnvironment(root, env = process.env) {
   const { set, unset } = isolatedHomeEnvironment(root, env);
-  const isolated = { ...env, ...isolatedMachineEnvironment(root), ...set };
+  const isolated = { ...env, ...isolatedMachineEnvironment(root), ...set, SINGULARITY_FLOW_AUTOMATIC_CLEANUP: 'off' };
   for (const name of unset) delete isolated[name];
   return isolated;
 }

@@ -21,6 +21,8 @@ export async function createWarmReadFixture({ files = 0, branches = 0, storyMode
   const amendmentCleanup = [];
   try {
     await mkdir(engine); await mkdir(repository);
+    const authorityAttributes = 'singularity/templates/** -text\n.github/agents/** -text\n';
+    if (phaseReady) await writeFile(path.join(repository, '.gitattributes'), authorityAttributes);
     await Promise.all(['src', 'bin', 'templates', 'plugin', 'schemas', 'package.json', 'scripts',
       'distribution', 'docs', 'revision-trace-manifest.json'].map(name =>
       cp(path.join(engineSource, name), path.join(engine, name), { recursive: true })));
@@ -113,6 +115,7 @@ export async function createWarmReadFixture({ files = 0, branches = 0, storyMode
     }
     const phaseId = state.currentPhase, phase = state.phases[phaseId], workId = state.workItem.id;
     if (phaseReady) {
+      await writeFile(path.join(repository, '.gitattributes'), authorityAttributes);
       await writeFile(path.join(path.dirname(statePath), 'source.json'), JSON.stringify({ type: 'manual',
         key: workId, title: 'Bound phase performance qualification', description: 'Describe the requested change without application edits.',
         acceptanceCriteria: ['Preserve exact Story binding and current-phase authoring checks.'] }, null, 2) + '\n');

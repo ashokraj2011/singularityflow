@@ -50,3 +50,16 @@ for (const storyMode of ['legacy', 'pinned', 'amended']) {
     assert.equal(f.state.phases[f.phaseId].approvals.length, 0);
   });
 }
+
+test('bound legacy composition survives native checkout conversion without changing pinned template bytes', { timeout: 180_000 }, async t => {
+  const f = await createWarmReadFixture({ phaseReady: true });
+  t.after(() => f.cleanup());
+  f.env.SINGULARITY_FLOW_AGENT_OUTPUT = 'raw';
+  const checkout = path.join(f.directory, 'converted-checkout');
+  f.git(['-c', 'core.autocrlf=true', 'clone', '-q', '--no-hardlinks', '--single-branch', '--branch', f.workId, f.repository, checkout]);
+  await bindPhaseReadFixture(f, checkout);
+  const value = f.cold(['phase', 'enter', f.phaseId, '--compose', '--for-agent', '--json'], { cwd: checkout });
+  assert.equal(value.ready, true);
+  assert.equal(value.contextAdmission.allowed, true);
+  assert.ok(value.context?.text);
+});

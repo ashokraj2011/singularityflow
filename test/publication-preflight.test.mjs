@@ -1725,6 +1725,32 @@ test('non-code submission preserves an ignored native report when a passing comm
   assert.equal(await readFile(path.join(context.root, resultPath), 'utf8'), priorReport);
 });
 
+test('submit recognizes a uniform checkout line-ending conversion but refuses a real authored edit', async (t) => {
+  const context = await fixture('submit-checkout-newlines', { followingPhase: true });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  await writeFile(context.target, [
+    '# Intake', '', '## Requested outcome', '',
+    'Preserve the exact authored meaning across a native Git checkout.', '',
+    '## Scope and constraints', '',
+    'Only a uniform checkout newline representation is accepted; actual content changes are refused.', '',
+    '## Evidence', '', 'Both the immutable blob and the worktree retain their raw identities.', ''
+  ].join('\n'));
+  await inContext(context.root, () => publishGoverned(context.root, context.config, context.workflow, 'intake'));
+  const published = await readFile(context.target, 'utf8');
+  await writeFile(context.target, published.replaceAll('\r\n', '\n').replaceAll('\n', '\r\n'));
+  let inspection = await inspectRequiredArtifactRegistration(context.root, context.config, context.workflow, context.phase);
+  assert.ok(['current', 'repairable'].includes(inspection.status), JSON.stringify(inspection));
+  await inContext(context.root, () => submitPhase(context.root, context.config, context.workflow,
+    { phaseId: 'intake', runChecks: false, persist: false }));
+  assert.equal(context.phase.status, 'approved');
+  assert.equal((await readFile(context.target, 'utf8')).match(/<!-- singularity-flow:metadata/g)?.length, 1,
+    'managed metadata must be replaced, never duplicated after a CRLF checkout');
+  await writeFile(context.target, (await readFile(context.target, 'utf8')).replace('authored meaning', 'altered meaning'));
+  inspection = await inspectRequiredArtifactRegistration(context.root, context.config, context.workflow, context.phase);
+  assert.equal(inspection.status, 'unsafe');
+  assert.equal(inspection.reason, 'authored-content-changed');
+});
+
 test('artifact scan cannot bless authored changes made after the immutable generation', async () => {
   const context = await fixture('submit-authored-change');
   await writeFile(context.target, [

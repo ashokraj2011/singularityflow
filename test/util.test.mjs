@@ -4,8 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
-  NETWORK_TIMEOUT_MS, SUBPROCESS_MAX_BUFFER_BYTES, defaultTimeoutFor, networkDisabled, parseArgs, run, writeAtomic, writeJson, writeText
+  NETWORK_TIMEOUT_MS, SUBPROCESS_MAX_BUFFER_BYTES, defaultTimeoutFor, networkDisabled, parseArgs, run, writeJson, writeText
 } from '../src/util.mjs';
+import { replaceWithSharingRetry } from '../src/atomic-replace.mjs';
 
 test('roster table is a boolean flag and cannot swallow a selector or positional value', () => {
   assert.deepEqual(parseArgs(['workspace', 'list', '--table', 'extra']), {
@@ -49,10 +50,12 @@ test('Windows atomic replacement retries only bounded sharing failures without d
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-atomic-sharing-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const target = path.join(root, 'state.json');
+  const temporary = path.join(root, 'replacement.tmp');
   await writeFile(target, 'old');
+  await writeFile(temporary, 'new');
   let attempts = 0;
   const waits = [];
-  await writeAtomic(target, 'new', { platform: 'win32', wait: async ms => waits.push(ms),
+  await replaceWithSharingRetry(temporary, target, { wait: async ms => waits.push(ms),
     renameCommand: async (temporary, destination) => {
       assert.equal(await readFile(destination, 'utf8'), 'old');
       assert.equal(await readFile(temporary, 'utf8'), 'new');
@@ -62,16 +65,18 @@ test('Windows atomic replacement retries only bounded sharing failures without d
   });
   assert.equal(await readFile(target, 'utf8'), 'new');
   assert.deepEqual(waits, [20, 40]);
-  for (const [platform, code, expectedAttempts] of [
-    ['win32', 'EACCES', 6], ['win32', 'ENOSPC', 1], ['darwin', 'EPERM', 1]
+  for (const [code, expectedAttempts] of [
+    ['EACCES', 6], ['EPERM', 6], ['ENOSPC', 1]
   ]) {
     attempts = 0;
     const failure = Object.assign(new Error('retained failure'), { code });
-    await assert.rejects(() => writeAtomic(target, 'refused', { platform, wait: async () => {},
+    await writeFile(temporary, 'refused');
+    await assert.rejects(() => replaceWithSharingRetry(temporary, target, { wait: async () => {},
       renameCommand: async () => { attempts += 1; throw failure; }
     }), error => error === failure);
     assert.equal(attempts, expectedAttempts);
     assert.equal(await readFile(target, 'utf8'), 'new');
+    await rm(temporary);
     assert.deepEqual(await readdir(root), ['state.json']);
   }
 });

@@ -22,7 +22,15 @@ function objectId(format, bytes) {
 
 async function fixture(t, format) {
   const root = await mkdtemp(path.join(os.tmpdir(), `sflow-gal-transports-${format}-`));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  const workers = [];
+  let runtime;
+  t.after(async () => {
+    // Windows cannot unlink the object store while a persistent worker owns it. Close all
+    // operation-owned transports before removing the fixture, not in later FIFO after-hooks.
+    for (const worker of workers) await worker.dispose();
+    await runtime?.dispose();
+    await rm(root, { recursive: true, force: true });
+  });
   const init = spawnSync('git', ['init', '-q', `--object-format=${format}`], { cwd: root, encoding: 'utf8' });
   if (init.status !== 0) {
     t.skip(`This Git cannot initialize a ${format} object store.`);
@@ -30,8 +38,7 @@ async function fixture(t, format) {
   }
   const runtimeResult = await createGitRuntime();
   assert.equal(runtimeResult.ok, true, JSON.stringify(runtimeResult));
-  const runtime = runtimeResult.value;
-  t.after(() => runtime.dispose());
+  runtime = runtimeResult.value;
   const binary = Buffer.from([0, 13, 10, 255, 0, 128, 10, 65, 0]);
   const replacement = Buffer.from('replacement must not alter exact object reads\n');
   const binaryOid = git(root, ['hash-object', '-w', '--stdin'], binary);
@@ -43,7 +50,13 @@ async function fixture(t, format) {
   git(root, ['add', 'file.bin']);
   const treeOid = git(root, ['write-tree']);
   git(root, ['replace', binaryOid, replacementOid]);
-  return { root, format, runtime, binary, binaryOid, emptyOid, treeOid };
+  return { root, format, runtime, workers, binary, binaryOid, emptyOid, treeOid };
+}
+
+function ownedWorker(value, options) {
+  const worker = new FosGitObjectService(value.root, options);
+  value.workers.push(worker);
+  return worker;
 }
 
 function classifyFailure(code) {
@@ -86,7 +99,7 @@ for (const format of ['sha1', 'sha256']) {
   test(`GAL:AC-009/021 raw reference and persistent transports agree in ${format}`, async (t) => {
     const value = await fixture(t, format);
     if (!value) return;
-    const worker = new FosGitObjectService(value.root);
+    const worker = ownedWorker(value);
     t.after(() => worker.close());
     const readers = [reference(value), persistent(worker)];
     const absent = '0'.repeat(format === 'sha1' ? 40 : 64);
@@ -98,7 +111,7 @@ for (const format of ['sha1', 'sha256']) {
       'replacement refs, CRLF, NUL, and binary bytes must not change the original object');
     assert.equal(worker.processSpawns, 1);
 
-    const limited = new FosGitObjectService(value.root, { maxObjectBytes: 2 });
+    const limited = ownedWorker(value, { maxObjectBytes: 2 });
     t.after(() => limited.close());
     assert.deepEqual(await persistent(limited)(value.binaryOid),
       await reference(value, 2)(value.binaryOid));
@@ -108,7 +121,7 @@ for (const format of ['sha1', 'sha256']) {
 test('GAL:AC-021 empty and duplicate batches preserve order, isolation, and zero empty-worker spawns', async (t) => {
   const value = await fixture(t, 'sha1');
   if (!value) return;
-  const worker = new FosGitObjectService(value.root);
+  const worker = ownedWorker(value);
   t.after(() => worker.close());
   const opened = await value.runtime.openRepository(value.root);
   assert.equal(opened.ok, true, JSON.stringify(opened));
@@ -137,7 +150,7 @@ test('GAL:AC-021 empty and duplicate batches preserve order, isolation, and zero
 test('GAL:AC-002/021 multiple bounded chunks reuse one worker and preserve mixed outcomes', async (t) => {
   const value = await fixture(t, 'sha1');
   if (!value) return;
-  const worker = new FosGitObjectService(value.root);
+  const worker = ownedWorker(value);
   t.after(() => worker.close());
   const absent = '0'.repeat(40);
   const pattern = [value.binaryOid, value.emptyOid, absent, value.treeOid];
@@ -260,7 +273,7 @@ test('GAL:AC-022 every header/body/terminator split preserves exact bytes', asyn
   }));
   cases.push({ oid: value.emptyOid, bytes: Buffer.alloc(0), parts: [frame(value.emptyOid, Buffer.alloc(0))] });
   let sent = 0;
-  const worker = new FosGitObjectService(value.root, {
+  const worker = ownedWorker(value, {
     spawnCommand: () => scriptedWorker((child) => {
       const entry = cases[sent++];
       assert.ok(entry, 'worker received an unexpected command');
@@ -292,7 +305,7 @@ test('GAL:AC-023 invalid frames and EOF retire their worker without contaminatin
   ];
   for (const entry of invalid) {
     let spawns = 0;
-    const worker = new FosGitObjectService(value.root, {
+    const worker = ownedWorker(value, {
       spawnCommand: () => {
         const generation = ++spawns;
         return scriptedWorker((child) => {
@@ -317,7 +330,7 @@ test('GAL:AC-025 cancelling an active frame retires only that frame; queued work
   let firstWritten;
   const wroteFirst = new Promise((resolve) => { firstWritten = resolve; });
   let spawns = 0;
-  const worker = new FosGitObjectService(value.root, {
+  const worker = ownedWorker(value, {
     spawnCommand: () => {
       const generation = ++spawns;
       return scriptedWorker((child) => {
@@ -347,7 +360,7 @@ test('GAL:AC-009/040 reference fallback still verifies bytes after a persistent 
   if (!value) return;
   const corrupt = Buffer.from(value.binary);
   corrupt[2] ^= 1;
-  const worker = new FosGitObjectService(value.root, {
+  const worker = ownedWorker(value, {
     spawnCommand: () => scriptedWorker((child) => {
       child.stdout.emit('data', frame(value.binaryOid, corrupt));
     })
@@ -365,7 +378,7 @@ test('GAL:AC-026 unverifiable worker cleanup blocks queued work and is reported 
   if (!value) return;
   let firstWritten;
   const wroteFirst = new Promise((resolve) => { firstWritten = resolve; });
-  const worker = new FosGitObjectService(value.root, {
+  const worker = ownedWorker(value, {
     spawnCommand: () => {
       const child = scriptedWorker(() => firstWritten());
       child.stdin.end = () => {}; // A stuck child neither consumes EOF nor closes its pipe.
@@ -394,7 +407,7 @@ test('GAL:AC-026 unverifiable worker cleanup blocks queued work and is reported 
 test('GAL:AC-026 idle worker eviction is a verified close; a later service starts fresh', async (t) => {
   const value = await fixture(t, 'sha1');
   if (!value) return;
-  const first = new FosGitObjectService(value.root, { idleMs: 20 });
+  const first = ownedWorker(value, { idleMs: 20 });
   t.after(() => first.close());
   assert.deepEqual((await first.read(value.binaryOid)).bytes, value.binary);
   for (let i = 0; !first.closed && i < 50; i += 1) {
@@ -402,7 +415,7 @@ test('GAL:AC-026 idle worker eviction is a verified close; a later service start
   }
   assert.equal(first.closed, true);
   assert.deepEqual(await first.dispose(), { closed: true, terminated: true });
-  const second = new FosGitObjectService(value.root);
+  const second = ownedWorker(value);
   t.after(() => second.close());
   assert.deepEqual((await second.read(value.binaryOid)).bytes, value.binary);
   assert.equal(second.processSpawns, 1);

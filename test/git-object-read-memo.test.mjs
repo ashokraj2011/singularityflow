@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { readLocalGitBlobs } from '../src/git-blob-batch.mjs';
 import { committedFilesAtRevisions, exactFileAtObject } from '../src/git.mjs';
 
-const source = (relative) => fileURLToPath(new URL(`../src/${relative}`, import.meta.url));
+const source = (relative) => new URL(`../src/${relative}`, import.meta.url).href;
 
 function git(root, args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });

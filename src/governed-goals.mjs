@@ -496,10 +496,10 @@ function goalWorktreeOwnerPath(worktree) {
 }
 
 async function writeGoalWorktreeOwner(root, worktree, id) {
-  const actual = realpathSync(worktree);
-  const common = realpathSync(gitCommonDir(root));
+  const actual = realpathSync.native(worktree);
+  const common = realpathSync.native(gitCommonDir(root));
   const target = goalWorktreeOwnerPath(worktree);
-  const administrative = realpathSync(path.dirname(target));
+  const administrative = realpathSync.native(path.dirname(target));
   if (!administrative.startsWith(`${common}${path.sep}`)) {
     throw new SingularityFlowError(`Repository Goal '${id}' worktree administration escaped Git common storage.`, {
       code: 'GOVERNED_GOAL_WORKTREE_UNSAFE'
@@ -523,24 +523,28 @@ async function managedGoalLifecycleWorktree(root, id, recorded = null) {
   const found = goalLifecycleWorktree(root, id);
   if (!found) return null;
   try {
-    const actual = realpathSync(found);
-    const temporaryRoot = realpathSync(os.tmpdir());
+    const actual = realpathSync.native(found);
+    const temporaryRoot = realpathSync.native(os.tmpdir());
     if (!actual.startsWith(`${temporaryRoot}${path.sep}`)
         || !path.basename(actual).startsWith('sflow-gex-')) return null;
-    if (recorded != null && realpathSync(String(recorded)) !== actual) return null;
-    const common = realpathSync(gitCommonDir(root));
+    if (recorded != null && realpathSync.native(String(recorded)) !== actual) return null;
+    const common = realpathSync.native(gitCommonDir(root));
     const ownerPath = goalWorktreeOwnerPath(found);
-    const administrative = realpathSync(path.dirname(ownerPath));
+    const administrative = realpathSync.native(path.dirname(ownerPath));
     const ownerInfo = lstatSync(ownerPath);
     if (!administrative.startsWith(`${common}${path.sep}`)
         || !ownerInfo.isFile() || ownerInfo.isSymbolicLink()) return null;
     const owner = JSON.parse(readFileSync(ownerPath, 'utf8'));
     if (owner?.format !== GOAL_WORKTREE_OWNER_FORMAT || owner.id !== id
-        || owner.branch !== id || owner.path !== actual || owner.gitDir !== administrative
+        || owner.branch !== id || typeof owner.path !== 'string' || typeof owner.gitDir !== 'string'
         || !/^[0-9a-f]{64}$/.test(owner.nonce ?? '')
         || !await verifyMachineLocalPublicationReceipt(
           root, 'goal-lifecycle-worktree', owner
         )) return null;
+    // Authenticate the original bytes before resolving retained paths. Older signed receipts
+    // may name the same Windows directory through its 8.3 alias; do not rewrite or re-sign them.
+    if (realpathSync.native(owner.path) !== actual
+        || realpathSync.native(owner.gitDir) !== administrative) return null;
     return found;
   } catch {
     return null;

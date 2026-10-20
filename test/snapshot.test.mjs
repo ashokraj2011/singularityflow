@@ -1576,7 +1576,7 @@ test('the snapshot the extension sends never loads the legacy command module', a
 
   const root = await repository();
   const standalone = spawnSync(process.execPath, ['--input-type=module', '-e',
-    `const m = await import(${JSON.stringify(path.join(packageRoot, 'src/commands/snapshot.mjs'))});`
+    `const m = await import(${JSON.stringify(pathToFileURL(path.join(packageRoot, 'src/commands/snapshot.mjs')).href)});`
     + " await m.run(['snapshot','--json'], { positionals: ['snapshot'], options: { json: true } });"
   ], {
     cwd: root, encoding: 'utf8', maxBuffer: FULL_SNAPSHOT_MAX_BUFFER,

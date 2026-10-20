@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
+import { readLocalDocument } from '../src/document-storage.mjs';
 import { registerEpicSource, registerEpicTextSource } from '../src/epic-sources.mjs';
 import { materializeInitiative } from '../src/initiative-repositories.mjs';
 import { createInitiative, initiativeDir, saveInitiative } from '../src/initiative-state.mjs';
@@ -118,8 +119,10 @@ test('a Story released from an Epic lists the Epic\'s sources and imports a veri
   assert.equal(documents[0].remote.epicId, EPIC);
   assert.equal(documents[0].remote.commit, workflow.workItem.baseCommit);
   assert.deepEqual(documents[1].phases, ['intake']);
-  assert.deepEqual(await readFile(path.join(story, documents[0].path)), PDF);
-  assert.equal(await readFile(path.join(story, documents[1].path), 'utf8'), 'Workshop: show the ledger total first.\n');
+  assert.equal(documents[0].storage.kind, 'local');
+  assert.equal(documents[0].path, undefined, 'importing an Epic original must not commit its bytes');
+  assert.deepEqual((await readLocalDocument(story, 'APP-1', documents[0])).bytes, PDF);
+  assert.equal((await readLocalDocument(story, 'APP-1', documents[1])).bytes.toString('utf8'), 'Workshop: show the ledger total first.\n');
   assert.equal(documents[0].sha256, brief.sha256);
 
   const after = flow(story, ['documents', 'list']).stdout;

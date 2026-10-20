@@ -34,8 +34,17 @@ async function fixture(t) {
   return { root, remote, publisher, skill };
 }
 
-function publish(value) {
+function publish(value, { unsafeTreePath = null } = {}) {
   run('git', ['add', '-A'], { cwd: value.publisher });
+  if (unsafeTreePath) {
+    const blob = run('git', ['hash-object', '-w', '--stdin'], {
+      cwd: value.publisher, input: Buffer.from('omitted by the portable path policy\n')
+    }).stdout.trim();
+    // Construct the invalid tree entry without asking NTFS to create an alternate data stream.
+    // This override belongs only to the adversarial fixture, never configuration consumption.
+    run('git', ['-c', 'core.protectNTFS=false', 'update-index', '--add', '--cacheinfo',
+      '100644', blob, unsafeTreePath], { cwd: value.publisher });
+  }
   run('git', ['commit', '-qm', 'approve skill tree'], { cwd: value.publisher });
   run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: value.publisher });
   return run('git', ['rev-parse', 'HEAD'], { cwd: value.publisher }).stdout.trim();
@@ -118,8 +127,7 @@ test('approved skill snapshot rejects a Git submodule entry', async (t) => {
 
 test('approved skill snapshot rejects tree paths excluded by configuration traversal', async (t) => {
   const value = await fixture(t);
-  await writeFile(path.join(value.skill, 'bad:name.md'), 'omitted by the portable path policy\n');
-  const commit = publish(value);
+  const commit = publish(value, { unsafeTreePath: 'singularity/skills/exact/bad:name.md' });
   await assert.rejects(loadStoryConfigurationSnapshot(authority(value, commit)), {
     code: 'SKP_PATH_REFUSED'
   });

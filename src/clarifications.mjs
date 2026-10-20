@@ -1,5 +1,5 @@
 import { nextPhaseGeneration } from './phase-generation.mjs';
-import { clarificationRecordRelative } from './clarification-paths.mjs';
+import { clarificationRecordRelative } from './story-paths.mjs';
 export { clarificationRecordRelative };
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';

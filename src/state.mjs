@@ -272,6 +272,7 @@ import {
   repairPreparedArtifactMetadata,
   validatePhaseAuthoredReviewContent as validatePhaseAuthoredReviewContentPreflight
 } from './publication-preflight.mjs';
+import { artifactTextCheckoutMatches } from './artifact-review-read.mjs';
 import {
   assertConvergencePublicationReady, loadVerifiedConvergenceProjection
 } from './convergence-context.mjs';
@@ -791,7 +792,7 @@ async function updateArtifactMetadata(root, config, workflow, phase) {
   if (!(await exists(file))) return;
   const text = await readFile(file, 'utf8');
   const block = artifactMetadataBlock(storyArtifactMetadata(workflow, phase));
-  const pattern = /^<!-- singularity-flow:metadata\n[\s\S]*?\n-->/;
+  const pattern = /^<!-- singularity-flow:metadata\r?\n[\s\S]*?\r?\n-->/;
   await writeText(file, pattern.test(text) ? text.replace(pattern, block) : `${block}\n\n${text}`);
   // Managed metadata is part of the durable artifact bytes. Any lifecycle transition that rewrites
   // it must keep an existing registration in lockstep, otherwise a later submit compares the new
@@ -2385,7 +2386,7 @@ async function readRepositoryArtifactText(root, relativePath) {
   return readFile(secured.absolute, 'utf8');
 }
 
-const ARTIFACT_METADATA_PATTERN = /^<!-- singularity-flow:metadata\n[\s\S]*?\n-->/;
+const ARTIFACT_METADATA_PATTERN = /^<!-- singularity-flow:metadata\r?\n[\s\S]*?\r?\n-->/;
 
 function exactAuthoredArtifactSha256(text) {
   return `sha256:${createHash('sha256').update(authoredArtifactText(text)).digest('hex')}`;
@@ -2432,11 +2433,12 @@ export async function inspectRequiredArtifactRegistration(root, config, workflow
     path: relativePath, registered, current, generationCommit: exactCommit,
     currentAuthoredSha256, publishedAuthoredSha256
   };
-  if (currentAuthoredSha256 !== publishedAuthoredSha256) {
+  if (currentAuthoredSha256 !== publishedAuthoredSha256
+      && !artifactTextCheckoutMatches(authoredArtifactText(publishedText), authoredArtifactText(currentText))) {
     return { ...base, status: 'unsafe', reason: 'authored-content-changed' };
   }
 
-  const metadata = currentText.match(ARTIFACT_METADATA_PATTERN)?.[0] ?? null;
+  const metadata = currentText.match(ARTIFACT_METADATA_PATTERN)?.[0]?.replaceAll('\r\n', '\n') ?? null;
   const canonicalMetadata = new Set([
     artifactMetadataCandidate(workflow, phase),
     artifactMetadataCandidate(workflow, phase, { generationCommit: exactCommit }),

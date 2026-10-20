@@ -1170,9 +1170,7 @@ export async function readJson(filePath) {
   }
 }
 
-export async function writeAtomic(filePath, value, {
-  mode = undefined, platform = process.platform, renameCommand = rename, wait = delay
-} = {}) {
+export async function writeAtomic(filePath, value, { mode = undefined } = {}) {
   await ensureDir(path.dirname(filePath));
   const temp = `${filePath}.tmp-${process.pid}-${randomUUID()}`;
   try {
@@ -1180,19 +1178,9 @@ export async function writeAtomic(filePath, value, {
       ...(Buffer.isBuffer(value) || value instanceof Uint8Array ? {} : { encoding: 'utf8' }),
       ...(mode == null ? {} : { mode })
     }), () => ({ bytes: Buffer.byteLength(value) }));
-    await measurePerformance('file', 'file.rename', async () => {
-      for (let attempt = 0; ; attempt += 1) {
-        try { await renameCommand(temp, filePath); return; }
-        catch (error) {
-          // Windows readers/AV briefly deny replacement. Retry the same complete temporary file;
-          // never unlink the destination or fall back to a non-atomic copy. Permanent failure
-          // preserves the old file and its original error, with a total wait below one second.
-          if (platform !== 'win32' || !['EPERM', 'EACCES', 'EBUSY'].includes(error?.code)
-              || attempt >= 5) throw error;
-          await wait(20 * 2 ** attempt);
-        }
-      }
-    });
+    await measurePerformance('file', 'file.rename', () => process.platform === 'win32'
+      ? import('./atomic-replace.mjs').then(module => module.replaceWithSharingRetry(temp, filePath))
+      : rename(temp, filePath));
   } finally {
     await rm(temp, { force: true }).catch(() => {});
   }

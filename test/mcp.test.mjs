@@ -33,6 +33,7 @@ import { initializeDefinition, loadDefinition } from '../src/config.mjs';
 import { doctorSnapshot } from '../src/doctor.mjs';
 import { canonicalJson } from '../src/records.mjs';
 import { gitCommonDir } from '../src/git.mjs';
+import { secureWindowsAuthAcl } from '../src/mcp-auth-profile.mjs';
 import {
   defaultNetworkProbe, rpcSmoke, verifyPlaywrightOfflineStart
 } from '../src/mcp-readiness.mjs';
@@ -53,11 +54,53 @@ async function repository(prefix) {
   return root;
 }
 
+test('only explicit MCP setup secures a legacy container without traversing retained data', async (t) => {
+  const root = await repository('sflow-mcp-legacy-container-');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const definition = { mcpServers: configured() };
+  await scaffoldPlaywrightMcp(root);
+  const machine = path.join(gitCommonDir(root), 'singularity-flow/mcp');
+  await mkdir(machine, { recursive: true, mode: 0o700 });
+  const retained = path.join(machine, 'retained-local-data.txt');
+  await writeFile(retained, 'preserve original bytes');
+  const calls = [];
+  const windowsAcl = async (target, options) => {
+    calls.push({ target, ...options });
+    if (process.platform === 'win32') await secureWindowsAuthAcl(target, options);
+    return { protected: true, principal: 'current-user', access: 'full-control' };
+  };
+  await mcpDoctor(root, definition, { platform: 'win32', windowsAcl });
+  assert.equal(calls.some(call => call.apply), false, 'readiness cannot upgrade ACLs');
+  await assert.rejects(() => attestMcpHost(root, definition, 'playwright', {
+    confirmation: 'wrong', platform: 'win32', windowsAcl
+  }), error => error.code === 'MCP_ATTESTATION_CONFIRMATION_REQUIRED');
+  assert.equal(calls.some(call => call.apply), false, 'unconfirmed setup cannot upgrade ACLs');
+  await attestMcpHost(root, definition, 'playwright', {
+    confirmation: 'playwright', platform: 'win32', windowsAcl
+  });
+  assert.ok(calls.some(call => call.target === machine && call.apply === true));
+  assert.equal(calls.some(call => call.recursive || call.target === retained), false);
+  assert.equal(await readFile(retained, 'utf8'), 'preserve original bytes');
+});
+
+async function acquisitionPrefix(root, args) {
+  const index = args.indexOf('--prefix');
+  if (index >= 0) return args[index + 1];
+  assert.equal(process.platform, 'win32');
+  assert.match(args.at(-1), /--prefix/);
+  // The real Windows adapter passes one escaped cmd.exe payload, not the logical npm argv. Find
+  // the single staging directory this operation already created; never emulate cmd parsing.
+  const parent = path.join(gitCommonDir(root), 'singularity-flow/mcp/packages/playwright');
+  const staging = (await readdir(parent)).filter(name => name.startsWith('.acquire-'));
+  assert.equal(staging.length, 1);
+  return path.join(parent, staging[0]);
+}
+
 async function warmPlaywrightFixture(root, definition, { offlineStart = null, serverId = 'playwright' } = {}) {
   return warmMcpHost(root, definition, serverId, {
     network: true,
     execFileCommand: async (_command, args) => {
-      const prefix = args[args.indexOf('--prefix') + 1];
+      const prefix = await acquisitionPrefix(root, args);
       const packageDirectory = path.join(prefix, 'node_modules/@playwright/mcp');
       const transitiveDirectory = path.join(prefix, 'node_modules/playwright-mcp-fixture-dependency');
       await mkdir(packageDirectory, { recursive: true });
@@ -264,18 +307,18 @@ test('live Playwright smoke uses only the managed package, bounds output, and ve
   };
   await context.test('cumulative output and malformed JSON fail closed', async () => {
     await assert.rejects(() => rpcSmoke(runtime, {
-      url: new URL('https://example.test'), timeoutMs: 1_000,
+      url: new URL('https://example.test'), timeoutMs: 1_000, platform: 'linux',
       outputMaxBytes: 64, lineMaxBytes: 32,
       spawnCommand: hostileProcess(Buffer.alloc(65, 0x61))
     }), /exceeded the 64-byte smoke output ceiling/);
     await assert.rejects(() => rpcSmoke(runtime, {
-      url: new URL('https://example.test'), timeoutMs: 1_000,
+      url: new URL('https://example.test'), timeoutMs: 1_000, platform: 'linux',
       spawnCommand: hostileProcess('not-json\n')
     }), /emitted malformed JSON during smoke/);
   });
   await context.test('unverified quiescence fails closed', async () => {
     await assert.rejects(() => rpcSmoke(runtime, {
-      url: new URL('https://example.test/health'), timeoutMs: 1_000,
+      url: new URL('https://example.test/health'), timeoutMs: 1_000, platform: 'linux',
       terminationGraceMs: 10,
       spawnCommand: hostileProcess(`${JSON.stringify({
         jsonrpc: '2.0', id: 1, result: { protocolVersion: '2024-11-05' }
@@ -308,13 +351,13 @@ test('Playwright warm acquires the exact package locally and doctor detects exec
   };
   const receipt = await warmMcpHost(root, definition, 'playwright', {
     network: true,
-    platform: 'linux',
+    platform: process.platform,
     architecture: 'fixture-arch',
     runtimeExecutable: process.execPath,
     runtimeVersion: 'v20.99.0-fixture',
     execFileCommand: async (command, args, options) => {
       npmCalls.push({ command, args, options });
-      const prefix = args[args.indexOf('--prefix') + 1];
+      const prefix = await acquisitionPrefix(root, args);
       const packageDirectory = path.join(prefix, 'node_modules/@playwright/mcp');
       await mkdir(packageDirectory, { recursive: true });
       await writeFile(path.join(packageDirectory, 'package.json'), `${JSON.stringify({
@@ -334,9 +377,10 @@ test('Playwright warm acquires the exact package locally and doctor detects exec
     offlineStart
   });
   assert.equal(npmCalls.length, 1);
-  assert.equal(npmCalls[0].command, 'npm');
+  if (process.platform === 'win32') assert.match(npmCalls[0].command, /cmd\.exe$/iu);
+  else assert.equal(npmCalls[0].command, 'npm');
   assert.equal(npmCalls[0].options.shell, false);
-  assert.ok(npmCalls[0].args.includes('@playwright/mcp@0.0.79'));
+  assert.ok(npmCalls[0].args.some(argument => argument.includes('@playwright/mcp@0.0.79')));
   assert.equal(receipt.receiptKind, 'package-warm');
   assert.equal(receipt.package.version, '0.0.79');
   assert.equal(receipt.package.integrity, 'sha512-YWJjZA==');
@@ -344,7 +388,7 @@ test('Playwright warm acquires the exact package locally and doctor detects exec
   assert.equal(receipt.offlineStart.status, 'passed');
   assert.equal(path.isAbsolute(receipt.resolvedExecutable.path), false);
   const reused = await warmMcpHost(root, definition, 'playwright', {
-    network: true, platform: 'linux', architecture: 'fixture-arch',
+    network: true, platform: process.platform, architecture: 'fixture-arch',
     runtimeExecutable: process.execPath, runtimeVersion: 'v20.99.0-fixture',
     execFileCommand: async () => { throw new Error('valid local acquisition must be reused'); },
     offlineStart
@@ -353,7 +397,7 @@ test('Playwright warm acquires the exact package locally and doctor detects exec
   assert.equal(npmCalls.length, 1);
 
   const ready = await mcpDoctor(root, definition, {
-    platform: 'linux', architecture: 'fixture-arch',
+    platform: process.platform, architecture: 'fixture-arch',
     runtimeExecutable: process.execPath, runtimeVersion: 'v20.99.0-fixture'
   });
   assert.equal(ready.servers[0].readiness, 'ready');
@@ -364,7 +408,7 @@ test('Playwright warm acquires the exact package locally and doctor detects exec
   );
   await writeFile(executable, 'changed after verification\n');
   const stale = await mcpDoctor(root, definition, {
-    platform: 'linux', architecture: 'fixture-arch',
+    platform: process.platform, architecture: 'fixture-arch',
     runtimeExecutable: process.execPath, runtimeVersion: 'v20.99.0-fixture'
   });
   assert.equal(stale.servers[0].readiness, 'needs-host-setup');
@@ -416,6 +460,7 @@ test('Windows Playwright acquisition recursively secures the cache and re-verifi
       staging = target;
     }
     if (options.recursive && options.apply) recursivelySecured.add(target);
+    if (process.platform === 'win32') await secureWindowsAuthAcl(target, options);
     return options.recursive
       ? { protected: true, principal: 'current-user', access: 'full-control', recursive: true, entries: 6 }
       : { protected: true, principal: 'current-user', access: 'full-control' };

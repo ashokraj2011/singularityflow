@@ -16,7 +16,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -55,7 +55,7 @@ async function repository(stories, branches = 3) {
 /** Build the index in a child process, and report what the probe counted. */
 function measure(repositoryRoot, refs) {
   const script = `
-    const { buildRepositorySubjectIndexFromRefs } = await import(${JSON.stringify(path.join(root, 'src/repository-subject-index.mjs'))});
+    const { buildRepositorySubjectIndexFromRefs } = await import(${JSON.stringify(pathToFileURL(path.join(root, 'src/repository-subject-index.mjs')).href)});
     const index = await buildRepositorySubjectIndexFromRefs(${JSON.stringify(repositoryRoot)}, {
       definition: { workItemRoot: 'singularity/work-items' },
       refs: ${JSON.stringify(refs)}

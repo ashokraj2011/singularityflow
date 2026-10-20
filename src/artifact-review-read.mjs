@@ -7,7 +7,7 @@ import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { memberRoot, resolvedArtifactSet } from './artifact-sets.mjs';
 
 export const MANAGED_INPUTS = /<!-- singularity-flow:inputs:start -->[\s\S]*?<!-- singularity-flow:inputs:end -->/g;
-export const MANAGED_METADATA = /^<!-- singularity-flow:(?:initiative-)?metadata\n[\s\S]*?\n-->\s*/;
+export const MANAGED_METADATA = /^<!-- singularity-flow:(?:initiative-)?metadata\r?\n[\s\S]*?\r?\n-->\s*/;
 export const MANAGED_METADATA_MARKER = /<!-- singularity-flow:(?:initiative-)?metadata/u;
 
 export function maskBlock(block) {
@@ -61,6 +61,19 @@ export function authoredArtifactText(text, { preserveLines = false } = {}) {
   const source = String(text ?? '');
   const withoutMetadata = source.replace(MANAGED_METADATA, (block) => preserveLines ? maskBlock(block) : '');
   return withoutMetadata.replace(MANAGED_INPUTS, (block) => preserveLines ? maskBlock(block) : '');
+}
+
+/**
+ * Accept only the exact text or its uniform LF/CRLF checkout representation. The immutable Git
+ * blob and the worktree keep their distinct raw hashes. No trimming, Unicode normalization,
+ * arbitrary CR removal, mixed endings, BOM or missing final newline can establish equivalence.
+ */
+export function artifactTextCheckoutMatches(published, current) {
+  if (published === current) return true;
+  const lf = published.replaceAll('\r\n', '\n');
+  if (lf.includes('\r')) return false;
+  const crlf = lf.replaceAll('\n', '\r\n');
+  return (published === lf || published === crlf) && (current === lf || current === crlf);
 }
 
 /** Whitespace-only padding cannot make an untouched prepared template look authored. */

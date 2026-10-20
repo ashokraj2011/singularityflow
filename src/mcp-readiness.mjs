@@ -235,6 +235,16 @@ async function writePrivateJson(root, file, value, { enforceWindowsAcl = true } 
   });
 }
 
+// Auth-profile creation in older builds left the shared MCP container with inherited Windows
+// permissions. Only an explicit setup mutation may upgrade that container; doctors/readiness
+// remain read-only. Revalidate topology after ACL application and never traverse existing data.
+async function preparePrivateMcpRoot(root, { platform = process.platform, windowsAcl = secureWindowsAuthAcl } = {}) {
+  const directory = mcpMachineRoot(root);
+  await safeSidecarTreeDirectory(root, directory, { create: true });
+  if (platform === 'win32') await windowsAcl(directory, { directory: true, apply: true });
+  await safePrivateSidecarDirectory(root, directory, { platform, windowsAcl, enforceWindowsAcl: true });
+}
+
 async function readPrivateRecord(root, file, family) {
   const bytes = await readPrivateSidecar(root, file, {
     maximumBytes: MCP_RECEIPT_MAX_BYTES,
@@ -411,7 +421,7 @@ function playwrightHostArguments(entry) {
   return entry.args.slice(index + 1);
 }
 
-async function playwrightRuntimeArguments(root, entry) {
+async function playwrightRuntimeArguments(root, entry, { platform = process.platform, windowsAcl } = {}) {
   const arguments_ = [...playwrightHostArguments(entry)];
   const outputIndex = arguments_.indexOf('--output-dir');
   if (outputIndex < 0
@@ -423,7 +433,7 @@ async function playwrightRuntimeArguments(root, entry) {
   }
   const outputDirectory = path.join(mcpMachineRoot(root), 'playwright-output');
   await safePrivateSidecarDirectory(root, outputDirectory, {
-    create: true, enforceWindowsAcl: true
+    create: true, platform, windowsAcl, enforceWindowsAcl: true
   });
   arguments_[outputIndex + 1] = outputDirectory;
   return arguments_;
@@ -1052,12 +1062,13 @@ export async function warmMcpHost(root, definition, serverId, {
   if (!server) throw new SingularityFlowError(`Unknown MCP server '${serverId}'.`);
   const entry = (await hostEntryMap(root)).get(server.hostReference);
   if (!entry) throw new SingularityFlowError(`Host entry '${server.hostReference}' is absent.`);
+  await preparePrivateMcpRoot(root, { platform, windowsAcl });
   if (isPlaywrightServer(server)) {
     const runtime = await resolvePlaywrightAuthRuntime(root, entry, { platform, windowsAcl });
     const acquisition = await acquire(root, entry, {
       platform, environment, execFileCommand, platformLookupCommand, windowsAcl
     });
-    const hostArguments = await playwrightRuntimeArguments(root, runtime.entry);
+    const hostArguments = await playwrightRuntimeArguments(root, runtime.entry, { platform, windowsAcl });
     await beforeLaunchValidation?.({
       packageDirectory: resolveLocalMcpPath(root, acquisition.package?.directory)
     });
@@ -1132,7 +1143,7 @@ export async function verifyMcpHostOffline(root, definition, serverId, {
     );
   }
   const runtime = await resolvePlaywrightAuthRuntime(root, entry, { platform, windowsAcl });
-  const hostArguments = await playwrightRuntimeArguments(root, runtime.entry);
+  const hostArguments = await playwrightRuntimeArguments(root, runtime.entry, { platform, windowsAcl });
   await beforeLaunchValidation?.({
     packageDirectory: resolveLocalMcpPath(root, acquired.package?.directory)
   });
@@ -1280,7 +1291,7 @@ async function managedPlaywrightSmokeRuntime(root, server, entry, options = {}) 
   const runtime = await resolvePlaywrightAuthRuntime(root, entry, {
     platform, windowsAcl
   });
-  const hostArguments = await playwrightRuntimeArguments(root, runtime.entry);
+  const hostArguments = await playwrightRuntimeArguments(root, runtime.entry, { platform, windowsAcl });
   const revalidateBeforeSpawn = async () => {
     await options.beforeLaunchValidation?.({ packageDirectory });
     const observed = await revalidatePlaywrightInspection(root, installed, {
@@ -1841,6 +1852,7 @@ export async function attestMcpHost(root, definition, serverId, {
   const hashes = new Set(rows.map((row) => row.entrySha256));
   if (hashes.size !== 1) throw new SingularityFlowError(`Host entry '${server.hostReference}' differs across host configuration sources.`, { code: 'MCP_HOST_ENTRY_CONFLICT' });
   const actor = identity(root);
+  await preparePrivateMcpRoot(root, { platform, windowsAcl });
   const authProfile = isPlaywrightServer(server)
     ? await currentPlaywrightAuthBinding(root, { platform, windowsAcl })
     : null;

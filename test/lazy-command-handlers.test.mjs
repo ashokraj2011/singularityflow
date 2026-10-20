@@ -69,6 +69,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   assert.ok(root.bytes <= 780_000, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
+  assert.equal(root.files.has(path.join(sourceRoot, 'atomic-replace.mjs')), false,
+    'read-only startup must not load the Windows replacement retry loop');
   for (const entry of ['commands/session-entry.mjs', 'commands/choices-entry.mjs']) {
     assert.equal((await graph(entry)).files.size, 1, `${entry} eagerly imported an implementation`);
   }

@@ -7,6 +7,11 @@ export function workDir(root, config, id) { return path.join(root, config.workIt
 
 export function workDirRelative(config, id) { return posix(path.join(config.workItemRoot ?? 'singularity/work-items', id)); }
 
+export function clarificationRecordRelative(definition, workflow, phase, generation = nextPhaseGeneration(phase)) {
+  return posix(path.join(definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id,
+    'context', `clarifications-${phase.id}-gen${generation}.json`));
+}
+
 /** Read-only guidance uses the canonical path without importing composition or review writers. */
 export function groundingRecordRelative(definition, workflow, phase, generation = nextPhaseGeneration(phase)) {
   return posix(path.join(definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', `${phase.id}-gen${generation}.json`));

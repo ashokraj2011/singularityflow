@@ -2648,7 +2648,7 @@ function fetchedHeadCommit(root, env, label, options = {}) {
   }), label, { absentStatus: 1 })?.trim() ?? '';
 }
 
-async function fetchStateRefAsync(root, config, { env = process.env } = {}) {
+async function fetchStateRefAsync(root, config, { env = process.env, observationAttempt = 0 } = {}) {
   const remoteRef = `refs/remotes/${config.remote}/${config.branch}`;
   const before = observeExactRefreshRef(root, remoteRef, { env });
   if (before.status === 'symbolic' || before.status === 'unavailable') {
@@ -2669,11 +2669,17 @@ async function fetchStateRefAsync(root, config, { env = process.env } = {}) {
   const fetched = await runRemoteGitAsync([
     'fetch', '--no-tags', '--refmap=', transport.remote, `refs/heads/${config.branch}`
   ], { cwd: root, operation: 'remote-configuration', env: transport.env });
-  if (fetched.status !== 0) return null;
+  gitReadOutput(fetched, `Fetch exact ${config.branch} state authority`);
   const fetchedCommit = fetchedHeadCommit(root, env, `Fetched ${config.branch} commit`, {
     maxBuffer: 1024, timeoutMs: 5_000
   });
   if (!EXACT_GIT_OID.test(fetchedCommit) || fetchedCommit !== expectedSourceCommit) {
+    // Another refresh may publish between ls-remote and fetch. Repeat only this read-only
+    // observation, never publication or a failed network call. Each attempt revalidates the
+    // exact direct source ref; the caller still compares the full projection and source identity.
+    if (EXACT_GIT_OID.test(fetchedCommit) && observationAttempt < 2) {
+      return fetchStateRefAsync(root, config, { env, observationAttempt: observationAttempt + 1 });
+    }
     throw new SingularityFlowError(
       'Configuration refresh state authority changed after its exact direct-ref observation.', {
         code: 'CONFIGURATION_REFRESH_STATE_AUTHORITY_CHANGED',

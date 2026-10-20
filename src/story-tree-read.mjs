@@ -81,8 +81,13 @@ function batchedHistory(root, relative, label) {
     incrementCommandCounter('story.history-batches');
     const result = run('git', ['log', '--full-history', '--format=%x00sflow-commit:%H:%P%x00',
       '--name-status', '-z', '--', ...scope.prefixes], { cwd: root, allowFailure: true, maxBuffer: 4 * 1024 * 1024 });
-    if (result.status !== 0 || result.error || result.signal) throw new SingularityFlowError(
-      `${label} could not be read from Git history.`, { code: 'WFA_DEPENDENCY_UNAVAILABLE' });
+    if (result.status !== 0 || result.error || result.signal) {
+      // A combined inventory can exceed its bound while each exact record is still readable.
+      // Fall back to the original owner, including its real failure, never an empty proof.
+      scope.stamp = stamp;
+      scope.histories = null;
+      return null;
+    }
     const histories = new Map(), tokens = result.stdout.split('\0');
     let commit = null, merged = false;
     for (let index = 0; index < tokens.length; index++) {

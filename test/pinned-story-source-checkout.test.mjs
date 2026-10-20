@@ -58,3 +58,42 @@ test('checkout compatibility never accepts a source content, whitespace, BOM or 
     });
   }
 });
+
+test('the lifecycle integrity gate accepts only the unchanged checkout form of its pinned Story source', async t => {
+  const { initializeDefinition, resolveWorkType } = await import('../src/config.mjs');
+  const { createWorkflow, loadConfig } = await import('../src/state.mjs');
+  const { runGovernanceGate } = await import('../src/governance.mjs');
+  const { default: YAML } = await import('yaml');
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-pinned-source-gate-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const git = args => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
+  git(['init', '-q', '-b', 'main']);
+  git(['config', 'user.name', 'Checkout Test']);
+  git(['config', 'user.email', 'checkout@example.test']);
+  await initializeDefinition(root);
+  const definitionFile = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionFile, 'utf8'));
+  definition.git.publish = 'off';
+  await writeFile(definitionFile, YAML.stringify(definition));
+  git(['add', '.']); git(['commit', '-qm', 'fixture configuration']);
+  const id = 'CHECKOUT-GATE-1';
+  git(['switch', '-qc', id]);
+  const config = await loadConfig(root);
+  const workflow = await createWorkflow(root, config, {
+    id, title: 'Exact Story binding', source, baseBranch: 'main', workType: 'spec-driven-standard',
+    agent: 'product-owner', resolved: resolveWorkType(config, 'spec-driven-standard')
+  });
+  assert.ok(workflow.resolution.configSha256, 'exercise the legacy configuration integrity gate');
+  git(['add', '.']); git(['commit', '-qm', 'accepted fixture Story']);
+  const relative = `singularity/work-items/${id}/source.json`;
+  const file = path.join(root, relative);
+  const original = await readFile(file, 'utf8');
+  git(['config', 'core.autocrlf', 'true']);
+  await rm(file); git(['checkout-index', '--force', '--', relative]);
+  assert.equal(await readFile(file, 'utf8'), original.replaceAll('\n', '\r\n'));
+  const valid = await runGovernanceGate(root, config, workflow);
+  assert.equal(valid.findings.some(item => item.code === 'gate.source.snapshot-drift'), false);
+  await writeFile(file, original.replace('exact Story intent', 'modified Story intent'));
+  const changed = await runGovernanceGate(root, config, workflow);
+  assert.ok(changed.findings.some(item => item.code === 'gate.source.snapshot-drift'));
+});

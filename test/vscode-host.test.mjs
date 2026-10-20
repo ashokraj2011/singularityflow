@@ -4330,7 +4330,8 @@ test('the packaged POC release candidate journey survives publication, review, C
   { what: 'the packaged Approvals surface to open' });
   const approvalText = approvals.webview.html.replace(/<style[\s\S]*?<\/style>/g, '')
     .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-  assert.match(approvalText, /POC intent and environment/);
+  assert.match(approvalText, /POC intent and environment/,
+    `Approvals snapshot diagnostics:\n${reviewHost.registered.output.join('\n').slice(-16_384)}\nRendered: ${approvalText}`);
   assert.match(approvalText, /1 waiting for you/);
   assert.match(approvalText, /signing as qa\.reviewer@example\.com/);
 
@@ -4754,6 +4755,34 @@ test('saving governed configuration asks the engine, and a broken file is report
   registered.saveListeners[0](readme);
   await settle();
   assert.equal(registered.diagnostics.get(path.join(root, 'README.md')), undefined);
+});
+
+test('Approvals preserves snapshot errors instead of claiming no Story or offering stale actions', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const { ApprovalsPanel } = hostRequire(path.join(packageRoot, 'apps/vscode/dist/lazy-panels-runtime.cjs'));
+  const decisions = [];
+  const store = {
+    current: { snapshot: { workflow: null, initiative: null },
+      error: new Error('Native snapshot refusal: <exact binding>'), stale: false, loading: false },
+    acquireSlices: async () => ({ dispose() {} }),
+    onDidChange: () => ({ dispose() {} })
+  };
+  const shown = await ApprovalsPanel.show(context(), store, message => decisions.push(message));
+  const panel = registered.panels.find(entry => entry.id === 'singularityFlow.approvals');
+  assert.match(panel.webview.html, /Approvals could not be read/);
+  assert.match(panel.webview.html, /Native snapshot refusal: &lt;exact binding&gt;/);
+  assert.doesNotMatch(panel.webview.html, /No Story or Initiative|data-approve=|<exact binding>/);
+  await panel.post({ type: 'approve', id: 'story-phase:intake' });
+  assert.equal(decisions.length, 0);
+  shown.dispose();
+  store.current.error = null;
+  store.current.stale = true;
+  const stale = await ApprovalsPanel.show(context(), store, message => decisions.push(message));
+  assert.match(registered.panels.at(-1).webview.html, /Confirming the current repository/);
+  assert.doesNotMatch(registered.panels.at(-1).webview.html, /data-approve=/);
+  stale.dispose();
 });
 
 test('the approvals panel opens under the same CSP and leads with what is yours', async (t) => {

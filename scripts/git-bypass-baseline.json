@@ -170,6 +170,12 @@
       },
       "digest": "c69385bf8b01ac3774219b448bec7fdd738a35bf5c4fccf65dffe6a2d4bbda41"
     },
+    "apps/vscode/src/views/environment-files.ts": {
+      "counts": {
+        "command-run": 3
+      },
+      "digest": "c47450ff84a84bc532c7bb1f60c8074a6aacb0feaa11aa0ceaec01dfb617990f"
+    },
     "apps/vscode/src/views/map-capability-form.ts": {
       "counts": {
         "command-git-literal": 2

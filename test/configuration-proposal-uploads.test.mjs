@@ -9,6 +9,7 @@ import { chmod, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   createTransportIntent, retryTransportIntent, transportIntentsForRepository
@@ -133,10 +134,14 @@ test('the CLI names a proposal saved here but not uploaded, instead of saying no
     repositoryRoot: item.work, sourceCommit: item.commit,
     targetRef: 'refs/heads/sflow/config-change/workflow/import-workflows-demo-3123abcd'
   }, item.options);
-  const bin = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'bin', 'singularity-flow.mjs');
+  const bin = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
   const listed = run(process.execPath, [bin, '--no-model', 'workflow', 'proposals'], {
     cwd: item.work, env: { ...item.env, HOME: item.base, NODE_ENV: 'test' }, allowFailure: true
   });
+  // Local pending work remains visible even though this fixture has no approved configuration.
+  // Preserve that genuine remote-listing error instead of inventing an empty successful result.
+  assert.equal(listed.status, 1);
+  assert.match(listed.stderr, /No approved 'sflow\/config' authority is available/u);
   assert.match(listed.stdout, /Saved on this computer but not uploaded, so nobody can review them yet:/u);
   assert.match(listed.stdout, /sflow\/config-change\/workflow\/import-workflows-demo-3123abcd {2}pending/u);
   assert.match(listed.stdout, /Retry: singularity-flow push retry psh_/u);

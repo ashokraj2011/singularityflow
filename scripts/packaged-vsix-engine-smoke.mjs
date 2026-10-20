@@ -296,6 +296,22 @@ function requireCondition(condition, message) {
   if (!condition) refuse(message);
 }
 
+/** Bind the smoke check to the shipped documentation, not historical topic names. */
+export function assertPackagedHelpCatalog(help, document) {
+  const expectedTitle = String(document).match(/^#\s+(.+)$/mu)?.[1]?.trim();
+  const expectedTopics = [...String(document).matchAll(/^##\s+(.+)$/gmu)].map(match => {
+    const title = match[1].trim();
+    return { title, id: title.toLowerCase().replace(/[^a-z0-9]+/gu, '-').replace(/^-|-$/gu, '') };
+  });
+  if (!expectedTitle || !expectedTopics.length || help?.title !== expectedTitle
+      || !Array.isArray(help.topics) || help.topics.length !== expectedTopics.length
+      || expectedTopics.some((expected, index) => help.topics[index]?.id !== expected.id
+        || help.topics[index]?.title !== expected.title
+        || typeof help.topics[index]?.content !== 'string' || !help.topics[index].content.trim())) {
+    refuse('the VSIX-contained engine Help catalog does not match the shipped documentation.');
+  }
+}
+
 export async function runVsixContainedEngineSmoke({
   root = sourceRoot,
   tempRoot = os.tmpdir(),
@@ -394,10 +410,7 @@ export async function runVsixContainedEngineSmoke({
     let help;
     try { help = JSON.parse(helpText); }
     catch { refuse('the VSIX-contained engine did not return its structured Help catalog.'); }
-    if (help?.title !== 'Singularity Flow Help'
-        || !help.topics?.some((topic) => topic.id === 'governed-mcp-tools')) {
-      refuse('the VSIX-contained engine Help catalog is incomplete.');
-    }
+    assertPackagedHelpCatalog(help, await readFile(path.join(root, 'HELP.md'), 'utf8'));
 
     const contractsUrl = pathToFileURL(path.join(
       canonicalEngineRoot, 'src', 'comprehension', 'contracts.mjs'

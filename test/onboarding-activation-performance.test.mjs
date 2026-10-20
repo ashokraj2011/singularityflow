@@ -76,7 +76,8 @@ test('first activation publishes root, audit and projection together without clo
   assert.equal(result.projection.published, true);
   assert.equal(result.portability.portable, true);
   assert.equal(result.proposalCleanup.status, 'deleted');
-  assert.equal(counters['git.remote.command.clone'], 1, 'only the approved configuration checkout is cloned');
+  assert.equal(counters['git.remote.command.clone'] ?? 0, 0,
+    'the exact approved configuration must reuse local objects rather than clone any history');
   assert.equal(counters['git.remote.command.push'], 4,
     'configuration, combined audit/mirror, delivery link, then exact proposal retirement');
   assert.ok(counters['git.spawns'] <= 145, `unexpected Git process fan-out: ${counters['git.spawns']}`);

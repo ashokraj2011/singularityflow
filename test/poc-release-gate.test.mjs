@@ -161,7 +161,8 @@ test('release qualification remains fail-fast unless diagnostic continuation is 
   assert.equal(observed.length, 2);
 });
 
-test('diagnostic continuation runs every bounded stage but preserves all failures and refuses qualification', async () => {
+test('diagnostic continuation runs every bounded stage but preserves all failures and refuses qualification', async (t) => {
+  t.mock.method(console, 'error', () => {});
   const observed = [];
   await assert.rejects(runPocReleaseGate({
     continueOnFailure: true,

@@ -55,13 +55,40 @@ test('model-name routing source selection is identical for POSIX and Windows pat
   }
 });
 
-test('deterministic check ignores generated files excluded by Git', async () => {
+/**
+ * The check's source privacy scan builds its personal terms from whoever runs it: the Git user
+ * name and email it reads, and the home directory's name (scripts/documentation-privacy.mjs).
+ * A test of what the check reads must not depend on that, or a runner whose identity happens to
+ * be ordinary words ("Suite Tester" in a home called suitehome) fails on a clean tree. Give the
+ * check an explicit identity and home that the policy itself classifies as a fixture, as CI's bot
+ * identity is. Command-scope Git configuration is read after every configuration file, so neither
+ * the runner's global nor the checkout's local identity can take its place.
+ */
+async function neutralIdentityEnvironment(t) {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-check-identity-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const home = path.join(base, 'fixture');
+  await mkdir(home);
+  const inherited = Number.parseInt(process.env.GIT_CONFIG_COUNT ?? '', 10);
+  const first = Number.isInteger(inherited) && inherited > 0 ? inherited : 0;
+  const identity = [['user.name', 'Check fixture'], ['user.email', 'check-fixture@example.invalid']];
+  return {
+    ...process.env, HOME: home, USERPROFILE: home,
+    GIT_CONFIG_COUNT: String(first + identity.length),
+    ...Object.fromEntries(identity.flatMap(([key, value], index) => [
+      [`GIT_CONFIG_KEY_${first + index}`, key], [`GIT_CONFIG_VALUE_${first + index}`, value]
+    ]))
+  };
+}
+
+test('deterministic check ignores generated files excluded by Git', async t => {
+  const env = await neutralIdentityEnvironment(t);
   const directory = path.join(root, 'coverage', 'ignored-check-probe');
   const probe = path.join(directory, 'invalid-generated-file.mjs');
   await mkdir(directory, { recursive: true });
   await writeFile(probe, 'this is intentionally invalid generated JavaScript\n');
   try {
-    const result = spawnSync(process.execPath, [path.join(root, 'scripts/check.mjs')], { cwd: root, encoding: 'utf8' });
+    const result = spawnSync(process.execPath, [path.join(root, 'scripts/check.mjs')], { cwd: root, env, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /invalid-generated-file/);
   } finally {

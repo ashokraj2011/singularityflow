@@ -132,9 +132,9 @@ test('unpushed, active, dirty, ignored, recovery and open-window Story worktrees
     assert.equal(result.removed.length, 0, `${reason}: ${JSON.stringify(result)}`); assert.ok(await lstat(target));
   };
   await writeFile(path.join(target, 'draft.txt'), 'uncommitted'); await check('untracked'); await rm(path.join(target, 'draft.txt'));
-  const readme = path.join(target, 'README.md'), original = await readFile(readme, 'utf8');
-  await writeFile(readme, original.replaceAll('\n', '\r\n')); await check('retained line-ending bytes');
-  await writeFile(readme, original);
+  const tracked = path.join(target, '.gitattributes'), original = await readFile(tracked, 'utf8');
+  await writeFile(tracked, original.replaceAll('\n', '\r\n')); await check('retained line-ending bytes');
+  await writeFile(tracked, original);
   const privateGit = git(target, ['rev-parse', '--absolute-git-dir']);
   await mkdir(path.join(privateGit, 'singularity-flow/recovery'), { recursive: true }); await check('recovery');
   await rm(path.join(privateGit, 'singularity-flow/recovery'), { recursive: true });

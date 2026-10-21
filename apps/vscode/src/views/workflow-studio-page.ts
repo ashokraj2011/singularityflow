@@ -80,6 +80,10 @@ const STUDIO_STYLE = `
 .workflow-editable{border-left:3px solid var(--sf-accent)}
 .pill.origin-seeded{color:var(--vscode-charts-blue,#759bbb)}
 .pill.origin-editable{color:var(--sf-accent)}
+.workflow-archived{border-left-style:dashed}
+.pill.archived{color:var(--sf-wait);border-style:dashed}
+.show-archived{display:inline-flex;align-items:center;gap:6px;font-size:12px;align-self:flex-start}
+.show-archived input{margin:0}
 .studio-nav{border-right:1px solid var(--sf-border-color);padding:var(--sf-space-4) var(--sf-space-3);display:flex;flex-direction:column;gap:4px}
 .studio-nav .brand{font-size:11px;letter-spacing:2px;font-weight:600;color:var(--sf-accent);padding:0 var(--sf-space-2) var(--sf-space-3)}
 .studio-nav button.nav-item{display:flex;justify-content:space-between;align-items:center;gap:8px;text-align:left;padding:8px 10px;border-radius:6px;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer}
@@ -1534,6 +1538,41 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var workflow = state.draft && state.draft.workflows[id];
     return Boolean(workflow && (workflow.readOnly || protectedObject('workflows', id)));
   }
+  /** An archived workflow's reason ({ reason }), or null. New Stories are not offered it; it stays editable. */
+  function archivedWorkflow(governs, id) {
+    var list = governs === 'initiative' ? state.model && state.model.epics && state.model.epics.workflows : state.model && state.model.workflows;
+    var found = (list || []).find(function (workflow) { return workflow.id === id; });
+    return found && found.archived ? { reason: found.archiveReason || null } : null;
+  }
+  function archivedPill(archived) {
+    return archived ? el('span', { class: 'pill archived', 'data-archived-pill': 'true', text: 'Archived',
+      title: archived.reason ? 'Archived: ' + archived.reason : 'Archived: new Stories are not offered it' }) : null;
+  }
+  /** Archive… or Restore, and Delete… on a workflow that is not seeded; a workflow not yet published has neither. */
+  function retireButtons(selector, label, archived, deletable, unpublished) {
+    var disabled = unpublished || Boolean(state.busy);
+    return [
+      button(archived ? 'Restore' : 'Archive…', function () { retireWorkflow(archived ? 'restore' : 'archive', selector); }, { class: 'secondary', disabled: disabled,
+        'data-key': (archived ? 'workflow-restore-' : 'workflow-archive-') + selector, 'aria-label': (archived ? 'Restore ' : 'Archive ') + label,
+        title: archived ? 'Offer it to new Stories again' : 'Stop offering it to new Stories; Stories already using it keep running' }),
+      deletable ? button('Delete…', function () { retireWorkflow('delete', selector); }, { class: 'secondary', disabled: disabled,
+        'data-key': 'workflow-delete-' + selector, 'aria-label': 'Delete ' + label, title: 'Review what it removes and what other workflows keep, then propose deleting it' }) : null
+    ];
+  }
+  function retireWorkflow(action, selector) {
+    state.busy = 'retire';
+    setStatus(action === 'delete' ? 'Previewing exactly what the delete removes…' : action === 'archive' ? 'Archiving…' : 'Restoring…');
+    render();
+    post({ type: 'studio.retireWorkflow', action: action, selector: selector, pending: changesNow().length });
+  }
+  /** Show archived workflows (off by default): archived cards then sit in their own sections. */
+  function showArchivedToggle(main, count) {
+    if (!count) return;
+    var toggle = el('input', { type: 'checkbox', id: 'show-archived', 'data-key': 'show-archived', checked: state.showArchived === true,
+      onchange: function () { state.showArchived = toggle.checked; render(); } });
+    main.appendChild(el('label', { class: 'show-archived', for: 'show-archived', title: 'Archived workflows are not offered to new Stories. Show them to restore, edit or delete one.' },
+      toggle, 'Show archived workflows (' + count + ')'));
+  }
   function openWorkflowCanvas(id) {
     if (typeof id === 'string' && id.indexOf('initiative:') === 0) return openEpicCanvas(id.slice(11));
     var workflow = typeof id === 'string' && state.draft && Object.prototype.hasOwnProperty.call(state.draft.workflows, id) && state.draft.workflows[id];
@@ -1550,6 +1589,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   }
   function renderHome(main) {
     var workflows = state.draft.order.concat(Object.keys(state.draft.workflows).filter(function (id) { return state.draft.order.indexOf(id) < 0; }));
+    var live = workflows.filter(function (id) { return !archivedWorkflow('story', id); });
     var noAgent = Object.keys(state.draft.phases).filter(function (id) { return !state.draft.phases[id].agent && workflows.some(function (workflowId) { return workflowSteps(workflowId).indexOf(id) >= 0; }); });
     var blocked = Object.keys(state.draft.groups).filter(groupBlocked);
     var pending = changesNow().length + savedDrafts().length;
@@ -1566,7 +1606,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     }
     main.appendChild(el('section', { class: 'studio-card', 'aria-label': 'Ready for new Stories' },
       el('div', { class: 'studio-row spread' }, el('h2', { text: 'Ready for new Stories?' })),
-      check('ok', workflows.length + (workflows.length === 1 ? ' workflow' : ' workflows'), 'Any of them can start a Story once published.'),
+      check('ok', live.length + (live.length === 1 ? ' workflow' : ' workflows'), (workflows.length > live.length ? (workflows.length - live.length) + ' archived, not offered to new Stories. ' : '') + 'Any of them can start a Story once published.'),
       blocked.length ? check('bad', blocked.length + (blocked.length === 1 ? ' approval group can never approve' : ' approval groups can never approve'), 'Add people to ' + blocked.map(function (id) { return state.draft.groups[id].label; }).join(', ') + ', or steps they sign off can never finish.', button('Add people', function () { state.view = 'people'; render(); })) : check('ok', 'Every approval group can sign off', 'Empty groups enrol whoever starts a Story, unless your repository requires named people.'),
       noAgent.length ? check('bad', noAgent.length + ' step(s) have no agent', noAgent.map(function (id) { return state.draft.phases[id].label; }).join(', '), null) : check('ok', 'Every step has an agent', 'Each step has exactly one agent that drafts it.'),
       pending ? check('wait', pending + (pending === 1 ? ' change' : ' changes') + ' not published yet', 'Check and publish them together from Changes.', button('Review changes', function () { state.view = 'changes'; render(); }, { class: 'primary' })) : check('dim', 'No unpublished changes', 'Edits you make collect here until you publish them.'),
@@ -1583,18 +1623,23 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       button('New workflow', function () { state.view = 'new'; state.wizard = { label: '', from: null }; render(); }, { class: 'primary' }))));
     if (state.exporting) main.appendChild(renderExport());
     var search = catalogSearch(main, 'workflows', 'Search workflows and rules', true);
+    var epicIds = state.draft.epics ? Object.keys(state.draft.epics.workflows) : [];
+    showArchivedToggle(main, workflows.length - live.length + epicIds.filter(function (id) { return archivedWorkflow('initiative', id); }).length);
     var userWorkflows = search.group(main, 'story-user', 'User-created Story workflows');
     var seededWorkflows = search.group(main, 'story-seeded', 'Seeded Story workflows');
+    var archivedWorkflows = state.showArchived && workflows.length > live.length ? search.group(main, 'story-archived', 'Archived Story workflows') : null;
     workflows.forEach(function (id) {
       var workflow = state.draft.workflows[id];
       var readOnly = workflowReadOnly(id);
+      var archived = archivedWorkflow('story', id);
+      if (archived && !archivedWorkflows) return;
       var code = workflow.phases.some(function (phaseId) { return stepOutput(id, phaseId) === 'code'; });
       var pendingProposal = waitingProposals.find(function (proposal) {
         return (proposal.workflows || []).some(function (entry) { return entry.id === id && entry.governs !== 'initiative'; });
       });
-      var card = el('article', { class: 'studio-card ' + (readOnly ? 'workflow-seeded' : 'workflow-editable'), 'data-workflow-card': id },
+      var card = el('article', { class: 'studio-card ' + (readOnly ? 'workflow-seeded' : 'workflow-editable') + (archived ? ' workflow-archived' : ''), 'data-workflow-card': id },
         el('div', { class: 'studio-row spread' },
-          el('div', { class: 'studio-row' }, el('strong', { text: workflow.label }), workflowOrigin(readOnly),
+          el('div', { class: 'studio-row' }, el('strong', { text: workflow.label }), workflowOrigin(readOnly), archivedPill(archived),
             workflow.isNew || workflow.installFrom ? el('span', { class: 'pill new', text: 'NEW' }) : null,
             pendingProposal ? el('span', { class: 'pill new', text: 'Pending review' }) : null),
           el('div', { class: 'studio-row' },
@@ -1603,13 +1648,14 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
               : null,
             button(readOnly ? 'View' : 'Edit', function () { openWorkflowCanvas(id); }, { class: 'secondary', 'data-key': 'workflow-open-' + id,
               'aria-label': (readOnly ? 'View seeded workflow ' : 'Edit workflow in canvas: ') + workflow.label }),
-            button('Duplicate', function () { duplicateWorkflow('story:' + id); }, { class: 'secondary', disabled: workflow.isNew || Boolean(workflow.installFrom), 'aria-label': 'Duplicate ' + workflow.label }))),
-        el('span', { class: 'muted', text: workflow.phases.length + ' steps' + (code ? ' · writes code' : '') }),
+            button('Duplicate', function () { duplicateWorkflow('story:' + id); }, { class: 'secondary', disabled: workflow.isNew || Boolean(workflow.installFrom), 'aria-label': 'Duplicate ' + workflow.label }),
+            retireButtons('story:' + id, workflow.label, archived, !readOnly, workflow.isNew || Boolean(workflow.installFrom)))),
+        el('span', { class: 'muted', text: workflow.phases.length + ' steps' + (code ? ' · writes code' : '') + (archived && archived.reason ? ' · archived: ' + archived.reason : '') }),
         workflow.description ? el('span', { class: 'muted', text: workflow.description }) : null,
         rail(workflow.phases));
-      var group = readOnly ? seededWorkflows : userWorkflows;
+      var group = archived ? archivedWorkflows : readOnly ? seededWorkflows : userWorkflows;
       group.appendChild(card);
-      search.add(card, [id, workflow.label, workflow.description, readOnly ? 'seeded read-only' : 'editable',
+      search.add(card, [id, workflow.label, workflow.description, readOnly ? 'seeded read-only' : 'editable', archived ? 'archived ' + (archived.reason || '') : '',
         workflow.phases.map(stepLabel).join(' '), workflow.phases.join(' '),
         (workflow.reworkLoops || []).map(function (loop) { return 'rejected ' + stepLabel(loop.from) + ' ' + stepLabel(loop.to); }).join(' '),
         (workflow.decisions || []).map(function (decision) { return decision.label + ' ' + decisionLines(workflow, decision).join(' '); }).join(' ')], [id, workflow.label], group);
@@ -1705,15 +1751,20 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     if (state.epicForm) main.appendChild(renderEpicForm(state.epicForm));
     var userWorkflows = search.group(main, 'epic-user', 'User-created Epic workflows');
     var seededWorkflows = search.group(main, 'epic-seeded', 'Seeded Epic workflows');
-    epics.order.concat(Object.keys(epics.workflows).filter(function (id) { return epics.order.indexOf(id) < 0; })).forEach(function (id) {
+    var epicIds = epics.order.concat(Object.keys(epics.workflows).filter(function (id) { return epics.order.indexOf(id) < 0; }));
+    var archivedWorkflows = state.showArchived && epicIds.some(function (id) { return archivedWorkflow('initiative', id); })
+      ? search.group(main, 'epic-archived', 'Archived Epic workflows') : null;
+    epicIds.forEach(function (id) {
       var workflow = epics.workflows[id];
       var readOnly = protectedObject('epics', id);
+      var archived = archivedWorkflow('initiative', id);
+      if (archived && !archivedWorkflows) return;
       var pendingProposal = waitingProposals.find(function (proposal) {
         return (proposal.workflows || []).some(function (entry) { return entry.id === id && entry.governs === 'initiative'; });
       });
-      var card = el('article', { class: 'studio-card ' + (readOnly ? 'workflow-seeded' : 'workflow-editable'), 'aria-label': 'Epic workflow ' + workflow.label },
+      var card = el('article', { class: 'studio-card ' + (readOnly ? 'workflow-seeded' : 'workflow-editable') + (archived ? ' workflow-archived' : ''), 'data-epic-card': id, 'aria-label': 'Epic workflow ' + workflow.label },
         el('div', { class: 'studio-row spread' },
-          el('div', { class: 'studio-row' }, el('strong', { text: workflow.label }), workflowOrigin(readOnly), workflow.isNew ? el('span', { class: 'pill new', text: 'NEW' }) : null,
+          el('div', { class: 'studio-row' }, el('strong', { text: workflow.label }), workflowOrigin(readOnly), archivedPill(archived), workflow.isNew ? el('span', { class: 'pill new', text: 'NEW' }) : null,
             pendingProposal ? el('span', { class: 'pill new', text: 'Pending review' }) : null,
             el('span', { class: 'pill', text: workflow.lifecycleMode === 'planning-only' ? 'Plans Stories' : 'Full delivery' })),
           el('div', { class: 'studio-row' },
@@ -1722,12 +1773,13 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
               : null,
             button(protectedObject('epics', id) ? 'View' : 'Edit', function () { openEpicCanvas(id); }, { class: 'secondary',
               'aria-label': (protectedObject('epics', id) ? 'View seeded Epic workflow ' : 'Edit Epic workflow in canvas: ') + workflow.label }),
-            button('Duplicate', function () { duplicateWorkflow('initiative:' + id); }, { class: 'secondary', disabled: workflow.isNew, 'aria-label': 'Duplicate ' + workflow.label }))),
-        el('span', { class: 'muted', text: workflow.phases.length + (workflow.phases.length === 1 ? ' step' : ' steps') + (workflow.packs ? ' · ' + workflow.packs + ' review packs' : '') + (workflow.description ? ' · ' + workflow.description : '') }),
+            button('Duplicate', function () { duplicateWorkflow('initiative:' + id); }, { class: 'secondary', disabled: workflow.isNew, 'aria-label': 'Duplicate ' + workflow.label }),
+            retireButtons('initiative:' + id, workflow.label, archived, !readOnly, workflow.isNew))),
+        el('span', { class: 'muted', text: workflow.phases.length + (workflow.phases.length === 1 ? ' step' : ' steps') + (workflow.packs ? ' · ' + workflow.packs + ' review packs' : '') + (workflow.description ? ' · ' + workflow.description : '') + (archived && archived.reason ? ' · archived: ' + archived.reason : '') }),
         el('div', { class: 'rail' }, workflow.phases.map(function (phaseId) { return el('span', { class: 'pill', text: epicStepLabel(phaseId) }); })));
-      var group = readOnly ? seededWorkflows : userWorkflows;
+      var group = archived ? archivedWorkflows : readOnly ? seededWorkflows : userWorkflows;
       group.appendChild(card);
-      search.add(card, [id, workflow.label, workflow.description, readOnly ? 'seeded read-only' : 'editable', workflow.phases.map(epicStepLabel).join(' ')], [id, workflow.label], group);
+      search.add(card, [id, workflow.label, workflow.description, readOnly ? 'seeded read-only' : 'editable', archived ? 'archived ' + (archived.reason || '') : '', workflow.phases.map(epicStepLabel).join(' ')], [id, workflow.label], group);
     });
     var seenProposedEpics = {};
     waitingProposals.forEach(function (proposal) {
@@ -6636,6 +6688,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     } else if (message.type === 'studio.uploadRetried') {
       if (state.busy === 'upload') state.busy = null;
       setStatus(message.message || 'Upload attempted.'); render();
+    } else if (message.type === 'studio.retireDone') {
+      if (state.busy === 'retire') state.busy = null;
+      setStatus(message.text || ''); render();
     } else if (message.type === 'studio.importDone') {
       state.busy = null;
       setStatus(message.outcome === 'cancelled' ? 'Import cancelled; nothing changed.'

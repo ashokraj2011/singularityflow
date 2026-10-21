@@ -139,6 +139,28 @@ test('adjacent unrelated workflow edits activate without Git merges, preserving 
   } finally { await rm(f.base, { recursive: true, force: true }); }
 });
 
+test('a proposal that removes a whole skill folder activates: no empty folder is left for the skill library to refuse', async () => {
+  // A workflow delete (docs/SPEC-WORKFLOW-RETIREMENT-v1.md) removes the skills only it used.
+  const f = await fixture();
+  const skill = (mutate) => proposeConfigurationChange(f.story, { operation: 'edit-workflow', subject: 'retired-skill', mutate }, { env: f.env });
+  try {
+    const added = await skill(async (root) => {
+      await mkdir(path.join(root, 'singularity/skill-library/retired-skill'), { recursive: true });
+      await writeFile(path.join(root, 'singularity/skill-library/retired-skill/SKILL.md'),
+        '---\nname: retired-skill\ndescription: Used by a workflow that is being deleted.\n---\n\nCheck the change.\n');
+      return { id: 'retired-skill' };
+    });
+    assert.equal((await activate(f, added)).activated, true);
+    run('git', ['pull', '-q', '--ff-only', 'origin', 'sflow/config'], { cwd: f.story });
+    const removed = await skill(async (root) => {
+      await rm(path.join(root, 'singularity/skill-library/retired-skill'), { recursive: true });
+      return { id: 'retired-skill' };
+    });
+    assert.equal((await activate(f, removed)).activated, true);
+    assert.doesNotMatch(run('git', ['--git-dir', f.remote, 'ls-tree', '-r', '--name-only', 'sflow/config']).stdout, /retired-skill/);
+  } finally { await rm(f.base, { recursive: true, force: true }); }
+});
+
 test('kernel transaction receipts cannot be authored in a proposal', async () => {
   const f = await fixture();
   try {

@@ -137,6 +137,61 @@ test('Epic workflows use the same origin sections and exact-name filtering witho
   assert.deepEqual(f.logic.changeSetFrom(f.model, f.logic.state().draft).changes, []);
 });
 
+test('archived workflows carry a badge behind Show archived and offer Restore; Delete… is only on workflows that are not seeded', () => {
+  const f = fixture();
+  const epic = (id) => ({ id, label: id === 'epic-seed' ? 'Seeded Epic' : 'Team Epic', description: '', phases: ['plan'], steps: [], packs: 0 });
+  f.model.epics = { workflows: [epic('epic-seed'), { ...epic('epic-team'), archived: true, archiveReason: null }], steps: [
+    { id: 'plan', label: 'Plan children', agents: ['builtin'], lanes: [], views: [], outputs: [], approval: { mode: 'none', authorities: [] } }
+  ] };
+  f.model.protection.epics = ['epic-seed'];
+  Object.assign(f.model.workflows[1], { archived: true, archiveReason: 'Replaced by the café v2 flow' });
+  const state = f.logic.state();
+  state.draft = f.logic.initialDraft(f.model);
+  const cards = (main) => all(main).filter((node) => node.attributes?.['data-workflow-card'] || node.attributes?.['data-epic-card']);
+  const button = (node, label) => all(node).find((child) => child.tag === 'button' && text(child) === label);
+
+  // Hidden by default: new Stories are not offered them, and nobody needs them in the way.
+  let main = f.main(); f.logic.renderHome(main);
+  assert.deepEqual(cards(main).map((node) => node.attributes['data-workflow-card'] ?? node.attributes['data-epic-card']), ['seed', 'epic-seed']);
+  assert.match(text(main), /1 workflow .*1 archived, not offered to new Stories/s, 'Ready counts only workflows new Stories can choose');
+  const toggle = byId(main, 'show-archived');
+  assert.ok(!toggle.checked, 'off by default');
+  assert.match(text(all(main).find((node) => node.tag === 'label' && node.attributes.for === 'show-archived')), /Show archived workflows \(2\)/);
+  const seeded = cards(main)[0];
+  assert.ok(button(seeded, 'Archive…'), 'a seeded workflow can be archived');
+  assert.equal(button(seeded, 'Delete…'), undefined, 'a seeded workflow is never deleted');
+
+  toggle.checked = true; toggle.listeners.change({ target: toggle });
+  assert.equal(state.showArchived, true);
+  main = f.main(); f.logic.renderHome(main);
+  const groups = all(main).filter((node) => node.attributes?.['data-workflow-group']).map((node) => node.attributes['data-workflow-group']);
+  assert.deepEqual(groups, ['story-user', 'story-seeded', 'story-archived', 'epic-user', 'epic-seeded', 'epic-archived']);
+  const archived = all(main).find((node) => node.attributes?.['data-workflow-card'] === 'team');
+  assert.ok(all(main).find((node) => node.attributes?.['data-workflow-group'] === 'story-archived').children.includes(archived));
+  assert.match(archived.className, /workflow-archived/);
+  const pill = all(archived).find((node) => node.attributes?.['data-archived-pill']);
+  assert.equal(pill.textContent, 'Archived');
+  assert.equal(pill.attributes.title, 'Archived: Replaced by the café v2 flow');
+  assert.match(text(archived), /archived: Replaced by the café v2 flow/);
+  assert.equal(button(archived, 'Archive…'), undefined);
+  const search = byId(main, 'catalog-search-workflows');
+  type(search, 'archived'); assert.equal(archived.hidden, false, 'archived is searchable'); assert.equal(cards(main)[0].hidden, true);
+  type(search, '');
+
+  click(button(archived, 'Restore'));
+  assert.deepEqual(f.posted.at(-1), { type: 'studio.retireWorkflow', action: 'restore', selector: 'story:team', pending: 0 });
+  assert.equal(state.busy, 'retire');
+  state.busy = null;
+  click(button(archived, 'Delete…'));
+  assert.deepEqual(f.posted.at(-1), { type: 'studio.retireWorkflow', action: 'delete', selector: 'story:team', pending: 0 });
+  state.busy = null;
+  const epicCard = all(main).find((node) => node.attributes?.['data-epic-card'] === 'epic-team');
+  assert.ok(button(epicCard, 'Restore') && button(epicCard, 'Delete…'));
+  click(button(all(main).find((node) => node.attributes?.['data-epic-card'] === 'epic-seed'), 'Archive…'));
+  assert.deepEqual(f.posted.at(-1), { type: 'studio.retireWorkflow', action: 'archive', selector: 'initiative:epic-seed', pending: 0 });
+  assert.deepEqual(f.logic.changeSetFrom(f.model, state.draft).changes, [], 'retiring is never part of the Studio change set');
+});
+
 test('agents, skills and instructions filter body text locally and expose no-results/clear controls', () => {
   for (const [render, key, query, selector, expected] of [
     ['renderAgents', 'agents', 'CAFÉ', 'data-agent-card', 'custom'],

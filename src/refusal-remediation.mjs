@@ -1342,6 +1342,13 @@ export function refusalDetails(details) {
   if (upstreamPhases.length) projected.upstreamPhases = upstreamPhases;
   const authorities = list(details.authorities, text);
   if (authorities.length) projected.authorities = authorities;
+  // Retiring a workflow: the live workflows a new default may be, and the Stories that block a delete.
+  const workflowId = (value) => (typeof value === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/u.test(value) ? value : null);
+  const live = list(details.live, workflowId);
+  if (live.length) projected.live = live;
+  const stories = list(details.stories, (story) => (story && typeof story === 'object' && text(story.id)
+    ? compact({ id: text(story.id), status: text(story.status), branch: text(story.branch) }) : null));
+  if (stories.length) projected.stories = stories;
   const findings = list(details.findings, (finding) => (finding && typeof finding === 'object' ? compact({
     code: text(finding.code), category: text(finding.category), phase: text(finding.phase), field: field(finding.field),
     path: text(finding.path), status: text(finding.status ?? finding.details?.status),

@@ -33,7 +33,12 @@ import {
 } from './environment-declaration.mjs';
 import { configurationReadRootForPath } from './configuration-read-scope.mjs';
 import { parsePorcelainV2Status } from './git-status-detail.mjs';
-import { publicationGitResult } from './publication-context.mjs';
+
+// publication-context.mjs installs its exact-object reader when it loads, and only that module can
+// open a publication. A process that never publishes, such as the Copilot edit guard run on every
+// tool call, does not load it: with no publication open the reader runs each Git call unchanged.
+let publicationGitResult = (root, args, options, execute) => execute(options);
+export function installPublicationGitResult(read) { publicationGitResult = read; }
 
 function git(args, options = {}) {
   // stdout is the data channel: `--json` callers parse this process's stdout, so a child git's

@@ -3631,6 +3631,33 @@ test('intake favourites survive immediate reopen, worktree and clone switches, a
   assert.deepEqual(registered.errors, []);
 });
 
+test('intake never offers an archived workflow, and a favourite that names one stays saved', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode(); loadExtension(api);
+  const { IntakePanel } = hostRequire(path.join(packageRoot, 'apps/vscode/dist/lazy-panels-runtime.cjs'));
+  const root = path.resolve('/fixture/archived/repos/main/app');
+  const logicalId = 'repository-' + 'c'.repeat(24);
+  const key = 'singularityFlow.intake.workflowFavourites.v2:' + logicalId;
+  const values = new Map([[key, { at: 1, ids: ['old-flow', 'feature'] }]]);
+  const row = (id, extra = {}) => ({ id, label: id, governs: 'story', phases: ['intake'], ...extra });
+  const client = { repository: root, prewarmRuntime: async () => ({ status: 'prepared' }),
+    run: async args => args[0] === 'workspace' ? { choices: [], intake: { storyWorkflows: [row('feature'), row('old-flow', { archived: true }), row('team-test')] } }
+      : { configured: false } };
+  const panel = IntakePanel.show(context(values), client, api.window.createOutputChannel('Archived'), async () => {}, {
+    workspace: 'Example', repository: root, branch: 'main', inFlight: [], defaults: { source: 'manual', workType: 'old-flow' },
+    workflowPreferenceScope: () => ({ logicalId, commonDirectory: path.join(root, '.git') })
+  });
+  t.after(() => panel.dispose());
+  const view = registered.panels.filter(entry => entry.id === 'singularityFlow.intake').at(-1);
+  await until(() => /data-workflow-favourite="feature"\s+aria-pressed="true"/.test(view.webview.html) ? true : null, { what: 'the starred catalog' });
+  assert.doesNotMatch(view.webview.html, /old-flow/, 'neither a choice, a favourite nor the default');
+  await view.post({ type: 'workflowFavourite', value: 'old-flow', favourite: false });
+  assert.deepEqual(values.get(key).ids, ['old-flow', 'feature'], 'an archived workflow cannot be starred or unstarred here');
+  await view.post({ type: 'workflowFavourite', value: 'team-test', favourite: true });
+  assert.deepEqual(values.get(key).ids, ['old-flow', 'feature', 'team-test'], 'the favourite naming it is kept, for when it is restored');
+  assert.deepEqual(registered.errors, []);
+});
+
 test('intake catalog deadlines show retry, superseded reads cancel, and closing cancels discovery', async (t) => {
   if (!requireBundle(t)) return;
   const { api, registered } = stubVscode();
@@ -6883,6 +6910,101 @@ test('the retired Designer and templates commands open Workflow Studio, which ex
   assert.deepEqual(panel.sent.at(-1), { type: 'studio.importDone', outcome: 'cancelled', branch: null, error: null }, 'closing the dialog is a cancelled import');
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
 });
+/** A workflow of the repository's own, duplicated from `feature`: seeded ones are archived, never deleted. */
+function duplicateFeature(root, target = 'mine') {
+  const flow = (...args) => {
+    const result = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args], { cwd: root, encoding: 'utf8', env: process.env });
+    assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+    return JSON.parse(result.stdout);
+  };
+  const preview = flow('workflow', 'duplicate', 'feature', target, '--label', 'Mine', '--dry-run', '--json');
+  flow('workflow', 'duplicate', 'feature', target, '--label', 'Mine', '--resolve-all', 'suggested', '--confirm', preview.planSha256, '--json');
+  run('git', ['add', '-A'], { cwd: root });
+  run('git', ['commit', '-qm', `duplicate ${target}`], { cwd: root });
+}
+
+test('Workflow Studio archives, restores and deletes a workflow through the engine; Delete… reviews the exact plan first', async (t) => {
+  if (!requireBundle(t)) return;
+  const { root, registered } = await activated();
+  duplicateFeature(root);
+  await registered.commands.get('singularityFlow.openWorkflowStudio')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workflowStudio');
+  await panel.post({ type: 'studio.ready' });
+  const done = () => panel.sent.filter((message) => message.type === 'studio.retireDone').at(-1)?.text ?? '';
+  const archiveFile = path.join(root, 'singularity/workflow-archive.yml');
+
+  // No approved configuration authority here, so archive writes the repository's own file to commit.
+  registered.answers = ['Trial over'];
+  await panel.post({ type: 'studio.retireWorkflow', action: 'archive', selector: 'story:mine', pending: 0 });
+  assert.match(registered.inputBoxes.at(-1).title, /^Archive Mine/);
+  assert.deepEqual(YAML.parse(readFileSync(archiveFile, 'utf8')).archived.story.mine, { reason: 'Trial over' });
+  assert.match(done(), /^Archived Mine.* in this repository's singularity\/workflow-archive\.yml; new Stories are no longer offered it/);
+  const reloaded = panel.sent.filter((message) => message.type === 'studio.model').at(-1).model;
+  assert.deepEqual([reloaded.workflows.find((workflow) => workflow.id === 'mine').archived, reloaded.workflows.find((workflow) => workflow.id === 'mine').archiveReason],
+    [true, 'Trial over'], 'the open Studio reloads and shows it archived');
+  assert.ok(registered.infos.some((message) => /Archived Mine/.test(message)));
+
+  await panel.post({ type: 'studio.retireWorkflow', action: 'restore', selector: 'story:mine', pending: 0 });
+  assert.match(done(), /^Restored Mine/);
+  assert.deepEqual(YAML.parse(readFileSync(archiveFile, 'utf8')).archived ?? {}, {});
+
+  // The default workflow asks which live workflow replaces it, from the engine's own list.
+  registered.answers = [''];
+  await panel.post({ type: 'studio.retireWorkflow', action: 'archive', selector: 'story:feature', pending: 0 });
+  const picked = registered.quickPicks.at(-1);
+  assert.equal(picked.options.title, 'Choose the new default workflow');
+  assert.ok(picked.items.some((item) => item.id === 'mine' && /^Mine/.test(item.label)), 'live workflows are offered by label');
+  const story = YAML.parse(readFileSync(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.equal(story.delivery.defaultWorkflowProfile, picked.items[0].id);
+  assert.ok(Object.hasOwn(YAML.parse(readFileSync(archiveFile, 'utf8')).archived.story, 'feature'));
+  await panel.post({ type: 'studio.retireWorkflow', action: 'restore', selector: 'story:feature', pending: 0 });
+  run('git', ['add', '-A'], { cwd: root });
+  run('git', ['commit', '-qm', 'new default'], { cwd: root });
+
+  // Delete… opens the review page of the exact plan; nothing changes until Propose deletion.
+  const deleting = panel.post({ type: 'studio.retireWorkflow', action: 'delete', selector: 'story:mine', pending: 0 });
+  const review = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.workflowDelete'
+    && /data-wd-plan="sha256:[a-f0-9]{64}"/.test(entry.webview.html)), { what: 'the delete review page with its plan' });
+  const html = review.webview.html;
+  assert.match(html, /default-src 'none'/);
+  assert.match(html, /Delete Mine/);
+  assert.match(html, /data-wd-section="removed"[\s\S]*Agents/);
+  assert.match(html, /data-wd-section="kept"[\s\S]*Used by /);
+  assert.match(html, /data-wd-section="backup"/);
+  assert.match(html, /written to its files for you to review and commit/, 'no approved destination: a local write');
+  assert.ok(Object.hasOwn(YAML.parse(readFileSync(path.join(root, 'singularity/workflow.yml'), 'utf8')).workTypes, 'mine'), 'the preview changed nothing');
+  // A stale digest is not proposed; only the plan on screen is.
+  await review.post({ type: 'delete.confirm', planSha256: `sha256:${'0'.repeat(64)}` });
+  assert.ok(Object.hasOwn(YAML.parse(readFileSync(path.join(root, 'singularity/workflow.yml'), 'utf8')).workTypes, 'mine'));
+  const digest = html.match(/data-wd-plan="(sha256:[a-f0-9]{64})"/)[1];
+  await review.post({ type: 'delete.confirm', planSha256: digest });
+  await deleting;
+  assert.equal(Object.hasOwn(YAML.parse(readFileSync(path.join(root, 'singularity/workflow.yml'), 'utf8')).workTypes, 'mine'), false);
+  assert.match(review.webview.html, /Deletion written to this repository/);
+  const backup = review.webview.html.match(/data-wd-backup>([^<]+)</)[1];
+  assert.ok(existsSync(backup), 'the backup bundle exists before the change');
+  assert.match(review.webview.html, /data-wd-restore>singularity-flow workflow import &quot;/);
+  assert.match(done(), /^Deleted Mine.* in this repository's configuration files/);
+  await review.post({ type: 'delete.copy' });
+  assert.match(registered.clipboard.at(-1), /^singularity-flow workflow import ".*" --dry-run$/);
+  await review.post({ type: 'delete.cancel' });
+  assert.deepEqual(registered.errors, []);
+});
+
+test('Workflow Studio archives as a review proposal where there is an approved configuration', async (t) => {
+  if (!requireBundle(t)) return;
+  const { root, registered } = await activated({ approvedConfigurationAuthority: true });
+  await registered.commands.get('singularityFlow.openWorkflowStudio')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workflowStudio');
+  await panel.post({ type: 'studio.ready' });
+  registered.answers = [''];
+  await panel.post({ type: 'studio.retireWorkflow', action: 'archive', selector: 'story:bugfix', pending: 0 });
+  const text = panel.sent.filter((message) => message.type === 'studio.retireDone').at(-1).text;
+  assert.match(text, /^Archived Bug ?fix as proposal sflow\/config-change\/[^;]+; new Stories stop being offered it once it is reviewed and activated\.$/);
+  assert.equal(existsSync(path.join(root, 'singularity/workflow-archive.yml')), false, 'the checkout is not changed');
+  assert.ok(registered.output.some((line) => /\$ singularity-flow workflow archive story:bugfix --propose --json/.test(line)));
+});
+
 test('the instruction designer exposes all four libraries and saves repository prompts through the engine', async (t) => {
   if (!requireBundle(t)) return;
   const { root, registered } = await activated();

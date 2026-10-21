@@ -338,7 +338,7 @@ export function extractModuleSpecifiers(source, { sourcePath = '' } = {}) {
         for (const match of text.matchAll(/\b(?:import|export)\b[\s\S]*?\bfrom\s*['"]([^'"]+)['"]/gu)) {
           specifiers.add(match[1]);
         }
-        // Side-effect import '...'
+        // Side-effect imports with no bindings
         for (const match of text.matchAll(/\bimport\s*['"]([^'"]+)['"]/gu)) {
           specifiers.add(match[1]);
         }

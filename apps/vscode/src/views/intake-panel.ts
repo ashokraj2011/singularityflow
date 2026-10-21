@@ -110,6 +110,8 @@ interface EngineStoryWorkflow {
   generatesCode?: boolean;
   codePhases?: string[];
   documentStorage?: { allowed: Array<'git' | 'local'>; default: 'git' | 'local' };
+  /** Archived: new Stories are never offered it (docs/SPEC-WORKFLOW-RETIREMENT-v1.md). */
+  archived?: boolean;
 }
 
 interface EngineStoryWorkflowCatalog {
@@ -138,10 +140,13 @@ interface CatalogListing {
 /** The first listing, the fresh one replacing a cached paint, or a reload after a configuration change. */
 type CatalogMode = 'initial' | 'revalidate' | 'reload';
 
-/** Keep the launch catalog and exact-base preflight catalog on one validation path. */
+/**
+ * Keep the launch catalog and exact-base preflight catalog on one validation path. An archived
+ * workflow is never a choice; a favourite that names one stays saved and is simply not offered.
+ */
 function storyWorkflowChoices(entries: EngineStoryWorkflow[] = []): ProfileChoice[] {
   return entries.filter((entry) => entry.id && entry.governs === 'story'
-    && entry.installed !== false).map((entry) => ({
+    && entry.installed !== false && entry.archived !== true).map((entry) => ({
     id: entry.id!, label: entry.label ?? entry.id!, description: entry.description ?? '',
     phases: entry.phases ?? [], referenceMode: entry.references ?? 'optional',
     generatesCode: entry.generatesCode, codePhases: entry.codePhases, documentStorage: entry.documentStorage

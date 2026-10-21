@@ -1239,8 +1239,11 @@ test('source reset helper is preview-only and renders a shell-safe installed-CLI
   assert.equal(executed.status, 0, executed.stderr);
   assert.equal(await stat(path.join(hostileCheckout, 'PWNED')).then(() => false, () => true), true,
     'copying the rendered handoff must not evaluate checkout-path substitutions');
-  assert.equal(await readFile(captured, 'utf8'),
-    `fresh-install\n--checkout\n${process.platform === 'win32' ? realpathSync.native(hostileCheckout) : await realpath(hostileCheckout)}\n--yes\n`);
+  const capturedArgv = (await readFile(captured, 'utf8')).trimEnd().split('\n');
+  assert.deepEqual(capturedArgv.slice(0, 2), ['fresh-install', '--checkout']);
+  assert.equal(capturedArgv.length, 4);
+  assert.equal(realpathSync.native(capturedArgv[2]), realpathSync.native(hostileCheckout));
+  assert.equal(capturedArgv[3], '--yes');
 });
 
 test('fresh-install recovery executes the pinned installer blob after retained file tampering', async (t) => {

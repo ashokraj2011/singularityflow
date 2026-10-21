@@ -17,6 +17,7 @@ import {
 import { proposeConfigurationChange } from '../src/configuration-proposal.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { createRepoContext } from '../src/repo-context.mjs';
+import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -71,6 +72,20 @@ async function permitOfflineOnboard(root, overrides = {}) {
   git(['commit', '-qm', 'approve bounded offline onboarding'], root);
   git(['switch', '-q', 'main'], root);
 }
+
+test('an unattached Story authority avoids full identity reads but an existing FOS namespace is validated', async t => {
+  const root = await plainRepository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const timer = commandTimer('unattached-authority');
+  assert.equal(await withCommandTiming(timer, () => fosStoryConfigurationAuthority(root)), null);
+  assert.ok((timer.finish().counters['git.spawns'] ?? 0) <= 1, 'absence must not load HEAD, branch, object format and repository identity');
+  // ENOTDIR is corruption, not absence. Do not turn it into the fast-path null result.
+  const commonDir = git(['rev-parse', '--git-common-dir'], root);
+  const namespace = path.resolve(root, commonDir, 'singularity-flow', 'fos');
+  await mkdir(path.dirname(namespace), { recursive: true });
+  await writeFile(namespace, 'not a FOS directory');
+  await assert.rejects(() => fosStoryConfigurationAuthority(root));
+});
 
 test('FOS:AC-001 existing local authority attaches idempotently without changing the checkout', async () => {
   const root = await governedRepository();

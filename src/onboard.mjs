@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFile, readdir, realpath } from 'node:fs/promises';
+import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 
@@ -9,7 +9,7 @@ import {
 } from './configuration-branch.mjs';
 import { gitCommitIdentity } from './git.mjs';
 import { createGitRuntime } from './git-access.mjs';
-import { GitRemoteSession } from './git-execution.mjs';
+import { gitCommonDir, GitRemoteSession } from './git-execution.mjs';
 import { assertCredentialFreeRemote, sanitizeRemote } from './git-remote-diagnostics.mjs';
 import { recordSha256 } from './records.mjs';
 import {
@@ -603,6 +603,13 @@ export async function readFosAttachment(root) {
 
 /** Resolve the exact previously attached Story configuration authority without organization scan. */
 export async function fosStoryConfigurationAuthority(root) {
+  // Most ordinary/legacy checkouts have never attached a FOS authority. Prove only that the
+  // entire FOS namespace is absent before paying for a complete repository identity. Checking
+  // attachments alone would hide recoverable operation journals, so any existing namespace
+  // (including unreadable, malformed or symbolic entries) keeps the full validation path.
+  const absent = await lstat(path.join(gitCommonDir(root), 'singularity-flow', 'fos'))
+    .then(() => false, error => error?.code === 'ENOENT');
+  if (absent) return null;
   const context = createRepoContext(root);
   const identity = await context.identity();
   const state = await readState(identity);

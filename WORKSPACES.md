@@ -445,6 +445,10 @@ Creation and recovery batch HEAD/branch metadata, and fingerprinting batches ind
 flags without changing the canonical recovery hash. Both fresh clone proofs, hidden-change
 detection, no-overwrite claims and publication compare-and-swap checks remain required.
 
+Story start avoids a full FOS repository-identity projection only when the entire local FOS
+namespace is absent. Existing attachments, recovery operations, malformed or unreadable state
+retain full validation; this shortcut never treats an attachment-read error as an absent pin.
+
 See [creation performance qualification](docs/workspace-creation-performance.md) for cold/warm
 benchmark commands, Git-call definitions and measurement limitations.
 It uses disposable local bare remotes, creates no Story, and reports fresh-process first-download,

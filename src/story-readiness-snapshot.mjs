@@ -24,6 +24,8 @@ export async function storyReadinessSnapshot(root, options, checkout, read) {
       path.join(common, 'objects'), path.join(common, 'objects/pack'),
       path.join(common, 'singularity-flow/repository-readiness'),
       path.join(member, 'singularity/workflow.yml'), path.join(member, 'singularity/portfolio.yml'),
+      // Archiving changes which workflows a new Story may choose.
+      path.join(member, 'singularity/workflow-archive.yml'),
       path.join(member, '.github/agents'), path.join(member, 'singularity/skills'), path.join(member, 'singularity/instructions'));
     for (const name of [...branches, 'sflow/config', 'state']) files.push(path.join(common, 'refs/remotes/origin', name));
     if (story) files.push(path.join(member, 'singularity/work-items', story, 'workflow.json'), path.join(common, 'refs/heads', story));

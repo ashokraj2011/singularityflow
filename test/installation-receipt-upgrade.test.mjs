@@ -85,9 +85,15 @@ exec ${JSON.stringify(slash(process.execPath))} "$@"`
     await writeFile(file, `#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' "${name} $*" >> "$INSTALL_TEST_LOG"\n${body}\n`);
     await chmod(file, 0o755);
   }
-  const run = args => spawnSync(bash, [slash(path.join(f.directory, 'install.sh')), '--no-update', ...args], {
+  // Git Bash initializes its own executable search path on Windows. Prepend the fixture *inside*
+  // that shell so a real git/npm manager can never shadow these non-mutating test commands.
+  const enter = process.platform === 'win32'
+    ? 'export PATH="$(cygpath -u "$INSTALL_TEST_BIN"):$PATH"; exec bash "$@"'
+    : 'export PATH="$INSTALL_TEST_BIN:$PATH"; exec bash "$@"';
+  const run = args => spawnSync(bash, ['-c', enter, 'sflow-receipt-test',
+    slash(path.join(f.directory, 'install.sh')), '--no-update', ...args], {
     cwd: f.directory, encoding: 'utf8', timeout: 30_000,
-    env: { ...process.env, HOME: slash(f.directory), INSTALL_TEST_LOG: slash(log),
+    env: { ...process.env, HOME: slash(f.directory), INSTALL_TEST_LOG: slash(log), INSTALL_TEST_BIN: slash(bin),
       PATH: process.platform === 'win32' ? `${bin};${process.env.PATH}` : `${bin}:/bin:/usr/bin` }
   });
   return { ...f, log, workspace, run };

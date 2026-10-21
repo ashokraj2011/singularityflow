@@ -69,7 +69,7 @@ async function retain(f) {
   return roots[0];
 }
 
-test('claim retries have configurable, validated bounds and a five-minute default', async () => {
+test('claim retries have configurable, validated bounds and a five-minute default', async t => {
   assert.equal(cloneClaimPolicy({}).timeoutMs, 300_000);
   for (const key of ['SINGULARITY_FLOW_CLONE_CLAIM_TIMEOUT_MS', 'SINGULARITY_FLOW_CLONE_CLAIM_RETRY_DELAY_MS', 'SINGULARITY_FLOW_CLONE_CLAIM_MAX_ATTEMPTS']) {
     for (const value of ['', '0', '-1', 'NaN', '1.5', '99999999']) assert.throws(
@@ -84,8 +84,14 @@ test('claim retries have configurable, validated bounds and a five-minute defaul
     { timeoutMs: 1000, initialDelayMs: 1, maxAttempts: 2 }));
   assert.equal(observed, 2, 'failed ownership observations consume the same retry budget');
   let deadlineCalls = 0;
-  await assert.rejects(() => retryWorkspaceCloneClaim(async () => { deadlineCalls++; throw locked(); }, async () => {},
-    { timeoutMs: 1, initialDelayMs: 100, maxAttempts: 100 }));
+  // A fractional remaining timeout may wake early on Windows. Advance a controlled monotonic
+  // clock past the deadline after the first wait instead of asserting scheduler resolution.
+  let clockReads = 0;
+  const clock = t.mock.method(performance, 'now', () => clockReads++ < 2 ? 0 : 2);
+  try {
+    await assert.rejects(() => retryWorkspaceCloneClaim(async () => { deadlineCalls++; throw locked(); }, async () => {},
+      { timeoutMs: 1, initialDelayMs: 100, maxAttempts: 100 }));
+  } finally { clock.mock.restore(); }
   assert.equal(deadlineCalls, 1, 'do not begin another move after the wall-clock budget expires');
   let otherCalls = 0;
   await assert.rejects(() => retryWorkspaceCloneClaim(async () => {

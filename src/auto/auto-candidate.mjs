@@ -12,6 +12,7 @@ import {
 import { isAllowedTestAutomationPath, parseTestResult } from '../code-delivery-tests.mjs';
 import { TEST_RESULT_ADAPTERS } from '../external-command-policy.mjs';
 import { runRemoteGitAsync } from '../git-execution.mjs';
+import { gitFailureDiagnostic } from '../git-remote-diagnostics.mjs';
 import { canonicalJson } from '../records.mjs';
 import {
   buildRepositoryTreeChangeSet, compareRepositoryIdentity
@@ -649,7 +650,7 @@ export async function publishAutoCandidateRecoveryAuthority(root, binding, {
       'push', '--porcelain', '--', remote, `${commit}:${ref}`
     ], { operation: 'remote-push', allowFailure: true });
     if (pushed.status !== 0) {
-      fail('Auto Candidate recovery authority could not be retained by the configured remote.',
+      fail(`Auto Candidate recovery authority could not be retained by the configured remote: ${gitFailureDiagnostic(pushed)}`,
         'AUTO_CANDIDATE_REMOTE_PUBLICATION_FAILED');
     }
   }
@@ -813,7 +814,7 @@ export async function publishAutoCandidateAuthority(root, binding, { remote = 'o
       `${retained.repository.candidateCommit}:${retained.repository.retainedRef}`
     ], { operation: 'remote-push', allowFailure: true });
     if (pushed.status !== 0) {
-      fail('Auto Candidate could not be retained by the configured remote authority.',
+      fail(`Auto Candidate could not be retained by the configured remote authority: ${gitFailureDiagnostic(pushed)}`,
         'AUTO_CANDIDATE_REMOTE_PUBLICATION_FAILED');
     }
   }

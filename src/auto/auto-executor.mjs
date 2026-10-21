@@ -8,6 +8,7 @@ import { verifyClarificationRecord } from '../clarifications.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { resolveDeliveryQualityCommands } from '../delivery-evidence.mjs';
 import { head } from '../git.mjs';
+import { redactDiagnosticText } from '../git-remote-diagnostics.mjs';
 import { readPromptGeneration } from '../inject.mjs';
 import { generationTaskForPhase } from '../model-tasks.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
@@ -1609,7 +1610,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
             'The model may have changed application bytes, but Auto could not seal them into recoverable authority. Inspect the retained worktree before any continuation.', {
               lastError: {
                 code: preservationError.code ?? 'AUTO_CANDIDATE_PRESERVATION_FAILED',
-                message: `${preservationError.message} Initial authoring failure: ${error.code ?? 'MODEL_PROVIDER_FAILED'}.`
+                message: `${preservationError.message} Initial authoring failure: ${error.code ?? 'MODEL_PROVIDER_FAILED'}: ${redactDiagnosticText(error.message ?? '').slice(0, 4096)}`
               }
           });
         }

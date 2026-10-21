@@ -47,7 +47,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 456: submit.mjs reached 456 on main 97805fde without a recorded raise: creation-context.mjs (0b0dc559, shared Story
     // creation captures), verification/incremental-verification-graph.mjs (4838febb) and workspace-clone-claim.mjs
     // (6e6824f3) joined its graph while clarification-paths.mjs and grounding.mjs left it.
-    assert.ok(closure.files.size <= 456, `${file} loads ${closure.files.size} local files (budget 456; retired graph 597)`);
+    // 457: phase-staging-paths.mjs, the one derivation of a step's own staging files that phase entry, source review
+    // and the Copilot guard share (docs/SPEC-STAGING-PERMISSIONS-v1.md), joined submit.mjs's graph through clarifications.mjs.
+    assert.ok(closure.files.size <= 457, `${file} loads ${closure.files.size} local files (budget 457; retired graph 597)`);
     // 9,005,000 (next 5,000 boundary): phase-lifecycle.mjs grew from 8,993,692 (main 4a8e6c42) to 9,004,129 with the
     // capability application block's per-environment arguments and debug validation in capabilities.mjs and the
     // launcher rules it reads (RUN amendment), together with 2ca46d6d's conformance issue ownership; no new file.

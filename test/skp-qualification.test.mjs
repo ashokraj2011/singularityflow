@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { removeTemporaryTree } from '../src/util.mjs';
 import { SKP_PILOT_PLAN, SKP_QUALIFICATION_LIMITS, SKP_QUALIFICATION_PROFILE, SKP_QUALIFICATION_TARGETS,
   captureQualificationSource, parseQualificationOptions, qualificationAssessment,
@@ -174,7 +174,7 @@ test('actual Node reporter hides noisy secret diagnostics and reports failed/ski
     test('TOKEN_SECRET_123 private failing prompt',()=>{console.log('RAW_BODY_SECRET');console.error('RAW_STDERR_SECRET');assert.fail('RAW_ERROR_SECRET');});
     test('SKIP_SECRET',{skip:'SECRET_SKIP_REASON'},()=>{});
     test('TODO_SECRET',{todo:'SECRET_TODO_REASON'},()=>{});`);
-  const result = spawnSync(process.execPath, ['--test', `--test-reporter=${RUNNER}`, file],
+  const result = spawnSync(process.execPath, ['--test', `--test-reporter=${pathToFileURL(RUNNER).href}`, file],
     { cwd: ROOT, env: childEnvironment(), encoding: 'utf8', timeout: 15000, maxBuffer: 1024 * 1024, shell: false, windowsHide: true });
   assert.equal(result.status, 1, result.stderr);
   const report = JSON.parse(result.stdout); assert.equal(report.counts.fail, 1); assert.equal(report.counts.skipped, 1); assert.equal(report.counts.todo, 1);

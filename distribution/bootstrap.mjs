@@ -354,7 +354,8 @@ async function main() {
   }
   const forwarded = [];
   const managedRuntime = arguments_.includes('--managed-runtime');
-  let keyFile = process.env.SINGULARITY_FLOW_ARTIFACT_PUBLIC_KEY || null;
+  let keyFile = process.env.SINGULARITY_FLOW_ARTIFACT_PUBLIC_KEY
+    || path.join(os.homedir(), '.singularity-flow', 'trust', 'artifact-builder-public.pem');
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
     if (argument === '--artifact-key') { keyFile = takeValue(arguments_, index, argument); index += 1; }
@@ -457,17 +458,20 @@ async function main() {
         return;
       }
       const module = await import(pathToFileURL(path.join(candidate, 'node_modules', 'singularity-flow', 'runtime', 'install.mjs')).href);
+      if (!forwarded.includes('--cli-only')) {
+        const product = await import(pathToFileURL(path.join(candidate, 'node_modules', 'singularity-flow', 'runtime', 'product-install.mjs')).href);
+        const vsix = authority.byKind.get('vscode-extension');
+        const installed = await product.installManagedProduct({
+          tarball: path.join(snapshotRelease, npmBinding.name), sha256: npmBinding.sha256.replace(/^sha256:/, ''),
+          vsix: path.join(snapshotRelease, vsix.name), trustedPublicKeyPem: keyInput.bytes,
+          ...(forwarded.includes('--json') ? { log: message => console.error(message) } : {}) });
+        if (forwarded.includes('--json')) console.log(JSON.stringify(installed, null, 2));
+        return;
+      }
       const installed = await module.installManagedRelease({
         tarball: path.join(snapshotRelease, npmBinding.name), sha256: npmBinding.sha256.replace(/^sha256:/, '') });
-      if (!forwarded.includes('--cli-only')) {
-        const { copyFile } = await import('node:fs/promises');
-        const vsix = authority.byKind.get('vscode-extension');
-        const retained = path.join(installed.root, 'releases', npmBinding.sha256.replace(/^sha256:/, ''), 'singularity-flow.vsix');
-        await copyFile(path.join(snapshotRelease, vsix.name), retained);
-        installed.vsix = retained;
-      }
       console.log(JSON.stringify({ ...installed, managedRuntime: true,
-        integrations: 'Engine installed. Use the retained VSIX to update VS Code and the managed CLI plugin install command for Copilot; no external surfaces changed.' }, null, 2));
+        integrations: 'CLI-only installation explicitly requested; VS Code, Copilot and user PATH were not changed.' }, null, 2));
       return;
     }
     const runner = action === 'install' ? 'sf-install' : 'sf-uninstall';

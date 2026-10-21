@@ -1,5 +1,14 @@
 # GAL Git bypass regression gate
 
+One-command distribution adds only fixed bootstrap/setup wrapper sites: two shell sites in
+`build-distribution.sh` select the existing checksum-pinned private runtime and its fixed build
+module; one in `distribution/setup.sh` delegates to the existing managed installer; one in
+`distribution/setup.cmd` delegates to the SystemRoot PowerShell entry without reparsing argv.
+None invokes Git or accepts arbitrary executable text. Product setup reuses the existing bounded
+installer process primitive and central platform adapter for the fixed VS Code/Copilot forms;
+the user PATH helper selects only SystemRoot PowerShell and CurrentUser registry scope. No new
+general process/Git owner or transport exemption is registered.
+
 The shared-read paired benchmark has two bounded launch sites: read-only Git source identity
 (30 seconds, 4 MiB) and fixed Node CLI reads against its owned temporary clones (180 seconds,
 16 MiB). Setup uses the existing warm-read fixture owner. It alternates installed baseline and

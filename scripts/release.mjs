@@ -54,6 +54,7 @@ const operatorScripts = Object.freeze([
   'bootstrap.mjs',
   'node-bootstrap.sh', 'node-bootstrap.ps1', 'node-runtime.lock',
   'install-managed.cmd',
+  'setup.sh', 'setup.ps1', 'setup.cmd',
   'install.cmd', 'install.ps1', 'install.sh',
   'uninstall.cmd', 'uninstall.ps1', 'uninstall.sh'
 ]);

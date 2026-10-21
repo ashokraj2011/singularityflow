@@ -1,5 +1,19 @@
 # Singularity Flow distribution
 
+## Simple managed build and setup
+
+Build an installable signed candidate with `bash build-distribution.sh` on Mac or
+`.\build-distribution.ps1` on Windows. Distribute the complete `dist/` directory. Users install
+or update SFlow's CLI, VS Code extension and Copilot integration together with `bash setup.sh`
+or `.\setup.cmd`, without administrator access or global Node/npm. VS Code and Copilot CLI
+remain prerequisites. First installation requires the independently delivered public trust key
+through `--artifact-key`, a provisioned per-user trust file, or the existing environment setting;
+later updates reuse the successfully enrolled trust key. Setup configures user PATH automatically.
+See [managed setup](docs/managed-node-runtime.md) for exact commands and recovery.
+
+The one-command build is explicitly a candidate, not release certification. The existing
+signed platform-matrix promotion below remains the production release authority.
+
 Singularity Flow is distributed as two artifacts:
 
 1. the `singularity-flow` npm package, which provides the `sflow` CLI and Copilot plugin;

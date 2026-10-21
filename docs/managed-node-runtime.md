@@ -1,6 +1,6 @@
 # SFlow-managed Node runtime
 
-The opt-in managed engine installs its own exact Node runtime. It never replaces the user's global
+The managed engine installs its own exact Node runtime. It never replaces the user's global
 `node`/`npm`, changes application dependencies, or adds a private Node directory to the application PATH.
 The initial qualified target is Node 26.12.0. This rollout does not change the legacy Node 20+
 source/developer support contract or make a blanket compatibility claim for future Node releases.
@@ -28,11 +28,56 @@ reinstall safety suite, not archive integrity, smoke checks or activation checks
 omits building the extension. The managed source installer builds the selected local checkout;
 it does not silently pull another branch or change the repository.
 
-Add the printed **engine/bin** directory to the terminal/Copilot launcher PATH once. Do not add
-engine/runtimes to PATH. Install the printed retained VSIX with `code --install-extension ... --force`
-and install Copilot integration using the managed `singularity-flow plugin install` command.
-This mode activates the engine/runtime pair only: it does not claim that VS Code, Copilot or telemetry
-were installed or updated, and does not print the legacy full-product activation banner.
+Normal managed source installation installs the CLI, SFlow VS Code extension and Copilot
+plugin/skills, verifies them, and configures user PATH in the same command. VS Code and Copilot CLI
+must already be installed; their vendor applications/licences are not downloaded or accepted by SFlow.
+`--cli-only` preserves the deliberately narrower engine-only mode and its manual PATH instructions.
+Private Node/npm is never added to the persistent PATH. The new full setup receipt is separate from
+legacy activation/telemetry receipts and does not claim that telemetry was configured.
+
+## One build command, one user setup command
+
+From a clean source checkout:
+
+```sh
+# macOS; also bootstraps private Node if global Node/npm is absent
+bash build-distribution.sh
+```
+
+```powershell
+# Windows
+.\build-distribution.ps1
+```
+
+The command installs locked build dependencies, runs product checks and the reinstall safety suite,
+builds/signs the canonical CLI + VSIX pair once, verifies it and writes the complete installable
+`dist/` directory. Existing output is replaced through the crash-recoverable directory publisher.
+On first use it creates a private, per-user local builder key outside the checkout, under
+`.singularity-flow/distribution-keys`. It does not generate a production reviewer or approval key.
+For an organisation's existing builder key set `SINGULARITY_FLOW_DISTRIBUTION_SIGNING_KEY` and
+`SINGULARITY_FLOW_DISTRIBUTION_BUILDER` once, or use `--signing-key` and `--identity`.
+`--out-dir` selects another destination. `--skip-tests` is an explicit candidate-build choice only;
+it never bypasses integrity or the production certification gate.
+
+Distribute the whole `dist/` directory through an authenticated software channel. Deliver its printed
+public trust key independently; the private key never enters the package. The default output is
+explicitly an **installable candidate, not a certified production release**. Production still requires
+the exact retained pair and the existing independently signed platform matrix; see
+[the release handoff](RELEASE-ARTIFACT-HANDOFF.md). No new build command invents that evidence.
+
+From the extracted distribution, users run `bash setup.sh` on Mac or `.\setup.cmd` on Windows.
+First setup needs the organisation-provisioned trust key or one `--artifact-key <trusted-public-key>`
+argument. Successful setup stores that verified key in per-user trust for later no-argument updates.
+The same command updates CLI, VS Code and Copilot and configures PATH without administrator access.
+It discovers the usual per-user VS Code installation even when `code` is not on PATH. Open a new
+terminal and reload the editor/chat once; setup does not forcibly restart them.
+
+The full product receipt at `engine/product-install.json` records each verified surface. If a manager
+fails or the process dies, the next setup finishes the exact retained candidate before a newer one.
+It reports incomplete setup honestly and keeps recovery/artifacts. An engine-only install/rollback
+cannot bypass that pending full-product record. This is resumable roll-forward across independent
+managers, not a claim that third-party managers form an atomic transaction. Historical engine
+rollback and legacy staged-recovery boundaries remain unchanged.
 
 The updated extension automatically uses the managed engine unless an explicit CLI setting selects
 another engine. An explicit Node setting remains an operator override. The extension itself stays
@@ -62,8 +107,8 @@ operator launcher and reviewed runtime lock are the initial trust root. The exis
 and exact npm/VSIX hashes are verified before any SFlow package code executes. The managed route stages
 the signed npm archive offline using private npm with lifecycle scripts disabled. It never invokes
 global npm or replaces global package-manager shims. `--dry-run` verifies/stages but does not activate
-an engine; private Node may be downloaded/prepared. `--cli-only` omits retaining the VSIX. Otherwise the
-verified VSIX is retained and its path reported for explicit UI installation.
+an engine; private Node may be downloaded/prepared. `--cli-only` requests engine installation only.
+Otherwise setup installs and verifies all three SFlow surfaces and retains the exact VSIX for recovery.
 
 ## Storage and runtime selection
 

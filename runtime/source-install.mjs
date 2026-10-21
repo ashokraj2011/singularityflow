@@ -5,6 +5,7 @@ import { readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { installManagedRelease, installerProcess, rollbackManagedRelease, recoverManagedActivation } from './install.mjs';
+import { installManagedProduct } from './product-install.mjs';
 import resolver from './resolve.cjs';
 
 async function main() {
@@ -43,6 +44,10 @@ async function main() {
     cliOnly: args.includes('--cli-only'), skipTests: args.includes('--skip-tests'), sourceSha256 });
   try {
     const sha256 = createHash('sha256').update(await readFile(bundle.tarball)).digest('hex');
+    if (!args.includes('--cli-only')) {
+      await installManagedProduct({ tarball: bundle.tarball, sha256, vsix: bundle.vsix, root });
+      return;
+    }
     const result = await installManagedRelease({ tarball: bundle.tarball, sha256, root });
     console.log(`Managed SFlow engine installed: ${result.build}\nNode: ${process.version}\nCommands: ${result.bin}`);
     console.log(`Add only this SFlow command directory to PATH: ${result.bin}\nDo not add its runtimes directory. Global node/npm and application toolchains are unchanged.`);

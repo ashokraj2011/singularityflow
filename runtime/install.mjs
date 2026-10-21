@@ -137,9 +137,11 @@ async function assertNoLegacyRecovery(root, homeDirectory) {
 
 /** Install at a final content-addressed path before smoke/prewarm, then change one small pointer. */
 export async function installManagedRelease({ tarball, sha256, nodeExecutable = process.execPath,
-  root = resolver.engineHome(), homeDirectory = os.homedir(), execute = installerProcess, log = console.log } = {}) {
+  root = resolver.engineHome(), homeDirectory = os.homedir(), execute = installerProcess, log = console.log,
+  productOperationId = null } = {}) {
   if (!/^[a-f0-9]{64}$/.test(sha256 || '')) throw new Error('A trusted archive SHA-256 is required.');
   root = path.resolve(root);
+  await assertManagedProductReady(root, productOperationId);
   // Windows command shims cannot safely represent shell expansion characters in their own path.
   if (process.platform === 'win32' && /[%!^&|<>\r\n]/.test(root)) throw new Error('SFlow engine home contains unsupported Windows command-path characters. Choose a path without % ! ^ & | < >.');
   const archiveInfo = await lstat(tarball);
@@ -250,6 +252,7 @@ export async function installManagedRelease({ tarball, sha256, nodeExecutable = 
 }
 
 export async function rollbackManagedRelease({ root = resolver.engineHome(), execute = installerProcess } = {}) {
+  await assertManagedProductReady(root);
   const lock = path.join(root, '.activation-lock');
   await mkdir(lock, { mode: 0o700 }).catch(() => { throw new Error('Managed activation is active or needs --recover; rollback did not change it.'); });
   try {
@@ -272,6 +275,23 @@ export async function rollbackManagedRelease({ root = resolver.engineHome(), exe
   await atomic(path.join(root, 'active'), receipt.previous);
   return { rolledBack: true };
   } finally { await rm(path.join(lock, 'owner.json'), { force: true }); await rmdir(lock); }
+}
+
+/** Do not let an engine-only command bypass an unfinished full-product installation. */
+async function assertManagedProductReady(root, operationId = null) {
+  const file = path.join(root, 'product-install.json');
+  const info = await lstat(file).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+  if (!info) return;
+  if (!info.isFile() || info.isSymbolicLink() || info.size > 64 * 1024) throw new Error('Managed product recovery record needs review; it was preserved.');
+  const record = JSON.parse(await readFile(file, 'utf8'));
+  if (record.schemaVersion !== 1 || record.kind !== 'sflow-managed-product-install'
+    || !/^[a-f0-9-]{36}$/.test(record.operationId || '')
+    || !['applying', 'needs-retry', 'complete'].includes(record.status)) {
+    throw new Error('Managed product recovery record is invalid; it was preserved.');
+  }
+  if (record.status !== 'complete' && record.operationId !== operationId) {
+    throw new Error('A full SFlow installation is unfinished. Run the same setup command to resume CLI, VS Code and Copilot together; recovery was preserved.');
+  }
 }
 
 /** Explicit recovery releases only a proven dead installer lease; no executable/recovery data deleted. */

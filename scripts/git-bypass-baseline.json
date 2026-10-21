@@ -12,6 +12,18 @@
     "scripts/gal-matrix-cell.mjs"
   ],
   "sites": {
+    "build-distribution.sh": {
+      "counts": { "shell-process": 2 },
+      "digest": "dfe0abd6847edfea8cb6803bc4bdfa0ffc699630c6a34ccca2e83e4660e6d375"
+    },
+    "distribution/setup.sh": {
+      "counts": { "shell-process": 1 },
+      "digest": "bbe87420f6f869cf682391358ccc7cc0d4fc68c9c6237d192a295deee8cd5d94"
+    },
+    "distribution/setup.cmd": {
+      "counts": { "shell-process": 1 },
+      "digest": "58bb4d36f1f4f92e3a24cd5f5e46ef73eb78d646a6f37ff825bc2ee4018389b3"
+    },
     "runtime/install.mjs": {
       "counts": { "process-import": 1, "process-launch": 2 },
       "digest": "7660bbccd5641f3ea5153ca8295e3d88d484ee4a7518715da97e4e37cf134eb7"

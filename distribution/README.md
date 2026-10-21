@@ -1,4 +1,43 @@
-# Install or uninstall a promoted Singularity Flow release
+# Install or update Singularity Flow
+
+## One-command user installation (Mac and Windows)
+
+VS Code and GitHub Copilot CLI must already be installed for this user. These commands install or
+update **SFlow's** CLI, VS Code extension, Copilot plugin/skills and user command PATH together.
+No administrator access or global Node/npm installation is required. An interrupted external-manager
+step is recorded as incomplete: rerun the same command to resume its exact retained artifacts. Setup
+does not silently delete recovery, personal skills, repositories or application toolchains.
+
+First installation uses the independently trusted builder public key:
+
+```sh
+# macOS, from the extracted distribution
+bash setup.sh --artifact-key /trusted/artifact-builder-public.pem
+```
+
+```powershell
+# Windows; setup.cmd is also usable from Command Prompt
+.\setup.cmd --artifact-key C:\trusted\artifact-builder-public.pem
+```
+
+After a successful trusted setup, that public key is retained under the user's
+`.singularity-flow/trust/artifact-builder-public.pem`. Future installations/updates use simply
+`bash setup.sh` on Mac or `.\setup.cmd` on Windows. `setup.ps1` is an equivalent PowerShell entry.
+An organisation can provision the trusted key there before first installation, or set
+`SINGULARITY_FLOW_ARTIFACT_PUBLIC_KEY`; then even the first command needs no key argument.
+The key must not be taken from the untrusted download itself. An explicit key argument remains
+the reviewed override for a separately authenticated builder-key rotation.
+
+Only **engine/bin** is added to the user's PATH, never private Node/npm. Open a new terminal and
+reload VS Code/Copilot after setup so existing processes load the new integration. No forced editor
+restart is performed. Corporate application-control or PowerShell policy may still require IT
+approval; the installer never bypasses those policies or requests elevation.
+
+A one-command source build may be labelled `candidate-not-release-certified` in `RELEASE.json`.
+It is installable for evaluation, not proof of production qualification. Only the existing signed
+platform-matrix promotion process certifies a production release.
+
+## Legacy distribution commands
 
 Keep this directory intact. The scripts admit the exact npm tarball and VSIX named by
 `RELEASE.json`, verify their identities and every `SHA256SUMS` entry, and never run Git.

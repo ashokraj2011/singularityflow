@@ -513,7 +513,7 @@ test('Auto start reuses the governed Story transaction in a managed worktree and
   assert.equal(run('git', ['branch', '--show-current'], root).stdout.trim(), 'main');
   assert.equal(started.flight.status, 'waiting-human');
   assert.equal(started.flight.stopReason, 'first-human-boundary');
-  assert.match(started.story.worktree, /singularity-flow\/auto-worktrees\/AFL-/);
+  assert.match(started.story.worktree.replaceAll('\\', '/'), /singularity-flow\/auto-worktrees\/AFL-/);
   assert.equal(run('git', ['branch', '--show-current'], started.story.worktree).stdout.trim(), 'AUT-START-1');
   const storyWorkflow = JSON.parse(await readFile(path.join(
     started.story.worktree, 'singularity/work-items/AUT-START-1/workflow.json'

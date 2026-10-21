@@ -689,6 +689,11 @@ export async function evaluateDeliveryCornerCaseGate(root, {
  */
 export async function inspectCornerCaseObligations(root, config, workflow, phase) {
   try {
+    if (workflow.resolution?.codeDelivery?.cornerCaseObligations === 'off'
+        && workflow.resolution?.codeDelivery?.assertionAdequacy === 'off') {
+      return { cornerCases: Object.freeze({ status: 'not-applicable', reason: 'policy-disabled', blocking: false }),
+        findings: [], advisories: [] };
+    }
     if (!phaseRequiresCodeDelivery(phase) || phase.generationIntent?.status !== 'open') {
       return {
         cornerCases: Object.freeze({
@@ -755,7 +760,7 @@ export async function inspectCornerCaseObligations(root, config, workflow, phase
         blocking
       }),
       findings: blocking ? [{ code: 'EVIDENCE_CORNER_CASE_INSPECTION_UNAVAILABLE', category: 'verification-contracts',
-        message: error.message, details: { cause: error.code ?? null } }] : [],
+        message: error.message, details: { sourceCode: error.code ?? null } }] : [],
       advisories: []
     };
   }

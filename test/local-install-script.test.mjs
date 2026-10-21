@@ -30,7 +30,8 @@ function spawnSync(command, args, options = {}) {
   const value = env[key];
   let shellSearch = null;
   if (value && value !== process.env[key] && /^[a-z]:[\\/]/iu.test(value)) {
-    const split = value.indexOf(':', 2);
+    const colon = value.indexOf(':', 2), semicolon = value.indexOf(';');
+    const split = semicolon !== -1 && (colon === -1 || semicolon < colon) ? semicolon : colon;
     if (split !== -1) {
       const convert = entry => shellPath(entry).replace(/^([a-z]):/iu, (_, drive) => '/' + drive.toLowerCase());
       const first = convert(value.slice(0, split));

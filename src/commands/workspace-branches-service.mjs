@@ -26,6 +26,23 @@ import { configurationReadSnapshot } from '../configuration-read-scope.mjs';
 import { measureCommandSpan } from '../dx-timing-context.mjs';
 import { withReadScope } from '../read-scope.mjs';
 
+/**
+ * The Story workflows a new Story may start on: installed ones that are not archived. Archived ones
+ * are left out of every new-Story choice (docs/SPEC-WORKFLOW-RETIREMENT-v1.md); Story start refuses them.
+ */
+async function intakeStoryWorkflows(root, definition) {
+  const { readWorkflowArchive, workflowArchived } = await import('../workflow-archive.mjs');
+  const archive = await readWorkflowArchive(root).catch(() => null);
+  return Object.entries(definition.workTypes).filter(([id]) => !workflowArchived(archive, 'story', id)).map(([id, workflow]) => ({
+    id, label: workflow.label ?? id, description: workflow.description ?? '',
+    phases: workflow.phases ?? [], references: workflow.references?.mode ?? 'optional',
+    governs: 'story', installed: true,
+    ...workflowCodeGeneration(resolveWorkType(definition, id)),
+    // Where its documents may be kept, so Start Work offers only what the policy allows.
+    documentStorage: documentStorageChoices(resolveWorkType(definition, id).documents)
+  }));
+}
+
 export async function readWorkspaceBranchesAtRoot(options, root) {
   return withReadScope(() => readAtRoot(options, root));
 }
@@ -106,14 +123,7 @@ async function readAtRoot(options, root) {
         // Intake may offer only installed work types: these are the exact profiles Story start can
         // pin from this already-validated approved definition. Re-reading the packaged workflow
         // catalog would load configuration again only to filter every uninstalled row back out.
-        storyWorkflows: Object.entries(definition.workTypes).map(([id, workflow]) => ({
-          id, label: workflow.label ?? id, description: workflow.description ?? '',
-          phases: workflow.phases ?? [], references: workflow.references?.mode ?? 'optional',
-          governs: 'story', installed: true,
-          ...workflowCodeGeneration(resolveWorkType(definition, id)),
-          // Where its documents may be kept, so Start Work offers only what the policy allows.
-          documentStorage: documentStorageChoices(resolveWorkType(definition, id).documents)
-        })),
+        storyWorkflows: await intakeStoryWorkflows(root, definition),
         // These are catalog entries, not executable choices. Keeping them in a separate field
         // prevents an editor from accidentally sending an unavailable ID to Story start while
         // still letting it explain where the rest of the packaged workflows went.
@@ -227,14 +237,7 @@ async function readAtRoot(options, root) {
           );
           intake = {
             ...intake,
-            storyWorkflows: Object.entries(definition.workTypes).map(([id, workflow]) => ({
-              id, label: workflow.label ?? id, description: workflow.description ?? '',
-              phases: workflow.phases ?? [], references: workflow.references?.mode ?? 'optional',
-              governs: 'story', installed: true,
-              ...workflowCodeGeneration(resolveWorkType(definition, id)),
-              // Where its documents may be kept, so Start Work offers only what the policy allows.
-              documentStorage: documentStorageChoices(resolveWorkType(definition, id).documents)
-            })),
+            storyWorkflows: await intakeStoryWorkflows(root, definition),
             availableStoryWorkflows: packagedCatalog.workflows
               .filter((workflow) => workflow.installed === false)
               .map((workflow) => ({

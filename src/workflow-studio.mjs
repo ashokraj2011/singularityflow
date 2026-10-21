@@ -55,6 +55,7 @@ import { AUTHORING_SKILL_ID, authoringSkillCatalog, authoringSkillEntry } from '
 import { configurationReadRoot, withoutConfigurationReadScope } from './configuration-read-scope.mjs';
 import { KNOWLEDGE_READER_RULES, knowledgePromptPolicy } from './knowledge/render.mjs';
 import { INITIATIVE_OUTPUT_KINDS, PORTFOLIO_PATH, loadPortfolio } from './initiative-config.mjs';
+import { WORKFLOW_ARCHIVE_PATH, parseWorkflowArchive, workflowArchived } from './workflow-archive.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { SingularityFlowError, nearestNames, posix, secureRepositoryPath } from './util.mjs';
 import { lineOperations, preserveYamlFormatting, renderPreservingFormatting } from './yaml-formatting.mjs';
@@ -199,12 +200,18 @@ function plannedClaimsView(type, resolved, failure) {
   };
 }
 
+/** Whether new Stories or Epics may still choose a workflow (docs/SPEC-WORKFLOW-RETIREMENT-v1.md). */
+function archiveView(archive, governs, id) {
+  const archived = workflowArchived(archive, governs, id);
+  return { archived, archiveReason: archived ? archive[governs][id].reason ?? null : null };
+}
+
 /**
  * Epic (Initiative) workflows as the Studio edits them, from portfolio.yml: each workflow's steps,
  * and each step's agents, lanes, knowledge views, sign-off and outputs. Review chains, packs and
  * checklists are shown as counts; they stay in the file.
  */
-function epicModel(portfolio, templatesRoot) {
+function epicModel(portfolio, templatesRoot, archive = null) {
   if (!portfolio) return null;
   const phases = portfolio.initiativePhases ?? {};
   const profiles = portfolio.initiativeProfiles ?? {};
@@ -231,7 +238,7 @@ function epicModel(portfolio, templatesRoot) {
   return {
     templatesRoot: posix(portfolio.templatesRoot ?? templatesRoot),
     workflows: Object.entries(profiles).map(([id, profile]) => ({
-      id, label: profile?.label ?? id, description: profile?.description ?? '',
+      id, label: profile?.label ?? id, description: profile?.description ?? '', ...archiveView(archive, 'initiative', id),
       lifecycleMode: profile?.lifecycleMode ?? (usesEpicPlanningLifecycle({ phases: (profile?.phases ?? []).map((phaseId) => phases[phaseId]) }) ? 'planning-only' : 'full-delivery'),
       phases: [...(profile?.phases ?? [])], packs: (profile?.packs ?? []).length,
       localSteps: Object.fromEntries(Object.entries(profile?.phaseOverrides ?? {}).map(([phaseId, override]) => [phaseId, stepView(phaseId, {
@@ -394,6 +401,11 @@ export async function buildStudioModel(root, { authority = null } = {}) {
   const instructionLibrary = await loadInstructionLibrary(configRoot);
   const attachmentsText = await readFile(path.join(configRoot, SKILL_ATTACHMENTS_PATH), 'utf8').catch(() => null);
   const workflowAttachments = (await readSkillAttachments(configRoot)).filter((entry) => entry.workflow);
+  // Archived workflows stay editable here; only new Stories and Epics stop being offered them.
+  const archiveText = await readFile(path.join(configRoot, WORKFLOW_ARCHIVE_PATH), 'utf8').catch(() => null);
+  let archive = null;
+  try { archive = archiveText == null ? null : parseWorkflowArchive(archiveText); }
+  catch (error) { problems.push({ code: error?.code ?? 'WORKFLOW_ARCHIVE_INVALID', message: error.message }); }
   const security = normalizeApprovalSecurity(raw.approvalSecurity ?? {});
   const starter = await packagedDefinition();
   const bundled = await bundledAgents();
@@ -412,6 +424,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
     return {
       skills: workflowAttachments.filter((entry) => entry.workflow === id).map(({ id: skillId, phases, use }) => ({ id: skillId, phases: [...phases], use })),
       id, label: type.label ?? id, description: type.description ?? '', phases: [...(type.phases ?? [])], readOnly: protection.workflows.includes(id),
+      ...archiveView(archive, 'story', id),
       worldModel: type.intelligence?.worldModel ?? 'inherit',
       status: !packaged ? 'local' : JSON.stringify(packaged) === JSON.stringify(definition?.workTypes?.[id] ?? type) ? 'packaged' : 'customized',
       generatesCode: resolved ? Boolean(workflowCodeGeneration(resolved).generatesCode) : (type.phases ?? []).some((phase) => outputOf(phases[phase]) === 'code'),
@@ -471,13 +484,15 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       attachmentsSha256: sha256(attachmentsText ?? ''),
       instructionsSha256: instructionCatalogHash(instructionLibrary),
       constitutionsSha256: constitutions.sha256,
-      ...(portfolioText != null ? { portfolioSha256: sha256(portfolioText) } : {})
+      ...(portfolioText != null ? { portfolioSha256: sha256(portfolioText) } : {}),
+      // Only when the file exists, so a saved draft's base stays the same in a repository without one.
+      ...(archiveText != null ? { archiveSha256: sha256(archiveText) } : {})
     },
     problems,
     protection,
     workflows,
     constitutions: constitutionStudioView(constitutions, definition ?? raw, protection.workflows),
-    epics: epicModel(portfolioText == null ? null : parseYamlText(portfolioText) ?? {}, posix(raw.templatesRoot ?? definition?.templatesRoot ?? 'singularity/templates')),
+    epics: epicModel(portfolioText == null ? null : parseYamlText(portfolioText) ?? {}, posix(raw.templatesRoot ?? definition?.templatesRoot ?? 'singularity/templates'), archive),
     integrations: {
       targets: Object.entries(raw.integrations?.targets ?? {}).map(([id, target]) => ({ id, ...structuredClone(target) }))
     },

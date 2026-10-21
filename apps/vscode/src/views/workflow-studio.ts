@@ -16,7 +16,9 @@ import { formatCliArgsForDisplay } from '../cli/runner.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { collectReviewConfirmation } from './review-confirmation.ts';
-import { booleanField, integerField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
+import { booleanField, enumField, integerField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
+import { liveWorkflows, refusalOf, workflowArchiveArgs } from './workflow-delete-page.ts';
+import { chooseNewDefault, WorkflowDeletePanel, type WorkflowRetireOutcome } from './workflow-delete-panel.ts';
 import { INTEGRATION_SECRET_NAME, type IntegrationSecretSource } from '../credentials.ts';
 import {
   BUILD_ID, BUILD_PROPOSAL_ID, BUILD_QUESTION_ID, PROPOSAL_BRANCH, STUDIO_FOCUS_VIEWS, buildChatQuery, buildsForRepository, studioBuildArgs, STUDIO_MODEL_ARGS, STUDIO_PREVIEW_ARGS, WORKFLOW_STUDIO_SCRIPT, studioCheckArgs, localProposalUploads, proposalSummaries,
@@ -241,6 +243,8 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     'studio.build.finish': (message) => this.buildFinish(stringField(message, 'build'), stringField(message, 'how')),
     'studio.build.chat': (message) => this.buildChat(stringField(message, 'build')),
     'studio.duplicateWorkflow': (message) => this.duplicateWorkflow(stringField(message, 'selector'), integerField(message, 'pending') ?? 0),
+    'studio.retireWorkflow': (message) => this.retireWorkflow(enumField(message, 'action', ['archive', 'restore', 'delete'] as const),
+      stringField(message, 'selector'), integerField(message, 'pending') ?? 0),
     'studio.openFile': (message) => this.openFile(stringField(message, 'path'), integerField(message, 'line')),
     'studio.integrationTest': (message) => this.integrationTest(stringField(message, 'target'), stringField(message, 'trigger'),
       stringField(message, 'send'), (message as { sendTest?: unknown }).sendTest === true)
@@ -367,6 +371,93 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     this.post({ type: 'studio.importDone', outcome: result.outcome, branch: result.branch ?? null, error: result.error,
       // Only a proposal still uploading says so; every other outcome keeps its exact shape.
       ...(result.uploaded === false ? { uploaded: false } : {}) });
+  }
+
+  /** Workflow labels by selector, from the model the page shows. */
+  private workflowLabels(): Record<string, string> {
+    const labels: Record<string, string> = {};
+    const model = this.model as { workflows?: Array<{ id: string; label?: string }>; epics?: { workflows?: Array<{ id: string; label?: string }> } } | null;
+    for (const workflow of model?.workflows ?? []) labels[`story:${workflow.id}`] = workflow.label ?? workflow.id;
+    for (const workflow of model?.epics?.workflows ?? []) labels[`initiative:${workflow.id}`] = workflow.label ?? workflow.id;
+    return labels;
+  }
+
+  /**
+   * Archive, restore or delete a published workflow (docs/SPEC-WORKFLOW-RETIREMENT-v1.md). Archive and
+   * restore change only the archive list, as a review proposal like a publish (or the repository's own
+   * files where it has no approved configuration authority). Delete… opens the review page of the
+   * engine's exact plan. The engine decides what is allowed; the page only offers what it may.
+   */
+  private async retireWorkflow(action: 'archive' | 'restore' | 'delete' | null, selector: string | null, pending: number): Promise<void> {
+    const labels = this.workflowLabels();
+    const label = selector && WORKFLOW_SELECTOR.test(selector) ? labels[selector] : undefined;
+    if (!action || !selector || !label) { this.post({ type: 'studio.failed', message: 'Choose a published workflow.' }); return; }
+    let propose: boolean;
+    try { propose = studioPublishArgs(this.model?.authority).includes('--propose'); }
+    catch (error) { this.post({ type: 'studio.failed', message: (error as Error).message }); return; }
+    const before = this.modelBase();
+    const outcome = action === 'delete'
+      ? await WorkflowDeletePanel.show({ client: this.client, output: this.output, selector, label, labels,
+        review: (branch) => this.reviewProposal(branch, pending) })
+      : await this.archiveWorkflow(selector, label, labels, action === 'restore', propose);
+    if (outcome.outcome !== 'cancelled' && outcome.outcome !== 'failed') {
+      const fresh = await this.client.run<StudioModel>([...STUDIO_MODEL_ARGS]).catch(() => null);
+      if (fresh && JSON.stringify(fresh.base ?? null) !== before) await this.configurationChanged(pending, `${label} was ${action === 'restore' ? 'restored' : `${action}d`}`);
+      await this.proposals();
+    }
+    this.post({ type: 'studio.retireDone', text: outcome.text });
+    if (outcome.outcome === 'proposed' && outcome.branch && action !== 'delete') {
+      const branch = outcome.branch;
+      void showCompactInformationMessage(outcome.text, 'Review and activate').then((choice) => {
+        if (choice === 'Review and activate') return this.reviewProposal(branch, pending);
+      });
+    } else if (outcome.outcome === 'written') {
+      void showCompactInformationMessage(outcome.text, 'Open Source Control').then((choice) => {
+        if (choice === 'Open Source Control') return vscode.commands.executeCommand('workbench.view.scm');
+      });
+    }
+  }
+
+  /** Archive (with an optional reason) or restore; the default workflow first asks for its replacement. */
+  private async archiveWorkflow(selector: string, label: string, labels: Record<string, string>, restore: boolean, propose: boolean): Promise<WorkflowRetireOutcome> {
+    const work = selector.startsWith('initiative:') ? 'Epics' : 'Stories';
+    let reason: string | null = null;
+    if (!restore) {
+      const typed = await vscode.window.showInputBox({
+        title: `Archive ${label}`, ignoreFocusOut: true, placeHolder: 'Optional, for example: replaced by another workflow',
+        prompt: `New ${work} are no longer offered it; ${work} already using it keep running, and Restore brings it back. Why is it archived? (optional, shown on its card)`,
+        validateInput: (value) => value.trim().length > 500 ? 'Use 500 characters or fewer.' : null
+      });
+      if (typed === undefined) return { outcome: 'cancelled', text: `${label} was not archived.` };
+      reason = typed.trim() || null;
+    }
+    let newDefault: string | null = null;
+    for (;;) {
+      const args = workflowArchiveArgs(selector, { restore, reason, newDefault, propose });
+      this.output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(args)}`);
+      try {
+        const result = await vscode.window.withProgress({
+          location: vscode.ProgressLocation.Notification, title: `${restore ? 'Restoring' : 'Archiving'} ${label}`, cancellable: false
+        }, () => this.client.run<{ status?: string; changed?: boolean; reviewRequired?: boolean; branch?: string | null; files?: unknown }>(args));
+        const done = restore ? 'Restored' : 'Archived';
+        const defaults = newDefault ? ` New Stories default to ${labels[`story:${newDefault}`] ?? newDefault} instead.` : '';
+        if (result.reviewRequired && result.branch) {
+          return { outcome: 'proposed', branch: result.branch, text: `${done} ${label} as proposal ${result.branch}; new ${work} ${restore ? 'can choose it' : 'stop being offered it'} once it is reviewed and activated.${defaults}` };
+        }
+        if (result.changed === false) return { outcome: 'unchanged', text: `${label} is ${restore ? 'not archived' : 'already archived'}; nothing changed.` };
+        const files = Array.isArray(result.files) && result.files.length ? result.files.filter((file): file is string => typeof file === 'string') : ['singularity/workflow-archive.yml'];
+        return { outcome: 'written', text: `${done} ${label} in this repository's ${files.join(' and ')}; new ${work} ${restore ? 'can choose it again' : 'are no longer offered it'}.${defaults} Review the diff and commit it.` };
+      } catch (error) {
+        const refusal = refusalOf(error);
+        this.output.appendLine(`  refused: ${refusal?.message ?? (error as Error).message}`);
+        if (refusal?.code === 'WORKFLOW_DEFAULT_REPLACEMENT_REQUIRED' && !newDefault) {
+          newDefault = await chooseNewDefault(label, liveWorkflows(refusal), labels);
+          if (newDefault) continue;
+          return { outcome: 'cancelled', text: `${label} is the default workflow for new Stories, so it was not archived: choose its replacement to archive it.` };
+        }
+        return { outcome: 'failed', text: `${label} was not ${restore ? 'restored' : 'archived'}: ${refusal?.message ?? (error as Error).message}` };
+      }
+    }
   }
 
   /** Repository files the page may open: the governed workflow and portfolio files, and templates. */

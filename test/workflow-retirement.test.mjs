@@ -13,6 +13,7 @@ import {
   assertWorkflowNotArchived, firstLiveStoryWorkflow, parseWorkflowArchive, workflowArchived
 } from '../src/workflow-archive.mjs';
 import { assertDeleteStoriesClear, workflowDeleteStories } from '../src/workflow-retirement.mjs';
+import { refusalDetails } from '../src/refusal-remediation.mjs';
 import { selectWorkType } from '../src/session.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -209,6 +210,36 @@ test('the archive file is exact, and new Stories never choose an archived workfl
     exclude: ['old-flow'], selection: 'feature', choose: undefined
   }).then((choice) => offered.push(choice)).catch(() => offered.push(null));
   assert.notEqual(offered[0], 'old-flow');
+});
+
+test('Workflow Studio marks archived workflows, intake leaves them out, and refusals keep what a surface needs to ask', async (t) => {
+  const root = await repository(t);
+  duplicate(root);
+  const before = json(flow(root, 'workflow', 'studio', '--json'));
+  assert.equal(before.workflows.find((workflow) => workflow.id === 'mine').archived, false);
+  assert.equal(Object.hasOwn(before.base, 'archiveSha256'), false, 'no archive file, no new base key: saved drafts stay valid');
+  json(flow(root, 'workflow', 'archive', 'mine', '--reason', 'Trial over', '--json'));
+  json(flow(root, 'workflow', 'archive', 'initiative:initiative-lite', '--json'));
+  const model = json(flow(root, 'workflow', 'studio', '--json'));
+  const mine = model.workflows.find((workflow) => workflow.id === 'mine');
+  assert.deepEqual([mine.archived, mine.archiveReason, mine.readOnly], [true, 'Trial over', false], 'archived, and still deletable');
+  const feature = model.workflows.find((workflow) => workflow.id === 'feature');
+  assert.deepEqual([feature.archived, feature.archiveReason, feature.readOnly], [false, null, true], 'seeded: Delete is not offered');
+  assert.equal(model.epics.workflows.find((workflow) => workflow.id === 'initiative-lite').archived, true);
+  assert.match(model.base.archiveSha256, /^[a-f0-9]{64}$/u, 'an archive changes the base, so an open Studio reloads');
+
+  const intake = json(flow(root, 'workspace', 'branches', '--json', '--intake'));
+  const offered = intake.intake.storyWorkflows.map((workflow) => workflow.id);
+  assert.ok(offered.includes('feature'));
+  assert.equal(offered.includes('mine'), false, 'a new Story is never offered an archived workflow');
+
+  // The default needs a replacement: the refusal names the live workflows to choose from.
+  const needsDefault = refusal(flow(root, 'workflow', 'archive', 'feature', '--json'));
+  assert.equal(needsDefault.code, 'WORKFLOW_DEFAULT_REPLACEMENT_REQUIRED');
+  assert.ok(needsDefault.details.live.includes('bugfix'));
+  assert.equal(needsDefault.details.live.includes('mine'), false, 'an archived workflow cannot become the default');
+  assert.deepEqual(refusalDetails({ live: ['bugfix', 'Not An ID'], stories: [{ id: 'OLD-1', status: 'in_progress', branch: 'OLD-1', extra: 'x' }, { status: 'x' }] }),
+    { live: ['bugfix'], stories: [{ id: 'OLD-1', status: 'in_progress', branch: 'OLD-1' }] });
 });
 
 test('an unfinished Story with no pinned workflow copy blocks the delete; pinned ones keep running', async (t) => {

@@ -1,3 +1,6 @@
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
 import { normalizeAstPolicy } from './ast-policy.mjs';
 import { effectiveAstMode } from './ast-mode.mjs';
 import { buildAstCache } from './ast-intelligence.mjs';
@@ -5,10 +8,15 @@ import { head } from './git.mjs';
 import { withWorldModelSourceScope, worldModelSourceScope } from './source-scope.mjs';
 import { nowIso } from './util.mjs';
 import { launchDetached } from './ast-warm-launcher.mjs';
+import { PACKAGE_ROOT } from './package-root.mjs';
 export { launchDetached } from './ast-warm-launcher.mjs';
 import {
   readStoryStartAstWarmStatus, writeStoryStartAstWarmStatus
 } from './ast-story-start-status.mjs';
+
+// This plan is used only by the detached repository worker. An opaque package-root import keeps
+// its explanation/catalog graph out of every foreground Story-start bundle closure.
+const REPOSITORY_PLAN_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'comprehension', 'repository-explanation.mjs')).href;
 
 function boundedMessage(error) {
   return String(error?.message ?? error ?? 'AST cache warming failed.').replace(/\s+/g, ' ').trim().slice(0, 1000);
@@ -90,7 +98,7 @@ export async function runStoryStartAstWarmWorker(root, workId) {
   try {
     let options = queued.options;
     if (workId === '@repository' && options === null) {
-      const { repositoryAstWarmPlan } = await import('./comprehension/repository-explanation.mjs');
+      const { repositoryAstWarmPlan } = await import(REPOSITORY_PLAN_MODULE);
       const plan = await repositoryAstWarmPlan(root);
       if (plan.status === 'skipped') return updateStatus(root, running, { ...plan, completedAt: nowIso() });
       options = plan.options;

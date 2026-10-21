@@ -807,6 +807,7 @@ Every public operation is classified before its implementation module is importe
 | wm.show-prompt | read | never | — | — |
 | wm.show-prompt.record-audit | mutation | never | — | — |
 | workflow.activate | mutation | never | — | — |
+| workflow.archive | mutation | never | — | — |
 | workflow.author.catalog | read | never | — | — |
 | workflow.author.create | mutation | never | — | — |
 | workflow.author.delete | mutation | never | — | — |
@@ -832,6 +833,8 @@ Every public operation is classified before its implementation module is importe
 | workflow.copy | mutation | never | — | — |
 | workflow.copy.preview | read | never | — | — |
 | workflow.create | mutation | never | — | — |
+| workflow.delete | mutation | never | — | — |
+| workflow.delete.preview | read | never | — | — |
 | workflow.diff | read | never | — | — |
 | workflow.edit | mutation | never | — | — |
 | workflow.export | mutation | never | — | — |
@@ -856,6 +859,7 @@ Every public operation is classified before its implementation module is importe
 | workflow.proposal | read | never | — | — |
 | workflow.proposal-status | read | never | — | — |
 | workflow.proposals | read | never | — | — |
+| workflow.restore | mutation | never | — | — |
 | workflow.simulate | read | never | — | — |
 | workflow.skills-recipe | read | never | — | — |
 | workflow.validate | read | never | — | — |

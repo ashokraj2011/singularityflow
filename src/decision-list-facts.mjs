@@ -45,10 +45,28 @@ function blockingReportSteps(workflow, phase) {
   return [...steps.values()].filter((step) => step.requiredArtifact?.path).sort((left, right) => order.indexOf(left.id) - order.indexOf(right.id));
 }
 
+/** The Story's final step, submitted: where approval checks the evidence obligations a person decides. */
+function evidenceDecisionsApply(workflow, phase) {
+  return phase?.status === 'awaiting_approval' && phaseEndsStory(workflow, phase);
+}
+
+/**
+ * The evidence decisions approval waits for at the Story's end (a slot to witness, an obligation to
+ * accept as a dated risk), from the same evaluation the approval gate runs, so the list, next steps
+ * and the refusal name the same things [decision list parity]. Empty anywhere else.
+ */
+export async function evidenceDecisionFacts(root, config, workflow, phase) {
+  if (!evidenceDecisionsApply(workflow, phase)) return [];
+  const { evaluateTerminalReadiness, terminalEvidenceDecisions } = await import('./evidence/terminal.mjs');
+  const readiness = await evaluateTerminalReadiness(root, config, workflow, { stage: 'approval' });
+  return terminalEvidenceDecisions(workflow.workItem.id, readiness.evaluation);
+}
+
 /** Whether anything could be open for `phase` without reading a file. */
 export function decisionsMayBePending(workflow, phase) {
   if (!phase) return false;
   if (blockingReportSteps(workflow, phase).length) return true;
+  if (evidenceDecisionsApply(workflow, phase)) return true;
   return phaseEndsStory(workflow, phase)
     && upstreamIssueStates(workflow).some((state) => OPEN_UPSTREAM_ISSUE_STATUSES.includes(state.status));
 }
@@ -136,7 +154,9 @@ export function decisionRefusalLead(workflow, phaseId, { gaps = [], issues = [],
 export async function pendingDecisionSummary(root, config, workflow, phase, { at = new Date().toISOString() } = {}) {
   if (!decisionsMayBePending(workflow, phase)) return null;
   const facts = await blockingDecisionFacts(root, config, workflow, { phaseId: phase.id, at });
-  const count = decisionGroups(workflow, { gaps: facts.gaps, issues: facts.issues, includeAllIssues: facts.endsStory }).length;
+  // An unavailable evaluation is not "nothing to decide": approval reports it as its own refusal.
+  const evidence = await evidenceDecisionFacts(root, config, workflow, phase).catch(() => []);
+  const count = decisionGroups(workflow, { gaps: facts.gaps, issues: facts.issues, includeAllIssues: facts.endsStory }).length + evidence.length;
   if (!count) return null;
   const workId = workflow.workItem.id;
   return { count, headline: decisionHeadline(workflow, phase.id, count), command: `singularity-flow decisions ${workId}`,

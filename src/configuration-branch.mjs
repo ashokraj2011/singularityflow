@@ -9,7 +9,7 @@
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
-import { AsyncLocalStorage } from 'node:async_hooks';
+import { creationConfiguration, creationConfigurationOwner, withCreationContext } from './creation-context.mjs';
 import { isDeepStrictEqual, types } from 'node:util';
 import YAML from 'yaml';
 import { parseYamlText } from './yaml-parse-cache.mjs';
@@ -75,22 +75,11 @@ export const STATE_CONFIGURATION_HISTORY_PREFIX = 'sflow/config-history';
 
 const STORY_CONFIGURATION_SNAPSHOT = Symbol('story-configuration-snapshot');
 const STORY_CONFIGURATION_AUTHORITY_SNAPSHOT = Symbol('story-configuration-authority-snapshot');
-const STORY_CONFIGURATION_TRANSACTIONS = new AsyncLocalStorage();
+const STORY_CONFIGURATION_TRANSACTIONS = { getStore: () => creationConfigurationOwner(removeTemporaryTree) };
 
 /** Disposable checkout ownership lasts one start only; no persisted path is a reuse capability. */
 export async function withStoryConfigurationTransaction(action) {
-  if (STORY_CONFIGURATION_TRANSACTIONS.getStore()?.active) return action();
-  const owner = { active: true, directories: new Set(), snapshots: new WeakMap() };
-  return STORY_CONFIGURATION_TRANSACTIONS.run(owner, async () => {
-    try { return await action(); }
-    finally {
-      owner.active = false;
-      const cleaned = await Promise.allSettled([...owner.directories].map(directory => removeTemporaryTree(directory)));
-      if (cleaned.some(result => result.status === 'rejected')) console.warn(
-        'Warning: a disposable configuration checkout could not be removed. The Story result is unchanged.'
-      );
-    }
-  });
+  return withCreationContext(action);
 }
 
 /** Consume only the checkout this transaction itself cloned and verified, once. */
@@ -2474,6 +2463,16 @@ function storyObjectCacheProfile(directory, commit, env, state) {
         .map((row) => row.split('\n')), commit)) return declined('config');
   const head = local(['rev-parse', '--verify', 'HEAD'], 1024);
   if (!processResultSucceeded(head) || head.stdout.trim() !== commit) return declined('head');
+  return storyConfigurationObjectProfile(directory, commit, env, state);
+}
+
+// A prepared application object store is not an inert cache repository. Read only exact immutable
+// objects through the sealed environment; never interpret its configuration as a policy receipt.
+function storyConfigurationObjectProfile(directory, commit, env, state) {
+  const declined = (reason) => { incrementCommandCounter(`configuration.object-cache-profile-${reason}`); return false; };
+  const local = (args, maxBuffer = 64 * 1024, options = {}) => storyObjectCacheLocal(state, args, {
+    cwd: directory, env, maxBuffer, ...options
+  });
   const checked = local(['fsck', '--strict', '--no-reflogs', '--no-dangling', commit]);
   if (!processResultSucceeded(checked)) return declined('integrity');
   const listed = local(['ls-tree', '-r', '-z', '--full-tree', commit],
@@ -2736,6 +2735,18 @@ export async function loadStoryConfigurationSnapshot(authority, {
   env = process.env, captureAuthoringBytes = false, useObjectCache = false, session = null,
   reuseAuthorityObservation = false
 } = {}) {
+  // Freeze scalar selectors before the request cache can yield to another consumer.
+  authority = authority && Object.freeze({ ...authority });
+  env = inheritEnterpriseGitEnvironment(env, { ...env });
+  return creationConfiguration(authority, { env, captureAuthoringBytes }, () =>
+    loadStoryConfigurationSnapshotFresh(authority, {
+      env, captureAuthoringBytes, useObjectCache, session, reuseAuthorityObservation
+    }), verifiedStoryDefinition);
+}
+
+async function loadStoryConfigurationSnapshotFresh(authority, {
+  env, captureAuthoringBytes, useObjectCache, session, reuseAuthorityObservation
+}) {
   if (!authority?.remote || !authority?.branch) {
     throw new SingularityFlowError('A Story configuration definition requires a resolved authority.');
   }
@@ -2762,6 +2773,10 @@ export async function loadStoryConfigurationSnapshot(authority, {
     }
   }
   if (useObjectCache === true) {
+    const prepared = session?.cwd ? await preparedStoryConfigurationSnapshot(session.cwd, authority, {
+      env, captureAuthoringBytes, session, reuseAuthorityObservation
+    }) : null;
+    if (prepared) return prepared;
     const cached = await cachedStoryConfigurationSnapshot(authority, {
       env, captureAuthoringBytes, session, reuseAuthorityObservation
     });
@@ -2840,6 +2855,68 @@ export async function loadStoryConfigurationSnapshot(authority, {
     }
   }
   throw lastMoved;
+}
+
+function preparedConfigurationRef() {
+  // One replaceable retention ref per repository, not one growing ref per revision or URL.
+  return 'refs/sflow/intake-configuration/selected';
+}
+
+/** Speculative exact-object transfer only: no checkout, Story, policy write, enrollment or approval. */
+export async function prepareSelectedStoryConfiguration(root, authority, { env = process.env } = {}) {
+  if (env.SINGULARITY_FLOW_STORY_CONFIGURATION_CACHE === 'off' || authority?.branch !== CONFIGURATION_BRANCH
+      || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(authority?.commit ?? '')) return { status: 'unavailable' };
+  const transport = frozenRemoteTransport(assertCredentialFreeRemote(authority.remote), { env });
+  const session = new GitRemoteSession({ cwd: root, env });
+  const head = await configurationBranchHead(authority.remote, { session, refresh: true });
+  requireRemoteObservation(head.observation, 'Selected configuration preparation');
+  if (head.sha !== authority.commit) return { status: 'unavailable', reason: 'authority-moved' };
+  const ref = preparedConfigurationRef(authority);
+  const result = await runRemoteGitAsync(['fetch', '--quiet', '--no-tags', '--no-write-fetch-head',
+    '--recurse-submodules=no', transport.remote, `+${authority.commit}:${ref}`], {
+    cwd: root, env: transport.env, operation: 'remote-configuration'
+  });
+  if (!processResultSucceeded(result)) return { status: 'unavailable', reason: result.failure?.code ?? 'transfer-failed' };
+  incrementCommandCounter('configuration.selected-prepared');
+  return { status: 'prepared', commit: authority.commit };
+}
+
+async function preparedStoryConfigurationSnapshot(root, authority, {
+  env, captureAuthoringBytes, session, reuseAuthorityObservation
+}) {
+  if (env.SINGULARITY_FLOW_STORY_CONFIGURATION_CACHE === 'off' || authority.branch !== CONFIGURATION_BRANCH
+      || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(authority.commit ?? '')) return null;
+  const common = repositoryGitDirectory(root);
+  if (!common || !(await lstat(path.join(common, preparedConfigurationRef())).catch(() => null))?.isFile()) return null;
+  // No ref inventory or history walk. A prepared ref is retention only, never current authority.
+  const selected = run('git', ['rev-parse', '--verify', '--quiet', preparedConfigurationRef(authority)], {
+    cwd: root, env: enterpriseGitEnvironment(env), allowFailure: true, maxBuffer: 1024
+  });
+  if (selected.status !== 0 || selected.stdout.trim() !== authority.commit) return null;
+  const observed = await configurationBranchHead(authority.remote, { session,
+    refresh: !(reuseAuthorityObservation && session) });
+  requireRemoteObservation(observed.observation, 'Prepared Story configuration authority');
+  if (observed.sha !== authority.commit) throw new SingularityFlowError(
+    'Approved configuration changed after preparation. Refresh Story intake and retry; nothing was changed.',
+    { code: 'STORY_CONFIGURATION_AUTHORITY_STALE' });
+  const admittedEnv = enterpriseGitEnvironment(env);
+  const localEnv = inheritEnterpriseGitEnvironment(admittedEnv, { ...admittedEnv,
+    GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1'
+  });
+  const state = { cleanupUnproven: false };
+  const profile = storyConfigurationObjectProfile(root, authority.commit, localEnv, state);
+  if (!profile) return null;
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-prepared-config-read-'));
+  try {
+    await materializeStoryObjectCache(root, scratch, profile, localEnv, state);
+    incrementCommandCounter('configuration.prepared-object-hit');
+    return await storyConfigurationSnapshotFromDirectory(authority, scratch, {
+      observedCommit: authority.commit, sourceCommit: authority.commit, env: localEnv,
+      captureAuthoringBytes, gitRoot: root, gitRef: authority.commit
+    });
+  } finally {
+    if (!state.cleanupUnproven) await removeTemporaryTree(scratch);
+  }
 }
 
 /** Inspect one skill retained by an exact, verified approved configuration snapshot. */

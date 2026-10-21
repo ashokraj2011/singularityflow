@@ -204,3 +204,11 @@ Node-launched Git operations, including legacy async spawns, retaining only verb
 times, never argv/URLs/credentials. Baseline and candidate have separate installed source roots, so
 dynamic imports cannot silently load candidate code into the baseline. These scripts are not
 imported by product commands and confer no new Git ownership or runtime permissions.
+
+Selected-configuration preparation adds one frozen exact `rev-parse` read of the single
+`refs/sflow/intake-configuration/selected` retention ref. A missing loose ref takes the ordinary
+reader without launching Git. This ref is only a bounded object-retention hint: the reader still
+observes current remote authority, verifies object integrity and the full configuration closure,
+and retains final publication CAS checks. Preparation fetches only the exact selected configuration
+commit through the existing frozen remote executor; it never changes application refs or files.
+No process owner was exempted by this addition.

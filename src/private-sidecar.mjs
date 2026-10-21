@@ -10,6 +10,7 @@ import {
 } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 
 import { gitCommonDir } from './git.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -66,6 +67,11 @@ async function syncDirectory(directory) {
 async function validateSidecarTreeDirectory(root, directory, {
   create = false, validateDirectory = null
 } = {}) {
+  incrementCommandCounter('storage.private-directory-queries');
+  return measureCommandSpan('storage.private-topology', () => validateSidecarTopology(root, directory, { create, validateDirectory }));
+}
+
+async function validateSidecarTopology(root, directory, { create, validateDirectory }) {
   const commonDirectory = path.resolve(gitCommonDir(root));
   const targetDirectory = path.resolve(directory);
   if (!contained(commonDirectory, targetDirectory)) {
@@ -118,18 +124,30 @@ export async function safePrivateSidecarDirectory(root, directory, {
   create = false, platform = process.platform, windowsAcl = null,
   enforceWindowsAcl = false
 } = {}) {
-  return validateSidecarTreeDirectory(root, directory, {
+  const batched = platform === 'win32' && enforceWindowsAcl && !create && windowsAcl == null;
+  const targets = [];
+  const result = await validateSidecarTreeDirectory(root, directory, {
     create,
     validateDirectory: async (target, { created, index }) => {
       // `.git/singularity-flow` is a compatibility container shared with non-secret local state.
       // Privacy starts at the product-specific child (for example `revisions` or `auto`).
       if (index > 0) {
-        await privateAcl(target, {
+        if (batched) targets.push(target);
+        else await privateAcl(target, {
           directory: true, apply: created, platform, windowsAcl, enforceWindowsAcl
         });
       }
     }
   });
+  if (batched && targets.length) {
+    const { verifyWindowsPrivateDirectories } = await import('./mcp-auth-profile.mjs');
+    for (let offset = 0; offset < targets.length; offset += 32) {
+      await verifyWindowsPrivateDirectories(targets.slice(offset, offset + 32));
+    }
+    // The shell's fresh ACL proof cannot substitute for the post-check containment fence.
+    await validateSidecarTreeDirectory(root, directory);
+  }
+  return result;
 }
 
 export async function readPrivateSidecar(root, target, {

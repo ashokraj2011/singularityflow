@@ -10,6 +10,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { gitCommonDir, gitDir } from './git.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError, nowIso } from './util.mjs';
+import { measureCommandSpan } from './dx-timing-context.mjs';
 
 const PROCESS_TOKEN = randomUUID();
 // A heartbeat renews active `withSubjectLock` leases. Three hours is the fail-safe if a worker
@@ -1166,11 +1167,11 @@ export async function withSubjectLock(root, subject, callback, options = {}) {
     }
   }
   const ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
-  const owner = await acquireSubjectLock(root, subject, { ...options, ttlMs });
+  const owner = await measureCommandSpan('publication.lock-acquire', () => acquireSubjectLock(root, subject, { ...options, ttlMs }));
   const directory = subjectLockPath(root, subject);
-  const heartbeat = await startOwnedHeartbeat(
+  const heartbeat = await measureCommandSpan('publication.heartbeat-start', () => startOwnedHeartbeat(
     directory, owner, ttlMs, options.heartbeatFactory ?? null
-  );
+  ));
   const lease = {
     owner, active: true, reentrantCount: 0, drainWaiters: [],
     // `removal` is set only by `prepareHeldLockRemoval`, when this transaction moves the checkout

@@ -13,7 +13,7 @@ import { gitEmptyConfigPath, gitDisabledHooksPath } from './git-isolation-paths.
 import { readLocalGitBlobs, repositoryObjectFormat } from './git-blob-batch.mjs';
 import { repositoryGitPath } from './git-directory.mjs';
 import {
-  branch, gitCommonDir, gitDir, head, headAndBranch, localGitDisplayName, refHead, repoRoot, resetGitDirCache,
+  branch, gitCommonDir, gitDir, head, headAndBranch, localGitDisplayName, gitUserConfiguration, refHead, repoRoot, resetGitDirCache,
   runRemoteGitAsync
 } from './git-execution.mjs';
 import { probeStoryBranchPublication } from './story-publication-preflight.mjs';
@@ -33,6 +33,7 @@ import {
 } from './environment-declaration.mjs';
 import { configurationReadRootForPath } from './configuration-read-scope.mjs';
 import { parsePorcelainV2Status } from './git-status-detail.mjs';
+import { publicationGitResult } from './publication-context.mjs';
 
 function git(args, options = {}) {
   // stdout is the data channel: `--json` callers parse this process's stdout, so a child git's
@@ -40,7 +41,7 @@ function git(args, options = {}) {
   // land there. Inherited git output is routed to the parent's stderr (fd 2) instead, which keeps
   // it visible in a terminal while leaving stdout pure for machine-readable output.
   if (options.stdio === 'inherit') return run('git', args, { ...options, stdio: ['inherit', 2, 'inherit'] });
-  return run('git', args, options);
+  return publicationGitResult(options.cwd ?? process.cwd(), args, options, effective => run('git', args, effective));
 }
 
 /**
@@ -302,9 +303,10 @@ export function gitCommitIdentity(root, { env = process.env } = {}) {
       githubLookup: GITHUB_LOOKUP.NOT_CHECKED
     };
   }
+  const user = gitUserConfiguration(root, { env });
   return {
-    name: localGitDisplayName(root, { env }) || env.USER || env.USERNAME || 'Singularity Flow',
-    email: gitAnswer(['config', '--get', 'user.email'], { cwd: root, env }, 'Git user.email', { absentStatus: 1 }).trim() || null,
+    name: user.get('user.name')?.trim() || env.USER || env.USERNAME || 'Singularity Flow',
+    email: user.get('user.email')?.trim() || null,
     login: null,
     githubLookup: GITHUB_LOOKUP.NOT_CHECKED
   };
@@ -376,17 +378,11 @@ export function resolveGitCommitIdentity(root = process.cwd(), {
     );
     return Object.freeze({ name, email, source: 'configured' });
   }
-  const configuredName = git(['config', '--get', 'user.name'], {
-    cwd: root, env: queryEnv, allowFailure: true
-  });
-  const configuredEmail = git(['config', '--get', 'user.email'], {
-    cwd: root, env: queryEnv, allowFailure: true
-  });
-  if (![0, 1].includes(configuredName.status) || ![0, 1].includes(configuredEmail.status)) {
-    throw commitIdentityError('identity', 'Git could not read the configured presentation identity');
-  }
-  const namePresent = configuredName.status === 0;
-  const emailPresent = configuredEmail.status === 0;
+  const user = gitUserConfiguration(root, { env: queryEnv });
+  const configuredName = { stdout: user.get('user.name') };
+  const configuredEmail = { stdout: user.get('user.email') };
+  const namePresent = user.has('user.name');
+  const emailPresent = user.has('user.email');
   // A wholly or partially absent presentation identity is not approval evidence. Preserve the
   // long-standing service metadata pair rather than mixing one configured field with a fabricated
   // counterpart. A value Git says exists but that is empty/malformed is explicit and is refused.
@@ -727,8 +723,9 @@ export function identity(root, { offline = false, env = process.env } = {}) {
    * The expense was never these two `git config` reads (~23 ms); it was the `gh` call below, which
    * is cached on disk where the value really is stable.
    */
-  const name = localGitDisplayName(root, { env }) ?? '';
-  const email = gitAnswer(['config', '--get', 'user.email'], { cwd: root, env }, 'Git user.email', { absentStatus: 1 }).trim();
+  const user = gitUserConfiguration(root, { env });
+  const name = user.get('user.name')?.trim() ?? '';
+  const email = user.get('user.email')?.trim() ?? '';
   /**
    * `offline` no longer means "pretend there is no account". It means "do not dial out for one" —
    * a fresh cache still answers, and only a cold one degrades to a declared non-answer.

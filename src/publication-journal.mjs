@@ -10,11 +10,13 @@ import {
   prepareSharedPublicationStorage, resolveSharedPublicationFile
 } from './publication-storage.mjs';
 import { validatePublicationPreimage } from './publication-recovery.mjs';
+import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 
 const PROCESS_OWNER_ID = randomUUID();
 
 async function writePrivateJson(target, value) {
-  await writeAtomic(target, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+  incrementCommandCounter('publication.journal-writes');
+  await measureCommandSpan('publication.journal-write', () => writeAtomic(target, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 }));
 }
 
 function safeId(id) {

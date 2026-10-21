@@ -25,6 +25,7 @@ import { copilotModeFile, copilotModePresentation, readCopilotMode } from './cop
 import { scopedUtilityRead, validateUtilityEntry, withoutUtilityEntry } from './utility-entry.mjs';
 import { withCommandReadScope } from './read-scope.mjs';
 import { executionContextArguments, surfaceContext, withExecutionContextScope } from './execution-context-scope.mjs';
+import { withCreationContext } from './creation-context.mjs';
 
 // These commands promise to remove machine-local Singularity state. Recording their own duration
 // after they finish would immediately recreate `.git/singularity-flow/` and make that promise false.
@@ -578,9 +579,15 @@ export async function main(argv) {
       }
     }
     const commandArgv = utilityEntry ? withoutUtilityEntry(argv) : argv;
-    return await withCliJsonOutput(optionBoolean(options, 'json'),
+    const invoke = () => withCliJsonOutput(optionBoolean(options, 'json'),
       () => runMain(agentFlag && !ownsFlag ? withoutAgentFlag(commandArgv) : commandArgv, utilityEntry, contextRequest.root),
       { forAgent: agentViewRequested(options), kind: positionals[0], utilityEntry });
+    // Include the first-build gate, accounting and authoring in one bounded immutable capture.
+    // No branch tip, identity authorization or working-tree validation is cached here.
+    return await (positionals[0] === 'start'
+      || positionals[0] === 'workspace' && positionals[1] === 'branches'
+      || positionals[0] === 'story' && positionals[1] === 'prepare-worktree'
+      ? withCreationContext(invoke) : invoke());
   }
   finally { uninstall(); }
 }

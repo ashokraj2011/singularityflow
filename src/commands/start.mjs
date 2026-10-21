@@ -65,7 +65,7 @@ export async function run(argv, { positionals, options }) {
     throw new SingularityFlowError('Use the dedicated story prepare-worktree or story discard-worktree operation.');
   }
   return withCommandObservability('start', argv, options,
-    () => withCommandConfirmation(options, () => startCommand(positionals, options)));
+    () => withCommandConfirmation(options, () => startCommand(positionals, options)), { preferencesOnly: true });
 }
 
 // This capability cannot be represented by CLI argv. It exists only for the same-process handoff

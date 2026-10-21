@@ -10,6 +10,8 @@ import { canonicalJson } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { resolveWindowsSystemTool } from './platform-process.mjs';
+import { creationSystemIdentity } from './creation-context.mjs';
+import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 import {
   listPrivateSidecar, readPrivateSidecar, safePrivateSidecarDirectory,
   writeMutablePrivateSidecar
@@ -91,20 +93,17 @@ function windowsAclExecutables(environment) {
   }
 }
 
-/** Apply and/or verify a non-inherited, current-user-only Windows ACL without a shell. */
-export async function secureWindowsAuthAcl(target, {
-  directory = false,
-  apply = true,
-  recursive = false,
-  execFileCommand = execFileAsync,
-  environment = process.env
-} = {}) {
-  const executables = windowsAclExecutables(environment);
+async function windowsUserSid(executables, execute, environment) {
+  const key = JSON.stringify([executables.whoami, Object.entries(environment).sort(([a], [b]) => a.localeCompare(b))]);
+  return creationSystemIdentity(execute, key, async () => {
   let identity;
   try {
-    identity = await execFileCommand(executables.whoami, ['/user', '/fo', 'csv', '/nh'], {
+    identity = await measureCommandSpan('windows.acl.identity', () => {
+      incrementCommandCounter('windows.acl.identity-queries');
+      return execute(executables.whoami, ['/user', '/fo', 'csv', '/nh'], {
       shell: false, windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024,
       env: environment
+      });
     });
   } catch (error) {
     throw new SingularityFlowError('Windows could not resolve the current user SID for private MCP state.', {
@@ -117,14 +116,35 @@ export async function secureWindowsAuthAcl(target, {
       code: 'MCP_AUTH_WINDOWS_ACL_FAILED'
     });
   }
+  return sid;
+  });
+}
+
+function executeWindowsAcl(execute, executable, args, options, apply) {
+  return measureCommandSpan('windows.acl.' + (apply ? 'apply' : 'verify'), () => {
+    incrementCommandCounter('windows.acl.shells');
+    return execute(executable, args, options);
+  });
+}
+
+/** Apply and/or verify a non-inherited, current-user-only Windows ACL without a shell. */
+export async function secureWindowsAuthAcl(target, {
+  directory = false,
+  apply = true,
+  recursive = false,
+  execFileCommand = execFileAsync,
+  environment = process.env
+} = {}) {
+  const executables = windowsAclExecutables(environment);
+  const sid = await windowsUserSid(executables, execFileCommand, environment);
   if (recursive || apply) {
     let observed;
     try {
-      const result = await execFileCommand(executables.powershell,
+      const result = await executeWindowsAcl(execFileCommand, executables.powershell,
         windowsAclCommand(windowsApplyAclScript(recursive), [target, sid, apply ? 'apply' : 'verify']), {
         shell: false, windowsHide: true, timeout: 120_000, maxBuffer: 64 * 1024,
         env: environment
-      });
+      }, apply);
       observed = JSON.parse(String(result?.stdout ?? '').trim());
     } catch (error) {
       throw new SingularityFlowError('Windows could not apply or verify a user-only ACL on private MCP state.', {
@@ -144,11 +164,11 @@ export async function secureWindowsAuthAcl(target, {
   }
   let observed;
   try {
-    const result = await execFileCommand(executables.powershell,
+    const result = await executeWindowsAcl(execFileCommand, executables.powershell,
       windowsAclCommand(WINDOWS_ACL_SCRIPT, [target]), {
       shell: false, windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024,
       env: environment
-    });
+    }, false);
     observed = JSON.parse(String(result?.stdout ?? '').trim());
   } catch (error) {
     throw new SingularityFlowError('Windows could not verify the ACL on private MCP state.', {
@@ -170,6 +190,44 @@ export async function secureWindowsAuthAcl(target, {
     });
   }
   return { protected: true, principal: 'current-user', access: 'full-control' };
+}
+
+/** Verify a bounded set of ancestors in one fresh system-shell request. Never applies ACLs. */
+export async function verifyWindowsPrivateDirectories(targets, {
+  execFileCommand = execFileAsync, environment = process.env
+} = {}) {
+  if (!Array.isArray(targets) || targets.length < 1 || targets.length > 32
+      || targets.some(target => typeof target !== 'string' || !path.win32.isAbsolute(target) || /[\x00\r\n]/u.test(target))) {
+    throw new SingularityFlowError('Invalid private directory ACL batch.', { code: 'MCP_AUTH_WINDOWS_ACL_FAILED' });
+  }
+  const executables = windowsAclExecutables(environment);
+  const sid = await windowsUserSid(executables, execFileCommand, environment);
+  const script = [
+    "$ErrorActionPreference='Stop'", '$targets=@(ConvertFrom-Json -InputObject $args[0])',
+    '$unsafe=0', 'foreach($target in $targets){',
+    '$item=Get-Item -LiteralPath $target -Force',
+    "if(-not $item.PSIsContainer -or (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)){throw 'unsafe private directory'}",
+    '$acl=Get-Acl -LiteralPath $target',
+    '$rules=@($acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]))',
+    '$valid=$acl.AreAccessRulesProtected -and $rules.Count -eq 1 -and $rules[0].IdentityReference.Value -eq $args[1] -and $rules[0].AccessControlType.ToString() -eq "Allow" -and -not $rules[0].IsInherited -and (([int]$rules[0].FileSystemRights -band 2032127) -eq 2032127)',
+    'if(-not $valid){$unsafe++}', '}',
+    '[pscustomobject]@{entries=$targets.Count;unsafe=$unsafe} | ConvertTo-Json -Compress'
+  ].join(';');
+  let observed;
+  try {
+    const result = await executeWindowsAcl(execFileCommand, executables.powershell,
+      windowsAclCommand(script, [JSON.stringify(targets), sid]), {
+        shell: false, windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024, env: environment
+      }, false);
+    observed = JSON.parse(String(result?.stdout ?? '').trim());
+  } catch (error) {
+    throw new SingularityFlowError('Windows could not verify private directory ACLs.', {
+      code: 'MCP_AUTH_WINDOWS_ACL_FAILED', cause: error
+    });
+  }
+  if (observed?.entries !== targets.length || observed?.unsafe !== 0) throw new SingularityFlowError(
+    'Private directories do not have current-user-only Windows ACLs.', { code: 'MCP_AUTH_WINDOWS_ACL_UNSAFE' });
+  incrementCommandCounter('windows.acl.batched-directories', targets.length);
 }
 
 function fail(message, code = 'MCP_AUTH_STORAGE_STATE_INVALID') {

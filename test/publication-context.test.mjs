@@ -4,7 +4,7 @@ import os from 'node:os';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { parseAst } from 'rollup/parseAst';
-import { withPublicationContext, publicationGitRead } from '../src/publication-context.mjs';
+import { withPublicationContext, publicationGitRead, publicationGitResult } from '../src/publication-context.mjs';
 import { gitDisabledHooksPath } from '../src/git-isolation-paths.mjs';
 
 const root = path.join(os.tmpdir(), 'publication-context-fixture');
@@ -73,6 +73,26 @@ test('parallel and nested publications have independent bounded contexts', async
     publicationGitRead(root, tree, options, read);
   })));
   assert.equal(calls, 4);
+});
+
+test('writer metadata reuses exact object reads but preserves magic pathspec semantics and failures', async () => {
+  let calls = 0;
+  const execute = opts => { calls++; return { status: 0, stdout: 'exact\0', stderr: '', signal: null }; };
+  await withPublicationContext(root, async () => {
+    const args = ['rev-parse', `${oid}^{tree}`];
+    assert.equal(publicationGitResult(root, args, options, execute).stdout, 'exact\0');
+    assert.equal(publicationGitResult(root, args, options, execute).stdout, 'exact\0');
+    assert.equal(calls, 1);
+    for (let i = 0; i < 2; i++) publicationGitResult(root,
+      ['ls-tree', '-z', oid, '--', ':(literal)owned/file'], options, opts => {
+        assert.equal(opts.env.GIT_LITERAL_PATHSPECS, undefined); return execute(opts);
+      });
+    assert.equal(calls, 3);
+    const failed = () => ({ status: 1, stdout: '', stderr: 'disk failure', signal: null });
+    assert.equal(publicationGitResult(root, ['rev-parse', `${other}^{tree}`], options, failed).status, 1);
+    assert.equal(publicationGitResult(root, ['rev-parse', `${other}^{tree}`], options, execute).status, 0);
+    assert.equal(calls, 4);
+  });
 });
 
 test('the publication gateway cannot statically load legacy authoring, approval or model owners', async () => {

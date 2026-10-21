@@ -61,6 +61,13 @@ try {
           const receipt = preview.packet.preflight.intakeReceipt;
           assert.equal(receipt?.issued, true, 'measure a real issued handoff, never silent full-validation fallback');
           const selected = preview.packet.repositoryPath;
+          // Both variants receive the same editor preparation. Charge it separately and include
+          // it in end-to-end totals; a faster click is not evidence that preparation was free.
+          const selectedPreparation = mode === 'prewarmed' ? await invoke('selected-prepare', [
+            'story', 'prepare-worktree', '--work-id', 'PERF-READY', '--from-branch', 'main',
+            '--work-type', 'feature', '--intake-receipt', receipt.id, '--json', '--timings'
+          ], selected) : null;
+          if (selectedPreparation) assert.equal(selectedPreparation.packet.preparation?.status, 'prepared');
           const start = await invoke('start', ['start', 'PERF-READY', '--from-branch', 'main', '--work-type', 'feature',
             '--title', 'Intake creation qualification', '--isolated-worktree', '--intake-receipt', receipt.id,
             '--json', '--timings'], selected);
@@ -70,14 +77,19 @@ try {
           rows.push({ variant, mode, sample, preparationMs: preparation?.wallMs ?? 0,
             preview: { wallMs: preview.wallMs, nodeLaunchedGit: preview.nodeLaunchedGit, timings: preview.timings },
             start: { wallMs: start.wallMs, nodeLaunchedGit: start.nodeLaunchedGit, timings: start.timings },
+            selectedPreparation: selectedPreparation ? {
+              wallMs: selectedPreparation.wallMs, nodeLaunchedGit: selectedPreparation.nodeLaunchedGit,
+              configuration: selectedPreparation.packet.preparation?.configuration ?? null, timings: selectedPreparation.timings
+            } : null,
             totalMs: preview.wallMs + start.wallMs,
-            totalWithPreparationMs: (preparation?.wallMs ?? 0) + preview.wallMs + start.wallMs, exactRemoteTip: true });
+            totalWithPreparationMs: (preparation?.wallMs ?? 0) + (selectedPreparation?.wallMs ?? 0)
+              + preview.wallMs + start.wallMs, exactRemoteTip: true });
         } finally { await f.cleanup(); }
       }
     }
   }
   const report = { platform: process.platform, node: process.version, files, samples, controlRef, rows,
-    protocol: 'Fresh workspace fixture per sample; selected-base branch checkout and genuine receipt handoff; empty private cache or charged prewarm; local bare remotes; OS caches not flushed; no model calls.' };
+    protocol: 'Fresh workspace fixture per sample; selected-base branch checkout and genuine receipt handoff; cold or matched runtime/selected preparation; all preparation charged separately and in totals; local bare remotes; OS caches not flushed; no model calls.' };
   const text = `${JSON.stringify(report, null, 2)}\n`;
   if (output) await writeFile(path.resolve(output), text);
   process.stdout.write(text);

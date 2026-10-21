@@ -206,6 +206,24 @@ export function localGitDisplayName(root, { env = process.env } = {}) {
   return (gitReadOutput(result, 'Git user.name', { absentStatus: 1 }) ?? '').trim() || null;
 }
 
+/** One fresh config read of both presentation fields. Last configured value wins, as --get does. */
+export function gitUserConfiguration(root, { env = process.env } = {}) {
+  const result = run('git', ['config', '--null', '--get-regexp', '^user\\.(name|email)$'], {
+    cwd: root, env, allowFailure: true, maxBuffer: 64 * 1024
+  });
+  const output = gitReadOutput(result, 'Git user configuration', { absentStatus: 1 }) ?? '';
+  const values = new Map();
+  for (const record of output.split('\0').filter(Boolean)) {
+    const separator = record.indexOf('\n');
+    const key = record.slice(0, separator);
+    if (separator < 0 || !['user.name', 'user.email'].includes(key)) throw new SingularityFlowError(
+      'Git returned invalid user configuration.', { code: 'GIT_READ_UNAVAILABLE' });
+    values.set(key, record.slice(separator + 1));
+  }
+  incrementCommandCounter('git.user-configuration-batches');
+  return values;
+}
+
 export function nonInteractiveGitEnvironment(env = process.env) {
   const nonInteractive = withoutInteractiveGitPrompts(env);
   // This helper is routinely applied before the final executor. Preserve the private attestation

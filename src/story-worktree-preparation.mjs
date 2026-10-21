@@ -6,6 +6,8 @@ import { normalizeQualityGateMode } from './phase-quality-risk.mjs';
 import { parseReferenceRepositoryOptions } from './reference-repositories.mjs';
 import { admitStoryIntakeReceipt } from './story-intake-verification.mjs';
 import { prepareStoryWorktree, preparedStoryWorktreePath, discardPreparedStoryWorktree } from './story-worktree.mjs';
+import { prepareSelectedStoryConfiguration } from './configuration-branch.mjs';
+import { measureCommandSpan } from './dx-timing-context.mjs';
 
 /** Dedicated verbs fail closed in older CLIs; never disguise speculative work as Story Start. */
 export async function run(_argv, { positionals, options }) {
@@ -43,11 +45,18 @@ export async function prepareIntakeWorktree(root, workId, options) {
   });
   if (admission.status !== 'admitted') return { status: 'unavailable', reason: admission.reason };
   try {
+    // Runs while the human finishes intake. Failure cannot authorize or block Start, which still
+    // resolves fresh authority and validates every retained byte before using these exact objects.
+    let configuration;
+    try {
+      configuration = await measureCommandSpan('start.configuration-prepare', () =>
+        prepareSelectedStoryConfiguration(root, admission.receipt.authority));
+    } catch { configuration = { status: 'unavailable' }; }
     const baseCommit = admission.repository.baseCommit;
     const existing = await preparedStoryWorktreePath(root, workId, { baseCommit });
-    if (existing) return { status: 'prepared', workId, baseCommit, owned: false };
+    if (existing) return { status: 'prepared', workId, baseCommit, owned: false, configuration };
     const prepared = await prepareStoryWorktree(root, workId, { base: baseCommit, storyBranch });
-    return { status: 'prepared', workId, baseCommit, owned: prepared.created };
+    return { status: 'prepared', workId, baseCommit, owned: prepared.created, configuration };
   } finally { await admission.release(); }
 }
 

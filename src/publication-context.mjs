@@ -16,11 +16,15 @@ export async function withPublicationContext(root, action) {
   finally { frame.active = false; frame.reads.clear(); frame.bytes = 0; }
 }
 
-function immutableRead(args) {
+function immutableRead(args, input) {
   if (!Array.isArray(args) || args.length > 516) return false;
   if (args[0] === 'ls-tree' && args[1] === '-z' && OID.test(args[2] ?? '') && args[3] === '--') {
-    return args.length > 4 && args.slice(4).every(p => typeof p === 'string' && p && !/[\x00\r\n]/u.test(p));
+    return input === undefined && args.length > 4 && args.slice(4).every(p => typeof p === 'string' && p
+      && !p.startsWith(':(') && !/[\x00\r\n]/u.test(p));
   }
+  if (input !== undefined) return false;
+  if (args.length === 4 && args[0] === 'ls-tree' && args[1] === '-r' && args[2] === '-z' && OID.test(args[3])) return true;
+  if (args[0] === 'rev-parse' && args.length === 2) return /^(?:[a-f0-9]{40}|[a-f0-9]{64})\^\{(?:tree|commit)\}$/u.test(args[1]);
   // Rename/copy detection can depend on live Git configuration. Recompute that diff even when
   // both objects are immutable; only exact literal tree-entry bytes are shared here.
   return false;
@@ -41,7 +45,7 @@ function environmentKey(env) {
 
 /** The callback returns already-validated bytes; failures never become successful cached reads. */
 export function publicationGitRead(root, args, { env = process.env, input, maximumBytes = MAX_BYTES } = {}, read) {
-  if (!immutableRead(args)) return read(env);
+  if (!immutableRead(args, input)) return read(env);
   // These closed forms read exact objects only, never replacement objects, a promisor remote,
   // or a pathspec interpreted from Candidate-owned text.
   const objectEnv = { ...env, GIT_NO_REPLACE_OBJECTS: '1', GIT_NO_LAZY_FETCH: '1', GIT_LITERAL_PATHSPECS: '1' };
@@ -61,4 +65,24 @@ export function publicationGitRead(root, args, { env = process.env, input, maxim
     frame.reads.set(key, Buffer.from(bytes)); frame.bytes += bytes.length;
   }
   return bytes;
+}
+
+/** Share exact object metadata across the writer and Candidate, never a mutable Git observation. */
+export function publicationGitResult(root, args, options, execute) {
+  if (!contexts.getStore()?.active || !immutableRead(args, options.input)
+      || options.stdio && options.stdio !== 'pipe'
+      || ![undefined, null, 'buffer', 'utf8', 'utf-8'].includes(options.encoding)) return execute(options);
+  const binary = options.encoding === 'buffer' || options.encoding === null;
+  const presentation = result => binary ? result : { ...result,
+    stdout: Buffer.isBuffer(result.stdout) ? result.stdout.toString('utf8') : result.stdout,
+    stderr: Buffer.isBuffer(result.stderr) ? result.stderr.toString('utf8') : result.stderr };
+  let observed;
+  const bytes = publicationGitRead(root, args, { ...options, maximumBytes: options.maxBuffer }, env => {
+    observed = execute({ ...options, env, encoding: 'buffer' });
+    if (observed.status !== 0 || observed.error || observed.signal != null || observed.timedOut || observed.outputOverflow) return null;
+    return Buffer.isBuffer(observed.stdout) ? observed.stdout : Buffer.from(observed.stdout ?? '');
+  });
+  if (observed) return presentation(observed);
+  return { status: 0, signal: null, stdout: binary
+    ? Buffer.from(bytes) : bytes.toString(options.encoding ?? 'utf8'), stderr: '', error: null };
 }

@@ -1480,7 +1480,9 @@ function canonicalWorkspaceDropSafetyPath(target, label) {
       continue;
     }
     try {
-      return path.resolve(realpathSync(cursor), ...suffix);
+      // The JS resolver can retain an 8.3 ancestor on Windows while the native resolver expands
+      // a symlink to its long spelling. Compare both sides in the same native namespace.
+      return path.resolve(realpathSync.native(cursor), ...suffix);
     } catch (error) {
       throw new SingularityFlowError(
         `Local-drop safety could not resolve ${label} path ${resolved}: ${error.message}. Nothing was detached or deleted.`,

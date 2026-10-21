@@ -85,6 +85,10 @@ test('attach clones an absent workspace repository, fast-forwards a present one,
       GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 'attach.tester@example.invalid'
     };
     const boot = await bootstrapRepository(remote, { capabilityId: 'attach', capabilityName: 'Attach', base: path.join(base, 'work') });
+    // Lifecycle commits intentionally strip caller-injected GIT_CONFIG_* entries. Supply the
+    // fixture's presentation identity in the real checkout, not the runner's global Git profile.
+    run('git', ['config', 'user.name', 'Attach Tester'], boot.root);
+    run('git', ['config', 'user.email', 'attach.tester@example.invalid'], boot.root);
     run(process.execPath, [bin, 'start', 'ATT-101', '--from-branch', 'main', '--title', 'Workspace attach', '--work-type', 'feature'], boot.root, env);
     const storyBranch = run('git', ['branch', '--show-current'], boot.root).stdout.trim();
     const remoteHead = () => run('git', ['rev-parse', `refs/heads/${storyBranch}`], remote).stdout.trim();

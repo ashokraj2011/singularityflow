@@ -400,6 +400,9 @@ async function remoteRepository(base, name) {
   run('git', ['init', '-b', 'main', source], { cwd: base });
   run('git', ['config', 'user.name', 'Workspace Tester'], { cwd: source });
   run('git', ['config', 'user.email', 'workspace@example.com'], { cwd: source });
+  // Destructive proofs compare retained bytes, not the host's checkout conversion preferences.
+  // Pin this fixture's representation so a Windows autocrlf default cannot manufacture local work.
+  await writeFile(path.join(source, '.gitattributes'), '* text eol=lf\n');
   await writeFile(path.join(source, 'README.md'), `# ${name}\n`);
   run('git', ['add', '.'], { cwd: source });
   run('git', ['commit', '-m', 'initial'], { cwd: source });
@@ -1418,6 +1421,25 @@ test('workspace capability drop isolates Git evidence and retains non-ref local 
       'the tracked bytes hidden by the repository-local monitor remain untouched');
     assert.ok(await stat(path.join(fixture.apiCheckout, '.git')),
       'the checkout is retained after the destructive proof refuses it');
+  });
+
+  await t.test('checkout normalization cannot hide changed retained line-ending bytes', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-eol-'));
+    const fixture = await attachedCapabilityWorkspace(root, 'eol');
+    const manifest = path.join(fixture.workspace.path, 'workspace.json');
+    const before = await readFile(manifest, 'utf8');
+    const readme = path.join(fixture.apiCheckout, 'README.md');
+    const original = await readFile(readme, 'utf8');
+    assert.ok(original.includes('\n') && !original.includes('\r'));
+    const modified = original.replaceAll('\n', '\r\n');
+    await writeFile(readme, modified);
+    assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: fixture.apiCheckout }).stdout, '',
+      'Git text normalization hides this byte-only difference');
+    await assert.rejects(() => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+      action: 'detach', dropLocal: true
+    }), { code: 'WORKSPACE_CAPABILITY_DROP_DIRTY' });
+    assert.equal(await readFile(readme, 'utf8'), modified);
+    assert.equal(await readFile(manifest, 'utf8'), before);
   });
 
   await t.test('local-drop proof pins the platform-safe executable-bit policy', async () => {
@@ -2962,7 +2984,8 @@ test('workspace adoption never persists credentials embedded in an origin URL', 
 test('workspace adoption preserves literal query characters in a local Git authority', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-adopt-literal-remote-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const remote = await remoteRepository(root, 'authority?blue');
+  // '?' is not a legal Windows filename; '#' exercises the same URL-sanitization boundary there.
+  const remote = await remoteRepository(root, process.platform === 'win32' ? 'authority#blue' : 'authority?blue');
   const clone = path.join(root, 'existing-clone');
   run('git', ['clone', remote, clone], { cwd: root });
 
@@ -3354,6 +3377,9 @@ test('active workspace context resolves friendly references and adds governed St
   await rememberWorkspace(registry, created.workspace, created.status);
 
   const lead = created.status.leadRepositoryPath;
+  // A clone does not inherit its source repository's local author configuration.
+  run('git', ['config', 'user.name', 'Workspace Context Tester'], { cwd: lead });
+  run('git', ['config', 'user.email', 'workspace.context@example.invalid'], { cwd: lead });
   run('git', ['checkout', '-b', 'feature/mobile-ui'], { cwd: lead });
   await mkdir(path.join(lead, 'singularity', 'work-items', 'MOB-123'), { recursive: true });
   await writeFile(path.join(lead, 'singularity', 'work-items', 'MOB-123', 'workflow.json'), JSON.stringify({

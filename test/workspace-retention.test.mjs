@@ -24,6 +24,8 @@ async function fixture(t) {
   await mkdir(root, { recursive: true });
   git(root, ['init', '-q', '-b', 'main']); git(root, ['config', 'user.name', 'Retention Tester']);
   git(root, ['config', 'user.email', 'retention@example.com']);
+  // Keep the safety proof's raw-byte fixture stable under Git for Windows autocrlf=true.
+  await writeFile(path.join(root, '.gitattributes'), '* text eol=lf\n');
   const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_AUTOMATIC_CLEANUP: 'off',
     SINGULARITY_FLOW_TEST_IDENTITY: 'Retention Tester',
     SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', agent: 'product-owner' }),
@@ -130,6 +132,9 @@ test('unpushed, active, dirty, ignored, recovery and open-window Story worktrees
     assert.equal(result.removed.length, 0, `${reason}: ${JSON.stringify(result)}`); assert.ok(await lstat(target));
   };
   await writeFile(path.join(target, 'draft.txt'), 'uncommitted'); await check('untracked'); await rm(path.join(target, 'draft.txt'));
+  const readme = path.join(target, 'README.md'), original = await readFile(readme, 'utf8');
+  await writeFile(readme, original.replaceAll('\n', '\r\n')); await check('retained line-ending bytes');
+  await writeFile(readme, original);
   const privateGit = git(target, ['rev-parse', '--absolute-git-dir']);
   await mkdir(path.join(privateGit, 'singularity-flow/recovery'), { recursive: true }); await check('recovery');
   await rm(path.join(privateGit, 'singularity-flow/recovery'), { recursive: true });

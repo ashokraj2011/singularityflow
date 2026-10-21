@@ -2735,8 +2735,11 @@ export async function loadStoryConfigurationSnapshot(authority, {
   env = process.env, captureAuthoringBytes = false, useObjectCache = false, session = null,
   reuseAuthorityObservation = false
 } = {}) {
-  // Freeze scalar selectors before the request cache can yield to another consumer.
-  authority = authority && Object.freeze({ ...authority });
+  // Freeze scalar selectors before the request cache can yield to another consumer. Spread drops a
+  // state-mirror resolution's non-enumerable retained snapshot; carry it for the verified reuse check.
+  const retained = authority?.[STORY_CONFIGURATION_AUTHORITY_SNAPSHOT];
+  authority = authority && Object.freeze({ ...authority,
+    ...(retained ? { [STORY_CONFIGURATION_AUTHORITY_SNAPSHOT]: retained } : {}) });
   if (!authority?.remote || !authority?.branch) throw new SingularityFlowError(
     'A Story configuration definition requires a resolved authority.');
   // Admit the original environment first: copying process.env without its private attestation

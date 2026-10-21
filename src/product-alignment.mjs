@@ -244,11 +244,11 @@ export async function observeProductSurfaces({
   if (managed) {
     // Managed engine selection is its own owner. Never inspect/repair the user's global npm
     // installation from a managed command or its first-mutation advisory pass.
-    const packageRoot = path.dirname(path.dirname(managed.cli));
+    const managedPackageRoot = path.dirname(path.dirname(managed.cli));
     let build = null;
     try { build = stampedBuildLine(
-      fs.readFileSync(path.join(packageRoot, 'src/version.mjs'), 'utf8'),
-      fs.readFileSync(path.join(packageRoot, 'src/build-info.mjs'), 'utf8')); } catch { /* explicit unverifiable below */ }
+      fs.readFileSync(path.join(managedPackageRoot, 'src/version.mjs'), 'utf8'),
+      fs.readFileSync(path.join(managedPackageRoot, 'src/build-info.mjs'), 'utf8')); } catch { /* explicit unverifiable below */ }
     const directory = extensionPath ? path.resolve(extensionPath)
       : installedExtensionDirectory({ homeDirectory, environment, version: build?.version });
     const vscodeBuild = directory ? extensionDirectoryBuild(directory) : null;

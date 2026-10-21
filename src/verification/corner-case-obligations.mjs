@@ -702,11 +702,8 @@ export async function inspectCornerCaseObligations(root, config, workflow, phase
     }
     const baseCommit = phase.generationIntent?.baseline?.commit ?? workflow.workIntervals?.current?.sourceBaseCommit ?? null;
     if (!baseCommit) {
-      return {
-        cornerCases: Object.freeze({ status: 'unavailable', reason: 'generation-baseline-unknown', blocking: false }),
-        findings: [],
-        advisories: []
-      };
+      throw Object.assign(new Error('Generation baseline is unavailable for corner-case inspection.'),
+        { code: 'GENERATION_BASELINE_UNKNOWN' });
     }
     const itemRoot = posix(config.workItemRoot ?? 'singularity/work-items');
     const changeSet = await buildRepositoryChangeSet(root, { baseCommit });

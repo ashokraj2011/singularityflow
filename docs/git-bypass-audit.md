@@ -1,5 +1,14 @@
 # GAL Git bypass regression gate
 
+The residual branch port adds two bounded read-only checkout-policy observations in the existing
+state owner: exact `check-attr -z` for built-in text/eol/filter/encoding settings and
+`config --get core.autocrlf`. They never invoke clean filters or rewrite approval hashes.
+The new immutable-review reader batches literal-path `ls-tree -z` for exceptional LF/CRLF or
+removal proofs; a failed read proves neither absence nor a regular file. All reads have bounded
+argv, output and deadlines. The Windows wrapper removes its independent Git/update sites so the
+canonical installer owns recovery admission before pulling. The golden smoke retains one reviewed
+platform-resolved native process site with timeout and explicit unconfirmed-child retention.
+
 Canonical source binding adds one read-only, batched `hash-object --stdin-paths` site to the
 existing state owner, without `-w` or index staging. The selected regular paths have already passed
 the repository path policy, and are byte-wise C-quoted. One fresh filter-policy snapshot disables

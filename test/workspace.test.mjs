@@ -1393,7 +1393,10 @@ test('workspace capability drop isolates Git evidence and retains non-ref local 
     const before = await readFile(manifestFile, 'utf8');
     const hook = path.join(root, 'hide-all-fsmonitor.sh');
     await writeFile(hook, "#!/bin/sh\nprintf 'sflow-token\\0'\n", { mode: 0o700 });
-    run('git', ['config', 'core.fsmonitor', hook], { cwd: fixture.apiCheckout });
+    // Git executes fsmonitor through its shell, including Git for Windows' POSIX shell. A native
+    // backslash path loses its separators there; quote a slash path, including spaces/apostrophes.
+    const hookCommand = `'${hook.replaceAll('\\', '/').replaceAll("'", "'\\''")}'`;
+    run('git', ['config', 'core.fsmonitor', hookCommand], { cwd: fixture.apiCheckout });
     run('git', ['config', 'core.fsmonitorHookVersion', '2'], { cwd: fixture.apiCheckout });
     assert.equal(run('git', ['status', '--porcelain=v1'], {
       cwd: fixture.apiCheckout

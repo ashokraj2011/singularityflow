@@ -1,7 +1,7 @@
 # Cold-start and native intake performance
 
 The installed CLI uses coarse ESM bundles instead of parsing the entire legacy engine on every
-request. There are at most 20 generated module files, including six private worker/CLI entries.
+request. There are at most 21 generated module files, including six private worker/CLI entries.
 Static dependency closures are assigned once in priority order. Shared error classes, operation
 contexts, read scopes and mutable caches keep one identity. New inter-chunk static cycles fail
 the build. Worker programs with top-level listeners are never merged into shared chunks.
@@ -9,8 +9,11 @@ the build. Worker programs with top-level listeners are never merged into shared
 The CLI's initial static closure is about 1.33 MB rather than the monolithic control's 16.49 MB.
 Tiny common helpers matter: the deferred-index completion check is a core dependency, not a route
 through the compatibility/admin chunk. Status, session, intake, hooks and maintenance have explicit
-families; unrelated domains stay deferred. Esbuild strips whitespace after Rollup assigns modules;
-it does not re-bundle or duplicate them. The old monolithic layout remains an explicit control.
+families; unrelated domains stay deferred. Esbuild compacts whitespace and syntax for Node 20
+after Rollup assigns modules; it retains identifiers and does not re-bundle or duplicate them.
+The old monolithic layout remains an explicit control. The root error boundary reads attached
+result metadata directly from the command-result contract, not through the output module and
+its workflow planner. The status budget and a dependency-exclusion regression guard that boundary.
 
 Bundle format 2 retains live build-stamp validation and source fallback. One directory roster
 checks the generated regular files, rather than one stat per chunk. Missing files, unsupported

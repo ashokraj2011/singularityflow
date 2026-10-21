@@ -92,8 +92,12 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   assert.match(startupCode, /validateSkillRequest/u, 'early argv validation must not import the catalog chunk');
   assert.match(startupCode, /validateInstructionRequest/u, 'instruction validation must remain in the startup chunk');
   const statusClosure = closure('cold-status.mjs');
-  assert.ok(statusClosure.reduce((sum, item) => sum + item.bytes, 0) < 1.5 * 1024 * 1024,
-    'ordinary JSON status must not inherit catalog or review closures');
+  const statusBytes = statusClosure.reduce((sum, item) => sum + item.bytes, 0);
+  assert.ok(statusBytes < 1.5 * 1024 * 1024,
+    `ordinary JSON status must not inherit catalog or review closures: ${statusBytes} bytes`);
+  const statusCode = (await Promise.all(statusClosure.map(item => readFile(path.join(outdir, item.file), 'utf8')))).join('\n');
+  assert.doesNotMatch(statusCode, /function (?:emitCommandResult|attachContinuation|workflowNextSteps)\b/u,
+    'the root error lookup must not pull the output boundary or workflow planner into ordinary status');
   for (const name of ['cold-catalogs.mjs', 'cold-hook-context.mjs', 'cold-narrow-reads.mjs', 'cold-compatibility.mjs']) {
     assert.ok(!statusClosure.some(item => item.file === name), `status must not statically reach ${name}`);
   }
@@ -169,7 +173,7 @@ export async function load(url, context, next) {
     const modules = (await readFile(log, 'utf8').catch(() => '')).split('\n').filter(Boolean);
     return { status: result.status, stdout: result.stdout, modules };
   };
-  for (const args of [['--version'], ['help'], ['snapshot', '--include', 'repository', '--json'], ['nextsteps', '--json'],
+  for (const args of [['--version'], ['help'], ['snapshot', '--include', 'repository', '--json'], ['status', 'MISSING', '--json'], ['nextsteps', '--json'],
     ['home', '--json'], ['inbox', '--json'],
     ['agents', 'list', '--json'], ['agents', 'mappings', '--json'], ['agents', 'status', '--json'],
     ['phase', 'show', 'intake', '--json'], ['report', 'MISSING', '--format', 'json'],

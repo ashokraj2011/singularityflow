@@ -1,5 +1,6 @@
 /** One error boundary shared by the public CLI and its convenience launchers. */
-import { commandResultOf } from './narration/emit.mjs';
+// Inspect an attached result without importing the output boundary's workflow planner.
+import { commandResultOf } from './narration/command-result.mjs';
 import { renderCommandResultJson } from './narration/render-json.mjs';
 import { renderCommandResult } from './narration/render-terminal.mjs';
 import { optionBoolean, parseArgs, SingularityFlowError } from './util.mjs';

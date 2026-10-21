@@ -133,10 +133,10 @@ export async function buildColdCliBundle({ root, outdir, toolRoot, entries, exte
       if (chunk.type !== 'chunk' || !/^[a-zA-Z0-9_-]+\.mjs$/u.test(chunk.fileName)) throw new Error('Unsupported cold bundle output.');
       // No module-by-module deployment: the complete installed engine has a small fixed envelope.
       if (output.length > 21) throw new Error(`Cold bundle produced ${output.length} files; maximum is 21.`);
-      // Rollup owns identity/chunking; esbuild only strips whitespace/comments and keeps the same
-      // Node 20 syntax target as the monolithic builder. It never re-bundles or duplicates modules.
+      // Rollup owns identity/chunking. Like the VS Code build, esbuild also compacts syntax for
+      // the Node 20 target, but retains identifiers and never re-bundles or duplicates modules.
       const transformed = await transform(chunk.code, { format: 'esm', platform: 'node', target: 'node20',
-        minifyWhitespace: true, legalComments: 'none' });
+        minifyWhitespace: true, minifySyntax: true, legalComments: 'none' });
       const bytes = Buffer.from(transformed.code);
       await writeFile(path.join(staging, chunk.fileName), bytes);
       outputs.push({ file: chunk.fileName, bytes: bytes.length, modules: Object.keys(chunk.modules).length,

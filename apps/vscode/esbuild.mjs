@@ -63,6 +63,19 @@ const siblingGatewayRuntimePlugin = {
   }
 };
 
+const sharedManagedRuntimePlugin = {
+  name: 'singularity-flow-shared-managed-runtime',
+  setup(buildContext) {
+    buildContext.onResolve({ filter: /runtime[\\/]resolve\.cjs$/ }, (args) => {
+      if (path.resolve(args.resolveDir, args.path) !== path.join(root, 'runtime', 'resolve.cjs')
+          || args.importer === path.join(root, 'apps', 'vscode', 'src', 'gateway-context-runtime.ts')) return;
+      // Source tests still import the ordinary resolver. Shipped bundles share the existing,
+      // small process-wide entry; resolving the current installed pair remains fresh per call.
+      return { path: './gateway-context-runtime.cjs', external: true };
+    });
+  }
+};
+
 const options = {
   entryPoints: {
     extension: 'src/extension.ts',
@@ -93,7 +106,7 @@ const options = {
   // The extension host never runs a bound CLI invocation; core drops those branches from these
   // bundles when it sees this flag (workspaceMemberContextForRepository).
   define: { __SFLOW_BUILD__: JSON.stringify(BUILD), 'globalThis.__SFLOW_EXTENSION_HOST__': 'true' },
-  plugins: [packageRootPlugin, siblingGatewayRuntimePlugin],
+  plugins: [packageRootPlugin, siblingGatewayRuntimePlugin, sharedManagedRuntimePlugin],
   sourcemap: true,
   logLevel: 'info'
 };

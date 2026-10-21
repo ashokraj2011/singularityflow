@@ -1,5 +1,13 @@
 # GAL Git bypass regression gate
 
+Canonical source binding adds one read-only, batched `hash-object --stdin-paths` site to the
+existing state owner, without `-w` or index staging. The selected regular paths have already passed
+the repository path policy, and are byte-wise C-quoted. One fresh filter-policy snapshot disables
+external clean/process filters for both diff and hashing; Git's built-in EOL/encoding conversion
+still matches publication. The hardened launcher retains its existing time/output limits. No
+remote, arbitrary executable, new process owner or authority exemption is added. The reviewed
+baseline changes only this hash site and the matching filter-safe diff site.
+
 Workspace clone resumption adds three fixed local observations (`origin` configuration, symbolic
 HEAD and exact HEAD) through a bounded Git launcher in `workspace-clone-claim.mjs`. They use the
 existing sanitized enterprise environment, disable optional index locks and lazy fetching, and

@@ -1551,9 +1551,9 @@
     },
     "src/state.mjs": {
       "counts": {
-        "command-run": 25
+        "command-run": 26
       },
-      "digest": "fc51d0e3695fb67f967d6b39ebf72c1d541d8d50114b8fa356213c6456b80f75"
+      "digest": "4d3eba3681bbfecf3a9149c55ab28cfd234e093d50c7d65014c89e9527269ed8"
     },
     "src/story-intake-verification.mjs": {
       "counts": {

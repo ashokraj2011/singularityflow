@@ -39,6 +39,14 @@ function fail(message) {
   return new SingularityFlowError(message, { code: 'AUTHORING_SKILL_CATALOG_INVALID' });
 }
 
+function freezeEntry(sourceId, value) {
+  return Object.freeze({
+    id: authoringSkillDirectId(sourceId), sourceId,
+    produces: Object.freeze([...value.produces]),
+    legacyPhases: Object.freeze((value.legacyPhases ?? []).map(String))
+  });
+}
+
 /** The packaged id behind a direct one: `sf-design` → `sflow-design`. */
 export function authoringSkillSourceId(id) {
   return String(id).replace(/^sf-/, 'sflow-');
@@ -73,17 +81,16 @@ export function parseAuthoringSkills(declaration, { registeredSkills = null } = 
         || legacyPhases.some((phase) => !PHASE_ID.test(String(phase)))) {
       throw fail(`Authoring skill '${sourceId}' legacyPhases must list distinct step ids.`);
     }
-    entries.push(Object.freeze({
-      id: authoringSkillDirectId(sourceId),
-      sourceId,
-      produces: Object.freeze([...produces]),
-      legacyPhases: Object.freeze(legacyPhases.map(String))
-    }));
+    entries.push(freezeEntry(sourceId, value));
   }
   return Object.freeze(entries);
 }
 
-const CATALOG = parseAuthoringSkills(AUTHORING_SKILL_DECLARATION);
+// This source-owned literal is validated against the packaged registry by the skill audit/tests.
+// Building its read-only projection directly lets UI-only consumers omit the untrusted-input
+// parser. Imported/user declarations must still pass parseAuthoringSkills in configuration loading.
+const CATALOG = Object.freeze(Object.entries(AUTHORING_SKILL_DECLARATION)
+  .map(([sourceId, value]) => freezeEntry(sourceId, value)));
 
 /** The skills a step may name, in declaration order. */
 export function authoringSkillCatalog() {

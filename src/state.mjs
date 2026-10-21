@@ -265,7 +265,7 @@ import {
   buildRepositoryChangeSet, buildRepositoryTreeChangeSet, evaluateProtectedPaths,
   repositoryCaseInsensitivePaths
 } from './repository-change-set.mjs';
-import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
+import { assertNoHiddenWorktreeChanges, withoutConfiguredFilters } from './worktree-fingerprint.mjs';
 import {
   artifactFindingMessage, authoredArtifactFingerprint, authoredArtifactText,
   inspectPhaseAuthoredReviewContent, inspectPhaseArtifactQuality, inspectRequiredArtifactText, requiredArtifactRepoPath,
@@ -2860,7 +2860,10 @@ export async function sourceTreeHash(root, ...governanceSources) {
     );
   }
   const indexed = indexEntries.filter((entry) => entry.stage === 0 && selected(entry.path));
-  const unstaged = new Set(run('git', [
+  // Reuse one fresh filter-policy snapshot for these read-only Git calls. Built-in text/encoding
+  // conversion must match staging, but a freshness check must never execute a repository filter.
+  const filterOverrides = withoutConfiguredFilters(root, [], { fresh: true });
+  const unstaged = new Set(run('git', [...filterOverrides,
     'diff', '--name-only', '-z', '--ignore-submodules=none', 'HEAD', '--'
   ], { cwd: root }).stdout.split('\0').filter(Boolean).map(posix));
   const byPath = new Map(indexed.map((entry) => [entry.path, entry]));
@@ -2878,6 +2881,7 @@ export async function sourceTreeHash(root, ...governanceSources) {
     unstaged.add(relative);
   }
   const manifest = [];
+  const regularFiles = [];
   const blobObject = (bytes) => createHash(objectFormat)
     .update(Buffer.from(`blob ${bytes.length}\0`))
     .update(bytes)
@@ -2932,14 +2936,33 @@ export async function sourceTreeHash(root, ...governanceSources) {
         object: blobObject(target)
       });
     } else if (info.isFile()) {
-      const bytes = await readFile(absolute);
-      manifest.push({
-        path: entry.path, mode: (info.mode & 0o111) ? '100755' : '100644', kind: 'git-object',
-        object: blobObject(bytes)
-      });
+      const record = { path: entry.path,
+        mode: process.platform === 'win32' && ['100644', '100755'].includes(entry.mode)
+          ? entry.mode : (info.mode & 0o111) ? '100755' : '100644',
+        kind: 'git-object', object: null };
+      manifest.push(record);
+      regularFiles.push(record);
     } else {
       manifest.push({ path: entry.path, mode: String(info.mode), kind: 'non-regular', object: null });
     }
+  }
+  if (regularFiles.length) {
+    // --stdin-paths applies Git's built-in EOL/encoding/ident conversions without -w or staging.
+    // Git C-quotes are byte-oriented: quote every non-ASCII/control byte as octal so spaces,
+    // Unicode, literal backslashes and POSIX newline names cannot become extra input records.
+    const quoted = regularFiles.map(entry => '"' + [...Buffer.from(entry.path)].map(byte =>
+      byte >= 0x20 && byte <= 0x7e && byte !== 0x22 && byte !== 0x5c
+        ? String.fromCharCode(byte) : `\\${byte.toString(8).padStart(3, '0')}`).join('') + '"');
+    const hashed = run('git', [...filterOverrides, 'hash-object', '--stdin-paths'], {
+      cwd: root, input: `${quoted.join('\n')}\n`
+    }).stdout.trimEnd().split('\n');
+    const objectPattern = objectFormat === 'sha256' ? /^[a-f0-9]{64}$/u : /^[a-f0-9]{40}$/u;
+    if (hashed.length !== regularFiles.length || hashed.some(value => !objectPattern.test(value))) {
+      throw new SingularityFlowError('Git did not return one exact source object per selected file.', {
+        code: 'SOURCE_TREE_HASH_UNAVAILABLE'
+      });
+    }
+    regularFiles.forEach((entry, index) => { entry.object = hashed[index]; });
   }
   return `sha256:${createHash('sha256').update(canonicalJson(selection === 'test-input'
     ? { policy: sourcePolicy, manifest } : manifest)).digest('hex')}`;

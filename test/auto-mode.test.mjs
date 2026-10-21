@@ -612,6 +612,8 @@ test('Auto adoption seals exact Ad Hoc bytes without materializing or relabellin
 
 test('Auto adoption materializes and publishes the exact Candidate at the first code phase', async () => {
   const root = await executableRepository();
+  // Exercise the office Windows checkout layout on every host, not just on native Windows CI.
+  run('git', ['config', 'core.autocrlf', 'true'], root);
   run('git', ['switch', '-c', 'feature/adhoc-code'], root);
   await writeFile(path.join(root, 'app.mjs'), 'export const value = 2;\n');
   await mkdir(path.join(root, 'test'), { recursive: true });

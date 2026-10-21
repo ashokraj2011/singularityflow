@@ -19,7 +19,7 @@ import {
 import type { RepositorySnapshot, SnapshotSlice } from './snapshot.ts';
 import { recordHostBackgroundProcessStarted, recordHostBackgroundProcessCompleted } from '../host-performance.ts';
 import { performanceActionId } from '../../../../src/dx-timing-context.mjs';
-import runtimeResolver from '../../../../runtime/resolve.cjs';
+import { resolveManagedEngine } from '../../../../runtime/resolve.cjs';
 
 export const CORE_SNAPSHOT_SLICES: readonly SnapshotSlice[] = Object.freeze([
   'repository', 'lifecycle', 'capabilities', 'executionContext'
@@ -622,7 +622,7 @@ export function resolveCli(options: ResolveOptions = {}): CliLocation {
   // Keep the UI in VS Code's extension host, but run the engine in its selected private Node.
   // An invalid existing managed installation is an error, not permission to run a stale fallback.
   const managed = options.managedEngine ? options.managedEngine()
-    : runtimeResolver.resolveManagedEngine();
+    : resolveManagedEngine();
   if (managed) return { executable: configuredNode?.trim() || managed.executable, cli: managed.cli, source: 'managed',
     ...(configuredNode?.trim() ? { nodeOverride: configuredNode.trim() } : {}) };
 
@@ -692,7 +692,7 @@ export class SingularityFlowClient {
   get location(): CliLocation {
     const initial = this.options.location;
     if (initial.source !== 'managed') return initial;
-    const selected = (this.options.managedEngine || runtimeResolver.resolveManagedEngine)();
+    const selected = (this.options.managedEngine || resolveManagedEngine)();
     if (!selected) throw new Error('The managed SFlow engine selection is missing. Repair the managed installation; no global fallback was selected.');
     return { ...initial, cli: selected.cli, executable: initial.nodeOverride || selected.executable };
   }

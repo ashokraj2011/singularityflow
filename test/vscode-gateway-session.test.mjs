@@ -9,7 +9,8 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { fork, spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -48,6 +49,44 @@ test('the packaged lazy gateway runtime contains the in-process handle authority
   assert.ok(bundle.includes('A handle requires the operation it resolved to'),
     'the handle authority is bundled');
   assert.ok(bundle.includes('gateway.planner-unavailable'), 'the kernel is bundled');
+});
+
+test('shipped bundles share the managed resolver and defer the locked ACP SDK until invocation', async () => {
+  const sources = async name => JSON.parse(await readFile(path.join(isolatedBundle, `${name}.cjs.map`), 'utf8')).sources;
+  for (const name of ['extension', 'lazy-panels-runtime']) {
+    assert.ok(!(await sources(name)).some(source => /runtime\/resolve\.cjs$/u.test(source)),
+      `${name} must not copy the managed resolver`);
+    assert.match(await readFile(path.join(isolatedBundle, `${name}.cjs`), 'utf8'),
+      /require\(["']\.\/gateway-context-runtime\.cjs["']\)/u);
+  }
+  assert.equal((await sources('gateway-context-runtime')).filter(source => /runtime\/resolve\.cjs$/u.test(source)).length, 1);
+  assert.ok(!(await sources('gateway-runtime')).some(source => source.includes('@agentclientprotocol/sdk/')),
+    'the gateway must not parse protocol schemas just to render a read-only card');
+});
+
+test('the shared packaged resolver freshly selects an installed pair and never hides a broken upgrade', async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-shared-engine-'));
+  t.after(() => rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  const { resolveManagedEngine } = createRequire(import.meta.url)(path.join(isolatedBundle, 'gateway-context-runtime.cjs'));
+  const environment = { SINGULARITY_FLOW_ENGINE_HOME: directory };
+  assert.equal(resolveManagedEngine({ environment }), null);
+  const runtime = `node-v26.12.0-${process.platform}-${process.arch}`;
+  const runtimeRoot = path.join(directory, 'runtimes', runtime);
+  const executable = path.join(runtimeRoot, ...(process.platform === 'win32' ? ['node.exe'] : ['bin/node']));
+  await mkdir(path.dirname(executable), { recursive: true, mode: 0o700 });
+  await writeFile(executable, 'test runtime', { mode: 0o600 });
+  for (const release of ['a'.repeat(64), 'b'.repeat(64)]) {
+    const cli = path.join(directory, 'releases', release, 'node_modules/singularity-flow/bin/singularity-flow.mjs');
+    await mkdir(path.dirname(cli), { recursive: true, mode: 0o700 });
+    await writeFile(cli, 'test CLI', { mode: 0o600 });
+    await writeFile(path.join(directory, 'active'), `1|${runtime}|${release}\n`, { mode: 0o600 });
+    const selected = resolveManagedEngine({ environment });
+    assert.equal(selected.release, release, 'each lookup must follow the latest atomic installation selection');
+    assert.equal(path.basename(selected.executable), path.basename(executable));
+    assert.equal(selected.cli, await realpath(cli));
+  }
+  await writeFile(path.join(directory, 'active'), 'broken upgrade\n');
+  assert.throws(() => resolveManagedEngine({ environment }), /selection is invalid/u);
 });
 
 test('the packaged status worker loads its sibling gateway runtime and replies over IPC', async (t) => {

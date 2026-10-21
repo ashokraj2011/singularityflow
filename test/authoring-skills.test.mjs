@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
-import { authoringSkillCatalog, parseAuthoringSkills } from '../src/authoring-skills.mjs';
+import { AUTHORING_SKILL_DECLARATION, authoringSkillCatalog, parseAuthoringSkills } from '../src/authoring-skills.mjs';
 import { authoringRoute, deterministicOnlyGeneration, generationSkillForPhase, legacyAuthoringSkill, phaseKernelOwned, stepOutputKind } from '../src/code-delivery-policy.mjs';
 import { phaseAuthoringSummary, preparedPhaseNextActions } from '../src/cli.mjs';
 import { attachContinuation } from '../src/narration/continuation.mjs';
@@ -41,6 +41,10 @@ test('the authoring-skill catalog is declared once, checked strictly, and names 
   assert.deepEqual(catalog.find((entry) => entry.id === 'sf-release').produces, ['document']);
   assert.deepEqual(catalog.find((entry) => entry.id === 'sf-code').produces, ['code']);
   const registered = new Set(Object.keys(YAML.parse(await readFile(path.join(packageRoot, 'plugin', 'skills', 'registry.yml'), 'utf8')).skills));
+  assert.deepEqual(catalog, parseAuthoringSkills(AUTHORING_SKILL_DECLARATION, { registeredSkills: registered }),
+    'the lightweight built-in projection must equal the fully validated declaration');
+  assert.ok(Object.isFrozen(catalog) && catalog.every(entry => Object.isFrozen(entry)
+    && Object.isFrozen(entry.produces) && Object.isFrozen(entry.legacyPhases)));
   for (const entry of catalog) assert.ok(registered.has(entry.sourceId), `${entry.sourceId} is a registered skill`);
   const declaration = { 'sflow-design': { produces: ['document'], legacyPhases: ['design'] } };
   assert.deepEqual(parseAuthoringSkills(declaration, { registeredSkills: new Set(['sflow-design']) }),

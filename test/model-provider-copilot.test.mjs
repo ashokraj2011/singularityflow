@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { spawn as nodeSpawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -205,12 +207,12 @@ for await (const line of lines) {
 `;
 
 async function invokeAcp(root, overrides = {}) {
-  const { publicPrompt = { text: 'ACP prompt' }, fixtureArguments = [], ...requestOverrides } = overrides;
+  const { publicPrompt = { text: 'ACP prompt' }, fixtureArguments = [], provider = invokeCopilotCli, ...requestOverrides } = overrides;
   const fixture = path.join(root, `fake-acp-${Math.random().toString(16).slice(2)}.mjs`);
   await writeFile(fixture, fakeAcpSource);
   const staged = await stageModelPrompt(publicPrompt, { tempRoot: root });
   try {
-    return await invokeCopilotCli({
+    return await provider({
       provider: 'copilot-cli',
       providerConfig: { executable: process.execPath, arguments: [fixture, ...fixtureArguments] },
       cwd: root,
@@ -220,6 +222,33 @@ async function invokeAcp(root, overrides = {}) {
     });
   } finally { await staged.cleanup(); }
 }
+
+test('the packaged CommonJS provider loads the locked SDK outside its bundle, not from the application cwd', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-bundled-acp-'));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const outfile = path.join(root, 'provider.cjs');
+  const { build } = await import('esbuild');
+  const result = await build({ entryPoints: [path.join(packageRoot, 'src/model-providers/copilot-cli.mjs')],
+    outfile, bundle: true, platform: 'node', format: 'cjs', metafile: true,
+    plugins: [{ name: 'test-package-root', setup(builder) {
+      builder.onLoad({ filter: /[\\/]package-root\.mjs$/ }, () => ({
+        contents: `export const PACKAGE_ROOT = ${JSON.stringify(packageRoot)};`, loader: 'js'
+      }));
+    } }] });
+  assert.ok(!Object.keys(result.metafile.inputs).some(name => name.includes('@agentclientprotocol/sdk/')));
+  // A hostile or unrelated repository dependency must never supply SFlow's transport.
+  await mkdir(path.join(root, 'node_modules/@agentclientprotocol/sdk'), { recursive: true });
+  await writeFile(path.join(root, 'node_modules/@agentclientprotocol/sdk/package.json'),
+    JSON.stringify({ main: 'index.cjs' }));
+  await writeFile(path.join(root, 'node_modules/@agentclientprotocol/sdk/index.cjs'),
+    'throw new Error("application SDK must not load");');
+  const provider = createRequire(import.meta.url)(outfile).invokeCopilotCli;
+  const response = await invokeAcp(root, { provider, publicPrompt: { text: 'bundled ACP request' } });
+  assert.equal(JSON.parse(response.output).sha256,
+    createHash('sha256').update('bundled ACP request').digest('hex'));
+  assert.equal(response.promptTransport, 'acp-stdio');
+});
 
 test('the Copilot provider sends verified prompt bytes over ACP stdio without argv or environment leakage', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-'));

@@ -5,7 +5,9 @@ import path from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import { TransformStream } from 'node:stream/web';
 import { StringDecoder } from 'node:string_decoder';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
+import { PACKAGE_ROOT } from '../package-root.mjs';
 import { isPreparedTelemetryLaunch, recordTelemetryLaunch } from '../telemetry-provision.mjs';
 import { COPILOT_MINIMUM_AI_CREDITS } from '../model-limits.mjs';
 import { redactDiagnosticText } from '../git-remote-diagnostics.mjs';
@@ -625,7 +627,11 @@ async function openCopilotAcp(request, runtimeOverrides = {}) {
     throw new SingularityFlowError('Copilot ACP adapter received the wrong prompt transport.', { code: 'MODEL_REQUEST_INVALID' });
   }
   // Loaded with the first model session, not with every command that can reach this module.
-  const acp = await import('@agentclientprotocol/sdk');
+  // Resolve from SFlow's locked package, not the application's dependencies or the extension
+  // host. A literal import embeds the entire ACP protocol/schema graph in the read-only gateway
+  // bundle even though it is needed only when a model session actually starts.
+  const sdkPath = createRequire(path.join(PACKAGE_ROOT, 'package.json')).resolve('@agentclientprotocol/sdk');
+  const acp = await import(pathToFileURL(sdkPath).href);
   if (request.signal?.aborted) {
     throw new SingularityFlowError('Model invocation was cancelled.', { code: 'MODEL_CANCELLED' });
   }

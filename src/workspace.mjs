@@ -3589,13 +3589,17 @@ async function prepareWorkspaceClone(root, operation, { deferClaim, env, policy 
   }
 
   const verifyOwnership = async () => {
-    const info = await lstat(stagingRoot).catch(() => null);
+    const missing = error => { if (error.code === 'ENOENT') return null; throw error; };
+    const info = await lstat(stagingRoot).catch(missing);
     if (!info?.isDirectory() || info.isSymbolicLink()) return false;
-    const canonical = await realpath(stagingRoot).catch(() => null);
+    const canonical = await realpath(stagingRoot).catch(missing);
     if (canonical !== ownership.canonicalPath || path.dirname(canonical) !== canonicalParent) return false;
     let recorded;
     try { recorded = readRecord('workspace-bootstrap-owner', await readFile(ownershipFile)).record; }
-    catch { return false; }
+    catch (error) {
+      if (['EBUSY', 'EPERM', 'EACCES'].includes(error.code)) throw error;
+      return false;
+    }
     return recorded.bootstrapId === ownership.bootstrapId
       && recorded.repositoryId === ownership.repositoryId
       && recorded.nonce === ownership.nonce
@@ -3797,12 +3801,19 @@ async function prepareWorkspaceClone(root, operation, { deferClaim, env, policy 
     await rmdir(operation.target);
   };
   const claim = async () => {
+    let verified = false;
+    const verifyOnce = async () => {
+      if (!verified) {
+        await verifyCompletedWorkspaceClone(stagingRoot, ownership, operation, completion, gitEnv);
+        verified = true;
+      }
+    };
     try {
-      await verifyCompletedWorkspaceClone(stagingRoot, ownership, operation, completion, gitEnv);
       // A user may pre-create the repository folder while setting up a workspace. Claim it only
       // when it is still empty after the clone completes; rmdir fails if a concurrent process
       // added anything, so no user content is overwritten.
       if (existing) await retryWorkspaceCloneClaim(removeReviewedEmptyTarget, async () => {
+        await verifyOnce();
         if (!(await verifyOwnership())) throw new SingularityFlowError('Clone staging ownership changed before its empty target could be removed.');
       }, policy);
       // This rename is the complete repository mutation: the private clone has already finished
@@ -3811,7 +3822,10 @@ async function prepareWorkspaceClone(root, operation, { deferClaim, env, policy 
       // afterward the checkout is complete and reset may safely win. Any later repository writer
       // (notably workspace state initialization) must acquire its own target-root mutation lease.
       await retryWorkspaceCloneClaim(
-        () => rename(staging, operation.target), targetAbsentAndStageOwned, policy
+        () => rename(staging, operation.target), async () => {
+          await verifyOnce();
+          await targetAbsentAndStageOwned();
+        }, policy
       );
     } catch (error) {
       return {
@@ -4039,7 +4053,7 @@ export async function createWorkspace(options, {
                     workspaceId: manifest.id
                   }, { deferClaim: true, env: gitEnv });
         } catch (error) {
-          return { status: 1, error: error instanceof Error ? error.message : String(error) };
+          return { status: 1, code: error.code, error: error instanceof Error ? error.message : String(error) };
         }
       }
     );
@@ -4071,7 +4085,9 @@ export async function createWorkspace(options, {
       await writeJournal(root, journal, manifest.directories.logs);
       const failedResult = stagedResults[journal.operations.indexOf(requiredFailure)];
       throw new SingularityFlowError(
-        `Workspace retained for repair after ${requiredFailure.repository} clone failed: ${failedResult.error}`);
+        `Workspace retained for repair after ${requiredFailure.repository} clone failed: ${failedResult.error}`, {
+          code: failedResult.code, details: failedResult.claimRecovery
+        });
     }
     for (let index = 0; index < journal.operations.length; index += 1) {
       const operation = journal.operations[index];
@@ -4859,7 +4875,7 @@ export async function repairWorkspace(workspacePath, {
               workspaceId: status.workspace.id
             }, { deferClaim: true, env: gitEnv });
       } catch (error) {
-        return { status: 1, error: error instanceof Error ? error.message : String(error) };
+        return { status: 1, code: error.code, error: error instanceof Error ? error.message : String(error) };
       }
     }
   );
@@ -4892,7 +4908,9 @@ export async function repairWorkspace(workspacePath, {
     const blocked = pending[blockingIndex];
     const failure = staged[blockingIndex];
     const prefix = blocked.repository.adoption ? 'Adopted repository' : 'Required repository';
-    throw new SingularityFlowError(`${prefix} '${blocked.repository.id}' could not be repaired: ${failure.error}`);
+    throw new SingularityFlowError(`${prefix} '${blocked.repository.id}' could not be repaired: ${failure.error}`, {
+      code: failure.code, details: failure.claimRecovery
+    });
   }
   for (let index = 0; index < pending.length; index += 1) {
     const { repository, operation } = pending[index];

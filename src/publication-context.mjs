@@ -3,6 +3,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
+import { installPublicationGitResult } from './git.mjs';
 
 const contexts = new AsyncLocalStorage();
 const OID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
@@ -93,3 +94,6 @@ export function publicationGitResult(root, args, options, execute) {
   return { status: 0, signal: null, stdout: binary
     ? Buffer.from(bytes) : bytes.toString(options.encoding ?? 'utf8'), stderr: binary ? Buffer.alloc(0) : '', error: null };
 }
+
+// git.mjs runs Git directly until this module loads, so the edit guard need not load it per call.
+installPublicationGitResult(publicationGitResult);

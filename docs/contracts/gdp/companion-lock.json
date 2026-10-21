@@ -4,11 +4,11 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "4b8dca9588be431e01fbf0d0bd0800c871337c8f",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-20-LOCAL-DOCUMENTS-AND-TRACES.md",
+    "reviewedAtCommit": "275abcb0000e435750e465cff48d098bad943856",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-21-AUTO-RETENTION-DIAGNOSTICS.md",
     "companionIds": [
-      "migration-registry",
-      "workflow-configuration"
+      "candidate-custody",
+      "migration-registry"
     ]
   },
   "companions": [
@@ -80,7 +80,7 @@
     {
       "id": "candidate-custody",
       "path": "src/auto/auto-candidate.mjs",
-      "sha256": "sha256:8dca4ae7661c33ea4d4ba4baaa9488243f7457341d5a8e037a9c3ddd3a303443"
+      "sha256": "sha256:03b1245b4a315a452c1d8e3c339214af53fd815011ab4299673a5f47ce210f5d"
     },
     {
       "id": "publication-unit-of-work",
@@ -95,7 +95,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:788df5337b1fe8bdae3a156ccb2de80ee4acdf14df08906d337688cb61ec2770"
+      "sha256": "sha256:3e5a95c3416eff77bf5643d9a652664ef8c416540e50ed6c24514294787b5440"
     },
     {
       "id": "smart-initialization-v1",

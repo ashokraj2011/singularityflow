@@ -378,6 +378,11 @@ const UPGRADE_KNOWN = Object.freeze({
       'An interrupted install still owns the product surfaces. Run that installer once more to finish its recovery.',
       null, 'remediation')
   ],
+  INSTALL_RECEIPT_UPGRADE_NOT_ADMITTED: () => [
+    step('rerun-full-source-install',
+      'A legacy installation receipt is upgraded only by a full source install, after any interrupted install has finished its recovery. Run the full installer again from your Singularity Flow checkout (not CLI-only); existing bytes and lineage are kept.',
+      null, 'remediation')
+  ],
   PRODUCT_ALIGNMENT_STEP_FAILED: () => productAlignmentSteps('A surface could not be aligned. Check which build each surface runs.'),
   PRODUCT_ALIGNMENT_VERIFICATION_FAILED: () => productAlignmentSteps(
     'A surface did not verify after alignment. Check which build each surface runs.'),

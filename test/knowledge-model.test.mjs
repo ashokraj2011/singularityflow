@@ -269,7 +269,7 @@ test('phase prompts receive one repository brief for the phase reader, focused o
   assert.match(missing.warnings[0], /Repository knowledge was not added/u, 'a failure never blocks the prompt');
   // The brief rides the registered grounding section, so prompt budgets and token-reduction
   // contracts need no new owner. It is the only World Model context a prompt gets.
-  const compose = await readFile(path.join(root, 'src', 'worldmodel.mjs'), 'utf8');
+  const compose = await readFile(path.join(root, 'src', 'phase-prompt-composer.mjs'), 'utf8');
   assert.match(compose, /\{ id: 'world-model-grounding', text: repositoryBrief\.text, mandatory: false, priority: 40 \}/u);
   assert.doesNotMatch(compose, /id: 'capability-world-model'/u);
   // A computed specifier, so editor bundles never carry the analysis engine; resolved from the

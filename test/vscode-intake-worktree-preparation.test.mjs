@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { IntakeWorktreePreparation } from '../apps/vscode/src/intake-worktree-preparation.ts';
 import { SingularityFlowClient } from '../apps/vscode/src/cli/client.ts';
+import { intakePreparation } from '../apps/vscode/src/runtime-prewarm.ts';
 
 const baseCommit = 'a'.repeat(40);
 const prepared = (workId = 'story', owned = true) => ({ preparation: { status: 'prepared', workId, baseCommit, owned } });
@@ -80,4 +81,22 @@ test('configuration transfer errors are advisory and do not reject Start', async
   helper.schedule('key', ['start', 'story']);
   assert.equal((await helper.take('key')).workId, 'story');
   await tick();
+});
+
+test('selected configuration transfer is opt-in while default local preparation remains available', async t => {
+  const original = process.env.SINGULARITY_FLOW_INTAKE_CONFIGURATION_PREPARATION;
+  t.after(() => { if (original === undefined) delete process.env.SINGULARITY_FLOW_INTAKE_CONFIGURATION_PREPARATION;
+    else process.env.SINGULARITY_FLOW_INTAKE_CONFIGURATION_PREPARATION = original; });
+  for (const mode of ['off', 'on']) {
+    process.env.SINGULARITY_FLOW_INTAKE_CONFIGURATION_PREPARATION = mode;
+    const calls = [];
+    const pinned = { run: async (args, signal, options) => { calls.push({ args, options }); return prepared(); } };
+    const helper = intakePreparation({ repository: '/launch', forkForRepository: root => {
+      assert.equal(root, '/launch'); return pinned;
+    } });
+    helper.schedule('key', ['start', 'story']);
+    assert.equal((await helper.take('key')).workId, 'story'); await tick();
+    assert.equal(calls.filter(x=>x.args[1] === 'prepare-configuration').length, mode === 'on' ? 1 : 0);
+    if (mode === 'on') assert.equal(calls[1].options.priority, 'background');
+  }
 });

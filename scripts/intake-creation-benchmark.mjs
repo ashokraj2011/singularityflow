@@ -13,8 +13,10 @@ import { buildCreationBenchmarkControl } from './creation-benchmark-control.mjs'
 const option = (name, fallback) => process.argv.find(arg => arg.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;
 const files = Number(option('files', '1000')), samples = Number(option('samples', '2'));
 const controlRef = option('control-ref', null), output = option('out', null);
+const configurationPreparationMode = option('configuration-preparation', 'off');
 if (!Number.isSafeInteger(samples) || samples < 1 || samples > 10 || !Number.isSafeInteger(files)
-    || files < 0 || files > 20000 || (controlRef && !/^[a-f0-9]{40}$/u.test(controlRef))) throw new Error('Invalid benchmark bounds.');
+    || files < 0 || files > 20000 || !['on', 'off'].includes(configurationPreparationMode)
+    || (controlRef && !/^[a-f0-9]{40}$/u.test(controlRef))) throw new Error('Invalid benchmark bounds.');
 const installation = await createWarmReadFixture({ files: 0 });
 try {
   const built = await buildCliBundle({ root: installation.engine });
@@ -71,7 +73,7 @@ try {
           // The new optional transfer is independent of local checkout preparation in the editor.
           // This profile measures a completed warmup; an unfinished one never delays the real Start.
           // The baseline has no such verb. Charge the candidate's extra work explicitly.
-          const configurationPreparation = mode === 'prewarmed' && variant === 'candidate'
+          const configurationPreparation = mode === 'prewarmed' && variant === 'candidate' && configurationPreparationMode === 'on'
             ? await invoke('configuration-prepare', ['story', 'prepare-configuration', '--work-id', 'PERF-READY',
               '--from-branch', 'main', '--work-type', 'feature', '--intake-receipt', receipt.id,
               '--json', '--timings'], selected) : null;
@@ -101,7 +103,8 @@ try {
       }
     }
   }
-  const report = { platform: process.platform, node: process.version, files, samples, controlRef, rows,
+  const report = { platform: process.platform, node: process.version, files, samples, controlRef,
+    configurationPreparationMode, rows,
     protocol: 'Fresh workspace fixture per sample; selected-base branch checkout and genuine receipt handoff; cold or matched runtime/selected preparation; all preparation charged separately and in totals; local bare remotes; OS caches not flushed; no model calls.' };
   const text = `${JSON.stringify(report, null, 2)}\n`;
   if (output) await writeFile(path.resolve(output), text);

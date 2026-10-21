@@ -6,7 +6,9 @@ import { lstat, mkdir, readFile, readdir, realpath, rename, rm, unlink, writeFil
 import { fileURLToPath } from 'node:url';
 import { deriveMutationContract, mutationContractPresentation, mutationDenial, mutationPathDecision, mutationTurnMode } from './phase-mutation-contract.mjs';
 import { copilotModeFile, readCopilotMode } from './copilot-mode.mjs';
-import { phaseStagingPaths, stagingTargetPurpose } from './phase-staging-paths.mjs';
+// The guard runs on every tool call: the staging-path helper loads only when a turn's record is built
+// or a staging refusal is written, never on the per-call path.
+const stagingPaths = () => import('./phase-staging-paths.mjs');
 import { parseArgs } from './util.mjs';
 import { resolveOperation } from './command-registry.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -139,7 +141,7 @@ async function createRecord(payload, record, root, accepted, previous = null) {
   // The step's own staging files follow from the pinned contract, so every turn bound to this step
   // may write them: also a turn after an interrupted one, or a new chat (SPEC-STAGING-PERMISSIONS D1).
   // Each is one exact file that must pass the same checks as an issued one; nothing else widens.
-  const derived = phaseStagingPaths({ gitDirectory: gitIdentity.gitDir, definition, workflow, phase, turnMode: mode })
+  const derived = (await stagingPaths()).phaseStagingPaths({ gitDirectory: gitIdentity.gitDir, definition, workflow, phase, turnMode: mode })
     .map(file => path.resolve(file));
   contract.allow.staging = [...new Set([...derived, ...(samePhase ? previous.contract.allow.staging : [])])];
   for (const file of derived) {
@@ -294,7 +296,9 @@ function sameDirectory(left, right) {
  * is and the command that issues it, never the generic path denial whose route is the skill already
  * running (SPEC-STAGING-PERMISSIONS D2). A file this turn may write under another name is a correction.
  */
-function unissuedStagingRefusal(value, targetsDenied, cwd) {
+async function unissuedStagingRefusal(value, targetsDenied, cwd) {
+  if (!targetsDenied.length) return null;
+  const { stagingTargetPurpose } = await stagingPaths();
   const contract = value.contract;
   for (const target of targetsDenied) {
     const absolute = editTarget(target, cwd);
@@ -831,7 +835,7 @@ export async function mutationToolGuard(payload = {}) {
     const correction = stagingPathMismatch(contract, denied,
       call.args.cwd ?? payload.cwd ?? contract.repositoryRoot, 'write');
     if (correction) return correction;
-    const unissued = unissuedStagingRefusal(value, denied, call.args.cwd ?? payload.cwd ?? contract.repositoryRoot);
+    const unissued = await unissuedStagingRefusal(value, denied, call.args.cwd ?? payload.cwd ?? contract.repositoryRoot);
     if (unissued) return unissued;
     if (denied.length) return mutationDenial(contract, 'PHASE_MUTATION_PATH_DENIED', denied);
   }

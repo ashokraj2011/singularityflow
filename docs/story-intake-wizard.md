@@ -51,3 +51,9 @@ escaping and integration with patch/focus restoration. Existing intake catalog,
 attachment, branch-search, scheduling, preparation and test-policy suites remain
 applicable. Browser checks additionally exercise the complete production script
 under delayed readiness and background patches in light, dark and high contrast.
+
+Favourite persistence has dedicated preference-store and built-host regressions for
+legacy migration, pending saves during immediate reopening, checkout changes, late
+logical identity, explicit removals, unrelated repositories and failed writes.
+The scoped intake suites, built-host regressions, typechecking, unchanged bundle
+ceilings and project checks passed on native macOS and Windows with Node 22 and 26.

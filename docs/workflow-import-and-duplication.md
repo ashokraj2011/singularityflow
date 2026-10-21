@@ -26,3 +26,39 @@ singularity-flow workflow duplicate story:feature my-feature --label 'My feature
 ```
 
 Use repeatable `--resolve agent:OLD=rename:NEW` or `--resolve skill:OLD=rename:NEW` options for explicit identities. Apply with the same choices and `--confirm PLAN-SHA256`; use `--propose` when changing the shared configuration authority. `workflow copy` remains the explicitly linked-copy operation; it is not the Studio's independent Duplicate action.
+
+## Archiving and deleting workflows
+
+A workflow nobody uses any more can be archived or deleted. Both are configuration proposals that
+the configuration reviewers activate, like any other workflow change.
+
+**Archive** keeps the workflow and everything it uses, unchanged. New Stories are no longer offered
+it: it is left out of intake, the workflow catalog and favourites, and Workflow Studio shows it under
+**Archived**. Stories already using it keep running. Seeded workflows can be archived.
+
+```bash
+singularity-flow workflow archive <ID> --reason "Replaced by the release workflow" --propose
+singularity-flow workflow restore <ID> --propose
+```
+
+**Delete** removes the workflow and each dependency that no other workflow uses, archived ones
+included: its own steps, agents, skills, instructions, templates, MCP servers, integration targets
+and imported copies. An agent shared with another workflow keeps its other steps. Settings that name
+a removed step are cleaned. Seeded workflows, built-in agents, canonical Epic steps, approval groups
+and anything another workflow still uses are never removed.
+
+```bash
+singularity-flow workflow delete <ID> --dry-run --json
+singularity-flow workflow delete <ID> --confirm <PLAN-SHA256> --propose
+```
+
+The preview lists what is removed, what is kept and which workflow still uses it, and the Stories
+that use the workflow. A Story with a pinned workflow copy keeps running. An unfinished Story without
+one blocks the delete; finish or cancel it, or archive the workflow instead. Before the proposal is
+made, a complete export bundle of the workflow is saved on this machine and its path is shown;
+`singularity-flow workflow import <BUNDLE> --dry-run` brings it back. If the repository's default
+workflow is archived or deleted, `--new-default <ID>` names its replacement.
+
+In VS Code, each workflow card in Workflow Studio has **Archive** or **Restore**, and **Delete…** on
+workflows that are not seeded. **Delete…** opens the same preview as a review page. Copilot may
+archive, restore and preview a delete; confirming a delete is always the person's own step.

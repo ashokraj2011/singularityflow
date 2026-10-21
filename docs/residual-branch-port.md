@@ -24,6 +24,12 @@ It is a selective port, not a merge of historical configuration, generated files
   Never remove an existing destination or replace active recovery with a fresh installation.
 - ESM-URL portability in qualification/UI fixtures, and process quiescence/scratch retention in
   release diagnostics. Diagnostic continuation remains a failing gate.
+- Native installer fixtures use the MSYS interpreter, not Git's PATH/argv-rewriting launcher.
+  Recovery commands remain opaque at the native helper boundary, and partial-stream failure
+  injection still exercises the pinned immutable installer path.
+- UI/cache qualification follows main's Windows per-user cache and native absolute-path rules.
+  Private encrypted checkpoint replacement retries transient sharing failures without deleting
+  the previous seal. Readers retry a raced unlinked stat but never admit it as a trusted path.
 - Content-addressed syntax facts, a dependency graph, bounded discovery/task and quality-command
   pools, corner-case signals, assertion diagnostics and a consolidated remediation projection.
 
@@ -52,6 +58,21 @@ Remediation summaries list locations without rendering source or scaffold bodies
 
 ## Qualification
 
-Native Mac/Windows results are recorded after selected-port and latest-main qualification.
-This is not a 1.0 release certificate or a waiver for unrelated full-suite failures, skipped tests,
-human approvals or complete native Copilot Story qualification.
+Qualification uses native macOS and Windows hosts on Node 22 and 26, not a simulated platform.
+Selected successful cohorts cover 133 verification/cache/transport/provenance tests, 61 installer
+and release-harness tests, nine cache-authority tests, 45 UI/storage tests, 36 worktree-drop tests
+and three approval-host tests. Each selected cohort completes without failures or skips.
+The earlier broader publication cohort also passes its 142 generation, review, lineage and
+delivery-evidence tests on both operating systems.
+
+Native records: `39606050998` (broader exploratory qualification), `39612327702` (successful
+diagnostic/cache/drop/approval cohorts), and `39613590501` (corrected installer/UI qualification).
+Exploratory failures were retained and the affected suites re-run after corrections; a successful
+cohort in a mixed-result run is not represented as a successful whole run.
+All 13 VS Code bundle ceilings remain unchanged, CLI bundle parity tests pass, typechecking
+passes, and `npm run check` passes 2963 checks.
+
+This is not a 1.0 release certificate. The broader Windows workspace cohort still contains three
+existing platform-skipped POSIX-only cases; these were not waived, reclassified or reported as
+passing. Strict full-release qualification, genuine human approvals and complete native Copilot
+Story qualification remain separate requirements.

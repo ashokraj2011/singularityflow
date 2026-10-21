@@ -836,7 +836,12 @@ export NPM_CONFIG_REGISTRY="$REGISTRY"
 # staging, and active-surface replacement so two installers cannot mutate shared package outputs or
 # the activation journal concurrently.
 acquire_activation_lease create
-cleanup_installation_storage
+# Inspect before housekeeping or dependency work. Unsupported/unfinished receipts are preserved;
+# legacy installation material is not collectible until the verified v2 receipt commits.
+INSTALL_RECEIPT_REPAIR='off'
+INSTALL_RECEIPT_STATE="$(node "$PROJECT_DIR/scripts/install-staged-artifacts.mjs" receipt-state \
+  --current-manifest "$INSTALL_MANIFEST_DIR/current.json")"
+if [[ "$INSTALL_RECEIPT_STATE" != 'legacy' ]]; then cleanup_installation_storage; fi
 
 step_begin 'Installing locked dependencies'
 if [[ "$CLI_ONLY" == "on" ]]; then
@@ -853,9 +858,6 @@ step_end
 # A legacy receipt is metadata, not proof of old rollback bytes. A full install may automatically
 # rebuild product authority from the verified replacement, retaining exact v1 bytes and lineage.
 # Partial installs must not silently grow into replacement of unselected product surfaces.
-INSTALL_RECEIPT_REPAIR='off'
-INSTALL_RECEIPT_STATE="$(node "$PROJECT_DIR/scripts/install-staged-artifacts.mjs" receipt-state \
-  --current-manifest "$INSTALL_MANIFEST_DIR/current.json")"
 if [[ "$INSTALL_RECEIPT_STATE" == 'legacy' ]]; then
   if [[ "$CLI_ONLY" == "on" || "$VSCODE_ONLY" == "on" || "$SKIP_VSCODE" == "on" || "$SKIP_COPILOT" == "on" ]]; then
     printf '%s\n' 'Legacy receipt upgrade requires a full install without partial-surface flags. No product surface was changed; workspaces and recovery were preserved.' >&2

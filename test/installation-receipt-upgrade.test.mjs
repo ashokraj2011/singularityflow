@@ -127,3 +127,18 @@ for (const flag of ['--cli-only', '--vscode-only', '--skip-vscode', '--skip-copi
     assert.doesNotMatch(await readFile(f.log, 'utf8'), /repair-unreceipted-installation|install --global|--install-extension/);
   });
 }
+
+test('normal install refuses invalid receipt metadata before dependency work or storage cleanup', async t => {
+  const f = await scriptFixture(t);
+  const retained = path.join(f.installations, 'versions', 'sha256', 'a'.repeat(64), 'singularity-flow.tgz');
+  await mkdir(path.dirname(retained), { recursive: true });
+  await writeFile(retained, 'unknown prior product bytes must survive');
+  for (const bytes of ['{broken', '{"schemaVersion":999}', '{"schemaVersion":1,"status":"activating","version":"0.9.0"}']) {
+    await writeFile(f.current, bytes);
+    const result = f.run(['--skip-tests']);
+    assert.notEqual(result.status, 0);
+    assert.equal(await readFile(f.current, 'utf8'), bytes);
+    assert.equal(await readFile(retained, 'utf8'), 'unknown prior product bytes must survive');
+  }
+  assert.doesNotMatch(await readFile(f.log, 'utf8'), /npm ci|repair-unreceipted-installation|cleanup --journal/);
+});

@@ -7,7 +7,7 @@ import { documentOfferedToPhase } from './document-identity.mjs';
 import { isLocalDocument, localDocumentAvailability } from './document-storage.mjs';
 import { effectiveDocumentMimeType } from './source-text.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
-import { SingularityFlowError, writeAtomic, ensureSecureRepositoryDirectory } from './util.mjs';
+import { SingularityFlowError, writeAtomic, ensureSecureRepositoryDirectory, secureRepositoryPath } from './util.mjs';
 
 async function localDocuments(root, definition, workflow, phaseId) {
   // Read only the supporting-document manifest. Building the full artifact/system catalog here
@@ -94,4 +94,26 @@ export async function writePrivateDocumentContext(root, text) {
   }
   return { path: localPath, sha256, bytes: Buffer.byteLength(text), storage: 'local',
     instruction: 'Exact complete runtime context, including this laptop\'s verified documents. Never copy it into the repository or a committed prompt.' };
+}
+
+/** A full export contains local evidence: never put it in a committable working-tree file. */
+export async function writePrivateDocumentExport(root, destination, text) {
+  const privateRoot = path.join(gitDir(root), 'singularity-flow');
+  const target = path.resolve(root, destination);
+  const relative = path.relative(privateRoot, target);
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    const suggestedPath = path.join(privateRoot, 'document-context', 'exports', path.basename(target));
+    throw new SingularityFlowError(
+      'This prompt includes laptop-local attachments. Export it inside the Git-private Singularity Flow directory, '
+      + `not the working tree or a shared file. Use --out ${JSON.stringify(suggestedPath)}.`,
+      { code: 'LOCAL_DOCUMENT_EXPORT_PATH_REQUIRED', details: { suggestedPath } }
+    );
+  }
+  await ensureSecureRepositoryDirectory(gitDir(root), path.dirname(target), { label: 'Private document export directory' });
+  await secureRepositoryPath(gitDir(root), target, { label: 'Private document export', type: 'file' });
+  await writeAtomic(target, text, { mode: 0o600 });
+  if (globalThis.__SFLOW_EXTENSION_HOST__ !== true) {
+    await (await import('./copilot-mutation-guard.mjs')).issueMutationReadPaths(root, [target]);
+  }
+  return { path: target, storage: 'local', bytes: Buffer.byteLength(text) };
 }

@@ -829,7 +829,9 @@ export async function compose(root, options, {
       const delivered = workflow ? await (await import('./document-runtime.mjs')).withLocalDocumentEvidence(
         root, definition, workflow, phase.id, replyPrompt) : replyPrompt;
       if (destination) {
-        await writeFile(path.resolve(root, destination), replyPrompt);
+        if (delivered !== replyPrompt) {
+          await (await import('./document-runtime.mjs')).writePrivateDocumentExport(root, destination, delivered);
+        } else await writeFile(path.resolve(root, destination), delivered);
         console.log(`Composed prompt written to ${destination}.`);
       } else if (!options['return-only']) process.stdout.write(delivered);
       return delivered;
@@ -1259,7 +1261,9 @@ export async function compose(root, options, {
   const delivered = workflow ? await (await import('./document-runtime.mjs')).withLocalDocumentEvidence(
     root, definition, workflow, phase.id, replyPrompt) : replyPrompt;
   if (destination) {
-    await writeFile(path.resolve(root, destination), composedText);
+    if (delivered !== replyPrompt) {
+      await (await import('./document-runtime.mjs')).writePrivateDocumentExport(root, destination, delivered);
+    } else await writeFile(path.resolve(root, destination), delivered);
     console.log(`Composed prompt written to ${destination}.`);
   } else if (!options['return-only']) process.stdout.write(delivered);
   return delivered;

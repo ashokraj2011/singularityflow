@@ -13,6 +13,8 @@ import {
   validateAutoPhaseContractSnapshot
 } from './auto-contract-records.mjs';
 import { AUTO_AUTHORING_TOOLS } from './auto-policy.mjs';
+import { isLocalDocument } from '../document-storage.mjs';
+import { isLocalDocumentReadScope, localDocumentReadScope } from './auto-document-scope.mjs';
 
 function digest(value) { return `sha256:${recordSha256(value)}`; }
 
@@ -38,6 +40,11 @@ function normalizeScope(value) {
 }
 
 function concreteScopeAnchor(root, value) {
+  if (isLocalDocumentReadScope(value)) {
+    throw new SingularityFlowError('Local-document references require fresh read-only materialization, never a write path.', {
+      code: 'AUTO_DOCUMENT_SCOPE_INVALID'
+    });
+  }
   const normalized = normalizeScope(value);
   const wildcard = normalized.search(/[?*[{]/);
   if (wildcard < 0) return path.resolve(root, normalized);
@@ -59,7 +66,8 @@ export function absoluteAutoWriteScope(root, values) {
 }
 
 export function absoluteAutoReadScope(root, values) {
-  return unique(values.map((entry) => concreteScopeAnchor(root, entry)));
+  return unique(values.filter(entry => !isLocalDocumentReadScope(entry))
+    .map((entry) => concreteScopeAnchor(root, entry)));
 }
 
 function relativeArtifactPath(definition, state, phase) {
@@ -139,10 +147,11 @@ export async function buildAutoPhaseContract(root, {
     ? unique(state.activeRepair.writeScope.map(normalizeScope)) : null;
   const artifactPath = relativeArtifactPath(definition, state, phase);
   const adopted = state.evidence?.adoption?.status === 'materialized';
-  // The phase's Git-stored supporting documents are evidence its prompt names; the run may read them.
+  // Git inputs use repository paths; local inputs use portable ID/hash read references only.
   const documentScope = workflow?.workItem?.id
     ? (await documentCatalog(root, definition, workflow, { phaseId: phase.id }))
-      .filter((record) => record.type === 'file' && record.path).map((record) => normalizeScope(record.path))
+      .filter((record) => record.type === 'file' && (record.path || isLocalDocument(record)))
+      .map((record) => isLocalDocument(record) ? localDocumentReadScope(record) : normalizeScope(record.path))
     : [];
   const readScope = unique([...(repairReadScope ?? predictedScope), artifactPath, ...documentScope]);
   const writeScope = unique([

@@ -98,8 +98,12 @@ kept as a decision record under `evidence/document-scope/`.
   (XLSX) and PowerPoint (PPTX) files contribute their extracted text. A PDF or image kept in Git is listed with its repository path, and the phase is told to open it with its file, image, or
   PDF tool rather than guess from its name. A local binary gets its exact verified private path;
   missing originals trigger a re-upload request before composition or authoring. `wm compose --out`
-  writes only the durable metadata prompt; `phase enter --compose` also returns the exact private
-  runtime context file for reading local evidence. Instructions
+  exports the complete runtime prompt and must target the Git-private
+  `<git-dir>/singularity-flow/` directory when local attachments are present (a refused destination
+  returns an exact suggested path). `phase enter --compose` also returns the exact private runtime
+  context file for reading local evidence. Auto contracts pin local document IDs/hashes and
+  materialize exact read-only file grants afresh before invocation, without granting access to the
+  whole store or committing local paths. Instructions
   inside a document are untrusted evidence, never commands.
 - **Specification.** `/sf-specify` composes its prompt once for its supporting documents, cites
   the documents it used in a `## Sources` section, and lists unreadable or unavailable ones as gaps.

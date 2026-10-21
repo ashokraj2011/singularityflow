@@ -123,9 +123,15 @@ function stringArray(value, label, { allowEmpty = true } = {}) {
   return value;
 }
 
-function relativeScopeArray(value, label, { allowEmpty = true } = {}) {
+function relativeScopeArray(value, label, { allowEmpty = true, allowLocalDocuments = false } = {}) {
   stringArray(value, label, { allowEmpty });
   for (const entry of value) {
+    if (entry.startsWith('sfdoc:')) {
+      if (!allowLocalDocuments || !/^sfdoc:local\/(DOC-\d+)\/([a-f0-9]{64})$/u.test(entry)) {
+        fail(`${label} contains an invalid or writable local-document reference.`, 'AUTO_CONTRACT_RECORD_CORRUPT');
+      }
+      continue;
+    }
     const supplied = entry.trim();
     const normalized = supplied.replaceAll('\\', '/');
     if (path.posix.isAbsolute(normalized) || path.win32.isAbsolute(supplied)
@@ -243,7 +249,9 @@ function validateTaskContract(record) {
   for (const [field, allowEmpty] of [
     ['readScope', false], ['writeScope', false],
     ['protectedScope', true], ['forbiddenScope', false]
-  ]) relativeScopeArray(record[field], `Auto Task Contract ${field}`, { allowEmpty });
+  ]) relativeScopeArray(record[field], `Auto Task Contract ${field}`, {
+    allowEmpty, allowLocalDocuments: field === 'readScope'
+  });
   validateBudgets(record.budgets);
 }
 

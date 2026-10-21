@@ -57,6 +57,11 @@ test('real CLI delivers private source context, asks on takeover, and resumes af
   assert.match(first.context.text, new RegExp(marker));
   assert.equal(first.context.file.storage, 'local');
   assert.equal(await readFile(first.context.file.path, 'utf8'), first.context.text);
+  const exportedPrompt = path.join(path.dirname(first.context.file.path), 'cli-export.md');
+  flow(root, 'wm', 'compose', '--phase', 'specification', '--work-id', 'LOCAL-CLI',
+    '--out', exportedPrompt);
+  assert.match(await readFile(exportedPrompt, 'utf8'), new RegExp(marker),
+    'CLI exports include the runtime local evidence, not only the durable metadata');
   const durable = await readFile(path.join(root, first.context.durableFile.path), 'utf8');
   assert.ok(!durable.includes(marker), 'committed prompt snapshots contain only source identity');
   assert.equal(git('ls-files', 'singularity/work-items/LOCAL-CLI/inputs'), '');
@@ -94,6 +99,11 @@ test('real CLI delivers private source context, asks on takeover, and resumes af
   const resumed = JSON.parse(flow(second, 'phase', 'enter', 'specification', '--compose', '--for-agent', '--json').stdout);
   assert.notEqual(resumed.status, 'documents-required');
   assert.match(resumed.context.text, new RegExp(marker));
+  const takeoverExport = path.join(path.dirname(resumed.context.file.path), 'cli-export.md');
+  flow(second, 'wm', 'compose', '--phase', 'specification', '--work-id', 'LOCAL-CLI',
+    '--out', takeoverExport);
+  assert.match(await readFile(takeoverExport, 'utf8'), new RegExp(marker));
+  assert.notEqual(exportedPrompt, takeoverExport, 'another clone receives its own exact private export path');
   assert.equal(resumed.context.renderedSha256, first.context.renderedSha256,
     'restoring the original does not invalidate prompt-bound clarification answers');
 });

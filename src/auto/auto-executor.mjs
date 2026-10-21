@@ -22,6 +22,7 @@ import { applicationChangeSetProjection, applicationPathContext } from '../work-
 import { withSubjectLock } from '../subject-lock.mjs';
 import { verifyAutoFlightContinuation } from './auto-continuation.mjs';
 import { AUTO_AUTHORING_TOOLS } from './auto-policy.mjs';
+import { materializeAutoDocumentReadScope } from './auto-document-scope.mjs';
 import { publishAutoBoundaryCheckpoint } from './auto-checkpoint.mjs';
 import {
   absoluteAutoReadScope, absoluteAutoWriteScope, assertCompatibleAutoPhaseContract,
@@ -1314,6 +1315,10 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         const invocationReadRoots = absoluteAutoReadScope(
           worktree, phaseContract.taskContract.readScope
         );
+        const documentReads = await materializeAutoDocumentReadScope(
+          worktree, definition, workflow, phase.id, phaseContract.taskContract.readScope
+        );
+        invocationReadRoots.push(...documentReads.readRoots);
         const invocationWriteRoots = absoluteAutoWriteScope(
           worktree, phaseContract.taskContract.writeScope
         );
@@ -1321,7 +1326,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
           provider: provider.provider,
           providerConfig: provider.providerConfig,
           task,
-          cwd: path.resolve(worktree), allowedRoots: [path.resolve(worktree)],
+          cwd: path.resolve(worktree), allowedRoots: [path.resolve(worktree), ...documentReads.allowedRoots],
           prompt: { text: prompt }, channel: 'auto-phase-authoring', signal: controller.signal,
           subject: {
             kind: 'story', id: state.story.workId, phase: phase.id,

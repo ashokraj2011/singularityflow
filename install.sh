@@ -1095,7 +1095,10 @@ PACKAGE_VERSION="$(node -p 'require(process.argv[1]).version' "$PROJECT_DIR/pack
     resolve_copilot_telemetry_paths
   fi
   set_install_recovery_command
-  RETAINED_ARTIFACT_OUTPUT="$(node "$INSTALL_ARTIFACT_HELPER" create \
+  # This one argument is shell source, not a pathname. MSYS must not rewrite its leading
+  # checkout path while translating the real file arguments for the native Node helper.
+  RETAINED_ARTIFACT_OUTPUT="$(MSYS2_ARG_CONV_EXCL="${MSYS2_ARG_CONV_EXCL:+${MSYS2_ARG_CONV_EXCL};}${INSTALL_RECOVERY_COMMAND% }" \
+    node "$INSTALL_ARTIFACT_HELPER" create \
     --journal "$INSTALL_ACTIVATION_JOURNAL" \
     --checkout "$PROJECT_DIR" \
     --registry "$REGISTRY" \

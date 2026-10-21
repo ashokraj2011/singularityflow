@@ -42,16 +42,23 @@ function spawnSync(command, args, options = {}) {
       for (const alias of Object.keys(env)) if (alias.toLowerCase() === 'path' && alias !== 'PATH') delete env[alias];
     }
   }
-  const portableArgs = args.map(argument => /^[a-z]:[\\/]/iu.test(argument) ? shellPath(argument) : argument);
+  let portableArgs = args.map(argument => /^[a-z]:[\\/]/iu.test(argument) ? shellPath(argument) : argument);
+  let input = options.input;
+  if (portableArgs[0] === '-c' && input === undefined) {
+    // MSYS and libuv do not share the Win32 argv quoting grammar for multiline -c strings.
+    // Feed reviewed shell source unchanged on stdin; retain the original positional binding.
+    input = 'BASH_ARGV0="$1"; shift\n' + portableArgs[1];
+    portableArgs = ['-s', '--', portableArgs[2] ?? 'bash', ...portableArgs.slice(3)];
+  }
   if (shellSearch) {
     // Set POSIX PATH after MSYS startup has imported the native parent environment. Passing a
     // colon list as Windows PATH can otherwise let the real git.exe precede a fixture's stub.
     for (const alias of Object.keys(env)) if (alias.toLowerCase() === 'path') delete env[alias];
     env.PATH = process.env.PATH ?? process.env.Path;
     return nativeSpawnSync(bash, ['-c', 'export PATH="$1"; shift; exec "$@"',
-      'sflow-installer-fixture', shellSearch, shellPath(bash), ...portableArgs], { ...options, env });
+      'sflow-installer-fixture', shellSearch, shellPath(bash), ...portableArgs], { ...options, input, env });
   }
-  return nativeSpawnSync(bash, portableArgs, { ...options, env });
+  return nativeSpawnSync(bash, portableArgs, { ...options, input, env });
 }
 
 async function assertInstallerExecutable(file, message) {

@@ -1749,6 +1749,13 @@
         "process-launch": 1
       },
       "digest": "40cb67586c519f95866fdc9d5c9c1c106b25eab89dcf573de2316c15cfd064ad"
+    },
+    "scripts/intake-creation-benchmark.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "7f1fdd9f5fbdb442dfc7a66939de2135daa9d49b8485fc85e94f0f7eac0ac8df"
     }
   }
 }

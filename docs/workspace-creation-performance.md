@@ -11,6 +11,7 @@ node scripts/workspace-creation-benchmark.mjs --samples=2 --files=10000 --contro
 node scripts/story-creation-benchmark.mjs --samples=3 --files=1000 --mode=isolated --configuration=approved --fresh=true --control-ref=BASELINE --out=story-cold.json
 node scripts/story-creation-benchmark.mjs --samples=3 --files=1000 --mode=isolated --configuration=approved --fresh=true --prewarm=all --control-ref=BASELINE --out=story-prewarmed.json
 node scripts/story-readiness-benchmark.mjs --files 1000 --output readiness.json
+node scripts/intake-creation-benchmark.mjs --samples=2 --files=1000 --control-ref=BASELINE --out=intake.json
 ```
 
 Workspace samples always create a fresh target and identical independent remote, including the
@@ -49,3 +50,8 @@ conflicted indexes. AST tests cover deferred budgets, launch failures, revision 
 background completion. Intake receipt, ledger and activation tests preserve fresh authority/CAS,
 symbolic-ref refusal and remote-state precedence. Checks, VS Code typechecking and builds accompany
 native Mac and Windows measurements; platform-only cases are reported explicitly, not called passes.
+
+The intake benchmark additionally exercises the editor-equivalent selected-base branch-folder
+path, issues a genuine receipt and passes its exact returned repository path and receipt to
+isolated Story start. It reports preview, start, combined latency and prewarm separately, using
+private workspace registries, runtime/configuration caches and local remotes.

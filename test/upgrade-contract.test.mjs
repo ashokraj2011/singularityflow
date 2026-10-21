@@ -45,7 +45,7 @@ const REPRESENTATIVE = Object.freeze({
   }
 });
 // Guided by a step a person performs outside the CLI; the step still names exactly what to do.
-const COMMANDLESS = new Set(['PRODUCT_ALIGNMENT_INSTALL_RECOVERY_PENDING']);
+const COMMANDLESS = new Set(['PRODUCT_ALIGNMENT_INSTALL_RECOVERY_PENDING', 'INSTALL_RECEIPT_UPGRADE_NOT_ADMITTED']);
 
 test('every version-sensitive refusal in the source is classified', async () => {
   const found = await versionSensitiveCodes();

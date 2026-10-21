@@ -40,6 +40,8 @@ export const UPGRADE_CONTRACT = Object.freeze({
   REPOSITORY_ONBOARDING_MIGRATION_SOURCE_MISSING: guided(),
   PRODUCT_ALIGNMENT_INSTALL_ACTIVE: guided(),
   PRODUCT_ALIGNMENT_INSTALL_RECOVERY_PENDING: guided(),
+  // A legacy installation receipt is upgraded only by a full source install with no recovery pending.
+  INSTALL_RECEIPT_UPGRADE_NOT_ADMITTED: guided(),
   PRODUCT_ALIGNMENT_STEP_FAILED: guided(),
   PRODUCT_ALIGNMENT_VERIFICATION_FAILED: guided(),
   // A governance rebuild archived the Story on purpose; the refusal says what to do instead.

@@ -1985,6 +1985,12 @@ changed prompt bindings require review before explicit replacement. This shared 
 to seeded workflows and custom phase names; it does not grant application edits to document
 phases or relax reviewer, publication or approval authority.
 
+Exact clarification and source-review staging grants have independent, integrity-checked
+issuer receipts. Background contract refresh cannot overwrite these grants. They apply
+only to the same live turn, Story, phase, generation and mode, and never grant sibling
+files, application edits or general access to Git metadata. A new turn obtains fresh
+staging from its entry; preserve already supplied human replies instead of re-asking.
+
 ## Agents and approval groups
 
 Agents supply role instructions. Starter agents include product owner, architect, developer, and QA. They never represent a real user and never grant approval capability. Story phases reference `approvalAuthorities`; decisions are authorized from a normalized Git email or authenticated GitHub login and record the matched group.

@@ -21,6 +21,8 @@ import { completeAgentResult, withAgentRoutes } from '../src/agent-output.mjs';
 import { librarySkillText } from '../src/skill-library.mjs';
 import { readCopilotStoryFollow, copilotStoryFollowDirectory } from '../src/copilot-story-follow.mjs';
 import { REQUIREMENT_AUTHORING_PROTOCOL } from '../src/requirement-coverage.mjs';
+import { captureMutationTurn, mutationToolGuard } from '../src/copilot-mutation-guard.mjs';
+import { recordRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin/singularity-flow.mjs');
@@ -115,6 +117,37 @@ async function fixture(t, { planningInputs = false, customPhase = null, clarific
   });
   return { root, workflow, config, invoke, env };
 }
+
+test('CLI phase entry grants its exact clarification staging file in a linked Story checkout', async t => {
+  const item = await fixture(t);
+  const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-staging-linked-'));
+  const checkout = path.join(await realpath(parent), 'Story Ω checkout');
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  git(item.root, 'switch', 'main');
+  git(item.root, 'worktree', 'add', checkout, 'ENTRY-1');
+  await setAgentSession(checkout, item.config, { name: 'Phase Entry Tester', email: 'entry@example.invalid' },
+    'product-owner', 'ENTRY-1', { phaseId: 'specification', source: 'test' });
+  const previous = process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
+  process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = item.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
+  t.after(() => { if (previous === undefined) delete process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
+    else process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = previous; });
+  const payload = { cwd: checkout, sessionId: 'issued-clarification', prompt: '/sf-phase' };
+  await recordRepositoryBoundaryTurn(payload, { captureMutation: (payload, record) => captureMutationTurn(payload, record,
+    { resolveRoot: async () => checkout }) });
+  const result = spawnSync(process.execPath, [cli, 'phase', 'enter', '--compose', '--for-agent', '--json'], {
+    cwd: checkout, env: item.env, encoding: 'utf8', timeout: 180_000
+  });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const entry = completeAgentResult(result.stdout);
+  assert.equal(entry.ready, true);
+  const staging = entry.clarification.responseStagingPath;
+  assert.ok(path.isAbsolute(staging));
+  for (const toolName of ['edit', 'create', 'str_replace_editor']) {
+    assert.deepEqual(await mutationToolGuard({ ...payload, toolName,
+      toolArgs: { command: 'create', path: staging } }), {}, toolName);
+  }
+  assert.equal((await mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: staging + '.other' } })).permissionDecision, 'deny');
+});
 
 test('phase entry preserves the original launch folder across explicit checkout routing for Copilot', async t => {
   const item = await fixture(t);

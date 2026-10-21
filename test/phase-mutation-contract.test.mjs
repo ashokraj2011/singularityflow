@@ -1086,6 +1086,71 @@ test('documented Copilot edit aliases, string arguments, and VS Code-compatible 
   assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'str_replace_editor', toolArgs: { command: 'view', path: 'src/App.jsx' } }), {});
 });
 
+test('an overlapping contract refresh cannot revoke a just-issued clarification staging path', async t => {
+  const f = await fixture(t);
+  for (const [skill, purpose] of [['/sf-phase', 'clarification'], ['/sf-review-source', 'source-review']]) {
+    const payload = await f.enter(skill);
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const staging = path.join(gitDir(f.root), 'singularity-flow', purpose, `custom-step-gen1-${attempt}.json`);
+      await Promise.all([refreshMutationContracts(f.root, f.accepted, { advanceBaseline: true }),
+        issueMutationStaging(f.root, staging, purpose)]);
+      assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'create', toolArgs: { path: staging } }), {},
+        'background bookkeeping must not overwrite an exact file grant');
+      assert.equal((await mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: staging + '.other' } })).permissionDecision, 'deny');
+      assert.equal((await mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: 'src/App.jsx' } })).permissionDecision, 'deny');
+    }
+  }
+});
+
+test('staging receipts cannot cross a generation, phase, mode or turn boundary', async t => {
+  const f = await fixture(t);
+  const payload = await f.enter('/sf-phase');
+  const staging = path.join(gitDir(f.root), 'singularity-flow', 'clarification-responses', 'custom-step-gen1.json');
+  await issueMutationStaging(f.root, staging, 'clarification');
+  const edit = () => mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: staging } });
+  assert.deepEqual(await edit(), {});
+  f.phase.generation = 1;
+  await writeFile(f.workflowFile, JSON.stringify(f.workflow));
+  await refreshMutationContracts(f.root, f.accepted);
+  assert.equal((await edit()).permissionDecision, 'deny', 'previous generation grant is not recovered');
+  f.workflow.currentPhase = 'next-phase';
+  f.workflow.phases['next-phase'] = { ...f.phase, id: 'next-phase' };
+  await writeFile(f.workflowFile, JSON.stringify(f.workflow));
+  await refreshMutationContracts(f.root, f.accepted);
+  assert.equal((await edit()).permissionDecision, 'deny', 'phase changes never carry a grant');
+  const otherTurn = await f.enter('/sf-approve');
+  assert.equal((await mutationToolGuard({ ...otherTurn, toolName: 'edit', toolArgs: { path: staging } })).permissionDecision, 'deny');
+  const newAuthor = await f.enter('/sf-phase');
+  assert.equal((await mutationToolGuard({ ...newAuthor, toolName: 'edit', toolArgs: { path: staging } })).permissionDecision, 'deny',
+    'a new turn must obtain its own issuer receipt');
+});
+
+test('fallback staging requires an intact issuer receipt with every live binding unchanged', async t => {
+  const f = await fixture(t);
+  const payload = await f.enter('/sf-phase');
+  const hash = value => createHash('sha256').update(value).digest('hex');
+  const cache = path.join(path.dirname(process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE), 'copilot-boundaries',
+    `${hash(payload.sessionId)}.mutation.json`);
+  const before = await readFile(cache, 'utf8');
+  const suffix = path.join('singularity-flow', 'clarification-responses', 'custom-step-gen1.json');
+  const staging = path.join(gitDir(f.root), suffix);
+  await issueMutationStaging(f.root, staging, 'clarification');
+  await writeFile(cache, before); // Deterministic model of the overlapping stale contract writer.
+  const receiptFile = path.join(`${cache}.issued`, hash(JSON.parse(before).turnId), `${hash(`staging:${suffix}`)}.json`);
+  const receipt = JSON.parse(await readFile(receiptFile, 'utf8'));
+  const edit = () => mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: staging } });
+  assert.deepEqual(await edit(), {});
+  for (const field of ['root', 'turnId', 'workId', 'phaseId', 'generation', 'mode', 'kind']) {
+    const { integritySha256, ...changed } = { ...receipt, [field]: field === 'generation' ? 99 : 'different' };
+    await writeFile(receiptFile, JSON.stringify({ ...changed, integritySha256: hash(JSON.stringify(changed)) }));
+    assert.equal((await edit()).permissionDecision, 'deny', field);
+  }
+  await writeFile(receiptFile, JSON.stringify({ ...receipt, integritySha256: '0'.repeat(64) }));
+  assert.equal((await edit()).permissionDecision, 'deny', 'corrupt integrity never grants access');
+  await writeFile(receiptFile, JSON.stringify(receipt));
+  assert.deepEqual(await edit(), {});
+});
+
 test('clarification staging paths are data in every authoring phase, not CLI executions', async t => {
   for (const [id, skill, code] of [['specification', '/sf-phase', false], ['planning', '/sf-phase', false],
     ['implementation', '/sf-code', true], ['verification', '/sf-phase', false],

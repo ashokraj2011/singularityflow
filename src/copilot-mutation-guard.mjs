@@ -478,6 +478,21 @@ async function currentContract(payload, record) {
   for (const stamp of value.binding.stamps) {
     if (digest(await readFile(stamp.file).catch(error => { if (error.code === 'ENOENT') return ''; throw error; })) !== stamp.sha256) throw new Error('Checkout identity changed; refresh contract');
   }
+  // Background refresh and CLI issuance may overlap. A stale read/modify/write of the turn
+  // record must not revoke an exact grant. Independent issuer receipts survive that race;
+  // only this live turn's same Story/phase/generation/mode may recover one, never a wildcard.
+  for (const call of calls(payload)) for (const target of targets(call.args)) {
+    const absolute = editTarget(target, call.args.cwd ?? payload.cwd ?? value.contract.repositoryRoot);
+    if (!absolute || value.contract.allow.staging.includes(absolute)) continue;
+    const suffix = issuedSuffix(absolute);
+    if (!suffix) continue;
+    const issued = await boundedRecord(issuedReadFile(payload, value.turnId, `staging:${suffix}`),
+      'copilot-issued-staging').catch(() => null);
+    if (issued?.root === value.contract.repositoryRoot && issued.turnId === value.turnId
+        && issued.workId === value.contract.workId && issued.phaseId === value.contract.phaseId
+        && issued.generation === value.contract.generation && issued.mode === value.contract.turnMode
+        && typeof issued.path === 'string' && !value.contract.allow.staging.includes(issued.path)) value.contract.allow.staging.push(issued.path);
+  }
   return value;
 }
 
@@ -881,6 +896,12 @@ export async function issueMutationStaging(root, target, purpose) {
     // use arbitrary shell mkdir, and parent directories are not additional edit permissions.
     if (!mutationPathDecision(value.contract, target, root).allowed) throw new Error('Unsafe private staging target');
     await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+    const suffix = issuedSuffix(path.resolve(target));
+    if (suffix) await atomicRecord(issuedReadFile({ sessionId: value.sessionId }, value.turnId, `staging:${suffix}`), {
+      kind: 'copilot-issued-staging', root, turnId: value.turnId, workId: value.contract.workId,
+      phaseId: value.contract.phaseId, generation: value.contract.generation,
+      mode: value.contract.turnMode, path: path.resolve(target)
+    });
     await atomicRecord(file, value);
   }
 }

@@ -1,5 +1,9 @@
 # Workspace creation and Story intake qualification
 
+For the subsequent shared-capture, publication batching, Windows ACL and selected-configuration
+work, see [Story creation context qualification](story-start-context-performance.md). Its matched
+baseline/candidate cohort is separate from the historical measurements below.
+
 ## Recorded results — 2026-10-21
 
 Both native qualification jobs passed 65 modified-area tests with zero failures/skips, plus one

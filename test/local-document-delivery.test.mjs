@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile, rm, stat, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm, stat, symlink, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -8,7 +8,7 @@ import { publishedSpecificationStory } from './helpers/source-review-fixture.mjs
 import { loadConfig } from '../src/state.mjs';
 import { loadStoryAggregate } from '../src/state-stores.mjs';
 import { resolveWorkType } from '../src/config.mjs';
-import { addDocuments } from '../src/documents.mjs';
+import { addDocuments, restoreLocalDocument } from '../src/documents.mjs';
 import { gitDir } from '../src/git.mjs';
 import { readLocalDocument } from '../src/document-storage.mjs';
 import { withLocalDocumentEvidence, writePrivateDocumentExport } from '../src/document-runtime.mjs';
@@ -158,6 +158,43 @@ test('Auto refuses missing, changed, detached and forged attachments before prov
   await writeFile(file, JSON.stringify(manifest));
   await assert.rejects(materializeAutoDocumentReadScope(f.root, f.definition, f.workflow, f.phaseId, refs),
     { code: 'AUTO_DOCUMENT_SCOPE_CHANGED' });
+});
+
+test('linked Story worktrees export privately and takeover resolves the same grants on the new laptop', async t => {
+  const f = await fixture(t);
+  const contract = await buildAutoPhaseContract(f.root, contractOptions(f));
+  const scope = contract.taskContract.readScope;
+  const linked = path.join(f.uploads, 'linked story');
+  git(f.root, 'worktree', 'add', '--detach', linked, 'HEAD');
+  const first = await materializeAutoDocumentReadScope(f.root, f.definition, f.workflow, f.phaseId, scope);
+  const shared = await materializeAutoDocumentReadScope(linked, f.definition, f.workflow, f.phaseId, scope);
+  assert.deepEqual(await Promise.all(shared.readRoots.map(file => realpath(file))),
+    await Promise.all(first.readRoots.map(file => realpath(file))),
+    'linked worktrees read originals from their common private store (including macOS path aliases)');
+  const destination = path.join(gitDir(linked), 'singularity-flow', 'document-context', 'exports', 'linked.md');
+  const prompt = await withLocalDocumentEvidence(linked, f.definition, f.workflow, f.phaseId, '# Linked phase');
+  await writePrivateDocumentExport(linked, destination, prompt);
+  assert.match(await readFile(destination, 'utf8'), new RegExp(marker));
+  assert.equal(git(linked, 'status', '--porcelain'), '');
+
+  const clone = path.join(f.uploads, 'another laptop');
+  git(f.root, 'clone', '--quiet', '--no-local', f.root, clone);
+  const before = git(clone, 'rev-parse', 'HEAD');
+  await assert.rejects(materializeAutoDocumentReadScope(clone, f.definition, f.workflow, f.phaseId, scope),
+    { code: 'DOCUMENT_REUPLOAD_REQUIRED' });
+  for (const record of f.records) {
+    await restoreLocalDocument(clone, f.definition, f.workflow, {
+      documentId: record.id, file: path.join(f.uploads, record.sourceName)
+    });
+  }
+  const restored = await materializeAutoDocumentReadScope(clone, f.definition, f.workflow, f.phaseId, scope);
+  assert.equal(restored.readRoots.length, first.readRoots.length);
+  const canonicalClone = await realpath(gitDir(clone));
+  assert.ok((await Promise.all(restored.readRoots.map(file => realpath(file))))
+    .every(file => file.startsWith(canonicalClone)));
+  assert.ok(restored.readRoots.every(file => !first.readRoots.includes(file)));
+  assert.equal(git(clone, 'rev-parse', 'HEAD'), before);
+  assert.equal(git(clone, 'status', '--porcelain'), '');
 });
 
 test('shared local handoff covers every seeded workflow phase and custom phases without widening scope', async t => {

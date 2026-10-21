@@ -236,6 +236,9 @@ function boundedPathValue(value, cwd) {
   if (value.startsWith('file:')) {
     try { return fileURLToPath(value); } catch { return null; }
   }
+  // A native Windows drive path is not a URI scheme. Copilot returns absolute paths for private
+  // evidence and ordinary repository files; classify native filesystem paths before URI refusal.
+  if (path.isAbsolute(value)) return path.resolve(value);
   if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(value)) return null;
   return path.resolve(cwd, value);
 }

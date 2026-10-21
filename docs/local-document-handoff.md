@@ -35,7 +35,8 @@ prompt, including local text and exact native-inspection paths, on both fresh co
 When local attachments are offered, the destination must be inside this checkout's Git-private
 `<git-dir>/singularity-flow/` directory. A working-tree or external destination is refused before
 it is overwritten, with an exact suggested private path; this prevents a later `git add` from
-publishing the local evidence. The private export is owner-readable/writable only. For example,
+publishing the local evidence. Exports are created with mode `0600`; Windows uses the Git-private
+directory's inherited filesystem permissions. For example,
 in an ordinary (not linked-worktree) checkout:
 
 ```sh

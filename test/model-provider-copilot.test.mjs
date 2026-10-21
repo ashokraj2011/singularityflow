@@ -642,6 +642,10 @@ test('scoped ACP permission checks every read, write, copy, and move path', asyn
   const decision = (toolCall) => acpPermissionOutcome(request, { toolCall, options });
   assert.deepEqual(await decision({ name: 'view', kind: 'read', rawInput: { path: 'read/a.md' } }),
     { outcome: 'selected', optionId: 'allow' });
+  assert.deepEqual(await decision({ name: 'view', kind: 'read', rawInput: { path: path.join(readRoot, 'a.md') } }),
+    { outcome: 'selected', optionId: 'allow' }, 'native absolute paths, including Windows drives, are filesystem paths');
+  assert.deepEqual(await decision({ name: 'view', kind: 'read', rawInput: { path: 'https://example.invalid/a.md' } }),
+    { outcome: 'cancelled' }, 'a remote URI is not a local read grant');
   assert.deepEqual(await decision({ name: 'view', kind: 'read', rawInput: { path: '../outside.md' } }),
     { outcome: 'cancelled' });
   assert.deepEqual(await decision({ name: 'edit', kind: 'edit', rawInput: { path: 'src/a.js' } }),

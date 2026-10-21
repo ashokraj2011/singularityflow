@@ -19,6 +19,16 @@ const AUTHORITY = /^[a-f0-9]{64}$/u;
 const EVICTED = /^\.evicted-[a-f0-9]{64}-[a-f0-9-]{36}$/u;
 const privacy = { enforceWindowsAcl: true };
 
+function recordStorageDecline(error) {
+  incrementCommandCounter('configuration.object-store-declined');
+  const reason = error?.code === 'MCP_AUTH_WINDOWS_ACL_FAILED' ? 'acl-unavailable'
+    : error?.code === 'MCP_AUTH_WINDOWS_ACL_UNSAFE' ? 'acl-unsafe'
+      : error?.code === 'PRIVATE_SIDECAR_PATH_UNSAFE' ? 'path-unsafe'
+        : ['EACCES', 'EPERM'].includes(error?.code) ? 'access' : 'storage-error';
+  // Closed categories only: never put exception messages, filenames or remote URLs in metrics.
+  incrementCommandCounter(`configuration.object-store-declined.${reason}`);
+}
+
 async function qualifiedTree(root) {
   let bytes = 0, files = 0;
   const pending = [root];
@@ -118,6 +128,13 @@ export async function prepareConfigurationObjectCheckout(root, scratch, {
       git(store, ['init', '--quiet', '--bare', '--template=', `--object-format=${authorityCommit.length === 64 ? 'sha256' : 'sha1'}`]);
       await chmod(path.join(store, 'config'), 0o600);
       // Windows applies/checks the protected DACL as a tree, not one icacls launch per object.
+      // Git-created files inherit an owner-only ACL but are not themselves protected. The strict
+      // private config reader requires protection too. Apply it only to this newly initialized
+      // pool; existing pools must still pass read-only qualification, never an implicit ACL repair.
+      if (process.platform === 'win32') {
+        const { secureWindowsAuthAcl } = await import('./mcp-auth-profile.mjs');
+        await secureWindowsAuthAcl(store, { directory: true, recursive: true, apply: true });
+      }
       await safePrivateSidecarDirectory(root, store, { ...privacy });
     }
     const configQualified = await qualifiedConfig(root, store);
@@ -135,7 +152,7 @@ export async function prepareConfigurationObjectCheckout(root, scratch, {
       throw error;
     }
     await lease?.release({ cleanupConfirmed: true }).catch(() => {});
-    incrementCommandCounter('configuration.object-store-declined');
+    recordStorageDecline(error);
     return null;
   }
   let exposed = false, transferStarted = false;
@@ -214,7 +231,7 @@ export async function prepareConfigurationObjectCheckout(root, scratch, {
     } else await lease.release({ cleanupConfirmed: true }).catch(() => {});
     // After transfer starts, never retry network work through a fallback path.
     if (exposed || transferStarted || error.temporaryGitCleanupUnproven) throw error;
-    incrementCommandCounter('configuration.object-store-declined');
+    recordStorageDecline(error);
     return null;
   }
 }

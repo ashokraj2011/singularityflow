@@ -607,9 +607,16 @@ export async function fosStoryConfigurationAuthority(root) {
   // entire FOS namespace is absent before paying for a complete repository identity. Checking
   // attachments alone would hide recoverable operation journals, so any existing namespace
   // (including unreadable, malformed or symbolic entries) keeps the full validation path.
-  const absent = await lstat(path.join(gitCommonDir(root), 'singularity-flow', 'fos'))
-    .then(() => false, error => error?.code === 'ENOENT');
-  if (absent) return null;
+  const common = gitCommonDir(root);
+  for (const namespace of [path.join(common, 'singularity-flow'), path.join(common, 'singularity-flow', 'fos')]) {
+    const info = await lstat(namespace).catch(error => error?.code === 'ENOENT' ? null : undefined);
+    if (info === null) return null;
+    // Windows can report a child of a regular file as ENOENT instead of ENOTDIR. Validate the
+    // namespace components explicitly so corrupt state is never classified as an absent pin.
+    if (info && !info.isDirectory() && !info.isSymbolicLink()) throw new SingularityFlowError(
+      'The local FOS namespace is not a directory.', { code: 'AUTHORITY_PIN_INVALID' });
+    if (info === undefined) break; // unreadable: retain the full existing validation/error path
+  }
   const context = createRepoContext(root);
   const identity = await context.identity();
   const state = await readState(identity);

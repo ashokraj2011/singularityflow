@@ -84,7 +84,7 @@ test('an unattached Story authority avoids full identity reads but an existing F
   const namespace = path.resolve(root, commonDir, 'singularity-flow', 'fos');
   await mkdir(path.dirname(namespace), { recursive: true });
   await writeFile(namespace, 'not a FOS directory');
-  await assert.rejects(() => fosStoryConfigurationAuthority(root));
+  await assert.rejects(() => fosStoryConfigurationAuthority(root), error => error.code === 'AUTHORITY_PIN_INVALID');
 });
 
 test('FOS:AC-001 existing local authority attaches idempotently without changing the checkout', async () => {

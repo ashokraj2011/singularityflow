@@ -110,7 +110,8 @@ test('first activation publishes root, audit and projection together without clo
   const approved = readGit(f.lead, ['rev-parse', 'sflow/config']);
   const { result, counters } = await timed(() => activate(f, proposed));
   assertFirstActivation(f, result, counters);
-  assert.equal(counters['git.remote.command.clone'] ?? 0, 0, 'a cold object pool replaces the configuration clone');
+  assert.equal(counters['git.remote.command.clone'] ?? 0, 0,
+    `a cold object pool replaces the configuration clone: ${JSON.stringify(counters)}`);
   assert.equal(counters['configuration.object-store-fetch'], 1, 'the approved configuration objects transfer once');
   assert.equal(counters['configuration.object-store-checkout'], 1);
   assert.equal(counters['git.remote.command.fetch'], 2, 'configuration authority, then only the exact proposal');

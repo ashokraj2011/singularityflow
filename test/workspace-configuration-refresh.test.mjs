@@ -7,7 +7,7 @@ import {
 import { PassThrough } from 'node:stream';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -38,6 +38,18 @@ process.env.GIT_CONFIG_GLOBAL = '/dev/null';
 process.env.GIT_CONFIG_SYSTEM = '/dev/null';
 process.env.GIT_LFS_SKIP_SMUDGE = '1';
 if (process.platform === 'darwin') process.env.TMPDIR = '/tmp';
+const fixtureCaches = new Set();
+function fixtureCacheRoot(registry) {
+  if (process.platform !== 'win32') return path.join(path.dirname(registry), '.configuration-refresh-cache');
+  assert.ok(process.env.LOCALAPPDATA, 'Windows cache qualification requires the native per-user boundary');
+  const root = path.join(path.resolve(process.env.LOCALAPPDATA), 'Singularity Flow', 'configuration-refresh-cache',
+    createHash('sha256').update(path.resolve(registry)).digest('hex').slice(0, 32));
+  fixtureCaches.add(root);
+  return root;
+}
+after(async () => {
+  for (const root of fixtureCaches) await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+});
 const INITIAL_FILES = [
   ['workflow.yml', 'singularity/workflow.yml'],
   ['portfolio.yml', 'singularity/portfolio.yml'],
@@ -272,7 +284,7 @@ test('the removed World Model migration is refused by name before any local cand
 });
 
 async function cachedConfigurationCheckout(registry, planId) {
-  const planRoot = path.join(path.dirname(registry), '.configuration-refresh-cache', planId);
+  const planRoot = path.join(fixtureCacheRoot(registry), planId);
   const record = JSON.parse(await readFile(path.join(planRoot, 'plan.json'), 'utf8'));
   assert.equal(record.planId, planId);
   assert.equal(record.repositories.length, 1);
@@ -284,7 +296,7 @@ async function cachedConfigurationCheckout(registry, planId) {
 async function plantConfigurationCacheLock(registry, {
   pid, token, acquiredAt = new Date(Date.now() - (2 * 60 * 60 * 1000)).toISOString()
 }) {
-  const lock = path.join(path.dirname(registry), '.configuration-refresh-cache', '.operation-lock');
+  const lock = path.join(fixtureCacheRoot(registry), '.operation-lock');
   await mkdir(lock, { mode: 0o700 });
   const owner = {
     format: 'singularity-flow-configuration-refresh-cache-lock/v1',
@@ -2236,7 +2248,7 @@ test('configuration refresh cache-miss apply refuses a symbolic remote state sou
 
   // Force confirmed apply down the fresh-clone fallback where no cached state-branch name is
   // available to the initial multi-head preflight.
-  await rm(path.join(path.dirname(registry), '.configuration-refresh-cache', preview.planId), {
+  await rm(path.join(fixtureCacheRoot(registry), preview.planId), {
     recursive: true, force: true
   });
   run('git', [
@@ -2924,7 +2936,7 @@ test('configuration refresh ignores a preplanted cache root without its ownershi
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-cache-owner-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const { registry } = await registeredRepositoryFixture(root, 'cache-owner');
-  const cacheRoot = path.join(root, '.configuration-refresh-cache');
+  const cacheRoot = fixtureCacheRoot(registry);
   await mkdir(cacheRoot, { mode: 0o700 });
   const sentinel = path.join(cacheRoot, 'unowned-data.txt');
   await writeFile(sentinel, 'not owned by Singularity Flow\n');

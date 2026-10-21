@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { runInNewContext } from 'node:vm';
+import path from 'node:path';
 import { SharedWorkflowDraftController } from '../apps/vscode/src/views/workflow-drafts-model.ts';
 import { sharedWorkflowDraftsHtml, SHARED_WORKFLOW_DRAFTS_SCRIPT } from '../apps/vscode/src/views/workflow-drafts-page.ts';
 
 const digest = `sha256:${'a'.repeat(64)}`;
-const roots = ['/approved/one', '/approved/two'];
+const roots = [path.resolve('/approved/one'), path.resolve('/approved/two')];
+const openedRoot = path.resolve('/opened/explicit-repository');
 const selectors = `${roots[0]}#STORY-1=refs/heads/story-1\n${roots[1]}#STORY-2=refs/heads/story-2`;
 const report = (cursor = 0, override = {}) => ({
   format: 'sflow-cross-repository-story-skill-inventory/v1',
@@ -25,7 +27,7 @@ const report = (cursor = 0, override = {}) => ({
 });
 
 function fixture(responder = (cursor) => report(cursor)) {
-  const calls = []; const controller = new SharedWorkflowDraftController('/opened/explicit-repository',
+  const calls = []; const controller = new SharedWorkflowDraftController(openedRoot,
     async (argv, root) => {
       calls.push({ argv, root });
       const cursor = argv.includes('--cursor') ? Number(argv[argv.indexOf('--cursor') + 1]) : 0;
@@ -43,7 +45,7 @@ test('selected cross-repository usage is a bounded explicit read, independent of
   await f.controller.receive({ type: 'usage-query', usageSkillId: 'review-skill',
     usageSelectors: selectors, usageHistoryDepth: 2 });
   assert.equal(f.calls.length, 1);
-  assert.equal(f.calls[0].root, '/opened/explicit-repository');
+  assert.equal(f.calls[0].root, openedRoot);
   assert.deepEqual(f.calls[0].argv, ['workflow', 'author', 'where-used', 'review-skill',
     '--repository-story-refs', selectors.replace(/\n/gu, ','), '--history-depth', '2', '--limit', '32', '--json']);
   assert.equal(f.controller.view.usage.report.page.total, 33);

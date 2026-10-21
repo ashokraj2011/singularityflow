@@ -471,10 +471,19 @@ async function publish(directory: Directory, file: string, bytes: Buffer): Promi
     const handle = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NOFOLLOW, 0o600);
     try { identity = await handle.stat(); await handle.writeFile(bytes); await handle.sync(); }
     finally { await handle.close(); }
-    await unchanged(directory); await regular(file);
-    const current = await regular(temporary);
-    if (!current || !sameFile(identity, current)) unsafe();
-    await rename(temporary, file);
+    for (let attempt = 0; ; attempt += 1) {
+      await unchanged(directory); await regular(file);
+      const current = await regular(temporary);
+      if (!current || !sameFile(identity, current)) unsafe();
+      try { await rename(temporary, file); break; }
+      catch (error) {
+        if (process.platform !== 'win32' || attempt >= 5
+            || !['EPERM', 'EACCES', 'EBUSY'].includes(errorCode(error))) throw error;
+        // Readers/scanners can briefly retain a sharing handle. Retry the same complete seal,
+        // rechecking the directory and temporary identity; never unlink the prior checkpoint.
+        await new Promise<void>((resolve) => setTimeout(resolve, 20 * 2 ** attempt));
+      }
+    }
     await unchanged(directory); await syncDirectory(directory);
   } finally {
     if (identity) {

@@ -481,7 +481,7 @@ test('the real engine\'s answers read into the page: list, create, path, suggest
   assert.deepEqual(reading.environments, ['dev', 'uat']);
   const web = reading.files.find((entry) => entry.environment === 'dev' && entry.path === 'apps/web/.env.dev');
   assert.deepEqual([web.repository, web.workspaceLevel, web.status, web.source, web.template], [null, false, 'missing', 'store', 'apps/web/.env.dev.example']);
-  assert.match(web.location, /\/\.git\/singularity-flow\/environment-files\/v1\/dev\/apps\/web\/\.env\.dev$/);
+  assert.match(web.location.replaceAll('\\', '/'), /\/\.git\/singularity-flow\/environment-files\/v1\/dev\/apps\/web\/\.env\.dev$/);
   assert.deepEqual(model.fileActions(web), ['create', 'link']);
   const view = model.buildEnvironmentFilesView(reading, { environment: 'dev' });
   assert.deepEqual(view.repositories.map((group) => group.label), ['This repository']);

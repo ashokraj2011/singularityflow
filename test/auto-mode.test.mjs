@@ -34,6 +34,9 @@ import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 import { autoFlightRead } from '../src/gateway/planners/auto-flight.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
 import { invokeModel } from '../src/model-runner.mjs';
+import { addDocuments } from '../src/documents.mjs';
+import { readLocalDocument } from '../src/document-storage.mjs';
+import { acpPermissionOutcome } from '../src/model-providers/copilot-cli.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { withSubjectLock } from '../src/subject-lock.mjs';
 
@@ -1020,6 +1023,56 @@ test('checkpoint resume is exact and authoring attempt counters are consumed bef
   const paused = await pauseAutoFlight(root, flight.flightId);
   assert.equal(paused.status, 'paused');
   await assert.rejects(() => resumeAutoFlight(root, flight.flightId, running.checkpointSha256), (error) => error.code === 'AUTO_CHECKPOINT_STALE');
+});
+
+test('Auto delivers local attachments through the real scoped provider boundary without publishing originals', async t => {
+  const root = await executableRepository();
+  const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-local-input-'));
+  t.after(() => rm(uploads, { recursive: true, force: true }));
+  const source = path.join(uploads, 'private requirement.md');
+  const marker = 'AUTO_PRIVATE_REQUIREMENT_935271';
+  await writeFile(source, marker);
+  const plan = await createAutoPlan(root, 'Change the exported application value from one to two.', {
+    ...proposal, workType: 'quick-fix', predictedPaths: ['app.mjs', 'test/app.test.mjs'],
+    suggestedUntil: 'phase-complete:implement'
+  }, { workId: 'AUT-LOCAL-INPUT', workType: 'quick-fix', fromBranch: 'main' });
+  let record;
+  let local;
+  const started = await startAutoFlight(root, plan.planId, confirmation(plan), {
+    afterStoryStarted: async ({ worktree, started: story }) => {
+      const definition = await loadDefinition(worktree);
+      [record] = await addDocuments(worktree, definition, story.workflow, {
+        files: [source], names: ['Private requirement']
+      });
+      local = await readLocalDocument(worktree, story.workflow.workItem.id, record);
+      run('git', ['add', '.'], worktree);
+      run('git', ['commit', '-m', 'Retain local input identity'], worktree);
+    }
+  });
+  let calls = 0;
+  const final = await runFlightStep(root, started.flight, {
+    invokeModel: async request => {
+      calls += 1;
+      assert.match(request.prompt.text, new RegExp(marker));
+      assert.ok(request.tools.scope.readRoots.includes(local.absolutePath));
+      assert.ok(request.allowedRoots.includes(path.dirname(local.absolutePath)));
+      assert.ok(!request.tools.scope.writeRoots.includes(local.absolutePath));
+      const scoped = { ...request, tools: { ...request.tools,
+        scope: { ...request.tools.scope, protocol: 'path-v1' } } };
+      assert.deepEqual(await acpPermissionOutcome(scoped, {
+        toolCall: { name: 'view', kind: 'read', rawInput: { path: local.absolutePath } },
+        options: [{ optionId: 'allow', kind: 'allow_once' }]
+      }), { outcome: 'selected', optionId: 'allow' });
+      return invokeModel(request);
+    }
+  });
+  assert.equal(calls, 1, `${final.stopReason}: ${final.lastError?.message ?? ''}`);
+  assert.equal(final.position, 'submitted', `${final.stopReason}: ${final.lastError?.message ?? ''}`);
+  const contract = Object.values(final.phaseContracts)[0];
+  assert.ok(contract.taskContract.readScope.includes(`sfdoc:local/${record.id}/${record.sha256}`));
+  assert.ok(!JSON.stringify(contract).includes(local.absolutePath));
+  assert.equal(run('git', ['grep', '-F', marker, 'HEAD'], started.story.worktree, { allowFailure: true }).status, 1);
+  assert.equal(run('git', ['ls-files', 'singularity/work-items/AUT-LOCAL-INPUT/inputs'], started.story.worktree).stdout.trim(), '');
 });
 
 test('thin pilot performs one governed authoring attempt and stops after normal publish and submit', async () => {

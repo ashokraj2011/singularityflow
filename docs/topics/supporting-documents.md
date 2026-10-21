@@ -22,7 +22,7 @@ related:
   - artifacts-and-generation
   - specification-quality
   - epics-and-planning
-version: 10
+version: 11
 ---
 Supporting documents are the evidence a Story is built from: a brief, API notes, a spreadsheet of rules, a design export or screenshot. Images (PNG, JPEG, GIF, WebP, SVG) are attached like any other file. Each one is attached with a name, a storage location, and the phases that read it. `sflow documents upload <FILE> --name <NAME>` attaches a file and pins it by SHA-256; the Story's `documents.json` records its `DOC-nnn` ID, name, hash, size, storage, and phases. Names are required and unique within the Story: case and spacing are ignored, and a detached document keeps its name. Prompts list each document as `DOC-nnn — <name>`, and artifacts cite it the same way.
 

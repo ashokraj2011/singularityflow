@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import childProcess, { spawnSync } from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import { mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, rename, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -75,11 +75,38 @@ test('batched tree admission refuses absent objects and a commit masquerading as
   const baselineCommit = git(root, 'rev-parse', 'HEAD');
   const candidateTree = git(root, 'rev-parse', 'HEAD^{tree}');
   assert.ok(admitExactProspectiveTree(root, { baselineCommit, candidateTree }));
+  assert.equal(admitExactProspectiveTree(root, { baselineCommit, candidateTree }).baselineTree, candidateTree);
   for (const ids of [
     { baselineCommit: 'f'.repeat(40), candidateTree },
     { baselineCommit, candidateTree: 'f'.repeat(40) },
     { baselineCommit, candidateTree: baselineCommit }
   ]) assert.throws(() => admitExactProspectiveTree(root, ids), { code: 'PROSPECTIVE_TREE_INVALID' });
+});
+
+test('combined private-index status accepts staged renames and refuses tracked, deleted and untracked drift', async t => {
+  for (const mutation of ['none', 'tracked', 'deleted', 'untracked']) {
+    const root = await repository(t, `sflow-publication-drift-${mutation}-`);
+    await mkdir(path.join(root, 'owned'));
+    await writeFile(path.join(root, 'owned/before.txt'), 'baseline\n');
+    git(root, 'add', '.'); git(root, 'commit', '-qm', 'tracked baseline');
+    const before = git(root, 'rev-parse', 'HEAD');
+    await rename(path.join(root, 'owned/before.txt'), path.join(root, 'owned/after.txt'));
+    const publish = () => commitIsolated(root, 'rename in private index', ['owned'], { expectedHead: before,
+      fault: async stage => {
+        if (stage !== 'after-staging') return;
+        if (mutation === 'tracked') await writeFile(path.join(root, 'owned/after.txt'), 'racing bytes\n');
+        if (mutation === 'deleted') await rm(path.join(root, 'owned/after.txt'));
+        if (mutation === 'untracked') await writeFile(path.join(root, 'owned/untracked.txt'), 'racing addition\n');
+      }
+    });
+    if (mutation === 'none') {
+      await publish();
+      assert.equal(git(root, 'show', 'HEAD:owned/after.txt'), 'baseline');
+    } else {
+      await assert.rejects(publish(), { code: 'PUBLICATION_SNAPSHOT_CHANGED' });
+      assert.equal(git(root, 'rev-parse', 'HEAD'), before);
+    }
+  }
 });
 
 test('an isolated commit builds its tree once and still admits exactly the bytes it commits', async (t) => {

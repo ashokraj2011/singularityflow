@@ -393,7 +393,7 @@ const DELIVERY_SUBCOMMANDS = Object.freeze([
   'local-runner-create', 'local-runner-status', 'local-runner-options', 'local-runner-plan',
   'local-runner-run', 'local-runner-verify', 'readiness'
 ]);
-const STORY_READ_SUBCOMMANDS = Object.freeze(['inbox', 'status', 'return']);
+const STORY_READ_SUBCOMMANDS = Object.freeze(['inbox', 'status', 'return', 'prepare-configuration']);
 const STORY_MUTATION_SUBCOMMANDS = Object.freeze(['start', 'fetch', 'submit', 'finalize', 'checks', 'adjudicate', 'rework', 'advance', 'prepare-worktree', 'discard-worktree']);
 const STORY_INTERVAL_ACTIONS = Object.freeze(['status', 'checkpoint', 'reconcile', 'escalate', 'acknowledge']);
 const STORY_BRANCH_ACTIONS = Object.freeze(['status', 'create', 'attach', 'promote']);

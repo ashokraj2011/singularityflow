@@ -12,7 +12,7 @@ test('large prepared checkouts share Start host budgets and retain the launch re
   const pinned = client.forkForRepository(client.repository);
   const budget = client.timeoutFor(['start'], false);
   assert.ok(budget > client.timeoutFor(['status'], false));
-  for (const operation of ['prepare-worktree', 'discard-worktree']) {
+  for (const operation of ['prepare-worktree', 'prepare-configuration', 'discard-worktree']) {
     assert.equal(client.timeoutFor(['story', operation], false), budget);
   }
   client.useRepository('/unused-other');
@@ -59,4 +59,25 @@ test('preparation uses the exact preflight remote instead of assuming origin', a
   helper.schedule('company', ['start', 'story'], 'company');
   await helper.take('company');
   assert.deepEqual(calls, [['story', 'prepare-worktree', '--work-id', 'story', '--remote', 'company']]);
+});
+
+test('an unfinished configuration transfer never delays Start or cancellation cleanup', async () => {
+  const calls = [], warmCalls = [];
+  const helper = new IntakeWorktreePreparation(async args => {
+    calls.push(args); return prepared();
+  }, args => { warmCalls.push(args); return new Promise(() => {}); });
+  helper.schedule('key', ['start', 'story', '--intake-receipt', 'receipt'], 'company');
+  assert.equal((await helper.take('key')).workId, 'story');
+  assert.deepEqual(warmCalls, [['story', 'prepare-configuration', '--work-id', 'story',
+    '--intake-receipt', 'receipt', '--remote', 'company']]);
+  helper.schedule('next', ['start', 'story']); await tick();
+  helper.cancel(); await tick(); await tick();
+  assert.equal(calls.at(-1)[1], 'discard-worktree');
+});
+
+test('configuration transfer errors are advisory and do not reject Start', async () => {
+  const helper = new IntakeWorktreePreparation(async () => prepared(), async () => { throw Error('offline'); });
+  helper.schedule('key', ['start', 'story']);
+  assert.equal((await helper.take('key')).workId, 'story');
+  await tick();
 });

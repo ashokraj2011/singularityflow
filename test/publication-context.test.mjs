@@ -87,11 +87,11 @@ test('writer metadata reuses exact object reads but preserves magic pathspec sem
       ['ls-tree', '-z', oid, '--', ':(literal)owned/file'], options, opts => {
         assert.equal(opts.env.GIT_LITERAL_PATHSPECS, undefined); return execute(opts);
       });
-    assert.equal(calls, 3);
+    assert.equal(calls, 2, 'literal writer pathspecs share their exact bytes too');
     const failed = () => ({ status: 1, stdout: '', stderr: 'disk failure', signal: null });
     assert.equal(publicationGitResult(root, ['rev-parse', `${other}^{tree}`], options, failed).status, 1);
     assert.equal(publicationGitResult(root, ['rev-parse', `${other}^{tree}`], options, execute).status, 0);
-    assert.equal(calls, 4);
+    assert.equal(calls, 3);
   });
 });
 

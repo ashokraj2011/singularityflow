@@ -3,6 +3,8 @@ import test from 'node:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { resolveWindowsSystemTool } from '../src/platform-process.mjs';
 import { withCreationContext } from '../src/creation-context.mjs';
 import { secureWindowsAuthAcl, verifyWindowsPrivateDirectories } from '../src/mcp-auth-profile.mjs';
 
@@ -39,6 +41,12 @@ test('native private-directory proof remains valid on each host and refuses wide
     await withCreationContext(async () => {
       for (const target of targets) await secureWindowsAuthAcl(target, { directory: true });
       await verifyWindowsPrivateDirectories(targets);
+      const system = path.win32.dirname(resolveWindowsSystemTool(process.env, 'cmd.exe'));
+      const shell = path.win32.join(system, 'WindowsPowerShell/v1.0/powershell.exe');
+      const literal = "'" + targets[0].replaceAll("'", "''") + "'";
+      const script = `$env:PSModulePath=$PSHOME+'\\Modules';$ErrorActionPreference='Stop';$acl=Get-Acl -LiteralPath ${literal};$acl.SetAccessRuleProtection($false,$true);Set-Acl -LiteralPath ${literal} -AclObject $acl`;
+      execFileSync(shell, ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')]);
+      await assert.rejects(verifyWindowsPrivateDirectories(targets), { code: 'MCP_AUTH_WINDOWS_ACL_UNSAFE' });
     });
   } else {
     // Fake executors above test the protocol on every OS; native Windows runs exercise Get-Acl.

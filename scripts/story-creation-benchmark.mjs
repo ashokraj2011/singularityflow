@@ -78,11 +78,23 @@ try {
       }
       return { repository, git };
     };
-    const shared = fresh === 'true' ? null : await createRepository('');
+    // A steady workspace belongs to one engine. Sharing it across engines let the first variant
+    // pay enrollment/state initialization and handed the second variant a warmer authority.
+    const shared = fresh === 'true' ? null : Object.fromEntries(await Promise.all(
+      Object.keys(variants).map(async variant => [variant, await createRepository(`-${variant}-steady`)])));
+    const workspacePreparation = {};
+    if (shared) for (const variant of Object.keys(variants)) {
+      const { repository } = shared[variant];
+      const warmed = invoke(['start', 'CREATE-WORKSPACE-WARMUP', '--from-branch', 'main', '--work-type', workType,
+        '--title', 'Matched workspace warmup', '--json', ...(isolated ? ['--isolated-worktree'] : [])],
+      repository, { SINGULARITY_FLOW_BUNDLE_DIR: variants[variant],
+        NODE_COMPILE_CACHE: path.join(fixture.directory, 'code-cache', variant) }, variantClis[variant]);
+      workspacePreparation[variant] = { durationMs: warmed.durationMs };
+    }
     const measured = Object.fromEntries(Object.keys(variants).map(variant => [variant, []]));
     for (let index=0;index<samples;index++) {
       for (const variant of index % 2 ? Object.keys(variants).reverse() : Object.keys(variants)) {
-      const { repository, git } = shared ?? await createRepository(`-${variant}-${index}`);
+      const { repository, git } = shared?.[variant] ?? await createRepository(`-${variant}-${index}`);
       git(['switch', '-q', 'main']);
       const id = `CREATE-${variant.toUpperCase()}-${isolated ? 'ISO' : 'LOCAL'}-${index}`;
       const traceFile = path.join(fixture.directory, `${id}.jsonl`);
@@ -160,7 +172,7 @@ try {
       }
     }
     results[mode] = Object.fromEntries(Object.entries(measured).map(([variant, runs]) =>
-      [variant, { ...summary(runs.map(run => run.durationMs)), runs }]));
+      [variant, { ...summary(runs.map(run => run.durationMs)), workspacePreparation: workspacePreparation[variant] ?? null, runs }]));
   }
   const report = { schemaVersion: 1,
     runtime: { platform: process.platform, arch: process.arch, node: process.version,

@@ -2903,6 +2903,7 @@ export function admitExactProspectiveTree(root, {
       code: 'PROSPECTIVE_TREE_INVALID'
     });
   }
+  const baselineTree = trees[0].split(' ')[0];
 
   assertNoEnvironmentLocalPaths(root, [
     exactEnvironmentDeclarationAtRef(root, baselineCommit, env),
@@ -2912,7 +2913,7 @@ export function admitExactProspectiveTree(root, {
   const listed = nullList(git([
     'diff', '--name-only', '-z', '--diff-filter=ACMRT', baselineCommit, candidateTree, '--'
   ], { cwd: root, env }).stdout);
-  if (!listed.length) return remember(Object.freeze({ tree: candidateTree, paths: Object.freeze([]), scan: null }));
+  if (!listed.length) return remember(Object.freeze({ tree: candidateTree, baselineTree, paths: Object.freeze([]), scan: null }));
 
   const expectedPaths = new Set(listed);
   const byPath = new Map();
@@ -3008,7 +3009,7 @@ export function admitExactProspectiveTree(root, {
       code: 'SECRET_DETECTED'
     });
   }
-  return remember(Object.freeze({ tree: candidateTree, paths: Object.freeze([...listed]), scan }));
+  return remember(Object.freeze({ tree: candidateTree, baselineTree, paths: Object.freeze([...listed]), scan }));
 }
 
 /**
@@ -3542,19 +3543,27 @@ export async function commitIsolated(root, message, paths, {
     if (fault) await fault('before-staging', { expectedHead, paths: scope });
     git(['add', '-A', '--', ...scope], { cwd: root, env });
     if (fault) await fault('after-staging', { expectedHead, paths: scope });
-    const trackedWorktreeDrift = git(['diff', '--quiet', '--', ...scope], {
-      cwd: root, env, allowFailure: true
+    // One bounded fresh status answers both tracked drift and untracked additions against our
+    // private index. Staged (X) changes are expected; worktree (Y) changes must still refuse.
+    const worktreeDrift = git(['status', '--porcelain=v2', '-z', '--untracked-files=all',
+      '--ignore-submodules=none', '--', ...scope], {
+      cwd: root, env, allowFailure: true, encoding: 'buffer', maxBuffer: 32 * 1024 * 1024
     });
-    const untrackedWorktreeDrift = git(['ls-files', '--others', '--exclude-standard', '-z', '--', ...scope], {
-      cwd: root, env, allowFailure: true
-    });
-    if (trackedWorktreeDrift.status > 1 || untrackedWorktreeDrift.status !== 0) {
+    if (!processResultSucceeded(worktreeDrift)) {
       throw new SingularityFlowError(
         'Git could not verify the publication snapshot after staging.',
         { code: 'PUBLICATION_SNAPSHOT_UNVERIFIED' }
       );
     }
-    if (trackedWorktreeDrift.status === 1 || untrackedWorktreeDrift.stdout) {
+    let drift;
+    try { drift = parsePorcelainV2Status(worktreeDrift.stdout, {
+      objectFormat: expectedHead.length === 64 ? 'sha256' : 'sha1', maxBytes: 32 * 1024 * 1024
+    }); }
+    catch (cause) { throw new SingularityFlowError('Git could not parse the publication snapshot status.', {
+      code: 'PUBLICATION_SNAPSHOT_UNVERIFIED', cause
+    }); }
+    if (drift.entries.some(entry => entry.type === 'untracked' || entry.type === 'unmerged'
+        || entry.xy?.worktree !== '.' || entry.submodule?.trackedModified || entry.submodule?.untracked)) {
       throw new SingularityFlowError(
         'Repository bytes changed while the publication snapshot was being staged. '
         + 'The commit was not created; wait for editor, formatter, generator, and test writes to finish, then retry.',
@@ -3576,7 +3585,7 @@ export async function commitIsolated(root, message, paths, {
     }
 
     const tree = git(['write-tree'], { cwd: root, env }).stdout.trim();
-    admitExactProspectiveTree(root, {
+    const admission = admitExactProspectiveTree(root, {
       baselineCommit: expectedHead, candidateTree: tree, label: 'Publication'
     });
     if (expectedTree != null && tree !== expectedTree) {
@@ -3588,7 +3597,9 @@ export async function commitIsolated(root, message, paths, {
         }
       );
     }
-    const priorTree = git(['rev-parse', `${expectedHead}^{tree}`], { cwd: root, env }).stdout.trim();
+    // The admission's batch already proved this exact immutable parent tree. The final branch
+    // guard, commit-tree parent validation and compare-and-swap below remain fresh.
+    const priorTree = admission.baselineTree;
     if (tree === priorTree) throw new SingularityFlowError('No changes are ready to commit.');
 
     const signing = sign ? [signingKey ? `-S${signingKey}` : '-S'] : [];

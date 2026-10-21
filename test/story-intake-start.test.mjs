@@ -176,6 +176,9 @@ test('background intake preparation creates no Story or publication and Start re
   const index = await readFile(path.join(root, '.git/index'));
   const prepared = data(prepare(root, id, ['--intake-receipt', receipt.id])).preparation;
   assert.equal(prepared.status, 'prepared'); assert.equal(prepared.owned, true);
+  const configuration = data(flow(root, ['story', 'prepare-configuration', '--work-id', id,
+    '--intake-receipt', receipt.id, '--from-branch', 'main', '--work-type', 'feature', '--json'])).preparation;
+  assert.equal(configuration.status, 'prepared');
   assert.equal(git(root, 'ls-remote', '--heads', 'origin'), before);
   assert.equal(git(root, 'branch', '--show-current'), 'main');
   assert.deepEqual(await readFile(path.join(root, '.git/index')), index);
@@ -192,6 +195,8 @@ test('background intake preparation creates no Story or publication and Start re
 test('background intake preparation refuses missing receipts and cleanup retains edits but removes a clean cancelled launch', intakePlatforms, async t => {
   const { root } = await repository(t), id = 'CANCEL-PREPARED';
   assert.equal(data(prepare(root, id)).preparation.status, 'unavailable');
+  assert.equal(data(flow(root, ['story', 'prepare-configuration', '--work-id', id,
+    '--from-branch', 'main', '--work-type', 'feature', '--json'])).preparation.status, 'unavailable');
   const receipt = preflight(root, id);
   const prepared = data(prepare(root, id, ['--intake-receipt', receipt.id])).preparation;
   const target = await storyWorktreePath(root, id);

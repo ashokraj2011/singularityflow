@@ -8,21 +8,22 @@ import { admitStoryIntakeReceipt } from './story-intake-verification.mjs';
 import { prepareStoryWorktree, preparedStoryWorktreePath, discardPreparedStoryWorktree } from './story-worktree.mjs';
 import { prepareSelectedStoryConfiguration } from './configuration-branch.mjs';
 import { measureCommandSpan } from './dx-timing-context.mjs';
+import { withRepositoryMutationLease } from './subject-lock.mjs';
 
 /** Dedicated verbs fail closed in older CLIs; never disguise speculative work as Story Start. */
 export async function run(_argv, { positionals, options }) {
   const id = optionString(options, 'work-id');
   validatePortableWorkId(id);
   const root = repoRoot();
-  const preparation = positionals[1] === 'prepare-worktree'
-    ? await prepareIntakeWorktree(root, id, options) : await discardIntakeWorktree(root, id, options);
+  const preparation = positionals[1] === 'prepare-worktree' ? await prepareIntakeWorktree(root, id, options)
+    : positionals[1] === 'prepare-configuration' ? await prepareIntakeConfiguration(root, id, options)
+      : await discardIntakeWorktree(root, id, options);
   console.log(JSON.stringify({ preparation }));
   return { preparation };
 }
 
 /** Only a passing, exact-request receipt may trigger speculative local checkout work. */
-export async function prepareIntakeWorktree(root, workId, options) {
-  if (process.env.SINGULARITY_FLOW_INTAKE_WORKTREE_PREPARATION === 'off') return { status: 'unavailable', reason: 'disabled' };
+async function preparationAdmission(root, workId, options) {
   const receipt = optionString(options, 'intake-receipt');
   const baseBranch = optionString(options, 'from-branch');
   const remote = optionString(options, 'remote', 'origin');
@@ -43,21 +44,33 @@ export async function prepareIntakeWorktree(root, workId, options) {
       qualityGateMode: normalizeQualityGateMode(optionString(options, 'gate-mode', 'hard')),
       references: references.map(entry => ({ id: entry.id, url: entry.repository, branch: entry.requestedBranch })) }
   });
-  if (admission.status !== 'admitted') return { status: 'unavailable', reason: admission.reason };
+  return { admission, storyBranch };
+}
+
+export async function prepareIntakeWorktree(root, workId, options) {
+  if (process.env.SINGULARITY_FLOW_INTAKE_WORKTREE_PREPARATION === 'off') return { status: 'unavailable', reason: 'disabled' };
+  const { admission, storyBranch, reason } = await preparationAdmission(root, workId, options);
+  if (admission?.status !== 'admitted') return { status: 'unavailable', reason: admission?.reason ?? reason };
   try {
-    // Runs while the human finishes intake. Failure cannot authorize or block Start, which still
-    // resolves fresh authority and validates every retained byte before using these exact objects.
-    let configuration;
-    try {
-      configuration = await measureCommandSpan('start.configuration-prepare', () =>
-        prepareSelectedStoryConfiguration(root, admission.receipt.authority));
-    } catch { configuration = { status: 'unavailable' }; }
     const baseCommit = admission.repository.baseCommit;
     const existing = await preparedStoryWorktreePath(root, workId, { baseCommit });
-    if (existing) return { status: 'prepared', workId, baseCommit, owned: false, configuration };
+    if (existing) return { status: 'prepared', workId, baseCommit, owned: false };
     const prepared = await prepareStoryWorktree(root, workId, { base: baseCommit, storyBranch });
-    return { status: 'prepared', workId, baseCommit, owned: prepared.created, configuration };
+    return { status: 'prepared', workId, baseCommit, owned: prepared.created };
   } finally { await admission.release(); }
+}
+
+/** Optional object transfer never holds the single-use receipt or the checkout lifecycle lock. */
+export async function prepareIntakeConfiguration(root, workId, options) {
+  if (process.env.SINGULARITY_FLOW_INTAKE_WORKTREE_PREPARATION === 'off') return { status: 'unavailable', reason: 'disabled' };
+  const { admission, reason } = await preparationAdmission(root, workId, options);
+  if (admission?.status !== 'admitted') return { status: 'unavailable', reason: admission?.reason ?? reason };
+  const authority = Object.freeze({ ...admission.receipt.authority });
+  await admission.release();
+  // A unique repository activity lease protects reset/cleanup without serializing Story Start.
+  // Start independently resolves fresh authority and validates exact retained bytes, or falls back.
+  return withRepositoryMutationLease(root, 'story.prepare-configuration', () =>
+    measureCommandSpan('start.configuration-prepare', () => prepareSelectedStoryConfiguration(root, authority)));
 }
 
 export async function discardIntakeWorktree(root, workId, options) {

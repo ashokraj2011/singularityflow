@@ -686,6 +686,7 @@ Every public operation is classified before its implementation module is importe
 | story.interval.escalate | mutation | never | — | — |
 | story.interval.reconcile | mutation | never | — | — |
 | story.interval.status | read | never | — | — |
+| story.prepare-configuration | read | never | — | — |
 | story.prepare-worktree | mutation | never | — | — |
 | story.references.inspect | read | never | — | — |
 | story.references.list | read | never | — | — |

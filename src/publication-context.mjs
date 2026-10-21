@@ -19,8 +19,11 @@ export async function withPublicationContext(root, action) {
 function immutableRead(args, input) {
   if (!Array.isArray(args) || args.length > 516) return false;
   if (args[0] === 'ls-tree' && args[1] === '-z' && OID.test(args[2] ?? '') && args[3] === '--') {
-    return input === undefined && args.length > 4 && args.slice(4).every(p => typeof p === 'string' && p
-      && !p.startsWith(':(') && !/[\x00\r\n]/u.test(p));
+    const paths = args.slice(4);
+    const quoted = paths.filter(p => typeof p === 'string' && p.startsWith(':(literal)')).length;
+    return input === undefined && paths.length > 0 && (quoted === 0 || quoted === paths.length)
+      && paths.every(p => typeof p === 'string' && p
+        && (!p.startsWith(':(') || p.startsWith(':(literal)')) && !/[\x00\r\n]/u.test(p));
   }
   if (input !== undefined) return false;
   if (args.length === 4 && args[0] === 'ls-tree' && args[1] === '-r' && args[2] === '-z' && OID.test(args[3])) return true;
@@ -48,7 +51,11 @@ export function publicationGitRead(root, args, { env = process.env, input, maxim
   if (!immutableRead(args, input)) return read(env);
   // These closed forms read exact objects only, never replacement objects, a promisor remote,
   // or a pathspec interpreted from Candidate-owned text.
-  const objectEnv = { ...env, GIT_NO_REPLACE_OBJECTS: '1', GIT_NO_LAZY_FETCH: '1', GIT_LITERAL_PATHSPECS: '1' };
+  // The writer already quotes paths with :(literal). Turning on GIT_LITERAL_PATHSPECS there
+  // would make that prefix part of the filename. Raw Candidate paths need the environment fence.
+  const literalSyntax = args[0] === 'ls-tree' && args.slice(4).some(p => p.startsWith(':(literal)'));
+  const objectEnv = { ...env, GIT_NO_REPLACE_OBJECTS: '1', GIT_NO_LAZY_FETCH: '1',
+    ...(literalSyntax ? {} : { GIT_LITERAL_PATHSPECS: '1' }) };
   const frame = contexts.getStore();
   if (!frame?.active || frame.root !== path.resolve(root) || input !== undefined) return read(objectEnv);
   const environment = environmentKey(objectEnv);

@@ -8,7 +8,8 @@ export class IntakeWorktreePreparation {
   private pending: Promise<void> = Promise.resolve();
   private held: Held | null = null;
   private readonly run: Run;
-  constructor(run: Run) { this.run = run; }
+  private readonly warm: Run | null;
+  constructor(run: Run, warm: Run | null = null) { this.run = run; this.warm = warm; }
 
   schedule(key: string, args: string[], remote?: string): void {
     const workId = args[1], rest = args.slice(2);
@@ -23,6 +24,11 @@ export class IntakeWorktreePreparation {
         if (value?.status === 'prepared' && typeof value.workId === 'string'
             && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value.baseCommit ?? '')) {
           this.held = { key, workId: value.workId, baseCommit: value.baseCommit!, owned: value.owned === true };
+          // Never add the network warmup to `pending`: take/cancel only settle local checkout work.
+          if (generation === this.generation && this.warm) {
+            void this.warm(['story', 'prepare-configuration', '--work-id', workId,
+              ...rest, ...(remote ? ['--remote', remote] : [])]).catch(() => {});
+          }
         }
       } catch { /* Acceleration cannot disable Start. */ }
       if (generation !== this.generation) await this.cleanup();

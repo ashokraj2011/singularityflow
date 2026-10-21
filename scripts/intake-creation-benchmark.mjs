@@ -68,6 +68,14 @@ try {
             '--work-type', 'feature', '--intake-receipt', receipt.id, '--json', '--timings'
           ], selected) : null;
           if (selectedPreparation) assert.equal(selectedPreparation.packet.preparation?.status, 'prepared');
+          // The new optional transfer is independent of local checkout preparation in the editor.
+          // This profile measures a completed warmup; an unfinished one never delays the real Start.
+          // The baseline has no such verb. Charge the candidate's extra work explicitly.
+          const configurationPreparation = mode === 'prewarmed' && variant === 'candidate'
+            ? await invoke('configuration-prepare', ['story', 'prepare-configuration', '--work-id', 'PERF-READY',
+              '--from-branch', 'main', '--work-type', 'feature', '--intake-receipt', receipt.id,
+              '--json', '--timings'], selected) : null;
+          if (configurationPreparation) assert.equal(configurationPreparation.packet.preparation?.status, 'prepared');
           const start = await invoke('start', ['start', 'PERF-READY', '--from-branch', 'main', '--work-type', 'feature',
             '--title', 'Intake creation qualification', '--isolated-worktree', '--intake-receipt', receipt.id,
             '--json', '--timings'], selected);
@@ -79,10 +87,15 @@ try {
             start: { wallMs: start.wallMs, nodeLaunchedGit: start.nodeLaunchedGit, timings: start.timings },
             selectedPreparation: selectedPreparation ? {
               wallMs: selectedPreparation.wallMs, nodeLaunchedGit: selectedPreparation.nodeLaunchedGit,
-              configuration: selectedPreparation.packet.preparation?.configuration ?? null, timings: selectedPreparation.timings
+              timings: selectedPreparation.timings
+            } : null,
+            configurationPreparation: configurationPreparation ? {
+              wallMs: configurationPreparation.wallMs, nodeLaunchedGit: configurationPreparation.nodeLaunchedGit,
+              timings: configurationPreparation.timings
             } : null,
             totalMs: preview.wallMs + start.wallMs,
             totalWithPreparationMs: (preparation?.wallMs ?? 0) + (selectedPreparation?.wallMs ?? 0)
+              + (configurationPreparation?.wallMs ?? 0)
               + preview.wallMs + start.wallMs, exactRemoteTip: true });
         } finally { await f.cleanup(); }
       }

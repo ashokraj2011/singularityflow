@@ -783,7 +783,7 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
   // workspace repair, status, authority or fetch can open the original (possibly cloud-only) objects.
   let automaticIntake = null;
   let automaticScope = action => action();
-  if (definition.name === 'start' || definition.name === 'story' && ['start', 'prepare-worktree'].includes(positionals[1])
+  if (definition.name === 'start' || definition.name === 'story' && ['start', 'prepare-worktree', 'prepare-configuration'].includes(positionals[1])
       || definition.name === 'workspace' && positionals[1] === 'branches' && optionString(options, 'preflight-story')) {
     resolveOperation({ requestedCommand: requested, positionals, options });
     // A new Story's branch follows the repository's naming pattern unless the person named one

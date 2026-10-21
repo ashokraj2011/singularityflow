@@ -298,6 +298,8 @@ function cacheableRead(args: string[]): boolean {
   return !args.includes('--for-agent') && !['check', 'review-source', 'choices', 'phase', 'decisions', 'app', 'tests'].includes(args[0] ?? '')
     && !args.includes('--submission-readiness') && !args.includes('--submit-if-ready')
     && !(args[0] === 'configuration' && args[1] === 'validate')
+    // Speculative object transfer is advisory, but it must execute, not replay a read cache/worker.
+    && !(args[0] === 'story' && args[1] === 'prepare-configuration')
     // Environment files change with every create, link or run, and in other hosts: read them now.
     && !(args[0] === 'env' && args[1] === 'files')
     // Refresh must see traces appended by another CLI/Copilot host, not a previous report read.
@@ -394,6 +396,7 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'return') return enabledBooleanOption(args, 'apply') ? 'mutation' : 'read';
   if (args[0] === 'recover') return enabledBooleanOption(args, 'apply') ? 'mutation' : 'read';
   if (args[0] === 'story' && args[1] === 'return') return 'read';
+  if (args[0] === 'story' && args[1] === 'prepare-configuration') return 'read';
   if (args[0] === 'story' && args[1] === 'enhance-description') return 'read';
   if (args[0] === 'story' && args[1] === 'references') {
     return (args[2] ?? 'list') === 'materialize' ? 'mutation' : 'read';
@@ -1067,7 +1070,7 @@ export class SingularityFlowClient {
     }
     if (args[0] === 'start'
         || (['story', 'epic', 'initiative'].includes(args[0] ?? '')
-          && ['start', 'prepare-worktree', 'discard-worktree'].includes(args[1] ?? ''))) {
+          && ['start', 'prepare-worktree', 'prepare-configuration', 'discard-worktree'].includes(args[1] ?? ''))) {
       return WORK_START_TIMEOUT_MS;
     }
     // An exact workspace Story attach may materialize one deferred repository before creating or

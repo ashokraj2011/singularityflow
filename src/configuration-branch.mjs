@@ -2737,7 +2737,12 @@ export async function loadStoryConfigurationSnapshot(authority, {
 } = {}) {
   // Freeze scalar selectors before the request cache can yield to another consumer.
   authority = authority && Object.freeze({ ...authority });
-  env = inheritEnterpriseGitEnvironment(env, { ...env });
+  if (!authority?.remote || !authority?.branch) throw new SingularityFlowError(
+    'A Story configuration definition requires a resolved authority.');
+  // Admit the original environment first: copying process.env without its private attestation
+  // would re-read global/system transport configuration for each otherwise identical capture.
+  const admittedEnv = enterpriseGitEnvironment(env);
+  env = inheritEnterpriseGitEnvironment(admittedEnv, { ...admittedEnv });
   return creationConfiguration(authority, { env, captureAuthoringBytes }, () =>
     loadStoryConfigurationSnapshotFresh(authority, {
       env, captureAuthoringBytes, useObjectCache, session, reuseAuthorityObservation

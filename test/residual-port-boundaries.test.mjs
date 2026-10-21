@@ -7,7 +7,8 @@ import path from 'node:path';
 import test from 'node:test';
 import { readReviewArtifactBytes } from '../src/artifact-review-read.mjs';
 import { normalizeCodeDeliveryPolicy } from '../src/code-delivery-policy.mjs';
-import { runQualityCommandPool, verifyCompletedQualityLaunch } from '../src/quality-command-runner.mjs';
+import { runBoundedTaskPool, runQualityCommandPool, verifyCompletedQualityLaunch } from '../src/quality-command-runner.mjs';
+import { runDeterministicPropertyChecks } from '../src/verification/corner-case-harness.mjs';
 import { analyzeTestFileSignals, evaluateCornerCaseObligationMatrix, extractCornerCaseObligations,
   inspectCornerCaseObligations } from '../src/verification/corner-case-obligations.mjs';
 import { clearVerificationGraphCache, getCachedVerificationFact, loadPersistentVerificationCache,
@@ -18,6 +19,29 @@ function git(root, ...args) {
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
 }
+
+test('a failed cancellation callback still waits for every started worker to settle', async () => {
+  const controller = new AbortController();
+  let finished = false;
+  const failure = new Error('retained cancellation callback');
+  await assert.rejects(() => runBoundedTaskPool([0, 1, 2, 3], async item => {
+    if (item === 0) { controller.abort(); return 0; }
+    await new Promise(resolve => setTimeout(resolve, 30));
+    finished = true;
+    return item;
+  }, { maxConcurrency: 2, signal: controller.signal, onAbortedItem: () => { throw failure; } }),
+  error => error === failure);
+  // Cancellation may occur before the second worker starts; neither case leaves a running worker.
+  const settled = finished;
+  await new Promise(resolve => setTimeout(resolve, 40));
+  assert.equal(finished, settled);
+});
+
+test('zero or unbounded property iterations cannot produce a successful verification-shaped result', async () => {
+  for (const iterations of [0, -1, 1.5, Infinity, 10001]) {
+    await assert.rejects(() => runDeterministicPropertyChecks(() => 1, { iterations }), TypeError);
+  }
+});
 
 test('bounded quality pools preserve main native execution provenance, never copied receipts', async () => {
   const cwd = process.cwd(), command = process.execPath, args = ['-e', 'process.stdout.write("observed")'];

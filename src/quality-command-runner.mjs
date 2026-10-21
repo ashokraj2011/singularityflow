@@ -357,7 +357,8 @@ export async function runBoundedTaskPool(items, worker, {
           nextIndex += 1;
           abortedCount += 1;
           if (typeof onAbortedItem === 'function') {
-            results[skippedIndex] = onAbortedItem(list[skippedIndex], skippedIndex);
+            try { results[skippedIndex] = await onAbortedItem(list[skippedIndex], skippedIndex); }
+            catch (error) { firstError ??= error; break; }
           }
           continue;
         }

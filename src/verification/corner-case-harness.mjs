@@ -669,6 +669,10 @@ export async function runDeterministicPropertyChecks(targetFn, {
   if (typeof targetFn !== 'function') {
     throw new TypeError('runDeterministicPropertyChecks requires a callable targetFn.');
   }
+  if (!Number.isSafeInteger(iterations) || iterations < 1 || iterations > 10000) {
+    throw new TypeError('Property checks require 1 through 10000 iterations.');
+  }
+  if (!Array.isArray(domains) || domains.length > 16) throw new TypeError('Property domains must be a bounded array.');
   const prng = createDeterministicFuzzGenerator(seed);
   const paramDomains = Array.isArray(domains) && domains.length ? domains : ['unknown'];
   const failures = [];

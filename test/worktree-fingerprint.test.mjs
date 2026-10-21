@@ -1,11 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { access, mkdtemp, rm, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import { run } from '../src/util.mjs';
 import { WORKTREE_FINGERPRINT_ALGORITHM, worktreeFingerprint } from '../src/worktree-fingerprint.mjs';
+import { canonicalJson } from '../src/records.mjs';
+
+// Independent legacy two-read projection proves stored recovery receipts keep their exact hash.
+function legacyIndexHash(root) {
+  const flags = new Map(run('git', ['ls-files', '-v', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean)
+    .map(entry => [entry.slice(2), entry[0]]));
+  const entries = run('git', ['ls-files', '--stage', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean).map(entry => {
+    const tab = entry.indexOf('\t');
+    const [mode, object, stage] = entry.slice(0, tab).split(' ');
+    const relative = entry.slice(tab + 1), flag = flags.get(relative) ?? 'H';
+    return { path: relative, mode, object, stage: Number(stage),
+      assumeUnchanged: /^[a-z]$/u.test(flag), skipWorktree: flag.toUpperCase() === 'S' };
+  }).sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : a.stage - b.stage);
+  return createHash('sha256').update(canonicalJson(entries)).digest('hex');
+}
 
 function looseObjects(root) {
   return Number(/^count: (\d+)$/m.exec(run('git', ['count-objects', '-v'], { cwd: root }).stdout)?.[1] ?? -1);
@@ -42,8 +58,10 @@ test('assume-unchanged bytes and index flags participate in the fingerprint', as
   run('git', ['commit', '-qm', 'base'], { cwd: root });
 
   const ordinary = worktreeFingerprint(root);
+  assert.equal(ordinary.indexTree, legacyIndexHash(root));
   run('git', ['update-index', '--assume-unchanged', 'tracked.txt'], { cwd: root });
   const flagged = worktreeFingerprint(root);
+  assert.equal(flagged.indexTree, legacyIndexHash(root));
   assert.notEqual(flagged.sha256, ordinary.sha256, 'the index flag itself changes the revision');
 
   await writeFile(path.join(root, 'tracked.txt'), 'hidden change\n');
@@ -66,6 +84,7 @@ test('an absent skip-worktree path is represented without being called dirty', a
   await unlink(path.join(root, 'sparse.txt'));
 
   const fingerprint = worktreeFingerprint(root);
+  assert.equal(fingerprint.indexTree, legacyIndexHash(root));
   assert.equal(fingerprint.dirty, false);
   assert.ok(fingerprint.paths.includes('sparse.txt'));
   assert.deepEqual(fingerprint.hiddenChanges, []);
@@ -92,6 +111,7 @@ test('the shared fingerprint remains available while the Git index has merge con
   const before = run('git', ['ls-files', '--stage', '-z'], { cwd: root }).stdout;
   const fingerprint = worktreeFingerprint(root);
   assert.equal(fingerprint.dirty, true);
+  assert.equal(fingerprint.indexTree, legacyIndexHash(root));
   assert.match(fingerprint.indexTree, /^[a-f0-9]{64}$/);
   assert.equal(run('git', ['ls-files', '--stage', '-z'], { cwd: root }).stdout, before,
     'inspection must preserve every conflict stage in the real index');

@@ -13,39 +13,60 @@
   ],
   "sites": {
     "build-distribution.cmd": {
-      "counts": { "shell-process": 1 },
+      "counts": {
+        "shell-process": 1
+      },
       "digest": "8c8502a5ea7e6c6b71c930376b0d88fc9abb96ae054c72e5d407045892ffce42"
     },
     "build-distribution.sh": {
-      "counts": { "shell-process": 2 },
+      "counts": {
+        "shell-process": 2
+      },
       "digest": "dfe0abd6847edfea8cb6803bc4bdfa0ffc699630c6a34ccca2e83e4660e6d375"
     },
     "distribution/setup.sh": {
-      "counts": { "shell-process": 1 },
+      "counts": {
+        "shell-process": 1
+      },
       "digest": "bbe87420f6f869cf682391358ccc7cc0d4fc68c9c6237d192a295deee8cd5d94"
     },
     "distribution/setup.cmd": {
-      "counts": { "shell-process": 1 },
+      "counts": {
+        "shell-process": 1
+      },
       "digest": "5bf8be9fde73d2c785812b5980b0f8b1ee4a1f651d4560bbf3d6fb52dda75bdf"
     },
     "runtime/install.mjs": {
-      "counts": { "process-import": 1, "process-launch": 2 },
+      "counts": {
+        "process-import": 1,
+        "process-launch": 2
+      },
       "digest": "7660bbccd5641f3ea5153ca8295e3d88d484ee4a7518715da97e4e37cf134eb7"
     },
     "install-managed.sh": {
-      "counts": { "shell-process": 2 },
+      "counts": {
+        "shell-process": 2
+      },
       "digest": "2a33f9736a2bc059c5f789f08c45116dcf17e7ce19611a0ef2ca54cb9b4c3e31"
     },
     "distribution/install-managed.cmd": {
-      "counts": { "shell-process": 1 },
+      "counts": {
+        "shell-process": 1
+      },
       "digest": "5bf8be9fde73d2c785812b5980b0f8b1ee4a1f651d4560bbf3d6fb52dda75bdf"
     },
     "scripts/shared-read-paired-benchmark.mjs": {
-      "counts": { "process-import": 1, "process-launch": 2 },
+      "counts": {
+        "process-import": 1,
+        "process-launch": 2
+      },
       "digest": "3cd76a11a49b16b379441e17971580c90a3dc9e0d2c23ac066018deaea174054"
     },
     "scripts/classified-performance-benchmark.mjs": {
-      "counts": { "process-import": 1, "process-launch": 2 },
+      "counts": {
+        "process-import": 1,
+        "process-launch": 2
+      },
       "digest": "6a70fd8bb347865b9afc10531985d1ff0ce18c1df18eb551b32e49053737a29b"
     },
     "src/application-run.mjs": {
@@ -77,23 +98,39 @@
       "digest": "07002df15427b06f76f0ac399ddce5b8cdbe076c63bcb2122807dfdb043228e3"
     },
     "src/source-review-snapshot.mjs": {
-      "counts": { "command-git-literal": 1, "command-run": 4 },
+      "counts": {
+        "command-git-literal": 1,
+        "command-run": 4
+      },
       "digest": "cdc56ab883a3cf101cff9408dbf3a3749e3001330a38777cf3e68f684ad8082d"
     },
     "src/workspace-retention.mjs": {
-      "counts": { "command-git": 7, "command-run": 5 },
+      "counts": {
+        "command-git": 7,
+        "command-run": 5
+      },
       "digest": "effe11585e329d5029a14663b37bcf7343505ef6b8cff9e3db67e2ace86678f6"
     },
     "src/workspace-retention-background.mjs": {
-      "counts": { "process-import": 1, "process-launch": 1 },
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
       "digest": "4ef037612e7c099464e64de6e615fe59ec92348b3db2ca1b6db5c48a643dc2e2"
     },
     "scripts/session-listing-benchmark.mjs": {
-      "counts": { "process-import": 1, "process-launch": 1 },
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
       "digest": "c7a87dced91aa73fe3f8302a6a0098dee67b3745a45a6a494c3ac7b730e2bbd9"
     },
     "scripts/story-readiness-benchmark.mjs": {
-      "counts": { "command-git": 9, "process-import": 1, "process-launch": 2 },
+      "counts": {
+        "command-git": 9,
+        "process-import": 1,
+        "process-launch": 2
+      },
       "digest": "96a1c8c5af4ccc6d5e4842eb440113164079d2c62835c9f9ddf2a9f874054d1a"
     },
     "src/witness-review-read.mjs": {
@@ -109,11 +146,16 @@
       "digest": "868ea7fe45d7ee1c202d8614de8237d71e85db4ba3cd637c31492e3fd8264d38"
     },
     "src/story-tree-read.mjs": {
-      "counts": { "command-run": 2 },
+      "counts": {
+        "command-run": 2
+      },
       "digest": "ff849bc9f5ad9f89c24746a6c799b03c5f3d37fe520818d597e4e643ece989cd"
     },
     "scripts/phase-next-paired-benchmark.mjs": {
-      "counts": { "process-import": 1, "process-launch": 3 },
+      "counts": {
+        "process-import": 1,
+        "process-launch": 3
+      },
       "digest": "99727036a11fee0a812f6d9485f18d5bc7302063005cded199eae3bf8297bc5e"
     },
     "scripts/amended-read-fixture.mjs": {
@@ -123,39 +165,70 @@
       "digest": "de4f3358664417e53744ae00a5b253f6d767d6c5bacc1cb10690659ce154d2c6"
     },
     "scripts/bench-prepared-reads.mjs": {
-      "counts": { "process-import": 1, "process-launch": 1 },
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
       "digest": "3009f292bf38a3b8322da102b6528c4cb45f1a1085251b6567257b4b0125fef0"
     },
     "scripts/bench-utility-entry.mjs": {
-      "counts": { "command-run": 4, "process-import": 1, "process-launch": 1 },
+      "counts": {
+        "command-run": 4,
+        "process-import": 1,
+        "process-launch": 1
+      },
       "digest": "a80a1c76b463695cf3b468f8f0d02ab7fbb2280ffd3b92a7a562e8efcd34deb8"
     },
     "scripts/story-creation-benchmark.mjs": {
-      "counts": { "command-git": 13, "process-import": 1, "process-launch": 1 },
-      "digest": "3c3520e81875cda1166137fdabacfa7512318880041734603d56a7b2e52f0959"
+      "counts": {
+        "command-git": 13,
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "4e9ea7afe76ada2209c698282cefad6721371cda17bf071f45632f3ed082590b"
     },
     "scripts/onboarding-activation-benchmark.mjs": {
-      "counts": { "command-git": 7, "process-import": 1, "process-launch": 1 },
+      "counts": {
+        "command-git": 7,
+        "process-import": 1,
+        "process-launch": 1
+      },
       "digest": "73e2292759624fd4b4095b9d9669c7c23439def7730f13364447311e1f6f15e0"
     },
     "scripts/repository-check-benchmark.mjs": {
-      "counts": { "process-import": 1, "process-launch": 1 },
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
       "digest": "49c06b5f71db5bd06af39e8c7d80cb412e4b344ad4e875181e4f35635e40e667"
     },
     "scripts/cold-start-benchmark.mjs": {
-      "counts": {"command-git":12,"process-import":1,"process-launch":1},
+      "counts": {
+        "command-git": 12,
+        "process-import": 1,
+        "process-launch": 1
+      },
       "digest": "ee80ad3f936ac02827e9202e3b3878ca4e305aad9ebd29a578cbeef1c64b03f8"
     },
     "src/read-worker-client.mjs": {
-      "counts": { "process-import": 1, "process-launch": 1 },
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
       "digest": "75514e5515c7c64f2b409927ccdc2c69c836fef92a86b5919430320746486676"
     },
     "scripts/warm-read-fixture.mjs": {
-      "counts": {"command-git":15,"process-import":1,"process-launch":2},
+      "counts": {
+        "command-git": 15,
+        "process-import": 1,
+        "process-launch": 2
+      },
       "digest": "359bb519adf70134393c7a6760c0cd38091ee07309912e99769465d72a0c1722"
     },
     "scripts/warm-read-benchmark.mjs": {
-      "counts": { "command-git": 12 },
+      "counts": {
+        "command-git": 12
+      },
       "digest": "20428da7622990cd122b57bfa1b698c657d2e75c58da91fb61791a3b680150d1"
     },
     "scripts/native-story-pairs.mjs": {
@@ -579,13 +652,6 @@
         "command-run": 5
       },
       "digest": "551b42b2e0a205aaabd4fcc4b89207184d288a5930b9398f642f974945b573f1"
-    },
-    "src/ast-story-start-warm.mjs": {
-      "counts": {
-        "process-import": 1,
-        "process-launch": 1
-      },
-      "digest": "9277954a5baf6742504b8f1561e80da319de1887cdcb16315b2e7c348ab13103"
     },
     "src/auto/auto-candidate.mjs": {
       "counts": {
@@ -1594,10 +1660,10 @@
     },
     "src/workspace-clone-claim.mjs": {
       "counts": {
-        "command-git": 3,
+        "command-git": 2,
         "command-run": 1
       },
-      "digest": "58a8dabdfa4435f14e9c7b315c22473b06ddad017834a0380b861eaacf8c1461"
+      "digest": "0121f1790e81f205d2f05228b9e6ad8ba3c36868fcd87cbe11aaf1c7b95fad4c"
     },
     "src/workspace.mjs": {
       "counts": {
@@ -1609,9 +1675,9 @@
     },
     "src/worktree-fingerprint.mjs": {
       "counts": {
-        "command-run": 14
+        "command-run": 12
       },
-      "digest": "2ed8be49365d2f3c805e80828f9e12498d08e65490ca8f79c273a561bfa9a555"
+      "digest": "240643071704b8430be3ed120bf82419a6a9d9540096d54f9c0bee50984dd6f3"
     },
     "src/phase-prompt-composer.mjs": {
       "counts": {
@@ -1662,6 +1728,27 @@
         "command-run": 4
       },
       "digest": "b2f839dbe8578e51c1609848843de1487e78a88ec7e5ef4e087d6c3d96c1981d"
+    },
+    "scripts/benchmark-git-probe.mjs": {
+      "counts": {
+        "process-import": 1
+      },
+      "digest": "a0776a7d3f01a00d5b094cfe94c2e8e1ce60e66b9fffcce4df8e29f3a12b9d64"
+    },
+    "scripts/workspace-creation-benchmark.mjs": {
+      "counts": {
+        "command-git": 8,
+        "process-import": 1,
+        "process-launch": 2
+      },
+      "digest": "b378491085ec40ebecf5703c6b06fd393352557693606a88aefbef8c1a9cd554"
+    },
+    "src/ast-warm-launcher.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "40cb67586c519f95866fdc9d5c9c1c106b25eab89dcf573de2316c15cfd064ad"
     }
   }
 }

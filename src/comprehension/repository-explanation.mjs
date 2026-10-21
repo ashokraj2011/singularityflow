@@ -21,7 +21,7 @@ import { compileAstLanguageCatalog, detectAstLanguage } from '../ast-language-ca
 import { effectiveAstMode } from '../ast-mode.mjs';
 import { normalizeAstPolicy } from '../ast-policy.mjs';
 import { readRepositoryAstWarmStatus, writeRepositoryAstWarmStatus } from '../ast-story-start-status.mjs';
-import { launchDetached } from '../ast-story-start-warm.mjs';
+export { scheduleRepositoryAstWarm } from '../repository-ast-schedule.mjs';
 import { applicationPathContext } from '../application-paths.mjs';
 import { changedFiles, head, trackedPathListing } from '../git.mjs';
 import { clauseTagExplanation, EXPLANATION_LIMITS } from '../implementation-bindings.mjs';
@@ -79,8 +79,8 @@ function budgetsOf(definition) {
 }
 
 /**
- * The application files tracked under `scope`, and whether they fit the AST budget. Cheap enough to
- * run at workspace creation: one bounded `git ls-files` and, only when the count fits, one `lstat`
+ * The application files tracked under `scope`, and whether they fit the AST budget. Run by the
+ * background worker or an explicit explanation: one bounded `git ls-files` and one `lstat`
  * per file. Over budget, nothing else is read. The budget counts every tracked application file;
  * `paths` keeps only those present in the working tree, so a sparse checkout never asks Git for a
  * blob it would have to fetch.
@@ -274,43 +274,25 @@ async function indexScope(root, scope, inventory, { build, limits }) {
 }
 
 /**
- * Queue the background warm of a repository's application code, as workspace creation, adoption
- * and repair do once a checkout is in place. It is queued only when AST is on and the code fits the
- * AST budget; otherwise the record says why, and an explanation indexes a folder or file at a time
- * on request. Never throws: a workspace is never refused or rolled back because AST is unavailable.
+ * Resolve the optional inventory inside the worker, never on workspace creation's critical path.
+ * Oversized repositories remain on-demand; enqueueing never commits to an unbounded AST build.
  */
-export async function scheduleRepositoryAstWarm(root, { launcher = launchDetached } = {}) {
-  const queuedAt = nowIso();
-  const record = (fields) => writeRepositoryAstWarmStatus(root, null, {
-    mode: 'background', scope: 'application-code', options: null, repositoryRevision: safeHead(root),
-    blocking: false, queuedAt, updatedAt: nowIso(), startedAt: null, completedAt: null, reason: null, message: null,
-    result: null, ...fields
-  });
-  try {
-    const definition = await comprehensionDefinition(root);
-    let policy;
-    try { policy = normalizeAstPolicy(definition.ast ?? {}); } catch { policy = normalizeAstPolicy({}); }
-    if ((await effectiveAstMode(policy)).mode === 'off') return await record({ status: 'skipped', reason: 'ast-off', completedAt: nowIso() });
-    const inventory = await repositoryCodeInventory(root);
-    if (inventory.status === 'over-budget') {
-      return await record({
-        status: 'skipped', reason: 'over-budget', completedAt: nowIso(),
-        message: 'The application code is larger than the AST budget; it is indexed a folder or file at a time, on request.',
-        result: { files: inventory.files, bytes: inventory.bytes, budget: inventory.reason, maxFiles: inventory.budgets.maxFiles, maxBytes: inventory.budgets.maxBytes }
-      });
-    }
-    const prefixes = indexPaths(inventory);
-    if (!prefixes.length) return await record({ status: 'skipped', reason: 'no-application-code', completedAt: nowIso() });
-    const queued = await record({ status: 'queued', options: { paths: prefixes } });
-    // Node's test runner launches many workspace fixtures at once; dedicated tests inject a launcher.
-    if (process.env.NODE_TEST_CONTEXT && launcher === launchDetached) {
-      return await record({ ...queued, status: 'skipped', reason: 'test-runner-suppressed', completedAt: nowIso() });
-    }
-    launcher(root, queued.workId);
-    return { ...queued, status: 'scheduled' };
-  } catch (error) {
-    return { status: 'failed', reason: error?.code ?? 'AST_REPOSITORY_WARM_FAILED', message: String(error?.message ?? error).slice(0, 500) };
+export async function repositoryAstWarmPlan(root) {
+  const definition = await comprehensionDefinition(root);
+  let policy;
+  try { policy = normalizeAstPolicy(definition.ast ?? {}); } catch { policy = normalizeAstPolicy({}); }
+  if ((await effectiveAstMode(policy)).mode === 'off') return { status: 'skipped', reason: 'ast-off' };
+  const inventory = await repositoryCodeInventory(root);
+  if (inventory.status === 'over-budget') {
+    return {
+      status: 'skipped', reason: 'over-budget',
+      message: 'The application code is larger than the AST budget; it is indexed a folder or file at a time, on request.',
+      result: { files: inventory.files, bytes: inventory.bytes, budget: inventory.reason, maxFiles: inventory.budgets.maxFiles, maxBytes: inventory.budgets.maxBytes }
+    };
   }
+  const prefixes = indexPaths(inventory);
+  return prefixes.length ? { status: 'ready', options: { paths: prefixes } }
+    : { status: 'skipped', reason: 'no-application-code' };
 }
 
 /** `@clause` and `@ac` comments in the scope's files, each with its line and the author's note. */

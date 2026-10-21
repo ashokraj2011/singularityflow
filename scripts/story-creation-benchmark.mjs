@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildCliBundle } from './build-cli-bundle.mjs';
 import { createWarmReadFixture } from './warm-read-fixture.mjs';
+import { buildCreationBenchmarkControl } from './creation-benchmark-control.mjs';
 
 const option = (key, fallback) => process.argv.find(arg => arg.startsWith(`--${key}=`))?.slice(key.length + 3) ?? fallback;
 const samples = Number(option('samples', '3')), files = Number(option('files', '1000'));
@@ -33,37 +34,24 @@ try {
   if (sourceMode && controlRef) throw new Error('Paired comparison requires installed bundles.');
   if (!sourceMode) await buildCliBundle({ root: fixture.engine, outdir });
   const variants = { candidate: outdir };
+  const variantClis = { candidate: fixture.cli };
   let controlModules = [];
   let candidateOnlyModules = [];
   if (controlRef) {
     const source = fileURLToPath(new URL('..', import.meta.url));
-    controlModules = fixture.git(['diff', '--name-only', controlRef, '--', 'src'], { cwd: source }).split('\n').filter(Boolean);
-    if (!controlModules.length || controlModules.length > 32
-        || controlModules.some(file => !/^src\/[a-zA-Z0-9_./-]+\.mjs$/.test(file) || file.includes('..'))) {
-      throw new Error('Comparison requires 1–32 bounded runtime modules.');
-    }
-    const controlFiles = new Set(fixture.git(['ls-tree', '-r', '--name-only', controlRef, '--', ...controlModules], { cwd: source }).split('\n'));
-    candidateOnlyModules = controlModules.filter(file => !controlFiles.has(file));
-    const originals = new Map();
-    try {
-      for (const file of controlModules) {
-        originals.set(file, await readFile(path.join(fixture.engine, file)));
-        if (controlFiles.has(file)) await writeFile(path.join(fixture.engine, file), fixture.git(['show', `${controlRef}:${file}`], { cwd: source }) + '\n');
-        else await rm(path.join(fixture.engine, file)); // only the fixture-owned, bounded candidate addition
-      }
-      variants.control = path.join(fixture.engine, 'control-bundle');
-      await buildCliBundle({ root: fixture.engine, outdir: variants.control });
-    } finally {
-      for (const [file, bytes] of originals) await writeFile(path.join(fixture.engine, file), bytes);
-    }
+    const control = await buildCreationBenchmarkControl(fixture, source, controlRef);
+    controlModules = control.modules;
+    candidateOnlyModules = control.candidateOnlyModules;
+    variants.control = control.outdir;
+    variantClis.control = path.join(control.root, 'bin', 'singularity-flow.mjs');
   }
   const env = { ...fixture.env, SINGULARITY_FLOW_BUNDLE: sourceMode ? 'off' : 'on', SINGULARITY_FLOW_BUNDLE_DIR: outdir,
     NODE_COMPILE_CACHE: path.join(fixture.directory, 'code-cache'), SINGULARITY_FLOW_PROGRESS: 'stderr-v1' };
   env.SINGULARITY_FLOW_STORY_CONFIGURATION_CACHE = path.join(fixture.directory, 'configuration-objects');
   delete env.NODE_DISABLE_COMPILE_CACHE;
-  const invoke = (args, cwd, extraEnv = {}) => {
+  const invoke = (args, cwd, extraEnv = {}, cli = fixture.cli) => {
     const started = performance.now();
-    const result = spawnSync(process.execPath, [fixture.cli, ...args], { cwd, env: { ...env, ...extraEnv },
+    const result = spawnSync(process.execPath, ['--import', new URL('./benchmark-git-probe.mjs', import.meta.url).href, cli, ...args], { cwd, env: { ...env, ...extraEnv },
       encoding: 'utf8', timeout: 120000, maxBuffer: 40 * 1024 * 1024 });
     if (result.status !== 0) throw new Error(`${args.join(' ')}: ${result.stderr}\n${result.stdout}`);
     return { durationMs: Math.round(performance.now() - started), stderr: result.stderr,
@@ -97,6 +85,7 @@ try {
       git(['switch', '-q', 'main']);
       const id = `CREATE-${variant.toUpperCase()}-${isolated ? 'ISO' : 'LOCAL'}-${index}`;
       const traceFile = path.join(fixture.directory, `${id}.jsonl`);
+      const countsFile = path.join(fixture.directory, `${id}-counts.jsonl`);
       const variantEnv = { SINGULARITY_FLOW_BUNDLE_DIR: variants[variant],
         NODE_COMPILE_CACHE: path.join(fixture.directory, 'code-cache', variant, ...(fresh === 'true' ? [String(index)] : [])) };
       let preparation = null;
@@ -131,8 +120,8 @@ try {
       const result = invoke(['start', id, '--from-branch', 'main', '--work-type', workType,
         '--title', 'Creation performance qualification', '--json', '--timings', ...intakeArgs,
         ...(isolated ? ['--isolated-worktree'] : [])], repository, { GIT_TRACE2_EVENT: traceFile,
-          ...variantEnv,
-          ...(process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE ? { SINGULARITY_FLOW_SUBPROCESS_PROBE: '1' } : {}) });
+          ...variantEnv, SFLOW_BENCHMARK_GIT_COUNTS: countsFile,
+          ...(process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE ? { SINGULARITY_FLOW_SUBPROCESS_PROBE: '1' } : {}) }, variantClis[variant]);
       if (process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE) process.stderr.write(result.stderr);
       const publishedTip = git(['ls-remote', '--heads', 'origin', `refs/heads/${id}`]).split(/\s/)[0];
       if (!/^[a-f0-9]{40}$/.test(publishedTip)) throw new Error('Story was not published.');
@@ -160,6 +149,7 @@ try {
         }
       }
       measured[variant].push({ durationMs: result.durationMs, preparation, intakePreview, worktreePreparation,
+        nodeLaunchedGit: JSON.parse((await readFile(countsFile, 'utf8')).trim()),
         totalWithPreparationMs: result.durationMs + (preparation?.durationMs ?? 0)
           + (intakePreview?.durationMs ?? 0) + (worktreePreparation?.durationMs ?? 0),
         timings, counters, localTraceGitProcessCounts: commands,

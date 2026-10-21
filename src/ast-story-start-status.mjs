@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { gitCommonDir } from './git.mjs';
+import { gitCommonDir } from './git-execution.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { writeJson } from './util.mjs';
 

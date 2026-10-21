@@ -3873,7 +3873,7 @@ async function prepareWorkspaceClone(root, operation, { deferClaim, env, policy 
 // A specifier the editor bundler does not follow: VS Code creates, adopts and repairs workspaces
 // through the CLI, so the bundled runtimes never need the indexer and must not carry its modules.
 // Resolved from the package root, so the bundled CLI loads it from src/ too.
-const REPOSITORY_INDEXER = pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'comprehension', 'repository-explanation.mjs')).href;
+const REPOSITORY_INDEXER = pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'repository-ast-schedule.mjs')).href;
 
 /**
  * Code explanation is available from the moment a repository is in place: each cloned, adopted or
@@ -3959,10 +3959,17 @@ export async function createWorkspace(options, {
   env = process.env,
   cloneOperation = cloneIntoWorkspace,
   adoptionOperation = verifyAdoptionOperation,
-  allowSyncedFolder = false
+  allowSyncedFolder = false,
+  statusLevel = null
 } = {}) {
   const preview = previewWorkspace(options);
   const { root, manifest } = preview;
+  // A newly sealed clone needs identity/readiness, not a second whole-tree status scan. Adopted
+  // checkouts may contain user changes, so retain their full projection unless explicitly scoped.
+  statusLevel ??= preview.operations.some((operation) => operation.action === 'adopt') ? 'full' : 'readiness';
+  if (!['full', 'summary', 'readiness'].includes(statusLevel)) {
+    throw new SingularityFlowError(`Unknown workspace status level: ${statusLevel}`);
+  }
   // Only a new workspace is refused; workspace status warns about one already there.
   if (!(await stat(root).catch(() => null))) await assertWorkspaceLocationLocal(preview, { allowSyncedFolder, env });
   // Snapshot one office-safe Git environment for validation and every clone in this creation. Each
@@ -3998,7 +4005,7 @@ export async function createWorkspace(options, {
     }
     if (clone) {
       const repaired = await repairWorkspace(current.path, {
-        workers, cloneOperation, adoptionOperation, env: gitEnv
+        workers, cloneOperation, adoptionOperation, env: gitEnv, statusLevel
       });
       return {
         created: false,
@@ -4152,7 +4159,7 @@ export async function createWorkspace(options, {
   }
   const codeIndex = clone ? await indexMaterializedRepositories(journal.operations) : [];
   const finalStatus = await workspaceStatus(root, {
-    level: clone ? 'full' : 'readiness', env: gitEnv
+    level: statusLevel, env: gitEnv
   });
   return {
     created: true,
@@ -4173,18 +4180,20 @@ export async function createWorkspace(options, {
 
 async function referenceRepositoryGitProjection(absolute, { level, env }) {
   const readinessOnly = level === 'readiness';
-  const [statusText, branch, remote, head] = await Promise.all([
+  const [statusText, revision, remote] = await Promise.all([
     readinessOnly
       ? Promise.resolve('')
       : gitValueAsync(absolute, ['status', '--porcelain=v1', level === 'summary'
         ? '--untracked-files=no' : '--untracked-files=all'], { env }),
-    gitValueAsync(absolute, ['branch', '--show-current'], { env }),
+    gitValueAsync(absolute, ['rev-parse', 'HEAD', '--symbolic-full-name', 'HEAD'], { env }),
     // Read the durable identity rather than Git's operationally rewritten URL. Workspace transports
     // freeze this exact value per invocation; ambient url.* rules are neither manifest authority nor
     // permission to make an otherwise correct clone look permanently misconfigured.
-    gitValueAsync(absolute, ['config', '--local', '--get', 'remote.origin.url'], { env }),
-    gitValueAsync(absolute, ['rev-parse', 'HEAD'], { env })
+    gitValueAsync(absolute, ['config', '--local', '--get', 'remote.origin.url'], { env })
   ]);
+  const [head = null, ref = null] = revision?.split(/\r?\n/u) ?? [];
+  // Detached HEAD is a valid read projection, but never a named publication target.
+  const branch = ref?.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : revision === null ? null : '';
   return Object.freeze({ dirty: Boolean(statusText), branch, remote, head });
 }
 

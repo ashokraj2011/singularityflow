@@ -184,8 +184,8 @@ function requireDirectLocalStateRef(root, config, env = process.env) {
   return observed.commit;
 }
 
-function optionalDirectStateRef(root, config, ref, env = process.env) {
-  const observed = directRefObservation(root, ref, env);
+function optionalDirectStateRef(root, config, ref, env = process.env, observations = null) {
+  const observed = observations ? observations.get(ref) : directRefObservation(root, ref, env);
   if (observed.status === 'symbolic' || observed.status === 'unavailable') {
     throw new SingularityFlowError(
       `The ${config.branch} authority ref '${ref}' cannot be verified as a direct Git ref.`,
@@ -2323,13 +2323,16 @@ export async function prepareLedgerAppend(root, rawConfig, intent, publishedComm
   if (!hasRemoteInEnvironment(root, config.remote, env)) return null;
   const operation = frozenCommitOperation(root, config, { env, commitIdentity, commitSigning });
   const tracked = remoteRef(config);
-  const expectedRemoteSha = optionalDirectStateRef(root, config, tracked, env);
+  // Both optional bases belong to this one preparation boundary. Observe them in one bounded
+  // listing; the lazy symbolic-ref probes and the later fresh remote CAS remain unchanged.
+  const bases = initializeIfAbsent ? directRefObservations(root, [tracked, localRef(config)], env) : null;
+  const expectedRemoteSha = optionalDirectStateRef(root, config, tracked, env, bases);
   let base = expectedRemoteSha;
   if (!base) {
     // A first activation can build root -> audit -> mirror before publishing any state ref.
     // This is preparation only: the caller must re-observe the remote and use an absent-ref
     // lease in its atomic transaction. Never replace a locally retained initialization/recovery.
-    if (!initializeIfAbsent || optionalDirectStateRef(root, config, localRef(config), env)) return null;
+    if (!initializeIfAbsent || optionalDirectStateRef(root, config, localRef(config), env, bases)) return null;
     base = await canBuildLedgerObjects(root, env)
       ? await commitLedgerFilesFromObjects(root, config, null, [
           { path: HEAD_PATH, text: canonicalJson(initialHead()) },

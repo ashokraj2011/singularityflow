@@ -130,8 +130,7 @@ function fileEntry(root, relative, {
 
 function hiddenWorktreeChangePaths(root) {
   const indexManifest = indexEntries(
-    run('git', ['ls-files', '--stage', '-z'], { cwd: root }).stdout,
-    run('git', ['ls-files', '-v', '-z'], { cwd: root }).stdout
+    run('git', ['ls-files', '--stage', '-v', '-z'], { cwd: root }).stdout
   );
   const hidden = indexManifest.filter((entry) => entry.stage === 0
     && (entry.assumeUnchanged || entry.skipWorktree));
@@ -145,13 +144,11 @@ function hiddenWorktreeChangePaths(root) {
   }).map((entry) => entry.path);
 }
 
-function indexEntries(listing, flagsListing) {
-  const flags = new Map(splitNull(flagsListing).map((entry) => [entry.slice(2), entry[0]]));
+function indexEntries(listing) {
   return splitNull(listing).map((entry) => {
     const tab = entry.indexOf('\t');
-    const [mode, object, stageText] = entry.slice(0, tab).split(' ');
+    const [tag, mode, object, stageText] = entry.slice(0, tab).split(' ');
     const relative = entry.slice(tab + 1);
-    const tag = flags.get(relative) ?? 'H';
     return {
       path: relative,
       mode,
@@ -198,9 +195,10 @@ export function worktreeFingerprint(root, {
 
     // Hashing the stage listing avoids `write-tree`, which can itself create a tree for staged
     // changes. It also remains defined for conflicted indexes because all stages are retained.
-    const indexListing = run('git', ['ls-files', '--stage', '-z'], { cwd: root, env }).stdout;
-    const flagsListing = run('git', ['ls-files', '-v', '-z'], { cwd: root, env }).stdout;
-    const indexManifest = indexEntries(indexListing, flagsListing);
+    // Git emits both stage metadata and flags in one NUL-delimited read. Keep the canonical
+    // manifest unchanged so persisted recovery/fingerprint receipts remain compatible.
+    const indexListing = run('git', ['ls-files', '--stage', '-v', '-z'], { cwd: root, env }).stdout;
+    const indexManifest = indexEntries(indexListing);
     const objectFormat = indexManifest.some((entry) => entry.object.length === 64)
       ? 'sha256' : 'sha1';
     const indexTree = sha256(canonicalJson(indexManifest));

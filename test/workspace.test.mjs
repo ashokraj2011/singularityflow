@@ -3186,7 +3186,8 @@ test('workspace creates isolated clones, stages ungoverned documents, and can be
   const created = await createWorkspace(input, { confirmation: 'PAY-100' });
   assert.equal(created.created, true);
   assert.equal(created.status.healthy, true);
-  assert.equal(created.status.level, 'full');
+  assert.equal(created.status.level, 'readiness');
+  assert.equal((await workspaceStatus(created.workspace.path)).level, 'full', 'explicit workspace status still inventories the workspace');
   assert.notEqual(created.status.repositories[0].absolutePath, created.status.repositories[1].absolutePath);
   const loaded = await readWorkspace(created.workspace.path);
   assert.equal(loaded.anchor.issueTypeName, 'Business Initiative');

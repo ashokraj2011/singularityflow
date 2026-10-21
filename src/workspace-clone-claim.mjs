@@ -93,9 +93,10 @@ async function configDigest(staging) {
 function snapshot(staging, operation, env) {
   env = { ...env, GIT_OPTIONAL_LOCKS: '0', GIT_NO_LAZY_FETCH: '1' };
   const git = args => run('git', args, { cwd: staging, env, timeoutMs: 30_000, maxBuffer: 1024 * 1024 }).stdout.trim();
+  const [head, ref] = git(['rev-parse', 'HEAD', '--symbolic-full-name', 'HEAD']).split(/\r?\n/u);
   if (git(['config', '--local', '--get', 'remote.origin.url']) !== operation.url
-      || git(['symbolic-ref', '--short', 'HEAD']) !== operation.branch) fail('The retained clone origin or selected branch changed. Its bytes were preserved.');
-  return { head: git(['rev-parse', '--verify', 'HEAD']),
+      || ref !== `refs/heads/${operation.branch}`) fail('The retained clone origin or selected branch changed. Its bytes were preserved.');
+  return { head,
     worktree: worktreeFingerprint(staging, { fresh: true, env }).sha256 };
 }
 

@@ -6,7 +6,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -126,11 +126,12 @@ test('files that differ from HEAD are explained as they are now', async (t) => {
   assert.equal(explanation.index.counts.notIndexedFiles, 0);
 });
 
-test('a checkout queues its background index only when its code fits the budget', async (t) => {
+test('a checkout defers inventory and budget checks to its background worker', async (t) => {
   const { root } = await shop(t);
   let launched = null;
   const scheduled = await scheduleRepositoryAstWarm(root, { launcher: (where, key) => { launched = { where, key }; } });
   assert.equal(scheduled.status, 'scheduled');
+  assert.equal(scheduled.options, null, 'the foreground does not enumerate application files');
   assert.deepEqual(launched, { where: root, key: '@repository' });
   const done = await runStoryStartAstWarmWorker(root, '@repository');
   assert.equal(done.status, 'complete');
@@ -143,9 +144,11 @@ test('a checkout queues its background index only when its code fits the budget'
 
   const big = await shop(t, { maxFiles: 2 });
   let launchedBig = false;
-  const skipped = await scheduleRepositoryAstWarm(big.root, { launcher: () => { launchedBig = true; } });
+  const queued = await scheduleRepositoryAstWarm(big.root, { launcher: () => { launchedBig = true; } });
+  assert.equal(queued.status, 'scheduled');
+  const skipped = await runStoryStartAstWarmWorker(big.root, '@repository');
   assert.deepEqual({ status: skipped.status, reason: skipped.reason }, { status: 'skipped', reason: 'over-budget' });
-  assert.equal(launchedBig, false);
+  assert.equal(launchedBig, true);
 });
 
 test('workspace creation indexes the cloned repository in the background, and its explanation says so', { timeout: 120_000 }, async (t) => {
@@ -153,7 +156,7 @@ test('workspace creation indexes the cloned repository in the background, and it
   const remote = `${root}-remote.git`;
   git(root, 'init', '-q', '--bare', '-b', 'main', remote);
   git(root, 'push', '-q', remote, 'HEAD:main');
-  t.after(() => spawnSync('rm', ['-rf', remote]));
+  t.after(() => rm(remote, { recursive: true, force: true }));
   // The detached worker is suppressed inside the test runner; this run is the real product path.
   const { NODE_TEST_CONTEXT: _context, ...env } = process.env;
   const created = spawnSync(process.execPath, [CLI, 'workspace', 'create', '--local', '--id', 'WS-1', '--name', 'Shop',
@@ -181,4 +184,16 @@ test('workspace creation indexes the cloned repository in the background, and it
   assert.equal(explanation.index.built, false, 'the background index answers; nothing is rebuilt');
   assert.deepEqual({ mode: explanation.index.warm.mode, status: explanation.index.warm.status }, { mode: 'background', status: 'complete' });
   assert.equal(explanation.index.counts.symbols, 3);
+});
+
+test('repository warming retains launch failures and skips a changed queued revision', async (t) => {
+  const { root } = await shop(t);
+  const failed = await scheduleRepositoryAstWarm(root, { launcher: () => { throw Object.assign(new Error('worker unavailable'), { code: 'EACCES' }); } });
+  assert.equal(failed.status, 'failed');
+  assert.equal((await readRepositoryAstWarmStatus(root)).reason, 'EACCES');
+  await scheduleRepositoryAstWarm(root, { launcher: () => {} });
+  git(root, '-c', 'user.name=Warm Fixture', '-c', 'user.email=warm@example.invalid', 'commit', '--allow-empty', '-qm', 'advance after queue');
+  const skipped = await runStoryStartAstWarmWorker(root, '@repository');
+  assert.equal(skipped.status, 'skipped');
+  assert.equal(skipped.reason, 'repository-revision-changed');
 });

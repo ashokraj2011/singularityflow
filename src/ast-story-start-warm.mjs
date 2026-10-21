@@ -1,18 +1,14 @@
-import { spawn } from 'node:child_process';
-import path from 'node:path';
-
 import { normalizeAstPolicy } from './ast-policy.mjs';
 import { effectiveAstMode } from './ast-mode.mjs';
 import { buildAstCache } from './ast-intelligence.mjs';
 import { head } from './git.mjs';
 import { withWorldModelSourceScope, worldModelSourceScope } from './source-scope.mjs';
 import { nowIso } from './util.mjs';
-import { PACKAGE_ROOT } from './package-root.mjs';
+import { launchDetached } from './ast-warm-launcher.mjs';
+export { launchDetached } from './ast-warm-launcher.mjs';
 import {
   readStoryStartAstWarmStatus, writeStoryStartAstWarmStatus
 } from './ast-story-start-status.mjs';
-
-const WORKER = path.join(PACKAGE_ROOT, 'bin', 'ast-story-start-worker.mjs');
 
 function boundedMessage(error) {
   return String(error?.message ?? error ?? 'AST cache warming failed.').replace(/\s+/g, ' ').trim().slice(0, 1000);
@@ -92,7 +88,18 @@ export async function runStoryStartAstWarmWorker(root, workId) {
   }
   const running = await updateStatus(root, queued, { status: 'running', startedAt: nowIso() });
   try {
-    const result = await buildAstCache(root, queued.options ?? {});
+    let options = queued.options;
+    if (workId === '@repository' && options === null) {
+      const { repositoryAstWarmPlan } = await import('./comprehension/repository-explanation.mjs');
+      const plan = await repositoryAstWarmPlan(root);
+      if (plan.status === 'skipped') return updateStatus(root, running, { ...plan, completedAt: nowIso() });
+      options = plan.options;
+      if (head(root) !== queued.repositoryRevision) return updateStatus(root, running, {
+        status: 'skipped', completedAt: nowIso(), reason: 'repository-revision-changed',
+        message: 'The repository moved during background inventory; no stale scope was warmed.'
+      });
+    }
+    const result = await buildAstCache(root, options ?? {});
     return updateStatus(root, running, {
       status: result.status === 'disabled' ? 'skipped' : result.status === 'partial' ? 'partial' : 'complete',
       completedAt: nowIso(),
@@ -118,24 +125,6 @@ export async function runStoryStartAstWarmWorker(root, workId) {
       reason: error?.code ?? 'AST_STORY_START_WARM_FAILED', message: boundedMessage(error)
     }));
   }
-}
-
-export function launchDetached(root, workId) {
-  const child = spawn(process.execPath, [WORKER, workId], {
-    cwd: root,
-    env: process.env,
-    detached: process.platform !== 'win32',
-    stdio: 'ignore',
-    windowsHide: true
-  });
-  child.once('error', (error) => {
-    void readStoryStartAstWarmStatus(root, workId).then((record) => record && updateStatus(root, record, {
-      status: 'failed', completedAt: nowIso(), reason: error.code ?? 'AST_WARM_WORKER_START_FAILED',
-      message: boundedMessage(error)
-    })).catch(() => {});
-  });
-  child.unref();
-  return { pid: child.pid ?? null };
 }
 
 /**

@@ -24,7 +24,7 @@ export async function createWarmReadFixture({ files = 0, branches = 0, storyMode
     const authorityAttributes = 'singularity/templates/** -text\n.github/agents/** -text\n';
     if (phaseReady) await writeFile(path.join(repository, '.gitattributes'), authorityAttributes);
     await Promise.all(['src', 'bin', 'templates', 'plugin', 'schemas', 'package.json', 'scripts',
-      'distribution', 'docs', 'revision-trace-manifest.json'].map(name =>
+      'distribution', 'runtime', 'docs', 'revision-trace-manifest.json'].map(name =>
       cp(path.join(engineSource, name), path.join(engine, name), { recursive: true })));
     await symlink(path.join(engineSource, 'node_modules'), path.join(engine, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
     const stamp = path.join(engine, 'src/build-info.mjs');

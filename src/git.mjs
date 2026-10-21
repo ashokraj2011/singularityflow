@@ -7,7 +7,7 @@ import {
   accessSync, constants as FS_CONSTANTS, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync,
   realpathSync, rmSync, statSync, writeFileSync
 } from 'node:fs';
-import { SingularityFlowError, gitReadOutput, invariant, isGitRefName, run, writeAtomic, removeTemporaryTree } from './util.mjs';
+import { SingularityFlowError, gitReadOutput, invariant, isGitRefName, run, writeAtomic, removeTemporaryTree, SUBPROCESS_MAX_BUFFER_BYTES } from './util.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { gitEmptyConfigPath, gitDisabledHooksPath } from './git-isolation-paths.mjs';
 import { readLocalGitBlobs, repositoryObjectFormat } from './git-blob-batch.mjs';
@@ -41,7 +41,9 @@ function git(args, options = {}) {
   // land there. Inherited git output is routed to the parent's stderr (fd 2) instead, which keeps
   // it visible in a terminal while leaving stdout pure for machine-readable output.
   if (options.stdio === 'inherit') return run('git', args, { ...options, stdio: ['inherit', 2, 'inherit'] });
-  return publicationGitResult(options.cwd ?? process.cwd(), args, options, effective => run('git', args, effective));
+  // Include run()'s configured default in cache admission too, not just explicit caller ceilings.
+  const bounded = options.maxBuffer === undefined ? { ...options, maxBuffer: SUBPROCESS_MAX_BUFFER_BYTES } : options;
+  return publicationGitResult(options.cwd ?? process.cwd(), args, bounded, effective => run('git', args, effective));
 }
 
 /**

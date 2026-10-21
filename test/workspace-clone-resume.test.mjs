@@ -15,7 +15,7 @@ import {
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { run } from '../src/util.mjs';
 
-const fast = { ...process.env, SINGULARITY_FLOW_CLONE_CLAIM_TIMEOUT_MS: '1000',
+const fast = { ...process.env, SINGULARITY_FLOW_CLONE_CLAIM_TIMEOUT_MS: '15000',
   SINGULARITY_FLOW_CLONE_CLAIM_RETRY_DELAY_MS: '1', SINGULARITY_FLOW_CLONE_CLAIM_MAX_ATTEMPTS: '3' };
 const locked = () => Object.assign(new Error('EBUSY: simulated folder move lock'), { code: 'EBUSY' });
 

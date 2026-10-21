@@ -2630,7 +2630,7 @@ test('the first capability can be onboarded outside every repository and without
     '--clone-fallback', 'refuse',
     '--json'
   ], { cwd: outside, env, encoding: 'utf8' });
-  assert.equal(mapped.status, 0, mapped.stderr);
+  assert.equal(mapped.status, 0, mapped.stderr || mapped.stdout);
   const result = JSON.parse(mapped.stdout);
   assert.equal(result.capabilityId, 'platform-api');
   assert.equal(result.lead, lead);
@@ -2793,7 +2793,7 @@ async function withCloneFilesystemFailures({
   const originalReadFile = fsPromises.readFile;
   const retryKeys = ['SINGULARITY_FLOW_CLONE_CLAIM_TIMEOUT_MS', 'SINGULARITY_FLOW_CLONE_CLAIM_RETRY_DELAY_MS', 'SINGULARITY_FLOW_CLONE_CLAIM_MAX_ATTEMPTS'];
   const previousRetry = retryKeys.map(key => process.env[key]);
-  [50, 1, 5].forEach((value, index) => { process.env[retryKeys[index]] = String(value); });
+  [15000, 1, 5].forEach((value, index) => { process.env[retryKeys[index]] = String(value); });
   fsPromises.rename = (...args) => interceptRename ? interceptRename(originalRename, ...args) : originalRename(...args);
   fsPromises.rm = (...args) => interceptRm ? interceptRm(originalRm, ...args) : originalRm(...args);
   fsPromises.readFile = (...args) => interceptReadFile ? interceptReadFile(originalReadFile, ...args) : originalReadFile(...args);

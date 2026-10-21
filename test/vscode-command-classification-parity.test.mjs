@@ -81,7 +81,7 @@ test('every complete literal argv issued by the extension matches the CLI operat
   const invocations = [];
   for (const file of await sourceFiles(sourceRoot)) {
     invocations.push(...literalInvocations(await readFile(file, 'utf8'), file)
-      .map((entry) => ({ ...entry, file: path.relative(sourceRoot, file) })));
+      .map((entry) => ({ ...entry, file: path.relative(sourceRoot, file).split(path.sep).join('/') })));
   }
   // Guard against a vacuous parser/glob success or silently shrinking to one source file.
   assert.ok(invocations.length >= 70, `only ${invocations.length} literal calls were audited`);

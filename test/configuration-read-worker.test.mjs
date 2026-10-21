@@ -13,8 +13,24 @@ test('worker reuse is read-only, authenticated, repository-bound, disableable an
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-read-worker-test-'));
   const root = path.join(base, 'repo'), foreign = path.join(base, 'foreign'), remote = path.join(base, 'remote.git');
   const workers = new Set();
-  t.after(async () => { for (const pid of workers) { try { process.kill(pid, 'SIGTERM'); } catch {} }
-    await rm(base, { recursive: true, force: true }); });
+  const stopWorker = async pid => {
+    try { process.kill(pid, 'SIGTERM'); }
+    catch (error) { if (error.code !== 'ESRCH') throw error; }
+    for (let attempt = 0; attempt < 250; attempt++) {
+      try { process.kill(pid, 0); }
+      catch (error) {
+        if (error.code !== 'ESRCH') throw error;
+        workers.delete(pid); return;
+      }
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    assert.fail(`Fixture worker ${pid} did not stop before repository cleanup.`);
+  };
+  t.after(async () => {
+    await Promise.all([...workers].map(stopWorker));
+    // Windows may release a terminated process's cwd handle slightly after process exit.
+    await rm(base, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 });
+  });
   run('git', ['init', '-q', '-b', 'main', root]);
   run('git', ['init', '-q', foreign]);
   run('git', ['config', 'user.name', 'Fixture'], { cwd: root });
@@ -63,11 +79,7 @@ test('worker reuse is read-only, authenticated, repository-bound, disableable an
   assert.equal(await configurationReadFromWorker(root, 'proposals', {}, { env: { ...env,
     SINGULARITY_FLOW_CONFIGURATION_READ_WORKER: 'off' } }), null);
   assert.equal(await configurationReadFromWorker(root, 'activate', {}, { env }), null);
-  process.kill(record.pid, 'SIGTERM');
-  for (let attempt = 0; attempt < 100; attempt++) {
-    try { process.kill(record.pid, 0); await new Promise(resolve => setTimeout(resolve, 20)); }
-    catch { break; }
-  }
+  await stopWorker(record.pid);
   assert.deepEqual((await read()).value, []);
   assert.notEqual((await descriptor()).pid, record.pid);
   assert.equal(run('git', ['status', '--porcelain'], { cwd: root }).stdout, '');

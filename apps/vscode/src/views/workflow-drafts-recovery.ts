@@ -185,10 +185,15 @@ async function unchanged(directory: Directory): Promise<void> {
   const current = await directoryAt(directory.path, false);
   if (!current || !sameFile(directory, current)) unsafe();
 }
-async function regular(file: string): Promise<Stats | null> {
-  const info = await lstat(file).catch((error) => missing(error) ? null : Promise.reject(error));
-  if (info && (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1)) unsafe();
-  return info;
+async function regular(file: string, readingPublication = false): Promise<Stats | null> {
+  for (let attempt = 0; ; attempt += 1) {
+    const info = await lstat(file).catch((error) => missing(error) ? null : Promise.reject(error));
+    // A concurrent atomic publication can unlink the observed inode before lstat completes.
+    // Readers retry the live name; they never admit that zero-link snapshot or relax hardlinks.
+    if (readingPublication && info?.isFile() && !info.isSymbolicLink() && info.nlink === 0 && attempt < 4) continue;
+    if (info && (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1)) unsafe();
+    return info;
+  }
 }
 interface ProcessDomain { profile: 'linux-boot-pid-namespace/v1' | 'macos-boot-session/v1'; sha256: string }
 /** A diagnostic policy, never liveness evidence or a repair-authorizing platform override. */
@@ -361,7 +366,7 @@ async function lock<T>(directory: Directory, name: string, work: () => Promise<T
 }
 async function bytesAt(directory: Directory, file: string): Promise<{ bytes: Buffer; identity: Identity } | null> {
   await unchanged(directory);
-  const before = await regular(file);
+  const before = await regular(file, true);
   if (!before) return null;
   if (before.size > WORKFLOW_DRAFT_RECOVERY_MAX_ENVELOPE_BYTES) invalid();
   const handle = await open(file, constants.O_RDONLY | NOFOLLOW | (constants.O_NONBLOCK ?? 0));

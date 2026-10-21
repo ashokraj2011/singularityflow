@@ -37,7 +37,8 @@ function spawnSync(command, args, options = {}) {
       const tail = value.slice(split + 1);
       const rest = tail.includes(';') || /^[a-z]:[\\/]/iu.test(tail)
         ? tail.split(';').map(convert).join(':') : tail;
-      env.PATH = first + ':' + rest + ':/usr/bin:/bin';
+      // Nested `bash` in the recovery command must also reach MSYS, not Git's native redirector.
+      env.PATH = first + ':' + convert(path.dirname(bash)) + ':' + rest + ':/usr/bin:/bin';
       shellSearch = env.PATH;
       for (const alias of Object.keys(env)) if (alias.toLowerCase() === 'path' && alias !== 'PATH') delete env[alias];
     }

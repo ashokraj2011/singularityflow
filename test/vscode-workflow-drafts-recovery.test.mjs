@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { createCipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import fsPromises from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, link, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -299,6 +301,29 @@ test('independent hosts concurrently creating distinct scopes persist one Secret
   const store = createWorkflowDraftRecoveryStore(f.directory, fileSecrets(request.keyFile));
   assert.deepEqual(await store.read(first.scope), first); assert.deepEqual(await store.read(second.scope), second);
   assert.equal(await readFile(request.countFile, 'utf8'), '.');
+});
+
+test('checkpoint readers retry a raced unlinked stat without admitting zero-link or hardlinked files', async (t) => {
+  const f = await fixture(t); const first = checkpoint(); await f.store.write(first);
+  const file = fileFor(f.directory); const nativeLstat = fsPromises.lstat;
+  let observations = 0; let persistent = false;
+  fsPromises.lstat = async (name, ...args) => {
+    const info = await nativeLstat(name, ...args);
+    if (name !== file) return info;
+    observations += 1;
+    return observations === 1 || persistent ? new Proxy(info, {
+      get(target, key) { return key === 'nlink' ? 0 : Reflect.get(target, key); }
+    }) : info;
+  };
+  syncBuiltinESMExports();
+  try {
+    assert.deepEqual(await f.store.read(scope), first);
+    assert.ok(observations >= 2, 'a fresh regular path is required before opening');
+    observations = 0; persistent = true;
+    await assert.rejects(() => f.store.read(scope), code('WORKFLOW_DRAFT_RECOVERY_UNSAFE_PATH'));
+    assert.equal(observations, 5, 'persistent or hostile churn remains bounded and refused');
+  } finally { fsPromises.lstat = nativeLstat; syncBuiltinESMExports(); }
+  assert.deepEqual(await f.store.read(scope), first, 'the seal and key were not replaced');
 });
 
 test('lock-free reads observe complete authenticated old or new seals during independent atomic publications', async (t) => {

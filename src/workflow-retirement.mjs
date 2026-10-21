@@ -10,7 +10,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { readFile, rm } from 'node:fs/promises';
 import YAML from 'yaml';
-import { SingularityFlowError, run } from './util.mjs';
+import { SingularityFlowError } from './util.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
 import { withConfigurationReadRoot } from './configuration-read-scope.mjs';
 import { executeGitQuery } from './git-query.mjs';
@@ -458,13 +458,15 @@ export async function workflowDeleteStories(root, definition, workflowId, { ledg
   }
   const workItemRoot = definition.workItemRoot ?? 'singularity/work-items';
   const result = { status: 'checked', pinned: [], unpinned: [], unchecked: [] };
+  // Through git.mjs, the reviewed Git owner, not a new process site (scripts/git-bypass-audit.mjs).
+  const { fileAtRef } = await import('./git.mjs');
   for (const story of pointers.items ?? []) {
     if (story.workType !== workflowId || TERMINAL_STORY_STATUSES.has(String(story.status).toLowerCase())) continue;
     const summary = { id: story.id, status: story.status, branch: story.branch };
-    const shown = run('git', ['cat-file', '-p', `${story.commitOid}:${workItemRoot}/${story.id}/workflow.json`], { cwd: root, allowFailure: true });
-    if (shown.status !== 0) { result.unchecked.push(summary); continue; }
+    const shown = fileAtRef(root, story.commitOid, `${workItemRoot}/${story.id}/workflow.json`);
+    if (shown == null) { result.unchecked.push(summary); continue; }
     let workflow = null;
-    try { workflow = JSON.parse(shown.stdout); } catch { result.unchecked.push(summary); continue; }
+    try { workflow = JSON.parse(shown); } catch { result.unchecked.push(summary); continue; }
     (workflow?.workflowSnapshot ? result.pinned : result.unpinned).push(summary);
   }
   return result;

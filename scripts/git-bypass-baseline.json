@@ -1592,13 +1592,20 @@
       },
       "digest": "729dc55bdbf49cc685be5b8c87f5db5681581f3b88f9d875d80241d48e6724e7"
     },
+    "src/workspace-clone-claim.mjs": {
+      "counts": {
+        "command-git": 3,
+        "command-run": 1
+      },
+      "digest": "58a8dabdfa4435f14e9c7b315c22473b06ddad017834a0380b861eaacf8c1461"
+    },
     "src/workspace.mjs": {
       "counts": {
         "command-git-literal": 1,
         "command-run": 27,
         "process-import": 1
       },
-      "digest": "cb667c983ed0433a42f9022964f7282cd5a7650cc3a731c081a62142cf2580d9"
+      "digest": "664d0b5a94fca6d9c9ff507bb6668f9e0a11a3755e915e7ee22136ae547025e2"
     },
     "src/worktree-fingerprint.mjs": {
       "counts": {

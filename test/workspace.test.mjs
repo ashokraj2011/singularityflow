@@ -2791,6 +2791,9 @@ async function withCloneFilesystemFailures({
   const originalRename = fsPromises.rename;
   const originalRm = fsPromises.rm;
   const originalReadFile = fsPromises.readFile;
+  const retryKeys = ['SINGULARITY_FLOW_CLONE_CLAIM_TIMEOUT_MS', 'SINGULARITY_FLOW_CLONE_CLAIM_RETRY_DELAY_MS', 'SINGULARITY_FLOW_CLONE_CLAIM_MAX_ATTEMPTS'];
+  const previousRetry = retryKeys.map(key => process.env[key]);
+  [50, 1, 5].forEach((value, index) => { process.env[retryKeys[index]] = String(value); });
   fsPromises.rename = (...args) => interceptRename ? interceptRename(originalRename, ...args) : originalRename(...args);
   fsPromises.rm = (...args) => interceptRm ? interceptRm(originalRm, ...args) : originalRm(...args);
   fsPromises.readFile = (...args) => interceptReadFile ? interceptReadFile(originalReadFile, ...args) : originalReadFile(...args);
@@ -2798,6 +2801,10 @@ async function withCloneFilesystemFailures({
   try {
     return await action();
   } finally {
+    retryKeys.forEach((key, index) => {
+      if (previousRetry[index] === undefined) delete process.env[key];
+      else process.env[key] = previousRetry[index];
+    });
     fsPromises.rename = originalRename;
     fsPromises.rm = originalRm;
     fsPromises.readFile = originalReadFile;
@@ -4423,7 +4430,7 @@ test('workspace clone retries transient EPERM and EBUSY while claiming its targe
   }
 });
 
-test('cleanup EBUSY preserves the clone claim failure and permits a later repair', async () => {
+test('a completed clone survives claim failure without being passed to destructive cleanup', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-claim-busy-'));
   const remote = await remoteRepository(root, 'platform');
   const input = workspaceInput(path.join(root, 'workspaces'), {
@@ -4461,7 +4468,7 @@ test('cleanup EBUSY preserves the clone claim failure and permits a later repair
   });
 
   assert.ok(blockedClaims > 0);
-  assert.ok(blockedCleanups > 0);
+  assert.equal(blockedCleanups, 0, 'the completed clone must not be deleted after a claim failure');
   assert.equal(await stat(target).catch(() => null), null);
   const journal = JSON.parse(await readFile(path.join(created.workspace.path, 'logs', 'workspace-materialization.json'), 'utf8'));
   assert.equal(journal.operations[0].status, 'failed');
@@ -4649,8 +4656,9 @@ test('parallel workspace staging claims no repository when any required clone fa
     () => createWorkspace(input, { confirmation: 'PAY-100', workers: 2 }),
     /retained for repair/
   );
-  assert.deepEqual(await readdir(path.join(preview.root, 'repos')), [],
-    'a successful sibling remains private staging and is discarded before coordinator claim');
+  const retained = await readdir(path.join(preview.root, 'repos'));
+  assert.equal(retained.filter(name => name.startsWith('.sflow-clone-')).length, 1,
+    'a successful sibling remains completed private staging for repair, not another download');
 });
 
 test('workspace repair names a configured branch that the remote does not have', async () => {

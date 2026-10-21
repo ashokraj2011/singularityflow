@@ -344,6 +344,7 @@
   "subject-lock-owner": [{ "schemaVersion": 1 }],
   "visual-comparison": [{ "schemaVersion": 1 }],
   "workspace-bootstrap-owner": [{ "schemaVersion": 1 }],
+  "workspace-clone-completion": [{ "schemaVersion": 1 }],
   "worldmodel-worktree-owner": [{ "schemaVersion": 1 }],
   "worldmodel-prompt-composition": [{ "schemaVersion": 1 }],
   "worldmodel-light-model": [{ "schemaVersion": 1 }],

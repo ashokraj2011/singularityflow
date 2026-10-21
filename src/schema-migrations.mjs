@@ -2948,6 +2948,7 @@ const families = [
   family({ id: 'subject-lock-owner', currentVersion: 1, paths: [/^\$git\/locks\/[^/]+\/owner\.json$/] }),
   family({ id: 'visual-comparison', currentVersion: 1, unversionedAs: 1, paths: [/^singularity\/work-items\/[^/]+\/artifacts\/visual-verification\/evidence\/.+\.json$/], immutable: true }),
   family({ id: 'workspace-bootstrap-owner', currentVersion: 1 }),
+  family({ id: 'workspace-clone-completion', currentVersion: 1 }),
   family({ id: 'worldmodel-worktree-owner', currentVersion: 1 }),
   family({ id: 'worldmodel-prompt-composition', currentVersion: 1 }),
   family({ id: 'worldmodel-light-model', currentVersion: 1 }),

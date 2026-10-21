@@ -1,5 +1,14 @@
 # GAL Git bypass regression gate
 
+Workspace clone resumption adds three fixed local observations (`origin` configuration, symbolic
+HEAD and exact HEAD) through a bounded Git launcher in `workspace-clone-claim.mjs`. They use the
+existing sanitized enterprise environment, disable optional index locks and lazy fetching, and
+have a 30-second deadline and 1-MiB output ceiling. The retained configuration digest is checked
+before resumed Git inspection. Worktree identity reuses the existing fingerprint owner; no new
+remote operation, executable selector or general Git owner is admitted. The workspace owner's
+existing call counts remain unchanged; its reviewed digest changes for the preparation wrapper.
+Only these exact local call sites are added to the frozen baseline.
+
 One-command distribution adds only fixed bootstrap/setup wrapper sites: two shell sites in
 `build-distribution.sh` select the existing checksum-pinned private runtime and its fixed build
 module; one in `build-distribution.cmd` enters its fixed PowerShell build script; one in

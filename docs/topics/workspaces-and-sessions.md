@@ -16,7 +16,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 15
+version: 16
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing repository state.
 
@@ -170,14 +170,41 @@ the exact workspace directory; the last selected workspace is never repaired imp
 initialization; `--no-clone --initialize` is contradictory and refused. Mapping a capability reads
 approved configuration, not application source.
 
-If Windows or macOS briefly locks a new checkout, repair retries the final staging-to-target
-move and rechecks ownership and target occupancy before every retry. A failed move preserves its original
-error even if private staging cleanup is also locked; a completed move stays completed and reports
-any retained staging path as a cleanup warning. Check `workspace status` before retrying a
-failed clone; its target should be reported as `missing` or `empty`. Do not manually move or delete a
-`.sflow-clone-*` directory, which may contain a partially cleaned private clone. A persistent
-lock requires inspection of the process or filesystem policy holding that exact path. Repair
-does not resume an abandoned staging directory and refuses a target observed as occupied.
+If Windows or macOS locks a new checkout, repair retries the final staging-to-target move for up
+to five minutes by default, rechecking ownership and target occupancy before every attempt. Only
+`EBUSY`, `EPERM` and `EACCES` filesystem contention is retried; configuration changes, replaced
+directories and occupied targets are refused immediately. Completed clones receive a digest-bound
+recovery record after checkout and origin restoration. A failed move or interrupted finalization
+retains that clone instead of deleting it, including when a sibling repository failed. Repeat the
+same creation/bootstrap operation or `workspace repair` to resume the folder move without another
+clone or remote download. A changed origin, branch, plan, directory identity or worktree refuses
+reuse and preserves the bytes for inspection. Old unsealed staging is not guessed to be complete.
+
+The materialization journal records the recovery path, target, original error code and retry
+details. A completed move stays completed and reports any locked staging-parent cleanup as a
+warning. Automatic orphan cleanup does not delete a completed recovery candidate. Check
+`workspace status` before retrying; a target should be `missing` or `empty`. Do not manually move
+or delete `.sflow-clone-*` directories. A persistent lock needs inspection of the process or
+filesystem policy holding that exact path; SFlow does not disable security software.
+
+Configure retries in the environment used by the CLI or VS Code process:
+
+| Setting | Default | Accepted range |
+|---|---|---|
+| `SINGULARITY_FLOW_CLONE_CLAIM_TIMEOUT_MS` | `300000` | `1` to `1800000` milliseconds |
+| `SINGULARITY_FLOW_CLONE_CLAIM_RETRY_DELAY_MS` | `100` | `1` to `10000` milliseconds |
+| `SINGULARITY_FLOW_CLONE_CLAIM_MAX_ATTEMPTS` | `1000` | `1` to `10000` attempts |
+
+Waiting uses exponential backoff capped at two seconds; whichever timeout or attempt limit is
+reached first ends the claim. These settings change only the local folder handoff, not remote Git
+deadlines or bootstrap authorization/attempt budgets. Invalid settings are refused before cloning.
+For example, in PowerShell use `$env:SINGULARITY_FLOW_CLONE_CLAIM_TIMEOUT_MS = '600000'` before
+running the same repair command. Restart VS Code from that environment for its subprocesses to
+inherit the override. Longer waits never authorize overwriting an existing file or populated target.
+
+All SFlow preparation and final handoff attempts for the same target share a local lease. Existing
+files, symlinks and populated target directories are never replaced. The pre-created empty-target
+exception still requires the exact reviewed directory identity and a successful empty `rmdir`.
 The occupancy check is not an atomic no-replace directory move on macOS/Linux; keep external
 processes from creating the same checkout path during the final claim.
 

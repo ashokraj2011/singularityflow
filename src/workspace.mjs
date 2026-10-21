@@ -7,6 +7,10 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { withRegistryFileLease } from './file-lease.mjs';
+import {
+  CLONE_COMPLETION_FILE, cloneClaimPolicy, findCompletedWorkspaceClone, retryWorkspaceCloneClaim,
+  sealWorkspaceClone, verifyCompletedWorkspaceClone, workspaceCloneLeasePath, workspaceCloneStagingPrefix
+} from './workspace-clone-claim.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { prepareHeldLockRemoval } from './subject-lock.mjs';
 import YAML from 'yaml';
@@ -3522,7 +3526,19 @@ async function cloneIntoWorkspace(root, operation, {
   deferClaim = false, env = process.env
 } = {}) {
   await assertInside(root, operation.target);
-  const existing = await lstat(operation.target).catch(() => null);
+  const policy = cloneClaimPolicy(env);
+  await mkdir(path.dirname(operation.target), { recursive: true });
+  // Serialize preparation for this target, not the entire workspace or network wave. Deferred
+  // claims reacquire the same lease; a second process cannot clone over a retained candidate.
+  return withRegistryFileLease(workspaceCloneLeasePath(operation.target), () =>
+    prepareWorkspaceClone(root, operation, { deferClaim, env, policy }));
+}
+
+async function prepareWorkspaceClone(root, operation, { deferClaim, env, policy }) {
+  const existing = await lstat(operation.target).catch(error => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
   if (existing) {
     if (existing.isSymbolicLink() || !existing.isDirectory()) {
       return { status: 1, error: `Clone target became occupied before materialization: ${operation.target}` };
@@ -3533,17 +3549,20 @@ async function cloneIntoWorkspace(root, operation, {
   const parent = path.dirname(operation.target);
   await mkdir(parent, { recursive: true });
   const canonicalParent = await realpath(parent);
-  const stagingRoot = await mkdtemp(path.join(parent, '.sflow-clone-'));
+  const gitEnv = enterpriseGitEnvironment(env);
+  const recovered = await findCompletedWorkspaceClone(canonicalParent, operation, gitEnv);
+  const stagingRoot = recovered?.stagingRoot ?? await mkdtemp(path.join(parent, workspaceCloneStagingPrefix(operation.target)));
   const staging = path.join(stagingRoot, 'repository');
   const ownershipFile = path.join(stagingRoot, '.sflow-bootstrap-owner.json');
   const canonicalStagingRoot = await realpath(stagingRoot).catch(() => null);
-  let ownership;
+  let ownership = recovered?.owner;
+  let completion = recovered?.record ?? null;
   try {
     if (!canonicalStagingRoot || path.dirname(canonicalStagingRoot) !== canonicalParent) {
       throw new Error('new staging directory escaped its workspace repository parent');
     }
     await assertInside(root, staging);
-    ownership = {
+    ownership ??= {
       schemaVersion: currentSchemaVersion('workspace-bootstrap-owner'),
       bootstrapId: String(operation.bootstrapId ?? `workspace-${operation.workspaceId ?? 'unbound'}`),
       repositoryId: operation.repository,
@@ -3552,14 +3571,14 @@ async function cloneIntoWorkspace(root, operation, {
       createdAt: nowIso(),
       nonce: randomUUID()
     };
-    await writeFile(ownershipFile, `${JSON.stringify(ownership, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    if (!recovered) await writeFile(ownershipFile, `${JSON.stringify(ownership, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
   } catch (error) {
     const info = await lstat(stagingRoot).catch(() => null);
     const canonical = !info?.isSymbolicLink() && info?.isDirectory()
       ? await realpath(stagingRoot).catch(() => null) : null;
     const removable = canonical === canonicalStagingRoot && path.dirname(canonical ?? '') === canonicalParent;
     let removed = false;
-    if (removable) {
+    if (removable && !recovered) {
       removed = await removeTemporaryTree(stagingRoot).then(() => true, () => false);
     }
     return {
@@ -3587,23 +3606,29 @@ async function cloneIntoWorkspace(root, operation, {
   const cleanupStaging = async () => {
     if (!(await verifyOwnership())) return false;
     const entries = await readdir(stagingRoot, { withFileTypes: true });
-    if (entries.some((entry) => !['.sflow-bootstrap-owner.json', 'repository'].includes(entry.name))) return false;
+    if (entries.some((entry) => ![CLONE_STAGING_OWNER, CLONE_COMPLETION_FILE, 'repository'].includes(entry.name))) return false;
     const repositoryEntry = entries.find((entry) => entry.name === 'repository');
     if (repositoryEntry?.isSymbolicLink()) return false;
+    if (repositoryEntry && completion) return false;
     if (repositoryEntry) await removeTemporaryTree(staging);
+    await retryTransientCloneFilesystem(() => rm(path.join(stagingRoot, CLONE_COMPLETION_FILE), { force: true }));
     await retryTransientCloneFilesystem(() => rm(ownershipFile, { force: true }));
     await retryTransientCloneFilesystem(() => rmdir(stagingRoot));
     return true;
   };
 
   const cleanupFailure = async (message) => {
+    if (completion) return `${message} The completed clone is retained at ${stagingRoot}. `
+      + 'Retry the same workspace operation after the lock or target conflict is resolved; no new download is needed.';
     try { if (await cleanupStaging()) return message; }
     catch { /* Never replace the clone or claim error with a disposable cleanup error. */ }
     return `${message} The private staging directory could not be safely removed; inspect ${stagingRoot}.`;
   };
   try {
+  let selected = completion?.actualClone;
+  let fallbackUsed = completion?.fallbackUsed ?? false;
+  if (!recovered) {
   const strategy = normalizeCloneStrategy(operation.clone, `Repository '${operation.repository}' clone strategy`);
-  const gitEnv = enterpriseGitEnvironment(env);
   const transport = frozenRemoteTransport(operation.url, { env: gitEnv });
   // Check out the configured default branch, but retain remote-tracking refs for governed Epic
   // and Story branches. State transfer depends on seeing branches created from other terminals.
@@ -3625,8 +3650,7 @@ async function cloneIntoWorkspace(root, operation, {
     }
   };
   incrementCommandCounter('git.remote-clone');
-  let selected = strategy;
-  let fallbackUsed = false;
+  selected = strategy;
   let result = await cloneOnce(selected);
   let partial = selected.mode === 'full' ? null : partialCloneFallbackDecision(result, {
     configured: result.status === 0
@@ -3726,6 +3750,8 @@ async function cloneIntoWorkspace(root, operation, {
   // All checkout and possible lazy-fetch work is complete. Only now replace the invocation alias
   // with the exact reviewed URL so the durable workspace never depends on ephemeral Git config.
   restoreExactOrigin();
+  completion = await sealWorkspaceClone(stagingRoot, ownership, operation, selected, fallbackUsed, gitEnv);
+  }
   const stagedSource = await lstat(staging);
   if (!stagedSource.isDirectory() || stagedSource.isSymbolicLink()) {
     throw new SingularityFlowError(
@@ -3772,22 +3798,28 @@ async function cloneIntoWorkspace(root, operation, {
   };
   const claim = async () => {
     try {
+      await verifyCompletedWorkspaceClone(stagingRoot, ownership, operation, completion, gitEnv);
       // A user may pre-create the repository folder while setting up a workspace. Claim it only
       // when it is still empty after the clone completes; rmdir fails if a concurrent process
       // added anything, so no user content is overwritten.
-      if (existing) await retryTransientCloneFilesystem(removeReviewedEmptyTarget);
+      if (existing) await retryWorkspaceCloneClaim(removeReviewedEmptyTarget, async () => {
+        if (!(await verifyOwnership())) throw new SingularityFlowError('Clone staging ownership changed before its empty target could be removed.');
+      }, policy);
       // This rename is the complete repository mutation: the private clone has already finished
       // every checkout/configuration write, and cleanup below touches only its former staging
       // parent. Before the rename there is no target Git repository for factory reset to select;
       // afterward the checkout is complete and reset may safely win. Any later repository writer
       // (notably workspace state initialization) must acquire its own target-root mutation lease.
-      await retryTransientCloneFilesystem(
-        () => rename(staging, operation.target), targetAbsentAndStageOwned
+      await retryWorkspaceCloneClaim(
+        () => rename(staging, operation.target), targetAbsentAndStageOwned, policy
       );
     } catch (error) {
       return {
         status: 1,
-        error: await cleanupFailure(`Clone completed but could not claim its workspace target: ${error.message}`)
+        code: 'WORKSPACE_CLONE_CLAIM_PENDING',
+        error: await cleanupFailure(`Clone completed but could not claim its workspace target: ${error.message}`),
+        claimRecovery: { path: stagingRoot, target: operation.target, resumable: true,
+          causeCode: error.code ?? null, retry: error.claimRetry ?? null }
       };
     }
     // The checkout is already at its final target. A locked disposable staging parent is a
@@ -3796,7 +3828,7 @@ async function cloneIntoWorkspace(root, operation, {
     try { cleaned = await cleanupStaging(); }
     catch { /* The journal below retains the exact staging path for recovery. */ }
     return {
-      status: 0, error: null, clone: selected, fallbackUsed,
+      status: 0, error: null, clone: selected, fallbackUsed, resumedClone: Boolean(recovered),
       cleanup: cleaned
         ? { status: 'removed', path: stagingRoot, recoverable: false }
         : { status: 'retained', path: stagingRoot, recoverable: true }
@@ -3806,9 +3838,10 @@ async function cloneIntoWorkspace(root, operation, {
     return {
       status: 0, error: null, clone: selected, fallbackUsed,
       staging: { path: stagingRoot },
-      claim,
+      claim: () => withRegistryFileLease(workspaceCloneLeasePath(operation.target), claim),
       discard: async () => ({
-        removed: await cleanupStaging().catch(() => false), path: stagingRoot
+        // A completed clone survives a sibling failure, a failed claim and an interrupted journal.
+        removed: false, retained: true, resumable: true, path: stagingRoot
       })
     };
   }
@@ -3854,6 +3887,8 @@ async function discardStagedWorkspaceClone(result) {
     const cleanup = await result.discard();
     return {
       removed: cleanup?.removed === true,
+      retained: cleanup?.retained === true,
+      resumable: cleanup?.resumable === true,
       path: cleanup?.path ?? result.staging?.path ?? null,
       error: null
     };
@@ -4019,10 +4054,12 @@ export async function createWorkspace(options, {
         const discarded = cleanup[index];
         operation.status = result.status !== 0 ? 'failed'
           : operation.action === 'adopt' ? 'complete'
-            : discarded?.removed ? 'pending' : 'failed';
+            : discarded?.removed || discarded?.retained ? 'pending' : 'failed';
         operation.error = result.status !== 0 ? result.error
           : operation.action === 'adopt' ? null
-            : discarded?.removed
+            : discarded?.retained
+              ? `Completed clone retained at ${discarded.path}; retry workspace repair without downloading it again.`
+              : discarded?.removed
               ? `Staged clone was discarded because required repository '${requiredFailure.repository}' failed.`
               : `Staged clone could not be safely discarded after required repository '${requiredFailure.repository}' failed.`
                 + `${discarded?.path ? ` Inspect ${discarded.path}.` : ''}`
@@ -4048,6 +4085,8 @@ export async function createWorkspace(options, {
       operation.actualClone = result.status === 0 ? result.clone : null;
       operation.fallbackUsed = result.status === 0 ? result.fallbackUsed : false;
       operation.cleanup = result.cleanup ?? null;
+      operation.claimRecovery = result.claimRecovery ?? null;
+      operation.resumedClone = result.resumedClone ?? false;
       operation.adoptionProof = result.adoption ?? null;
       operation.completedAt = nowIso();
       await writeJournal(root, journal, manifest.directories.logs);
@@ -4061,10 +4100,12 @@ export async function createWorkspace(options, {
           const discarded = laterCleanup[later - index - 1];
           laterOperation.status = laterResult.status !== 0 ? 'failed'
             : laterOperation.action === 'adopt' ? 'complete'
-              : discarded?.removed ? 'pending' : 'failed';
+              : discarded?.removed || discarded?.retained ? 'pending' : 'failed';
           laterOperation.error = laterResult.status !== 0 ? laterResult.error
             : laterOperation.action === 'adopt' ? null
-              : discarded?.removed
+              : discarded?.retained
+                ? `Completed clone retained at ${discarded.path}; retry workspace repair without downloading it again.`
+                : discarded?.removed
                 ? `Staged clone was discarded because required repository '${operation.repository}' failed during final claim.`
                 : `Staged clone could not be safely discarded after required repository '${operation.repository}' failed during final claim.`
                   + `${discarded?.path ? ` Inspect ${discarded.path}.` : ''}`
@@ -4075,7 +4116,9 @@ export async function createWorkspace(options, {
           laterOperation.completedAt = nowIso();
         }
         await writeJournal(root, journal, manifest.directories.logs);
-        throw new SingularityFlowError(`Workspace retained for repair after ${operation.repository} clone failed: ${operation.error}`);
+        throw new SingularityFlowError(`Workspace retained for repair after ${operation.repository} clone failed: ${operation.error}`, {
+          code: result.code, details: result.claimRecovery
+        });
       }
     }
     journal.completedAt = nowIso();
@@ -4831,10 +4874,12 @@ export async function repairWorkspace(workspacePath, {
       const discarded = cleanup[index];
       operation.status = result.status !== 0 ? 'failed'
         : repository.adoption ? 'complete'
-          : discarded?.removed ? 'pending' : 'failed';
+          : discarded?.removed || discarded?.retained ? 'pending' : 'failed';
       operation.error = result.status !== 0 ? result.error
         : repository.adoption ? null
-          : discarded?.removed
+          : discarded?.retained
+            ? `Completed clone retained at ${discarded.path}; retry workspace repair without downloading it again.`
+            : discarded?.removed
             ? `Staged clone was discarded because required repository '${pending[blockingIndex].repository.id}' failed.`
             : `Staged clone could not be safely discarded after required repository '${pending[blockingIndex].repository.id}' failed.`
               + `${discarded?.path ? ` Inspect ${discarded.path}.` : ''}`
@@ -4874,6 +4919,7 @@ export async function repairWorkspace(workspacePath, {
     if (result.status !== 0) {
       operation.status = 'failed';
       operation.error = result.error;
+      operation.claimRecovery = result.claimRecovery ?? null;
       operation.completedAt = nowIso();
       await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
       if (repository.required) {
@@ -4891,10 +4937,12 @@ export async function repairWorkspace(workspacePath, {
           const discarded = laterCleanup[later - index - 1];
           laterOperation.status = laterResult.status !== 0 ? 'failed'
             : laterRepository.adoption ? 'complete'
-              : discarded?.removed ? 'pending' : 'failed';
+              : discarded?.removed || discarded?.retained ? 'pending' : 'failed';
           laterOperation.error = laterResult.status !== 0 ? laterResult.error
             : laterRepository.adoption ? null
-              : discarded?.removed
+              : discarded?.retained
+                ? `Completed clone retained at ${discarded.path}; retry workspace repair without downloading it again.`
+                : discarded?.removed
                 ? `Staged clone was discarded because required repository '${repository.id}' failed during final claim.`
                 : `Staged clone could not be safely discarded after required repository '${repository.id}' failed during final claim.`
                   + `${discarded?.path ? ` Inspect ${discarded.path}.` : ''}`
@@ -4906,7 +4954,9 @@ export async function repairWorkspace(workspacePath, {
         }
         await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
         throw new SingularityFlowError(
-          `Required repository '${repository.id}' could not be repaired: ${result.error}`
+          `Required repository '${repository.id}' could not be repaired: ${result.error}`, {
+            code: result.code, details: result.claimRecovery
+          }
         );
       }
       repaired.push({ repository: repository.id, status: 'failed', error: result.error });
@@ -4923,10 +4973,13 @@ export async function repairWorkspace(workspacePath, {
       operation.actualClone = result.clone;
       operation.fallbackUsed = result.fallbackUsed;
       operation.cleanup = result.cleanup ?? null;
+      operation.claimRecovery = null;
+      operation.resumedClone = result.resumedClone ?? false;
       operation.completedAt = nowIso();
       repaired.push({
         repository: repository.id,
         status: 'cloned',
+        resumedClone: result.resumedClone ?? false,
         clone: result.clone,
         fallbackUsed: result.fallbackUsed
       });

@@ -713,7 +713,8 @@ test('a copy can be given a different name and a different base', async (t) => {
   // The same identifier in a different base is fine — the directory is what must be unique. A name
   // that differs from the identifier is folded into the directory, which is why a copy left unnamed
   // is named after its identifier.
-  assert.match(copied.workspace.path, /elsewhere\/commerce--commerce-spike$/);
+  assert.equal(path.basename(copied.workspace.path), 'commerce--commerce-spike');
+  assert.equal(await realpath(path.dirname(copied.workspace.path)), await realpath(elsewhere));
 
   // Both are registered, and they are two workspaces rather than one moved.
   const listed = JSON.parse(cli(['workspace', 'list', '--json'], env).stdout);

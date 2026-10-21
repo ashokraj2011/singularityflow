@@ -140,6 +140,7 @@ export async function installManagedProduct({ tarball, sha256, vsix, root = reso
     throw new Error('GitHub Copilot CLI is unavailable. Install it for this user, then rerun setup. SFlow installs its own Copilot plugin and skills, not a Copilot subscription.');
   }
   const requestedVsixBytes = await ordinary(vsix);
+  if (digest(await ordinary(tarball)) !== sha256) throw new Error('Engine archive changed during setup admission.');
   await privateDirectory(root);
   const lock = await acquire(root);
   let state;
@@ -151,6 +152,9 @@ export async function installManagedProduct({ tarball, sha256, vsix, root = reso
     if (state && state.status !== 'complete') {
       log('Resuming the exact retained CLI, VS Code and Copilot setup before installing another build.');
       await complete(state);
+      // A retry of the same package has just verified every surface. Do not install it twice or
+      // replace the recovered operation receipt with a redundant second transaction.
+      if (state.sha256 === sha256 && state.vsixSha256 === digest(requestedVsixBytes)) return completedResult();
     }
     const extension = await inspectExtension(vsix);
     if (!extension.version || extension.sha256 !== `sha256:${digest(requestedVsixBytes)}`) throw new Error('VSIX changed during setup admission.');
@@ -168,9 +172,7 @@ export async function installManagedProduct({ tarball, sha256, vsix, root = reso
       status: 'applying', stages: {}, startedAt: new Date().toISOString() };
     await atomic(receiptFile, state);
     await complete(state);
-    log('Singularity Flow user installation — COMPLETE AND VERIFIED');
-    log('CLI, VS Code extension, Copilot plugin/skills and user PATH are aligned. Restart VS Code/Copilot and open a new terminal once to load updated integrations and environment; setup does not force-close applications.');
-    return { ...state, root, restartRequired: true, adminRequired: false };
+    return completedResult();
   } catch (error) {
     if (state && state.status !== 'complete') {
       state.status = 'needs-retry'; state.error = String(error.message).slice(0, 4000);
@@ -178,6 +180,12 @@ export async function installManagedProduct({ tarball, sha256, vsix, root = reso
     }
     throw new Error(`Full SFlow setup did not complete: ${error.message}. Rerun the same setup command to resume. Prior runtimes, artifacts, workspaces and recovery were preserved.`, { cause: error });
   } finally { await rm(path.join(lock, 'owner.json'), { force: true }); await rmdir(lock); }
+
+  function completedResult() {
+    log('Singularity Flow user installation — COMPLETE AND VERIFIED');
+    log('CLI, VS Code extension, Copilot plugin/skills and user PATH are aligned. Restart VS Code/Copilot and open a new terminal once to load updated integrations and environment; setup does not force-close applications.');
+    return { ...state, root, restartRequired: true, adminRequired: false };
+  }
 
   async function complete(record) {
     const retained = path.join(root, 'product-artifacts', record.sha256);

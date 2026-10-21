@@ -82,9 +82,12 @@ test('a failed surface retains an honest partial receipt; the same command resum
   } }), /fixture VS Code failure/);
   assert.equal(failed, true);
   assert.equal(JSON.parse(await readFile(path.join(f.root, 'product-install.json'))).status, 'needs-retry');
+  const operation = JSON.parse(await readFile(path.join(f.root, 'product-install.json'))).operationId;
   assert.ok(!f.messages.some(message => message.includes('COMPLETE AND VERIFIED')));
   await installManagedProduct(f.options);
   assert.equal(JSON.parse(await readFile(path.join(f.root, 'product-install.json'))).status, 'complete');
+  assert.equal(JSON.parse(await readFile(path.join(f.root, 'product-install.json'))).operationId, operation);
+  assert.equal(f.calls.filter(call => call.step === 'install-engine').length, 2, 'one failed attempt and one resumed attempt, never a redundant second install');
   assert.ok(f.messages.some(message => message.includes('Resuming the exact retained')));
 });
 

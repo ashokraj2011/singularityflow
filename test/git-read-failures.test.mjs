@@ -1,3 +1,4 @@
+import { gitEmptyConfigPath } from '../src/git-isolation-paths.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -29,7 +30,7 @@ function refusal(label) {
 async function isolatedEnvironment(parent) {
   const empty = path.join(parent, 'empty.gitconfig');
   await writeFile(empty, '');
-  const env = { ...process.env, GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_SYSTEM: os.devNull };
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_SYSTEM: gitEmptyConfigPath() };
   delete env.SINGULARITY_FLOW_TEST_IDENTITY;
   delete env.NODE_ENV;
   return env;
@@ -210,7 +211,7 @@ test('remotes, the remote default branch and commit identity refuse a configurat
   await appendFile(path.join(root, '.git/config'), '[[[broken\n');
   assert.throws(() => remoteNames(root, { env }), refusal('Git remotes'));
   assert.throws(() => remoteDefaultBranchName(root), refusal("The 'origin' default branch"));
-  assert.throws(() => gitCommitIdentity(root, { env }), refusal('Git user.name'));
+  assert.throws(() => gitCommitIdentity(root, { env }), refusal('Git user configuration'));
 });
 
 test('outside a repository is told apart from a repository Git cannot read', async (t) => {

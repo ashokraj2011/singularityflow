@@ -202,8 +202,7 @@ export function resetGitDirCache() {
  * activation, chat personalization) does not load git.mjs's commit admission and its YAML parser.
  */
 export function localGitDisplayName(root, { env = process.env } = {}) {
-  const result = run('git', ['config', '--get', 'user.name'], { cwd: root, env, allowFailure: true });
-  return (gitReadOutput(result, 'Git user.name', { absentStatus: 1 }) ?? '').trim() || null;
+  return gitUserConfiguration(root, { env }).get('user.name')?.trim() || null;
 }
 
 /** One fresh config read of both presentation fields. Last configured value wins, as --get does. */

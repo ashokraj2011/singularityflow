@@ -84,5 +84,5 @@ export function publicationGitResult(root, args, options, execute) {
   });
   if (observed) return presentation(observed);
   return { status: 0, signal: null, stdout: binary
-    ? Buffer.from(bytes) : bytes.toString(options.encoding ?? 'utf8'), stderr: '', error: null };
+    ? Buffer.from(bytes) : bytes.toString(options.encoding ?? 'utf8'), stderr: binary ? Buffer.alloc(0) : '', error: null };
 }

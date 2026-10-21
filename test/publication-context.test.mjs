@@ -95,6 +95,24 @@ test('writer metadata reuses exact object reads but preserves magic pathspec sem
   });
 });
 
+test('writer cache preserves binary bytes across encoding and obeys each caller buffer ceiling', async () => {
+  let calls = 0;
+  const raw = Buffer.from([0xff, 0x00]);
+  const execute = opts => {
+    calls++;
+    assert.equal(opts.encoding, 'buffer');
+    return { status: 0, stdout: raw, stderr: Buffer.alloc(0), signal: null };
+  };
+  await withPublicationContext(root, async () => {
+    const args = ['ls-tree', '-r', '-z', oid];
+    publicationGitResult(root, args, options, execute);
+    assert.deepEqual(publicationGitResult(root, args, { ...options, encoding: 'buffer' }, execute).stdout, raw);
+    assert.equal(calls, 1);
+    publicationGitResult(root, args, { ...options, maxBuffer: 1 }, execute);
+    assert.equal(calls, 2, 'oversized cached bytes cannot bypass the supplied process ceiling');
+  });
+});
+
 test('the publication gateway cannot statically load legacy authoring, approval or model owners', async () => {
   const engine = new URL('../', import.meta.url), visited = new Set();
   const forbidden = new Set(['src/state.mjs', 'src/state-stores.mjs', 'src/initiative-state.mjs', 'src/phase-entry.mjs']);

@@ -30,7 +30,10 @@ test('selected configuration prepares exact objects without a checkout and still
   git(app, 'add', '.'); git(app, 'commit', '-qm', 'application');
   const authority = { remote: source, branch: 'sflow/config', commit: git(source, 'rev-parse', 'HEAD') };
   const before = git(app, 'status', '--porcelain=v1');
+  const main = git(app, 'rev-parse', 'HEAD');
+  git(app, 'symbolic-ref', 'refs/sflow/intake-configuration/selected', 'refs/heads/main');
   assert.equal((await prepareSelectedStoryConfiguration(app, authority)).status, 'prepared');
+  assert.equal(git(app, 'rev-parse', 'HEAD'), main, 'a pre-existing retention alias cannot move application HEAD');
   assert.equal(git(app, 'status', '--porcelain=v1'), before);
   const timer = commandTimer('selected-preparation');
   const snapshot = await withCommandTiming(timer, () => withStoryConfigurationTransaction(() =>

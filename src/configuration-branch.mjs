@@ -2873,10 +2873,14 @@ export async function prepareSelectedStoryConfiguration(root, authority, { env =
   if (head.sha !== authority.commit) return { status: 'unavailable', reason: 'authority-moved' };
   const ref = preparedConfigurationRef(authority);
   const result = await runRemoteGitAsync(['fetch', '--quiet', '--no-tags', '--no-write-fetch-head',
-    '--recurse-submodules=no', transport.remote, `+${authority.commit}:${ref}`], {
+    '--recurse-submodules=no', transport.remote, authority.commit], {
     cwd: root, env: transport.env, operation: 'remote-configuration'
   });
   if (!processResultSucceeded(result)) return { status: 'unavailable', reason: result.failure?.code ?? 'transfer-failed' };
+  // Fetch writes objects only. Replace our retention ref without dereferencing a pre-existing
+  // symbolic alias, which must never turn preparation into an application-branch update.
+  run('git', ['update-ref', '--no-deref', ref, authority.commit], { cwd: root,
+    env: enterpriseGitEnvironment(env) });
   incrementCommandCounter('configuration.selected-prepared');
   return { status: 'prepared', commit: authority.commit };
 }

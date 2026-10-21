@@ -211,4 +211,6 @@ reader without launching Git. This ref is only a bounded object-retention hint: 
 observes current remote authority, verifies object integrity and the full configuration closure,
 and retains final publication CAS checks. Preparation fetches only the exact selected configuration
 commit through the existing frozen remote executor; it never changes application refs or files.
-No process owner was exempted by this addition.
+The transfer writes objects only; one frozen `update-ref --no-deref` site replaces that retention
+hint without following a pre-existing symbolic alias into an application branch. No process owner
+was exempted by these additions.

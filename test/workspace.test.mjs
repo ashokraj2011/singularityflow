@@ -1423,7 +1423,7 @@ test('workspace capability drop isolates Git evidence and retains non-ref local 
       'the checkout is retained after the destructive proof refuses it');
   });
 
-  await t.test('checkout normalization cannot hide changed retained line-ending bytes', async () => {
+  await t.test('line-ending-only edits remain protected from local checkout deletion', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-eol-'));
     const fixture = await attachedCapabilityWorkspace(root, 'eol');
     const manifest = path.join(fixture.workspace.path, 'workspace.json');
@@ -1433,8 +1433,9 @@ test('workspace capability drop isolates Git evidence and retains non-ref local 
     assert.ok(original.includes('\n') && !original.includes('\r'));
     const modified = original.replaceAll('\n', '\r\n');
     await writeFile(readme, modified);
-    assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: fixture.apiCheckout }).stdout, '',
-      'Git text normalization hides this byte-only difference');
+    const { worktreeFingerprint } = await import('../src/worktree-fingerprint.mjs');
+    assert.ok(worktreeFingerprint(fixture.apiCheckout, { fresh: true, exhaustive: true })
+      .exhaustiveChanges.includes('README.md'), 'the raw-byte proof detects the line-ending edit');
     await assert.rejects(() => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
       action: 'detach', dropLocal: true
     }), { code: 'WORKSPACE_CAPABILITY_DROP_DIRTY' });
@@ -1669,6 +1670,8 @@ test('workspace capability drop isolates Git evidence and retains non-ref local 
     const before = await readFile(manifestFile, 'utf8');
     const externalWorktree = path.join(root, 'clean-external-worktree');
     await mkdir(externalWorktree);
+    await writeFile(path.join(externalWorktree, '.gitattributes'),
+      await readFile(path.join(fixture.apiCheckout, '.gitattributes')));
     await writeFile(path.join(externalWorktree, 'README.md'),
       await readFile(path.join(fixture.apiCheckout, 'README.md'), 'utf8'));
     run('git', ['config', 'core.worktree', externalWorktree], { cwd: fixture.apiCheckout });

@@ -86,6 +86,21 @@ test('fresh and reused compose exports deliver local text and exact image paths 
   }
 });
 
+test('fresh exports without local attachments keep portable durable bytes, not reply personalization', async t => {
+  const { root, phaseId, authorAgent } = await publishedSpecificationStory(t);
+  const previous = process.env.SINGULARITY_FLOW_REPLY_NAME;
+  process.env.SINGULARITY_FLOW_REPLY_NAME = 'Export Reader';
+  t.after(() => {
+    if (previous === undefined) delete process.env.SINGULARITY_FLOW_REPLY_NAME;
+    else process.env.SINGULARITY_FLOW_REPLY_NAME = previous;
+  });
+  const out = path.join(root, 'metadata-only-prompt.md');
+  const delivered = await compose(root, { 'work-id': 'REVIEW-1', phase: phaseId,
+    agent: authorAgent, 'render-only': true, 'return-only': true, out });
+  assert.match(delivered, /Preferred name \(literal data\): "Export"/);
+  assert.doesNotMatch(await readFile(out, 'utf8'), /# Reply personalization/);
+});
+
 test('local-evidence exports refuse working-tree files and unsafe aliases without writing their content', async t => {
   const f = await fixture(t);
   const target = path.join(f.root, 'prompt.md');

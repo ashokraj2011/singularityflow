@@ -4,7 +4,7 @@ The opt-in managed engine installs its own exact Node runtime. It never replaces
 `node`/`npm`, changes application dependencies, or adds a private Node directory to the application PATH.
 The initial qualified target is Node 26.12.0. This rollout does not change the legacy Node 20+
 source/developer support contract or make a blanket compatibility claim for future Node releases.
-Node 26 is currently Current; making managed installation the production default is a separate rollout
+At introduction, Node 26 is Current; making managed installation the production default is a separate rollout
 decision after LTS qualification. Existing installer and staged-recovery commands retain their meaning.
 
 ## Install from a reviewed source checkout
@@ -36,7 +36,10 @@ were installed or updated, and does not print the legacy full-product activation
 
 The updated extension automatically uses the managed engine unless an explicit CLI setting selects
 another engine. An explicit Node setting remains an operator override. The extension itself stays
-inside VS Code's own extension host. Remote SSH, WSL and container extension hosts need their own
+inside VS Code's own extension host. Reload after installing the new VSIX to load its updated
+integration. Thereafter, an already managed client resolves one active pair at each invocation,
+including background prewarming, without reloading for an engine-only upgrade.
+Remote SSH, WSL and container extension hosts need their own
 matching managed installation; a laptop's executable path is not transferred to another host.
 
 ## Install a promoted distribution
@@ -66,6 +69,10 @@ verified VSIX is retained and its path reported for explicit UI installation.
 
 Default location: the user's `.singularity-flow/engine`, not a source checkout or Story clone.
 `SINGULARITY_FLOW_ENGINE_HOME` can select an absolute machine-local installation root.
+Use a private per-user directory. For a custom root, each terminal, VS Code extension host and hook
+launcher must receive the same environment setting; the default root needs no such override.
+Windows command paths must not contain `%`, `!`, `^`, `&`, `|`, `<`, `>` or control characters;
+spaces and parentheses are supported. A custom root never bypasses user-level legacy recovery.
 
 ```text
 engine/
@@ -86,6 +93,11 @@ silently selecting an unrelated global engine. Without any managed selection, le
 Applications keep their own toolchains. Only installer/build children get a temporary private-Node
 PATH; normal commands do not inject that PATH into application builds, tests or servers. Cache policy
 uses the Node API rather than exporting new Node environment settings into application children.
+Existing native failed-test-risk adapters still require their approved runner to match the
+authenticated host Node. A different application Node may therefore remain unsupported for that
+specialized risk path. Managed mode does not rewrite the runner, switch the application to Node 26,
+or waive the adapter's authority check. Ordinary configured application commands retain their own
+executable/environment selection; broadening that risk adapter is a separate compatibility change.
 
 ## Corporate delivery and security updates
 
@@ -98,7 +110,11 @@ must be reviewed against upstream authenticated release metadata and qualified o
 - Neither option changes the pinned digest or permits credential-bearing download URLs.
 - Never disable integrity checking to accommodate a mirror, proxy, unavailable cache or failed test.
 
-Runtime downloads use a ten-minute bounded deadline. Application/network execution deadlines remain
+Runtime downloads use a ten-minute request deadline. Offline npm extraction can be slow on Windows
+under filesystem/antivirus load: its default deadline is fifteen minutes, configurable through
+`SINGULARITY_FLOW_ENGINE_INSTALL_TIMEOUT_MS` from `300000` to `3600000` (5–60 minutes). The progress/error
+message identifies that installer stage and preserves the real failure and active selection.
+Application/network execution deadlines remain
 unchanged. Unsupported architecture, archive mismatch, timeout and extraction errors remain explicit;
 an installation failure does not imply a DNS problem.
 
@@ -127,6 +143,9 @@ when invoked from a managed engine, so they cannot remove a different global ins
 Optional cache preparation is not installation authority. Node 26.8+ foreground requests use the
 prepared cache read-only; missing entries compile normally without persistence. Disabled/unavailable
 caching never prevents command execution. New Node versions/releases use separate cache namespaces.
+Runtime preparation publishes a complete directory by same-filesystem rename; it does not leave a
+persistent preparation lease that could prevent a Node-free reinstall after a crash. Old preparation
+markers are preserved but do not govern the new atomic publication path.
 
 ## Qualification
 
@@ -137,3 +156,33 @@ plugin, distribution and installer suites exercise compatibility. Run
 download/install, CLI/About execution, read-only cache files, offline upgrade/rollback and global
 toolchain preservation. All native qualification uses isolated temporary installation roots, never
 real workspaces, approvals, global installations or the user's running editor.
+
+Native installation qualification targets macOS/arm64 and Windows/x64. The other pinned download
+targets are not thereby claimed as natively qualified. Compatibility suites retain their existing
+opposite-platform skips; the POSIX shell-install harness runs on Mac, while Windows entries are
+executed natively. This feature qualification does not change the zero-skip 1.0 release policy or
+constitute full release certification. Source-install packaging can be exercised with `--skip-tests`
+only as an explicit fixture/build choice, alongside separately executed safety suites.
+
+### Initial qualification record
+
+Native run `39516460623`, engine code `bdf2050a`, passed nine macOS/arm64 checks and ten
+Windows/x64 checks. It exercised the actual pinned download, Node-free bootstrap/reuse, preserved
+stale preparation markers, real CLI/About, unchanged foreground cache files, hooks without global
+Node, authenticated distribution installation, offline upgrade/rollback and toolchain isolation.
+The additional Windows check executed the managed CMD entry through quoted release/key paths.
+Its compatibility jobs also passed on Node 22 and 26.12.0, as did product checks, UI typechecking
+and UI builds. Existing platform-only test skips remain disclosed above.
+
+A separate full source-install fixture built the CLI and VSIX on this Mac under private Node 26.12.0;
+it did not install either integration into the running editor. No models, real Stories or approvals
+were used. Earlier run `39516003950` hit the original five-minute offline-extraction deadline on a
+slower Windows worker; the installer-only configurable deadline and stage-specific error follow-up
+addresses that limit without changing application/workflow deadlines or relaxing integrity checks.
+That follow-up, code `d67f9ebb`, passed all four Mac/Windows × Node 22/26.12.0 jobs in run
+`39518257978`: managed-runtime and distribution-entry regressions, UI/prewarming tests, product
+checks, UI typechecking and UI builds. This separately verifies the deadline bounds/forwarding and
+error preservation; the full native installation record above identifies its exact earlier code.
+
+Native post-install smoke calls were approximately 110 ms on Mac and 116 ms on Windows. Those are
+single calls after preparation, not OS-cold benchmarks, comparative gains or latency guarantees.

@@ -13,7 +13,7 @@ async function main() {
   const allowed = new Set(['--skip-tests', '--cli-only', '--rollback', '--recover', '--help']);
   if (args.some(arg => !allowed.has(arg))) throw new Error('Supported managed install options: --skip-tests, --cli-only, --rollback, --recover, --help. Legacy staged recovery must use its original installer.');
   if (args.includes('--help')) {
-    console.log('Managed SFlow install: install-managed.sh / install-managed.ps1 [--skip-tests] [--cli-only] [--rollback]\nNo global Node/npm or administrator access required. Source remains in this workspace.');
+    console.log('Install/update CLI, SFlow VS Code extension and Copilot skills for this user: install-managed.sh / install-managed.ps1 [--skip-tests] [--cli-only] [--rollback | --recover]\nVS Code and Copilot CLI are prerequisites. No global Node/npm or administrator access required. Source remains in this workspace.');
     return;
   }
   const root = resolver.engineHome();

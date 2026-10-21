@@ -71,7 +71,9 @@ First setup needs the organisation-provisioned trust key or one `--artifact-key 
 argument. Successful setup stores that verified key in per-user trust for later no-argument updates.
 The same command updates CLI, VS Code and Copilot and configures PATH without administrator access.
 It discovers the usual per-user VS Code installation even when `code` is not on PATH. Open a new
-terminal and reload the editor/chat once; setup does not forcibly restart them.
+terminal and restart the editor/chat once to refresh loaded integrations and environment; setup does
+not forcibly close applications. Windows setup sends a bounded desktop environment-change notice
+after updating only the user's registry values; it does not change system PATH.
 
 The full product receipt at `engine/product-install.json` records each verified surface. If a manager
 fails or the process dies, the next setup finishes the exact retained candidate before a newer one.

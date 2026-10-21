@@ -28,8 +28,8 @@ An organisation can provision the trusted key there before first installation, o
 The key must not be taken from the untrusted download itself. An explicit key argument remains
 the reviewed override for a separately authenticated builder-key rotation.
 
-Only **engine/bin** is added to the user's PATH, never private Node/npm. Open a new terminal and
-reload VS Code/Copilot after setup so existing processes load the new integration. No forced editor
+Only **engine/bin** is added to the user's PATH, never private Node/npm. Restart VS Code/Copilot and
+open a new terminal after setup so existing processes load the new integration/environment. No forced editor
 restart is performed. Corporate application-control or PowerShell policy may still require IT
 approval. The CMD launcher uses a process-only execution policy for this delivered script; it does
 not change persistent policy, override Group Policy or request elevation.

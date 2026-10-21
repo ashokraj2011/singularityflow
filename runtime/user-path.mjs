@@ -43,6 +43,13 @@ try {
   if ([string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) -cne $updated) { throw 'User PATH update could not be verified.' }
   if ([string]$key.GetValue('SINGULARITY_FLOW_ENGINE_HOME') -cne $payload.root) { throw 'User engine selection could not be verified.' }
 } finally { $key.Dispose() }
+# Notify the user's desktop so newly launched terminals can see the persisted environment.
+# This is bounded and best-effort; existing applications still need a restart, not forced closure.
+try {
+  Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class SFlowEnvironmentNotice { [DllImport("user32.dll", CharSet=CharSet.Unicode, SetLastError=true)] public static extern IntPtr SendMessageTimeout(IntPtr h, uint m, UIntPtr w, string l, uint f, uint t, out UIntPtr r); }'
+  $notice = [UIntPtr]::Zero
+  [void][SFlowEnvironmentNotice]::SendMessageTimeout([IntPtr]0xffff, 0x001a, [UIntPtr]::Zero, 'Environment', 2, 1000, [ref]$notice)
+} catch { [Console]::Error.WriteLine('User PATH was saved. Desktop notification was unavailable; restart the IDE/terminal to refresh its environment.') }
 `;
   // The system-tool helper accepts basenames only; join the fixed PowerShell subpath explicitly.
   const powershell = path.join(path.dirname(resolveWindowsSystemTool(environment, 'cmd.exe')), 'WindowsPowerShell', 'v1.0', 'powershell.exe');

@@ -169,7 +169,7 @@ export async function installManagedProduct({ tarball, sha256, vsix, root = reso
     await atomic(receiptFile, state);
     await complete(state);
     log('Singularity Flow user installation — COMPLETE AND VERIFIED');
-    log('CLI, VS Code extension, Copilot plugin/skills and user PATH are aligned. Open a new terminal and reload VS Code/Copilot once to load updated integrations.');
+    log('CLI, VS Code extension, Copilot plugin/skills and user PATH are aligned. Restart VS Code/Copilot and open a new terminal once to load updated integrations and environment; setup does not force-close applications.');
     return { ...state, root, restartRequired: true, adminRequired: false };
   } catch (error) {
     if (state && state.status !== 'complete') {

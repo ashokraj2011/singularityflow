@@ -57,7 +57,7 @@ function assertLegacyInstallerAllowed(packageRoot) {
   const release = path.dirname(path.dirname(packageRoot));
   if (path.basename(packageRoot) === 'singularity-flow' && path.basename(path.dirname(packageRoot)) === 'node_modules'
       && /^[a-f0-9]{64}$/.test(path.basename(release)) && path.basename(path.dirname(release)) === 'releases') {
-    throw new Error('This is an SFlow-managed engine. Use install-managed.sh / install-managed.ps1 (source), or the promoted installer with --managed-runtime (distribution). Use the managed source installer --rollback or --recover for recovery. Legacy global npm replacement/removal was not attempted.');
+    throw new Error('This is an SFlow-managed engine. Install/update the full product with bash setup.sh (Mac) or setup.cmd (Windows) from a trusted distribution; source users can use install-managed.sh / install-managed.ps1. Use the managed source installer --rollback or --recover for engine recovery. Legacy global npm replacement/removal was not attempted.');
   }
 }
 

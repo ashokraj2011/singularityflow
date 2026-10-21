@@ -42,7 +42,14 @@ import { withSubjectLock } from '../src/subject-lock.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 const autoTestMachineState = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-machine-'));
+const autoTestGitConfig = path.join(autoTestMachineState, 'gitconfig');
+// Recovery may publish through an isolated Git repository. Give that process a hermetic fallback
+// actor too, without reading or changing a developer/CI account's real global Git configuration.
+// Keep native Windows CRLF checkout behavior in scope rather than hiding it with autocrlf=false.
+await writeFile(autoTestGitConfig, '[user]\n\tname = Auto Tester\n\temail = auto@example.com\n'
+  + `[core]\n\tautocrlf = ${process.platform === 'win32' ? 'true' : 'false'}\n`, { mode: 0o600 });
 const autoTestEnvironment = {
+  GIT_CONFIG_GLOBAL: autoTestGitConfig,
   SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(autoTestMachineState, 'workspaces.json'),
   SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(autoTestMachineState, 'active-workspace.json'),
   SINGULARITY_FLOW_LEAD_REGISTRY: path.join(autoTestMachineState, 'lead-registry.json'),

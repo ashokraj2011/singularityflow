@@ -14,6 +14,8 @@ after Rollup assigns modules; it retains identifiers and does not re-bundle or d
 The old monolithic layout remains an explicit control. The root error boundary reads attached
 result metadata directly from the command-result contract, not through the output module and
 its workflow planner. The status budget and a dependency-exclusion regression guard that boundary.
+See [CLI status bundle hardening](cli-status-bundle-hardening.md) for the subsequent native
+macOS/Windows qualification and unchanged closure limits.
 
 Bundle format 2 retains live build-stamp validation and source fallback. One directory roster
 checks the generated regular files, rather than one stat per chunk. Missing files, unsupported

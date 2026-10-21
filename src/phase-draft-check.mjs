@@ -1,4 +1,10 @@
 import { isConvergencePhase } from './phase-roles.mjs';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { PACKAGE_ROOT } from './package-root.mjs';
+
+const CORNER_CASE_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verification/corner-case-obligations.mjs')).href;
+const REMEDIATION_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verification/governance-remediation.mjs')).href;
 import { hasPublishedPhaseGeneration, phaseInspectionGeneration, requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
 import { assertConvergencePublicationReady } from './convergence-context.mjs';
 import {
@@ -304,6 +310,10 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     ? await (await import('./verification/witness-report-findings.mjs')).witnessReportAdvisories(root, workflow, phase, artifact) : [];
 
   const route = draftCorrectionRoute(codeEvidenceRepair, convergenceReview);
+  const { cornerCases, findings: cornerCaseFindings } = editableCode && phaseRequiresCodeDelivery(phase)
+    ? await (await import(CORNER_CASE_MODULE)).inspectCornerCaseObligations(root, config, workflow, phase)
+    : { cornerCases: { status: 'not-applicable', blocking: false, advisories: [] }, findings: [] };
+  if (inspectOwnedDraft() && cornerCases.blocking) findings.push(...cornerCaseFindings);
   const clarificationRoute = prospective && findings.some(finding => finding.category === 'clarification') ? {
     class: 'human-input', command: `singularity-flow clarification status ${phase.id} --json`, skill: null,
     guidance: 'Resolve only the cited material questions from the pinned source and human answers. Record the actual answer; do not invent a question, repeat answered clarifications, or treat a missing scenario table as a new interview.'
@@ -338,6 +348,15 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     }) : null,
     next: nextRoute?.command ?? null
   });
+  const normalizedFindings = Object.freeze(findings.map(finding => Object.freeze({
+    ...finding, message: finding.message ?? artifactFindingMessage(finding)
+  })));
+  const combinedAdvisories = Object.freeze([...advisories, ...coverageAdvisories, ...driftAdvisories,
+    ...specificationAdvisories, ...witnessAdvisories, ...conformanceAdvisories]);
+  const { buildGovernanceRemediationPlan } = await import(REMEDIATION_MODULE);
+  const remediationPlan = buildGovernanceRemediationPlan({
+    findings: normalizedFindings, advisories: combinedAdvisories, cornerCases, documentation
+  });
   return Object.freeze({
     schemaVersion: 1, // schema-transient: read-only process projection, never persisted
     resultType: 'sflow-phase-draft-check',
@@ -357,13 +376,12 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     draftFingerprint: traceabilityDraftFingerprint(reviewDraft.fingerprint, traceabilityRepair),
     artifact,
     artifacts: reviewDraft.artifacts,
-    findings: Object.freeze(findings.map((finding) => Object.freeze({
-      ...finding,
-      message: finding.message ?? artifactFindingMessage(finding)
-    }))),
-    advisories: Object.freeze([...advisories, ...coverageAdvisories, ...driftAdvisories, ...specificationAdvisories, ...witnessAdvisories, ...conformanceAdvisories]),
+    findings: normalizedFindings,
+    advisories: combinedAdvisories,
     documentation,
     coverage,
+    cornerCaseObligations: cornerCases,
+    remediationPlan,
     traceabilityRepair,
     correction: Object.freeze({
       class: repairClass,

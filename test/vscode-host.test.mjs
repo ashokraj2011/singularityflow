@@ -123,28 +123,74 @@ function newestBundleInput(root) {
   );
 }
 
-function bundleState() {
-  const extensionRoot = path.join(packageRoot, 'apps', 'vscode');
-  const sources = newestBundleInput(packageRoot);
-  const built = existsSync(bundle) ? statSync(bundle).mtimeMs : 0;
+function bundleState({ root = packageRoot, resolve = (name, options) => hostRequire.resolve(name, options),
+  runBuild = spawnSync } = {}) {
+  const extensionRoot = path.join(root, 'apps', 'vscode');
+  const target = path.join(extensionRoot, 'dist', 'extension.cjs');
+  const sources = newestBundleInput(root);
+  const built = existsSync(target) ? statSync(target).mtimeMs : 0;
   if (built > sources) return { reason: null };
 
-  const esbuild = path.join(extensionRoot, 'node_modules', '.bin', 'esbuild');
-  if (!existsSync(esbuild)) {
+  let esbuildAvailable = false;
+  try {
+    // npm workspaces normally hoist esbuild to the repository root. A local .bin shim is neither
+    // necessary nor sufficient: the build imports the package through Node's module resolution.
+    resolve('esbuild', { paths: [extensionRoot] });
+    esbuildAvailable = true;
+  } catch (error) {
+    if (error?.code !== 'MODULE_NOT_FOUND') throw error;
+  }
+  if (!esbuildAvailable) {
     return {
       reason: built
         ? 'apps/vscode/dist/extension.cjs is older than its sources and esbuild is not installed. Run: npm install && npm run vscode:build'
         : 'apps/vscode/dist/extension.cjs is not built and esbuild is not installed. Run: npm install && npm run vscode:build'
     };
   }
-  const build = spawnSync(process.execPath, [path.join(extensionRoot, 'esbuild.mjs')], {
+  const build = runBuild(process.execPath, [path.join(extensionRoot, 'esbuild.mjs')], {
     cwd: extensionRoot, encoding: 'utf8'
   });
-  if (build.status !== 0) return { reason: `The extension bundle failed to build: ${build.stderr.trim()}` };
+  if (build.error || build.status !== 0) {
+    const detail = build.error?.message || String(build.stderr || build.stdout || `exit ${build.status ?? 'unknown'}`).trim();
+    return { reason: `The extension bundle failed to build: ${detail}` };
+  }
   return { reason: null };
 }
 
 const BUNDLE = bundleState();
+
+test('the host rebuild resolves hoisted workspace dependencies and preserves real resolution errors', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-hoisted-host-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const extensionRoot = path.join(root, 'apps', 'vscode');
+  for (const input of [path.join(extensionRoot, 'src', 'extension.ts'), path.join(root, 'src', 'state.mjs'),
+    path.join(extensionRoot, 'esbuild.mjs'), path.join(root, 'scripts', 'reproducible-build.mjs')]) {
+    await mkdir(path.dirname(input), { recursive: true });
+    await writeFile(input, 'fixture');
+  }
+  let builds = 0;
+  const runBuild = (executable, args, options) => {
+    builds += 1;
+    assert.equal(executable, process.execPath);
+    assert.deepEqual(args, [path.join(extensionRoot, 'esbuild.mjs')]);
+    assert.equal(options.cwd, extensionRoot);
+    return { status: 0, stderr: '' };
+  };
+  assert.deepEqual(bundleState({ root, runBuild, resolve(name, options) {
+    assert.equal(name, 'esbuild');
+    assert.deepEqual(options.paths, [extensionRoot]);
+    return path.join(root, 'node_modules', 'esbuild', 'lib', 'main.js');
+  } }), { reason: null });
+  assert.equal(builds, 1);
+  const missing = Object.assign(new Error('package not installed'), { code: 'MODULE_NOT_FOUND' });
+  assert.match(bundleState({ root, runBuild, resolve() { throw missing; } }).reason, /esbuild is not installed/u);
+  assert.equal(builds, 1, 'an unavailable build dependency was executed');
+  const denied = Object.assign(new Error('module lookup denied'), { code: 'EACCES' });
+  assert.throws(() => bundleState({ root, runBuild, resolve() { throw denied; } }), error => error === denied);
+  assert.match(bundleState({ root, resolve() { return 'hoisted-esbuild'; }, runBuild() {
+    return { status: null, stderr: null, error: new Error('build process execution refused') };
+  } }).reason, /build process execution refused/u);
+});
 
 test('the host bundle freshness check covers engine sources and build inputs', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-bundle-freshness-'));
@@ -4284,7 +4330,8 @@ test('the packaged POC release candidate journey survives publication, review, C
   { what: 'the packaged Approvals surface to open' });
   const approvalText = approvals.webview.html.replace(/<style[\s\S]*?<\/style>/g, '')
     .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-  assert.match(approvalText, /POC intent and environment/);
+  assert.match(approvalText, /POC intent and environment/,
+    `Approvals snapshot diagnostics:\n${reviewHost.registered.output.join('\n').slice(-16_384)}\nRendered: ${approvalText}`);
   assert.match(approvalText, /1 waiting for you/);
   assert.match(approvalText, /signing as qa\.reviewer@example\.com/);
 
@@ -4708,6 +4755,39 @@ test('saving governed configuration asks the engine, and a broken file is report
   registered.saveListeners[0](readme);
   await settle();
   assert.equal(registered.diagnostics.get(path.join(root, 'README.md')), undefined);
+});
+
+test('Approvals preserves snapshot errors instead of claiming no Story or offering stale actions', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const { ApprovalsPanel } = hostRequire(path.join(packageRoot, 'apps/vscode/dist/lazy-panels-runtime.cjs'));
+  const decisions = [];
+  let changed;
+  const store = {
+    current: { snapshot: { workflow: null, initiative: null },
+      error: new Error('Native snapshot refusal: <exact binding>'), stale: false, loading: false },
+    acquireSlices: async () => ({ dispose() {} }),
+    onDidChange: listener => { changed = listener; return { dispose() {} }; }
+  };
+  const shown = await ApprovalsPanel.show(context(), store, message => decisions.push(message));
+  const panel = registered.panels.find(entry => entry.id === 'singularityFlow.approvals');
+  assert.match(panel.webview.html, /Approvals could not be read/);
+  assert.match(panel.webview.html, /Native snapshot refusal: &lt;exact binding&gt;/);
+  assert.doesNotMatch(panel.webview.html, /No Story or Initiative|data-approve=|<exact binding>/);
+  await panel.post({ type: 'approve', id: 'story-phase:intake' });
+  assert.equal(decisions.length, 0);
+  store.current.error = null;
+  store.current.stale = true;
+  changed(store.current, { kind: 'cache', revisionChanged: true, changedSlices: [] });
+  assert.match(panel.webview.html, /Confirming the current repository/);
+  assert.doesNotMatch(panel.webview.html, /data-approve=/);
+  store.current.stale = false;
+  changed(store.current, { kind: 'snapshot', revisionChanged: false, changedSlices: [] });
+  assert.doesNotMatch(panel.webview.html, /Confirming the current repository|Approvals could not be read/);
+  assert.match(panel.webview.html, /No Story or Initiative/,
+    'only the confirmed empty snapshot may claim no Story, even on a not-modified receipt');
+  shown.dispose();
 });
 
 test('the approvals panel opens under the same CSP and leads with what is yours', async (t) => {

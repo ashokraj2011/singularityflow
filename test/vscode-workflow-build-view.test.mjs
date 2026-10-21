@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 import { repositoryOwnedWorkflows, requirementsTemplatePlansCode } from './helpers/repository-owned-workflows.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,9 +10,9 @@ import { spawnSync } from 'node:child_process';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
-const studioPage = await import(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts'));
+const studioPage = await import(pathToFileURL(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts')).href);
 const { WORKFLOW_STUDIO_SCRIPT, STUDIO_FOCUS_VIEWS } = studioPage;
-const tool = await import(path.join(packageRoot, 'apps/vscode/src/views/workflow-builder-tool.ts'));
+const tool = await import(pathToFileURL(path.join(packageRoot, 'apps/vscode/src/views/workflow-builder-tool.ts')).href);
 
 const TEAM = {
   '.github/agents/release-captain.agent.md': ['---', 'name: release-captain', 'description: Runs a payments release.', '---', '', '1. Intake the change.',

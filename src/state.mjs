@@ -272,6 +272,7 @@ import {
   repairPreparedArtifactMetadata,
   validatePhaseAuthoredReviewContent as validatePhaseAuthoredReviewContentPreflight
 } from './publication-preflight.mjs';
+import { artifactTextCheckoutMatches } from './artifact-review-read.mjs';
 import {
   assertConvergencePublicationReady, loadVerifiedConvergenceProjection
 } from './convergence-context.mjs';
@@ -791,8 +792,15 @@ async function updateArtifactMetadata(root, config, workflow, phase) {
   if (!(await exists(file))) return;
   const text = await readFile(file, 'utf8');
   const block = artifactMetadataBlock(storyArtifactMetadata(workflow, phase));
-  const pattern = /^<!-- singularity-flow:metadata\n[\s\S]*?\n-->/;
-  await writeText(file, pattern.test(text) ? text.replace(pattern, block) : `${block}\n\n${text}`);
+  const pattern = /^<!-- singularity-flow:metadata\r?\n[\s\S]*?\r?\n-->/;
+  let updated = pattern.test(text) ? text.replace(pattern, block) : `${block}\n\n${text}`;
+  const lf = updated.replaceAll('\r\n', '\n');
+  // Freeze the same governed text that Git will retain, before its registration/review hashes
+  // are captured. Otherwise a mixed editor draft can publish, yet its submission packet names
+  // bytes that no commit ever contained. No user filter or alternate encoding is executed here.
+  if (updated !== lf && !/[\r\0\uFFFD]/u.test(lf) && !lf.startsWith('\uFEFF')
+      && artifactGitNormalizesText(root, requiredRepoPath(config, workflow, phase))) updated = lf;
+  await writeText(file, updated);
   // Managed metadata is part of the durable artifact bytes. Any lifecycle transition that rewrites
   // it must keep an existing registration in lockstep, otherwise a later submit compares the new
   // engine-owned bytes with the pre-transition digest and incorrectly reports user tampering. Do
@@ -2385,10 +2393,41 @@ async function readRepositoryArtifactText(root, relativePath) {
   return readFile(secured.absolute, 'utf8');
 }
 
-const ARTIFACT_METADATA_PATTERN = /^<!-- singularity-flow:metadata\n[\s\S]*?\n-->/;
+const ARTIFACT_METADATA_PATTERN = /^<!-- singularity-flow:metadata\r?\n[\s\S]*?\r?\n-->/;
 
 function exactAuthoredArtifactSha256(text) {
   return `sha256:${createHash('sha256').update(authoredArtifactText(text)).digest('hex')}`;
+}
+
+/** Git may normalize a mixed editor draft; prove that policy without executing clean filters. */
+function artifactGitTextCheckoutMatches(root, relativePath, published, current) {
+  if (artifactTextCheckoutMatches(published, current)) return true;
+  const canonical = value => value.replaceAll('\r\n', '\n');
+  const left = canonical(published), right = canonical(current);
+  if (left !== right || left.includes('\r') || left.includes('\0') || left.includes('\uFFFD') || left.startsWith('\uFEFF')) return false;
+  return artifactGitNormalizesText(root, relativePath);
+}
+
+/** Prove only Git's built-in text conversion; never invoke repository clean filters. */
+function artifactGitNormalizesText(root, relativePath) {
+  const output = gitReadOutput(run('git', ['check-attr', '-z', 'text', 'eol', 'filter', 'working-tree-encoding', '--', relativePath], {
+    cwd: root, allowFailure: true, timeoutMs: 5_000, maxBuffer: 128 * 1024
+  }), 'Artifact checkout attributes');
+  const fields = output.split('\0');
+  if (fields.at(-1) !== '' || fields.length !== 13) return false;
+  const attributes = {};
+  for (let index = 0; index < fields.length - 1; index += 3) {
+    if (fields[index] !== relativePath || Object.hasOwn(attributes, fields[index + 1])) return false;
+    attributes[fields[index + 1]] = fields[index + 2];
+  }
+  if (!['unspecified', 'unset'].includes(attributes.filter)
+      || attributes['working-tree-encoding'] !== 'unspecified' || attributes.text === 'unset') return false;
+  if (['set', 'auto'].includes(attributes.text) || ['lf', 'crlf'].includes(attributes.eol)) return true;
+  if (attributes.text !== 'unspecified') return false;
+  const autocrlf = gitReadOutput(run('git', ['config', '--get', 'core.autocrlf'], {
+    cwd: root, allowFailure: true, timeoutMs: 5_000, maxBuffer: 4096
+  }), 'Artifact checkout conversion', { absentStatus: 1 });
+  return ['true', 'input'].includes(String(autocrlf ?? '').trim().toLowerCase());
 }
 
 function artifactMetadataCandidate(workflow, phase, overrides = {}) {
@@ -2432,11 +2471,12 @@ export async function inspectRequiredArtifactRegistration(root, config, workflow
     path: relativePath, registered, current, generationCommit: exactCommit,
     currentAuthoredSha256, publishedAuthoredSha256
   };
-  if (currentAuthoredSha256 !== publishedAuthoredSha256) {
+  if (currentAuthoredSha256 !== publishedAuthoredSha256
+      && !artifactGitTextCheckoutMatches(root, relativePath, authoredArtifactText(publishedText), authoredArtifactText(currentText))) {
     return { ...base, status: 'unsafe', reason: 'authored-content-changed' };
   }
 
-  const metadata = currentText.match(ARTIFACT_METADATA_PATTERN)?.[0] ?? null;
+  const metadata = currentText.match(ARTIFACT_METADATA_PATTERN)?.[0]?.replaceAll('\r\n', '\n') ?? null;
   const canonicalMetadata = new Set([
     artifactMetadataCandidate(workflow, phase),
     artifactMetadataCandidate(workflow, phase, { generationCommit: exactCommit }),
@@ -3192,6 +3232,8 @@ export async function assertPassedCodeDeliveryInput(root, config, workflow, phas
     minimumPassed: workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1,
     requireAffectedModuleCoverage: workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false,
     minimumModelAssurance: workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'unavailable',
+    cornerCasePolicy: workflow.resolution?.codeDelivery?.cornerCaseObligations ?? 'off',
+    assertionAdequacyPolicy: workflow.resolution?.codeDelivery?.assertionAdequacy ?? 'off',
     sourceBindingPolicy: workflow.resolution?.plannedClaims?.mode === 'required'
       && source.sourceBoundary !== 'test-automation'
       ? workflow.resolution?.codeDelivery?.traceability?.sourceBindings ?? 'off' : 'off',
@@ -3621,6 +3663,7 @@ export async function publishGeneration(root, config, workflow, {
       },
       ...(deliveryPreflight.fulfillment?.length ? { fulfillment: { obligations: structuredClone(deliveryPreflight.fulfillment) } } : {}),
       ...(deliveryPreflight.implementationBindings ? { implementationBindings: structuredClone(deliveryPreflight.implementationBindings) } : {}),
+      ...(deliveryPreflight.cornerCaseMatrix ? { cornerCaseMatrix: structuredClone(deliveryPreflight.cornerCaseMatrix) } : {}),
       ...(deliveryPreflight.excludedChanges?.length ? { excludedChanges: [...deliveryPreflight.excludedChanges] } : {}),
       testExecutions: [],
       ...(deliveryPreflight.testRecovery ? { testRecovery: structuredClone(deliveryPreflight.testRecovery) } : {}),
@@ -3688,42 +3731,6 @@ export async function publishGeneration(root, config, workflow, {
     ].sort((left, right) => left.generation - right.generation);
   }
 
-  /**
-   * Canonical provenance for this generation's artifacts `[SPK:REQ-043]`.
-   *
-   * Written here because this is the one place a generation becomes governed, and written by the
-   * kernel rather than by whoever authored the artifact — which is the entire point. The records
-   * land under `context/sidecars/`, outside the `artifact-only` scope checked a few lines above, so
-   * a model that tried to write one would already have been refused `[SPK:CON-023]`.
-   */
-  const sidecarDir = workDirRelative(config, workflow.workItem.id);
-  phase.sidecars = [];
-  for (const artifact of phase.artifacts ?? []) {
-    if (!artifact.sha256) continue;
-    const relative = sidecarRelativePath(sidecarDir, phase.id, phase.generation, artifact.path);
-    const record = buildArtifactSidecar({
-      subject: { kind: 'story', id: workflow.workItem.id },
-      phase: phase.id,
-      generation: phase.generation,
-      artifact: { path: artifact.path, sha256: artifact.sha256, bytes: artifact.size ?? null, role: artifact.kind ?? null },
-      configuration: { sha256: workflow.resolution?.configSha256 ?? null, revision: workflow.resolution?.configurationSource?.commit ?? null },
-      template: {
-        path: workflow.resolution?.templates?.[phase.id]?.path ?? null,
-        sha256: workflow.resolution?.templates?.[phase.id]?.sha256 ?? null
-      },
-      inputs: (phase.inputs ?? []).map((entry) => ({ path: entry.path, sha256: entry.sha256 ?? null, kind: entry.kind ?? null })),
-      producer: {
-        kind: effectiveAuthorship.producer,
-        actor: session.actor?.email ?? session.actor?.name ?? null,
-        agent: phase.generatedAgent
-      },
-      // The commit is not known until the publication transaction closes, so the binding records
-      // the branch and time now and is completed by the transaction rather than guessed at here.
-      publication: { commit: null, branch: workflow.workItem.branch ?? null, publishedAt }
-    });
-    await writeText(path.join(root, relative), serializeArtifactSidecar(record));
-    phase.sidecars.push({ path: relative, artifact: artifact.path, integritySha256: record.integritySha256 });
-  }
   if (clarification.record) {
     phase.clarifications ??= [];
     phase.clarifications = [
@@ -3765,6 +3772,39 @@ export async function publishGeneration(root, config, workflow, {
   phase.telemetry = [...(phase.telemetry ?? []).filter((item) => item.generation !== phase.generation), phaseTelemetrySummary(telemetry)];
   await updateArtifactMetadata(root, config, workflow, phase);
   await scanArtifacts(root, config, workflow, phase.id);
+  /**
+   * Canonical provenance for this generation's final artifacts `[SPK:REQ-043]`.
+   *
+   * Capture only after lifecycle metadata and checkout representation have settled. The kernel
+   * owns `context/sidecars/`, outside the artifact-only scope already checked above [SPK:CON-023].
+   */
+  const sidecarDir = workDirRelative(config, workflow.workItem.id);
+  phase.sidecars = [];
+  for (const artifact of phase.artifacts ?? []) {
+    if (!artifact.sha256) continue;
+    const relative = sidecarRelativePath(sidecarDir, phase.id, phase.generation, artifact.path);
+    const record = buildArtifactSidecar({
+      subject: { kind: 'story', id: workflow.workItem.id },
+      phase: phase.id,
+      generation: phase.generation,
+      artifact: { path: artifact.path, sha256: artifact.sha256, bytes: artifact.size ?? null, role: artifact.kind ?? null },
+      configuration: { sha256: workflow.resolution?.configSha256 ?? null, revision: workflow.resolution?.configurationSource?.commit ?? null },
+      template: {
+        path: workflow.resolution?.templates?.[phase.id]?.path ?? null,
+        sha256: workflow.resolution?.templates?.[phase.id]?.sha256 ?? null
+      },
+      inputs: (phase.inputs ?? []).map((entry) => ({ path: entry.path, sha256: entry.sha256 ?? null, kind: entry.kind ?? null })),
+      producer: {
+        kind: effectiveAuthorship.producer,
+        actor: session.actor?.email ?? session.actor?.name ?? null,
+        agent: phase.generatedAgent
+      },
+      // The commit is not known until the publication transaction closes.
+      publication: { commit: null, branch: workflow.workItem.branch ?? null, publishedAt }
+    });
+    await writeText(path.join(root, relative), serializeArtifactSidecar(record));
+    phase.sidecars.push({ path: relative, artifact: artifact.path, integritySha256: record.integritySha256 });
+  }
   // Generate the downstream projection from the exact generation bytes that this publication
   // commits. Submission later binds these hashes into its immutable review packet; subsequent
   // approval metadata must not redefine what the reviewer and downstream consumer received.
@@ -5998,6 +6038,8 @@ export async function approvePhase(root, config, workflow, {
         minimumPassed: workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1,
         requireAffectedModuleCoverage: workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false,
         minimumModelAssurance: workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'unavailable',
+        cornerCasePolicy: workflow.resolution?.codeDelivery?.cornerCaseObligations ?? 'off',
+        assertionAdequacyPolicy: workflow.resolution?.codeDelivery?.assertionAdequacy ?? 'off',
         sourceBindingPolicy: workflow.resolution?.plannedClaims?.mode === 'required'
           && phase.sourceBoundary !== 'test-automation'
           ? workflow.resolution?.codeDelivery?.traceability?.sourceBindings ?? 'off' : 'off',

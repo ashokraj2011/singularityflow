@@ -1392,7 +1392,7 @@ test('workspace capability drop isolates Git evidence and retains non-ref local 
     const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
     const before = await readFile(manifestFile, 'utf8');
     const hook = path.join(root, 'hide-all-fsmonitor.sh');
-    await writeFile(hook, "#!/bin/sh\nprintf 'sflow-token\\0'\n", { mode: 0o700 });
+    await writeFile(hook, "#!/bin/sh\nprintf 'called\\n' >> \"$0.calls\"\nprintf 'sflow-token\\0'\n", { mode: 0o700 });
     // Git executes fsmonitor through its shell, including Git for Windows' POSIX shell. A native
     // backslash path loses its separators there; quote a slash path, including spaces/apostrophes.
     const hookCommand = `'${hook.replaceAll('\\', '/').replaceAll("'", "'\\''")}'`;
@@ -1409,9 +1409,11 @@ test('workspace capability drop isolates Git evidence and retains non-ref local 
     const modified = original.replace(/^./, (character) => character === '#' ? '!' : '#');
     assert.equal(Buffer.byteLength(modified), Buffer.byteLength(original));
     await writeFile(readme, modified);
-    assert.equal(run('git', ['status', '--porcelain=v1'], {
+    const ambientStatus = run('git', ['status', '--porcelain=v1'], {
       cwd: fixture.apiCheckout
-    }).stdout, '', 'the configured executable incorrectly hides the tracked modification');
+    }).stdout;
+    assert.ok(ambientStatus === '' || /^ M README\.md\r?\n?$/u.test(ambientStatus), ambientStatus);
+    const callsBeforeProof = await readFile(`${hook}.calls`, 'utf8').catch(() => '');
 
     await assert.rejects(
       () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
@@ -1422,6 +1424,8 @@ test('workspace capability drop isolates Git evidence and retains non-ref local 
     assert.equal(await readFile(manifestFile, 'utf8'), before);
     assert.equal(await readFile(readme, 'utf8'), modified,
       'the tracked bytes hidden by the repository-local monitor remain untouched');
+    assert.equal(await readFile(`${hook}.calls`, 'utf8').catch(() => ''), callsBeforeProof,
+      'the deletion proof must not execute repository-local filesystem monitoring');
     assert.ok(await stat(path.join(fixture.apiCheckout, '.git')),
       'the checkout is retained after the destructive proof refuses it');
   });

@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto';
+import { runBoundedTaskPool } from './quality-command-runner.mjs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { PACKAGE_ROOT } from './package-root.mjs';
+
+const CORNER_CASE_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verification/corner-case-obligations.mjs')).href;
 
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
@@ -691,6 +696,7 @@ export async function discoverAcceptanceWitnesses(root, phase, {
           resultAdapter: testAdapterProfile(profile).resultAdapter,
           identity: witnessIdentity(declaration), logicalTestId: declaration.logicalTestId,
           declarationSha256: declaration.declarationSha256, supportSha256: declaration.supportSha256 ?? null,
+          ...(declaration.assertions ? { assertions: declaration.assertions } : {}),
           line: declaration.line, parameters: declaration.parameters ?? null, skipped: declaration.skipped === true,
           exact: declaration.gaps.length === 0, gaps: declaration.gaps.map((entry) => entry.code)
         });
@@ -1328,6 +1334,20 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     errors.push(`planned product source does not contain required clause comments: ${sourceBindings.missing
       .map(({ clauseId, expectedPaths, otherStoryTags }) => `@clause:${clauseId} in ${expectedPaths.join(' or ')}${otherStoryTagsNote(otherStoryTags)}`).join('; ')}`);
   }
+  const enforceCornerCases = workflow.resolution?.codeDelivery?.cornerCaseObligations === 'enforce'
+    || config.governance?.requireCornerCaseCoverage === true;
+  const enforceAssertionAdequacy = enforceCornerCases
+    || workflow.resolution?.codeDelivery?.assertionAdequacy === 'enforce'
+    || config.governance?.requireAssertionAdequacy === true;
+  let cornerCaseGate = null;
+  if (enforceCornerCases || enforceAssertionAdequacy) {
+    const { evaluateDeliveryCornerCaseGate, compactCornerCaseMatrix } = await import(CORNER_CASE_MODULE);
+    cornerCaseGate = await evaluateDeliveryCornerCaseGate(root, {
+      changeSet, sourcePaths, testPaths, enforceCornerCases, enforceAssertionAdequacy
+    });
+    errors.push(...cornerCaseGate.problems);
+    cornerCaseGate.compactMatrix = compactCornerCaseMatrix(cornerCaseGate.matrix);
+  }
   // The step's approvers may accept these exact problems for this exact candidate as a disputed
   // finding [recoverable-findings M2]; anything else, or any change, still refuses.
   const candidateSha256 = errors.length ? (await import('./phase-finding-dispute.mjs')).codeDeliveryCandidateSha256(applicationEntries) : null;
@@ -1357,6 +1377,8 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
             recoveryCommands: [`singularity-flow phase prepublish ${phase.id} --json`]
           } : {}),
           sourceBindingsMissing: sourceBindings.missing, explanationsMissing: bound?.explanationsMissing ?? [],
+          ...(cornerCaseGate?.findings?.length ? { cornerCaseFindings: cornerCaseGate.findings,
+            cornerCaseHarness: cornerCaseGate.harness } : {}),
           // The exact problems and candidate a dispute would bind to (appeal risk-prepare --finding).
           ...(!unknown ? { problems: [...errors], candidateSha256 } : {}),
           // Each planned evidence file this step owes but has not produced, so recovery can name
@@ -1440,7 +1462,8 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     sourceBindings,
     excludedChanges,
     fulfillment: fulfillment.obligations,
-    implementationBindings: bound ? { bindings: bound.bindings, bindingsSha256: bound.bindingsSha256 } : null
+    implementationBindings: bound ? { bindings: bound.bindings, bindingsSha256: bound.bindingsSha256 } : null,
+    ...(cornerCaseGate?.matrix ? { cornerCaseMatrix: cornerCaseGate.compactMatrix } : {})
   };
   // Shown to whoever reads the result; not serialized into the delivery receipt, whose record
   // family is versioned separately. The dispute itself is the retained, reviewed record.
@@ -1535,14 +1558,15 @@ export async function resolveDeliveryQualityCommands(root, phase, { executionMod
   // An approved configured test command owns the paths below its affected roots, so a directory
   // with two build systems (a tooling package.json beside pom.xml) is decided by that approval.
   const overrides = configuredTestModuleOverrides(configuredTests);
-  for (const candidate of deliveryPaths) {
-    const module = await resolveAffectedModule(root, candidate, { overrides }).catch((error) => {
+  const { results: resolvedModules } = await runBoundedTaskPool(deliveryPaths, candidate =>
+    resolveAffectedModule(root, candidate, { overrides }).catch((error) => {
       // Repository metadata and CI configuration need no module of their own [testCoverageExemptPath].
       if (testCoverageExemptPath(candidate) && ['TEST_MODULE_UNCOVERED', 'TEST_MODULE_AMBIGUOUS'].includes(error?.code)) return null;
       // A build with no supported runner owns its files: refuse rather than borrow another module's tests.
       if (error?.code === 'TEST_MODULE_UNCOVERED' && !error.details?.nativeManifest) return null;
       throw error;
-    });
+    }));
+  for (const module of resolvedModules) {
     if (module?.configured) continue;
     if (module) modules.set(`${module.root}:${module.system}`, module);
   }
@@ -1660,6 +1684,8 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   requireAffectedModuleCoverage = true,
   minimumModelAssurance = 'unavailable',
   sourceBindingPolicy = 'off',
+  cornerCasePolicy = 'off',
+  assertionAdequacyPolicy = 'off',
   evidenceCommit = null,
   pathContext = null,
   testRecovery = null,
@@ -1765,6 +1791,19 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
 
   // The bindings a reviewer approves are exactly the recorded ones, and every explanation is still
   // on its tag line in the committed generation [E2G-011].
+  if (receipt.cornerCaseMatrix) {
+    const { cornerCaseMatrixDigest } = await import(CORNER_CASE_MODULE);
+    if (cornerCaseMatrixDigest(receipt.cornerCaseMatrix) !== receipt.cornerCaseMatrix.matrixSha256) {
+      fail('corner-case obligation matrix does not match its digest');
+    } else if (cornerCasePolicy === 'enforce' && !['satisfied', 'not-applicable'].includes(receipt.cornerCaseMatrix.status)) {
+      fail('corner-case obligation matrix is incomplete for the committed generation');
+    }
+    if (assertionAdequacyPolicy === 'enforce' && receipt.cornerCaseMatrix.summary?.inadequateDeclarations !== 0) {
+      fail('assertion adequacy is incomplete for the committed generation');
+    }
+  } else if (cornerCasePolicy === 'enforce' || assertionAdequacyPolicy === 'enforce') {
+    fail('corner-case obligation matrix is absent from the code-delivery receipt');
+  }
   if (receipt.implementationBindings) {
     const { bindings, bindingsSha256 } = receipt.implementationBindings;
     if (!Array.isArray(bindings) || bindingsDigest(bindings) !== bindingsSha256) fail('implementation bindings do not match their digest');

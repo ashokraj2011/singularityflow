@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
@@ -9,7 +10,7 @@ import YAML from 'yaml';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
-const { CliError, invokeCli, softSequenceGate } = await import(path.join(packageRoot, 'apps/vscode/src/cli/runner.ts'));
+const { CliError, invokeCli, softSequenceGate } = await import(pathToFileURL(path.join(packageRoot, 'apps/vscode/src/cli/runner.ts')).href);
 
 const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Gate Tester', SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', agent: 'product-owner' }) };
 

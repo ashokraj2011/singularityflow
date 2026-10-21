@@ -3,10 +3,11 @@ import { spawn } from 'node:child_process';
 import { lstatSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolvePlatformProcess } from '../src/platform-process.mjs';
 import { signalProcessTree } from '../src/util.mjs';
 import { nodeTypeScriptFlags } from './typescript-runtime.mjs';
+import { isolatedTestEnvironment } from './test-machine-state.mjs';
 
 const moduleFile = fileURLToPath(import.meta.url);
 const root = path.resolve(path.dirname(moduleFile), '..');
@@ -43,7 +44,7 @@ export function pocReleaseStages({
   const artifactConsumer = artifactConsumerInputs({ artifactPackage, artifactVsix });
   const typescriptTestFlags = nodeTypeScriptFlags(rootDir, nodeVersion);
   const releaseReporterFlags = [
-    '--test-reporter', path.join(rootDir, 'scripts', 'release-test-reporter.mjs')
+    '--test-reporter', pathToFileURL(path.join(rootDir, 'scripts', 'release-test-reporter.mjs')).href
   ];
   return Object.freeze([
     Object.freeze({
@@ -188,7 +189,7 @@ export function runPocReleaseStage(stage, {
         ...launch.spawnOptions
       });
     } catch (error) {
-      resolve({ status: 1, signal: null, error, timedOut: false });
+      resolve({ status: 1, signal: null, error, timedOut: false, quiescent: true });
       return;
     }
 
@@ -199,6 +200,8 @@ export function runPocReleaseStage(stage, {
     let deadlineTimer = null;
     let forceTimer = null;
     let settlementTimer = null;
+    let childClosed = false;
+    let treeCleanupConfirmed = false;
     const cleanupAttempts = new Set();
 
     const cleanup = () => {
@@ -207,8 +210,14 @@ export function runPocReleaseStage(stage, {
       if (settlementTimer) clearTimeout(settlementTimer);
       child.removeListener?.('error', onError);
       child.removeListener?.('close', onClose);
+      if (!childClosed) {
+        const ignoreLateError = () => {};
+        child.on?.('error', ignoreLateError);
+        child.once?.('close', () => child.removeListener?.('error', ignoreLateError));
+        child.unref?.();
+      }
     };
-    const settle = (status, signal = null) => {
+    const settle = (status, signal = null, quiescent = childClosed && (!terminationReason || treeCleanupConfirmed)) => {
       if (settled) return;
       settled = true;
       cleanup();
@@ -216,7 +225,8 @@ export function runPocReleaseStage(stage, {
         status: timedOut ? 1 : (status ?? 1),
         signal,
         error: spawnError,
-        timedOut
+        timedOut,
+        quiescent
       });
     };
     const signalTree = (terminationSignal) => {
@@ -229,8 +239,13 @@ export function runPocReleaseStage(stage, {
           platform,
           spawnCommand: treeSpawnCommand,
           killProcess,
+          environment,
+          requireTree: true,
           timeoutMs: Math.max(1, Math.ceil(graceMs / 2))
-        })).then(finish, () => finish(false));
+        })).then((confirmed) => {
+          if (confirmed === true) treeCleanupConfirmed = true;
+          finish(confirmed);
+        }, () => finish(false));
       } catch {
         finish(false);
       }
@@ -251,14 +266,15 @@ export function runPocReleaseStage(stage, {
       }, Math.max(1, Math.floor(graceMs / 2)));
       // This outer deadline does not depend on a child `close` event or an injected cleanup
       // implementation. A damaged process wrapper therefore cannot retain the release gate.
-      settlementTimer = setTimeout(() => settle(1, 'SIGKILL'), graceMs);
+      settlementTimer = setTimeout(() => settle(1, 'SIGKILL', false), graceMs);
     };
     const onError = (error) => {
       spawnError = error;
-      if (!child.pid) settle(1, null);
+      if (!child.pid) settle(1, null, true);
       else terminate('spawn-error');
     };
     const onClose = (status, signal) => {
+      childClosed = true;
       if (!terminationReason) {
         settle(status, signal);
         return;
@@ -277,7 +293,7 @@ export function runPocReleaseStage(stage, {
 
 function isolatedEnvironment(machineState, source = process.env) {
   const environment = {
-    ...source,
+    ...isolatedTestEnvironment(machineState, source),
     NODE_ENV: 'test',
     SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(machineState, 'workspaces.json'),
     SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(machineState, 'active-workspace.json'),
@@ -286,6 +302,9 @@ function isolatedEnvironment(machineState, source = process.env) {
   };
   delete environment.FORCE_COLOR;
   delete environment.SINGULARITY_FLOW_COLOR;
+  delete environment.NODE_TEST_CONTEXT;
+  delete environment.NODE_OPTIONS;
+  delete environment.NODE_PATH;
   return environment;
 }
 
@@ -293,8 +312,12 @@ export async function runPocReleaseGate({
   rootDir = root,
   runStage = runPocReleaseStage,
   artifactPackage = null,
-  artifactVsix = null
+  artifactVsix = null,
+  continueOnFailure = false
 } = {}) {
+  if (typeof continueOnFailure !== 'boolean') {
+    throw new TypeError('continueOnFailure must be a boolean.');
+  }
   const artifactConsumer = artifactConsumerInputs({ artifactPackage, artifactVsix });
   if (artifactConsumer) {
     for (const [label, file] of Object.entries({ package: artifactPackage, VSIX: artifactVsix })) {
@@ -311,23 +334,47 @@ export async function runPocReleaseGate({
     artifactPackage: artifactConsumer?.packagePath,
     artifactVsix: artifactConsumer?.vsixPath
   });
+  const failures = [];
+  let cleanupSafe = true;
   try {
     for (const [index, stage] of stages.entries()) {
       process.stdout.write(`\n[POC ${index + 1}/${stages.length}] ${stage.label}\n`);
       const started = Date.now();
+      cleanupSafe = false;
       const result = await runStage(stage, { cwd: rootDir, environment });
+      cleanupSafe = result.quiescent === true;
+      if (!cleanupSafe) {
+        throw Object.assign(new Error(`POC release gate cannot confirm process-tree cleanup after "${stage.label}". No further stage will run. Retained state: ${machineState}`), {
+          code: 'POC_RELEASE_PROCESS_UNCONFIRMED', exitCode: 1, recoveryDirectory: machineState,
+          cause: result.error ?? undefined, timedOut: result.timedOut === true, signal: result.signal ?? null
+        });
+      }
       if (result.error || result.status !== 0) {
         const detail = result.timedOut
           ? `exceeded its ${stage.timeoutMs}ms deadline`
           : (result.error?.message ?? `exit ${result.status ?? 'unknown'}`);
-        throw Object.assign(new Error(`POC release gate failed at "${stage.label}" (${detail}).`), {
+        const failure = Object.assign(new Error(`POC release gate failed at "${stage.label}" (${detail}).`), {
           exitCode: result.status || 1
         });
+        if (!continueOnFailure) throw failure;
+        // Diagnostic coverage only: each stage is still bounded and every failure remains fatal.
+        // In particular a latency failure must not prevent us from exercising recovery and the
+        // installed Story journey. No stage or failed outcome becomes a release exception.
+        failures.push(Object.freeze({ stage: stage.label, detail, exitCode: failure.exitCode }));
+        console.error(failure.message);
+        continue;
       }
       process.stdout.write(`[POC] passed in ${((Date.now() - started) / 1000).toFixed(1)}s\n`);
     }
   } finally {
-    rmSync(machineState, { recursive: true, force: true });
+    if (cleanupSafe) rmSync(machineState, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    else console.error(`POC release scratch/recovery retained; child cleanup is unconfirmed: ${machineState}`);
+  }
+  if (failures.length) {
+    throw Object.assign(new Error([
+      `POC release gate failed: ${failures.length} of ${stages.length} stages failed; no release qualification was established.`,
+      ...failures.map(({ stage, detail }) => `  - ${stage}: ${detail}`)
+    ].join('\n')), { exitCode: 1, failures: Object.freeze(failures), stageCount: stages.length });
   }
   console.log(artifactConsumer ? [
     '',
@@ -354,6 +401,11 @@ export function parsePocReleaseArguments(values, { cwd = process.cwd() } = {}) {
   const parsed = { artifactPackage: null, artifactVsix: null };
   while (remaining.length) {
     const name = remaining.shift();
+    if (name === '--continue-on-failure') {
+      if (parsed.continueOnFailure) throw new Error(`${name} was provided more than once.`);
+      parsed.continueOnFailure = true;
+      continue;
+    }
     const field = name === '--artifact-package'
       ? 'artifactPackage'
       : (name === '--artifact-vsix' ? 'artifactVsix' : null);

@@ -25,7 +25,6 @@ import { actionActor } from './kernel.mjs';
 import path from 'node:path';
 import { directCopilotSkill } from '../copilot-guidance.mjs';
 import { assertConvergencePublicationReady } from '../convergence-context.mjs';
-import { listModelInvocations } from '../model-runner.mjs';
 import { currentInteractiveRevisionPublication } from '../revision/publication-adapter.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { applicationPathContext, applicationChangeSetProjection } from '../work-intervals.mjs';
@@ -311,6 +310,7 @@ export async function phaseCommand(positionals, options) {
   const attributedInvocations = new Set(Object.values(workflow.phases ?? {})
     .flatMap((item) => item.authorship ?? [])
     .flatMap((record) => record.kernelModel?.invocationIds ?? []));
+  const { listModelInvocations } = await import('../model-runner.mjs');
   const kernelInvocations = (await listModelInvocations(root, {
     subjectId: workflow.workItem.id,
     phase: requestedPhase.id,

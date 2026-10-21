@@ -789,6 +789,9 @@ if [[ "$FROM_STAGED_ARTIFACTS" == "on" ]]; then
   export NPM_CONFIG_REGISTRY="$REGISTRY"
   printf 'Resuming exact staged Singularity Flow %s artifacts; source preparation and packaging are skipped.\n' "$PACKAGE_VERSION"
 else
+# Recovery owns this checkout until its exact activation finishes. Check before Git can replace
+# the installer/validator retained by that recovery, including when tests are skipped.
+acquire_activation_lease create
 if [[ -n "$(git status --porcelain)" ]]; then
   printf '%s\n' 'Error: the checkout has uncommitted changes outside the validated factory-reset boundary. Commit or stash them before installation.' >&2
   git status --short >&2
@@ -832,10 +835,7 @@ printf 'Using npm registry: %s\n' "$REGISTRY"
 # commands retain --registry as an auditable defence in depth.
 export NPM_CONFIG_REGISTRY="$REGISTRY"
 
-# Source preparation has selected its exact checkout and registry. Serialize the remaining build,
-# staging, and active-surface replacement so two installers cannot mutate shared package outputs or
-# the activation journal concurrently.
-acquire_activation_lease create
+# Keep the same lease through source preparation, staging and active-surface replacement.
 # Inspect before housekeeping or dependency work. Unsupported/unfinished receipts are preserved;
 # legacy installation material is not collectible until the verified v2 receipt commits.
 INSTALL_RECEIPT_REPAIR='off'

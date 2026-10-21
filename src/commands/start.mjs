@@ -40,7 +40,6 @@ import { consumeSelectionReceipt, readStartSelectionReceipt, resolveHandedOffSta
 import { writeReturnLocator } from '../return-locator.mjs';
 import { getGitHubIssue, normalizeWorkSource, workflowSourceIdentity } from '../work-source.mjs';
 import { captureConfigurationState, CONFIGURATION_BRANCH, configurationBranchHead, materializeConfigurationSnapshot, loadStoryConfigurationSnapshot, resolveNewStoryConfigurationAuthority, withStoryConfigurationSnapshotRead, withStoryConfigurationTransaction } from '../configuration-branch.mjs';
-import { fosStoryConfigurationAuthority } from '../onboard.mjs';
 import { beginStoryStartJournal, clearStoryStartJournal, recoverStoryStart, serializeConfigurationRestorePoint, updateStoryStartJournal } from '../story-start-journal.mjs';
 import { assertStartDocuments, preflightInitialStoryDocuments, stageInitialStoryDocuments } from '../story-start-documents.mjs';
 import { assertStoryStartReady, inspectStoryStartReadiness, requiredRepositoryReadinessScope, repositoryReadinessRequired } from '../story-start-readiness.mjs';
@@ -622,12 +621,15 @@ async function startCommandAtRoot(positionals, options) {
   // later (after one of those choices) would combine two configuration revisions in one start.
   const currentPin = configurationHandoff?.currentPin ?? await capabilityDoctorStoryPin(root);
   let configurationAuthority = configurationHandoff?.authority
-    ?? await measureCommandSpan('start.authority', async () =>
-      await fosStoryConfigurationAuthority(root)
+    ?? await measureCommandSpan('start.authority', async () => {
+      // Pinned resume and an already-qualified isolated handoff need no onboarding runtime.
+      const { fosStoryConfigurationAuthority } = await import('../onboard.mjs');
+      return await fosStoryConfigurationAuthority(root)
         ?? await resolveNewStoryConfigurationAuthority(root, {
           pinnedRemote: currentPin.valid ? currentPin.source.repository : null,
           session: storyRemoteSession
-        }));
+        });
+    });
   let approvedConfigurationSnapshot = configurationHandoff?.snapshot
     ?? (configurationAuthority
       ? await measureCommandSpan('start.configuration', () =>

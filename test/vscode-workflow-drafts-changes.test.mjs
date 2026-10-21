@@ -1,12 +1,13 @@
+import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const { SharedWorkflowDraftController } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-model.ts'));
-const { sharedWorkflowDraftsHtml } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-page.ts'));
-const { prepareWorkflowDraftChange } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-guide.ts'));
+const { SharedWorkflowDraftController } = await import(pathToFileURL(path.join(root, 'apps/vscode/src/views/workflow-drafts-model.ts')).href);
+const { sharedWorkflowDraftsHtml } = await import(pathToFileURL(path.join(root, 'apps/vscode/src/views/workflow-drafts-page.ts')).href);
+const { prepareWorkflowDraftChange } = await import(pathToFileURL(path.join(root, 'apps/vscode/src/views/workflow-drafts-guide.ts')).href);
 const repository = path.resolve('/explicit/workflow-change-repository');
 const authority = '/approved/configuration-authority.git';
 const draftId = 'WFD-CHANGES1';

@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
@@ -6,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
   sgosWorkflowCreateHtml, sgosWorkflowPageReady, SGOS_WORKFLOW_CREATE_SCRIPT
-} = await import(path.join(root, 'apps/vscode/src/views/sgos-workflow-create-page.ts'));
+} = await import(pathToFileURL(path.join(root, 'apps/vscode/src/views/sgos-workflow-create-page.ts')).href);
 
 const digest = `sha256:${'a'.repeat(64)}`;
 const guide = {

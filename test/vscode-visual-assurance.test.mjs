@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -5,8 +6,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (name) => path.join(root, 'apps', 'vscode', 'src', name);
-const { buildVisualAssuranceView } = await import(source('views/visual-assurance-model.ts'));
-const { visualAssuranceHtml, VISUAL_ASSURANCE_SCRIPT } = await import(source('views/visual-assurance-page.ts'));
+const { buildVisualAssuranceView } = await import(pathToFileURL(source('views/visual-assurance-model.ts')).href);
+const { visualAssuranceHtml, VISUAL_ASSURANCE_SCRIPT } = await import(pathToFileURL(source('views/visual-assurance-page.ts')).href);
 
 const snapshot = {
   workItems: [], initiatives: [], selectedWorkId: 'MOB-42', selectedInitiativeId: null,

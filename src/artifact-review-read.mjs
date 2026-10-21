@@ -7,7 +7,7 @@ import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { memberRoot, resolvedArtifactSet } from './artifact-sets.mjs';
 
 export const MANAGED_INPUTS = /<!-- singularity-flow:inputs:start -->[\s\S]*?<!-- singularity-flow:inputs:end -->/g;
-export const MANAGED_METADATA = /^<!-- singularity-flow:(?:initiative-)?metadata\n[\s\S]*?\n-->\s*/;
+export const MANAGED_METADATA = /^<!-- singularity-flow:(?:initiative-)?metadata\r?\n[\s\S]*?\r?\n-->\s*/;
 export const MANAGED_METADATA_MARKER = /<!-- singularity-flow:(?:initiative-)?metadata/u;
 
 export function maskBlock(block) {
@@ -61,6 +61,36 @@ export function authoredArtifactText(text, { preserveLines = false } = {}) {
   const source = String(text ?? '');
   const withoutMetadata = source.replace(MANAGED_METADATA, (block) => preserveLines ? maskBlock(block) : '');
   return withoutMetadata.replace(MANAGED_INPUTS, (block) => preserveLines ? maskBlock(block) : '');
+}
+
+/**
+ * Accept only the exact text or its uniform LF/CRLF checkout representation. The immutable Git
+ * blob and the worktree keep their distinct raw hashes. No trimming, Unicode normalization,
+ * arbitrary CR removal, mixed endings, BOM or missing final newline can establish equivalence.
+ */
+export function artifactTextCheckoutMatches(published, current) {
+  if (published === current) return true;
+  const lf = published.replaceAll('\r\n', '\n');
+  if (lf.includes('\r')) return false;
+  const crlf = lf.replaceAll('\n', '\r\n');
+  return (published === lf || published === crlf) && (current === lf || current === crlf);
+}
+
+/** Match an approved raw snapshot without relabeling either raw hash as equal. */
+export function artifactSnapshotCheckoutMatches(expected, bytes) {
+  if (!expected?.exists || !Buffer.isBuffer(bytes)) return false;
+  const matches = value => Buffer.byteLength(value) === expected.size
+    && createHash('sha256').update(value).digest('hex') === expected.sha256;
+  if (matches(bytes)) return true;
+  const text = bytes.toString('utf8');
+  // Only lossless ordinary UTF-8 text may have a checkout representation. In particular no
+  // replacement characters, binary NUL, BOM removal, trimming or arbitrary CR normalization.
+  if (!Buffer.from(text, 'utf8').equals(bytes) || text.includes('\0') || text.startsWith('\uFEFF')) return false;
+  const lf = text.replaceAll('\r\n', '\n');
+  if (lf.includes('\r')) return false;
+  const crlf = lf.replaceAll('\n', '\r\n');
+  if (text !== lf && text !== crlf) return false;
+  return matches(lf) || matches(crlf);
 }
 
 /** Whitespace-only padding cannot make an untouched prepared template look authored. */
@@ -128,8 +158,9 @@ export async function reboundReviewArtifact(root, secured, openedStat, label, pl
 }
 
 export async function readPinnedReviewArtifact(root, relative, label, {
-  mustExist = false, platform = process.platform
+  mustExist = false, platform = process.platform, maximumBytes = null
 } = {}) {
+  if (maximumBytes !== null && (!Number.isSafeInteger(maximumBytes) || maximumBytes < 0)) throw new TypeError('maximumBytes must be a nonnegative safe integer.');
   const secured = await secureRepositoryPath(root, relative, { label, mustExist, type: 'file' });
   if (!secured.exists) return null;
   let handle;
@@ -139,7 +170,22 @@ export async function readPinnedReviewArtifact(root, relative, label, {
     if (!before.isFile()) throw unsafeReviewArtifact(label, secured.relative, 'non-regular-file');
 
     const beforeBinding = await reboundReviewArtifact(root, secured, before, label, platform);
-    const bytes = await handle.readFile();
+    if (maximumBytes !== null && before.size > BigInt(maximumBytes)) {
+      throw new SingularityFlowError(`${label} exceeds its ${maximumBytes}-byte read limit: ${relative}`, { code: 'REVIEW_ARTIFACT_TOO_LARGE' });
+    }
+    let bytes;
+    if (maximumBytes === null) bytes = await handle.readFile();
+    else {
+      const buffer = Buffer.alloc(maximumBytes + 1);
+      let count = 0;
+      while (count < buffer.length) {
+        const next = await handle.read(buffer, count, buffer.length - count, count);
+        if (!next.bytesRead) break;
+        count += next.bytesRead;
+      }
+      if (count > maximumBytes) throw new SingularityFlowError(`${label} exceeded its read limit while reading: ${relative}`, { code: 'REVIEW_ARTIFACT_TOO_LARGE' });
+      bytes = buffer.subarray(0, count);
+    }
     const after = await handle.stat({ bigint: true });
     const descriptorIdentity = reviewArtifactIdentityDecision(before, after, { platform });
     const beforeMtime = before.mtimeNs ?? before.mtimeMs;
@@ -175,16 +221,21 @@ export async function readPinnedReviewArtifact(root, relative, label, {
  * unreliable on Windows), a second pinned read must produce exactly the same bytes before those
  * bytes can become governed review evidence.
  */
-export async function readReviewArtifact(root, relative, label) {
-  const opened = await readPinnedReviewArtifact(root, relative, label);
+export async function readReviewArtifactBytes(root, relative, label, options = {}) {
+  const opened = await readPinnedReviewArtifact(root, relative, label, options);
   if (opened == null) return null;
   if (opened.verifyBytes) {
-    const rebound = await readPinnedReviewArtifact(root, relative, label, { mustExist: true });
+    const rebound = await readPinnedReviewArtifact(root, relative, label, { ...options, mustExist: true });
     if (!reviewArtifactBytesStable(opened.bytes, rebound.bytes)) {
       throw unsafeReviewArtifact(label, relative, 'content-race');
     }
   }
-  return opened.bytes.toString('utf8');
+  return opened.bytes;
+}
+
+export async function readReviewArtifact(root, relative, label) {
+  const bytes = await readReviewArtifactBytes(root, relative, label);
+  return bytes == null ? null : bytes.toString('utf8');
 }
 
 export function reviewableMarkdownPath(relativePath) {

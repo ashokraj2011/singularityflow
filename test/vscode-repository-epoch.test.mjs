@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -8,7 +9,7 @@ import { codeOnly } from './source-text.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (...parts) => path.join(root, 'apps', 'vscode', 'src', ...parts);
-const { RepositoryEpochGuard } = await import(source('repository-epoch.ts'));
+const { RepositoryEpochGuard } = await import(pathToFileURL(source('repository-epoch.ts')).href);
 
 test('repository epochs reject A-to-B-to-A late answers even when identity text is the same', () => {
   const guard = new RepositoryEpochGuard('/repo/A');

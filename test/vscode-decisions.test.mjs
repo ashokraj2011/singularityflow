@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -9,11 +10,11 @@ const source = (name) => path.join(packageRoot, 'apps', 'vscode', 'src', name);
 const {
   decisionChoiceItems, decisionChooseArgv, decisionInputPrompt, decisionTargetText,
   pendingDecisionSummary, submitArgvWithDecisionValues
-} = await import(source('decisions.ts'));
-const { buildJourney } = await import(source('views/journey-model.ts'));
-const { buildTree } = await import(source('views/tree-model.ts'));
-const { buildApprovals } = await import(source('views/approvals-model.ts'));
-const { buildInbox } = await import(source('views/inbox-model.ts'));
+} = await import(pathToFileURL(source('decisions.ts')).href);
+const { buildJourney } = await import(pathToFileURL(source('views/journey-model.ts')).href);
+const { buildTree } = await import(pathToFileURL(source('views/tree-model.ts')).href);
+const { buildApprovals } = await import(pathToFileURL(source('views/approvals-model.ts')).href);
+const { buildInbox } = await import(pathToFileURL(source('views/inbox-model.ts')).href);
 
 const PENDING = {
   schemaVersion: 1, key: '0123456789abcdef', decision: 'direction', label: 'Where next?', reason: 'ask',

@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 import { repositoryOwnedWorkflows } from './helpers/repository-owned-workflows.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,8 +10,8 @@ import { spawnSync } from 'node:child_process';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
-const { WORKFLOW_STUDIO_SCRIPT, workflowStudioBody } = await import(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts'));
-const { contentSecurityPolicy, page } = await import(path.join(packageRoot, 'apps/vscode/src/views/webview.ts'));
+const { WORKFLOW_STUDIO_SCRIPT, workflowStudioBody } = await import(pathToFileURL(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts')).href);
+const { contentSecurityPolicy, page } = await import(pathToFileURL(path.join(packageRoot, 'apps/vscode/src/views/webview.ts')).href);
 const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Studio Tester' };
 
 function run(command, args, cwd, input = '') {
@@ -243,11 +244,11 @@ test('copies keep their input settings when the workflow is a new duplicate and 
 
 test('a copy runs in its workflow exactly as the step it replaces, in each packaged workflow it is tried in', async () => {
   const { cp } = await import('node:fs/promises');
-  const { loadDefinition, resolveWorkType } = await import(path.join(packageRoot, 'src/config.mjs'));
-  const { fastPathProfile } = await import(path.join(packageRoot, 'src/fast-path.mjs'));
-  const { planStudioChangeSet } = await import(path.join(packageRoot, 'src/workflow-studio.mjs'));
-  const { authoringRoute, legacyAuthoringSkill, phaseRequiresCodeDelivery } = await import(path.join(packageRoot, 'src/code-delivery-policy.mjs'));
-  const roles = await import(path.join(packageRoot, 'src/phase-roles.mjs'));
+  const { loadDefinition, resolveWorkType } = await import(pathToFileURL(path.join(packageRoot, 'src/config.mjs')).href);
+  const { fastPathProfile } = await import(pathToFileURL(path.join(packageRoot, 'src/fast-path.mjs')).href);
+  const { planStudioChangeSet } = await import(pathToFileURL(path.join(packageRoot, 'src/workflow-studio.mjs')).href);
+  const { authoringRoute, legacyAuthoringSkill, phaseRequiresCodeDelivery } = await import(pathToFileURL(path.join(packageRoot, 'src/code-delivery-policy.mjs')).href);
+  const roles = await import(pathToFileURL(path.join(packageRoot, 'src/phase-roles.mjs')).href);
   // How the engine reads a step, from what it does: none of it may follow the step's name [E2G-001].
   const reading = (resolved, id) => {
     const phase = resolved.phases.find((entry) => entry.id === id);
@@ -316,7 +317,7 @@ test('a copy runs in its workflow exactly as the step it replaces, in each packa
 });
 
 test('the publish command follows the authority the model came from', async () => {
-  const { studioPublishArgs, STUDIO_MODEL_ARGS, STUDIO_PREVIEW_ARGS } = await import(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts'));
+  const { studioPublishArgs, STUDIO_MODEL_ARGS, STUDIO_PREVIEW_ARGS } = await import(pathToFileURL(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts')).href);
   assert.deepEqual(studioPublishArgs({ kind: 'working-tree' }), ['workflow', 'studio', 'apply', '--change-set', '-', '--json']);
   assert.deepEqual(studioPublishArgs(null), ['workflow', 'studio', 'apply', '--change-set', '-', '--json']);
   assert.deepEqual(studioPublishArgs({ kind: 'approved-configuration-ref', commit: 'a'.repeat(40), remoteFingerprint: 'sha256:abc', sourceCommit: 'b'.repeat(40) }), [
@@ -410,7 +411,7 @@ test('library imports queued in the page become engine operations the engine che
   const draft = logic.initialDraft(model);
   assert.deepEqual(draft.imports, []);
   // The engine stages exactly what it previewed; the page only names the hash.
-  const { stageImport } = await import(path.join(packageRoot, 'src/asset-import.mjs'));
+  const { stageImport } = await import(pathToFileURL(path.join(packageRoot, 'src/asset-import.mjs')).href);
   const bytes = Buffer.from('# Security review\n\n- Check every entry point.\n');
   const staged = await stageImport(root, { bytes, source: { kind: 'url', url: 'https://skills.example.org/s.md', resolvedUrl: 'https://skills.example.org/s.md' } });
   draft.imports.push({ op: 'import.skill', agent: 'architect', id: 'security-review', source: 'https://skills.example.org/s.md', sha256: staged.sha256, phases: ['design'], optional: false, replace: false });
@@ -813,12 +814,12 @@ test('where a copy\'s drafting skill is chosen, the page says which skill took i
 });
 
 test('a Story started after the copies runs each as the step it replaces: scope, plan, source review and deterministic convergence [E2G-001]', async () => {
-  const { loadDefinition } = await import(path.join(packageRoot, 'src/config.mjs'));
-  const { loadStoryAggregate } = await import(path.join(packageRoot, 'src/state-stores.mjs'));
-  const { generationSkillForPhase } = await import(path.join(packageRoot, 'src/code-delivery-policy.mjs'));
-  const { planFastPath } = await import(path.join(packageRoot, 'src/fast-path.mjs'));
-  const { workflowGuide } = await import(path.join(packageRoot, 'src/guide.mjs'));
-  const roles = await import(path.join(packageRoot, 'src/phase-roles.mjs'));
+  const { loadDefinition } = await import(pathToFileURL(path.join(packageRoot, 'src/config.mjs')).href);
+  const { loadStoryAggregate } = await import(pathToFileURL(path.join(packageRoot, 'src/state-stores.mjs')).href);
+  const { generationSkillForPhase } = await import(pathToFileURL(path.join(packageRoot, 'src/code-delivery-policy.mjs')).href);
+  const { planFastPath } = await import(pathToFileURL(path.join(packageRoot, 'src/fast-path.mjs')).href);
+  const { workflowGuide } = await import(pathToFileURL(path.join(packageRoot, 'src/guide.mjs')).href);
+  const roles = await import(pathToFileURL(path.join(packageRoot, 'src/phase-roles.mjs')).href);
   const root = await repository({ edit: (document) => {
     document.setIn(['git', 'publish'], 'off');
     document.setIn(['repositoryReadiness', 'requiredBeforeStory'], false);
@@ -1622,7 +1623,7 @@ test('stable proposal identity groups revisions even when multiple workflows or 
 });
 
 test('proposals waiting for review are listed in Changes, and reviewing one reloads only when nothing is unpublished', async () => {
-  const { proposalSummaries, STUDIO_FOCUS_VIEWS } = await import(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts'));
+  const { proposalSummaries, STUDIO_FOCUS_VIEWS } = await import(pathToFileURL(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts')).href);
   const listed = proposalSummaries([
     { branch: 'sflow/config-change/workflow/studio-feature-abc', proposalCommit: 'a'.repeat(40), valid: true, merged: false,
       workflows: [{ id: 'repo-feature', governs: 'story', change: 'changed', label: 'Feature' }], changedFiles: [{ status: 'M', paths: ['singularity/workflow.yml'] }], invalidFiles: [], diff: 'secret diff' },
@@ -1856,7 +1857,7 @@ test('workflow skill properties follow agent selection and retain local bindings
 
 test('a skill from a link for a seeded agent is added to the skill master and attached, as one change set the engine accepts', async () => {
   const { buildStudioModel } = await import('../src/workflow-studio.mjs');
-  const { stageImport } = await import(path.join(packageRoot, 'src/asset-import.mjs'));
+  const { stageImport } = await import(pathToFileURL(path.join(packageRoot, 'src/asset-import.mjs')).href);
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-studio-link-seeded-'));
   run('git', ['init', '-b', 'main'], root); run('git', ['config', 'user.name', 'Studio Tester'], root); run('git', ['config', 'user.email', 'studio@example.com'], root);
   run(process.execPath, [bin, 'init'], root);
@@ -2171,7 +2172,7 @@ test('Duplicate agent validates the copy and Cancel leaves the catalog and phase
 
 test('imported and proposed workflows appear in Workflows and Epic workflows with Review and activate, and Changes keeps revision choices across re-renders', async () => {
   const { buildStudioModel } = await import('../src/workflow-studio.mjs');
-  const { proposalSummaries } = await import(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts'));
+  const { proposalSummaries } = await import(pathToFileURL(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts')).href);
   const element = (tag) => ({ tag, attributes: {}, children: [], style: {}, textContent: '', setAttribute(name, value) { this.attributes[name] = value; }, appendChild(child) { this.children.push(child); return child; }, addEventListener(event, fn) { this.listeners = this.listeners ?? {}; this.listeners[event] = fn; } });
   const text = (node) => [node.textContent ?? node.text ?? '', ...(node.children ?? []).map(text)].join(' ');
   const all = (node) => [node, ...(node.children ?? []).flatMap(all)];

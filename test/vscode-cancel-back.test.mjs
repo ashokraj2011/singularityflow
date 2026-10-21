@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 /**
  * Every screen that collects input offers a way back out of it: Cancel, Back, Close or Clear.
  * A form with only a Submit button leaves a person who changed their mind with nothing to press, and
@@ -13,11 +14,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const views = (name) => path.join(root, 'apps/vscode/src/views', name);
 const source = (relative) => readFile(path.join(root, 'apps/vscode/src', relative), 'utf8');
 
-const { startWizardProgress } = await import(views('start-wizard.ts'));
-const { NAV_SCRIPT, navigationTarget, GUIDED_COMMANDS } = await import(views('webview.ts'));
-const { EMPTY_INTAKE_FORM, intakeHasInput, intakeHtml } = await import(views('intake-form.ts'));
-const { EMPTY_WORKSPACE_FORM, workspaceFormHasInput, workspaceFormHtml } = await import(views('workspace-form.ts'));
-const { EMPTY_MAP_FORM, mapFormHasInput, mapCapabilityHtml } = await import(views('map-capability-form.ts'));
+const { startWizardProgress } = await import(pathToFileURL(views('start-wizard.ts')).href);
+const { NAV_SCRIPT, navigationTarget, GUIDED_COMMANDS } = await import(pathToFileURL(views('webview.ts')).href);
+const { EMPTY_INTAKE_FORM, intakeHasInput, intakeHtml } = await import(pathToFileURL(views('intake-form.ts')).href);
+const { EMPTY_WORKSPACE_FORM, workspaceFormHasInput, workspaceFormHtml } = await import(pathToFileURL(views('workspace-form.ts')).href);
+const { EMPTY_MAP_FORM, mapFormHasInput, mapCapabilityHtml } = await import(pathToFileURL(views('map-capability-form.ts')).href);
 
 test('the guided start rail offers Back from its later steps and Exit from every step', () => {
   const first = startWizardProgress({ step: 'capability' });

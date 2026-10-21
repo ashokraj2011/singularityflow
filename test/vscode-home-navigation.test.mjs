@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -6,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (...parts) => path.join(root, 'apps', 'vscode', 'src', ...parts);
-const { buildLifecycleTree } = await import(source('views', 'tree-model.ts'));
-const { RESULT_CARD_SCRIPT } = await import(source('views', 'result-card-page.ts'));
+const { buildLifecycleTree } = await import(pathToFileURL(source('views', 'tree-model.ts')).href);
+const { RESULT_CARD_SCRIPT } = await import(pathToFileURL(source('views', 'result-card-page.ts')).href);
 
 test('Lifecycle does not render duplicate My Work or display-only workflow menus', () => {
   const roots = buildLifecycleTree({

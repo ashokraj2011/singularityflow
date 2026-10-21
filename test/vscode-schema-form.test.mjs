@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 /**
  * Forms built from the registered argument schemas. `[UXH:REQ-070]`–`[UXH:AC-011]` `[UXH:AC-004]`
  *
@@ -17,7 +18,7 @@ import { ARGUMENT_SCHEMAS } from '../src/gateway/argument-schemas.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const view = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name);
-const { confirmationMatches, formValues, schemaForm } = await import(view('schema-form-model.ts'));
+const { confirmationMatches, formValues, schemaForm } = await import(pathToFileURL(view('schema-form-model.ts')).href);
 
 const schemaFor = (id) => ARGUMENT_SCHEMAS.find((entry) => entry.id === id);
 

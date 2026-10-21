@@ -565,7 +565,7 @@ async function yamlInDirectory(root, relative) {
 /** The canonical shared Git directory, so every spelling of one checkout's path names one store. */
 function policyStoreKey(root) {
   const store = repositoryGitDirectory(path.resolve(root)) ?? path.resolve(root);
-  try { return canonicalPathSync(store); } catch { return store; }
+  try { return canonicalPathSync.native(store); } catch { return store; }
 }
 
 export function configurationAssetPolicyFromRef(root, ref = 'HEAD', { env = process.env } = {}) {

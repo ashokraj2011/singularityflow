@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 /**
  * The return briefing on the home card. `[DHR:REQ-024]` `[UXH:REQ-020]`
  *
@@ -23,9 +24,9 @@ import { workReadinessResult } from '../src/gateway/planners/work-readiness.mjs'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const view = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name);
 const { ACKNOWLEDGE_ACTION_ID, acknowledgementKey, homeAcknowledgementFor, homeDelta } =
-  await import(view('home-acknowledgement.ts'));
-const { buildResultCard } = await import(view('result-card-model.ts'));
-const { resultCardHtml } = await import(view('result-card-page.ts'));
+  await import(pathToFileURL(view('home-acknowledgement.ts')).href);
+const { buildResultCard } = await import(pathToFileURL(view('result-card-model.ts')).href);
+const { resultCardHtml } = await import(pathToFileURL(view('result-card-page.ts')).href);
 
 const WORKSPACE = { id: 'local--calc', name: 'calc-app' };
 

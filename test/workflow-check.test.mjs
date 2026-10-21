@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 import { repositoryOwnedWorkflows } from './helpers/repository-owned-workflows.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -273,7 +274,7 @@ test('Studio\'s own check keeps the step its warnings are about', async () => {
 test('the Studio board asks for a check of the draft and shows it: counts, findings by area, marks on steps, the step explained', async () => {
   const root = await paymentsRepository();
   const { buildStudioModel } = await import('../src/workflow-studio.mjs');
-  const { WORKFLOW_STUDIO_SCRIPT } = await import(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts'));
+  const { WORKFLOW_STUDIO_SCRIPT } = await import(pathToFileURL(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts')).href);
   const model = await buildStudioModel(root);
   const posted = [];
   const listeners = {};

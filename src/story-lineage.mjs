@@ -2,6 +2,8 @@ import { conformancePhaseOf, isVisualVerificationPhase } from './phase-roles.mjs
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { PACKAGE_ROOT } from './package-root.mjs';
 import {
   assertNotDefaultBranch, branch, changes, commitIsAncestor, defaultBranchName,
   exactRemoteBranchObservationAsync, head, identity
@@ -41,6 +43,8 @@ import { loadActiveSpecRecords, mergePlannedClaimRecords } from './specification
 import { effectiveContract, mergedVerificationContracts, witnessMappingCore, witnessMappingSha256 } from './verification/contracts.mjs';
 import { witnessLabel } from './verification/witness-results.mjs';
 import { verifySkillPhasePublication, verifyStoredSkillEvidence } from './skp-phase-evidence.mjs';
+
+const REVIEW_ARTIFACT_READ_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'story-review-artifact-read.mjs')).href;
 
 function hash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -644,34 +648,16 @@ async function verifiedStoryReviewPacket(root, config, workflow, packetSha256) {
         continue;
       }
     }
-    let artifactBindingsValid = true;
-    for (const artifact of packet.artifacts ?? []) {
-      if (artifact.removed === true) {
-        // A removal is bound by the file being absent from the evidence commit.
-        if (!artifact.path || artifact.sha256 != null || ![0, null].includes(artifact.size ?? null)
-            || gitBlobAtCommit(root, evidenceCommit, artifact.path).status === 0) {
-          failures.push(`${evidenceCommit.slice(0, 12)} does not show ${artifact.path || 'a removed artifact'} removed`);
-          artifactBindingsValid = false;
-          break;
-        }
+    let artifactCheckoutRepresentations = [];
+    if (packet.artifacts?.length) {
+      const { reviewArtifactBindings } = await import(REVIEW_ARTIFACT_READ_MODULE);
+      const checked = reviewArtifactBindings(root, evidenceCommit, packet.artifacts, gitBlobAtCommit);
+      if (!checked.valid) {
+        failures.push(`${evidenceCommit.slice(0, 12)} ${checked.reason}`);
         continue;
       }
-      if (!artifact.path || !artifact.sha256 || !Number.isInteger(artifact.size) || artifact.size < 0) {
-        failures.push(`${evidenceCommit.slice(0, 12)} has an incomplete artifact identity`);
-        artifactBindingsValid = false;
-        break;
-      }
-      const historicalArtifact = gitBlobAtCommit(root, evidenceCommit, artifact.path);
-      const actualSha256 = createHash('sha256').update(historicalArtifact.bytes).digest('hex');
-      if (historicalArtifact.status !== 0
-        || actualSha256 !== String(artifact.sha256).replace(/^sha256:/, '')
-        || historicalArtifact.bytes.length !== artifact.size) {
-        failures.push(`${evidenceCommit.slice(0, 12)} lacks the exact artifact ${artifact.path}`);
-        artifactBindingsValid = false;
-        break;
-      }
+      artifactCheckoutRepresentations = checked.representations;
     }
-    if (!artifactBindingsValid) continue;
     const claimMaps = packet.submissionEvidence?.claimMaps;
     if (claimMaps != null && !Array.isArray(claimMaps)) {
       failures.push(`${evidenceCommit.slice(0, 12)} has malformed claim-map bindings`);
@@ -742,7 +728,8 @@ async function verifiedStoryReviewPacket(root, config, workflow, packetSha256) {
         const { verifyStoryDocumentSnapshot } = await import('./trp-document-runtime.mjs');
         await verifyStoryDocumentSnapshot(root, config, workflow, packet, evidenceCommit);
       } catch (error) { failures.push(`${evidenceCommit.slice(0, 12)} document evidence: ${error.message}`); continue; }
-      return { ...packet, evidenceCommit };
+      return { ...packet, evidenceCommit,
+        ...(artifactCheckoutRepresentations.length ? { artifactCheckoutRepresentations } : {}) };
     }
   }
   throw new SingularityFlowError(

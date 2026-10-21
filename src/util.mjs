@@ -19,6 +19,18 @@ import { assertLocalReadDeadline, localReadDeadlineRemainingMs, localReadDeadlin
 import { APPLE_GIT_UNAVAILABLE_MESSAGE, gitDeveloperToolsUnavailable, gitHostChildEnvironment } from './git-host-selection.mjs';
 import { cachedGitFact, gitFactRequest, gitFactSnapshot, gitFactStoreHits, rememberGitFact } from './git-fact-cache.mjs';
 
+export async function replaceWithSharingRetry(source, target, { renameCommand = rename, wait = delay } = {}) {
+  for (let attempt = 0; ; attempt += 1) {
+    try { await renameCommand(source, target); return; }
+    catch (error) {
+      // Retry only the same complete temporary file. Never delete the destination, copy over it,
+      // or hide the final native error. The five waits total 620 ms.
+      if (!['EPERM', 'EACCES', 'EBUSY'].includes(error?.code) || attempt >= 5) throw error;
+      await wait(20 * 2 ** attempt);
+    }
+  }
+}
+
 export class SingularityFlowError extends Error {
   constructor(message, { exitCode = 1, code = null, details = null, cause = undefined } = {}) {
     super(message);
@@ -1178,7 +1190,8 @@ export async function writeAtomic(filePath, value, { mode = undefined } = {}) {
       ...(Buffer.isBuffer(value) || value instanceof Uint8Array ? {} : { encoding: 'utf8' }),
       ...(mode == null ? {} : { mode })
     }), () => ({ bytes: Buffer.byteLength(value) }));
-    await measurePerformance('file', 'file.rename', () => rename(temp, filePath));
+    await measurePerformance('file', 'file.rename', () => process.platform === 'win32'
+      ? replaceWithSharingRetry(temp, filePath) : rename(temp, filePath));
   } finally {
     await rm(temp, { force: true }).catch(() => {});
   }

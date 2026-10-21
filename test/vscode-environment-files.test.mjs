@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 /**
  * Environment files in VS Code: the page's rows, the actions each status offers, the exact argv of
  * every `env files` command, the run pre-flight, and the entries from Run & test and the Run/Debug
@@ -15,12 +16,12 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (name) => path.join(root, 'apps', 'vscode', 'src', name);
-const model = await import(source('views/environment-files-model.ts'));
-const { environmentFilesHtml, ENVIRONMENT_FILES_SCRIPT, ENVIRONMENT_FILES_STYLE } = await import(source('views/environment-files-page.ts'));
-const runModel = await import(source('views/run-and-test-model.ts'));
-const { runAndTestHtml } = await import(source('views/run-and-test-page.ts'));
-const { tabsRegionHtml } = await import(source('views/run-configurations-page.ts'));
-const { commandClass } = await import(source('cli/client.ts'));
+const model = await import(pathToFileURL(source('views/environment-files-model.ts')).href);
+const { environmentFilesHtml, ENVIRONMENT_FILES_SCRIPT, ENVIRONMENT_FILES_STYLE } = await import(pathToFileURL(source('views/environment-files-page.ts')).href);
+const runModel = await import(pathToFileURL(source('views/run-and-test-model.ts')).href);
+const { runAndTestHtml } = await import(pathToFileURL(source('views/run-and-test-page.ts')).href);
+const { tabsRegionHtml } = await import(pathToFileURL(source('views/run-configurations-page.ts')).href);
+const { commandClass } = await import(pathToFileURL(source('cli/client.ts')).href);
 
 const STORE = '/Users/someone/shop/.git/singularity-flow/environment-files/v1';
 /** A secret a real file could hold; it must never reach a row, the page or a message. */
@@ -66,9 +67,9 @@ test('VS Code classifies every env files command as the engine does', async (t) 
   const changes = [['env', 'files', 'create', 'dev', '.env.dev', '--from-template', '--json'], ['env', 'files', 'link', 'dev', '.env.dev', '--to', '/x/y', '--json'],
     ['env', 'files', 'unlink', 'dev', '.env.dev', '--json'], ['env', 'files', 'adopt', 'dev', '.env.dev', '--json'], ['env', 'files', 'add', 'dev', '.env.local', '--personal', '--json'],
     ['env', 'files', 'remove', 'dev', '.env.local', '--personal', '--json'], ['env', 'files', 'root', 'uat', '--clear', '--json'], ['env', 'files', 'place', 'dev', '--json']];
-  const { ENV_SUBCOMMANDS, resolveOperation } = await import(path.join(root, 'src', 'command-registry.mjs'));
+  const { ENV_SUBCOMMANDS, resolveOperation } = await import(pathToFileURL(path.join(root, 'src', 'command-registry.mjs')).href);
   if (!ENV_SUBCOMMANDS.includes('files')) return t.skip('this engine has no env files yet: VS Code and engine parity is checked once it does');
-  const { parseArgs } = await import(path.join(root, 'src', 'util.mjs'));
+  const { parseArgs } = await import(pathToFileURL(path.join(root, 'src', 'util.mjs')).href);
   for (const args of [...reads, ...changes]) {
     assert.equal(commandClass(args), resolveOperation({ requestedCommand: args[0], ...parseArgs(args) }).classification, `engine and VS Code: ${args.join(' ')}`);
   }
@@ -468,7 +469,7 @@ test('the engine\'s refusals of an action or a run are said plainly, with what t
 });
 
 test('the real engine\'s answers read into the page: list, create, path, suggest and the missing-file refusal', { timeout: 180_000 }, async (t) => {
-  const { repository } = await import(path.join(root, 'test', 'helpers', 'environment-files-fixture.mjs'));
+  const { repository } = await import(pathToFileURL(path.join(root, 'test', 'helpers', 'environment-files-fixture.mjs')).href);
   const repo = await repository(t, { files: {
     'apps/web/.env.dev.example': 'API_TOKEN=CHANGE_ME\n',
     'services/api/src/main/resources/application-uat.example.yml': 'spring:\n  datasource:\n    password: CHANGE_ME\n'

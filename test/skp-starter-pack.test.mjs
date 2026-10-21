@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -13,7 +14,7 @@ import { simulateResolvedWorkflowLifecycle } from '../src/workflow-lifecycle-sim
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const starter = path.join(root, 'templates/starter-packs/skp-team-notes/draft-input.json');
 const { bindWorkflowDraftBase, workflowDraftGuide } = await import(
-  path.join(root, 'apps/vscode/src/views/workflow-drafts-guide.ts')
+  pathToFileURL(path.join(root, 'apps/vscode/src/views/workflow-drafts-guide.ts')).href
 );
 
 test('packaged SKP starter is an inert, base-unbound artifact-only workflow candidate', async () => {

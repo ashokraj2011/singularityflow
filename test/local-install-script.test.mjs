@@ -82,6 +82,8 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.ok((await stat(scriptPath)).mode & 0o100, 'install.sh must be executable');
   assert.match(script, /git status --porcelain/);
   assert.match(script, /git pull --ff-only/);
+  assert.ok(script.indexOf('\nacquire_activation_lease create\n') < script.indexOf('\n  git pull --ff-only\n'),
+    'active recovery must be refused before a pull can replace its exact installer/validator');
   assert.match(script, /npm ci --registry="\$REGISTRY"/);
   assert.match(script, /export NPM_CONFIG_REGISTRY="\$REGISTRY"/);
   assert.match(script, /npm run vscode:build/);
@@ -210,7 +212,9 @@ test('Windows Git Bash wrapper validates CRLF support and delegates to the canon
   assert.equal(packageJson.scripts['install:windows'], 'bash ./install-windows-git-bash.sh');
   assert.ok((await stat(scriptPath)).mode & 0o100, 'Windows Git Bash wrapper must be executable');
   assert.match(script, /Node\.js 20 or newer is required/);
-  assert.match(script, /git -C "\$PROJECT_DIR" pull --ff-only/);
+  assert.doesNotMatch(script, /git -C|git pull|git status/,
+    'only the canonical installer may update source, after taking the recovery lease');
+  assert.match(script, /\[\[ "\$UPDATE_CHECKOUT" == "off" \]\] && INSTALL_ARGS\+=\(--no-update\)/);
   assert.match(script, /Git for Windows commonly checks Markdown out with CRLF/);
   assert.match(script, /exec bash "\$PROJECT_DIR\/install\.sh"/);
   assert.match(script, /--registry/);

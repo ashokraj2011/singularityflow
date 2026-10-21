@@ -11,7 +11,7 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { documentOfferedToPhase } from './document-identity.mjs';
 import { isLocalDocument, readLocalDocument } from './document-storage.mjs';
 import { authoredArtifactText, inspectManagedArtifactMetadata } from './artifact-review-read.mjs';
-import { clarificationRecordRelative } from './clarification-paths.mjs';
+import { clarificationRecordRelative } from './story-paths.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { sourceReviewAuthorConflict } from './source-review-policy.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';

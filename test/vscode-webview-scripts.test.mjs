@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 /**
  * Every browser script a panel injects is valid JavaScript. `[UXH:REQ-134]`
  *
@@ -33,7 +34,7 @@ async function injectedScripts() {
     // A view that cannot be imported on its own is not this test's subject; the extension test
     // covers loading, and swallowing that here keeps one failure from being reported as many.
     try {
-      module = await import(path.join(views, entry));
+      module = await import(pathToFileURL(path.join(views, entry)).href);
     } catch {
       continue;
     }

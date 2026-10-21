@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 /**
  * The result card, against the envelope a real planner produces.
  *
@@ -21,9 +22,9 @@ import { homeOverviewResult } from '../src/gateway/planners/home-overview.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const view = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name);
-const { buildResultCard, gateSummary } = await import(view('result-card-model.ts'));
-const { RESULT_CARD_SCRIPT, RESULT_CARD_STYLE, resultCardHtml } = await import(view('result-card-page.ts'));
-const { RESULT_MESSAGES, fill, message } = await import(view('result-messages.ts'));
+const { buildResultCard, gateSummary } = await import(pathToFileURL(view('result-card-model.ts')).href);
+const { RESULT_CARD_SCRIPT, RESULT_CARD_STYLE, resultCardHtml } = await import(pathToFileURL(view('result-card-page.ts')).href);
+const { RESULT_MESSAGES, fill, message } = await import(pathToFileURL(view('result-messages.ts')).href);
 
 const blocked = (blockers) => workReadinessResult({
   id: 'PAY-1187', kind: 'story', phase: 'implement', generation: 3, group: 'active',

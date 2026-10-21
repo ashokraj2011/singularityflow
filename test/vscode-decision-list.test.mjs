@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 /**
  * The Decisions page in VS Code: the decision list's items as rows, choices as buttons, and the
  * exact answers the engine reads. [decision list, VS Code surface]
@@ -18,13 +19,13 @@ import { optionStrings, parseArgs } from '../src/util.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (name) => path.join(root, 'apps', 'vscode', 'src', name);
-const model = await import(source('views/decision-list-model.ts'));
-const { decisionListHtml, DECISION_LIST_SCRIPT, DECISION_LIST_STYLE } = await import(source('views/decision-list-page.ts'));
-const { STYLE } = await import(source('views/webview.ts'));
-const { THEME_STYLE } = await import(source('views/theme.ts'));
-const { commandClass } = await import(source('cli/client.ts'));
-const { buildTree } = await import(source('views/tree-model.ts'));
-const { buildJourney } = await import(source('views/journey-model.ts'));
+const model = await import(pathToFileURL(source('views/decision-list-model.ts')).href);
+const { decisionListHtml, DECISION_LIST_SCRIPT, DECISION_LIST_STYLE } = await import(pathToFileURL(source('views/decision-list-page.ts')).href);
+const { STYLE } = await import(pathToFileURL(source('views/webview.ts')).href);
+const { THEME_STYLE } = await import(pathToFileURL(source('views/theme.ts')).href);
+const { commandClass } = await import(pathToFileURL(source('cli/client.ts')).href);
+const { buildTree } = await import(pathToFileURL(source('views/tree-model.ts')).href);
+const { buildJourney } = await import(pathToFileURL(source('views/journey-model.ts')).href);
 
 const W = 'DECIDE-1';
 const DIGEST = `sha256:${'8'.repeat(64)}`;

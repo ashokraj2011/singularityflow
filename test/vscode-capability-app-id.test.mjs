@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -6,9 +7,9 @@ import { fileURLToPath } from 'node:url';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (name) => path.join(packageRoot, 'apps', 'vscode', 'src', name);
-const { EMPTY_MAP_FORM, MAP_CAPABILITY_SCRIPT, mapCapabilityHtml, mapCommand, mapProblems } = await import(source('views/map-capability-form.ts'));
-const { capabilityArgv, capabilityDetail } = await import(source('views/capability-model.ts'));
-const { bodyHtml, readEdits } = await import(source('views/capability-page.ts'));
+const { EMPTY_MAP_FORM, MAP_CAPABILITY_SCRIPT, mapCapabilityHtml, mapCommand, mapProblems } = await import(pathToFileURL(source('views/map-capability-form.ts')).href);
+const { capabilityArgv, capabilityDetail } = await import(pathToFileURL(source('views/capability-model.ts')).href);
+const { bodyHtml, readEdits } = await import(pathToFileURL(source('views/capability-page.ts')).href);
 
 const APP_ID_PROBLEM = 'An App ID cannot contain spaces and has at most 64 characters.';
 const form = (overrides = {}) => ({

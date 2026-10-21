@@ -81,6 +81,12 @@ export function normalizeCodeDeliveryPolicy(value = {}) {
   return {
     schemaVersion: 2,
     mode: enumValue(value.mode ?? defaults.mode, ['enforce'], 'codeDelivery.mode'),
+    ...(value.cornerCaseObligations === undefined ? {} : {
+      cornerCaseObligations: enumValue(value.cornerCaseObligations, ['off', 'advisory', 'enforce'], 'codeDelivery.cornerCaseObligations')
+    }),
+    ...(value.assertionAdequacy === undefined ? {} : {
+      assertionAdequacy: enumValue(value.assertionAdequacy, ['off', 'advisory', 'enforce'], 'codeDelivery.assertionAdequacy')
+    }),
     generationBoundary: {
       requireBegin: booleanValue(generationBoundary.requireBegin, 'codeDelivery.generationBoundary.requireBegin'),
       dirtyStart: enumValue(generationBoundary.dirtyStart, ['block', 'allow-explicit-adoption'], 'codeDelivery.generationBoundary.dirtyStart')

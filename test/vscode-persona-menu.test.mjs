@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -7,7 +8,7 @@ import { readFile } from 'node:fs/promises';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
   PROFILE_PERSONAS, PROFILE_PERSONA_IDS, isProfilePersonaId, resolveProfilePersona
-} = await import(path.join(root, 'apps/vscode/src/views/profile-personas.ts'));
+} = await import(pathToFileURL(path.join(root, 'apps/vscode/src/views/profile-personas.ts')).href);
 
 const SECTIONS = ['favorites', 'inbox', 'workspaces', 'lifecycle', 'configuration', 'help', 'logs'];
 

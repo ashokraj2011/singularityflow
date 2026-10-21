@@ -146,8 +146,15 @@ export class ApprovalsPanel {
       () => this.render(),
       ['repository', 'lifecycle', 'configuration']
     );
-    this.subscription = store.onDidChange((_state, change) =>
-      this.snapshotRenders.changed(change.kind, change.changedSlices));
+    let unavailable = Boolean(store.current.error || store.current.stale);
+    this.subscription = store.onDidChange((state, change) => {
+      const next = Boolean(state.error || state.stale);
+      const availabilityChanged = next !== unavailable;
+      unavailable = next;
+      // A fresh not-modified receipt still clears a cached/error notice. Content-slice equality
+      // must not leave the view permanently saying it is waiting for repository confirmation.
+      this.snapshotRenders.changed(availabilityChanged ? 'availability' : change.kind, change.changedSlices);
+    });
 
     /**
      * The three messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
@@ -157,6 +164,7 @@ export class ApprovalsPanel {
      * the closed set — an unrecognised type is reported instead of falling off the end of the chain.
      */
     const approvalFor = (message: InboundMessage) => {
+      if (this.store.current.error || this.store.current.stale) return null;
       const id = stringField(message, 'id');
       return id
         ? buildApprovals(this.store.current.snapshot).pending.find((candidate) => candidate.id === id) ?? null
@@ -217,9 +225,18 @@ export class ApprovalsPanel {
   private render(): void {
     this.snapshotRenders.rendered();
     const token = nonce();
+    const state = this.store.current;
+    const body = state.error
+      ? `<header><h1>${icon('approval', { size: 20 })}Approvals</h1></header>
+        <div role="alert"><h2>Approvals could not be read</h2><pre>${escape(state.error.message)}</pre>
+        <p>The current approval state is unavailable; no approval action is offered.</p></div>`
+      : state.stale
+        ? `<header><h1>${icon('approval', { size: 20 })}Approvals</h1></header>
+          <p>Confirming the current repository before showing approval actions…</p>`
+        : bodyHtml(buildApprovals(state.snapshot));
     this.panel.webview.html = page(
       'Approvals',
-      bodyHtml(buildApprovals(this.store.current.snapshot)),
+      body,
       contentSecurityPolicy(this.panel.webview, token),
       token,
       SCRIPT,

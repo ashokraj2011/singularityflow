@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -114,7 +114,7 @@ test('exact-artifact consumer mode executes supplied artifacts and schedules zer
     artifactVsix: vsixArtifact,
     async runStage(stage) {
       observed.push(stage);
-      return { status: 0, signal: null, error: null, timedOut: false };
+      return { status: 0, signal: null, error: null, timedOut: false, quiescent: true };
     }
   });
   assert.equal(result.artifactConsumption, 'passed');
@@ -150,6 +150,101 @@ test('artifact-consumer arguments are an explicit fail-closed pair', () => {
   ], { cwd }), /requires one \.tgz package and one \.vsix extension/);
 });
 
+test('release qualification remains fail-fast unless diagnostic continuation is explicitly selected', async () => {
+  const observed = [];
+  await assert.rejects(runPocReleaseGate({
+    async runStage(stage) {
+      observed.push(stage.label);
+      return { status: observed.length === 2 ? 7 : 0, error: null, timedOut: false, quiescent: true };
+    }
+  }), (error) => error.exitCode === 7 && /Developer-experience latency budgets/u.test(error.message));
+  assert.equal(observed.length, 2);
+});
+
+test('diagnostic continuation runs every bounded stage but preserves all failures and refuses qualification', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const observed = [];
+  await assert.rejects(runPocReleaseGate({
+    continueOnFailure: true,
+    async runStage(stage) {
+      observed.push(stage.label);
+      return { status: observed.length === 2 || observed.length === 4 ? 1 : 0,
+        error: null, timedOut: observed.length === 4, quiescent: true };
+    }
+  }), (error) => {
+    assert.equal(error.exitCode, 1);
+    assert.equal(error.failures.length, 2);
+    assert.equal(error.stageCount, pocReleaseStages().length);
+    assert.match(error.failures[1].detail, /deadline/u);
+    assert.match(error.message, /no release qualification was established/u);
+    assert.ok(Object.isFrozen(error.failures));
+    return true;
+  });
+  assert.equal(observed.length, pocReleaseStages().length);
+  assert.ok(observed.some(label => /installation/u.test(label)), 'latency failure hid install/recovery coverage');
+});
+
+test('diagnostic continuation never absorbs a thrown execution-owner failure or deletes its scratch state', async (t) => {
+  const failure = new Error('execution owner could not establish quiescence');
+  let invoked = 0;
+  let retained;
+  t.mock.method(console, 'error', () => {});
+  t.after(() => retained && rm(retained, { recursive: true, force: true }));
+  await assert.rejects(runPocReleaseGate({ continueOnFailure: true, async runStage(_stage, { environment }) {
+    invoked += 1;
+    retained = path.dirname(environment.SINGULARITY_FLOW_WORKSPACE_REGISTRY);
+    await writeFile(path.join(retained, 'active-child-state'), 'retained');
+    throw failure;
+  } }), error => error === failure);
+  assert.equal(invoked, 1);
+  assert.equal(await readFile(path.join(retained, 'active-child-state'), 'utf8'), 'retained');
+});
+
+test('an unconfirmed timeout stops diagnostic continuation and retains isolated recovery with its native cause', async (t) => {
+  let invoked = 0;
+  let retained;
+  const cause = Object.assign(new Error('native taskkill failed'), { code: 'EPERM' });
+  t.mock.method(console, 'error', () => {});
+  t.after(() => retained && rm(retained, { recursive: true, force: true }));
+  await assert.rejects(runPocReleaseGate({ continueOnFailure: true, async runStage(_stage, { environment }) {
+    invoked += 1;
+    retained = path.dirname(environment.SINGULARITY_FLOW_WORKSPACE_REGISTRY);
+    return { status: 1, error: cause, signal: 'SIGKILL', timedOut: true, quiescent: false };
+  } }), error => error.code === 'POC_RELEASE_PROCESS_UNCONFIRMED' && error.cause === cause
+    && error.recoveryDirectory === retained && error.timedOut && error.signal === 'SIGKILL');
+  assert.equal(invoked, 1);
+  assert.ok((await lstat(retained)).isDirectory());
+});
+
+test('release stages receive an isolated home and all machine state, never the invoking profile', async () => {
+  let home;
+  await runPocReleaseGate({ async runStage(_stage, { environment }) {
+    home = environment.HOME;
+    assert.equal(environment.USERPROFILE, home);
+    assert.equal(environment.NODE_TEST_CONTEXT, undefined);
+    assert.equal(environment.NODE_OPTIONS, undefined);
+    assert.equal(environment.NODE_PATH, undefined);
+    assert.equal(environment.SINGULARITY_FLOW_RELEASE_FAIL_ON_SKIPPED_TEST_FILES, '1');
+    const scratch = path.dirname(environment.SINGULARITY_FLOW_WORKSPACE_REGISTRY);
+    for (const key of ['GIT_CONFIG_GLOBAL', 'SINGULARITY_FLOW_REPOSITORY_CHECK_PREFERENCES',
+      'SINGULARITY_FLOW_COPILOT_MODE_FILE', 'SINGULARITY_FLOW_HOME']) {
+      assert.ok(path.relative(scratch, environment[key]) && !path.relative(scratch, environment[key]).startsWith('..'), key);
+    }
+    assert.notEqual(home, os.homedir());
+    return { status: 0, error: null, timedOut: false, quiescent: true };
+  } });
+  assert.equal(await lstat(home).catch(() => null), null);
+});
+
+test('diagnostic continuation is explicit, bounded to one flag and cannot weaken artifact input validation', async () => {
+  assert.deepEqual(parsePocReleaseArguments(['--continue-on-failure']), {
+    artifactPackage: null, artifactVsix: null, continueOnFailure: true
+  });
+  assert.throws(() => parsePocReleaseArguments(['--continue-on-failure', '--continue-on-failure']), /more than once/u);
+  assert.throws(() => parsePocReleaseArguments(['--continue-on-failure', '--artifact-package', 'candidate.tgz']), /requires both/u);
+  await assert.rejects(runPocReleaseGate({ continueOnFailure: 'yes' }), /must be a boolean/u);
+});
+
 test('a stage deadline force-cleans the process tree and settles without a child close event', async () => {
   const child = new EventEmitter();
   child.pid = 4242;
@@ -170,8 +265,24 @@ test('a stage deadline force-cleans the process tree and settles without a child
 
   assert.equal(result.status, 1);
   assert.equal(result.timedOut, true);
+  assert.equal(result.quiescent, false);
   assert.deepEqual(signals, ['SIGTERM', 'SIGKILL']);
   assert.ok(Date.now() - started < 250, 'the stage escaped its deadline plus cleanup grace');
+  assert.doesNotThrow(() => child.emit('error', new Error('late native acknowledgement')));
+  child.emit('close', 1, 'SIGKILL');
+});
+
+test('ordinary native child completion and a pre-spawn refusal establish safe release scratch cleanup', async () => {
+  const completed = await runPocReleaseStage({ label: 'real bounded child', command: process.execPath,
+    args: ['-e', 'process.exit(0)'], timeoutMs: 5_000 });
+  assert.equal(completed.status, 0);
+  assert.equal(completed.quiescent, true);
+  const cause = Object.assign(new Error('fixture launch refused'), { code: 'ENOENT' });
+  const refused = await runPocReleaseStage({ label: 'never started', command: 'fixture', args: [], timeoutMs: 5_000 }, {
+    resolveProcess() { throw cause; }
+  });
+  assert.equal(refused.error, cause);
+  assert.equal(refused.quiescent, true);
 });
 
 test('the exact VSIX smoke extracts a bounded engine and enforces a source-module boundary', async () => {

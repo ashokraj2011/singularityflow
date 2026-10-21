@@ -341,9 +341,9 @@
     },
     "install-windows-git-bash.sh": {
       "counts": {
-        "shell-process": 15
+        "shell-process": 10
       },
-      "digest": "ce68a8bbbd892a629e0c1ce9828ea10bc727118baf3e917a7903a2bf5d8119ed"
+      "digest": "a0c57349aa29c6e696300e07cc392c70491d3d372b97335a2ae0b150cbc362c2"
     },
     "install.sh": {
       "counts": {
@@ -409,7 +409,7 @@
         "process-import": 1,
         "process-launch": 1
       },
-      "digest": "74bfd1d280b654235b1ee0b99dc6397bd5a02f18d3360e2051b2950383a6db68"
+      "digest": "3ca51aa21eb4bbdf53df520900d3a3ebf08760084014d8c6143017c5eea6c6d9"
     },
     "scripts/proposal-performance-benchmark.mjs": {
       "counts": {
@@ -1551,9 +1551,9 @@
     },
     "src/state.mjs": {
       "counts": {
-        "command-run": 26
+        "command-run": 28
       },
-      "digest": "4d3eba3681bbfecf3a9149c55ab28cfd234e093d50c7d65014c89e9527269ed8"
+      "digest": "2d537a056d760b4b9b1b7bf7425cd9fbda4c1a59ee582b21b69ed47d345e3f07"
     },
     "src/story-intake-verification.mjs": {
       "counts": {
@@ -1762,6 +1762,12 @@
         "command-git": 4
       },
       "digest": "e525df249d8805b1a61d47c195d9bd036c9d47baf9b866fba347147a959d04a2"
+    },
+    "src/story-review-artifact-read.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "3cf83f658d4506a6dc719490ec8d1a4b927881dec4e679c3b3793d490fb7aaa5"
     }
   }
 }

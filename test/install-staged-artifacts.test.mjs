@@ -636,8 +636,17 @@ test('a normal install cannot supersede an incomplete activation journal', async
 
   await assert.rejects(
     acquireActivationLease({ journal: item.journal, checkout: item.checkout, mode: 'create' }),
-    new RegExp(`activation journal '${record.operationId}'.*staged.*--from-staged-artifacts`, 'u')
+    error => {
+      assert.match(error.message, new RegExp(`activation journal '${record.operationId}'.*staged.*--from-staged-artifacts`, 'u'));
+      assert.ok(error.message.includes(JSON.stringify(item.journal)));
+      assert.ok(error.message.includes(JSON.stringify(record.recoveryCommand)));
+      assert.ok(error.message.includes(JSON.stringify(item.checkout)));
+      assert.match(error.message, /Do not delete the journal or staged artifacts/u);
+      return true;
+    }
   );
+  assert.deepEqual(JSON.parse(await readFile(item.journal, 'utf8')), record,
+    'a normal retry must not rewrite or abandon the interrupted activation');
   const recovery = await acquireActivationLease({
     journal: item.journal, checkout: item.checkout, mode: 'resume'
   });

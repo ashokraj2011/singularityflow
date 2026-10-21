@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
@@ -32,12 +33,12 @@ const {
   teamOnboardingProblems,
   teamOnboardingProposalPreview,
   teamOnboardingRepository
-} = await import(source('views/team-onboarding-model.ts'));
+} = await import(pathToFileURL(source('views/team-onboarding-model.ts')).href);
 const {
   TEAM_ONBOARDING_MESSAGE_TYPES,
   TEAM_ONBOARDING_SCRIPT,
   teamOnboardingHtml
-} = await import(source('views/team-onboarding-page.ts'));
+} = await import(pathToFileURL(source('views/team-onboarding-page.ts')).href);
 
 const authority = {
   id: 'authority:platform',

@@ -7,7 +7,6 @@ import { branch, gitDir, remoteUrl, repoRoot } from '../git.mjs';
 import { classifyGitHost } from '../git-host.mjs';
 import { nextStepsSnapshot, nextStepsText } from '../nextsteps.mjs';
 import { readPendingPublication } from '../publication-pending.mjs';
-import { buildRepositorySubjectIndex, resolveContext } from '../repository-subject-index.mjs';
 import { exists, optionBoolean, readJson } from '../util.mjs';
 import { phaseNeedsGeneration } from '../sequence.mjs';
 import { validateAgentEntryRequest } from '../agent-entry-options.mjs';
@@ -15,7 +14,7 @@ import { operationContext } from '../operation-context.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { effectivePhasePublicationProducer } from '../manual-authorship.mjs';
 import { storyRequiresStepActions } from '../step-actions.mjs';
-import { requiresProspectivePhaseInspection } from '../code-submission-evidence.mjs';
+import { requiresProspectivePhaseInspection } from '../phase-inspection-generation.mjs';
 import { sourceReviewRequired } from '../source-review-policy.mjs';
 import { phaseContinuation } from '../phase-continuation.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';
@@ -157,6 +156,7 @@ async function resolveSnapshotInScope(root, positionals, approvedConfigurationAv
   try { accepted = await loadAcceptedStoryExecution(root, reference); }
   catch (error) { if (error?.code !== 'STORY_NOT_FOUND') throw error; }
   if (accepted) return resolveStorySnapshot(root, accepted);
+  const { buildRepositorySubjectIndex, resolveContext } = await import('../repository-subject-index.mjs');
   const selected = resolveContext(await buildRepositorySubjectIndex(root), { reference, required: false });
   if (selected?.kind === 'initiative') return initiativeSnapshot(root, selected);
   if (selected?.kind !== 'story') return nextStepsSnapshot({ initialized: true, branch: branch(root), requestedWorkId });

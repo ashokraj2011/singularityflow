@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 /**
  * The Repository Brief page: one tab per view, the phase's views first, every statement with
  * buttons to its sources, and the model's statements told apart from the evidence shown in their place.
@@ -9,7 +10,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const { BRIEF_TABS, REPOSITORY_BRIEF_SCRIPT, repositoryBriefBody } = await import(path.join(root, 'apps', 'vscode', 'src', 'views', 'repository-brief-page.ts'));
+const { BRIEF_TABS, REPOSITORY_BRIEF_SCRIPT, repositoryBriefBody } = await import(pathToFileURL(path.join(root, 'apps', 'vscode', 'src', 'views', 'repository-brief-page.ts')).href);
 
 const brief = {
   repository: 'orders', commit: '0123456789abcdef', phase: 'intake',

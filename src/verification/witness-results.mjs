@@ -46,13 +46,14 @@ function attemptRun(attempt) {
  * when none ran; `submitted` says whether the delivery reached submission (only then is an absent
  * result missing rather than pending).
  */
-export function witnessResult(witness, attempt, { submitted = true } = {}) {
+export function witnessResult(witness, attempt, { submitted = true, enforceAssertionAdequacy = false } = {}) {
   const profile = witness.profile ?? 'module-counts-v1';
   const requiredAssurance = profileCeiling(profile);
   const base = {
     label: witnessLabel(witness), clauseId: witness.clauseId, testSource: witness.testSource, profile,
     commandId: witness.commandId ?? null, identityKey: witness.logicalTestId ?? null, requiredAssurance,
-    attemptId: attempt?.attemptId ?? null
+    attemptId: attempt?.attemptId ?? null,
+    ...(witness.assertions ? { assertions: witness.assertions } : {})
   };
   const finish = (result) => {
     const passed = result.status === 'met';
@@ -87,6 +88,17 @@ export function witnessResult(witness, attempt, { submitted = true } = {}) {
   }
   // Exact execution was observed only when this test's own occurrence was found and judged.
   const observed = (joined.occurrences ?? []).length > 0 && ['passed', 'flaky', 'failed', 'unverified-skipped'].includes(joined.outcome);
+  const checkAdequacy = enforceAssertionAdequacy || witness.enforceAssertionAdequacy === true;
+  if (checkAdequacy && joined.outcome === 'passed' && witness.assertions && witness.assertions.adequacy !== 'adequate') {
+    const adequacyReason = witness.assertions.adequacy === 'tautological'
+      ? 'TEST_ASSERTION_TAUTOLOGICAL'
+      : 'TEST_ASSERTION_MISSING';
+    return finish({
+      outcome: 'inconclusive', status: 'inconclusive', identity: 'source-bound',
+      execution: observed ? 'exact-local-observed' : run.succeeded ? 'module-observed' : 'none',
+      reasons: [adequacyReason], occurrences: joined.occurrences ?? []
+    });
+  }
   return finish({
     outcome: joined.outcome, status: OUTCOME_STATUS[joined.outcome] ?? 'inconclusive', identity: 'source-bound',
     execution: observed ? 'exact-local-observed' : run.succeeded ? 'module-observed' : 'none',

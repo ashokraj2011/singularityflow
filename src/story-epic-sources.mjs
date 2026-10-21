@@ -19,7 +19,8 @@ import { exactFileAtObject, isAncestor } from './git.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { workDir } from './story-paths.mjs';
 import { initiativeRelative } from './state-stores.mjs';
-import { SingularityFlowError, snapshot, posix } from './util.mjs';
+import { SingularityFlowError, posix } from './util.mjs';
+import { readReviewArtifactBytes } from './artifact-review-read.mjs';
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
@@ -29,17 +30,25 @@ const RECORD_LIMIT = 1024 * 1024;
 
 /** The Story's source.json, only while it matches the hash pinned when the Story started. */
 export async function pinnedStorySource(root, config, workflow) {
+  const result = await pinnedStorySourceSnapshot(root, config, workflow);
+  return result ? JSON.parse(result.bytes.toString('utf8')) : null;
+}
+
+/** Stable bytes and immutable identity; retain main's committed-source conversion proof. */
+export async function pinnedStorySourceSnapshot(root, config, workflow) {
   const sourcePath = path.join(workDir(root, config, workflow.workItem.id), 'source.json');
-  const info = await snapshot(sourcePath);
-  if (!info.exists) return null;
-  let bytes = await readFile(sourcePath);
-  if (workflow.resolution?.sourceSha256 && info.sha256 !== workflow.resolution.sourceSha256) {
+  const relative = posix(path.relative(root, sourcePath));
+  const checkout = await readReviewArtifactBytes(root, relative, 'Story source snapshot');
+  if (checkout == null) return null;
+  let bytes = checkout;
+  if (workflow.resolution?.sourceSha256 && sha256(bytes) !== workflow.resolution.sourceSha256) {
     const canonical = (await import('./documents-read.mjs')).committedDocumentBytes(
       root, posix(path.relative(root, sourcePath)), { sha256: workflow.resolution.sourceSha256 }, bytes);
     if (!canonical) throw new SingularityFlowError('source.json differs from the immutable Story source snapshot.', { code: 'WORK_SOURCE_HASH_MISMATCH' });
     bytes = canonical;
   }
-  return JSON.parse(bytes.toString('utf8'));
+  return { bytes, record: { path: relative, sha256: sha256(bytes), bytes: bytes.length },
+    checkout: { sha256: sha256(checkout), bytes: checkout.length } };
 }
 
 function storyBaseCommit(workflow) {

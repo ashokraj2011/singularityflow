@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -8,7 +9,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
   configuredGitRemotes, configuredGitRemoteUrls, currentGitSource,
   gitVersion, hasConfiguredGitRemote
-} = await import(path.join(root, 'apps/vscode/src/cli/git-observations.ts'));
+} = await import(pathToFileURL(path.join(root, 'apps/vscode/src/cli/git-observations.ts')).href);
 
 const ok = (output) => ({
   status: 0, stdout: Buffer.from(output), stderr: '', failure: null

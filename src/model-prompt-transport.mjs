@@ -12,18 +12,27 @@ export const DEFAULT_MODEL_PROMPT_MAXIMUM_BYTES = 8 * 1024 * 1024;
 function sha256(bytes) { return createHash('sha256').update(bytes).digest('hex'); }
 
 async function boundedPromptFile(file, maximumBytes) {
+  // O_NOFOLLOW is unavailable on Windows. Check the directory entry as well as the descriptor,
+  // and rebind it after reading so a link/replacement race cannot turn a local prompt into an
+  // unintended file read. BigInt avoids rounding native Windows file IDs.
+  const entry = await lstat(file, { bigint: true });
+  if (!entry.isFile() || entry.isSymbolicLink()) {
+    throw new SingularityFlowError('Model prompt file must be a regular non-symbolic file.', {
+      code: 'MODEL_REQUEST_INVALID'
+    });
+  }
   const flags = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0);
   const handle = await open(file, flags);
   try {
-    const before = await handle.stat();
-    if (!before.isFile()) {
+    const before = await handle.stat({ bigint: true });
+    if (!before.isFile() || before.dev !== entry.dev || before.ino !== entry.ino) {
       throw new SingularityFlowError('Model prompt file must be a regular non-symbolic file.', {
         code: 'MODEL_REQUEST_INVALID'
       });
     }
-    if (before.size > maximumBytes) {
+    if (before.size > BigInt(maximumBytes)) {
       throw new SingularityFlowError(`Model prompt exceeds the ${maximumBytes}-byte input policy.`, {
-        code: 'MODEL_PROMPT_LIMIT', details: { promptBytes: before.size, maximumBytes }
+        code: 'MODEL_PROMPT_LIMIT', details: { promptBytes: Number(before.size), maximumBytes }
       });
     }
     const chunks = [];
@@ -42,8 +51,12 @@ async function boundedPromptFile(file, maximumBytes) {
         });
       }
     }
-    const after = await handle.stat();
-    if (after.dev !== before.dev || after.ino !== before.ino || after.size !== total) {
+    const after = await handle.stat({ bigint: true });
+    const rebound = await lstat(file, { bigint: true });
+    if (!rebound.isFile() || rebound.isSymbolicLink() || rebound.dev !== before.dev || rebound.ino !== before.ino
+        || after.dev !== before.dev || after.ino !== before.ino || after.size !== BigInt(total)
+        || after.mtimeNs !== before.mtimeNs || after.ctimeNs !== before.ctimeNs
+        || rebound.size !== after.size || rebound.mtimeNs !== after.mtimeNs) {
       throw new SingularityFlowError('Model prompt file changed while it was being staged.', {
         code: 'MODEL_PROMPT_STAGE_FAILED'
       });

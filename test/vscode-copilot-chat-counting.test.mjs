@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -6,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (name) => path.join(packageRoot, 'apps', 'vscode', 'src', name);
-const { copilotChatCounting } = await import(source('copilot-chat-counting-state.ts'));
-const { copilotActivityHtml } = await import(source('views/dashboard-copilot.ts'));
+const { copilotChatCounting } = await import(pathToFileURL(source('copilot-chat-counting-state.ts')).href);
+const { copilotActivityHtml } = await import(pathToFileURL(source('views/dashboard-copilot.ts')).href);
 
 const file = '/home/dev/.singularity-flow/copilot-chat-otel.jsonl';
 

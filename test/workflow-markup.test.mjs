@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import YAML from 'yaml';
 import { parseWorkflowMarkup, WORKFLOW_MARKUP_LIMITS } from '../src/workflow-markup-parser.mjs';
 import { compileWorkflowMarkup, lowerWorkflowMarkup } from '../src/workflow-markup.mjs';
-import { initializeDefinition, loadDefinition, resolveWorkType } from '../src/config.mjs';
+import { assertWorkTypeStartable, initializeDefinition, loadDefinition, resolveWorkType } from '../src/config.mjs';
 import { discoverAgents, renderAgentSkills } from '../src/agents.mjs';
 import { planWorkflowImport, applyWorkflowImport, exportWorkflowBundle } from '../src/workflow-transfer.mjs';
 import { decisionOutcome } from '../src/workflow-decisions.mjs';
@@ -208,4 +208,79 @@ test('actual CLI works outside any repository and rejects unsafe file and option
     ['compile', file, '--out', 'one.json', '--out', 'two.json'], ['compile', file, '--json', '--json'], ['compile', file, 'extra'], ['example', '--out', 'output']]) {
     assert.notEqual(invoke(args).status, 0, args.join(' '));
   }
+});
+
+// A new workflow (no extends) designs its own steps; no existing workflow is looked up or copied.
+const fresh = `<workflow version="1" id="acme" label="Acme check and repair">
+  <description>Capture the requirements, check the app against them, repair what fails.</description>
+  <agent id="acme-analyst" description="Captures requirements"><description>Restate the request as clauses.</description></agent>
+  <agent id="acme-tester" description="Checks the app"><description>Check the app against the clauses.</description></agent>
+  <agent id="acme-developer" description="Repairs failures"><description>Repair what the check found.</description></agent>
+  <phase id="acme-requirements" from="requirements" agent="acme-analyst" />
+  <phase id="acme-check" label="Check" output="analysis" agent="acme-tester" reads="acme-requirements" />
+  <phase id="acme-repair" label="Repair" output="code" agent="acme-developer" reads="acme-requirements acme-check">
+    <approval authority="engineering-reviewers" />
+  </phase>
+</workflow>`;
+
+test('a new workflow creates its own steps in the order it needs, without a starter workflow', async t => {
+  const context = await fixture(t); const original = structuredClone(context.definition);
+  const result = lowerWorkflowMarkup(fresh, context);
+  assert.deepEqual(context.definition, original);
+  assert.equal(result.fresh, true); assert.equal(result.extends, null);
+  assert.deepEqual(result.workflow.phases, ['acme-requirements', 'acme-check', 'acme-repair']);
+  assert.deepEqual(result.workflow.decisions, []);
+  assert.equal(result.phases['acme-check'].generation.task, 'analyze');
+  assert.equal(result.phases['acme-check'].writeScope, 'artifact-only');
+  assert.equal(result.phases['acme-check'].approval, 'none');
+  assert.deepEqual(result.phases['acme-check'].inputs, ['acme-requirements']);
+  assert.equal(result.phases['acme-repair'].generation.task, 'code');
+  assert.equal(result.phases['acme-repair'].writeScope, 'source-and-artifact');
+  assert.deepEqual(result.phases['acme-repair'].approval.authorities, ['engineering-reviewers']);
+  // The copy keeps its library contract; a send-back target this workflow lacks is dropped, never widened.
+  assert.equal(result.phases['acme-requirements'].artifact.kind, 'requirements');
+  assert.deepEqual(result.phases['acme-requirements'].approval.rejectTo, ['acme-requirements']);
+  assert.deepEqual(result.templates.map(item => item.path), ['common/acme-check.md', 'common/acme-repair.md']);
+
+  const compiled = await compileWorkflowMarkup(fresh);
+  assert.equal(compiled.status, 'portable-ready'); assert.equal(compiled.routeSimulation.status, 'passed');
+  const workflow = compiled.bundle.objects.story.workTypes.acme;
+  assert.deepEqual(workflow.plannedClaims, { mode: 'required', clausePhases: ['acme-requirements'], owners: { 'acme-repair': 'acme-check' } });
+  for (const file of ['common/acme-check.md', 'common/acme-repair.md']) {
+    assert.ok(compiled.bundle.assets.some(asset => asset.kind === 'template' && asset.path.endsWith(file)), file);
+  }
+  assert.deepEqual(Object.keys(compiled.bundle.objects.story.phases).sort(), ['acme-check', 'acme-repair', 'acme-requirements']);
+});
+
+test('a new workflow refuses unclear steps, outside references and code without requirements', async t => {
+  const context = await fixture(t);
+  const cases = [
+    [fresh.replace('output="analysis"', 'output="analysis" from="requirements"'), /either a new step/u],
+    [fresh.replace(' output="analysis"', ''), /either a new step/u],
+    [fresh.replace('output="analysis"', 'output="report"'), /output is one of/u],
+    [fresh.replace(' label="Check" output="analysis"', ' output="analysis"'), /needs a label/u],
+    [fresh.replace('from="requirements"', 'from="missing-step"'), /no library step 'missing-step'/u],
+    [fresh.replace('reads="acme-requirements" />', 'reads="acme-repair" />'), /before this one/u],
+    [fresh.replace('reads="acme-requirements" />', 'reads="acme-requirements acme-requirements" />'), /each phase once/u],
+    [fresh.replace('from="requirements"', 'from="scenario-check"'), /refers to step 'document-intake'/u]
+  ];
+  for (const [source, message] of cases) assert.throws(() => lowerWorkflowMarkup(source, context), error => errorCode(error) && message.test(error.message), String(message));
+  // A starter's phases keep its contracts: output and reads belong to a new workflow only.
+  assert.throws(() => lowerWorkflowMarkup(example.replace('from="demo-instruction-test"', 'from="demo-instruction-test" output="analysis"'), context), errorCode);
+  // A copy that names what it reads does not need the step its library contract reads.
+  const copied = lowerWorkflowMarkup(fresh.replace('from="requirements" agent="acme-analyst" />', 'from="scenario-check" agent="acme-analyst" reads="" />'), context);
+  assert.equal(copied.phases['acme-requirements'].inputs, undefined);
+  await assert.rejects(compileWorkflowMarkup(fresh.replace('<phase id="acme-requirements" from="requirements" agent="acme-analyst" />',
+    '<phase id="acme-requirements" label="Notes" output="document" agent="acme-analyst" />')), error => error.code === 'WORKFLOW_MARKUP_INVALID' && /defines the requirements/u.test(error.message));
+});
+
+test('a new workflow goes through the normal import review and can start a Story', async t => {
+  const { root } = await fixture(t); const { bundle } = await compileWorkflowMarkup(fresh);
+  const plan = await planWorkflowImport(root, bundle); assert.equal(plan.status, 'ready', JSON.stringify(plan.conflicts));
+  await applyWorkflowImport(root, bundle, { expectedPlanSha256: plan.planSha256 });
+  const resolved = resolveWorkType(await loadDefinition(root), 'acme');
+  assert.deepEqual(resolved.phases.map(phase => phase.id), ['acme-requirements', 'acme-check', 'acme-repair']);
+  assert.deepEqual(resolved.plannedClaims.clausePhases, ['acme-requirements']);
+  assertWorkTypeStartable(resolved);
+  assert.match(await readFile(path.join(root, 'singularity/templates/common/acme-check.md'), 'utf8'), /^# Check/u);
 });

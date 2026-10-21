@@ -12,6 +12,7 @@ import { inlineInstructionTags } from './skill-instruction-composition.mjs';
 import { withoutAttachedSkills, effectiveLibrarySkills } from './skill-library.mjs';
 import { derivedMcpPolicy } from './workflow-markup-mcp.mjs';
 import { normalizeApprovalPolicy } from './approval-authority.mjs';
+import { STEP_OUTPUTS, newStepContract, newStepTemplate } from './step-outputs.mjs';
 
 export const WORKFLOW_MARKUP_FORMAT = 'sflow-workflow-markup/v1';
 const digest = text => `sha256:${createHash('sha256').update(text).digest('hex')}`;
@@ -52,8 +53,31 @@ function omit(node) {
 }
 
 /**
- * Pure lowering against an explicit installed starter. It cannot fetch a URL, execute a command,
- * change group membership, invent a test runner or rewrite another workflow's phase or skills.
+ * A phase of a new workflow (one with no `extends`) that copies one library step: the step's own
+ * contract, with each step it refers to localized to this workflow. What it reads is either
+ * `reads` or the copied inputs; a send-back target this workflow does not have before it is
+ * dropped, never widened, as a workflow running a shared step keeps only the targets it has.
+ */
+function copiedStep(node, { definition, from, phaseId, order, localize: shared }) {
+  // The step itself is this copy, even when the workflow copies the same library step twice.
+  const localize = value => (value === from ? phaseId : shared(value));
+  const source = structuredClone(definition.phases[from]);
+  const rejectTo = source.approval?.rejectTo;
+  if (rejectTo) delete source.approval.rejectTo;
+  if (node.attrs.reads !== undefined) delete source.inputs;
+  const phase = remapMarkupPhase(source, value => localize(value)
+    ?? markupError(`Phase '${phaseId}' copies '${from}', which refers to step '${value}'. Copy that step into this workflow once, or say what this phase reads with reads="…".`, node));
+  if (rejectTo) {
+    const kept = [...new Set(rejectTo.map(localize).filter(target => target && order.indexOf(target) <= order.indexOf(phaseId)))];
+    phase.approval.rejectTo = kept.length ? kept : [phaseId];
+  }
+  return phase;
+}
+
+/**
+ * Pure lowering against an explicit installed starter, or of a new workflow designed from its own
+ * steps. It cannot fetch a URL, execute a command, change group membership, invent a test runner
+ * or rewrite another workflow's phase or skills.
  */
 export function lowerWorkflowMarkup(source, { definition, agents = [], catalog = null }) {
   const root = parseWorkflowMarkup(source);
@@ -68,14 +92,17 @@ export function lowerWorkflowMarkup(source, { definition, agents = [], catalog =
     if (!reusedAssets.some(item => item.kind === kind && item.id === name && item.as === as)) reusedAssets.push({ kind, id: name, as, sha256: found.sha256 });
     return found.value;
   };
-  const id = markupId(root.attrs.id, root); const baseId = markupId(root.attrs.extends, root, 'Starter workflow');
-  const base = Object.hasOwn(definition.workTypes ?? {}, baseId) ? definition.workTypes[baseId] : null;
-  if (!base) markupError('The extends workflow is not in the selected configuration.', root);
-  if (version2) reuse('workflow', baseId, root);
+  // Without extends the workflow is new: its phases are its own, in the order the intent needs.
+  const fresh = root.attrs.extends === undefined;
+  const id = markupId(root.attrs.id, root); const baseId = fresh ? null : markupId(root.attrs.extends, root, 'Starter workflow');
+  const base = fresh ? null : Object.hasOwn(definition.workTypes ?? {}, baseId) ? definition.workTypes[baseId] : null;
+  if (!fresh && !base) markupError('The extends workflow is not in the selected configuration.', root);
+  if (version2 && !fresh) reuse('workflow', baseId, root);
   if (Object.hasOwn(definition.workTypes, id)) markupError('Workflow ID already exists; choose a new namespace.', root);
   const phaseNodes = children(root, 'phase');
-  if (!phaseNodes.length || phaseNodes.length > 30 || phaseNodes.length !== base.phases.length) markupError('Map every selected workflow-contract phase once, in its existing order. Use the canvas or reviewed workflow-authoring package route for a different topology.', root);
-  const phaseMap = new Map(); const phaseIds = new Set();
+  if (fresh && (!phaseNodes.length || phaseNodes.length > 30)) markupError('A new workflow declares between 1 and 30 phases.', root);
+  if (!fresh && (!phaseNodes.length || phaseNodes.length > 30 || phaseNodes.length !== base.phases.length)) markupError('Map every selected workflow-contract phase once, in its existing order. Use the canvas or reviewed workflow-authoring package route for a different topology.', root);
+  const phaseMap = new Map(); const phaseIds = new Set(); const copies = new Map();
   const declared = new Map(); const sourceMap = [{ target: `workflow:${id}`, start: root.start, end: root.end, line: root.line }];
   const claim = (kind, value, node) => {
     const name = markupId(value, node);
@@ -86,13 +113,29 @@ export function lowerWorkflowMarkup(source, { definition, agents = [], catalog =
     return name;
   };
   phaseNodes.forEach((node, index) => {
-    markupShape(node, 'phase', ['id', 'label', 'from', 'agent', 'next'], ['description', 'skill', 'decision', 'loop', 'approval']);
+    markupShape(node, 'phase', ['id', 'label', 'from', 'agent', 'next', ...(fresh ? ['output', 'reads'] : [])], ['description', 'skill', 'decision', 'loop', 'approval']);
     const phaseId = claim('phase', node.attrs.id, node);
-    if (node.attrs.from !== base.phases[index]) markupError('Each from must match the corresponding starter phase; no phase contract is silently dropped or reordered.', node);
-    if (version2) reuse('phase', node.attrs.from, node, phaseId);
+    if (fresh) {
+      if ((node.attrs.from === undefined) === (node.attrs.output === undefined)) markupError(`A phase of a new workflow is either a new step with output="${STEP_OUTPUTS.map(entry => entry.id).join('|')}" or a copy of one library step with from.`, node);
+      if (node.attrs.output !== undefined && !STEP_OUTPUTS.some(entry => entry.id === node.attrs.output)) markupError(`A new step's output is one of: ${STEP_OUTPUTS.map(entry => entry.id).join(', ')}.`, node);
+      if (node.attrs.output !== undefined && node.attrs.label === undefined) markupError('A new step needs a label.', node);
+      if (node.attrs.from !== undefined) {
+        const from = markupId(node.attrs.from, node, 'Copied step');
+        if (!Object.hasOwn(definition.phases, from)) markupError(`There is no library step '${from}' to copy. Create the step with output instead.`, node);
+        if (version2) reuse('phase', from, node, phaseId);
+        copies.set(from, [...(copies.get(from) ?? []), phaseId]);
+      }
+    } else {
+      if (node.attrs.from !== base.phases[index]) markupError('Each from must match the corresponding starter phase; no phase contract is silently dropped or reordered.', node);
+      if (version2) reuse('phase', node.attrs.from, node, phaseId);
+      phaseMap.set(node.attrs.from, phaseId);
+    }
     if (phaseIds.has(phaseId) || Object.hasOwn(definition.phases, phaseId)) markupError('Phase ID already exists.', node);
-    phaseMap.set(node.attrs.from, phaseId); phaseIds.add(phaseId);
+    phaseIds.add(phaseId);
   });
+  // A library step copied once is this workflow's version of it; one copied twice is named by reads.
+  for (const [from, ids] of copies) if (ids.length === 1) phaseMap.set(from, ids[0]);
+  const localize = value => phaseMap.get(value) ?? null;
   const phaseRef = (value, node) => {
     if (['next', 'end'].includes(value)) return value;
     if (!phaseIds.has(value)) markupError('Route must name a declared phase, next, or end. Checkpoint IDs are not phase destinations.', node);
@@ -103,17 +146,17 @@ export function lowerWorkflowMarkup(source, { definition, agents = [], catalog =
     return phaseMap.get(value);
   };
   const remapPhase = original => remapMarkupPhase(original, remap);
-  const workflow = remapMarkupWorkflow(base, remap);
+  const workflow = fresh ? {} : remapMarkupWorkflow(base, remap);
   workflow.label = text(root.attrs.label, root, 'Workflow label');
-  workflow.description = description(root) ?? base.description ?? '';
+  workflow.description = description(root) ?? base?.description ?? '';
   workflow.phases = phaseNodes.map(node => node.attrs.id);
   // Known per-phase references must be explicit; do not clone arbitrary future reference fields.
-  const decisions = (base.decisions ?? []).map((decision, index) => ({ ...structuredClone(decision),
+  const decisions = (base?.decisions ?? []).map((decision, index) => ({ ...structuredClone(decision),
     id: markupId(`${id}-decision-${index + 1}`, root), after: remap(decision.after),
     ...(decision.back ? { back: remap(decision.back) } : {}),
     ...(decision.routes ? { routes: decision.routes.map((route, at) => ({ ...structuredClone(route), id: markupId(`${id}-route-${index + 1}-${at + 1}`, root), to: ['next', 'end'].includes(route.to) ? route.to : remap(route.to) })) } : {}) }));
   const skills = []; const instructions = []; const newAgents = []; const attachments = [];
-  if (version2) for (const use of catalog.attachments.filter(item => item.workflow === baseId)) {
+  if (version2 && !fresh) for (const use of catalog.attachments.filter(item => item.workflow === baseId)) {
     attachments.push({ skill: use.id, workflow: id, steps: use.phases.map(remap), use: use.use });
   }
   const knownSkills = new Set(); const knownInstructions = new Set();
@@ -160,13 +203,27 @@ export function lowerWorkflowMarkup(source, { definition, agents = [], catalog =
     references(node, { agent: name });
   }
   const knownAgents = new Set(newAgents.map(agent => agent.id));
-  const phases = {};
+  const phases = {}; const templates = [];
   const decisionIds = new Set(decisions.map(decision => decision.id));
   for (const node of phaseNodes) {
     const phaseId = node.attrs.id;
     // Resolve the selected contract first: shared defaults may point outside this workflow,
     // while its approved override replaces those inputs, return routes or generation policy.
-    const phase = remapPhase(mergePhaseOverride(definition.phases[node.attrs.from], base.phaseOverrides?.[node.attrs.from]));
+    let phase;
+    if (!fresh) phase = remapPhase(mergePhaseOverride(definition.phases[node.attrs.from], base.phaseOverrides?.[node.attrs.from]));
+    else if (node.attrs.from !== undefined) phase = copiedStep(node, { definition, from: node.attrs.from, phaseId, order: workflow.phases, localize });
+    else {
+      phase = { ...newStepContract(phaseId, text(node.attrs.label, node, 'Phase label'), node.attrs.output), approval: 'none' };
+      templates.push({ path: phase.defaultTemplate, content: newStepTemplate(phaseId, phase.label) });
+    }
+    if (fresh && node.attrs.reads !== undefined) {
+      const reads = list(node.attrs.reads);
+      for (const value of reads) if (!phaseIds.has(value) || workflow.phases.indexOf(value) >= workflow.phases.indexOf(phaseId)) {
+        markupError('reads names phases this workflow declares before this one.', node);
+      }
+      if (new Set(reads).size !== reads.length) markupError('reads names each phase once.', node);
+      if (reads.length) phase.inputs = reads; else delete phase.inputs;
+    }
     if (phase.kind === 'skill' || typeof phase.artifact?.path !== 'string') markupError('Version 1 supports ordinary Story phase contracts; use the existing skill-contract authoring route for this starter.', node);
     if (node.attrs.label !== undefined) phase.label = text(node.attrs.label, node, 'Phase label');
     const override = workflow.phaseOverrides?.[phaseId];
@@ -274,9 +331,18 @@ export function lowerWorkflowMarkup(source, { definition, agents = [], catalog =
     markupError('Independent test evidence and code repair require separate custom agents.', node);
   }
   workflow.decisions = decisions;
+  if (fresh) {
+    // A copied step keeps document upload where its library step allowed it, as a Studio copy does.
+    const uploads = step => (definition.documents?.allowedPhases ?? []).includes(step)
+      || Object.values(definition.workTypes ?? {}).some(type => type.phases?.includes(step) && type.documents?.allowedPhases?.includes(step));
+    const allowedPhases = phaseNodes.filter(node => node.attrs.from !== undefined && uploads(node.attrs.from)).map(node => node.attrs.id);
+    if (allowedPhases.length) workflow.documents = { allowedPhases };
+  }
   if (children(root, 'omit').length) workflow.omits = children(root, 'omit').map(omit);
   const phaseAgents = Object.fromEntries(phaseNodes.map(node => [node.attrs.id, node.attrs.agent]));
-  const mcp = derivedMcpPolicy({ id, definition, phaseMap, phaseAgents, agents: newAgents, workflow, phases });
+  // A library step copied twice takes its MCP policy in each copy.
+  const sourcePhases = fresh ? [...copies].flatMap(([from, ids]) => ids.map(phase => [from, phase])) : phaseMap;
+  const mcp = derivedMcpPolicy({ id, definition, phaseMap: sourcePhases, phaseAgents, agents: newAgents, workflow, phases });
   for (const [sourceId, alias] of mcp.aliases) {
     markupId(alias, root, 'Derived MCP policy');
     if (Object.hasOwn(definition.mcpServers ?? {}, alias)) markupError('Derived MCP policy ID already exists.', root);
@@ -322,6 +388,7 @@ export function lowerWorkflowMarkup(source, { definition, agents = [], catalog =
       + requirements.map(item => `- ${item.id}: ${item.statement} -> ${item.targets.join(', ')}`).join('\n')
       + (reusedAssets.length ? '\n\nSource bindings:\n' + reusedAssets.map(item => `- ${item.kind}:${item.id} (${item.sha256}) -> ${item.as}`).join('\n') : '');
   }
+  if (fresh && !workflow.description) delete workflow.description;
   const attachmentMappings = []; const localIds = new Set();
   for (const node of children(root, 'attachment')) {
     markupShape(node, 'attachment', ['id', 'sha256', 'kind', 'maps-to']); empty(node);
@@ -335,7 +402,7 @@ export function lowerWorkflowMarkup(source, { definition, agents = [], catalog =
   }
   if (attachmentMappings.length) workflow.description += '\n\n## Local source mapping (candidate; requires human review)\n\n'
     + attachmentMappings.map(item => `- ${item.id} (${item.sha256}) as ${item.kind} -> ${item.targets.join(', ')}`).join('\n');
-  return { id, extends: baseId, workflow, phases, agents: newAgents, skills, instructions, attachments,
+  return { id, extends: baseId, fresh, templates, workflow, phases, agents: newAgents, skills, instructions, attachments,
     phaseAgents, sourceMap, intent, reusedAssets, attachmentMappings, mcpServers: mcp.servers, mcpAliases: mcp.aliases };
 }
 
@@ -421,10 +488,17 @@ async function compileCapturedMarkup(source, { out, catalog, designReview, inspe
     const put = async (relative, content) => {
       const target = path.join(scratch, ...relative.split('/')); await mkdir(path.dirname(target), { recursive: true }); await writeFile(target, content, 'utf8');
     };
+    const present = relative => lstat(path.join(scratch, ...relative.split('/'))).catch(error => {
+      if (error.code === 'ENOENT') return null; throw error;
+    });
     for (const [kind, entries, fileName] of [['skill-library', lowered.skills, 'SKILL.md'], ['instruction-library', lowered.instructions, 'INSTRUCTIONS.md']]) {
-      for (const entry of entries) if (await lstat(path.join(scratch, 'singularity', kind, entry.id, fileName)).catch(error => {
-        if (error.code === 'ENOENT') return null; throw error;
-      })) markupError('A declared dependency collides with the installed catalog; choose a fresh workflow namespace.');
+      for (const entry of entries) if (await present(`singularity/${kind}/${entry.id}/${fileName}`)) markupError('A declared dependency collides with the installed catalog; choose a fresh workflow namespace.');
+    }
+    // A new step's starter template, where Workflow Studio would write it.
+    for (const template of lowered.templates) {
+      const relative = path.posix.join(definition.templatesRoot ?? 'singularity/templates', template.path);
+      if (await present(relative)) markupError('A new step template collides with the installed catalog; choose a fresh workflow namespace.');
+      await put(relative, template.content);
     }
     for (const [id, phase] of Object.entries(lowered.phases)) definition.phases[id] = phase;
     definition.workTypes[lowered.id] = lowered.workflow;
@@ -455,7 +529,19 @@ async function compileCapturedMarkup(source, { out, catalog, designReview, inspe
       attached.set(key, entry);
     }
     await put(SKILL_ATTACHMENTS_PATH, skillAttachmentsText([...baselineAttachments, ...attached.values()]));
-    await writeFile(file, YAML.stringify(definition, { lineWidth: 0 }), 'utf8');
+    let definitionText = YAML.stringify(definition, { lineWidth: 0 });
+    if (lowered.fresh) {
+      // A new workflow pins its planned claims as Workflow Studio does for one it creates.
+      const [{ pinAuthoredStoryPlannedClaims, STORES }] = await Promise.all([import('./workflow-authoring.mjs')]);
+      const document = YAML.parseDocument(definitionText);
+      try { pinAuthoredStoryPlannedClaims(document, STORES.story, lowered.id, { newlyCreated: true }); }
+      catch (error) {
+        if (!/plannedClaims|planned-claim/u.test(error.message ?? '')) throw error;
+        markupError(`${error.message.trim()} A phase with output="code" needs a phase before it that defines the requirements: copy one with from (for example from="requirements" or from="implementation-spec").`);
+      }
+      definitionText = document.toString({ lineWidth: 0 });
+    }
+    await writeFile(file, definitionText, 'utf8');
     const validated = await loadDefinition(scratch); const resolved = resolveWorkType(validated, lowered.id);
     assertWorkTypeStartable(resolved);
     const simulation = simulateWorkflowRoutes(resolved, { approvalAuthorities: validated.approvalAuthorities });

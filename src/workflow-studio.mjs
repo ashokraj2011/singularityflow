@@ -56,6 +56,7 @@ import { configurationReadRoot, withoutConfigurationReadScope } from './configur
 import { KNOWLEDGE_READER_RULES, knowledgePromptPolicy } from './knowledge/render.mjs';
 import { INITIATIVE_OUTPUT_KINDS, PORTFOLIO_PATH, loadPortfolio } from './initiative-config.mjs';
 import { WORKFLOW_ARCHIVE_PATH, parseWorkflowArchive, workflowArchived } from './workflow-archive.mjs';
+import { STEP_OUTPUTS, newStepContract, newStepTemplate } from './step-outputs.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { SingularityFlowError, nearestNames, posix, secureRepositoryPath } from './util.mjs';
 import { lineOperations, preserveYamlFormatting, renderPreservingFormatting } from './yaml-formatting.mjs';
@@ -77,13 +78,7 @@ const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const agentsSha256 = (agents) => sha256(agents.filter((agent) => agent.scope === 'repository')
   .map((agent) => `${agent.id}:${agent.sha256}`).join('\n'));
 
-/** What a step makes, in the words the Studio shows; each maps to the engine's generation contract. */
-export const STEP_OUTPUTS = Object.freeze([
-  Object.freeze({ id: 'document', label: 'A document' }),
-  Object.freeze({ id: 'analysis', label: 'An analysis' }),
-  Object.freeze({ id: 'code', label: 'Code changes and a summary' }),
-  Object.freeze({ id: 'none', label: 'Nothing (sign-off only)' })
-]);
+export { STEP_OUTPUTS };
 
 export const CLARIFICATION_MODES = Object.freeze([
   Object.freeze({ id: 'off', label: 'Never' }),
@@ -719,12 +714,6 @@ function stepDescription(value, name) {
   return text || null;
 }
 
-function starterTemplate(id, label) {
-  return [`# ${label}`, '', `A starter for the ${id} step. Replace this with what the step actually has to answer;`,
-    'the engine checks that the artifact is at least a couple of hundred bytes, not that it is good.', '',
-    '## What this step decides', '', '## Evidence', '', '## Open questions', ''].join('\n');
-}
-
 class StudioCandidate {
   constructor(sources, finalPhases = null) {
     this.sources = sources;
@@ -952,7 +941,7 @@ class StudioCandidate {
   writeTemplateIfMissing(relativeTemplate, id, label) {
     const relative = posix(path.join(this.sources.templatesRoot, relativeTemplate));
     if (existsSync(path.join(this.sources.configRoot, relative)) || this.templates.has(relative)) return;
-    this.templates.set(relative, starterTemplate(id, label));
+    this.templates.set(relative, newStepTemplate(id, label));
   }
 
   apply(change) {
@@ -2152,10 +2141,7 @@ class StudioCandidate {
     } else {
       const firstGroup = Object.keys(this.content.approvalAuthorities ?? {})[0];
       node = {
-        label: name,
-        artifact: { path: `artifacts/${phaseId}/${phaseId}.md`, kind: phaseId, minimumBytes: 200 },
-        defaultTemplate: `common/${phaseId}.md`,
-        writeScope: 'artifact-only',
+        ...newStepContract(phaseId, name),
         approval: approval === 'none' ? 'none' : this.approvalNode(approval ?? { group: firstGroup }, null, { phaseId, name, reaches: this.ownSendBackReach(phaseId) })
       };
     }

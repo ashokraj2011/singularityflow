@@ -7,7 +7,7 @@ questions:
   - Can different teams describe their own workflow instead of writing markup?
 commands: [workflow]
 related: [workflow-markup, workflow-authoring, reusable-instructions, sgos-governed-execution]
-version: 6
+version: 7
 ---
 
 ## Purpose and prerequisites
@@ -65,6 +65,11 @@ Team knowledge; it does not execute the skill or change approved configuration. 
 changes invalidate the checked draft. The prepared Copilot request carries catalog metadata and
 exact retrieval instructions, not every skill body. Send the request yourself. Model-off settings
 disable that handoff; discovery, loading and compilation remain model-free.
+
+Copilot designs a new workflow from the description. It does not search for, select or extend an
+existing workflow; it lays out the steps itself and reuses library agents, skills, instructions
+and, where a step's contract is needed, single library steps. See **A new workflow** in
+`singularity-flow explain workflow-markup`.
 
 Copilot must preserve the exact original description, identify concrete unknowns, select supported
 patterns and map requested behavior to generated nodes. It retrieves selected bodies and their

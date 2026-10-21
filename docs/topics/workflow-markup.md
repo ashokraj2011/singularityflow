@@ -7,7 +7,7 @@ questions:
   - How do I turn a tagged description into a workflow bundle?
 commands: [workflow]
 related: [workflow-intent, workflow-authoring, workflow-decisions, reusable-instructions]
-version: 9
+version: 10
 ---
 
 ## Purpose and prerequisites
@@ -17,10 +17,13 @@ JSON bundle as Workflow Studio export. The existing importer handles collision c
 confirmation, proposals and activation. Compilation never starts a Story, executes tests, approves
 a phase, contacts a URL or grants authority.
 
-Version 1 extends one **installed Story starter**. Map every starter phase once, in its existing
+Leave `extends` out to create a **new workflow** from its own steps, in the order the description
+needs; see **A new workflow** below. This is what the VS Code designer asks Copilot to do.
+
+With `extends`, version 1 builds on one **installed Story starter**. Map every starter phase once, in its existing
 order, to a new namespaced phase with an explicitly declared custom agent. Artifact and template
-contracts, code permissions, planned claims, approvals and optional inputs remain intact. Arbitrary
-graph restructuring, Initiative/SGOS declarations, standalone checkpoint nodes and global cycle
+contracts, code permissions, planned claims, approvals and optional inputs remain intact. Restructuring
+the starter's graph, Initiative/SGOS declarations, standalone checkpoint nodes and global cycle
 counters are outside this version.
 
 Descriptions may express branches in natural language. Copilot proposes explicit tags; the
@@ -28,8 +31,8 @@ deterministic compiler does not guess conditions, thresholds, destinations, grou
 
 Version 2 is the intent-to-workflow authoring format. It binds an exact approved or installed
 catalog, supports asset reuse and preserves structural intent coverage. See
-`singularity-flow explain workflow-intent` before drafting. The selected workflow contract still
-owns its phase count, order and obligations; a family label never grants new runtime support.
+`singularity-flow explain workflow-intent` before drafting. A draft that extends a workflow
+contract keeps its phase count, order and obligations; a family label never grants new runtime support.
 
 Before you start, know which version you are writing. Version 1 needs the installed Story starter it
 extends. Version 2 binds the digest of an exact approved or installed catalog; `singularity-flow
@@ -115,6 +118,28 @@ Unmentioned starter decisions are retained with remapped targets. A phase's deci
 **replaces** its inherited decision. Explicit sequential `next` removes that inherited decision,
 subject to native route/obligation checks. No prose “if” silently creates executable behavior.
 
+### A new workflow
+
+Leave `extends` out and the workflow is new: no existing workflow is looked up or copied. Declare
+between 1 and 30 phases in the order the description needs. Each phase is one of:
+
+- **A new step:** `<phase id="..." label="..." output="document|analysis|code|none" agent="..."
+  reads="EARLIER-PHASE ...">`. It is the same step Workflow Studio adds as a blank step: its own
+  artifact and starter template, a source write scope only for `code`, and no sign-off until an
+  `<approval>` adds one. `reads` names the earlier phases whose artifacts it uses.
+- **A copy of one library step:** `<phase id="..." from="LIBRARY-STEP" agent="...">`. The copy keeps
+  that step's contract: artifact kind, template, write scope, checks and sign-off. A step it refers
+  to (an input, its test evidence, a repair budget reset) must be copied into this workflow once;
+  otherwise name what it reads with `reads`. Send-back targets this workflow does not have before
+  the copy are dropped, never widened. Document upload stays where the library step allowed it.
+
+A new workflow inherits no routes, loops, sign-offs or omissions: declare each one the description
+asks for. A phase with `output="code"` needs a phase before it that defines the requirements, so copy
+one (such as `requirements` or `implementation-spec`). The planned claims are worked out from the
+steps and pinned, as Workflow Studio does for a workflow it creates. Independent test evidence
+needs a copied test-evidence step, such as `verification`. `output` and `reads` are refused on a draft
+that extends a workflow: its phases keep the starter's contracts.
+
 ### Decisions and loops
 
 Place a branch inside the deciding phase:
@@ -167,7 +192,7 @@ Get a fully bound, dependency-complete example with `singularity-flow workflow i
 the command fills its digest and source placeholders from the exact captured owner.
 
 The root takes `version="2"`, `catalog="sha256:..."` and `catalog-source="approved"` or `installed`.
-`extends` names an exact workflow in that catalog. The compiler rechecks the entire catalog binding
+`extends`, when present, names an exact workflow in that catalog; leave it out for a new workflow. The compiler rechecks the entire catalog binding
 before writing a bundle; a changed source is a fresh-review condition, not a hash to auto-replace.
 
 - `<agent id="NEW-NAMESPACED-ID" from="CATALOG-AGENT-ID" />` derives a new agent with the exact

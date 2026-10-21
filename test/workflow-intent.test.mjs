@@ -18,6 +18,8 @@ import { instructionText, parseInstruction } from '../src/instruction-library.mj
 import { librarySkillText, parseLibrarySkill, readSkillAttachments, skillAttachmentsText, SKILL_ATTACHMENTS_PATH } from '../src/skill-library.mjs';
 import { planStudioChangeSet } from '../src/workflow-studio.mjs';
 import { derivedMcpPolicy } from '../src/workflow-markup-mcp.mjs';
+import { STEP_OUTPUTS, newStepContract, newStepTemplate } from '../src/step-outputs.mjs';
+import { workflowIntentExample } from '../src/workflow-intent-catalog.mjs';
 
 const example = await readFile(new URL('../examples/demo-tagged-workflow.xml', import.meta.url), 'utf8');
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
@@ -299,5 +301,33 @@ test('catalog commands are model-free, bounded, root-explicit and refuse repeate
   for (const action of ['catalog', 'show', 'example']) {
     const operation = resolveOperation({ requestedCommand: 'workflow', ...parseArgs(['workflow', 'intent', action]) });
     assert.equal(operation.classification, 'read'); assert.equal(operation.modelPolicy, 'never');
+  }
+});
+
+test('the bound example designs its own workflow and reuses no workflow contract', async () => {
+  const example = await capture(workflowIntentExample);
+  assert.doesNotMatch(example.source, /\sextends=/u);
+  const compiled = await compileWorkflowMarkup(example.source, { designReview: true });
+  assert.equal(compiled.status, 'portable-ready'); assert.equal(compiled.routeSimulation.status, 'passed');
+  assert.ok(!compiled.reusedAssets.some(item => item.kind === 'workflow'));
+  assert.deepEqual(compiled.reusedAssets.filter(item => item.kind === 'phase').map(item => item.id), ['demo-instruction-intake', 'demo-instruction-test']);
+  const workflow = compiled.bundle.objects.story.workTypes['demo-intent'];
+  assert.deepEqual(workflow.documents, { allowedPhases: ['demo-intent-intake'] });
+  assert.deepEqual(workflow.decisions.map(decision => [decision.id, decision.maxRounds]), [['demo-intent-test-result', 3], ['demo-intent-repair-result', 3]]);
+  const phases = Object.fromEntries(compiled.designReview.phases.map(phase => [phase.id, phase]));
+  assert.equal(phases['demo-intent-repair'].task, 'code'); assert.equal(phases['demo-intent-repair'].writeScope, 'source-and-artifact');
+  assert.equal(phases['demo-intent-close'].approval.mode, 'required');
+});
+
+test('a new step in workflow markup is the blank step Workflow Studio adds', async t => {
+  const root = await repository(t);
+  const plan = await planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', changes: STEP_OUTPUTS.map(({ id }) =>
+    ({ op: 'phase.create', id: `blank-${id}`, label: `Blank ${id}`, output: id, agent: 'architect', approval: 'none' })) }, { write: true });
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  const written = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  for (const { id } of STEP_OUTPUTS) {
+    const { agents, approval, ...studio } = written.phases[`blank-${id}`];
+    assert.deepEqual(studio, newStepContract(`blank-${id}`, `Blank ${id}`, id), id);
+    assert.equal(await readFile(path.join(root, 'singularity/templates', studio.defaultTemplate), 'utf8'), newStepTemplate(`blank-${id}`, `Blank ${id}`));
   }
 });

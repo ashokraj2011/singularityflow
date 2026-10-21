@@ -1,19 +1,42 @@
 <workflow version="2" id="demo-intent" label="Demo — Intent-to-workflow acceptance"
-          extends="demo-instruction-test-loop" catalog="{{CATALOG_SHA256}}" catalog-source="{{CATALOG_SOURCE}}">
-  <description>A catalog-grounded independent test and repair workflow.</description>
+          catalog="{{CATALOG_SHA256}}" catalog-source="{{CATALOG_SOURCE}}">
+  <description>An independent test and repair workflow designed from its intent: no existing workflow is extended.</description>
   <agent id="demo-intent-analyst" from="demo-instruction-analyst" />
   <agent id="demo-intent-tester" from="demo-instruction-tester" />
   <agent id="demo-intent-developer" from="demo-instruction-developer" />
   <agent id="demo-intent-closer" from="demo-instruction-closer" />
   <phase id="demo-intent-intake" from="demo-instruction-intake" agent="demo-intent-analyst" />
-  <phase id="demo-intent-test" from="demo-instruction-test" agent="demo-intent-tester" />
-  <phase id="demo-intent-repair" from="demo-instruction-repair" agent="demo-intent-developer" />
-  <phase id="demo-intent-close" from="demo-instruction-close" agent="demo-intent-closer" />
+  <phase id="demo-intent-test" from="demo-instruction-test" agent="demo-intent-tester">
+    <decision id="demo-intent-test-result" label="Do fresh tests satisfy every approved scenario?"
+              source="verdict" values="pass repair blocked" max-attempts="3" by="quality-reviewers">
+      <when id="demo-intent-pass" label="Prepare closing documents" equals="pass" next="demo-intent-close">
+        <omit responsibility="implement" reason="Fresh evidence proves the current code satisfies the agreed scenarios without a repair." authority="quality-reviewers" />
+      </when>
+      <when id="demo-intent-fix" label="Repair the observed defect" equals="repair" next="demo-intent-repair" />
+      <otherwise id="demo-intent-access" label="Restore test access and check again" next="demo-intent-test" />
+    </decision>
+  </phase>
+  <phase id="demo-intent-repair" label="Repair code and tests" output="code" agent="demo-intent-developer"
+         reads="demo-intent-intake demo-intent-test">
+    <skill ref="demo-instruction-repair" />
+    <approval authority="engineering-reviewers" />
+    <decision id="demo-intent-repair-result" label="Check the repair again, or review changed scope"
+              source="next" values="recheck revise-intake" max-attempts="3" by="quality-reviewers">
+      <when id="demo-intent-retest" label="Check the repaired revision" equals="recheck" next="demo-intent-test" />
+      <otherwise id="demo-intent-scope" label="Review new scope at intake" next="demo-intent-intake" />
+    </decision>
+  </phase>
+  <phase id="demo-intent-close" label="Close with human acceptance" output="document" agent="demo-intent-closer"
+         reads="demo-intent-intake demo-intent-test">
+    <skill ref="demo-instruction-close" />
+    <approval authority="quality-reviewers" />
+  </phase>
+  <omit responsibility="implement" reason="The approved final check proves no further repair is needed; earlier repair history is kept in the closing documents." authority="quality-reviewers" />
   <intent family="visual-acceptance">
     <description>Test the web application against approved screenshots and documents. Repair failures and retest with bounded retries. Keep the tester independent and require human acceptance before closing.</description>
     <requirement id="capture-inputs" maps-to="phase:demo-intent-intake">Capture screenshots, documents, observable expectations and evidence locations.</requirement>
     <requirement id="independent-test" maps-to="phase:demo-intent-test agent:demo-intent-tester">Independently check the current revision using fresh evidence.</requirement>
-    <requirement id="repair-retest" maps-to="phase:demo-intent-repair decision:demo-intent-decision-2">Preserve work, repair defects and return for bounded independent retesting.</requirement>
+    <requirement id="repair-retest" maps-to="phase:demo-intent-repair decision:demo-intent-repair-result">Preserve work, repair defects and return for bounded independent retesting.</requirement>
     <requirement id="human-close" maps-to="phase:demo-intent-close">Retain closing documents and obtain authorized human acceptance.</requirement>
     <pattern ref="test-repair" /><pattern ref="bounded-loop" /><pattern ref="human-checkpoint" />
   </intent>

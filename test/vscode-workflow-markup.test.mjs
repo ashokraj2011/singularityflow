@@ -217,6 +217,9 @@ test('native registration does not suppress attachment fallback or bind chat to 
   assert.match(prompt, /Attachment read groups[\s\S]*expected-source/u);
   assert.match(prompt, /quality-reviewers/u);
   assert.match(prompt, /availability here is unknown/u);
+  // Copilot designs the workflow itself rather than starting from an existing one.
+  assert.match(prompt, /do not search for, select or extend an existing workflow, and leave extends out/u);
+  assert.doesNotMatch(prompt, /keep its phase order/u);
 });
 
 test('a repository without checkpoint groups opens chat without a dead-end picker', async () => {

@@ -200,7 +200,8 @@ export function selectWorkflowIntentAsset(catalog, kind, id) {
 
 /** Source-binding placeholders are filled by the owner; the example never imports or executes. */
 export async function workflowIntentExample(catalog) {
-  selectWorkflowIntentAsset(catalog, 'workflow', 'demo-instruction-test-loop');
+  // The example designs its own workflow; it copies only these two demo steps.
+  for (const step of ['demo-instruction-intake', 'demo-instruction-test']) selectWorkflowIntentAsset(catalog, 'phase', step);
   const template = await readFile(path.join(PACKAGE_ROOT, 'examples', 'demo-intent-workflow.xml'), 'utf8');
   return { schemaVersion: 1, resultType: 'workflow-intent-example', sourceSha256: catalog.sourceSha256,
     source: template.replaceAll('{{CATALOG_SHA256}}', catalog.sourceSha256).replaceAll('{{CATALOG_SOURCE}}', catalog.source.kind === 'installed-package' ? 'installed' : 'approved'),

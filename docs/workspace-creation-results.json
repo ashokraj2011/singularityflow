@@ -1,0 +1,1323 @@
+{
+  "hosts": {
+    "localMac": {
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v22.14.0",
+      "git": "git version 2.54.0"
+    },
+    "nativeMac": {
+      "platform": "darwin",
+      "arch": "arm64",
+      "node": "v22.23.3",
+      "git": "git version 2.56.0"
+    },
+    "nativeWindows": {
+      "platform": "win32",
+      "arch": "x64",
+      "node": "v22.23.3",
+      "git": "git version 2.56.0.windows.2"
+    }
+  },
+  "date": "2026-10-21",
+  "baseline": "a0fc9d1921c39f36169b71afb3cb99dc16838a1b",
+  "runtimeCandidate": "5d73cfdb617ab688ffee34f6f8a03623c3a64f0a",
+  "testOnlyFollowup": "ae52269330fccccfb01f35a4b588c4fb25750947",
+  "nativeRun": 39545312394,
+  "copyRun": 39545814760,
+  "protocol": {
+    "fixture": "packed unique file contents; independent disposable local remotes; alternating variants",
+    "cold": "fresh Node process and empty private compile cache; OS caches not flushed",
+    "prewarmed": "explicit runtime preparation; request latency excludes separately retained preparation cost",
+    "gitCalls": "Node-launched Git calls in each request, including direct async spawns; excludes detached workers and Git internal children",
+    "modelCalls": 0,
+    "limits": [
+      "Not native Copilot or VS Code UI latency.",
+      "No office WAN, proxy or credential-provider qualification.",
+      "Two or three samples per mode; high Story/intake variability; do not claim a general Story speedup.",
+      "This is targeted implementation qualification, not the full release gate."
+    ]
+  },
+  "qualification": {
+    "nativeModifiedArea": {
+      "mac": {
+        "passed": 65,
+        "failed": 0,
+        "skipped": 0
+      },
+      "windows": {
+        "passed": 65,
+        "failed": 0,
+        "skipped": 0
+      }
+    },
+    "nativeResume": {
+      "mac": 1,
+      "windows": 1
+    },
+    "nativeCopy": {
+      "mac": 1,
+      "windows": 1
+    },
+    "earlierWorkspaceSafety": {
+      "source": "90b9304822edc8aa832eb54f1dd07f5df38b3252",
+      "run": 39542459193,
+      "windows": {
+        "passed": 141,
+        "failed": 0,
+        "skipped": 0
+      },
+      "note": "Workspace and clone-resume files together; later resume, FOS, worker and ACL changes covered by final targeted runs."
+    }
+  },
+  "rows": [
+    {
+      "host": "native-mac/control",
+      "operation": "workspace",
+      "mode": "cold",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        2074,
+        2823,
+        2830
+      ],
+      "medianMs": 2823,
+      "gitCalls": [
+        71,
+        71,
+        71
+      ],
+      "preparationMs": [
+        0,
+        0,
+        0
+      ],
+      "totalWithPreparationMs": [
+        2074,
+        2823,
+        2830
+      ]
+    },
+    {
+      "host": "native-mac/candidate",
+      "operation": "workspace",
+      "mode": "cold",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        1505,
+        3543,
+        2046
+      ],
+      "medianMs": 2046,
+      "gitCalls": [
+        62,
+        62,
+        62
+      ],
+      "preparationMs": [
+        0,
+        0,
+        0
+      ],
+      "totalWithPreparationMs": [
+        1505,
+        3543,
+        2046
+      ]
+    },
+    {
+      "host": "native-mac/control",
+      "operation": "workspace",
+      "mode": "prewarmed",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        2884,
+        2658,
+        2398
+      ],
+      "medianMs": 2658,
+      "gitCalls": [
+        71,
+        71,
+        71
+      ],
+      "preparationMs": [
+        313,
+        364,
+        285
+      ],
+      "totalWithPreparationMs": [
+        3197,
+        3022,
+        2683
+      ]
+    },
+    {
+      "host": "native-mac/candidate",
+      "operation": "workspace",
+      "mode": "prewarmed",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        1601,
+        2254,
+        1868
+      ],
+      "medianMs": 1868,
+      "gitCalls": [
+        62,
+        62,
+        62
+      ],
+      "preparationMs": [
+        299,
+        703,
+        309
+      ],
+      "totalWithPreparationMs": [
+        1900,
+        2957,
+        2177
+      ]
+    },
+    {
+      "host": "native-mac/control",
+      "operation": "workspace",
+      "mode": "cold",
+      "files": 10000,
+      "samples": 2,
+      "wallMs": [
+        4123,
+        3852
+      ],
+      "medianMs": 3987.5,
+      "gitCalls": [
+        71,
+        71
+      ],
+      "preparationMs": [
+        0,
+        0
+      ],
+      "totalWithPreparationMs": [
+        4123,
+        3852
+      ]
+    },
+    {
+      "host": "native-mac/candidate",
+      "operation": "workspace",
+      "mode": "cold",
+      "files": 10000,
+      "samples": 2,
+      "wallMs": [
+        4206,
+        3224
+      ],
+      "medianMs": 3715,
+      "gitCalls": [
+        62,
+        62
+      ],
+      "preparationMs": [
+        0,
+        0
+      ],
+      "totalWithPreparationMs": [
+        4206,
+        3224
+      ]
+    },
+    {
+      "host": "native-mac/control",
+      "operation": "workspace",
+      "mode": "prewarmed",
+      "files": 10000,
+      "samples": 2,
+      "wallMs": [
+        4042,
+        4075
+      ],
+      "medianMs": 4058.5,
+      "gitCalls": [
+        71,
+        71
+      ],
+      "preparationMs": [
+        303,
+        318
+      ],
+      "totalWithPreparationMs": [
+        4345,
+        4393
+      ]
+    },
+    {
+      "host": "native-mac/candidate",
+      "operation": "workspace",
+      "mode": "prewarmed",
+      "files": 10000,
+      "samples": 2,
+      "wallMs": [
+        3438,
+        2891
+      ],
+      "medianMs": 3164.5,
+      "gitCalls": [
+        62,
+        62
+      ],
+      "preparationMs": [
+        349,
+        271
+      ],
+      "totalWithPreparationMs": [
+        3787,
+        3162
+      ]
+    },
+    {
+      "host": "native-mac/candidate",
+      "operation": "isolated-story",
+      "mode": "cold",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        7856,
+        6116,
+        7062
+      ],
+      "medianMs": 7062,
+      "gitCalls": [
+        219,
+        219,
+        219
+      ],
+      "preparationMs": [
+        0,
+        0,
+        0
+      ],
+      "totalWithPreparationMs": [
+        7856,
+        6116,
+        7062
+      ]
+    },
+    {
+      "host": "native-mac/control",
+      "operation": "isolated-story",
+      "mode": "cold",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        6839,
+        6457,
+        7233
+      ],
+      "medianMs": 6839,
+      "gitCalls": [
+        225,
+        225,
+        225
+      ],
+      "preparationMs": [
+        0,
+        0,
+        0
+      ],
+      "totalWithPreparationMs": [
+        6839,
+        6457,
+        7233
+      ]
+    },
+    {
+      "host": "native-mac/candidate",
+      "operation": "isolated-story",
+      "mode": "prewarmed",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        5845,
+        7402,
+        5660
+      ],
+      "medianMs": 5845,
+      "gitCalls": [
+        219,
+        219,
+        219
+      ],
+      "preparationMs": [
+        283,
+        485,
+        277
+      ],
+      "totalWithPreparationMs": [
+        6128,
+        7887,
+        5937
+      ]
+    },
+    {
+      "host": "native-mac/control",
+      "operation": "isolated-story",
+      "mode": "prewarmed",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        6766,
+        5866,
+        6120
+      ],
+      "medianMs": 6120,
+      "gitCalls": [
+        225,
+        225,
+        225
+      ],
+      "preparationMs": [
+        393,
+        258,
+        288
+      ],
+      "totalWithPreparationMs": [
+        7159,
+        6124,
+        6408
+      ]
+    },
+    {
+      "host": "native-mac/control",
+      "operation": "intake-handoff",
+      "mode": "cold",
+      "files": 1000,
+      "samples": 2,
+      "wallMs": [
+        8124,
+        8204
+      ],
+      "medianMs": 8164,
+      "gitCalls": [
+        298,
+        298
+      ],
+      "preparationMs": [
+        0,
+        0
+      ],
+      "totalWithPreparationMs": [
+        8124,
+        8204
+      ],
+      "previewMs": [
+        2053,
+        2111
+      ],
+      "startMs": [
+        6071,
+        6093
+      ]
+    },
+    {
+      "host": "native-mac/candidate",
+      "operation": "intake-handoff",
+      "mode": "cold",
+      "files": 1000,
+      "samples": 2,
+      "wallMs": [
+        10010,
+        8249
+      ],
+      "medianMs": 9129.5,
+      "gitCalls": [
+        293,
+        293
+      ],
+      "preparationMs": [
+        0,
+        0
+      ],
+      "totalWithPreparationMs": [
+        10010,
+        8249
+      ],
+      "previewMs": [
+        2272,
+        2032
+      ],
+      "startMs": [
+        7738,
+        6217
+      ]
+    },
+    {
+      "host": "native-mac/control",
+      "operation": "intake-handoff",
+      "mode": "prewarmed",
+      "files": 1000,
+      "samples": 2,
+      "wallMs": [
+        8582,
+        8142
+      ],
+      "medianMs": 8362,
+      "gitCalls": [
+        298,
+        298
+      ],
+      "preparationMs": [
+        303,
+        267
+      ],
+      "totalWithPreparationMs": [
+        8885,
+        8409
+      ],
+      "previewMs": [
+        2018,
+        1861
+      ],
+      "startMs": [
+        6564,
+        6281
+      ]
+    },
+    {
+      "host": "native-mac/candidate",
+      "operation": "intake-handoff",
+      "mode": "prewarmed",
+      "files": 1000,
+      "samples": 2,
+      "wallMs": [
+        7666,
+        7896
+      ],
+      "medianMs": 7781,
+      "gitCalls": [
+        293,
+        293
+      ],
+      "preparationMs": [
+        251,
+        252
+      ],
+      "totalWithPreparationMs": [
+        7917,
+        8148
+      ],
+      "previewMs": [
+        1795,
+        1785
+      ],
+      "startMs": [
+        5871,
+        6111
+      ]
+    },
+    {
+      "host": "native-windows/control",
+      "operation": "workspace",
+      "mode": "cold",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        6222,
+        6295,
+        6407
+      ],
+      "medianMs": 6295,
+      "gitCalls": [
+        71,
+        71,
+        71
+      ],
+      "preparationMs": [
+        0,
+        0,
+        0
+      ],
+      "totalWithPreparationMs": [
+        6222,
+        6295,
+        6407
+      ]
+    },
+    {
+      "host": "native-windows/candidate",
+      "operation": "workspace",
+      "mode": "cold",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        5002,
+        5313,
+        5403
+      ],
+      "medianMs": 5313,
+      "gitCalls": [
+        62,
+        62,
+        62
+      ],
+      "preparationMs": [
+        0,
+        0,
+        0
+      ],
+      "totalWithPreparationMs": [
+        5002,
+        5313,
+        5403
+      ]
+    },
+    {
+      "host": "native-windows/control",
+      "operation": "workspace",
+      "mode": "prewarmed",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        5969,
+        6028,
+        6210
+      ],
+      "medianMs": 6028,
+      "gitCalls": [
+        71,
+        71,
+        71
+      ],
+      "preparationMs": [
+        519,
+        521,
+        592
+      ],
+      "totalWithPreparationMs": [
+        6488,
+        6549,
+        6802
+      ]
+    },
+    {
+      "host": "native-windows/candidate",
+      "operation": "workspace",
+      "mode": "prewarmed",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        5139,
+        5082,
+        5158
+      ],
+      "medianMs": 5139,
+      "gitCalls": [
+        62,
+        62,
+        62
+      ],
+      "preparationMs": [
+        541,
+        534,
+        532
+      ],
+      "totalWithPreparationMs": [
+        5680,
+        5616,
+        5690
+      ]
+    },
+    {
+      "host": "native-windows/control",
+      "operation": "workspace",
+      "mode": "cold",
+      "files": 10000,
+      "samples": 2,
+      "wallMs": [
+        12622,
+        13239
+      ],
+      "medianMs": 12930.5,
+      "gitCalls": [
+        71,
+        71
+      ],
+      "preparationMs": [
+        0,
+        0
+      ],
+      "totalWithPreparationMs": [
+        12622,
+        13239
+      ]
+    },
+    {
+      "host": "native-windows/candidate",
+      "operation": "workspace",
+      "mode": "cold",
+      "files": 10000,
+      "samples": 2,
+      "wallMs": [
+        10269,
+        10002
+      ],
+      "medianMs": 10135.5,
+      "gitCalls": [
+        62,
+        62
+      ],
+      "preparationMs": [
+        0,
+        0
+      ],
+      "totalWithPreparationMs": [
+        10269,
+        10002
+      ]
+    },
+    {
+      "host": "native-windows/control",
+      "operation": "workspace",
+      "mode": "prewarmed",
+      "files": 10000,
+      "samples": 2,
+      "wallMs": [
+        12146,
+        12979
+      ],
+      "medianMs": 12562.5,
+      "gitCalls": [
+        71,
+        71
+      ],
+      "preparationMs": [
+        685,
+        744
+      ],
+      "totalWithPreparationMs": [
+        12831,
+        13723
+      ]
+    },
+    {
+      "host": "native-windows/candidate",
+      "operation": "workspace",
+      "mode": "prewarmed",
+      "files": 10000,
+      "samples": 2,
+      "wallMs": [
+        9332,
+        9941
+      ],
+      "medianMs": 9636.5,
+      "gitCalls": [
+        62,
+        62
+      ],
+      "preparationMs": [
+        597,
+        604
+      ],
+      "totalWithPreparationMs": [
+        9929,
+        10545
+      ]
+    },
+    {
+      "host": "native-windows/candidate",
+      "operation": "isolated-story",
+      "mode": "cold",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        18124,
+        27016,
+        18093
+      ],
+      "medianMs": 18124,
+      "gitCalls": [
+        205,
+        205,
+        205
+      ],
+      "preparationMs": [
+        0,
+        0,
+        0
+      ],
+      "totalWithPreparationMs": [
+        18124,
+        27016,
+        18093
+      ]
+    },
+    {
+      "host": "native-windows/control",
+      "operation": "isolated-story",
+      "mode": "cold",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        18405,
+        18343,
+        22605
+      ],
+      "medianMs": 18405,
+      "gitCalls": [
+        211,
+        211,
+        211
+      ],
+      "preparationMs": [
+        0,
+        0,
+        0
+      ],
+      "totalWithPreparationMs": [
+        18405,
+        18343,
+        22605
+      ]
+    },
+    {
+      "host": "native-windows/candidate",
+      "operation": "isolated-story",
+      "mode": "prewarmed",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        24458,
+        18566,
+        25822
+      ],
+      "medianMs": 24458,
+      "gitCalls": [
+        205,
+        205,
+        205
+      ],
+      "preparationMs": [
+        522,
+        518,
+        535
+      ],
+      "totalWithPreparationMs": [
+        24980,
+        19084,
+        26357
+      ]
+    },
+    {
+      "host": "native-windows/control",
+      "operation": "isolated-story",
+      "mode": "prewarmed",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        25961,
+        18412,
+        20254
+      ],
+      "medianMs": 20254,
+      "gitCalls": [
+        211,
+        211,
+        211
+      ],
+      "preparationMs": [
+        671,
+        533,
+        616
+      ],
+      "totalWithPreparationMs": [
+        26632,
+        18945,
+        20870
+      ]
+    },
+    {
+      "host": "native-windows/control",
+      "operation": "intake-handoff",
+      "mode": "cold",
+      "files": 1000,
+      "samples": 2,
+      "wallMs": [
+        27281,
+        25680
+      ],
+      "medianMs": 26480.5,
+      "gitCalls": [
+        267,
+        267
+      ],
+      "preparationMs": [
+        0,
+        0
+      ],
+      "totalWithPreparationMs": [
+        27281,
+        25680
+      ],
+      "previewMs": [
+        6015,
+        5228
+      ],
+      "startMs": [
+        21266,
+        20452
+      ]
+    },
+    {
+      "host": "native-windows/candidate",
+      "operation": "intake-handoff",
+      "mode": "cold",
+      "files": 1000,
+      "samples": 2,
+      "wallMs": [
+        36566,
+        23294
+      ],
+      "medianMs": 29930,
+      "gitCalls": [
+        262,
+        262
+      ],
+      "preparationMs": [
+        0,
+        0
+      ],
+      "totalWithPreparationMs": [
+        36566,
+        23294
+      ],
+      "previewMs": [
+        14510,
+        5596
+      ],
+      "startMs": [
+        22056,
+        17698
+      ]
+    },
+    {
+      "host": "native-windows/control",
+      "operation": "intake-handoff",
+      "mode": "prewarmed",
+      "files": 1000,
+      "samples": 2,
+      "wallMs": [
+        23615,
+        35914
+      ],
+      "medianMs": 29764.5,
+      "gitCalls": [
+        267,
+        267
+      ],
+      "preparationMs": [
+        697,
+        690
+      ],
+      "totalWithPreparationMs": [
+        24312,
+        36604
+      ],
+      "previewMs": [
+        5716,
+        6748
+      ],
+      "startMs": [
+        17899,
+        29166
+      ]
+    },
+    {
+      "host": "native-windows/candidate",
+      "operation": "intake-handoff",
+      "mode": "prewarmed",
+      "files": 1000,
+      "samples": 2,
+      "wallMs": [
+        27565,
+        33907
+      ],
+      "medianMs": 30736,
+      "gitCalls": [
+        262,
+        262
+      ],
+      "preparationMs": [
+        617,
+        568
+      ],
+      "totalWithPreparationMs": [
+        28182,
+        34475
+      ],
+      "previewMs": [
+        6021,
+        5653
+      ],
+      "startMs": [
+        21544,
+        28254
+      ]
+    },
+    {
+      "host": "local-mac/control",
+      "operation": "workspace",
+      "mode": "cold",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        1196,
+        1277,
+        1133
+      ],
+      "medianMs": 1196,
+      "gitCalls": [
+        73,
+        73,
+        73
+      ],
+      "preparationMs": [
+        0,
+        0,
+        0
+      ],
+      "totalWithPreparationMs": [
+        1196,
+        1277,
+        1133
+      ]
+    },
+    {
+      "host": "local-mac/candidate",
+      "operation": "workspace",
+      "mode": "cold",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        943,
+        905,
+        1004
+      ],
+      "medianMs": 943,
+      "gitCalls": [
+        64,
+        64,
+        64
+      ],
+      "preparationMs": [
+        0,
+        0,
+        0
+      ],
+      "totalWithPreparationMs": [
+        943,
+        905,
+        1004
+      ]
+    },
+    {
+      "host": "local-mac/control",
+      "operation": "workspace",
+      "mode": "prewarmed",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        1055,
+        1025,
+        1088
+      ],
+      "medianMs": 1055,
+      "gitCalls": [
+        73,
+        73,
+        73
+      ],
+      "preparationMs": [
+        205,
+        182,
+        179
+      ],
+      "totalWithPreparationMs": [
+        1260,
+        1207,
+        1267
+      ]
+    },
+    {
+      "host": "local-mac/candidate",
+      "operation": "workspace",
+      "mode": "prewarmed",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        831,
+        1144,
+        909
+      ],
+      "medianMs": 909,
+      "gitCalls": [
+        64,
+        64,
+        64
+      ],
+      "preparationMs": [
+        187,
+        178,
+        179
+      ],
+      "totalWithPreparationMs": [
+        1018,
+        1322,
+        1088
+      ]
+    },
+    {
+      "host": "local-mac/candidate",
+      "operation": "isolated-story",
+      "mode": "cold",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        3345,
+        3713,
+        3644
+      ],
+      "medianMs": 3644,
+      "gitCalls": [
+        220,
+        220,
+        220
+      ],
+      "preparationMs": [
+        0,
+        0,
+        0
+      ],
+      "totalWithPreparationMs": [
+        3345,
+        3713,
+        3644
+      ]
+    },
+    {
+      "host": "local-mac/control",
+      "operation": "isolated-story",
+      "mode": "cold",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        3445,
+        3728,
+        3878
+      ],
+      "medianMs": 3728,
+      "gitCalls": [
+        226,
+        226,
+        226
+      ],
+      "preparationMs": [
+        0,
+        0,
+        0
+      ],
+      "totalWithPreparationMs": [
+        3445,
+        3728,
+        3878
+      ]
+    },
+    {
+      "host": "local-mac/candidate",
+      "operation": "isolated-story",
+      "mode": "prewarmed",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        3385,
+        3135,
+        3138
+      ],
+      "medianMs": 3138,
+      "gitCalls": [
+        220,
+        220,
+        220
+      ],
+      "preparationMs": [
+        185,
+        186,
+        177
+      ],
+      "totalWithPreparationMs": [
+        3570,
+        3321,
+        3315
+      ]
+    },
+    {
+      "host": "local-mac/control",
+      "operation": "isolated-story",
+      "mode": "prewarmed",
+      "files": 1000,
+      "samples": 3,
+      "wallMs": [
+        3145,
+        3204,
+        3255
+      ],
+      "medianMs": 3204,
+      "gitCalls": [
+        226,
+        226,
+        226
+      ],
+      "preparationMs": [
+        184,
+        178,
+        185
+      ],
+      "totalWithPreparationMs": [
+        3329,
+        3382,
+        3440
+      ]
+    },
+    {
+      "host": "local-mac/control",
+      "operation": "intake-handoff",
+      "mode": "cold",
+      "files": 1000,
+      "samples": 2,
+      "wallMs": [
+        4343,
+        4414
+      ],
+      "medianMs": 4378.5,
+      "gitCalls": [
+        298,
+        298
+      ],
+      "preparationMs": [
+        0,
+        0
+      ],
+      "totalWithPreparationMs": [
+        4343,
+        4414
+      ],
+      "previewMs": [
+        1084,
+        1077
+      ],
+      "startMs": [
+        3259,
+        3337
+      ]
+    },
+    {
+      "host": "local-mac/candidate",
+      "operation": "intake-handoff",
+      "mode": "cold",
+      "files": 1000,
+      "samples": 2,
+      "wallMs": [
+        5017,
+        4371
+      ],
+      "medianMs": 4694,
+      "gitCalls": [
+        293,
+        293
+      ],
+      "preparationMs": [
+        0,
+        0
+      ],
+      "totalWithPreparationMs": [
+        5017,
+        4371
+      ],
+      "previewMs": [
+        1368,
+        1084
+      ],
+      "startMs": [
+        3649,
+        3287
+      ]
+    },
+    {
+      "host": "local-mac/control",
+      "operation": "intake-handoff",
+      "mode": "prewarmed",
+      "files": 1000,
+      "samples": 2,
+      "wallMs": [
+        4228,
+        4492
+      ],
+      "medianMs": 4360,
+      "gitCalls": [
+        298,
+        298
+      ],
+      "preparationMs": [
+        177,
+        255
+      ],
+      "totalWithPreparationMs": [
+        4405,
+        4747
+      ],
+      "previewMs": [
+        988,
+        1201
+      ],
+      "startMs": [
+        3240,
+        3291
+      ]
+    },
+    {
+      "host": "local-mac/candidate",
+      "operation": "intake-handoff",
+      "mode": "prewarmed",
+      "files": 1000,
+      "samples": 2,
+      "wallMs": [
+        4228,
+        4375
+      ],
+      "medianMs": 4301.5,
+      "gitCalls": [
+        293,
+        293
+      ],
+      "preparationMs": [
+        182,
+        180
+      ],
+      "totalWithPreparationMs": [
+        4410,
+        4555
+      ],
+      "previewMs": [
+        967,
+        977
+      ],
+      "startMs": [
+        3261,
+        3398
+      ]
+    }
+  ]
+}

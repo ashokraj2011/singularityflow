@@ -1,5 +1,45 @@
 # Workspace creation and Story intake qualification
 
+## Recorded results — 2026-10-21
+
+Both native qualification jobs passed 65 modified-area tests with zero failures/skips, plus one
+resumed-workspace case each. The copied-workspace regression passed separately on both hosts. The
+earlier Windows workspace/clone-recovery step passed all 141 cases; subsequent FOS, ACL, worker and
+resume changes were covered by the final targeted runs. Checks, VS Code typechecking and builds
+passed. This is not full release qualification.
+
+Installed-build medians in seconds below compare baseline to candidate. Workspace/Story rows use
+three samples per variant/mode; 10k and intake rows use two (the mean of the two middle values).
+The baseline is `a0fc9d19`; the qualified runtime is `5d73cfdb`. Final test-only follow-ups do not
+change runtime behavior. Native qualification/measurement run: `39545312394`; final copy check:
+`39545814760`. Node and Git versions, every sample and separately charged prewarm costs are in
+[the raw results](workspace-creation-results.json).
+
+| Request | Native Mac cold | Native Mac prewarmed | Windows cold | Windows prewarmed |
+| --- | --- | --- | --- | --- |
+| Workspace, 1k files | 2.823 → 2.046 | 2.658 → 1.868 | 6.295 → 5.313 | 6.028 → 5.139 |
+| Workspace, 10k files | 3.988 → 3.715 | 4.059 → 3.165 | 12.931 → 10.136 | 12.563 → 9.637 |
+| Isolated Story start | 6.839 → 7.062 | 6.120 → 5.845 | 18.405 → 18.124 | 20.254 → 24.458 |
+| Readiness + isolated start | 8.164 → 9.130 | 8.362 → 7.781 | 26.481 → 29.930 | 29.765 → 30.736 |
+
+Workspace creation consistently improved in this cohort: approximately 16% cold on Windows for
+1k files and 22% for 10k files. Git launches fell from 71 to 62 on both native runners. On the local
+Mac, the 1k-file medians were 1.196 → 0.943 seconds cold and 1.055 → 0.909 prewarmed, with Git calls
+73 → 64. Absolute counts/times differ across hosts, so compare variants within a host rather than
+pooling different host environments.
+
+Story/intake latency is **not consistently improved**. Isolated-start Git calls fell 225 → 219 on
+native Mac and 211 → 205 on Windows; combined intake calls fell 298 → 293 and 267 → 262 respectively.
+Nevertheless some medians worsened, notably Windows prewarmed Story start (+20.8%). Its candidate
+range (18.566–25.822 seconds) overlaps the control range (18.412–25.961 seconds); this small, variable
+cohort cannot establish a causal regression or a speedup. Do not market general Story latency
+savings from these measurements. Authority loading, enrollment and publication remain substantial
+costs and need further profiling. No slow samples were removed.
+
+The 10k Windows harness previously timed out creating loose synthetic objects before a measured
+request. Packed seeding fixes that setup failure without reducing file count/content diversity.
+All rows above use the corrected packed profile, not a mixture of old and new fixture layouts.
+
 ## Reproduce
 
 Use the same Node version and idle host for both variants. Substitute a full immutable baseline

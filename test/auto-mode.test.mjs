@@ -136,7 +136,11 @@ function sealLegacyRatification(record) {
 }
 
 function run(command, args, cwd, { allowFailure = false, env = {} } = {}) {
-  const result = spawnSync(command, args, {
+  // Product-owned Git children already enable this without persisting configuration. Fixture
+  // setup and the simulated native author must support the same nested snapshot paths.
+  const nativeArgs = command === 'git' && process.platform === 'win32'
+    ? ['-c', 'core.longpaths=true', ...args] : args;
+  const result = spawnSync(command, nativeArgs, {
     cwd, encoding: 'utf8',
     env: {
       ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Auto Tester', ...env
@@ -207,6 +211,11 @@ async function repository() {
   run('git', ['config', 'user.email', 'auto@example.com'], root);
   const remote = `${root}.git`;
   run('git', ['init', '--bare', '-b', 'main', remote], root);
+  // Git intentionally does not propagate the client's command configuration to receive-pack.
+  // This disposable Windows server stores long immutable recovery refs; configure it explicitly.
+  if (process.platform === 'win32') {
+    run('git', ['--git-dir', remote, 'config', 'core.longpaths', 'true'], root);
+  }
   run('git', ['remote', 'set-url', 'origin', remote], root);
   run('git', ['push', '-u', 'origin', 'main'], root);
   return root;

@@ -109,6 +109,23 @@ test('multiple installed extensions and invalid receipts never pretend to identi
   assert.equal(selected.vscode[0].path, second);
 });
 
+test('legacy receipt diagnostics give the automatic install route without changing metadata', async t => {
+  const f = await fixture(t);
+  const directory = path.join(f.root, '.singularity-flow/installations');
+  await mkdir(directory, { recursive: true });
+  const file = path.join(directory, 'current.json');
+  const bytes = '{"schemaVersion":1,"status":"complete","version":"0.9.0"}\n';
+  await writeFile(file, bytes);
+  const info = await aboutBuilds({ ...f.options, extensionPath: f.extension });
+  assert.equal(info.receipt.status, 'invalid');
+  assert.match(info.receipt.reason, /full \.\/install\.sh/);
+  assert.match(info.receipt.reason, /automatically.*upgrades/);
+  assert.doesNotMatch(info.receipt.reason, /archival reader/);
+  assert.match(aboutBuildsMarkdown(info), /automatically.*upgrades/);
+  assert.equal(await readFile(file, 'utf8'), bytes);
+  assert.equal(isAboutInfo(info), true);
+});
+
 test('About UI renders loaded-window identity separately and escapes metadata and diagnostics', async t => {
   const f = await fixture(t);
   const info = await aboutBuilds({ ...f.options, extensionPath: f.extension });

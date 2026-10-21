@@ -21,7 +21,8 @@ import { verifyPluginInstallation } from './plugin.mjs';
 import { inspectDistributionBundle } from './distribution-bundle.mjs';
 import { readSecurePublicKey } from './secure-private-key.mjs';
 import {
-  acquireActivationLease, cleanupInstallationStorage, inspectNpmTarball, inspectVsix, releaseActivationLease
+  acquireActivationLease, cleanupInstallationStorage, inspectNpmTarball, inspectVsix,
+  inspectInstallationReceipt, retainLegacyInstallationReceipt, releaseActivationLease
 } from '../scripts/install-staged-artifacts.mjs';
 import {
   VSIX_SOURCE_MANIFEST_ENV,
@@ -764,6 +765,42 @@ export async function repairMissingInstallationReceipt(options = {}) {
   // apply acquires the shared lease and checks receipt absence again before any product write.
   return applyLocalReinstall(plan, { ...options, homeDirectory, confirmation: plan.confirmation,
     repairMissingReceipt: true });
+}
+
+async function assertLegacyReceiptUpgrade(homeDirectory, expectedSha256 = null) {
+  const installations = path.join(homeDirectory, '.singularity-flow', 'installations');
+  for (const name of ['distribution-install-pending.json', 'uninstall-pending.json']) {
+    const info = await lstat(path.join(installations, name)).catch((error) => {
+      if (error?.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (info) throw new SingularityFlowError(
+      'Resolve the existing product recovery transaction before upgrading the receipt. Recovery was preserved.',
+      { code: 'INSTALL_RECEIPT_UPGRADE_NOT_ADMITTED' });
+  }
+  const receipt = await inspectInstallationReceipt(path.join(installations, 'current.json'));
+  if (receipt.state !== 'legacy' || (expectedSha256 && receipt.sha256 !== expectedSha256)) {
+    throw new SingularityFlowError('Legacy installation receipt changed; existing bytes were preserved. Retry the full install.',
+      { code: 'INSTALL_RECEIPT_UPGRADE_NOT_ADMITTED' });
+  }
+  return receipt;
+}
+
+/** A full source install authorizes replacing product tooling, never workspaces or recovery. */
+export async function upgradeLegacyInstallationReceipt(options = {}) {
+  if (options.cliOnly || typeof (options.skipTests ?? false) !== 'boolean') {
+    throw new SingularityFlowError('Automatic legacy receipt upgrade requires a full source install.',
+      { code: 'INSTALL_RECEIPT_UPGRADE_NOT_ADMITTED' });
+  }
+  const homeDirectory = options.homeDirectory ?? os.homedir();
+  const journal = path.join(homeDirectory, '.singularity-flow', 'installations', 'activation-current.json');
+  const lease = await acquireActivationLease({ journal, checkout: options.checkout, mode: 'create' });
+  let legacy;
+  try { legacy = await assertLegacyReceiptUpgrade(homeDirectory); }
+  finally { await releaseActivationLease({ journal, ...lease }); }
+  const plan = await prepareLocalReinstall({ ...options, cliOnly: false, homeDirectory });
+  return applyLocalReinstall(plan, { ...options, homeDirectory, confirmation: plan.confirmation,
+    legacyReceiptSha256: legacy.sha256 });
 }
 
 export async function prepareLocalReinstall({
@@ -1591,7 +1628,7 @@ async function assertCliOnlyVsixRollbackAuthority({ cliOnly, installed, homeDire
   );
 }
 
-async function writeCurrentInstallationReceipt(plan, verified, receipt, homeDirectory) {
+async function writeCurrentInstallationReceipt(plan, verified, receipt, homeDirectory, receiptUpgrade = null) {
   const machineState = await managedInstallDirectory(
     path.join(homeDirectory, '.singularity-flow'), 'Singularity Flow machine-state directory'
   );
@@ -1599,6 +1636,9 @@ async function writeCurrentInstallationReceipt(plan, verified, receipt, homeDire
     path.join(machineState, 'installations'), 'Singularity Flow installation directory'
   );
   const currentFile = path.join(installations, 'current.json');
+  if (receiptUpgrade) {
+    await assertLegacyReceiptUpgrade(homeDirectory, receiptUpgrade.previousReceipt.sha256);
+  }
   const priorInfo = await lstat(currentFile).catch((error) => {
     if (error.code === 'ENOENT') return null;
     throw error;
@@ -1639,7 +1679,8 @@ async function writeCurrentInstallationReceipt(plan, verified, receipt, homeDire
     build: { cli: verified.cliBuild },
     checkout: plan.checkout,
     artifacts,
-    rollbackArtifacts: previous?.artifacts ?? null,
+    // A legacy receipt is archival data, never new rollback authority.
+    rollbackArtifacts: receiptUpgrade ? null : previous?.artifacts ?? null,
     // A CLI-only install leaves the previously selected Copilot package untouched.
     runtimeRoots: plan.cliOnly ? previous?.runtimeRoots ?? {
       legacyCopilot: Boolean(previous?.activation?.operationId),
@@ -1651,6 +1692,7 @@ async function writeCurrentInstallationReceipt(plan, verified, receipt, homeDire
     workspaceRefresh: 'skipped',
     activation: null,
     reinstall: { fingerprint: plan.fingerprint, receipt },
+    ...(receiptUpgrade ? { receiptUpgrade } : {}),
     ...(plan.operation === 'local-product-reinstall' ? {
       validation: { reinstallTests: plan.skipTests ? 'skipped-by-request' : 'passed' }
     } : {}),
@@ -2414,6 +2456,7 @@ export async function applyLocalReinstall(plan, {
   installAliases = installDirectSkills,
   beforeTelemetryProfileMutation = null,
   repairMissingReceipt = false,
+  legacyReceiptSha256 = null,
   log = console.warn
 } = {}) {
   runtimeResolver.assertLegacyInstallerAllowed(PACKAGE_ROOT);
@@ -2422,6 +2465,11 @@ export async function applyLocalReinstall(plan, {
       || plan.skipTests !== true || !plan.installed.npmVersion)) {
     throw new SingularityFlowError('Automatic receipt repair requires a full explicitly test-skipped source install.',
       { code: 'INSTALL_RECEIPT_REPAIR_NOT_ADMITTED' });
+  }
+  if (legacyReceiptSha256 && (repairMissingReceipt || plan.operation !== 'local-product-reinstall'
+      || plan.cliOnly || !/^sha256:[a-f0-9]{64}$/u.test(legacyReceiptSha256))) {
+    throw new SingularityFlowError('Legacy receipt upgrade requires a verified full source installation.',
+      { code: 'INSTALL_RECEIPT_UPGRADE_NOT_ADMITTED' });
   }
   if (confirmation !== plan.confirmation) {
     throw new SingularityFlowError(`Reinstall requires exact confirmation '${plan.confirmation}'. Run with --dry-run first.`);
@@ -2450,6 +2498,8 @@ export async function applyLocalReinstall(plan, {
   let result = null;
   let operationFailure = null;
   let distributionTransaction = null;
+  let receiptUpgrade = null;
+  let uncommittedUpgradeAudit = null;
   let interruptedSignal = null;
   const rememberSignal = (signal) => { interruptedSignal = interruptedSignal ?? signal; };
   const signalHandlers = new Map(
@@ -2467,6 +2517,18 @@ export async function applyLocalReinstall(plan, {
   }
   try {
     if (repairMissingReceipt) await assertMissingInstallationReceipt(homeDirectory);
+    if (legacyReceiptSha256) {
+      const legacy = await assertLegacyReceiptUpgrade(homeDirectory, legacyReceiptSha256);
+      receiptUpgrade = await retainLegacyInstallationReceipt(legacy);
+    } else if (plan.operation === 'local-product-reinstall' && !plan.cliOnly) {
+      // Exact roll-forward recovery and explicitly requested clean reinstalls must preserve the
+      // same lineage as the automatic source-installer entry, without requiring a new flag.
+      const current = await inspectInstallationReceipt(path.join(installations, 'current.json'));
+      if (current.state === 'legacy') {
+        await assertLegacyReceiptUpgrade(homeDirectory, current.sha256);
+        receiptUpgrade = await retainLegacyInstallationReceipt(current);
+      }
+    }
     if (plan.operation === 'distribution-product-install') {
       const interrupted = await loadDistributionTransaction({ homeDirectory, environment: env });
       if (interrupted) {
@@ -2696,6 +2758,7 @@ export async function applyLocalReinstall(plan, {
       registry: plan.registry,
       cliOnly: plan.cliOnly,
       ...(repairMissingReceipt ? { repairReason: 'missing-installation-receipt' } : {}),
+      ...(receiptUpgrade ? { repairReason: 'legacy-installation-receipt', receiptUpgrade } : {}),
       ...(plan.operation === 'local-product-reinstall' ? {
         validation: { reinstallTests: plan.skipTests ? 'skipped-by-request' : 'passed' }
       } : {}),
@@ -2707,9 +2770,11 @@ export async function applyLocalReinstall(plan, {
       await updateDistributionTransaction(distributionTransaction, 'receipt', 'pending');
     }
     receipt.receipt = await writeReceipt(plan, receipt, homeDirectory);
+    if (receiptUpgrade) uncommittedUpgradeAudit = receipt.receipt;
     receipt.installationManifest = await writeCurrentInstallationReceipt(
-      plan, verified, receipt.receipt, homeDirectory
+      plan, verified, receipt.receipt, homeDirectory, receiptUpgrade
     );
+    uncommittedUpgradeAudit = null;
     if (distributionTransaction) {
       await updateDistributionTransaction(distributionTransaction, 'receipt', 'applied');
       await finishDistributionTransaction(distributionTransaction, 'complete');
@@ -2736,6 +2801,11 @@ export async function applyLocalReinstall(plan, {
       installationManifest: receipt.installationManifest
     };
   } catch (error) {
+    if (uncommittedUpgradeAudit) {
+      await rm(uncommittedUpgradeAudit, { force: true }).catch((failure) => {
+        log(`Warning: uncommitted upgrade audit could not be removed: ${failure.message}`);
+      });
+    }
     let rollbackFailure = null;
     if (distributionTransaction) {
       try {

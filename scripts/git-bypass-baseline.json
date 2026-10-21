@@ -349,7 +349,7 @@
       "counts": {
         "shell-process": 43
       },
-      "digest": "3a532fea9d412263e01db9e591d61df47908e34e2c30ed60eef3ef71da508cdd"
+      "digest": "e8203d713f95ba7b167c6788e5441e3079e70052f4c76d98ce55125c39fb9064"
     },
     "plugin/extensions/documents/extension.mjs": {
       "counts": {
@@ -1697,7 +1697,7 @@
       "counts": {
         "package-script": 66
       },
-      "digest": "50083c87a6144bd3051f7806d07c5cfb743f45304824aa00b814c69979b46300"
+      "digest": "76d01acaf2115328ad95cbdc6249564e6cf291338a74bac0e68148a79136c253"
     },
     "apps/vscode/package.json": {
       "counts": {

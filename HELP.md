@@ -330,6 +330,13 @@ restore. A post-removal failure therefore retains the verified candidate and pri
 roll-forward recovery command. Once the schema-v2 receipt exists, later admitted upgrades can use
 its exact prior artifacts for automatic compensation.
 
+Full source installs now automatically upgrade completed v1 installation receipts through this
+product-only repair path, with or without `--skip-tests`. No separate preview/confirmation is needed.
+The exact old bytes are archived under `installations/receipt-history/sha256/<digest>.json` and
+bound by `receiptUpgrade` in the v2 receipt. Active recovery remains authoritative; workspaces and
+Stories are preserved. Partial installs must use a full install for this first upgrade rather than
+silently replacing unselected surfaces. Invalid or future receipts are preserved for diagnosis.
+
 ### One build on every surface
 
 The terminal and Copilot run the CLI on PATH, while VS Code runs the CLI bundled in its extension.

@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 39
+version: 40
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing application history.
 
@@ -102,6 +102,29 @@ A legacy clean reinstall is different only when no trusted prior product bytes e
 claim to restore an unknown old build. If apply fails after removal, it retains the verified new
 candidate and prints one exact roll-forward recovery command. Its successful schema-v2 receipt gives
 later upgrades the exact rollback authority needed for automatic compensation.
+
+### Automatic legacy installation-receipt upgrade
+
+A full source install (`./install.sh`, including `--skip-tests` when explicitly selected) and
+the Windows Git Bash installer automatically recognize a completed v1 installation receipt.
+No separate clean-reinstall preview or confirmation is needed. After normal source validation
+and the selected tests, the installer verifies a complete replacement CLI, VSIX and Copilot
+integration through its product-only repair transaction. It never edits workspace registrations,
+repository files, Story checkouts or application branches during this repair.
+
+The exact old `installations/current.json` bytes are retained at
+`installations/receipt-history/sha256/<digest>.json`. The new v2 receipt and reinstall audit record
+bind that digest and path in `receiptUpgrade`; old v1 artifact claims are not promoted to rollback
+authority. V2 is committed only after the replacement surfaces verify. A failed activation keeps
+the old receipt and verified candidate, with an exact roll-forward command; retries preserve the
+same receipt lineage. The installer does not claim it can restore an old build without its bytes.
+
+Active installation leases and unfinished activation, distribution-install or uninstall recovery
+remain authoritative and are never removed to make upgrade pass. Receipt changes during build
+or activation, malformed/future records, archive conflicts, symlinks and junctions refuse safely.
+Partial-surface requests are not silently expanded: run a full install to upgrade v1 first.
+Existing v2 receipts keep the ordinary exact-rollback installation path. Managed-runtime installs
+use their separate engine/product receipts and are not rewritten by this source-install repair.
 
 ## Installation storage and automatic cleanup
 

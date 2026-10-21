@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import { cp, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -14,7 +14,8 @@ import {
   reinstallSourceDigest,
   reinstallPlanText,
   resolveReinstallPlan,
-  repairMissingInstallationReceipt
+  repairMissingInstallationReceipt,
+  upgradeLegacyInstallationReceipt
 } from '../src/reinstall.mjs';
 import {
   VSIX_SOURCE_MANIFEST_ENV,
@@ -24,6 +25,7 @@ import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
 import {
   acquireActivationLease, releaseActivationLease
 } from '../scripts/install-staged-artifacts.mjs';
+import { readRecord } from '../src/schema-migrations.mjs';
 
 const VERSION = '9.8.7';
 const BUILD = `${VERSION} (fixture-build-01234567)`;
@@ -337,6 +339,202 @@ test('missing-receipt repair replaces the full product and preserves workspace a
   assert.equal(current.validation.reinstallTests, 'skipped-by-request');
   assert.equal(current.workspaceRefresh, 'skipped');
   assert.deepEqual(await Promise.all(files.map(file => readFile(file, 'utf8'))), before);
+});
+
+async function legacyUpgradeFixture(t, skipTests = false) {
+  const context = await fixture(t);
+  const npmRoot = path.join(context.root, 'global');
+  await mkdir(npmRoot, { recursive: true });
+  await cp(context.checkout, path.join(npmRoot, 'singularity-flow'), { recursive: true });
+  const installations = path.join(context.home, '.singularity-flow', 'installations');
+  await mkdir(installations, { recursive: true });
+  const current = path.join(installations, 'current.json');
+  const bytes = Buffer.from(`${JSON.stringify({ schemaVersion: 1, status: 'complete', version: VERSION,
+    checkout: context.checkout, tarball: 'old unavailable archive', vsix: 'old unavailable VSIX',
+    note: 'preserve exact legacy bytes, including whitespace' }, null, 4)}\r\n`);
+  await writeFile(current, bytes, { mode: 0o600 });
+  const harness = commandHarness({ installed: true, npmRoot, homeDirectory: context.home });
+  const options = { checkout: context.checkout, skipTests, registry: 'https://registry.npmjs.org/',
+    homeDirectory: context.home, tempRoot: context.temp, environment: {}, build: fakeBuild,
+    log: () => {}, ...harness };
+  return { ...context, installations, current, bytes, harness, options };
+}
+
+for (const skipTests of [false, true]) {
+  test(`full source install upgrades v1 with exact lineage and no workspace changes (skipTests=${skipTests})`, async t => {
+    const f = await legacyUpgradeFixture(t, skipTests);
+    const protectedFiles = [path.join(f.home, '.singularity-flow/workspaces.json'),
+      path.join(f.home, '.singularity-flow/active-workspace.json'),
+      path.join(f.checkout, 'singularity/workflow.yml'), path.join(f.checkout, '.git/singularity-flow/session.json')];
+    const before = await Promise.all(protectedFiles.map(file => readFile(file)));
+    const buildChoices = [];
+    const result = await upgradeLegacyInstallationReceipt({ ...f.options, build: options => {
+      buildChoices.push(options.skipTests);
+      return fakeBuild(options);
+    } });
+    assert.equal(result.completed, true);
+    const current = readRecord('installation-current', await readFile(f.current)).record;
+    assert.equal(current.schemaVersion, 2);
+    assert.equal(current.build.cli, BUILD);
+    assert.equal(current.rollbackArtifacts, null, 'old metadata never becomes proof of rollback bytes');
+    assert.equal(current.validation.reinstallTests, skipTests ? 'skipped-by-request' : 'passed');
+    assert.equal(current.workspaceRefresh, 'skipped');
+    assert.deepEqual(buildChoices, [skipTests]);
+    assert.deepEqual(await Promise.all(protectedFiles.map(file => readFile(file))), before);
+    const upgrade = current.receiptUpgrade;
+    assert.equal(upgrade.fromSchemaVersion, 1);
+    assert.equal(upgrade.toSchemaVersion, 2);
+    assert.equal(upgrade.method, 'verified-full-source-install');
+    assert.equal(upgrade.previousReceipt.sha256, `sha256:${createHash('sha256').update(f.bytes).digest('hex')}`);
+    assert.deepEqual(await readFile(upgrade.previousReceipt.path), f.bytes);
+    const audit = JSON.parse(await readFile(result.receipt));
+    assert.equal(audit.repairReason, 'legacy-installation-receipt');
+    assert.deepEqual(audit.receiptUpgrade, upgrade);
+    assert.equal(f.harness.calls.some(call => call.command === 'git'), false);
+  });
+}
+
+test('legacy receipt upgrade refuses changes during the build before product mutation', async t => {
+  const f = await legacyUpgradeFixture(t);
+  const changed = Buffer.concat([f.bytes, Buffer.from('\n')]);
+  await assert.rejects(upgradeLegacyInstallationReceipt({ ...f.options, build: async options => {
+    const bundle = await fakeBuild(options);
+    await writeFile(f.current, changed);
+    return bundle;
+  } }), /receipt changed/);
+  assert.deepEqual(await readFile(f.current), changed);
+  assert.equal(f.harness.calls.some(call => call.args.includes('--install-extension')
+    || (call.command === 'npm' && call.args.includes('--global') && call.args[0] !== 'list')), false);
+});
+
+test('a legacy receipt can be upgraded when the old CLI is missing without treating its bytes as authority', async t => {
+  const f = await legacyUpgradeFixture(t, true);
+  let cliInstalled = false;
+  const result = await upgradeLegacyInstallationReceipt({ ...f.options,
+    execute: (command, args, options) => {
+      if (command === 'npm' && args[0] === 'list' && !cliInstalled) return ok('{}');
+      if (command === 'npm' && args[0] === 'install' && args.includes('--global')) cliInstalled = true;
+      return f.harness.execute(command, args, options);
+    }
+  });
+  assert.equal(result.completed, true);
+  const current = JSON.parse(await readFile(f.current));
+  assert.equal(current.build.cli, BUILD);
+  assert.deepEqual(await readFile(current.receiptUpgrade.previousReceipt.path), f.bytes);
+});
+
+test('failed legacy activation retains old receipt and exact candidate for a lineage-preserving retry', async t => {
+  const f = await legacyUpgradeFixture(t, true);
+  let failed = false;
+  await assert.rejects(upgradeLegacyInstallationReceipt({ ...f.options,
+    execute: (command, args, options) => {
+      if (command === 'code' && args[0] === '--install-extension') {
+        failed = true;
+        return { status: 1, stdout: '', stderr: 'fixture VS Code locked' };
+      }
+      return f.harness.execute(command, args, options);
+    }
+  }), error => /fixture VS Code locked/.test(error.message)
+    && /REINSTALL SINGULARITY FLOW/.test(error.message) && /--skip-tests/.test(error.message));
+  assert.equal(failed, true);
+  assert.deepEqual(await readFile(f.current), f.bytes);
+  const caches = await readdir(path.join(f.temp, 'singularity-flow-reinstall-plans'));
+  assert.equal(caches.length, 1);
+  const retainedPlan = JSON.parse(await readFile(path.join(f.temp, 'singularity-flow-reinstall-plans', caches[0], 'reinstall-plan.json')));
+  const result = await applyLocalReinstall(retainedPlan, { confirmation: retainedPlan.confirmation,
+    homeDirectory: f.home, environment: {}, log: () => {}, ...f.harness });
+  assert.equal(result.completed, true);
+  const current = JSON.parse(await readFile(f.current));
+  assert.deepEqual(await readFile(current.receiptUpgrade.previousReceipt.path), f.bytes);
+  assert.equal((await readdir(path.join(f.installations, 'receipt-history', 'sha256'))).length, 1);
+});
+
+test('legacy upgrade never replaces pending recovery, bad metadata, or partial selections', async t => {
+  const f = await legacyUpgradeFixture(t);
+  let builds = 0;
+  const options = { ...f.options, build: async request => { builds++; return fakeBuild(request); } };
+  await assert.rejects(upgradeLegacyInstallationReceipt({ ...options, cliOnly: true }), /full source install/);
+  for (const name of ['distribution-install-pending.json', 'uninstall-pending.json']) {
+    const file = path.join(f.installations, name);
+    await writeFile(file, 'preserve exact pending recovery');
+    await assert.rejects(upgradeLegacyInstallationReceipt(options), /recovery.*preserved/i);
+    assert.equal(await readFile(file, 'utf8'), 'preserve exact pending recovery');
+    await fs.promises.unlink(file);
+  }
+  for (const status of ['staged', 'activating', 'rolling-back', 'rollback-failed']) {
+    const journal = path.join(f.installations, 'activation-current.json');
+    const bytes = JSON.stringify({ schemaVersion: 1, status });
+    await writeFile(journal, bytes);
+    await assert.rejects(upgradeLegacyInstallationReceipt(options), /recovery refused/);
+    assert.equal(await readFile(journal, 'utf8'), bytes);
+    await fs.promises.unlink(journal);
+  }
+  for (const bytes of ['{bad JSON', '{"schemaVersion":999}', '{"schemaVersion":1}', '[]']) {
+    await writeFile(f.current, bytes);
+    await assert.rejects(upgradeLegacyInstallationReceipt(options), /receipt|JSON/);
+    assert.equal(await readFile(f.current, 'utf8'), bytes);
+  }
+  await fs.promises.unlink(f.current);
+  await mkdir(f.current);
+  await assert.rejects(upgradeLegacyInstallationReceipt(options), /regular.*file/);
+  assert.equal(builds, 0);
+});
+
+test('legacy upgrade preserves old receipt when build validation fails', async t => {
+  const f = await legacyUpgradeFixture(t);
+  await assert.rejects(upgradeLegacyInstallationReceipt({ ...f.options,
+    build: async () => { throw new Error('fixture validation failure'); }
+  }), /fixture validation failure/);
+  assert.deepEqual(await readFile(f.current), f.bytes);
+  assert.equal(fs.existsSync(path.join(f.installations, 'receipt-history')), false);
+});
+
+test('legacy upgrade rechecks pending recovery after the build and preserves a completed journal', async t => {
+  const f = await legacyUpgradeFixture(t);
+  const pending = path.join(f.installations, 'uninstall-pending.json');
+  await assert.rejects(upgradeLegacyInstallationReceipt({ ...f.options, build: async options => {
+    const bundle = await fakeBuild(options);
+    await writeFile(pending, 'new recovery must survive');
+    return bundle;
+  } }), /recovery.*preserved/i);
+  assert.equal(await readFile(pending, 'utf8'), 'new recovery must survive');
+  assert.deepEqual(await readFile(f.current), f.bytes);
+  await fs.promises.unlink(pending);
+  const journal = path.join(f.installations, 'activation-current.json');
+  const bytes = JSON.stringify({ schemaVersion: 1, status: 'complete',
+    operationId: 'install-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
+  await writeFile(journal, bytes);
+  const result = await upgradeLegacyInstallationReceipt(f.options);
+  assert.equal(result.completed, true);
+  assert.equal(await readFile(journal, 'utf8'), bytes);
+});
+
+test('receipt drift at commit cannot replace current.json or leave a false successful upgrade audit', async t => {
+  const f = await legacyUpgradeFixture(t);
+  const changed = Buffer.concat([f.bytes, Buffer.from('\n')]);
+  await assert.rejects(upgradeLegacyInstallationReceipt({ ...f.options,
+    execute: (command, args, options) => {
+      if (command === 'singularity-flow' && args.join(' ') === 'plugin verify --json') {
+        fs.writeFileSync(f.current, changed);
+      }
+      return f.harness.execute(command, args, options);
+    }
+  }), /receipt changed/);
+  assert.deepEqual(await readFile(f.current), changed);
+  assert.deepEqual((await readdir(f.installations)).filter(name => /^reinstall-.*\.json$/u.test(name)), []);
+});
+
+test('archive conflicts and non-ordinary receipt storage refuse upgrade without product mutation', async t => {
+  const f = await legacyUpgradeFixture(t);
+  const history = path.join(f.installations, 'receipt-history', 'sha256');
+  const hash = createHash('sha256').update(f.bytes).digest('hex');
+  await mkdir(history, { recursive: true });
+  const archive = path.join(history, `${hash}.json`);
+  await writeFile(archive, 'conflicting archive is preserved');
+  await assert.rejects(upgradeLegacyInstallationReceipt(f.options), /conflicts with its digest/);
+  assert.equal(await readFile(archive, 'utf8'), 'conflicting archive is preserved');
+  assert.deepEqual(await readFile(f.current), f.bytes);
+  assert.equal(f.harness.calls.some(call => call.args.includes('--install-extension')), false);
 });
 
 test('test opt-out still refuses changed package bytes before product mutation', async t => {

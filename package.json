@@ -93,7 +93,7 @@
     "test:platform:skp": "node scripts/skp-qualification.mjs --execute",
     "test:release:skp": "node scripts/skp-qualification.mjs --execute --require-release",
     "test:gal:acceptance": "node --test test/gal-acceptance-matrix.test.mjs test/gal-matrix-cell.test.mjs",
-    "test:reinstall": "node --test test/reinstall.test.mjs test/distribution-bootstrap.test.mjs test/distribution-bundle.test.mjs test/distribution-install.test.mjs test/product-uninstall.test.mjs test/direct-skills.test.mjs test/plugin.test.mjs",
+    "test:reinstall": "node --test test/reinstall.test.mjs test/installation-receipt-upgrade.test.mjs test/distribution-bootstrap.test.mjs test/distribution-bundle.test.mjs test/distribution-install.test.mjs test/product-uninstall.test.mjs test/direct-skills.test.mjs test/plugin.test.mjs",
     "test:no-model": "node --test test/model-boundary.test.mjs test/no-model-operations.test.mjs test/no-model-lifecycle.test.mjs",
     "test:manual-authorship": "node --test test/manual-authorship.test.mjs test/manual-import.test.mjs",
     "check": "node scripts/check.mjs",

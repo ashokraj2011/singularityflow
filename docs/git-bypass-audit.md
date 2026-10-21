@@ -214,3 +214,9 @@ commit through the existing frozen remote executor; it never changes application
 The transfer writes objects only; one frozen `update-ref --no-deref` site replaces that retention
 hint without following a pre-existing symbolic alias into an application branch. No process owner
 was exempted by these additions.
+
+Automatic legacy installation-receipt upgrade uses the existing full product-only repair entry;
+it adds no Git calls or process owner. The installer baseline still has 43 shell sites: only the
+usage-text fingerprint changes. The package-script baseline still has 66 sites; `test:reinstall`
+also runs the portable receipt-upgrade suite. Exact old receipt bytes are archival data, never
+executable or rollback authority, and the shared activation lease remains required.

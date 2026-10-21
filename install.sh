@@ -129,6 +129,7 @@ usage() {
     '' \
     '--skip-tests keeps build and artifact checks, but skips the selected test suite, including test:reinstall.' \
     'A full normal install also repairs a missing installation receipt in this mode; workspaces are preserved.' \
+    'Full source installs automatically upgrade legacy v1 receipts after verifying the replacement; old receipt bytes and recovery are preserved.' \
     '--vscode-only builds, packages, installs, and verifies only the VS Code extension' \
     '--skip-vscode installs the CLI, Copilot plugin, skills, and telemetry without replacing the VS Code extension' \
     '--skip-copilot installs the CLI and VS Code extension without requiring or replacing standalone Copilot assets' \
@@ -849,18 +850,40 @@ step_begin 'Compiling and validating the project'
 npm run check
 step_end
 
-# An unreceipted legacy product cannot pass the normal exact-rollback admission. With an
-# explicit test opt-out, a full source install may use the established product-only repair
-# transaction instead. Never expand a partial install or discard an existing recovery journal.
-if [[ "$SKIP_TESTS" == "on" && "$CLI_ONLY" == "off" && "$VSCODE_ONLY" == "off" \
+# A legacy receipt is metadata, not proof of old rollback bytes. A full install may automatically
+# rebuild product authority from the verified replacement, retaining exact v1 bytes and lineage.
+# Partial installs must not silently grow into replacement of unselected product surfaces.
+INSTALL_RECEIPT_REPAIR='off'
+INSTALL_RECEIPT_STATE="$(node "$PROJECT_DIR/scripts/install-staged-artifacts.mjs" receipt-state \
+  --current-manifest "$INSTALL_MANIFEST_DIR/current.json")"
+if [[ "$INSTALL_RECEIPT_STATE" == 'legacy' ]]; then
+  if [[ "$CLI_ONLY" == "on" || "$VSCODE_ONLY" == "on" || "$SKIP_VSCODE" == "on" || "$SKIP_COPILOT" == "on" ]]; then
+    printf '%s\n' 'Legacy receipt upgrade requires a full install without partial-surface flags. No product surface was changed; workspaces and recovery were preserved.' >&2
+    exit 1
+  fi
+  if [[ "$SKIP_TESTS" != "on" ]]; then
+    step_begin 'Running the full test suite before legacy receipt upgrade'
+    npm test
+    step_end
+  fi
+  printf '%s\n' 'Legacy v1 installation receipt detected; automatically upgrading through verified full product-only repair.'
+  printf '%s\n' 'Workspaces and Stories are preserved. The old receipt and a verified candidate are retained for recovery.'
+  REPAIR_ARGS=(--checkout "$PROJECT_DIR" --registry "$REGISTRY" --legacy-receipt)
+  [[ "$SKIP_TESTS" == "on" ]] && REPAIR_ARGS+=(--skip-tests)
+  INSTALL_RECEIPT_REPAIR='on'
+# Missing-receipt consent remains restricted to a full explicitly test-skipped install.
+elif [[ "$SKIP_TESTS" == "on" && "$CLI_ONLY" == "off" && "$VSCODE_ONLY" == "off" \
   && "$SKIP_VSCODE" == "off" && "$SKIP_COPILOT" == "off" \
   && ! -e "$INSTALL_MANIFEST_DIR/current.json" && ! -L "$INSTALL_MANIFEST_DIR/current.json" ]] \
   && command -v singularity-flow >/dev/null 2>&1; then
   printf '%s\n' 'Installation receipt is missing; switching to full product-only repair (--skip-tests).'
   printf '%s\n' 'Workspaces and Stories are preserved. A verified candidate is retained for roll-forward recovery.'
+  REPAIR_ARGS=(--checkout "$PROJECT_DIR" --registry "$REGISTRY" --skip-tests)
+  INSTALL_RECEIPT_REPAIR='on'
+fi
+if [[ "$INSTALL_RECEIPT_REPAIR" == 'on' ]]; then
   release_activation_lease
   trap - EXIT
-  REPAIR_ARGS=(--checkout "$PROJECT_DIR" --registry "$REGISTRY" --skip-tests)
   [[ "$ENABLE_COPILOT_TELEMETRY" == "off" ]] && REPAIR_ARGS+=(--no-copilot-telemetry)
   exec node "$PROJECT_DIR/scripts/repair-unreceipted-installation.mjs" "${REPAIR_ARGS[@]}"
 fi

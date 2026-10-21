@@ -26,6 +26,7 @@ const DIGEST = /^sha256:[a-f0-9]{64}$/u;
 const OPERATION_ID = /^install-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const CONTROL = /[\0\r\n]/u;
 const helperFile = fileURLToPath(import.meta.url);
+export const LEGACY_RECEIPT_UPGRADE_GUIDANCE = 'Legacy installation receipt requires upgrade. Run a full ./install.sh from the latest trusted SFlow source checkout (add --skip-tests only if requested). The installer automatically verifies the replacement and upgrades the receipt, preserving workspaces, the old receipt bytes, and active recovery.';
 const RETAINED_ARTIFACT_NAMES = Object.freeze({
   tarball: 'singularity-flow.tgz',
   vsix: 'singularity-flow.vsix'
@@ -408,6 +409,49 @@ async function optionalJson(file, label) {
   if (!info) return null;
   const input = await regularBytes(absolute, label, { maxBytes: MAX_JOURNAL_BYTES });
   return jsonManifest(input.bytes, label);
+}
+
+/** Observe legacy metadata without admitting it as rollback or product authority. */
+export async function inspectInstallationReceipt(file) {
+  const absolute = path.resolve(file);
+  const info = await lstat(absolute).catch((error) => {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (!info) return { state: 'absent', path: absolute };
+  const { bytes } = await regularBytes(absolute, 'installation receipt', { maxBytes: MAX_MANIFEST_BYTES });
+  const record = jsonManifest(bytes, 'installation receipt');
+  if (![1, 2].includes(record.schemaVersion)) {
+    fail('installation receipt has an unsupported schema; its bytes and recovery were preserved.');
+  }
+  if (record.schemaVersion === 1 && (typeof record.version !== 'string'
+      || !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/u.test(record.version)
+      || !['complete', 'complete-with-skips', 'partial-by-request'].includes(record.status))) {
+    fail('legacy installation receipt is not a completed product receipt; its bytes were preserved.');
+  }
+  return { state: record.schemaVersion === 1 ? 'legacy' : 'current', path: absolute,
+    schemaVersion: record.schemaVersion, sha256: sha256(bytes), bytes };
+}
+
+/** Exact old bytes, not a fabricated v2 receipt. Caller holds the shared activation lease. */
+export async function retainLegacyInstallationReceipt(observed) {
+  const current = await inspectInstallationReceipt(observed.path);
+  if (current.state !== 'legacy' || current.sha256 !== observed.sha256) {
+    fail('installation receipt changed before upgrade; no replacement receipt was written.');
+  }
+  const history = await managedDirectory(path.join(path.dirname(current.path), 'receipt-history'), 'receipt history', { create: true });
+  const algorithm = await managedDirectory(path.join(history, 'sha256'), 'receipt history SHA-256 store', { create: true });
+  const target = path.join(algorithm, `${current.sha256.slice('sha256:'.length)}.json`);
+  const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, current.bytes, { flag: 'wx', mode: 0o600 });
+    try { await link(temporary, target); }
+    catch (error) { if (error?.code !== 'EEXIST') throw error; }
+    const retained = await regularBytes(target, 'archived installation receipt', { maxBytes: MAX_MANIFEST_BYTES });
+    if (sha256(retained.bytes) !== current.sha256) fail('archived installation receipt conflicts with its digest.');
+  } finally { await rm(temporary, { force: true }); }
+  return { fromSchemaVersion: 1, toSchemaVersion: 2, method: 'verified-full-source-install',
+    previousReceipt: { path: target, sha256: current.sha256 } };
 }
 
 async function previousArtifactFromManifest({ manifest, journal, kind, observedVersion, required }) {
@@ -1483,6 +1527,11 @@ const optional = (value) => value === '-' ? null : value;
 async function commandLine() {
   const [command, ...rest] = process.argv.slice(2);
   const args = options(rest);
+  if (command === 'receipt-state') {
+    const receipt = await inspectInstallationReceipt(args['--current-manifest']);
+    process.stdout.write(`${receipt.state}\n`);
+    return;
+  }
   if (command === 'cleanup') {
     const result = await cleanupInstallationStorage({
       journal: args['--journal'], checkout: args['--checkout'] ?? process.cwd(),
@@ -1612,7 +1661,7 @@ async function commandLine() {
     process.stdout.write(`${verified.executable}\n`);
     return;
   }
-  fail('expected cleanup, lease-acquire, lease-heartbeat, lease-heartbeat-loop, lease-release, create, update, reset, resume, or verify-cli.');
+  fail('expected receipt-state, cleanup, lease-acquire, lease-heartbeat, lease-heartbeat-loop, lease-release, create, update, reset, resume, or verify-cli.');
 }
 
 const invokedPath = process.argv[1] ? await realpath(process.argv[1]).catch(() => null) : null;

@@ -337,6 +337,22 @@ test('a machine no installer recorded has nothing to align and writes nothing', 
   assert.equal(await recordedAlignment({ homeDirectory: item.home, runningBuild: line(INSTALLED) }), null);
 });
 
+test('legacy receipt alignment directs a full automatic upgrade and never trusts old artifacts', async t => {
+  const item = await machine(t);
+  const file = path.join(item.installations, 'current.json');
+  const bytes = JSON.stringify({ schemaVersion: 1, version: VERSION, status: 'complete',
+    tarball: 'not trusted', vsix: 'not trusted' });
+  await writeFile(file, bytes);
+  const observed = await observeProductSurfaces(item.options);
+  const plan = planProductAlignment(observed);
+  assert.equal(plan.verdict, 'receipt-invalid');
+  assert.deepEqual(plan.actions, []);
+  assert.equal(plan.next[0].command, './install.sh');
+  assert.match(plan.next[0].reason, /automatically.*upgrades/);
+  assert.equal(await readFile(file, 'utf8'), bytes);
+  assert.equal(item.state.calls.length, 0, 'no inventory or mutation can be authorized by v1 metadata');
+});
+
 test('alignment never runs while an install or its recovery owns the surfaces', async (t) => {
   const pending = await machine(t, { cli: OLDER });
   await writeFile(path.join(pending.installations, 'distribution-install-pending.json'), '{}');

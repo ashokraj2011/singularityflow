@@ -33,7 +33,7 @@ import { runWorkspaceHealer } from './workspace-healers.mjs';
 import { withRegistryFileLease } from './file-lease.mjs';
 import {
   acquireActivationLease, inspectNpmTarballBuildSources, inspectVsixBuildSources,
-  releaseActivationLease
+  releaseActivationLease, LEGACY_RECEIPT_UPGRADE_GUIDANCE
 } from '../scripts/install-staged-artifacts.mjs';
 
 const RETAINED_ARTIFACT_NAMES = Object.freeze({
@@ -98,7 +98,10 @@ async function readInstallationReceipt(installations) {
     const { record } = readRecord('installation-current', bytes);
     return { status: 'present', path: file, record };
   } catch (error) {
-    return { status: 'invalid', path: file, reason: error.message, code: error.code ?? null };
+    const upgradeRequired = error.code === 'SCHEMA_VERSION_ARCHIVED';
+    return { status: 'invalid', path: file,
+      reason: upgradeRequired ? LEGACY_RECEIPT_UPGRADE_GUIDANCE : error.message,
+      upgradeRequired, code: error.code ?? null };
   }
 }
 
@@ -261,7 +264,8 @@ export async function observeProductSurfaces({
     // Nothing to compare the surfaces with, so no inventory and none of its subprocesses.
     return Object.freeze({
       receipt: Object.freeze({
-        status: receipt.status, path: receipt.path, ...(receipt.reason ? { reason: receipt.reason } : {})
+        status: receipt.status, path: receipt.path, ...(receipt.reason ? { reason: receipt.reason } : {}),
+        ...(receipt.upgradeRequired ? { upgradeRequired: true } : {})
       }),
       installed: Object.freeze({ cli: null, vscode: null }),
       live: null,
@@ -366,7 +370,7 @@ export function planProductAlignment(observation) {
       actions: Object.freeze([]),
       split: null,
       next: Object.freeze(receipt.status === 'absent' ? [] : [{
-        command: 'singularity-flow doctor --json',
+        command: receipt.upgradeRequired ? './install.sh' : 'singularity-flow doctor --json',
         reason: `The installation receipt could not be read: ${receipt.reason ?? 'invalid'}`
       }])
     });

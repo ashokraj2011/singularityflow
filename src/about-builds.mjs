@@ -116,8 +116,12 @@ export async function aboutBuilds({ execute = null, environment = process.env, h
     const { readRecord } = await import('./schema-migrations.mjs');
     readRecord('installation-current', await localText(receiptPath));
     receipt = { status: 'present', path: receiptPath };
-  } catch (error) { receipt = { status: error.code === 'ENOENT' ? 'missing' : 'invalid', path: receiptPath,
-    ...(error.code === 'ENOENT' ? {} : { reason: error.message }) }; }
+  } catch (error) {
+    const reason = error.code === 'SCHEMA_VERSION_ARCHIVED'
+      ? (await import('../scripts/install-staged-artifacts.mjs')).LEGACY_RECEIPT_UPGRADE_GUIDANCE : error.message;
+    receipt = { status: error.code === 'ENOENT' ? 'missing' : 'invalid', path: receiptPath,
+      ...(error.code === 'ENOENT' ? {} : { reason }) };
+  }
   let managed = null;
   try { managed = runtimeResolver.resolveManagedEngine({ environment, homeDirectory }); }
   catch (error) { warnings.push(`Managed runtime: ${error.message}`); }
@@ -137,6 +141,7 @@ export function aboutBuildsMarkdown(report) {
     '| Surface | Version | Build identity | Build date (UTC) |', '| --- | --- | --- | --- |',
     ...rows.map(item => `| ${cell(item.label)} | ${cell(item.version)} | ${cell(item.identity ?? (item.status === 'development' ? 'development checkout' : null))} | ${cell(item.builtAt)} |`), '',
     `CLI / VS Code alignment: ${report.alignment}. Installation receipt: ${report.receipt.status}.`,
+    ...(report.receipt.reason ? [`Installation receipt: ${cell(report.receipt.reason)}`] : []),
     `Engine Node: ${cell(report.runtime?.node)} (${report.runtime?.managed ? 'SFlow-managed' : 'external / host runtime'}).`,
     `Engine executable: ${cell(report.runtime?.executable)}.`,
     ...rows.filter(item => item.reason).map(item => `${cell(item.label)}: ${cell(item.reason)}`),

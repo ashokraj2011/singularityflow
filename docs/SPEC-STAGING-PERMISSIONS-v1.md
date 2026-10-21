@@ -10,7 +10,7 @@ writes its report the same way. Today the permission to write that file lasts on
 turn in which the CLI printed the path. A later turn that already knows the path is refused with an
 error that offers no way forward, and the Story stops.
 
-## The incident (2026-10-21, reproduced on main `89c1677a`)
+## The incident (2026-10-21, reproduced on main `89c1677a` and again on `1e81b9ef`)
 
 A specification step with an open clarification checkpoint, in a linked Story worktree, ran through
 three turns in one Copilot chat:
@@ -50,6 +50,18 @@ allowed again. No path segment was a link, and the file did not exist.
      `workflow build` and `workflow validate`.
 4. **Consequence.** With no route, the model generalised the refusal to the path itself. It
    stopped trying even after a correct re-entry, and its final message misreported that turn.
+
+### Related: the same-turn refresh race (92d1d455)
+
+- **What `92d1d455` fixes.** A background contract refresh could rewrite the turn record over a
+  grant just issued, inside one turn. That commit makes `issueMutationStaging` write an issuer
+  receipt, and `currentContract` recovers a grant from a receipt.
+- **Why it doesn't fix this incident.** A receipt must match the live turn's `turnId`, Story, step,
+  generation and mode, so a later turn still finds nothing. The reproduction above still fails after
+  that commit.
+- **How D1 fits.** D1 derives the two step files on every contract read, so they never depend on a
+  receipt. Receipts stay for files issued within a turn: team-import candidates, build proposals,
+  fix-workflow change sets and app drafts.
 
 ## Goals
 

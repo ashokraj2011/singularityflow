@@ -7839,8 +7839,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         acknowledge: async () => {
           const acknowledge = 'Acknowledge and merge';
           return await showCompactWarningMessage(
-            `Git cannot determine whether ${inspected.targetBranch} permits this direct update without attempting it. Authorize one exact leased update for the reviewed workflow proposal?`,
-            { modal: true, detail: 'The acknowledgement applies only to this exact proposal commit. Server review controls and hooks may still refuse it. The application branch remains unchanged.' },
+            `Authorize one exact leased update to ${inspected.targetBranch} for this reviewed commit? Git cannot confirm direct-push permission in advance.`,
+            { modal: true, detail: 'Only this exact commit is authorized. Server hooks and review controls still apply. Application branches stay unchanged.' },
             acknowledge
           ) === acknowledge;
         },
@@ -7953,7 +7953,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const files = proposal.files?.length ?? 0;
         if (proposal.pushed === false) {
           void showCompactInformationMessage(
-            `Workflow proposal saved on this computer with ${files} configuration file${files === 1 ? '' : 's'} and is uploading now. It appears for review once the upload finishes; if it cannot, Workflow Studio → Changes shows it with the reason and a Retry upload button. The active Story was not changed.`
+            `Saved ${files} configuration file${files === 1 ? '' : 's'} locally; uploading for review. Workflow Studio → Changes shows any failure with Retry upload. The active Story is unchanged.`
           );
           if (proposal.nextAction) output.appendLine(`  Sync status: ${proposal.nextAction}`);
           if (proposal.transportIntent) watchProposalUpload(proposal.transportIntent, proposal.branch);

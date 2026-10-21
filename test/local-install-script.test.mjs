@@ -23,6 +23,7 @@ function spawnSync(command, args, options = {}) {
   // Freeze the real interpreter before a fixture deliberately replaces PATH with shell stubs.
   // Git Bash needs its own colon-delimited path, not a native drive colon inside the first entry.
   const value = env[key];
+  let shellSearch = null;
   if (value && value !== process.env[key] && /^[a-z]:[\\/]/iu.test(value)) {
     const split = value.indexOf(':', 2);
     if (split !== -1) {
@@ -32,10 +33,20 @@ function spawnSync(command, args, options = {}) {
       const rest = tail.includes(';') || /^[a-z]:[\\/]/iu.test(tail)
         ? tail.split(';').map(convert).join(':') : tail;
       env.PATH = first + ':' + rest + ':/usr/bin:/bin';
+      shellSearch = env.PATH;
       for (const alias of Object.keys(env)) if (alias.toLowerCase() === 'path' && alias !== 'PATH') delete env[alias];
     }
   }
-  return nativeSpawnSync(bash, args, { ...options, env });
+  const portableArgs = args.map(argument => /^[a-z]:[\\/]/iu.test(argument) ? shellPath(argument) : argument);
+  if (shellSearch) {
+    // Set POSIX PATH after MSYS startup has imported the native parent environment. Passing a
+    // colon list as Windows PATH can otherwise let the real git.exe precede a fixture's stub.
+    for (const alias of Object.keys(env)) if (alias.toLowerCase() === 'path') delete env[alias];
+    env.PATH = process.env.PATH ?? process.env.Path;
+    return nativeSpawnSync(bash, ['-c', 'export PATH="$1"; shift; exec "$@"',
+      'sflow-installer-fixture', shellSearch, shellPath(bash), ...portableArgs], { ...options, env });
+  }
+  return nativeSpawnSync(bash, portableArgs, { ...options, env });
 }
 
 async function assertInstallerExecutable(file, message) {

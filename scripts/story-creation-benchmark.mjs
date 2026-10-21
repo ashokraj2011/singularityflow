@@ -20,7 +20,7 @@ if (!Number.isSafeInteger(samples) || samples < 1 || samples > 20
     || !Number.isSafeInteger(files) || files < 0 || files > 20000
     || !/^[a-z0-9-]{1,64}$/.test(workType) || !['both', 'isolated', 'working'].includes(selectedMode)
     || !['true', 'false'].includes(fresh) || !['legacy', 'approved'].includes(configuration)
-    || !['none', 'candidate'].includes(prewarm)
+    || !['none', 'candidate', 'all'].includes(prewarm)
     || !['none', 'candidate'].includes(prepareWorktree)
     || (prepareWorktree !== 'none' && (configuration !== 'approved' || selectedMode !== 'isolated'))
     || (controlRef && !/^[a-f0-9]{40}$/.test(controlRef))) throw new Error('Invalid benchmark bounds.');
@@ -89,15 +89,15 @@ try {
       const variantEnv = { SINGULARITY_FLOW_BUNDLE_DIR: variants[variant],
         NODE_COMPILE_CACHE: path.join(fixture.directory, 'code-cache', variant, ...(fresh === 'true' ? [String(index)] : [])) };
       let preparation = null;
-      if (prewarm === 'candidate' && variant === 'candidate') {
-        const prepared = invoke(['--warm-runtime'], fixture.directory, variantEnv);
+      if (prewarm === 'all' || (prewarm === 'candidate' && variant === 'candidate')) {
+        const prepared = invoke(['--warm-runtime'], fixture.directory, variantEnv, variantClis[variant]);
         preparation = { durationMs: prepared.durationMs, prepared: JSON.parse(prepared.value).prepared === true };
       }
       let intakePreview = null, worktreePreparation = null, intakeArgs = [];
       if (prepareWorktree !== 'none') {
         const preview = invoke(['workspace', 'branches', '--json', '--intake', '--preflight-story', id,
           '--from-branch', 'main', '--work-type', workType, '--selected-base-only', '--isolated-worktree',
-          '--mint-intake-receipt'], repository, variantEnv);
+          '--mint-intake-receipt'], repository, variantEnv, variantClis[variant]);
         const receipt = preview.value.preflight?.intakeReceipt;
         // Old Windows builds can legitimately decline their optimization because the ACL helper
         // inherited Core-only modules. Keep that baseline on its real full-validation path; never

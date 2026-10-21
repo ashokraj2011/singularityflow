@@ -928,7 +928,7 @@ test('a fix-workflow turn reads, edits only the issued change set draft, and pro
       assert.deepEqual(await shell(command), {}, `${label}: ${command}`);
       assert.deepEqual(await mutationPostToolGuard({ ...payload, toolName: 'bash', toolArgs: { command } }), {}, `${label} after: ${command}`);
     }
-    assert.match((await shell(propose)).permissionDecisionReason ?? '', /FIX_WORKFLOW_OPERATION_NOT_ALLOWED/u, `${label}: nothing is issued yet`);
+    assert.match((await shell(propose)).permissionDecisionReason ?? '', /FIX_WORKFLOW_DRAFT_NOT_ISSUED: .*workflow validate --json/u, `${label}: nothing is issued yet`);
     assert.match((await edit(draft)).permissionDecisionReason, /no change set draft is issued/u, label);
     assert.equal(await issueFixWorkflowStaging(draft, { root: f.root }), 1, label);
     assert.deepEqual(await edit(draft), {}, label);
@@ -982,11 +982,12 @@ test('expired explicit permission cannot authorize an edit or approval; diagnost
   const receiptRefusal = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: {
     command: 'singularity-flow approve custom-step --work-id PMC-1 --selection-receipt 8232baec-10cb-4dd1-a8af-066d1fb06841 --for-agent --json' } });
   assert.equal(receiptRefusal.permissionDecision, 'deny');
-  assert.match(receiptRefusal.permissionDecisionReason, /PHASE_MUTATION_CONTRACT_REQUIRED/);
+  // Expiry says so and names the turn's own skill: no shell command renews a Copilot turn.
+  assert.match(receiptRefusal.permissionDecisionReason, /^PHASE_MUTATION_TURN_EXPIRED: .*Invoke \/sf-approve again/u);
   assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'singularity-flow phase enter --for-agent --json' } }), {});
   const refusal = await mutationToolGuard(payload);
-  assert.match(refusal.permissionDecisionReason, /new explicit turn/);
-  assert.match(refusal.next[0].detail, /new turn/);
+  assert.match(refusal.permissionDecisionReason, /^PHASE_MUTATION_TURN_EXPIRED: .*Copilot: \/sf-approve; Shell: not available for this action/u);
+  assert.deepEqual(refusal.next, []);
 });
 
 test('missing Story setup and session attach retain kernel routes but never file-edit permissions', async t => {
@@ -1393,4 +1394,73 @@ test('a step with no clarification checkpoint derives no file, and nothing aroun
   const linked = await mutationToolGuard(asPatch(await f.enter('/sf-phase', 'after-link'), file));
   assert.match(linked.permissionDecisionReason, /^PHASE_MUTATION_PATH_DENIED/u);
   assert.equal(readFileSync(path.join(f.root, 'src', 'App.jsx'), 'utf8'), 'export const value = 1;\n');
+});
+
+test('/sf-specify, /sf-plan, /sf-verify and /sf-implement author the current step like /sf-phase', async t => {
+  const f = await fixture(t);
+  for (const skill of ['/sf-specify', '/sf-plan', '/sf-verify', '/sf-implement']) {
+    assert.equal(mutationTurnMode(skill.slice(1)), 'authoring', skill);
+    const payload = await f.enter(skill, `author-${skill.slice(4)}`);
+    assert.deepEqual(await mutationToolGuard({ ...payload, toolArgs: { path: 'singularity/work-items/PMC-1/artifacts/custom-step/plan.md' } }), {}, skill);
+    assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'singularity-flow prepare custom-step' } }), {}, skill);
+    // Still bound to the step's own policy: an artifact-only step edits no application code.
+    assert.equal((await mutationToolGuard(payload)).permissionDecision, 'deny', skill);
+  }
+});
+
+test('an expired turn says so and names its own skill, never an issuer or shell route that cannot renew it', async t => {
+  const f = await fixture(t, { clarification: { mode: 'required' } });
+  const enterAt = async (skill, sessionId, now) => {
+    const payload = { cwd: f.root, sessionId, prompt: skill };
+    await recordRepositoryBoundaryTurn(payload, { now, captureMutation: (value, record) => captureMutationTurn(value, record,
+      { resolveRoot: async () => f.root, load: async () => f.accepted }) });
+    return payload;
+  };
+  const past = Date.now() - 31 * 60_000;
+  const staging = clarificationStagingPath(gitDir(f.root), f.workflow, f.phase);
+  const author = await enterAt('/sf-code', 'expired-author', past);
+  for (const payload of [asPatch(author, staging), { ...author, toolName: 'edit', toolArgs: { path: 'singularity/work-items/PMC-1/artifacts/custom-step/a.md' } }]) {
+    assert.match((await mutationToolGuard(payload)).permissionDecisionReason,
+      /^PHASE_MUTATION_TURN_EXPIRED: .*Invoke \/sf-code again to continue.*Shell: not available for this action/u);
+  }
+  const draft = path.join(path.dirname(f.root), 'drafts', 'web.application.yml');
+  const runApp = await enterAt('/sf-run-app suggest', 'expired-run', past);
+  assert.match((await mutationToolGuard({ ...runApp, toolName: 'edit', toolArgs: { path: draft } })).permissionDecisionReason,
+    /^PHASE_MUTATION_TURN_EXPIRED: .*Invoke \/sf-run-app again/u);
+  // A live turn on the same step is unaffected.
+  assert.deepEqual(await mutationToolGuard(asPatch(await enterAt('/sf-phase', 'live-author', Date.now()), staging)), {});
+});
+
+test('a propose command naming a draft not issued to this turn names the command that issues the same file', async t => {
+  const f = await fixture(t);
+  const shell = (payload, command) => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  const run = await f.enter('/sf-run-app suggest', 'run-propose');
+  const draft = path.join(path.dirname(f.root), 'drafts', 'web.application.yml');
+  const propose = `singularity-flow capability set web --application-file ${draft} --json`;
+  assert.match((await shell(run, propose)).permissionDecisionReason,
+    /^RUN_AND_TEST_DRAFT_NOT_ISSUED: .*web\.application\.yml is not issued to this turn\. Run singularity-flow app suggest --json standalone in this turn first: it issues the same draft file and leaves what is in it unchanged/u);
+  // A command that is wrong for another reason keeps the ordinary refusal.
+  assert.match((await shell(run, `singularity-flow capability set web --application-file ${draft} --name Other`)).permissionDecisionReason,
+    /^RUN_AND_TEST_OPERATION_NOT_ALLOWED/u);
+  await issueRunAppDraftStaging(draft, { root: f.root });
+  assert.deepEqual(await shell(run, propose), {});
+
+  const fix = await f.enter('/sf-fix-workflow', 'fix-propose');
+  const changeSet = path.join(path.dirname(f.root), 'fixes', 'feature.change-set.json');
+  const apply = `singularity-flow workflow studio apply --change-set ${changeSet} --propose --json`;
+  assert.match((await shell(fix, apply)).permissionDecisionReason,
+    /^FIX_WORKFLOW_DRAFT_NOT_ISSUED: .*Run singularity-flow workflow validate --json standalone in this turn first, for the same workflow/u);
+  assert.match((await shell(fix, `singularity-flow workflow studio apply --change-set ${changeSet} --propose --approve`)).permissionDecisionReason,
+    /^FIX_WORKFLOW_OPERATION_NOT_ALLOWED/u);
+  await issueFixWorkflowStaging(changeSet, { root: f.root });
+  assert.deepEqual(await shell(fix, apply), {});
+});
+
+test('an import-team turn with no candidate issued names the route that continues an earlier session', async t => {
+  const f = await fixture(t);
+  const payload = await f.enter('/sf-import-team', 'import-continue');
+  const candidate = path.join(path.dirname(f.root), 'state', 'team-imports', 'tis-1', 'candidate.json');
+  const refused = await mutationToolGuard({ ...payload, toolArgs: { path: candidate } });
+  assert.match(refused.permissionDecisionReason,
+    /^IMPORT_TEAM_PATH_DENIED: no candidate file is issued to this turn\. To continue an earlier session, run singularity-flow workflow import-team status --session <SESSION-ID> --json in this turn: it issues that session's candidate file again and keeps its answers/u);
 });

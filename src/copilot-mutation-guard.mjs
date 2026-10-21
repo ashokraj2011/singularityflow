@@ -13,6 +13,40 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { safeCommandGuidance, validateSflowExecutionCommand } from './safe-command-guidance.mjs';
 
 const MAX_AGE = 30 * 60 * 1000;
+
+/** Whether this explicit turn's permissions have lapsed (MAX_AGE from its prompt). */
+function turnExpired(record) {
+  return Number.isFinite(record?.recordedAt) && Date.now() - record.recordedAt > MAX_AGE;
+}
+
+/**
+ * An expired turn says so, with the one thing that renews it: invoking its skill again. Shell commands
+ * never renew a Copilot turn, and the issuers skip expired turns, so routing to one would loop.
+ */
+function turnExpiredDenial(record) {
+  const skill = `/sf-${String(record?.skill ?? 'phase').replace(/^\/?(?:sf|sflow)-/u, '')}`;
+  return { permissionDecision: 'deny', next: [], permissionDecisionReason:
+    `PHASE_MUTATION_TURN_EXPIRED: this turn's permissions last ${MAX_AGE / 60000} minutes from its prompt and have ended; nothing was written. `
+    + `Invoke ${skill} again to continue: the new turn enters again and keeps everything already written. `
+    + `Copilot: ${skill}; Shell: not available for this action (no command renews a Copilot turn); Model-free: not available for this action` };
+}
+
+/**
+ * The draft file a refused propose command names, when nothing of its kind is issued to this turn and
+ * that is the only thing wrong: the same command passes with that file issued. Its issuer issues the same file
+ * again, unchanged, so the refusal can name it.
+ */
+function unissuedDraftOption(call, scope, mode, field, pick) {
+  // With a draft already issued to this turn, a different file is a mismatch the ordinary refusal
+  // covers; the issuer would issue that same draft again, not the file named.
+  if ((scope[field] ?? []).length) return null;
+  const safe = verifiedShellForm(call, scope);
+  if (!safe) return null;
+  const { positionals, options } = parseArgs(safe.argv);
+  const file = pick(positionals, options);
+  if (typeof file !== 'string' || !path.isAbsolute(file) || (scope[field] ?? []).includes(path.resolve(file))) return null;
+  return shellAllowed(call, mode, { ...scope, [field]: [...(scope[field] ?? []), path.resolve(file)] }) ? file : null;
+}
 const TERMINALS = new Set(['bash', 'powershell', 'run_in_terminal', 'execute', 'exec_command', 'write_stdin']);
 const FILE_READS = new Set(['read', 'read_file', 'readfile', 'read_text_file', 'view', 'get_file']);
 const DECIDE_SKILL_MUTATIONS = Object.freeze(['choose', 'applicability', 'scope', 'completeness', 'plan']);
@@ -580,7 +614,7 @@ async function importTeamGuard(payload, record, toolCalls) {
   const value = await importTeamTurn(payload, record);
   const scope = { ...record, repositoryRoot: value?.contract?.repositoryRoot ?? value?.repositoryRoot };
   const issued = (value?.importTeamStaging ?? []).map(file => path.resolve(file));
-  const deny = reason => ({ permissionDecision: 'deny', next: [], permissionDecisionReason: reason });
+  const deny = reason => turnExpired(record) ? turnExpiredDenial(record) : ({ permissionDecision: 'deny', next: [], permissionDecisionReason: reason });
   for (const call of toolCalls) {
     if (DELEGATION.has(call.name)) {
       return deny('IMPORT_TEAM_DELEGATION_NOT_ALLOWED: convert the team directory in this turn; /sf-import-team does not delegate');
@@ -596,7 +630,7 @@ async function importTeamGuard(payload, record, toolCalls) {
     if (paths.length && !outside.length) continue;
     return deny(issued.length
       ? `IMPORT_TEAM_PATH_DENIED (${outside.join(', ') || 'no target'}): write only the issued candidate file at exactly ${issued.join(', ')}; never the source directory, a repository or the bundle`
-      : 'IMPORT_TEAM_PATH_DENIED: no candidate file is issued to this turn. Run singularity-flow workflow import-team inspect first and write only the path it returns');
+      : 'IMPORT_TEAM_PATH_DENIED: no candidate file is issued to this turn. To continue an earlier session, run singularity-flow workflow import-team status --session <SESSION-ID> --json in this turn: it issues that session\'s candidate file again and keeps its answers. To start a new session, run singularity-flow workflow import-team inspect and write only the path it returns');
   }
   return {};
 }
@@ -611,11 +645,14 @@ async function fixWorkflowGuard(payload, record, toolCalls) {
   const value = await importTeamTurn(payload, record);
   const issued = (value?.fixStaging ?? []).map(file => path.resolve(file));
   const scope = { ...record, repositoryRoot: value?.contract?.repositoryRoot ?? value?.repositoryRoot, fixStaging: issued };
-  const deny = reason => ({ permissionDecision: 'deny', next: [], permissionDecisionReason: reason });
+  const deny = reason => turnExpired(record) ? turnExpiredDenial(record) : ({ permissionDecision: 'deny', next: [], permissionDecisionReason: reason });
   for (const call of toolCalls) {
     if (DELEGATION.has(call.name)) return deny('FIX_WORKFLOW_DELEGATION_NOT_ALLOWED: draft the fixes in this turn; /sf-fix-workflow does not delegate');
     if (TERMINALS.has(call.name)) {
       if (shellAllowed(call, 'fix-workflow', scope)) continue;
+      const draft = unissuedDraftOption(call, scope, 'fix-workflow', 'fixStaging',
+        (positionals, options) => positionals[0] === 'workflow' ? options['change-set'] : null);
+      if (draft) return deny(`FIX_WORKFLOW_DRAFT_NOT_ISSUED: ${draft} is not issued to this turn. Run singularity-flow workflow validate --json standalone in this turn first, for the same workflow: it issues the same change set file at fixDraft.changeSetPath and leaves what is in it unchanged. Then run this command again`);
       return deny('FIX_WORKFLOW_OPERATION_NOT_ALLOWED: run one standalone read command (workflow validate, workflow check --change-set, workflow studio apply --dry-run) or singularity-flow workflow studio apply --change-set <issued draft> --propose; no other mutations, chains or wrappers, and never approve or activate');
     }
     if (!isEdit(call.name)) continue;
@@ -639,12 +676,15 @@ async function runAndTestGuard(payload, record, toolCalls) {
   const value = await importTeamTurn(payload, record);
   const issued = (value?.appDraftStaging ?? []).map(file => path.resolve(file));
   const scope = { ...record, repositoryRoot: value?.contract?.repositoryRoot ?? value?.repositoryRoot, appDraftStaging: issued };
-  const deny = reason => ({ permissionDecision: 'deny', next: [], permissionDecisionReason: reason });
+  const deny = reason => turnExpired(record) ? turnExpiredDenial(record) : ({ permissionDecision: 'deny', next: [], permissionDecisionReason: reason });
   for (const call of toolCalls) {
     if (DELEGATION.has(call.name)) return deny('RUN_AND_TEST_DELEGATION_NOT_ALLOWED: start the application or run the tests in this turn; it does not delegate');
     if (TERMINALS.has(call.name)) {
       if (shellAllowed(call, 'run-and-test', scope)) continue;
       if (environmentBinding(call, scope)) return deny('PHASE_MUTATION_OPERATION_NOT_ALLOWED: environment values are bound only by the person, who pipes their own secret helper into `singularity-flow env bind <ENV> --stdin` in their own terminal. Give them that command; never ask for, type or pipe a value');
+      const draft = unissuedDraftOption(call, scope, 'run-and-test', 'appDraftStaging',
+        (positionals, options) => positionals[0] === 'capability' ? options['application-file'] : null);
+      if (draft) return deny(`RUN_AND_TEST_DRAFT_NOT_ISSUED: ${draft} is not issued to this turn. Run singularity-flow app suggest --json standalone in this turn first: it issues the same draft file and leaves what is in it unchanged. Then run this command again`);
       return deny('RUN_AND_TEST_OPERATION_NOT_ALLOWED: run one standalone SFlow read, app start|stop, tests run, or capability set|edit --application-file <the draft app suggest issued>; no other mutations, chains or wrappers');
     }
     if (!isEdit(call.name)) continue;
@@ -668,7 +708,7 @@ async function buildWorkflowGuard(payload, record, toolCalls) {
   const value = await importTeamTurn(payload, record);
   const scope = { ...record, repositoryRoot: value?.contract?.repositoryRoot ?? value?.repositoryRoot };
   const issued = (value?.buildStaging ?? []).map(file => path.resolve(file));
-  const deny = reason => ({ permissionDecision: 'deny', next: [], permissionDecisionReason: reason });
+  const deny = reason => turnExpired(record) ? turnExpiredDenial(record) : ({ permissionDecision: 'deny', next: [], permissionDecisionReason: reason });
   for (const call of toolCalls) {
     if (DELEGATION.has(call.name)) return deny('BUILD_WORKFLOW_DELEGATION_NOT_ALLOWED: grow the build in this turn; /sf-build-workflow does not delegate');
     if (TERMINALS.has(call.name)) {
@@ -738,6 +778,7 @@ export async function mutationToolGuard(payload = {}) {
     const cached = await boundedRecord(recordFile(payload)).catch(() => null);
     const bootstrap = { ...record, repositoryRoot: cached?.contract?.repositoryRoot ?? cached?.repositoryRoot };
     if (guarded.every(call => TERMINALS.has(call.name) && bootstrapAllowed(call, bootstrap))) return {};
+    if (turnExpired(record)) return turnExpiredDenial(record);
     return mutationDenial(null, 'PHASE_MUTATION_CONTRACT_REQUIRED: refresh the exact binding; expired/corrupt permissions require a new explicit turn; do not discard work');
   }
   const contract = value.contract;

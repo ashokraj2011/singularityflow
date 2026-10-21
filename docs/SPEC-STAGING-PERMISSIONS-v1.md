@@ -192,6 +192,20 @@ These lines tell the model to do the work. They add no stop, relay or hand-off r
 | Run-app application draft | `app suggest` | Per turn; the refusal already names the issuer |
 | Read hints (local documents, visual sources) | `document-runtime`, `review-source context` | Reads are not blocked; unchanged |
 
+### D5 — The same class elsewhere (sweep, 2026-10-21)
+
+A read-only sweep looked for anything granted to one turn while its path, digest, ID or answer
+outlives that turn. It also looked for refusals that route back to the skill already running.
+
+| Finding | Where | What a later turn hit | Change |
+|---|---|---|---|
+| F1: the "once" entry wording | the shared entry guard in `src/copilot-mode.mjs`, generated into all seven authoring skills | The same skip as the incident, in `/sf-code`, `/sf-design`, `/sf-requirements` and the others | D3 changes the shared sentence; the plugin test pins all eight skills |
+| F2: a team-import session restarted | `workflow import-team status` | A re-invoked `/sf-import-team` could only run `inspect`, which opens a new session and drops the earlier answers | `status --session <ID>` issues that session's candidate to the live turn again; the refusal and the skill name that route |
+| F3: a draft named by another turn | `capability set\|edit --application-file`, `workflow studio apply --change-set … --propose` | Refused with the generic operation refusal, which did not say the draft was not issued to this turn | When nothing of that kind is issued to this turn and that is the only fault: `RUN_AND_TEST_DRAFT_NOT_ISSUED` / `FIX_WORKFLOW_DRAFT_NOT_ISSUED`, naming `app suggest` / `workflow validate`, which issue the same file and leave its contents unchanged |
+| F4: an expired turn | every guarded turn, 30 minutes after its prompt | `PHASE_MUTATION_CONTRACT_REQUIRED` with a Shell route that cannot renew a Copilot turn and `/sf-phase` whatever the skill was; the per-turn guards named issuers that skip expired turns | `PHASE_MUTATION_TURN_EXPIRED` names the turn's own skill to invoke again, and no Shell route |
+| A1: four authoring skills with a read turn | `mutationTurnMode` | `/sf-specify`, `/sf-plan`, `/sf-verify` and `/sf-implement` run `prepare` and write the current step's artifacts, but their turn was `read`, so both were refused | They get an authoring turn bound to the current step's own policy, like `/sf-phase` |
+| F5: one decision ends other decision turns | `endMutationDecisionTurns` | Any approval, decision or failed mutation on a checkout ends every live approval, review-decision and confirm turn there | Not changed: theoretical, and the refusal already routes to a new turn |
+
 ## Acceptance tests
 
 All tests use the existing fixture in `test/phase-mutation-contract.test.mjs` and a fake Copilot.

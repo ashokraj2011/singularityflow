@@ -110,6 +110,12 @@ export async function run(argv, { positionals, options }) {
   const result = sessionId
     ? { schemaVersion: 1, resultType: 'team-import-status', session: await session.readTeamImportSession(sessionId) }
     : { schemaVersion: 1, resultType: 'team-import-status', sessions: await session.listTeamImportSessions() };
+  // A later /sf-import-team turn continues this session: issue its own candidate file to that turn
+  // again, exactly as inspect did, instead of starting a new session that loses its answers.
+  if (result.session?.candidatePath) {
+    result.session.issuedToTurns = await (await import('../copilot-mutation-guard.mjs'))
+      .issueImportTeamStaging(result.session.candidatePath, { root: await repositoryRoot() }).catch(() => 0);
+  }
   if (json) {
     // The capture manifest is large and already returned by inspect; status carries the summary.
     if (result.session) {

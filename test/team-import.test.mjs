@@ -341,3 +341,40 @@ test('a separate review-only agent can review the planning step, staged as revie
   const staged = await readFile(path.join(path.dirname(inspection.candidate.path), 'stage', '.github', 'agents', 'delivery-plan-reviewer.agent.md'), 'utf8');
   assert.match(staged, /sflow-mode: read-only-review/u);
 });
+
+test('a later /sf-import-team turn continues a session: status --session issues its candidate again', async (t) => {
+  const f = await teamFixture(t);
+  const { captureMutationTurn, mutationToolGuard } = await import('../src/copilot-mutation-guard.mjs');
+  const { recordRepositoryBoundaryTurn, endRepositoryBoundaryTurn } = await import('../src/copilot-repository-boundary.mjs');
+  const previous = process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
+  process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = f.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
+  t.after(() => { if (previous === undefined) delete process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
+    else process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = previous; });
+  const run = (...args) => spawnSync(process.execPath, [path.join(root, 'bin', 'singularity-flow.mjs'), 'workflow', 'import-team', ...args], {
+    cwd: f.base, encoding: 'utf8', env: { ...f.env, HOME: path.join(f.base, 'home'), USERPROFILE: path.join(f.base, 'home'), NODE_ENV: 'test',
+      SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1',
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(f.base, 'home', 'workspaces.json'), SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(f.base, 'home', 'active.json') }
+  });
+  const enter = async (sessionId) => {
+    const payload = { cwd: f.base, sessionId, prompt: '/sf-import-team' };
+    await recordRepositoryBoundaryTurn(payload, { captureMutation: (value, record) => captureMutationTurn(value, record,
+      { resolveRoot: async () => f.base, load: async () => { throw new Error('No Story'); } }) });
+    return payload;
+  };
+  // Turn 1 inspects and starts session S1, then is interrupted before writing the candidate.
+  const first = await enter('import-turn-1');
+  const inspection = run('inspect', 'team', '--json');
+  assert.equal(inspection.status, 0, inspection.stderr);
+  const session = JSON.parse(inspection.stdout).session;
+  await endRepositoryBoundaryTurn(first);
+  // Turn 2 has nothing issued; the refusal names the route that continues S1.
+  const second = await enter('import-turn-2');
+  const write = { ...second, toolName: 'edit', toolArgs: { path: session.candidatePath } };
+  assert.match((await mutationToolGuard(write)).permissionDecisionReason, /import-team status --session <SESSION-ID> --json in this turn/u);
+  const status = run('status', '--session', session.id, '--json');
+  assert.equal(status.status, 0, status.stderr);
+  const continued = JSON.parse(status.stdout).session;
+  assert.equal(continued.id, session.id, 'the same session, with its answers, not a new one');
+  assert.equal(continued.issuedToTurns, 1);
+  assert.deepEqual(await mutationToolGuard(write), {});
+});

@@ -416,4 +416,3 @@ test('deeply nested generated TypeScript/JavaScript source does not crash obliga
   assert.equal(Array.isArray(result.obligations), true);
   assert.equal(result.obligations.length >= 1, true);
 });
-

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import { chmod, copyFile, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { spawnSync as nativeSpawnSync } from 'node:child_process';
-import { realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { resolveWindowsPathExecutable } from '../src/platform-process.mjs';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,7 +12,12 @@ import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const bash = process.platform === 'win32' ? resolveWindowsPathExecutable('bash', { environment: process.env }) : 'bash';
+const selectedBash = process.platform === 'win32' ? resolveWindowsPathExecutable('bash', { environment: process.env }) : 'bash';
+// Git's bin/bash.exe is a native redirector: it prepends Git to PATH again and rewrites argv.
+// A shell-stub fixture must enter the actual MSYS interpreter, not that interactive launcher.
+const msysBash = process.platform === 'win32'
+  ? path.resolve(path.dirname(selectedBash), '..', 'usr', 'bin', 'bash.exe') : null;
+const bash = msysBash && existsSync(msysBash) ? msysBash : selectedBash;
 
 function shellPath(value) { return String(value).replaceAll('\\', '/'); }
 function spawnSync(command, args, options = {}) {
@@ -468,7 +473,7 @@ if [[ " $* " == *" --global "* && "\${INSTALL_TEST_FAIL_AFTER_GLOBAL:-}" == "1" 
     : > "$HOME/.sflow-cli-version-mismatch"
   fi
 fi`);
-  await fake('node', `exec ${JSON.stringify(process.execPath)} "$@"`);
+  await fake('node', `exec ${JSON.stringify(shellPath(process.execPath))} "$@"`);
   await fake('copilot', 'if [[ "$*" == "plugin list" ]]; then printf "%s\\n" "Installed plugins: singularity-flow@singularity-flow"; fi');
   await fake('code', `
 if [[ "$*" == --install-extension* && "\${INSTALL_TEST_FAIL_CODE:-}" == "1" && ! -f "$HOME/.sflow-code-failed-once" ]]; then

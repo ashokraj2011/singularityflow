@@ -393,4 +393,3 @@ test('forged .git/sflow-cache/verification-graph-v1.json cannot inject fake clau
   const extracted = extractCornerCaseObligations(sourceCode, { sourcePath: 'src/risky.mjs', root });
   assert.equal(extracted.obligations.length >= 2, true);
 });
-

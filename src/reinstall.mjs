@@ -1637,7 +1637,11 @@ async function writeCurrentInstallationReceipt(plan, verified, receipt, homeDire
   );
   const currentFile = path.join(installations, 'current.json');
   if (receiptUpgrade) {
-    await assertLegacyReceiptUpgrade(homeDirectory, receiptUpgrade.previousReceipt.sha256);
+    // Re-admit both current bytes and their archive at the commit boundary. A manager turn must
+    // not be able to leave a successful v2 receipt pointing at a changed archival snapshot.
+    await retainLegacyInstallationReceipt(
+      await assertLegacyReceiptUpgrade(homeDirectory, receiptUpgrade.previousReceipt.sha256)
+    );
   }
   const priorInfo = await lstat(currentFile).catch((error) => {
     if (error.code === 'ENOENT') return null;

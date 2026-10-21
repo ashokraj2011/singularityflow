@@ -351,6 +351,7 @@ async function legacyUpgradeFixture(t, skipTests = false) {
   const current = path.join(installations, 'current.json');
   const bytes = Buffer.from(`${JSON.stringify({ schemaVersion: 1, status: 'complete', version: VERSION,
     checkout: context.checkout, tarball: 'old unavailable archive', vsix: 'old unavailable VSIX',
+    artifacts: { tarball: { path: path.join(context.checkout, 'singularity/workflow.yml'), sha256: 'untrusted v1 claim' } },
     note: 'preserve exact legacy bytes, including whitespace' }, null, 4)}\r\n`);
   await writeFile(current, bytes, { mode: 0o600 });
   const harness = commandHarness({ installed: true, npmRoot, homeDirectory: context.home });
@@ -535,6 +536,23 @@ test('archive conflicts and non-ordinary receipt storage refuse upgrade without 
   assert.equal(await readFile(archive, 'utf8'), 'conflicting archive is preserved');
   assert.deepEqual(await readFile(f.current), f.bytes);
   assert.equal(f.harness.calls.some(call => call.args.includes('--install-extension')), false);
+});
+
+test('archive tampering during activation cannot commit a v2 receipt with broken lineage', async t => {
+  const f = await legacyUpgradeFixture(t, true);
+  const hash = createHash('sha256').update(f.bytes).digest('hex');
+  const archive = path.join(f.installations, 'receipt-history', 'sha256', `${hash}.json`);
+  await assert.rejects(upgradeLegacyInstallationReceipt({ ...f.options,
+    execute: (command, args, options) => {
+      if (command === 'singularity-flow' && args.join(' ') === 'plugin verify --json') {
+        fs.writeFileSync(archive, 'tampered archived receipt');
+      }
+      return f.harness.execute(command, args, options);
+    }
+  }), /archived installation receipt|conflicts with its digest/);
+  assert.deepEqual(await readFile(f.current), f.bytes);
+  assert.equal(await readFile(archive, 'utf8'), 'tampered archived receipt');
+  assert.deepEqual((await readdir(f.installations)).filter(name => /^reinstall-.*\.json$/u.test(name)), []);
 });
 
 test('test opt-out still refuses changed package bytes before product mutation', async t => {

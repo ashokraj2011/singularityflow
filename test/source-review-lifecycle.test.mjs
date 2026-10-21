@@ -18,6 +18,8 @@ import {
 import { stageSourceReviewReport } from '../src/source-review-staging.mjs';
 import { withSourceReviewSnapshot, withFreshSourceReviewSnapshot } from '../src/source-review-snapshot.mjs';
 import { withCommandTiming } from '../src/dx-timing-context.mjs';
+import { sourceReviewStagingPath } from '../src/phase-staging-paths.mjs';
+import { gitDir } from '../src/git-execution.mjs';
 
 const ID = 'EXAMPLE';
 const ITEM = `singularity/work-items/${ID}`;
@@ -237,6 +239,7 @@ test('real reviewer context issues exact usable staging without unlocking the ar
   await recordRepositoryBoundaryTurn(payload, { captureMutation: (value, record) => captureMutationTurn(value, record,
     { resolveRoot: async () => root, load: async () => ({ definition: f.config, workflow: f.workflow }) }) });
   const staging = path.join(root, '.git', 'singularity-flow', 'source-reviews', 'EXAMPLE-specification-gen1.json');
+  assert.equal(sourceReviewStagingPath(gitDir(root), f.workflow, f.workflow.phases.specification), staging);
   const packet = await sourceReviewContext(root, f.config, f.workflow, 'specification', staging);
   assert.equal(packet.canReview, true);
   assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'create', toolArgs: { path: staging } }), {});
@@ -253,6 +256,7 @@ test('private kernel staging refuses stale bindings, malformed JSON, conflicts a
   const report = review(input);
   const before = await readFile(path.join(root, `${ITEM}/workflow.json`));
   const staged = await stageSourceReviewReport(root, config, workflow, 'specification', JSON.stringify(report));
+  assert.equal(staged.stagingPath, sourceReviewStagingPath(gitDir(root), workflow, workflow.phases.specification));
   const bytes = await readFile(staged.stagingPath);
   assert.equal(staged.effects.reviewRetained, false);
   const stale = structuredClone(report); stale.binding.generation = 9;

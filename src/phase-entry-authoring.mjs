@@ -16,6 +16,7 @@ import { phaseExecutionEvidence } from './phase-execution-evidence.mjs';
 import { phaseAuthoringProgress, readPhaseDraftEvidence } from './phase-authoring-progress.mjs';
 import { endsStory, upstreamEntrySummary } from './upstream-entry-summary.mjs';
 import { measureCommandSpan } from './dx-timing-context.mjs';
+import { clarificationStagingPath } from './phase-staging-paths.mjs';
 import { repositoryCheckStatus } from './repository-check-cache.mjs';
 
 /**
@@ -109,8 +110,7 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
     generation: base.inspectionGeneration
   }));
   if (clarification.mode !== 'off') {
-    clarification.responseStagingPath = path.join(gitDir(root), 'singularity-flow', 'clarification-responses',
-      `${phase.id}-gen${base.inspectionGeneration}.json`);
+    clarification.responseStagingPath = clarificationStagingPath(gitDir(root), workflow, phase);
     await (await import('./copilot-mutation-guard.mjs')).issueMutationStaging(root, clarification.responseStagingPath, 'clarification');
   }
   const authoringAllowed = Boolean(canCompose && clarification.errors.length === 0);

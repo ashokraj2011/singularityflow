@@ -1,6 +1,6 @@
 # Staging permissions across Copilot turns (STG) — v1
 
-Status: proposed 2026-10-21; not built. It changes the Copilot edit guard
+Status: built 2026-10-21, with the recommended answers to both decisions below. It changes the Copilot edit guard
 (`src/copilot-mutation-guard.mjs`), the phase mutation contract (`src/phase-mutation-contract.mjs`),
 phase entry, source review, and the `/sf-phase` and `/sf-review-source` skills.
 
@@ -111,10 +111,11 @@ instead of waiting for an issuer to add them.
     which are two separate copies today).
 - `createRecord` sets `contract.allow.staging` to the derived files. It keeps any files still issued
   within the same turn, as today.
-- `issueMutationStaging` stays as the issuer's check and directory preparation. A target that differs
-  from the derived file for that purpose is an engine bug: it refuses with `Unsafe private staging
-  target`, as today.
+- `issueMutationStaging` is unchanged. It still issues files within a turn, with its receipts from
+  `92d1d455`. Because issuer and guard share one helper, the path it issues equals the derived
+  path by construction, and acceptance test 7 pins that.
 - Directory preparation:
+  - A derived file that fails the ordinary path checks (for example, a link) is dropped from the grant.
   - The derived file's parent directory is created, mode 0700, when the turn's record is created, so
     a write needs no shell `mkdir`.
   - Parent directories never become edit permissions.
@@ -154,9 +155,15 @@ Each issuer route carries `commandGuidance` in the usual order (Copilot, Shell, 
 
 Refusals carry `details.nextAction` so `scripts/finding-routes-audit.mjs` accepts them.
 
-Run-and-test parity: `runAndTestGuard` names its issuer only implicitly ("the draft app suggest
-issued"). It gets the same form as the other per-turn guards: "no application draft is issued to
-this turn. Run singularity-flow app suggest --json first and write only its draft.applicationFile".
+Order and limits:
+- The existing same-name correction runs first. A file with the same name as one this turn may write,
+  in any checkout, is answered with "write the issued staging file at exactly <this turn's file>".
+- The new refusal applies only to a target refused for where it is (outside the bound worktree, or
+  under `.git`). A link, an unreadable ancestor or an invalid target keeps the ordinary denial; it is
+  never offered back as the file to write.
+
+Run-and-test needs no change: with no draft issued, its refusal already says "To draft start entries
+run singularity-flow app suggest --json and write only its draft.applicationFile".
 
 ### D3 — Entry and skill wording
 
@@ -182,7 +189,7 @@ These lines tell the model to do the work. They add no stop, relay or hand-off r
 | Team-import candidates | `workflow import-team inspect` | Per turn; the refusal already names the issuer |
 | Workflow-build proposal | `workflow build status` | Per turn; the refusal already names the issuer |
 | Fix-workflow change set | `workflow validate` | Per turn; the refusal already names the issuer |
-| Run-app application draft | `app suggest` | Per turn; the refusal gains the issuer (D2) |
+| Run-app application draft | `app suggest` | Per turn; the refusal already names the issuer |
 | Read hints (local documents, visual sources) | `document-runtime`, `review-source context` | Reads are not blocked; unchanged |
 
 ## Acceptance tests

@@ -1,9 +1,9 @@
-import path from 'node:path';
 import { phaseEntryContext } from './phase-entry-context.mjs';
 import { sourceReviewContext } from './source-review-lifecycle.mjs';
 import { sourceReviewKind } from './phase-roles.mjs';
 import { branch, gitDir } from './git-execution.mjs';
 import { workflowBranchAllowed } from './story-paths.mjs';
+import { sourceReviewStagingPath } from './phase-staging-paths.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { withAgentPathProtocol } from './safe-command-guidance.mjs';
 import { withRequirementReviewProtocol, REQUIREMENT_REVIEW_PROTOCOL } from './requirement-coverage.mjs';
@@ -71,7 +71,6 @@ export async function sourceReviewAgentContext({ cwd = process.cwd(), phaseId = 
     `Current branch is not registered for Story '${workflow.workItem.id}'.`);
   if (phase.status !== 'in_progress') throw new SingularityFlowError(
     `Source review context requires current in-progress phase '${phase.id}'.`);
-  const stagingPath = path.join(gitDir(root), 'singularity-flow', 'source-reviews',
-    `${workflow.workItem.id}-${phase.id}-gen${phase.generation}.json`);
+  const stagingPath = sourceReviewStagingPath(gitDir(root), workflow, phase);
   return compactSourceReviewContext(await sourceReviewContext(root, definition, workflow, phase.id, stagingPath), entry.packet);
 }

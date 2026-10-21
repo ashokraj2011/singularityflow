@@ -2107,3 +2107,18 @@ test('plugin replacement refuses to continue when an old Copilot identity surviv
   }), /removal left installed identity.*singularity-flow@singularity-flow/);
   assert.equal(calls.some((args) => args[0] === 'plugin' && args[1] === 'install'), false);
 });
+
+test('authoring and review skills enter in every turn; an earlier turn\'s entry is never this turn\'s binding', async () => {
+  // SPEC-STAGING-PERMISSIONS D3: after an interrupted turn the next turn enters again instead of
+  // reusing the earlier entry, whose permissions and staging grants belonged to that turn.
+  const skills = ['sflow-code', 'sflow-design', 'sflow-document-intake', 'sflow-phase', 'sflow-release',
+    'sflow-requirements', 'sflow-scenario-check', 'sflow-review-source'];
+  for (const name of skills) {
+    const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
+    assert.match(content, /(?:phase enter --compose|review-source context) --for-agent --json` once in every turn, also after an interrupted one: an earlier turn's (?:entry|packet) is context, not this turn's binding/u, name);
+  }
+  for (const name of await readdir(path.join(pluginRoot, 'skills'))) {
+    const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8').catch(() => '');
+    assert.doesNotMatch(content, /(?:phase enter --compose|review-source context) --for-agent --json` once;/u, name);
+  }
+});

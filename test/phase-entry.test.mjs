@@ -147,6 +147,12 @@ test('CLI phase entry grants its exact clarification staging file in a linked St
       toolArgs: { command: 'create', path: staging } }), {}, toolName);
   }
   assert.equal((await mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: staging + '.other' } })).permissionDecision, 'deny');
+  // A later turn that reuses this entry without entering again may still write the printed file:
+  // the guard derives the same path the entry printed (SPEC-STAGING-PERMISSIONS).
+  await recordRepositoryBoundaryTurn(payload, { captureMutation: (payload, record) => captureMutationTurn(payload, record,
+    { resolveRoot: async () => checkout }) });
+  assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'apply_patch',
+    toolArgs: `*** Begin Patch\n*** Add File: ${staging}\n+{"responses":[]}\n*** End Patch\n` }), {});
 });
 
 test('phase entry preserves the original launch folder across explicit checkout routing for Copilot', async t => {

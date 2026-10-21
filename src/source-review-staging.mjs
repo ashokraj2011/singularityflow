@@ -6,6 +6,7 @@ import { gitDir } from './git.mjs';
 import { safeSidecarTreeDirectory } from './private-sidecar.mjs';
 import { CLI_PATH_CONTRACT, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { sourceReviewStagingPath } from './phase-staging-paths.mjs';
 import { withSourceReviewSnapshot } from './source-review-snapshot.mjs';
 
 export const SOURCE_REVIEW_STAGE_MAXIMUM_BYTES = 65536;
@@ -40,8 +41,7 @@ async function stageReport(root, config, workflow, phaseId, reportJson) {
   const phase = workflow.phases[phaseId];
   if (workflow.currentPhase !== phaseId || phase?.status !== 'in_progress') throw new SingularityFlowError(
     'Review staging requires the exact current in-progress phase.', { code: 'SOURCE_REVIEW_STAGING_NOT_ACTIVE' });
-  const stagingPath = path.join(gitDir(root), 'singularity-flow', 'source-reviews',
-    `${workflow.workItem.id}-${phaseId}-gen${phase.generation}.json`);
+  const stagingPath = sourceReviewStagingPath(gitDir(root), workflow, phase);
   // Context enforces publication/successor integrity and reviewer independence before any write.
   const context = await sourceReviewContext(root, config, workflow, phaseId, stagingPath);
   if (!context.canReview) throw new SingularityFlowError('This generation is not reviewable; preserve drafts and follow the returned author/reviewer route.', {

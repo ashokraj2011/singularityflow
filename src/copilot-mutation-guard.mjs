@@ -6,6 +6,7 @@ import { lstat, mkdir, readFile, readdir, realpath, rename, rm, unlink, writeFil
 import { fileURLToPath } from 'node:url';
 import { deriveMutationContract, mutationContractPresentation, mutationDenial, mutationPathDecision, mutationTurnMode } from './phase-mutation-contract.mjs';
 import { copilotModeFile, readCopilotMode } from './copilot-mode.mjs';
+import { phaseStagingPaths, stagingTargetPurpose } from './phase-staging-paths.mjs';
 import { parseArgs } from './util.mjs';
 import { resolveOperation } from './command-registry.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -101,7 +102,20 @@ async function createRecord(payload, record, root, accepted, previous = null) {
   const gitIdentity = await identity(root);
   // Issued staging is scoped to the exact phase/generation. Never use a wildcard private path.
   const samePhase = previous?.contract?.phaseId === contract.phaseId && previous.contract.generation === contract.generation;
-  contract.allow.staging = samePhase ? previous.contract.allow.staging : [];
+  // The step's own staging files follow from the pinned contract, so every turn bound to this step
+  // may write them: also a turn after an interrupted one, or a new chat (SPEC-STAGING-PERMISSIONS D1).
+  // Each is one exact file that must pass the same checks as an issued one; nothing else widens.
+  const derived = phaseStagingPaths({ gitDirectory: gitIdentity.gitDir, definition, workflow, phase, turnMode: mode })
+    .map(file => path.resolve(file));
+  contract.allow.staging = [...new Set([...derived, ...(samePhase ? previous.contract.allow.staging : [])])];
+  for (const file of derived) {
+    if (!mutationPathDecision(contract, file, root).allowed) {
+      contract.allow.staging = contract.allow.staging.filter(entry => entry !== file);
+      continue;
+    }
+    // The kernel prepares only this file's parent, as issuance does; the parent grants no edits.
+    await mkdir(path.dirname(file), { recursive: true, mode: 0o700 }).catch(() => {});
+  }
   const value = { schemaVersion: currentSchemaVersion('copilot-mutation-contract'), kind: 'copilot-mutation-contract',
     turnId: record.turnId, sessionId: record.sessionId, skill: record.skill, recordedAt: record.recordedAt,
     modeChangedAt: record.modeChangedAt, contract,
@@ -227,6 +241,52 @@ function stagingPathMismatch(contract, paths, cwd, operation, outputPaths = null
     permissionDecisionReason: `${outputPaths ? 'CLI_ISSUED_PATH_MISMATCH' : 'PHASE_MUTATION_STAGING_PATH_MISMATCH'}: ${corrections.map(entry =>
       `${operation === 'read' ? 'read' : 'write'} the issued ${outputPaths ? 'output' : 'staging'} file at exactly ${entry.issuedPath}.`).join(' ')} `
       + 'Copy the CLI-returned path verbatim; repositoryPath is command cwd, not a file prefix. Correct only the tool target in this turn; do not recreate or move files, restart the phase or repeat human questions. No operation was retargeted or executed.' };
+}
+
+const STAGING_ISSUERS = Object.freeze({
+  clarification: { mode: 'authoring', argv: ['phase', 'enter', '--compose', '--for-agent', '--json'], skill: '/sf-phase',
+    what: "the step author's clarification-response staging file" },
+  'source-review': { mode: 'read-only-review', argv: ['review-source', 'context', '--for-agent', '--json'], skill: '/sf-review-source',
+    what: "the source reviewer's report staging file" }
+});
+
+function sameDirectory(left, right) {
+  const canonical = value => { try { return realpathSync(value); } catch { return path.resolve(value); } };
+  return Boolean(left && right) && canonical(left) === canonical(right);
+}
+
+/**
+ * A write to a reserved Story staging file that this turn may not write is refused with what the file
+ * is and the command that issues it, never the generic path denial whose route is the skill already
+ * running (SPEC-STAGING-PERMISSIONS D2). A file this turn may write under another name is a correction.
+ */
+function unissuedStagingRefusal(value, targetsDenied, cwd) {
+  const contract = value.contract;
+  for (const target of targetsDenied) {
+    const absolute = editTarget(target, cwd);
+    const reserved = absolute ? stagingTargetPurpose(absolute) : null;
+    if (!reserved) continue;
+    // Only a file refused for where it is. A link, an unreadable ancestor or an invalid target keeps
+    // the ordinary denial and its reason; it is never re-offered as the file to write.
+    if (!['outside-bound-worktree', 'protected-path'].includes(mutationPathDecision(contract, target, cwd).reason)) continue;
+    const issuer = STAGING_ISSUERS[reserved.purpose];
+    const preserve = "Preserve the person's answers and any drafted content; do not repeat questions. No file was written.";
+    if (!sameDirectory(reserved.gitDirectory, value.binding?.gitDir)) {
+      return mutationDenial({ ...contract, next: [safeCommandGuidance({ argv: ['session', 'current', '--for-agent', '--json'] })] },
+        `PHASE_MUTATION_STAGING_NOT_ISSUED: ${target} belongs to another checkout's Git directory. This turn is bound to ${contract.repositoryRoot}; write only the staging file the CLI issues for this checkout. ${preserve}`);
+    }
+    const own = (contract.allow.staging ?? []).filter(file => stagingTargetPurpose(file)?.purpose === reserved.purpose);
+    if (own.length === 1) {
+      return { permissionDecision: 'deny', next: [], pathCorrections: [{ attemptedPath: target, issuedPath: own[0], operation: 'write' }],
+        permissionDecisionReason: `PHASE_MUTATION_STAGING_PATH_MISMATCH: write ${issuer.what} at exactly ${own[0]}; ${target} is another step's or generation's file. Copy the CLI-returned path verbatim. ${preserve}` };
+    }
+    const reason = contract.turnMode === issuer.mode
+      ? `this step has no open ${reserved.purpose === 'clarification' ? 'clarification checkpoint' : 'source review'} for this turn. Run ${'singularity-flow ' + issuer.argv.join(' ')} standalone in this turn to read its current state, then follow what it returns`
+      : `it is ${issuer.what}, issued only in a ${issuer.mode} turn by ${'singularity-flow ' + issuer.argv.join(' ')} (${issuer.skill}). This is a ${contract.turnMode} turn`;
+    return mutationDenial({ ...contract, next: [safeCommandGuidance({ argv: issuer.argv, skill: issuer.skill })] },
+      `PHASE_MUTATION_STAGING_NOT_ISSUED: this turn may not write ${target}: ${reason}. ${preserve}`);
+  }
+  return null;
 }
 
 function issuedSuffix(file) {
@@ -730,6 +790,8 @@ export async function mutationToolGuard(payload = {}) {
     const correction = stagingPathMismatch(contract, denied,
       call.args.cwd ?? payload.cwd ?? contract.repositoryRoot, 'write');
     if (correction) return correction;
+    const unissued = unissuedStagingRefusal(value, denied, call.args.cwd ?? payload.cwd ?? contract.repositoryRoot);
+    if (unissued) return unissued;
     if (denied.length) return mutationDenial(contract, 'PHASE_MUTATION_PATH_DENIED', denied);
   }
   return {};

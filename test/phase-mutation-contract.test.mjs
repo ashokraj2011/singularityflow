@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, readdir, readFile, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, realpath, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -20,6 +20,7 @@ import { readCopilotStoryFollow } from '../src/copilot-story-follow.mjs';
 import { gitDir } from '../src/git-execution.mjs';
 import { recordCopilotSession } from '../src/session.mjs';
 import { boundedAgentOutput, boundedAgentText } from '../src/agent-output.mjs';
+import { clarificationStagingPath, phaseStagingPaths, sourceReviewStagingPath } from '../src/phase-staging-paths.mjs';
 
 test('all generated context, JSON, catalog, refusal and text files get exact read-only hints in linked worktrees', async t => {
   const f = await fixture(t);
@@ -1307,4 +1308,89 @@ test('the rule follows the step\'s pinned policy, never its name: a custom deter
   for (const id of deterministicCode) {
     assert.equal(phaseKernelOwned({ id, generationPolicy: { task: 'code', producer: 'deterministic', allowedProducers: ['deterministic'] } }), false, id);
   }
+});
+
+// SPEC-STAGING-PERMISSIONS: a step's own staging file outlives the turn that printed it.
+const addFile = (target, body = '{"responses":[]}') => `*** Begin Patch\n*** Add File: ${target}\n+${body}\n*** End Patch\n`;
+const asPatch = (payload, target) => ({ ...payload, toolName: 'apply_patch', toolArgs: addFile(target) });
+
+test('a step\'s clarification staging file is writable in every turn bound to it, after an interrupted turn and in a new chat', async t => {
+  const f = await fixture(t, { clarification: { mode: 'required' } });
+  const staging = clarificationStagingPath(gitDir(f.root), f.workflow, f.phase);
+  // Turn 1 enters the step (phase enter issues the file) and is interrupted before writing it.
+  await f.enter('/sf-phase');
+  await issueMutationStaging(f.root, staging, 'clarification');
+  // Turn 2 reuses the earlier entry without entering again: the incident. It may write the file.
+  const second = await f.enter('/sf-phase');
+  await stat(path.dirname(staging));
+  for (const payload of [
+    asPatch(second, staging),
+    { ...second, toolName: 'create', toolArgs: { path: staging, file_text: '{"responses":[]}' } },
+    { ...second, toolName: 'edit', toolArgs: { path: pathToFileURL(staging).href, old_str: 'a', new_str: 'b' } },
+    { ...second, toolName: undefined, toolArgs: undefined, toolCalls: [{ name: 'apply_patch', args: addFile(staging) }] }
+  ]) assert.deepEqual(await mutationToolGuard(payload), {}, JSON.stringify(payload.toolArgs ?? payload.toolCalls).slice(0, 80));
+  // A new chat on the same Story and step, which never ran phase enter.
+  assert.deepEqual(await mutationToolGuard(asPatch(await f.enter('/sf-phase', 'new-chat'), staging)), {});
+  // The grant is that one file: the checkout's application and artifact rules are unchanged.
+  assert.equal((await mutationToolGuard(second)).permissionDecision, 'deny');
+});
+
+test('other generations, checkouts and turn modes are refused with the command that issues the file', async t => {
+  const f = await fixture(t, { clarification: { mode: 'required' } });
+  const staging = clarificationStagingPath(gitDir(f.root), f.workflow, f.phase);
+  const authoring = await f.enter('/sf-phase');
+
+  const otherGeneration = path.join(path.dirname(staging), 'custom-step-gen99.json');
+  const mismatch = await mutationToolGuard(asPatch(authoring, otherGeneration));
+  assert.match(mismatch.permissionDecisionReason, /^PHASE_MUTATION_STAGING_PATH_MISMATCH: write the step author's clarification-response staging file at exactly /u);
+  assert.ok(mismatch.permissionDecisionReason.includes(staging));
+  assert.deepEqual(mismatch.pathCorrections, [{ attemptedPath: otherGeneration, issuedPath: staging, operation: 'write' }]);
+  await assert.rejects(stat(otherGeneration), { code: 'ENOENT' });
+
+  const elsewhere = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-other-checkout-')));
+  t.after(() => rm(elsewhere, { recursive: true, force: true }));
+  const foreignDirectory = path.join(elsewhere, '.git', 'singularity-flow', 'clarification-responses');
+  // The same file name in another checkout: the existing correction names this checkout's file.
+  const sameName = await mutationToolGuard(asPatch(authoring, path.join(foreignDirectory, path.basename(staging))));
+  assert.match(sameName.permissionDecisionReason, /^PHASE_MUTATION_STAGING_PATH_MISMATCH: write the issued staging file at exactly /u);
+  assert.equal(sameName.pathCorrections[0].issuedPath, staging);
+  // Another checkout's own file: refused as not this turn's, with the binding route.
+  const foreign = await mutationToolGuard(asPatch(authoring, path.join(foreignDirectory, 'other-step-gen1.json')));
+  assert.match(foreign.permissionDecisionReason, /^PHASE_MUTATION_STAGING_NOT_ISSUED: .* belongs to another checkout's Git directory/u);
+  assert.deepEqual(foreign.next[0].argv, ['session', 'current', '--for-agent', '--json']);
+
+  const reviewFile = sourceReviewStagingPath(gitDir(f.root), f.workflow, f.phase);
+  const reviewInAuthoring = await mutationToolGuard(asPatch(authoring, reviewFile));
+  assert.match(reviewInAuthoring.permissionDecisionReason, /^PHASE_MUTATION_STAGING_NOT_ISSUED: .*the source reviewer's report staging file, issued only in a read-only-review turn by singularity-flow review-source context --for-agent --json \(\/sf-review-source\)/u);
+  assert.equal(reviewInAuthoring.next[0].skill, '/sf-review-source');
+
+  for (const skill of ['/sf-review-source', '/sf-approve']) {
+    const refused = await mutationToolGuard(asPatch(await f.enter(skill, `turn-${skill}`), staging));
+    assert.match(refused.permissionDecisionReason, /^PHASE_MUTATION_STAGING_NOT_ISSUED: .*the step author's clarification-response staging file, issued only in a authoring turn by singularity-flow phase enter --compose --for-agent --json \(\/sf-phase\)/u, skill);
+    assert.deepEqual(refused.next[0].argv, ['phase', 'enter', '--compose', '--for-agent', '--json']);
+    assert.ok(refused.next[0].commandGuidance ?? refused.next[0].command, 'three-surface route');
+  }
+});
+
+test('a step with no clarification checkpoint derives no file, and nothing around the file widens', async t => {
+  const off = await fixture(t);
+  const staging = clarificationStagingPath(gitDir(off.root), off.workflow, off.phase);
+  assert.deepEqual(phaseStagingPaths({ gitDirectory: gitDir(off.root), definition: off.definition, workflow: off.workflow, turnMode: 'authoring' }), []);
+  const refused = await mutationToolGuard(asPatch(await off.enter('/sf-phase'), staging));
+  assert.match(refused.permissionDecisionReason, /^PHASE_MUTATION_STAGING_NOT_ISSUED: .*this step has no open clarification checkpoint for this turn\. Run singularity-flow phase enter --compose --for-agent --json standalone/u);
+
+  const f = await fixture(t, { clarification: { mode: 'when-needed' } });
+  const file = clarificationStagingPath(gitDir(f.root), f.workflow, f.phase);
+  const payload = await f.enter('/sf-phase');
+  for (const [target, code] of [
+    [path.dirname(file), 'PHASE_MUTATION_PATH_DENIED'],
+    [path.join(path.dirname(path.dirname(file)), 'other.json'), 'PHASE_MUTATION_PATH_DENIED'],
+    [`${file}.other`, 'PHASE_MUTATION_STAGING_PATH_MISMATCH']
+  ]) assert.match((await mutationToolGuard(asPatch(payload, target))).permissionDecisionReason, new RegExp(`^${code}`, 'u'), target);
+  // A link planted at the derived file is refused as a link, never offered back as the file to write.
+  await mkdir(path.dirname(file), { recursive: true });
+  await symlink(path.join(f.root, 'src', 'App.jsx'), file);
+  const linked = await mutationToolGuard(asPatch(await f.enter('/sf-phase', 'after-link'), file));
+  assert.match(linked.permissionDecisionReason, /^PHASE_MUTATION_PATH_DENIED/u);
+  assert.equal(readFileSync(path.join(f.root, 'src', 'App.jsx'), 'utf8'), 'export const value = 1;\n');
 });

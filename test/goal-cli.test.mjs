@@ -54,6 +54,11 @@ test('goal CLI uses durable active-workspace state from outside a repository', a
     '--confirm', 'goal-team'
   ], env, base);
   cli(['workspace', 'use', 'goal-team'], env, base);
+  // A clone does not inherit the seed's local user configuration. Do not depend on the CI
+  // account (or the developer's global identity) to author the governed Goal commit.
+  const repository = path.join(workspaceBase, 'goal-team', 'repos', 'app');
+  runGit(repository, 'config', 'user.name', 'Goal CLI Tester');
+  runGit(repository, 'config', 'user.email', 'goal-cli@example.com');
 
   const created = JSON.parse(cli([
     'goal', 'create', 'Make checkout resilient', '--success',

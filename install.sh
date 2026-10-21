@@ -633,6 +633,15 @@ release_activation_lease() {
 }
 
 set_install_recovery_command() {
+  local recovery_checkout="$INSTALL_RECEIPT_CHECKOUT" recovery_stage="$PROJECT_DIR"
+  # Native Node receipts may contain Windows backslashes. Git Bash's nested -c boundary must
+  # receive the equivalent drive/slash spelling, without interpreting those as shell escapes.
+  case "${OSTYPE:-}" in
+    msys*|cygwin*|win32*)
+      recovery_checkout="${recovery_checkout//\\//}"
+      recovery_stage="${recovery_stage//\\//}"
+      ;;
+  esac
   if [[ -n "$INSTALL_RECEIPT_SOURCE_COMMIT" ]]; then
     # Never execute the retained worktree copy by pathname: it is recoverable state, not immutable
     # authority, and could be edited after a failed activation. Read the reviewed installer blob
@@ -686,8 +695,8 @@ SINGULARITY_FLOW_FRESH_INSTALL_TREE="$tree" \
       GIT_ATTR_NOSYSTEM=1 \
       GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false \
       bash -o pipefail -c "$recovery_script" sflow-fresh-install-recovery \
-      "$INSTALL_RECEIPT_CHECKOUT" "$INSTALL_RECEIPT_SOURCE_COMMIT" \
-      "$INSTALL_RECEIPT_SOURCE_TREE" "$PROJECT_DIR"
+      "$recovery_checkout" "$INSTALL_RECEIPT_SOURCE_COMMIT" \
+      "$INSTALL_RECEIPT_SOURCE_TREE" "$recovery_stage"
   else
     printf -v INSTALL_RECOVERY_COMMAND '%q ' "$PROJECT_DIR/install.sh" --from-staged-artifacts
   fi

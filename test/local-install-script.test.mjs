@@ -3,13 +3,49 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import { chmod, copyFile, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
-import { spawnSync } from 'node:child_process';
+import { spawnSync as nativeSpawnSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
+import { resolveWindowsPathExecutable } from '../src/platform-process.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const bash = process.platform === 'win32' ? resolveWindowsPathExecutable('bash', { environment: process.env }) : 'bash';
+
+function shellPath(value) { return String(value).replaceAll('\\', '/'); }
+function spawnSync(command, args, options = {}) {
+  if (command !== 'bash' || process.platform !== 'win32') return nativeSpawnSync(command, args, options);
+  const env = { ...(options.env ?? process.env) };
+  const key = Object.hasOwn(env, 'PATH') ? 'PATH'
+    : Object.keys(env).find(key => key.toLowerCase() === 'path') ?? 'PATH';
+  // Freeze the real interpreter before a fixture deliberately replaces PATH with shell stubs.
+  // Git Bash needs its own colon-delimited path, not a native drive colon inside the first entry.
+  const value = env[key];
+  if (value && value !== process.env[key] && /^[a-z]:[\\/]/iu.test(value)) {
+    const split = value.indexOf(':', 2);
+    if (split !== -1) {
+      const convert = entry => shellPath(entry).replace(/^([a-z]):/iu, (_, drive) => '/' + drive.toLowerCase());
+      const first = convert(value.slice(0, split));
+      const tail = value.slice(split + 1);
+      const rest = tail.includes(';') || /^[a-z]:[\\/]/iu.test(tail)
+        ? tail.split(';').map(convert).join(':') : tail;
+      env.PATH = first + ':' + rest + ':/usr/bin:/bin';
+      for (const alias of Object.keys(env)) if (alias.toLowerCase() === 'path' && alias !== 'PATH') delete env[alias];
+    }
+  }
+  return nativeSpawnSync(bash, args, { ...options, env });
+}
+
+async function assertInstallerExecutable(file, message) {
+  if (process.platform !== 'win32') assert.ok((await stat(file)).mode & 0o100, message);
+  else {
+    const record = nativeSpawnSync('git', ['ls-files', '--stage', '--', path.relative(root, file)], { cwd: root, encoding: 'utf8' });
+    assert.equal(record.status, 0, record.stderr);
+    assert.match(record.stdout, /^100755 /u, message);
+  }
+}
 
 function installTestTarball(version) {
   const body = Buffer.from(`${JSON.stringify({ name: 'singularity-flow', version })}\n`);
@@ -79,7 +115,7 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   // The Python semantic AST pack runs this exact Pyright, so a fresh install needs no Python tooling.
   assert.match(packageJson.dependencies?.pyright ?? '', /^1\.\d+\.\d+$/, 'Pyright is pinned exactly');
   assert.ok(packageJson.bundleDependencies.includes('pyright'), 'Pyright is bundled into the package');
-  assert.ok((await stat(scriptPath)).mode & 0o100, 'install.sh must be executable');
+  await assertInstallerExecutable(scriptPath, 'install.sh must retain executable metadata');
   assert.match(script, /git status --porcelain/);
   assert.match(script, /git pull --ff-only/);
   assert.ok(script.indexOf('\nacquire_activation_lease create\n') < script.indexOf('\n  git pull --ff-only\n'),
@@ -210,7 +246,7 @@ test('Windows Git Bash wrapper validates CRLF support and delegates to the canon
   const script = await readFile(scriptPath, 'utf8');
   const packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
   assert.equal(packageJson.scripts['install:windows'], 'bash ./install-windows-git-bash.sh');
-  assert.ok((await stat(scriptPath)).mode & 0o100, 'Windows Git Bash wrapper must be executable');
+  await assertInstallerExecutable(scriptPath, 'Windows Git Bash wrapper must retain executable metadata');
   assert.match(script, /Node\.js 20 or newer is required/);
   assert.doesNotMatch(script, /git -C|git pull|git status/,
     'only the canonical installer may update source, after taking the recovery lease');
@@ -286,7 +322,7 @@ if [[ "\${1:-}" == */repair-unreceipted-installation.mjs ]]; then
   [[ ! -e "$HOME/.singularity-flow/installations/activation-current.json.lock" ]] || exit 92
   exit 0
 fi
-exec ${JSON.stringify(process.execPath)} "$@"`
+exec ${JSON.stringify(shellPath(process.execPath))} "$@"`
       : name === 'npm' ? 'if [[ "$*" == "config get registry" ]]; then echo https://registry.npmjs.org/; fi'
         : name === 'git' ? 'if [[ "$*" == "show -s --format=%ct HEAD" ]]; then echo 946684800; fi' : '';
     await writeFile(file, `#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' "${name} $*" >> "$INSTALL_TEST_LOG"\n${body}\n`);
@@ -1204,7 +1240,7 @@ test('source reset helper is preview-only and renders a shell-safe installed-CLI
   assert.equal(await stat(path.join(hostileCheckout, 'PWNED')).then(() => false, () => true), true,
     'copying the rendered handoff must not evaluate checkout-path substitutions');
   assert.equal(await readFile(captured, 'utf8'),
-    `fresh-install\n--checkout\n${await realpath(hostileCheckout)}\n--yes\n`);
+    `fresh-install\n--checkout\n${process.platform === 'win32' ? realpathSync.native(hostileCheckout) : await realpath(hostileCheckout)}\n--yes\n`);
 });
 
 test('fresh-install recovery executes the pinned installer blob after retained file tampering', async (t) => {

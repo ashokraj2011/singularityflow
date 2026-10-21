@@ -161,20 +161,20 @@ export async function prepareConfigurationObjectCheckout(root, scratch, {
   let exposed = false, transferStarted = false;
   const storeReader = new ConfigurationObjectReader(store, transport.remote, transport.env, runRemoteCommand);
   const download = async (args, options) => {
-    const configBefore = process.platform === 'win32' ? await lstat(path.join(store, 'config')) : null;
+    const configBefore = process.platform === 'win32' ? await lstat(path.join(store, 'config'), { bigint: true }) : null;
     transferStarted = true;
     const result = await runRemoteCommand(args, { ...options, cwd: store });
     if (result.status === 0) {
       storeReader.seal();
       if (configBefore) {
-        const after = await lstat(path.join(store, 'config'));
+        const after = await lstat(path.join(store, 'config'), { bigint: true });
         if (!after.ino || after.ino !== configBefore.ino || after.dev !== configBefore.dev) {
           // Filtered fetch/seal replaces config through Git's config.lock, dropping the old
           // file's protected DACL. Only our successful Git operation may qualify this replacement:
           // first prove bounded inert bytes and a unique regular inode, then restore protection.
           // Never run this repair for a pre-existing/unqualified pool or failed transfer.
           const bytes = await readPrivateSidecar(root, path.join(store, 'config'), { maximumBytes: 4_096 });
-          if (!after.isFile() || after.isSymbolicLink() || after.nlink !== 1 || !inertConfig(bytes)) {
+          if (!after.isFile() || after.isSymbolicLink() || after.nlink !== 1n || !inertConfig(bytes)) {
             throw new SingularityFlowError('Git produced an unsafe configuration pool replacement.', { code: 'CONFIGURATION_OBJECT_STORE_UNSAFE' });
           }
           const { secureWindowsAuthAcl } = await import('./mcp-auth-profile.mjs');

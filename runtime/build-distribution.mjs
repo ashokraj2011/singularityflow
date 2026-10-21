@@ -63,7 +63,10 @@ async function main() {
     if (!oldPublic.isFile() || oldPublic.isSymbolicLink() || await readFile(publicKeyPath, 'utf8') !== publicKey) throw new Error('Builder public-key output conflicts with retained trust material; preserved.');
   } else await writeFile(publicKeyPath, publicKey, { flag: 'wx', mode: 0o600 });
   await installerProcess(process.execPath, [npm, 'run', 'check'], { cwd: repository, env: environment, timeoutMs: 600_000 });
-  if (!options.skipTests) await installerProcess(process.execPath, [npm, 'run', 'test:reinstall'], { cwd: repository, env: environment, timeoutMs: 1_800_000 });
+  if (!options.skipTests) {
+    await installerProcess(process.execPath, [npm, 'run', 'test:reinstall'], { cwd: repository, env: environment, timeoutMs: 1_800_000 });
+    await installerProcess(process.execPath, ['--test', 'test/managed-runtime.test.mjs', 'test/managed-product-install.test.mjs'], { cwd: repository, env: environment, timeoutMs: 600_000 });
+  }
   const temporary = await import('node:fs/promises').then(fs => fs.mkdtemp(path.join(os.tmpdir(), 'sflow-one-build-')));
   try {
     // The canonical builder requires a fresh output directory and an exact clean Git subject.

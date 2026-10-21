@@ -303,7 +303,15 @@ test('the native command shim executes the selected CLI and preserves literal ar
   const f = await fixture(t);
   // Only the shim is under test here. Actual pinned-version/archive admission is qualified by
   // the isolated native installer script; this tiny CLI fixture avoids a full npm installation.
-  await copyFile(process.execPath, f.node); await chmod(f.node, 0o700);
+  if (process.platform === 'win32') await copyFile(process.execPath, f.node);
+  else {
+    // A developer's distro-managed Node can depend on rpath-relative shared libraries. Relocating
+    // just that binary is not a portable shim fixture; execute the original host through an ordinary
+    // tiny file instead. Real pinned executables are exercised by native installer qualification.
+    const host = `'${process.execPath.replaceAll("'", "'\\''")}'`;
+    await writeFile(f.node, `#!/usr/bin/env bash\nexec ${host} "$@"\n`);
+  }
+  await chmod(f.node, 0o700);
   const release = 'a'.repeat(64);
   const cli = path.join(f.root, 'releases', release, 'node_modules', 'singularity-flow', 'bin', 'singularity-flow.mjs');
   await mkdir(path.dirname(cli), { recursive: true });

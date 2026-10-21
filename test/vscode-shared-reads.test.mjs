@@ -65,6 +65,15 @@ test('author/reviewer reads are never shared or short-TTL replayed', async t => 
   assert.equal((await f.calls()).length, 2);
 });
 
+test('advisory configuration preparation executes each request instead of replaying or coalescing', async t => {
+  const f = await fixture(t), first = f.make(), second = f.make();
+  const args = ['story', 'prepare-configuration', '--work-id', 'example', '--json'];
+  await Promise.all([first.run(args), second.run(args)]);
+  assert.equal((await f.calls()).length, 2);
+  await first.run(args);
+  assert.equal((await f.calls()).length, 3);
+});
+
 test('identical overlapping Store refreshes share the active read', async () => {
   let count = 0, finish;
   const store = new WorkspaceStore({ snapshot: async () => {

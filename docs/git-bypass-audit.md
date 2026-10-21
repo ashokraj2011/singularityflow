@@ -1,5 +1,9 @@
 # GAL Git bypass regression gate
 
+Git Bash recovery normalizes native Windows path separators only in rendered shell argv, before
+quoting. Receipt bytes, commit/tree identities and recovery ownership are unchanged. This changes
+the reviewed installer command fingerprint, not its 43 process sites or Git permissions.
+
 The residual branch port adds two bounded read-only checkout-policy observations in the existing
 state owner: exact `check-attr -z` for built-in text/eol/filter/encoding settings and
 `config --get core.autocrlf`. They never invoke clean filters or rewrite approval hashes.

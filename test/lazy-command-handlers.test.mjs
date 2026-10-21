@@ -44,7 +44,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 455: phase-lifecycle.mjs reached 455 with the source-review batching (f79ec1fa, 5a25abe8, d18afdc6): the
     // clarification-paths, phase-input-policy and phase-inspection-generation helpers split out of modules it already
     // loaded, plus the source-review snapshot cache.
-    assert.ok(closure.files.size <= 455, `${file} loads ${closure.files.size} local files (budget 455; retired graph 597)`);
+    // 456: submit.mjs reached 456 on main 97805fde without a recorded raise: creation-context.mjs (0b0dc559, shared Story
+    // creation captures), verification/incremental-verification-graph.mjs (4838febb) and workspace-clone-claim.mjs
+    // (6e6824f3) joined its graph while clarification-paths.mjs and grounding.mjs left it.
+    assert.ok(closure.files.size <= 456, `${file} loads ${closure.files.size} local files (budget 456; retired graph 597)`);
     // 9,005,000 (next 5,000 boundary): phase-lifecycle.mjs grew from 8,993,692 (main 4a8e6c42) to 9,004,129 with the
     // capability application block's per-environment arguments and debug validation in capabilities.mjs and the
     // launcher rules it reads (RUN amendment), together with 2ca46d6d's conformance issue ownership; no new file.
@@ -59,7 +62,8 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
 test('root dispatch stays small and orchestration entrypoints load their handlers lazily', async () => {
   const root = await graph('cli-entry.mjs');
   // 39: cli-entry.mjs parses --context-root for every command through execution-context-scope.mjs (f62c3107).
-  assert.ok(root.files.size <= 39, `root dispatch loads ${root.files.size} local files`);
+  // 40: creation-context.mjs (0b0dc559, shared Story creation captures) joined root dispatch; main 97805fde was already at 40.
+  assert.ok(root.files.size <= 40, `root dispatch loads ${root.files.size} local files`);
   // 770,000 (next 5,000 boundary): 747,457 at 3fd3db0b grew to 768,310 across utility-entry.mjs (7e50d127, decided
   // before repository discovery), execution-context-scope.mjs (f62c3107) and small additions to cli-entry and Git transport.
   // 775,000: 769,967 grew to 772,758 with the source-review batching (f79ec1fa, 5a25abe8, d18afdc6): git-fact-cache.mjs

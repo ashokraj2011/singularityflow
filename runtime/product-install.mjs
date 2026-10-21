@@ -89,6 +89,7 @@ async function acquire(root) {
 /** Locate an existing IDE without requiring its optional command-line launcher to be on PATH. */
 export function resolveSetupCode({ environment = process.env, homeDirectory = os.homedir(),
   platform = process.platform, exists = commandExists, fileExists = existsSync } = {}) {
+  const layout = platform === 'win32' ? path.win32 : path.posix;
   if (environment.SINGULARITY_FLOW_CODE_COMMAND) {
     if (!path.isAbsolute(environment.SINGULARITY_FLOW_CODE_COMMAND) || !fileExists(environment.SINGULARITY_FLOW_CODE_COMMAND)) throw new Error('SINGULARITY_FLOW_CODE_COMMAND must name an existing absolute VS Code launcher.');
     return environment.SINGULARITY_FLOW_CODE_COMMAND;
@@ -96,10 +97,10 @@ export function resolveSetupCode({ environment = process.env, homeDirectory = os
   if (exists('code', { environment })) return 'code';
   const candidates = platform === 'darwin' ? [
     '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code',
-    path.join(homeDirectory, 'Applications', 'Visual Studio Code.app', 'Contents', 'Resources', 'app', 'bin', 'code')
+    layout.join(homeDirectory, 'Applications', 'Visual Studio Code.app', 'Contents', 'Resources', 'app', 'bin', 'code')
   ] : platform === 'win32' ? [
-    environment.LOCALAPPDATA && path.join(environment.LOCALAPPDATA, 'Programs', 'Microsoft VS Code', 'bin', 'code.cmd'),
-    environment.ProgramFiles && path.join(environment.ProgramFiles, 'Microsoft VS Code', 'bin', 'code.cmd')
+    environment.LOCALAPPDATA && layout.join(environment.LOCALAPPDATA, 'Programs', 'Microsoft VS Code', 'bin', 'code.cmd'),
+    environment.ProgramFiles && layout.join(environment.ProgramFiles, 'Microsoft VS Code', 'bin', 'code.cmd')
   ] : [];
   const selected = candidates.filter(Boolean).find(fileExists);
   if (!selected) throw new Error('VS Code is not installed or its launcher is unavailable. Install VS Code for this user, then rerun the same setup command. No administrator access is requested by SFlow.');
@@ -196,7 +197,8 @@ export async function installManagedProduct({ tarball, sha256, vsix, root = reso
     log('Installing and verifying the SFlow Copilot plugin and skills for this user…');
     await executeNode(installed.executable, [installed.cli, 'plugin', 'install'], { cwd: root,
       env: { ...env, SINGULARITY_FLOW_PLUGIN_SOURCE: path.join(packageRoot, 'plugin'), SINGULARITY_FLOW_MARKETPLACE_SOURCE: '' }, timeoutMs: 300_000 });
-    await verifyCopilot({ execute, env, directSourceRoot: path.join(packageRoot, 'plugin', 'skills') });
+    const plugin = await verifyCopilot({ execute, env, directSourceRoot: path.join(packageRoot, 'plugin', 'skills') });
+    if (plugin?.pluginVersion && plugin.pluginVersion !== record.version) throw new Error('Copilot reports a different SFlow plugin version; setup remains incomplete.');
     record.stages.copilot = 'verified'; await atomic(receiptFile, record);
     record.path = await updatePath({ root, homeDirectory, environment });
     // Keep the exact extension with the engine for an explicit future rollback/recovery operation.

@@ -45,10 +45,10 @@ try {
   for (const name of Object.keys(env)) if (name.toLowerCase() === 'path') delete env[name];
   env.PATH = cleanPath;
   const build = process.platform === 'win32'
-    ? { command: powershell, args: ['-NoProfile', '-File', path.join(source, 'build-distribution.ps1'), '--skip-tests', '--out-dir', distribution] }
-    : { command: '/bin/bash', args: [path.join(source, 'build-distribution.sh'), '--skip-tests', '--out-dir', distribution] };
+    ? (() => { const launch = resolveWindowsBatchProcess(path.join(source, 'build-distribution.cmd'), ['--skip-tests', '--out-dir', distribution], { environment: env }); return { command: launch.executable, args: launch.arguments, options: launch.spawnOptions }; })()
+    : { command: '/bin/bash', args: [path.join(source, 'build-distribution.sh'), '--skip-tests', '--out-dir', distribution], options: {} };
   const start = performance.now();
-  const built = await installerProcess(build.command, build.args, { cwd: source, env, capture: true, timeoutMs: 1_800_000 });
+  const built = await installerProcess(build.command, build.args, { ...build.options, cwd: source, env, capture: true, timeoutMs: 1_800_000 });
   report.timings.buildMs = performance.now() - start;
   assert.ok(built.stdout.includes('candidate-not-release-certified'), built.stdout);
   report.cases.push('one source command builds a real signed CLI/VSIX distribution with no global Node/npm on PATH');
@@ -73,7 +73,7 @@ if(manager==='code') {
   const installed=fs.existsSync(state)?JSON.parse(fs.readFileSync(state,'utf8')):null;
   if(args[0]==='plugin' && args[1]==='uninstall') {if(installed)fs.unlinkSync(state);}
   else if(args[0]==='plugin' && args[1]==='install') fs.writeFileSync(state,JSON.stringify({root:args[2]}));
-  else if(args[0]==='plugin' && args[1]==='list') console.log(args.includes('--json')?JSON.stringify(installed?[{name:'singularity-flow',marketplace:'',enabled:true,version:'0.9.0'}]:[]):installed?'singularity-flow':'');
+  else if(args[0]==='plugin' && args[1]==='list') console.log(args.includes('--json')?JSON.stringify(installed?[{name:'singularity-flow',marketplace:'',enabled:true,version:JSON.parse(fs.readFileSync(path.join(installed.root,'plugin.json'),'utf8')).version}]:[]):installed?'singularity-flow':'');
   else if(args[0]==='skill' && args[1]==='list') {
     const skills=[];const direct=process.env.SINGULARITY_FLOW_COPILOT_SKILLS_DIR;
     if(fs.existsSync(direct))for(const name of fs.readdirSync(direct))skills.push({name,source:'user',path:path.join(direct,name),enabled:true});

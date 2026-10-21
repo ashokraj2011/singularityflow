@@ -46,7 +46,8 @@ bash build-distribution.sh
 
 ```powershell
 # Windows
-.\build-distribution.ps1
+.\build-distribution.cmd
+# Equivalent PowerShell script when script execution is already permitted: .\build-distribution.ps1
 ```
 
 The command installs locked build dependencies, runs product checks and the reinstall safety suite,

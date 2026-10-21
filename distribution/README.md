@@ -31,7 +31,8 @@ the reviewed override for a separately authenticated builder-key rotation.
 Only **engine/bin** is added to the user's PATH, never private Node/npm. Open a new terminal and
 reload VS Code/Copilot after setup so existing processes load the new integration. No forced editor
 restart is performed. Corporate application-control or PowerShell policy may still require IT
-approval; the installer never bypasses those policies or requests elevation.
+approval. The CMD launcher uses a process-only execution policy for this delivered script; it does
+not change persistent policy, override Group Policy or request elevation.
 
 A one-command source build may be labelled `candidate-not-release-certified` in `RELEASE.json`.
 It is installable for evaluation, not proof of production qualification. Only the existing signed

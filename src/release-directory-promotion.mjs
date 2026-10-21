@@ -79,7 +79,10 @@ async function syncCandidateTree(directory) {
     }
     if (entry.isDirectory()) await syncCandidateTree(target);
     else {
-      const handle = await open(target, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      // Windows FlushFileBuffers requires a writable handle. Retain the flush instead of ignoring
+      // EPERM; these are our newly copied candidate files, never a user's read-only source files.
+      const handle = await open(target, (process.platform === 'win32' ? constants.O_RDWR : constants.O_RDONLY)
+        | (constants.O_NOFOLLOW ?? 0));
       try {
         const opened = await handle.stat();
         if (!opened.isFile()) throw new Error(`Release candidate changed type: ${entry.name}.`);

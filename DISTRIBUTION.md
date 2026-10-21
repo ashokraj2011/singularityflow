@@ -3,7 +3,7 @@
 ## Simple managed build and setup
 
 Build an installable signed candidate with `bash build-distribution.sh` on Mac or
-`.\build-distribution.ps1` on Windows. Distribute the complete `dist/` directory. Users install
+`.\build-distribution.cmd` on Windows. Distribute the complete `dist/` directory. Users install
 or update SFlow's CLI, VS Code extension and Copilot integration together with `bash setup.sh`
 or `.\setup.cmd`, without administrator access or global Node/npm. VS Code and Copilot CLI
 remain prerequisites. First installation requires the independently delivered public trust key

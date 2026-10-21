@@ -2,8 +2,10 @@
 
 One-command distribution adds only fixed bootstrap/setup wrapper sites: two shell sites in
 `build-distribution.sh` select the existing checksum-pinned private runtime and its fixed build
-module; one in `distribution/setup.sh` delegates to the existing managed installer; one in
-`distribution/setup.cmd` delegates to the SystemRoot PowerShell entry without reparsing argv.
+module; one in `build-distribution.cmd` enters its fixed PowerShell build script; one in
+`distribution/setup.sh` delegates to the existing managed installer; one in `distribution/setup.cmd`
+delegates to the SystemRoot PowerShell entry without reparsing argv. Both CMD wrappers scope their
+execution policy to the child process only and cannot override enterprise Group Policy.
 None invokes Git or accepts arbitrary executable text. Product setup reuses the existing bounded
 installer process primitive and central platform adapter for the fixed VS Code/Copilot forms;
 the user PATH helper selects only SystemRoot PowerShell and CurrentUser registry scope. No new

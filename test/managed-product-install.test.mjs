@@ -56,8 +56,9 @@ test('same setup is idempotent and does not duplicate PATH blocks or change appl
   await installManagedProduct(f.options);
   assert.equal(await readFile(path.join(f.home, '.zshrc'), 'utf8'), profile);
   for (const call of f.calls.filter(call => call.args?.includes('--install-extension'))) {
-    assert.equal(call.options.env.PATH, process.env.PATH);
-    assert.ok(!call.options.env.PATH.includes(path.join(f.root, 'runtimes')));
+    const toolPath = Object.entries(call.options.env).find(([key]) => key.toLowerCase() === 'path')?.[1];
+    assert.equal(toolPath, process.env.PATH);
+    assert.ok(!toolPath.includes(path.join(f.root, 'runtimes')));
   }
 });
 

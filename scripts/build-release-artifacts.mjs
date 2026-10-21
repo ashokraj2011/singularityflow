@@ -52,13 +52,14 @@ function git(repository, args, { encoding = 'utf8', input = undefined } = {}) {
 function exactGitRoot(repository) {
   let resolved;
   try {
-    resolved = realpathSync(repository);
+    resolved = realpathSync.native(repository);
   } catch {
     return false;
   }
   const top = String(git(repository, ['rev-parse', '--show-toplevel'])).trim();
   try {
-    return realpathSync(top) === resolved;
+    const actual = realpathSync.native(top);
+    return process.platform === 'win32' ? actual.toLowerCase() === resolved.toLowerCase() : actual === resolved;
   } catch {
     return false;
   }

@@ -1,6 +1,6 @@
 /** Git adapter for one semantic configuration transaction, independent of the app worktree. */
 import path from 'node:path';
-import { lstat, mkdir, writeFile, rm, chmod } from 'node:fs/promises';
+import { lstat, mkdir, writeFile, rm, rmdir, chmod } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import YAML from 'yaml';
 import { ConfigurationObjectReader } from './configuration-object-reader.mjs';
@@ -47,6 +47,12 @@ async function install(root, relative, file, env, { stage = true } = {}) {
   if (!file) {
     await rm(cursor, { force: true });
     git(root, ['update-index', '--force-remove', '--', relative], env);
+    // Git keeps no empty folders. A removed skill or instruction must not leave one behind, or the
+    // library read below refuses a folder without its SKILL.md (docs/SPEC-WORKFLOW-RETIREMENT-v1.md).
+    const top = path.resolve(root);
+    for (let parent = path.dirname(path.resolve(cursor)); parent.startsWith(top + path.sep); parent = path.dirname(parent)) {
+      try { await rmdir(parent); } catch { break; }
+    }
     return;
   }
   await mkdir(path.dirname(cursor), { recursive: true });

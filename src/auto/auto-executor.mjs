@@ -1609,7 +1609,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
             'The model may have changed application bytes, but Auto could not seal them into recoverable authority. Inspect the retained worktree before any continuation.', {
               lastError: {
                 code: preservationError.code ?? 'AUTO_CANDIDATE_PRESERVATION_FAILED',
-                message: preservationError.message
+                message: `${preservationError.message} Initial authoring failure: ${error.code ?? 'MODEL_PROVIDER_FAILED'}.`
               }
           });
         }

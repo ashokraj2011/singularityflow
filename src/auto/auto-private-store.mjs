@@ -49,7 +49,8 @@ export async function writeAutoPrivateRecord(root, target, kind, value, {
   const bytes = Buffer.isBuffer(value) || value instanceof Uint8Array ? value : Buffer.from(value);
   try {
     const writer = immutable ? writeImmutablePrivateSidecar : writeMutablePrivateSidecar;
-    return await writer(root, target, bytes, { maximumBytes: maximumBytes(kind) });
+    return await writer(root, target, bytes, { maximumBytes: maximumBytes(kind),
+      ...(immutable ? {} : { renameAttempts: process.platform === 'win32' ? 8 : 1 }) });
   } catch (error) { return translate(error, kind); }
 }
 

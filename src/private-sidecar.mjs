@@ -10,6 +10,7 @@ import {
 } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 
 import { gitCommonDir } from './git.mjs';
@@ -238,7 +239,8 @@ export async function readPrivateSidecar(root, target, {
 
 /** Atomically replace one mutable private sidecar without following untrusted links. */
 export async function writeMutablePrivateSidecar(root, target, bytes, {
-  maximumBytes, platform = process.platform, windowsAcl = null, enforceWindowsAcl = false
+  maximumBytes, platform = process.platform, windowsAcl = null, enforceWindowsAcl = false,
+  renameAttempts = 1, renameFile = rename
 } = {}) {
   const content = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
   if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1 || content.length > maximumBytes) {
@@ -266,7 +268,22 @@ export async function writeMutablePrivateSidecar(root, target, bytes, {
     await safePrivateSidecarDirectory(root, directory, {
       platform, windowsAcl, enforceWindowsAcl
     });
-    await rename(temporary, target);
+    // Windows readers/security scanners can temporarily deny replacement. Never unlink the old
+    // state or change its ACL to force progress: retry only the same atomic replacement, bounded.
+    const attempts = platform === 'win32'
+      ? Math.min(8, Math.max(1, Number.isSafeInteger(renameAttempts) ? renameAttempts : 1)) : 1;
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await renameFile(temporary, target);
+        break;
+      } catch (error) {
+        if (attempt + 1 >= attempts || !['EPERM', 'EACCES', 'EBUSY'].includes(error?.code)) throw error;
+        await delay(25 * (attempt + 1));
+        await safePrivateSidecarDirectory(root, directory, {
+          platform, windowsAcl, enforceWindowsAcl
+        });
+      }
+    }
     await privateAcl(target, {
       directory: false, apply: true, platform, windowsAcl, enforceWindowsAcl
     });

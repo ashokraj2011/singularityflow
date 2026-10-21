@@ -44,10 +44,10 @@ function compareSteps(a, b) {
 
 function renderMarkdownSummary({ status, counts, steps, harness }) {
   if (steps.length === 0) {
-    return '### Governance Remediation Plan\n\nNo remediation items in this projection. This is not execution evidence or approval.';
+    return '### Draft Check Remediation Plan\n\nNo remediation items in this projection. This is not execution evidence or approval.';
   }
   const lines = [
-    '### Governance Remediation Plan',
+    '### Draft Check Remediation Plan',
     '',
     `- **Status:** \`${status}\` (${counts.blocking} blocking P0, ${counts.p1} assurance P1, ${counts.p2} hygiene P2)`,
     ''

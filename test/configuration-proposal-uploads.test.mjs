@@ -9,6 +9,7 @@ import { chmod, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   createTransportIntent, retryTransportIntent, transportIntentsForRepository
@@ -16,6 +17,30 @@ import {
 import { run } from '../src/util.mjs';
 
 const { WORKFLOW_STUDIO_SCRIPT, localProposalUploads } = await import('../apps/vscode/src/views/workflow-studio-page.ts');
+const { configurationGitFailureText } = await import('../apps/vscode/src/views/configuration-save.ts');
+
+test('configuration review and upload diagnostics include both streams, timeout, exit and legacy evidence', () => {
+  const diagnostic = 'stdout:\ncheck started\nstderr:\n.husky/pre-push: line 7: pnpm: command not found';
+  const text = configurationGitFailureText({ classification: 'local-hook-tool-unavailable',
+    evidence: { diagnostics: diagnostic, exitCode: 127, signal: 'SIGTERM', timedOut: true } });
+  assert.match(text, /Exit code: 127\nSignal: SIGTERM\nGit deadline exceeded/u);
+  assert.match(text, /check started\nstderr:/u);
+  assert.match(text, /pnpm: command not found/u);
+  assert.match(configurationGitFailureText({ evidence: { diagnostic: 'legacy hook error' } }), /legacy hook error/u);
+  assert.equal(configurationGitFailureText(null), '');
+  const uploads = localProposalUploads({ data: { intents: [{
+    intentId: 'psh_0123456789abcdef0123', status: 'needs-user',
+    targetRef: 'refs/heads/sflow/config-change/workflow/import-workflows-demo-0123abcd',
+    fault: { classification: 'local-hook-tool-unavailable', evidence: { diagnostics: diagnostic, exitCode: 127 } }
+  }] } });
+  const window = { __sfVscode: { postMessage() {} }, addEventListener() {} };
+  new Function('window', 'document', WORKFLOW_STUDIO_SCRIPT)(window, { getElementById: () => null });
+  const view = window.__workflowStudio.uploadView(uploads[0]);
+  assert.match(view.diagnostic, /pnpm: command not found/u);
+  assert.deepEqual(view.actions, ['retry'], 'a hook failure must not offer irrelevant sign-in');
+  assert.match(WORKFLOW_STUDIO_SCRIPT, /class: 'git-diagnostic', text: view.diagnostic/u,
+    'Git output is visible text, never executable HTML');
+});
 
 async function fixture(t) {
   const base = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-uploads-')));
@@ -133,7 +158,7 @@ test('the CLI names a proposal saved here but not uploaded, instead of saying no
     repositoryRoot: item.work, sourceCommit: item.commit,
     targetRef: 'refs/heads/sflow/config-change/workflow/import-workflows-demo-3123abcd'
   }, item.options);
-  const bin = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'bin', 'singularity-flow.mjs');
+  const bin = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
   const listed = run(process.execPath, [bin, '--no-model', 'workflow', 'proposals'], {
     cwd: item.work, env: { ...item.env, HOME: item.base, NODE_ENV: 'test' }, allowFailure: true
   });

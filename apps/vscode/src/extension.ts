@@ -66,6 +66,7 @@ import type { ConfigurationCenterMessage, ConfigurationCenterReply } from './vie
 import type { ConfigurationTab } from './views/configuration-center-model.ts';
 import { configurationPathTarget } from './views/configuration-path-target.ts';
 import { activateReviewedWorkflowProposal, configurationSaveDisposition, configurationSavePlanCliArgs } from './views/configuration-save.ts';
+import type { ConfigurationGitFailure } from './views/configuration-save.ts';
 import type { HelpDocument } from './views/help-page.ts';
 import type { WorkspacesMessage } from './views/workspaces-panel.ts';
 import type { Mapped } from './views/bootstrap-panel.ts';
@@ -7826,14 +7827,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         `Merge ${inspected.branch}@${inspected.proposalCommit.slice(0, 12)} into ${inspected.targetBranch}?`,
         {
           modal: true,
-          detail: 'The complete diff is open for review. A separate acknowledgement authorizes an exact leased update before preparation starts. Server review controls may still refuse it. The application branch is never changed.'
+          detail: 'Review the open diff. A second acknowledgement authorizes one exact leased update. Server policy still applies. Application branches remain unchanged.'
         },
         merge
       );
       if (confirmed !== merge) return null;
       const activation = await activateReviewedWorkflowProposal<{
         activated?: boolean; status?: string; targetBranch?: string; targetCommit?: string;
-        failure?: { message?: string }; nextAction?: string;
+        failure?: ConfigurationGitFailure & { message?: string }; nextAction?: string; recoveryCommand?: string;
       }>(inspected, {
         acknowledge: async () => {
           const acknowledge = 'Acknowledge and merge';
@@ -7849,8 +7850,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (activation.activated === false) {
         const message = activation.failure?.message
           ?? `Workflow activation is ${activation.status ?? 'waiting for repository review'}.`;
-        void showCompactWarningMessage(message);
-        return message;
+        const details = [message, lazyPanels().configurationGitFailureText(activation.failure),
+          `Preserved proposal: ${inspected.branch}@${inspected.proposalCommit}`,
+          activation.recoveryCommand, activation.nextAction].filter(Boolean).join('\n\n');
+        output.appendLine(details);
+        await showReviewDocument('Workflow activation Git error.txt', details);
+        void showCompactWarningMessage(`${message} Git details opened.`);
+        return details;
       }
       await refreshAfterKnownMutation();
       await lazyPanels().WorkflowStudioPanel.refreshAfterConfigurationSync();
@@ -7884,7 +7890,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void (async () => {
       for (let round = 0; round < 40; round += 1) {
         await new Promise(resolve => setTimeout(resolve, round === 0 ? 500 : 3000));
-        let intent: { status?: string; fault?: { advice?: string; classification?: string } | null;
+        let intent: { status?: string; fault?: ConfigurationGitFailure & { advice?: string } | null;
           attempts?: Array<{ completedAt?: string | null }> } | undefined;
         try {
           const result = await client.run<{ data?: { intent?: typeof intent }; intent?: typeof intent }>(['push', 'status', intentId, '--json']);
@@ -7904,13 +7910,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           else if (choice === openChanges) await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'changes' });
           return;
         }
-        const stopped = ['needs-user', 'attempt-budget-exhausted', 'remote-diverged'].includes(intent.status)
+        const stopped = ['needs-user', 'attempt-budget-exhausted', 'remote-diverged', 'outcome-unknown'].includes(intent.status)
           || (intent.status === 'pending' && Boolean(intent.fault) && Boolean(intent.attempts?.at(-1)?.completedAt));
         if (stopped) {
           const { WorkflowStudioPanel } = lazyPanels();
           await WorkflowStudioPanel.refreshProposals();
+          await showReviewDocument('Workflow upload Git error.txt', [
+            `Unconfirmed upload: ${branch}`,
+            intent.fault?.advice, lazyPanels().configurationGitFailureText(intent.fault),
+            `Inspect: singularity-flow push status ${intentId} --json`,
+            `Retry after repair: singularity-flow push retry ${intentId} --json`
+          ].filter(Boolean).join('\n\n'));
           const choice = await showCompactWarningMessage(
-            `Workflow proposal ${branch} is saved on this computer but was not uploaded, so nobody can review it yet. ${intent.fault?.advice ?? 'Check Git access to the remote.'}`,
+            `Proposal ${branch} is saved locally. Git details opened; repair the error, then retry in Changes.`,
             'Open Changes'
           );
           if (choice === 'Open Changes') await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'changes' });

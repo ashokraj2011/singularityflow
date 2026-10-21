@@ -8875,6 +8875,49 @@ test('setup review shows an unavailable diff as a blocked inspection', async (t)
   controller.dispose();
 });
 
+for (const mode of ['capability', 'setup']) test(`${mode} review shows actual hook errors as escaped text and does not activate`, async t => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const runtime = hostRequire(path.join(packageRoot, 'apps/vscode/dist/lazy-panels-runtime.cjs'));
+  const lead = 'https://git.example/hook-review.git';
+  const branch = mode === 'capability' ? 'sflow/config-change/capability/map-hook-12345678'
+    : 'sflow/config-change/onboarding/create-cccccccccccc';
+  const proposalCommit = 'c'.repeat(40), targetCommit = 'd'.repeat(40);
+  const calls = [];
+  let advanced = false;
+  const runCommand = async argv => {
+    calls.push(argv);
+    if (argv[1] === (mode === 'capability' ? 'proposal' : 'setup-proposal')) return { result: {
+      remote: lead, branch, targetBranch: 'sflow/config', targetCommit, proposalCommit,
+      proposalBase: targetCommit, merged: false, valid: true, invalidFiles: [],
+      changedFiles: [{ status: 'M', paths: ['singularity/workflow.yml'] }], diff: 'Reviewed hook proposal'
+    }, error: null };
+    return { result: { activated: false, status: 'activation-pending', targetBranch: 'sflow/config',
+      targetCommit, proposalCommit, failure: { message: 'Repair the local hook.',
+        classification: 'local-hook-tool-unavailable', exitCode: 127, timedOut: true,
+        diagnostic: 'stdout:\ncheck started\nstderr:\n.husky/pre-push: pnpm: command not found\n<script>not HTML</script>' }
+    }, error: null };
+  };
+  const onActivated = async () => { advanced = true; };
+  const controller = mode === 'capability'
+    ? runtime.CapabilityProposalPanel.show(context(), lead, branch, runCommand, onActivated)
+    : runtime.SetupProposalPanel.show(context(), lead, branch, proposalCommit, runCommand, onActivated);
+  const panel = registered.panels.find(entry => entry.id === (mode === 'capability'
+    ? 'singularityFlow.capabilityProposal' : 'singularityFlow.setupProposal'));
+  await until(() => panel.webview.html.includes('Reviewed hook proposal') ? true : null);
+  if (mode === 'setup') registered.warningAnswers.push('Approve exact setup');
+  await panel.post({ type: 'activate' });
+  await until(() => panel.webview.html.includes('pnpm: command not found') ? true : null);
+  assert.match(panel.webview.html, /Exit code: 127/);
+  assert.match(panel.webview.html, /Git deadline exceeded/);
+  assert.match(panel.webview.html, /&lt;script&gt;not HTML&lt;\/script&gt;/);
+  assert.doesNotMatch(panel.webview.html, /<script>not HTML<\/script>/);
+  assert.equal(advanced, false);
+  assert.equal(calls.length, 2, 'failure is displayed without silently retrying the mutation');
+  controller.dispose();
+});
+
 for (const mode of ['capability', 'setup']) test(`${mode} activation renders completion before slow UI follow-ups finish`, async t => {
   if (!requireBundle(t)) return;
   const { api, registered } = stubVscode();

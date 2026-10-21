@@ -46,6 +46,7 @@ export { ReconciliationPanel } from './views/reconciliation.ts';
 export { EvidenceMatrixPanel } from './views/evidence-matrix.ts';
 export { DashboardPanel } from './views/dashboard.ts';
 export { WorkflowStudioPanel, STUDIO_FOCUS_VIEWS } from './views/workflow-studio.ts';
+export { configurationGitFailureText } from './views/configuration-save.ts';
 export { InstructionDesignerPanel } from './views/instruction-designer.ts';
 export { WorkspaceLogsPanel } from './views/workspace-logs.ts';
 export { SpecificationTracePanel } from './views/specification-trace.ts';

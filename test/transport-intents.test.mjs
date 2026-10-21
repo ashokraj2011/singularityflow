@@ -414,7 +414,26 @@ test('transport failure evidence redacts credentials and has a hard byte bound',
   const serialized = JSON.stringify(result);
   assert.doesNotMatch(serialized, new RegExp(secret));
   assert.ok(Buffer.byteLength(result.fault.evidence.diagnostic, 'utf8') <= 4096);
+  assert.doesNotMatch(result.fault.evidence.diagnostics, new RegExp(secret));
   assert.match(result.fault.evidence.outputSha256, /^sha256:[a-f0-9]{64}$/);
+});
+
+test('transport evidence preserves timeout and both streams even with oversized stdout', async () => {
+  const item = await fixture();
+  const created = await createTransportIntent({
+    repositoryRoot: item.work, sourceCommit: item.commit, targetRef: 'refs/heads/timeout-evidence'
+  }, item.options);
+  const result = await retryTransportIntent(created.intentId, {
+    ...item.options, runCommand: (command, args, options) => args[0] === 'push'
+      ? { status: null, stdout: 'x'.repeat(20000), stderr: 'hook check timed out\nsecond line\n',
+          timedOut: true, signal: 'SIGTERM', aborted: false, outputOverflow: false }
+      : run(command, args, options)
+  });
+  assert.equal(result.fault.evidence.timedOut, true);
+  assert.equal(result.fault.evidence.signal, 'SIGTERM');
+  assert.equal(result.fault.evidence.exitCode, null);
+  assert.match(result.fault.evidence.diagnostics, /stderr:\nhook check timed out\nsecond line/u);
+  assert.ok(result.fault.evidence.diagnostics.length < 8400);
 });
 
 test('a pre-commit transport reservation cannot push until its exact local ref is installed', async () => {

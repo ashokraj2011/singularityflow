@@ -3127,6 +3127,15 @@ not publication, review or activation. Inspect `singularity-flow push status <IN
 after interruptions, explicitly resume with `singularity-flow push retry <INTENT-ID>`. Upload only
 creates the proposal branch. It never approves, activates or updates an application branch.
 
+Workflow import/review failures show the actual redacted Git stdout and stderr, exit code,
+signal and timeout when available. Workflow Studio → Changes retains failed uploads with
+their Git error and **Retry upload** action; activation opens a read-only Git error document
+with the exact proposal and recovery commands. Older saved uploads remain readable.
+Local hook failures are not Git sign-in failures or permission to skip repository checks.
+Repair the reported check or the runtime in the calling IDE (including Husky initialization
+for GUI launches), then retry the retained upload or review the same proposal again.
+Do not recreate the Story, reimport the bundle, discard hook-generated files, or disable hooks.
+
 Verified complete Story configuration snapshots reuse an authenticated compiled definition bound
 to all captured asset hashes and the installed validator. Portfolio, environment, local containment,
 permission and lifecycle checks remain live. Proposal inspection reuses bounded private Git objects

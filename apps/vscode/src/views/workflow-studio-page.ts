@@ -10,6 +10,7 @@
  */
 
 import { CATALOG_SEARCH_SCRIPT } from './catalog-search.ts';
+import { configurationGitFailureText } from './configuration-save.ts';
 
 const STUDIO_STYLE = `
 .studio{display:grid;grid-template-columns:200px minmax(0,1fr);min-height:calc(100vh - 80px);gap:0}
@@ -90,6 +91,7 @@ const STUDIO_STYLE = `
 .studio-main{padding:var(--sf-space-4) var(--sf-space-5);display:flex;flex-direction:column;gap:var(--sf-space-4);min-width:0}
 .studio-main h1{margin:0;font-size:22px}
 .studio-main h2{margin:0;font-size:15px}
+.git-diagnostic{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto}
 .studio-lede{margin:0;opacity:.85;max-width:760px;line-height:1.5}
 .studio-card{border:1px solid var(--sf-border-color);border-radius:10px;padding:var(--sf-space-3) var(--sf-space-4);background:var(--sf-surface);display:flex;flex-direction:column;gap:var(--sf-space-2)}
 .studio-row{display:flex;align-items:center;gap:var(--sf-space-2);flex-wrap:wrap}
@@ -405,6 +407,7 @@ export function proposalSummaries(listed: unknown): StudioProposalSummary[] {
 export interface LocalProposalUpload {
   intentId: string; branch: string; status: string; classification: string | null; advice: string | null;
   savedAt: string | null; attempts: number; remote: string; repositoryRoot: string; signIn: boolean; retryable: boolean;
+  diagnostic: string | null;
 }
 
 const SIGN_IN_FAILURES = new Set(['authentication-required', 'sso-authorization-required', 'credential-helper-unavailable']);
@@ -431,6 +434,7 @@ export function localProposalUploads(result: unknown): LocalProposalUpload[] {
     const budget = (intent.attemptBudget ?? {}) as Record<string, unknown>;
     return [{
       intentId, branch, status, classification, advice: text(fault.advice),
+      diagnostic: configurationGitFailureText(fault) || null,
       savedAt: text(intent.createdAt, 40), attempts: Number.isSafeInteger(budget.used) ? Number(budget.used) : 0,
       remote: text(intent.remote, 100) ?? 'origin', repositoryRoot: text(intent.repositoryRoot, 4096) ?? '',
       signIn: Boolean(classification && SIGN_IN_FAILURES.has(classification)), retryable: status !== 'remote-diverged'
@@ -5816,7 +5820,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var actions = [];
     if (upload.retryable) actions.push('retry');
     if (upload.signIn) actions.push('sign-in');
-    return { title: upload.branch, status: status, reason: reason, actions: actions };
+    return { title: upload.branch, status: status, reason: reason, actions: actions, diagnostic: upload.diagnostic };
   }
   function renderUploads(main) {
     var uploads = proposalsState().uploads || [];
@@ -5829,6 +5833,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       card.appendChild(el('article', { class: 'decision-box', 'aria-label': 'Upload ' + upload.branch },
         el('div', { class: 'studio-row spread' }, el('code', { text: view.title }), el('span', { class: 'pill', text: view.status })),
         el('div', { class: 'callout', text: view.reason }),
+        view.diagnostic ? el('pre', { class: 'git-diagnostic', text: view.diagnostic }) : null,
         el('div', { class: 'studio-row' },
           view.actions.indexOf('retry') >= 0 ? button(state.busy === 'upload' ? 'Uploading…' : 'Retry upload', function () {
             state.busy = 'upload'; setStatus('Uploading ' + upload.branch + '…'); render();

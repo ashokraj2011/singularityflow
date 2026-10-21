@@ -6,6 +6,7 @@ import {
 import { navigateTo } from './navigate.ts';
 import { COMMAND_GUIDANCE_COPY_SCRIPT, commandGuidanceHtml } from './command-guidance.ts';
 import { capabilityActivationSucceeded } from './capability-proposal-model.ts';
+import { configurationGitFailureText, type ConfigurationGitFailure } from './configuration-save.ts';
 
 export interface CapabilityProposal {
   remote: string;
@@ -35,7 +36,7 @@ interface ActivationResult {
   alreadyMerged: boolean;
   projection?: { published?: boolean; pending?: boolean; branch?: string; commit?: string; reason?: string } | null;
   audit?: { recorded?: boolean; eventId?: string; sequence?: number; ledgerCommit?: string };
-  failure?: { code?: string; classification?: string; retryable?: boolean; message?: string };
+  failure?: ConfigurationGitFailure & { retryable?: boolean; message?: string };
   externalAction?: { action: string; sourceBranch: string; targetBranch: string; proposalCommit: string } | null;
   proposalCleanup?: { status?: 'deleted' | 'already-absent' | 'retained'; reason?: string } | null;
   nextAction?: { command?: string; skill?: string; copilotCommand?: string } | null;
@@ -101,7 +102,7 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
       <div class="actions"><button class="primary" data-action="create-workspace" ${busy ? 'disabled' : ''}>${icon('workspace')} Create workspace</button></div>` : ''}</div>`
     : `<div class="notice governance-warning"><p><strong>Activation is waiting.</strong> ${escape(
       activated.failure?.message ?? `Status: ${activated.status ?? 'review-required'}.`
-    )}</p>${activated.externalAction
+    )}</p>${configurationGitFailureText(activated.failure) ? `<pre class="help-code">${escape(configurationGitFailureText(activated.failure))}</pre>` : ''}${activated.externalAction
       ? `<p>Merge <code>${escape(activated.externalAction.sourceBranch)}</code> into <code>${escape(activated.externalAction.targetBranch)}</code> through the repository review controls.</p>`
       : ''}${activated.nextAction?.command
       ? `<p>After correcting the blocker, retry the same exact activation:</p>${commandGuidanceHtml(activated.nextAction)}`

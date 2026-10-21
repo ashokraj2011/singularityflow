@@ -755,7 +755,7 @@ export function gitFailureDiagnostic(result) {
   const streams = ['stdout', 'stderr'].map((stream) => {
     const value = result?.[stream];
     const text = Buffer.isBuffer(value) ? value.toString('utf8') : String(value ?? '');
-    return text.trim() ? `${stream}:\n${redactDiagnosticText(text).slice(0, 4096)}` : null;
+    return text.trim() ? `${stream}:\n${redactDiagnosticText(text, { multiline: true }).slice(0, 4096)}` : null;
   }).filter(Boolean);
   return streams.join('\n') || 'Git returned no diagnostic output.';
 }

@@ -704,6 +704,9 @@ exit 1
     assert.notEqual(waiting.failure.code, 'WORKFLOW_ACTIVATION_REVIEW_REQUIRED');
     assert.match(waiting.failure.diagnostic, /secret scanning rejected a credential/i);
     assert.match(waiting.failure.diagnostic, /pre-receive hook declined/i);
+    assert.match(waiting.failure.diagnostic, /stderr:\n/u);
+    assert.equal(waiting.failure.exitCode, 1);
+    assert.equal(waiting.failure.timedOut, false);
     assert.equal(run('git', ['--git-dir', item.remote, 'rev-parse', 'sflow/config']).stdout.trim(), item.approved);
 
     await writeFile(hook, `#!/bin/sh
@@ -719,6 +722,14 @@ exit 1
     assert.equal(protectedRefusal.failure.code, 'WORKFLOW_ACTIVATION_REVIEW_REQUIRED');
     assert.equal(protectedRefusal.protection.enforced, true);
     assert.equal(protectedRefusal.externalAction.action, 'merge-proposal');
+    // The failure is recoverable without importing or recreating anything.
+    await writeFile(hook, '#!/bin/sh\nexit 0\n');
+    await chmod(hook, 0o755);
+    const resumed = await activateWorkflowConfigurationProposal(item.story, proposal.branch, {
+      confirm: proposal.commit, acknowledgeUnprotected: true
+    });
+    assert.equal(resumed.activated, true);
+    assert.equal(resumed.proposalCommit, proposal.commit);
   } finally {
     await rm(item.base, { recursive: true, force: true });
   }

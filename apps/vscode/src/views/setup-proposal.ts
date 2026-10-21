@@ -7,6 +7,7 @@ import {
 import { navigateTo } from './navigate.ts';
 import { setupProposalMatchesLead } from './setup-proposal-model.ts';
 import { gitRemoteProblem } from './map-capability-form.ts';
+import { configurationGitFailureText, type ConfigurationGitFailure } from './configuration-save.ts';
 
 export interface SetupProposal {
   remote: string;
@@ -30,7 +31,7 @@ interface SetupActivation {
   targetBranch: 'sflow/config';
   targetCommit: string | null;
   proposalCommit: string;
-  failure?: { code?: string; classification?: string; message?: string } | null;
+  failure?: (ConfigurationGitFailure & { message?: string }) | null;
   externalAction?: {
     action: string; sourceBranch: string; targetBranch: string; proposalCommit: string
   } | null;
@@ -90,6 +91,7 @@ export function setupProposalHtml(
     ? `<div class="notice ok"><p><strong>Setup approved.</strong> <code>sflow/config</code> now points to <code>${escape(activation.targetCommit ?? '')}</code>. Recheck repository setup to continue mapping.</p></div>`
     : `<div class="notice warning"><p><strong>Approval is waiting.</strong> ${escape(activation.failure?.message
       ?? 'The repository requires its review process before this proposal can become approved configuration.')}</p>
+      ${configurationGitFailureText(activation.failure) ? `<pre class="help-code">${escape(configurationGitFailureText(activation.failure))}</pre>` : ''}
       ${activation.externalAction ? `<p>Review and merge <code>${escape(activation.externalAction.sourceBranch)}</code> into <code>${escape(activation.externalAction.targetBranch)}</code> through the repository controls.</p>` : ''}</div>`;
   return `${header}${error ? `<div class="notice error"><p>${escape(error)}</p></div>` : ''}
     ${activationNotice}

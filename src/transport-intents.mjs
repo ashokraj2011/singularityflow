@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  assertCredentialFreeRemote, classifyGitRemoteFailure, redactDiagnosticText,
+  assertCredentialFreeRemote, classifyGitRemoteFailure, gitFailureDiagnostic, redactDiagnosticText,
   configuredRemoteIdentity, frozenRemoteTransport, remoteFingerprint, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
@@ -163,7 +163,7 @@ function assertRequiredLocalRef(value, sourceCommit) {
 }
 
 function boundedTransportDiagnostic(value) {
-  const redacted = redactDiagnosticText(value);
+  const redacted = redactDiagnosticText(value, { multiline: true });
   const encoded = Buffer.from(redacted, 'utf8');
   if (encoded.byteLength <= TRANSPORT_DIAGNOSTIC_MAX_BYTES) return redacted;
   const suffix = '…[truncated]';
@@ -173,11 +173,16 @@ function boundedTransportDiagnostic(value) {
 }
 
 function gitResultEvidence(result) {
-  const bounded = boundedTransportDiagnostic(`${result?.stderr ?? ''}\n${result?.stdout ?? ''}`);
+  // Bound the streams independently: noisy stdout must not hide the actual hook error.
+  const bounded = gitFailureDiagnostic(result);
   return {
     exitCode: Number.isInteger(result?.status) ? result.status : null,
     signal: result?.signal ?? null,
-    diagnostic: bounded.split('\n').find(Boolean) ?? null,
+    diagnostic: boundedTransportDiagnostic(`${result?.stderr ?? ''}\n${result?.stdout ?? ''}`).split('\n').find(Boolean) ?? null,
+    diagnostics: bounded,
+    timedOut: result?.timedOut === true,
+    aborted: result?.aborted === true,
+    outputOverflow: result?.outputOverflow === true,
     outputSha256: `sha256:${digest(bounded)}`
   };
 }
@@ -340,6 +345,8 @@ async function withIntentLease(intentId, { env, home }, operation) {
 
 function classified(result) {
   const failure = result?.failure ?? classifyGitRemoteFailure(result);
+  // A local hook can quote server errors. Keep its origin and missing-runtime repair.
+  if (failure.hook) return { ...failure, retryable: false };
   const text = `${result?.stderr ?? ''}\n${result?.stdout ?? ''}`;
   if (/non-fast-forward|fetch first|stale info/i.test(text)) return { ...failure, classification: 'remote-diverged', retryable: false };
   if (/hook declined|pre-receive hook|protected branch|branch protection|GH006/i.test(text)) {

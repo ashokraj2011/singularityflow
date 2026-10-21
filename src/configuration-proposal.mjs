@@ -30,7 +30,7 @@ import { gitCommitObjectExists, gitIsAncestor } from './git-ancestry.mjs';
 import { cleanupActivatedConfigurationProposal } from './configuration-proposal-cleanup.mjs';
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, configuredRemoteIdentity,
-  frozenRemoteTransport, redactDiagnosticText, remoteFingerprint, sanitizeRemote
+  frozenRemoteTransport, gitFailureDiagnostic, redactDiagnosticText, remoteFingerprint, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import {
   GitRemoteSession, requireRemoteObservation, runRemoteGitAsync
@@ -717,7 +717,13 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
             message: reviewRequired
               ? `Merge '${proposalBranch}' into '${CONFIGURATION_BRANCH}' through the repository review controls.`
               : failure.advice,
-            diagnostic: redactDiagnosticText(diagnostic).trim().slice(0, 4_096) || null
+            diagnostic: gitFailureDiagnostic(pushed),
+            exitCode: Number.isInteger(pushed.status) ? pushed.status : null,
+            signal: pushed.signal ?? null,
+            timedOut: pushed.timedOut === true,
+            aborted: pushed.aborted === true,
+            outputOverflow: pushed.outputOverflow === true,
+            ...(failure.hook ? { hook: failure.hook } : {})
           },
           externalAction: reviewRequired ? {
             action: 'merge-proposal', sourceBranch: proposalBranch,
@@ -1194,9 +1200,13 @@ export async function proposeConfigurationChange(root, {
     if (publication.status !== 'succeeded') {
       throw new SingularityFlowError(
         `Workflow proposal ${reviewBranch} was retained but publication is ${publication.status}. `
-        + `Run singularity-flow push status ${publication.intentId}.`, {
+        + `${publication.fault?.advice ?? ''}\n`
+        + `${publication.fault?.evidence?.diagnostics ?? publication.fault?.evidence?.diagnostic ?? ''}\n`
+        + `Inspect: singularity-flow push status ${publication.intentId} --json. `
+        + `After repairing the reported error, retry the retained upload: singularity-flow push retry ${publication.intentId} --json.`, {
           code: 'CONFIGURATION_PROPOSAL_PUBLICATION_PENDING',
-          details: { branch: reviewBranch, commit, intentId: publication.intentId, status: publication.status }
+          details: { branch: reviewBranch, commit, intentId: publication.intentId, status: publication.status,
+            failure: publication.fault, retryCommand: `singularity-flow push retry ${publication.intentId} --json` }
         }
       );
     }

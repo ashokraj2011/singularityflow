@@ -2,6 +2,28 @@
 import { createHash } from 'node:crypto';
 import type { RepositorySnapshot } from '../cli/snapshot.ts';
 
+/** Already-redacted engine evidence, shared by upload and exact-proposal review surfaces.
+ * Older outbox records have only evidence.diagnostic; never require a reimport to read them. */
+export interface ConfigurationGitFailure {
+  code?: string; classification?: string; diagnostic?: string;
+  exitCode?: number | null; signal?: string | null; timedOut?: boolean;
+  evidence?: { diagnostic?: string; diagnostics?: string; exitCode?: number | null;
+    signal?: string | null; timedOut?: boolean };
+}
+
+export function configurationGitFailureText(failure?: ConfigurationGitFailure | null): string {
+  if (!failure) return '';
+  const evidence = failure.evidence ?? failure;
+  const diagnostic = failure.diagnostic ?? failure.evidence?.diagnostics ?? failure.evidence?.diagnostic;
+  return [
+    failure.classification ? `Git failure: ${failure.classification}` : null,
+    evidence.exitCode != null ? `Exit code: ${evidence.exitCode}` : null,
+    evidence.signal ? `Signal: ${evidence.signal}` : null,
+    evidence.timedOut ? 'Git deadline exceeded.' : null,
+    typeof diagnostic === 'string' ? diagnostic.slice(0, 8400) : null
+  ].filter(Boolean).join('\n');
+}
+
 export interface ConfigurationSavePlan {
   /** False when the displayed bytes came only from a recovery mirror with no writable authority. */
   writable: boolean;

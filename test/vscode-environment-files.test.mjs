@@ -496,7 +496,8 @@ test('the real engine\'s answers read into the page: list, create, path, suggest
   const where = repo.json(model.envFilesPathArgv(web, here).slice(0, -1));
   assert.equal(model.locationFrom(where.value), web.location);
   const after = model.environmentFilesFrom(repo.json(['env', 'files']).value).files.find((entry) => entry.path === 'apps/web/.env.dev' && entry.environment === 'dev');
-  assert.deepEqual([after.status, after.placement, after.excluded], ['placed-here', 'symlink', true]);
+  assert.deepEqual([after.status, after.placement, after.excluded],
+    ['placed-here', process.platform === 'win32' ? 'copy' : 'symlink', true]);
   assert.deepEqual(model.fileActions(after), ['open', 'reveal', 'link']);
   const outside = path.join(repo.base, 'mine-uat.env');
   await (await import('node:fs/promises')).writeFile(outside, 'API_TOKEN=x\n', { mode: 0o600 });

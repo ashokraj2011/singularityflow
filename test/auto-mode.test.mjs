@@ -653,7 +653,7 @@ test('Auto adoption materializes and publishes the exact Candidate at the first 
   if (final.status === 'halted') {
     assert.fail(`${final.stopReason}: ${final.lastError?.message ?? final.nextAction}`);
   }
-  assert.equal(final.position, 'submitted');
+  assert.equal(final.position, 'submitted', `${final.status}/${final.stopReason}: ${final.lastError?.message ?? final.nextAction}`);
   assert.equal(final.evidence.adoption.status, 'published');
   assert.equal(final.evidence.adoption.materializedPhase, 'implement');
   assert.equal(final.evidence.adoption.publishedPhase, 'implement');

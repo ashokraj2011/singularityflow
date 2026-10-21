@@ -86,10 +86,37 @@ older contract is reused.
 Regression suites cover CLI takeover, unchanged IDs and review bindings, phase scope, local-only
 source delivery, corrupted-copy preservation, wrong-file and symlink refusal, visual receipts,
 older retained reviews, upload/review tool permissions, Office extraction and VS Code intake.
-The second-laptop case is simulated with an independent clone and private store. It is not a claim
-of native Windows or live Copilot host qualification.
+The phase-scope matrix exercises 17 seeded workflow definitions and 51 distinct seeded/custom phase
+IDs, including scoped repair/retest handoffs. The second-laptop case uses an independent clone,
+CRLF checkout and private store; it restores the same document ID without recreating the Story.
+The final attachment/storage/export matrix is run `39584897744`; all four native jobs pass.
 
-The initial UI bundle check exposed about 151 KB of unnecessary native hook closure. Build-time
-host boundaries now keep that CLI-only graph out of the extension. The gateway allowance adds one
-document-runtime module and 17 KB for the feature; the extension entry and all other module/byte
-limits remain unchanged. No new dependency or OCR/PDF runtime is introduced.
+Native qualification uses macOS and Windows with Node 22.23.3 and 26.12.0. Auto lifecycle cases
+exercise the real ACP process/permission boundary with a fixture provider, including local-document
+delivery, publication, repair, stop and takeover. Windows fixtures configure only their disposable
+Git server for long recovery-ref paths; product Git children already request long-path support
+without changing user/global configuration. Private mutable Auto state also retries transient
+Windows sharing failures with a bounded atomic replacement, never deleting the prior state.
+Portable start and recovered-checkpoint rechecks pass on all four native hosts in run
+`39586635207`. Recovery fixtures use a private test-only Git configuration rather than relying on
+the developer's global identity; native Windows CRLF checkout behavior stays enabled.
+
+This is not a claim of live Copilot image interpretation or complete human-approved journeys for
+every workflow. Images/PDFs still require actual native inspection. The existing POSIX-only
+file-symlink permission case is inapplicable on Windows; directory-junction escape protection runs
+natively there. No release skip policy, human authority, validation or repair budget is relaxed.
+
+All 54 Windows Auto cases were executed on both Node versions, with exact partition coverage
+checked across the native jobs. After portable-fixture corrections and targeted rechecks, 53 pass;
+the corpus is not completely green. Ad Hoc Candidate adoption
+publishes, then submission reports that code or separately hashed test inputs changed. Run
+`39586116730` reproduces the same refusal on unchanged baseline main `a651cda5` and this feature
+using identical portable fixtures. It is an outstanding Auto submission issue, not an attachment
+delivery success claim. No validation is bypassed to make that test pass.
+
+Static checks, VS Code typechecking and builds are separate from bundle-budget qualification.
+At baseline main `a651cda5`, the extension, gateway and lazy-panel entries already exceed both their
+byte and module limits (six failures); the same failures remain after this change. The feature
+adds about 4.6 KB to the gateway and no additional bundled modules relative to that baseline.
+Those budgets are not widened to conceal the existing overruns. No dependency or OCR/PDF runtime
+is added.

@@ -14,6 +14,7 @@ import resolver from './resolve.cjs';
 import { commandExists, run } from '../src/util.mjs';
 import { inspectVsix } from '../scripts/install-staged-artifacts.mjs';
 import { verifyPluginInstallation } from '../src/plugin.mjs';
+import { bundledDirectSkillNames } from '../src/direct-skills.mjs';
 
 const EXTENSION = 'singularityflow.singularity-flow-vscode';
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -205,7 +206,11 @@ export async function installManagedProduct({ tarball, sha256, vsix, root = reso
     log('Installing and verifying the SFlow Copilot plugin and skills for this user…');
     await executeNode(installed.executable, [installed.cli, 'plugin', 'install'], { cwd: root,
       env: { ...env, SINGULARITY_FLOW_PLUGIN_SOURCE: path.join(packageRoot, 'plugin'), SINGULARITY_FLOW_MARKETPLACE_SOURCE: '' }, timeoutMs: 300_000 });
-    const plugin = await verifyCopilot({ execute, env, directSourceRoot: path.join(packageRoot, 'plugin', 'skills') });
+    const skills = path.join(packageRoot, 'plugin', 'skills');
+    // A newer installer can be resuming an older retained package. Verify that package's skill
+    // catalog, not the installer's newer catalog, before moving on to the requested update.
+    const plugin = await verifyCopilot({ execute, env, directSourceRoot: skills,
+      expectedDirectSkills: bundledDirectSkillNames({ sourceRoot: skills }) });
     if (plugin?.pluginVersion && plugin.pluginVersion !== record.version) throw new Error('Copilot reports a different SFlow plugin version; setup remains incomplete.');
     record.stages.copilot = 'verified'; await atomic(receiptFile, record);
     record.path = await updatePath({ root, homeDirectory, environment });

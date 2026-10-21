@@ -25,12 +25,15 @@ async function fixture(t) {
     inspectExtension: async file => ({ version: '0.9.0', sha256: `sha256:${sha(await readFile(file))}` }),
     execute: (command, args, options) => { calls.push({ command, args, options }); return { status: 0, stdout: '', stderr: '' }; },
     executeNode: async (command, args, options) => { calls.push({ command, args, options }); return { stdout: '', stderr: '' }; },
-    verifyExtension: async () => calls.push({ step: 'verify-vscode' }), verifyCopilot: async () => calls.push({ step: 'verify-copilot' }),
+    verifyExtension: async () => calls.push({ step: 'verify-vscode' }), verifyCopilot: async params => calls.push({ step: 'verify-copilot', expected: params.expectedDirectSkills }),
     updatePath: params => installUserPath({ ...params, platform: 'darwin' }),
     installEngine: async params => {
       calls.push({ step: 'install-engine', params });
       const packageRoot = path.join(root, 'releases', params.sha256, 'node_modules', 'singularity-flow');
       await mkdir(path.join(packageRoot, 'bin'), { recursive: true, mode: 0o700 });
+      const skills = path.join(packageRoot, 'plugin', 'skills', 'sflow-fixture');
+      await mkdir(skills, { recursive: true });
+      await writeFile(path.join(skills, 'SKILL.md'), '---\nname: sflow-fixture\ndescription: isolated installer fixture\n---\nFixture body.\n');
       return { version: '0.9.0', executable: process.execPath, cli: path.join(packageRoot, 'bin', 'singularity-flow.mjs') };
     }, log: message => messages.push(message) };
   return { home, root, calls, messages, options };
@@ -43,6 +46,7 @@ test('one full setup aligns all surfaces and per-user PATH, without global npm o
   assert.deepEqual(result.stages, { cli: 'verified', vscode: 'verified', copilot: 'verified', path: 'verified' });
   assert.ok(f.calls.some(call => call.args?.includes('--install-extension')));
   assert.ok(f.calls.some(call => call.args?.join(' ')?.endsWith('plugin install')));
+  assert.deepEqual(f.calls.find(call => call.step === 'verify-copilot').expected, ['sf-fixture'], 'verify the retained package catalog, never the newer installer catalog');
   assert.ok(f.messages.some(message => message.includes('COMPLETE AND VERIFIED')));
   assert.ok(!f.calls.some(call => call.args?.includes('--global')));
   assert.deepEqual({ ...process.env }, before);

@@ -428,6 +428,25 @@ handoff falls back to full start checks. Existing create-only remote publication
 preview from overwriting a Story created by somebody else. No application tests are run by readiness.
 
 For reproducible Git-call and latency measurements, run `node scripts/story-readiness-benchmark.mjs`.
+
+## Workspace creation critical path
+
+New clones already have two fresh, content-aware completion/recovery proofs. Creation returns a
+readiness projection instead of immediately walking all untracked files, staged documents and
+synced-folder ancestors again. Explicit `workspace status` still defaults to the full inventory;
+adopted checkouts retain full status because they may contain existing local work.
+
+Repository indexing is advisory background work. The foreground queues an exact revision and
+starts the worker without loading AST parsers or enumerating source files. The worker applies the
+configured AST policy, file/byte budgets and revision check; oversized repositories remain
+on-demand. A skipped or failed index never rolls back workspace creation.
+
+Creation and recovery batch HEAD/branch metadata, and fingerprinting batches index stages and
+flags without changing the canonical recovery hash. Both fresh clone proofs, hidden-change
+detection, no-overwrite claims and publication compare-and-swap checks remain required.
+
+See [creation performance qualification](docs/workspace-creation-performance.md) for cold/warm
+benchmark commands, Git-call definitions and measurement limitations.
 It uses disposable local bare remotes, creates no Story, and reports fresh-process first-download,
 reused-fresh and cached requests. It does not model enterprise network or credential latency.
 Native Mac/Windows measurements and qualification limits are recorded in

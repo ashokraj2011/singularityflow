@@ -191,3 +191,16 @@ baseline/candidate engines over disposable fixtures to reduce host-load order bi
 observations. Arguments are structured, runtime/sample/profile choices are bounded, output and
 execution time are capped, and no shell is used. The driver owns fixture isolation and cleanup.
 This site is never imported by a product command and does not extend the registered Git owners.
+
+Creation critical-path changes relocate the existing fixed Node worker launch from
+`ast-story-start-warm.mjs` into `ast-warm-launcher.mjs`; there is no new caller-supplied executable
+or shell. Clone metadata combines branch and HEAD in one fresh Git read. Fingerprinting combines
+index stage and flag reads while preserving its canonical manifest. Removed launch/read sites are
+removed from the frozen baseline rather than exempting their owners.
+
+The creation benchmark's reviewed launches use the current Node executable, bounded fixture-owned
+arguments, disposable local remotes, capped output and deadlines. Its test-only preload counts
+Node-launched Git operations, including legacy async spawns, retaining only verb counts and elapsed
+times, never argv/URLs/credentials. Baseline and candidate have separate installed source roots, so
+dynamic imports cannot silently load candidate code into the baseline. These scripts are not
+imported by product commands and confer no new Git ownership or runtime permissions.

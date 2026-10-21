@@ -719,9 +719,10 @@ test('a copy can be given a different name and a different base', async (t) => {
   // Both are registered, and they are two workspaces rather than one moved.
   const listed = JSON.parse(cli(['workspace', 'list', '--json'], env).stdout);
   const paths = listed.map((entry) => entry.path);
-  assert.ok(paths.includes(copied.workspace.path), 'the copy is registered');
-  assert.ok(paths.some((entry) => entry.endsWith('/workspaces/commerce')), 'the original still is');
-  assert.equal(new Set(paths).size, paths.length, 'no two registry entries share a directory');
+  const canonicalPaths = await Promise.all(paths.map(entry => realpath(entry)));
+  assert.ok(canonicalPaths.includes(await realpath(copied.workspace.path)), 'the copy is registered');
+  assert.ok(canonicalPaths.includes(await realpath(path.join(workspaces, 'commerce'))), 'the original still is');
+  assert.equal(new Set(canonicalPaths).size, paths.length, 'no two registry entries share a directory');
 });
 
 test('a workspace can be renamed without restating everything about it', async (t) => {

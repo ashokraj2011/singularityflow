@@ -32,6 +32,7 @@ async function repository() {
   git(root, 'init', '-q');
   git(root, 'config', 'user.name', 'Auto Test');
   git(root, 'config', 'user.email', 'auto@example.invalid');
+  git(root, 'config', 'core.longpaths', 'true');
   // These byte-exact Candidate fixtures use LF explicitly. Publication's native CRLF behavior
   // is covered independently by source-tree-publication and the end-to-end Auto adoption case.
   await writeFile(path.join(root, '.gitattributes'), '* text=auto eol=lf\n');
@@ -43,6 +44,9 @@ async function repository() {
   await writeFile(path.join(root, 'src', 'mode.sh'), '#!/bin/sh\nexit 0\n');
   await writeFile(path.join(root, 'singularity', 'workflow.yml'), 'schemaVersion: 1\n');
   git(root, 'add', '.');
+  // Windows cannot express a chmod-only edit. Retain an executable mode in Git, then exercise
+  // its preservation across a content change below; POSIX also exercises a real mode-only edit.
+  if (process.platform === 'win32') git(root, 'update-index', '--chmod=+x', 'src/mode.sh');
   git(root, 'commit', '-qm', 'baseline');
   return root;
 }
@@ -55,7 +59,7 @@ test('Auto Candidate freezes an exact Git authority for add/delete/rename/mode/s
   await unlink(path.join(root, 'src', 'delete.mjs'));
   await rename(path.join(root, 'src', 'rename.mjs'), path.join(root, 'src', 'renamed.mjs'));
   await chmod(path.join(root, 'src', 'mode.sh'), 0o755);
-  git(root, 'update-index', '--chmod=+x', 'src/mode.sh');
+  if (process.platform === 'win32') await writeFile(path.join(root, 'src', 'mode.sh'), '#!/bin/sh\nexit 1\n');
   await writeFile(path.join(root, 'src', 'added.mjs'), 'export const added = true;\n');
   if (process.platform !== 'win32') await symlink('app.mjs', path.join(root, 'src', 'link.mjs'));
 

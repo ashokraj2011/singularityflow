@@ -154,7 +154,12 @@ function cloneRecoveryFixture(remote, destination, cwd) {
   // Exercise the upload-pack transport used by a real remote. A local-path clone otherwise uses
   // Git's hard-link/copy optimisation, which is explicitly unsafe while the source repository can
   // receive maintenance or ref updates and has produced intermittent missing-object races on macOS.
-  return run('git', ['clone', '--no-local', '--branch', 'main', '--', remote, destination], cwd);
+  const cloned = run('git', ['clone', '--no-local', '--branch', 'main', '--', remote, destination], cwd);
+  // A clone deliberately does not inherit repository-local author identity. Recovery fixtures
+  // must establish their own test actor rather than relying on a developer/runner global name.
+  run('git', ['config', 'user.name', 'Auto Tester'], destination);
+  run('git', ['config', 'user.email', 'auto@example.com'], destination);
+  return cloned;
 }
 
 async function createRepositorySeed() {

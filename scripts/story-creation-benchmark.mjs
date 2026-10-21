@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { buildCliBundle } from './build-cli-bundle.mjs';
 import { createWarmReadFixture } from './warm-read-fixture.mjs';
 import { buildCreationBenchmarkControl } from './creation-benchmark-control.mjs';
+import { seedBenchmarkRepository } from './benchmark-git-seed.mjs';
 
 const option = (key, fallback) => process.argv.find(arg => arg.startsWith(`--${key}=`))?.slice(key.length + 3) ?? fallback;
 const samples = Number(option('samples', '3')), files = Number(option('files', '1000'));
@@ -66,11 +67,11 @@ try {
       const remote = `${repository}.git`;
       await mkdir(repository);
       await cp(path.join(fixture.repository, 'src'), path.join(repository, 'src'), { recursive: true });
-      const git = args => fixture.git(args, { cwd: repository });
+      const git = (args, options = {}) => fixture.git(args, { ...options, cwd: repository });
       git(['init', '-q', '-b', 'main']); git(['config', 'user.name', 'Creation Tester']);
       git(['config', 'user.email', 'creation@example.invalid']);
       invoke(['init'], repository);
-      git(['add', '.']); git(['-c', 'commit.gpgsign=false', 'commit', '-qm', 'creation fixture']);
+      await seedBenchmarkRepository(repository, git, 'creation fixture');
       git(['init', '--bare', remote]); git(['remote', 'add', 'origin', remote]); git(['push', '-u', 'origin', 'main']);
       if (configuration === 'approved') {
         git(['branch', 'sflow/config']); git(['push', 'origin', 'sflow/config']);

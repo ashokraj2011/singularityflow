@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { buildCliBundle } from './build-cli-bundle.mjs';
 import { createWarmReadFixture } from './warm-read-fixture.mjs';
 import { buildCreationBenchmarkControl } from './creation-benchmark-control.mjs';
+import { seedBenchmarkRepository } from './benchmark-git-seed.mjs';
 
 const option = (name, fallback) => process.argv.find(arg => arg.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;
 const samples = Number(option('samples', '3')), files = Number(option('files', '1000'));
@@ -22,13 +23,12 @@ try {
   const app = path.join(f.directory, 'application'), remote = path.join(f.directory, 'application.git');
   await mkdir(app);
   await cp(path.join(f.repository, 'src'), path.join(app, 'src'), { recursive: true });
-  const git = args => f.git(args, { cwd: app });
+  const git = (args, options = {}) => f.git(args, { ...options, cwd: app });
   git(['init', '-q', '-b', 'main']); git(['config', 'user.name', 'Workspace Fixture']);
   git(['config', 'user.email', 'workspace@example.invalid']);
   const initialized = spawnSync(process.execPath, [f.cli, 'init'], { cwd: app, env: f.env, encoding: 'utf8', timeout: 120_000 });
   assert.equal(initialized.status, 0, initialized.stderr || initialized.stdout);
-  git(['add', '.']);
-  git(['-c', 'commit.gpgsign=false', 'commit', '-qm', 'application fixture']);
+  await seedBenchmarkRepository(app, git, 'application fixture');
   git(['init', '--bare', '-b', 'main', remote]); git(['push', remote, 'main']);
   const expected = git(['rev-parse', 'HEAD']), rows = [];
   for (let index = 0; index < samples; index++) {

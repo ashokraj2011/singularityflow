@@ -82,12 +82,15 @@ async function evictIdleAuthorities(local, authorities, needed) {
   return removed;
 }
 
-async function qualifiedConfig(root, store) {
-  const bytes = await readPrivateSidecar(root, path.join(store, 'config'), { ...privacy, maximumBytes: 4_096 });
+function inertConfig(bytes) {
   // A cached repo must never inject transports, includes, credential helpers, fsmonitor or hooks.
   // This is exactly the inert bare init shape, not arbitrary repository configuration.
   return /^\[core\]\n\trepositoryformatversion = [01]\n\tfilemode = (?:true|false)\n\tbare = true\n(?:\t(?:ignorecase|precomposeunicode|symlinks|longpaths) = (?:true|false)\n){0,4}(?:\[extensions\]\n\tobjectformat = sha256\n)?$/u
     .test(bytes.toString('utf8').replace(/\r\n/g, '\n'));
+}
+
+async function qualifiedConfig(root, store) {
+  return inertConfig(await readPrivateSidecar(root, path.join(store, 'config'), { ...privacy, maximumBytes: 4_096 }));
 }
 
 /**
@@ -158,9 +161,27 @@ export async function prepareConfigurationObjectCheckout(root, scratch, {
   let exposed = false, transferStarted = false;
   const storeReader = new ConfigurationObjectReader(store, transport.remote, transport.env, runRemoteCommand);
   const download = async (args, options) => {
+    const configBefore = process.platform === 'win32' ? await lstat(path.join(store, 'config')) : null;
     transferStarted = true;
     const result = await runRemoteCommand(args, { ...options, cwd: store });
-    if (result.status === 0) storeReader.seal();
+    if (result.status === 0) {
+      storeReader.seal();
+      if (configBefore) {
+        const after = await lstat(path.join(store, 'config'));
+        if (!after.ino || after.ino !== configBefore.ino || after.dev !== configBefore.dev) {
+          // Filtered fetch/seal replaces config through Git's config.lock, dropping the old
+          // file's protected DACL. Only our successful Git operation may qualify this replacement:
+          // first prove bounded inert bytes and a unique regular inode, then restore protection.
+          // Never run this repair for a pre-existing/unqualified pool or failed transfer.
+          const bytes = await readPrivateSidecar(root, path.join(store, 'config'), { maximumBytes: 4_096 });
+          if (!after.isFile() || after.isSymbolicLink() || after.nlink !== 1 || !inertConfig(bytes)) {
+            throw new SingularityFlowError('Git produced an unsafe configuration pool replacement.', { code: 'CONFIGURATION_OBJECT_STORE_UNSAFE' });
+          }
+          const { secureWindowsAuthAcl } = await import('./mcp-auth-profile.mjs');
+          await secureWindowsAuthAcl(path.join(store, 'config'), { directory: false, apply: true });
+        }
+      }
+    }
     return result;
   };
   const includeCommits = async (commits) => {

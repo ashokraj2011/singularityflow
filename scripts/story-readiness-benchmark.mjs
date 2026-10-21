@@ -10,15 +10,17 @@ import { initializeDefinition } from '../src/config.mjs';
 import { readWorkspace } from '../src/workspace-manifest.mjs';
 import { rememberWorkspace } from '../src/workspace.mjs';
 import { activateWorkspaceContext } from '../src/workspace-context.mjs';
+import { seedBenchmarkRepository } from './benchmark-git-seed.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export async function createStoryReadinessFixture({ files = 100, cliRoot = packageRoot } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-readiness-bench-'));
-  const git = (cwd, ...args) => {
-    const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 300_000, maxBuffer: 16 * 1024 * 1024 });
+  const executeGit = (cwd, args, { input } = {}) => {
+    const result = spawnSync('git', args, { cwd, input, encoding: 'utf8', timeout: 300_000, maxBuffer: 16 * 1024 * 1024 });
     assert.equal(result.status, 0, result.stderr);
     return result.stdout.trim();
   };
+  const git = (cwd, ...args) => executeGit(cwd, args);
   const cleanup = () => rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   try {
     const remote = path.join(directory, 'remote.git'), source = path.join(directory, 'source');
@@ -36,7 +38,7 @@ export async function createStoryReadinessFixture({ files = 100, cliRoot = packa
     await writeFile(workflowFile, YAML.stringify(definition));
     await mkdir(path.join(source, 'src'));
     for (let index = 0; index < files; index++) await writeFile(path.join(source, 'src', `file-${index}.txt`), `fixture ${index}\n`);
-    git(source, 'add', '.'); git(source, 'commit', '--quiet', '-m', 'readiness fixture');
+    await seedBenchmarkRepository(source, (args, options) => executeGit(source, args, options), 'readiness fixture');
     git(source, 'push', '--quiet', 'origin', 'main', 'main:refs/heads/sflow/config');
     const workspacePath = path.join(directory, 'workspace'), original = path.join(workspacePath, 'repos', 'app');
     await mkdir(path.dirname(original), { recursive: true }); git(directory, 'clone', '--quiet', remote, original);

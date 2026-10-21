@@ -55,3 +55,17 @@ The intake benchmark additionally exercises the editor-equivalent selected-base 
 path, issues a genuine receipt and passes its exact returned repository path and receipt to
 isolated Story start. It reports preview, start, combined latency and prewarm separately, using
 private workspace registries, runtime/configuration caches and local remotes.
+
+Large fixtures are seeded with a bounded `git fast-import` pack, retaining distinct file contents,
+then an index-only `read-tree`. Setup refuses repositories with existing refs. This avoids tens of
+thousands of loose-object writes and Windows antivirus/fsync delays before measurement; it does
+not bypass or time-exclude any part of the measured clone, readiness, validation or publication.
+Baseline and candidate use the same packed fixture profile. All comparisons must be rerun after
+changing this profile; loose-object and packed-object results are not pooled.
+
+On Windows, freshly created configuration pools receive protected current-user-only ACLs.
+Git's successful filtered-fetch/seal can replace `config` via `config.lock`; that replacement must
+prove bounded inert bytes and a unique regular inode before protection is restored. Existing
+unqualified pools and failed transfers are never implicitly repaired, and final ACL validation
+remains strict. Closed decline categories distinguish ACL, path, access and other storage failures
+without retaining filenames, URLs or exception messages in metrics.

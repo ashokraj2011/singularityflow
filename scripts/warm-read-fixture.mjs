@@ -4,6 +4,7 @@ import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/pr
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { seedBenchmarkRepository } from './benchmark-git-seed.mjs';
 import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { propose, acceptAmendment } from './amended-read-fixture.mjs';
@@ -40,13 +41,13 @@ export async function createWarmReadFixture({ files = 0, branches = 0, storyMode
     // overlapping Git 2.54 detached repacks, just as production Git children are protected.
     // Do not alter the measured CLI environment or any user/repository Git configuration.
     const gitEnvironment = withoutAutomaticGitMaintenance(env);
-    const git = (args, { cwd = repository } = {}) => {
+    const git = (args, { cwd = repository, input = undefined } = {}) => {
       try {
         // The generated files are known LF text. Suppress setup-only round-trip warnings that
         // otherwise flood Windows pipes; keep autocrlf and every measured checkout unchanged.
         return execFileSync('git', args[0] === 'add' ? ['-c', 'core.safecrlf=false', ...args] : args, {
-          cwd, env: gitEnvironment, encoding: 'utf8', timeout: process.platform === 'win32' ? 120_000 : 30_000,
-          maxBuffer: 4 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe']
+          cwd, env: gitEnvironment, input, encoding: 'utf8', timeout: process.platform === 'win32' ? 120_000 : 30_000,
+          maxBuffer: 4 * 1024 * 1024, stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe']
         }).trim();
       } catch (error) {
         throw new Error(`Qualification fixture Git '${args[0]}' failed: ${error.message}`, { cause: error });
@@ -89,7 +90,7 @@ export async function createWarmReadFixture({ files = 0, branches = 0, storyMode
     await writeFile(statePath, JSON.stringify(state));
     await mkdir(path.join(repository, 'src'));
     for (let index = 0; index < files; index++) await writeFile(path.join(repository, `src/file-${index}.txt`), `file ${index}\n`);
-    git(['add', '.']); git(['-c', 'commit.gpgsign=false', 'commit', '-qm', 'local qualification fixture']);
+    await seedBenchmarkRepository(repository, git, 'local qualification fixture');
     for (let index = 0; index < branches; index++) git(['branch', `unrelated-${index}`]);
     git(['switch', '-qc', 'PERF-001']);
     if (storyMode === 'amended') {

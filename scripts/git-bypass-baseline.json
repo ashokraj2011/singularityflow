@@ -127,11 +127,11 @@
     },
     "scripts/story-readiness-benchmark.mjs": {
       "counts": {
-        "command-git": 9,
+        "command-git": 7,
         "process-import": 1,
         "process-launch": 2
       },
-      "digest": "96a1c8c5af4ccc6d5e4842eb440113164079d2c62835c9f9ddf2a9f874054d1a"
+      "digest": "e3af8c90677918eb3cb9baa5f31077a99faa555d69816f6f0828982f6f3f3152"
     },
     "src/witness-review-read.mjs": {
       "counts": {
@@ -181,11 +181,11 @@
     },
     "scripts/story-creation-benchmark.mjs": {
       "counts": {
-        "command-git": 13,
+        "command-git": 11,
         "process-import": 1,
         "process-launch": 1
       },
-      "digest": "4e9ea7afe76ada2209c698282cefad6721371cda17bf071f45632f3ed082590b"
+      "digest": "1631b760456a041706322c5b00896d4920d930801566cc4938b9009e31016428"
     },
     "scripts/onboarding-activation-benchmark.mjs": {
       "counts": {
@@ -219,11 +219,11 @@
     },
     "scripts/warm-read-fixture.mjs": {
       "counts": {
-        "command-git": 15,
+        "command-git": 13,
         "process-import": 1,
         "process-launch": 2
       },
-      "digest": "359bb519adf70134393c7a6760c0cd38091ee07309912e99769465d72a0c1722"
+      "digest": "28b1095638352f60825576c676298100480d94ce9512ef6fad673426894d0932"
     },
     "scripts/warm-read-benchmark.mjs": {
       "counts": {
@@ -1737,11 +1737,11 @@
     },
     "scripts/workspace-creation-benchmark.mjs": {
       "counts": {
-        "command-git": 8,
+        "command-git": 6,
         "process-import": 1,
         "process-launch": 2
       },
-      "digest": "b378491085ec40ebecf5703c6b06fd393352557693606a88aefbef8c1a9cd554"
+      "digest": "0f40e9e361221f38ba34cb0265fdb1c3f877859326602d496f92d73bd5840584"
     },
     "src/ast-warm-launcher.mjs": {
       "counts": {
@@ -1756,6 +1756,12 @@
         "process-launch": 1
       },
       "digest": "7f1fdd9f5fbdb442dfc7a66939de2135daa9d49b8485fc85e94f0f7eac0ac8df"
+    },
+    "scripts/benchmark-git-seed.mjs": {
+      "counts": {
+        "command-git": 4
+      },
+      "digest": "e525df249d8805b1a61d47c195d9bd036c9d47baf9b866fba347147a959d04a2"
     }
   }
 }

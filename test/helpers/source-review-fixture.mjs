@@ -32,7 +32,7 @@ function git(root, ...args) {
 export async function publishedSpecificationStory(t, { copied = false, humanAnswers = false } = {}) {
   const workType = copied ? 'review-copy' : 'spec-driven-standard';
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-source-cli-'));
-  t.after(async () => rm(root, { recursive: true, force: true }));
+  t.after(async () => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'core.autocrlf', 'false');
   git(root, 'config', 'core.longpaths', 'true');

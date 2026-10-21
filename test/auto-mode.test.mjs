@@ -60,10 +60,10 @@ after(async () => {
     else process.env[key] = value;
   }
   await Promise.all([...autoTestRepositories].map(async (root) => {
-    await rm(root, { recursive: true, force: true });
-    await rm(`${root}.git`, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    await rm(`${root}.git`, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }));
-  await rm(autoTestMachineState, { recursive: true, force: true });
+  await rm(autoTestMachineState, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 function confirmation(plan) { return buildAutoPlanPacket(plan).packetSha256; }

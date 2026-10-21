@@ -7,7 +7,8 @@ import { showCompactWarningMessage } from "../compact-message.ts";
  * changes nothing.
  */
 import * as vscode from 'vscode';
-import { SAMPLE_WORKFLOWS_KEY, WORKFLOW_FAVOURITES_KEY, workflowFavourites } from './catalog-search.ts';
+import { SAMPLE_WORKFLOWS_KEY, WORKFLOW_FAVOURITES_KEY, WORKFLOW_FAVOURITES_V2_KEY,
+  readWorkflowFavouriteRecord, writeWorkflowFavouriteRecord, workflowFavourites } from './catalog-search.ts';
 import path from 'node:path';
 import {
   contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
@@ -72,6 +73,8 @@ export interface IntakeTarget {
   holdBackgroundWork?: ((reason: string) => BackgroundHold) | null;
   /** Held while a Story starts, so the window does not follow its selection write before it opens it. */
   holdNavigation?: (() => { release(): void }) | null;
+  /** Already-observed identity, never an extra Git/network lookup for a UI preference. */
+  workflowPreferenceScope?: () => { logicalId?: string | null; commonDirectory: string };
 }
 
 export interface IntakeDefaults {
@@ -257,7 +260,8 @@ export class IntakePanel {
   private renderedRegions: Record<string, string> | null = null;
   private webviewReady = false;
   private renderSequence = 0;
-  private favouriteWrite: Promise<void> = Promise.resolve();
+  private favouriteScope = '';
+  private readonly workflowPreferenceScope: NonNullable<IntakeTarget['workflowPreferenceScope']>;
   private readonly runtimeWarmup = new AbortController();
   private prep: IntakeWorktreePreparation | null = null;
   private branchCheckout: { base: string; client: SingularityFlowClient } | null = null;
@@ -285,6 +289,7 @@ export class IntakePanel {
     this.catalogCache = target.catalogCache ?? null;
     this.holdBackgroundWork = target.holdBackgroundWork ?? null;
     this.holdNavigation = target.holdNavigation ?? null;
+    this.workflowPreferenceScope = target.workflowPreferenceScope ?? (() => ({ commonDirectory: target.repository }));
     this.form = {
       ...EMPTY_INTAKE_FORM,
       targetWorkspace: target.workspace,
@@ -295,7 +300,7 @@ export class IntakePanel {
       shape: this.defaults.shape ?? 'story',
       approvalAuthorityMissing: target.approvalAuthorityMissing === true,
       inFlight: target.inFlight,
-      favouriteWorkflows: workflowFavourites(preferences.get(WORKFLOW_FAVOURITES_KEY + ':' + target.repository)),
+      favouriteWorkflows: [],
       showSampleWorkflows: preferences.get(SAMPLE_WORKFLOWS_KEY + ':' + target.repository) === true,
       ...(this.defaults.source ? {
         tracker: this.defaults.source === 'github-issue' ? 'github'
@@ -304,6 +309,7 @@ export class IntakePanel {
       ...(this.defaults.summary ? { title: this.defaults.summary } : {}),
       ...(this.defaults.workType ? { workType: this.defaults.workType } : {})
     };
+    this.restoreFavourites();
     // Paint the last known choices now; `load` revalidates them against the remote.
     this.form = { ...this.form, ...(this.cachedCatalogChanges() ?? { catalogStatus: 'loading' }) };
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
@@ -372,9 +378,37 @@ export class IntakePanel {
   static lifecycleChanged(inFlight: InFlight[]): void {
     const current = IntakePanel.current;
     if (!current || current.disposed) return;
-    if (JSON.stringify(current.inFlight) === JSON.stringify(inFlight)) return;
+    const favouritesChanged = current.restoreFavourites();
+    if (JSON.stringify(current.inFlight) === JSON.stringify(inFlight)) {
+      if (favouritesChanged) current.renderNow(true);
+      return;
+    }
     current.inFlight = inFlight;
     current.update({ inFlight }, { background: true });
+  }
+
+  private favouriteKeys(): { saved: string[]; legacy: string[] } {
+    const { logicalId, commonDirectory } = this.workflowPreferenceScope();
+    return {
+      saved: [...new Set([logicalId, commonDirectory].filter(Boolean))].map(key => WORKFLOW_FAVOURITES_V2_KEY + ':' + key),
+      legacy: [this.form.targetRepository, ...(path.basename(commonDirectory) === '.git' ? [path.dirname(commonDirectory)] : [])]
+        .map(key => WORKFLOW_FAVOURITES_KEY + ':' + key)
+    };
+  }
+
+  private restoreFavourites(): boolean {
+    const { saved, legacy } = this.favouriteKeys();
+    const scope = JSON.stringify(saved);
+    if (scope === this.favouriteScope) return false;
+    this.favouriteScope = scope;
+    const record = readWorkflowFavouriteRecord(this.preferences, [...saved, ...legacy]);
+    const next = record?.ids ?? [];
+    const changed = JSON.stringify(next) !== JSON.stringify(this.form.favouriteWorkflows);
+    this.form = { ...this.form, favouriteWorkflows: next };
+    if (record) void writeWorkflowFavouriteRecord(this.preferences, saved, record).catch(error => {
+      this.output.appendLine('Could not migrate workflow favourites: ' + (error as Error).message);
+    });
+    return changed;
   }
 
   /** Refresh an already-open Intake form after approved configuration changes elsewhere. */
@@ -735,14 +769,15 @@ export class IntakePanel {
       const prior = this.form.favouriteWorkflows ?? [];
       const next = workflowFavourites(message.favourite ? [...prior, id] : prior.filter((value) => value !== id));
       this.form = { ...this.form, favouriteWorkflows: next };
-      const key = WORKFLOW_FAVOURITES_KEY + ':' + this.form.targetRepository;
+      const { saved, legacy } = this.favouriteKeys();
+      const priorRecord = readWorkflowFavouriteRecord(this.preferences, [...saved, ...legacy]);
       try {
-        this.favouriteWrite = this.favouriteWrite.catch(() => {}).then(() => this.preferences.update(key, next));
-        await this.favouriteWrite;
+        await writeWorkflowFavouriteRecord(this.preferences, saved,
+          { at: Math.max(Date.now(), (priorRecord?.at ?? 0) + 1), ids: next });
       } catch (error) {
         this.output.appendLine('Could not save workflow favourites: ' + (error as Error).message);
         if (!this.disposed && this.form.favouriteWorkflows === next) {
-          this.form = { ...this.form, favouriteWorkflows: workflowFavourites(this.preferences.get(key)) };
+          this.form = { ...this.form, favouriteWorkflows: readWorkflowFavouriteRecord(this.preferences, [...saved, ...legacy])?.ids ?? [] };
           this.render();
           void showCompactWarningMessage('Workflow favourites could not be saved. Your Story choices are unchanged; try starring the workflow again.');
         }

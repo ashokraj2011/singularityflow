@@ -6382,6 +6382,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // One screen for six paths. An Initiative, an Epic or a Story, each with or without a tracker,
     // used to be six commands you had to already know the names of — which meant the product's front
     // door was documentation rather than a screen.
+    const intakeRepository = repositoryState?.root ?? repository;
+    const intakeCommonDirectory = intakeCatalogKey();
     const { IntakePanel, intakeInFlight } = lazyPanels();
     IntakePanel.show(context, client, output, async (started) => {
       if (defaults.guidedStart) await context.globalState.update(START_WIZARD_KEY, undefined);
@@ -6413,7 +6415,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       else if (open === 'Show status') await vscode.commands.executeCommand('singularityFlow.openDashboard');
     }, {
       workspace: workspaceLabel,
-      repository: repositoryState?.root ?? repository,
+      repository: intakeRepository,
+      workflowPreferenceScope: () => {
+        const observed = store.current.snapshot?.executionContext;
+        return { commonDirectory: intakeCommonDirectory, logicalId: observed
+          && sameStoryAttachPath(observed.worktree.path, intakeRepository) ? observed.repository.logicalId : null };
+      },
       branch: repositoryState?.branch ?? null,
       // Re-project the Store's lifecycle slice rather than spawning a second full `snapshot --json`
       // inside the panel. For a Story it may be the last snapshot; `lifecycleChanged` follows it.

@@ -6,10 +6,18 @@
    tracker selection remain available in the source/type disclosure.
 2. **Workflow & branch** — the approved workflow, its phases, and an explicitly
    selected base branch. Existing workflow favourites and branch search remain.
+
 3. **Documents & checks** — supporting documents, read-only reference repositories,
    baseline choices, test selection, quality gates and any exact recovery review.
 4. **Review & start** — a summary of those choices, Edit links and all outstanding
    readiness findings. Only this step exposes **Start Story**.
+
+Workflow favourites are personal VS Code preferences, not approved configuration or Story intent.
+They follow the repository's observed logical identity across branch clones and its verified Git
+common directory across Story worktrees. Old checkout-keyed favourites migrate without deleting
+their original preference data. Pending clicks survive reopening the panel, and an explicit removal
+(including clearing every star) takes precedence over older saved aliases. Restoring or starring
+favourites adds no Git, network, readiness or workflow-selection operation.
 
 Back, Next and step selection change only the local view; they do not ask Git,
 refresh a catalog, run tests, or create a Story. Required text is checked locally

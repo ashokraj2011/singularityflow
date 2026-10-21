@@ -13,6 +13,44 @@ export const CATALOG_SEARCH_SCRIPT = String.raw`
 
 /** Stored locally in VS Code, never in a workflow definition or Story start request. */
 export const WORKFLOW_FAVOURITES_KEY = 'singularityFlow.intake.workflowFavourites.v1';
+export const WORKFLOW_FAVOURITES_V2_KEY = 'singularityFlow.intake.workflowFavourites.v2';
+
+interface FavouriteState {
+  get(key: string): unknown;
+  update(key: string, value: unknown): PromiseLike<void>;
+}
+export interface WorkflowFavouriteRecord { at: number; ids: string[] }
+const favouriteWrites = new WeakMap<FavouriteState, {
+  tail: Promise<void>; pending: Map<string, WorkflowFavouriteRecord>;
+}>();
+
+/** Personal preferences only. The newest known alias wins, including an explicit empty list. */
+export function readWorkflowFavouriteRecord(state: FavouriteState, keys: string[]): WorkflowFavouriteRecord | null {
+  let latest: WorkflowFavouriteRecord | null = null;
+  for (const key of keys) {
+    const value = favouriteWrites.get(state)?.pending.get(key) ?? state.get(key);
+    const record = Array.isArray(value) ? { at: 0, ids: value }
+      : value as WorkflowFavouriteRecord | null;
+    if (record && Number.isSafeInteger(record.at) && record.at >= 0 && Array.isArray(record.ids)
+        && (!latest || record.at > latest.at)) latest = { at: record.at, ids: workflowFavourites(record.ids) };
+  }
+  return latest;
+}
+
+/** Serialize across replacement panels and retain pending clicks during an immediate reopen. */
+export function writeWorkflowFavouriteRecord(state: FavouriteState, keys: string[], record: WorkflowFavouriteRecord): Promise<void> {
+  let writes = favouriteWrites.get(state);
+  if (!writes) { writes = { tail: Promise.resolve(), pending: new Map() }; favouriteWrites.set(state, writes); }
+  keys = [...new Set(keys)].filter(key => JSON.stringify(writes!.pending.get(key) ?? state.get(key)) !== JSON.stringify(record));
+  for (const key of keys) writes.pending.set(key, record);
+  const task = writes.tail.catch(() => {}).then(async () => {
+    for (const key of keys) await state.update(key, record);
+  });
+  writes.tail = task;
+  return task.finally(() => {
+    for (const key of keys) if (writes!.pending.get(key) === record) writes!.pending.delete(key);
+  });
+}
 
 /** Per repository: whether the Start form lists the demo, benchmark and POC workflows `init` seeds. */
 export const SAMPLE_WORKFLOWS_KEY = 'singularityFlow.intake.sampleWorkflows.v1';

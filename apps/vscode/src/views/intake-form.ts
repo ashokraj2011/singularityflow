@@ -1561,310 +1561,304 @@ function numberedSections(html: string, first: number): string {
     (_match, space: string) => `<section class="sf-panel">${space}<h2><span class="sf-step">${String(++step).padStart(2, '0')}</span>`);
 }
 
-/** The page reports intent; every value is re-validated before it reaches the CLI. */
+/**
+ * The page reports intent; every value is re-validated before it reaches the CLI.
+ * Browser notes live outside the executable string to avoid shipping documentation in the bundle:
+ * - Search is local presentation only; it never selects a base or triggers a Git read.
+ * - Shape/tracker changes redraw fields. Keystrokes remain drafts so the caret is not displaced.
+ * - Background patches preserve local drafts, focus, selection and scroll. Explicit actions use
+ *   the host's values, including an enhanced description the person deliberately applied.
+ */
 export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + INTAKE_WIZARD_SCRIPT + `
-  const vscode = window.__sfVscode;
-  // Search only the already-offered catalog. It never selects a base or asks the host/Git to read.
-  let branchSearch = document.querySelector('[data-base-branch-search]');
-  let branchExact = document.querySelector('[data-base-branch-exact]');
-  let branchRows = [...document.querySelectorAll('[data-base-branch-choice]')].map((row) => ({
-    row, name: row.dataset.baseBranchName, text: (row.dataset.baseBranchSearchText || '').normalize('NFC').toLowerCase()
-  }));
-  const filterBaseBranches = () => {
-    if (!branchSearch) return;
-    const query = branchSearch.value.trim().normalize('NFC').toLowerCase();
-    let visible = 0;
-    branchRows.forEach(({ row, name, text }) => {
-      // Git branch names are case-sensitive; titles and IDs are not exact branch names.
-      row.hidden = branchExact?.checked && query ? name !== branchSearch.value.trim() : !text.includes(query);
-      if (!row.hidden) visible += 1;
-    });
-    const count = document.querySelector('[data-base-branch-count]');
-    if (count) count.textContent = visible + ' of ' + branchRows.length + ' branches';
-    const empty = document.querySelector('[data-base-branch-empty]');
-    if (empty) empty.hidden = visible !== 0;
-    const clear = document.querySelector('[data-base-branch-clear]');
-    if (clear) clear.disabled = !branchSearch.value;
-    const selected = document.querySelector('input[data-base-branch]:checked');
-    const selection = document.querySelector('[data-base-branch-selected]');
-    if (selection) selection.textContent = selected
-      ? 'Selected base: ' + selected.value + '.' + (selected.closest('[data-base-branch-choice]').hidden
-        ? ' This selection is hidden by the search.' : '')
-      : 'No base selected.';
-  };
-  const savedBranchSearch = vscode.getState ? (vscode.getState() || {}).intakeView?.branchSearch : null;
-  if (branchSearch && typeof savedBranchSearch === 'string') branchSearch.value = savedBranchSearch;
-  if (branchExact) branchExact.checked = vscode.getState?.()?.intakeView?.branchExact === true;
-  filterBaseBranches();
-  let workflowSearch = document.querySelector('[data-workflow-search]');
-  let workflowRows = [...document.querySelectorAll('[data-workflow-search-text]')];
-  const savedWorkflowView = vscode.getState ? (vscode.getState() || {}).intakeView || {} : {};
-  let otherWorkflows = document.querySelector('[data-workflow-other]');
-  if (workflowSearch && typeof savedWorkflowView.workflowSearch === 'string') workflowSearch.value = savedWorkflowView.workflowSearch;
-  let workflowOtherOpen = savedWorkflowView.workflowOtherOpen === true;
-  const arrangeWorkflows = () => {
-    const favourites = document.querySelector('[data-workflow-favourite-list]');
-    const others = document.querySelector('[data-workflow-other-list]');
-    if (!favourites || !others) return;
-    const installed = workflowRows.filter((row) => row.hasAttribute('data-workflow-choice'));
-    installed.forEach((row) => {
-      const favourite = row.querySelector('[data-workflow-favourite]')?.getAttribute('aria-pressed') === 'true';
-      (favourite ? favourites : others).appendChild(row);
-    });
-    const empty = document.querySelector('[data-workflow-favourites-empty]');
-    if (empty) empty.hidden = favourites.children.length > 0;
-    const summary = otherWorkflows?.querySelector('summary');
-    if (summary) summary.textContent = 'Other workflows (' + others.children.length + ')';
-  };
-  const filterWorkflows = () => {
-    if (!workflowSearch) return;
-    const query = workflowSearch.value;
-    let visible = 0;
-    workflowRows.forEach((row) => { row.hidden = !catalogMatches(query, [row.dataset.workflowSearchText]); if (!row.hidden) visible += 1; });
-    const count = document.querySelector('[data-workflow-count]');
-    if (count) count.textContent = visible + ' of ' + workflowRows.length + ' workflows';
-    const empty = document.querySelector('[data-workflow-empty]');
-    if (empty) empty.hidden = visible !== 0;
-    const clear = document.querySelector('[data-workflow-search-clear]');
-    if (clear) clear.disabled = !query;
-    if (otherWorkflows) otherWorkflows.open = Boolean(query.trim()) || workflowOtherOpen;
-    const selected = document.querySelector('input[data-work-type]:checked');
-    const selectedNotice = document.querySelector('[data-workflow-selected]');
-    if (selectedNotice) selectedNotice.textContent = selected ? 'Selected workflow: ' + selected.value + '.'
-      + (selected.closest('[data-workflow-choice]').hidden ? ' This selection is hidden by the search.' : '') : 'No workflow selected.';
-  };
-  arrangeWorkflows();
-  filterWorkflows();
-  const bindWorkflowToggle = () => otherWorkflows?.addEventListener('toggle', () => {
-    if (workflowSearch?.value.trim()) return;
-    workflowOtherOpen = otherWorkflows.open;
+const vscode = window.__sfVscode;
+let branchSearch = document.querySelector('[data-base-branch-search]');
+let branchExact = document.querySelector('[data-base-branch-exact]');
+let branchRows = [...document.querySelectorAll('[data-base-branch-choice]')].map((row) => ({
+  row, name: row.dataset.baseBranchName, text: (row.dataset.baseBranchSearchText || '').normalize('NFC').toLowerCase()
+}));
+const filterBaseBranches = () => {
+  if (!branchSearch) return;
+  const query = branchSearch.value.trim().normalize('NFC').toLowerCase();
+  let visible = 0;
+  branchRows.forEach(({ row, name, text }) => {
+    // Git branch names are case-sensitive; titles and IDs are not exact branch names.
+    row.hidden = branchExact?.checked && query ? name !== branchSearch.value.trim() : !text.includes(query);
+    if (!row.hidden) visible += 1;
+  });
+  const count = document.querySelector('[data-base-branch-count]');
+  if (count) count.textContent = visible + ' of ' + branchRows.length + ' branches';
+  const empty = document.querySelector('[data-base-branch-empty]');
+  if (empty) empty.hidden = visible !== 0;
+  const clear = document.querySelector('[data-base-branch-clear]');
+  if (clear) clear.disabled = !branchSearch.value;
+  const selected = document.querySelector('input[data-base-branch]:checked');
+  const selection = document.querySelector('[data-base-branch-selected]');
+  if (selection) selection.textContent = selected
+    ? 'Selected base: ' + selected.value + '.' + (selected.closest('[data-base-branch-choice]').hidden
+      ? ' This selection is hidden by the search.' : '')
+    : 'No base selected.';
+};
+const savedBranchSearch = vscode.getState ? (vscode.getState() || {}).intakeView?.branchSearch : null;
+if (branchSearch && typeof savedBranchSearch === 'string') branchSearch.value = savedBranchSearch;
+if (branchExact) branchExact.checked = vscode.getState?.()?.intakeView?.branchExact === true;
+filterBaseBranches();
+let workflowSearch = document.querySelector('[data-workflow-search]');
+let workflowRows = [...document.querySelectorAll('[data-workflow-search-text]')];
+const savedWorkflowView = vscode.getState ? (vscode.getState() || {}).intakeView || {} : {};
+let otherWorkflows = document.querySelector('[data-workflow-other]');
+if (workflowSearch && typeof savedWorkflowView.workflowSearch === 'string') workflowSearch.value = savedWorkflowView.workflowSearch;
+let workflowOtherOpen = savedWorkflowView.workflowOtherOpen === true;
+const arrangeWorkflows = () => {
+  const favourites = document.querySelector('[data-workflow-favourite-list]');
+  const others = document.querySelector('[data-workflow-other-list]');
+  if (!favourites || !others) return;
+  const installed = workflowRows.filter((row) => row.hasAttribute('data-workflow-choice'));
+  installed.forEach((row) => {
+    const favourite = row.querySelector('[data-workflow-favourite]')?.getAttribute('aria-pressed') === 'true';
+    (favourite ? favourites : others).appendChild(row);
+  });
+  const empty = document.querySelector('[data-workflow-favourites-empty]');
+  if (empty) empty.hidden = favourites.children.length > 0;
+  const summary = otherWorkflows?.querySelector('summary');
+  if (summary) summary.textContent = 'Other workflows (' + others.children.length + ')';
+};
+const filterWorkflows = () => {
+  if (!workflowSearch) return;
+  const query = workflowSearch.value;
+  let visible = 0;
+  workflowRows.forEach((row) => { row.hidden = !catalogMatches(query, [row.dataset.workflowSearchText]); if (!row.hidden) visible += 1; });
+  const count = document.querySelector('[data-workflow-count]');
+  if (count) count.textContent = visible + ' of ' + workflowRows.length + ' workflows';
+  const empty = document.querySelector('[data-workflow-empty]');
+  if (empty) empty.hidden = visible !== 0;
+  const clear = document.querySelector('[data-workflow-search-clear]');
+  if (clear) clear.disabled = !query;
+  if (otherWorkflows) otherWorkflows.open = Boolean(query.trim()) || workflowOtherOpen;
+  const selected = document.querySelector('input[data-work-type]:checked');
+  const selectedNotice = document.querySelector('[data-workflow-selected]');
+  if (selectedNotice) selectedNotice.textContent = selected ? 'Selected workflow: ' + selected.value + '.'
+    + (selected.closest('[data-workflow-choice]').hidden ? ' This selection is hidden by the search.' : '') : 'No workflow selected.';
+};
+arrangeWorkflows();
+filterWorkflows();
+const bindWorkflowToggle = () => otherWorkflows?.addEventListener('toggle', () => {
+  if (workflowSearch?.value.trim()) return;
+  workflowOtherOpen = otherWorkflows.open;
+  saveIntakeView();
+});
+bindWorkflowToggle();
+document.addEventListener('click', (event) => {
+  // A line in "Before this can start" takes the reader to the field it is about.
+  const problem = event.target.closest('[data-focus-field]');
+  if (problem) {
+    const name = problem.dataset.focusField;
+    const target = name.startsWith('region:') ? document.querySelector('[data-intake-region="' + name.slice(7) + '"]')
+      : name === 'base' ? document.querySelector('[data-base-branch-search]')
+      : document.querySelector('[data-field="' + name + '"]');
+    const folded = target && target.closest('details');
+    intakeWizard.reveal(target);
+    if (folded && !folded.open) folded.open = true;
+    if (target) { target.scrollIntoView({ block: 'center' }); if (target.focus) target.focus({ preventScroll: true }); }
+    return;
+  }
+  if (event.target.closest('[data-workflow-search-button]')) { workflowSearch?.focus({ preventScroll: true }); filterWorkflows(); return; }
+  if (event.target.closest('[data-workflow-search-clear]')) { workflowSearch.value = ''; filterWorkflows(); workflowSearch.focus({ preventScroll: true }); saveIntakeView(); return; }
+  const favourite = event.target.closest('[data-workflow-favourite]');
+  if (favourite) {
+    const on = favourite.getAttribute('aria-pressed') !== 'true';
+    favourite.setAttribute('aria-pressed', String(on)); favourite.textContent = on ? '★ Favourite' : '☆ Favourite';
+    arrangeWorkflows(); filterWorkflows(); saveIntakeView();
+    vscode.postMessage({ type: 'workflowFavourite', value: favourite.dataset.workflowFavourite, favourite: on });
+    return;
+  }
+  const samples = event.target.closest('[data-workflow-samples]');
+  if (samples) return vscode.postMessage({ type: 'sampleWorkflows', value: samples.dataset.workflowSamples });
+  if (event.target.closest('[data-baseline-run]')) return vscode.postMessage({ type: 'baselineRun' });
+  if (event.target.closest('[data-readiness-retry]')) return vscode.postMessage({ type: 'readinessRetry' });
+  if (event.target.closest('[data-branch-download]')) return vscode.postMessage({ type: 'branchDownload' });
+  if (event.target.closest('[data-base-branch-clear]')) {
+    branchSearch.value = '';
+    filterBaseBranches();
+    branchSearch.focus({ preventScroll: true });
     saveIntakeView();
-  });
-  bindWorkflowToggle();
-  document.addEventListener('click', (event) => {
-    // A line in "Before this can start" takes the reader to the field it is about.
-    const problem = event.target.closest('[data-focus-field]');
-    if (problem) {
-      const name = problem.dataset.focusField;
-      const target = name.startsWith('region:') ? document.querySelector('[data-intake-region="' + name.slice(7) + '"]')
-        : name === 'base' ? document.querySelector('[data-base-branch-search]')
-        : document.querySelector('[data-field="' + name + '"]');
-      const folded = target && target.closest('details');
-      intakeWizard.reveal(target);
-      if (folded && !folded.open) folded.open = true;
-      if (target) { target.scrollIntoView({ block: 'center' }); if (target.focus) target.focus({ preventScroll: true }); }
-      return;
-    }
-    if (event.target.closest('[data-workflow-search-button]')) { workflowSearch?.focus({ preventScroll: true }); filterWorkflows(); return; }
-    if (event.target.closest('[data-workflow-search-clear]')) { workflowSearch.value = ''; filterWorkflows(); workflowSearch.focus({ preventScroll: true }); saveIntakeView(); return; }
-    const favourite = event.target.closest('[data-workflow-favourite]');
-    if (favourite) {
-      const on = favourite.getAttribute('aria-pressed') !== 'true';
-      favourite.setAttribute('aria-pressed', String(on)); favourite.textContent = on ? '★ Favourite' : '☆ Favourite';
-      arrangeWorkflows(); filterWorkflows(); saveIntakeView();
-      vscode.postMessage({ type: 'workflowFavourite', value: favourite.dataset.workflowFavourite, favourite: on });
-      return;
-    }
-    const samples = event.target.closest('[data-workflow-samples]');
-    if (samples) return vscode.postMessage({ type: 'sampleWorkflows', value: samples.dataset.workflowSamples });
-    if (event.target.closest('[data-baseline-run]')) return vscode.postMessage({ type: 'baselineRun' });
-    if (event.target.closest('[data-readiness-retry]')) return vscode.postMessage({ type: 'readinessRetry' });
-    if (event.target.closest('[data-branch-download]')) return vscode.postMessage({ type: 'branchDownload' });
-    if (event.target.closest('[data-base-branch-clear]')) {
-      branchSearch.value = '';
-      filterBaseBranches();
-      branchSearch.focus({ preventScroll: true });
-      saveIntakeView();
-      return;
-    }
-    const copyCommand = event.target.closest('[data-copy-command]');
-    if (copyCommand) return navigator.clipboard.writeText(copyCommand.dataset.copyCommand || '').catch(() => {});
-    const addReference = event.target.closest('[data-reference-add]');
-    if (addReference) return vscode.postMessage({ type: 'referenceAdd' });
-    const removeReference = event.target.closest('[data-reference-remove]');
-    if (removeReference) return vscode.postMessage({ type: 'referenceRemove', index: Number(removeReference.dataset.referenceRemove) });
-    const checkReference = event.target.closest('[data-reference-check]');
-    if (checkReference) return vscode.postMessage({ type: 'referenceCheck', index: Number(checkReference.dataset.referenceCheck) });
-    const pickAttachment = event.target.closest('[data-attachment-pick]');
-    if (pickAttachment) return vscode.postMessage({ type: 'attachmentPick', index: Number(pickAttachment.dataset.attachmentPick) });
-    const clearAttachment = event.target.closest('[data-attachment-clear]');
-    if (clearAttachment) return vscode.postMessage({ type: 'attachmentClear', index: Number(clearAttachment.dataset.attachmentClear) });
-    const pickAttachments = event.target.closest('[data-attachments-pick]');
-    if (pickAttachments) return vscode.postMessage({ type: 'attachmentsPick' });
-    const enhanceDescription = event.target.closest('[data-enhance-description]');
-    if (enhanceDescription) return vscode.postMessage({ type: 'enhanceDescription' });
-    const applyEnhancement = event.target.closest('[data-enhance-apply]');
-    if (applyEnhancement) return vscode.postMessage({ type: 'enhanceApply' });
-    const discardEnhancement = event.target.closest('[data-enhance-discard]');
-    if (discardEnhancement) return vscode.postMessage({ type: 'enhanceDiscard' });
-    const catalogRetry = event.target.closest('[data-catalog-retry]');
-    if (catalogRetry) return vscode.postMessage({ type: 'catalogRetry' });
-    const workflowRefresh = event.target.closest('[data-workflow-refresh]');
-    if (workflowRefresh) return vscode.postMessage({ type: 'workflowRefresh' });
-    const testRecoveryRefresh = event.target.closest('[data-test-recovery-refresh]');
-    if (testRecoveryRefresh) return vscode.postMessage({ type: 'testRecoveryRefresh' });
-    if (event.target.closest('[data-intake-cancel]')) return vscode.postMessage({ type: 'cancel' });
-    const target = event.target.closest('[data-submit]');
-    if (target && !target.disabled && intakeWizard.canStart()) vscode.postMessage({ type: target.dataset.submit === 'recover-start' ? 'recover-start' : 'start' });
-  });
-  /**
-   * A shape or tracker change redraws, because it changes which fields exist. A keystroke does not,
-   * because replacing the document under whoever is typing would take the caret with it — it is
-   * reported as a draft and read back when the form is submitted.
-   */
-  document.addEventListener('change', (event) => {
-    const el = event.target;
-    if (el.hasAttribute('data-base-branch-exact')) { filterBaseBranches(); saveIntakeView(); return; }
-    if (el.hasAttribute('data-readiness-baseline')) return vscode.postMessage({ type: 'readinessBaseline', value: el.value });
-    if (el.hasAttribute('data-story-test-scope')) return vscode.postMessage({ type: 'storyTestScope', value: el.value });
-    if (el.hasAttribute('data-quality-gate-mode')) return vscode.postMessage({ type: 'qualityGateMode', value: el.value });
-    if (el.dataset?.testRecoveryField) return vscode.postMessage({ type: 'testRecoveryChoice', field: el.dataset.testRecoveryField, value: el.value });
-    if (el.hasAttribute('data-test-recovery-confirm')) return vscode.postMessage({ type: 'testRecoveryConfirm', confirmed: el.checked, planDigest: el.dataset.testRecoveryConfirm });
-    if (el.dataset?.shape) return vscode.postMessage({ type: 'shape', value: el.dataset.shape });
-    if (el.dataset?.tracker) return vscode.postMessage({ type: 'tracker', value: el.dataset.tracker });
-    if (el.dataset?.profile) return vscode.postMessage({ type: 'profile', value: el.dataset.profile });
-    if (el.dataset?.workType) return vscode.postMessage({ type: 'workType', value: el.dataset.workType });
-    if (el.dataset?.baseBranch) {
-      filterBaseBranches();
-      return vscode.postMessage({ type: 'baseBranch', value: el.dataset.baseBranch });
-    }
-    if (el.dataset?.referenceField) return vscode.postMessage({ type: 'referenceField',
-      index: Number(el.dataset.referenceIndex), field: el.dataset.referenceField, value: el.value });
-    if (el.dataset?.attachmentName !== undefined) return vscode.postMessage({ type: 'attachmentName',
-      index: Number(el.dataset.attachmentName), value: el.value });
-    if (el.dataset?.attachmentStore !== undefined) return vscode.postMessage({ type: 'attachmentStore',
-      index: Number(el.dataset.attachmentStore), value: el.value });
-    if (el.dataset?.attachmentPhase !== undefined) return vscode.postMessage({ type: 'attachmentPhases',
-      index: Number(el.dataset.attachmentPhase),
-      value: [...document.querySelectorAll('[data-attachment-phase="' + el.dataset.attachmentPhase + '"]')]
-        .filter((box) => box.checked).map((box) => box.dataset.phase) });
-    if (el.dataset?.field) vscode.postMessage({ type: 'field', field: el.dataset.field, value: el.value });
-  });
-  document.addEventListener('input', (event) => {
-    if (event.target.hasAttribute('data-workflow-search')) { filterWorkflows(); return; }
-    if (event.target.hasAttribute('data-base-branch-search')) return filterBaseBranches();
-    if (event.target.dataset?.referenceField) return vscode.postMessage({ type: 'referenceDraft',
-      index: Number(event.target.dataset.referenceIndex), field: event.target.dataset.referenceField,
-      value: event.target.value });
-    if (event.target.dataset?.attachmentName !== undefined) return vscode.postMessage({ type: 'attachmentNameDraft',
-      index: Number(event.target.dataset.attachmentName), value: event.target.value });
-    const field = event.target.dataset?.field;
-    if (['title', 'description', 'acceptanceCriteria'].includes(field)) {
-      document.querySelector('[data-enhancement-proposal]')?.remove();
-    }
-    if (field === 'description') {
-      const enhance = document.querySelector('[data-enhance-description]');
-      if (enhance && !enhance.hasAttribute('aria-busy')) enhance.disabled = !event.target.value.trim();
-    }
-    if (field) vscode.postMessage({ type: 'draft', field, value: event.target.value });
-  });
-  /**
-   * Results that arrive in the background (the catalog refresh, readiness, a reference check) redraw
-   * the page. Keep the focused field, its caret and the scroll position in the webview state and put
-   * them back after each redraw, so a result that lands while somebody types never takes the caret.
-   */
-  let intakeUnloading = false;
-  window.addEventListener('pagehide', () => { intakeUnloading = true; });
-  const intakeFocusKey = (el) => !el || !el.dataset ? null
-    : el.hasAttribute('data-workflow-search') ? 'workflow-search'
-    : el.hasAttribute('data-base-branch-search') ? 'base-branch-search'
-    : el.hasAttribute('data-base-branch-exact') ? 'base-branch-exact'
-      : el.dataset.field ? 'field:' + el.dataset.field
-      : el.dataset.referenceField ? 'reference:' + el.dataset.referenceIndex + ':' + el.dataset.referenceField
-        : el.dataset.attachmentName !== undefined ? 'attachment:' + el.dataset.attachmentName
-          : null;
-  const saveIntakeView = () => {
-    if (intakeUnloading || !vscode.setState) return;
-    const el = document.activeElement;
-    const key = intakeFocusKey(el);
-    const state = (vscode.getState && vscode.getState()) || {};
-    state.intakeView = {
-      wizardStep: intakeWizard.step,
-      key: key,
-      branchSearch: branchSearch ? branchSearch.value : (state.intakeView?.branchSearch || ''),
-      branchExact: branchExact ? branchExact.checked : state.intakeView?.branchExact === true,
-      workflowSearch: workflowSearch ? workflowSearch.value : (state.intakeView?.workflowSearch || ''),
-      workflowOtherOpen: workflowOtherOpen,
-      start: key && typeof el.selectionStart === 'number' ? el.selectionStart : null,
-      end: key && typeof el.selectionEnd === 'number' ? el.selectionEnd : null,
-      fieldScroll: key ? el.scrollTop : 0,
-      scroll: window.scrollY
-    };
-    vscode.setState(state);
+    return;
+  }
+  const copyCommand = event.target.closest('[data-copy-command]');
+  if (copyCommand) return navigator.clipboard.writeText(copyCommand.dataset.copyCommand || '').catch(() => {});
+  const addReference = event.target.closest('[data-reference-add]');
+  if (addReference) return vscode.postMessage({ type: 'referenceAdd' });
+  const removeReference = event.target.closest('[data-reference-remove]');
+  if (removeReference) return vscode.postMessage({ type: 'referenceRemove', index: Number(removeReference.dataset.referenceRemove) });
+  const checkReference = event.target.closest('[data-reference-check]');
+  if (checkReference) return vscode.postMessage({ type: 'referenceCheck', index: Number(checkReference.dataset.referenceCheck) });
+  const pickAttachment = event.target.closest('[data-attachment-pick]');
+  if (pickAttachment) return vscode.postMessage({ type: 'attachmentPick', index: Number(pickAttachment.dataset.attachmentPick) });
+  const clearAttachment = event.target.closest('[data-attachment-clear]');
+  if (clearAttachment) return vscode.postMessage({ type: 'attachmentClear', index: Number(clearAttachment.dataset.attachmentClear) });
+  const pickAttachments = event.target.closest('[data-attachments-pick]');
+  if (pickAttachments) return vscode.postMessage({ type: 'attachmentsPick' });
+  const enhanceDescription = event.target.closest('[data-enhance-description]');
+  if (enhanceDescription) return vscode.postMessage({ type: 'enhanceDescription' });
+  const applyEnhancement = event.target.closest('[data-enhance-apply]');
+  if (applyEnhancement) return vscode.postMessage({ type: 'enhanceApply' });
+  const discardEnhancement = event.target.closest('[data-enhance-discard]');
+  if (discardEnhancement) return vscode.postMessage({ type: 'enhanceDiscard' });
+  const catalogRetry = event.target.closest('[data-catalog-retry]');
+  if (catalogRetry) return vscode.postMessage({ type: 'catalogRetry' });
+  const workflowRefresh = event.target.closest('[data-workflow-refresh]');
+  if (workflowRefresh) return vscode.postMessage({ type: 'workflowRefresh' });
+  const testRecoveryRefresh = event.target.closest('[data-test-recovery-refresh]');
+  if (testRecoveryRefresh) return vscode.postMessage({ type: 'testRecoveryRefresh' });
+  if (event.target.closest('[data-intake-cancel]')) return vscode.postMessage({ type: 'cancel' });
+  const target = event.target.closest('[data-submit]');
+  if (target && !target.disabled && intakeWizard.canStart()) vscode.postMessage({ type: target.dataset.submit === 'recover-start' ? 'recover-start' : 'start' });
+});
+document.addEventListener('change', (event) => {
+  const el = event.target;
+  if (el.hasAttribute('data-base-branch-exact')) { filterBaseBranches(); saveIntakeView(); return; }
+  if (el.hasAttribute('data-readiness-baseline')) return vscode.postMessage({ type: 'readinessBaseline', value: el.value });
+  if (el.hasAttribute('data-story-test-scope')) return vscode.postMessage({ type: 'storyTestScope', value: el.value });
+  if (el.hasAttribute('data-quality-gate-mode')) return vscode.postMessage({ type: 'qualityGateMode', value: el.value });
+  if (el.dataset?.testRecoveryField) return vscode.postMessage({ type: 'testRecoveryChoice', field: el.dataset.testRecoveryField, value: el.value });
+  if (el.hasAttribute('data-test-recovery-confirm')) return vscode.postMessage({ type: 'testRecoveryConfirm', confirmed: el.checked, planDigest: el.dataset.testRecoveryConfirm });
+  if (el.dataset?.shape) return vscode.postMessage({ type: 'shape', value: el.dataset.shape });
+  if (el.dataset?.tracker) return vscode.postMessage({ type: 'tracker', value: el.dataset.tracker });
+  if (el.dataset?.profile) return vscode.postMessage({ type: 'profile', value: el.dataset.profile });
+  if (el.dataset?.workType) return vscode.postMessage({ type: 'workType', value: el.dataset.workType });
+  if (el.dataset?.baseBranch) {
+    filterBaseBranches();
+    return vscode.postMessage({ type: 'baseBranch', value: el.dataset.baseBranch });
+  }
+  if (el.dataset?.referenceField) return vscode.postMessage({ type: 'referenceField',
+    index: Number(el.dataset.referenceIndex), field: el.dataset.referenceField, value: el.value });
+  if (el.dataset?.attachmentName !== undefined) return vscode.postMessage({ type: 'attachmentName',
+    index: Number(el.dataset.attachmentName), value: el.value });
+  if (el.dataset?.attachmentStore !== undefined) return vscode.postMessage({ type: 'attachmentStore',
+    index: Number(el.dataset.attachmentStore), value: el.value });
+  if (el.dataset?.attachmentPhase !== undefined) return vscode.postMessage({ type: 'attachmentPhases',
+    index: Number(el.dataset.attachmentPhase),
+    value: [...document.querySelectorAll('[data-attachment-phase="' + el.dataset.attachmentPhase + '"]')]
+      .filter((box) => box.checked).map((box) => box.dataset.phase) });
+  if (el.dataset?.field) vscode.postMessage({ type: 'field', field: el.dataset.field, value: el.value });
+});
+document.addEventListener('input', (event) => {
+  if (event.target.hasAttribute('data-workflow-search')) { filterWorkflows(); return; }
+  if (event.target.hasAttribute('data-base-branch-search')) return filterBaseBranches();
+  if (event.target.dataset?.referenceField) return vscode.postMessage({ type: 'referenceDraft',
+    index: Number(event.target.dataset.referenceIndex), field: event.target.dataset.referenceField,
+    value: event.target.value });
+  if (event.target.dataset?.attachmentName !== undefined) return vscode.postMessage({ type: 'attachmentNameDraft',
+    index: Number(event.target.dataset.attachmentName), value: event.target.value });
+  const field = event.target.dataset?.field;
+  if (['title', 'description', 'acceptanceCriteria'].includes(field)) {
+    document.querySelector('[data-enhancement-proposal]')?.remove();
+  }
+  if (field === 'description') {
+    const enhance = document.querySelector('[data-enhance-description]');
+    if (enhance && !enhance.hasAttribute('aria-busy')) enhance.disabled = !event.target.value.trim();
+  }
+  if (field) vscode.postMessage({ type: 'draft', field, value: event.target.value });
+});
+let intakeUnloading = false;
+window.addEventListener('pagehide', () => { intakeUnloading = true; });
+const intakeFocusKey = (el) => !el || !el.dataset ? null
+  : el.hasAttribute('data-workflow-search') ? 'workflow-search'
+  : el.hasAttribute('data-base-branch-search') ? 'base-branch-search'
+  : el.hasAttribute('data-base-branch-exact') ? 'base-branch-exact'
+    : el.dataset.field ? 'field:' + el.dataset.field
+    : el.dataset.referenceField ? 'reference:' + el.dataset.referenceIndex + ':' + el.dataset.referenceField
+      : el.dataset.attachmentName !== undefined ? 'attachment:' + el.dataset.attachmentName
+        : null;
+const saveIntakeView = () => {
+  if (intakeUnloading || !vscode.setState) return;
+  const el = document.activeElement;
+  const key = intakeFocusKey(el);
+  const state = (vscode.getState && vscode.getState()) || {};
+  state.intakeView = {
+    wizardStep: intakeWizard.step,
+    key: key,
+    branchSearch: branchSearch ? branchSearch.value : (state.intakeView?.branchSearch || ''),
+    branchExact: branchExact ? branchExact.checked : state.intakeView?.branchExact === true,
+    workflowSearch: workflowSearch ? workflowSearch.value : (state.intakeView?.workflowSearch || ''),
+    workflowOtherOpen: workflowOtherOpen,
+    start: key && typeof el.selectionStart === 'number' ? el.selectionStart : null,
+    end: key && typeof el.selectionEnd === 'number' ? el.selectionEnd : null,
+    fieldScroll: key ? el.scrollTop : 0,
+    scroll: window.scrollY
   };
-  ['focusin', 'keyup', 'mouseup', 'input', 'select'].forEach((name) => document.addEventListener(name, saveIntakeView));
-  document.addEventListener('focusout', () => setTimeout(saveIntakeView, 0));
-  window.addEventListener('scroll', saveIntakeView, { passive: true });
-  const restoreIntakeView = () => {
-    const saved = vscode.getState ? ((vscode.getState() || {}).intakeView || null) : null;
-    if (!saved) return;
-    if (typeof saved.scroll === 'number') window.scrollTo(0, saved.scroll);
-    if (!saved.key) return;
-    const parts = String(saved.key).split(':');
-    const selector = saved.key === 'workflow-search' ? '[data-workflow-search]'
-      : saved.key === 'base-branch-search' ? '[data-base-branch-search]'
-      : saved.key === 'base-branch-exact' ? '[data-base-branch-exact]'
-      : parts[0] === 'field' ? '[data-field="' + parts[1] + '"]'
-      : parts[0] === 'attachment' ? '[data-attachment-name="' + parts[1] + '"]'
-        : '[data-reference-index="' + parts[1] + '"][data-reference-field="' + parts[2] + '"]';
-    const el = document.querySelector(selector);
-    if (!el || typeof el.focus !== 'function' || el.disabled) return;
-    intakeWizard.reveal(el);
-    el.focus({ preventScroll: true });
-    if (saved.start !== null && typeof el.setSelectionRange === 'function') {
-      try { el.setSelectionRange(saved.start, saved.end === null ? saved.start : saved.end); } catch (error) { /* not a text control */ }
-    }
-    if (typeof saved.fieldScroll === 'number') el.scrollTop = saved.fieldScroll;
-  };
-  restoreIntakeView();
-  let intakePatchSequence = 0;
-  window.addEventListener('message', (event) => {
-    const patch = event.data;
-    if (patch?.type !== 'intakePatch' || !Number.isSafeInteger(patch.sequence)
-        || patch.sequence <= intakePatchSequence || !Array.isArray(patch.regions)) return;
-    const targets = patch.regions.map((region) => ({ region,
-      target: typeof region?.id === 'string' && /^[a-zA-Z]+$/.test(region.id)
-        ? document.querySelector('[data-intake-region="' + region.id + '"]') : null }));
-    if (targets.some(({ region, target }) => !target || typeof region.html !== 'string')) {
-      vscode.postMessage({ type: 'intakeReload' }); return;
-    }
-    saveIntakeView();
-    // A background result cannot overwrite locally typed text still in transit to the host.
-    // Explicit user actions (including applying an enhanced description) use the host's values.
-    const drafts = patch.preserveDraft ? [...document.querySelectorAll(
+  vscode.setState(state);
+};
+['focusin', 'keyup', 'mouseup', 'input', 'select'].forEach((name) => document.addEventListener(name, saveIntakeView));
+document.addEventListener('focusout', () => setTimeout(saveIntakeView, 0));
+window.addEventListener('scroll', saveIntakeView, { passive: true });
+const restoreIntakeView = () => {
+  const saved = vscode.getState ? ((vscode.getState() || {}).intakeView || null) : null;
+  if (!saved) return;
+  if (typeof saved.scroll === 'number') window.scrollTo(0, saved.scroll);
+  if (!saved.key) return;
+  const parts = String(saved.key).split(':');
+  const selector = saved.key === 'workflow-search' ? '[data-workflow-search]'
+    : saved.key === 'base-branch-search' ? '[data-base-branch-search]'
+    : saved.key === 'base-branch-exact' ? '[data-base-branch-exact]'
+    : parts[0] === 'field' ? '[data-field="' + parts[1] + '"]'
+    : parts[0] === 'attachment' ? '[data-attachment-name="' + parts[1] + '"]'
+      : '[data-reference-index="' + parts[1] + '"][data-reference-field="' + parts[2] + '"]';
+  const el = document.querySelector(selector);
+  if (!el || typeof el.focus !== 'function' || el.disabled) return;
+  intakeWizard.reveal(el);
+  el.focus({ preventScroll: true });
+  if (saved.start !== null && typeof el.setSelectionRange === 'function') {
+    try { el.setSelectionRange(saved.start, saved.end === null ? saved.start : saved.end); } catch (error) { /* not a text control */ }
+  }
+  if (typeof saved.fieldScroll === 'number') el.scrollTop = saved.fieldScroll;
+};
+restoreIntakeView();
+let intakePatchSequence = 0;
+window.addEventListener('message', (event) => {
+  const patch = event.data;
+  if (patch?.type !== 'intakePatch' || !Number.isSafeInteger(patch.sequence)
+      || patch.sequence <= intakePatchSequence || !Array.isArray(patch.regions)) return;
+  const targets = patch.regions.map((region) => ({ region,
+    target: typeof region?.id === 'string' && /^[a-zA-Z]+$/.test(region.id)
+      ? document.querySelector('[data-intake-region="' + region.id + '"]') : null }));
+  if (targets.some(({ region, target }) => !target || typeof region.html !== 'string')) {
+    vscode.postMessage({ type: 'intakeReload' }); return;
+  }
+  saveIntakeView();
+  const drafts = patch.preserveDraft ? [...document.querySelectorAll(
+    'input[data-field],textarea[data-field],input[data-reference-field],input[data-attachment-name]'
+  )].map((el) => ({ key: intakeFocusKey(el), value: el.value })).filter(({ key }) => key) : [];
+  for (const { region, target } of targets) target.innerHTML = region.html;
+  document.querySelector('.intake-view')?.setAttribute('aria-busy', patch.busy ? 'true' : 'false');
+  // Refresh only catalogs actually replaced. Otherwise preserve their node identities and focus.
+  const changed = new Set(patch.regions.map((region) => region.id));
+  const saved = vscode.getState ? (vscode.getState() || {}).intakeView || {} : {};
+  if (changed.has('base')) {
+    branchSearch = document.querySelector('[data-base-branch-search]');
+    branchExact = document.querySelector('[data-base-branch-exact]');
+    branchRows = [...document.querySelectorAll('[data-base-branch-choice]')].map((row) => ({
+      row, name: row.dataset.baseBranchName, text: (row.dataset.baseBranchSearchText || '').normalize('NFC').toLowerCase()
+    }));
+    if (branchSearch) branchSearch.value = saved.branchSearch || '';
+    if (branchExact) branchExact.checked = saved.branchExact === true;
+    filterBaseBranches();
+  }
+  if (changed.has('workflow')) {
+    workflowSearch = document.querySelector('[data-workflow-search]');
+    workflowRows = [...document.querySelectorAll('[data-workflow-search-text]')];
+    otherWorkflows = document.querySelector('[data-workflow-other]');
+    if (workflowSearch) workflowSearch.value = saved.workflowSearch || '';
+    arrangeWorkflows(); filterWorkflows(); bindWorkflowToggle();
+  }
+  for (const draft of drafts) {
+    const el = [...document.querySelectorAll(
       'input[data-field],textarea[data-field],input[data-reference-field],input[data-attachment-name]'
-    )].map((el) => ({ key: intakeFocusKey(el), value: el.value })).filter(({ key }) => key) : [];
-    for (const { region, target } of targets) target.innerHTML = region.html;
-    document.querySelector('.intake-view')?.setAttribute('aria-busy', patch.busy ? 'true' : 'false');
-    // Refresh only catalogs actually replaced. Otherwise preserve their node identities and focus.
-    const changed = new Set(patch.regions.map((region) => region.id));
-    const saved = vscode.getState ? (vscode.getState() || {}).intakeView || {} : {};
-    if (changed.has('base')) {
-      branchSearch = document.querySelector('[data-base-branch-search]');
-      branchExact = document.querySelector('[data-base-branch-exact]');
-      branchRows = [...document.querySelectorAll('[data-base-branch-choice]')].map((row) => ({
-        row, name: row.dataset.baseBranchName, text: (row.dataset.baseBranchSearchText || '').normalize('NFC').toLowerCase()
-      }));
-      if (branchSearch) branchSearch.value = saved.branchSearch || '';
-      if (branchExact) branchExact.checked = saved.branchExact === true;
-      filterBaseBranches();
-    }
-    if (changed.has('workflow')) {
-      workflowSearch = document.querySelector('[data-workflow-search]');
-      workflowRows = [...document.querySelectorAll('[data-workflow-search-text]')];
-      otherWorkflows = document.querySelector('[data-workflow-other]');
-      if (workflowSearch) workflowSearch.value = saved.workflowSearch || '';
-      arrangeWorkflows(); filterWorkflows(); bindWorkflowToggle();
-    }
-    for (const draft of drafts) {
-      const el = [...document.querySelectorAll(
-        'input[data-field],textarea[data-field],input[data-reference-field],input[data-attachment-name]'
-      )].find((candidate) => intakeFocusKey(candidate) === draft.key);
-      if (el) el.value = draft.value;
-    }
-    intakePatchSequence = patch.sequence;
-    intakeWizard.refresh();
-    restoreIntakeView();
-  });
-  vscode.postMessage({ type: 'intakeReady' });
+    )].find((candidate) => intakeFocusKey(candidate) === draft.key);
+    if (el) el.value = draft.value;
+  }
+  intakePatchSequence = patch.sequence;
+  intakeWizard.refresh();
+  restoreIntakeView();
+});
+vscode.postMessage({ type: 'intakeReady' });
 `;

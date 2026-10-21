@@ -3575,6 +3575,62 @@ test('Story readiness is checked once typing the identifier pauses, and the blur
   assert.deepEqual(registered.errors, []);
 });
 
+test('intake favourites survive immediate reopen, worktree and clone switches, and late logical identity', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode(); loadExtension(api);
+  const { IntakePanel } = hostRequire(path.join(packageRoot, 'apps/vscode/dist/lazy-panels-runtime.cjs'));
+  const root = path.resolve('/fixture/favourites/repos/main/app');
+  const common = path.join(root, '.git');
+  const values = new Map([['singularityFlow.intake.workflowFavourites.v1:' + root, ['feature']]]);
+  const state = context(values); const update = state.globalState.update;
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  state.globalState.update = async (key, value) => { await gate; await update(key, value); };
+  const calls = [];
+  const client = repository => ({ repository, prewarmRuntime: async () => ({ status: 'prepared' }),
+    run: async args => {
+      calls.push(args);
+      return args[0] === 'workspace' ? { choices: [], intake: { storyWorkflows: ['feature', 'team-test'].map(id =>
+        ({ id, label: id, governs: 'story', phases: ['intake'] })) } } : { configured: false };
+    } });
+  let logicalId = null;
+  const show = (repository, commonDirectory, currentContext = state, logical = () => logicalId) => {
+    const panel = IntakePanel.show(currentContext, client(repository), api.window.createOutputChannel('Favourites'), async () => {}, {
+      workspace: 'Example', repository, branch: 'main', inFlight: [], defaults: { source: 'manual' },
+      workflowPreferenceScope: () => ({ logicalId: logical(), commonDirectory })
+    });
+    const view = registered.panels.filter(entry => entry.id === 'singularityFlow.intake').at(-1);
+    t.after(() => panel.dispose());
+    return { panel, view };
+  };
+  const starred = (view, id) => new RegExp('data-workflow-favourite="' + id + '"\\s+aria-pressed="true"').test(view.webview.html);
+  const first = show(root, common);
+  await until(() => starred(first.view, 'feature') ? true : null, { what: 'legacy favourite migration' });
+  const reads = calls.length;
+  const saving = first.view.post({ type: 'workflowFavourite', value: 'team-test', favourite: true });
+  assert.equal(calls.length, reads, 'starring has no Git, catalog or readiness request');
+  first.panel.dispose();
+  const second = show(path.resolve('/fixture/favourites/.singularity-flow/story-worktrees/story-1'), common);
+  await until(() => starred(second.view, 'feature') && starred(second.view, 'team-test') ? true : null,
+    { what: 'pending favourites in a newly opened worktree panel' });
+  const removing = second.view.post({ type: 'workflowFavourite', value: 'feature', favourite: false });
+  logicalId = 'repository-' + 'a'.repeat(24);
+  IntakePanel.lifecycleChanged([]);
+  release(); await Promise.all([saving, removing]);
+  second.panel.dispose();
+  const third = show(path.resolve('/fixture/favourites/repos/release/app'),
+    path.resolve('/fixture/favourites/repos/release/app/.git'), context(values));
+  await until(() => starred(third.view, 'team-test') ? true : null, { what: 'favourites after a clone switch and activation restart' });
+  assert.equal(starred(third.view, 'feature'), false, 'a legacy star cannot undo an explicit removal');
+  assert.deepEqual(values.get('singularityFlow.intake.workflowFavourites.v2:' + logicalId).ids, ['team-test']);
+  third.panel.dispose();
+  const other = show(path.resolve('/fixture/other/app'), path.resolve('/fixture/other/app/.git'), context(values),
+    () => 'repository-' + 'b'.repeat(24));
+  await until(() => other.view.webview.html.includes('data-workflow-favourite="feature"') ? true : null, { what: 'the unrelated catalog' });
+  assert.equal(starred(other.view, 'feature') || starred(other.view, 'team-test'), false);
+  assert.deepEqual(registered.errors, []);
+});
+
 test('intake catalog deadlines show retry, superseded reads cancel, and closing cancels discovery', async (t) => {
   if (!requireBundle(t)) return;
   const { api, registered } = stubVscode();
@@ -3848,15 +3904,15 @@ test('a second Start Work paints the cached catalog at once, then revalidates wi
   { what: 'the complete catalog to be cached' });
   const favouriteIds = [...new Set([...first.webview.html.matchAll(/data-workflow-favourite="([^"]+)"/g)].map((match) => match[1]))].slice(0, 2);
   assert.equal(favouriteIds.length, 2);
-  const favouriteKey = 'singularityFlow.intake.workflowFavourites.v1:' + await realpath(root);
+  const favouriteKey = 'singularityFlow.intake.workflowFavourites.v2:' + path.join(await realpath(root), '.git');
   const readsBeforeStars = branchReads();
   await Promise.all(favouriteIds.map((id) => first.post({ type: 'workflowFavourite', value: id, favourite: true })));
-  await until(() => preferences.get(favouriteKey)?.length === 2 ? true : null, { what: 'both rapid favourite clicks to be saved', attempts: 400 });
-  assert.deepEqual(preferences.get(favouriteKey), favouriteIds);
+  await until(() => preferences.get(favouriteKey)?.ids.length === 2 ? true : null, { what: 'both rapid favourite clicks to be saved', attempts: 400 });
+  assert.deepEqual(preferences.get(favouriteKey).ids, favouriteIds);
   assert.equal(branchReads(), readsBeforeStars, 'starring never rechecks repository readiness');
   await first.post({ type: 'workflowFavourite', value: 'unknown-workflow', favourite: true });
   await first.post({ type: 'workflowFavourite', value: favouriteIds[0], favourite: 'true' });
-  assert.deepEqual(preferences.get(favouriteKey), favouriteIds, 'the host accepts only installed IDs and boolean preferences');
+  assert.deepEqual(preferences.get(favouriteKey).ids, favouriteIds, 'the host accepts only installed IDs and boolean preferences');
   assert.equal(preferences.get('singularityFlow.intake.workflowFavourites.v1:/another-repository'), undefined, 'preferences are repository-scoped');
   // `init` seeds demo, benchmark and POC workflows into every repository. One that has not asked
   // for them does not list them; asking lists them at once and is remembered for this repository.

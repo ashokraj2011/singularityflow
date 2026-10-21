@@ -203,7 +203,9 @@ export async function verifyWindowsPrivateDirectories(targets, {
   const executables = windowsAclExecutables(environment);
   const sid = await windowsUserSid(executables, execFileCommand, environment);
   const script = [
-    "$ErrorActionPreference='Stop'", '$targets=@(ConvertFrom-Json -InputObject $args[0])',
+    // Windows PowerShell 5 emits a JSON array as one pipeline object. Assign it directly:
+    // wrapping the command in @() can nest that array and pass arrays to Get-Item/Get-Acl.
+    "$ErrorActionPreference='Stop'", '$targets=ConvertFrom-Json -InputObject $args[0]',
     '$unsafe=0', 'foreach($target in $targets){',
     '$item=Get-Item -LiteralPath $target -Force',
     "if(-not $item.PSIsContainer -or (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)){throw 'unsafe private directory'}",

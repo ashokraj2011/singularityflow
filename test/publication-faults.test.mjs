@@ -45,6 +45,9 @@ function git(args, cwd) {
 async function repository(prefix) {
   const root = await mkdtemp(path.join(os.tmpdir(), prefix));
   git(['init', '-b', 'main'], root);
+  // The recovery ref includes two bounded digests. Git for Windows needs its supported long
+  // path option even when the ordinary temp checkout itself has a short name.
+  if (process.platform === 'win32') git(['config', 'core.longpaths', 'true'], root);
   git(['config', 'user.name', 'Fault Matrix'], root);
   git(['config', 'user.email', 'faults@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# publication fault matrix\n');

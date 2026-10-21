@@ -17,6 +17,7 @@ test('SID shares within one request but every bounded directory batch checks fre
     const script = Buffer.from(args.at(-1), 'base64').toString('utf16le');
     assert.match(script, /Get-Acl -LiteralPath/);
     assert.match(script, /ReparsePoint/);
+    assert.doesNotMatch(script, /\$targets=@\(ConvertFrom-Json/);
     assert.doesNotMatch(script, /Set-Acl/);
     return { stdout: JSON.stringify({ entries: 2, unsafe: unsafe ? 1 : 0 }) };
   };

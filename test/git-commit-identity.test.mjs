@@ -58,7 +58,7 @@ test('commit identity uses a labelled fallback only for absence and rejects malf
   const empty = path.join(parent, 'empty.gitconfig');
   await writeFile(empty, '');
   const isolated = {
-    ...process.env, GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_SYSTEM: os.devNull
+    ...process.env, GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_SYSTEM: empty
   };
   assert.deepEqual(resolveGitCommitIdentity(root, { env: isolated }), {
     name: 'Singularity Flow', email: 'unknown@invalid', source: 'service-fallback'
@@ -108,7 +108,7 @@ test('frozen signing preserves Git alias order and a custom signer through isola
   const empty = path.join(parent, 'empty.gitconfig');
   await writeFile(empty, '');
   const isolated = {
-    ...process.env, GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_SYSTEM: os.devNull
+    ...process.env, GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_SYSTEM: empty
   };
   const missingProgram = path.join(parent, 'missing-gpg');
   // `gpg.program` and `gpg.openpgp.program` are aliases processed in file order. The final legacy
@@ -157,7 +157,7 @@ test('SSH signing freezes relative key paths and ignores the OpenPGP legacy prog
   await mkdir(keyDirectory);
   await writeFile(keyPath, 'ssh-ed25519 AAAATEST reviewer@example.test\n');
   const isolated = {
-    ...process.env, GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_SYSTEM: os.devNull
+    ...process.env, GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_SYSTEM: empty
   };
   run('git', ['config', 'gpg.format', 'ssh'], { cwd: root, env: isolated });
   run('git', ['config', 'user.signingkey', 'keys/reviewer.pub'], { cwd: root, env: isolated });
@@ -192,7 +192,7 @@ test('required signing rejects deterministically unavailable programs and SSH ke
   const empty = path.join(parent, 'empty.gitconfig');
   await writeFile(empty, '');
   const isolated = {
-    ...process.env, GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_SYSTEM: os.devNull
+    ...process.env, GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_SYSTEM: empty
   };
   run('git', ['config', 'user.signingkey', 'test-key'], { cwd: root, env: isolated });
   run('git', ['config', 'gpg.program', path.join(parent, 'missing-gpg')], {
@@ -219,7 +219,7 @@ test('required signing leaves Git built-in signer discovery intact when no progr
   const empty = path.join(parent, 'empty.gitconfig');
   await writeFile(empty, '');
   const isolated = {
-    ...process.env, GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_SYSTEM: os.devNull
+    ...process.env, GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_SYSTEM: empty
   };
   run('git', ['config', 'user.signingkey', 'test-key'], { cwd: root, env: isolated });
   const signing = resolveGitCommitSigning(root, { env: isolated, required: true });

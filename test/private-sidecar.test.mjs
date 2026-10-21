@@ -19,13 +19,15 @@ async function repository(t) {
   return root;
 }
 
-test('private sidecars enforce private POSIX directories and files', async (t) => {
+test('private sidecars retain bytes and enforce POSIX modes on supporting hosts', async (t) => {
   const root = await repository(t);
   const target = path.join(root, '.git', 'singularity-flow', 'private', 'record.json');
   await writeImmutablePrivateSidecar(root, target, Buffer.from('{}'), { maximumBytes: 32 });
+  assert.deepEqual(await readPrivateSidecar(root, target, { maximumBytes: 32 }), Buffer.from('{}'));
+  // Windows uses the separately qualified current-user ACL contract, not synthetic stat modes.
+  if (process.platform === 'win32') return;
   assert.equal((await stat(path.dirname(target))).mode & 0o077, 0);
   assert.equal((await stat(target)).mode & 0o077, 0);
-  assert.deepEqual(await readPrivateSidecar(root, target, { maximumBytes: 32 }), Buffer.from('{}'));
 
   await chmod(target, 0o644);
   await assert.rejects(readPrivateSidecar(root, target, { maximumBytes: 32 }), {

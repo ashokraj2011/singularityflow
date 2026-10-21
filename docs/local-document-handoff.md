@@ -120,3 +120,9 @@ byte and module limits (six failures); the same failures remain after this chang
 adds about 4.6 KB to the gateway and no additional bundled modules relative to that baseline.
 Those budgets are not widened to conceal the existing overruns. No dependency or OCR/PDF runtime
 is added.
+
+These are the historical results of the attachment-delivery change. The subsequent
+[native Auto and bundle hardening](native-auto-bundle-hardening.md) resolves the Windows
+Ad Hoc-to-Auto submission failure and all six VS Code bundle overruns without raising their
+limits. That report records the native follow-up results, portability corrections and separate
+remaining qualification limitations.

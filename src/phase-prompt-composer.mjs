@@ -719,12 +719,16 @@ export async function compose(root, options, {
   }
   const sourcePath = workflow ? path.join(root, workItemRoot, workflow.workItem.id, 'source.json') : null;
   const source = sourcePath && existsSync(sourcePath) ? JSON.parse(readFileSync(sourcePath, 'utf8')) : null;
-  const sourceInfo = sourcePath ? await snapshot(sourcePath) : null;
+  let sourceInfo = sourcePath ? await snapshot(sourcePath) : null;
   const sourceRelative = sourcePath ? posix(path.relative(root, sourcePath)) : null;
   if (workflow?.resolution?.sourceSha256 && sourceInfo?.sha256 !== workflow.resolution.sourceSha256) {
-    throw new SingularityFlowError('source.json differs from the immutable Story source snapshot.', {
+    const canonical = sourceInfo?.exists
+      ? (await import('./documents-read.mjs')).committedDocumentBytes(root, sourceRelative,
+        { sha256: workflow.resolution.sourceSha256 }, await readFile(sourcePath)) : null;
+    if (!canonical) throw new SingularityFlowError('source.json differs from the immutable Story source snapshot.', {
       code: 'WORK_SOURCE_HASH_MISMATCH'
     });
+    sourceInfo = { ...sourceInfo, sha256: workflow.resolution.sourceSha256, size: canonical.length };
   }
   const workSource = workSourcePromptContext(workflow, source, sourceInfo?.exists ? {
     path: sourceRelative, sha256: sourceInfo.sha256, bytes: sourceInfo.size

@@ -82,8 +82,14 @@ test('a document kept on this machine commits its identity only, and another clo
   // factory reset removes, owner-only, and in no commit or remote.
   const stored = path.join(root, '.git', 'singularity-flow-documents', 'LOCAL-1', ...record.storage.key.split('/'));
   assert.equal(await readFile(stored, 'utf8'), `# Salary bands\n${secretLine}\n`);
-  assert.equal((await stat(stored)).mode & 0o777, 0o600);
-  assert.equal((await stat(path.dirname(stored))).mode & 0o777, 0o700);
+  if (process.platform !== 'win32') {
+    assert.equal((await stat(stored)).mode & 0o777, 0o600);
+    assert.equal((await stat(path.dirname(stored))).mode & 0o777, 0o700);
+  } else {
+    // Win32 reports synthetic POSIX mode bits; it inherits the private store's ACL instead.
+    assert.ok((await stat(stored)).isFile());
+    assert.ok((await stat(path.dirname(stored))).isDirectory());
+  }
   assert.equal(run('git', ['ls-tree', '-r', '--name-only', 'HEAD', '--', 'singularity/work-items/LOCAL-1/inputs'], root).stdout.trim(), '');
   const blob = run('git', ['hash-object', notes], root).stdout.trim();
   assert.notEqual(run('git', ['cat-file', '-e', blob], remote, { allowFailure: true }).status, 0, 'the remote never receives the bytes');

@@ -521,7 +521,17 @@ export async function readPromptGeneration(root, workflow, phase, { workDir, ...
       { promptPath: location.promptPath }
     );
   }
-  const actualSha256 = promptSha256(text);
+  let actualSha256 = promptSha256(text);
+  if (actualSha256 !== record.renderedSha256) {
+    // Takeover can materialize a committed LF snapshot as CRLF. Accept only the exact pinned
+    // Git bytes with an otherwise identical working copy; arbitrary prompt edits still refuse.
+    const canonical = (await import('./documents-read.mjs')).committedDocumentBytes(
+      root, location.promptPath, { sha256: record.renderedSha256 }, Buffer.from(text, 'utf8'));
+    if (canonical) {
+      text = canonical.toString('utf8');
+      actualSha256 = promptSha256(text);
+    }
+  }
   if (actualSha256 !== record.renderedSha256) {
     throw promptGenerationFailure(
       `Prompt generation ${location.label} snapshot digest differs from its receipt.`,

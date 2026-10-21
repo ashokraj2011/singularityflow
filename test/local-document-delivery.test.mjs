@@ -13,6 +13,7 @@ import { gitDir } from '../src/git.mjs';
 import { readLocalDocument } from '../src/document-storage.mjs';
 import { withLocalDocumentEvidence, writePrivateDocumentExport } from '../src/document-runtime.mjs';
 import { compose } from '../src/phase-prompt-composer.mjs';
+import { pinnedStorySource } from '../src/story-epic-sources.mjs';
 import { buildAutoPhaseContract, absoluteAutoReadScope, absoluteAutoWriteScope } from '../src/auto/auto-phase-contract.mjs';
 import { localDocumentReadScope, materializeAutoDocumentReadScope } from '../src/auto/auto-document-scope.mjs';
 import { buildAutoAgentTaskContract } from '../src/auto/auto-contract-records.mjs';
@@ -100,6 +101,23 @@ test('local-evidence exports refuse working-tree files and unsafe aliases withou
   await symlink(f.uploads, alias, process.platform === 'win32' ? 'junction' : 'dir');
   await assert.rejects(writePrivateDocumentExport(f.root, path.join(alias, 'leak.md'), marker));
   await assert.rejects(stat(path.join(f.uploads, 'leak.md')), { code: 'ENOENT' });
+});
+
+test('CRLF takeover replays pinned source bytes but never accepts substantive source edits', async t => {
+  const f = await fixture(t);
+  const file = path.join(f.root, 'singularity/work-items/REVIEW-1/source.json');
+  const original = await readFile(file, 'utf8');
+  await writeFile(file, original.replaceAll('\r\n', '\n').replaceAll('\n', '\r\n'));
+  assert.deepEqual(await pinnedStorySource(f.root, f.definition, f.workflow), JSON.parse(original));
+  const prompt = await compose(f.root, { 'work-id': 'REVIEW-1', phase: f.phaseId,
+    agent: f.authorAgent, 'render-only': true, 'return-only': true });
+  assert.match(prompt, new RegExp(marker));
+  const changed = JSON.parse(original);
+  changed.title = 'An unapproved substantive source change';
+  await writeFile(file, JSON.stringify(changed, null, 2));
+  await assert.rejects(pinnedStorySource(f.root, f.definition, f.workflow), { code: 'WORK_SOURCE_HASH_MISMATCH' });
+  await assert.rejects(compose(f.root, { 'work-id': 'REVIEW-1', phase: f.phaseId,
+    agent: f.authorAgent, 'render-only': true, 'return-only': true }), { code: 'WORK_SOURCE_HASH_MISMATCH' });
 });
 
 test('Auto binds local evidence by ID/hash and grants only exact read-only files to ACP', async t => {

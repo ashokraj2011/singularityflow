@@ -71,7 +71,7 @@ test('real CLI delivers private source context, asks on takeover, and resumes af
   assert.equal(run('git', ['grep', '-F', marker, 'HEAD'], root, true).status, 1);
 
   const second = path.join(base, 'another-laptop');
-  git('clone', '-q', '--branch', 'LOCAL-CLI', '--no-local', path.join(base, 'remote.git'), second);
+  git('clone', '-q', '--config', 'core.autocrlf=true', '--branch', 'LOCAL-CLI', '--no-local', path.join(base, 'remote.git'), second);
   run('git', ['config', 'user.name', 'Document CLI Tester'], second);
   run('git', ['config', 'user.email', 'document-cli@example.invalid'], second);
   flow(second, 'session', 'attach', 'LOCAL-CLI', '--json');

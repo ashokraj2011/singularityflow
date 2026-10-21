@@ -19,7 +19,7 @@ import { exactFileAtObject, isAncestor } from './git.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { workDir } from './story-paths.mjs';
 import { initiativeRelative } from './state-stores.mjs';
-import { SingularityFlowError, snapshot } from './util.mjs';
+import { SingularityFlowError, snapshot, posix } from './util.mjs';
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
@@ -32,10 +32,14 @@ export async function pinnedStorySource(root, config, workflow) {
   const sourcePath = path.join(workDir(root, config, workflow.workItem.id), 'source.json');
   const info = await snapshot(sourcePath);
   if (!info.exists) return null;
+  let bytes = await readFile(sourcePath);
   if (workflow.resolution?.sourceSha256 && info.sha256 !== workflow.resolution.sourceSha256) {
-    throw new SingularityFlowError('source.json differs from the immutable Story source snapshot.', { code: 'WORK_SOURCE_HASH_MISMATCH' });
+    const canonical = (await import('./documents-read.mjs')).committedDocumentBytes(
+      root, posix(path.relative(root, sourcePath)), { sha256: workflow.resolution.sourceSha256 }, bytes);
+    if (!canonical) throw new SingularityFlowError('source.json differs from the immutable Story source snapshot.', { code: 'WORK_SOURCE_HASH_MISMATCH' });
+    bytes = canonical;
   }
-  return JSON.parse(await readFile(sourcePath, 'utf8'));
+  return JSON.parse(bytes.toString('utf8'));
 }
 
 function storyBaseCommit(workflow) {

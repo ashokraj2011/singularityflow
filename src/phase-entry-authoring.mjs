@@ -34,8 +34,19 @@ async function composedPromptFile(root, workItemRoot, workId, phaseId, generatio
     const relative = path.posix.normalize(String(record?.promptPath ?? ''));
     if (!relative.startsWith(`${contextDirectory}/prompts/`) || relative.split('/').includes('..')
         || !/^[0-9a-f]{64}$/u.test(String(record?.renderedSha256 ?? ''))) return null;
-    const bytes = await readFile(path.join(root, relative));
-    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    let bytes = await readFile(path.join(root, relative));
+    let sha256 = createHash('sha256').update(bytes).digest('hex');
+    if (sha256 !== record.renderedSha256) {
+      const canonical = (await import('./documents-read.mjs')).committedDocumentBytes(
+        root, relative, { sha256: record.renderedSha256 }, bytes);
+      if (canonical) {
+        bytes = canonical;
+        sha256 = createHash('sha256').update(bytes).digest('hex');
+        const privateFile = await (await import('./document-runtime.mjs')).writePrivateDocumentContext(root, bytes.toString('utf8'));
+        return { ...privateFile, sourcePath: relative,
+          differsFromText: 'Exact committed snapshot; private copy avoids checkout line-ending conversion. Runtime evidence and personalization are in the delivered context.' };
+      }
+    }
     return sha256 === record.renderedSha256
       ? { path: relative, sha256, bytes: bytes.length, differsFromText: 'omits the presentation-only reply personalization and any execution-evidence or evidence-consistency refresh added on reuse (recorded visual reviews arrive in the latter) (the packet carries those as retainedExecutionEvidence, recordedVisualReviews and evidenceConsistency)' }
       : null;

@@ -48,6 +48,13 @@ In a linked Story worktree, use its exact CLI-issued private context directory, 
 support. Reading evidence with Copilot still uses its normal model/tool channel;
 local Git storage does not mean that a model can inspect a file without receiving its content.
 
+On takeover, Git may materialize committed Story metadata and prompt snapshots with CRLF line
+endings. Replay accepts that layout change only when the exact committed bytes still match the
+pinned SHA-256 and the working copy differs only in line endings. When necessary, phase entry
+issues a Git-private canonical prompt copy whose path and hash agree. Actual source/prompt edits
+remain refused. This never normalizes uploaded local originals: restore still requires their
+exact original bytes, size and hash.
+
 Copilot planning receives the same private overlay. The planning pack's `context.md`, which
 promotion copies into Git, keeps each local document's ID, name and hash only; the result's
 `localContext` names the private file under the Git directory that carries the verified text.

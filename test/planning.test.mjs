@@ -88,7 +88,7 @@ test('story planning creates a private immutable context pack and promotes only 
   });
 
   assert.match(context.sessionId, /^plan-/);
-  assert.match(context.contextPath, /\.git\/singularity-flow\/planning\//);
+  assert.match(context.contextPath.replaceAll('\\', '/'), /\.git\/singularity-flow\/planning\//);
   assert.equal(context.manifest.repository.head, before);
   assert.equal(context.manifest.target.id, 'artifact');
   assert.ok(context.manifest.sources.some((source) => source.kind === 'agent'));

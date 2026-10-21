@@ -2601,7 +2601,9 @@ test('the first capability can be onboarded outside every repository and without
     ...process.env,
     SINGULARITY_FLOW_ACTIVE_WORKSPACE: activeWorkspace,
     SINGULARITY_FLOW_WORKSPACE_REGISTRY: workspaceRegistry,
-    SINGULARITY_FLOW_LEAD_REGISTRY: leadRegistry
+    SINGULARITY_FLOW_LEAD_REGISTRY: leadRegistry,
+    NODE_ENV: 'test',
+    SINGULARITY_FLOW_TEST_IDENTITY: 'Capability CLI Author'
   };
 
   const empty = spawnSync(process.execPath, [cli, 'capability', 'leads', '--json'], {

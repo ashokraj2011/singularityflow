@@ -3225,6 +3225,10 @@ test('workspace creates isolated clones, stages ungoverned documents, and can be
     'workspace clones must retain remote governed branches'
   );
   await writeFile(path.join(lead, 'local.txt'), 'dirty');
+  const resumed = await createWorkspace(input, { confirmation: 'PAY-100' });
+  assert.equal(resumed.resumed, true);
+  assert.equal(resumed.status.level, 'full', 'an existing workspace may contain user work, unlike a just-sealed clone');
+  assert.equal(resumed.status.repositories.find(item => item.id === 'platform').dirty, true);
   const fetched = await fetchWorkspace(created.workspace.path);
   assert.equal(fetched.results.find((item) => item.repository === 'platform').reason, 'dirty');
 });

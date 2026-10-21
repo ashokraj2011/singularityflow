@@ -3964,6 +3964,7 @@ export async function createWorkspace(options, {
 } = {}) {
   const preview = previewWorkspace(options);
   const { root, manifest } = preview;
+  const requestedStatusLevel = statusLevel;
   // A newly sealed clone needs identity/readiness, not a second whole-tree status scan. Adopted
   // checkouts may contain user changes, so retain their full projection unless explicitly scoped.
   statusLevel ??= preview.operations.some((operation) => operation.action === 'adopt') ? 'full' : 'readiness';
@@ -4005,7 +4006,7 @@ export async function createWorkspace(options, {
     }
     if (clone) {
       const repaired = await repairWorkspace(current.path, {
-        workers, cloneOperation, adoptionOperation, env: gitEnv, statusLevel
+        workers, cloneOperation, adoptionOperation, env: gitEnv, statusLevel: requestedStatusLevel ?? 'full'
       });
       return {
         created: false,

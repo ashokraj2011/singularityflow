@@ -434,7 +434,8 @@ For reproducible Git-call and latency measurements, run `node scripts/story-read
 New clones already have two fresh, content-aware completion/recovery proofs. Creation returns a
 readiness projection instead of immediately walking all untracked files, staged documents and
 synced-folder ancestors again. Explicit `workspace status` still defaults to the full inventory;
-adopted checkouts retain full status because they may contain existing local work.
+adopted checkouts and resumed existing workspaces retain full status by default because they may
+contain existing local work.
 
 Repository indexing is advisory background work. The foreground queues an exact revision and
 starts the worker without loading AST parsers or enumerating source files. The worker applies the

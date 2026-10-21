@@ -839,10 +839,10 @@
     },
     "src/configuration-object-store.mjs": {
       "counts": {
-        "command-git": 9,
+        "command-git": 11,
         "command-run": 1
       },
-      "digest": "d3347d5afa085f32ad131ff65e392d5fb7a748fb794580d69c37c1ed3488c080"
+      "digest": "4bea4c8b12afb0a50aa5be3fadfedd9f84db362b2cc2b34307267ae4081db8c9"
     },
     "src/configuration-proposal-sync.mjs": {
       "counts": {

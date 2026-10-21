@@ -1,5 +1,14 @@
 # GAL Git bypass regression gate
 
+Windows workflow-review cache repair adds two fixed local calls in the existing private
+configuration-object-store owner: set `core.longpaths=true` only during new inert pool
+initialization, and `pack-refs --all --prune` only inside its qualified, bounded, leased
+derived pool before a local clone. Both use the existing 15-second / 4-MiB launcher.
+Compaction preserves exact ref/object identities; it never traverses application history,
+updates application refs, contacts a remote, or disables publication hooks. Existing pool
+admission, ACL checks, fresh remote bindings and borrow/cleanup leases remain unchanged.
+Only these two reviewed call sites change this owner's frozen count/digest.
+
 Git Bash recovery normalizes native Windows path separators only in rendered shell argv, before
 quoting. Receipt bytes, commit/tree identities and recovery ownership are unchanged. This changes
 the reviewed installer command fingerprint, not its 43 process sites or Git permissions.

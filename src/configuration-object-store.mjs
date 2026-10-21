@@ -129,6 +129,9 @@ export async function prepareConfigurationObjectCheckout(root, scratch, {
     const config = await lstat(path.join(store, 'config')).catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));
     if (!config) {
       git(store, ['init', '--quiet', '--bare', '--template=', `--object-format=${authorityCommit.length === 64 ? 'sha256' : 'sha1'}`]);
+      // Local-clone internals open this repository independently of the caller's command config.
+      // Keep the private pool portable even when its retained proposal ref exceeds MAX_PATH.
+      if (process.platform === 'win32') git(store, ['config', 'core.longpaths', 'true']);
       await chmod(path.join(store, 'config'), 0o600);
       // Windows applies/checks the protected DACL as a tree, not one icacls launch per object.
       // Git-created files inherit an owner-only ACL but are not themselves protected. The strict
@@ -233,6 +236,10 @@ export async function prepareConfigurationObjectCheckout(root, scratch, {
     git(store, ['update-ref', 'refs/heads/sflow/config', authorityCommit]);
     git(store, ['symbolic-ref', 'HEAD', 'refs/heads/sflow/config']);
     for (const entry of branches) git(store, ['update-ref', `refs/heads/${entry.branch}`, entry.proposalCommit]);
+    // Git for Windows' local-clone ref iterator can reject a deep loose ref even though update-ref
+    // created it successfully with longpaths enabled. Compact only our leased, bounded private
+    // retention refs; application refs, objects, hooks and remote authority are untouched.
+    if (process.platform === 'win32') git(store, ['pack-refs', '--all', '--prune']);
     git(root, ['clone', '--quiet', '--shared', ...(independent
       ? ['--dissociate', '--single-branch', '--branch', 'sflow/config'] : []),
       '--no-checkout', '--', store, scratch]);

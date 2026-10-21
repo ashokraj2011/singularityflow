@@ -86,7 +86,7 @@ test('proven remote publication never follows a symbolic local tracking ref', as
   assert.equal(run('git', ['--git-dir', item.bare, 'rev-parse', targetRef]).stdout.trim(), item.commit);
 });
 
-test('proven remote publication leaves a divergent local tracking ref to fetch reconciliation', async () => {
+test('SFlow bookkeeping never overwrites a divergent local tracking ref', async () => {
   const item = await fixture();
   await writeFile(path.join(item.work, 'README.md'), 'second\n');
   run('git', ['add', 'README.md'], { cwd: item.work });
@@ -98,9 +98,18 @@ test('proven remote publication leaves a divergent local tracking ref to fetch r
   const created = await createTransportIntent({
     repositoryRoot: item.work, sourceCommit, targetRef, expectedRemote: null
   }, item.options);
-  const result = await retryTransportIntent(created.intentId, item.options);
+  const trackingWrites = [];
+  const result = await retryTransportIntent(created.intentId, {
+    ...item.options, runCommand: (command, args, options) => {
+      if (args[0] === 'update-ref' && args.includes(trackingRef)) trackingWrites.push(args);
+      return run(command, args, options);
+    }
+  });
   assert.equal(result.status, 'succeeded');
-  assert.equal(run('git', ['rev-parse', trackingRef], { cwd: item.work }).stdout.trim(), item.commit);
+  assert.deepEqual(trackingWrites, [], 'the owner must not issue an update against somebody else’s value');
+  // Some Git versions update matching remote-tracking refs during push-by-URL themselves. That
+  // native convenience cache is not an SFlow CAS write, and cannot be used as publication proof.
+  assert.ok([item.commit, sourceCommit].includes(run('git', ['rev-parse', trackingRef], { cwd: item.work }).stdout.trim()));
   assert.equal(run('git', ['--git-dir', item.bare, 'rev-parse', targetRef]).stdout.trim(), sourceCommit);
 });
 
@@ -736,7 +745,8 @@ test('an absent-target intent cannot claim an identical ref created after dry-ru
 
 test('retry refuses a configured remote retargeted after intent creation', async () => {
   const item = await fixture();
-  const colliding = path.join(item.base, 'remote?blue.git');
+  // '?' is not a Windows filename; '#' is legal there and still exercises sanitizer collisions.
+  const colliding = path.join(item.base, 'remote#blue.git');
   run('git', ['init', '-q', '--bare', colliding]);
   const created = await createTransportIntent({
     repositoryRoot: item.work, sourceCommit: item.commit,

@@ -56,7 +56,7 @@ test('private object pool reuses exact commits and blobs but never changes the a
   assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: source }).stdout.trim(), commit);
 });
 
-test('complete configuration pools reuse paged capability refs without sharing filtered objects', async t => {
+test('complete configuration pools reuse deep paged capability refs without sharing filtered objects', async t => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-complete-object-test-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const source = path.join(base, 'source'), remote = path.join(base, 'authority.git');
@@ -70,7 +70,8 @@ test('complete configuration pools reuse paged capability refs without sharing f
   await writeFile(path.join(source, 'new.md'), 'new proposal body\n');
   git('add', '.'); git('commit', '-qm', 'proposal');
   const proposalCommit = git('rev-parse', 'HEAD');
-  const branch = 'sflow/config-change/capability/map-demo-12345678';
+  // Short enough in the source checkout, beyond MAX_PATH under the pool's authority hash.
+  const branch = `sflow/config-change/capability/map-${'component-'.repeat(5)}12345678`;
   git('branch', branch);
   run('git', ['clone', '--quiet', '--bare', '--', source, remote]);
   const reads = [];

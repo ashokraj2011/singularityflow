@@ -156,6 +156,28 @@ test('Auto Candidate recovery refuses a symbolic journal ref with an identical t
   assert.equal(git(root, 'symbolic-ref', first.ref), alias);
 });
 
+test('Auto Candidate recovery preserves the exact bounded Git refusal instead of hiding it', async t => {
+  const root = await repository();
+  const remote = `${root}.git`;
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  t.after(() => rm(remote, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  git(root, 'init', '--bare', '-q', remote);
+  git(root, '--git-dir', remote, 'config', 'receive.hideRefs', 'refs/singularity-flow/auto-candidate-recovery');
+  git(root, 'remote', 'add', 'origin', remote);
+  const flightId = `AFL-${'F'.repeat(26)}`;
+  const candidate = await freezeAutoCandidate(root, {
+    flightId, attemptId: autoAttemptId({ flightId, phase: 'implementation', attemptNumber: 1 }),
+    baselineCommit: git(root, 'rev-parse', 'HEAD'), executionUnitId: 'copilot-cli'
+  });
+  await assert.rejects(publishAutoCandidateRecoveryAuthority(root, candidate, {
+    phase: 'implementation', baseCheckpointSha256: `sha256:${'b'.repeat(64)}`,
+    disposition: 'authored', attemptNumber: 1, modelInvocations: 1
+  }), error => error.code === 'AUTO_CANDIDATE_REMOTE_PUBLICATION_FAILED'
+    && /deny updating a hidden ref/u.test(error.message) && error.message.length < 8400);
+  assert.equal(git(root, 'rev-parse', candidate.repository.retainedRef), candidate.repository.candidateCommit);
+  assert.equal(git(root, 'ls-remote', '--refs', remote), '', 'no failed publication is reported as retained');
+});
+
 test('Auto Candidate rejects an oversized resource manifest before hashing or iterating it', async (t) => {
   const root = await repository();
   t.after(() => rm(root, { recursive: true, force: true }));

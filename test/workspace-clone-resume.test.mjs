@@ -208,7 +208,7 @@ test('an interrupted journal write preserves sealed clone for a later repair', a
   assert.equal(result.repaired[0].resumedClone, true);
 });
 
-test('actual Windows directory lock is retried until the owning process exits', { skip: process.platform !== 'win32' }, async t => {
+test('actual Windows directory lock is retried until the owning process exits', { skip: process.platform !== 'win32', timeout: 30_000 }, async t => {
   const f = await fixture(t);
   let child;
   let claims = 0;
@@ -225,7 +225,7 @@ test('actual Windows directory lock is retried until the owning process exits', 
     return rename(from, to);
   }, () => repairWorkspace(f.workspace, { env: { ...fast, SINGULARITY_FLOW_CLONE_CLAIM_MAX_ATTEMPTS: '100',
     SINGULARITY_FLOW_CLONE_CLAIM_TIMEOUT_MS: '15000', SINGULARITY_FLOW_CLONE_CLAIM_RETRY_DELAY_MS: '100' }, statusLevel: 'readiness' }));
-  if (child.exitCode === null) await once(child, 'exit');
+  if (child.exitCode === null && child.signalCode === null) await once(child, 'exit');
   assert.ok(claims > 1, 'the native Windows working-directory handle prevented the first move');
   assert.equal(result.repaired[0].status, 'cloned');
 });

@@ -18,6 +18,19 @@ SHA-1/SHA-256 repositories, executable mode, Unicode paths, UTF-16, binary bytes
 inputs and non-execution of repository filters. Tests verify that hashing changes neither the
 index nor the object store.
 
+The wider native cohort also checks Candidate isolation. Windows `fs.cp` can turn a dependency
+junction into a normal directory containing excluded working-tree bytes. Isolation now discovers
+and validates links in the original tree, skips those paths during copying, then creates links
+only into the candidate. This avoids copying excluded dependency content before rebinding and
+keeps the original checkout untouched. The native test executes both copies and mutates the
+candidate dependency to prove it cannot write back into the original.
+
+Portable fixtures set executable modes in the Git index, enable long refs only on their own
+disposable test server, and use an unhashable tracked path instead of POSIX permission bits.
+Byte-exact Candidate/approval fixtures explicitly declare LF. They do not qualify arbitrary
+CRLF-rewritten managed Markdown; the separate source-binding and Auto adoption tests retain
+native CRLF conversion.
+
 ## Bundle fixes
 
 All original byte/module ceilings remain unchanged. No source maps or modules are hidden from

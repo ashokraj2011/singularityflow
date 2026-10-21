@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmod, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -25,7 +25,6 @@ function git(root, args) {
 async function repository(t) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-acceptance-tree-')));
   t.after(async () => {
-    await chmod(path.join(root, 'locked.txt'), 0o644).catch(() => {});
     await rm(root, { recursive: true, force: true });
   });
   git(root, ['init', '-q', '-b', 'main']);
@@ -44,13 +43,14 @@ test('without a recorded acceptance run the source is not read; with one it is h
   const root = await repository(t);
   assert.equal(await acceptanceSourceTree(root, { acceptance: [run] }, null),
     await specificationSourceTreeHash(root, null), 'a recorded run is compared with the same hash as before');
-  if (process.getuid?.() !== 0) {
-    // An unreadable file proves the content is not read: hashing it fails.
-    await chmod(path.join(root, 'locked.txt'), 0o000);
-    await assert.rejects(() => specificationSourceTreeHash(root, null));
-    assert.equal(await acceptanceSourceTree(root, { acceptance: [] }, null), null);
-    assert.equal(await acceptanceSourceTree(root, {}, null), null);
-  }
+  // A tracked file replaced by a directory is unhashable on every host, including Windows and
+  // privileged runners where POSIX chmod cannot make a file unreadable. The no-run path must
+  // still bypass source content hashing rather than swallowing the same failure.
+  await unlink(path.join(root, 'locked.txt'));
+  await mkdir(path.join(root, 'locked.txt'));
+  await assert.rejects(() => specificationSourceTreeHash(root, null), { code: 'SPECIFICATION_GITLINK_DIRTY' });
+  assert.equal(await acceptanceSourceTree(root, { acceptance: [] }, null), null);
+  assert.equal(await acceptanceSourceTree(root, {}, null), null);
 });
 
 test('hidden worktree changes are refused with or without a recorded run', async (t) => {

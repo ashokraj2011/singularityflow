@@ -32,6 +32,9 @@ async function repository() {
   git(root, 'init', '-q');
   git(root, 'config', 'user.name', 'Auto Test');
   git(root, 'config', 'user.email', 'auto@example.invalid');
+  // These byte-exact Candidate fixtures use LF explicitly. Publication's native CRLF behavior
+  // is covered independently by source-tree-publication and the end-to-end Auto adoption case.
+  await writeFile(path.join(root, '.gitattributes'), '* text=auto eol=lf\n');
   await mkdir(path.join(root, 'src'), { recursive: true });
   await mkdir(path.join(root, 'singularity'), { recursive: true });
   await writeFile(path.join(root, 'src', 'app.mjs'), 'export const value = 1;\n');
@@ -52,6 +55,7 @@ test('Auto Candidate freezes an exact Git authority for add/delete/rename/mode/s
   await unlink(path.join(root, 'src', 'delete.mjs'));
   await rename(path.join(root, 'src', 'rename.mjs'), path.join(root, 'src', 'renamed.mjs'));
   await chmod(path.join(root, 'src', 'mode.sh'), 0o755);
+  git(root, 'update-index', '--chmod=+x', 'src/mode.sh');
   await writeFile(path.join(root, 'src', 'added.mjs'), 'export const added = true;\n');
   if (process.platform !== 'win32') await symlink('app.mjs', path.join(root, 'src', 'link.mjs'));
 
@@ -131,6 +135,7 @@ test('Auto Candidate recovery refuses a symbolic journal ref with an identical t
   const remote = `${root}.git`;
   t.after(() => rm(remote, { recursive: true, force: true }));
   git(root, 'init', '--bare', '-q', remote);
+  git(root, '--git-dir', remote, 'config', 'core.longpaths', 'true');
   git(root, 'remote', 'add', 'origin', remote);
   const baselineCommit = git(root, 'rev-parse', 'HEAD');
   await writeFile(path.join(root, 'src', 'app.mjs'), 'export const value = 3;\n');
@@ -162,6 +167,7 @@ test('Auto Candidate recovery preserves the exact bounded Git refusal instead of
   t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   t.after(() => rm(remote, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   git(root, 'init', '--bare', '-q', remote);
+  git(root, '--git-dir', remote, 'config', 'core.longpaths', 'true');
   git(root, '--git-dir', remote, 'config', 'receive.hideRefs', 'refs/singularity-flow/auto-candidate-recovery');
   git(root, 'remote', 'add', 'origin', remote);
   const flightId = `AFL-${'F'.repeat(26)}`;
@@ -323,6 +329,7 @@ test('a fresh clone restores the exact frozen Candidate from its remote immutabl
   const remote = `${root}.git`;
   t.after(() => rm(remote, { recursive: true, force: true }));
   git(root, 'init', '--bare', '-q', remote);
+  git(root, '--git-dir', remote, 'config', 'core.longpaths', 'true');
   git(root, 'remote', 'add', 'origin', remote);
   git(root, 'push', '-u', 'origin', 'HEAD:main');
   const baselineCommit = git(root, 'rev-parse', 'HEAD');

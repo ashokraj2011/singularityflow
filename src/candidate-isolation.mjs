@@ -46,31 +46,33 @@ async function copyDependencies(root, target, relative) {
   const source = path.join(root, relative);
   const destination = path.join(target, relative);
   if (!(await lstat(source)).isDirectory()) throw new Error('a dependency root is a link; prepare candidate-local dependencies');
-  // Reflink regular dependency files when supported, but never share a writable directory with
-  // the original checkout. Copy links verbatim, then rebind every repository-owned link.
-  await cp(source, destination, { recursive: true, verbatimSymlinks: true, mode: constants.COPYFILE_FICLONE });
+  // Discover links in the source, not in the copy: on Windows fs.cp can materialize a junction
+  // as an ordinary directory, copying the excluded working bytes and hiding its link identity.
+  // Skip all such entries during the copy, then bind them only to the candidate's own source.
   const links = [];
-  async function rebind(directory) {
+  async function collectLinks(directory) {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
-      const file = path.join(directory, entry.name);
-      if (entry.isDirectory()) await rebind(file);
-      else if (entry.isSymbolicLink()) {
-        const original = path.join(root, path.relative(target, file));
+      const original = path.join(directory, entry.name);
+      if (entry.isSymbolicLink()) {
         const resolved = await realpath(original);
         const mapped = path.relative(root, resolved);
         if (mapped === '..' || mapped.startsWith(`..${path.sep}`) || path.isAbsolute(mapped)) {
           throw new Error('a dependency link resolves outside the repository; prepare candidate-local dependencies');
         }
         const candidate = path.join(target, mapped);
-        await rm(file);
-        await symlink(candidate, file, (await stat(resolved)).isDirectory() ? 'junction' : 'file');
-        links.push(file);
-      }
+        links.push({ original, file: path.join(target, path.relative(root, original)), candidate,
+          type: (await stat(resolved)).isDirectory() ? 'junction' : 'file' });
+      } else if (entry.isDirectory()) await collectLinks(original);
     }
   }
-  await rebind(destination);
+  await collectLinks(source);
+  const skipped = new Set(links.map(link => path.resolve(link.original)));
+  // Reflink regular files where supported; no writable directory or external link is shared.
+  await cp(source, destination, { recursive: true, verbatimSymlinks: true,
+    mode: constants.COPYFILE_FICLONE, filter: file => !skipped.has(path.resolve(file)) });
+  for (const { file, candidate, type } of links) await symlink(candidate, file, type);
   const canonicalTarget = await realpath(target);
-  for (const file of links) {
+  for (const { file } of links) {
     const resolved = path.relative(canonicalTarget, await realpath(file));
     if (resolved === '..' || resolved.startsWith(`..${path.sep}`) || path.isAbsolute(resolved)) {
       throw new Error('a rebound dependency escapes the candidate');

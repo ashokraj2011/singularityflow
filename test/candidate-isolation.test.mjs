@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -19,6 +19,7 @@ test('text and MDX alone require isolation even though the candidate tree hash e
   t.after(() => rm(root, { recursive: true, force: true }));
   const git = (...args) => run('git', args, root);
   git('init', '-q', '-b', 'main'); git('config', 'user.name', 'Isolation Tester'); git('config', 'user.email', 'iso@example.test');
+  await writeFile(path.join(root, '.gitattributes'), '* text=auto eol=lf\n');
   for (const name of ['data.txt', 'view.mdx']) await writeFile(path.join(root, name), 'committed');
   git('add', '.'); git('commit', '-q', '-m', 'base');
   const workflow = { workItem: { id: W }, phaseOrder: ['implementation'],
@@ -44,6 +45,7 @@ test('a candidate worktree holds HEAD and the planned changes, copies dependency
   t.after(() => rm(root, { recursive: true, force: true }));
   const git = (...args) => run('git', args, root);
   git('init', '-q', '-b', 'main'); git('config', 'user.name', 'Isolation Tester'); git('config', 'user.email', 'iso@example.test');
+  await writeFile(path.join(root, '.gitattributes'), '* text=auto eol=lf\n');
   await mkdir(path.join(root, 'src')); await mkdir(path.join(root, 'node_modules/dep'), { recursive: true });
   await writeFile(path.join(root, '.gitignore'), 'node_modules/\n');
   await writeFile(path.join(root, 'src/value.mjs'), 'export const value = 1;\n');
@@ -88,6 +90,7 @@ test('workspace dependencies resolve to candidate source, not excluded working-t
   t.after(() => rm(root, { recursive: true, force: true }));
   const git = (...args) => run('git', args, root);
   git('init', '-q', '-b', 'main'); git('config', 'user.name', 'Isolation Tester'); git('config', 'user.email', 'iso@example.test');
+  await writeFile(path.join(root, '.gitattributes'), '* text=auto eol=lf\n');
   await mkdir(path.join(root, 'packages/lib'), { recursive: true });
   await mkdir(path.join(root, 'node_modules'), { recursive: true });
   await writeFile(path.join(root, '.gitignore'), 'node_modules/\n');
@@ -99,6 +102,10 @@ test('workspace dependencies resolve to candidate source, not excluded working-t
   const candidate = await materializeCandidate(root, { included: [], treeHash: async () => 'bound' });
   assert.equal(candidate.available, true, candidate.reason);
   t.after(() => candidate.dispose());
+  assert.equal((await lstat(path.join(candidate.root, 'node_modules/local-lib'))).isSymbolicLink(), true,
+    'a Windows junction must be rebound, never copied as a directory of excluded working bytes');
+  assert.equal(await realpath(path.join(candidate.root, 'node_modules/local-lib')),
+    await realpath(path.join(candidate.root, 'packages/lib')));
   assert.equal(run(process.execPath, ['probe.cjs'], candidate.root).stdout.trim(), 'committed');
   assert.equal(run(process.execPath, ['probe.cjs'], root).stdout.trim(), 'excluded');
   await writeFile(path.join(candidate.root, 'node_modules/local-lib/index.js'), 'module.exports = "candidate";\n');
@@ -119,6 +126,9 @@ test('an unrelated local edit that would break the tests stays in the worktree w
   run('git', ['init', '-b', 'main'], root);
   run('git', ['config', 'user.name', 'Isolation Tester'], root);
   run('git', ['config', 'user.email', 'iso@example.test'], root);
+  // Keep exact managed artifact bytes stable in this isolation/approval fixture; the separate
+  // publication regression deliberately retains Windows CRLF checkout conversion.
+  await write('.gitattributes', '* text=auto eol=lf\n');
   await write('package.json', JSON.stringify({ type: 'module', private: true, scripts: { test: 'node --test' } }));
   await write('src/config.mjs', 'export const factor = 1;\n');
   await write('data.txt', 'committed text');

@@ -32,7 +32,8 @@ async function main() {
   const actualRuntimeRoot = process.platform === 'win32' ? path.dirname(process.execPath) : runtimeRoot;
   const npm = path.join(actualRuntimeRoot, ...(process.platform === 'win32' ? ['node_modules', 'npm'] : ['lib', 'node_modules', 'npm']), 'bin', 'npm-cli.js');
   if (!existsSync(npm)) throw new Error('Run the managed installer bootstrap; the private npm toolchain is unavailable.');
-  const env = { ...process.env, PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH || ''}` };
+  const originalPath = process.env.PATH;
+  const env = { ...process.env, PATH: `${path.dirname(process.execPath)}${path.delimiter}${originalPath || ''}` };
   // This process is installer-only: private Node is never added to a persistent/application PATH.
   process.env.PATH = env.PATH;
   await installerProcess(process.execPath, [npm, 'ci', '--no-audit', '--no-fund'], { cwd: source, env, timeoutMs: 600_000 });
@@ -42,6 +43,8 @@ async function main() {
     || (await installerProcess(process.execPath, [npm, 'config', 'get', 'registry'], { cwd: source, env, capture: true })).stdout.trim();
   const bundle = await buildReinstallBundle({ checkout: source, registry,
     cliOnly: args.includes('--cli-only'), skipTests: args.includes('--skip-tests'), sourceSha256 });
+  // External integration managers must not inherit the build-only private Node PATH.
+  process.env.PATH = originalPath;
   try {
     const sha256 = createHash('sha256').update(await readFile(bundle.tarball)).digest('hex');
     if (!args.includes('--cli-only')) {

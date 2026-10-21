@@ -11,13 +11,14 @@ const END = '# <<< SFlow managed commands <<<';
 const quote = value => `'${String(value).replaceAll("'", "'\\''")}'`;
 
 export function managedPathProfile(original, root) {
-  if (/[\0\r\n]/u.test(root)) throw new Error('Managed engine path contains control characters.');
+  if (/[\0\r\n]/u.test(root) || root.includes(path.delimiter)) throw new Error('Managed engine path cannot contain control or PATH separator characters.');
   const begin = original.indexOf(START), end = original.indexOf(END);
   if ((begin < 0) !== (end < 0) || (begin >= 0 && (end < begin
     || original.indexOf(START, begin + START.length) >= 0 || original.indexOf(END, end + END.length) >= 0))) {
     throw new Error('SFlow PATH profile markers are incomplete or duplicated; existing profile was preserved.');
   }
-  const block = `${START}\nexport SINGULARITY_FLOW_ENGINE_HOME=${quote(root)}\nexport PATH=${quote(path.join(root, 'bin'))}:"$PATH"\n${END}`;
+  const bin = quote(path.join(root, 'bin'));
+  const block = `${START}\nexport SINGULARITY_FLOW_ENGINE_HOME=${quote(root)}\ncase ":$PATH:" in\n  *:${bin}:*) ;;\n  *) export PATH=${bin}:"$PATH" ;;\nesac\n${END}`;
   if (begin >= 0) return original.slice(0, begin) + block + original.slice(end + END.length);
   return `${original}${original && !original.endsWith('\n') ? '\n' : ''}\n${block}\n`;
 }

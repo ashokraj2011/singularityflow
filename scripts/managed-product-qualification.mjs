@@ -3,7 +3,7 @@
  * This proves the packaging/setup protocol, not real IDE activation, a model call or release approval.
  */
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,6 +32,18 @@ try {
   if (powershell) {
     registryBaseline = JSON.parse((await registry(`$k=[Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment'); try { $o=@{}; foreach($n in @('Path','SINGULARITY_FLOW_ENGINE_HOME')) { $v=$k.GetValue($n,$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames); $o[$n]=@{value=$v;kind=$(if($null -ne $v){$k.GetValueKind($n).ToString()}else{'String'})} }; $o | ConvertTo-Json -Depth 5 -Compress } finally { $k.Dispose() }`)).stdout);
   }
+  // A source build needs Git, not global Node/npm. Keep only a Git launcher and OS utilities on
+  // PATH so the one-command build cannot accidentally borrow setup-node/Homebrew's npm.
+  const locatedGit = await installerProcess(process.platform === 'win32'
+    ? resolveWindowsSystemTool(process.env, 'where.exe') : '/usr/bin/which',
+  [process.platform === 'win32' ? 'git.exe' : 'git'], { capture: true, timeoutMs: 10_000 });
+  const git = locatedGit.stdout.trim().split(/\r?\n/u)[0];
+  if (process.platform !== 'win32') await symlink(git, path.join(tools, 'git'));
+  const cleanPath = process.platform === 'win32'
+    ? `${path.dirname(git)}${path.delimiter}${path.dirname(resolveWindowsSystemTool(process.env, 'cmd.exe'))}`
+    : `${tools}:/usr/bin:/bin`;
+  for (const name of Object.keys(env)) if (name.toLowerCase() === 'path') delete env[name];
+  env.PATH = cleanPath;
   const build = process.platform === 'win32'
     ? { command: powershell, args: ['-NoProfile', '-File', path.join(source, 'build-distribution.ps1'), '--skip-tests', '--out-dir', distribution] }
     : { command: '/bin/bash', args: [path.join(source, 'build-distribution.sh'), '--skip-tests', '--out-dir', distribution] };
@@ -39,7 +51,7 @@ try {
   const built = await installerProcess(build.command, build.args, { cwd: source, env, capture: true, timeoutMs: 1_800_000 });
   report.timings.buildMs = performance.now() - start;
   assert.ok(built.stdout.includes('candidate-not-release-certified'), built.stdout);
-  report.cases.push('one source command bootstraps private Node and builds a real signed CLI/VSIX distribution');
+  report.cases.push('one source command builds a real signed CLI/VSIX distribution with no global Node/npm on PATH');
   const runtime = (await readdir(path.join(engine, 'runtimes'))).find(name => name.startsWith('node-v26.'));
   const node = path.join(engine, 'runtimes', runtime, ...(process.platform === 'win32' ? ['node.exe'] : ['bin', 'node']));
   env.SFLOW_SETUP_TEST_NODE = node;
@@ -108,6 +120,8 @@ if(manager==='code') {
     const profile = await readFile(path.join(home, '.zshrc'), 'utf8');
     assert.equal(profile.split('# >>> SFlow managed commands >>>').length, 2);
     assert.ok(!profile.includes('/runtimes/'));
+    const loaded = await installerProcess('/bin/zsh', ['-c', '. "$HOME/.zprofile"; . "$HOME/.zshrc"; print -r -- "$PATH"'], { env, capture: true, timeoutMs: 10_000 });
+    assert.equal(loaded.stdout.trim().split(path.delimiter).filter(entry => entry === path.join(engine, 'bin')).length, 1);
   }
   report.cases.push('per-user PATH contains only SFlow shims and repeated setup does not duplicate its configuration');
   report.status = 'passed'; report.casesPassed = report.cases.length;

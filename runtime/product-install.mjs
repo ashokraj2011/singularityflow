@@ -130,6 +130,8 @@ export async function installManagedProduct({ tarball, sha256, vsix, root = reso
   inspectExtension = inspectVsix, verifyExtension = verifyUi, verifyCopilot = verifyPluginInstallation,
   updatePath = installUserPath, resolveCode = resolveSetupCode, exists = commandExists, log = console.log } = {}) {
   root = path.resolve(root);
+  if (/[\0\r\n]/u.test(root) || root.includes(path.delimiter)
+    || (process.platform === 'win32' && /[%!^&|<>]/u.test(root))) throw new Error('Select a per-user engine directory without control, shell-expansion or PATH separator characters.');
   if (!SHA.test(sha256 || '')) throw new Error('A trusted archive SHA-256 is required.');
   const code = resolveCode({ environment, homeDirectory });
   if (!exists('copilot', { environment })) {
@@ -141,7 +143,8 @@ export async function installManagedProduct({ tarball, sha256, vsix, root = reso
   const lock = await acquire(root);
   let state;
   const receiptFile = path.join(root, 'product-install.json');
-  const env = { ...environment, SINGULARITY_FLOW_ENGINE_HOME: root, SINGULARITY_FLOW_PRODUCT_ALIGNMENT: 'off' };
+  const env = { ...environment, HOME: homeDirectory, USERPROFILE: homeDirectory,
+    SINGULARITY_FLOW_ENGINE_HOME: root, SINGULARITY_FLOW_PRODUCT_ALIGNMENT: 'off' };
   try {
     state = await pending(root);
     if (state && state.status !== 'complete') {

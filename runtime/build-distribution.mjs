@@ -35,6 +35,9 @@ async function main() {
   const runtimeRoot = path.resolve(path.dirname(process.execPath), process.platform === 'win32' ? '.' : '..');
   const npm = path.join(runtimeRoot, ...(process.platform === 'win32' ? ['node_modules', 'npm'] : ['lib', 'node_modules', 'npm']), 'bin', 'npm-cli.js');
   const environment = { ...process.env, PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH || ''}` };
+  // Canonical builders also bootstrap their locked npm through PATH. This process performs builds
+  // only; keep that bootstrap private even on a machine with no global Node/npm at all.
+  process.env.PATH = environment.PATH;
   await installerProcess(process.execPath, [npm, 'ci', '--no-audit', '--no-fund'], { cwd: repository, env: environment, timeoutMs: 600_000 });
   // Product modules load only after the locked dependencies are ready on this first build.
   const { readSecurePrivateKey } = await import('../src/secure-private-key.mjs');

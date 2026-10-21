@@ -11,6 +11,7 @@ import { runGovernanceGate } from '../governance.mjs';
 import { nowIso, SingularityFlowError } from '../util.mjs';
 import { evaluateEvidence } from './evaluate.mjs';
 import { WITNESS_CHECKLIST } from '../verification/witness-records.mjs';
+import { RISK_CATEGORIES } from './risk-decisions.mjs';
 import { evidenceGraphFromAggregate } from './graph.mjs';
 import { gateRefusal } from './gate-refusal.mjs';
 import { completionLabel } from './labels.mjs';
@@ -68,6 +69,27 @@ export function terminalRecoveryActions(workId, evaluation, gate = null) {
   if ((evaluation?.decision?.gate === 'block')) add(diagnostics, `singularity-flow evidence matrix ${workId} --json`);
   if ((gate?.errors ?? []).length) add(diagnostics, 'singularity-flow gate --terminal');
   return [...decisions, ...witnesses, ...risks, ...diagnostics];
+}
+
+/**
+ * The evidence decisions a person makes before the Story ends, one per blocking criterion: each
+ * visual or inspection slot to witness, with its exact command, and each obligation that may be
+ * accepted as a dated risk. The decision list shows these, so it names what the approval refusal
+ * names [decision list parity]; nothing here records a witness or a risk.
+ */
+export function terminalEvidenceDecisions(workId, evaluation) {
+  const entries = [];
+  for (const row of evaluation?.rows ?? []) {
+    if (!BLOCKING_RESULTS.has(row.result)) continue;
+    const witnesses = (row.verification?.contract?.slots ?? [])
+      .filter((slot) => BLOCKING_RESULTS.has(slot.status) && WITNESSED_METHODS.has(slot.method))
+      .map((slot) => ({ slot: slot.slot, method: slot.method, files: slot.method === 'visual' ? plannedEvidenceFiles(row) : [],
+        command: witnessAction(workId, row, slot) }));
+    const risks = [...new Set((row.actions ?? []).filter((action) => action.kind === 'accept-risk').map((action) => action.command))]
+      .map((command) => ({ obligationId: /--obligation (\S+)/u.exec(command)?.[1] ?? null, command }));
+    if (witnesses.length || risks.length) entries.push({ criterion: row.id, result: row.result, witnesses, risks, categories: [...RISK_CATEGORIES] });
+  }
+  return entries;
 }
 
 /**

@@ -307,6 +307,44 @@ function visualItem(workflow, context, entry) {
   };
 }
 
+/** A choice that is the person's own step: its command is theirs to run, never recorded from the list. */
+function personalStep({ id, label, command, words }) {
+  return { id, label, recommended: false, words, effects: [], needs: {}, recordable: false,
+    action: { command, alternativeCommands: [] }, decidedBy: { groups: [], labels: [], allowed: true, words } };
+}
+
+/**
+ * One item per criterion whose evidence approval waits on a person for: witness each slot after
+ * looking at it, or accept the obligation as a dated risk. Both are the person's own commands.
+ */
+function evidenceItem(workflow, context, entry) {
+  const name = clauseName(workflow, entry.criterion);
+  const slots = entry.witnesses.map((witness) => witness.files.length === 1 ? witness.files[0] : `slot ${witness.slot}`);
+  const options = [
+    ...entry.witnesses.map((witness) => personalStep({
+      id: `witness-${witness.slot}`,
+      label: witness.files.length === 1 ? `I checked ${witness.files[0]}: witness it` : `I checked the ${witness.method} evidence for slot ${witness.slot}: witness it`,
+      command: witness.command,
+      words: 'You look at the evidence yourself and record the witness with its three confirmations; nothing is decided here.'
+    })),
+    ...entry.risks.map((risk, index) => personalStep({
+      id: entry.risks.length === 1 ? 'accept-obligation-risk' : `accept-obligation-risk-${index + 1}`,
+      label: 'Accept it as a risk until a date',
+      command: risk.command,
+      words: `You record the risk with a category (${listWords(entry.categories)}), an expiry and a reason; nothing is decided here.`
+    }))
+  ];
+  return {
+    kind: 'evidence-obligation',
+    title: slots.length ? `Check the evidence for ${name}` : `Decide the open evidence for ${name}`,
+    why: `${name} is ${entry.result}: ${slots.length ? `approval waits for a person to witness ${listWords(slots)} for this change` : 'an obligation is still open'}. `
+      + 'Witness it if it shows the outcome, or accept a dated risk; the verdict itself does not change.',
+    options,
+    details: { criterion: entry.criterion, result: entry.result, witnesses: entry.witnesses, risks: entry.risks, categories: entry.categories,
+      commands: [...entry.witnesses.map((witness) => witness.command), ...entry.risks.map((risk) => risk.command)] }
+  };
+}
+
 /** One item for a test command of a step whose latest run stopped before any test executed. */
 function testRiskItem(workflow, context, risk) {
   const name = stepName(workflow, risk.phase);
@@ -353,7 +391,8 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   const built = [
     ...groups.map((group) => (group.kind === 'conformance-gap' ? gapItem(workflow, context, group) : issueItem(workflow, context, group.state))),
     ...(facts.visual ?? []).map((entry) => visualItem(workflow, context, entry)),
-    ...(facts.testRisks ?? []).map((risk) => testRiskItem(workflow, context, risk))
+    ...(facts.testRisks ?? []).map((risk) => testRiskItem(workflow, context, risk)),
+    ...(facts.evidence ?? []).map((entry) => evidenceItem(workflow, context, entry))
   ];
   const items = built.map((item, index) => {
     // Recommended first, then in the order built.

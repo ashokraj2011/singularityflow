@@ -11,7 +11,7 @@
  *
  * Reads only; loaded by the list alone, never on a hot path.
  */
-import { blockingDecisionFacts } from './decision-list-facts.mjs';
+import { blockingDecisionFacts, evidenceDecisionFacts } from './decision-list-facts.mjs';
 import { workDir } from './story-paths.mjs';
 import { SingularityFlowError } from './util.mjs';
 
@@ -115,8 +115,12 @@ async function visualProfiles(root, config, workflow, phase) {
 export async function decisionListFacts(root, config, workflow, { phaseId = workflow?.currentPhase ?? null, at = new Date().toISOString() } = {}) {
   const { phase, reports, ...blocking } = await blockingDecisionFacts(root, config, workflow, { phaseId, at });
   const reuse = await reuseCandidates(root, config, workflow, reports);
+  let evidence = [];
+  try { evidence = await evidenceDecisionFacts(root, config, workflow, phase); }
+  catch (error) { blocking.unavailable = [...(blocking.unavailable ?? []), { phase: phase.id, reason: error.code ?? 'evidence-unavailable' }]; }
   return {
     ...blocking,
+    evidence,
     candidates: reuse.candidates, reuseProblems: reuse.problems,
     testRisks: await testRisks(root, config, workflow, phase, at),
     visual: await visualProfiles(root, config, workflow, phase),
@@ -125,6 +129,7 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
       upstreamIssues: (workflow.upstreamIssues ?? []).length, upstreamIssueDecisions: (workflow.upstreamIssueDecisions ?? []).length,
       evidenceReuses: (workflow.evidenceReuses ?? []).length, testRunRisks: (workflow.testRunRisks ?? []).length,
       visualProfileDecisions: (workflow.visualProfileDecisions ?? []).length,
+      evidence: evidence.map((entry) => `${entry.criterion}:${entry.result}:${entry.witnesses.map((witness) => witness.slot).join(',')}:${entry.risks.length}`),
       reports: Object.fromEntries(reports.map((entry) => [entry.step.id, entry.digest])),
       runs: reuse.candidates.map((entry) => `${entry.attemptId}:${entry.consumer}:${entry.treeSha256}`)
     }

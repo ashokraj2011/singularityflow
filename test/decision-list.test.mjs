@@ -17,7 +17,8 @@ import { DECISION_LIST_CHAT_OPTIONS } from '../src/copilot-mutation-guard.mjs';
 import {
   decisionGroups, decisionPacket, decisionRecordCommand, decisionRecordPlan, decisionRefusalLead, ISSUE_ONLY_OPTIONS, parseDecisionAnswers, runDecisionPlan
 } from '../src/decision-list.mjs';
-import { terminalRefusalMessage } from '../src/evidence/terminal.mjs';
+import { terminalEvidenceDecisions, terminalRefusalMessage } from '../src/evidence/terminal.mjs';
+import { decisionsMayBePending } from '../src/decision-list-facts.mjs';
 import { decisionListFacts } from '../src/decision-list-reads.mjs';
 import { workflowNextSteps } from '../src/nextsteps.mjs';
 import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
@@ -394,4 +395,54 @@ test('an agent reading the list asks the person; a preview that needs the person
   const chat = agentAct({ data: { ...packet, preview: { record: { command: 'singularity-flow decisions record BIN-501', recordInChat: true } } } });
   assert.equal(chat.state, 'confirm');
   assert.equal(chat.do, null, 'the agent asks for an explicit yes before it records');
+});
+
+// [decision list parity]: what the approval refusal asks a person to decide about evidence is on the list.
+const evaluation = { rows: [
+  { id: 'BIN-501:AC-001', result: 'missing',
+    obligations: [{ id: 'OBL:BIN-501:verify:BIN-501:AC-001', fulfillment: 'evidence', plannedObligations: [{ fulfillment: 'evidence', expectedPaths: ['singularity/work-items/BIN-501/evidence/result.png'] }] }],
+    actions: [{ kind: 'accept-risk', command: 'singularity-flow decision risk --obligation OBL:BIN-501:verify:BIN-501:AC-001 --category <category> --expires <YYYY-MM-DD> --reason "<why>"' }],
+    verification: { contract: { slots: [{ slot: 'result', method: 'visual', status: 'missing' }, { slot: 'unit', method: 'test', status: 'missing' }] } } },
+  { id: 'BIN-501:AC-002', result: 'satisfied', obligations: [], actions: [], verification: { contract: { slots: [{ slot: 'shot', method: 'visual', status: 'missing' }] } } }
+] };
+
+test('the evidence approval waits for is the same witness and risk the refusal names', () => {
+  const entries = terminalEvidenceDecisions('BIN-501', evaluation);
+  assert.equal(entries.length, 1, 'a satisfied criterion and a test slot need no person');
+  const [entry] = entries;
+  assert.equal(entry.criterion, 'BIN-501:AC-001');
+  assert.deepEqual(entry.witnesses.map((witness) => witness.slot), ['result']);
+  assert.equal(entry.witnesses[0].command, 'singularity-flow decision witness BIN-501 --criterion BIN-501:AC-001 --slot result '
+    + '--file singularity/work-items/BIN-501/evidence/result.png --confirm states-the-outcome --confirm matches-the-criterion '
+    + '--confirm current-for-this-change --reason "<why this exact evidence satisfies the slot>"');
+  assert.deepEqual(entry.risks, [{ obligationId: 'OBL:BIN-501:verify:BIN-501:AC-001', command: evaluation.rows[0].actions[0].command }]);
+  assert.ok(entry.categories.includes('deferred-verification'));
+});
+
+test('an evidence item is the person\'s own step: the list shows its commands and never records it', () => {
+  const workflow = story();
+  const evidence = terminalEvidenceDecisions('BIN-501', evaluation);
+  const packet = packetOf(workflow, { gaps: [], issues: [], evidence });
+  assert.equal(packet.status, 'decisions-needed');
+  const item = packet.items.find((entry) => entry.kind === 'evidence-obligation');
+  assert.ok(item, 'the obligation approval refuses on is on the list');
+  assert.match(item.title, /AC-001/u);
+  assert.match(item.why, /witness singularity\/work-items\/BIN-501\/evidence\/result\.png/u);
+  assert.deepEqual(item.options.map((option) => option.id), ['witness-result', 'accept-obligation-risk']);
+  for (const option of item.options) {
+    assert.equal(option.recordable, false);
+    assert.match(option.action.command, /^singularity-flow decision (?:witness|risk) /u);
+  }
+  assert.throws(() => decisionRecordPlan(packet, parseDecisionAnswers({ choose: [`${item.id}=witness-result`] }), { at: AT }));
+  // The digest moves with the evidence: a witnessed slot is a different list.
+  assert.notEqual(packetOf(workflow, { gaps: [], issues: [], evidence: [] }).packetSha256, packet.packetSha256);
+});
+
+test('evidence decisions apply at the Story\'s final step once it is submitted, and nowhere else', () => {
+  // Two plain steps, no conformance report: only the evidence rule can make decisions pending.
+  const plain = (build, ship) => ({ workItem: { id: 'BIN-502' }, phaseOrder: ['build', 'ship'], upstreamIssues: [], upstreamIssueDecisions: [],
+    phases: { build: { id: 'build', status: build, generation: 1 }, ship: { id: 'ship', status: ship, generation: 1 } } });
+  assert.equal(decisionsMayBePending(plain('approved', 'awaiting_approval'), plain('approved', 'awaiting_approval').phases.ship), true);
+  assert.equal(decisionsMayBePending(plain('approved', 'in_progress'), plain('approved', 'in_progress').phases.ship), false);
+  assert.equal(decisionsMayBePending(plain('awaiting_approval', 'pending'), plain('awaiting_approval', 'pending').phases.build), false);
 });

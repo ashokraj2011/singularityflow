@@ -36,9 +36,16 @@ test('Auto private records are bounded, private, mutable, and listable', async (
   assert.equal(await readAutoPrivateRecord(root, target, 'flight-state'), '{"value":1}');
   assert.equal((await writeAutoPrivateRecord(root, target, 'flight-state', '{"value":2}')).created, false);
   assert.equal(await readAutoPrivateRecord(root, target, 'flight-state'), '{"value":2}');
-  assert.equal((await stat(target)).mode & 0o777, 0o600);
-  assert.equal((await stat(directory)).mode & 0o077, 0,
-    'new Auto private directories must not grant group/other access');
+  const fileInfo = await stat(target);
+  const directoryInfo = await stat(directory);
+  assert.ok(fileInfo.isFile() && directoryInfo.isDirectory());
+  // Windows stat mode bits are synthesized, not its DACL. The compatibility Auto store inherits
+  // filesystem permissions there; POSIX must enforce its actual owner-only modes.
+  if (process.platform !== 'win32') {
+    assert.equal(fileInfo.mode & 0o777, 0o600);
+    assert.equal(directoryInfo.mode & 0o077, 0,
+      'new Auto private directories must not grant group/other access');
+  }
   assert.deepEqual((await listAutoPrivateRecords(root, privatePath(root, 'auto-flights')))
     .map((entry) => entry.name), [`AFL-${'A'.repeat(26)}`]);
 

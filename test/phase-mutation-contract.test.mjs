@@ -1464,3 +1464,22 @@ test('an import-team turn with no candidate issued names the route that continue
   assert.match(refused.permissionDecisionReason,
     /^IMPORT_TEAM_PATH_DENIED: no candidate file is issued to this turn\. To continue an earlier session, run singularity-flow workflow import-team status --session <SESSION-ID> --json in this turn: it issues that session's candidate file again and keeps its answers/u);
 });
+
+test('an agent turn may preview a workflow delete and propose an archive, but confirming a delete is the person\'s', async t => {
+  // docs/SPEC-WORKFLOW-RETIREMENT-v1.md: the person confirms a delete in VS Code or their own terminal.
+  const f = await fixture(t);
+  const shell = (payload, command) => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  const confirm = 'singularity-flow workflow delete mine --confirm sha256:' + 'a'.repeat(64) + ' --propose --json';
+  for (const [label, payload] of [['with a Story', await f.enter('/sf-workflows', 'workflows-story')],
+    ['without a Story', await (async () => {
+      const value = { cwd: f.root, sessionId: 'workflows-setup', prompt: '/sf-workflows' };
+      await recordRepositoryBoundaryTurn(value, { captureMutation: (item, record) => captureMutationTurn(item, record,
+        { resolveRoot: async () => f.root, load: async () => { throw new Error('No Story yet'); } }) });
+      return value;
+    })()]]) {
+    assert.deepEqual(await shell(payload, 'singularity-flow workflow delete mine --dry-run --json'), {}, label);
+    const refused = await shell(payload, confirm);
+    assert.equal(refused.permissionDecision, 'deny', label);
+    assert.match(refused.permissionDecisionReason, /confirming a workflow delete is the person's own step.*Workflow Studio → Delete…/u, label);
+  }
+});

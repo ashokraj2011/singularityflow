@@ -258,11 +258,14 @@ export async function listWorkflows(root, governs = 'initiative') {
   const store = storeFor(governs);
   const { document } = await loadIn(root, store);
   const content = document.toJS() ?? {};
+  const { readWorkflowArchive, workflowArchived } = await import('./workflow-archive.mjs');
+  const archive = await readWorkflowArchive(root).catch(() => null);
   return Object.entries(content[store.workflows] ?? {}).map(([id, workflow]) => ({
     id,
     label: workflow?.label ?? id,
     description: workflow?.description ?? '',
     governs: store.governs,
+    ...(workflowArchived(archive, store.governs, id) ? { archived: true } : {}),
     phases: workflow?.phases ?? [],
     ...(store.governs === 'story' ? { reworkLoops: workflow?.reworkLoops ?? [] } : {})
   }));

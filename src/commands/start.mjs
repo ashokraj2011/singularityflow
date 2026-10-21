@@ -1288,7 +1288,9 @@ async function startCommandAtRoot(positionals, options) {
     deterministicWorkType = (seedChoiceAllowed ? baseSeed?.suggestedWorkType : null)
       ?? await selectWorkType(config, {
         selection: null,
-        nonInteractiveHint: 'Pass --work-type <id> to choose one without a terminal.'
+        nonInteractiveHint: 'Pass --work-type <id> to choose one without a terminal.',
+        // Archived workflows are not offered to a new Story (docs/SPEC-WORKFLOW-RETIREMENT-v1.md).
+        exclude: Object.keys((await (await import('../workflow-archive.mjs')).readWorkflowArchive(root)).story)
       });
   }
   if (deterministicWorkType === 'poc-workflow') {

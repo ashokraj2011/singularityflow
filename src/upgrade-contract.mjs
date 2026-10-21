@@ -62,6 +62,7 @@ export const UPGRADE_CONTRACT = Object.freeze({
 
   // The name matches, the meaning does not.
   WORKSPACE_ARCHIVED: unrelated('An archived workspace, not an archived schema.'),
+  WORKFLOW_ARCHIVED: unrelated('An archived workflow a new Story may not choose, not an archived schema.'),
   MODEL_SESSION_INCOMPATIBLE: unrelated('A prompt that differs from its model session\'s provider, model or tool policy, not a build or schema version.')
 });
 

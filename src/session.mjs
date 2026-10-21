@@ -96,8 +96,10 @@ async function choose(label, entries, { selection = null, nonInteractiveHint = n
   } finally { io.close(); }
 }
 
+/** `options.exclude`: workflow IDs a new Story may not choose, such as archived ones. */
 export async function selectWorkType(definition, options = {}) {
-  return choose('workflow template', Object.entries(definition.workTypes), options);
+  const exclude = new Set(options.exclude ?? []);
+  return choose('workflow template', Object.entries(definition.workTypes).filter(([id]) => !exclude.has(id)), options);
 }
 
 export async function selectIntakeSource(options = {}) {

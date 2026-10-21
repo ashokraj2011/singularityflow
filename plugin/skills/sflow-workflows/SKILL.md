@@ -1,8 +1,8 @@
 ---
 name: sflow-workflows
-description: List, preview, transfer, duplicate governed workflows, or explicitly share inert Git-backed workflow drafts.
+description: List, preview, transfer, duplicate, archive or delete workflows, or explicitly share inert Git-backed workflow drafts.
 disable-model-invocation: true
-argument-hint: "[list|author list|author where-used SKILL-ID|author preview WFD-ID|author submit WFD-ID --revision N|skills-recipe ID ...|simulate ID|export ...|import FILE|copy SOURCE TARGET ...]"
+argument-hint: "[list|author list|author where-used SKILL-ID|author preview WFD-ID|author submit WFD-ID --revision N|skills-recipe ID ...|simulate ID|export ...|import FILE|copy SOURCE TARGET ...|archive ID|restore ID|delete ID --dry-run]"
 
 ---
 # Workflows / drafts
@@ -56,3 +56,10 @@ Invocation is not confirmation. Never substitute digests, overwrite or retry sta
 Qualify IDs; dependencies stay shared; edits affect both. Review and wait:
 `singularity-flow workflow copy <[story|initiative:]SOURCE> <TARGET> --label <TEXT> --confirm <PLAN-SHA256> --propose --json`.
 Once only; never overwrite, bypass review, commit, activate, merge or auto-refresh.
+
+Archive keeps a workflow and everything it uses; new Stories stop being offered it, running Stories continue:
+`singularity-flow workflow archive <[story|initiative:]ID> [--reason "<TEXT>"] [--new-default <ID>] --propose --json`;
+`singularity-flow workflow restore <[story|initiative:]ID> --propose --json` offers it again. Seeded workflows can be archived.
+Delete preview: `singularity-flow workflow delete <[story|initiative:]ID> --dry-run --json`. Relay `removed`, `kept`
+with `usedBy`, `trimmed`, `cleanups`, `stories` and `planSha256`. The person confirms: give them Workflow Studio → Delete…
+or `singularity-flow workflow delete <ID> --confirm <PLAN-SHA256> --propose --json` for their terminal; the guard refuses it here.

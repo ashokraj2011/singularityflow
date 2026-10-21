@@ -3168,3 +3168,12 @@ export async function copyWorkflow(root, {
     sharedDependencies: plan.sharedDependencies, changed: true
   };
 }
+
+/**
+ * What archiving and deleting a workflow reuse from transfer (docs/SPEC-WORKFLOW-RETIREMENT-v1.md):
+ * the one dependency closure export uses, its agent step trimming, and the safe YAML and file helpers.
+ */
+export const workflowRetirementSupport = Object.freeze({
+  STORE, buildBundle, configSections, locateWorkflow, phaseScopedAgentText, readYamlDocument,
+  captureTransferDestination, assertSafeTarget, readAgentLock
+});

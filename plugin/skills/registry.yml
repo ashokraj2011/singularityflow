@@ -260,7 +260,7 @@ skills:
   sflow-visual: { class: mutation }
   sflow-watch: { class: echo, executionBoundary: repository }
   sflow-workflow-rules: { class: conversational, kernelModelPolicy: conditional, executionBoundary: repository }
-  sflow-workflows: { class: mutation, executionBoundary: repository, maximumTokenOverride: 801, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit." }
+  sflow-workflows: { class: mutation, executionBoundary: repository, maximumTokenOverride: 990, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit. It carries archive, restore and the delete preview, and names who confirms a delete (2026-10-21, workflow retirement)." }
   sflow-workspace: { class: interactive, kernelModelPolicy: conditional, executionBoundary: machine }
   sflow-workspace-bootstrap: { class: interactive, executionBoundary: machine }
   sflow-workspace-impact: { class: advisory, kernelModelPolicy: conditional, executionBoundary: repository }

@@ -842,7 +842,11 @@ export async function createWorkflow(root, config, {
     throw new SingularityFlowError(`Current branch ${currentBranch} must match the canonical Story branch ${canonicalBranch}.`);
   }
   if (await exists(workflowPath(root, config, id))) throw new SingularityFlowError(`${id} already exists. Use singularity-flow resume ${id}.`);
-  const selectedType = workType ?? Object.keys(config.workTypes)[0];
+  // An archived workflow is not offered to a new Story, nor chosen for one (docs/SPEC-WORKFLOW-RETIREMENT-v1.md).
+  const archive = await import('./workflow-archive.mjs');
+  const archived = await archive.readWorkflowArchive(root);
+  const selectedType = workType ?? archive.firstLiveStoryWorkflow(config.workTypes, archived) ?? Object.keys(config.workTypes)[0];
+  archive.assertWorkflowNotArchived(archived, selectedType);
   const targetOrigin = normalizeMcpTargetOrigin(source?.targetOrigin, {
     required: selectedType === 'poc-workflow',
     label: 'POC target URL'

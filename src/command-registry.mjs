@@ -290,7 +290,7 @@ const WORKFLOW_READ_SUBCOMMANDS = Object.freeze([
 ]);
 const WORKFLOW_MUTATION_SUBCOMMANDS = Object.freeze([
   'activate', 'create', 'edit', 'phase', 'install', 'add', 'upgrade',
-  'export', 'import', 'copy', 'duplicate'
+  'export', 'import', 'copy', 'duplicate', 'archive', 'restore', 'delete'
 ]);
 const WORKFLOW_AUTHOR_READ_ACTIONS = Object.freeze(['list', 'read', 'history', 'op-status', 'show', 'preview', 'catalog', 'where-used']);
 const WORKFLOW_AUTHOR_MUTATION_ACTIONS = Object.freeze(['create', 'save', 'delete', 'submit']);
@@ -678,6 +678,8 @@ function resolveWorkflowCommandOperation(definition, positionals, options) {
   if (WORKFLOW_READ_SUBCOMMANDS.includes(subcommand)) {
     return never(`workflow.${subcommand}`, definition, 'read');
   }
+  // Previewing a delete reads; archive, restore and a confirmed delete change configuration (docs/SPEC-WORKFLOW-RETIREMENT-v1.md).
+  if (subcommand === 'delete' && optionBoolean(options, 'dry-run')) return never('workflow.delete.preview', definition, 'read');
   if (['import', 'copy', 'duplicate'].includes(subcommand) && optionBoolean(options, 'dry-run')) {
     return never(`workflow.${subcommand === 'duplicate' ? 'copy' : subcommand}.preview`, definition, 'read');
   }
@@ -1832,11 +1834,12 @@ export function operationCatalog() {
     ...WORKFLOW_READ_SUBCOMMANDS.map((name) => never(`workflow.${name}`, workflowDefinition, 'read')),
     ...WORKFLOW_AUTHOR_READ_ACTIONS.map((name) => never(`workflow.author.${name}`, workflowDefinition, 'read')),
     ...WORKFLOW_AUTHOR_MUTATION_ACTIONS.map((name) => never(`workflow.author.${name}`, workflowDefinition, 'mutation')),
-    ...['activate', 'create', 'edit', 'phase', 'install', 'export', 'import', 'copy'].map((name) => never(
+    ...['activate', 'create', 'edit', 'phase', 'install', 'export', 'import', 'copy', 'archive', 'restore', 'delete'].map((name) => never(
       `workflow.${name}`, workflowDefinition, 'mutation'
     )),
     never('workflow.import.preview', workflowDefinition, 'read'),
     never('workflow.copy.preview', workflowDefinition, 'read'),
+    never('workflow.delete.preview', workflowDefinition, 'read'),
     never('workflow.install.preview', workflowDefinition, 'read'),
     never('workflow.import-team.inspect', workflowDefinition, 'read'),
     never('workflow.import-team.status', workflowDefinition, 'read'),

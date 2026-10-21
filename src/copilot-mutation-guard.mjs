@@ -385,6 +385,8 @@ function shellAllowed(call, mode, value) {
   if (['hook', 'run', 'exec'].includes(positionals[0])) return false;
   // Environment values come only from the person's own secret helper on standard input, in no turn.
   if (positionals[0] === 'env' && ['bind', 'unbind'].includes(positionals[1])) return false;
+  // Confirming a workflow delete is the person's own step, in any turn; the preview stays allowed.
+  if (positionals[0] === 'workflow' && positionals[1] === 'delete' && options.confirm !== undefined) return false;
   let classification;
   try { classification = resolveOperation({ requestedCommand: positionals[0], positionals, options }).classification; }
   catch { return false; }
@@ -494,6 +496,17 @@ function decisionListChatRecord(positionals, options, workId) {
 }
 
 /** A verified `decisions record`: the person's own step unless a /sf-decide turn may record it. */
+/** A verified `workflow delete --confirm`: the person confirms a delete, never an agent turn. */
+function workflowDeleteConfirmation(call, value) {
+  const safe = verifiedShellForm(call, value);
+  if (!safe) return false;
+  const { positionals, options } = parseArgs(safe.argv);
+  return positionals[0] === 'workflow' && positionals[1] === 'delete' && options.confirm !== undefined;
+}
+const WORKFLOW_DELETE_CONFIRMATION_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: confirming a workflow delete is the person\'s own step. '
+  + 'Show them the preview (workflow delete <ID> --dry-run) and its plan digest; they confirm in VS Code (Workflow Studio → Delete…) '
+  + 'or run singularity-flow workflow delete <ID> --confirm <PLAN-SHA256> --propose in their own terminal. Do not retry it';
+
 function decisionListRecord(call, value) {
   const safe = verifiedShellForm(call, value);
   if (!safe) return false;
@@ -782,6 +795,9 @@ export async function mutationToolGuard(payload = {}) {
     const cached = await boundedRecord(recordFile(payload)).catch(() => null);
     const bootstrap = { ...record, repositoryRoot: cached?.contract?.repositoryRoot ?? cached?.repositoryRoot };
     if (guarded.every(call => TERMINALS.has(call.name) && bootstrapAllowed(call, bootstrap))) return {};
+    if (guarded.some(call => TERMINALS.has(call.name) && workflowDeleteConfirmation(call, bootstrap))) {
+      return { permissionDecision: 'deny', next: [], permissionDecisionReason: WORKFLOW_DELETE_CONFIRMATION_DENIAL };
+    }
     if (turnExpired(record)) return turnExpiredDenial(record);
     return mutationDenial(null, 'PHASE_MUTATION_CONTRACT_REQUIRED: refresh the exact binding; expired/corrupt permissions require a new explicit turn; do not discard work');
   }
@@ -802,6 +818,7 @@ export async function mutationToolGuard(payload = {}) {
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: environment values are bound only by the person, who pipes their own secret helper into `singularity-flow env bind <ENV> --stdin` in their own terminal. Give them that command; never ask for, type or pipe a value');
         if (setAsideDecision(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: setting held changes aside removes them from the checkout (after a private recovery copy); the person who looked at them runs it in their own terminal. Show the user the listed files and the command, and stop; do not retry it');
+        if (workflowDeleteConfirmation(call, value)) return mutationDenial(contract, WORKFLOW_DELETE_CONFIRMATION_DENIAL);
         if (decisionListRecord(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: recording the decision list is the person\'s own step: they run the exact decisions record command in their own terminal (a /sf-decide turn may record only its upstream-issue options, after their explicit yes). Show the user the summary and the command, and stop; do not retry it or change its digest');
         if (testRunRiskDecision(call, value)) return mutationDenial(contract,

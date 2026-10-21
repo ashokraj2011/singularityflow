@@ -5692,6 +5692,8 @@ async function workflowCommand(positionals, options) {
     return;
   }
 
+  if (['archive', 'restore', 'delete'].includes(subcommand)) return (await import('./commands/workflow-retire.mjs'))
+    .run(root, positionals, options, { author, printProposal, withApprovedConfigurationRead });
   if (subcommand === 'copy' || subcommand === 'duplicate') {
     const { planWorkflowCopy, workflowTransferProposal, importResolutionOptions } = await import('./workflow-transfer.mjs');
     const sourceId = requirePositional(positionals, 2, 'source workflow ID');

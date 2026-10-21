@@ -32,7 +32,7 @@ const FAMILIES = Object.freeze([
   // Claim catalog definitions before authoring closures. Leaving these dynamic roots unassigned
   // put every list/show in compatibility, importing the entire administration/model dispatcher.
   // Keep the broad reads slot too: making Home/Inbox fall into compatibility would shift the cost.
-  ['catalogs', ['commands/agents.mjs', 'commands/workflow.mjs', 'commands/workflow-list.mjs',
+  ['catalogs', ['commands/agents.mjs', 'commands/workflow.mjs', 'commands/workflow-list.mjs', 'workflow-archive.mjs',
     'accounting-projection.mjs',
     'commands/skill.mjs', 'commands/skill-master.mjs', 'commands/instruction.mjs', 'asset-catalog.mjs',
     'configuration-drafts.mjs', 'logging.mjs', 'harness-events.mjs']],

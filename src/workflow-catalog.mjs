@@ -75,7 +75,14 @@ export async function workflowCatalogForDefinition(installed) {
 
 export async function workflowCatalog(root) {
   const installed = await loadDefinition(root);
-  return workflowCatalogForDefinition(installed);
+  return markArchived(root, await workflowCatalogForDefinition(installed));
+}
+
+/** Rows of archived workflows say so; a new-Story choice leaves them out (docs/SPEC-WORKFLOW-RETIREMENT-v1.md). */
+async function markArchived(root, rows) {
+  const { readWorkflowArchive, workflowArchived } = await import('./workflow-archive.mjs');
+  const archive = await readWorkflowArchive(root).catch(() => null);
+  return Array.isArray(rows) ? rows.map(row => workflowArchived(archive, 'story', row.id) ? { ...row, archived: true } : row) : rows;
 }
 
 /** Display projection, never a start/readiness definition or a validation receipt. */
@@ -85,7 +92,7 @@ export async function workflowCatalogMetadata(root) {
     const binding = configurationSourceBinding(root, await readConfigurationSource(root));
     const packagedText = await readFile(starterPath, 'utf8');
     const packagedSha256 = createHash('sha256').update(packagedText).digest('hex');
-    const rows = catalogFromDefinitions(installed, await starterDefinitionFromText(packagedText));
+    const rows = await markArchived(root, catalogFromDefinitions(installed, await starterDefinitionFromText(packagedText)));
     incrementCommandCounter('catalog.metadata-projections');
     return rows.map(row => ({ ...row, catalogProjection: {
       kind: 'metadata-only', readiness: 'not-assessed', sourceSha256: binding.sha256,

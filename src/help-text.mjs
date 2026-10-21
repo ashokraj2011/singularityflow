@@ -437,6 +437,14 @@ Usage:
     [--resolve KIND:ID=rename:NAME]...                    independent copy with renamed editable dependencies;
                                                         compiled skill / canonical Epic steps remain shared and read-only
     Seeded workflows and their shared dependencies are read-only. Duplicate before customizing.
+  singularity-flow workflow archive <[story|initiative:]ID> [--reason TEXT] [--new-default ID] [--propose] [--json]
+                                                        keep the workflow and everything it uses; new Stories cannot choose it
+  singularity-flow workflow restore <[story|initiative:]ID> [--propose] [--json]
+                                                        offer an archived workflow to new Stories again
+  singularity-flow workflow delete <[story|initiative:]ID> --dry-run [--new-default ID] [--json]
+  singularity-flow workflow delete <[story|initiative:]ID> --confirm PLAN-SHA256 [--new-default ID] [--propose] [--json]
+                                                        remove the workflow and each dependency no other workflow uses;
+                                                        a backup bundle is saved first. Seeded workflows can be archived, not deleted.
   singularity-flow workflow phase add <ID> [--label TEXT] [--lanes a,b]
     [--agents a,b] [--task code|analyze|none] [--authorities group-a,group-b] [--minimum N]
     [--governs story|initiative] [--propose]    defaults to Story; a new Story phase needs a default agent

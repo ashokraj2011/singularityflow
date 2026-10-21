@@ -37,8 +37,9 @@ const KEPT = {
   'src/reference-repositories.mjs': ['change governance, or', 'the current governed prompt'],
   'src/stakeholder-prompt-context.mjs': ['> Governed evidence, not'],
   'src/workspace-impact.mjs': ['is approved, governed, or'],
-  'src/worldmodel.mjs': ['# Approved governed references', 'BEGIN GOVERNED PHASE PROMPT', 'END GOVERNED PHASE PROMPT', 'Where governed evidence is',
-    'Singularity Flow governed Story handoff', 'a model, governed agent, or', 'its governed response record', 'after governed evidence is read'],
+  'src/phase-prompt-composer.mjs': ['# Approved governed references', 'Where governed evidence is', 'a model, governed agent, or',
+    'its governed response record', 'after governed evidence is read'],
+  'src/worldmodel.mjs': ['BEGIN GOVERNED PHASE PROMPT', 'END GOVERNED PHASE PROMPT', 'Singularity Flow governed Story handoff'],
   // Markers that captured prompts are parsed by.
   'src/prompt-audit.mjs': ['BEGIN CAPTURED GOVERNED PROMPT', 'END CAPTURED GOVERNED PROMPT'],
   // Bound to a digest or an exact recorded value: the telemetry consent is accepted by digest, the

@@ -93,6 +93,8 @@ export const GATE_PARITY = Object.freeze({
   'gate.publication.remote-missing': entry('operator', 'operational'),
   'gate.rework.abandoned-unverified': entry('engine', 'integrity'),
   'gate.source.snapshot-drift': entry('engine', 'integrity'),
+  // The pinned Story source could not be read at all (not read and found changed): the environment's state.
+  'gate.source.snapshot-unavailable': entry('operator', 'operational'),
   'gate.specification-index.missing': entry('route', 'lifecycle'),
   'gate.specification-index.stale': entry('engine', 'integrity'),
   'gate.state.invalid': entry('engine', 'integrity'),

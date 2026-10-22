@@ -78,6 +78,9 @@ export async function recordVisualProfileDecisionFor(root, config, workflow, { p
       return recorded;
     },
     {
+      // A decision made while the step's draft and captures are still open commits only itself: the
+      // publication that follows commits those [narrow decision transaction].
+      exactWorkItemPaths: [],
       eventFromResult: (recorded) => ({
         actor, agent, authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
         payload: { decision: 'visual-profile', record: recorded.revokes ?? recorded.id, revoked: Boolean(recorded.revokes), reviewPacketSha256: null }

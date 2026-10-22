@@ -147,9 +147,15 @@ function afterCompletionActions(workflow, phase, { withoutApproval = false, repo
   )];
 }
 
+/** The routes enforced visual coverage names (see visualCoverageHold), the first at `timing`. */
+function visualCoverageActions(hold, timing) {
+  return hold.routes.slice(0, 3).map((route, index) => action(index ? 'alternative' : timing, copilotSkillForCommand(route.command), route.command,
+    index ? route.label : hold.reason, { route: 'visual-coverage' }));
+}
+
 export function workflowNextSteps(workflow, {
   publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null,
-  repositoryHost = null, pendingDecisions = undefined
+  repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null
 } = {}) {
   const workId = workflow.workItem.id;
   const phase = workflow.currentPhase ? workflow.phases[workflow.currentPhase] : null;
@@ -204,6 +210,14 @@ export function workflowNextSteps(workflow, {
         stepActionHold.reason ?? 'The next step waits for a required after-step delivery.', { route: 'step-action-hold' }),
       ...rest.map((entry) => (entry.timing === 'now' ? Object.freeze({ ...entry, timing: 'then' }) : entry))
     ];
+  }
+
+  // A published visual step its submission would refuse for coverage: the way out comes first, and
+  // submitting waits for it rather than being offered into the same refusal.
+  if (visualCoverageHold?.routes?.length && visualCoverageHold.published && phase.status === 'in_progress') {
+    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions });
+    return [...visualCoverageActions(visualCoverageHold, 'now'),
+      ...rest.map((entry) => (entry.timing === 'now' ? Object.freeze({ ...entry, timing: 'then' }) : entry))];
   }
 
   const needsGeneration = phaseNeedsGeneration(workflow, phase)
@@ -267,6 +281,11 @@ export function workflowNextSteps(workflow, {
     ));
     return actions;
   }
+  // While the generation is authored, its captures are recorded before the publication that commits them.
+  if (needsGeneration && visualCoverageHold?.routes?.length && !visualCoverageHold.published) {
+    const publishing = actions.findIndex((entry) => entry.operationId === 'phase');
+    actions.splice(publishing < 0 ? actions.length : publishing, 0, ...visualCoverageActions(visualCoverageHold, 'then'));
+  }
   const noApproval = phase.approvalPolicy?.mode === 'none';
   if (needsGeneration) actions.push(isConvergencePhase(phase)
     ? action(
@@ -293,7 +312,7 @@ export function workflowNextSteps(workflow, {
   return withDecisionList(workflow, phase, actions, held);
 }
 
-export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined } = {}) {
+export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null } = {}) {
   if (!initialized) return {
     schemaVersion: 1,
     state: 'not_initialized',
@@ -322,7 +341,7 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
   };
   const contextBoundary = !publicationPending && !recovery?.requiresRecovery && !workflow.pendingDecision
     && !stepActionHold?.missing?.length ? contextBoundaryPresentation(pendingContextBoundary(workflow)) : null;
-  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions });
+  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, visualCoverageHold });
   return {
     schemaVersion: 1,
     state: publicationPending ? 'publication_pending' : recovery?.requiresRecovery ? 'recovery_required' : workflow.status,

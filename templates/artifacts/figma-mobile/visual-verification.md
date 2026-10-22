@@ -41,7 +41,9 @@ and tool (`singularity-flow mcp list` shows what this step allows). A screenshot
 Simulator, Android emulator or device (for example with `xcrun simctl io booted screenshot` or
 `adb exec-out screencap -p`) is recorded with `visual record` as a native capture naming its
 source and device, never an MCP tool; it is refused unless its pixel size is exactly the profile's.
-`<PNG-PATH>` is repository-relative.
+`<PNG-PATH>` is repository-relative. A capture needs a simulator, emulator, device or pinned MCP
+tool that shows the app at that size; without one there is no capture to record, and no other image
+may be recorded in its place.
 
 When a configured profile does not apply to this app (a phone-only app has no tablet layout), a
 person who approves this step records why with
@@ -49,10 +51,15 @@ person who approves this step records why with
 Coverage then lists that profile as not applicable, with the reason and who decided, never as
 passed; at least one profile must still have a capture.
 
-`visual status` lists every profile still uncovered; resolve each one before publishing. Every
-profile needs its own capture: never record one image under another profile's ID, and never name a
-tool that did not produce the image. Measure each difference with `visual compare` and cite the
-comparison it writes and, when it makes one, its diff image.
+`visual status` lists every profile still uncovered; resolve each one before publishing:
+`phase prepublish visual-verification` and `phase publish` refuse while one is missing, because a
+capture is committed by, and counts for, the publication after it is recorded. A capture recorded
+after this step was published counts from the next generation, so publish the step again before
+submitting it. Every profile needs its own capture: never record one image under another profile's
+ID, and never name a tool that did not produce the image. Measure each difference with
+`visual compare` and cite the comparison it writes and, when it makes one, its diff image;
+`--expected` and `--actual` take a design document ID (`DOC-nnn`), a capture record ID (`vnc-...`
+or an MCP record ID) or a repository path.
 
 The VS Code Inbox and artifact viewer present the pinned design export,
 implementation screenshot, and diff evidence together. Approval is always against

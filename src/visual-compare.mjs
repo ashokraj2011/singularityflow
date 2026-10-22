@@ -10,10 +10,46 @@ function itemRoot(root, workflow, itemDirectory) {
   return itemDirectory ?? path.join(root, workflow.resolution?.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
 }
 
-async function resolveImage(root, workflow, reference, itemDirectory) {
+const DOCUMENT_ID = /^DOC-\d+$/u;
+const NATIVE_CAPTURE_ID = /^vnc-[0-9a-f-]{36}$/u;
+
+/**
+ * A Story document (DOC-nnn) as a comparison input: its catalogued bytes, verified against the
+ * catalog SHA-256 (a machine-local document is read from this machine's store).
+ */
+async function resolveDocumentImage(root, config, workflow, reference) {
+  if (!config) throw new SingularityFlowError(`Visual comparison cannot read document ${reference} without the Story's configuration.`, { code: 'VISUAL_COMPARISON_INPUT_UNRESOLVED' });
+  const { viewDocument } = await import('./documents-read.mjs');
+  const viewed = await viewDocument(root, config, workflow, reference);
+  if (!viewed.absolutePath) {
+    throw new SingularityFlowError(`Document ${viewed.record.id} is a link, not an image file; compare an uploaded image document, a capture record or a repository path.`, { code: 'VISUAL_COMPARISON_INPUT_UNRESOLVED' });
+  }
+  const captured = await snapshot(viewed.absolutePath);
+  // A machine-local document has no repository path to show; its ID and SHA-256 identify it.
+  return { record: { id: viewed.record.id }, path: viewed.record.path ?? null, absolute: viewed.absolutePath,
+    sha256: captured.sha256, bytes: captured.size, mediaType: viewed.record.mimeType ?? (path.extname(viewed.absolutePath).toLowerCase() === '.png' ? 'image/png' : 'application/octet-stream') };
+}
+
+/**
+ * A comparison input named the way the template and coverage name it: an MCP record ID, a native
+ * capture ID (vnc-...), a Story document ID (DOC-nnn), or a repository path.
+ */
+async function resolveImage(root, workflow, reference, itemDirectory, config = null) {
+  const directory = itemRoot(root, workflow, itemDirectory);
+  if (NATIVE_CAPTURE_ID.test(reference)) {
+    const { nativeCaptures } = await import('./visual-coverage.mjs');
+    const { records, errors } = await nativeCaptures(directory, workflow);
+    const found = records.find((entry) => entry.record.id === reference);
+    if (!found) {
+      const problem = errors.find((message) => message.includes(`'${reference}'`));
+      throw new SingularityFlowError(problem ?? `Native capture ${reference} is not recorded for ${workflow.workItem.id}; visual status lists its captures.`, { code: 'VISUAL_COMPARISON_INPUT_UNRESOLVED' });
+    }
+    const captured = await snapshot(found.absolute);
+    return { record: found.record, path: found.record.output.path, absolute: found.absolute, sha256: captured.sha256, bytes: captured.size, mediaType: 'image/png' };
+  }
+  if (DOCUMENT_ID.test(reference)) return resolveDocumentImage(root, config, workflow, reference);
   const records = await listMcpEvidence(root, workflow, { itemDirectory });
   const record = records.find((entry) => entry.id === reference);
-  const directory = itemRoot(root, workflow, itemDirectory);
   const target = record
     ? await secureRepositoryPath(directory, record.output?.path ?? '', { label: `Visual evidence '${reference}'`, mustExist: true, type: 'file' })
     : await secureRepositoryPath(root, reference, { label: 'Visual comparison input', mustExist: true, type: 'file' });
@@ -49,12 +85,12 @@ function thresholdStatus(differingPixels, totalPixels, comparison) {
 }
 
 export async function compareVisualArtifacts(root, workflow, {
-  expected, actual, profileId = null, itemDirectory = null
+  expected, actual, profileId = null, itemDirectory = null, config = null
 } = {}) {
-  if (!expected || !actual) throw new SingularityFlowError('Visual comparison requires expected and actual record IDs or repository paths.');
+  if (!expected || !actual) throw new SingularityFlowError('Visual comparison requires expected and actual record IDs (MCP, native capture vnc-... or document DOC-nnn) or repository paths.');
   const comparison = workflow.resolution?.verification?.comparison ?? { mode: 'off', channelTolerance: 0, maxPixels: 40_000_000 };
   if (comparison.mode === 'off') throw new SingularityFlowError('Visual comparison is disabled for this Story.', { code: 'VISUAL_COMPARISON_DISABLED' });
-  const left = await resolveImage(root, workflow, expected, itemDirectory), right = await resolveImage(root, workflow, actual, itemDirectory);
+  const left = await resolveImage(root, workflow, expected, itemDirectory, config), right = await resolveImage(root, workflow, actual, itemDirectory, config);
   const profile = profileId ? (workflow.resolution?.verification?.profiles ?? []).find((entry) => entry.id === profileId) : null;
   if (profileId && !profile) throw new SingularityFlowError(`Unknown verification profile '${profileId}'.`);
   const identity = { workId: workflow.workItem.id, profileId: profileId ?? left.record?.profileId ?? right.record?.profileId ?? 'unprofiled', expectedSha256: left.sha256, actualSha256: right.sha256, policy: comparison };

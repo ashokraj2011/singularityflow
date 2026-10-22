@@ -16,7 +16,9 @@ import test from 'node:test';
 import { crc32 } from 'node:zlib';
 import { verifyMcpEvidence } from '../src/mcp-evidence.mjs';
 import { encodePngRgba8, readPngHeader } from '../src/png-rgba8.mjs';
-import { evaluateVisualCoverage } from '../src/visual-coverage.mjs';
+import {
+  evaluateVisualCoverage, nativeCaptureCommand, visualCoverageHold, visualCoverageRefusal, visualProfileDecisionCommand
+} from '../src/visual-coverage.mjs';
 import { recordNativeVisualCapture } from '../src/visual-native-capture.mjs';
 
 const PHONE = { id: 'phone-390x844', label: 'Phone 390 × 844', width: 390, height: 844, deviceScaleFactor: 1 };
@@ -146,4 +148,50 @@ test('coverage refuses a native capture at another size with a coded error namin
   assert.ok(coverage.errors.includes(`[VISUAL_CAPTURE_DIMENSIONS_MISMATCH] Native capture '${phone.record.id}' is 390×844; profile '${PHONE.id}' expects 780×1688 (390×844 at 2x-4x).`), coverage.errors.join('\n'));
   assert.ok(coverage.uncovered.includes(PHONE.id));
   assert.ok(!coverage.covered.some((entry) => entry.profileId === PHONE.id));
+});
+
+test('a capture recorded after its step was published counts from the next generation, and the refusal routes to that publication, never back into capturing', async (t) => {
+  const { root, itemDirectory, workflow, png, record } = await fixture(t);
+  const step = workflow.phases['visual-verification'];
+  const capture = (profile) => nativeCaptureCommand('visual-verification', profile.id);
+  const decide = (profile) => visualProfileDecisionCommand(workflow, 'visual-verification', profile.id);
+  // Before the first publication, coverage is read for the generation it creates, as prepublish and publish read it.
+  const prospective = await visualCoverageRefusal(root, workflow, { itemDirectory, generation: 1 });
+  assert.equal(prospective.refusal?.code, 'VISUAL_COVERAGE_FAILED');
+  assert.match(prospective.refusal.message, /coverage failed for generation 1:/u);
+  assert.match(prospective.refusal.message, /Record each capture before publishing/u);
+  assert.match(prospective.refusal.message, /without one there is no capture to record, and no other image may be recorded in its place/u);
+  assert.deepEqual(prospective.refusal.details.recoveryCommands.map((route) => route.command), [capture(PHONE), decide(PHONE), capture(RETINA), decide(RETINA)]);
+  assert.equal((await visualCoverageHold(root, workflow, step, { itemDirectory, published: false })).command, capture(PHONE));
+
+  // Published as generation 1 without a capture, then captured: each capture belongs to generation 2.
+  step.generation = 1;
+  step.authorship = [{ generation: 1, producer: 'human', channel: 'manual-in-place' }];
+  const phone = await record({ profileId: PHONE.id, file: await png('phone.png', 390, 844) });
+  assert.equal(phone.record.targetGeneration, 2, 'committed by, and counted for, the next publication');
+  const republish = 'singularity-flow phase publish visual-verification --authored human --channel manual-in-place';
+  const partial = (await visualCoverageRefusal(root, workflow, { itemDirectory })).refusal;
+  assert.deepEqual(partial.details.uncovered, [PHONE.id, RETINA.id], 'generation 1 is still uncovered');
+  assert.deepEqual(partial.details.recoveryCommands.map((route) => route.command), [capture(RETINA), decide(RETINA), republish],
+    'what generation 2 still lacks comes first, then the publication that opens it');
+  assert.match(partial.details.recoveryCommands[0].label, /generation 1 is already published, so publish visual-verification again afterwards/u);
+  assert.match(partial.message, /Generation 2 would still lack phone-390x844-3x: a capture counts only for the generation it was recorded for/u);
+
+  const retina = await record({ profileId: RETINA.id, file: await png('retina.png', 1170, 2532) });
+  const waiting = (await visualCoverageRefusal(root, workflow, { itemDirectory })).refusal;
+  assert.equal(waiting.code, 'VISUAL_COVERAGE_FAILED');
+  assert.deepEqual(waiting.details.recoveryCommands.map((route) => route.command), [republish]);
+  assert.deepEqual(waiting.details.nextAction.command, republish);
+  assert.deepEqual(waiting.details.nextGeneration, { generation: 2, waiting: [phone.record.id, retina.record.id].sort(), uncovered: [] });
+  assert.match(waiting.message, /recorded after generation 1 was published, so they are committed by, and count for, generation 2\. Publish visual-verification again/u);
+  const hold = await visualCoverageHold(root, workflow, step, { itemDirectory });
+  assert.equal(hold.published, true);
+  assert.equal(hold.command, republish, 'readiness and next steps name the same way out');
+
+  // The publication opens generation 2, which the captures cover.
+  step.generation = 2;
+  const passed = await visualCoverageRefusal(root, workflow, { itemDirectory });
+  assert.equal(passed.refusal, null);
+  assert.equal(passed.result.status, 'pass');
+  assert.equal(await visualCoverageHold(root, workflow, step, { itemDirectory }), null);
 });

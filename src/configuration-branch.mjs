@@ -2506,7 +2506,10 @@ function storyConfigurationObjectProfile(directory, commit, env, state, { config
       runCommand: (_command, args, options) => storyObjectCacheLocal(state, args, options)
     });
     if (!closure) return declined('integrity');
-    if (closure.checkoutRequired) { state.checkoutRequired = true; return declined('transforms'); }
+    if (closure.checkoutRequired) {
+      state.checkoutRequired = true; state.checkoutFiles = closure.files;
+      return declined('transforms');
+    }
     listed = { status: 0, stdout: Buffer.from(closure.files.map(entry =>
       `${entry.mode} blob ${entry.object}\t${entry.relative}\0`).join('')) };
   } else {
@@ -2562,15 +2565,19 @@ function storyConfigurationObjectProfile(directory, commit, env, state, { config
   return withinBounds ? { files } : declined('bytes');
 }
 
-/** Exact regular blobs, not a checkout: no index, filters, hardlinks, or local Git transport. */
-async function materializeStoryObjectCache(directory, scratch, profile, env, state) {
-  const blobs = readLocalGitBlobs(directory, profile.files.map((entry) => entry.object), {
+function verifiedStoryObjectBlobs(directory, profile, env, state) {
+  return readLocalGitBlobs(directory, profile.files.map((entry) => entry.object), {
     env,
     runCommand: (_command, args, options) => storyObjectCacheLocal(state, args, options),
     maximumBytes: STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.materializedBytes,
     maximumObjectBytes: STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.objectBytes,
     label: 'Approved configuration projection', code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID'
   });
+}
+
+/** Exact regular blobs, not a checkout: no index, filters, hardlinks, or local Git transport. */
+async function materializeStoryObjectCache(directory, scratch, profile, env, state) {
+  const blobs = verifiedStoryObjectBlobs(directory, profile, env, state);
   for (const entry of profile.files) {
     const target = path.join(scratch, entry.relative);
     await mkdir(path.dirname(target), { recursive: true });
@@ -2956,6 +2963,12 @@ async function workspaceStoryConfigurationSnapshot(root, authority, {
   // Node-authored projection. Retain that same sparse checkout for enrollment, rather than
   // deleting the projection and creating another checkout after the Story worktree is built.
   const nativeCheckout = process.platform === 'win32' || !profile;
+  // A shared clone borrows existing objects rather than receiving a hash-checked pack. Verify
+  // every selected blob too, even when Git will apply native checkout transformations afterward.
+  if (nativeCheckout) {
+    verifiedStoryObjectBlobs(root, profile || { files: state.checkoutFiles }, localEnv, state);
+    incrementCommandCounter('configuration.native-object-verification');
+  }
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-config-read-'));
   let retainedCheckout = false;
   try {

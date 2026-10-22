@@ -30,6 +30,7 @@ test('large application trees reuse only their exact configuration closure on ev
   assert.equal(counters['configuration.workspace-object-hit'], 1);
   assert.equal(counters['git.remote.command.clone'] ?? 0, 0);
   assert.equal(counters['git.remote.command.fetch'] ?? 0, 0);
+  if (process.platform === 'win32') assert.equal(counters['configuration.native-object-verification'], 1);
   assert.ok(snapshot.assets.length < 4200);
   assert.ok(snapshot.assets.every(entry => !entry.relative.startsWith('src/')));
   assert.equal(f.git(f.original, 'rev-parse', 'HEAD'), before);
@@ -113,6 +114,7 @@ test('configuration attributes preserve checkout semantics without a remote clon
   assert.equal(counters['configuration.workspace-object-hit'], 1);
   assert.equal(counters['git.remote.command.clone'] ?? 0, 0);
   assert.equal(snapshot.assets.find(entry => entry.relative === 'singularity/templates/new.txt').contents.toString(), 'approved\r\n');
+  assert.equal(counters['configuration.native-object-verification'], 1);
 });
 
 test('moved authority is refused before local configuration can be reused', async t => {

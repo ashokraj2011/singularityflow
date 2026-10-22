@@ -15,6 +15,17 @@ export function groundingRecordRelative(definition, workflow, phase, generation 
 }
 
 /**
+ * Whether a consumed generation intent is simply the receipt of the step's current published
+ * generation: the state a return for rework leaves. Any other consumed intent is reviewed through
+ * recovery first.
+ */
+export function consumedByPublishedGeneration(phase) {
+  const intent = phase?.generationIntent;
+  return intent?.status === 'consumed' && Number(phase.generation) > 0
+    && Number(intent.generation) === Number(phase.generation);
+}
+
+/**
  * A restored checkpoint selects earlier evidence; it does not make later publication identities
  * reusable. Keep the allocation watermark separate from the generation currently being reviewed.
  */

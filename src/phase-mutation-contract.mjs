@@ -11,7 +11,7 @@ import { sourceReviewKind } from './phase-roles.mjs';
 import { AUTHORING_VERIFICATION_PROTOCOL, CLI_PATH_CONTRACT, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
 import { phasePublicationContract } from './manual-authorship.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { consumedByPublishedGeneration, nextPhaseGeneration } from './phase-generation.mjs';
 
 export const MUTATION_CONTRACT_VERSION = 1;
 export function mutationTurnMode(skill) {
@@ -118,7 +118,8 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
         '--channel', phasePublicationContract(phase).channel], 'Recheck publication readiness first; publish only when the kernel returns ready. Never author, submit or approve.')]
     : ['approval-only', 'session-only', 'read', 'read-only-review', 'import-team', 'build-workflow', 'fix-workflow', 'confirm', 'run-and-test'].includes(turnMode)
       ? [route(['nextsteps', '--json'], 'End this turn. Inspect the next action in a new turn; do not author now.')]
-      : code && phase.generationIntent?.status === 'consumed'
+      // A step returned for rework opens its successor with begin (phase-authoring-progress.mjs).
+      : code && phase.generationIntent?.status === 'consumed' && !(editable && consumedByPublishedGeneration(phase))
         ? [route(['recover', workId, '--phase', phase.id, '--json'], 'Preserve published bytes and review the successor boundary before application edits.', '/sf-recover')]
       : code && !openGeneration && editable
         ? [route(['phase', 'begin', phase.id, '--json'], 'Open the exact code generation before application edits.', generationSkillForPhase(phase, workflow))]

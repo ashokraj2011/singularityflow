@@ -67,6 +67,30 @@ for (const changed of [false, true]) test(`isolated sibling recovery ${changed ?
   assert.equal(await readFile(path.join(sibling, 'operator.txt'), 'utf8'), 'preserve unrelated source work');
 });
 
+test('isolated sibling recovery still refuses a genuinely different object store', async t => {
+  const root = await repository('sflow-direct-owner-lead-');
+  const sibling = await repository('sflow-direct-owner-sibling-');
+  const foreign = await repository('sflow-direct-owner-foreign-');
+  t.after(() => Promise.all([root, sibling, foreign].map(file => rm(file, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))));
+  const base = git(['rev-parse', 'HEAD'], root), siblingBase = git(['rev-parse', 'HEAD'], sibling);
+  const id = 'FOREIGN-RECOVERY', targetBranch = 'feature/foreign-recovery';
+  const prepared = await prepareStoryWorktree(foreign, id, { storyBranch: targetBranch });
+  git(['checkout', '-b', targetBranch], prepared.repositoryPath);
+  completeStoryWorktree(prepared);
+  // The expected sibling has a same-named ref, but a different physical object store. Names
+  // and even identical base hashes cannot authorize removal of the foreign checkout.
+  git(['branch', targetBranch], sibling);
+  await beginStoryStartJournal(root, { id, targetBranch, targetBranchExisted: false,
+    originalBranch: 'main', originalHead: base, baseCommit: base,
+    siblingRepositories: [{ repository: 'sibling', target: sibling, from: 'main', baseCommit: siblingBase,
+      targetBranchExisted: false, isolatedWorktree: true, preparedWorktree: prepared }] });
+  await assert.rejects(recoverStoryStart(root, id, { force: true }), error =>
+    error.code === 'STORY_START_RECOVERY_DIVERGED' && /object store/u.test(error.message));
+  assert.equal(await missing(prepared.repositoryPath), false);
+  assert.equal(git(['branch', '--show-current'], sibling), 'main');
+  assert.ok(await readStoryStartJournal(root, id));
+});
+
 test('Story-start recovery restores the original checkout and removes only its untouched branch', async () => {
   const root = await repository('sflow-story-start-');
   const base = git(['rev-parse', 'HEAD'], root);

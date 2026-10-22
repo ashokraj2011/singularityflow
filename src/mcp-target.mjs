@@ -78,14 +78,25 @@ export function mcpTargetOriginNeed(steps, { against = 'it' } = {}) {
   return `${names.length === 1 ? 'step' : 'steps'} ${names.join(', ')} ${names.length === 1 ? 'needs' : 'need'} a live ${servers.join(', ')} smoke against ${against}`;
 }
 
+// Work types whose start has always refused without an authorized origin. Any other workflow with a
+// step that needs one starts without it, warns at start, and can pin it later with
+// `story target-origin`, so a Story that started before keeps starting.
+const TARGET_ORIGIN_REQUIRED_AT_START = new Set(['poc-workflow']);
+
+/** 'required', 'recommended' (a step needs one; it can be pinned after start) or 'optional'. */
+export function storyStartTargetUrlMode(workType, phases = []) {
+  if (!mcpTargetOriginSteps(phases).length) return 'optional';
+  return TARGET_ORIGIN_REQUIRED_AT_START.has(workType) ? 'required' : 'recommended';
+}
+
 /**
- * The target origin a new Story pins from `--target-url`. A workflow with a step that needs one
- * requires it, exactly as the POC workflow always did; any other workflow accepts it.
+ * The target origin a new Story pins from `--target-url`. The POC workflow requires it, as it always
+ * did; any other workflow accepts it and, when a step needs one, can pin it after start.
  */
-export function storyStartTargetOrigin(value, phases = [], { required = true } = {}) {
+export function storyStartTargetOrigin(value, phases = [], { required = true, workType = null } = {}) {
   const steps = mcpTargetOriginSteps(phases);
   return normalizeMcpTargetOrigin(value, {
-    required: required && steps.length > 0,
+    required: required && storyStartTargetUrlMode(workType, phases) === 'required',
     label: steps.length ? `The authorized target URL (${mcpTargetOriginNeed(steps)})` : 'Target URL'
   });
 }

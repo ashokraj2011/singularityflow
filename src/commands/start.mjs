@@ -1133,9 +1133,10 @@ async function startCommandAtRoot(positionals, options) {
     approvedConfigurationSnapshot?.definition ?? config,
     approvedConfigurationSnapshot
   );
-  // A workflow with a step that smoke-checks a browser against the Story's authorized origin needs
-  // that origin now: start is the only place it is given, so refuse before any branch or session.
-  if (deterministicPolicy.resolved) storyStartTargetOrigin(optionString(options, 'target-url'), deterministicPolicy.resolved.phases);
+  // The POC workflow needs the Story's authorized origin now, so refuse before any branch or session;
+  // any other workflow whose steps smoke-check a browser can pin it after start.
+  if (deterministicPolicy.resolved) storyStartTargetOrigin(optionString(options, 'target-url'), deterministicPolicy.resolved.phases,
+    { workType: deterministicWorkType });
   const initialDocumentInputs = [...withStartDocumentDefaults(preloadedManual?.documents ?? [], options), ...explicitDocumentInputs];
   await assertStartDocuments(initialDocumentInputs, {
     phaseOrder: deterministicPolicy.resolved?.phases?.map((phase) => phase.id) ?? null,
@@ -1295,7 +1296,8 @@ async function startCommandAtRoot(positionals, options) {
     approvedConfigurationSnapshot,
     documentCapture.evidence
   );
-  if (deterministicPolicy.resolved) storyStartTargetOrigin(optionString(options, 'target-url'), deterministicPolicy.resolved.phases);
+  if (deterministicPolicy.resolved) storyStartTargetOrigin(optionString(options, 'target-url'), deterministicPolicy.resolved.phases,
+    { workType: deterministicWorkType });
   // A materialized Epic Story branch already contains its governed seed commit. Its lineage base is
   // still the parent commit recorded in the seed, but Story-start recovery must recognize the
   // branch tip that existed before intake began or any later refusal becomes an unrecoverable
@@ -1415,7 +1417,7 @@ async function startCommandAtRoot(positionals, options) {
   let supportingDocuments = documentCapture.inputs;
   const workType = deterministicWorkType;
   let resolvedWorkType = assertWorkTypeStartable(resolveWorkType(config, workType));
-  const targetOrigin = storyStartTargetOrigin(optionString(options, 'target-url'), resolvedWorkType.phases);
+  const targetOrigin = storyStartTargetOrigin(optionString(options, 'target-url'), resolvedWorkType.phases, { workType });
   if (targetOrigin) source = { ...source, targetOrigin };
   const retainedCapabilityMapBeforeEnrollment = validateConfigurationSnapshotCapabilities(
     approvedConfigurationSnapshot, { capabilityId: workflowCapabilityId }

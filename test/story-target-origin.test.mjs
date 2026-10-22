@@ -3,9 +3,9 @@
  *
  * spec-code-test-loop's testing review requires a live Playwright smoke (a workflow phaseOverride),
  * and the smoke binds to the origin the Story pinned. Start used to ask for that origin only for the
- * POC workflow, so a Story started the normal way could never pass testing. Start now requires it
- * for every workflow with such a step, and a Story started without one (before that) has it pinned
- * once by a person who approves the step: previewed, digest-confirmed and committed.
+ * POC workflow, so a Story started the normal way could never pass testing. Start still takes it
+ * without refusing (only the POC workflow requires it) and names the pin; a Story started without
+ * one has it pinned once by a person who approves the step: previewed, digest-confirmed and committed.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -19,7 +19,7 @@ import YAML from 'yaml';
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const ORIGIN = 'https://staging.example.test';
 
-test('start requires the target a later browser smoke needs, and a Story without one has it pinned once by a step approver', { timeout: 300_000 }, async (t) => {
+test('start pins the target a later browser smoke needs when given, and a Story without one has it pinned once by a step approver', { timeout: 300_000 }, async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-target-origin-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'repo');
@@ -58,20 +58,14 @@ test('start requires the target a later browser smoke needs, and a Story without
   const start = (id, ...extra) => ['start', id, '--from-branch', 'main', '--work-type', 'spec-code-test-loop', ...extra,
     '--title', 'Show a value', '--description', 'Show the value in the browser.', '--readiness-baseline', 'defer'];
 
-  // The requirement comes from the resolved workflow, not its ID: refused before any branch exists.
-  const missing = refused(...start('LOOP-1'));
-  assert.equal(missing.code, 'POC_TARGET_ORIGIN_REQUIRED');
-  assert.match(missing.message, /step testing needs a live playwright smoke against it/u);
-  assert.equal(must('git', ['branch', '--show-current']).trim(), 'main');
-  assert.notEqual(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/LOOP-1']).status, 0);
+  // Given at start, the origin is pinned for the step that smoke-checks it.
+  sflow(...start('LOOP-0', '--target-url', `${ORIGIN}/checkout`));
+  assert.deepEqual((await story('LOOP-0')).mcpAuthorizations.playwright.origins, [ORIGIN]);
+  must('git', ['checkout', '-q', 'main']);
 
-  // A Story started before start required it: the same Story, with no authorized origin.
-  sflow(...start('LOOP-1', '--target-url', `${ORIGIN}/checkout`));
-  assert.deepEqual((await story('LOOP-1')).mcpAuthorizations.playwright.origins, [ORIGIN]);
-  const legacy = await story('LOOP-1');
-  legacy.mcpAuthorizations = {};
-  await writeFile(path.join(root, 'singularity/work-items/LOOP-1/workflow.json'), `${JSON.stringify(legacy, null, 2)}\n`);
-  must('git', ['commit', '-q', '-am', 'A Story started without its target origin']);
+  // Without one the Story still starts, as it always did, with no authorized origin to smoke against.
+  sflow(...start('LOOP-1'));
+  assert.deepEqual((await story('LOOP-1')).mcpAuthorizations, {});
 
   // The preview changes nothing and names exactly what would be pinned, and by whom.
   const before = head();

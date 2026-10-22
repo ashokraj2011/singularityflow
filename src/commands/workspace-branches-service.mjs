@@ -12,7 +12,7 @@ import { loadConfig, validateId } from '../state-stores.mjs';
 import { workflowCodeGeneration } from '../code-delivery-policy.mjs';
 import { resolveWorkType } from '../config.mjs';
 import { documentStorageChoices } from '../document-storage-policy.mjs';
-import { mcpServerSetupCommands, mcpTargetOriginSteps } from '../mcp-target.mjs';
+import { mcpServerSetupCommands, mcpTargetOriginSteps, storyStartTargetUrlMode } from '../mcp-target.mjs';
 import { GitRemoteSession } from '../git-execution.mjs';
 import { configuredRemoteAuthority } from '../git-remote-diagnostics.mjs';
 import { parseReferenceRepositoryOptions } from '../reference-repositories.mjs';
@@ -36,8 +36,8 @@ async function intakeStoryWorkflows(root, definition) {
   const archive = await readWorkflowArchive(root).catch(() => null);
   return Object.entries(definition.workTypes).filter(([id]) => !workflowArchived(archive, 'story', id)).map(([id, workflow]) => {
     const resolved = resolveWorkType(definition, id);
-    // Steps that smoke-check a browser against the Story's authorized origin: start requires
-    // --target-url for them, and Start Work asks for it and names the setup those steps need.
+    // Steps that smoke-check a browser against the Story's authorized origin: Start Work asks for
+    // --target-url (the POC workflow requires it) and names the setup those steps need.
     const browserSteps = mcpTargetOriginSteps(resolved.phases);
     return {
       id, label: workflow.label ?? id, description: workflow.description ?? '',
@@ -46,7 +46,7 @@ async function intakeStoryWorkflows(root, definition) {
       ...workflowCodeGeneration(resolved),
       // Where its documents may be kept, so Start Work offers only what the policy allows.
       documentStorage: documentStorageChoices(resolved.documents),
-      targetUrl: browserSteps.length ? 'required' : 'optional',
+      targetUrl: storyStartTargetUrlMode(id, resolved.phases),
       ...(browserSteps.length ? { browserSteps: browserSteps.map((step) => ({
         phase: step.phase, label: step.label, servers: step.servers,
         setup: [...new Set(step.servers.flatMap((serverId) => mcpServerSetupCommands(serverId, definition.mcpServers?.[serverId])))]

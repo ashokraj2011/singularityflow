@@ -899,9 +899,10 @@ test('workspace intake aggregates profiles, installed workflows, and one remote 
     result.intake.storyWorkflows.find((workflow) => workflow.id === 'chore').generatesCode,
     false
   );
-  // Start Work asks for --target-url where a step smoke-checks a browser, derived from each workflow.
+  // Start Work asks for --target-url where a step smoke-checks a browser, derived from each workflow;
+  // only the POC workflow refuses to start without it.
   const loop = result.intake.storyWorkflows.find((workflow) => workflow.id === 'spec-code-test-loop');
-  assert.equal(loop.targetUrl, 'required');
+  assert.equal(loop.targetUrl, 'recommended');
   assert.deepEqual(loop.browserSteps.map((step) => [step.phase, step.servers]), [['testing', ['playwright']]]);
   assert.ok(loop.browserSteps[0].setup.includes('singularity-flow mcp warm playwright --network'));
   assert.equal(result.intake.storyWorkflows.find((workflow) => workflow.id === 'feature').targetUrl, 'optional');

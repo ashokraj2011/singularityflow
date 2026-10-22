@@ -856,8 +856,8 @@ export async function createWorkflow(root, config, {
   });
   assertCapabilitySource(capability, source);
   const selectedResolution = assertWorkTypeStartable(resolved ?? resolveWorkType(config, selectedType));
-  // Required when a step smoke-checks a browser against it; pinned below for every such server.
-  const targetOrigin = storyStartTargetOrigin(source?.targetOrigin, selectedResolution.phases);
+  // Pinned below for every server a step smoke-checks against it; the POC workflow requires it.
+  const targetOrigin = storyStartTargetOrigin(source?.targetOrigin, selectedResolution.phases, { workType: selectedType });
   const resolution = applyCapabilityPolicyToWorkResolution(
     { ...selectedResolution, storage: structuredClone(config.storage ?? null) },
     capability

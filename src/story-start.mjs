@@ -340,7 +340,7 @@ export async function startStory(root, {
   // owns the definitive workflow; an unknown work type is refused there too.
   const preflightTargetOrigin = storyStartTargetOrigin(targetUrl ?? normalizedSource.targetOrigin,
     initialDefinition.workTypes?.[workType] ? resolveWorkType(initialDefinition, workType).phases : [],
-    { required: !existed });
+    { required: !existed, workType });
   if (preflightTargetOrigin) normalizedSource.targetOrigin = preflightTargetOrigin;
   let storyBase = null;
   let baseCommit = null;
@@ -754,7 +754,7 @@ export async function startStory(root, {
     stage: 'configuration-ready', workItemRelative: workDirRelative(definition, id)
   });
   const targetOrigin = storyStartTargetOrigin(targetUrl ?? normalizedSource.targetOrigin, resolved.phases,
-    { required: !existed });
+    { required: !existed, workType });
   if (targetOrigin) normalizedSource.targetOrigin = targetOrigin;
   const selectedAgent = agent ?? resolved.phases[0]?.defaultAgent;
   if (!definition.agents?.[selectedAgent]) throw new SingularityFlowError(`Work type '${workType}' has no default agent for its first phase.`);

@@ -262,7 +262,7 @@ export function inspectStoryStartReadiness({
     checks.push(check(
       'later-step-prerequisites', 'warning', 'STORY_LATER_STEP_MCP_SETUP_REQUIRED',
       `Later steps need machine setup before they can be prepared, published or submitted: ${mcpTargetOriginNeed(mcpPrerequisites,
-        { against: 'the authorized target origin this Story pins from --target-url' })}. `
+        { against: 'the authorized target origin this Story pins from --target-url, or after start with singularity-flow story target-origin <WORK-ID> --url <AUTHORIZED-URL>' })}. `
       + `Before ${mcpPrerequisites[0].phase}, run: ${[...new Set(mcpPrerequisites.flatMap((step) => step.commands))].join('; ')} `
       + '(warm downloads the exact package; a smoke receipt is valid for 24 hours). '
       + `${servers.map((serverId) => `singularity-flow mcp doctor --server ${serverId}`).join('; ')} shows what this machine already has.`

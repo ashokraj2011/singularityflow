@@ -125,7 +125,7 @@ test('a fresh configuration explains every workflow and has nothing to fix', asy
   const loop = result.workflows.find((entry) => entry.id.endsWith('spec-code-test-loop'));
   const browser = loop.findings.find((entry) => entry.code === 'CHECK_BROWSER_TARGET_REQUIRED');
   assert.deepEqual([browser?.severity, browser?.subject.step, browser?.blocksStart], ['note', 'testing', false]);
-  assert.match(browser.detail, /Story start requires --target-url <AUTHORIZED-URL>/u);
+  assert.match(browser.detail, /Story start pins its origin from --target-url <AUTHORIZED-URL>/u);
   for (const command of ['mcp scaffold playwright', 'mcp warm playwright --network', 'mcp attest playwright --confirm playwright',
     'mcp smoke playwright --url <AUTHORIZED-URL>', 'story target-origin <WORK-ID> --url <AUTHORIZED-URL>']) {
     assert.ok(browser.detail.includes(`singularity-flow ${command}`), command);

@@ -47,8 +47,8 @@ export interface ProfileChoice {
   codePhases?: string[];
   /** Where its documents may be kept and the default; absent from older engines, meaning both, Git first. */
   documentStorage?: { allowed: Array<'git' | 'local'>; default: 'git' | 'local' };
-  /** Whether start needs --target-url: a step smoke-checks a browser against the pinned origin. */
-  targetUrl?: 'required' | 'optional';
+  /** Whether start takes --target-url: a step smoke-checks a browser against the pinned origin. 'recommended' can be pinned after start. */
+  targetUrl?: 'required' | 'recommended' | 'optional';
   /** Those steps, the MCP servers each checks and the commands that set them up, in workflow order. */
   browserSteps?: Array<{ phase: string; label: string; servers: string[]; setup?: string[] }>;
 }
@@ -60,6 +60,12 @@ export interface ProfileChoice {
 function targetUrlRequired(form: IntakeForm): boolean {
   const workflow = form.storyWorkflows.find((entry) => entry.id === form.workType);
   return workflow?.targetUrl ? workflow.targetUrl === 'required' : form.workType === 'poc-workflow';
+}
+
+/** Whether Start Work asks for the URL: required, or a step needs one that can also be pinned after start. */
+function targetUrlAsked(form: IntakeForm): boolean {
+  return targetUrlRequired(form)
+    || form.storyWorkflows.find((entry) => entry.id === form.workType)?.targetUrl === 'recommended';
 }
 
 export interface ReferenceRepositoryDraft {
@@ -550,9 +556,10 @@ export function intakeProblems(form: IntakeForm): string[] {
     } else if (!form.storyWorkflows.length) {
       problems.push(storyWorkflowProblem(form));
     }
-    if (targetUrlRequired(form)) {
-      if (!form.targetUrl.trim()) problems.push('Enter the exact authorized HTTPS target URL its browser checks use.');
-      else {
+    if (targetUrlAsked(form)) {
+      if (!form.targetUrl.trim()) {
+        if (targetUrlRequired(form)) problems.push('Enter the exact authorized HTTPS target URL its browser checks use.');
+      } else {
         try {
           const target = new URL(form.targetUrl.trim());
           const loopback = ['localhost', '127.0.0.1', '::1'].includes(target.hostname);
@@ -631,7 +638,8 @@ export function intakeCommand(form: IntakeForm): string[] {
   const references = referenceRepositoryEntries(form.referenceRepositories)
     .flatMap((entry) => ['--reference-repository', `${entry.id}=${entry.repository}`,
       '--reference-branch', `${entry.id}=${entry.branch}`]);
-  const target = targetUrlRequired(form) ? ['--target-url', form.targetUrl.trim()] : [];
+  const target = targetUrlRequired(form) || (targetUrlAsked(form) && form.targetUrl.trim())
+    ? ['--target-url', form.targetUrl.trim()] : [];
   const selected = form.storyAttachments.filter((entry): entry is StoryAttachmentDraft => Boolean(entry));
   // Each document's storage and phases go once per --document, in the same order. Storage is always
   // stated, so a repository whose policy defaults to this machine keeps a "Committed to Git" choice
@@ -1229,7 +1237,7 @@ function workflowCodeGenerationBadge(workflow: ProfileChoice): string {
 }
 
 function pocReadinessHtml(form: IntakeForm): string {
-  if (form.shape !== 'story' || !targetUrlRequired(form)) return '';
+  if (form.shape !== 'story' || !targetUrlAsked(form)) return '';
   const workflow = form.storyWorkflows.find((entry) => entry.id === form.workType);
   // The engine names each step's setup in the order it applies; an engine that predates it, the POC's.
   const steps = workflow?.browserSteps?.length ? workflow.browserSteps : [{
@@ -1248,7 +1256,8 @@ function pocReadinessHtml(form: IntakeForm): string {
     <p><label>Authorized target URL <input type="url" value="${escape(form.targetUrl)}"
       data-field="targetUrl" placeholder="https://staging.example.com" size="48"></label></p>
     <p class="muted">The Story pins the URL's origin. Smoke receipts and navigation evidence for a
-      different origin are refused.</p>
+      different origin are refused.${targetUrlRequired(form) ? '' : ` Leave it empty to pin it before
+      those steps with <code>singularity-flow story target-origin</code>.`}</p>
     <pre><code>${escape([...new Set(setup)].join('\n'))}</code></pre>
     ${form.workType === 'poc-workflow' ? `<p class="meta">The later validation gate runs TypeScript compilation and the repository's
       Playwright tests. Failed validation cannot be approved; a reviewer may authorize at most two

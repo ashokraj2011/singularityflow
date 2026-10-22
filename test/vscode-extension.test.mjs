@@ -6461,7 +6461,7 @@ test('POC Story intake explains the browser preflight and bounded validation bef
 test('any workflow the engine says needs a target URL asks for it, names its steps\' setup and passes --target-url', () => {
   const loop = {
     id: 'spec-code-test-loop', label: 'Spec, code and browser review', description: 'Browser-reviewed delivery',
-    phases: ['specification', 'implementation', 'testing', 'conformance'], targetUrl: 'required',
+    phases: ['specification', 'implementation', 'testing', 'conformance'], targetUrl: 'recommended',
     browserSteps: [{ phase: 'testing', label: 'Playwright testing review', servers: ['playwright'], setup: [
       'singularity-flow mcp scaffold playwright', 'singularity-flow mcp warm playwright --network',
       'singularity-flow mcp attest playwright --confirm playwright', 'singularity-flow mcp smoke playwright --url <AUTHORIZED-URL>'] }]
@@ -6470,7 +6470,15 @@ test('any workflow the engine says needs a target URL asks for it, names its ste
     shape: 'story', tracker: 'none', id: 'loop-1', title: 'Browser review', description: 'Review the value in a browser',
     workType: 'spec-code-test-loop', targetUrl, storyWorkflows: [...INTAKE_CHOICES.storyWorkflows, loop]
   });
-  assert.ok(intakeProblems(draft('')).some((problem) => /authorized HTTPS target URL/.test(problem)));
+  // Recommended: an empty URL starts and names the later pin; a malformed one is still refused.
+  assert.equal(intakeProblems(draft('')).some((problem) => /target URL/.test(problem)), false);
+  assert.equal(intakeCommand(draft('')).includes('--target-url'), false);
+  assert.match(intakeHtml(draft('')), /story target-origin/);
+  assert.ok(intakeProblems(draft('http://staging.example.test')).some((problem) => /must be HTTPS/.test(problem)));
+  const required = intake({ shape: 'story', tracker: 'none', id: 'loop-3', title: 'Browser review', description: 'Review',
+    workType: 'spec-code-test-loop', targetUrl: '', storyWorkflows: [...INTAKE_CHOICES.storyWorkflows, { ...loop, targetUrl: 'required' }] });
+  assert.ok(intakeProblems(required).some((problem) => /authorized HTTPS target URL/.test(problem)));
+  assert.doesNotMatch(intakeHtml(required), /story target-origin/);
   const html = intakeHtml(draft('https://staging.example.test/app'));
   assert.match(html, /Browser readiness/);
   assert.match(html, /Before\s+Playwright testing review/);

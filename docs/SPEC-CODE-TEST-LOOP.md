@@ -26,7 +26,7 @@ isolated runner or attest network denial for arbitrary project tests.
 
 Start with an explicit base branch and the authorized target the testing review will browse. Its
 origin is pinned to the Story, and smoke receipts and browser evidence for any other origin are
-refused, so start requires it:
+refused, so give it at start:
 
 ```bash
 singularity-flow start DEMO-101 --from-branch main --work-type spec-code-test-loop \
@@ -38,7 +38,7 @@ readiness lists the machine setup the testing review needs (`mcp scaffold`, `mcp
 `mcp attest`, `mcp smoke`) so it is in place before that step; `nextsteps` names whichever part is
 still missing once the Story reaches it.
 
-A Story started before its target was known has its origin pinned once, by a person who approves the
+A Story started without its target (start does not refuse it) has its origin pinned once, by a person who approves the
 testing review: `singularity-flow story target-origin DEMO-101 --url https://staging.example.com`
 previews the pin and names its plan digest, and the same command with `--reason TEXT --confirm
 <PLAN-DIGEST>` records it in one Story commit. A pinned origin is never replaced; a different target

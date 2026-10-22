@@ -111,7 +111,7 @@ interface EngineStoryWorkflow {
   codePhases?: string[];
   documentStorage?: { allowed: Array<'git' | 'local'>; default: 'git' | 'local' };
   /** Required when a step smoke-checks a browser against the Story's pinned origin. */
-  targetUrl?: 'required' | 'optional';
+  targetUrl?: 'required' | 'recommended' | 'optional';
   browserSteps?: Array<{ phase: string; label: string; servers: string[]; setup?: string[] }>;
   /** Archived: new Stories are never offered it (docs/SPEC-WORKFLOW-RETIREMENT-v1.md). */
   archived?: boolean;

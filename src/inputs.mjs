@@ -476,6 +476,16 @@ export async function verifyInputsIntegrity(root, workflow, phase, { itemDirecto
     || anchor.mode !== mode) {
     add(`${phase.id} phase-input record is not bound to the current generation workflow anchor`);
   }
+  // A step a decision passed over is history: a repair loop always reran the step it read after its
+  // last generation (check, repair, recheck, pass), so its inputs can never equal today's. Its record
+  // and artifact must still agree with each other; they are not recomputed against later inputs.
+  if (phase.status === 'skipped') {
+    const artifactText = await readFile(path.join(itemDirectory, phase.requiredArtifact.path), 'utf8').catch(() => '');
+    const block = extractInputsBlock(artifactText);
+    if (!block || sha256(block) !== record.renderedSha256) add(`${phase.id} artifact does not contain the recorded managed input block`);
+    if (!errors.length && !warnings.length) passes.push(`phase inputs kept as recorded: ${phase.id} generation ${phase.generation} (skipped)`);
+    return { errors, warnings, passes };
+  }
   const live = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative,
     generation: phase.generation, definition });
   for (const message of [...live.errors, ...live.warnings]) add(message);

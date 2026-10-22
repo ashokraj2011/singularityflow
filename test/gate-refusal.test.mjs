@@ -95,6 +95,8 @@ test('an identical retry of a refused transition is answered from memory until s
   const first = await refusalFingerprint(root, subject);
   assert.equal(await refusalFingerprint(root, subject), first, 'nothing changed, so nothing differs');
   assert.notEqual(await refusalFingerprint(root, { ...subject, actor: 'someone-else@example.test' }), first, 'another person may be allowed');
+  // An upgraded engine may be the fix for the refusal, so its retry runs the checks again.
+  assert.notEqual(await refusalFingerprint(root, { ...subject, engine: 'another-build' }), first, 'another engine may decide differently');
 
   await assertRefusalChanged(root, 'W-1', first);
   const refusal = gateRefusal({ code: 'STORY_COMPLETION_REFUSED', gate: 'terminal', subject: { workId: 'W-1' },

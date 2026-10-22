@@ -320,3 +320,170 @@ Awaiting authorized review of this published closing report. The agent cannot cl
   assert.equal((await readState()).completion.kind, 'complete');
   assert.equal(await readFile(path.join(root, 'src/screen.mjs'), 'utf8'), source);
 });
+
+/** A Story on this workflow with its intake approved; the screen title starts as `source`. */
+async function intakeApprovedStory(t, source) {
+  const root = await temporary(t);
+  const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Demo Reviewer',
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.git/test-active-workspace.json'),
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.git/test-workspaces.json'),
+    SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: ID, agent: AGENTS[0] }) };
+  delete env.NODE_TEST_CONTEXT;
+  const run = (command, args, { allowFailure = false } = {}) => {
+    const result = spawnSync(command, args, { cwd: root, env, encoding: 'utf8', timeout: 120000 });
+    if (!allowFailure) assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+    return allowFailure ? result : result.stdout;
+  };
+  run('git', ['init', '-b', 'main']); run('git', ['config', 'user.name', 'Demo Reviewer']);
+  run('git', ['config', 'user.email', 'demo@example.test']);
+  await writeFile(path.join(root, 'README.md'), '# Demo fixture\n');
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.git.publish = 'off'; config.worldModel.grounding = 'off';
+  config.approvalSecurity = { profile: 'poc' };
+  for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
+  await writeFile(configPath, YAML.stringify(config));
+  await mkdir(path.join(root, 'src')); await mkdir(path.join(root, 'test'));
+  await writeFile(path.join(root, 'src/screen.mjs'), source);
+  await writeFile(path.join(root, 'test/screen.test.mjs'), `import test from 'node:test';
+import assert from 'node:assert/strict';
+import { title } from '../src/screen.mjs';
+test('DEMO-001 shows the approved title', () => assert.equal(title, 'Approved screen'));
+`);
+  run('git', ['add', '.']); run('git', ['commit', '-m', 'Initialize demo fixture']);
+  const remote = `${root}.git`;
+  t.after(() => rm(remote, { recursive: true, force: true }));
+  run('git', ['init', '--bare', '-b', 'main', remote]);
+  run('git', ['remote', 'add', 'origin', remote]); run('git', ['push', '-u', 'origin', 'main']);
+  const cli = (...args) => run(process.execPath, [path.join(ROOT, 'bin/singularity-flow.mjs'), '--no-model', ...args]);
+  cli('start', 'DEMO-LOOP-2', '--from-branch', 'main', '--work-type', ID,
+    '--title', 'Repair the screen title', '--description', 'Check, repair and independently retest before closing.');
+  const workRoot = path.join(root, 'singularity/work-items/DEMO-LOOP-2');
+  const readState = async () => JSON.parse(await readFile(path.join(workRoot, 'workflow.json'), 'utf8'));
+  cli('wm', 'compose', '--phase', PHASES[0]);
+  const responsePath = path.resolve(root, run('git', ['rev-parse', '--git-path', 'singularity-flow/clarification-responses/demo-intake.json']).trim());
+  await mkdir(path.dirname(responsePath), { recursive: true });
+  await writeFile(responsePath, JSON.stringify({ responses: [{
+    question: 'What observable behavior, tool and repair scope are agreed?',
+    answer: 'DEMO-001 must show Approved screen. Use node --test test/screen.test.mjs locally. Repair src/screen.mjs only if the title assertion fails.'
+  }] }));
+  cli('clarification', 'record', PHASES[0], '--response-file', responsePath);
+  cli('prepare', PHASES[0]);
+  await writeFile(path.join(workRoot, 'artifacts/demo-intake/intake.md'), `# Demo title acceptance
+## Approved sources
+The Story description requests testing the documented screen title and repairing it if it is wrong.
+## Scope and acceptance criteria
+[DEMO-LOOP-2:AC-001] The screen title equals Approved screen. Repair is limited to src/screen.mjs; no dependency or policy change is authorized.
+## Scenario matrix
+DEMO-001 checks AC-001 through the named executable assertion DEMO-001 shows the approved title in test/screen.test.mjs.
+## Test environment and commands
+Run node --test test/screen.test.mjs locally. No browser, remote service or production data is needed. Intake does not execute tests.
+## Planned implementation evidence
+| Clause | Expected paths | Planned tests |
+| --- | --- | --- |
+| DEMO-LOOP-2:AC-001 | \`src/screen.mjs\` | \`test/screen.test.mjs\` |
+## Routing and human checkpoints
+Check existing behavior first; a demonstrated failure goes to Repair and independent recheck. A fresh pass goes to Close after human approval. Closing documents and final human approval end the Story.
+`);
+  cli('phase', 'publish', PHASES[0]); cli('submit', PHASES[0]); cli('approve', PHASES[0], '--yes');
+  const scope = JSON.parse(cli('evidence', 'scope', '--json')).data.scope;
+  for (const item of scope.items.filter((entry) => entry.disposition === 'unresolved')) {
+    cli('decision', 'scope', '--item', item.id, '--as', 'included', '--clause', 'DEMO-LOOP-2:AC-001',
+      '--reason', 'The approved exact screen-title criterion carries the requested acceptance behavior.');
+  }
+  return { root, env, run, cli, workRoot, readState };
+}
+
+/** Publish and submit a Check report for the current bytes, with the verdict the test run supports. */
+async function checkCurrentCode({ env, run, cli, workRoot }, verdict) {
+  env.SINGULARITY_FLOW_TEST_SELECTION = JSON.stringify({ workType: ID, agent: AGENTS[1] });
+  cli('prepare', PHASES[1]);
+  const tested = run(process.execPath, ['--test', 'test/screen.test.mjs'], { allowFailure: true });
+  assert.equal(tested.status === 0, verdict === 'pass', tested.stdout);
+  const outputHash = createHash('sha256').update(tested.stdout).digest('hex');
+  const testedCommit = run('git', ['rev-parse', 'HEAD']).trim();
+  await writeFile(path.join(workRoot, 'artifacts/demo-check/check-results.md'), `# Current code acceptance check
+## Pinned inputs and tested revision
+Approved intake DEMO-LOOP-2, repository revision ${testedCommit}.
+## Test execution and evidence
+Executed node --test test/screen.test.mjs, exit ${tested.status}. Complete output SHA-256 ${outputHash}.
+## Source and visual comparison
+The exported screen title is compared with the approved documented value. No visual assertion or browser access is required.
+## Scenario results
+[DEMO-LOOP-2:AC-001] DEMO-001 shows the approved title: ${verdict === 'pass' ? 'passed' : 'failed; the title differs from Approved screen'}.
+## Verdict and repair request
+verdict=${verdict}. ${verdict === 'pass' ? 'All required assertions executed successfully against current bytes.' : 'Repair src/screen.mjs so the title equals Approved screen.'}
+## Human checkpoint
+Pending authorized review of this exact report. The agent does not approve or close the Story.
+`);
+  cli('phase', 'publish', PHASES[1]); cli('submit', PHASES[1], '--decision', `verdict=${verdict}`);
+  cli('approve', PHASES[1], '--yes');
+}
+
+test('a Story that repaired and then passed its recheck closes, and its repair counts as implemented', async (t) => {
+  const story = await intakeApprovedStory(t, 'export const title = "Draft screen";\n');
+  const { env, run, cli, workRoot, readState } = story;
+  await checkCurrentCode(story, 'repair');
+  assert.equal((await readState()).currentPhase, PHASES[2]);
+  env.SINGULARITY_FLOW_TEST_SELECTION = JSON.stringify({ workType: ID, agent: AGENTS[2] });
+  cli('prepare', PHASES[2]);
+  await writeFile(path.join(story.root, 'src/screen.mjs'),
+    '// @clause:DEMO-LOOP-2:AC-001 the screen shows the approved title\nexport const title = "Approved screen";\n');
+  await writeFile(path.join(story.root, 'test/screen.test.mjs'), `import test from 'node:test';
+import assert from 'node:assert/strict';
+import { title } from '../src/screen.mjs';
+// @ac:DEMO-LOOP-2:AC-001
+test('DEMO-001 shows the approved title', () => assert.equal(title, 'Approved screen'));
+`);
+  await writeFile(path.join(workRoot, 'artifacts/demo-repair/implementation-summary.md'), `# Repair summary
+## Agent brief
+The screen title was Draft screen; it now equals the approved title.
+## Approved defect and scope
+[DEMO-LOOP-2:AC-001] DEMO-001 failed because the title was Draft screen. The repair is limited to src/screen.mjs as approved.
+## Changes and clause bindings
+src/screen.mjs now exports Approved screen and carries the AC-001 clause comment; the existing test is tagged for AC-001.
+## Test results and regression evidence
+node --test test/screen.test.mjs passes locally after the change.
+## Handoff and remaining risks
+Hand back to an independent recheck. No other screen text changed.
+`);
+  cli('phase', 'publish', PHASES[2]); cli('submit', PHASES[2], '--decision', 'next=recheck');
+  cli('approve', PHASES[2], '--yes');
+  assert.equal((await readState()).currentPhase, PHASES[1], 'a repair always returns to an independent recheck');
+  run('git', ['add', '-A']); run('git', ['commit', '-m', 'Commit repaired bytes before the recheck'], { allowFailure: true });
+  await checkCurrentCode(story, 'pass');
+  const state = await readState();
+  assert.equal(state.currentPhase, PHASES[3]);
+  assert.equal(state.phases[PHASES[2]].status, 'skipped', 'the passing recheck routes past repair to closing');
+  assert.ok(state.phases[PHASES[2]].generation >= 1);
+  env.SINGULARITY_FLOW_TEST_SELECTION = JSON.stringify({ workType: ID, agent: AGENTS[3] });
+  cli('prepare', PHASES[3]);
+  await writeFile(path.join(workRoot, 'artifacts/demo-close/closing-report.md'), `# Demo closing report
+## Agent brief
+The screen title was wrong, was repaired, and an independent recheck passed on the repaired code.
+## Approved scope and final revision
+Approved DEMO-LOOP-2 intake; the final checked revision carries the repair.
+## Final check and evidence
+[DEMO-LOOP-2:AC-001] DEMO-001 shows the approved title passed in the latest approved Check.
+## Repair history and no-change accounting
+One repair changed src/screen.mjs; the recheck after it passed, so no additional implementation is needed to close.
+## Residual risks and operational handoff
+No known residual defect within the bounded screen-title assertion. Run node --test test/screen.test.mjs to reproduce.
+## Human closing decision
+Awaiting authorized review of this published closing report.
+`);
+  cli('phase', 'publish', PHASES[3]);
+  const readiness = JSON.parse(cli('status', 'DEMO-LOOP-2', '--submission-readiness', '--json'));
+  const message = JSON.stringify(readiness);
+  assert.doesNotMatch(message, /were never implemented/u, 'an approved repair is not reported as never implemented');
+  assert.doesNotMatch(message, /does not match the complete recomputed approved-input representation/u);
+  const gate = run(process.execPath, [path.join(ROOT, 'bin/singularity-flow.mjs'), '--no-model', 'gate', '--terminal', '--json'], { allowFailure: true });
+  assert.doesNotMatch(gate.stdout, /were never implemented/u, 'the terminal gate does not call an approved repair unimplemented');
+  assert.doesNotMatch(gate.stdout, /phase-input record does not match/u, 'the skipped repair keeps its inputs as recorded');
+  // The workflow's end omits further implementation by design; a person records that before closing.
+  cli('decision', 'applicability', '--responsibility', 'implement',
+    '--reason', 'The repaired code passed an independent recheck; no additional implementation is needed to close.');
+  cli('submit', PHASES[3]); cli('approve', PHASES[3], '--yes');
+  assert.equal((await readState()).status, 'closed');
+  assert.equal((await readState()).completion.kind, 'complete');
+});

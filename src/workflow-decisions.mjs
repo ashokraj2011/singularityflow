@@ -401,16 +401,20 @@ export function obligationsDroppedBySkips(workflow) {
   const order = workflow.phaseOrder ?? [];
   const phaseOf = (id) => workflow.phases?.[id];
   const skipped = (id) => phaseOf(id)?.status === 'skipped';
+  // A repair loop's final pass skips a code phase that already ran: its delivered generation
+  // implemented the claims, and the passing recheck tested that code. Only one that never
+  // delivered dropped them.
+  const delivered = (id) => (phaseOf(id)?.generation ?? 0) >= 1 && phaseOf(id)?.deliveryEvidence?.status === 'ready';
   const dropped = new Map();
   for (const id of order) {
-    if (!skipped(id) || !phaseRequiresCodeDelivery(phaseOf(id))) continue;
+    if (!skipped(id) || !phaseRequiresCodeDelivery(phaseOf(id)) || delivered(id)) continue;
     const owner = plannedClaims.owners?.[id];
     if (owner && phaseOf(owner) && !skipped(owner)) dropped.set(id, `the claims '${owner}' planned for it were never implemented`);
   }
   for (const clausePhase of plannedClaims.clausePhases ?? []) {
     if (!phaseOf(clausePhase) || skipped(clausePhase)) continue;
     const laterCode = order.slice(order.indexOf(clausePhase) + 1).filter((id) => phaseRequiresCodeDelivery(phaseOf(id)));
-    if (!laterCode.length || !laterCode.every(skipped)) continue;
+    if (!laterCode.length || !laterCode.every((id) => skipped(id) && !delivered(id))) continue;
     for (const id of laterCode) if (!dropped.has(id)) dropped.set(id, `the requirements '${clausePhase}' defines were never implemented`);
   }
   return [...dropped].map(([phase, reason]) => ({ phase, reason }));

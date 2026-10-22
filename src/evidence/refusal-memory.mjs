@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { BUILD_INFO } from '../build-info.mjs';
 import { changedFiles, head } from '../git.mjs';
 import { repositoryGitPath } from '../git-directory.mjs';
 import { canonicalJson } from '../records.mjs';
@@ -21,11 +22,12 @@ function memoryFile(root, workId) {
 
 /**
  * What a retry would be decided on, taken before anything runs: the operation and its subject, who
- * asks, the commit, and the content of every changed or untracked file. Any edit, commit or other
- * person changes it; an identical retry does not, even after a refused transaction rewrote the same
- * bytes while rolling back.
+ * asks, the commit, the content of every changed or untracked file, and the engine that decides.
+ * Any edit, commit, other person or engine upgrade changes it (an upgrade may be the fix for the
+ * refusal); an identical retry does not, even after a refused transaction rewrote the same bytes
+ * while rolling back.
  */
-export async function refusalFingerprint(root, { operation, workId, phase = null, actor = null, args = [] }) {
+export async function refusalFingerprint(root, { operation, workId, phase = null, actor = null, args = [], engine = null }) {
   const files = [];
   // Content up to a total budget, so a checkout full of large untracked files never slows a retry;
   // past it a file is identified by its size and modification time.
@@ -38,7 +40,8 @@ export async function refusalFingerprint(root, { operation, workId, phase = null
     budget -= stats.size;
     files.push([file, createHash('sha256').update(await readFile(absolute)).digest('hex')]);
   }
-  return sha256({ operation, workId, phase, actor, args, head: head(root), files });
+  const decidedBy = engine ?? BUILD_INFO.commit ?? BUILD_INFO.sourceSha256 ?? (await import('../version.mjs')).VERSION;
+  return sha256({ operation, workId, phase, actor, args, head: head(root), files, engine: decidedBy });
 }
 
 /** Refuse at once when this exact retry was refused before and nothing it depends on changed. */

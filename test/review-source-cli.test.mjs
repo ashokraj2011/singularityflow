@@ -224,7 +224,7 @@ test('a retained correction routes compact phase entry to explicit successor pre
       assert.equal(entry.successor.targetGeneration, 2);
       assert.equal(entry.successor.automatic, false);
       assert.equal(entry.successor.preparation.command, `singularity-flow prepare ${phaseId}`);
-      assert.equal(entry.next[0].command, retained.continuation.nextCommand);
+      assert.equal((entry.next[0].commandGuidance ?? entry.next[0]).command, retained.continuation.nextCommand);
       assert.equal(await readFile(state, 'utf8'), stateBytes);
       assert.equal(await readFile(artifact, 'utf8'), bytes);
       assert.equal(git(root, 'rev-parse', 'HEAD'), before);

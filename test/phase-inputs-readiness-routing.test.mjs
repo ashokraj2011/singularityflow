@@ -269,7 +269,7 @@ test('a drifted approved input is reported by the dry run, coded at preparation,
   assert.equal(packet.context, null);
   assert.ok(packet.contextAdmission.blockers.some(blocker => blocker.code === 'PHASE_CONTEXT_INPUTS_NOT_READY'),
     JSON.stringify(packet.contextAdmission));
-  assert.equal(packet.next[0].command, 'singularity-flow inputs planning --dry-run --for-agent --json', 'the agent runs the dry run bounded');
+  assert.equal((packet.next[0].commandGuidance ?? packet.next[0]).command, 'singularity-flow inputs planning --dry-run --for-agent --json', 'the agent runs the dry run bounded');
 
   const composed = item.invoke('wm', 'compose', '--phase', 'planning', '--work-id', 'ROUTE-1', '--json');
   assert.notEqual(composed.status, 0);

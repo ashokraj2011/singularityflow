@@ -364,8 +364,8 @@ test('entry bundles a custom-root Story without changing files, HEAD, index or l
   assert.equal(entry.clarification.checkpoint.recordAction, null, 'context must be reviewed before answer recording');
   assert.equal(entry.clarification.checkpoint.missingRecordMeansUnanswered, false);
   assert.equal(entry.next[0].agentAction, 'load-context');
-  assert.equal(entry.next[0].copilotCommand, '/sf-phase');
-  assert.equal(entry.next[0].command, 'singularity-flow phase enter specification --work-id ENTRY-1 --compose --for-agent --json');
+  assert.equal((entry.next[0].commandGuidance ?? entry.next[0]).copilotCommand, '/sf-phase');
+  assert.equal((entry.next[0].commandGuidance ?? entry.next[0]).command, 'singularity-flow phase enter specification --work-id ENTRY-1 --compose --for-agent --json');
   assert.equal(git(item.root, 'rev-parse', 'HEAD'), before.head);
   assert.equal(git(item.root, 'status', '--porcelain=v1'), before.status);
   assert.equal(await readFile(path.join(item.root, 'team/stories/ENTRY-1/workflow.json'), 'utf8'), before.workflow);
@@ -390,7 +390,7 @@ test('a future user-created workflow composes a question-only checkpoint for its
   assert.ok(lines.length > 10, 'the agent packet pages by line');
   assert.ok(lines.includes('"status":"clarification-required",'), 'control fields are their own lines');
   assert.equal(entry.next[0].agentAction, 'derive-and-ask');
-  assert.equal(entry.next[0].copilotCommand, '/sf-phase');
+  assert.equal((entry.next[0].commandGuidance ?? entry.next[0]).copilotCommand, '/sf-phase');
   assert.equal(entry.next[0].commandGuidance.copilotCommand, '/sf-phase');
   assert.equal(entry.next[0].commandGuidance.command, null, 'asking has no fabricated shell answer');
   assert.equal(entry.next[0].commandGuidance.copyable, false);
@@ -658,10 +658,10 @@ test('a missing session only returns its verified attach route, never composes c
   assert.equal(entry.phaseAgent.valid, false);
   assert.equal(entry.phaseAgent.reason, 'active-session-missing');
   assert.equal(entry.next.length, 1);
-  assert.equal(entry.next[0].command, entry.phaseAgent.handoff.command);
-  assert.ok(Object.hasOwn(entry.next[0], 'copilotCommand'), 'entry exposes verified command routing instead of making the model guess');
-  assert.equal(entry.next[0].command, 'singularity-flow session attach ENTRY-1 --json');
-  assert.equal(entry.next[0].copilotCommand, '/sf-session');
+  assert.equal((entry.next[0].commandGuidance ?? entry.next[0]).command, entry.phaseAgent.handoff.command);
+  assert.ok(Object.hasOwn(entry.next[0].commandGuidance ?? entry.next[0], 'copilotCommand'), 'entry exposes verified command routing instead of making the model guess');
+  assert.equal((entry.next[0].commandGuidance ?? entry.next[0]).command, 'singularity-flow session attach ENTRY-1 --json');
+  assert.equal((entry.next[0].commandGuidance ?? entry.next[0]).copilotCommand, '/sf-session');
   assert.equal(git(item.root, 'status', '--porcelain=v1'), '');
 });
 
@@ -752,9 +752,9 @@ test('explicit entry composition returns the governed prompt once and reuses imm
   assert.equal(entry.clarification.checkpoint.questioningAllowed, true);
   assert.equal(entry.clarification.checkpoint.contextRequired, false);
   assert.equal(entry.next[0].agentAction, 'derive-and-ask');
-  assert.equal(entry.next[0].command, null, 'asking questions is not a fabricated shell command');
-  assert.equal(entry.next[0].copilotCommand, '/sf-phase');
-  assert.equal(entry.next[0].modelFreeCommand, null);
+  assert.equal((entry.next[0].commandGuidance ?? entry.next[0]).command, null, 'asking questions is not a fabricated shell command');
+  assert.equal((entry.next[0].commandGuidance ?? entry.next[0]).copilotCommand, '/sf-phase');
+  assert.equal((entry.next[0].commandGuidance ?? entry.next[0]).modelFreeCommand, null);
   assert.match(entry.context.text, /Bundle verified phase context/);
   assert.ok(entry.context.text.includes(REQUIREMENT_AUTHORING_PROTOCOL));
   assert.equal(entry.context.text.split(REQUIREMENT_AUTHORING_PROTOCOL).length, 2, 'one shared requirement rubric, not duplicate inventories');
@@ -923,11 +923,11 @@ test('a person sets aside changes that hold a document step, keeping a recovery 
   assert.equal(held.next.findIndex(action => action.id === 'set-aside-worktree') < held.next.findIndex(action => action.id === 'inspect-continuation:qa-intake'), true,
     'the person\'s route leads the read-only inspection');
   assert.deepEqual(new Set(route.paths), new Set([stray, 'README.md']));
-  assert.match(route.command, /^singularity-flow recover ENTRY-1 --phase qa-intake --set-aside --confirm sha256:[0-9a-f]{64} --json$/);
+  assert.match((route.commandGuidance ?? route).command, /^singularity-flow recover ENTRY-1 --phase qa-intake --set-aside --confirm sha256:[0-9a-f]{64} --json$/);
   const stale = item.invoke('recover', 'ENTRY-1', '--set-aside', '--confirm', `sha256:${'0'.repeat(64)}`, '--json');
   assert.notEqual(stale.status, 0);
   assert.match(stale.stdout + stale.stderr, /RECOVERY_PLAN_STALE/);
-  const result = item.invoke(...route.command.split(' ').slice(1));
+  const result = item.invoke(...(route.commandGuidance ?? route).command.split(' ').slice(1));
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const setAside = JSON.parse(result.stdout).setAside;
   assert.deepEqual(setAside.removed, [stray]);
@@ -954,7 +954,7 @@ test('changes held while a step awaits approval can be set aside by the person',
   const plan = JSON.parse(item.invoke('recover', 'ENTRY-1', '--json').stdout);
   const route = plan.actions.find(action => action.id === 'set-aside-worktree');
   assert.deepEqual(route?.paths, ['notes.txt'], JSON.stringify(plan.actions.map(action => action.id)));
-  const result = item.invoke(...route.command.split(' ').slice(1));
+  const result = item.invoke(...(route.commandGuidance ?? route).command.split(' ').slice(1));
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.deepEqual(JSON.parse(result.stdout).setAside.removed, ['notes.txt']);
   assert.equal(git(item.root, 'status', '--porcelain=v1', '--untracked-files=all'), '');

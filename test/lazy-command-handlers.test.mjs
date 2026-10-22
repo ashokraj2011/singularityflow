@@ -51,7 +51,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // and the Copilot guard share (docs/SPEC-STAGING-PERMISSIONS-v1.md), joined submit.mjs's graph through clarifications.mjs.
     // 458: submit.mjs reached 458 on main 97054d4b without a recorded raise: workspace-story-location-scope.mjs
     // (858465d6, lightweight intake and direct Story worktrees) joined its graph through capability-start.mjs.
-    assert.ok(closure.files.size <= 458, `${file} loads ${closure.files.size} local files (budget 458; retired graph 597)`);
+    // 459: story-configuration-objects.mjs (b25d3e72, bounded configuration trees) joined submit.mjs's graph through
+    // configuration-branch.mjs on main 810418a6 without a recorded raise.
+    assert.ok(closure.files.size <= 459, `${file} loads ${closure.files.size} local files (budget 459; retired graph 597)`);
     // 9,005,000 (next 5,000 boundary): phase-lifecycle.mjs grew from 8,993,692 (main 4a8e6c42) to 9,004,129 with the
     // capability application block's per-environment arguments and debug validation in capabilities.mjs and the
     // launcher rules it reads (RUN amendment), together with 2ca46d6d's conformance issue ownership; no new file.
@@ -81,7 +83,10 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // utility-entry.mjs +401 and configuration-assets.mjs +232 (94173271), util.mjs +619 (4838febb), cli-entry.mjs +528,
   // read-scope.mjs +464 (94f42a8c), authoring-skills.mjs +450 (5c6df7fa) and smaller. The per-turn entry rule in
   // copilot-mode.mjs (docs/SPEC-STAGING-PERMISSIONS-v1.md) adds 231 to 788,456.
-  assert.ok(root.bytes <= 790_000, `root dispatch loads ${root.bytes} source bytes`);
+  // 795,000: main 810418a6 was 790,885, over 790,000 without a recorded raise: creation-context.mjs +875,
+  // git-remote-diagnostics.mjs +622 and cli-entry.mjs +56 (b3c8bf7f..810418a6, cold Story creation and configuration
+  // reuse); no new file.
+  assert.ok(root.bytes <= 795_000, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   for (const entry of ['commands/session-entry.mjs', 'commands/choices-entry.mjs']) {

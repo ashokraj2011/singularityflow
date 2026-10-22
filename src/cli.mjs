@@ -2556,7 +2556,7 @@ async function clarificationCommand(positionals, options) {
   const phase = workflow.phases[phaseId];
   if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
   if (subcommand === 'status') {
-    const result = await verifyClarificationRecord(root, config, workflow, phase);
+    const result = await verifyClarificationRecord(root, config, workflow, phase), clarificationGuidance = await import('./clarification-guidance.mjs');
     const json = optionBoolean(options, 'json');
     if (!json) {
       console.log(`Clarification checkpoint: ${phase.id} generation ${nextPhaseGeneration(phase)} (${result.mode})`);
@@ -2564,7 +2564,7 @@ async function clarificationCommand(positionals, options) {
         console.log(`Status: ${result.errors.length ? 'not ready' : 'ready'} · Responses: ${result.record.responses.length} · Recorded by: ${result.record.recordedBy?.name ?? result.record.recordedBy?.email ?? 'unknown'}`);
         console.log(`Record: ${result.path} · Prompt: ${result.record.promptSha256.slice(0, 12)}`);
       } else console.log(result.mode === 'off' ? 'This phase has no clarification checkpoint.' : 'No response record exists for the prospective generation.');
-      result.passes.forEach((message) => console.log(`PASS ${message}`));
+      [...result.passes.map((message) => `PASS ${message}`), clarificationGuidance.clarificationCompositionLine(result)].filter(Boolean).forEach((line) => console.log(line));
       result.warnings.forEach((message) => console.warn(`Warning: ${message}`));
       result.errors.forEach((message) => console.error(`BLOCKED ${message}`));
     }
@@ -2573,7 +2573,7 @@ async function clarificationCommand(positionals, options) {
       subject: { kind: 'story', id: workflow.workItem.id },
       outcome: noop('clarification.reported', { phase: phase.id, generation: nextPhaseGeneration(phase) }),
       effects: noEffects(),
-      restState: 'informational',
+      ...clarificationGuidance.clarificationStatusContinuation(result, phase),
       data: result
     }), { json });
     return;

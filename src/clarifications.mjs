@@ -178,23 +178,49 @@ export function answeredMarkerHashes(record) {
     .filter(Boolean))];
 }
 
+/**
+ * Whether the phase prompt a clarification record binds to is composed for this generation:
+ * `current`, `missing` (never composed) or `stale` (its prompt snapshot changed). A record is
+ * written against the composed prompt, so every surface that leads to recording names
+ * `wm compose` first while this is not `current`.
+ */
+export async function clarificationPromptComposition(root, definition, workflow, phase, generation = nextPhaseGeneration(phase)) {
+  const groundingPath = groundingRecordRelative(definition, workflow, phase, generation);
+  const command = `singularity-flow wm compose --phase ${phase.id}`;
+  if (!(await exists(path.join(root, groundingPath)))) return { status: 'missing', command, groundingPath, grounding: null };
+  const grounding = await readJson(path.join(root, groundingPath)).catch(() => null);
+  const promptPath = posix(grounding?.promptPath ?? '');
+  const promptInfo = promptPath ? await snapshot(path.join(root, promptPath)) : { exists: false, sha256: null };
+  const current = promptInfo.exists && promptInfo.sha256 && promptInfo.sha256 === grounding?.renderedSha256;
+  return { status: current ? 'current' : 'stale', command, groundingPath, grounding, promptPath, promptInfo };
+}
+
+function promptNotComposed(workflow, phase, message) {
+  return new SingularityFlowError(message, {
+    code: 'CLARIFICATION_PROMPT_NOT_COMPOSED',
+    details: { workId: workflow.workItem.id, phase: phase.id, nextAction: {
+      command: `singularity-flow wm compose --phase ${phase.id}`,
+      label: `Compose the ${phase.id} prompt for this generation, then record the clarification again; the record is bound to that prompt.`
+    } }
+  });
+}
+
 export async function recordClarificationResponses(root, definition, workflow, phase, {
   responses, actor, agent, replace = false, generation = nextPhaseGeneration(phase),
   responseFile = null
 } = {}) {
   const policy = assertClarificationRecordingAllowed(definition, workflow, phase);
   if (!Array.isArray(responses) || !responses.length) throw new SingularityFlowError('Record at least one clarification response.');
-  const groundingPath = groundingRecordRelative(definition, workflow, phase, generation);
-  if (!(await exists(path.join(root, groundingPath)))) {
-    throw new SingularityFlowError(`Compose the phase prompt before recording clarification: singularity-flow wm compose --phase ${phase.id}`);
+  const composition = await clarificationPromptComposition(root, definition, workflow, phase, generation);
+  const { groundingPath } = composition;
+  if (composition.status === 'missing') {
+    throw promptNotComposed(workflow, phase, `Compose the phase prompt before recording clarification: singularity-flow wm compose --phase ${phase.id}`);
   }
-  const grounding = await readJson(path.join(root, groundingPath));
+  if (composition.status !== 'current') {
+    throw promptNotComposed(workflow, phase, `The composed prompt for ${phase.id} generation ${generation} is missing or stale. Re-run singularity-flow wm compose --phase ${phase.id}.`);
+  }
+  const { grounding, promptPath, promptInfo } = composition;
   const groundingInfo = await snapshot(path.join(root, groundingPath));
-  const promptPath = posix(grounding.promptPath ?? '');
-  const promptInfo = promptPath ? await snapshot(path.join(root, promptPath)) : { exists: false, sha256: null };
-  if (!promptInfo.exists || !promptInfo.sha256 || promptInfo.sha256 !== grounding.renderedSha256) {
-    throw new SingularityFlowError(`The composed prompt for ${phase.id} generation ${generation} is missing or stale. Re-run singularity-flow wm compose --phase ${phase.id}.`);
-  }
   const relative = clarificationRecordRelative(definition, workflow, phase, generation);
   const destination = path.join(root, relative);
   let stagedAtDestination = false;
@@ -268,7 +294,12 @@ export async function verifyClarificationRecord(root, definition, workflow, phas
   generation = nextPhaseGeneration(phase), groundingRecord = null
 } = {}) {
   const result = await inspectClarificationRecord(root, definition, workflow, phase, { generation, groundingRecord });
-  return { checkpoint: clarificationCheckpoint(resolvedPolicy(definition, workflow, phase), result), ...result };
+  // While recording is still ahead, say whether its prompt is composed: record refuses until it is.
+  const composition = result.mode === 'off' || result.recordState === 'complete' ? null
+    : await clarificationPromptComposition(root, definition, workflow, phase, generation);
+  return { checkpoint: clarificationCheckpoint(resolvedPolicy(definition, workflow, phase), result), ...result,
+    ...(composition ? { composition: { status: composition.status,
+      command: composition.status === 'current' ? null : composition.command } } : {}) };
 }
 
 /** Conversation permission is not artifact-authoring or publication permission. No model call. */

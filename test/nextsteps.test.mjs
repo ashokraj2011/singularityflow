@@ -282,6 +282,17 @@ test('a step reopened by rework or a skill amendment gets the grounding prerequi
   const amended = structuredClone(story);
   amended.phases[second].skillAmendmentRevalidation = { state: 'affected', generationAtAdoption: 1 };
   assert.equal(await grounding(amended), true);
+  // The step's checkpoint is required: an agent-authored generation must record its clarification,
+  // which is bound to the composed prompt, so composing is not optional there.
+  const compose = async (enabled) => (await storyPrerequisites(root, reopened,
+    { location: { path: 'singularity/work-items/GROUND-1/workflow.json' } }, { enabled }))
+    .find((entry) => entry.route === 'grounding-composition');
+  const withModel = await compose(true);
+  assert.equal(withModel.timing, 'now');
+  assert.match(withModel.reason, /clarification is recorded against that prompt/);
+  const withoutModel = await compose(false);
+  assert.equal(withoutModel.timing, 'optional', 'a human-authored step publishes without the record');
+  assert.match(withoutModel.reason, /recording a clarification answer needs it first/);
 });
 
 test('a required after-step delivery comes before the held step\'s own work', () => {

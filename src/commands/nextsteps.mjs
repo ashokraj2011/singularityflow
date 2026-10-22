@@ -105,11 +105,30 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
   if (active?.status === 'in_progress' && !deterministicConvergence && phaseNeedsGeneration(workflow, active)) {
     const { loadDefinition } = await import('../config.mjs');
     definition ??= await loadDefinition(root);
-    if (!(await composedPromptCurrent(root, definition, workflow, active, observeFile))) prerequisites.push({
-      timing: 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id}`,
-      route: 'grounding-composition',
-      reason: 'Compose the phase prompt for this generation before authoring and publishing it.'
-    });
+    if (!(await composedPromptCurrent(root, definition, workflow, active, observeFile))) {
+      // A clarification is recorded against the composed prompt (clarification record refuses
+      // without it). Where publication requires that record (a required checkpoint on an
+      // agent-authored step), composing comes first, not optionally; elsewhere it stays optional
+      // and says that recording an answer needs it.
+      const { resolvedClarificationPolicy } = await import('../clarifications.mjs');
+      let clarification = 'off';
+      let recordRequired = false;
+      try {
+        clarification = resolvedClarificationPolicy(definition, workflow, active).mode;
+        recordRequired = clarification === 'required'
+          && effectivePhasePublicationProducer(active, { modelEnabled: modelMode.enabled }) === 'governed-agent';
+      } catch { /* validate reports an invalid policy */ }
+      prerequisites.push({
+        timing: recordRequired ? 'now' : 'optional', skill: null,
+        command: `singularity-flow wm compose --phase ${active.id}`,
+        route: 'grounding-composition',
+        reason: recordRequired
+          ? 'Compose the phase prompt for this generation first: its required clarification is recorded against that prompt, and clarification record refuses until it exists.'
+          : clarification !== 'off'
+            ? 'Compose the phase prompt for this generation before authoring and publishing it; recording a clarification answer needs it first.'
+            : 'Compose the phase prompt for this generation before authoring and publishing it.'
+      });
+    }
   }
   if (authoring && activeSessionAgent && !deterministicConvergence) {
     const { agentStatus, remoteOutputConflicts } = await import('../agents.mjs');

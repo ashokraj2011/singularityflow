@@ -7,7 +7,7 @@ test('cold and repeated intake/start reuse workspace objects and only populate S
   const result = await benchmarkDirectStoryWorktree({ files: 25 });
   assert.equal(result.originalPreserved, true);
   for (const row of result.rows.filter(row => row.name.startsWith('preview'))) {
-    assert.equal(row.commands.clone, 0, `${row.name}: no application clone`);
+    assert.equal(row.workspaceBranchClones, 0, `${row.name}: no application clone`);
     assert.equal(row.preflightApplicationFetches, 0, `${row.name}: no application object transfer for preview`);
     assert.equal(row.commands.worktree, 0, `${row.name}: no background application checkout`);
     assert.equal(row.commands.checkout, 0);

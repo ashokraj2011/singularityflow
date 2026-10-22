@@ -29,7 +29,7 @@ test('progress lines are taken out of stderr wherever the chunks split them', ()
   assert.equal(startProgressLabel('start.publication'), 'Publishing the Story');
   assert.match(startProgressLabel('start.workspace-reuse'), /Reusing workspace Git objects/u);
   assert.match(startProgressLabel('start.worktree'), /Story worktree/u);
-  assert.match(startProgressLabel('start.remote-observe'), /selected remote branch/u);
+  assert.match(startProgressLabel('start.remote-observe'), /selected branch/u);
   assert.equal(startProgressLabel('start.unknown'), null, 'unknown stages are not shown');
   assert.equal(startProgressLabel('constructor'), null);
 });

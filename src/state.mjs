@@ -100,6 +100,7 @@ import {
 } from './approval-authority.mjs';
 import { assertSourceBoundary, normalizeSourceBoundary } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
+import { specificationClaimLines, storyChangedPathLines } from './deterministic-summary-facts.mjs';
 import { assertIntentAmendmentAcknowledged, pendingIntentAmendmentAcknowledgement, sourceReviewRequired } from './source-review-policy.mjs';
 import { assertPhaseAgentMayMutate } from './phase-actor-policy.mjs';
 import { assertPhaseGovernanceMayAdvance } from './phase-governance-routing.mjs';
@@ -2209,14 +2210,21 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
     let text;
     if (phase.generationPolicy?.producer === 'deterministic') {
       const pathContext = applicationPathContext(config, workflow);
-      const paths = changedFiles(root).map(posix)
+      const uncommitted = changedFiles(root).map(posix)
         .filter((candidate) => isApplicationPath(candidate, pathContext));
+      // What the Story changed, not only what is uncommitted now: a step after a commit listed nothing.
+      const storyBase = workflow.workItem.baseCommit ?? workflow.workItem.baseBranch ?? null;
+      let committed = null;
+      try {
+        committed = storyBase ? changedRepositoryPaths(root, { base: storyBase, target: 'HEAD', pathContext }) : null;
+      } catch {
+        // A shallow clone or missing base: the summary says only uncommitted paths are listed.
+      }
       const checks = (phase.qualityCommands ?? []).length
         ? phase.qualityCommands.map((command, index) => `- \`${externalCommandText(command, index)}\``).join('\n')
         : '- No mandatory commands are configured for this phase.';
-      const claims = Object.values(workflow.spec?.claims ?? {})
-        .flatMap((value) => Array.isArray(value) ? value : [value])
-        .filter(Boolean);
+      const specRecords = specificationPolicy(config, workflow).mode === 'off' ? undefined
+        : await loadActiveSpecRecords(itemDirectory, workflow).catch(() => null);
       text = [
         `# ${phase.label}`,
         '',
@@ -2232,7 +2240,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
         '',
         '## Changed paths',
         '',
-        ...(paths.length ? paths.map((file) => `- \`${file}\``) : ['- No source paths are currently changed.']),
+        ...storyChangedPathLines(workflow, { committed, uncommitted }),
         '',
         '## Configured checks',
         '',
@@ -2240,7 +2248,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
         '',
         '## Specification claims',
         '',
-        ...(claims.length ? claims.map((claim) => `- ${claim.id ?? claim.clauseId ?? 'claim'}: ${claim.verdict ?? claim.kind ?? 'recorded'}`) : ['- No clause claims are currently recorded.']),
+        ...(specRecords === undefined ? ['- Specification tracking is off for this Story.'] : specificationClaimLines(specRecords, workflow)),
         '',
         '## Governed inputs',
         '',

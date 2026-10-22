@@ -23,6 +23,7 @@ import {
   ledgerStatus,
   materializeStateBranchPublicationAuthority,
   persistLedgerIntent,
+  pinRepairHeadline,
   prepareLedgerAppend,
   publishBranchWithLedgerEntry,
   publishToStateBranch,
@@ -472,9 +473,43 @@ test('a ledger entry and its pin land together in one atomic push after one obse
   assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/state']).stdout.trim(), result.ledgerCommit);
   assert.equal(git(root, ['rev-parse', 'refs/remotes/origin/state']).stdout.trim(), result.ledgerCommit,
     'the tracking ref follows the verified landing, so the next read needs no fetch');
+  assert.equal(git(root, ['rev-parse', pinRef]).stdout.trim(), publishedCommit,
+    'the pushed pin is cached locally, so an offline read finds it');
+  assert.equal((await verifyLedger(root, enabled, { offline: true })).valid, true);
   const verified = await verifyLedger(root, enabled);
   assert.equal(verified.valid, true);
   assert.equal(verified.entries, 1);
+});
+
+test('every publication path caches its pin locally, and a missing local pin names the repair that restores it', async () => {
+  // Status said "Capability ledger: invalid" after a completed Story, and the terminal gate printed
+  // one "pin is not reachable: the local cache has no copy" per entry: every push sent
+  // `${commit}:${pin}` to the remote and never created the local pin ref.
+  const { remote, root } = await repository();
+  await initializeLedger(root, enabled);
+  const publishedCommit = git(root, ['rev-parse', 'HEAD']).stdout.trim();
+  // The sequential append (no atomic push) caches its pin too.
+  const sequential = appendIntent('WORK-SEQUENTIAL-PIN');
+  await appendLedgerIntent(root, enabled, sequential, publishedCommit, { atomic: false });
+  const pinRef = (await ledgerShow(root, enabled, sequential.eventId)).entry.transport.pinRef;
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', pinRef]).stdout.trim(), publishedCommit);
+  assert.equal(git(root, ['rev-parse', pinRef]).stdout.trim(), publishedCommit);
+  assert.equal((await verifyLedger(root, enabled, { offline: true })).valid, true);
+
+  // A cache made before this fix: the local pin is gone while the remote holds it.
+  git(root, ['update-ref', '-d', pinRef]);
+  const offline = await verifyLedger(root, enabled, { offline: true });
+  assert.equal(offline.valid, false);
+  assert.match(offline.errors.join('\n'), /local cache has no copy.*Run singularity-flow ledger repair to restore the local pin from origin \(it changes no remote ref; preview it with --dry-run\)/s);
+  const preview = await repairLedgerPins(root, enabled, { dryRun: true });
+  assert.deepEqual(preview.unresolved, [], 'the remote holds every pin');
+  assert.deepEqual(preview.localRepairs, [{ pinRef, status: 'missing' }]);
+  assert.match(pinRepairHeadline(preview), /1 local pin ref\(s\) are missing or stale; nothing was restored\. Restore them from origin \(no remote ref changes\) with:\n  singularity-flow ledger repair$/);
+  assert.notEqual(run('git', ['rev-parse', '--verify', pinRef], { cwd: root, allowFailure: true }).status, 0, 'a preview restores nothing');
+  const repaired = await repairLedgerPins(root, enabled);
+  assert.equal(repaired.valid, true);
+  assert.doesNotMatch(pinRepairHeadline(repaired), /local pin ref/);
+  assert.equal((await verifyLedger(root, enabled, { offline: true })).valid, true);
 });
 
 test('an atomic ledger push whose response is lost is verified by observation, never repeated', {
@@ -711,6 +746,8 @@ test('a lifecycle branch, its ledger entry and the entry pin land together in on
     'the branch tracking ref and upstream follow the landing, as after a branch push');
   assert.equal(git(root, ['config', `branch.${branch}.remote`]).stdout.trim(), 'origin');
   assert.equal(git(root, ['rev-parse', 'refs/remotes/origin/state']).stdout.trim(), published.ledger.ledgerCommit);
+  assert.equal(git(root, ['rev-parse', pinRef]).stdout.trim(), commit, 'the combined push caches its pin locally');
+  assert.equal((await verifyLedger(root, enabled, { offline: true })).valid, true);
   const verified = await verifyLedger(root, enabled);
   assert.equal(verified.valid, true);
   assert.equal(verified.entries, 1);

@@ -652,6 +652,39 @@ test('code-delivery preflight refuses missing source tags before a generation is
       && finding.path === 'src/payment.js'), true);
 });
 
+test('a clause tag already in a planned file the generation does not change is named there, not called missing', async (t) => {
+  const item = await fixture({ 'BIND-1:REQ-001': planned(['src/payment.js']) });
+  t.after(() => rm(item.root, { recursive: true, force: true }));
+  // The behaviour and its tag are already on the branch; this first generation changes only a test.
+  await openCodeGeneration(item, { 'src/payment.js': '// @clause:BIND-1:REQ-001 marks an accepted payment as paid\nexport const payment = true;\n' });
+  const { root, phase, workflow, config } = item;
+  await writeFile(path.join(root, 'tests/payment.test.js'), 'test("payment", () => {});\n');
+  await assert.rejects(evaluateCodeDeliveryPreflight(root, config, workflow, phase), (error) => {
+    assert.equal(error.code, 'CODE_DELIVERY_EVIDENCE_REQUIRED');
+    assert.deepEqual(error.details.sourceBindingsMissing, [{
+      clauseId: 'BIND-1:REQ-001', expectedPaths: ['src/payment.js'], unchangedTags: [{ path: 'src/payment.js', line: 1 }]
+    }]);
+    assert.doesNotMatch(error.message, /does not contain required clause comments/u);
+    assert.match(error.message, /required clause comments are only in planned source this generation does not deliver: @clause:BIND-1:REQ-001 at src\/payment\.js:1/u);
+    // A first generation has no earlier implementation to carry, and is told the real route.
+    assert.equal(error.details.deliveryRoute.kind, 'first-generation');
+    assert.match(error.message, /first generation, so a test-only change implements nothing/u);
+    assert.match(error.message, /upstream-issue raise --work-id BIND-1 --phase planning --about <CLAUSE-ID>/u);
+    return true;
+  });
+  await readyForDraftCheck(item);
+  const missing = (await draftCheck(item)).findings.find((finding) => finding.code === 'code.delivery.source-clause-tag-missing');
+  assert.match(missing.message, /\(the tag at src\/payment\.js:1 is in a file this generation neither changes nor carries, so it binds nothing here/u);
+  // A missing tag in a file the generation changes is still reported as absent.
+  await writeFile(path.join(root, 'src/payment.js'), 'export const payment = false;\n');
+  await assert.rejects(evaluateCodeDeliveryPreflight(root, config, workflow, phase), (error) => {
+    assert.deepEqual(error.details.sourceBindingsMissing, [{ clauseId: 'BIND-1:REQ-001', expectedPaths: ['src/payment.js'] }]);
+    assert.match(error.message, /planned product source does not contain required clause comments: @clause:BIND-1:REQ-001 in src\/payment\.js/u);
+    assert.equal(error.details.deliveryRoute, undefined);
+    return true;
+  });
+});
+
 test('a tag naming a criterion or clause the specification does not hold is refused before publication, at its line', async (t) => {
   const item = await fixture({ 'BIND-1:REQ-001': planned(['src/payment.js']) }, { clauses: ['BIND-1:AC-001'] });
   t.after(() => rm(item.root, { recursive: true, force: true }));

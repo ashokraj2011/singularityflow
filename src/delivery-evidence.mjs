@@ -116,6 +116,73 @@ export function reviewRepairTarget(workflow, phase) {
 }
 
 /**
+ * The open change request a person's rejection or reopen recorded when it returned this already
+ * published code step for rework, from the step itself or a later one, or null. It must be the
+ * newest open return into this step, its decision must still stand, and its reset must be the one
+ * that reopened this exact generation, so an older or unrelated request never qualifies.
+ */
+function reworkReturnRequest(workflow, phase) {
+  const generation = Number(phase?.generation ?? 0);
+  const evidence = phase?.deliveryEvidence;
+  if (!(generation > 0) || !phase.generationCommit || evidence?.status !== 'ready' || !evidence.receiptSha256) return null;
+  const request = [...(workflow.changeRequests ?? [])].reverse().find((candidate) =>
+    candidate.status === 'open' && candidate.targetPhase === phase.id);
+  const source = workflow.phases?.[request?.sourcePhase];
+  const order = workflow.phaseOrder ?? [];
+  // A decision's loop has no person's return to cite, and a confirmed repair keeps its own binding.
+  if (!request || request.decision || request.testingRepair || !source || !order.includes(source.id)
+      || order.indexOf(source.id) < order.indexOf(phase.id)) return null;
+  const decided = (source.approvals ?? []).some((decision) => ['rejected', 'reopened'].includes(decision.decision)
+    && !decision.invalidatedAt && decision.target === phase.id && decision.changeRequestId === request.id);
+  const reset = phase.reworkRevalidation;
+  return decided && Number(reset?.generation) === generation && reset.invalidatedAt === request.requestedAt
+    ? request : null;
+}
+
+/**
+ * The route a refused test-only or unchanged code generation takes, or null. A first generation
+ * must implement; a later one carries its previous generation's unchanged source only when a
+ * person's return reopened it; one left unchanged after a return is withdrawn by that return's
+ * reviewers, which restores the generation it returned. Never a fake product-source edit.
+ */
+function testOnlyDeliveryRoute(workflow, phase, { unchanged, testOnly }) {
+  const workId = workflow.workItem.id;
+  const generation = Number(phase.generation ?? 0);
+  const request = [...(workflow.changeRequests ?? [])].reverse().find((candidate) =>
+    candidate.status === 'open' && candidate.targetPhase === phase.id) ?? null;
+  // Withdrawal fits a return made over clean work. A confirmed repair's checkpoint holds the
+  // review's own edits, which withdrawing would bring back; left unchanged, it publishes instead.
+  if (unchanged && generation > 0 && request?.forwardCheckpoint && !request.decision && !request.testingRepair) {
+    const command = `singularity-flow story rework roll-forward --work-id ${workId} --change-request ${request.id} --json`;
+    return Object.freeze({
+      kind: 'withdraw-return', changeRequestId: request.id, command, skill: '/sf-reject',
+      guidance: `Nothing changed since generation ${generation}, which ${request.id} returned to ${phase.id}. Make the change it asks for, then publish again. `
+        + `If no change is needed, a reviewer of ${request.sourcePhase} withdraws the return instead; that restores generation ${generation} and ${request.sourcePhase} as they stood before ${request.id}, and keeps the history. `
+        + `Copilot: /sf-reject. Shell: ${command}, then the --confirm form it prints. VS Code (model-free): not available for this action.`
+    });
+  }
+  if (!testOnly) return null;
+  if (generation === 0) {
+    const owner = workflow.resolution?.plannedClaims?.owners?.[phase.id] ?? '<EARLIER>';
+    return Object.freeze({
+      kind: 'first-generation', command: null, skill: null,
+      guidance: `This is ${phase.id}'s first generation, so a test-only change implements nothing: deliver the approved behavior in its planned product source, with each clause comment in that change, and publish again. `
+        + 'Only a later generation that a reviewer returned asking for tests carries earlier source unchanged. '
+        + `If a clause truly needs only tests, the plan that owes source for it is what is wrong: raise it against ${owner}, whose approvers correct the row's Fulfillment (test-only, or existing where the behavior already lives). `
+        + `Copilot: /sf-decide. Shell: singularity-flow upstream-issue raise --work-id ${workId} --phase ${owner} --about <CLAUSE-ID> --problem "<TEXT>". VS Code (model-free): not available for this action.`
+    });
+  }
+  const why = !request ? `no return into ${phase.id} is open`
+    : request.decision ? `${request.id} is decision '${request.decision.id}' going round again, not a person's return`
+      : `${request.id} did not reopen generation ${generation}`;
+  return Object.freeze({
+    kind: 'return-required', changeRequestId: request?.id ?? null, command: null, skill: null,
+    guidance: `A test-only change carries generation ${generation}'s unchanged source only in a generation that a reviewer's rejection (reject <step> --to ${phase.id}) or a confirmed review repair returned to ${phase.id}; ${why}. `
+      + 'Change the planned product source the correction needs, with its clause comments, and publish again.'
+  });
+}
+
+/**
  * The source boundary a review may repair inside its own generations. Only a review that writes
  * source, confines itself to an explicit boundary and produces its own test evidence qualifies.
  * One that consumes another step's tests (testEvidenceFrom) or may write anywhere still needs a
@@ -918,13 +985,42 @@ export async function plannedSourceClauseBindings(root, config, workflow, phase,
       }
     }
   }
-  const missing = required.filter(({ clauseId }) => !bindings.some((binding) => binding.clauseId === clauseId))
-    .map((entry) => {
-      const others = othersTags.filter((binding) => binding.clauseId === entry.clauseId)
-        .map((binding) => ({ path: binding.sourcePath, line: binding.line }));
-      return others.length ? { ...entry, otherStoryTags: others } : entry;
-    });
+  const missing = [];
+  for (const entry of required.filter(({ clauseId }) => !bindings.some((binding) => binding.clauseId === clauseId))) {
+    const others = othersTags.filter((binding) => binding.clauseId === entry.clauseId)
+      .map((binding) => ({ path: binding.sourcePath, line: binding.line }));
+    const unchanged = await unchangedClauseTags(root, entry, available);
+    missing.push(others.length || unchanged.length ? {
+      ...entry, ...(others.length ? { otherStoryTags: others } : {}), ...(unchanged.length ? { unchangedTags: unchanged } : {})
+    } : entry);
+  }
   return { mode: 'enforce', required, bindings, missing };
+}
+
+/**
+ * The tags for a missing clause in its planned files that this generation neither changes nor
+ * carries. A tag binds only in source the generation delivers, so these bind nothing; naming them
+ * keeps the refusal from saying the file lacks a tag it holds. Best effort and read-only.
+ */
+async function unchangedClauseTags(root, { clauseId, expectedPaths }, delivered) {
+  const found = [];
+  for (const sourcePath of expectedPaths.filter((candidate) => !delivered.has(candidate))) {
+    try {
+      const secured = await secureRepositoryPath(root, sourcePath, { label: 'Planned product source' });
+      if (!secured.exists || !secured.entry?.isFile() || secured.entry.size >= MAX_BOUND_SOURCE_BYTES) continue;
+      found.push(...scanSourceClauseTags((await readFile(secured.absolute)).toString('utf8'), { sourcePath })
+        .filter((tag) => tag.tag === 'clause' && normalizeQualifiedClauseId(tag.clauseId) === clauseId)
+        .map((tag) => ({ path: sourcePath, line: tag.line })));
+    } catch { /* an unreadable planned path names no tag */ }
+  }
+  return found;
+}
+
+/** Where a missing clause's tag already is, in a planned file this generation does not change. */
+export function unchangedClauseTagsNote(tags = []) {
+  if (!tags.length) return '';
+  const where = tags.map((tag) => `${tag.path}:${tag.line}`).join(', ');
+  return ` (the tag at ${where} is in a file this generation neither changes nor carries, so it binds nothing here: a clause comment counts in planned source the generation changes, or in the previous generation's unchanged source when a reviewer's return asked only for tests)`;
 }
 
 /** Why a tag the Story did not add binds nothing here, said after the tag a step still owes. */
@@ -1238,7 +1334,10 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   const repairDecision = (workflow.phases?.[repairRequest?.sourcePhase]?.approvals ?? []).find((decision) =>
     decision.decision === 'rejected' && !decision.invalidatedAt
       && decision.target === phase.id && decision.changeRequestId === repairRequest?.id);
-  const testOnlyRepair = !changedSourcePaths.length && Boolean(repair)
+  const testOnlyChange = applicationEntries.length > 0
+    && applicationEntries.every((entry) => [entry.oldPath, entry.newPath]
+      .filter(Boolean).every(isAllowedTestAutomationPath));
+  const repairBound = Boolean(repair)
     && Boolean(repairDecision)
     && Number(phase.generation ?? 0) > 0
     && Number(repair.codeGeneration) === Number(phase.generation)
@@ -1247,10 +1346,19 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       === String(phase.deliveryEvidence?.receiptSha256 ?? '').replace(/^sha256:/u, '')
     && /^sha256:[a-f0-9]{64}$/u.test(repair.confirmation ?? '')
     && /^sha256:[a-f0-9]{64}$/u.test(repair.changeSetDigest ?? '')
-    && Array.isArray(repair.changedPaths) && repair.changedPaths.length > 0
-    && applicationEntries.length > 0
-    && applicationEntries.every((entry) => [entry.oldPath, entry.newPath]
-      .filter(Boolean).every(isAllowedTestAutomationPath));
+    && Array.isArray(repair.changedPaths) && repair.changedPaths.length > 0;
+  // A confirmed repair whose returned edits were all undone leaves the approved generation exactly
+  // as it was: nothing further to change. It carries that generation's source and tests unchanged,
+  // runs them again and is reviewed again, as an intent revalidation that changes nothing is.
+  const withdrawnRepair = repairBound && !applicationEntries.length;
+  const confirmedRepair = repairBound && !changedSourcePaths.length && (testOnlyChange || withdrawnRepair);
+  // A reviewer who returned a submitted generation asking only for tests made the same request
+  // after submission: its rejection (or reopen) reset exactly this published generation, so the
+  // generation is judged as the same test repair. The implementation it carries is the previous
+  // generation's exact source bytes, never a claim of new work; a first generation has none.
+  const returnRequest = !confirmedRepair && reworkReturnRequest(workflow, phase);
+  const reworkRepair = !confirmedRepair && !changedSourcePaths.length && testOnlyChange && Boolean(returnRequest);
+  const testOnlyRepair = confirmedRepair || reworkRepair;
   const reusableSourceCandidates = intentRevalidation || testOnlyRepair || documentationOnlyCorrection
     ? (phase.deliveryEvidence?.sourcePaths ?? []).filter((candidate) =>
       !changedEndpointPaths.has(candidate) && !isDocumentationPath(candidate) && !isConfigurationPath(candidate))
@@ -1266,10 +1374,12 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   const changeRequired = !obligations || obligations.some((obligation) => !['existing', 'evidence'].includes(obligation.fulfillment));
   const sourceRequired = !obligations || obligations.some(changesProductSource);
 
-  if (!applicationEntries.length && !intentRevalidation && changeRequired) {
+  const unchangedGeneration = !applicationEntries.length && !intentRevalidation && !withdrawnRepair && changeRequired;
+  if (unchangedGeneration) {
     errors.push('no application source or test paths changed during the work interval');
   }
-  if (phase.sourceBoundary !== 'test-automation' && !sourcePaths.length && sourceRequired) {
+  const implementationMissing = phase.sourceBoundary !== 'test-automation' && !sourcePaths.length && sourceRequired;
+  if (implementationMissing) {
     errors.push('no product source path changed; a summary, configuration or test-only edit is not an implementation');
   }
   errors.push(...fulfillment.problems);
@@ -1330,9 +1440,17 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     ? await implementationBindings(root, { changeSet, required: sourceBindings.required, tags: sourceBindings.bindings })
     : null;
   if (bound) errors.push(...bound.problems);
-  if (sourceBindings.missing.length) {
-    errors.push(`planned product source does not contain required clause comments: ${sourceBindings.missing
+  const absentTags = sourceBindings.missing.filter((missing) => !missing.unchangedTags?.length);
+  if (absentTags.length) {
+    errors.push(`planned product source does not contain required clause comments: ${absentTags
       .map(({ clauseId, expectedPaths, otherStoryTags }) => `@clause:${clauseId} in ${expectedPaths.join(' or ')}${otherStoryTagsNote(otherStoryTags)}`).join('; ')}`);
+  }
+  // The file holds the tag, but this generation does not deliver that file: say so, and what counts.
+  const undeliveredTags = sourceBindings.missing.filter((missing) => missing.unchangedTags?.length);
+  if (undeliveredTags.length) {
+    errors.push(`required clause comments are only in planned source this generation does not deliver: ${undeliveredTags
+      .map(({ clauseId, unchangedTags }) => `@clause:${clauseId} at ${unchangedTags.map((tag) => `${tag.path}:${tag.line}`).join(', ')}`).join('; ')}`
+      + '. A clause comment counts in planned source the generation changes, or in the previous generation\'s unchanged source when a reviewer\'s return asked only for tests');
   }
   const enforceCornerCases = workflow.resolution?.codeDelivery?.cornerCaseObligations === 'enforce'
     || config.governance?.requireCornerCaseCoverage === true;
@@ -1365,9 +1483,13 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
         ? `${unknownCriteria.some((finding) => !owedUnknown.includes(finding.clauseId)) ? 'Remove each @ac tag the step does not owe. ' : ''}`
           + `A criterion the step owes but no specification index defines (${owedUnknown.join(', ')}) cannot be witnessed by an exactly read test; the Story needs an indexed specification first (singularity-flow explain governance-rebuild).`
         : 'Remove each @ac tag: this Story defines no criteria for a test to witness.';
+    const deliveryRoute = unknown ? null : testOnlyDeliveryRoute(workflow, phase, {
+      unchanged: unchangedGeneration, testOnly: testOnlyChange && implementationMissing
+    });
     throw new SingularityFlowError(
       `Phase ${phase.id} has no publishable code delivery:\n- ${errors.join('\n- ')}\n`
-      + (!unknown ? 'Implement the approved behavior, add acceptance-mapped tests, and publish again.'
+      + (deliveryRoute ? deliveryRoute.guidance
+        : !unknown ? 'Implement the approved behavior, add acceptance-mapped tests, and publish again.'
         : `${correction}${errors.length > 1 ? ' Resolve the other findings too, then publish again.' : ' Then publish again.'}`),
       {
         code: unknown ? 'EVIDENCE_CRITERION_UNKNOWN' : 'CODE_DELIVERY_EVIDENCE_REQUIRED',
@@ -1377,6 +1499,10 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
             recoveryCommands: [`singularity-flow phase prepublish ${phase.id} --json`]
           } : {}),
           sourceBindingsMissing: sourceBindings.missing, explanationsMissing: bound?.explanationsMissing ?? [],
+          // The route a refused test-only or unchanged generation takes, never a fake source edit.
+          ...(deliveryRoute ? { deliveryRoute } : {}),
+          ...(deliveryRoute?.command ? { nextAction: { command: deliveryRoute.command, skill: deliveryRoute.skill,
+            label: `If no change is needed, a reviewer of the returning step previews withdrawing ${deliveryRoute.changeRequestId}.` } } : {}),
           ...(cornerCaseGate?.findings?.length ? { cornerCaseFindings: cornerCaseGate.findings,
             cornerCaseHarness: cornerCaseGate.harness } : {}),
           // The exact problems and candidate a dispute would bind to (appeal risk-prepare --finding).
@@ -1447,10 +1573,15 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       reusedTestPaths: reusableTestPaths
     } : null,
     intentRevalidation: intentRevalidation ? phase.intentAmendmentRevalidation.id : null,
-    testingRepair: testOnlyRepair ? {
+    testingRepair: confirmedRepair ? {
       changeRequestId: repairRequest.id,
       priorGeneration: repair.codeGeneration,
       priorReceiptSha256: repair.codeReceiptSha256,
+      reusedSourcePaths: reusableSourcePaths
+    } : reworkRepair ? {
+      changeRequestId: returnRequest.id,
+      priorGeneration: Number(phase.generation),
+      priorReceiptSha256: phase.deliveryEvidence.receiptSha256,
       reusedSourcePaths: reusableSourcePaths
     } : null,
     acceptanceCriteria: {

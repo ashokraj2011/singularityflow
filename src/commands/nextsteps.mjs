@@ -1,4 +1,4 @@
-import { isConvergencePhase } from '../phase-roles.mjs';
+import { isConvergencePhase, isVisualVerificationPhase } from '../phase-roles.mjs';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -105,11 +105,30 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
   if (active?.status === 'in_progress' && !deterministicConvergence && phaseNeedsGeneration(workflow, active)) {
     const { loadDefinition } = await import('../config.mjs');
     definition ??= await loadDefinition(root);
-    if (!(await composedPromptCurrent(root, definition, workflow, active, observeFile))) prerequisites.push({
-      timing: 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id}`,
-      route: 'grounding-composition',
-      reason: 'Compose the phase prompt for this generation before authoring and publishing it.'
-    });
+    if (!(await composedPromptCurrent(root, definition, workflow, active, observeFile))) {
+      // A clarification is recorded against the composed prompt (clarification record refuses
+      // without it). Where publication requires that record (a required checkpoint on an
+      // agent-authored step), composing comes first, not optionally; elsewhere it stays optional
+      // and says that recording an answer needs it.
+      const { resolvedClarificationPolicy } = await import('../clarifications.mjs');
+      let clarification = 'off';
+      let recordRequired = false;
+      try {
+        clarification = resolvedClarificationPolicy(definition, workflow, active).mode;
+        recordRequired = clarification === 'required'
+          && effectivePhasePublicationProducer(active, { modelEnabled: modelMode.enabled }) === 'governed-agent';
+      } catch { /* validate reports an invalid policy */ }
+      prerequisites.push({
+        timing: recordRequired ? 'now' : 'optional', skill: null,
+        command: `singularity-flow wm compose --phase ${active.id}`,
+        route: 'grounding-composition',
+        reason: recordRequired
+          ? 'Compose the phase prompt for this generation first: its required clarification is recorded against that prompt, and clarification record refuses until it exists.'
+          : clarification !== 'off'
+            ? 'Compose the phase prompt for this generation before authoring and publishing it; recording a clarification answer needs it first.'
+            : 'Compose the phase prompt for this generation before authoring and publishing it.'
+      });
+    }
   }
   if (authoring && activeSessionAgent && !deterministicConvergence) {
     const { agentStatus, remoteOutputConflicts } = await import('../agents.mjs');
@@ -206,6 +225,22 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
   }
   const documentReadiness = active ? await (await import('../document-runtime.mjs')).phaseDocumentReadiness(
     root, definition, workflow, active.id) : null;
+  // Enforced visual coverage, read as the step's publication or its submission will check it.
+  const visualCoverageHold = active?.status === 'in_progress' && isVisualVerificationPhase(active)
+    && workflow.resolution?.verification?.coverage === 'enforce'
+    ? await (await import('../visual-coverage.mjs')).visualCoverageHold(root, workflow, active, {
+      itemDirectory: path.join(root, path.dirname(selected.location.path)), published: !phaseNeedsGeneration(workflow, active)
+    }).catch(() => null) : null;
+  // A step that needs an MCP server refuses prepare, publish and submit until its host, warm proof,
+  // attestation, authorized origin and smoke hold here; name what is missing instead of a refusing
+  // prepare. Read-only: nothing is started, warmed or smoked.
+  let mcpHold = null;
+  if (active?.status === 'in_progress' && active.mcp?.requiredServers?.length) {
+    const { inspectMcpPhaseReadiness } = await import('../mcp-readiness.mjs');
+    const readiness = await measureCommandSpan('nextsteps.mcp-readiness',
+      () => inspectMcpPhaseReadiness(root, workflow, active)).catch(() => null);
+    if (readiness && !readiness.ready) mcpHold = { phase: active.id, errors: readiness.errors, actions: readiness.actions };
+  }
   const snapshot = {
     ...nextStepsSnapshot({
       branch: branch(root),
@@ -219,10 +254,12 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
       }))),
       recovery,
       pendingDecisions,
+      visualCoverageHold,
       // Landing routes depend on the host: the GitHub CLI cannot open another host's merge request.
       repositoryHost: classifyGitHost(remoteUrl(root, definition.git?.remote ?? 'origin')),
       prerequisites: await measureCommandSpan('nextsteps.prerequisites', () => storyPrerequisites(root, workflow, selected, modelMode, { definition, executionCatalog, observeFile })),
-      modelMode
+      modelMode,
+      mcpHold
     }),
     evidence: evidenceSummary(workflow),
     repositoryChecks: repositoryCheckStatus(root)

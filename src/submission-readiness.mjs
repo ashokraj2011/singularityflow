@@ -165,6 +165,15 @@ export async function submissionReadiness(root, config, workflow, {
         nextCommand: `singularity-flow appeal list --phase ${phase.id} --json`, nextSkill: '/sf-appeal' };
     }
   }
+  // Enforced visual coverage submission would refuse for, with the same routes: never "ready" first.
+  if (readiness.lifecycleReady && phase?.status === 'in_progress' && phaseId === workflow.currentPhase
+      && workflow.resolution?.verification?.coverage === 'enforce' && config) {
+    const { visualCoverageHold } = await import('./visual-coverage.mjs');
+    const { workDir } = await import('./story-paths.mjs');
+    const hold = await visualCoverageHold(root, workflow, phase, { itemDirectory: workDir(root, config, workflow.workItem.id) }).catch(() => null);
+    if (hold) return { ...readiness, lifecycleReady: false, classification: 'visual-coverage-required', reasonCode: hold.code,
+      reason: hold.reason, command: hold.command, nextCommand: hold.command, nextSkill: copilotSkillForCommand(hold.command) };
+  }
   // Decisions approval would refuse for (a conformance gap, an open upstream issue at the Story's end)
   // route to the decision list before any approval is offered [decision list parity].
   if (phase?.status === 'awaiting_approval' && phaseId === workflow.currentPhase) {

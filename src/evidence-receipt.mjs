@@ -8,6 +8,8 @@ import { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
 import { workDir } from './story-paths.mjs';
 import { run } from './util.mjs';
 
+/** The receipt's next human action while people review the phase. */
+const REVIEW_ACTION = 'Review and decide this phase.';
 export const EVIDENCE_RECEIPT_RESULT_VERSION = 2; // schema-transient: deterministic projection, never persisted
 
 function canonical(value) {
@@ -136,9 +138,7 @@ export async function composeEvidenceReceipt(root, config, workflow, packet) {
     approvals: approvalProjection(phase, packet),
     context: contextProjection(packet),
     reviewPacket: { status: 'exact', sha256: packet.packetSha256 },
-    nextHumanAction: packet.status === 'awaiting_review'
-      ? 'Review and decide this phase.'
-      : 'Continue to the next phase.',
+    nextHumanAction: packet.status === 'awaiting_review' ? REVIEW_ACTION : 'Continue to the next phase.',
     links: {
       reviewPacket: workflow.lineage?.submissions?.find((entry) => entry.packetSha256 === packet.packetSha256)?.path ?? null,
       trace: `singularity-flow spec trace --work-id ${workflow.workItem.id}`,
@@ -164,6 +164,22 @@ export async function composeEvidenceReceipt(root, config, workflow, packet) {
   });
 }
 
+/**
+ * The receipt's approval count in words. A phase nobody approves is not "0/0 (exact)": approval
+ * mode none needs no approval, and mode policy is completed by its deterministic waiver or, when
+ * the waiver does not apply, by people. The receipt's recorded fields, and so its hashes, are unchanged.
+ */
+export function receiptApprovalText(receipt) {
+  const { approvals } = receipt;
+  if (approvals.mode === 'none') return 'not required (approval mode none)';
+  if (approvals.mode === 'policy') {
+    return receipt.nextHumanAction === REVIEW_ACTION
+      ? `${approvals.current} recorded; the low-risk policy did not waive this phase, so it needs human approval`
+      : `waived by the deterministic low-risk policy (${approvals.current} human approval${approvals.current === 1 ? '' : 's'} recorded)`;
+  }
+  return `${approvals.current}/${approvals.required} (${approvals.status})`;
+}
+
 export function renderEvidenceReceipt(receipt) {
   const unavailable = (value) => value == null ? 'unavailable' : String(value);
   return [
@@ -171,7 +187,7 @@ export function renderEvidenceReceipt(receipt) {
     `Source: ${receipt.source.commit.slice(0, 12)} · changes ${unavailable(receipt.changes.count)} (${receipt.changes.status})`,
     `Requirements: ${unavailable(receipt.requirements.claimed)}/${unavailable(receipt.requirements.clauses)} claimed (${receipt.requirements.status})`,
     `Checks: ${receipt.checks.passed} passed · ${receipt.checks.failed} failed · ${receipt.checks.unavailable} unavailable (${receipt.checks.status})${receipt.checks.acceptedRisk ? ` · ${receipt.checks.acceptedRisk} under accepted risk` : ''}`,
-    `Approvals: ${receipt.approvals.current}/${receipt.approvals.required} (${receipt.approvals.status})`,
+    `Approvals: ${receiptApprovalText(receipt)}`,
     `Context: ${receipt.context.status} · Review packet: ${receipt.reviewPacket.sha256.slice(0, 12)}`,
     `Publication: ${receipt.publication.state} · Next: ${receipt.nextHumanAction}`,
     `Receipt core hash: ${receipt.receiptCoreSha256 ?? receipt.receiptSha256}`,
@@ -189,7 +205,7 @@ export function renderEvidenceReceiptMarkdown(receipt) {
     `- Changed paths: **${value(receipt.changes.count)}** (${receipt.changes.status})`,
     `- Requirements claimed: **${value(receipt.requirements.claimed)}/${value(receipt.requirements.clauses)}** (${receipt.requirements.status})`,
     `- Checks: **${receipt.checks.passed} passed**, **${receipt.checks.failed} failed**, **${receipt.checks.unavailable} unavailable** (${receipt.checks.status})${receipt.checks.acceptedRisk ? `, ${receipt.checks.acceptedRisk} under accepted risk` : ''}`,
-    `- Approvals: **${receipt.approvals.current}/${receipt.approvals.required}** (${receipt.approvals.status})`,
+    `- Approvals: **${receiptApprovalText(receipt)}**`,
     `- Context provenance: **${receipt.context.status}**`,
     `- Review packet: \`${receipt.reviewPacket.sha256}\``,
     `- Publication: **${receipt.publication.state}** on \`${receipt.publication.branch}\``,

@@ -21,7 +21,8 @@ export { pinnedResolutionVerification } from './pinned-policy-read.mjs';
 import { storyPublicationPending } from './story-publication-read.mjs';
 export { storyPublicationPending } from './story-publication-read.mjs';
 import {
-  convergencePhaseOf, intentAmendmentSource, isConformancePhase, isConvergencePhase, isVisualVerificationPhase, scopeStepOf
+  convergencePhaseOf, intentAmendmentSource, isConformancePhase, isConvergencePhase, isVisualVerificationPhase, scopeStepOf,
+  stepResponsibilities
 } from './phase-roles.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { reservePreparedDocumentSuccessor } from './prepared-document-successor.mjs';
@@ -70,7 +71,7 @@ import {
 } from './inputs.mjs';
 import { prepareRemoteOutputs, updateRemoteOutputRenderedHashes } from './agents.mjs';
 import {
-  assertPhaseSequence, enforceSequenceGate, phaseExplicitlyReopened, phaseNeedsGeneration
+  assertPhaseSequence, enforceSequenceGate, phaseExplicitlyReopened, phaseNeedsGeneration, phasePublicationCommandForMode
 } from './sequence.mjs';
 import { assertPhasePublicationReadiness } from './phase-publication-readiness.mjs';
 import { answeredMarkerHashes, resolvedClarificationPolicy } from './clarifications.mjs';
@@ -186,7 +187,7 @@ import { verifyMcpEvidence, verifyPhaseMcpRequirements } from './mcp-evidence.mj
 import { assertMcpPhaseReadiness } from './mcp-readiness.mjs';
 import { assertVisualCoverage } from './visual-coverage.mjs';
 import {
-  buildSpecIndex, changedRepositoryPaths, clauseReferences, deriveObservedClaimMap, derivePlannedClaimMap, validatePlannedEvidenceTypes,
+  buildSpecIndex, changedRepositoryPaths, clauseReferences, deriveObservedClaimMap, derivePlannedClaimMap, planSupportingFiles, validatePlannedEvidenceTypes,
   evaluateSpecAcceptance, evaluateSpecCoverage, extractClauses, isSpecificationDefinitionPhase, mergePlannedClaimRecords,
   codeCoverageEnforcement, loadActiveSpecRecords, loadBoundActiveSpecRecords, normalizeClaimMap, normalizeSpecPolicy,
   readBoundSpecificationClaimMap,
@@ -203,7 +204,7 @@ import { sourcePathPolicy, isSeparatelyHashedTestInput } from './source-path-pol
 import {
   hydrateImpactPlan, impactImplementationGate, initializeStoryImpact, invalidateImpactReceipt
 } from './impact.mjs';
-import { evaluateQuickFixWaiver, supportedWaiverPolicy } from './quick-fix-policy.mjs';
+import { evaluateQuickFixWaiver, supportedWaiverPolicy, waiverNotAppliedMessage } from './quick-fix-policy.mjs';
 import {
   applicationChangeSetProjection, applicationPathContext, closeWorkInterval, ensureWorkIntervalBaseline,
   isApplicationChangePath, isApplicationPath,
@@ -228,7 +229,7 @@ import {
 export { completionPhaseOf, nextPhaseAfterSkillAmendment } from './lifecycle-transitions.mjs';
 import { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
 export { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
-import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
+import { mcpTargetOriginServers, storyStartTargetOrigin } from './mcp-target.mjs';
 import { referenceRevision, registerReference } from './harness-imports.mjs';
 import {
   assertAstLifecycleGate, evaluateAstLifecycleGate, persistAstLifecycleReceipt,
@@ -422,7 +423,7 @@ function sourceSection(label, value, fallback = null) {
 function sourceMarkdown(source) {
   const details = [
     `- Source: ${source.type}`, source.url ? `- URL: ${source.url}` : null,
-    source.targetOrigin ? `- Authorized POC target origin: ${source.targetOrigin}` : null,
+    source.targetOrigin ? `- Authorized target origin: ${source.targetOrigin}` : null,
     source.status ? `- Status: ${source.status}` : null,
     source.priority ? `- Priority: ${source.priority}` : null,
     source.storyPoints != null ? `- Story points: ${source.storyPoints}` : null,
@@ -847,10 +848,6 @@ export async function createWorkflow(root, config, {
   const archived = await archive.readWorkflowArchive(root);
   const selectedType = workType ?? archive.firstLiveStoryWorkflow(config.workTypes, archived) ?? Object.keys(config.workTypes)[0];
   archive.assertWorkflowNotArchived(archived, selectedType);
-  const targetOrigin = normalizeMcpTargetOrigin(source?.targetOrigin, {
-    required: selectedType === 'poc-workflow',
-    label: 'POC target URL'
-  });
   // The resolver compares the digest against the exact secure byte buffer it parses, before its
   // capability-free early return. This keeps a vanished or collection-only replacement map from
   // silently downgrading a preflighted delivery Story.
@@ -860,6 +857,8 @@ export async function createWorkflow(root, config, {
   });
   assertCapabilitySource(capability, source);
   const selectedResolution = assertWorkTypeStartable(resolved ?? resolveWorkType(config, selectedType));
+  // Pinned below for every server a step smoke-checks against it; the POC workflow requires it.
+  const targetOrigin = storyStartTargetOrigin(source?.targetOrigin, selectedResolution.phases, { workType: selectedType });
   const resolution = applyCapabilityPolicyToWorkResolution(
     { ...selectedResolution, storage: structuredClone(config.storage ?? null) },
     capability
@@ -1040,9 +1039,9 @@ export async function createWorkflow(root, config, {
     // through the identity migration without being reinterpreted as skill phases.
     schemaVersion: currentSchemaVersion('story-workflow'),
     ...(executionOrigin ? { executionOrigin: structuredClone(executionOrigin) } : {}),
-    mcpAuthorizations: targetOrigin ? {
-      playwright: { schemaVersion: currentSchemaVersion('mcp-authorization'), origins: [targetOrigin], source: 'story-intake', pinnedAt: createdAt }
-    } : {},
+    mcpAuthorizations: targetOrigin ? Object.fromEntries(mcpTargetOriginServers(resolution.phases).map((server) => [server,
+      { schemaVersion: currentSchemaVersion('mcp-authorization'), origins: [targetOrigin], source: 'story-intake', pinnedAt: createdAt }
+    ])) : {},
     workItem: {
       id, title: title || id, workType: selectedType, workTypeLabel: resolution.label,
       branch: currentBranch, baseBranch,
@@ -2207,15 +2206,23 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
     }
     let text;
     if (phase.generationPolicy?.producer === 'deterministic') {
+      const { specificationClaimLines, storyChangedPathLines } = await import('./deterministic-summary-facts.mjs');
       const pathContext = applicationPathContext(config, workflow);
-      const paths = changedFiles(root).map(posix)
+      const uncommitted = changedFiles(root).map(posix)
         .filter((candidate) => isApplicationPath(candidate, pathContext));
+      // What the Story changed, not only what is uncommitted now: a step after a commit listed nothing.
+      const storyBase = workflow.workItem.baseCommit ?? workflow.workItem.baseBranch ?? null;
+      let committed = null;
+      try {
+        committed = storyBase ? changedRepositoryPaths(root, { base: storyBase, target: 'HEAD', pathContext }) : null;
+      } catch {
+        // A shallow clone or missing base: the summary says only uncommitted paths are listed.
+      }
       const checks = (phase.qualityCommands ?? []).length
         ? phase.qualityCommands.map((command, index) => `- \`${externalCommandText(command, index)}\``).join('\n')
         : '- No mandatory commands are configured for this phase.';
-      const claims = Object.values(workflow.spec?.claims ?? {})
-        .flatMap((value) => Array.isArray(value) ? value : [value])
-        .filter(Boolean);
+      const specRecords = specificationPolicy(config, workflow).mode === 'off' ? undefined
+        : await loadActiveSpecRecords(itemDirectory, workflow).catch(() => null);
       text = [
         `# ${phase.label}`,
         '',
@@ -2231,7 +2238,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
         '',
         '## Changed paths',
         '',
-        ...(paths.length ? paths.map((file) => `- \`${file}\``) : ['- No source paths are currently changed.']),
+        ...storyChangedPathLines(workflow, { committed, uncommitted }),
         '',
         '## Configured checks',
         '',
@@ -2239,7 +2246,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
         '',
         '## Specification claims',
         '',
-        ...(claims.length ? claims.map((claim) => `- ${claim.id ?? claim.clauseId ?? 'claim'}: ${claim.verdict ?? claim.kind ?? 'recorded'}`) : ['- No clause claims are currently recorded.']),
+        ...(specRecords === undefined ? ['- Specification tracking is off for this Story.'] : specificationClaimLines(specRecords, workflow)),
         '',
         '## Governed inputs',
         '',
@@ -3267,6 +3274,93 @@ async function assertRequiredArtifactSetPublishable(root, phase, catalog) {
   );
 }
 
+/**
+ * What a phase that delivers no code may change, refused exactly as its publication refuses it:
+ * protected process paths, files outside an artifact-only phase's artifacts, its source boundary,
+ * and application source, tests or migrations no approved code phase governs. Publication and
+ * prepublish run this one function, so a draft prepublish calls ready is not refused at publish for
+ * a change it never mentioned [gate parity].
+ */
+export async function assertPhaseChangeScope(root, config, workflow, phase) {
+  const changed = changedFiles(root);
+  const untracked = new Set(untrackedFiles(root));
+  const protectedPaths = [...new Set([
+    ...(config.governance?.protectedPaths ?? []),
+    ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
+  ])];
+  const caseInsensitivePaths = repositoryCaseInsensitivePaths(root);
+  const comparePath = (value) => caseInsensitivePaths ? value.toLocaleLowerCase('en-US') : value;
+  const protectedChange = protectedPaths.find((protectedPath) => changed.some((file) => {
+    const candidate = comparePath(file);
+    const guard = comparePath(protectedPath.replace(/\/$/, ''));
+    return candidate === guard || candidate.startsWith(`${guard}/`);
+  }));
+  if (protectedChange) {
+    throw new SingularityFlowError(`Generation cannot modify protected process path: ${protectedChange}`,
+      // The code-delivery refusal's code and shape, so recovery routes both the same way.
+      { code: 'CHANGE_SET_POLICY_VIOLATION', details: { violationKind: 'protected-process-path', workId: workflow.workItem.id,
+        phase: phase.id, paths: [protectedChange],
+        diagnosticAction: { command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json` } } });
+  }
+  if ((phase.writeScope ?? 'artifact-only') === 'artifact-only') {
+    const allowed = `${workDirRelative(config, workflow.workItem.id)}/artifacts/${phase.id}/`;
+    const outside = changed.filter((file) => !ignored(config, workflow, file, { untracked: untracked.has(file) }) && !file.startsWith(allowed));
+    if (outside.length) {
+      const change = await crossPhaseChange(root, config, workflow, phase, outside);
+      const described = describeCrossPhaseChange(change, { code: 'PHASE_ARTIFACT_ONLY_CHANGES', gate: 'submission', workflow, phase });
+      throw new SingularityFlowError(`Phase ${phase.id} is artifact-only, but files outside its artifacts changed: ${outside.join(', ')}. ${described.text}`,
+        { code: 'PHASE_ARTIFACT_ONLY_CHANGES', details: { phase: phase.id, changedPaths: outside, crossPhase: change, gate: described.gate } });
+    }
+  } else {
+    const allowedArtifact = `${workDirRelative(config, workflow.workItem.id)}/artifacts/${phase.id}/`;
+    const sourceChanges = changed.filter((file) => !ignored(config, workflow, file, { untracked: untracked.has(file) }) && !file.startsWith(allowedArtifact));
+    assertSourceBoundary(phase.sourceBoundary, sourceChanges, { phaseId: phase.id });
+    // A phase that is not a code phase may change application source only after an approved code
+    // phase, whose review-freshness rules then govern the change. With none before it, nothing
+    // would: such a phase may change only what needs no requirement — dependency locks, build and
+    // CI configuration, repository metadata and documentation.
+    const governedByCode = workflow.phaseOrder.slice(0, workflow.phaseOrder.indexOf(phase.id))
+      .some((id) => phaseRequiresCodeDelivery(workflow.phases[id]) && workflow.phases[id]?.status === 'approved');
+    if (!governedByCode) {
+      const ungoverned = sourceChanges.filter((file) => classifySupportingChange(file).refused);
+      if (ungoverned.length) {
+        // Another phase's artifact is a Story record, not application source, so name it as one.
+        const storyArtifacts = `${workDirRelative(config, workflow.workItem.id)}/artifacts/`;
+        const otherArtifacts = ungoverned.filter((file) => file.startsWith(storyArtifacts));
+        const source = ungoverned.filter((file) => !file.startsWith(storyArtifacts));
+        throw new SingularityFlowError([
+          source.length ? `Phase ${phase.id} is not a code phase and no approved code phase comes before it, so it cannot publish application source, tests or migrations: ${source.join(', ')}. `
+            + 'Make this change in a Story whose workflow has a code phase (for example quick-fix), or limit this phase to dependency, build, CI, repository metadata and documentation files.' : null,
+          otherArtifacts.length ? `Phase ${phase.id} changed another phase's artifact, which only that phase publishes: ${otherArtifacts.join(', ')}. Restore it, or return to that phase to change it.` : null
+        ].filter(Boolean).join(' '),
+        { code: 'PHASE_SOURCE_CHANGE_UNGOVERNED', details: { phase: phase.id, paths: ungoverned, otherPhaseArtifacts: otherArtifacts } });
+      }
+    }
+  }
+}
+
+/**
+ * A plan in a workflow with no code step lists only what that workflow can publish. Its later
+ * steps refuse application source, tests and migrations (assertPhaseChangeScope), so the plan's
+ * `## Supporting files` is held to the same classifier when the plan is published, not first when
+ * a later step's publication refuses the files it named.
+ */
+export async function assertUncodedPlanSupportingFiles(root, config, workflow, phase) {
+  if (!stepResponsibilities(workflow, phase.id).includes('plan')) return;
+  if (workflow.phaseOrder.some((id) => phaseRequiresCodeDelivery(workflow.phases[id]))) return;
+  const artifactPath = requiredRepoPath(config, workflow, phase);
+  const text = await readArtifactText(root, artifactPath);
+  if (!text) return;
+  try {
+    planSupportingFiles(text);
+  } catch (error) {
+    if (error?.code !== 'SPEC_SUPPORTING_FILE_INVALID') throw error;
+    throw new SingularityFlowError(`Phase ${phase.id} cannot publish: ${error.message} This workflow has no code step, so no later step `
+      + 'could publish it: plan only those files here, and make a source, test or migration change in a Story whose workflow has a code phase (for example quick-fix).',
+    { code: error.code, details: { ...(error.details ?? {}), phase: phase.id, path: artifactPath } });
+  }
+}
+
 export async function publishGeneration(root, config, workflow, {
   phaseId, usage: rawUsage, authorship = null, persist = true, publicationTransaction = null
 } = {}) {
@@ -3357,7 +3451,7 @@ export async function publishGeneration(root, config, workflow, {
           fingerprint: contentFindings.find((finding) => finding.fingerprint)?.fingerprint ?? null,
           retry: {
             skill: directCopilotSkill(generationSkillForPhase(phase, workflow)), maximumAttempts: 1, requiresFingerprintChange: true,
-            command: phasePublicationCommand(phase)
+            command: phasePublicationCommandForMode(phase) ?? phasePublicationCommand(phase)
           }
         }
       }
@@ -3390,6 +3484,7 @@ export async function publishGeneration(root, config, workflow, {
     await assertRequiredArtifactSetPublishable(root, phase, catalog);
   }
   await assertQualifiedConformanceReady(root, config, workflow, phase, 'publish a generation');
+  await assertUncodedPlanSupportingFiles(root, config, workflow, phase);
   // A code-generation phase must deliver code and acceptance-mapped tests. This is deliberately
   // before prompt/input preparation and telemetry capture: an artifact-only attempt is a refused
   // preflight, not a half-started generation that has to be repaired in durable state.
@@ -3469,57 +3564,7 @@ export async function publishGeneration(root, config, workflow, {
   // Code delivery has already evaluated protected paths and source boundaries against its one
   // baseline-aware, rename-aware RepositoryChangeSet. Reconstructing those facts from a name-only
   // dirty-tree list here would both disagree on committed changes and reintroduce rename bypasses.
-  if (!deliveryPreflight) {
-    const changed = changedFiles(root);
-    const untracked = new Set(untrackedFiles(root));
-    const protectedPaths = [...new Set([
-      ...(config.governance?.protectedPaths ?? []),
-      ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
-    ])];
-    const caseInsensitivePaths = repositoryCaseInsensitivePaths(root);
-    const comparePath = (value) => caseInsensitivePaths ? value.toLocaleLowerCase('en-US') : value;
-    const protectedChange = protectedPaths.find((protectedPath) => changed.some((file) => {
-      const candidate = comparePath(file);
-      const guard = comparePath(protectedPath.replace(/\/$/, ''));
-      return candidate === guard || candidate.startsWith(`${guard}/`);
-    }));
-    if (protectedChange) throw new SingularityFlowError(`Generation cannot modify protected process path: ${protectedChange}`);
-    if ((phase.writeScope ?? 'artifact-only') === 'artifact-only') {
-      const allowed = `${workDirRelative(config, workflow.workItem.id)}/artifacts/${phase.id}/`;
-      const outside = changed.filter((file) => !ignored(config, workflow, file, { untracked: untracked.has(file) }) && !file.startsWith(allowed));
-      if (outside.length) {
-        const change = await crossPhaseChange(root, config, workflow, phase, outside);
-        const described = describeCrossPhaseChange(change, { code: 'PHASE_ARTIFACT_ONLY_CHANGES', gate: 'submission', workflow, phase });
-        throw new SingularityFlowError(`Phase ${phase.id} is artifact-only, but files outside its artifacts changed: ${outside.join(', ')}. ${described.text}`,
-          { code: 'PHASE_ARTIFACT_ONLY_CHANGES', details: { phase: phase.id, changedPaths: outside, crossPhase: change, gate: described.gate } });
-      }
-    } else {
-      const allowedArtifact = `${workDirRelative(config, workflow.workItem.id)}/artifacts/${phase.id}/`;
-      const sourceChanges = changed.filter((file) => !ignored(config, workflow, file, { untracked: untracked.has(file) }) && !file.startsWith(allowedArtifact));
-      assertSourceBoundary(phase.sourceBoundary, sourceChanges, { phaseId: phase.id });
-      // A phase that is not a code phase may change application source only after an approved code
-      // phase, whose review-freshness rules then govern the change. With none before it, nothing
-      // would: such a phase may change only what needs no requirement — dependency locks, build and
-      // CI configuration, repository metadata and documentation.
-      const governedByCode = workflow.phaseOrder.slice(0, workflow.phaseOrder.indexOf(phase.id))
-        .some((id) => phaseRequiresCodeDelivery(workflow.phases[id]) && workflow.phases[id]?.status === 'approved');
-      if (!governedByCode) {
-        const ungoverned = sourceChanges.filter((file) => classifySupportingChange(file).refused);
-        if (ungoverned.length) {
-          // Another phase's artifact is a Story record, not application source, so name it as one.
-          const storyArtifacts = `${workDirRelative(config, workflow.workItem.id)}/artifacts/`;
-          const otherArtifacts = ungoverned.filter((file) => file.startsWith(storyArtifacts));
-          const source = ungoverned.filter((file) => !file.startsWith(storyArtifacts));
-          throw new SingularityFlowError([
-            source.length ? `Phase ${phase.id} is not a code phase and no approved code phase comes before it, so it cannot publish application source, tests or migrations: ${source.join(', ')}. `
-              + 'Make this change in a Story whose workflow has a code phase (for example quick-fix), or limit this phase to dependency, build, CI, repository metadata and documentation files.' : null,
-            otherArtifacts.length ? `Phase ${phase.id} changed another phase's artifact, which only that phase publishes: ${otherArtifacts.join(', ')}. Restore it, or return to that phase to change it.` : null
-          ].filter(Boolean).join(' '),
-          { code: 'PHASE_SOURCE_CHANGE_UNGOVERNED', details: { phase: phase.id, paths: ungoverned, otherPhaseArtifacts: otherArtifacts } });
-        }
-      }
-    }
-  }
+  if (!deliveryPreflight) await assertPhaseChangeScope(root, config, workflow, phase);
   /**
    * Constitution citations `[SPK:REQ-101]`.
    *
@@ -5547,6 +5592,7 @@ async function submitPhaseTransition(root, config, workflow, {
     console.warn(`Warning: phase '${phase.id}' names approval policy '${phase.approvalPolicy.policy}', which this build cannot evaluate, so it waives nothing; the phase needs human approval.`);
   }
   const waiver = waiverPolicy ? evaluateQuickFixWaiver(root, config, workflow, phase, waiverPolicy) : null;
+  if (waiver && !waiver.eligible) console.warn(`Warning: ${waiverNotAppliedMessage(phase.id, waiver)}`);
   if (!reviewableFailure && (phase.approvalPolicy.mode === 'none' || waiver?.eligible)) {
     phase.status = 'approved';
     phase.approvedAt = phase.submittedAt;

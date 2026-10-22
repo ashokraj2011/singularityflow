@@ -49,6 +49,14 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Story risk review is ${slot(s.status)}. Failed or unavailable validation remains failed or unavailable; phase advancement is evaluated separately.`,
     preserves: false
   },
+  'story.target-origin.previewed': {
+    headline: (s) => `Previewed pinning ${slot(s.origin)} as this Story's authorized target origin. Nothing was pinned; a person who approves the step that checks it confirms the plan digest.`,
+    preserves: true
+  },
+  'story.target-origin.pinned': {
+    headline: (s) => `Pinned ${slot(s.origin)} as this Story's authorized target origin; smoke receipts and browser evidence for any other origin are refused.`,
+    preserves: false
+  },
   'story.test-policy.origin-inspected': {
     headline: (s) => `Local test-command review origin is ${slot(s.status)}. No Story policy changed and no test ran. Use --json for the exact immutable reviews.`,
     preserves: true

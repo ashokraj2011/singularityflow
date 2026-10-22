@@ -193,7 +193,7 @@ test('a new Story pins the specification-first workflow and routes its next step
   assert.ok(readiness.testObservations.some((entry) => entry.counts?.passed >= 1));
 
   run(process.execPath, [CLI, '--no-model', 'start', 'SPEC-CODE-1',
-    '--from-branch', 'main', '--work-type', WORK_TYPE,
+    '--from-branch', 'main', '--work-type', WORK_TYPE, '--target-url', 'https://staging.example.test/app',
     '--title', 'Exercise spec-code-test loop', '--description', 'Review one browser behavior.'], root);
   const workflow = JSON.parse(await readFile(path.join(root,
     'singularity/work-items/SPEC-CODE-1/workflow.json'), 'utf8'));
@@ -205,6 +205,8 @@ test('a new Story pins the specification-first workflow and routes its next step
     maxAttempts: 3, resetOnPhase: 'specification' }]);
   assert.deepEqual(workflow.resolution.phases.find((phase) => phase.id === 'testing').mcp.requiredServers,
     ['playwright']);
+  // The testing review smoke-checks Playwright against this origin, so start pinned it.
+  assert.deepEqual(workflow.mcpAuthorizations.playwright.origins, ['https://staging.example.test']);
   const next = run(process.execPath, [CLI, '--no-model', 'nextsteps', '--json'], root);
   assert.match(next, /specification/);
 });

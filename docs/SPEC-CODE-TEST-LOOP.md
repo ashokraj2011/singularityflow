@@ -24,13 +24,25 @@ Use `singularity-flow mcp doctor --server playwright --json` (Copilot: `/sf-mcp 
 readiness. The host owns transport, credentials, and permission prompts. SFlow does not provide an
 isolated runner or attest network denial for arbitrary project tests.
 
-Start with an explicit base branch:
+Start with an explicit base branch and the authorized target the testing review will browse. Its
+origin is pinned to the Story, and smoke receipts and browser evidence for any other origin are
+refused, so give it at start:
 
 ```bash
-singularity-flow start DEMO-101 --from-branch main --work-type spec-code-test-loop
+singularity-flow start DEMO-101 --from-branch main --work-type spec-code-test-loop \
+  --target-url https://staging.example.com
 ```
 
-Copilot equivalent: `/sf-start`, then choose **Spec → code → Playwright review**.
+Copilot equivalent: `/sf-start`, then choose **Spec → code → Playwright review**. Story-start
+readiness lists the machine setup the testing review needs (`mcp scaffold`, `mcp warm --network`,
+`mcp attest`, `mcp smoke`) so it is in place before that step; `nextsteps` names whichever part is
+still missing once the Story reaches it.
+
+A Story started without its target (start does not refuse it) has its origin pinned once, by a person who approves the
+testing review: `singularity-flow story target-origin DEMO-101 --url https://staging.example.com`
+previews the pin and names its plan digest, and the same command with `--reason TEXT --confirm
+<PLAN-DIGEST>` records it in one Story commit. A pinned origin is never replaced; a different target
+needs a new Story.
 
 ## Inspect the optional browser-revision foundation
 
@@ -124,7 +136,8 @@ The Testing reviewer records a clause-specific finding and chooses its target:
 - **Code or executable-test defect:** `/sf-reject` to `implementation`. SFlow records the change
   request, invalidates dependent approvals, and opens a new Code generation. Re-run the structured
   Code tests and Playwright review on the new code; old receipts remain in history but are stale
-  for the new generation.
+  for the new generation. A return that asks only for a test needs only the test change: the
+  approved product source carries over byte-for-byte with its clause comments.
 - **Source or test edit discovered while Testing is still in progress:** keep the edited bytes in
   the worktree; do not publish them as Testing output. Preview
   `singularity-flow reject testing --to implementation --repair --reason "<reason>"` (Copilot:

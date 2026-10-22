@@ -924,6 +924,13 @@ test('a phase with no code phase before it cannot publish application code', asy
   // source published here would carry no code governance at all.
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/ledger.mjs'), 'export const ledger = 2;\n');
+  // Prepublish reports the refusal publication would make, from the same check [gate parity].
+  const preview = JSON.parse(flow(root, ['phase', 'prepublish', 'implementation', '--json'], { selection: selection('chore', 'developer') }).stdout);
+  assert.equal(preview.status, 'correction-required');
+  const ungoverned = preview.findings.find((finding) => finding.code === 'PHASE_SOURCE_CHANGE_UNGOVERNED');
+  assert.ok(ungoverned, JSON.stringify(preview.findings));
+  assert.match(ungoverned.message, /src\/ledger\.mjs.*\(PHASE_SOURCE_CHANGE_UNGOVERNED\)/s);
+  assert.equal(preview.commands.publish, null);
   const refused = flow(root, ['phase', 'publish', 'implementation'], { allowFailure: true, selection: selection('chore', 'developer') });
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr, /is not a code phase and no approved code phase comes before it/);
@@ -950,6 +957,35 @@ test('a phase with no code phase before it cannot publish application code', asy
   await writeFile(path.join(root, 'package.json'), '{ "name": "ledger-app", "dependencies": { "ledger-client": "2.0.0" } }\n');
   flow(root, ['phase', 'publish', 'implementation'], { selection: selection('chore', 'developer') });
   assert.equal(JSON.parse(await readFile(workflowFile, 'utf8')).phases.implementation.generation, 1);
+});
+
+test('a chore plan cannot list application source or tests as supporting files', async () => {
+  const root = await repository(); const workId = 'CHORE-PLAN-1';
+  flow(root, ['start', workId, '--from-branch', 'main', '--title', 'Bump the ledger client', '--description', 'Maintenance only.'],
+    { selection: selection('chore', 'developer') });
+  const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
+  const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  await completeArtifact(root, workflow, 'intake');
+  const intake = path.join(root, 'singularity/work-items', workId, 'artifacts/intake/intake.md');
+  const completed = await readFile(intake, 'utf8');
+  // No step of a chore could ever publish these, so the plan naming them is refused when it is
+  // published, by the classifier the later step uses, and prepublish says so first.
+  await writeFile(intake, completed.replace('## Validation', '- `package.json` — raises the ledger client.\n'
+    + '- `src/ledger.mjs` — reads the new client.\n- `test/ledger.test.mjs` — covers it.\n\n## Validation'));
+  const preview = JSON.parse(flow(root, ['phase', 'prepublish', 'intake', '--json'], { selection: selection('chore', 'developer') }).stdout);
+  assert.equal(preview.status, 'correction-required');
+  const invalid = preview.findings.find((finding) => finding.code === 'specification.supporting-file-invalid');
+  assert.ok(invalid, JSON.stringify(preview.findings));
+  assert.match(invalid.message, /`src\/ledger\.mjs`.*cannot be a supporting file.*no code step/s);
+  const refused = flow(root, ['phase', 'publish', 'intake', '--json'], { allowFailure: true, selection: selection('chore', 'developer') });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stdout, /SPEC_SUPPORTING_FILE_INVALID/);
+  assert.equal(JSON.parse(await readFile(workflowFile, 'utf8')).phases.intake.generation, 0, 'nothing was published');
+  // Dependency, build and documentation files are what a chore plans, and they still publish.
+  await writeFile(intake, completed.replace('## Validation', '- `package.json` — raises the ledger client.\n\n## Validation'));
+  assert.equal(JSON.parse(flow(root, ['phase', 'prepublish', 'intake', '--json'], { selection: selection('chore', 'developer') }).stdout).status, 'ready');
+  flow(root, ['phase', 'publish', 'intake'], { selection: selection('chore', 'developer') });
+  assert.equal(JSON.parse(await readFile(workflowFile, 'utf8')).phases.intake.generation, 1);
 });
 
 test('completed work can be reopened only through an authorized governed change request', async () => {

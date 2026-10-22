@@ -752,9 +752,11 @@ test('selected-base Story preflight reuses the earlier UI choice without another
   assert.equal(result.preflight.readiness.ready, true);
   assert.doesNotMatch(preview.stderr, /git\.remote-inventory=/,
     'the selected base is proven by the fresh preflight fetch, without a second all-heads probe');
-  // Proven fresh either by the preflight's own fetch or by a listing, made moments ago, showing the
-  // tracking ref already at the remote tip; never by both, and never by an all-heads inventory.
-  assert.match(preview.stderr, /git\.(?:remote-fetch|story-preflight-fetch-verified)=1(?:\s|$)/);
+  // Proven fresh by the preflight's own fetch, by a listing made moments ago showing the tracking
+  // ref already at the remote tip, or (metadata-only intake) by one probe of the selected base;
+  // exactly one remote operation, never two, and never an all-heads inventory.
+  assert.match(preview.stderr, /git\.(?:remote-fetch|story-preflight-fetch-verified|remote\.operation\.probe)=1(?:\s|$)/);
+  assert.match(preview.stderr, /git\.remote\.total=1(?:\s|$)/);
   assert.ok(!/git\.remote-fetch=1(?:\s|$)/.test(preview.stderr)
     || !/git\.story-preflight-fetch-verified=/.test(preview.stderr));
   assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
@@ -899,6 +901,14 @@ test('workspace intake aggregates profiles, installed workflows, and one remote 
     result.intake.storyWorkflows.find((workflow) => workflow.id === 'chore').generatesCode,
     false
   );
+  // Start Work asks for --target-url where a step smoke-checks a browser, derived from each workflow;
+  // only the POC workflow refuses to start without it.
+  const loop = result.intake.storyWorkflows.find((workflow) => workflow.id === 'spec-code-test-loop');
+  assert.equal(loop.targetUrl, 'recommended');
+  assert.deepEqual(loop.browserSteps.map((step) => [step.phase, step.servers]), [['testing', ['playwright']]]);
+  assert.ok(loop.browserSteps[0].setup.includes('singularity-flow mcp warm playwright --network'));
+  assert.equal(result.intake.storyWorkflows.find((workflow) => workflow.id === 'feature').targetUrl, 'optional');
+  assert.equal(result.intake.storyWorkflows.find((workflow) => workflow.id === 'feature').browserSteps, undefined);
   assert.ok(result.intake.availableStoryWorkflows.some((workflow) =>
     workflow.id === 'benchmarking-a' && workflow.governs === 'story' && workflow.installed === false));
   const availableBenchmarking = result.intake.availableStoryWorkflows.find((workflow) =>

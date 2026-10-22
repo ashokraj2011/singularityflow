@@ -24,35 +24,54 @@ function authoredConformanceText(markdown) {
   return String(markdown ?? '').replace(MANAGED_METADATA, '').replace(MANAGED_INPUTS, '');
 }
 
-/** Required disclosure is derived from retained approvals, not model-authored recollection. */
-export function inspectSelfApprovalDisclosures(markdown, workflow) {
-  const authored = authoredConformanceText(markdown);
-  const findings = [];
-  for (const phaseId of workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {})) {
+const REGEXP_SPECIAL = /[.*+?^${}()|[\]\\]/gu;
+
+/**
+ * Whether `text` names `value` whole: a phase ID, login or email not run into a longer one, so
+ * `implementation` is not named by `implementation-spec` or `implementation.md`, nor `ann` by `anna`.
+ */
+export function mentionsWhole(text, value) {
+  if (!value) return false;
+  return new RegExp(`(?<![\\w.@+-])${String(value).replace(REGEXP_SPECIAL, '\\$&')}(?![\\w@+-]|\\.\\w)`, 'u').test(String(text ?? ''));
+}
+
+function retainedSelfApprovals(workflow) {
+  const entries = [];
+  const phaseIds = [...new Set([...(workflow?.phaseOrder ?? []), ...Object.keys(workflow?.phases ?? {})])];
+  for (const phaseId of phaseIds) {
     for (const approval of workflow?.phases?.[phaseId]?.approvals ?? []) {
       if (approval.invalidatedAt || !approval.selfApproval) continue;
       const actor = approval.actor?.login ?? approval.actor?.email ?? approval.actor?.name ?? null;
-      if (authored.includes(phaseId) && (!actor || authored.includes(actor))) continue;
-      findings.push({
-        code: 'conformance.self-approval-undisclosed', clauseId: null, line: null,
-        message: `conformance report does not disclose self-approval for ${phaseId}${actor ? ` by ${actor}` : ''}`
-      });
+      entries.push({ phaseId, actor,
+        line: `- \`${phaseId}\`: self-approved${actor ? ` by ${actor}` : ''}; not an independent review.` });
     }
   }
-  return findings;
+  return entries;
+}
+
+/**
+ * Each retained self-approval `text` does not disclose: one that names neither its phase ID nor its
+ * approver whole. Draft check, publication and the gate share it [gate parity]; the message names
+ * the exact line that satisfies it.
+ */
+export function undisclosedSelfApprovals(text, workflow) {
+  return retainedSelfApprovals(workflow)
+    .filter(({ phaseId, actor }) => !(mentionsWhole(text, phaseId) && (!actor || mentionsWhole(text, actor))))
+    .map((entry) => ({ ...entry,
+      message: `conformance report does not disclose self-approval for ${entry.phaseId}${entry.actor ? ` by ${entry.actor}` : ''}; `
+        + `add this line under the report's self-approval section, naming the phase and approver exactly: ${entry.line}` }));
+}
+
+/** Required disclosure is derived from retained approvals, not model-authored recollection. */
+export function inspectSelfApprovalDisclosures(markdown, workflow) {
+  return undisclosedSelfApprovals(authoredConformanceText(markdown), workflow).map(({ message }) => ({
+    code: 'conformance.self-approval-undisclosed', clauseId: null, line: null, message
+  }));
 }
 
 /** Each self-approval a conformance report owes, from retained approvals, as one Markdown line. */
 export function selfApprovalDisclosureLines(workflow) {
-  const lines = [];
-  for (const phaseId of workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {})) {
-    for (const approval of workflow?.phases?.[phaseId]?.approvals ?? []) {
-      if (approval.invalidatedAt || !approval.selfApproval) continue;
-      const actor = approval.actor?.login ?? approval.actor?.email ?? approval.actor?.name ?? null;
-      lines.push(`- \`${phaseId}\`: self-approved${actor ? ` by ${actor}` : ''}; not an independent review.`);
-    }
-  }
-  return lines;
+  return retainedSelfApprovals(workflow).map(({ line }) => line);
 }
 
 /**

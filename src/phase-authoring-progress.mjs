@@ -1,6 +1,6 @@
 /** Read-only drafting milestones. Neither source changes nor tests imply publication. */
 import { phaseRequiresCodeDelivery, generationSkillForPhase } from './code-delivery-policy.mjs';
-import { nextPhaseGeneration } from './phase-generation.mjs';
+import { consumedByPublishedGeneration, nextPhaseGeneration } from './phase-generation.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
@@ -15,12 +15,18 @@ export function phaseAuthoringProgress(workflow, phase, { draftEvidence = null }
     && Number(phase.generationIntent.generation) === generation;
   let stage, argv, instruction;
   let skill = generationSkillForPhase(phase, workflow);
-  if (code && phase.generationIntent?.status === 'consumed') {
+  if (code && phase.generationIntent?.status === 'consumed' && !consumedByPublishedGeneration(phase)) {
     stage = 'review-successor'; argv = ['recover', workflow.workItem.id, '--phase', phase.id, '--json']; skill = '/sf-recover';
     instruction = 'Preserve the published generation and current edits. Review the guarded successor boundary before changing source.';
   } else if (code && !open) {
+    // A step returned for rework still holds the intent its published generation consumed. Its
+    // successor opens with `phase begin` from that publication (recovery has nothing to repair
+    // while the published bytes are unchanged; when they changed, nextsteps routes to recovery
+    // before this point), and begin's own adoption review guards any edits made since.
     stage = 'open-code-generation'; argv = ['phase', 'begin', phase.id, '--json'];
-    instruction = 'Open the exact code generation before any application edit. Existing changes require the returned adoption review; never auto-confirm or discard them.';
+    instruction = phase.generationIntent?.status === 'consumed'
+      ? `Open ${phase.id} generation ${generation} from published generation ${phase.generation} before any application edit; the published generation stays preserved. Existing changes require the returned adoption review; never auto-confirm or discard them.`
+      : 'Open the exact code generation before any application edit. Existing changes require the returned adoption review; never auto-confirm or discard them.';
   } else if (draftEvidence?.draftExists && draftEvidence.draftModified) {
     stage = 'validate-existing-draft'; argv = ['phase', 'prepublish', phase.id, '--for-agent', '--json'];
     instruction = 'Preserve the existing code, tests and authored draft. Validate it, repair only the returned findings, and publish only when fresh prepublish returns commands.publish. An authored draft or manual test pass is not publication.';

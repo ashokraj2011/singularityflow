@@ -12,7 +12,7 @@ related:
   - revision-feedback-attachments
   - artifacts-and-generation
   - workflow-authoring
-version: 3
+version: 4
 ---
 ## Purpose and prerequisites
 
@@ -32,7 +32,7 @@ REV is eligible only when the selected Story session is ready, the active open g
 
 1. Inspect `revision status` and stop on a wrong task, published Candidate, recovery, or unsaved-buffer refusal.
 2. Supply exact feedback on standard input. Add `--criteria <CLAUSE-ID>` only when explicitly selected. Add `--attachment-set <SHA256>` only for an already registered, active set bound to the same Story, phase, feedback digest, repository, and context; the preview revalidates it before use.
-3. Run the dry-run form once. Review the exact clean source snapshot (or the loop's already-retained head), classification, criteria and specification disposition, allowed paths/effects, execution unit, budgets, precheck profile, exact routing plan, and plan digest. Preview retains no first parent, starts no interval, and changes no code. A routing-required result creates no durable Human Request and cannot be confirmed. Its `routing` field is the exact preview result; `/sf-recommend` or `singularity-flow recommend --json` only re-evaluates the repository's current next step and does not consume that routing plan.
+3. Run the dry-run form once. Review the exact clean source snapshot (or the loop's already-retained head), classification, criteria and specification disposition, allowed paths/effects, execution unit, budgets, precheck profile, exact routing plan, and plan digest. Preview retains no first parent, starts no interval, and changes no code. A routing-required result creates no durable Human Request and cannot be confirmed. Its `routing` field is the exact preview result; `/sf-nextsteps` or `singularity-flow nextsteps --json` only re-evaluates the repository's current next step and does not consume that routing plan.
 4. Confirm with the full digest and the same feedback bytes and selectors. The CLI rereads every binding; a changed Candidate, phase, authority, buffer, feedback byte, or plan fails closed. Successful first confirmation retains the previewed source snapshot as the immutable first parent.
 5. After interval start, the developer edits and saves only the returned bounded code/test scope. The guarded build does not invoke a model, project command, shell, or Git command to make those edits. Preview with `singularity-flow revision capture --preview --note <NOTE> --saved-buffers-confirmed`, then repeat the same note and assertion with `--plan sha256:<PLAN> --confirm sha256:<PLAN>` only after reviewing that digest. A Code check is Candidate evidence, not the later Testing or Verification verdict.
 6. Inspect the resulting card. It identifies the exact retained Candidate, deterministic precheck, warnings, unexplained diff units, and remaining actions. It does not invent test, screenshot, or hunk-attribution evidence.

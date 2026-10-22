@@ -4,11 +4,12 @@
  * figma-mobile enforces coverage of a phone and a tablet profile and pins only Playwright and
  * Figma tools. The phone screenshot comes from a simulator, so it is recorded as a native capture
  * (`visual record`), never under an MCP tool. The app has no tablet layout, so a person who approves
- * visual-verification records that the tablet does not apply (`decision visual-profile`); an
- * approver of another group cannot. Submission is refused while the tablet is neither captured nor
- * decided, naming both routes; after the decision the Story completes and its final gate passes,
- * with the tablet listed as not applicable and never as passed. No simulator runs: the test writes
- * fixture PNGs.
+ * visual-verification records that the tablet does not apply (`decision visual-profile`) when the
+ * step opens, before anything is drafted, so the decision commit is that one decision; an approver of
+ * another group cannot. Prepublish names, and publication refuses, the phone while it has no capture,
+ * so no generation is published that submission would refuse; after the capture the Story completes
+ * and its final gate passes, with the tablet listed as not applicable and never as passed. No
+ * simulator runs: the test writes fixture PNGs.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -100,6 +101,35 @@ test('a phone-only figma-mobile Story completes with a native phone capture and 
   for (const phaseId of Object.keys(agents)) {
     let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
     assert.equal(workflow.currentPhase, phaseId);
+    if (phaseId === 'visual-verification') {
+      // Only the visual step's approvers decide it (the Story's starter is enrolled in every group, so the
+      // outsider is a third identity). It is decided as the step opens, so its commit is that decision alone.
+      const reason = 'This release ships to phones only; the app has no tablet layout to verify.';
+      const decision = ['decision', 'visual-profile', workId, '--phase', phaseId, '--profile', 'tablet-834x1194', '--not-applicable', '--reason', reason];
+      const outsider = flow(root, [...decision, '--json'], { actor: 'Other Engineer', allowFailure: true });
+      assert.notEqual(outsider.status, 0);
+      assert.equal(json(outsider).error.code, 'APPROVAL_IDENTITY_NOT_AUTHORIZED', outsider.stdout);
+      const lastProfile = flow(root, ['decision', 'visual-profile', workId, '--phase', phaseId, '--profile', 'watch-198x242', '--not-applicable', '--reason', reason, '--json'],
+        { actor: REVIEWER, allowFailure: true });
+      assert.equal(json(lastProfile).error.code, 'VISUAL_PROFILE_UNKNOWN');
+      const beforeDecision = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+      const accepted = json(flow(root, [...decision, '--json'], { actor: REVIEWER }));
+      assert.equal(accepted.data.record.id, 'VPD-001');
+      assert.equal(accepted.data.record.actor, 'mobile.reviewer.one@example.com');
+      assert.equal(accepted.data.record.authorityGroup, 'design-reviewers');
+      assert.match(execute('git', ['log', '-1', '--format=%s'], root).stdout, /^\[MOBILE-201\]\[visual-profile:not-applicable\] visual-verification tablet-834x1194/u);
+      const decisionCommit = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+      const stored = JSON.parse(await readFile(workflowFile, 'utf8'));
+      assert.deepEqual(stored.visualProfileDecisions, [accepted.data.record], 'recorded append-only in workflow.json');
+      assert.equal(stored.history.at(-1).event, 'visual_profile_decided');
+      const { onlyHumanDecisionCommits } = await import('../src/state.mjs');
+      assert.deepEqual(onlyHumanDecisionCommits(root, YAML.parse(await readFile(configPath, 'utf8')), stored, beforeDecision, decisionCommit), [decisionCommit],
+        'the decision commit is one person\'s decision');
+      // The phone cannot be decided away too: it is the last profile left to evidence.
+      const last = flow(root, ['decision', 'visual-profile', workId, '--phase', phaseId, '--profile', 'phone-390x844', '--not-applicable', '--reason', reason, '--json'],
+        { actor: REVIEWER, allowFailure: true });
+      assert.equal(json(last).error.code, 'VISUAL_PROFILE_LAST_REQUIRED');
+    }
     flow(root, ['prepare', phaseId], selection(agents[phaseId]));
     flow(root, ['resume', workId], selection(agents[phaseId]));
     workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
@@ -132,49 +162,27 @@ test('a phone-only figma-mobile Story completes with a native phone capture and 
       assert.notEqual(mismatch.status, 0);
       assert.equal(json(mismatch).error.code, 'VISUAL_CAPTURE_DIMENSIONS_MISMATCH', mismatch.stdout);
       assert.deepEqual(json(mismatch).error.details.capture, { profileId: 'tablet-834x1194', expected: { width: 834, height: 1194 }, actual: { width: 390, height: 844 } });
-      const captured = flow(root, record('phone-390x844', 'phone.png'), selection('qa'));
-      assert.match(captured.stdout, /Recorded native capture vnc-[0-9a-f-]+ for phone-390x844: 390×844 from simulator iPhone 15 \(17\.5\)\./u);
-      await unlink(path.join(root, 'phone.png'));
-      flow(root, ['phase', 'publish', phaseId], selection('qa'));
 
-      // Neither captured nor decided: refused, naming both routes.
-      const refused = flow(root, ['submit', '--json'], { ...selection('qa'), allowFailure: true });
+      // The phone, the profile left to evidence, has no capture yet: prepublish names it and publication
+      // is refused naming the capture, so no generation is published that submission would refuse.
+      const prepublished = json(flow(root, ['phase', 'prepublish', phaseId, '--json'], { ...selection('qa'), allowFailure: true }));
+      assert.notEqual(prepublished.status, 'ready');
+      assert.ok(prepublished.findings.some((finding) => finding.details?.sourceCode === 'VISUAL_COVERAGE_FAILED'
+        && /phone-390x844/u.test(finding.message)), JSON.stringify(prepublished.findings));
+      const refused = flow(root, ['phase', 'publish', phaseId, '--json'], { ...selection('qa'), allowFailure: true });
       assert.notEqual(refused.status, 0);
       const refusal = json(refused);
       assert.equal(refusal.error.code, 'VISUAL_COVERAGE_FAILED', refused.stdout);
-      const decide = `singularity-flow decision visual-profile ${workId} --phase visual-verification --profile tablet-834x1194 --not-applicable --reason "<why this screen size does not apply to this Story>"`;
-      assert.deepEqual(refusal.error.details.uncoveredProfiles, ['tablet-834x1194']);
+      assert.deepEqual(refusal.error.details.uncoveredProfiles, ['phone-390x844']);
       const routes = refusal.remediationPlan.steps.map((step) => step.command);
-      assert.ok(routes.includes(decide), JSON.stringify(refusal.remediationPlan));
-      assert.ok(routes.some((command) => command?.startsWith('singularity-flow visual record --phase visual-verification --profile-id tablet-834x1194 ')), JSON.stringify(routes));
+      assert.ok(routes[0]?.startsWith('singularity-flow visual record --phase visual-verification --profile-id phone-390x844 '), JSON.stringify(routes));
+      assert.ok(!routes.some((command) => command?.startsWith('singularity-flow decision visual-profile')), 'the last profile left to evidence cannot be decided away');
+      assert.equal(JSON.parse(await readFile(workflowFile, 'utf8')).phases[phaseId].generation ?? 0, 0, 'nothing was published');
 
-      // Only the visual step's approvers decide it (the Story's starter is enrolled in every group, so the
-      // outsider is a third identity).
+      const captured = flow(root, record('phone-390x844', 'phone.png'), selection('qa'));
+      assert.match(captured.stdout, /Recorded native capture vnc-[0-9a-f-]+ for phone-390x844: 390×844 from simulator iPhone 15 \(17\.5\)\./u);
+      await unlink(path.join(root, 'phone.png'));
       const reason = 'This release ships to phones only; the app has no tablet layout to verify.';
-      const decision = ['decision', 'visual-profile', workId, '--phase', phaseId, '--profile', 'tablet-834x1194', '--not-applicable', '--reason', reason];
-      const outsider = flow(root, [...decision, '--json'], { actor: 'Other Engineer', allowFailure: true });
-      assert.notEqual(outsider.status, 0);
-      assert.equal(json(outsider).error.code, 'APPROVAL_IDENTITY_NOT_AUTHORIZED', outsider.stdout);
-      const lastProfile = flow(root, ['decision', 'visual-profile', workId, '--phase', phaseId, '--profile', 'watch-198x242', '--not-applicable', '--reason', reason, '--json'],
-        { actor: REVIEWER, allowFailure: true });
-      assert.equal(json(lastProfile).error.code, 'VISUAL_PROFILE_UNKNOWN');
-      const beforeDecision = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
-      const accepted = json(flow(root, [...decision, '--json'], { actor: REVIEWER }));
-      assert.equal(accepted.data.record.id, 'VPD-001');
-      assert.equal(accepted.data.record.actor, 'mobile.reviewer.one@example.com');
-      assert.equal(accepted.data.record.authorityGroup, 'design-reviewers');
-      assert.match(execute('git', ['log', '-1', '--format=%s'], root).stdout, /^\[MOBILE-201\]\[visual-profile:not-applicable\] visual-verification tablet-834x1194/u);
-      const decisionCommit = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
-      const stored = JSON.parse(await readFile(workflowFile, 'utf8'));
-      assert.deepEqual(stored.visualProfileDecisions, [accepted.data.record], 'recorded append-only in workflow.json');
-      assert.equal(stored.history.at(-1).event, 'visual_profile_decided');
-      const { onlyHumanDecisionCommits } = await import('../src/state.mjs');
-      assert.deepEqual(onlyHumanDecisionCommits(root, YAML.parse(await readFile(configPath, 'utf8')), stored, beforeDecision, decisionCommit), [decisionCommit],
-        'the decision commit is one person\'s decision');
-      // The phone cannot be decided away too: it is the last profile left to evidence.
-      const last = flow(root, ['decision', 'visual-profile', workId, '--phase', phaseId, '--profile', 'phone-390x844', '--not-applicable', '--reason', reason, '--json'],
-        { actor: REVIEWER, allowFailure: true });
-      assert.equal(json(last).error.code, 'VISUAL_PROFILE_LAST_REQUIRED');
 
       const status = json(flow(root, ['visual', 'status', '--json']));
       assert.equal(status.coverage.status, 'warn');
@@ -185,7 +193,7 @@ test('a phone-only figma-mobile Story completes with a native phone capture and 
       assert.match(text.stdout, /Not applicable: tablet-834x1194 \(VPD-001, decided by mobile\.reviewer\.one@example\.com through design-reviewers\)/u);
       assert.match(text.stdout, /Native capture: phone-390x844 vnc-/u);
     }
-    if (phaseId !== 'visual-verification') flow(root, ['phase', 'publish', phaseId], selection(agents[phaseId]));
+    flow(root, ['phase', 'publish', phaseId], selection(agents[phaseId]));
     flow(root, ['submit'], selection(agents[phaseId]));
     flow(root, ['approve', '--yes'], { actor: REVIEWER, ...selection(agents[phaseId]) });
   }

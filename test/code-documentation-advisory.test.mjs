@@ -225,3 +225,21 @@ export function added(entry) {
   assert.deepEqual(advisories.map((entry) => `${entry.path}:${entry.value}`), ['src/ledger.js:added'],
     'Go and Python tests and a migration are not product APIs');
 });
+
+test('a step with only non-documentation advisories never prints an empty documentation heading', async () => {
+  const { prepublishAdvisoryLines } = await import('../src/commands/phase-lifecycle.mjs');
+  // A release or conformance step: its advisories are evidence/traceability ones, and the
+  // documentation check did not apply (no code generation), so it has no count or guidance.
+  const release = prepublishAdvisoryLines({
+    advisories: [{ code: 'conformance.witness-unreported', category: 'evidence', message: 'The report omits a recorded human visual review.' }],
+    documentation: { status: 'not-applicable', undocumented: 0, reason: 'phase-does-not-deliver-code' }
+  });
+  assert.deepEqual(release, ['Advisories (never block publication): 1.', '  · The report omits a recorded human visual review.']);
+  assert.doesNotMatch(release.join('\n'), /undefined|public declaration/u);
+  const code = prepublishAdvisoryLines({
+    advisories: [{ code: 'code.documentation.missing', category: 'documentation', message: "Public function 'a' in src/a.js:1 has no doc comment." }],
+    documentation: { status: 'missing', undocumented: 1, guidance: 'Change comments only, never code.' }
+  });
+  assert.deepEqual(code, ['Documentation advisories (never block publication): 1 public declaration(s) without a doc comment.',
+    "  · Public function 'a' in src/a.js:1 has no doc comment.", 'Documentation: Change comments only, never code.']);
+});

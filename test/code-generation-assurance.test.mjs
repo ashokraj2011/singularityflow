@@ -225,6 +225,137 @@ test('a confirmed Testing return permits exact prior product source with a new u
   });
 });
 
+test('a person\'s return of a published Code generation permits a test-only generation over its exact source, never a first generation', async (t) => {
+  const root = await repository('rework-test-only');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(path.join(root, 'tests'), { recursive: true });
+  const priorTest = '// @ac:CGA-REWORK:AC-001\ntest("payment", () => {});\n';
+  const source = await readFile(path.join(root, 'src/payment.js'));
+  await writeFile(path.join(root, 'tests/payment.test.js'), priorTest);
+  git(root, ['add', '.']);
+  git(root, ['commit', '-m', 'published Code generation 1']);
+  git(root, ['switch', '-c', 'CGA-REWORK']);
+  const codeCommit = git(root, ['rev-parse', 'HEAD']);
+  const digest = (value) => createHash('sha256').update(value).digest('hex');
+  const returnedAt = '2026-10-22T08:00:00.000Z';
+  const priorReceiptSha256 = `sha256:${'a'.repeat(64)}`;
+  const phase = {
+    id: 'implementation', generation: 1, status: 'in_progress',
+    writeScope: 'source-and-artifact', sourceBoundary: 'unrestricted',
+    generationPolicy: { task: 'code' }, requiredArtifact: { kind: 'implementation-summary' },
+    generationCommit: codeCommit,
+    // The reset the return applied: this exact generation, at the request's own instant.
+    reworkRevalidation: { generation: 1, invalidatedAt: returnedAt },
+    approvals: [],
+    deliveryEvidence: {
+      status: 'ready', receiptSha256: priorReceiptSha256, sourcePaths: ['src/payment.js'],
+      testPaths: ['tests/payment.test.js'], paths: [
+        { path: 'src/payment.js', fileKind: 'regular-file', sha256: digest(source) },
+        { path: 'tests/payment.test.js', fileKind: 'regular-file', sha256: digest(priorTest) }
+      ]
+    }
+  };
+  const rejection = { decision: 'rejected', phase: 'testing', target: 'implementation', changeRequestId: 'CR-001', at: returnedAt };
+  const workflow = {
+    workItem: { id: 'CGA-REWORK', workType: 'classic-delivery', branch: 'CGA-REWORK' },
+    currentPhase: 'implementation', phaseOrder: ['intake', 'implementation', 'testing'],
+    phases: {
+      intake: { id: 'intake', status: 'approved', generation: 1, approvals: [] },
+      implementation: phase,
+      testing: {
+        id: 'testing', status: 'not_started', generation: 1,
+        approvalPolicy: { authorities: ['quality-reviewers'], minimum: 1, rejectTo: ['implementation', 'testing'] },
+        approvals: [rejection]
+      }
+    },
+    // An ordinary rejection after submission: no in-progress repair binding.
+    changeRequests: [{ id: 'CR-001', status: 'open', sourcePhase: 'testing', targetPhase: 'implementation',
+      requestedAt: returnedAt, comment: 'Add a test for a non-round amount.' }],
+    resolution: {
+      configSha256: 'c'.repeat(64), sourceSha256: 's'.repeat(64), templates: {},
+      capability: { policy: { protectedPaths: [] } },
+      codeDelivery: normalizeCodeDeliveryPolicy()
+    },
+    lineage: { canonicalBranch: 'CGA-REWORK', requiredChecks: [] }, history: []
+  };
+  const config = {
+    workItemRoot: 'singularity/work-items',
+    governance: { requireAcceptanceCriteriaTags: false },
+    workTypes: { 'classic-delivery': {} }
+  };
+  const itemDirectory = path.join(root, 'singularity/work-items/CGA-REWORK');
+  await mkdir(itemDirectory, { recursive: true });
+  await ensureWorkIntervalBaseline(root, config, workflow, {
+    phaseId: phase.id, itemDirectory, itemRelative: 'singularity/work-items/CGA-REWORK'
+  });
+  await writeFile(path.join(root, 'tests/payment.test.js'), `${priorTest}test("non-round amount", () => {});\n`);
+  const repaired = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+  assert.deepEqual(repaired.sourcePaths, ['src/payment.js']);
+  assert.deepEqual(repaired.testingRepair, {
+    changeRequestId: 'CR-001', priorGeneration: 1, priorReceiptSha256, reusedSourcePaths: ['src/payment.js']
+  });
+
+  // The Code step's own reviewer may return it asking only for tests, too.
+  workflow.changeRequests[0].sourcePhase = 'implementation';
+  workflow.phases.testing.approvals = [];
+  phase.approvals = [{ ...rejection, phase: 'implementation' }];
+  assert.equal((await evaluateCodeDeliveryPreflight(root, config, workflow, phase)).testingRepair?.changeRequestId, 'CR-001');
+  workflow.changeRequests[0].sourcePhase = 'testing';
+  workflow.phases.testing.approvals = [rejection];
+  phase.approvals = [];
+
+  // Every binding is required; each unbound test-only generation is refused and told why.
+  const refusedAs = async (kind) => assert.rejects(() => evaluateCodeDeliveryPreflight(root, config, workflow, phase), (error) => {
+    assert.equal(error.code, 'CODE_DELIVERY_EVIDENCE_REQUIRED');
+    assert.match(error.message, /no product source path changed/u);
+    assert.equal(error.details.deliveryRoute?.kind, kind);
+    return true;
+  });
+  const without = async (label, change, undo) => {
+    change();
+    await refusedAs('return-required').catch((error) => assert.fail(`${label}: ${error.message}`));
+    undo();
+  };
+  await without('a withdrawn decision', () => { rejection.invalidatedAt = returnedAt; }, () => { delete rejection.invalidatedAt; });
+  await without('a reset at another instant', () => { phase.reworkRevalidation.invalidatedAt = '2026-10-22T09:00:00.000Z'; },
+    () => { phase.reworkRevalidation.invalidatedAt = returnedAt; });
+  await without('a reset of another generation', () => { phase.reworkRevalidation.generation = 0; },
+    () => { phase.reworkRevalidation.generation = 1; });
+  await without('a decision\'s loop', () => { workflow.changeRequests[0].decision = { id: 'repaired', by: 'rule' }; },
+    () => { delete workflow.changeRequests[0].decision; });
+  await without('a newer open request without a decision', () => {
+    workflow.changeRequests.push({ id: 'CR-002', status: 'open', sourcePhase: 'testing', targetPhase: 'implementation', requestedAt: returnedAt });
+  }, () => { workflow.changeRequests.pop(); });
+  await without('a return from an earlier step', () => {
+    workflow.changeRequests[0].sourcePhase = 'intake';
+    workflow.phases.intake.approvals = [{ ...rejection, phase: 'intake' }];
+  }, () => { workflow.changeRequests[0].sourcePhase = 'testing'; workflow.phases.intake.approvals = []; });
+  await without('a generation with no ready receipt', () => { phase.deliveryEvidence.status = 'invalid'; },
+    () => { phase.deliveryEvidence.status = 'ready'; });
+
+  // A first generation has no earlier implementation to carry: a test-only change implements nothing.
+  phase.generation = 0;
+  phase.reworkRevalidation.generation = 0;
+  await assert.rejects(() => evaluateCodeDeliveryPreflight(root, config, workflow, phase), (error) => {
+    assert.equal(error.details.deliveryRoute?.kind, 'first-generation');
+    assert.match(error.message, /first generation, so a test-only change implements nothing/u);
+    assert.match(error.message, /upstream-issue raise --work-id CGA-REWORK --phase <EARLIER> --about <CLAUSE-ID>/u);
+    return true;
+  });
+  phase.generation = 1;
+  phase.reworkRevalidation.generation = 1;
+
+  // Changed product source is an ordinary generation, not a test repair.
+  await writeFile(path.join(root, 'src/payment.js'), 'export const payment = false;\n');
+  const productCorrection = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+  assert.equal(productCorrection.testingRepair, null);
+  assert.deepEqual(productCorrection.sourcePaths, ['src/payment.js']);
+  // Carried source must be the exact prior bytes; a returned generation never launders an edit.
+  phase.deliveryEvidence.paths[0].sha256 = digest('export const payment = "other";\n');
+  await writeFile(path.join(root, 'src/payment.js'), source);
+  await assert.rejects(() => evaluateCodeDeliveryPreflight(root, config, workflow, phase), { code: 'CODE_DELIVERY_REUSE_INVALID' });
+});
+
 test('code delivery accepts only exact protected configuration projected at Story start', async (t) => {
   const root = await repository('configuration-projection');
   t.after(() => rm(root, { recursive: true, force: true }));

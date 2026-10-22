@@ -80,6 +80,24 @@ test('checkpoint allocation and consumed generations share the permission bounda
   assert.equal(mutationContractPresentation(deriveMutationContract({ definition: {}, workflow: source })).codeAuthoringReady, false);
 });
 
+test('a code step returned for rework opens its successor with phase begin, not an empty recovery', () => {
+  const source = workflow();
+  const phase = source.phases[source.currentPhase];
+  // A later step returned this one: its published generation 1 consumed the intent it began with.
+  Object.assign(phase, { generation: 1, rejectedAt: '2026-10-20T00:00:00.000Z',
+    generationIntent: { status: 'consumed', generation: 1 } });
+  const progress = phaseAuthoringProgress(source, phase);
+  assert.equal(progress.stage, 'open-code-generation');
+  assert.equal(progress.next.command, 'singularity-flow phase begin team-repair --json');
+  assert.match(progress.instruction, /generation 2 from published generation 1/);
+  assert.equal(workflowNextSteps(source)[0].command, 'singularity-flow phase begin team-repair --json');
+  assert.equal(deriveMutationContract({ definition: {}, workflow: source }).next[0].command, progress.next.command);
+  // Published and not reopened: nothing to open, so the retained generation is inspected instead.
+  delete phase.rejectedAt;
+  assert.equal(phaseAuthoringProgress(source, phase), null);
+  assert.match(deriveMutationContract({ definition: {}, workflow: source }).next[0].command, /recover PROGRESS-1 --phase team-repair/);
+});
+
 test('all seeded/example phases and future document/code phases use structural milestones', async () => {
   let count = 0;
   for (const file of ['../templates/workflow.yml', '../examples/workflow-with-quality-gates.yml']) {

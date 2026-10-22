@@ -289,7 +289,7 @@ test('a specification draft not yet published or submitted recovers from a laggi
   git(repo, 'push', '-q', '-u', 'origin', 'main');
   const started = sflow('start', 'SPEC-1', '--title', 'Add an order note', '--description', 'Orders may carry an optional note.',
     '--acceptance-criteria', 'A note up to 200 characters is stored with the order.', '--work-type', 'spec-code-test-loop',
-    '--from-branch', 'main', '--readiness-baseline', 'defer');
+    '--target-url', 'https://staging.example.test', '--from-branch', 'main', '--readiness-baseline', 'defer');
   assert.equal(started.status, 0, started.stderr);
   const spec = path.join(repo, 'singularity/work-items/SPEC-1/artifacts/specification/spec.md');
   await writeFile(spec, (await readFile(spec, 'utf8')).replace('## Actors', '## Actors\n\nOrder clerks, still being written.'));

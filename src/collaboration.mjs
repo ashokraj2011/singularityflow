@@ -24,6 +24,7 @@ import { recoveryActionGuidance } from './recovery-action-guidance.mjs';
 import { evidenceContractRecoveryActions } from './phase-evidence-amendment.mjs';
 import { inspectDraftEvidenceHold } from './draft-evidence-hold.mjs';
 import { withWorktreeReadScope } from './read-scope.mjs';
+import { operationContext } from './operation-context.mjs';
 
 /** A lock older than this is not a Git command still at work; a crashed one left it. */
 export const STALE_INDEX_LOCK_MS = 5 * 60 * 1000;
@@ -183,7 +184,10 @@ export function watchText(item) {
   return `${item.workId} — ${item.title}\nPhase: ${phase}\nAssignment: ${item.assignment?.assignee ?? 'unassigned'}${item.reminder ? `\n! Approval reminder: waiting ${item.reminder.waitingHours}h (threshold ${item.reminder.thresholdHours}h)` : ''}\nLast event: ${item.lastEvent?.event ?? 'none'}${item.lastEvent?.detail ? ` — ${item.lastEvent.detail}` : ''}\nUpdated: ${item.updatedAt}\n`;
 }
 
-export async function recoveryPlan(root, config, workflow, { fetch = false, phaseId = null, inspectActivePhase = false, modelEnabled = true } = {}) {
+// A caller that names no model mode (nextsteps, check, review continuation) gets the run's own, so
+// recovery never offers a model-authored retry to a run that has no model.
+export async function recoveryPlan(root, config, workflow, { fetch = false, phaseId = null, inspectActivePhase = false,
+  modelEnabled = operationContext()?.modelMode?.enabled !== false } = {}) {
   return withWorktreeReadScope(() => readRecoveryPlan(root, config, workflow, { fetch, phaseId, inspectActivePhase, modelEnabled }));
 }
 

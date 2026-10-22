@@ -3,6 +3,7 @@
  *
  *   singularity-flow visual status [--json]
  *   singularity-flow visual compare --expected RECORD-OR-PATH --actual RECORD-OR-PATH [--profile ID] [--json]
+ *     (a record is an MCP record ID, a native capture vnc-... or a Story document DOC-nnn)
  *   singularity-flow visual record --phase VISUAL-STEP --profile-id ID --screen-id ID --state-id ID --file PNG
  *     --source simulator|emulator|device --device NAME [--os-version VERSION] [--note TEXT] [--json]
  *
@@ -48,6 +49,8 @@ export async function visualCommand(positionals, options) {
     for (const entry of coverage.covered.filter((item) => item.method === 'native-capture')) {
       console.log(`Native capture: ${entry.profileId} ${entry.recordId} from ${entry.source?.kind} ${entry.source?.device}`);
     }
+    // Each capture counts only for the generation whose publication commits it: say so, not just "stale".
+    if (coverage.stale?.length) console.log(`Not counted for generation ${coverage.generation}: ${coverage.stale.join(', ')} (a capture counts only for the generation its publication commits; one recorded after ${coverage.phase} was published counts once it is published again).`);
     for (const entry of coverage.notApplicable ?? []) {
       console.log(`Not applicable: ${entry.profileId} (${entry.decisionId}, decided by ${entry.actor} through ${entry.authorityGroup}): ${entry.reason}`);
     }
@@ -59,7 +62,7 @@ export async function visualCommand(positionals, options) {
   if (action === 'compare') {
     const result = await compareVisualArtifacts(root, workflow, {
       expected: optionString(options, 'expected'), actual: optionString(options, 'actual'),
-      profileId: optionString(options, 'profile'), itemDirectory: workDir(root, config, workflow.workItem.id)
+      profileId: optionString(options, 'profile'), itemDirectory: workDir(root, config, workflow.workItem.id), config
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Visual comparison ${result.id}: ${result.status}; ${result.differingPixels} pixels (${(result.differingPixelRatio * 100).toFixed(3)}%).`);

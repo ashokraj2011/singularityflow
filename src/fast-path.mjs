@@ -22,6 +22,7 @@ import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { workflowGuide } from './guide.mjs';
 import { effectivePhasePublicationProducer } from './manual-authorship.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { operationContext } from './operation-context.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 
 /**
@@ -184,7 +185,8 @@ function checkpointFor(workflow, phase, { publicationPending }) {
  * kernel operation ran is a vocabulary that can quietly stop matching it.
  */
 export function planFastPath(workflow, definition, verb, {
-  publicationPending = false, modelMode = { enabled: true }, sourceReviewEvidence = null
+  // A caller without a mode (the editor projection) gets the run's own, never an assumed model.
+  publicationPending = false, modelMode = operationContext()?.modelMode ?? { enabled: true }, sourceReviewEvidence = null
 } = {}) {
   if (!FAST_PATH_VERBS.includes(verb)) {
     throw new SingularityFlowError(`Unknown fast-path verb '${verb}'. Use one of ${FAST_PATH_VERBS.join(', ')}.`);

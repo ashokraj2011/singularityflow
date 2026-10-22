@@ -108,6 +108,15 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
       { details: { sourceCode: error.code ?? null } });
   }
 
+  // A plan in a workflow with no code step meets publication's supporting-files refusal here.
+  try {
+    await (await import('./state.mjs')).assertUncodedPlanSupportingFiles(root, config, workflow, phase);
+  } catch (error) {
+    if (error?.code !== 'SPEC_SUPPORTING_FILE_INVALID') throw error;
+    add('specification.supporting-file-invalid', 'planning-table', error.message,
+      { details: { sourceCode: error.code, ownerPhase: phase.id, repairScope: 'current-draft' } });
+  }
+
   const specPolicy = normalizeSpecPolicy(workflow.resolution?.spec ?? config.spec ?? {});
   const plannedPolicy = workflow.resolution?.plannedClaims;
   const definesClauses = isSpecificationDefinitionPhase(phase)
@@ -239,6 +248,28 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
   return { blockers, actions, evidenceRepair, planningContract };
 }
 
+const CHANGE_SCOPE_CODES = new Set(['CHANGE_SET_POLICY_VIOLATION', 'PHASE_ARTIFACT_ONLY_CHANGES',
+  'SOURCE_BOUNDARY_VIOLATION', 'PHASE_SOURCE_CHANGE_UNGOVERNED']);
+
+async function changeScopeBlocker(root, config, workflow, phase) {
+  try {
+    await (await import('./state.mjs')).assertPhaseChangeScope(root, config, workflow, phase);
+    return null;
+  } catch (error) {
+    // Only the scope refusals themselves; anything else stays publication's to report, as before.
+    if (!CHANGE_SCOPE_CODES.has(error?.code)) return null;
+    const paths = error.details?.paths ?? error.details?.changedPaths ?? [];
+    const protectedPath = error.details?.violationKind === 'protected-process-path';
+    return {
+      blocker: { code: error.code, category: protectedPath ? 'integrity' : 'change-scope', path: paths[0] ?? null,
+        line: null, message: `${error.message} (${error.code})`, details: { ...(error.details ?? {}), sourceCode: error.code } },
+      action: { command: error.details?.diagnosticAction?.command ?? error.details?.gate?.actions?.[0]?.command
+        ?? `singularity-flow phase prepublish ${phase.id} --json`, skill: null,
+      detail: `Phase ${phase.id} cannot publish these changes: take the route the refusal names, or move each listed file out of this step, then recheck.` }
+    };
+  }
+}
+
 async function staticPublicationBlockers(root, config, workflow, phase, { retained = false } = {}) {
   const blockers = [];
   const actions = [];
@@ -296,6 +327,11 @@ async function staticPublicationBlockers(root, config, workflow, phase, { retain
           : 'Open the code generation before changing source, then recheck.' });
     }
   }
+  // A step that delivers no code meets its publication's change-scope refusal here, from the same
+  // function: source a chore cannot publish was named only once `phase publish` refused it.
+  const scope = !retained && !phaseRequiresCodeDelivery(phase)
+    ? await changeScopeBlocker(root, config, workflow, phase) : null;
+  if (scope) { blockers.push(scope.blocker); actions.push(scope.action); }
   const sourceId = pinned?.testEvidenceFrom;
   if (sourceId) {
     const source = workflow.phases?.[sourceId];
@@ -352,6 +388,26 @@ async function staticPublicationBlockers(root, config, workflow, phase, { retain
     });
   }
   return { blockers, actions, artifactSetFingerprint };
+}
+
+/**
+ * What the final evaluation would refuse when this step ends the Story: submitting it runs that
+ * evaluation, so its open obligations and their exact commands are named before publication, not
+ * first by a refused submission. Advisory; null when the step does not end the Story.
+ */
+async function endingObligations(root, config, workflow, phase) {
+  if (!(workflow.phaseOrder ?? []).includes(phase.id)) return null;
+  const { endsStory, finalGatePreview } = await import('./upstream-entry-summary.mjs');
+  if (endsStory(workflow, phase)) return finalGatePreview(root, config, workflow);
+  // A decision route that ends the Story here: its own ending's applicability decisions.
+  let pending;
+  try {
+    pending = (await import('./nextsteps.mjs')).endingApplicabilityDecisions(workflow, phase);
+  } catch (error) {
+    return { advisory: true, status: 'unavailable', reason: error?.code ?? 'evaluation-failed' };
+  }
+  return pending.length ? { advisory: true, status: 'blocked', blockers: pending.map((entry) => entry.message), more: 0,
+    owners: [], recovery: pending.map((entry) => entry.command) } : null;
 }
 
 /**
@@ -533,6 +589,7 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     && (draft.status !== 'ready' ? draft.correction.sameTurn
       : (briefOnly || authoringRepairOnly) && agentOwnsRepair);
   const planningRepairAllowed = planningRepairCandidate && sameTurnCorrection;
+  const finalGate = lifecycleReady ? await endingObligations(root, config, workflow, phase) : null;
   const { phaseResolutionProjection } = await import('./phase-resolution.mjs');
   // The same finding returning after the author changed something is a loop no repair can end:
   // say so, and hand it on [recoverable-findings M3]. Machine-local and advisory; nothing is accepted.
@@ -579,6 +636,8 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     // Carried through unchanged: advisories never enter findings or readiness.
     advisories: draft.advisories,
     scopeReview,
+    ...(finalGate ? { finalGate: Object.freeze({ ...finalGate, submission: phase.id,
+      blocksPublication: false }) } : {}),
     documentation: draft.documentation,
     coverage: draft.coverage,
     traceabilityRepair: draft.traceabilityRepair ? Object.freeze({
@@ -610,7 +669,8 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
         line: entry.line ?? null, field: entry.details?.field ?? null, code: entry.details?.sourceCode ?? entry.code }))
     }) : null,
     grounding: Object.freeze(dependencies.grounding),
-    warnings: Object.freeze([...dependencies.warnings, ...(scopeReview?.message ? [scopeReview.message] : [])]),
+    warnings: Object.freeze([...dependencies.warnings, ...(scopeReview?.message ? [scopeReview.message] : []),
+      ...(finalGate?.status === 'blocked' ? [`Final evaluation: submitting ${phase.id} ends the Story and would be refused for ${finalGate.blockers.length + finalGate.more} open obligation(s) until each is resolved; this does not block publishing. See finalGate for each one and its command.`] : [])]),
     readiness: Object.freeze({
       lifecycle: lifecycleReady,
       authoring: draft.status === 'ready',

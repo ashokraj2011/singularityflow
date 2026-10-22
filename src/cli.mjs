@@ -53,7 +53,7 @@ import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { prepareTelemetryLaunch, setTelemetryCapture, TELEMETRY_DISCLOSURE, TELEMETRY_DISCLOSURE_CONFIRMATION } from './telemetry-provision.mjs';
 import { clearPromptAudits, listPromptAudits, promptAuditStatus, readPromptAudit, renderPromptAudit, repairPromptAudits, setPromptAudit, setPromptAuditRetention } from './prompt-audit.mjs';
 import { clearHelpMetrics, helpMetricsStatus, setHelpMetrics } from './help-metrics.mjs';
-import { assertPhaseSequence, sequenceConfirmationRequired, withConfirmationPort } from './sequence.mjs';
+import { assertPhaseSequence, phasePublicationCommandForMode, sequenceConfirmationRequired, withConfirmationPort } from './sequence.mjs';
 import { addComment, assignIssue, discoverJiraConnection, getIssue, getIssueHierarchy, getMyPermissions, issueToMarkdown, listBoards, listBoardStories, listEpicStories, listEpics, listFields, listIssueTransitions, listMyIssues, listProjects, moveIssueToSprint, setIssuePriority, transitionIssue } from './jira.mjs';
 import { jiraDoctor, jiraDoctorText } from './jira-doctor.mjs';
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin, verifyPluginInstallation } from './plugin.mjs';
@@ -65,7 +65,7 @@ import { launchHostSession } from './host-session-launcher.mjs';
 import { operationContext } from './operation-context.mjs';
 import { invokeModel, resolveModelProvider } from './model-runner.mjs';
 import { summarizingRoute } from './model-tiers.mjs';
-import { effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer } from './manual-authorship.mjs';
+import { effectivePhasePublicationProducer, phasePublicationCommandForProducer } from './manual-authorship.mjs';
 import { initializationStatus, initializeDefinition, loadDefinition, resolveWorkType, WORKFLOW_PATH } from './config.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import { collectImpactEvidence, compareImpactReceipts, confirmImpactEnrollment, exportImpactReceipts, hydrateImpactPlan, impactDoctor, importImpactEvidence, listImpactReceipts, recordImpactExposure, verifyImpactReceipt } from './impact.mjs';
@@ -143,7 +143,7 @@ import { activateWorkspaceContext, activeWorkspaceFile, clearActiveWorkspaceCont
 import { refreshWorkspaceConfigurations } from './workspace-configuration-refresh.mjs';
 import { reinitializeWorkspaces } from './workspace-reinitialize.mjs';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
-import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, repairLedgerPins, verifyLedger } from './ledger.mjs';
+import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, pinRepairHeadline, reconcileLedger, repairLedgerPins, verifyLedger } from './ledger.mjs';
 import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
 import { bootstrapRepository, repositoryIdFromUrl } from './bootstrap.mjs';
@@ -2078,12 +2078,11 @@ async function nextCommand(options) {
     }
   } else {
     console.log('\nAfter authoring and validation, publish the generation:');
-    const configuredCommand = phasePublicationCommand(phase);
-    const generationSkill = generationSkillForPhase(phase, workflow);
-    printCommandRoutes(configuredCommand, {
-      skill: generationSkill, indent: '  ', label: 'Configured producer'
-    });
-    if (phase.generationPolicy?.defaultProducer !== 'human'
+    const modelEnabled = operationContext()?.modelMode.enabled !== false, generationSkill = generationSkillForPhase(phase, workflow);
+    const configuredCommand = phasePublicationCommandForMode(phase, { modelEnabled });
+    if (configuredCommand) printCommandRoutes(configuredCommand, { skill: generationSkill, indent: '  ', label: modelEnabled ? 'Configured producer' : 'Without a model' });
+    else console.log(`  ${phase.label} has no producer that can publish it without a model.`);
+    if (modelEnabled && phase.generationPolicy?.defaultProducer !== 'human'
         && phase.generationPolicy?.allowedProducers?.includes('human')) {
       const manualCommand = phasePublicationCommandForProducer(phase, 'human');
       printCommandRoutes(manualCommand, {
@@ -2556,25 +2555,21 @@ async function clarificationCommand(positionals, options) {
   const phase = workflow.phases[phaseId];
   if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
   if (subcommand === 'status') {
-    const result = await verifyClarificationRecord(root, config, workflow, phase);
+    const result = await verifyClarificationRecord(root, config, workflow, phase), clarificationGuidance = await import('./clarification-guidance.mjs');
     const json = optionBoolean(options, 'json');
+    const { clarificationRoutes, clarificationStatusLines } = await import('./clarifications.mjs');
     if (!json) {
-      console.log(`Clarification checkpoint: ${phase.id} generation ${nextPhaseGeneration(phase)} (${result.mode})`);
-      if (result.record) {
-        console.log(`Status: ${result.errors.length ? 'not ready' : 'ready'} · Responses: ${result.record.responses.length} · Recorded by: ${result.record.recordedBy?.name ?? result.record.recordedBy?.email ?? 'unknown'}`);
-        console.log(`Record: ${result.path} · Prompt: ${result.record.promptSha256.slice(0, 12)}`);
-      } else console.log(result.mode === 'off' ? 'This phase has no clarification checkpoint.' : 'No response record exists for the prospective generation.');
-      result.passes.forEach((message) => console.log(`PASS ${message}`));
-      result.warnings.forEach((message) => console.warn(`Warning: ${message}`));
-      result.errors.forEach((message) => console.error(`BLOCKED ${message}`));
+      const lines = clarificationStatusLines(result, phase, nextPhaseGeneration(phase));
+      [...lines.stdout, clarificationGuidance.clarificationCompositionLine(result)].filter(Boolean).forEach((line) => console.log(line));
+      lines.stderr.forEach((line) => console.error(line));
     }
     emitCommandResult(commandResult({
       operation: { id: 'clarification.status', classification: 'read' },
       subject: { kind: 'story', id: workflow.workItem.id },
       outcome: noop('clarification.reported', { phase: phase.id, generation: nextPhaseGeneration(phase) }),
       effects: noEffects(),
-      restState: 'informational',
-      data: result
+      ...clarificationGuidance.clarificationStatusContinuation(result, phase),
+      data: { ...result, routes: clarificationRoutes(result) }
     }), { json });
     return;
   }
@@ -2650,7 +2645,7 @@ async function clarificationCommand(positionals, options) {
     console.log(`${result.reused ? 'Reused the exact recorded' : 'Recorded'} ${result.record.responses.length} human clarification response${result.record.responses.length === 1 ? '' : 's'} for ${phase.id} generation ${result.record.generation}.`);
     console.log(`Record: ${result.path} · SHA-256: ${result.sha256}`);
     console.log(result.record.completed
-      ? `Next: author the phase artifact, then run ${phasePublicationCommand(phase)}`
+      ? `Next: author the phase artifact, then run ${phasePublicationCommandForMode(phase) ?? `singularity-flow phase prepublish ${phase.id}`}`
       : 'Publication remains blocked because at least one material decision is unresolved.');
   }
   emitCommandResult(commandResult({
@@ -4058,7 +4053,7 @@ function printDecisionView(view) {
   }
   console.log(`Decisions in ${view.workId}:`);
   for (const decision of view.decisions) {
-    const rounds = decision.maxRounds ? ` · round ${decision.rounds} of ${decision.maxRounds} used` : '';
+    const rounds = decision.maxRounds ? ` · ${Math.min(decision.rounds, decision.maxRounds)} of ${decision.maxRounds} rounds used${decision.rounds > decision.maxRounds ? `, then ${decision.rounds - decision.maxRounds} more chosen by a person` : ''}` : '';
     console.log(`  After ${decision.afterLabel} — ${decision.label} (${decision.kind}${rounds})`);
     for (const route of decision.routes) {
       const where = route.reach === 'backward' ? `back to ${route.toLabel}`
@@ -4077,7 +4072,7 @@ function printDecisionView(view) {
         : option.reach === 'end' ? 'finish the Story' : option.toLabel;
       console.log(`    ${option.id} — ${option.label} → ${where}${option.skips.length ? ` (skips ${(option.skipLabels ?? option.skips).join(', ')})` : ''}`);
     }
-    if (view.pending.anyStep) console.log('    or any step with --to <PHASE|end>');
+    if (view.pending.anyStep || view.pending.reopen?.length) console.log(view.pending.anyStep ? '    or any step with --to <PHASE|end>' : `    or reopen an earlier step with --to <${view.pending.reopen.join('|')}>`);
     console.log(`  Choose: singularity-flow decision choose ${view.workId} --option <ID> --reason "<why>" --expected ${view.pending.key}`);
   } else if (view.ahead?.hint) {
     const recorded = view.ahead.recorded
@@ -5120,7 +5115,7 @@ async function ledgerCommand(positionals, options) {
     return;
   }
   if (subcommand === 'repair') {
-    console.log(`Ledger pin repair (${result.mode}${result.dryRun ? ', preview' : ''}): ${result.pins.length} pin(s), ${result.unresolved.length} unresolved.`);
+    console.log(pinRepairHeadline(result));
     if (result.refspec.installed) console.log(`  installed ${result.refspec.refspec}`);
     result.localActions.forEach((item) => console.log(`  ${item.status} ${item.pinRef}`));
     result.restored.forEach((item) => console.log(`  restored ${item.pinRef} at ${item.commit} to ${item.remote}`));

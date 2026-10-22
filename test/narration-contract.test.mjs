@@ -381,6 +381,34 @@ test('NCL-008 planner timing maps to command-result ranks', () => {
   assert.ok(attached.next.some((entry) => entry.rank === 'SOON'));
 });
 
+test('planner alternatives never head a footer: they rank LATER and each rank keeps the planner order', () => {
+  const workflow = {
+    workItem: { id: 'PAY-1187', workType: 'feature', workTypeLabel: 'Feature' },
+    status: 'in_progress',
+    currentPhase: 'requirements',
+    phaseOrder: ['requirements', 'design'],
+    phases: {
+      requirements: { id: 'requirements', label: 'Requirements', status: 'in_progress', generation: 0, artifacts: [], approvalPolicy: {} },
+      design: { id: 'design', label: 'Design', status: 'not_started', generation: 0, artifacts: [], approvalPolicy: {} }
+    }
+  };
+  const attached = attachContinuation(commandResult({
+    operation: { id: 'status', classification: 'read' },
+    subject: SUBJECT,
+    outcome: succeeded('status.reported', { workId: 'PAY-1187', phase: 'requirements' }),
+    effects: noEffects()
+  }), { postState: workflow });
+  const cancel = attached.next.find((entry) => entry.command.startsWith('singularity-flow cancel'));
+  assert.equal(cancel.rank, 'LATER');
+  assert.ok(attached.next.filter((entry) => entry.rank === 'NOW').every((entry) => !entry.command.startsWith('singularity-flow cancel')));
+  const rendered = renderCommandResult(attached);
+  const order = ['prepare requirements', 'phase publish requirements', 'submit requirements', 'approve requirements', 'cancel PAY-1187']
+    .map((fragment) => rendered.indexOf(`Shell: singularity-flow ${fragment}`));
+  assert.ok(order.every((at) => at >= 0), rendered);
+  assert.deepEqual([...order].sort((a, b) => a - b), order, 'NOW, then SOON in the planner order (publish, submit, approve), then LATER');
+  assert.doesNotMatch(rendered, /singularity-flow reject/, 'nothing offers a rejection the engine would refuse');
+});
+
 test('NCL-009 and NCL-010 terminal formatting never reaches JSON', () => {
   const result = base({
     why: [because('sequence.gate-failed', 'gate', { ref: 'gate@abc1234', slots: { failed: 2, total: 8 } })]

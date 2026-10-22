@@ -48,7 +48,7 @@ test('a Story on a repository with an older specification template still gets th
 
   const started = sflow('start', 'SPEC-1', '--title', 'Add an order note', '--description', 'Orders may carry an optional note.',
     '--acceptance-criteria', 'A note up to 200 characters is stored with the order.', '--work-type', 'spec-code-test-loop',
-    '--from-branch', 'main', '--readiness-baseline', 'defer');
+    '--target-url', 'https://staging.example.test', '--from-branch', 'main', '--readiness-baseline', 'defer');
   assert.equal(started.status, 0, started.stderr);
   const spec = await readFile(path.join(repo, 'singularity', 'work-items', 'SPEC-1', 'artifacts', 'specification', 'spec.md'), 'utf8');
   assert.match(spec, /^## Scenario coverage$/mu);

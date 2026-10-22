@@ -1529,6 +1529,7 @@ async function publishPinAsync(root, config, intent, publishedCommit, {
     if (existingSha !== publishedCommit) {
       throw new SingularityFlowError(`Ledger pin ${ref} already points to a different commit.`);
     }
+    cachePublishedPin(root, ref, publishedCommit, env);
     return ref;
   }
   if (existing.status !== 0) {
@@ -1548,6 +1549,7 @@ async function publishPinAsync(root, config, intent, publishedCommit, {
       { code: pushed.failure?.code ?? 'REMOTE_UNKNOWN' }
     );
   }
+  cachePublishedPin(root, ref, publishedCommit, env);
   return ref;
 }
 
@@ -1697,6 +1699,22 @@ function installExpectedPinRef(root, pinRef, expectedCommit, local, env = proces
     };
   }
   return { status: ['symbolic', 'unavailable'].includes(after.status) ? after.status : 'concurrent-change', pinRef };
+}
+
+/**
+ * A pin the remote was just seen to hold at exactly `commit` is kept locally too. Every publication
+ * pushed `${commit}:${pin}` without the local ref, so an offline read (status, the terminal gate)
+ * found every pin missing from a cache that held each commit until `ledger repair` restored them.
+ * The repair's own compare-and-swap creates it only when absent (its old value is all zeros), so an
+ * existing local ref, whatever it holds, stays for verification and repair to classify.
+ */
+function cachePublishedPin(root, pinRef, commit, env = process.env) {
+  if (!pinRef || !validPinBinding(pinRef, commit)) return;
+  try {
+    installExpectedPinRef(root, pinRef, commit, { status: 'missing', commit: null }, env);
+  } catch {
+    // A cache only: the remote pin is the publication, and ledger repair restores the local copy.
+  }
 }
 
 async function remotePinObservation(root, remote, pinRef, expectedCommit) {
@@ -2161,6 +2179,7 @@ async function appendLedgerIntentAtomically(root, config, intent, publishedCommi
   } catch {
     // The landing is verified. Local tracking refs are a cache the next ledger read refreshes.
   }
+  cachePublishedPin(root, audit.pinRef, publishedCommit, env);
   return {
     published: {
       duplicate: false, eventId: audit.eventId, entryHash: audit.entryHash,
@@ -2297,6 +2316,7 @@ export async function publishBranchWithLedgerEntry(root, rawConfig, intent, {
   } catch {
     // The landing is verified. Local tracking refs are a cache the next ledger read refreshes.
   }
+  cachePublishedPin(root, audit.pinRef, commit, env);
   return {
     landed: true,
     ledger: {
@@ -3332,7 +3352,12 @@ export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
                   : fetched.status === 'unconfigured'
                     ? `${config.remote} is not configured`
                     : offline ? 'the local cache has no copy and remote checks were skipped' : 'the ref could not be fetched';
-          errors.push(`Entry ${hash} pin ${entry.transport.pinRef} is not reachable: ${reason}. Run singularity-flow ledger repair --dry-run.`);
+          // A pin missing only from the local cache is restored from the remote by the local repair,
+          // which changes no remote ref; the preview alone never restores anything.
+          errors.push(`Entry ${hash} pin ${entry.transport.pinRef} is not reachable: ${reason}. `
+            + (localStatus === 'missing' && !['missing', 'mismatch'].includes(fetched.status)
+              ? `Run singularity-flow ledger repair to restore the local pin from ${config.remote} (it changes no remote ref; preview it with --dry-run).`
+              : 'Run singularity-flow ledger repair --dry-run.'));
         } else if (fetched.status === 'mismatch') {
           errors.push(`Entry ${hash} remote pin ${entry.transport.pinRef} does not match source commit ${expectedCommit}. Refusing to overwrite it.`);
         }
@@ -3547,6 +3572,9 @@ export async function repairLedgerPins(root, rawConfig, {
     confirmation: expectedConfirmation,
     refspec: pinRefspecStatus(root, config),
     pins,
+    // Local pin refs the local repair would restore. A preview restores none of them.
+    localRepairs: pins.filter((pin) => !pin.retentionExpired && pin.local.status !== 'expected')
+      .map((pin) => ({ pinRef: pin.pinRef, status: pin.local.status })),
     localActions: [],
     restored: [],
     unresolved: [],
@@ -3644,6 +3672,14 @@ export async function repairLedgerPins(root, rawConfig, {
     .map((item) => ({ pinRef: item.pinRef, status: item.observation.status }));
   result.valid = result.verification.valid && result.unresolved.length === 0;
   return result;
+}
+
+/** The repair's outcome line; a preview with local pins to restore also names the command that does. */
+export function pinRepairHeadline(result) {
+  const headline = `Ledger pin repair (${result.mode}${result.dryRun ? ', preview' : ''}): ${result.pins.length} pin(s), ${result.unresolved.length} unresolved.`;
+  const local = result.dryRun ? result.localRepairs?.length ?? 0 : 0;
+  return local ? `${headline}\n  ${local} local pin ref(s) are missing or stale; nothing was restored. Restore them from ${result.remote} `
+    + '(no remote ref changes) with:\n  singularity-flow ledger repair' : headline;
 }
 
 export async function ledgerLog(root, rawConfig, { limit = 20, offline = false } = {}) {

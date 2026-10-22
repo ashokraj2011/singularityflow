@@ -108,7 +108,7 @@ test('no finding is routed to a command that refuses its Story, and none relies 
 });
 
 /** A step that only points at help, doctor, the planner, recovery inspection or the phase view. */
-const GENERIC_COMMAND = /^singularity-flow (?:(?:[a-z-]+ )?--help|doctor(?: --[a-z-]+)* --json|recommend --json|recover(?: [A-Za-z0-9._-]+)?(?: --phase [a-z0-9-]+)? --json|phase show [a-z0-9-]+ --json)$/u;
+const GENERIC_COMMAND = /^singularity-flow (?:(?:[a-z-]+ )?--help|doctor(?: --[a-z-]+)* --json|(?:recommend|nextsteps) --json|recover(?: [A-Za-z0-9._-]+)?(?: --phase [a-z0-9-]+)? --json|phase show [a-z0-9-]+ --json)$/u;
 const finalVerdict = { verified: false, errors: ['an acceptance criterion has no passing test'], findings: [{ code: 'gate.acceptance.untested',
   recovery: { command: 'singularity-flow evidence matrix AUDIT-1 --json', detail: 'See which criterion lacks a passing test.' } }] };
 const testRunRisk = { eligible: true, phase: 'implementation', commandId: 'module-tests',
@@ -206,7 +206,7 @@ async function proseOnlyRefusals() {
  * list may only shrink: lower a count when you give one of them a structured route.
  */
 const PROSE_ONLY_REFUSALS = Object.freeze({
-  'src/action-plans.mjs': 1, 'src/agents.mjs': 4, 'src/clarifications.mjs': 1, 'src/cli.mjs': 5,
+  'src/action-plans.mjs': 1, 'src/agents.mjs': 4, 'src/cli.mjs': 5,
   'src/commands/phase-lifecycle.mjs': 3, 'src/commands/start.mjs': 1, 'src/commands/story.mjs': 1, 'src/commands/submit.mjs': 2,
   'src/config.mjs': 2, 'src/configuration-proposal.mjs': 1, 'src/convergence-context.mjs': 1, 'src/design-sources.mjs': 1,
   'src/direct-skills.mjs': 1, 'src/epic-review.mjs': 1, 'src/generation-boundary.mjs': 1, 'src/initialization/recovery.mjs': 1,

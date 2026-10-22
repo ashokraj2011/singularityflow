@@ -33,7 +33,10 @@ import {
 } from './specifications.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { verifyAstLifecycleReceipt } from './ast-lifecycle.mjs';
-import { conformanceEvidenceReuse, inspectConformanceReportContract, inspectQualifiedConformanceReport, traceableConformanceIds } from './conformance-readiness.mjs';
+import {
+  conformanceEvidenceReuse, inspectConformanceReportContract, inspectQualifiedConformanceReport, traceableConformanceIds,
+  undisclosedSelfApprovals
+} from './conformance-readiness.mjs';
 import { conformanceVerdictGaps } from './conformance-verdicts.mjs';
 import { conformanceGapLine, conformanceGapRefusal, decisionListRoute } from './upstream-routes.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
@@ -834,11 +837,8 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       rowsQualified: qualifiedRows.length > 0, expected: qualifiedRows.length ? [] : [...expected]
     }));
     for (const entry of contract.filter((item) => item.code === 'gate.conformance.missing-row')) refuse(entry.code, entry.message, { phase: phase.id });
-    for (const [phaseId, prior] of Object.entries(workflow.phases)) {
-      for (const approval of prior.approvals.filter((item) => !item.invalidatedAt && item.selfApproval)) {
-        const actor = approval.actor?.login ?? approval.actor?.email ?? approval.actor?.name;
-        if (!report.includes(phaseId) || (actor && !report.includes(actor))) refuse('gate.conformance.self-approval-undisclosed', `conformance report does not disclose self-approval for ${phaseId} by ${actor}`, { phase: phase.id });
-      }
+    for (const { message } of undisclosedSelfApprovals(report, workflow)) {
+      refuse('gate.conformance.self-approval-undisclosed', message, { phase: phase.id });
     }
     for (const entry of contract.filter((item) => item.code !== 'gate.conformance.missing-row')) refuse(entry.code, entry.message, { phase: phase.id });
     // A partial or missing verdict stands as written. The ending, and any gate after the step's

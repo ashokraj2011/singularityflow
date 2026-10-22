@@ -1070,9 +1070,10 @@ test('an untouched prepared template is refused before publication mutates phase
           assert.match(error.message, /contains unresolved placeholder 'TODO' at line \d+/);
           assert.match(error.message, /still matches its prepared template/);
           assert.match(error.message, /recover PREFLIGHT-1 --phase intake --json/);
+          // This run has no model: the retry is the human route, never governed-agent/copilot-host.
           assert.deepEqual(error.details.retry, {
             skill: '/sf-phase', maximumAttempts: 1, requiresFingerprintChange: true,
-            command: 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host'
+            command: 'singularity-flow phase publish intake --authored human --channel manual-in-place --no-model'
           });
           return true;
         }

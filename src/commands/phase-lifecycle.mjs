@@ -37,6 +37,39 @@ import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { measureCommandSpan } from '../dx-timing-context.mjs';
 
+/**
+ * The advisory lines a draft check or prepublish prints. Coverage, doc-comment and every other
+ * advisory each keep their own heading: a release or conformance step's evidence, traceability
+ * and specification advisories are not documentation, and were printed as "0 public
+ * declaration(s)" followed by "Documentation: undefined".
+ */
+export function prepublishAdvisoryLines(result) {
+  const lines = [];
+  const advisories = result.advisories ?? [];
+  const coverageAdvisories = advisories.filter((advisory) => advisory.category === 'coverage');
+  if (coverageAdvisories.length) {
+    lines.push(`Coverage warnings: approval would refuse ${result.coverage?.unclaimed ?? coverageAdvisories.length} changed path(s). Name each in a clause's Expected paths, or under ## Supporting files in the plan if it cannot carry a @clause tag.`);
+    for (const advisory of coverageAdvisories.slice(0, 10)) lines.push(`  · ${advisory.message}`);
+  }
+  const otherAdvisories = advisories.filter((advisory) => !['coverage', 'documentation'].includes(advisory.category));
+  if (otherAdvisories.length) {
+    lines.push(`Advisories (never block publication): ${otherAdvisories.length}.`);
+    for (const advisory of otherAdvisories.slice(0, 10)) lines.push(`  · ${advisory.message ?? advisory.code}`);
+    if (otherAdvisories.length > 10) lines.push(`  · …and ${otherAdvisories.length - 10} more (--json lists them all).`);
+  }
+  const documentationAdvisories = advisories.filter((advisory) => advisory.category === 'documentation');
+  if (documentationAdvisories.length) {
+    const undocumented = result.documentation?.undocumented ?? documentationAdvisories.length;
+    lines.push(`Documentation advisories (never block publication): ${undocumented} public declaration(s) without a doc comment.`);
+    for (const advisory of documentationAdvisories.slice(0, 10)) lines.push(`  · ${advisory.message}`);
+    if (undocumented > 10) lines.push(`  · …and ${undocumented - 10} more (--json lists up to 50).`);
+    if (result.documentation?.guidance) lines.push(`Documentation: ${result.documentation.guidance}`);
+  } else if (result.documentation?.status === 'unavailable') {
+    lines.push(`Documentation advisories: the check could not run (${result.documentation.reason ?? 'unknown reason'}); it never blocks publication.`);
+  }
+  return lines;
+}
+
 export async function run(argv, { positionals, options }) {
   return withCommandObservability(positionals[0], argv, options,
     () => withCommandConfirmation(options, () => phaseCommand(positionals, options)));
@@ -185,20 +218,13 @@ export async function phaseCommand(positionals, options) {
     if (result.qualityDisposition === 'accepted-risk') console.log('Document quality: unmet, accepted risk for the exact reviewed bytes. Tests, independent review and approval remain required.');
     for (const finding of result.findings) console.log(`  - ${finding.message}`);
     for (const warning of result.warnings ?? result.grounding?.warnings ?? []) console.log(`Readiness warning: ${warning}`);
-    const coverageAdvisories = (result.advisories ?? []).filter((advisory) => advisory.category === 'coverage');
-    if (coverageAdvisories.length) {
-      console.log(`Coverage warnings: approval would refuse ${result.coverage?.unclaimed ?? coverageAdvisories.length} changed path(s). Name each in a clause's Expected paths, or under ## Supporting files in the plan if it cannot carry a @clause tag.`);
-      for (const advisory of coverageAdvisories.slice(0, 10)) console.log(`  · ${advisory.message}`);
+    if (result.finalGate?.status === 'blocked') {
+      console.log(`Before ${result.finalGate.submission} can be submitted (publishing is not blocked):`);
+      for (const blocker of result.finalGate.blockers) console.log(`  - ${blocker}`);
+      if (result.finalGate.more) console.log(`  - …and ${result.finalGate.more} more: singularity-flow evidence matrix`);
+      for (const command of result.finalGate.recovery) console.log(`  Run: ${command}`);
     }
-    const documentationAdvisories = (result.advisories ?? []).filter((advisory) => advisory.category !== 'coverage');
-    if (documentationAdvisories.length) {
-      console.log(`Documentation advisories (never block publication): ${result.documentation.undocumented} public declaration(s) without a doc comment.`);
-      for (const advisory of documentationAdvisories.slice(0, 10)) console.log(`  · ${advisory.message}`);
-      if (result.documentation.undocumented > 10) console.log(`  · …and ${result.documentation.undocumented - 10} more (--json lists up to 50).`);
-      console.log(`Documentation: ${result.documentation.guidance}`);
-    } else if (result.documentation?.status === 'unavailable') {
-      console.log(`Documentation advisories: the check could not run (${result.documentation.reason ?? 'unknown reason'}); it never blocks publication.`);
-    }
+    for (const line of prepublishAdvisoryLines(result)) console.log(line);
     if (result.status === 'correction-required') {
       console.log(`Correction: ${result.correction.guidance}`);
       for (const [id, label] of [['next', 'Next'], ['recover', 'Recover'], ['recheck', 'Recheck']]) {

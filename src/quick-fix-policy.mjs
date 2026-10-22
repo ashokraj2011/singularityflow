@@ -42,6 +42,26 @@ function truthy(value) {
   return value === true || String(value ?? '').toLowerCase() === 'true';
 }
 
+// Each waiver condition in plain words, for the submission that did not meet it.
+const UNMET = Object.freeze({
+  declaredLowRisk: 'the Story\'s source does not declare `risk: low` (only a file given to `start --story-file` can; `start --title/--description` declares no risk)',
+  changedPathsAvailable: 'the paths changed since the Story base could not be read',
+  changedPathLimit: 'more application paths changed than the policy allows',
+  noProtectedPaths: 'a protected path changed',
+  oneRepository: 'the Story is not a single-repository change',
+  checksConfigured: 'the phase configures no required check',
+  checksPassing: 'a required check has not passed at the submitted commit',
+  noUndisposedUnplannedPaths: 'the work interval has unplanned paths or is not reconciled as aligned',
+  noProhibitedClassification: 'the change touches a public interface, migration, security, regulated data, deployment or cross-repository boundary'
+});
+
+/** Why a waiver evaluation did not waive, one plain sentence; null when it is eligible. */
+export function waiverNotAppliedMessage(phaseId, waiver) {
+  if (!waiver || waiver.eligible) return null;
+  const unmet = Object.entries(waiver.predicates).filter(([, met]) => !met).map(([name]) => UNMET[name] ?? name);
+  return `${phaseId} needs human approval: its low-risk policy waiver (${waiver.policyId}) did not apply because ${unmet.join('; ')}.`;
+}
+
 export function evaluateQuickFixWaiver(root, config, workflow, phase, policy = DEFAULT_QUICK_FIX_POLICY, {
   targetCommit = 'HEAD'
 } = {}) {

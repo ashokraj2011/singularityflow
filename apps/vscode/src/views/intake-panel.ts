@@ -110,6 +110,9 @@ interface EngineStoryWorkflow {
   generatesCode?: boolean;
   codePhases?: string[];
   documentStorage?: { allowed: Array<'git' | 'local'>; default: 'git' | 'local' };
+  /** Required when a step smoke-checks a browser against the Story's pinned origin. */
+  targetUrl?: 'required' | 'recommended' | 'optional';
+  browserSteps?: Array<{ phase: string; label: string; servers: string[]; setup?: string[] }>;
   /** Archived: new Stories are never offered it (docs/SPEC-WORKFLOW-RETIREMENT-v1.md). */
   archived?: boolean;
 }
@@ -149,7 +152,8 @@ function storyWorkflowChoices(entries: EngineStoryWorkflow[] = []): ProfileChoic
     && entry.installed !== false && entry.archived !== true).map((entry) => ({
     id: entry.id!, label: entry.label ?? entry.id!, description: entry.description ?? '',
     phases: entry.phases ?? [], referenceMode: entry.references ?? 'optional',
-    generatesCode: entry.generatesCode, codePhases: entry.codePhases, documentStorage: entry.documentStorage
+    generatesCode: entry.generatesCode, codePhases: entry.codePhases, documentStorage: entry.documentStorage,
+    targetUrl: entry.targetUrl, browserSteps: entry.browserSteps
   }));
 }
 

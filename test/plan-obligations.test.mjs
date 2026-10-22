@@ -131,7 +131,7 @@ test('publishing a plan refuses an obligation allocated to a step it does not pl
   git('remote', 'add', 'origin', remote);
   git('push', '-q', '-u', 'origin', 'main');
   sflow('start', W, '--from-branch', 'main', '--work-type', 'spec-code-test-loop', '--title', 'Validate a value',
-    '--description', 'Return an approved value with browser-visible proof.');
+    '--description', 'Return an approved value with browser-visible proof.', '--target-url', 'https://staging.example.test');
   const specPath = path.join(root, 'singularity/work-items', W, 'artifacts/specification/spec.md');
   const spec = (steps) => [
     `# ${W} — Specification`, '', '## Agent brief', '', 'The exported value must be 2, with a matching executable test.', '',

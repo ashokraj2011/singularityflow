@@ -6,6 +6,7 @@ import { verifyPhaseMcpRequirements } from './mcp-evidence.mjs';
 import { assertMcpPhaseReadiness } from './mcp-readiness.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { phaseGroundingPreflight } from './phase-grounding-preflight.mjs';
+import { isVisualVerificationPhase } from './phase-roles.mjs';
 import { requiredStepActionHold } from './step-action-receipts.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { inspectPendingEvidenceContracts } from './draft-evidence-hold.mjs';
@@ -120,13 +121,22 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
     detail: `Preview restoring the exact approved bytes of the changed ${upstreamPhases.join(', ')} input. Nothing changes until its plan is confirmed, and a private checkpoint of the edited copy is kept.`
   });
 
-  const mcpHost = await capture(async () => ({
-    ...(await assertMcpPhaseReadiness(root, workflow, phase)), errors: []
-  }));
-  add('mcp-host', 'host', mcpHost.errors, {
+  // Captured like the others, keeping the commands the refusal names for each missing MCP prerequisite,
+  // in order; doctor stays the route when it names none.
+  let mcpHost;
+  try { mcpHost = { ...(await assertMcpPhaseReadiness(root, workflow, phase)), errors: [] }; }
+  catch (error) { mcpHost = { errors: [error.message], sourceCode: error.code ?? null, mcpActions: error.details?.actions ?? [] }; }
+  const [firstMcpAction, ...laterMcpActions] = mcpHost.mcpActions ?? [];
+  add('mcp-host', 'host', mcpHost.errors, firstMcpAction ? {
+    command: firstMcpAction.command, skill: '/sf-mcp', detail: firstMcpAction.label
+  } : {
     command: 'singularity-flow mcp doctor --json', skill: '/sf-mcp',
     detail: 'Inspect the pinned MCP host, warm proof and smoke receipt. Follow its explicit setup or authorization route before collecting evidence; no host was started by this check.'
   }, { code: mcpHost.sourceCode ?? 'MCP_PHASE_NOT_READY', message: mcpHost.errors.join('\n') });
+  if (mcpHost.errors.length) laterMcpActions.forEach((entry, index) => actions.push({
+    id: `resolve-mcp-host:${phase.id}:${index + 2}`, safe: true, automatic: false, mode: 'guided',
+    confirmation: 'none', skill: '/sf-mcp', command: entry.command, detail: entry.label
+  }));
 
   const grounding = await phaseGroundingPreflight(root, config, workflow, phase, {
     configuredProducer: producer, generation, ownership: { proven: Boolean(agent), agent }
@@ -140,15 +150,24 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   if (grounding.blockers.length) failures.push({ code: 'PHASE_GROUNDING_NOT_READY',
     message: `Phase ${phase.id} grounding is not ready:\n- ${grounding.check.errors.join('\n- ')}` });
 
-  const clarification = producer === 'governed-agent'
-    ? await capture(() => verifyClarificationRecord(root, config, workflow, phase, {
-        generation, groundingRecord: grounding.check.record
-      }))
-    : { errors: [], warnings: [], record: null, path: null, sha256: null };
+  const recorded = await capture(() => verifyClarificationRecord(root, config, workflow, phase, {
+    generation, groundingRecord: grounding.check.record
+  }));
+  // Only a governed-agent generation must carry its clarification (who must clarify is the phase
+  // policy's). Any other route still binds a record that verifies for this generation, as the agent
+  // route does, so an answer a person recorded is not dropped from the publication's metadata.
+  const clarification = producer === 'governed-agent' ? recorded : {
+    errors: [], record: recorded.errors?.length ? null : recorded.record ?? null,
+    path: recorded.errors?.length ? null : recorded.path ?? null, sha256: recorded.errors?.length ? null : recorded.sha256 ?? null,
+    warnings: [...(recorded.warnings ?? []), ...(recorded.record && recorded.errors?.length
+      ? [`The ${phase.id} clarification record is not bound into this publication because it does not verify: ${recorded.errors[0]}`] : [])]
+  };
   warnings.push(...clarification.warnings);
+  // Recording binds to the composed prompt; while it is not composed the status names that first,
+  // and so does this route, so nobody answers into a record that is refused.
   add('clarification', 'clarification', clarification.errors, {
     command: `singularity-flow clarification status ${phase.id} --json`,
-    detail: 'Ask the human checkpoint questions and record the actual answers against this generation. If a saved answer is stale, inspect its binding before obtaining a new response; never fabricate or copy an approval.'
+    detail: `${clarification.composition?.command ? `First compose this generation's prompt (${clarification.composition.command}): the clarification record is bound to it and refused without it. Then a` : 'A'}sk the human checkpoint questions and record the actual answers against this generation. If a saved answer is stale, inspect its binding before obtaining a new response; never fabricate or copy an approval.`
   }, { code: clarification.sourceCode ?? 'PHASE_CLARIFICATION_NOT_READY', file: clarification.path });
 
   const mcpEvidence = await capture(() => verifyPhaseMcpRequirements(root, workflow, phase, {
@@ -158,6 +177,32 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
     command: `singularity-flow phase show ${phase.id} --json`,
     detail: 'Collect the exact required tools and durable outputs for this phase generation using the authorized MCP host. A missing or invalid receipt cannot be replaced by a prose claim or another generation\'s evidence.'
   }, { code: mcpEvidence.sourceCode ?? 'MCP_EVIDENCE_REQUIRED' });
+
+  // The design source and the visual captures are bound to the generation this publication creates,
+  // and the transaction or submission refuses without them: name them here first [gate parity].
+  const designSource = workflow.resolution?.designSources?.capturePhase === phase.id
+    ? await capture(async () => (await import('./design-sources.mjs'))
+      .inspectDesignSourceReadiness(root, workflow, phase, { itemDirectory, generation }))
+    : { errors: [] };
+  const [designRoute] = (designSource.routes ?? []).map(({ label, ...route }) => ({ ...route, detail: label }));
+  add('design-source', 'external-evidence', designSource.errors, designRoute ?? {
+    command: 'singularity-flow mcp design-sources status --json', skill: '/sf-mcp',
+    detail: 'Inspect the recorded design-source candidates for this generation; a missing or ambiguous source is recorded or selected, never inferred.'
+  }, { code: designSource.code ?? designSource.sourceCode ?? 'DESIGN_SOURCE_REQUIRED', message: designSource.message ?? null,
+    details: designRoute ? { nextAction: designRoute } : null });
+  const visual = isVisualVerificationPhase(phase) ? await capture(async () => {
+    const { refusal } = await (await import('./visual-coverage.mjs')).visualCoverageRefusal(root, workflow, { itemDirectory, phaseId: phase.id, generation });
+    return { errors: refusal?.details.errors ?? [], refusal };
+  }) : { errors: [] };
+  const [visualRoute, ...visualRoutes] = (visual.refusal?.details.recoveryCommands ?? []).map(({ label, ...route }) => ({ ...route, detail: label }));
+  add('visual-coverage', 'external-evidence', visual.errors, visualRoute ?? {
+    command: 'singularity-flow visual status --json',
+    detail: 'Read which verification profiles still lack a current capture for this generation.'
+  }, { code: visual.sourceCode ?? 'VISUAL_COVERAGE_FAILED', message: visual.refusal?.message ?? null,
+    details: visual.refusal ? { uncovered: visual.refusal.details.uncovered, covered: visual.refusal.details.covered, generation,
+      ...(visualRoute ? { nextAction: visualRoute } : {}) } : null });
+  if (visual.errors.length) actions.push(...visualRoutes.map((route, index) => ({
+    id: `resolve-visual-coverage:${phase.id}:${index + 2}`, safe: true, automatic: false, mode: 'guided', confirmation: 'none', skill: null, ...route })));
 
   return { blockers, actions, failures, warnings,
     repairLoop: repair.state ?? { status: 'needs-owner', code: repair.sourceCode, automaticReset: false },

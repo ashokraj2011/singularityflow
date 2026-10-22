@@ -1048,7 +1048,7 @@ test('POC Story intake requires and durably pins the authorized browser origin',
 
   await assert.rejects(() => startStory(root, {
     id: 'POC-901', source, workType: 'poc-workflow', baseBranch: 'main'
-  }), /POC target URL is required/);
+  }), /The authorized target URL \(steps poc-ui-exploration, poc-validation need a live playwright smoke against it\) is required/);
 
   const created = await startStory(root, {
     id: 'POC-901', source, workType: 'poc-workflow', baseBranch: 'main',

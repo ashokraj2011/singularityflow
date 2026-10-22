@@ -18,6 +18,7 @@ import { changedFiles, gitCommonDir, head } from './git.mjs';
 import { canonicalJson } from './records.mjs';
 import { findingDocumentation } from './finding-catalog.mjs';
 import { DISPUTABLE_GATES } from './phase-finding-dispute-schema.mjs';
+import { safeCommandGuidance } from './safe-command-guidance.mjs';
 
 export const ESCALATION_THRESHOLD = 3;
 const MAX_KEYS = 64;
@@ -142,9 +143,14 @@ export function escalateRefusalEnvelope(envelope, error, root = process.cwd()) {
     fingerprint: findingFingerprint([{ code, details: error?.details, message: error?.message }]) });
   const escalation = findingEscalation({ count, code, workId: context.workId ?? null, phaseId: context.phaseId });
   if (!escalation) return envelope;
+  // The same route fields every other plan step carries, so no surface prints a missing Copilot route.
+  const guidance = safeCommandGuidance({ argv: [...escalation.documentation.argv] });
   const step = Object.freeze({ id: 'escalate-repeated-finding',
     label: `Stop: ${code} has returned ${count} times; repeating the repair cannot pass. Read its entry, then hand it to someone other than the author.`,
-    command: escalation.documentation.command, argv: [...escalation.documentation.argv], automatic: false });
+    command: guidance?.command ?? escalation.documentation.command, argv: [...escalation.documentation.argv],
+    executable: guidance?.executable ?? 'singularity-flow', skill: guidance?.skill ?? null,
+    copilotCommand: guidance?.copilotCommand ?? null, copyable: guidance?.copyable ?? false,
+    platformCommands: guidance?.platformCommands ?? null, automatic: false });
   return { ...envelope, remediationPlan: Object.freeze({ ...plan, escalation,
     // Agents follow context.strategy; "repair in place" is exactly what can no longer help.
     context: Object.freeze({ ...context, strategy: 'escalate-repeated-finding' }),

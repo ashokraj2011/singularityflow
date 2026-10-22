@@ -638,6 +638,22 @@ test('no agent turn sets held changes aside; it shows the person the command', a
   }
 });
 
+test('no agent turn pins a Story\'s authorized browser target origin; its preview stays a read', async t => {
+  const f = await fixture(t);
+  const digest = `sha256:${'b'.repeat(64)}`;
+  const preview = 'singularity-flow story target-origin PMC-1 --url https://staging.example.test --json';
+  const pin = `singularity-flow story target-origin PMC-1 --url https://staging.example.test --reason "Approved staging target." --confirm ${digest}`;
+  const typed = await f.enter(`/sf-confirm ${pin.replace('singularity-flow ', '')}`, 'origin-confirmer');
+  for (const [skill, payload] of [['/sf-phase', await f.enter('/sf-phase')], ['/sf-recover', await f.enter('/sf-recover', 'kernel')],
+    ['/sf-mcp', await f.enter('/sf-mcp', 'mcp')], ['/sf-confirm with the typed digest', typed]]) {
+    assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: preview, cwd: f.root } }), {},
+      `${skill}: previewing the pin is allowed`);
+    const denied = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: pin, cwd: f.root } });
+    assert.equal(denied.permissionDecision, 'deny', skill);
+    assert.match(denied.permissionDecisionReason, /authorized browser target origin is a security boundary; a person who approves the step that smoke-checks it confirms the pin in their own terminal/u, skill);
+  }
+});
+
 test('publish-only permits one bound publication, never authoring or lifecycle decisions', async t => {
   const f = await fixture(t); const payload = await f.enter('/sf-publish custom-step');
   assert.equal(mutationTurnMode('sf-publish'), 'publish-only');

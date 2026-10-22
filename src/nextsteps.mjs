@@ -1,5 +1,6 @@
 import { isConvergencePhase } from './phase-roles.mjs';
 import { phaseNeedsGeneration, workflowGuide } from './guide.mjs';
+import { phasePublicationCommandForMode } from './sequence.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { copilotAction, copilotSkillForCommand } from './copilot-guidance.mjs';
@@ -8,7 +9,8 @@ import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import {
   effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer
 } from './manual-authorship.mjs';
-import { decisionSubmitArguments, describeOutcome, upcomingDecision } from './workflow-decisions.mjs';
+import { operationContext } from './operation-context.mjs';
+import { decisionSubmitArguments, describeOutcome, reopenableSteps, upcomingDecision } from './workflow-decisions.mjs';
 import { nextPhaseAfterSkillAmendment } from './lifecycle-transitions.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { applicabilityStatus } from './evidence/applicability.mjs';
@@ -19,8 +21,15 @@ function action(timing, skill, command, reason, metadata = {}) {
   const candidate = copilotAction({
     timing, skill, command, reason, modelPolicy: 'never', availability: 'available', ...metadata
   });
-  const guidance = safeCommandGuidance(candidate);
+  // The planner's skill is kept when the pair is safe to show; otherwise the command's own route,
+  // as plannedAction does for results. A mismatched skill must not hide a safe Shell command.
+  const guidance = safeCommandGuidance(candidate) ?? safeCommandGuidance({ command });
   return guidance ? Object.freeze({ ...candidate, ...guidance }) : candidate;
+}
+
+/** The run's model mode, so a planner called without one never assumes a model is available. */
+function ambientModelMode() {
+  return operationContext()?.modelMode ?? { enabled: true };
 }
 
 // Hosts the GitHub CLI cannot open a pull request on; their merge request is opened by hand.
@@ -44,12 +53,12 @@ function landingActions(workflow, repositoryHost) {
         'After finalization, promote the finished child branch to the Story branch directly; no pull request is opened.')] : [])
     ];
   }
-  const preview = action('then', '/sflow-stack', `singularity-flow pr ${workId}`, 'Preview the pull request title, body, base, head, checks, and evidence before publishing anything.');
+  const preview = action('then', '/sflow-pr', `singularity-flow pr ${workId}`, 'Preview the pull request title, body, base, head, checks, and evidence before publishing anything.');
   if (MANUAL_PULL_REQUEST_HOSTS.has(repositoryHost?.provider)) return [preview,
-    action('then', '/sflow-stack', `singularity-flow pr describe ${workId} --clipboard`,
+    action('then', '/sflow-pr', `singularity-flow pr describe ${workId} --clipboard`,
       `Copy the reviewed description and open the merge request in ${repositoryHost.label} by hand; pr --create uses the GitHub CLI.`)];
   return [preview,
-    action('then', '/sflow-stack', `singularity-flow pr ${workId} --create`, 'After reviewing the preview, create the pull request with explicit confirmation.')];
+    action('then', '/sflow-pr', `singularity-flow pr ${workId} --create`, 'After reviewing the preview, create the pull request with explicit confirmation.')];
 }
 
 function completionActions(workflow, timing = 'now', repositoryHost = null) {
@@ -66,7 +75,7 @@ function completionActions(workflow, timing = 'now', repositoryHost = null) {
  * The applicability decisions an ending still needs, when completing this phase would end the
  * Story: the final evaluation refuses the ending until each one is recorded.
  */
-function applicabilityActions(workflow, phase) {
+export function endingApplicabilityDecisions(workflow, phase) {
   const ahead = upcomingDecision(workflow, phase);
   let endpoint;
   if (ahead) {
@@ -76,11 +85,15 @@ function applicabilityActions(workflow, phase) {
   } else if (nextPhaseAfterSkillAmendment(workflow, phase)) {
     return [];
   }
-  return applicabilityStatus(workflow, endpoint).filter((entry) => !entry.satisfied).map((entry) => action(
-    'now', '/sflow-decide',
-    `singularity-flow decision applicability ${workflow.workItem.id} --responsibility ${entry.responsibility} --reason <reason>`,
-    `This Story ends without ${entry.responsibility}; someone in ${entry.authority} records why it does not apply before it can finish.`
-  ));
+  return applicabilityStatus(workflow, endpoint).filter((entry) => !entry.satisfied).map((entry) => ({
+    responsibility: entry.responsibility, authority: entry.authority,
+    command: `singularity-flow decision applicability ${workflow.workItem.id} --responsibility ${entry.responsibility} --reason <reason>`,
+    message: `This Story ends without ${entry.responsibility}; someone in ${entry.authority} records why it does not apply before it can finish.`
+  }));
+}
+
+function applicabilityActions(workflow, phase, timing = 'now') {
+  return endingApplicabilityDecisions(workflow, phase).map((entry) => action(timing, '/sflow-decide', entry.command, entry.message));
 }
 
 /**
@@ -147,9 +160,15 @@ function afterCompletionActions(workflow, phase, { withoutApproval = false, repo
   )];
 }
 
+/** The routes enforced visual coverage names (see visualCoverageHold), the first at `timing`. */
+function visualCoverageActions(hold, timing) {
+  return hold.routes.slice(0, 3).map((route, index) => action(index ? 'alternative' : timing, copilotSkillForCommand(route.command), route.command,
+    index ? route.label : hold.reason, { route: 'visual-coverage' }));
+}
+
 export function workflowNextSteps(workflow, {
-  publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null,
-  repositoryHost = null, pendingDecisions = undefined
+  publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null,
+  repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null
 } = {}) {
   const workId = workflow.workItem.id;
   const phase = workflow.currentPhase ? workflow.phases[workflow.currentPhase] : null;
@@ -173,14 +192,21 @@ export function workflowNextSteps(workflow, {
     ...pending.options.map((option, index) => action(index === 0 ? 'then' : 'alternative', '/sflow-decide',
       `singularity-flow decision choose ${workId} --option ${option.id} --reason <reason> --expected ${pending.key}`,
       `Choose '${option.label}'.`)),
+    ...reopenableSteps(workflow, pending).slice(0, 1).map((step) => action('alternative', '/sflow-decide',
+      `singularity-flow decision choose ${workId} --to ${step} --reason <reason> --expected ${pending.key}`,
+      `Reopen '${workflow.phases[step]?.label ?? step}' instead; going back never counts as a pass.`)),
     action('alternative', '/sf-cancel', `singularity-flow cancel ${workId} --reason <reason> --confirm ${workId}`, 'Cancel this Story, preserve its artifacts, and move it to Archived.')
   ];
 
   // The final submission runs the terminal evaluation, so a published last step asks for its
   // applicability decisions before the submit they unblock, not after a refused one.
-  const submitsTheEnd = phase.status === 'in_progress' && !phaseNeedsGeneration(workflow, phase)
+  const endsHere = phase.status === 'in_progress'
     && ((workflow.phaseOrder ?? []).at(-1) === phase.id || upcomingDecision(workflow, phase)?.outcome?.kind === 'end');
+  const submitsTheEnd = endsHere && !phaseNeedsGeneration(workflow, phase);
   const undecided = phase.status === 'awaiting_approval' || submitsTheEnd ? applicabilityActions(workflow, phase) : [];
+  // Before the last step is published the same decisions are named, after its authoring: the
+  // person who records them is rarely its author, and submission would otherwise be the first to say.
+  const undecidedAfterAuthoring = endsHere && !submitsTheEnd ? applicabilityActions(workflow, phase, 'then') : [];
   let immediate = workflowGuide(workflow, { sourceReviewEvidence, authoringProgress }).nextActions.map((item, index) => action(
     item.optional ? 'alternative' : undecided.length ? (index === 0 ? 'then' : 'alternative')
       : phase.status === 'awaiting_approval' && index > 0 ? 'alternative' : 'now',
@@ -203,6 +229,28 @@ export function workflowNextSteps(workflow, {
     ];
   }
 
+  // A step whose MCP prerequisites do not hold on this machine refuses prepare, publish and submit
+  // alike (assertMcpPhaseReadiness), so the setup it names comes first, in order, and the step's
+  // own work follows it.
+  if (mcpHold?.actions?.length && phase.status === 'in_progress' && mcpHold.phase === phase.id) {
+    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions });
+    return [
+      ...mcpHold.actions.map((entry, index) => action(index === 0 ? 'now' : 'then',
+        copilotSkillForCommand(entry.command) ?? '/sf-mcp', entry.command,
+        index === 0 ? `MCP readiness blocks ${phase.id} (${mcpHold.errors.length} unmet): ${entry.label}` : entry.label,
+        { route: 'mcp-readiness' })),
+      ...rest.map((entry) => (entry.timing === 'now' ? Object.freeze({ ...entry, timing: 'then' }) : entry))
+    ];
+  }
+
+  // A published visual step its submission would refuse for coverage: the way out comes first, and
+  // submitting waits for it rather than being offered into the same refusal.
+  if (visualCoverageHold?.routes?.length && visualCoverageHold.published && phase.status === 'in_progress') {
+    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions });
+    return [...visualCoverageActions(visualCoverageHold, 'now'),
+      ...rest.map((entry) => (entry.timing === 'now' ? Object.freeze({ ...entry, timing: 'then' }) : entry))];
+  }
+
   const needsGeneration = phaseNeedsGeneration(workflow, phase)
     || (sourceReviewEvidence && sourceReviewContinuation(workflow, phase, sourceReviewEvidence).classification === 'successor-publication-required');
   const modelFreeProducer = effectivePhasePublicationProducer(phase, { modelEnabled: false });
@@ -220,16 +268,23 @@ export function workflowNextSteps(workflow, {
   }
   const actions = [...prerequisites.map(copilotAction), ...undecided, ...immediate];
   if (needsGeneration && !modelMode.enabled) {
-    if (modelFreeProducer === 'human') actions.unshift(action(
-      'now', generationSkillForPhase(phase, workflow), phasePublicationCommandForProducer(
+    // The draft `prepare` writes is published in place, the route prepublish offers when it is
+    // ready, the footers repeat and refusals name (phasePublicationCommandForMode). A file written
+    // elsewhere is imported instead.
+    if (modelFreeProducer === 'human') actions.push(action(
+      'then', generationSkillForPhase(phase, workflow), phasePublicationCommandForMode(phase, { modelEnabled: false }),
+      `Publish the ${phase.label} you authored in place, without invoking a model.`,
+      { operationId: 'phase', modelPolicy: 'never', route: 'manual' }
+    ), action(
+      'alternative', generationSkillForPhase(phase, workflow), phasePublicationCommandForProducer(
         phase, 'human', { source: '<FILE>', noModel: true }
       ),
-      `Import and publish ${phase.label} without invoking a model.`,
+      `Or import and publish ${phase.label} from a file written elsewhere, without invoking a model.`,
       { operationId: 'phase', modelPolicy: 'never', route: 'manual' }
     ));
     else if (modelFreeProducer === 'deterministic') {
       if (!convergenceProjectionRequired) actions.push(action(
-        'then', generationSkillForPhase(phase, workflow), phasePublicationCommandForProducer(phase, 'deterministic'),
+        'then', generationSkillForPhase(phase, workflow), phasePublicationCommandForMode(phase, { modelEnabled: false }),
         `Publish the deterministically generated ${phase.label} without invoking a model.`,
         { operationId: 'phase', modelPolicy: 'never', route: 'deterministic' }
       ));
@@ -264,6 +319,12 @@ export function workflowNextSteps(workflow, {
     ));
     return actions;
   }
+  // While the generation is authored, its captures are recorded before the publication that commits them.
+  if (needsGeneration && visualCoverageHold?.routes?.length && !visualCoverageHold.published) {
+    const publishing = actions.findIndex((entry) => entry.operationId === 'phase');
+    actions.splice(publishing < 0 ? actions.length : publishing, 0, ...visualCoverageActions(visualCoverageHold, 'then'));
+  }
+  actions.push(...undecidedAfterAuthoring);
   const noApproval = phase.approvalPolicy?.mode === 'none';
   if (needsGeneration) actions.push(isConvergencePhase(phase)
     ? action(
@@ -279,9 +340,10 @@ export function workflowNextSteps(workflow, {
           ? `After publishing ${phase.id}, run its checks, complete it without approval, and advance.`
           : `After publishing ${phase.id}, run its checks and submit it for approval.`
       ));
+  // Rejection is offered once the step awaits approval (workflowGuide): before submission the
+  // engine refuses it, so it is not listed as an available alternative to a later approval.
   if (!noApproval) actions.push(
-    action('then', '/sflow-approve', `singularity-flow approve ${phase.id} --work-id ${workId} --fetch`, `After submission, approve ${phase.id} using an authorized human Git identity; the phase agent is prompt context only.`),
-    action('alternative', '/sflow-reject', `singularity-flow reject ${phase.id} --work-id ${workId} --fetch --to <phase> --reason <reason>`, `Instead of approval, return ${phase.id} to an allowed earlier phase.`)
+    action('then', '/sflow-approve', `singularity-flow approve ${phase.id} --work-id ${workId} --fetch`, `After submission, approve ${phase.id} using an authorized human Git identity; the phase agent is prompt context only.`)
   );
   actions.push(
     action('alternative', '/sf-cancel', `singularity-flow cancel ${workId} --reason <reason> --confirm ${workId}`, 'Cancel this Story, preserve its artifacts, and move it to Archived.'),
@@ -290,7 +352,7 @@ export function workflowNextSteps(workflow, {
   return withDecisionList(workflow, phase, actions, held);
 }
 
-export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined } = {}) {
+export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null } = {}) {
   if (!initialized) return {
     schemaVersion: 1,
     state: 'not_initialized',
@@ -319,7 +381,7 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
   };
   const contextBoundary = !publicationPending && !recovery?.requiresRecovery && !workflow.pendingDecision
     && !stepActionHold?.missing?.length ? contextBoundaryPresentation(pendingContextBoundary(workflow)) : null;
-  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions });
+  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, visualCoverageHold, mcpHold });
   return {
     schemaVersion: 1,
     state: publicationPending ? 'publication_pending' : recovery?.requiresRecovery ? 'recovery_required' : workflow.status,
@@ -332,6 +394,7 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
     ...(authoringProgress ? { authoringProgress } : {}),
     ...(contextBoundary ? { contextBoundary } : {}),
     ...(stepActionHold?.missing?.length ? { stepActionHold } : {}),
+    ...(mcpHold?.actions?.length ? { mcpHold } : {}),
     actions: contextBoundary ? actions.map(entry => ({ ...entry,
       ...(entry.timing === 'now' ? { copilotTiming: 'after-context-boundary' } : {}) })) : actions
   };

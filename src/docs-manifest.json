@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "b25d3e7230b9d9c2226d1ccc2622a8bfec8c0101",
+  "sourceCommit": "4f3eab49dabe7e38c59b307d1df747dec987cea3",
   "topicCount": 85,
-  "contentSha256": "b931596f2b92f5cc37ea9139b9b11113e452294eeaf4a1d94f902f77d2e1eb52",
+  "contentSha256": "9924598d978728e5799958e300d74bbdf683af3244e97d561af4d46c01a36166",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -240,8 +240,8 @@
     {
       "id": "findings",
       "title": "Findings — what a blocking finding means and how to recover",
-      "version": 5,
-      "sha256": "caf703da85203f6ec7364702208aa060be42d68bc05be533956eb2f128079857",
+      "version": 6,
+      "sha256": "711853b18f0f4575e2b95c371837d13c5e8fd8b6401284c90d22114bfb21f66a",
       "routingSha256": "63e669eb5eb939fd7ee9a8f6447d098138d7e424eac2ee4ff55901d902118539",
       "file": "findings.md"
     },
@@ -456,8 +456,8 @@
     {
       "id": "rejection-and-rework",
       "title": "Rejection and rework",
-      "version": 6,
-      "sha256": "81ae5253a24eea5da4a5d7719d7aa1ae324c1a03fbdbd90665f15170727d39fa",
+      "version": 7,
+      "sha256": "b3961416564abdd3b5ad1df6330b007255eb7f361390e7ddaa8480c61c89d8b7",
       "routingSha256": "1f6e7452a50ce8f4a4ce16c0cbc245d198d1d1815ff25a77c9429e37aff18825",
       "file": "rejection-and-rework.md"
     },
@@ -496,8 +496,8 @@
     {
       "id": "revision-loop",
       "title": "Bounded code Candidate revision loop",
-      "version": 3,
-      "sha256": "83703083d9fa9bd47e69d8f0c19014d1c9eef3defc947fe447034d09532aef92",
+      "version": 4,
+      "sha256": "e0e00f0c352d200704f9d98d4cd3b2b35c49170b8d89e6333c15e3113386206f",
       "routingSha256": "da32593b0266e2e0d23bceecf9bd245d71449ec93893456df95884e41dd890c0",
       "file": "revision-loop.md"
     },
@@ -608,16 +608,16 @@
     {
       "id": "visual-verification",
       "title": "Visual verification for mobile",
-      "version": 4,
-      "sha256": "d092be237b9cdf96242d0cbc1f85802644b40482c08092189a444a68b781f1cd",
+      "version": 5,
+      "sha256": "d85ee8a84999f12aae3405d74d24cf98708c2901d740bd4a5dc1a9fb0a02daee",
       "routingSha256": "2e2011faa98461dbf16f975ee882a4539944aba6dfb1ed908f47f4b825aaf423",
       "file": "visual-verification.md"
     },
     {
       "id": "waivers",
       "title": "Policy waivers",
-      "version": 4,
-      "sha256": "16f466709cd11cfb28fe27a7fb52092a52030730b71dd288ce1436944dbfa8cf",
+      "version": 5,
+      "sha256": "a234b811148bf91510aff08ca925206d8b3b17655eebf063233d4fc0d30c1aae",
       "routingSha256": "052f89f709367cee2eced1d501d4ef4778bb01f32e50377d28b94bfd8cc21d1e",
       "file": "waivers.md"
     },

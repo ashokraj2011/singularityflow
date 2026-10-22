@@ -406,7 +406,7 @@ const STORY_REFERENCE_ACTIONS = Object.freeze(['list', 'verify', 'materialize', 
 const STORY_TEST_POLICY_REVIEW_ACTIONS = Object.freeze(['amend', 'attest', 'accept-risk', 'revoke-risk', 'attest-risk', 'baseline-admission']);
 const STORY_TEST_POLICY_ACTIONS = Object.freeze(['show', 'plan', 'confirm', 'repair', 'baseline', 'risks', ...STORY_TEST_POLICY_REVIEW_ACTIONS]);
 const STORY_SUBCOMMANDS = Object.freeze([
-  'converge', 'enhance-description', 'interval', 'branch', 'intent-amendment', 'skill-version', 'workflow', 'references', 'test-policy',
+  'converge', 'enhance-description', 'interval', 'branch', 'intent-amendment', 'skill-version', 'workflow', 'references', 'test-policy', 'target-origin',
   ...STORY_READ_SUBCOMMANDS, ...STORY_MUTATION_SUBCOMMANDS
 ]);
 const SESSION_READ_SUBCOMMANDS = Object.freeze(['current', 'doctor', 'context', 'candidates', 'status']);
@@ -942,6 +942,12 @@ function resolveStoryOperation(definition, positionals, options) {
     const mutation = ['propose', 'decide'].includes(action) && confirmed;
     return never(`story.skill-version.${action}${['propose', 'decide'].includes(action) && !confirmed ? '.preview' : ''}`,
       definition, mutation ? 'mutation' : 'read');
+  }
+  // Pinning a Story's authorized browser target: the preview reads, the digest-confirmed pin commits.
+  if (subcommand === 'target-origin') {
+    return optionString(options, 'confirm')
+      ? never('story.target-origin', definition, 'mutation')
+      : never('story.target-origin.preview', definition, 'read');
   }
   if (subcommand === 'test-policy') {
     const action = positionals[2] ?? 'show';
@@ -1964,6 +1970,8 @@ export function operationCatalog() {
     // the catalog that `doctor`, the tripwires and the model-policy audit all read.
     ...STORY_READ_SUBCOMMANDS.map((name) => never(`story.${name}`, storyDefinition, 'read')),
     ...['converge', ...STORY_MUTATION_SUBCOMMANDS].map((name) => never(`story.${name}`, storyDefinition, 'mutation')),
+    never('story.target-origin.preview', storyDefinition, 'read'),
+    never('story.target-origin', storyDefinition, 'mutation'),
     operation('story.enhance-description', 'required', {
       classification: 'read', output: storyDefinition.output,
       externalDependencies: ['copilot-cli']

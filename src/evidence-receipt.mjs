@@ -4,6 +4,7 @@ import {
   changedRepositoryPaths, loadActiveSpecRecords, mergeObservedClaimRecords, mergePlannedClaimRecords
 } from './specifications.mjs';
 import { applicationPathContext } from './application-paths.mjs';
+import { RECEIPT_REVIEW_ACTION as REVIEW_ACTION, receiptApprovalText } from './receipt-approval-text.mjs';
 import { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
 import { workDir } from './story-paths.mjs';
 import { run } from './util.mjs';
@@ -136,9 +137,7 @@ export async function composeEvidenceReceipt(root, config, workflow, packet) {
     approvals: approvalProjection(phase, packet),
     context: contextProjection(packet),
     reviewPacket: { status: 'exact', sha256: packet.packetSha256 },
-    nextHumanAction: packet.status === 'awaiting_review'
-      ? 'Review and decide this phase.'
-      : 'Continue to the next phase.',
+    nextHumanAction: packet.status === 'awaiting_review' ? REVIEW_ACTION : 'Continue to the next phase.',
     links: {
       reviewPacket: workflow.lineage?.submissions?.find((entry) => entry.packetSha256 === packet.packetSha256)?.path ?? null,
       trace: `singularity-flow spec trace --work-id ${workflow.workItem.id}`,
@@ -164,6 +163,8 @@ export async function composeEvidenceReceipt(root, config, workflow, packet) {
   });
 }
 
+export { receiptApprovalText };
+
 export function renderEvidenceReceipt(receipt) {
   const unavailable = (value) => value == null ? 'unavailable' : String(value);
   return [
@@ -171,7 +172,7 @@ export function renderEvidenceReceipt(receipt) {
     `Source: ${receipt.source.commit.slice(0, 12)} · changes ${unavailable(receipt.changes.count)} (${receipt.changes.status})`,
     `Requirements: ${unavailable(receipt.requirements.claimed)}/${unavailable(receipt.requirements.clauses)} claimed (${receipt.requirements.status})`,
     `Checks: ${receipt.checks.passed} passed · ${receipt.checks.failed} failed · ${receipt.checks.unavailable} unavailable (${receipt.checks.status})${receipt.checks.acceptedRisk ? ` · ${receipt.checks.acceptedRisk} under accepted risk` : ''}`,
-    `Approvals: ${receipt.approvals.current}/${receipt.approvals.required} (${receipt.approvals.status})`,
+    `Approvals: ${receiptApprovalText(receipt)}`,
     `Context: ${receipt.context.status} · Review packet: ${receipt.reviewPacket.sha256.slice(0, 12)}`,
     `Publication: ${receipt.publication.state} · Next: ${receipt.nextHumanAction}`,
     `Receipt core hash: ${receipt.receiptCoreSha256 ?? receipt.receiptSha256}`,
@@ -189,7 +190,7 @@ export function renderEvidenceReceiptMarkdown(receipt) {
     `- Changed paths: **${value(receipt.changes.count)}** (${receipt.changes.status})`,
     `- Requirements claimed: **${value(receipt.requirements.claimed)}/${value(receipt.requirements.clauses)}** (${receipt.requirements.status})`,
     `- Checks: **${receipt.checks.passed} passed**, **${receipt.checks.failed} failed**, **${receipt.checks.unavailable} unavailable** (${receipt.checks.status})${receipt.checks.acceptedRisk ? `, ${receipt.checks.acceptedRisk} under accepted risk` : ''}`,
-    `- Approvals: **${receipt.approvals.current}/${receipt.approvals.required}** (${receipt.approvals.status})`,
+    `- Approvals: **${receiptApprovalText(receipt)}**`,
     `- Context provenance: **${receipt.context.status}**`,
     `- Review packet: \`${receipt.reviewPacket.sha256}\``,
     `- Publication: **${receipt.publication.state}** on \`${receipt.publication.branch}\``,

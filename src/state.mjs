@@ -205,7 +205,7 @@ import { sourcePathPolicy, isSeparatelyHashedTestInput } from './source-path-pol
 import {
   hydrateImpactPlan, impactImplementationGate, initializeStoryImpact, invalidateImpactReceipt
 } from './impact.mjs';
-import { evaluateQuickFixWaiver, supportedWaiverPolicy } from './quick-fix-policy.mjs';
+import { evaluateQuickFixWaiver, supportedWaiverPolicy, waiverNotAppliedMessage } from './quick-fix-policy.mjs';
 import {
   applicationChangeSetProjection, applicationPathContext, closeWorkInterval, ensureWorkIntervalBaseline,
   isApplicationChangePath, isApplicationPath,
@@ -5594,6 +5594,7 @@ async function submitPhaseTransition(root, config, workflow, {
     console.warn(`Warning: phase '${phase.id}' names approval policy '${phase.approvalPolicy.policy}', which this build cannot evaluate, so it waives nothing; the phase needs human approval.`);
   }
   const waiver = waiverPolicy ? evaluateQuickFixWaiver(root, config, workflow, phase, waiverPolicy) : null;
+  if (waiver && !waiver.eligible) console.warn(`Warning: ${waiverNotAppliedMessage(phase.id, waiver)}`);
   if (!reviewableFailure && (phase.approvalPolicy.mode === 'none' || waiver?.eligible)) {
     phase.status = 'approved';
     phase.approvedAt = phase.submittedAt;

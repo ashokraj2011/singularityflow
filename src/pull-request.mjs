@@ -4,6 +4,7 @@ import { githubAuthStatus } from './github-evidence.mjs';
 import { branch as currentBranch, defaultBranchName } from './git.mjs';
 import { classifyGitHost } from './git-host.mjs';
 import { recap } from './narration/recap.mjs';
+import { receiptApprovalText } from './receipt-approval-text.mjs';
 import { workItemWorkflowRelative } from './work-item-location.mjs';
 import { pullRequestTarget, readStorySeed } from './story-base-lineage.mjs';
 
@@ -94,7 +95,7 @@ export function storyPullRequestBody(workflow, seed = null, {
     lines.push(`- Changed paths: **${value(evidenceReceipt.changes.count)}** (${evidenceReceipt.changes.status})`);
     lines.push(`- Requirements: **${value(evidenceReceipt.requirements.claimed)}/${value(evidenceReceipt.requirements.clauses)}** (${evidenceReceipt.requirements.status})`);
     lines.push(`- Checks: **${evidenceReceipt.checks.passed} passed**, **${evidenceReceipt.checks.failed} failed**, **${evidenceReceipt.checks.unavailable} unavailable**${evidenceReceipt.checks.acceptedRisk ? `, ${evidenceReceipt.checks.acceptedRisk} under accepted risk` : ''}`);
-    lines.push(`- Approvals: **${evidenceReceipt.approvals.current}/${evidenceReceipt.approvals.required}**`);
+    lines.push(`- Approvals: **${receiptApprovalText(evidenceReceipt)}**`);
     lines.push(`- Review packet: \`${evidenceReceipt.reviewPacket.sha256}\``);
     lines.push(`- Receipt: \`${evidenceReceipt.receiptSha256}\``, '');
   }

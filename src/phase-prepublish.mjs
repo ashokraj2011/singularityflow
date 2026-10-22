@@ -391,6 +391,26 @@ async function staticPublicationBlockers(root, config, workflow, phase, { retain
 }
 
 /**
+ * What the final evaluation would refuse when this step ends the Story: submitting it runs that
+ * evaluation, so its open obligations and their exact commands are named before publication, not
+ * first by a refused submission. Advisory; null when the step does not end the Story.
+ */
+async function endingObligations(root, config, workflow, phase) {
+  if (!(workflow.phaseOrder ?? []).includes(phase.id)) return null;
+  const { endsStory, finalGatePreview } = await import('./upstream-entry-summary.mjs');
+  if (endsStory(workflow, phase)) return finalGatePreview(root, config, workflow);
+  // A decision route that ends the Story here: its own ending's applicability decisions.
+  let pending;
+  try {
+    pending = (await import('./nextsteps.mjs')).endingApplicabilityDecisions(workflow, phase);
+  } catch (error) {
+    return { advisory: true, status: 'unavailable', reason: error?.code ?? 'evaluation-failed' };
+  }
+  return pending.length ? { advisory: true, status: 'blocked', blockers: pending.map((entry) => entry.message), more: 0,
+    owners: [], recovery: pending.map((entry) => entry.command) } : null;
+}
+
+/**
  * Read-only, phase-scoped readiness projection for guided pre-publication repair.
  *
  * Draft-check owns authored Markdown and producer identity. Recovery adds known projection,
@@ -569,6 +589,7 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     && (draft.status !== 'ready' ? draft.correction.sameTurn
       : (briefOnly || authoringRepairOnly) && agentOwnsRepair);
   const planningRepairAllowed = planningRepairCandidate && sameTurnCorrection;
+  const finalGate = lifecycleReady ? await endingObligations(root, config, workflow, phase) : null;
   const { phaseResolutionProjection } = await import('./phase-resolution.mjs');
   // The same finding returning after the author changed something is a loop no repair can end:
   // say so, and hand it on [recoverable-findings M3]. Machine-local and advisory; nothing is accepted.
@@ -615,6 +636,8 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     // Carried through unchanged: advisories never enter findings or readiness.
     advisories: draft.advisories,
     scopeReview,
+    ...(finalGate ? { finalGate: Object.freeze({ ...finalGate, submission: phase.id,
+      blocksPublication: false }) } : {}),
     documentation: draft.documentation,
     coverage: draft.coverage,
     traceabilityRepair: draft.traceabilityRepair ? Object.freeze({
@@ -646,7 +669,8 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
         line: entry.line ?? null, field: entry.details?.field ?? null, code: entry.details?.sourceCode ?? entry.code }))
     }) : null,
     grounding: Object.freeze(dependencies.grounding),
-    warnings: Object.freeze([...dependencies.warnings, ...(scopeReview?.message ? [scopeReview.message] : [])]),
+    warnings: Object.freeze([...dependencies.warnings, ...(scopeReview?.message ? [scopeReview.message] : []),
+      ...(finalGate?.status === 'blocked' ? [`Final evaluation: submitting ${phase.id} ends the Story and would be refused for ${finalGate.blockers.length + finalGate.more} open obligation(s) until each is resolved; this does not block publishing. See finalGate for each one and its command.`] : [])]),
     readiness: Object.freeze({
       lifecycle: lifecycleReady,
       authoring: draft.status === 'ready',

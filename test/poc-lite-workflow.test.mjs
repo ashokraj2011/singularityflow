@@ -200,6 +200,22 @@ test('POC Lite completes its one human boundary with --no-model and a local bare
     'a deterministic next phase must not synthesize a governed-agent session'
   );
   lifecycle('prepare', 'poc-lite-finalize');
+  // Before the last step is published, prepublish and nextsteps already name what its submission
+  // would refuse, each with its exact command; publishing itself is not blocked [gate parity].
+  const preview = JSON.parse(lifecycle('phase', 'prepublish', 'poc-lite-finalize', '--json').stdout);
+  assert.equal(preview.status, 'ready', JSON.stringify(preview.findings));
+  assert.equal(preview.finalGate.status, 'blocked');
+  assert.equal(preview.finalGate.blocksPublication, false);
+  assert.match(preview.finalGate.blockers.join('\n'), /ends without scope; someone in quality-reviewers must record why it does not apply/);
+  assert.ok(preview.finalGate.recovery.some((command) => /decision applicability .*--responsibility scope/.test(command)), JSON.stringify(preview.finalGate));
+  assert.match(preview.warnings.join('\n'), /submitting poc-lite-finalize ends the Story and would be refused/);
+  const previewText = lifecycle('phase', 'prepublish', 'poc-lite-finalize').stdout;
+  assert.match(previewText, /Before poc-lite-finalize can be submitted \(publishing is not blocked\):\n  - This Story ends without scope/);
+  assert.match(previewText, /Run: singularity-flow decision applicability/);
+  const beforePublish = JSON.parse(lifecycle('nextsteps', '--json').stdout).actions;
+  assert.ok(beforePublish.some((entry) => entry.timing === 'then'
+    && entry.command === 'singularity-flow decision applicability POC-LITE-1 --responsibility scope --reason <reason>'),
+  JSON.stringify(beforePublish.map((entry) => [entry.timing, entry.command])));
   publish('poc-lite-finalize');
 
   // POC Lite omits scope; submitting its final step is refused until someone in the omission's

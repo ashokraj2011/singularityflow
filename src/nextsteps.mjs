@@ -66,7 +66,7 @@ function completionActions(workflow, timing = 'now', repositoryHost = null) {
  * The applicability decisions an ending still needs, when completing this phase would end the
  * Story: the final evaluation refuses the ending until each one is recorded.
  */
-function applicabilityActions(workflow, phase) {
+export function endingApplicabilityDecisions(workflow, phase) {
   const ahead = upcomingDecision(workflow, phase);
   let endpoint;
   if (ahead) {
@@ -76,11 +76,15 @@ function applicabilityActions(workflow, phase) {
   } else if (nextPhaseAfterSkillAmendment(workflow, phase)) {
     return [];
   }
-  return applicabilityStatus(workflow, endpoint).filter((entry) => !entry.satisfied).map((entry) => action(
-    'now', '/sflow-decide',
-    `singularity-flow decision applicability ${workflow.workItem.id} --responsibility ${entry.responsibility} --reason <reason>`,
-    `This Story ends without ${entry.responsibility}; someone in ${entry.authority} records why it does not apply before it can finish.`
-  ));
+  return applicabilityStatus(workflow, endpoint).filter((entry) => !entry.satisfied).map((entry) => ({
+    responsibility: entry.responsibility, authority: entry.authority,
+    command: `singularity-flow decision applicability ${workflow.workItem.id} --responsibility ${entry.responsibility} --reason <reason>`,
+    message: `This Story ends without ${entry.responsibility}; someone in ${entry.authority} records why it does not apply before it can finish.`
+  }));
+}
+
+function applicabilityActions(workflow, phase, timing = 'now') {
+  return endingApplicabilityDecisions(workflow, phase).map((entry) => action(timing, '/sflow-decide', entry.command, entry.message));
 }
 
 /**
@@ -178,9 +182,13 @@ export function workflowNextSteps(workflow, {
 
   // The final submission runs the terminal evaluation, so a published last step asks for its
   // applicability decisions before the submit they unblock, not after a refused one.
-  const submitsTheEnd = phase.status === 'in_progress' && !phaseNeedsGeneration(workflow, phase)
+  const endsHere = phase.status === 'in_progress'
     && ((workflow.phaseOrder ?? []).at(-1) === phase.id || upcomingDecision(workflow, phase)?.outcome?.kind === 'end');
+  const submitsTheEnd = endsHere && !phaseNeedsGeneration(workflow, phase);
   const undecided = phase.status === 'awaiting_approval' || submitsTheEnd ? applicabilityActions(workflow, phase) : [];
+  // Before the last step is published the same decisions are named, after its authoring: the
+  // person who records them is rarely its author, and submission would otherwise be the first to say.
+  const undecidedAfterAuthoring = endsHere && !submitsTheEnd ? applicabilityActions(workflow, phase, 'then') : [];
   let immediate = workflowGuide(workflow, { sourceReviewEvidence, authoringProgress }).nextActions.map((item, index) => action(
     item.optional ? 'alternative' : undecided.length ? (index === 0 ? 'then' : 'alternative')
       : phase.status === 'awaiting_approval' && index > 0 ? 'alternative' : 'now',
@@ -264,6 +272,7 @@ export function workflowNextSteps(workflow, {
     ));
     return actions;
   }
+  actions.push(...undecidedAfterAuthoring);
   const noApproval = phase.approvalPolicy?.mode === 'none';
   if (needsGeneration) actions.push(isConvergencePhase(phase)
     ? action(

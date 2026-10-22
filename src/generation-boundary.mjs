@@ -150,9 +150,14 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
         { code: 'GENERATION_DIRTY_START', details: dirtyDetails }
       );
     }
+    // Only `phase begin` adopts: `prepare`, which also opens a code generation, takes no adoption
+    // flags, so the refusal names the exact command whichever of the two met the changes.
+    const adopt = `singularity-flow phase begin ${phase.id} --adopt-existing --confirm ${applicationChangeSet.digest}`;
     throw new SingularityFlowError(
-      `Code already changed before generation begin. Re-run with --adopt-existing --confirm ${applicationChangeSet.digest} only after reviewing the full application change set.`,
-      { code: 'GENERATION_DIRTY_START', details: dirtyDetails }
+      `Code already changed before generation begin (${changedPaths.length} path(s)). After reviewing the full application change set, adopt it with: ${adopt}`,
+      { code: 'GENERATION_DIRTY_START', details: { ...dirtyDetails, phase: phase.id, nextAction: {
+        command: adopt, label: 'After a person reviews the listed changes (details.changedPaths), adopt exactly this change set into the new generation.'
+      } } }
     );
   }
   if (adoptExisting) {

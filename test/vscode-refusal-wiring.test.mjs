@@ -141,7 +141,7 @@ test('an error with no structured result claims nothing about preservation', () 
   assert.equal(card.why[0].label, 'Something went wrong.');
   assert.deepEqual(card.actions.map(({ command, copilotCommand }) => ({ command, copilotCommand })), [
     { command: 'singularity-flow doctor --json', copilotCommand: '/sf-doctor' },
-    { command: 'singularity-flow recommend --json', copilotCommand: '/sf-recommend' }
+    { command: 'singularity-flow nextsteps --json', copilotCommand: '/sf-nextsteps' }
   ]);
   assert.equal(card.rest, null);
   assert.match(fidelityNote(fidelity), /no statement here about what was preserved/);
@@ -242,7 +242,7 @@ test('a World Model failure offers the Repository brief, never wm doctor, and bo
     const { view: card } = refusalFor(error, { headline: 'Could not read the World Model' });
     assert.deepEqual(card.actions.map(({ command }) => command), [
       'singularity-flow wm brief --phase <phase>',
-      'singularity-flow recommend --json'
+      'singularity-flow nextsteps --json'
     ], error.message);
     assert.doesNotMatch(JSON.stringify(card.actions), /wm doctor|registered-v4/);
     assert.equal(card.details.classification, undefined);
@@ -252,7 +252,7 @@ test('a World Model failure offers the Repository brief, never wm doctor, and bo
   const repositoryRoot = '/Users/example/RuleEngineUI';
   assert.deepEqual(refusalFor(failures[0], { repositoryRoot }).view.actions.map(({ command }) => command), [
     terminalCommand(repositoryRoot, ['wm', 'brief', '--phase', '<phase>']),
-    terminalCommand(repositoryRoot, ['recommend', '--json'])
+    terminalCommand(repositoryRoot, ['nextsteps', '--json'])
   ], 'the brief is copied bound to the exact repository');
 });
 

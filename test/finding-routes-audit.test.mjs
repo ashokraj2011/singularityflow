@@ -108,7 +108,7 @@ test('no finding is routed to a command that refuses its Story, and none relies 
 });
 
 /** A step that only points at help, doctor, the planner, recovery inspection or the phase view. */
-const GENERIC_COMMAND = /^singularity-flow (?:(?:[a-z-]+ )?--help|doctor(?: --[a-z-]+)* --json|recommend --json|recover(?: [A-Za-z0-9._-]+)?(?: --phase [a-z0-9-]+)? --json|phase show [a-z0-9-]+ --json)$/u;
+const GENERIC_COMMAND = /^singularity-flow (?:(?:[a-z-]+ )?--help|doctor(?: --[a-z-]+)* --json|(?:recommend|nextsteps) --json|recover(?: [A-Za-z0-9._-]+)?(?: --phase [a-z0-9-]+)? --json|phase show [a-z0-9-]+ --json)$/u;
 const finalVerdict = { verified: false, errors: ['an acceptance criterion has no passing test'], findings: [{ code: 'gate.acceptance.untested',
   recovery: { command: 'singularity-flow evidence matrix AUDIT-1 --json', detail: 'See which criterion lacks a passing test.' } }] };
 const testRunRisk = { eligible: true, phase: 'implementation', commandId: 'module-tests',

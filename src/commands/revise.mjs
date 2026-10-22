@@ -96,8 +96,9 @@ function emit(operation, plan, result, options, { preview }) {
   })] : preview ? [nextAction({
     id: 'revise.route-review',
     label: 'Review the exact routing field in this preview; this command only re-evaluates the repository current next step',
-    command: 'singularity-flow recommend --json',
-    skill: 'sf-recommend', kind: 'diagnostic'
+    // The repository's planner: `recommend` needs an active workspace and refuses without one.
+    command: 'singularity-flow nextsteps --json',
+    skill: 'sf-nextsteps', kind: 'diagnostic'
   })] : result?.state?.status === 'awaiting-edit' ? [nextAction({
     id: 'revision.capture.preview',
     label: 'After saving the bounded implementation edits, preview their exact capture',

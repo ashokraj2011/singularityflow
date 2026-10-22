@@ -312,8 +312,10 @@ test('takeover restores every required repository from the pinned capability wit
     '--capability', 'context-delivery', '--work-type', 'feature', '--title', 'Shared delivery', '--json']).stdout);
   const source = (started.data ?? started).repositoryPath;
   git(source, ['push', '-q', '-u', 'origin', 'MULTI-CONTEXT']);
-  // Sibling delivery refs are published code, not duplicate lifecycle aggregates.
-  git(api, ['branch', 'MULTI-CONTEXT']); git(api, ['push', '-q', 'origin', 'MULTI-CONTEXT']);
+  // Sibling delivery refs are published code, not duplicate lifecycle aggregates. Start may already
+  // have created the sibling's Story branch for its direct worktree.
+  if (!git(api, ['branch', '--list', 'MULTI-CONTEXT'])) git(api, ['branch', 'MULTI-CONTEXT']);
+  git(api, ['push', '-q', 'origin', 'MULTI-CONTEXT']);
   const secondWorkspace = path.join(f.base, 'second-workspace'), second = path.join(secondWorkspace, 'repos', 'app');
   await mkdir(path.dirname(second), { recursive: true });
   git(f.base, ['clone', '--no-local', '-q', f.remote, second]);

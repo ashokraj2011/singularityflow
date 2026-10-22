@@ -14,7 +14,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
-import { agentAct, agentOutputGoverned, boundedAgentOutput, DEFAULT_AGENT_OUTPUT_BYTES, LOOP_THRESHOLD, observeAgentLoop, READ_CHUNK_BYTES, READ_PLAN_CHUNKS, withAgentRoutes } from '../src/agent-output.mjs';
+import { agentAct, agentOutputGoverned, boundedAgentOutput, completeAgentResult, DEFAULT_AGENT_OUTPUT_BYTES, LOOP_THRESHOLD, observeAgentLoop, READ_CHUNK_BYTES, READ_PLAN_CHUNKS, withAgentRoutes } from '../src/agent-output.mjs';
 import { CLI_PATH_CONTRACT } from '../src/safe-command-guidance.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
@@ -254,6 +254,54 @@ test('large fields left out become at most three ranges of whole fields, each wi
   const reached = read.at(-1).lines[1];
   for (const entry of view.omittedFields) assert.ok(entry.lines[0] <= reached || entry.lines[0] > reached, entry.field);
   assert.ok(view.omittedFields.some((entry) => entry.field === 'extra'));
+});
+
+test('review document bodies and text given elsewhere become reference files outside the reads, restored whole', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-references-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const body = (label) => Array.from({ length: 80 }, (_, index) => `${label} line ${index}: the authored requirement text.`).join('\n');
+  const rule = 'Run the declared local checks before publishing; '.repeat(16);
+  const document = (id, content) => ({ id, path: `singularity/work-items/W/artifacts/${id}.md`, sha256: 'a'.repeat(64), size: Buffer.byteLength(content), content });
+  const result = { resultType: 'sflow-phase-prepublish', status: 'ready', repositoryPath: root, workId: 'W', summary: rule,
+    publishIfReady: { published: true, command: 'singularity-flow publish intake --json',
+      review: { displayBinding: `sha256:${'b'.repeat(64)}`, documents: [document('intake', body('Intake')), document('brief', 'Short brief.')] } },
+    guidance: { protocol: rule, extended: `${'Context first. '.repeat(50)}${rule}`, steps: Array.from({ length: 60 }, (_, index) => `Step ${index}: ${'s'.repeat(100)}`) },
+    history: Array.from({ length: 120 }, (_, index) => ({ id: index, note: 'z'.repeat(80) })) };
+  const view = JSON.parse(await boundedAgentOutput(JSON.stringify(result), { cwd: root }));
+  assert.ok(Buffer.byteLength(JSON.stringify(view)) <= DEFAULT_AGENT_OUTPUT_BYTES);
+  const file = JSON.parse(await readFile(view.agentOutput.path, 'utf8'));
+  const [intake, brief] = file.publishIfReady.review.documents;
+  assert.match(intake.content.referenceOf, /^document body: the person reviews it outside the chat/u);
+  assert.equal(await readFile(intake.content.textFile, 'utf8'), result.publishIfReady.review.documents[0].content, 'the body file is exact');
+  assert.equal(brief.content, 'Short brief.', 'a short body stays inline');
+  assert.equal(file.publishIfReady.review.displayBinding, result.publishIfReady.review.displayBinding, 'bindings are untouched');
+  // The kept summary already shows the rule; the longer guidance text holds the protocol.
+  assert.equal(view.summary, rule);
+  assert.equal(file.guidance.protocol.referenceOf, 'same text as summary');
+  const listed = view.omittedFields.flatMap((entry) => entry.textFiles ?? []).map((entry) => entry.path);
+  assert.ok(!listed.includes(intake.content.textFile) && !listed.includes(file.guidance.protocol.textFile), 'references are not in the files to read');
+  const read = await fieldsIn(view.agentOutput.path, view.agentOutput.read);
+  assert.doesNotMatch(JSON.stringify(read), /authored requirement text/u, 'no body inside the read ranges');
+  assert.deepEqual(completeAgentResult(view), { act: completeAgentResult(view).act, ...result }, 'the complete result is restored exactly');
+});
+
+test('a long text held by a longer one the agent reads is a reference; a lone copy stays', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-held-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const protocol = 'Use only the exact issued staging path and run the declared checks. '.repeat(12);
+  const result = { resultType: 'x', repositoryPath: root, workId: 'W',
+    contract: { toolProtocol: { guidance: protocol }, rules: Array.from({ length: 60 }, (_, index) => `Rule ${index}: ${'r'.repeat(100)}`) },
+    context: { text: `# Phase prompt\n\n${'Write the plan. '.repeat(400)}\n\n# Runtime protocol\n\n${protocol}\n` },
+    unique: { note: 'Only here. '.repeat(80) },
+    filler: Array.from({ length: 80 }, (_, index) => ({ id: index, note: 'q'.repeat(90) })) };
+  const view = JSON.parse(await boundedAgentOutput(JSON.stringify(result), { cwd: root }));
+  const file = JSON.parse(await readFile(view.agentOutput.path, 'utf8'));
+  assert.equal(file.contract.toolProtocol.guidance.referenceOf, 'same text as context.text');
+  assert.equal(typeof file.unique.note, 'string', 'text found nowhere else stays inline');
+  assert.ok(view.omittedFields.find((entry) => entry.field === 'context').textFiles.length, 'the holder is still read');
+  assert.deepEqual(completeAgentResult(view).contract, result.contract);
 });
 
 test('the CLI bounds a real phase entry, and the bytes it leaves out are in the file it names', { timeout: 300_000 }, async (t) => {

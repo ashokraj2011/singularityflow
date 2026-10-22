@@ -44,6 +44,12 @@ const LOOP_WINDOW_MS = 2 * 60 * 60 * 1000;
 const UNCOUNTED_STATES = new Set(['author', 'read', 'paused']);
 const LARGE_TEXT_BYTES = 4_000;
 const FIELD_ORDER = 'agentOutputFieldOrder';
+// Recorded sessions read review document bodies back in every approval, publish and submit result
+// (29% of all overflow bytes read, 2026-10-18 to 10-21), and the same protocol text up to three times.
+// A reference (path, size, hash, reason) costs about 350 bytes; shorter texts stay inline.
+const DUPLICATE_TEXT_BYTES = 600;
+const DOCUMENT_BODY_BYTES = 600;
+const DOCUMENT_BODY_REASON = 'document body: the person reviews it outside the chat; open it only to quote a line';
 const FIELD_BYTES = 6_000;
 const SMALL_FIELD_BYTES = 300;
 const KEPT_RESULTS = 40;
@@ -291,6 +297,75 @@ async function externalize(value, directory, base, trail, written, reviewSources
   return Object.fromEntries(entries);
 }
 
+/** Every string at least `minimum` bytes long under `value`, with its trail. */
+function longStrings(value, trail, minimum, found = []) {
+  if (typeof value === 'string') { if (bytes(value) >= minimum) found.push({ trail, text: value }); }
+  else if (Array.isArray(value)) value.forEach((child, index) => longStrings(child, [...trail, String(index)], minimum, found));
+  else if (value && typeof value === 'object') for (const [key, child] of Object.entries(value)) longStrings(child, [...trail, key], minimum, found);
+  return found;
+}
+
+const valueAt = (value, trail) => trail.reduce((node, key) => (node == null ? node : node[key]), value);
+const reviewDocumentBody = (trail) => trail.some((key, index) => key === 'review' && trail[index + 1] === 'documents'
+  && /^\d+$/u.test(trail[index + 2] ?? '') && (trail[index + 3] === 'content' || (trail[index + 3] === 'display' && ['full', 'preview'].includes(trail[index + 4])))
+  && trail.length === index + (trail[index + 3] === 'content' ? 4 : 5));
+
+/**
+ * Text in the fields a view leaves out that an agent should not read again: a review document's
+ * body (every review skill shows identities, hashes and links, never bodies: the person reviews
+ * them outside the chat), and a long text the result already gives it elsewhere (the path rule
+ * in act, the composed prompt that renders the same protocol, instructions inside effective
+ * instructions). Each becomes its own file, marked with why, outside the read ranges;
+ * completeAgentResult() still reads it back. Returns the fields to write and the files marked.
+ */
+async function referenceTexts(full, ordered, omitted, kept, seen, { directory, base, texts }) {
+  const minimum = DUPLICATE_TEXT_BYTES;
+  const fileOf = new Map(texts.map((entry) => [entry.field, entry]));
+  const candidates = [];
+  // A body is never wanted, in the view or out of it; a repeated text only matters where it is read again.
+  for (const key of [...omitted, ...kept]) {
+    const walk = (node, trail) => {
+      if (isTextReference(node)) {
+        const text = valueAt(ordered, trail);
+        if (typeof text === 'string' && bytes(text) >= minimum) candidates.push({ trail, text, file: fileOf.get(trail.join('.')) ?? null });
+      } else if (typeof node === 'string') { if (bytes(node) >= minimum) candidates.push({ trail, text: node, file: null }); }
+      else if (Array.isArray(node)) node.forEach((child, index) => walk(child, [...trail, String(index)]));
+      else if (node && typeof node === 'object') for (const [name, child] of Object.entries(node)) walk(child, [...trail, name]);
+    };
+    walk(full[key], [key]);
+  }
+  for (const candidate of candidates) if (reviewDocumentBody(candidate.trail) && bytes(candidate.text) > DOCUMENT_BODY_BYTES) candidate.reason = DOCUMENT_BODY_REASON;
+  const inView = (candidate) => kept.includes(candidate.trail[0]);
+  for (const [index, candidate] of candidates.entries()) {
+    if (candidate.reason || inView(candidate)) continue;
+    const where = (other) => `same text as ${other.trail.join('.')}`;
+    const shown = seen.find((other) => other.text.includes(candidate.text));
+    // A longer text the agent reads anyway holds it, or an earlier copy does; a body to review
+    // outside the chat is never what holds it.
+    const holder = shown ?? candidates.find((other, at) => other !== candidate && !other.reason && !inView(other) && other.text.includes(candidate.text)
+      && (other.text.length > candidate.text.length || at < index));
+    if (holder) candidate.reason = where(holder);
+  }
+  const marked = candidates.filter((candidate) => candidate.reason);
+  if (!marked.length) return { fields: full, references: new Set() };
+  const fields = Object.fromEntries(Object.entries(full).map(([key, value]) => [key, omitted.includes(key) || kept.includes(key) ? structuredClone(value) : value]));
+  const references = new Set();
+  for (const candidate of marked) {
+    let entry = candidate.file;
+    if (!entry) {
+      const file = path.join(directory, `${base}.${candidate.trail.join('.').replace(/[^A-Za-z0-9_.-]/gu, '_').slice(0, 80)}.txt`);
+      await writeAtomic(file, candidate.text, { mode: 0o600 });
+      entry = { textFile: file, bytes: bytes(candidate.text), lines: candidate.text.split('\n').length, sha256: sha256(candidate.text) };
+      // Registered as an issued read path with the rest, so the agent may still open it.
+      texts.push({ field: candidate.trail.join('.'), ...entry, reference: true });
+    }
+    references.add(entry.textFile);
+    const parent = valueAt(fields, candidate.trail.slice(0, -1));
+    parent[candidate.trail.at(-1)] = { textFile: entry.textFile, bytes: entry.bytes, lines: entry.lines, sha256: entry.sha256, referenceOf: candidate.reason };
+  }
+  return { fields, references };
+}
+
 /** The 1-based line range of each top-level field in two-space indented JSON. */
 function topLevelRanges(text) {
   const lines = text.split('\n');
@@ -487,9 +562,9 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
     .map(({ field, textFile, bytes: length, lines }) => ({ field, path: textFile, bytes: length, lines }))]));
   const reference = (ranges) => Object.fromEntries(keys.map((key) => [key,
     { field: key, bytes: size[key], lines: ranges[key] ?? null, ...(textFiles[key].length ? { textFiles: textFiles[key] } : {}) }]));
-  const render = (kept, agentOutput, references, order = keys) => agentJson({ act: { ...(act ?? {}), complete: false }, agentOutput,
+  const render = (kept, agentOutput, references, order = keys, values = ordered) => agentJson({ act: { ...(act ?? {}), complete: false }, agentOutput,
     omittedFields: order.filter((key) => !kept.has(key)).map((key) => references[key]),
-    ...Object.fromEntries(keys.filter((key) => kept.has(key)).map((key) => [key, ordered[key]])) });
+    ...Object.fromEntries(keys.filter((key) => kept.has(key)).map((key) => [key, values[key]])) });
   // Keep every field without a long text, then move fields out until the view fits: larger ones
   // before small ones, and within each, the material before the packet's read order before what
   // `act` itself reads. Ids, status and the fields `act` names stay longest.
@@ -505,20 +580,27 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
   // completeAgentResult() returns the result exactly as the command produced it.
   const fieldOrder = Object.keys(full);
   const wholeText = `${JSON.stringify({ ...full, [FIELD_ORDER]: fieldOrder }, null, 2)}\n`;
-  const widest = wholeText.split('\n').length - 1;
-  const provisional = { ...describe(wholeText, instruction),
+  // A text moved to a reference file adds at most six lines (its object) and saves bytes.
+  const widest = wholeText.split('\n').length - 1 + 6 * longStrings(full, [], DUPLICATE_TEXT_BYTES).length + texts.length;
+  // A text file already written gains only its reason when it becomes a reference.
+  const provisional = { ...describe(wholeText, instruction), lines: widest, bytes: bytes(wholeText) + 200 * texts.length,
     read: Array.from({ length: READ_PLAN_CHUNKS }, () => ({ lines: [widest, widest], bytes: 9_999_999 })) };
   const provisionalReferences = reference(Object.fromEntries(keys.map((key) => [key, [widest, widest]])));
   while (bytes(render(kept, provisional, provisionalReferences)) > budget && kept.size) kept.delete([...kept].sort(removalOrder)[0]);
   // The fields left out come first in the file, in the order they are read, so a few ranges hold them.
   const omitted = keys.filter((key) => !kept.has(key))
     .map((key, index) => ({ key, index })).sort((left, right) => tier(left.key) - tier(right.key) || left.index - right.index).map(({ key }) => key);
-  const fileOrder = [...omitted, ...Object.keys(full).filter((key) => !omitted.includes(key))];
-  const fullText = await write({ ...Object.fromEntries(fileOrder.map((key) => [key, full[key]])), [FIELD_ORDER]: fieldOrder });
+  // What the agent already sees: act and the fields kept in the view.
+  const seen = longStrings({ act: ordered.act, ...Object.fromEntries([...kept].map((key) => [key, ordered[key]])) }, [], DUPLICATE_TEXT_BYTES)
+    .filter(({ trail }) => !reviewDocumentBody(trail));
+  const { fields, references } = await referenceTexts(full, ordered, omitted, [...kept], seen, { directory: target.directory, base, texts });
+  for (const key of omitted) textFiles[key] = textFiles[key].filter((entry) => !references.has(entry.path));
+  const fileOrder = [...omitted, ...Object.keys(fields).filter((key) => !omitted.includes(key))];
+  const fullText = await write({ ...Object.fromEntries(fileOrder.map((key) => [key, fields[key]])), [FIELD_ORDER]: fieldOrder });
   const ranges = topLevelRanges(fullText);
   const read = readPlan(fullText, ranges, omitted);
   const agentOutput = { ...describe(fullText, instruction), ...(read.length ? { read } : {}) };
-  return `${render(kept, agentOutput, reference(ranges), omitted)}\n`;
+  return `${render(kept, agentOutput, reference(ranges), omitted, fields)}\n`;
 }
 
 /**
@@ -548,7 +630,7 @@ export async function boundedAgentText(text, { cwd = process.cwd(), budget = age
 }
 
 const isTextReference = (value) => value && typeof value === 'object' && !Array.isArray(value) && typeof value.textFile === 'string'
-  && Object.keys(value).every((key) => ['textFile', 'bytes', 'lines', 'sha256'].includes(key));
+  && Object.keys(value).every((key) => ['textFile', 'bytes', 'lines', 'sha256', 'referenceOf'].includes(key));
 
 /** The complete result behind a bounded view, with every long text read back; any other result as is. */
 export function completeAgentResult(output) {

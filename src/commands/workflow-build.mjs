@@ -1,6 +1,7 @@
 /**
  * `workflow build start | add | status` — start a progressive workflow build from a workflow the
- * repository has, from a team's material, or from a description, and see what it holds
+ * repository has (changed in place with --change, or copied), from a team's material, or from a
+ * description, and see what it holds
  * (src/workflow-build/). Builds are machine-local; nothing here changes a repository.
  */
 import { readFile } from 'node:fs/promises';
@@ -8,7 +9,7 @@ import path from 'node:path';
 import { SingularityFlowError, commandLineFile, optionBoolean, optionString, optionStrings } from '../util.mjs';
 
 const OPTIONS = {
-  start: new Set(['from-workflow', 'folder', 'file', 'notes', 'describe', 'name', 'json']),
+  start: new Set(['change', 'from-workflow', 'folder', 'file', 'notes', 'describe', 'name', 'json']),
   add: new Set(['build', 'folder', 'file', 'notes', 'json']),
   status: new Set(['build', 'json']),
   propose: new Set(['build', 'proposal', 'by', 'accept', 'json']),
@@ -76,11 +77,32 @@ function printBuild(view) {
   console.log(`  See it again: singularity-flow workflow build status --build ${build.id}`);
 }
 
+/** What the build adds, removes, moves or changes in the workflow it starts from; a removed step names what leaves with it. */
+function printChanges(changes) {
+  if (!changes) return;
+  console.log(changes.inPlace ? `Changes to ${changes.label}:` : `Compared with ${changes.label}, which this copies:`);
+  if (changes.none) return console.log('  nothing yet');
+  if (changes.renamed) console.log(`  renamed  ${changes.renamed.from} → ${changes.renamed.to}`);
+  for (const step of changes.added) console.log(`  added    ${step.label} (step ${step.position})`);
+  for (const step of changes.removed) console.log(`  removed  ${step.label}${step.goes.length ? `; with it go ${step.goes.join(', ')}` : ''}`);
+  for (const step of changes.moved) console.log(`  moved    ${step.label} to step ${step.position}`);
+  for (const step of changes.changed) console.log(`  changed  ${step.label}: ${step.what.join(', ')}`);
+  for (const decision of changes.decisions.added) console.log(`  added    decision after ${decision.after}: ${decision.label}`);
+  for (const decision of changes.decisions.removed) console.log(`  removed  decision after ${decision.after}: ${decision.label}`);
+}
+
 function printCheck(result) {
   console.log(`${result.draft.workflow.label} (${result.build.workflow}): ${result.explanation?.summary ?? `${result.draft.workflow.phases.length} steps so far.`}`);
   for (const step of result.explanation?.steps ?? []) {
     console.log(`  ${step.number}. ${step.label}: ${step.what}${step.why ? ` Why: ${step.why.text}` : ''}`);
+    // Its parts, named: who drafts it, the skills and instructions it uses, what it reads, who signs it off.
+    const parts = [step.agent ? `agent ${step.agent.label}` : 'no agent',
+      step.skills.length ? `skills ${step.skills.map((skill) => skill.label).join(', ')}` : null,
+      step.instructions.length ? `instructions ${step.instructions.join(', ')}` : null,
+      step.reads.length ? `reads ${step.reads.map((read) => read.label).join(', ')}` : null].filter(Boolean);
+    console.log(`     ${parts.join(' · ')}. ${step.signOff}`);
   }
+  printChanges(result.changes);
   for (const problem of result.plan.problems) console.log(`  problem  ${problem.message}`);
   for (const finding of result.findings) {
     console.log(`  ${SEVERITY[finding.severity].padEnd(8)} ${finding.title}${finding.location ? `  (${finding.location.file}${finding.location.line ? `:${finding.location.line}` : ''})` : ''}`);
@@ -88,11 +110,14 @@ function printCheck(result) {
   for (const proposal of result.pending) console.log(`  waiting  ${proposal.id} by ${proposal.by}: ${proposal.title}`);
   for (const question of result.questions) console.log(`  question ${question.id}: ${question.question} (${question.choices.join(' | ')})`);
   if (result.landed) {
-    console.log(`Finished: ${result.landed.label} is in the approved configuration. To change it: singularity-flow workflow build start --from-workflow ${result.landed.workflow}`);
+    console.log(result.landed.change
+      ? `Finished: the change to ${result.landed.label} is a configuration proposal; review and activate it. To change it again: singularity-flow workflow build start --change ${result.landed.workflow}`
+      : `Finished: ${result.landed.label} is in the approved configuration. To change it in place: singularity-flow workflow build start --change ${result.landed.workflow}`);
     return;
   }
   console.log(result.ready ? 'Ready to finish: singularity-flow workflow build finish --build ' + result.build.id + ' --propose'
-    : `Not ready to finish: ${result.counts.problem} problem${result.counts.problem === 1 ? '' : 's'}${result.questions.some((question) => question.blocking) ? ', questions waiting for an answer' : ''}.`);
+    : result.unchanged ? 'Not ready to finish: nothing is changed yet.'
+      : `Not ready to finish: ${result.counts.problem} problem${result.counts.problem === 1 ? '' : 's'}${result.questions.some((question) => question.blocking) ? ', questions waiting for an answer' : ''}.`);
 }
 
 async function engineAction(action, { options, root, json, buildId, api, labels }) {
@@ -169,7 +194,7 @@ export async function run(argv, { positionals, options }) {
         finished: record.finished ? { at: record.finished.at, kind: record.finished.kind } : null };
     });
     if (json) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'workflow-builds', builds: list }, null, 2));
-    if (!list.length) return console.log('No workflow builds on this computer. Start one: singularity-flow workflow build start --folder <DIR> | --from-workflow <ID>');
+    if (!list.length) return console.log('No workflow builds on this computer. Start one: singularity-flow workflow build start --folder <DIR> | --change <ID> | --from-workflow <ID>');
     for (const entry of list) {
       console.log(`${entry.id}  ${entry.label}  changed ${entry.updatedAt.slice(0, 16).replace('T', ' ')}  ${Object.entries(entry.counts).map(([kind, count]) => inventory.countWords(kind, count)).join(', ')}`);
     }
@@ -179,7 +204,7 @@ export async function run(argv, { positionals, options }) {
   if (['propose', 'decide', 'answer', 'check', 'finish', 'source'].includes(action)) return engineAction(action, { options, root, json, buildId, api, labels });
   let record;
   if (action === 'start') {
-    record = await api.startWorkflowBuild({ root, fromWorkflow: optionString(options, 'from-workflow') ?? null, ...(await material()),
+    record = await api.startWorkflowBuild({ root, fromWorkflow: optionString(options, 'from-workflow') ?? null, change: optionString(options, 'change') ?? null, ...(await material()),
       describe: optionString(options, 'describe') ?? null, name: optionString(options, 'name') ?? null });
   } else if (action === 'add') {
     const id = optionString(options, 'build');

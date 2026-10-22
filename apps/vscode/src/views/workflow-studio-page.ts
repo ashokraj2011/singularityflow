@@ -1648,6 +1648,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
               : null,
             button(readOnly ? 'View' : 'Edit', function () { openWorkflowCanvas(id); }, { class: 'secondary', 'data-key': 'workflow-open-' + id,
               'aria-label': (readOnly ? 'View seeded workflow ' : 'Edit workflow in canvas: ') + workflow.label }),
+            !readOnly && !workflow.isNew && !workflow.installFrom ? button('Change with Copilot', function () { buildChangeWorkflow(id); }, { class: 'secondary', 'data-key': 'workflow-build-change-' + id,
+              'aria-label': 'Change ' + workflow.label + ' with Copilot', title: 'Copilot explains it, then changes it a piece at a time; you accept each piece' }) : null,
             button('Duplicate', function () { duplicateWorkflow('story:' + id); }, { class: 'secondary', disabled: workflow.isNew || Boolean(workflow.installFrom), 'aria-label': 'Duplicate ' + workflow.label }),
             retireButtons('story:' + id, workflow.label, archived, !readOnly, workflow.isNew || Boolean(workflow.installFrom)))),
         el('span', { class: 'muted', text: workflow.phases.length + ' steps' + (code ? ' · writes code' : '') + (archived && archived.reason ? ' · archived: ' + archived.reason : '') }),
@@ -3130,6 +3132,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         workflow.isNew || workflow.installFrom ? button('Cancel this workflow', function () { askRemoveNewWorkflow(workflowId); }, { class: 'secondary', 'data-key': 'workflow-cancel' }) : null),
       el('div', { id: 'studio-status', class: 'studio-status muted', role: 'status', 'aria-live': 'polite', text: state.status }),
       checkButton(workflowId),
+      !readOnly && !workflow.isNew && !workflow.installFrom ? button('Change with Copilot', function () { buildChangeWorkflow(workflowId); }, { class: 'secondary', 'data-key': 'workflow-build-change' }) : null,
       readOnly
         ? button('Duplicate and customize', function () { duplicateWorkflow('story:' + workflowId); }, { class: 'primary', 'data-key': 'workflow-duplicate' })
         : button('Review changes (' + changesNow().length + ')', function () { state.view = 'changes'; render(); }, { class: 'primary' })));
@@ -6055,7 +6058,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   function buildState() {
     if (!state.build) {
       state.build = { list: null, loading: false, modelAvailable: true, id: null, view: null, check: null, checking: false, tab: 'build', busy: null, error: null,
-        preview: null, source: null, start: { from: 'material', workflow: '', describe: '', name: '' }, decline: {}, leaving: {}, settling: null, selected: null, addStep: null, kind: null, finished: null, purpose: null };
+        preview: null, source: null, start: { from: 'material', workflow: '', change: '', describe: '', name: '' }, decline: {}, leaving: {}, settling: null, selected: null, addStep: null, kind: null, finished: null, purpose: null };
     }
     return state.build;
   }
@@ -6077,6 +6080,24 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   }
   /** Your own change: recorded and accepted at once, so it shows like any other piece of the build. */
   function buildMine(title, why, moves) { buildAction('mine', { proposal: JSON.stringify({ title: title, why: why, moves: moves }) }, 'mine'); }
+  /** Change a workflow you have in place, with Copilot: the build opens on it, explained as it is. */
+  function buildChangeWorkflow(id) { openBuilds(); buildAction('start', { from: 'change', workflow: id, name: null }, 'start'); }
+  /** What the build adds, removes, moves or changes in the workflow it starts from; a removed step says what leaves with it. */
+  function buildChangesList(changes) {
+    if (!changes) return null;
+    var rows = [];
+    function row(mark, text) { rows.push(el('div', { class: 'check-row' }, el('span', { class: 'mark ' + (mark === '−' ? 'bad' : 'ok'), 'aria-hidden': 'true', text: mark }), el('div', { text: text }), el('span'))); }
+    if (changes.renamed) row('~', 'Renamed from ' + changes.renamed.from + ' to ' + changes.renamed.to + '.');
+    changes.added.forEach(function (step) { row('+', 'Adds ' + step.label + ' as step ' + step.position + '.'); });
+    changes.removed.forEach(function (step) { row('−', 'Removes ' + step.label + (step.goes.length ? '; with it go ' + step.goes.join(', ') : '') + '.'); });
+    changes.moved.forEach(function (step) { row('~', 'Moves ' + step.label + ' to step ' + step.position + '.'); });
+    changes.changed.forEach(function (step) { row('~', 'Changes ' + step.label + ': ' + step.what.join(', ') + '.'); });
+    changes.decisions.added.forEach(function (decision) { row('+', 'Adds the decision after ' + decision.after + ': ' + decision.label + '.'); });
+    changes.decisions.removed.forEach(function (decision) { row('−', 'Removes the decision after ' + decision.after + ': ' + decision.label + '.'); });
+    return el('div', { 'data-key': 'build-changes' },
+      el('p', { class: 'muted', text: changes.inPlace ? 'Changes to ' + changes.label + ' itself; Stories already running keep the workflow they started with.' : 'Compared with ' + changes.label + ', which this copies; ' + changes.label + ' stays as it is.' }),
+      changes.none ? el('p', { class: 'muted', text: 'Nothing is changed yet.' }) : rows);
+  }
   function buildWhen(iso) { var date = iso ? new Date(iso) : null; return date && !isNaN(date.getTime()) ? date.toLocaleString() : ''; }
   function buildKindLabel(kind) { var kinds = (buildState().view || {}).kinds || {}; return kinds[kind] || kind; }
   function buildKindOne(kind) { var words = (buildState().view || {}).kindOne || {}; return words[kind] || kind; }
@@ -6159,7 +6180,15 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var busy = Boolean(b.busy);
     // A node has one parent, so each card gets its own name field (only the chosen card shows one).
     var name = function () { return field('build-name', 'Name of the new workflow (optional)', textInput('build-name', form.name, function (value) { form.name = value; }, { placeholder: 'Payments release' })); };
+    var editable = workflows.filter(function (id) { return !workflowReadOnly(id) && !state.draft.workflows[id].isNew && !state.draft.workflows[id].installFrom; });
     main.appendChild(el('div', { class: 'build-start-grid' },
+      choice('change', 'Change a workflow you have', 'Copilot explains it, then changes it a piece at a time; you accept each piece and see what each one adds, removes or changes. Stories already running keep the workflow they started with.',
+        el('div', { class: 'build-start-body' },
+          editable.length ? field('build-change-workflow', 'Workflow', select('build-change-workflow', [{ value: '', label: 'Choose a workflow' }].concat(editable.map(function (id) { return { value: id, label: state.draft.workflows[id].label }; })),
+            form.change, function (value) { form.change = value; render(); }))
+            : el('p', { class: 'muted', text: 'Only your own workflows change in place; a seeded one is copied first (From a workflow you have).' }),
+          button(b.busy === 'start' ? 'Starting…' : 'Change this workflow', function () { buildAction('start', { from: 'change', workflow: form.change, name: null }, 'start'); },
+            { class: 'primary', 'data-key': 'build-start-change', disabled: busy || !form.change }))),
       choice('material', 'From a team\'s material', 'Folders or files a team already uses: agent, skill, instruction and prompt files, runbooks, API collections, scripts. They are screened for credentials, never run or fetched.',
         el('div', { class: 'build-start-body' },
           field('build-base', 'Add to a workflow you have (optional)', select('build-base', [{ value: '', label: 'No: a new workflow' }].concat(options), form.workflow, function (value) { form.workflow = value; })),
@@ -6556,12 +6585,17 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         el('div', { text: step.signOff }),
         step.then.map(function (line) { return el('div', { class: 'muted', text: line }); }),
         step.agent ? el('div', { class: 'muted', text: 'Drafted by ' + step.agent.label + (step.skills.length ? ', with ' + step.skills.map(function (skill) { return skill.label; }).join(', ') : '') + '.' }) : null,
+        step.instructions && step.instructions.length ? el('div', { class: 'muted', text: 'Follows the instructions ' + step.instructions.join(', ') + '.' }) : null,
         step.reads.length ? el('div', { class: 'muted', text: 'Reads ' + step.reads.map(function (read) { return read.label + (read.optional ? ' (if there)' : ''); }).join(', ') + '.' }) : null,
         step.apiCalls.length ? el('div', { class: 'muted', text: 'Calls ' + step.apiCalls.map(function (call) { return call.method + ' ' + call.target; }).join(', ') + '.' }) : null));
     });
     if (b.selected && workflow && !(b.preview && b.preview.result) && !result.landed) {
       var picked = steps.find(function (step) { return step.id === b.selected; });
       if (picked) pane.appendChild(buildStepTools(picked, workflow.steps.map(function (step) { return step.id; }), ((result.draft && result.draft.newSteps) || []).indexOf(picked.id) >= 0));
+    }
+    if (result.changes && !result.landed) {
+      pane.appendChild(el('h3', { text: 'What changes' }));
+      pane.appendChild(buildChangesList(result.changes));
     }
     var findings = result.findings || [];
     pane.appendChild(el('h3', { text: 'Does it make sense?' }));
@@ -6584,15 +6618,20 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   function landedCallout(landed) {
     var b = buildState();
     return el('div', { class: 'callout ok', 'data-key': 'build-landed' },
-      el('div', { text: 'Finished: ' + landed.label + ' is in the approved configuration. Running and new Stories can use it. To change it, start a new build from it.' }),
+      el('div', { text: landed.change
+        ? 'Finished: the change to ' + landed.label + ' is a configuration proposal; review and activate it in Changes. To change it again, change it with Copilot.'
+        : 'Finished: ' + landed.label + ' is in the approved configuration. Running and new Stories can use it. Change it in place with Copilot, or start a build from it to make a copy.' }),
       el('div', { class: 'studio-row', style: 'margin-top:6px' },
+        button('Change ' + landed.label + ' with Copilot', function () { buildAction('start', { from: 'change', workflow: landed.workflow, name: null }, 'start'); },
+          { class: 'primary', 'data-key': 'build-change-landed', disabled: Boolean(b.busy) }),
         button('Start a build from ' + landed.label, function () { buildAction('start', { from: 'workflow', workflow: landed.workflow, name: null }, 'start'); },
-          { class: 'primary', 'data-key': 'build-from-landed', disabled: Boolean(b.busy) }),
+          { class: 'secondary', 'data-key': 'build-from-landed', disabled: Boolean(b.busy) }),
         button('Open it in Workflows', function () { openWorkflowCanvas(landed.workflow); }, { class: 'secondary', 'data-key': 'build-open-landed' })));
   }
   function buildBlockers(result) {
     var reasons = [];
     if (!result.draft || !result.draft.workflow.phases.length) reasons.push('It has no steps yet.');
+    if (result.unchanged) reasons.push('Nothing is changed yet.');
     if (result.plan && !result.plan.valid) reasons.push('Its pieces cannot be saved together yet.');
     if (result.counts && result.counts.problem) reasons.push(result.counts.problem + (result.counts.problem === 1 ? ' problem needs' : ' problems need') + ' fixing.');
     var blocking = (result.questions || []).filter(function (question) { return question.blocking; }).length;
@@ -6612,6 +6651,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var names = function (kind, ids) { return (ids || []).map(function (id) { return buildName(kind, id); }); };
     card.appendChild(el('div', null, line('New steps', names('step', draft.newSteps)), line('New agents', names('agent', draft.newAgents)), line('New skills', draft.newSkills),
       line('New instructions', draft.newInstructions), line('New approval groups (add people in People & approvals once it is active)', names('group', draft.newGroups))));
+    if (result.changes) card.appendChild(buildChangesList(result.changes));
     var pending = (result.pending || []).length;
     if (pending) card.appendChild(el('div', { class: 'callout wait', text: pending + (pending === 1 ? ' proposal is' : ' proposals are') + ' still waiting for you; finishing leaves ' + (pending === 1 ? 'it' : 'them') + ' out.' }));
     var open = (result.findings || []).find(function (item) { return item.code === 'BUILD_ITEMS_OPEN'; });

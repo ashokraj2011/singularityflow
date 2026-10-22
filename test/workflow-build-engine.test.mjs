@@ -370,7 +370,7 @@ test('starting from a workflow copies it; finishing writes a bundle that imports
   const listed = json(seed, ['workflow', 'build', 'status']).builds.find((entry) => entry.id === build.id);
   assert.deepEqual([listed.finished.kind, /^\d+ steps, \d+ agents?/u.test(listed.found)], ['proposal', true], 'the list says what a build holds in words, and that it is finished');
 
-  // Once the approved configuration has the workflow, the build is done: its check is that workflow, and changing it is a new build.
+  // Once the approved configuration has the workflow, the build is done: its check is that workflow, and changing it is a change build.
   const merged = run('git', ['--git-dir', remote, 'rev-parse', proposal.branch], base).stdout.trim();
   run('git', ['--git-dir', remote, 'update-ref', 'refs/heads/sflow/config', merged, approved], base);
   run('git', ['fetch', '-q', 'origin'], seed);
@@ -378,9 +378,46 @@ test('starting from a workflow copies it; finishing writes a bundle that imports
   assert.deepEqual([landed.landed.workflow, landed.landed.label, landed.ready, landed.changeSet.changes, landed.plan.problems], ['chore-with-notes', 'Chore with notes', false, [], []]);
   assert.equal(landed.draft.workflow.phases.at(-1), 'chore-notes');
   assert.match(landed.explanation.summary, /steps/u);
-  assert.match(flow(seed, ['workflow', 'build', 'check', '--build', build.id]).stdout, /^Finished: Chore with notes is in the approved configuration\. To change it: singularity-flow workflow build start --from-workflow chore-with-notes$/mu);
+  assert.match(flow(seed, ['workflow', 'build', 'check', '--build', build.id]).stdout, /^Finished: Chore with notes is in the approved configuration\. To change it in place: singularity-flow workflow build start --change chore-with-notes$/mu);
   for (const args of [['finish', '--build', build.id, '--propose'], ['propose', '--build', build.id, '--proposal', '-']]) {
     const refused = flow(seed, ['workflow', 'build', ...args], { allowFailure: true, input: JSON.stringify({ title: 'More', why: 'More.', moves: [{ move: 'step.remove', id: 'chore-notes' }] }) });
-    assert.match(refused.stderr + refused.stdout, /is finished: Chore with notes is in the approved configuration\. To change it, start a new build from it/u);
+    assert.match(refused.stderr + refused.stdout, /is finished: Chore with notes is in the approved configuration\. To change it in place: singularity-flow workflow build start --change chore-with-notes/u);
   }
+
+  // Changing it in place: explained as it is first, nothing to finish until something changes, and a
+  // removed step names what leaves with it. Finishing updates that workflow; no new one is made.
+  const seeded = flow(seed, ['workflow', 'build', 'start', '--change', 'chore'], { allowFailure: true });
+  assert.match(seeded.stderr + seeded.stdout, /Chore is a seeded workflow, so it is not changed in place\. Change a copy of it: singularity-flow workflow build start --from-workflow chore/u);
+  const change = json(seed, ['workflow', 'build', 'start', '--change', 'chore-with-notes']).build;
+  assert.equal(change.label, 'Chore with notes');
+  assert.match(change.conversation[0].text, /^Changing Chore with notes in place: \d+ steps, kept as they are until you change them\. Stories already running keep the workflow they started with\./u);
+  const before = json(seed, ['workflow', 'build', 'check', '--build', change.id]);
+  assert.deepEqual([before.build.workflow, before.unchanged, before.ready, before.changes.inPlace, before.changes.none, before.changeSet.changes], ['chore-with-notes', true, false, true, true, []]);
+  assert.equal(before.explanation.steps.at(-1).label, 'Release notes', 'the workflow is explained as it is before anything changes');
+  assert.match(flow(seed, ['workflow', 'build', 'check', '--build', change.id]).stdout, /^Changes to Chore with notes:\n {2}nothing yet\nNot ready to finish: nothing is changed yet\.$/mu);
+  const early = flow(seed, ['workflow', 'build', 'finish', '--build', change.id, '--propose'], { allowFailure: true });
+  assert.match(early.stderr + early.stdout, /Nothing in Chore with notes is changed yet; accept a proposal that changes it first\./u);
+  json(seed, ['workflow', 'build', 'propose', '--build', change.id, '--proposal', '-', '--by', 'you', '--accept'], { input: JSON.stringify({ title: 'No release notes',
+    why: 'Support writes them now.', moves: [{ move: 'step.remove', id: 'chore-notes' }] }) });
+  const after = json(seed, ['workflow', 'build', 'check', '--build', change.id]);
+  assert.deepEqual(after.changeSet.changes.map((entry) => [entry.op, entry.id]), [['workflow.update', 'chore-with-notes']], 'the workflow itself changes; no copy is made');
+  assert.deepEqual(after.plan.files.map((file) => file.path), ['singularity/workflow.yml'], 'skill attachments it does not change are not rewritten');
+  assert.deepEqual(after.changes.removed, [{ id: 'chore-notes', label: 'Release notes', goes: ['its sign-off (Signed off by one person from Product approvers)'] }]);
+  assert.match(flow(seed, ['workflow', 'build', 'check', '--build', change.id]).stdout, /^ {2}removed {2}Release notes; with it go its sign-off \(Signed off by one person from Product approvers\)$/mu);
+  assert.equal(after.ready, true, JSON.stringify(after.findings));
+  const changed = json(seed, ['workflow', 'build', 'finish', '--build', change.id, '--propose']);
+  const yaml = run('git', ['--git-dir', remote, 'show', `${changed.branch}:singularity/workflow.yml`], base).stdout;
+  assert.match(yaml, /chore-with-notes:/u);
+  assert.doesNotMatch(yaml.slice(yaml.indexOf('chore-with-notes:')).split(/\n {2}\S/u)[0], /chore-notes/u, 'the step left the workflow');
+  const again = flow(seed, ['workflow', 'build', 'finish', '--build', change.id, '--propose'], { allowFailure: true });
+  assert.match(again.stderr + again.stdout, /its change to Chore with notes is a configuration proposal\. To change Chore with notes again: singularity-flow workflow build start --change chore-with-notes/u);
+});
+
+test('a copy keeps the description of the workflow it copies; a change build that changes nothing writes nothing', async () => {
+  const { initialDraft, lowerDraft } = await import('../src/workflow-build/moves.mjs');
+  const model = { base: 'base', workflows: [{ id: 'team', label: 'Team', description: 'How the team ships.', phases: ['intake'], decisions: [] }], phases: [], skills: [], instructions: [] };
+  const copy = initialDraft({ goal: { workflow: 'team-copy', label: 'Team (new)', startedFrom: [{ kind: 'workflow', id: 'team' }] } }, model);
+  assert.equal(lowerDraft(copy, model).changes.find((entry) => entry.op === 'workflow.create').description, 'How the team ships.');
+  const inPlace = initialDraft({ goal: { workflow: 'team', label: 'Team', change: true, startedFrom: [{ kind: 'workflow', id: 'team', change: true }] } }, model);
+  assert.deepEqual([inPlace.workflow.inPlace, inPlace.workflow.copyOf, lowerDraft(inPlace, model).changes], [true, null, []]);
 });

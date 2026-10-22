@@ -275,6 +275,42 @@ test('what is not used yet is settled with one change: links and documents kept 
   assert.equal(byKey(draw(), 'build-settle'), null, 'nothing is left to settle');
 });
 
+test('a workflow you have is changed in place with Copilot: explained as it is, and what each piece changes is listed', async () => {
+  const { buildStudioModel } = await import('../src/workflow-studio.mjs');
+  const { root, json } = await harness();
+  const { page, posted, send, draw } = studio(await buildStudioModel(root));
+  const home = element('main');
+  page.renderHome(home);
+  byKey(home, 'workflow-build-change-repo-feature').listeners.click();
+  assert.equal(page.state().view, 'build');
+  assert.deepEqual(posted.at(-1), { type: 'studio.build.start', build: null, from: 'change', workflow: 'repo-feature', name: null });
+  Object.assign(page.buildState(), { busy: null });
+  page.buildState().start.from = 'change';
+  const start = draw();
+  assert.ok(byKey(start, 'build-change-workflow'), 'the start screen offers it too');
+  assert.equal(byKey(start, 'build-start-change').disabled, true, 'once a workflow is chosen');
+
+  const view = json(root, ['workflow', 'build', 'start', '--change', 'repo-feature', '--json']);
+  send({ type: 'studio.build', build: view.build.id, view, checking: false, modelAvailable: false });
+  send({ type: 'studio.buildChecked', build: view.build.id, result: json(root, ['workflow', 'build', 'check', '--build', view.build.id, '--json']) });
+  let main = draw();
+  assert.match(textOf(byKey(main, 'build-summary')), /^7 steps, 7 with a sign-off/u, 'explained as it is before anything changes');
+  assert.match(textOf(byKey(main, 'build-changes')), /^Changes to Feature itself; Stories already running keep the workflow they started with\.Nothing is changed yet\.$/u);
+  assert.match(textOf(byKey(main, 'build-not-ready')), /Nothing is changed yet\./u);
+
+  const mine = json(root, ['workflow', 'build', 'propose', '--build', view.build.id, '--proposal', '-', '--by', 'you', '--accept', '--json'],
+    JSON.stringify({ title: 'No conformance step', why: 'Verification covers it.', moves: [{ move: 'step.remove', id: 'conformance' }] }));
+  const checked = json(root, ['workflow', 'build', 'check', '--build', mine.build.id, '--json']);
+  send({ type: 'studio.build', build: mine.build.id, view: mine, checking: false });
+  send({ type: 'studio.buildChecked', build: mine.build.id, result: checked });
+  main = draw();
+  assert.match(textOf(byKey(main, 'build-changes')), /Removes Spec-to-code conformance; with it go its sign-off \(Signed off by one person from [^)]+\)\./u);
+  page.buildState().tab = 'finish';
+  assert.match(textOf(byKey(draw(), 'build-changes')), /Removes Spec-to-code conformance/u, 'finishing shows it again');
+  const state = tool.builderState(mine, checked);
+  assert.deepEqual([state.changes.inPlace, state.changes.removed.map((step) => step.id)], [true, ['conformance']], 'Copilot reads it in the tool state');
+});
+
 test('every move reads as a plain sentence', async () => {
   const { buildStudioModel } = await import('../src/workflow-studio.mjs');
   const { root } = await harness();

@@ -80,7 +80,8 @@ export function builderAsset(model: StudioModelLike | null, kind: string, id: st
 
 type Entry = Record<string, unknown>;
 interface BuildView { build: { id: string; label: string; items: Entry[]; proposals: Entry[]; questions: Entry[]; conversation: Entry[] }; guide?: unknown; untrusted?: string }
-interface BuildCheck { draft?: Entry & { workflow?: Entry & { id?: string } }; explanation?: { summary?: string; description?: string | null; readOnly?: boolean; steps?: Entry[] } | null; findings?: Entry[]; counts?: unknown; ready?: boolean }
+interface BuildCheck { draft?: Entry & { workflow?: Entry & { id?: string } }; explanation?: { summary?: string; description?: string | null; readOnly?: boolean; steps?: Entry[] } | null; findings?: Entry[]; counts?: unknown; ready?: boolean;
+  changes?: Entry | null; unchanged?: boolean }
 
 /**
  * The most one answer of this tool carries. VS Code shows a model a tool answer inline only up to
@@ -187,7 +188,9 @@ export function builderState(view: BuildView, check: BuildCheck): Record<string,
     workflow: check.draft ? kept({ ...check.draft, workflow: plain(check.draft.workflow) ? kept({ ...check.draft.workflow, ...(explanation?.steps?.length ? { phases: null } : {}), ...(check.draft.workflow.decisions === 0 ? { decisions: null } : {}) }) : check.draft.workflow }) : null,
     explanation: explanation ? kept({ summary: explanation.summary, description: explanation.description, readOnly: explanation.readOnly || null, steps: (explanation.steps ?? []).map((step, index, steps) => stateStep(step, index, steps)) }) : null,
     findings: stateFindings(check.findings ?? [], check.draft?.workflow?.id),
-    counts: check.counts, ready: check.ready, guide: GUIDE_NOTE,
+    // What the build adds, removes, moves or changes in the workflow it starts from, and what leaves with a removed step.
+    ...(plain(check.changes) ? { changes: kept({ ...check.changes, decisions: plain(check.changes.decisions) ? kept(check.changes.decisions) : null }) } : {}),
+    counts: check.counts, ready: check.ready, ...(check.unchanged ? { unchanged: true } : {}), guide: GUIDE_NOTE,
     untrusted: view.untrusted
   };
   const whole = { ...before, items, ...after };

@@ -464,10 +464,11 @@ Usage:
                                                         why and how to fix it; exits 1 when one is not. /sf-fix-workflow in Copilot
                                                         drafts the fixes as one reviewed configuration proposal
   singularity-flow workflow simulate [TYPE] | diff <TYPE>
-  singularity-flow workflow build start [--from-workflow ID] [--folder DIR]... [--file FILE]... [--notes FILE|-]...
+  singularity-flow workflow build start [--change ID | --from-workflow ID] [--folder DIR]... [--file FILE]... [--notes FILE|-]...
     [--describe TEXT] [--name LABEL] [--json]
                                                         start a progressive build: what a workflow or a team's material holds, each item
-                                                        with its file and lines (screened, never run or fetched; kept on this computer)
+                                                        with its file and lines (screened, never run or fetched; kept on this computer);
+                                                        --change changes that workflow in place, --from-workflow copies it
   singularity-flow workflow build add --build ID [--folder DIR]... [--file FILE]... [--notes FILE|-]... [--json]
   singularity-flow workflow build status [--build ID] [--json]
   singularity-flow workflow build source --build ID --path FILE [--from LINE] [--json]

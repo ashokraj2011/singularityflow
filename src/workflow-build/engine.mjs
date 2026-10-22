@@ -53,15 +53,75 @@ function targetWorkflow(record, model) {
   return id;
 }
 
-/** A finished build whose workflow the configuration now has: its work is done, and changing it is a new build. */
+/**
+ * A finished build whose workflow the configuration now has: its work is done, and changing it is a
+ * new build. A change build's workflow was there before it, so it is done once it became a proposal.
+ */
 function landedIn(record, model) {
-  return Boolean(record.finished) && model.workflows.some((workflow) => workflow.id === record.goal.workflow);
+  if (!record.finished || !model.workflows.some((workflow) => workflow.id === record.goal.workflow)) return false;
+  return !record.goal.change || record.finished.kind === 'proposal';
+}
+
+/** Why a finished build takes no more changes, and the one command that changes its workflow again, in place. */
+function finishedMessage(record, label) {
+  const again = `singularity-flow workflow build start --change ${record.goal.workflow}`;
+  return record.goal.change
+    ? `Build ${record.id} is finished: its change to ${label} is a configuration proposal. To change ${label} again: ${again}`
+    : `Build ${record.id} is finished: ${label} is in the approved configuration. To change it in place: ${again}`;
 }
 
 function refuseLanded(record, model) {
   if (!landedIn(record, model)) return;
-  const label = model.workflows.find((workflow) => workflow.id === record.goal.workflow).label;
-  fail('WORKFLOW_BUILD_FINISHED', `Build ${record.id} is finished: ${label} is in the approved configuration. To change it, start a new build from it: singularity-flow workflow build start --from-workflow ${record.goal.workflow}`);
+  fail('WORKFLOW_BUILD_FINISHED', finishedMessage(record, model.workflows.find((workflow) => workflow.id === record.goal.workflow).label));
+}
+
+const CHANGED_WORDS = { label: 'name', purpose: 'purpose', agent: 'agent', output: 'output', reads: 'what it reads', signOff: 'sign-off' };
+
+/**
+ * What a build does to the workflow it starts from (changed in place, or copied): every step added,
+ * removed, moved or changed, the decisions added or removed, and what leaves with a removed step.
+ * Nothing leaves the workflow without being named here.
+ */
+function changesOf(model, draft, moves, explainWorkflow) {
+  const base = draft.workflow.base;
+  if (!base) return null;
+  const source = model.workflows.find((workflow) => workflow.id === base.id);
+  const before = source ? explainWorkflow(model, base.id) : null;
+  const now = draft.workflow.phases;
+  const label = (id) => draft.steps[id]?.label ?? draft.overrides[id]?.label ?? source?.steps.find((step) => step.id === id)?.label
+    ?? model.phases.find((phase) => phase.id === id)?.label ?? id;
+  const removed = base.phases.filter((id) => !now.includes(id)).map((id) => {
+    const raw = source?.steps.find((step) => step.id === id);
+    const explained = before?.steps.find((step) => step.id === id);
+    const goes = [];
+    if (raw?.approval && raw.approval.mode !== 'none' && explained) goes.push(`its sign-off (${explained.signOff.replace(/\.$/u, '')})`);
+    for (const skill of (explained?.skills ?? []).filter((entry) => entry.scope === 'workflow')) goes.push(`the ${skill.label} skill attached to it in this workflow`);
+    for (const decision of (draft.workflow.baseDecisions ?? []).filter((entry) => entry.after === id)) goes.push(`the decision after it (${decision.label ?? decision.kind})`);
+    if ((raw?.afterStep ?? []).length) goes.push(`${raw.afterStep.length} after-step action${raw.afterStep.length === 1 ? '' : 's'}`);
+    const readers = now.filter((other) => (draft.overrides[other]?.reads ?? draft.steps[other]?.reads ?? source?.steps.find((step) => step.id === other)?.inputs ?? []).includes(id));
+    if (readers.length) goes.push(`what ${readers.map(label).join(', ')} read${readers.length === 1 ? 's' : ''} from it`);
+    return { id, label: label(id), goes };
+  });
+  const decisionKey = (decision) => `${decision.after}\u0000${decision.kind}\u0000${decision.label ?? ''}`;
+  const had = new Set((draft.workflow.baseDecisions ?? []).map(decisionKey));
+  const has = new Set(draft.workflow.decisions.map(decisionKey));
+  const changes = {
+    workflow: base.id, label: base.label, inPlace: Boolean(draft.workflow.inPlace),
+    ...(draft.workflow.label !== base.label ? { renamed: { from: base.label, to: draft.workflow.label } } : {}),
+    added: now.filter((id) => !base.phases.includes(id)).map((id) => ({ id, label: label(id), position: now.indexOf(id) + 1 })),
+    removed,
+    moved: [...new Set(moves.filter((move) => move.move === 'step.move' && now.includes(move.id) && base.phases.includes(move.id)).map((move) => move.id))]
+      .map((id) => ({ id, label: label(id), position: now.indexOf(id) + 1 })),
+    changed: now.filter((id) => base.phases.includes(id) && (draft.overrides[id] || draft.actions[id])).map((id) => ({ id, label: label(id),
+      what: [...Object.keys(draft.overrides[id] ?? {}).filter((field) => draft.overrides[id][field] != null).map((field) => CHANGED_WORDS[field] ?? field),
+        ...(draft.actions[id] ? ['after-step actions'] : [])] })),
+    decisions: {
+      added: draft.workflow.decisions.filter((decision) => !had.has(decisionKey(decision))).map((decision) => ({ after: decision.after, label: decision.label ?? decision.kind })),
+      removed: (draft.workflow.baseDecisions ?? []).filter((decision) => !has.has(decisionKey(decision))).map((decision) => ({ after: decision.after, label: decision.label ?? decision.kind }))
+    }
+  };
+  changes.none = !changes.renamed && ![changes.added, changes.removed, changes.moved, changes.changed, changes.decisions.added, changes.decisions.removed].some((list) => list.length);
+  return changes;
 }
 
 export function draftOf(record, model) {
@@ -295,7 +355,7 @@ async function landedCheck(record, { landed, preview, check }) {
   return {
     schemaVersion: 1, resultType: 'workflow-build-check',
     build: { id: record.id, label: record.goal.label, workflow: landed.id, updatedAt: record.updatedAt },
-    landed: { workflow: landed.id, label: landed.label, finishedAt: record.finished.at },
+    landed: { workflow: landed.id, label: landed.label, finishedAt: record.finished.at, change: Boolean(record.goal.change) },
     draft: { workflow: { id: landed.id, label: landed.label, phases: landed.phases, decisions: (landed.decisions ?? []).length },
       newSteps: [], newAgents: [], newSkills: [], newInstructions: [], newGroups: [] },
     changeSet: { schema: 'sflow-studio-change-set@1', changes: [] }, plan: { valid: true, changed: false, problems: [], warnings: [], summary: [], files: [] },
@@ -370,14 +430,22 @@ export async function checkBuild(id, { root = null, include = null, env = proces
     const accepted = draftOf(record, model);
     const draft = extra ? applyMoves(accepted, extra.moves) : accepted;
     const workflowId = draft.workflow.id;
+    const moves = [...record.proposals.filter((proposal) => proposal.status === 'accepted'), ...(extra ? [extra] : [])].flatMap((proposal) => proposal.moves);
+    const changes = changesOf(model, draft, moves, (await import('../workflow-explanation.mjs')).explainWorkflow);
     const { changeSet, plan } = await planFor(repository, draft, model, { inspect: async (candidate) => ({
       check: await checkWorkflowConfiguration(candidate, { workflows: [workflowId] }),
       preview: previewOf(await buildStudioModel(candidate), workflowId)
     }) });
-    return { draft, accepted, changeSet, plan };
+    // Before a change build changes anything, its workflow is explained and checked as it is.
+    if (draft.workflow.inPlace && !changeSet.changes.length) {
+      plan.inspection = { check: await checkWorkflowConfiguration(repository, { workflows: [workflowId] }), preview: previewOf(model, workflowId) };
+    }
+    return { draft, accepted, changeSet, plan, changes };
   });
   if (result.landed) return landedCheck(record, result);
-  const { draft, accepted, changeSet, plan } = result;
+  const { draft, accepted, changeSet, plan, changes } = result;
+  // A change build is ready only once it changes something.
+  const unchanged = draft.workflow.inPlace && !changeSet.changes.length;
   const inspection = plan.inspection?.check ?? null;
   const onboarding = onboardingFindings(record);
   const built = plan.inspection?.preview?.workflows?.[0] ?? null;
@@ -385,7 +453,7 @@ export async function checkBuild(id, { root = null, include = null, env = proces
   const counts = Object.fromEntries(['problem', 'warning', 'note'].map((severity) => [severity, findings.filter((entry) => entry.severity === severity).length
     + (severity === 'problem' ? plan.problems.length : 0)]));
   const openQuestions = record.questions.filter((question) => !question.answer);
-  const ready = Boolean(draft.workflow.phases.length) && plan.valid && counts.problem === 0 && !openQuestions.some((question) => question.blocking);
+  const ready = Boolean(draft.workflow.phases.length) && !unchanged && plan.valid && counts.problem === 0 && !openQuestions.some((question) => question.blocking);
   // Saved only when it says something new, so watching the build for changes does not loop.
   let saved = record;
   if (!extra && (!named || record.check?.ready !== ready || JSON.stringify(record.check?.counts) !== JSON.stringify(counts))) {
@@ -401,6 +469,7 @@ export async function checkBuild(id, { root = null, include = null, env = proces
     draft: { workflow: { id: draft.workflow.id, label: draft.workflow.label, phases: draft.workflow.phases, decisions: draft.workflow.decisions.length },
       newSteps: Object.keys(draft.steps), newAgents: Object.keys(draft.agents), newSkills: Object.keys(draft.skills),
       newInstructions: Object.keys(draft.instructions), newGroups: Object.keys(draft.groups) },
+    changes, unchanged,
     changeSet,
     plan: { valid: plan.valid, problems: plan.problems, warnings: plan.warnings, summary: plan.summary, files: plan.files.map((file) => ({ path: file.path, action: file.action })) },
     explanation: inspection?.workflows?.[0]?.explanation ?? null,
@@ -418,14 +487,12 @@ export async function checkBuild(id, { root = null, include = null, env = proces
 export async function finishBuild(id, { propose = false, out = null, root = null, json = false, env = process.env } = {}) {
   if (Boolean(propose) === Boolean(out)) fail('WORKFLOW_BUILD_USAGE', 'Finish with --propose (one reviewed proposal) or --out FILE (a portable workflow bundle).');
   const result = await checkBuild(id, { root, env });
-  if (result.landed) {
-    fail('WORKFLOW_BUILD_FINISHED', `Build ${id} is finished: ${result.landed.label} is in the approved configuration. To change it, start a new build from it: singularity-flow workflow build start --from-workflow ${result.landed.workflow}`);
-  }
-  if (!result.plan.valid || !result.changeSet.changes.length) {
-    fail('WORKFLOW_BUILD_NOT_READY', result.changeSet.changes.length
-      ? `The workflow cannot be saved yet: ${result.plan.problems[0]?.message}` : 'The build has no steps yet; accept a proposal that adds them first.');
-  }
   const record = await readWorkflowBuild(id, { env });
+  if (result.landed) fail('WORKFLOW_BUILD_FINISHED', finishedMessage(record, result.landed.label));
+  if (!result.plan.valid || !result.changeSet.changes.length) {
+    fail('WORKFLOW_BUILD_NOT_READY', result.changeSet.changes.length ? `The workflow cannot be saved yet: ${result.plan.problems[0]?.message}`
+      : record.goal.change ? `Nothing in ${result.draft.workflow.label} is changed yet; accept a proposal that changes it first.` : 'The build has no steps yet; accept a proposal that adds them first.');
+  }
   const repository = repositoryOf(record, root);
   const paths = await workflowBuildPaths(id, { env });
   if (out) {

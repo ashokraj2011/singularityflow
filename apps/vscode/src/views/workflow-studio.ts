@@ -848,6 +848,9 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     if (from === 'workflow') {
       if (!workflow) return this.buildFailed('Choose the workflow to start from.');
       args.push('--from-workflow', workflow);
+    } else if (from === 'change') {
+      if (!workflow) return this.buildFailed('Choose the workflow to change.');
+      args.push('--change', workflow);
     } else if (from === 'describe') {
       if (!describe || Buffer.byteLength(describe, 'utf8') > 32 * 1024) return this.buildFailed('Describe how the team works, in at most 32 KiB.');
       args.push('--describe', describe);
@@ -948,9 +951,10 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       try { publishArgs = studioPublishArgs(this.model?.authority); }
       catch (error) { return this.buildFailed((error as Error).message); }
       const proposal = publishArgs.includes('--propose');
-      const check = await this.client.run<{ ready: boolean; changeSet: unknown; build: { workflow: string; label: string } }>(studioBuildArgs('check', id));
+      const check = await this.client.run<{ ready: boolean; changeSet: unknown; build: { workflow: string; label: string }; changes?: { inPlace?: boolean } | null }>(studioBuildArgs('check', id));
       if (!check.ready) return this.buildFailed('The build is not ready to finish. Its check says what is left.');
-      const confirmed = await showCompactWarningMessage(`Create the workflow ${check.build.label}?`, {
+      // A change build changes the workflow it names; it never creates one.
+      const confirmed = await showCompactWarningMessage(`${check.changes?.inPlace ? 'Change' : 'Create'} the workflow ${check.build.label}?`, {
         modal: true,
         detail: proposal
           ? 'It becomes one review proposal on the approved configuration. Nothing changes for running or new Stories until it is reviewed and activated.'

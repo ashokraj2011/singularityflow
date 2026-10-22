@@ -36,7 +36,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 73
+version: 74
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1282,6 +1282,7 @@ build is kept on this computer for 14 days after its last change.
 ```bash
 singularity-flow workflow build start --folder ../payments-team --name "Payments release"
 singularity-flow workflow build start --from-workflow feature --folder ../payments-team
+singularity-flow workflow build start --change payments-release
 singularity-flow workflow build add --build <ID> --file ../runbook.md --notes notes.txt
 cat meeting-notes.md | singularity-flow workflow build add --build <ID> --notes -
 singularity-flow workflow build status
@@ -1303,6 +1304,14 @@ singularity-flow workflow build status --build <ID> --json
 A file whose name looks like a credential, key or environment file is never read, and a file whose
 text looks like it holds a credential is withheld: it is listed by name, and its text is kept
 nowhere. Single files and notes are screened before they are copied into the build.
+
+`--change <WORKFLOW>` changes a workflow you have in place instead of making a new one; it is how a
+workflow is tweaked once it exists. The build starts as that workflow, `check` explains it as it is
+(its steps in order, each with its agent, skills, instructions, what it reads and writes, and who
+signs it off), and finishing updates it through one reviewed proposal. Stories already running keep
+the workflow they started with. A seeded workflow is not changed in place: copy it with
+`--from-workflow`, which keeps everything it has, its description included. A finished build points
+at `--change` for the next change.
 
 ### Grow it a piece at a time
 
@@ -1352,20 +1361,26 @@ finish: a link, a command or a sentence asking for a sign-off is settled by a pe
 `item.keepAsLink`, `item.prerequisite` or `item.leaveOut`, and one proposal can settle them all. An
 agent or prompt file that hands work to others is found twice, as its agent and as its process;
 using either one uses both. `--include p-2` shows it as a pending proposal
-would leave it too, without accepting anything. Nothing is written to the repository until
+would leave it too, without accepting anything. When the build starts from a workflow, `changes`
+names everything it adds, removes, moves or changes there, and for a removed step what leaves with it
+(its sign-off, skills attached to it in that workflow, the decision after it, after-step actions, and
+what other steps read from it), so nothing is dropped unsaid. A change build is not ready to finish
+until it changes something. Nothing is written to the repository until
 `finish`: `--propose` runs Workflow Studio's own apply with the build's change set, which makes one
 reviewed proposal on the approved configuration; `--out` writes a portable workflow bundle that
 Workflow Studio's Import previews like any other.
 
 In Copilot, `/sf-build-workflow` runs this loop with you. It reads only the build's screened copies,
 writes only the build's issued `proposal.json`, proposes one piece at a time with the lines it
-relied on, offers one piece that settles what the workflow does not use, asks what it cannot
-infer, and records your choice only after asking you. It never
+relied on, explains the workflow by its parts first, names everything a piece removes or leaves
+out, offers one piece that settles what the workflow does not use, asks what it cannot infer, and records your choice only after asking you. It never
 edits a repository; finishing is still Workflow Studio's reviewed proposal.
 
 ### Build with Copilot in Workflow Studio
 
-Workflow Studio's **Build with Copilot** is the same build on one screen. Start from a workflow you
+Workflow Studio's **Build with Copilot** is the same build on one screen. **Change a workflow you
+have** (also **Change with Copilot** beside each of your workflows and on its canvas) changes it in
+place; **What changes** lists what the build does to it. Or start from a copy of a workflow you
 have, from a team's folders or files, or from a description; this repository's builds are listed
 to continue.
 

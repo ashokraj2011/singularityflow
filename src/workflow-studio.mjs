@@ -1045,6 +1045,9 @@ class StudioCandidate {
   }
 
   setFileAttachments(entries) {
+    // Unchanged attachments leave the file as it is: a rewrite would show a reviewer every
+    // attachment removed and added again (a step list change filters them, usually to the same).
+    if (JSON.stringify(entries) === JSON.stringify(this.attachments)) return;
     this.attachments = entries;
     this.attachmentsChanged = true;
   }

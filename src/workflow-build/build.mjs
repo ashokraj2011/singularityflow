@@ -104,7 +104,7 @@ async function captureMaterial(paths, folders, uploads) {
 }
 
 /** The steps of a repository workflow a build starts from, with the agents and skills they use. */
-async function workflowItems(root, workflowId) {
+async function workflowItems(root, workflowId, { change = false } = {}) {
   const { withApprovedConfigurationRead } = await import('../approved-configuration-reader.mjs');
   const { buildStudioModel } = await import('../workflow-studio.mjs');
   const { explainWorkflow } = await import('../workflow-explanation.mjs');
@@ -114,6 +114,9 @@ async function workflowItems(root, workflowId) {
     const model = await buildStudioModel(root);
     const workflow = model.workflows.find((entry) => entry.id === workflowId);
     if (!workflow) fail('WORKFLOW_UNKNOWN', `There is no workflow '${workflowId}'. Workflows here: ${model.workflows.map((entry) => entry.id).join(', ')}.`);
+    if (change && workflow.readOnly) {
+      fail('WORKFLOW_BUILD_READ_ONLY', `${workflow.label} is a seeded workflow, so it is not changed in place. Change a copy of it: singularity-flow workflow build start --from-workflow ${workflowId}`);
+    }
     const text = await readFile(path.join(configurationReadRoot(root), 'singularity/workflow.yml'), 'utf8');
     const locate = yamlLocator(text, 'singularity/workflow.yml');
     const explanation = explainWorkflow(model, workflowId);
@@ -147,7 +150,11 @@ function summaryText(record) {
   const withheld = record.items.filter((entry) => entry.kind === 'withheld').length;
   const lines = [];
   const base = record.goal.startedFrom.find((entry) => entry.kind === 'workflow');
-  if (base) lines.push(`Starting from ${base.label}: ${base.steps} steps, kept as they are until you change them.`);
+  if (base) {
+    lines.push(base.change
+      ? `Changing ${base.label} in place: ${base.steps} steps, kept as they are until you change them. Stories already running keep the workflow they started with.`
+      : `Starting from ${base.label}: ${base.steps} steps, kept as they are until you change them.`);
+  }
   if (files) lines.push(`Read ${files} file${files === 1 ? '' : 's'}: ${parts.join(', ') || 'nothing recognised yet'}.`);
   if (withheld) lines.push(`${withheld} ${withheld === 1 ? 'file was' : 'files were'} withheld because they look like credentials, and never read.`);
   const process = record.items.find((entry) => entry.kind === 'process');
@@ -161,31 +168,33 @@ function reconcile(items, previous) {
 }
 
 /** Start a build; see the module comment. */
-export async function startWorkflowBuild({ root = null, fromWorkflow = null, folders = [], files = [], notes = [], describe = null, name = null } = {}, { env = process.env } = {}) {
-  if (!fromWorkflow && !folders.length && !files.length && !notes.length && !describe) {
-    fail('WORKFLOW_BUILD_USAGE', 'Start from something: --from-workflow ID, --folder DIR, --file FILE, --notes FILE or --describe TEXT.');
+export async function startWorkflowBuild({ root = null, fromWorkflow = null, change = null, folders = [], files = [], notes = [], describe = null, name = null } = {}, { env = process.env } = {}) {
+  if (fromWorkflow && change) fail('WORKFLOW_BUILD_USAGE', 'Copy a workflow with --from-workflow ID, or change one in place with --change ID; not both.');
+  if (!fromWorkflow && !change && !folders.length && !files.length && !notes.length && !describe) {
+    fail('WORKFLOW_BUILD_USAGE', 'Start from something: --from-workflow ID, --folder DIR, --file FILE, --notes FILE or --describe TEXT; or change a workflow in place with --change ID.');
   }
-  if (fromWorkflow && !root) fail('WORKFLOW_BUILD_REPOSITORY_REQUIRED', 'Starting from a workflow needs the repository that has it; run this inside that repository.');
+  if ((fromWorkflow || change) && !root) fail('WORKFLOW_BUILD_REPOSITORY_REQUIRED', 'Starting from a workflow needs the repository that has it; run this inside that repository.');
   if (describe && Buffer.byteLength(describe) > MAX_DESCRIPTION) fail('WORKFLOW_BUILD_USAGE', 'A description is limited to 32 KiB; add longer material as notes.');
   if (describe && scanText(describe, { path: 'description' }).length) fail('WORKFLOW_BUILD_SECRET', 'The description looks like it holds a credential. Remove it and start again.');
   const resolvedFolders = [];
   for (const folder of folders) resolvedFolders.push(await directoryOf(folder));
   await pruneWorkflowBuilds({ env });
-  const base = fromWorkflow ? await workflowItems(root, fromWorkflow) : null;
+  const base = fromWorkflow || change ? await workflowItems(root, fromWorkflow ?? change, { change: Boolean(change) }) : null;
   const { id, paths } = await allocateWorkflowBuild({ env });
   const uploads = await addUploads(paths, { files, notes }, {});
   const { capture, items } = await captureMaterial(paths, resolvedFolders, uploads);
   const startedFrom = [
-    ...(base ? [base.workflow] : []),
+    ...(base ? [{ ...base.workflow, ...(change ? { change: true } : {}) }] : []),
     ...(resolvedFolders.length || uploads.files.length || uploads.notes ? [{ kind: 'material', folders: resolvedFolders, files: uploads.files.map((entry) => entry.name), notes: uploads.notes }] : []),
     ...(describe ? [{ kind: 'description', text: describe }] : [])
   ];
-  const label = String(name ?? '').trim() || (base ? `${base.workflow.label} (new)` : resolvedFolders[0] ? path.basename(resolvedFolders[0]) : describe ? describe.split(/\s+/u).slice(0, 6).join(' ') : 'New workflow');
+  const label = String(name ?? '').trim() || (base ? (change ? base.workflow.label : `${base.workflow.label} (new)`) : resolvedFolders[0] ? path.basename(resolvedFolders[0]) : describe ? describe.split(/\s+/u).slice(0, 6).join(' ') : 'New workflow');
   const now = new Date().toISOString();
   const record = {
     id, createdAt: now,
     repository: root ? { root, label: path.basename(root) } : null,
-    goal: { label: label.slice(0, 120), startedFrom },
+    // A change build makes no new workflow: it changes the one it names, in place.
+    goal: { label: label.slice(0, 120), startedFrom, ...(change ? { workflow: change, change: true } : {}) },
     sources: { folders: resolvedFolders, uploads },
     capture,
     items: [...(base?.items ?? []), ...items],

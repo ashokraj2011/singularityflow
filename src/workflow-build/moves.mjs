@@ -246,14 +246,21 @@ export function validateMoves(moves, { model, draft }) {
   return findings;
 }
 
-/** An empty draft for a build: a new workflow, or a copy of the one it starts from. */
+/**
+ * An empty draft for a build: a new workflow, a copy of the one it starts from, or (a change build)
+ * that workflow itself, changed in place. `base` is the workflow as it was, so what the build adds,
+ * removes, moves or changes can be named, never dropped without saying so.
+ */
 export function initialDraft(build, model) {
   const base = build.goal.startedFrom.find((entry) => entry.kind === 'workflow');
   const source = base ? model.workflows.find((workflow) => workflow.id === base.id) : null;
+  const inPlace = Boolean(build.goal.change && source);
   return {
     workflow: {
-      id: build.goal.workflow, label: build.goal.label, description: '',
-      copyOf: source ? source.id : null,
+      id: build.goal.workflow, label: build.goal.label, description: source?.description ?? '',
+      copyOf: source && !inPlace ? source.id : null,
+      inPlace,
+      base: source ? { id: source.id, label: source.label, phases: [...source.phases] } : null,
       phases: source ? [...source.phases] : [],
       decisions: source ? structuredClone(source.decisions ?? []) : [],
       baseDecisions: source ? structuredClone(source.decisions ?? []) : []
@@ -366,8 +373,20 @@ export function lowerDraft(draft, model) {
       ...(step.purpose ? { description: step.purpose } : {}),
       ...(draft.actions[id] ? { afterStep: draft.actions[id].map((action, index) => ({ id: `${id}-action-${index + 1}`, on: action.on, target: action.target })) } : {}) });
   }
-  changes.push({ op: 'workflow.create', id: workflowId, label: draft.workflow.label, phases: [...draft.workflow.phases],
-    ...(draft.workflow.description ? { description: draft.workflow.description } : {}), ...(draft.workflow.copyOf ? { copyOf: draft.workflow.copyOf } : {}) });
+  const decisionsChanged = JSON.stringify(draft.workflow.decisions) !== JSON.stringify(draft.workflow.baseDecisions ?? []);
+  if (draft.workflow.inPlace) {
+    // A change build updates the workflow it names; only what changed is written.
+    const base = draft.workflow.base;
+    const update = {
+      ...(JSON.stringify(draft.workflow.phases) !== JSON.stringify(base.phases) ? { phases: [...draft.workflow.phases] } : {}),
+      ...(draft.workflow.label !== base.label ? { label: draft.workflow.label } : {}),
+      ...(decisionsChanged ? { decisions: structuredClone(draft.workflow.decisions) } : {})
+    };
+    if (Object.keys(update).length) changes.push({ op: 'workflow.update', id: workflowId, ...update });
+  } else {
+    changes.push({ op: 'workflow.create', id: workflowId, label: draft.workflow.label, phases: [...draft.workflow.phases],
+      ...(draft.workflow.description ? { description: draft.workflow.description } : {}), ...(draft.workflow.copyOf ? { copyOf: draft.workflow.copyOf } : {}) });
+  }
   for (const [id, change] of Object.entries(draft.overrides)) {
     if (!draft.workflow.phases.includes(id)) continue;
     const shared = {};
@@ -386,8 +405,7 @@ export function lowerDraft(draft, model) {
     if (draft.steps[id]?.new || draft.overrides[id] || !draft.workflow.phases.includes(id)) continue;
     changes.push({ op: 'phase.update', id, workflow: workflowId, afterStep: actions.map((action, index) => ({ id: `${id}-action-${index + 1}`, on: action.on, target: action.target })) });
   }
-  const decisionsChanged = JSON.stringify(draft.workflow.decisions) !== JSON.stringify(draft.workflow.baseDecisions ?? []);
-  if (decisionsChanged) changes.push({ op: 'workflow.update', id: workflowId, decisions: structuredClone(draft.workflow.decisions) });
+  if (decisionsChanged && !draft.workflow.inPlace) changes.push({ op: 'workflow.update', id: workflowId, decisions: structuredClone(draft.workflow.decisions) });
   for (const attachment of draft.attachments) {
     changes.push({ op: 'skill.attach', skill: attachment.skill, ...(attachment.agent ? { agent: attachment.agent } : { workflow: workflowId }),
       phases: attachment.steps.filter((step) => draft.workflow.phases.includes(step)), use: attachment.use ?? '' });

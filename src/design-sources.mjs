@@ -112,6 +112,66 @@ export function classifyDesignSourceCandidates(records, binding) {
   return candidates.sort((a, b) => a.fileKey.localeCompare(b.fileKey) || a.candidateRecordId.localeCompare(b.candidateRecordId));
 }
 
+/**
+ * The MCP server a design source for this phase is recorded from: the pinned server allowed in the
+ * phase whose tools include Figma's metadata tool (`figma` in the packaged workflows).
+ */
+function designSourceServer(workflow, phaseId) {
+  const servers = Object.entries(workflow.resolution?.mcpServers ?? {});
+  const allowed = servers.filter(([, server]) => !server?.phases?.length || server.phases.includes(phaseId));
+  return (allowed.find(([, server]) => (server?.tools ?? []).includes('get_metadata'))
+    ?? allowed.find(([id]) => id === 'figma'))?.[0] ?? '<SERVER>';
+}
+
+/**
+ * How a design source is recorded: the Figma MCP metadata result that pins the file version. An
+ * uploaded export (`documents upload --kind figma-export`) is the package people review; it names
+ * no Figma file key or version, so it never counts as one.
+ */
+export function designSourceRoutes(workflow, phaseId) {
+  const server = designSourceServer(workflow, phaseId);
+  return [{
+    command: `singularity-flow mcp record ${server} --kind design-source --tool get_metadata --phase ${phaseId} --output <METADATA-XML-PATH> --file-key <FIGMA-FILE-KEY> --file-version <FIGMA-FILE-VERSION>`,
+    label: `Save the ${server} get_metadata result for the approved frames to a repository file and record it with the Figma file key and version (add --node <NODE-ID> for each frame). `
+      + 'A documents upload, even --kind figma-export, is the reviewed package and pins no Figma file version, so it is not a design source. '
+      + `Without a ${server} MCP connection there is no design-source record to make: never name a tool that did not produce the file.`
+  }];
+}
+
+function designSourceRequiredMessage(workflow, phaseId, generation) {
+  return `Phase '${phaseId}' requires at least one recorded design source for generation ${generation}. `
+    + `Record the Figma MCP result that pins the design (mcp record ${designSourceServer(workflow, phaseId)} --kind design-source, with --file-key and --file-version) before publishing; `
+    + 'an uploaded export (documents upload --kind figma-export) is the reviewed package, not a design source.';
+}
+
+/**
+ * Whether publishing the capture phase as `generation` finds its design source: the same selection
+ * the publication makes, read-only, so prepublish and publish refuse before the transaction would.
+ * Returns the errors, their code and the routes that record one.
+ */
+export async function inspectDesignSourceReadiness(root, workflow, phase, {
+  itemDirectory = null, generation = nextPhaseGeneration(phase)
+} = {}) {
+  const configured = policy(workflow);
+  if (!configured || configured.capturePhase !== phase?.id) return { errors: [], code: null, routes: [] };
+  const integrity = await verifyMcpEvidence(root, workflow, { itemDirectory: itemRoot(root, workflow, itemDirectory) });
+  if (integrity.errors.length) return { errors: integrity.errors, code: 'DESIGN_SOURCE_EVIDENCE_INVALID', routes: [],
+    message: `Design-source evidence is not valid:\n- ${integrity.errors.join('\n- ')}` };
+  const { selected, ambiguities } = selectDesignSourceRecords(integrity.records, {
+    capturePhase: phase.id, targetGeneration: generation,
+    previousBinding: approvedDesignSourceBinding(workflow), selectionByFileKey: phase.designSourceSelection ?? {}
+  });
+  if (ambiguities.length) {
+    const message = `More than one design version is available. Select one record for: ${ambiguities.map((item) => item.fileKey).join(', ')}.`;
+    return { errors: [message], code: 'DESIGN_SOURCE_AMBIGUOUS', routes: [], message };
+  }
+  if (!selected.length && configured.requireApprovedSet) {
+    const message = designSourceRequiredMessage(workflow, phase.id, generation);
+    return { errors: [message], code: 'DESIGN_SOURCE_REQUIRED', routes: designSourceRoutes(workflow, phase.id), message };
+  }
+  return { errors: [], code: null, routes: [] };
+}
+
 export async function buildDesignSourceSet(root, workflow, {
   itemDirectory = null, selectionByFileKey = {}
 } = {}) {
@@ -132,10 +192,11 @@ export async function buildDesignSourceSet(root, workflow, {
     `More than one design version is available. Select one record for: ${ambiguities.map((item) => item.fileKey).join(', ')}.`,
     { code: 'DESIGN_SOURCE_AMBIGUOUS', details: { ambiguities } }
   );
-  if (!selected.length && configured.requireApprovedSet) throw new SingularityFlowError(
-    `Phase '${configured.capturePhase}' requires at least one recorded design source for generation ${phase.generation}.`,
-    { code: 'DESIGN_SOURCE_REQUIRED' }
-  );
+  if (!selected.length && configured.requireApprovedSet) {
+    const routes = designSourceRoutes(workflow, configured.capturePhase);
+    throw new SingularityFlowError(designSourceRequiredMessage(workflow, configured.capturePhase, phase.generation),
+      { code: 'DESIGN_SOURCE_REQUIRED', details: { phase: configured.capturePhase, nextAction: routes[0], recoveryCommands: routes } });
+  }
   const sourceSet = createDesignSourceSet(workflow, selected, { phase: phase.id, generation: phase.generation });
   const relative = posix(path.join('context', 'design-sources', `${phase.id}-gen${phase.generation}.json`));
   const target = await secureRepositoryPath(directory, relative, { label: 'Design source set' });

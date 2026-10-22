@@ -1,4 +1,4 @@
-import { isConvergencePhase } from '../phase-roles.mjs';
+import { isConvergencePhase, isVisualVerificationPhase } from '../phase-roles.mjs';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -206,6 +206,12 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
   }
   const documentReadiness = active ? await (await import('../document-runtime.mjs')).phaseDocumentReadiness(
     root, definition, workflow, active.id) : null;
+  // Enforced visual coverage, read as the step's publication or its submission will check it.
+  const visualCoverageHold = active?.status === 'in_progress' && isVisualVerificationPhase(active)
+    && workflow.resolution?.verification?.coverage === 'enforce'
+    ? await (await import('../visual-coverage.mjs')).visualCoverageHold(root, workflow, active, {
+      itemDirectory: path.join(root, path.dirname(selected.location.path)), published: !phaseNeedsGeneration(workflow, active)
+    }).catch(() => null) : null;
   const snapshot = {
     ...nextStepsSnapshot({
       branch: branch(root),
@@ -219,6 +225,7 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
       }))),
       recovery,
       pendingDecisions,
+      visualCoverageHold,
       // Landing routes depend on the host: the GitHub CLI cannot open another host's merge request.
       repositoryHost: classifyGitHost(remoteUrl(root, definition.git?.remote ?? 'origin')),
       prerequisites: await measureCommandSpan('nextsteps.prerequisites', () => storyPrerequisites(root, workflow, selected, modelMode, { definition, executionCatalog, observeFile })),

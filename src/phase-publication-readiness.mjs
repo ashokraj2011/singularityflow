@@ -6,6 +6,7 @@ import { verifyPhaseMcpRequirements } from './mcp-evidence.mjs';
 import { assertMcpPhaseReadiness } from './mcp-readiness.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { phaseGroundingPreflight } from './phase-grounding-preflight.mjs';
+import { isVisualVerificationPhase } from './phase-roles.mjs';
 import { requiredStepActionHold } from './step-action-receipts.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { inspectPendingEvidenceContracts } from './draft-evidence-hold.mjs';
@@ -158,6 +159,32 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
     command: `singularity-flow phase show ${phase.id} --json`,
     detail: 'Collect the exact required tools and durable outputs for this phase generation using the authorized MCP host. A missing or invalid receipt cannot be replaced by a prose claim or another generation\'s evidence.'
   }, { code: mcpEvidence.sourceCode ?? 'MCP_EVIDENCE_REQUIRED' });
+
+  // The design source and the visual captures are bound to the generation this publication creates,
+  // and the transaction or submission refuses without them: name them here first [gate parity].
+  const designSource = workflow.resolution?.designSources?.capturePhase === phase.id
+    ? await capture(async () => (await import('./design-sources.mjs'))
+      .inspectDesignSourceReadiness(root, workflow, phase, { itemDirectory, generation }))
+    : { errors: [] };
+  const [designRoute] = (designSource.routes ?? []).map(({ label, ...route }) => ({ ...route, detail: label }));
+  add('design-source', 'external-evidence', designSource.errors, designRoute ?? {
+    command: 'singularity-flow mcp design-sources status --json', skill: '/sf-mcp',
+    detail: 'Inspect the recorded design-source candidates for this generation; a missing or ambiguous source is recorded or selected, never inferred.'
+  }, { code: designSource.code ?? designSource.sourceCode ?? 'DESIGN_SOURCE_REQUIRED', message: designSource.message ?? null,
+    details: designRoute ? { nextAction: designRoute } : null });
+  const visual = isVisualVerificationPhase(phase) ? await capture(async () => {
+    const { refusal } = await (await import('./visual-coverage.mjs')).visualCoverageRefusal(root, workflow, { itemDirectory, phaseId: phase.id, generation });
+    return { errors: refusal?.details.errors ?? [], refusal };
+  }) : { errors: [] };
+  const [visualRoute, ...visualRoutes] = (visual.refusal?.details.recoveryCommands ?? []).map(({ label, ...route }) => ({ ...route, detail: label }));
+  add('visual-coverage', 'external-evidence', visual.errors, visualRoute ?? {
+    command: 'singularity-flow visual status --json',
+    detail: 'Read which verification profiles still lack a current capture for this generation.'
+  }, { code: visual.sourceCode ?? 'VISUAL_COVERAGE_FAILED', message: visual.refusal?.message ?? null,
+    details: visual.refusal ? { uncovered: visual.refusal.details.uncovered, covered: visual.refusal.details.covered, generation,
+      ...(visualRoute ? { nextAction: visualRoute } : {}) } : null });
+  if (visual.errors.length) actions.push(...visualRoutes.map((route, index) => ({
+    id: `resolve-visual-coverage:${phase.id}:${index + 2}`, safe: true, automatic: false, mode: 'guided', confirmation: 'none', skill: null, ...route })));
 
   return { blockers, actions, failures, warnings,
     repairLoop: repair.state ?? { status: 'needs-owner', code: repair.sourceCode, automaticReset: false },

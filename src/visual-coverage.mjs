@@ -1,7 +1,9 @@
 import { isVisualVerificationPhase, visualVerificationPhaseOf } from './phase-roles.mjs';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { phasePublicationCommand, phasePublicationCommandForProducer } from './manual-authorship.mjs';
 import { verifyMcpEvidence } from './mcp-evidence.mjs';
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import { decodePngRgba8, readPngHeader } from './png-rgba8.mjs';
 import { secureRepositoryPath, SingularityFlowError, snapshot } from './util.mjs';
 
@@ -79,19 +81,30 @@ export function visualProfileDecisionCommand(workflow, phaseId, profileId) {
   return `singularity-flow decision visual-profile ${workflow?.workItem?.id ?? '<WORK-ID>'} --phase ${phaseId} --profile ${profileId} --not-applicable --reason "<why this screen size does not apply to this Story>"`;
 }
 
-/** The routes for each missing profile: capture it, or (while another profile stays required) decide it does not apply. */
-export function missingProfileRoutes(workflow, result) {
+/**
+ * Why a screenshot cannot be invented: a capture comes from a simulator, emulator, device or pinned
+ * MCP tool, and nothing else stands in for one.
+ */
+export const NO_CAPTURE_SOURCE_NOTE = 'A capture needs a simulator, emulator, device or pinned MCP tool that shows the app at that size; without one there is no capture to record, and no other image may be recorded in its place.';
+
+/**
+ * The routes for each missing profile: capture it, or (while another profile stays required) decide
+ * it does not apply. `publishedGeneration`: the step's generation already published, so a capture
+ * recorded now is committed by, and counts for, the next publication.
+ */
+export function missingProfileRoutes(workflow, result, { publishedGeneration = null } = {}) {
   const required = result.profiles.length - (result.notApplicable?.length ?? 0);
   return result.uncovered.slice(0, 3).flatMap((profileId) => [
     { command: nativeCaptureCommand(result.phase, profileId),
-      label: `Capture ${profileId} at its exact pixel size and record it (from a pinned MCP tool, use mcp record --kind visual-artifact instead).` },
+      label: `Capture ${profileId} at its exact pixel size and record it (from a pinned MCP tool, use mcp record --kind visual-artifact instead)${publishedGeneration
+        ? `; generation ${publishedGeneration} is already published, so publish ${result.phase} again afterwards: the capture counts from the generation that publication opens` : ''}.` },
     ...(required > 1 ? [{ command: visualProfileDecisionCommand(workflow, result.phase, profileId),
       label: `Or a person who approves ${result.phase} records, with a reason, that ${profileId} does not apply to this Story; it is listed as not applicable, never as passed.` }] : [])
   ]);
 }
 
 /** The native captures in a Story, each checked against the bytes it recorded. */
-async function nativeCaptures(directory, workflow) {
+export async function nativeCaptures(directory, workflow) {
   const records = [], errors = [];
   const recordsDirectory = path.join(directory, NATIVE_CAPTURE_DIRECTORY, 'records');
   let names;
@@ -116,7 +129,11 @@ async function nativeCaptures(directory, workflow) {
   return { records, errors };
 }
 
-export async function evaluateVisualCoverage(root, workflow, { itemDirectory = null, phaseId = workflow.currentPhase } = {}) {
+/**
+ * `generation`: the generation to evaluate, by default the step's published one. A publication
+ * passes the generation it is about to create, so coverage is checked where its captures are bound.
+ */
+export async function evaluateVisualCoverage(root, workflow, { itemDirectory = null, phaseId = workflow.currentPhase, generation: target = null } = {}) {
   const configured = policy(workflow);
   const profiles = configured.profiles ?? [];
   if (!profiles.length) return { schemaVersion: 1, status: 'not-configured', mode: configured.coverage ?? 'warn', phase: visualVerificationPhaseOf(workflow, phaseId)?.id ?? null, generation: null, profiles: [], covered: [], uncovered: [], unclaimed: [], stale: [], duplicates: [], warnings: [], errors: [] };
@@ -128,7 +145,7 @@ export async function evaluateVisualCoverage(root, workflow, { itemDirectory = n
       profiles: profiles.map((profile) => profile.id), covered: [], uncovered: [], unclaimed: [], stale: [], duplicates: [], warnings: [], errors: [] };
   }
   if (!phase) throw new SingularityFlowError('Verification profiles require a visual verification step (an artifact of kind visual-test-evidence).', { code: 'VISUAL_PHASE_MISSING' });
-  const generation = expectedGeneration(phase), integrity = await verifyMcpEvidence(root, workflow, { itemDirectory });
+  const generation = target ?? expectedGeneration(phase), integrity = await verifyMcpEvidence(root, workflow, { itemDirectory });
   const directory = itemRoot(root, workflow, itemDirectory);
   const native = await nativeCaptures(directory, workflow);
   const nativeFiles = new Map(native.records.map(({ record, absolute }) => [record, absolute]));
@@ -198,13 +215,71 @@ export async function evaluateVisualCoverage(root, workflow, { itemDirectory = n
     ...(notApplicable.length ? { notApplicable } : {}) };
 }
 
-export async function assertVisualCoverage(root, workflow, options = {}) {
-  const result = await evaluateVisualCoverage(root, workflow, options);
-  if (result.mode === 'enforce' && result.errors.length) {
-    const routes = result.uncovered?.length ? missingProfileRoutes(workflow, result) : [];
-    throw new SingularityFlowError(`Visual verification coverage failed:\n- ${result.errors.join('\n- ')}${routes.length
-      ? '\nCapture each missing profile at its pixel size, or a whole-number multiple of it from a simulator, emulator or device (visual record), or a person who approves the step records that it does not apply to this Story (decision visual-profile).' : ''}`,
-    { code: 'VISUAL_COVERAGE_FAILED', details: { ...result, ...(routes.length ? { nextAction: routes[0], recoveryCommands: routes } : {}) } });
+/** Publishing the same step again, by whoever produced its published generation when the step allows it. */
+function republishCommand(phase) {
+  const producer = [...(Array.isArray(phase.authorship) ? phase.authorship : [])].reverse()
+    .find((record) => Number(record?.generation) === Number(phase.generation))?.producer ?? null;
+  if (producer && producer !== 'legacy-unspecified') {
+    try { return phasePublicationCommandForProducer(phase, producer); } catch { /* the step's configured producer below */ }
   }
+  return phasePublicationCommand(phase);
+}
+
+/**
+ * The coverage result and why enforced coverage refuses the step (null when it does not), with
+ * routes that lead out of the refusal and never back into it. A capture is bound to the generation
+ * the next publication creates (it is committed by that publication), so one recorded after the step
+ * was published counts from the following generation: when that generation would be covered, the
+ * route is to publish it. `generation` evaluates a generation about to be published (prepublish and
+ * publish); without it, the published generation is evaluated (submit).
+ */
+export async function visualCoverageRefusal(root, workflow, options = {}) {
+  const result = await evaluateVisualCoverage(root, workflow, options);
+  if (result.mode !== 'enforce' || !result.errors.length) return { result, refusal: null };
+  const phase = workflow.phases?.[result.phase];
+  const published = options.generation == null && Number(phase?.generation ?? 0) >= 1;
+  const next = published ? await evaluateVisualCoverage(root, workflow, { ...options, generation: nextPhaseGeneration(phase) }) : null;
+  const waiting = next ? result.stale.filter((id) => next.covered.some((entry) => entry.recordId === id)) : [];
+  const republish = waiting.length ? { command: republishCommand(phase),
+    label: `${waiting.join(', ')} ${waiting.length === 1 ? 'was' : 'were'} recorded after generation ${result.generation} was published, so ${waiting.length === 1 ? 'it is' : 'they are'} committed by, and ${waiting.length === 1 ? 'counts' : 'count'} for, generation ${next.generation}. Publish ${phase.id} again to open that generation, then submit it.` } : null;
+  // What the next generation would still lack is captured or decided first; the publication follows.
+  const missing = next && waiting.length ? next : result;
+  const routes = [...(missing.uncovered?.length ? missingProfileRoutes(workflow, missing, { publishedGeneration: published ? result.generation : null }) : []),
+    ...(republish ? [republish] : [])];
+  // A capture counts only for the generation it was recorded for, so the next one needs every profile.
+  const stillMissing = next && waiting.length && next.uncovered?.length
+    ? `Generation ${next.generation} would still lack ${next.uncovered.join(', ')}: a capture counts only for the generation it was recorded for.` : null;
+  const lines = [
+    ...(stillMissing ? [stillMissing] : []),
+    ...(missing.uncovered?.length ? [`Capture each missing profile at its pixel size, or a whole-number multiple of it from a simulator, emulator or device (visual record), or a person who approves the step records that it does not apply to this Story (decision visual-profile). ${NO_CAPTURE_SOURCE_NOTE}`] : []),
+    ...(options.generation != null ? [`Record each capture before publishing: generation ${result.generation} commits the captures recorded for it.`] : []),
+    ...(republish ? [republish.label] : [])
+  ];
+  const refusal = new SingularityFlowError(`Visual verification coverage failed${options.generation != null ? ` for generation ${result.generation}` : ''}:\n- ${result.errors.join('\n- ')}${lines.length ? `\n${lines.join('\n')}` : ''}`,
+    { code: 'VISUAL_COVERAGE_FAILED', details: { ...result, ...(routes.length ? { nextAction: routes[0], recoveryCommands: routes } : {}),
+      ...(waiting.length ? { nextGeneration: { generation: next.generation, waiting, uncovered: next.uncovered } } : {}) } });
+  return { result, refusal, explanation: stillMissing ?? republish?.label ?? null };
+}
+
+/**
+ * What enforced coverage still needs before an in-progress visual step moves on, for readiness and
+ * next-step routing, or null: the refusal its publication (`published` false: the generation being
+ * authored) or its submission (`published` true) would raise, with the same routes.
+ */
+export async function visualCoverageHold(root, workflow, phase, { itemDirectory = null, published = Number(phase?.generation ?? 0) >= 1 } = {}) {
+  if (!isVisualVerificationPhase(phase) || phase.status !== 'in_progress' || policy(workflow).coverage !== 'enforce') return null;
+  const { result, refusal, explanation } = await visualCoverageRefusal(root, workflow, { itemDirectory, phaseId: phase.id,
+    ...(published ? {} : { generation: nextPhaseGeneration(phase) }) });
+  if (!refusal) return null;
+  const routes = refusal.details.recoveryCommands ?? [];
+  return { code: refusal.code, phase: phase.id, generation: result.generation, published, errors: result.errors, routes,
+    command: routes[0]?.command ?? 'singularity-flow visual status --json',
+    reason: [`${phase.id} generation ${result.generation} lacks enforced visual coverage: ${result.errors.join(' ')}`,
+      explanation !== routes[0]?.label ? explanation : null, routes[0]?.label].filter(Boolean).join(' ') };
+}
+
+export async function assertVisualCoverage(root, workflow, options = {}) {
+  const { result, refusal } = await visualCoverageRefusal(root, workflow, options);
+  if (refusal) throw refusal;
   return result;
 }

@@ -179,7 +179,9 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   '.github/agents/demo-instruction-closer.agent.md': Object.freeze(['46dfd20f054f900fb603bba672bc47b303e640951f3f308c90c6958340b5bb4b', '20639a730771566688d5a9e83a35d2b6a0437dc926504ab4b07dcf4b0eaefa70']),
   // Before Story documents needed a name, the import instruction had no --name.
   'singularity/templates/figma-mobile/design-intake.md': Object.freeze([
-    'f84db46cdf86cf8c4da4de0062d7150466d5dd291baf6495bd9523affa9a6453'
+    'f84db46cdf86cf8c4da4de0062d7150466d5dd291baf6495bd9523affa9a6453',
+    // Before the intake named the design-source record publication requires (2026-10-22).
+    '5cb9495b64189d9f73d6aae23201197d7634cbf46d03176544badfc7683518ef'
   ]),
   '.github/agents/architect.agent.md': Object.freeze([
     '41052a47c867dfe1eaae3f0ab8686912efc3ae00e42cb0c9198131a19dc5bc88',
@@ -390,7 +392,9 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/document-test-repair/intake.md': Object.freeze(['93554c5483a2b117dfb48612a432531950b6c0c96c122d83d023344b23e37906']),
   'singularity/templates/figma-mobile/visual-verification.md': Object.freeze(['aca2f864d6cc1b5321e466f80d0751ab4874049271b2fabab03dde7b0ec0e835',
     // Before the native capture route and the not-applicable decision replaced asking the workflow owner (2026-10-19).
-    'bea4365e84a67ba60a2c77b60cebac1e947372eaec45684dc3660d900ab0448a']),
+    'bea4365e84a67ba60a2c77b60cebac1e947372eaec45684dc3660d900ab0448a',
+    // Before publication checked coverage and visual compare took document and capture IDs (2026-10-22).
+    '9722e4980eba29f331161c7902cc600400443957c918dfcbf596598799001c3e']),
   'singularity/templates/poc-workflow/intake.md': Object.freeze(['511fa3a7c281bf8a4c84977668478392b5f73d14273d3149db6392eeba3b805d']),
   'singularity/templates/spec-code-test-loop/conformance.md': Object.freeze(['b22de4f73720b8bf645faef0e2484031838d511fe4ea06810c6bf9b16c8bae1a',
     // Before the conformance templates said the clause table alone states verdicts (2026-10-19).
@@ -512,11 +516,11 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/feature/requirements.md': '32016db8ed6fadd6596e7dc702647cff95cdee1a203b38395d7ba5626dd8134e',
   'singularity/templates/figma-mobile/component-mapping.md': 'cdea8a1e3defa73ade72bdaaac162ecd9b8b43817aa319d7e712e2de2eb296a3',
   'singularity/templates/figma-mobile/conformance.md': 'bc82839bff97575e16deddd8beb1a35a110180651ac2f78aeedbd95aee45b185',
-  'singularity/templates/figma-mobile/design-intake.md': '5cb9495b64189d9f73d6aae23201197d7634cbf46d03176544badfc7683518ef',
+  'singularity/templates/figma-mobile/design-intake.md': '39e83b9ecf10bad9249070d4f3267e8d2ec2412bfbfb6e46ead396e888f682b3',
   'singularity/templates/figma-mobile/design-inventory.md': '822ea61a75a25ec5a6b42dd887c842d5126233b36f7f0fc875402f9a43125079',
   'singularity/templates/figma-mobile/implementation.md': '69b5b75886dcc41da4e3063c7ceb6ff805251f98dd40ee41b2bf5de660dc74da',
   'singularity/templates/figma-mobile/mobile-spec.md': '5f25f3417be372a7073ac5ba2676b0e47ea302ff54d1db64270448d635db6d98',
-  'singularity/templates/figma-mobile/visual-verification.md': '9722e4980eba29f331161c7902cc600400443957c918dfcbf596598799001c3e',
+  'singularity/templates/figma-mobile/visual-verification.md': '0c732adf496717a4c2034cff347408d9e6e4bb5f9556152b226fa1e376e48bf5',
   'singularity/templates/initiatives/adr-log.md': '4ece55ac194e15395cbc331d382d6464f76e013b33576050895092a5dcebce12',
   'singularity/templates/initiatives/business-case.md': '155faec79961574f8dd12556f0874ec8bb396f5a546ca792b2ab41dc34aa6a17',
   'singularity/templates/initiatives/cicd-readiness.md': '98222239a8e316ff1413f827f1fe400d90345bb0759db5d06fe49f859e2aa754',

@@ -154,8 +154,12 @@ test('publication writes the sidecar, and the artifact author never does', async
   assert.match(state, /buildArtifactSidecar\(/, 'publication does not build sidecars');
   const publish = state.slice(state.indexOf('export async function publishGeneration'));
   assert.ok(publish.indexOf('buildArtifactSidecar(') > -1, 'the sidecar is built outside publishGeneration');
-  // It must come after the artifact-only scope check, so the refusal happens first.
-  assert.ok(publish.indexOf('is artifact-only') < publish.indexOf('buildArtifactSidecar('),
+  // It must come after the artifact-only scope check, so the refusal happens first. The check lives in
+  // assertPhaseChangeScope, which prepublish shares, and publishGeneration calls it before any sidecar.
+  const scope = state.slice(state.indexOf('export async function assertPhaseChangeScope'), state.indexOf('export async function publishGeneration'));
+  assert.match(scope, /is artifact-only/, 'the shared change-scope check no longer refuses artifact-only steps');
+  assert.ok(publish.indexOf('assertPhaseChangeScope(') > -1
+    && publish.indexOf('assertPhaseChangeScope(') < publish.indexOf('buildArtifactSidecar('),
     'sidecars are written before the write-scope check refuses an out-of-scope generation');
 });
 

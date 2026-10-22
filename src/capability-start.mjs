@@ -53,8 +53,7 @@ import {
 } from './git-remote-diagnostics.mjs';
 import { validatePortfolio } from './initiative-config.mjs';
 import { storyBranchLabels } from './story-base-lineage.mjs';
-import { automaticStoryRepositoryPath } from './workspace-story-checkout.mjs';
-import { prepareStoryWorktree, completeStoryWorktree, rollbackStoryWorktree } from './story-worktree.mjs';
+import { automaticStoryRepositoryPath } from './workspace-story-location-scope.mjs';
 import { LIFECYCLE_EVENT, lifecycleEvent } from './lifecycle-event.mjs';
 import {
   freezeAndVerifySgosExistingLifecycleCommit, sgosLifecycleCandidateBinding,
@@ -64,6 +63,7 @@ import {
 const DEFAULT_REMOTE_WORKERS = 4;
 // Execution locations are process-private derivations, never caller-editable plan/JSON authority.
 const branchExecutionWorkspaces = new WeakMap();
+const isolatedWorktreeRollbacks = new WeakMap();
 
 function bindBranchExecution(repositories, workspace, context) {
   if (!context.branchCheckout) return;
@@ -1218,7 +1218,11 @@ export function rollbackCapabilityRepositories(prepared, storyBranch) {
   const failures = [];
   for (const entry of [...(prepared ?? [])].reverse()) {
     if (entry.preparedWorktree) {
-      try { rollbackStoryWorktree(entry.preparedWorktree); }
+      try {
+        const rollback = isolatedWorktreeRollbacks.get(entry);
+        if (!rollback) throw new Error('Isolated checkout rollback requires its invocation-owned preparation. Use Story-start recovery for retained journals.');
+        rollback(entry.preparedWorktree);
+      }
       catch (error) { failures.push(`${entry.repository}: ${error.message}`); }
       continue;
     }
@@ -1263,11 +1267,13 @@ export async function prepareCapabilityRepositories(workspaceRoot, plan, storyBr
         continue;
       }
       if (isolatedWorktrees) {
+        const { prepareStoryWorktree, completeStoryWorktree, rollbackStoryWorktree } = await import('./story-worktree.mjs');
         const preparedWorktree = await measureCommandSpan('start.worktree', () => prepareStoryWorktree(root, workId,
           { base: `refs/remotes/${remote}/${base.branch}`, storyBranch }));
         const entry = { repository: repository.id, target: preparedWorktree.repositoryPath,
           base: base.branch, source: base.source, action: 'isolated-worktree', preparedWorktree };
         prepared.push(entry); // Roll back this exact owned worktree if the following checkout fails.
+        isolatedWorktreeRollbacks.set(entry, rollbackStoryWorktree);
         await onPrepared?.(entry);
         await checkout(entry.target, storyBranch, { base: base.branch, fetch: false, remote, preferRemoteBase: true });
         completeStoryWorktree(preparedWorktree);

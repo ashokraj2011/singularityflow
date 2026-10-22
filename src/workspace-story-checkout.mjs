@@ -1,6 +1,5 @@
 /** Resolve new-Story execution locations without copying an existing workspace repository. */
 import { lstat, readFile, realpath } from 'node:fs/promises';
-import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 import { repositoryGitDirectory } from './git-directory.mjs';
 import { activeWorkspaceFile, readActiveWorkspaceContext, workspaceRegistryFile } from './workspace-context.mjs';
@@ -10,15 +9,10 @@ import { workspaceBranchFolder, workspaceBranchMember } from './workspace-branch
 import { isGitRefName, optionBoolean, optionString, optionStrings, SingularityFlowError } from './util.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
 import { measureCommandSpan, incrementCommandCounter } from './dx-timing-context.mjs';
+import { automaticStoryPreparation } from './workspace-story-location-scope.mjs';
+export { withAutomaticStoryCheckout, automaticStoryRepositoryPath } from './workspace-story-location-scope.mjs';
 
 const preparations = new WeakMap();
-const preparationScope = new AsyncLocalStorage();
-export function withAutomaticStoryCheckout(preparation, action) { return preparationScope.run(preparation, action); }
-/** Process-private location handoff; never accept execution paths from preview JSON or argv. */
-export function automaticStoryRepositoryPath(repositoryId, branch) {
-  return preparationScope.getStore()?.repositories?.find(entry =>
-    entry.repositoryId === repositoryId && entry.branch === branch)?.repositoryPath ?? null;
-}
 const canonical = async (file) => realpath(file).catch(error => {
   if (error.code === 'ENOENT') return path.resolve(file);
   throw error;
@@ -77,7 +71,7 @@ async function localStoryPresent(root, id, ref) {
 
 /** A signed receipt stays checked/consumed at its original root; it is never copied or rebound. */
 export function automaticStorySelection(options, workId) {
-  const handoff = (preparations.get(options) ?? preparationScope.getStore())?.selectionHandoff;
+  const handoff = (preparations.get(options) ?? automaticStoryPreparation())?.selectionHandoff;
   return handoff?.receipt.workId === workId && handoff.token === optionString(options, 'selection-receipt') ? handoff : null;
 }
 
@@ -88,7 +82,7 @@ export async function automaticWorkspaceStoryCheckout(command, positionals, opti
   if (!request) return null;
   const fingerprint = JSON.stringify([request.id, request.values, request.ref, optionString(options, 'capability')]);
   const launchDirectory = await canonical(cwd);
-  const prior = preparations.get(options) ?? preparationScope.getStore();
+  const prior = preparations.get(options) ?? automaticStoryPreparation();
   if (prior?.fingerprint === fingerprint && [prior.launchDirectory, prior.repositoryPath].some(file => same(file, launchDirectory))) return prior;
   const selected = await readActiveWorkspaceContext(activeWorkspaceFile(env), workspaceRegistryFile(env), { refresh: false }).catch(() => null);
   if (!selected?.workspacePath) return null;

@@ -18,7 +18,6 @@ import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { verifiedSgosLifecycleCandidateForCommit } from './sgos/candidate-lifecycle.mjs';
 import { scavengeStoryDocumentCaptures } from './story-start-documents.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
-import { rollbackStoryWorktree, storyWorktreeChanges, samePlatformPath } from './story-worktree.mjs';
 
 const FAMILY = 'story-start-journal';
 
@@ -318,11 +317,12 @@ async function completedWorkflowAtTarget(root, record, pending = null) {
   return { completed: failures.length === 0, failures: [...new Set(failures)], commit };
 }
 
-function restoreRepositoryCheckout(repository, targetBranch) {
+async function restoreRepositoryCheckout(repository, targetBranch) {
   if (repository?.isolatedWorktree) {
     if (!repository.preparedWorktree || !refExists(repository.target, `refs/heads/${targetBranch}`)
         && !refExists(repository.target, `refs/heads/${repository.preparedWorktree.stagingBranch}`)) return null;
     try {
+      const { rollbackStoryWorktree } = await import('./story-worktree.mjs');
       const result = rollbackStoryWorktree(repository.preparedWorktree);
       return result.retained ? `${repository.repository}: isolated Story checkout retained at ${result.repositoryPath}` : null;
     } catch (error) { return `${repository.repository}: ${error.message}`; }
@@ -354,12 +354,13 @@ function restoreRepositoryCheckout(repository, targetBranch) {
 }
 
 /** Prove every checkout is still at a state recovery understands before writing any plane. */
-function inspectRepositoryCheckout(repository, targetBranch) {
+async function inspectRepositoryCheckout(repository, targetBranch) {
   if (repository?.isolatedWorktree) {
     const prepared = repository.preparedWorktree;
     if (!prepared || !refExists(repository.target, `refs/heads/${targetBranch}`)
         && !refExists(repository.target, `refs/heads/${prepared.stagingBranch}`)) return null;
     try {
+      const { storyWorktreeChanges, samePlatformPath } = await import('./story-worktree.mjs');
       if (!samePlatformPath(realpathSync(gitCommonDir(prepared.repositoryPath)), realpathSync(gitCommonDir(repository.target)))
           || ![targetBranch, prepared.stagingBranch].includes(branch(prepared.repositoryPath))
           || head(prepared.repositoryPath) !== repository.baseCommit
@@ -452,7 +453,7 @@ export async function recoverStoryStart(root, id, { force = false } = {}) {
     }
   }
   for (const repository of [...(record.siblingRepositories ?? [])].reverse()) {
-    const failure = inspectRepositoryCheckout(repository, record.targetBranch);
+    const failure = await inspectRepositoryCheckout(repository, record.targetBranch);
     if (failure) failures.push(failure);
   }
   if (failures.length) {
@@ -475,7 +476,7 @@ export async function recoverStoryStart(root, id, { force = false } = {}) {
   await restoreCopilotSession(root, record.originalCopilotSession ?? null);
 
   for (const repository of [...(record.siblingRepositories ?? [])].reverse()) {
-    const failure = restoreRepositoryCheckout(repository, record.targetBranch);
+    const failure = await restoreRepositoryCheckout(repository, record.targetBranch);
     if (failure) failures.push(failure);
   }
 

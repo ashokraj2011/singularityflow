@@ -53,15 +53,84 @@ export function agentPacketPresentation(packet, platform = process.platform) {
  * Control before material. A host may keep only the start and end of a long tool result, so every
  * field a skill must verify before acting (binding, status, authoring route, clarification
  * checkpoint, edit permissions, next action) comes first, and the bulky sections follow, with the
- * composed context last. Nothing is sliced or removed; only the order changes.
+ * composed context last. Nothing is sliced; copies are replaced by where to read them
+ * (phaseEntryPacketCompaction).
  */
 const ENTRY_CONTROL_ORDER = ['contextBoundary', 'ready', 'workId', 'phase', 'phaseStatus', 'status',
   'authoringAllowed', 'codeAuthoringReady', 'authoring', 'clarification', 'mutationContract',
   'authoringProgress', 'scopeReview', 'contextAdmission', 'next', 'testEvidenceFrom', 'upstream'];
 
+// Instructions the composed prompt renders word for word in its own sections.
+const PROMPT_RENDERED_TEXTS = [['mutationContract', 'toolProtocol', 'paths'],
+  ['mutationContract', 'toolProtocol', 'localVerification', 'guidance'],
+  ['retainedExecutionEvidence', 'instruction'], ['evidenceConsistency', 'instruction']];
+export const IN_CONTEXT_TEXT = 'Same text as in context.text.';
+const sameJson = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+
+/**
+ * The phase-entry agent view without its copies. `[OUT:REQ-021]` `[OUT:REQ-022]`
+ *
+ * An agent reads the whole entry each phase, about 66 KB, and much of the JSON beside the prompt
+ * said things twice. Each copy becomes where to read it, never a summary:
+ * - a recovery action identical to a `next` action, as `sameAs` (`act` reads `next`);
+ * - recovery blockers that differ only by line, as one blocker with `lines`, and `details` values
+ *   the blocker already states;
+ * - the instructions context.text renders word for word, when context.text is there.
+ * Agent presentation only: plain --json, recorded prompts and every check read the full packet.
+ */
+export function phaseEntryPacketCompaction(packet) {
+  const compact = { ...packet };
+  const recovery = packet.recovery;
+  if (recovery && typeof recovery === 'object' && !Array.isArray(recovery)) {
+    const next = Array.isArray(packet.next) ? packet.next : [];
+    compact.recovery = { ...recovery,
+      ...(Array.isArray(recovery.actions) ? { actions: recovery.actions.map((action) => {
+        const index = next.findIndex((entry) => sameJson(entry, action));
+        return index < 0 ? action : { ...(action?.id ? { id: action.id } : {}), sameAs: `next[${index}]` };
+      }) } : {}),
+      ...(Array.isArray(recovery.blockers) ? { blockers: blockerGroups(recovery.blockers) } : {}) };
+  }
+  const text = typeof packet.context?.text === 'string' ? packet.context.text : '';
+  for (const trail of text ? PROMPT_RENDERED_TEXTS : []) {
+    const value = trail.reduce((node, key) => (node && typeof node === 'object' ? node[key] : undefined), compact);
+    if (typeof value !== 'string' || Buffer.byteLength(value) < 200 || !text.includes(value)) continue;
+    // Copy only the objects on the way, so the caller's packet is never changed.
+    let node = compact;
+    for (const key of trail.slice(0, -1)) node = node[key] = { ...node[key] };
+    node[trail.at(-1)] = IN_CONTEXT_TEXT;
+  }
+  return compact;
+}
+
+/** Blockers that differ only by line, once with every line; `details` keeps only what is new. */
+function blockerGroups(blockers) {
+  const groups = [];
+  const byShape = new Map();
+  for (const blocker of blockers) {
+    if (!blocker || typeof blocker !== 'object' || Array.isArray(blocker)) { groups.push(blocker); continue; }
+    const { details, ...own } = blocker;
+    const extra = details && typeof details === 'object' && !Array.isArray(details)
+      ? Object.fromEntries(Object.entries(details).filter(([key, value]) => !sameJson(own[key], value))) : details;
+    const entry = { ...own, ...(extra !== undefined && !(extra && typeof extra === 'object' && !Object.keys(extra).length) ? { details: extra } : {}) };
+    if (!Object.hasOwn(entry, 'line')) { groups.push(entry); continue; }
+    const { line, ...shape } = entry;
+    const key = JSON.stringify(shape);
+    const group = byShape.get(key);
+    if (group) { group.lines.push(line); continue; }
+    const created = { ...entry, lines: [line] };
+    byShape.set(key, created);
+    groups.push(created);
+  }
+  return groups.map((entry) => {
+    if (!entry?.lines) return entry;
+    const { lines, ...rest } = entry;
+    return lines.length === 1 ? rest : { ...Object.fromEntries(Object.entries(rest).filter(([key]) => key !== 'line')), lines };
+  });
+}
+
 export function phaseEntryAgentPresentation(packet) {
   if (packet.paused) return packet;
-  const projected = agentPacketPresentation(packet);
+  const projected = phaseEntryPacketCompaction(agentPacketPresentation(packet));
   // Keep the complete small checkpoint ahead of the rest of the clarification record.
   if (projected.clarification) projected.clarification = {
     checkpoint: projected.clarification.checkpoint,

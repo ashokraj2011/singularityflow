@@ -7,6 +7,8 @@ import {
   assertClarificationRecordingAllowed,
   clarificationCheckpoint,
   clarificationRecordRelative,
+  clarificationRoutes,
+  clarificationStatusLines,
   normalizeClarificationPolicy,
   recordClarificationResponses,
   renderClarificationProtocol,
@@ -162,6 +164,26 @@ test('required clarification is bound to the exact prompt and prospective genera
   await writeFile(path.join(value.root, value.promptPath), '# Changed governed prompt\n');
   const stale = await verifyClarificationRecord(value.root, value.definition, value.workflow, value.phase);
   assert.match(stale.errors.join('\n'), /prompt snapshot hash differs/);
+});
+
+test('clarification status names the route an unmet checkpoint holds back, never a bare BLOCKED', async () => {
+  const value = await clarificationFixture();
+  const missing = await verifyClarificationRecord(value.root, value.definition, value.workflow, value.phase);
+  const lines = clarificationStatusLines(missing, value.phase, 1);
+  assert.match(lines.stdout.join('\n'), /Applies to: a governed-agent \(Copilot\) publication, which refuses until this is ready\. A human, deterministic or external-tool publication does not check it/);
+  assert.ok(lines.stderr.every((line) => !/^BLOCKED (?!for a governed-agent publication: )/.test(line)), lines.stderr.join('\n'));
+  assert.match(lines.stderr.join('\n'), /^BLOCKED for a governed-agent publication: clarification response is missing/m);
+  assert.deepEqual(clarificationRoutes(missing), { 'governed-agent': 'blocked', other: 'not-required' });
+  await recordClarificationResponses(value.root, value.definition, value.workflow, value.phase, {
+    actor: { name: 'Product Owner', email: 'owner@example.com' }, agent: 'product-owner',
+    responses: [{ question: 'Is the described scope correct?', answer: 'Yes; exclude account migration.' }]
+  });
+  const ready = await verifyClarificationRecord(value.root, value.definition, value.workflow, value.phase);
+  assert.deepEqual(clarificationRoutes(ready), { 'governed-agent': 'ready', other: 'bound-if-published' });
+  assert.deepEqual(clarificationStatusLines(ready, value.phase, 1).stderr, []);
+  const off = await clarificationFixture('off');
+  const none = await verifyClarificationRecord(off.root, off.definition, off.workflow, off.phase);
+  assert.doesNotMatch(clarificationStatusLines(none, off.phase, 1).stdout.join('\n'), /Applies to/);
 });
 
 test('clarification verification rejects an unbound prompt path without opening it', async () => {

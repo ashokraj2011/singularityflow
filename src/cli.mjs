@@ -2558,15 +2558,11 @@ async function clarificationCommand(positionals, options) {
   if (subcommand === 'status') {
     const result = await verifyClarificationRecord(root, config, workflow, phase);
     const json = optionBoolean(options, 'json');
+    const { clarificationRoutes, clarificationStatusLines } = await import('./clarifications.mjs');
     if (!json) {
-      console.log(`Clarification checkpoint: ${phase.id} generation ${nextPhaseGeneration(phase)} (${result.mode})`);
-      if (result.record) {
-        console.log(`Status: ${result.errors.length ? 'not ready' : 'ready'} · Responses: ${result.record.responses.length} · Recorded by: ${result.record.recordedBy?.name ?? result.record.recordedBy?.email ?? 'unknown'}`);
-        console.log(`Record: ${result.path} · Prompt: ${result.record.promptSha256.slice(0, 12)}`);
-      } else console.log(result.mode === 'off' ? 'This phase has no clarification checkpoint.' : 'No response record exists for the prospective generation.');
-      result.passes.forEach((message) => console.log(`PASS ${message}`));
-      result.warnings.forEach((message) => console.warn(`Warning: ${message}`));
-      result.errors.forEach((message) => console.error(`BLOCKED ${message}`));
+      const lines = clarificationStatusLines(result, phase, nextPhaseGeneration(phase));
+      lines.stdout.forEach((line) => console.log(line));
+      lines.stderr.forEach((line) => console.error(line));
     }
     emitCommandResult(commandResult({
       operation: { id: 'clarification.status', classification: 'read' },
@@ -2574,7 +2570,7 @@ async function clarificationCommand(positionals, options) {
       outcome: noop('clarification.reported', { phase: phase.id, generation: nextPhaseGeneration(phase) }),
       effects: noEffects(),
       restState: 'informational',
-      data: result
+      data: { ...result, routes: clarificationRoutes(result) }
     }), { json });
     return;
   }

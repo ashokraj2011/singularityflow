@@ -34,10 +34,12 @@ import { parseArgs, writeAtomic } from './util.mjs';
 export const DEFAULT_AGENT_OUTPUT_BYTES = 7_500;
 // An agent read a 40 KB overflow file in three slices on average, up to eight: one model call per
 // slice, each re-sending the whole conversation (22% of all calls in recorded sessions, 2026-10-18
-// to 10-21). The same file tool showed whole files of up to 27,919 bytes. So the fields a view
-// leaves out are written first and together, and named as at most three ranges of whole fields,
-// each at most 24,000 bytes, to be read in one response.
-export const READ_CHUNK_BYTES = 24_000;
+// to 10-21). So the fields a view leaves out are written first and together, and named as at most
+// three ranges of whole fields, to be read in one response. In a live run (Copilot 1.0.95,
+// 2026-10-22) its file tool cut a ranged read at about 20,000 characters ("Output truncated") and
+// refused a 28,205-byte file whole ("File too large to read at once"), so a range is at most
+// 18,000 bytes, and a long text file is named as ranges of that size too.
+export const READ_CHUNK_BYTES = 18_000;
 export const READ_PLAN_CHUNKS = 3;
 export const LOOP_THRESHOLD = 3;
 const LOOP_WINDOW_MS = 2 * 60 * 60 * 1000;
@@ -383,6 +385,21 @@ function topLevelRanges(text) {
   return ranges;
 }
 
+/** Consecutive line ranges of a text, each at most `chunkBytes` (a longer line is its own range). */
+function lineRanges(text, chunkBytes = READ_CHUNK_BYTES) {
+  const lines = text.split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  const ranges = [];
+  let start = 1, size = 0;
+  lines.forEach((line, index) => {
+    const length = bytes(line) + 1;
+    if (size && size + length > chunkBytes) { ranges.push([start, index]); start = index + 1; size = 0; }
+    size += length;
+  });
+  if (lines.length) ranges.push([start, lines.length]);
+  return ranges;
+}
+
 /**
  * The ranges that hold the given fields, in order: consecutive whole fields grouped up to the chunk
  * size, a larger field split at line boundaries. At most `chunks` ranges; what is left stays
@@ -555,11 +572,12 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
       if (bytes(rendered) <= budget) return `${rendered}\n`;
     }
   }
-  const instruction = catalog ? catalogInstruction : 'A bounded view of a complete result. agentOutput.read names the lines of agentOutput.path that hold the fields left out (whole fields, 1-based, inclusive). Request those ranges and every omittedFields textFiles path together, in one response, with your file-reading tool. omittedFields gives each field\'s own range. Nothing was truncated.';
+  const instruction = catalog ? catalogInstruction : 'A bounded view of a complete result. agentOutput.read names the lines of agentOutput.path that hold the fields left out (whole fields, 1-based, inclusive). Request those ranges and every omittedFields textFiles path (by its read ranges when it has them) together, in one response, with your file-reading tool. omittedFields gives each field\'s own range. Nothing was truncated.';
   const keys = Object.keys(ordered).filter((key) => key !== 'act');
   const size = Object.fromEntries(keys.map((key) => [key, bytes(JSON.stringify(ordered[key]) ?? 'null')]));
   const textFiles = Object.fromEntries(keys.map((key) => [key, texts.filter((entry) => entry.field === key || entry.field.startsWith(`${key}.`))
-    .map(({ field, textFile, bytes: length, lines }) => ({ field, path: textFile, bytes: length, lines }))]));
+    .map(({ field, textFile, bytes: length, lines }) => ({ field, path: textFile, bytes: length, lines,
+      ...(length > READ_CHUNK_BYTES ? { read: lineRanges(readFileSync(textFile, 'utf8')) } : {}) }))]));
   const reference = (ranges) => Object.fromEntries(keys.map((key) => [key,
     { field: key, bytes: size[key], lines: ranges[key] ?? null, ...(textFiles[key].length ? { textFiles: textFiles[key] } : {}) }]));
   const render = (kept, agentOutput, references, order = keys, values = ordered) => agentJson({ act: { ...(act ?? {}), complete: false }, agentOutput,

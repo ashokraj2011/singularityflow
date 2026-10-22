@@ -256,6 +256,25 @@ test('large fields left out become at most three ranges of whole fields, each wi
   assert.ok(view.omittedFields.some((entry) => entry.field === 'extra'));
 });
 
+test('a long text file is named as ranges the file tool shows whole, to request in the same response', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-text-ranges-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const prompt = Array.from({ length: 700 }, (_, index) => `Line ${index} of the composed phase prompt, with its rules.`).join('\n');
+  const result = { resultType: 'sflow-phase-entry', status: 'authoring-entry', repositoryPath: root, workId: 'W', context: { text: prompt } };
+  const view = JSON.parse(await boundedAgentOutput(JSON.stringify(result), { cwd: root }));
+  const [text] = view.omittedFields.find((entry) => entry.field === 'context').textFiles;
+  assert.ok(text.bytes > READ_CHUNK_BYTES, `${text.bytes} bytes`);
+  const lines = (await readFile(text.path, 'utf8')).split('\n');
+  assert.deepEqual(text.read[0][0], 1);
+  assert.equal(text.read.at(-1)[1], 700, 'the ranges cover the whole text');
+  for (const [index, [start, end]] of text.read.entries()) {
+    assert.ok(Buffer.byteLength(lines.slice(start - 1, end).join('\n')) <= READ_CHUNK_BYTES, `range ${start}-${end}`);
+    if (index) assert.equal(start, text.read[index - 1][1] + 1, 'consecutive ranges');
+  }
+  assert.match(view.agentOutput.instruction, /by its read ranges when it has them/u);
+});
+
 test('review document bodies and text given elsewhere become reference files outside the reads, restored whole', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-references-'));
   t.after(() => rm(root, { recursive: true, force: true }));

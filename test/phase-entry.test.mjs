@@ -24,6 +24,13 @@ import { REQUIREMENT_AUTHORING_PROTOCOL } from '../src/requirement-coverage.mjs'
 import { captureMutationTurn, mutationToolGuard } from '../src/copilot-mutation-guard.mjs';
 import { recordRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
 
+// The agent view names a recovery action that repeats one of its next actions by `sameAs`.
+const recoveryAction = (entry, id) => {
+  const action = entry.recovery.actions.find((candidate) => candidate.id === id);
+  const index = /^next\[(\d+)\]$/u.exec(action?.sameAs ?? '')?.[1];
+  return index === undefined ? action : entry.next[Number(index)];
+};
+
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin/singularity-flow.mjs');
 function git(root, ...args) {
@@ -789,7 +796,7 @@ test('a step whose agent attaches a skill re-enters its own composed context wit
       assert.equal(result.status, 0, result.stderr || result.stdout);
       const entry = completeAgentResult(result.stdout);
       assert.deepEqual(entry.contextAdmission.blockers, [], args.join(' '));
-      const worktree = entry.recovery.actions.find(action => action.id === 'working-tree');
+      const worktree = recoveryAction(entry, 'working-tree');
       assert.deepEqual(worktree?.unexpectedPaths ?? [], []);
       assert.ok(worktree.expectedPaths.includes(audit));
     }
@@ -989,14 +996,14 @@ test('a step\'s own artifact-set files are its draft, another step\'s artifacts 
   await writeFile(path.join(item.root, own), '# Review notes\n\nThe reviewer checks each article.\n');
   const entry = completeAgentResult(item.invoke('phase', 'enter', '--for-agent', '--json').stdout);
   assert.deepEqual(entry.contextAdmission.blockers, []);
-  assert.ok(entry.recovery.actions.find(action => action.id === 'working-tree').expectedPaths.includes(own));
+  assert.ok(recoveryAction(entry, 'working-tree').expectedPaths.includes(own));
   // Not a declared member, but below the step's own artifact directory: publication registers it.
   const notes = 'team/stories/ENTRY-1/artifacts/specification/notes/interview.md';
   await mkdir(path.dirname(path.join(item.root, notes)), { recursive: true });
   await writeFile(path.join(item.root, notes), '# Interview notes\n');
   const noted = completeAgentResult(item.invoke('phase', 'enter', '--for-agent', '--json').stdout);
   assert.deepEqual(noted.contextAdmission.blockers, []);
-  assert.ok(noted.recovery.actions.find(action => action.id === 'working-tree').expectedPaths.includes(notes));
+  assert.ok(recoveryAction(noted, 'working-tree').expectedPaths.includes(notes));
   const other = 'team/stories/ENTRY-1/artifacts/planning/plan.md';
   await mkdir(path.dirname(path.join(item.root, other)), { recursive: true });
   await writeFile(path.join(item.root, other), '# A plan nobody prepared\n');

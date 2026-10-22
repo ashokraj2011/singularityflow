@@ -644,8 +644,20 @@ export function pendingDecisionRecord(workflow, phase, outcome, { at }) {
 }
 
 /**
+ * The earlier steps a person may reopen from a decision that enforces its recorded conditions. Going
+ * back never manufactures a passing result, and it is the "return to intake" such workflows promise
+ * once their rounds are used; going forward stays bound to the recorded verdict.
+ */
+export function reopenableSteps(workflow, pending) {
+  if (!pending || pending.anyStep || !decisionAfter(workflow, pending.after)?.enforceConditions) return [];
+  const order = workflow?.phaseOrder ?? [];
+  return order.slice(0, Math.max(0, order.indexOf(pending.after)));
+}
+
+/**
  * Resolve a person's choice for a pending decision: one of its options, or — when the decision
- * allows any step — a phase named directly. Returns where it leads, never applies it.
+ * allows any step, or enforces its conditions and the step is an earlier one — a phase named
+ * directly. Returns where it leads, never applies it.
  */
 export function resolveDecisionChoice(workflow, pending, { option = null, to = null } = {}) {
   if (!pending) throw new SingularityFlowError('This Story is not waiting for a decision.', { code: 'DECISION_NOT_PENDING' });
@@ -663,8 +675,9 @@ export function resolveDecisionChoice(workflow, pending, { option = null, to = n
         { code: 'DECISION_OPTION_UNKNOWN' });
     }
   } else {
-    if (!pending.anyStep) {
-      throw new SingularityFlowError(`'${pending.label}' offers fixed options; choose one with --option.`, { code: 'DECISION_STEP_NOT_ALLOWED' });
+    const reopen = reopenableSteps(workflow, pending);
+    if (!pending.anyStep && !reopen.includes(to)) {
+      throw new SingularityFlowError(`'${pending.label}' offers fixed options; choose one with --option${reopen.length ? `, or reopen an earlier step with --to ${reopen.join('|')}` : ''}.`, { code: 'DECISION_STEP_NOT_ALLOWED' });
     }
     if (!(to === DECISION_END || workflow.phaseOrder.includes(to))) {
       throw new SingularityFlowError(`--to must name a phase of this Story or end.`, { code: 'DECISION_STEP_NOT_ALLOWED' });
@@ -675,12 +688,12 @@ export function resolveDecisionChoice(workflow, pending, { option = null, to = n
   // An acceptance workflow must not turn an unmet agent verdict into a pass when a loop pauses.
   // Read the pinned rule and submitted values, not the options/values echoed by a client.
   const decision = decisionAfter(workflow, pending.after);
-  if (decision?.enforceConditions) {
+  if (decision?.enforceConditions && !(to && reopenableSteps(workflow, pending).includes(to))) {
     const values = recordedDecisionValues(workflow.phases?.[pending.after], decision);
     const matched = values ? chooseRoute(decision, values) : null;
     if (!option || matched?.id !== route.id || matched?.to !== route.to) {
       throw new SingularityFlowError(
-        `Decision '${decision.label}' requires its recorded conditions. This verdict does not allow '${route.label}'. Repair or recheck the evidence, reopen the intake, or cancel the Story; a human choice cannot manufacture a passing result.`,
+        `Decision '${decision.label}' requires its recorded conditions. This verdict does not allow '${route.label}'. Repair or recheck the evidence, reopen an earlier step with singularity-flow decision choose ${workflow.workItem?.id ?? '<WORK-ID>'} --to ${reopenableSteps(workflow, pending)[0] ?? '<PHASE>'} --reason "<why>" --expected ${pending.key}, or cancel the Story; a human choice cannot manufacture a passing result.`,
         { code: 'DECISION_CONDITION_REQUIRED', details: { decision: decision.id, allowedOption: matched?.id ?? null } }
       );
     }
@@ -786,7 +799,8 @@ export function storyDecisionView(workflow) {
     pending: pending ? {
       ...pending,
       afterLabel: name(pending.after),
-      options: pending.options.map((option) => ({ ...option, ...reachOf(pending.after, option.to) }))
+      options: pending.options.map((option) => ({ ...option, ...reachOf(pending.after, option.to) })),
+      reopen: reopenableSteps(workflow, pending)
     } : null,
     skipped: order.filter((id) => workflow.phases?.[id]?.status === 'skipped').map((id) => ({
       phase: id, label: name(id), by: workflow.phases[id].skippedBy ?? null, at: workflow.phases[id].skippedAt ?? null

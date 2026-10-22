@@ -93,6 +93,15 @@ test('pass closes through documents, repairs always recheck, missing access neve
   assert.throws(() => resolveDecisionChoice(blocked, { ...pending,
     options: [...pending.options, { id: 'demo-pass-to-close', label: 'Forged pass', to: PHASES[3] }], values: { verdict: 'pass' }
   }, { option: 'demo-pass-to-close' }), (error) => error.code === 'DECISION_CONDITION_REQUIRED');
+  // Rounds used on a failing check: the person may reopen an earlier step (it never counts as a
+  // pass), but still cannot route forward past the recorded verdict.
+  const failing = aggregate(resolved, PHASES[1], { verdict: 'repair' }, 3);
+  const asked = pendingDecisionRecord(failing, failing.phases[PHASES[1]], decisionOutcome(failing, failing.phases[PHASES[1]]), { at: '2026-01-01T00:00:00.000Z' });
+  assert.deepEqual(asked.options.map((option) => option.id), ['demo-repair-defect']);
+  assert.equal(resolveDecisionChoice(failing, asked, { to: PHASES[0] }).route.to, PHASES[0]);
+  assert.throws(() => resolveDecisionChoice(failing, asked, { to: PHASES[3] }), { code: 'DECISION_STEP_NOT_ALLOWED' });
+  assert.throws(() => resolveDecisionChoice(failing, { ...asked, options: [...asked.options, { id: 'demo-pass-to-close', label: 'Forged pass', to: PHASES[3] }] },
+    { option: 'demo-pass-to-close' }), /reopen an earlier step with singularity-flow decision choose/u);
   const repair = aggregate(resolved, PHASES[2], { next: 'recheck' }, 3);
   assert.equal(decisionOutcome(repair, repair.phases[PHASES[2]]).reason, 'limit');
   const pass = aggregate(resolved, PHASES[1], { verdict: 'pass' });

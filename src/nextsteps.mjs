@@ -8,7 +8,7 @@ import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import {
   effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer
 } from './manual-authorship.mjs';
-import { decisionSubmitArguments, describeOutcome, upcomingDecision } from './workflow-decisions.mjs';
+import { decisionSubmitArguments, describeOutcome, reopenableSteps, upcomingDecision } from './workflow-decisions.mjs';
 import { nextPhaseAfterSkillAmendment } from './lifecycle-transitions.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { applicabilityStatus } from './evidence/applicability.mjs';
@@ -173,6 +173,9 @@ export function workflowNextSteps(workflow, {
     ...pending.options.map((option, index) => action(index === 0 ? 'then' : 'alternative', '/sflow-decide',
       `singularity-flow decision choose ${workId} --option ${option.id} --reason <reason> --expected ${pending.key}`,
       `Choose '${option.label}'.`)),
+    ...reopenableSteps(workflow, pending).slice(0, 1).map((step) => action('alternative', '/sflow-decide',
+      `singularity-flow decision choose ${workId} --to ${step} --reason <reason> --expected ${pending.key}`,
+      `Reopen '${workflow.phases[step]?.label ?? step}' instead; going back never counts as a pass.`)),
     action('alternative', '/sf-cancel', `singularity-flow cancel ${workId} --reason <reason> --confirm ${workId}`, 'Cancel this Story, preserve its artifacts, and move it to Archived.')
   ];
 

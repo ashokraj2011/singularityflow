@@ -4077,7 +4077,7 @@ function printDecisionView(view) {
         : option.reach === 'end' ? 'finish the Story' : option.toLabel;
       console.log(`    ${option.id} — ${option.label} → ${where}${option.skips.length ? ` (skips ${(option.skipLabels ?? option.skips).join(', ')})` : ''}`);
     }
-    if (view.pending.anyStep) console.log('    or any step with --to <PHASE|end>');
+    if (view.pending.anyStep || view.pending.reopen?.length) console.log(view.pending.anyStep ? '    or any step with --to <PHASE|end>' : `    or reopen an earlier step with --to <${view.pending.reopen.join('|')}>`);
     console.log(`  Choose: singularity-flow decision choose ${view.workId} --option <ID> --reason "<why>" --expected ${view.pending.key}`);
   } else if (view.ahead?.hint) {
     const recorded = view.ahead.recorded

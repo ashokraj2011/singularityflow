@@ -47,7 +47,7 @@ import {
 } from './util.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { phasePublicationCommand } from './manual-authorship.mjs';
-import { phasePublicationCommandForMode } from './phase-publication-route.mjs';
+import { phasePublicationCommandForMode } from './sequence.mjs';
 import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
 import { artifactContentContractLines, authoredArtifactText } from './publication-preflight.mjs';
 import { resolveStoryExecutionContext } from './story-execution-context.mjs';

@@ -70,7 +70,7 @@ import {
 } from './inputs.mjs';
 import { prepareRemoteOutputs, updateRemoteOutputRenderedHashes } from './agents.mjs';
 import {
-  assertPhaseSequence, enforceSequenceGate, phaseExplicitlyReopened, phaseNeedsGeneration
+  assertPhaseSequence, enforceSequenceGate, phaseExplicitlyReopened, phaseNeedsGeneration, phasePublicationCommandForMode
 } from './sequence.mjs';
 import { assertPhasePublicationReadiness } from './phase-publication-readiness.mjs';
 import { answeredMarkerHashes, resolvedClarificationPolicy } from './clarifications.mjs';
@@ -216,7 +216,6 @@ import {
   evaluateExternalCommandForModelMode, externalCommandText, normalizeExternalCommand
 } from './external-command-policy.mjs';
 import { assertProducerAllowed, buildGenerationAuthorship, normalizeAuthorshipOptions, phasePublicationCommand } from './manual-authorship.mjs';
-import { phasePublicationCommandForMode } from './phase-publication-route.mjs';
 import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';
 import {
   advanceCompletedPhase, clearApprovalDisposition, completionPhaseOf, nextPhaseAfterSkillAmendment, reopenPhaseRange,

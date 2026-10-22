@@ -31,7 +31,7 @@ export async function scopeAuthoringCheckpoint(root, definition, workflow, phase
       inventorySha256: inventory.inventorySha256, sourceSetSha256: inventory.sourceSetSha256,
       total: inventory.items.length, unresolvedCount: unresolved.length,
       message: unresolved.length
-        ? `Scope advisory: ${unresolved.length} source item(s) need a clause link or an authorized human scope decision in ${phase.id}. ${draftPreview ? 'Repair clear draft omissions now' : 'Preserve the retained artifact; author repairs need its authorized successor route'}; human decisions may include, exclude or defer with a reason. This does not change phase readiness; ordinary approval is not a scope disposition.`
+        ? `Scope advisory: ${unresolved.length} source item(s) need a clause link or an authorized human scope decision in ${phase.id}. ${draftPreview ? 'Repair clear draft omissions now' : 'Preserve the retained artifact; author repairs need its authorized successor route'}; human decisions may include, exclude or defer with a reason. This does not block publishing this phase, but the Story cannot finish until each item is linked or decided; ordinary approval is not a scope disposition.`
         : null,
       items: unresolved.slice(0, 8).map(item => ({ id: item.id, sourceId: item.sourceId,
         text: item.text, statementSha256: item.statementSha256, kind: item.kind,

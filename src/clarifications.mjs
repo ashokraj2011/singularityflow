@@ -271,6 +271,32 @@ export async function verifyClarificationRecord(root, definition, workflow, phas
   return { checkpoint: clarificationCheckpoint(resolvedPolicy(definition, workflow, phase), result), ...result };
 }
 
+/**
+ * Which publications a phase's clarification checkpoint holds back. Publication checks the record
+ * only for a governed-agent generation, so a required checkpoint blocks that route alone; a human,
+ * deterministic or external-tool publication does not need it, and a record that verifies is bound
+ * into whichever publication follows. Who must clarify is the phase policy's, not this view's.
+ */
+export function clarificationRoutes(result) {
+  if (result.mode === 'off') return { 'governed-agent': 'not-applicable', other: 'not-applicable' };
+  return { 'governed-agent': result.errors.length ? 'blocked' : 'ready', other: result.record && !result.errors.length ? 'bound-if-published' : 'not-required' };
+}
+
+/** The text `clarification status` prints: what is recorded, and the route an unmet checkpoint holds back. */
+export function clarificationStatusLines(result, phase, generation) {
+  const stdout = [`Clarification checkpoint: ${phase.id} generation ${generation} (${result.mode})`];
+  if (result.record) {
+    stdout.push(`Status: ${result.errors.length ? 'not ready' : 'ready'} · Responses: ${result.record.responses.length} · Recorded by: ${result.record.recordedBy?.name ?? result.record.recordedBy?.email ?? 'unknown'}`,
+      `Record: ${result.path} · Prompt: ${result.record.promptSha256.slice(0, 12)}`);
+  } else stdout.push(result.mode === 'off' ? 'This phase has no clarification checkpoint.' : 'No response record exists for the prospective generation.');
+  if (result.mode !== 'off') {
+    stdout.push('Applies to: a governed-agent (Copilot) publication, which refuses until this is ready. A human, deterministic or external-tool publication does not check it; a record that verifies is bound into whichever publication follows.');
+  }
+  return { stdout: [...stdout, ...result.passes.map((message) => `PASS ${message}`)],
+    stderr: [...result.warnings.map((message) => `Warning: ${message}`),
+      ...result.errors.map((message) => `BLOCKED for a governed-agent publication: ${message}`)] };
+}
+
 /** Conversation permission is not artifact-authoring or publication permission. No model call. */
 export function clarificationCheckpoint(policy, verification) {
   const { mode, maxQuestions, topics } = normalizeClarificationPolicy(policy);

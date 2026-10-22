@@ -3,7 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import test from 'node:test';
-import { evaluateQuickFixWaiver } from '../src/quick-fix-policy.mjs';
+import { evaluateQuickFixWaiver, waiverNotAppliedMessage } from '../src/quick-fix-policy.mjs';
+import { receiptApprovalText } from '../src/receipt-approval-text.mjs';
 import { run } from '../src/util.mjs';
 
 function git(root, args) {
@@ -63,6 +64,22 @@ test('two-phase-completion policy waives only bounded low-risk changes', async (
   const unknown = evaluateQuickFixWaiver(root, { governance: {} }, workflow, phase);
   assert.equal(unknown.eligible, false);
   assert.equal(unknown.predicates.declaredLowRisk, false);
+  // Submission says why the waiver did not apply, and how risk is declared (HELP.md promised a waiver
+  // that `start --title/--description` could never reach, and said nothing when it did not apply).
+  assert.equal(waiverNotAppliedMessage('verify', eligible), null);
+  assert.equal(waiverNotAppliedMessage('verify', unknown),
+    'verify needs human approval: its low-risk policy waiver (quick-fix-low-risk-v1) did not apply because the Story\'s source does not declare `risk: low` (only a file given to `start --story-file` can; `start --title/--description` declares no risk).');
+});
+
+test('a receipt states approvals in words instead of 0/0 for a phase nobody approves', () => {
+  const approvals = (mode, current = 0, required = 0) => ({ mode, required, current, status: 'exact' });
+  assert.equal(receiptApprovalText({ approvals: approvals('none'), nextHumanAction: 'Continue to the next phase.' }),
+    'not required (approval mode none)');
+  assert.equal(receiptApprovalText({ approvals: approvals('policy'), nextHumanAction: 'Review and decide this phase.' }),
+    '0 recorded; the low-risk policy did not waive this phase, so it needs human approval');
+  assert.equal(receiptApprovalText({ approvals: approvals('policy'), nextHumanAction: 'Continue to the next phase.' }),
+    'waived by the deterministic low-risk policy (0 human approvals recorded)');
+  assert.equal(receiptApprovalText({ approvals: approvals('required', 1, 1), nextHumanAction: 'Continue to the next phase.' }), '1/1 (exact)');
 });
 
 test('quick-fix waiver requires every configured check at the submitted commit and aligned reconciliation', async () => {

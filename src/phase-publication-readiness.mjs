@@ -150,11 +150,18 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   if (grounding.blockers.length) failures.push({ code: 'PHASE_GROUNDING_NOT_READY',
     message: `Phase ${phase.id} grounding is not ready:\n- ${grounding.check.errors.join('\n- ')}` });
 
-  const clarification = producer === 'governed-agent'
-    ? await capture(() => verifyClarificationRecord(root, config, workflow, phase, {
-        generation, groundingRecord: grounding.check.record
-      }))
-    : { errors: [], warnings: [], record: null, path: null, sha256: null };
+  const recorded = await capture(() => verifyClarificationRecord(root, config, workflow, phase, {
+    generation, groundingRecord: grounding.check.record
+  }));
+  // Only a governed-agent generation must carry its clarification (who must clarify is the phase
+  // policy's). Any other route still binds a record that verifies for this generation, as the agent
+  // route does, so an answer a person recorded is not dropped from the publication's metadata.
+  const clarification = producer === 'governed-agent' ? recorded : {
+    errors: [], record: recorded.errors?.length ? null : recorded.record ?? null,
+    path: recorded.errors?.length ? null : recorded.path ?? null, sha256: recorded.errors?.length ? null : recorded.sha256 ?? null,
+    warnings: [...(recorded.warnings ?? []), ...(recorded.record && recorded.errors?.length
+      ? [`The ${phase.id} clarification record is not bound into this publication because it does not verify: ${recorded.errors[0]}`] : [])]
+  };
   warnings.push(...clarification.warnings);
   add('clarification', 'clarification', clarification.errors, {
     command: `singularity-flow clarification status ${phase.id} --json`,

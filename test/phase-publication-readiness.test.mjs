@@ -89,6 +89,36 @@ test('required human clarification blocks preview, recovery and publication, eve
   assert.equal(unfinished.correction.class, 'human-input', 'answer first; do not automatically draft unknown scope');
 });
 
+test('required clarification holds back only the agent route, and a human publication binds a recorded answer', async t => {
+  // A human publication skipped clarification while `clarification status` printed BLOCKED, and an
+  // answer a person had recorded was missing from the published metadata (clarification: null).
+  const f = await fixture(t, 'specification');
+  f.phase.clarification = { mode: 'required' };
+  const human = await inspectPhasePublicationReadiness(f.root, f.config, f.workflow, f.phase, { producer: 'human', generation: 1 });
+  assert.equal(human.blockers.some(entry => entry.category === 'clarification'), false, 'who must clarify is unchanged');
+  assert.equal(human.clarification.record, null);
+  const context = path.join(f.itemDirectory, 'context');
+  await mkdir(path.join(context, 'prompts'), { recursive: true });
+  const promptPath = `${f.itemRelative}/context/prompts/specification-gen1.md`;
+  await writeFile(path.join(f.root, promptPath), '# Governed prompt\n\nAsk the human.\n');
+  await writeFile(path.join(context, 'specification-gen1.json'), `${JSON.stringify({ promptPath,
+    renderedSha256: (await snapshot(path.join(f.root, promptPath))).sha256, agent: 'architect' }, null, 2)}\n`);
+  const recorded = await recordClarificationResponses(f.root, f.config, f.workflow, f.phase, {
+    actor: { name: 'Scope Owner', email: 'owner@example.test' }, agent: 'architect',
+    responses: [{ question: 'Is the described scope correct?', answer: 'Yes; account migration stays out.' }]
+  });
+  const bound = await inspectPhasePublicationReadiness(f.root, f.config, f.workflow, f.phase, { producer: 'human', generation: 1 });
+  assert.equal(bound.clarification.path, recorded.path);
+  assert.equal(bound.clarification.record.responses.length, 1, 'the verified record is bound as the agent route binds it');
+  assert.deepEqual(bound.blockers.filter(entry => entry.category === 'clarification'), []);
+  // A record that no longer verifies is not bound, and the publication says why instead of dropping it silently.
+  await writeFile(path.join(f.root, promptPath), '# Recomposed prompt\n');
+  const stale = await inspectPhasePublicationReadiness(f.root, f.config, f.workflow, f.phase, { producer: 'human', generation: 1 });
+  assert.equal(stale.clarification.record, null);
+  assert.match(stale.warnings.join('\n'), /clarification record is not bound into this publication because it does not verify/);
+  assert.deepEqual(stale.blockers.filter(entry => entry.category === 'clarification'), []);
+});
+
 test('explicit recovery inspects an unpublished active phase without making ordinary status reads heavier', async t => {
   const f = await fixture(t, 'specification');
   f.phase.clarification = { mode: 'required' };
@@ -211,11 +241,16 @@ test('approved inputs require both the file and its exact approved hash; optiona
   f.workflow.phaseOrder = ['specification', 'planning'];
   const missing = await expectBlocked(f, 'inputs', 'PHASE_INPUTS_NOT_READY');
   assert.equal(missing.commands.next, 'singularity-flow inputs planning --dry-run --json');
+  // The earlier step's artifact is committed, as its publication leaves it: an uncommitted change to
+  // it is this artifact-only step's own refusal (PHASE_ARTIFACT_ONLY_CHANGES), which prepublish reports.
+  const commit = (message) => { f.git('add', '-A'); f.git('commit', '-qm', message); };
   await mkdir(path.dirname(path.join(f.itemDirectory, relative)), { recursive: true });
   await writeFile(path.join(f.itemDirectory, relative), '# Accepted requirements\n');
+  commit('approved specification');
   producer.artifacts = [{ path: `${f.itemRelative}/${relative}`, status: 'approved', ...(await snapshot(path.join(f.itemDirectory, relative))) }];
   assert.equal((await phasePrepublish(f.root, f.config, f.workflow, f.phase)).status, 'ready');
   await writeFile(path.join(f.itemDirectory, relative), '# Different requirements\n');
+  commit('changed specification');
   await expectBlocked(f, 'inputs', 'PHASE_INPUTS_NOT_READY');
   f.workflow.resolution.inputsMode = 'record';
   const warning = await phasePrepublish(f.root, f.config, f.workflow, f.phase);
@@ -224,6 +259,7 @@ test('approved inputs require both the file and its exact approved hash; optiona
   f.workflow.resolution.inputsMode = 'enforce';
   f.phase.inputs[0].optional = true;
   await rm(path.join(f.itemDirectory, relative));
+  commit('removed specification');
   assert.equal((await phasePrepublish(f.root, f.config, f.workflow, f.phase)).status, 'ready');
 });
 

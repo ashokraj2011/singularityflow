@@ -739,7 +739,7 @@ export function plannedClaimSource(markdown) {
  * reason. Globs and directories are refused, so the list says exactly what may change, and only the
  * closed supporting classes qualify: application source, tests and migrations need a clause row.
  */
-function supportingFilesFromPlan(lines) {
+function supportingFilesFromPlan(lines, { classesOnly = false } = {}) {
   const found = new Map();
   let inside = false;
   for (const [index, line] of lines.entries()) {
@@ -747,24 +747,40 @@ function supportingFilesFromPlan(lines) {
     if (heading) { inside = /^supporting files$/iu.test(heading[2].trim()); continue; }
     if (!inside || !/^\s*[-*+]\s+/u.test(line)) continue;
     const entry = line.match(/^\s*[-*+]\s+`([^`]+)`(.*)$/u);
+    if (!entry && classesOnly) continue;
     if (!entry) {
       throw new SingularityFlowError(`Supporting files entry at line ${index + 1} must start with one backticked repository path, for example - \`package.json\` — adds the ledger client.`);
     }
-    const candidate = exactStructuredPath(entry[1], `Supporting files entry at line ${index + 1}`);
+    let candidate;
+    try {
+      candidate = exactStructuredPath(entry[1], `Supporting files entry at line ${index + 1}`);
+    } catch (error) {
+      if (classesOnly) continue;
+      throw error;
+    }
     const reason = entry[2].replace(/^\s*[—–:-]*\s*/u, '').trim();
     const invalid = (message) => new SingularityFlowError(`Supporting files entry \`${candidate}\` at line ${index + 1} ${message}`, {
       code: 'SPEC_SUPPORTING_FILE_INVALID'
     });
-    if (!reason) throw invalid(`needs its reason after the path, for example - \`${candidate}\` — pins the client the export uses.`);
-    if (reason.length > 500 || /[\u0000-\u001f\u007f]/u.test(reason)) throw invalid('has a reason longer than 500 characters or with control characters.');
+    if (!classesOnly && !reason) throw invalid(`needs its reason after the path, for example - \`${candidate}\` — pins the client the export uses.`);
+    if (!classesOnly && (reason.length > 500 || /[\u0000-\u001f\u007f]/u.test(reason))) throw invalid('has a reason longer than 500 characters or with control characters.');
     const classified = classifySupportingChange(candidate);
     if (classified.refused) {
       throw invalid(`cannot be a supporting file: it is ${classified.refused.replace('-', ' ')}, and ${classified.reason}. Supporting files are dependency locks, build and CI configuration, repository metadata and documentation.`);
     }
-    if (found.has(candidate)) throw invalid('is listed twice.');
+    if (found.has(candidate) && !classesOnly) throw invalid('is listed twice.');
     found.set(candidate, { path: candidate, class: classified.class, reason });
   }
   return [...found.values()].sort((left, right) => left.path.localeCompare(right.path));
+}
+
+/**
+ * The plan's `## Supporting files` alone, for a plan no claim map is derived from. Only the class
+ * rule refuses here, with the planned claim map's own message: an entry naming application source,
+ * a test, a migration or runtime configuration. Its other format checks belong to the claim map.
+ */
+export function planSupportingFiles(markdown) {
+  return supportingFilesFromPlan(plannedClaimSource(markdown).split(/\r?\n/), { classesOnly: true });
 }
 
 /**

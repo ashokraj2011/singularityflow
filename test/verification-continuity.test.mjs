@@ -351,3 +351,24 @@ test('a waiver policy this build cannot evaluate waives nothing, so people revie
   assert.equal(workflow.status, 'closed');
   assert.deepEqual(gateResult(flow(['gate', '--terminal', '--json'])).errors, []);
 });
+
+test('an engine-written summary reports the Story\'s claims and its committed changes', async (t) => {
+  // Every deterministic summary said "No clause claims are currently recorded" while the receipt
+  // counted the clause claimed, and any step after a commit listed no changed paths at all.
+  const { root, flow } = await quickFixStory(t, 'QF-SUMMARY');
+  flow(['prepare', 'implement']);
+  const implement = await readFile(path.join(root, 'singularity/work-items/QF-SUMMARY/artifacts/implement/implementation-summary.md'), 'utf8');
+  assert.match(implement, /## Specification claims\n\n0 of 1 clause\(s\) claimed by published code; 1 planned\.\n\n- QF-SUMMARY:AC-001: planned, not yet observed in published code; expected: `src\/value\.mjs`; tests: `tests\/value\.test\.mjs`/);
+  assert.doesNotMatch(implement, /No clause claims are currently recorded/);
+  await writeFile(path.join(root, 'src/value.mjs'), '// @clause:QF-SUMMARY:AC-001 returns the approved value\nexport const value = 2;\n');
+  await writeFile(path.join(root, 'tests/value.test.mjs'), ["import test from 'node:test';", "import assert from 'node:assert/strict';",
+    "import { value } from '../src/value.mjs';", '/** @ac:QF-SUMMARY:AC-001 */', "test('exact value', () => assert.equal(value, 2));", ''].join('\n'));
+  flow(['phase', 'publish', 'implement', '--authored', 'deterministic']);
+  flow(['submit', 'implement']);
+  // Verification runs after the code was committed: its summary still names what the Story changed.
+  flow(['prepare', 'verify']);
+  const verify = await readFile(path.join(root, 'singularity/work-items/QF-SUMMARY/artifacts/verify/verification-summary.md'), 'utf8');
+  assert.match(verify, /## Changed paths\n\n- `src\/value\.mjs`\n- `tests\/value\.test\.mjs`\n/);
+  assert.match(verify, /1 of 1 clause\(s\) claimed by published code; 1 planned\.\n\n- QF-SUMMARY:AC-001: matched; source: `src\/value\.mjs`; tests: `tests\/value\.test\.mjs`/);
+  assert.doesNotMatch(verify, /No source paths are currently changed|No clause claims are currently recorded/);
+});

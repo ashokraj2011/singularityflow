@@ -174,6 +174,9 @@ test('staged owned draft paths need review before publish, while unrelated index
   git('add', '.');
   git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-qm', 'baseline');
   item.workflow.workItem.branch = 'PRE-1'; item.workflow.status = 'in_progress';
+  // An artifact-only step's publication refuses any other changed file, and prepublish now says so
+  // too; a step that may change documentation keeps the unrelated staged file publishable.
+  item.phase.writeScope = 'source-and-artifact';
   await writeFile(item.absolute, '# Plan\n\nImplement the approved requirements and run the planned tests.\n');
   await writeFile(path.join(item.root, 'unrelated.txt'), 'Keep this independently staged change.\n');
   git('add', 'unrelated.txt');

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "de2d303d573c72d2f4e89273b1bfca4bcbf482de",
+  "sourceCommit": "3edf06cd33a9362748f1f19b53e3db65817cc144",
   "topicCount": 85,
-  "contentSha256": "b2cd597c4e2e2742bdeb8b337daebc9ccfec0dddefdeed0842d06f9bff33fc80",
+  "contentSha256": "2c66aae4ab0bd4fe43d0a7e278566167393ef28489241a13c5379b048e77c9c8",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -616,8 +616,8 @@
     {
       "id": "waivers",
       "title": "Policy waivers",
-      "version": 4,
-      "sha256": "16f466709cd11cfb28fe27a7fb52092a52030730b71dd288ce1436944dbfa8cf",
+      "version": 5,
+      "sha256": "a234b811148bf91510aff08ca925206d8b3b17655eebf063233d4fc0d30c1aae",
       "routingSha256": "052f89f709367cee2eced1d501d4ef4778bb01f32e50377d28b94bfd8cc21d1e",
       "file": "waivers.md"
     },

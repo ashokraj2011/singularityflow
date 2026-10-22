@@ -222,7 +222,10 @@ The quick-fix policy is deliberately narrow. Its intake, the scope and plan, nee
 one engineer's approval. Implement has explicit approval mode `none`. Verify records a deterministic policy waiver—not a human approval—
 only for a declared low-risk, single-repository, bounded change that touches no
 protected path or semantic boundary and whose checks pass. Every other case waits
-for the configured human authority.
+for the configured human authority. The Story's source declares the risk: `risk: low`
+in the YAML or JSON given to `start --story-file`. `start --title/--description`
+declares none, so that Story's Verify waits for a person; submission names each
+condition the waiver did not meet.
 
 ### Bounded diagnostics and PR text
 

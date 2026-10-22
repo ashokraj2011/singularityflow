@@ -185,6 +185,12 @@ export async function phaseCommand(positionals, options) {
     if (result.qualityDisposition === 'accepted-risk') console.log('Document quality: unmet, accepted risk for the exact reviewed bytes. Tests, independent review and approval remain required.');
     for (const finding of result.findings) console.log(`  - ${finding.message}`);
     for (const warning of result.warnings ?? result.grounding?.warnings ?? []) console.log(`Readiness warning: ${warning}`);
+    if (result.finalGate?.status === 'blocked') {
+      console.log(`Before ${result.finalGate.submission} can be submitted (publishing is not blocked):`);
+      for (const blocker of result.finalGate.blockers) console.log(`  - ${blocker}`);
+      if (result.finalGate.more) console.log(`  - …and ${result.finalGate.more} more: singularity-flow evidence matrix`);
+      for (const command of result.finalGate.recovery) console.log(`  Run: ${command}`);
+    }
     const coverageAdvisories = (result.advisories ?? []).filter((advisory) => advisory.category === 'coverage');
     if (coverageAdvisories.length) {
       console.log(`Coverage warnings: approval would refuse ${result.coverage?.unclaimed ?? coverageAdvisories.length} changed path(s). Name each in a clause's Expected paths, or under ## Supporting files in the plan if it cannot carry a @clause tag.`);

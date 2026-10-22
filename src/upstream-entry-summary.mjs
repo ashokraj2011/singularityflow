@@ -26,6 +26,27 @@ export function endsStory(workflow, phase) {
   return index >= 0 && order.slice(index + 1).every((id) => workflow.phases?.[id]?.status === 'skipped');
 }
 
+/**
+ * The final evaluation the submission of the Story's last step runs, previewed: what it would refuse
+ * and the exact command that resolves each. Advisory, and never throws.
+ */
+export async function finalGatePreview(root, definition, workflow, { evaluateTerminalReadiness = null } = {}) {
+  try {
+    const evaluate = evaluateTerminalReadiness ?? (await import('./evidence/terminal.mjs')).evaluateTerminalReadiness;
+    const result = await evaluate(root, definition, workflow, { stage: 'submission' });
+    return {
+      advisory: true,
+      status: result.blockers.length ? 'blocked' : 'ready',
+      blockers: result.blockers.slice(0, MAX_LISTED),
+      more: Math.max(0, result.blockers.length - MAX_LISTED),
+      owners: [...new Set((result.gate?.findings ?? []).map((finding) => finding.phase).filter(Boolean))].sort(),
+      recovery: result.recovery.slice(0, MAX_LISTED)
+    };
+  } catch (error) {
+    return { advisory: true, status: 'unavailable', reason: error?.code ?? 'evaluation-failed' };
+  }
+}
+
 export async function upstreamEntrySummary(root, definition, workflow, phase, { evaluateTerminalReadiness = null, owedDecisions = null } = {}) {
   const workId = workflow.workItem.id;
   const inputs = resolvedPhaseInputs(workflow, phase).map(producerOf).filter(Boolean).map((id) => ({
@@ -35,22 +56,8 @@ export async function upstreamEntrySummary(root, definition, workflow, phase, { 
     id: issue.id, phase: issue.phase, about: issue.about, status, supersededBy, decide: upstreamIssueDecideCommand(workId, issue, supersededBy)
   }));
   const amendments = forwardAmendmentTerminalBlockers(workflow);
-  let finalGate = null;
-  if (evaluateTerminalReadiness && endsStory(workflow, phase)) {
-    try {
-      const result = await evaluateTerminalReadiness(root, definition, workflow, { stage: 'submission' });
-      finalGate = {
-        advisory: true,
-        status: result.blockers.length ? 'blocked' : 'ready',
-        blockers: result.blockers.slice(0, MAX_LISTED),
-        more: Math.max(0, result.blockers.length - MAX_LISTED),
-        owners: [...new Set((result.gate?.findings ?? []).map((finding) => finding.phase).filter(Boolean))].sort(),
-        recovery: result.recovery.slice(0, MAX_LISTED)
-      };
-    } catch (error) {
-      finalGate = { advisory: true, status: 'unavailable', reason: error?.code ?? 'evaluation-failed' };
-    }
-  }
+  const finalGate = evaluateTerminalReadiness && endsStory(workflow, phase)
+    ? await finalGatePreview(root, definition, workflow, { evaluateTerminalReadiness }) : null;
   // The final evaluation's preview defers witnesses at this boundary, so they are listed here.
   const owed = owedDecisions ? await owedDecisions(root, definition, workflow, stepsThrough(workflow, phase.id, { inclusive: false })) : null;
   const attention = inputs.some((entry) => !['approved', 'skipped'].includes(entry.status))

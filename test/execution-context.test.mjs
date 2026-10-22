@@ -262,22 +262,40 @@ test('branch downloads honor the approved partial and sparse clone policy', asyn
   assert.deepEqual(git(result.repositoryPath, ['sparse-checkout', 'list']).split(/\r?\n/u).sort(), ['.github/agents', 'singularity', 'src']);
 });
 
-test('takeover reports missing laptop-local evidence instead of claiming a complete handoff', async t => {
+test('takeover completes without laptop-local documents and asks again only for the ones this phase uses', async t => {
   const f = await fixture(t, { governed: true });
   const brief = path.join(f.base, 'brief.md'); await writeFile(brief, 'A local-only intake attachment\n');
+  const mockup = path.join(f.base, 'mockup.md'); await writeFile(mockup, 'A local-only design attachment\n');
   const started = JSON.parse(f.flow(['start', 'LOCAL-CONTEXT', '--isolated-worktree', '--from-branch', 'main',
-    '--work-type', 'feature', '--title', 'Local documents', '--document', brief, '--document-name', 'Local brief',
+    '--work-type', 'feature', '--title', 'Local documents',
+    '--document', brief, '--document-name', 'Local brief', '--document-phases', 'intake',
+    '--document', mockup, '--document-name', 'Local mockup', '--document-phases', 'design',
     '--document-store', 'local', '--json']).stdout);
   const source = (started.data ?? started).repositoryPath;
   git(source, ['push', '-q', '-u', 'origin', 'LOCAL-CONTEXT']);
   const second = path.join(f.base, 'second'); git(f.base, ['clone', '--no-local', '-q', f.remote, second]);
   git(second, ['config', 'user.name', 'Second Contributor']); git(second, ['config', 'user.email', 'second@example.com']);
-  const taken = f.flow(['session', 'takeover', 'LOCAL-CONTEXT', '--json'], { cwd: second, fail: true,
-    environment: { ...f.env, SINGULARITY_FLOW_SURFACE_CONTEXT: JSON.stringify({ schemaVersion: 1, repositoryPath: second }) } });
-  assert.notEqual(taken.status, 0);
-  assert.match(taken.stdout, /STORY_TAKEOVER_EVIDENCE_UNAVAILABLE/);
-  assert.match(taken.stdout, /completedRepositoryPaths/);
+  const environment = { ...f.env, SINGULARITY_FLOW_SURFACE_CONTEXT: JSON.stringify({ schemaVersion: 1, repositoryPath: second }) };
+  const output = f.flow(['session', 'takeover', 'LOCAL-CONTEXT', '--json'], { cwd: second, environment });
+  assert.doesNotMatch(output.stdout, /store them in Git/i, 'a local document is never moved into Git');
+  const taken = JSON.parse(output.stdout);
+  assert.equal(taken.phase, 'intake');
+  assert.equal(taken.ready, false, 'intake cannot run until its document is uploaded again');
+  const byName = Object.fromEntries(taken.unavailableDocuments.map(document => [document.name, document]));
+  assert.equal(byName['Local brief'].neededNow, true);
+  assert.equal(byName['Local mockup'].neededNow, false, 'a later phase’s document is not asked for yet');
+  assert.deepEqual(taken.documentsToRestore.documents, [byName['Local brief'].id]);
+  assert.match(taken.documentsToRestore.message, new RegExp(`documents restore ${byName['Local brief'].id} --file`));
+  assert.doesNotMatch(taken.documentsToRestore.message, new RegExp(byName['Local mockup'].id));
   assert.equal(git(second, ['branch', '--show-current']), 'main');
+
+  // Uploading the same original under its existing ID is all intake needs; the mockup still waits.
+  f.flow(['documents', 'restore', byName['Local brief'].id, '--file', brief, '--work-id', 'LOCAL-CONTEXT', '--json'],
+    { cwd: taken.repositoryPath, environment: { ...f.env, SINGULARITY_FLOW_SURFACE_CONTEXT: JSON.stringify({
+      schemaVersion: 1, repositoryPath: taken.repositoryPath }) } });
+  const again = JSON.parse(f.flow(['session', 'takeover', 'LOCAL-CONTEXT', '--json'], { cwd: second, environment }).stdout);
+  assert.equal(again.documentsToRestore, null);
+  assert.deepEqual(again.unavailableDocuments.map(document => document.name), ['Local mockup']);
   assert.equal(await readFile(brief, 'utf8'), 'A local-only intake attachment\n');
 });
 

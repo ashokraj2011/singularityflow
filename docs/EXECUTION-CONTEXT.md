@@ -51,7 +51,10 @@ Unused Clones. Raw context snapshots are inspection data, not human approval.
   gets a linked Story worktree rather than switching an unrelated checkout.
 
 Takeover preserves earlier completed synchronization if a later repository fails and reports those
-paths. It refuses unavailable local-only documents; it cannot recover unpushed work from a laptop.
+paths. A document kept only on the laptop that added it never blocks takeover and is never moved
+into Git. The result lists each one with its phases; when the current phase uses one,
+`documentsToRestore` asks for the same original with `documents restore <ID> --file <LOCAL-FILE>`,
+which keeps its ID and every approval. Takeover cannot recover unpushed work from a laptop.
 It does not transfer credentials, private receipts, conversation history, approval authority or
 exclusive ownership. Git fast-forward checks remain the cross-machine publication boundary.
 

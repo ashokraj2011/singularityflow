@@ -100,20 +100,28 @@ export async function run(_argv, { positionals, options }) {
     if (references.length) await (await import('../reference-repositories.mjs')).materializeReferenceRepositories(root, references);
     const documents = await step(['documents', 'list', id, '--json'], root);
     if (!documents.ok) stop(documents, 'Story takeover document verification', 'STORY_TAKEOVER_EVIDENCE_UNAVAILABLE');
+    // A machine-local document stays on the laptop that added it and is never moved into Git. The
+    // takeover still completes; only a document the current phase is given has to be uploaded again,
+    // under its existing ID, before this phase can use it. One for a later phase waits for that phase.
+    const { documentOfferedToPhase } = await import('../document-identity.mjs');
+    const phase = workflow.currentPhase ?? null;
     const unavailable = (Array.isArray(documents.value) ? documents.value : documents.value?.documents ?? [])
-      .filter(document => document.availability === 'unavailable');
-    const opened = unavailable.length ? null
-      : await (await import('../session-read-service.mjs')).readOpenedSession(root, { workId: id });
-    const result = { schemaVersion: 1, resultType: 'story-takeover', ready: unavailable.length === 0 && opened?.session?.ready === true,
+      .filter(document => document.availability === 'unavailable')
+      .map(document => ({ id: document.id, name: document.name,
+        phases: Array.isArray(document.phases) ? [...document.phases] : null,
+        neededNow: phase != null && documentOfferedToPhase(document, phase),
+        restore: `singularity-flow documents restore ${document.id} --file <LOCAL-FILE> --work-id ${id}` }));
+    const restoreNow = unavailable.filter(document => document.neededNow);
+    const opened = await (await import('../session-read-service.mjs')).readOpenedSession(root, { workId: id });
+    const result = { schemaVersion: 1, resultType: 'story-takeover', ready: restoreNow.length === 0 && opened?.session?.ready === true,
       workId: id, repositoryPath: root, phase: workflow.currentPhase, executionContext: primary,
       open: attached.value, session: opened?.session ?? null, context: opened?.context ?? null,
       nextsteps: opened?.nextsteps ?? null,
-      repositories: bindings, unavailableDocuments: unavailable.map(document => ({ id: document.id, name: document.name })),
+      repositories: bindings, unavailableDocuments: unavailable,
+      documentsToRestore: restoreNow.length ? { phase, documents: restoreNow.map(document => document.id),
+        message: `Phase '${phase}' uses ${restoreNow.length === 1 ? 'a document' : 'documents'} kept only on the laptop that added ${restoreNow.length === 1 ? 'it' : 'them'}. Ask for the same original file and upload it here with ${restoreNow.map(document => document.restore).join('; ')}. This keeps its ID and changes no approval.` } : null,
       remoteSynchronized: true, exclusiveOwnership: false,
       effects: { storyAdvanced: false, committed: false, pushed: false, testsRun: false } };
-    if (unavailable.length) throw new SingularityFlowError('Takeover synchronized published work, but local-only documents are unavailable. Ask their owner to store them in Git.', {
-      code: 'STORY_TAKEOVER_EVIDENCE_UNAVAILABLE', details: result
-    });
     console.log(JSON.stringify(result, null, 2));
     return result;
   } catch (error) {

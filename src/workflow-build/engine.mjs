@@ -228,7 +228,29 @@ function acceptProposal(record, proposal) {
     // item.classify changes only the kind; leave out, keep as a link and prerequisite set their own status.
     if (used.has(item.id) && item.status === 'open') item.status = 'confirmed';
   }
+  confirmProcessTwins(record.items);
   record.conversation.push(turn('you', 'decision', `Accepted ${proposal.title}.`, { proposal: proposal.id }));
+}
+
+/**
+ * An agent or prompt file that hands work to others is found twice: as itself and as the process
+ * it describes. Both are that one file, so using either uses the other (also for a build an earlier
+ * version left with one of them open).
+ */
+function confirmProcessTwins(items) {
+  const byPath = new Map();
+  for (const item of items) {
+    const where = item.evidence?.[0]?.path;
+    if (item.foundBy !== 'layout' || !where || !['process', 'agent', 'prompt'].includes(item.kind)) continue;
+    byPath.set(where, [...(byPath.get(where) ?? []), item]);
+  }
+  for (const group of byPath.values()) {
+    const processes = group.filter((item) => item.kind === 'process');
+    const roles = group.filter((item) => item.kind !== 'process');
+    if (processes.length !== 1 || roles.length !== 1) continue;
+    const pair = [processes[0], roles[0]];
+    if (pair.some((item) => item.status === 'confirmed')) for (const item of pair) if (item.status === 'open') item.status = 'confirmed';
+  }
 }
 
 const SOURCE_LINES = 400;

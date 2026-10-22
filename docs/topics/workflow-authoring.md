@@ -36,7 +36,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 72
+version: 73
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1347,7 +1347,11 @@ Every move is checked when it is proposed, and each finding names the move and f
 (`moves[2].agent`). The draft with the proposal must still make a configuration Workflow Studio can
 save. Accepting checks it again, so a proposal that an accepted one overtook is marked stale.
 `check` explains the workflow as the accepted moves leave it, runs `workflow check` on it, and says
-how many found items are not used or left out yet. `--include p-2` shows it as a pending proposal
+how many found items are not used or left out yet. That is a warning, never a reason it cannot
+finish: a link, a command or a sentence asking for a sign-off is settled by a person, with
+`item.keepAsLink`, `item.prerequisite` or `item.leaveOut`, and one proposal can settle them all. An
+agent or prompt file that hands work to others is found twice, as its agent and as its process;
+using either one uses both. `--include p-2` shows it as a pending proposal
 would leave it too, without accepting anything. Nothing is written to the repository until
 `finish`: `--propose` runs Workflow Studio's own apply with the build's change set, which makes one
 reviewed proposal on the approved configuration; `--out` writes a portable workflow bundle that
@@ -1355,7 +1359,8 @@ Workflow Studio's Import previews like any other.
 
 In Copilot, `/sf-build-workflow` runs this loop with you. It reads only the build's screened copies,
 writes only the build's issued `proposal.json`, proposes one piece at a time with the lines it
-relied on, asks what it cannot infer, and records your choice only after asking you. It never
+relied on, offers one piece that settles what the workflow does not use, asks what it cannot
+infer, and records your choice only after asking you. It never
 edits a repository; finishing is still Workflow Studio's reviewed proposal.
 
 ### Build with Copilot in Workflow Studio
@@ -1366,6 +1371,9 @@ to continue.
 
 - **What we found** lists every item by kind with its file and lines. Its file reference opens the
   lines as SFlow screened and kept them. Leave an item out with a reason, or keep it as a link.
+  **Settle the rest…** does that for everything not used yet in one change of your own: links,
+  documents, API calls, tools and scripts are kept as links, and the rest are left out with the one
+  reason you give (up to 50 at a time).
 - **Build** shows the conversation, the workflow drawn step by step, and what each step does with
   the check's findings. Each proposal reads in plain words with Preview, Accept and Decline; each
   question offers its choices. Preview draws and checks the workflow as a waiting proposal would

@@ -233,6 +233,48 @@ test('without Copilot the build goes on by hand: add a step, leave out what was 
   assert.match(textOf(draw()), /1# Runbook/);
 });
 
+test('what is not used yet is settled with one change: links and documents kept as links, the rest left out with one reason', async () => {
+  const { buildStudioModel } = await import('../src/workflow-studio.mjs');
+  const { root, team, json } = await harness();
+  const { page, posted, send, draw } = studio(await buildStudioModel(root));
+  page.openBuilds();
+  const started = json(root, ['workflow', 'build', 'start', '--folder', team, '--json']);
+  send({ type: 'studio.build', build: started.build.id, view: started, checking: false, modelAvailable: false });
+  send({ type: 'studio.buildChecked', build: started.build.id, result: json(root, ['workflow', 'build', 'check', '--build', started.build.id, '--json']) });
+  page.buildState().tab = 'found';
+  assert.match(textOf(byKey(draw(), 'build-settle')), /Once the workflow has its steps, what it does not use can be settled here in one go\./u);
+  assert.equal(byKey(draw(), 'build-settle-open'), null, 'nothing is left out before a step could use it');
+  const view = json(root, ['workflow', 'build', 'propose', '--build', started.build.id, '--proposal', '-', '--by', 'you', '--accept', '--json'], JSON.stringify(FIRST));
+  send({ type: 'studio.build', build: view.build.id, view, checking: false });
+  send({ type: 'studio.buildChecked', build: view.build.id, result: json(root, ['workflow', 'build', 'check', '--build', view.build.id, '--json']) });
+  const open = view.build.items.filter((item) => item.status === 'open' && item.kind !== 'withheld');
+  const kept = open.filter((item) => ['link', 'document', 'api-call', 'tool', 'script'].includes(item.kind));
+  assert.ok(kept.length && kept.length < open.length, JSON.stringify(open.map((item) => item.kind)));
+  let main = draw();
+  assert.match(textOf(byKey(main, 'build-settle')), new RegExp(`^${open.length} things found are not used or left out yet\\.`, 'u'));
+  byKey(main, 'build-settle-open').listeners.click();
+  main = draw();
+  const others = open.length - kept.length;
+  assert.match(textOf(byKey(main, 'build-settle')), new RegExp(`${kept.length} links and documents are kept as links for people to open; ${others} others? (?:is|are) left out with the reason you give \\(\\d+ [a-z -]+(?:, \\d+ [a-z -]+)*\\)\\.`, 'u'));
+  const before = posted.length;
+  byKey(main, 'build-settle-confirm').listeners.click();
+  assert.equal(posted.length, before, 'leaving things out needs a reason');
+  page.buildState().settling = 'The release captain does these by hand.';
+  byKey(draw(), 'build-settle-confirm').listeners.click();
+  const settle = posted.at(-1);
+  assert.equal(settle.type, 'studio.build.mine');
+  const proposal = JSON.parse(settle.proposal);
+  assert.equal(proposal.title, `Settle ${open.length} found things`);
+  assert.deepEqual(proposal.moves, [...kept.map((item) => ({ move: 'item.keepAsLink', item: item.id })),
+    ...open.filter((item) => !kept.includes(item)).map((item) => ({ move: 'item.leaveOut', item: item.id, reason: 'The release captain does these by hand.' }))]);
+  const mine = json(root, ['workflow', 'build', 'propose', '--build', view.build.id, '--proposal', '-', '--by', 'you', '--accept', '--json'], settle.proposal);
+  assert.deepEqual(mine.build.items.filter((item) => item.status === 'open'), []);
+  const checked = json(root, ['workflow', 'build', 'check', '--build', view.build.id, '--json']);
+  assert.equal(checked.findings.find((entry) => entry.code === 'BUILD_ITEMS_OPEN'), undefined);
+  send({ type: 'studio.build', build: view.build.id, view: mine, checking: false });
+  assert.equal(byKey(draw(), 'build-settle'), null, 'nothing is left to settle');
+});
+
 test('every move reads as a plain sentence', async () => {
   const { buildStudioModel } = await import('../src/workflow-studio.mjs');
   const { root } = await harness();

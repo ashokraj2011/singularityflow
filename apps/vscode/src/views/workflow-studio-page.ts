@@ -6046,11 +6046,16 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
 
   var BUILD_OUTPUT_WORDS = { document: 'writes a document', analysis: 'writes an analysis', code: 'changes code', none: 'no output' };
   var BUILD_ITEM_STATUS = { open: 'not used yet', confirmed: 'used', 'left-out': 'left out', 'kept-as-link': 'kept as a link', prerequisite: 'needed first' };
+  /** What a person can keep as a link to open: never part of a step. */
+  var BUILD_LINK_KINDS = ['link', 'document', 'api-call', 'tool', 'script'];
+  /** A proposal has at most 50 moves (src/workflow-build/moves.mjs). */
+  var BUILD_SETTLE_LIMIT = 50;
+  function buildItemOpen(item) { return item.status === 'open' && item.foundBy !== 'workflow' && item.kind !== 'withheld'; }
 
   function buildState() {
     if (!state.build) {
       state.build = { list: null, loading: false, modelAvailable: true, id: null, view: null, check: null, checking: false, tab: 'build', busy: null, error: null,
-        preview: null, source: null, start: { from: 'material', workflow: '', describe: '', name: '' }, decline: {}, leaving: {}, selected: null, addStep: null, kind: null, finished: null, purpose: null };
+        preview: null, source: null, start: { from: 'material', workflow: '', describe: '', name: '' }, decline: {}, leaving: {}, settling: null, selected: null, addStep: null, kind: null, finished: null, purpose: null };
     }
     return state.build;
   }
@@ -6067,7 +6072,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   }
   function openBuild(id) {
     var b = buildState();
-    b.id = id; b.view = null; b.check = null; b.preview = null; b.source = null; b.tab = 'build'; b.selected = null; b.addStep = null; b.finished = null; b.decline = {}; b.leaving = {};
+    b.id = id; b.view = null; b.check = null; b.preview = null; b.source = null; b.tab = 'build'; b.selected = null; b.addStep = null; b.finished = null; b.decline = {}; b.leaving = {}; b.settling = null;
     buildAction('open', { build: id }, 'open');
   }
   /** Your own change: recorded and accepted at once, so it shows like any other piece of the build. */
@@ -6249,12 +6254,63 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     return box;
   }
 
+  /**
+   * What is not used yet, settled with one change of your own: links and documents are kept as links,
+   * the rest left out with one reason. Using a piece of it is still a proposal of its own. Offered
+   * once the workflow has steps, so nothing the team made is left out before it could be used.
+   */
+  function renderBuildSettle(open) {
+    var b = buildState();
+    var draft = b.check && b.check.draft && b.check.draft.workflow;
+    var settling = open.slice(0, BUILD_SETTLE_LIMIT);
+    var links = settling.filter(function (item) { return BUILD_LINK_KINDS.indexOf(item.kind) >= 0; });
+    var rest = settling.filter(function (item) { return BUILD_LINK_KINDS.indexOf(item.kind) < 0; });
+    var card = el('div', { class: 'callout wait', 'data-key': 'build-settle' });
+    var count = open.length + (open.length === 1 ? ' thing found is' : ' things found are') + ' not used or left out yet.';
+    if (!draft || !draft.phases.length) {
+      card.appendChild(el('div', { text: count + ' Once the workflow has its steps, what it does not use can be settled here in one go.' }));
+      return card;
+    }
+    if (b.settling === null || b.settling === undefined) {
+      card.appendChild(el('div', { text: count + ' What belongs in the workflow goes in through a proposal; settle the rest here in one go.' }));
+      card.appendChild(el('div', { class: 'studio-row', style: 'margin-top:6px' }, button('Settle the rest…', function () {
+        b.settling = ''; state.focusKey = rest.length ? 'build-settle-reason' : 'build-settle-confirm'; render();
+      }, { class: 'secondary', 'data-key': 'build-settle-open', disabled: Boolean(b.busy) })));
+      return card;
+    }
+    var parts = [];
+    if (links.length) parts.push(links.length + (links.length === 1 ? ' link or document is kept as a link' : ' links and documents are kept as links') + ' for people to open');
+    if (rest.length) {
+      var kinds = [];
+      rest.forEach(function (item) { if (kinds.indexOf(item.kind) < 0) kinds.push(item.kind); });
+      parts.push(rest.length + (rest.length === 1 ? ' other is' : ' others are') + ' left out with the reason you give (' + kinds.map(function (kind) {
+        var many = rest.filter(function (item) { return item.kind === kind; }).length;
+        return many + ' ' + (many === 1 ? buildKindOne(kind) : buildKindLabel(kind).toLowerCase());
+      }).join(', ') + ')');
+    }
+    card.appendChild(el('div', { text: count + ' ' + parts.join('; ') + '.' + (open.length > settling.length ? ' This settles the first ' + settling.length + '; settle the rest after it.' : '') }));
+    card.appendChild(el('div', { class: 'studio-row', style: 'margin-top:6px' },
+      rest.length ? textInput('build-settle-reason', b.settling, function (value) { b.settling = value; }, { placeholder: 'Why the rest are left out', 'aria-label': 'Why the rest are left out', style: 'flex:1 1 320px;min-width:0' }) : null,
+      button('Settle ' + settling.length, function () {
+        var reason = (b.settling || '').trim();
+        if (rest.length && !reason) { setStatus('Say why the rest are left out, so the next person knows.'); return; }
+        b.settling = null;
+        buildMine('Settle ' + settling.length + (settling.length === 1 ? ' found thing' : ' found things'), reason || 'Kept for people to open; not part of any step.',
+          links.map(function (item) { return { move: 'item.keepAsLink', item: item.id }; })
+            .concat(rest.map(function (item) { return { move: 'item.leaveOut', item: item.id, reason: reason }; })));
+      }, { class: 'primary', 'data-key': 'build-settle-confirm', disabled: Boolean(b.busy) }),
+      button('Cancel', function () { b.settling = null; render(); }, { class: 'secondary', 'data-key': 'build-settle-cancel' })));
+    return card;
+  }
+
   function renderBuildFound(main) {
     var b = buildState(); var build = b.view.build;
     var found = build.conversation.filter(function (turn) { return turn.kind === 'found'; });
     main.appendChild(el('div', { class: 'studio-row spread' },
       el('p', { class: 'studio-lede', 'data-key': 'build-found-summary', text: found.length ? found[found.length - 1].text : 'Nothing was read yet.' }),
       button(b.busy === 'add' ? 'Reading…' : 'Add more material…', function () { buildAction('add', null, 'add'); }, { class: 'secondary', 'data-key': 'build-add', disabled: Boolean(b.busy) })));
+    var unsettled = build.items.filter(buildItemOpen);
+    if (unsettled.length) main.appendChild(renderBuildSettle(unsettled));
     var kinds = Object.keys(b.view.kinds || {}).filter(function (kind) { return build.items.some(function (item) { return item.kind === kind; }); });
     if (b.kind && kinds.indexOf(b.kind) < 0) b.kind = null;
     main.appendChild(el('div', { class: 'build-kinds', role: 'group', 'aria-label': 'Show' },
@@ -6265,7 +6321,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var layout = el('div', { class: 'build-found' + (b.source ? ' with-source' : '') });
     var list = el('div', { class: 'build-items' });
     build.items.filter(function (item) { return !b.kind || item.kind === b.kind; }).forEach(function (item) {
-      var open = item.status === 'open' && item.foundBy !== 'workflow' && item.kind !== 'withheld';
+      var open = buildItemOpen(item);
       var leaving = b.leaving[item.id];
       list.appendChild(el('article', { class: 'build-item status-' + item.status, 'data-item': item.id },
         el('div', { class: 'studio-row spread' }, el('span', null, el('span', { class: 'build-kind', text: buildKindOne(item.kind) }), ' ', el('strong', { text: item.name })),
@@ -6276,7 +6332,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
           item.certainty === 'inferred' ? el('span', { class: 'muted', text: 'inferred' }) : null),
         open ? el('div', { class: 'studio-row' },
           leaving === undefined ? button('Leave out…', function () { b.leaving[item.id] = ''; state.focusKey = 'build-leave-' + item.id; render(); }, { class: 'secondary', 'data-key': 'build-leave-open-' + item.id }) : null,
-          leaving === undefined && ['link', 'document', 'api-call', 'tool', 'script'].indexOf(item.kind) >= 0
+          leaving === undefined && BUILD_LINK_KINDS.indexOf(item.kind) >= 0
             ? button('Keep as a link', function () { buildMine('Keep ' + item.name + ' as a link', 'Kept for people to open; not part of any step.', [{ move: 'item.keepAsLink', item: item.id }]); }, { class: 'secondary', 'data-key': 'build-link-' + item.id, disabled: Boolean(b.busy) }) : null,
           leaving !== undefined ? textInput('build-leave-' + item.id, leaving, function (value) { b.leaving[item.id] = value; }, { placeholder: 'Why it is left out', 'aria-label': 'Why ' + item.name + ' is left out' }) : null,
           leaving !== undefined ? button('Leave out', function () {

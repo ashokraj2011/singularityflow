@@ -206,6 +206,23 @@ test('an accepted proposal uses what it lists after its moves: a classified item
   assert.equal(result.findings.find((entry) => entry.code === 'BUILD_ITEMS_OPEN'), undefined, JSON.stringify(result.findings));
 });
 
+test('an agent file found as its agent and as its process is one file: a proposal that uses either uses both', async () => {
+  const { run, flow, json } = await harness();
+  const root = await repository(run, flow);
+  const folder = await teamFolder();
+  for (const kind of ['process', 'agent']) {
+    const build = json(root, ['workflow', 'build', 'start', '--folder', folder]).build;
+    const twins = build.items.filter((entry) => entry.evidence[0].path === '.github/agents/release-captain.agent.md' && ['process', 'agent'].includes(entry.kind));
+    assert.deepEqual(twins.map((entry) => entry.kind).sort(), ['agent', 'process']);
+    json(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-'],
+      { input: JSON.stringify({ ...FIRST, items: [twins.find((entry) => entry.kind === kind).id] }) });
+    const accepted = json(root, ['workflow', 'build', 'decide', '--build', build.id, '--proposal', 'p-1', '--accept']).build;
+    assert.deepEqual(twins.map((twin) => accepted.items.find((entry) => entry.id === twin.id).status), ['confirmed', 'confirmed'], `using the ${kind} uses both`);
+    const open = json(root, ['workflow', 'build', 'check', '--build', build.id]).findings.find((entry) => entry.code === 'BUILD_ITEMS_OPEN');
+    assert.doesNotMatch(open.detail, /release-captain/u);
+  }
+});
+
 test('later decisions: a step other workflows share is copied, not changed; a proposal an earlier one overtook goes stale; items can be left out', async () => {
   const { run, flow, json, engineEnv } = await harness();
   const root = await repository(run, flow);

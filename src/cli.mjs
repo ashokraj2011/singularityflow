@@ -143,7 +143,7 @@ import { activateWorkspaceContext, activeWorkspaceFile, clearActiveWorkspaceCont
 import { refreshWorkspaceConfigurations } from './workspace-configuration-refresh.mjs';
 import { reinitializeWorkspaces } from './workspace-reinitialize.mjs';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
-import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, repairLedgerPins, verifyLedger } from './ledger.mjs';
+import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, pinRepairHeadline, reconcileLedger, repairLedgerPins, verifyLedger } from './ledger.mjs';
 import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
 import { bootstrapRepository, repositoryIdFromUrl } from './bootstrap.mjs';
@@ -5120,7 +5120,7 @@ async function ledgerCommand(positionals, options) {
     return;
   }
   if (subcommand === 'repair') {
-    console.log(`Ledger pin repair (${result.mode}${result.dryRun ? ', preview' : ''}): ${result.pins.length} pin(s), ${result.unresolved.length} unresolved.`);
+    console.log(pinRepairHeadline(result));
     if (result.refspec.installed) console.log(`  installed ${result.refspec.refspec}`);
     result.localActions.forEach((item) => console.log(`  ${item.status} ${item.pinRef}`));
     result.restored.forEach((item) => console.log(`  restored ${item.pinRef} at ${item.commit} to ${item.remote}`));

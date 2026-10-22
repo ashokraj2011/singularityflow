@@ -120,6 +120,17 @@ test('a fresh configuration explains every workflow and has nothing to fix', asy
   assert.match(implementation.then.at(-1), /^If it is rejected: it is redone, or back to .*, as the person rejecting it chooses\.$/u);
   assert.equal(implementation.why, null, 'no description was written yet');
   assert.deepEqual(codes(feature.findings), ['CHECK_STEPS_UNDESCRIBED'], 'a repository-owned workflow is asked to say what its steps are for');
+  // A step that smoke-checks a browser is noted with the target URL and machine setup it needs, from
+  // the resolved workflow (here a workflow-level phaseOverride), never from its ID.
+  const loop = result.workflows.find((entry) => entry.id.endsWith('spec-code-test-loop'));
+  const browser = loop.findings.find((entry) => entry.code === 'CHECK_BROWSER_TARGET_REQUIRED');
+  assert.deepEqual([browser?.severity, browser?.subject.step, browser?.blocksStart], ['note', 'testing', false]);
+  assert.match(browser.detail, /Story start requires --target-url <AUTHORIZED-URL>/u);
+  for (const command of ['mcp scaffold playwright', 'mcp warm playwright --network', 'mcp attest playwright --confirm playwright',
+    'mcp smoke playwright --url <AUTHORIZED-URL>', 'story target-origin <WORK-ID> --url <AUTHORIZED-URL>']) {
+    assert.ok(browser.detail.includes(`singularity-flow ${command}`), command);
+  }
+  assert.equal(feature.findings.some((entry) => entry.code === 'CHECK_BROWSER_TARGET_REQUIRED'), false);
 });
 
 test('a workflow with real problems: located findings in plain words, and an explanation that uses the description', async () => {

@@ -33,7 +33,7 @@ import { workDirRelative } from './story-paths.mjs';
 import { commitAndPublish, createWorkflow, validateId } from './state-stores.mjs';
 import { gitReadOutput, run, SingularityFlowError } from './util.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
-import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
+import { storyStartTargetOrigin } from './mcp-target.mjs';
 import { writeReturnLocator } from './return-locator.mjs';
 import { pinAcceptedChangeFlightPlan } from './change-flight-plan.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
@@ -335,12 +335,12 @@ export async function startStory(root, {
     transportRemote: initialFetchAuthority.url, branches: [id], respectPartialClone: true
   });
   const existed = localExisted || remoteExisted;
-  // Reject incomplete POC intake while the caller is still on its original branch. Validation
-  // after checkout remains below because the selected remote base owns the definitive workflow.
-  const preflightTargetOrigin = normalizeMcpTargetOrigin(targetUrl ?? normalizedSource.targetOrigin, {
-    required: !existed && workType === 'poc-workflow',
-    label: 'POC target URL'
-  });
+  // Reject intake without the authorized origin a later browser smoke needs while the caller is still
+  // on its original branch. Validation after checkout remains below because the selected remote base
+  // owns the definitive workflow; an unknown work type is refused there too.
+  const preflightTargetOrigin = storyStartTargetOrigin(targetUrl ?? normalizedSource.targetOrigin,
+    initialDefinition.workTypes?.[workType] ? resolveWorkType(initialDefinition, workType).phases : [],
+    { required: !existed });
   if (preflightTargetOrigin) normalizedSource.targetOrigin = preflightTargetOrigin;
   let storyBase = null;
   let baseCommit = null;
@@ -753,10 +753,8 @@ export async function startStory(root, {
   if (startJournal) await updateStoryStartJournal(root, id, startJournal.transactionId, {
     stage: 'configuration-ready', workItemRelative: workDirRelative(definition, id)
   });
-  const targetOrigin = normalizeMcpTargetOrigin(targetUrl ?? normalizedSource.targetOrigin, {
-    required: !existed && workType === 'poc-workflow',
-    label: 'POC target URL'
-  });
+  const targetOrigin = storyStartTargetOrigin(targetUrl ?? normalizedSource.targetOrigin, resolved.phases,
+    { required: !existed });
   if (targetOrigin) normalizedSource.targetOrigin = targetOrigin;
   const selectedAgent = agent ?? resolved.phases[0]?.defaultAgent;
   if (!definition.agents?.[selectedAgent]) throw new SingularityFlowError(`Work type '${workType}' has no default agent for its first phase.`);

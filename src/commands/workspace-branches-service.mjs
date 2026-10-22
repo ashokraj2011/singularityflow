@@ -12,6 +12,7 @@ import { loadConfig, validateId } from '../state-stores.mjs';
 import { workflowCodeGeneration } from '../code-delivery-policy.mjs';
 import { resolveWorkType } from '../config.mjs';
 import { documentStorageChoices } from '../document-storage-policy.mjs';
+import { mcpServerSetupCommands, mcpTargetOriginSteps } from '../mcp-target.mjs';
 import { GitRemoteSession } from '../git-execution.mjs';
 import { configuredRemoteAuthority } from '../git-remote-diagnostics.mjs';
 import { parseReferenceRepositoryOptions } from '../reference-repositories.mjs';
@@ -33,14 +34,25 @@ import { withReadScope } from '../read-scope.mjs';
 async function intakeStoryWorkflows(root, definition) {
   const { readWorkflowArchive, workflowArchived } = await import('../workflow-archive.mjs');
   const archive = await readWorkflowArchive(root).catch(() => null);
-  return Object.entries(definition.workTypes).filter(([id]) => !workflowArchived(archive, 'story', id)).map(([id, workflow]) => ({
-    id, label: workflow.label ?? id, description: workflow.description ?? '',
-    phases: workflow.phases ?? [], references: workflow.references?.mode ?? 'optional',
-    governs: 'story', installed: true,
-    ...workflowCodeGeneration(resolveWorkType(definition, id)),
-    // Where its documents may be kept, so Start Work offers only what the policy allows.
-    documentStorage: documentStorageChoices(resolveWorkType(definition, id).documents)
-  }));
+  return Object.entries(definition.workTypes).filter(([id]) => !workflowArchived(archive, 'story', id)).map(([id, workflow]) => {
+    const resolved = resolveWorkType(definition, id);
+    // Steps that smoke-check a browser against the Story's authorized origin: start requires
+    // --target-url for them, and Start Work asks for it and names the setup those steps need.
+    const browserSteps = mcpTargetOriginSteps(resolved.phases);
+    return {
+      id, label: workflow.label ?? id, description: workflow.description ?? '',
+      phases: workflow.phases ?? [], references: workflow.references?.mode ?? 'optional',
+      governs: 'story', installed: true,
+      ...workflowCodeGeneration(resolved),
+      // Where its documents may be kept, so Start Work offers only what the policy allows.
+      documentStorage: documentStorageChoices(resolved.documents),
+      targetUrl: browserSteps.length ? 'required' : 'optional',
+      ...(browserSteps.length ? { browserSteps: browserSteps.map((step) => ({
+        phase: step.phase, label: step.label, servers: step.servers,
+        setup: [...new Set(step.servers.flatMap((serverId) => mcpServerSetupCommands(serverId, definition.mcpServers?.[serverId])))]
+      })) } : {})
+    };
+  });
 }
 
 export async function readWorkspaceBranchesAtRoot(options, root) {

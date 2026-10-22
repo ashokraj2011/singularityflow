@@ -30,7 +30,7 @@ import { assertWorkTypeStartable, resolveWorkType, WORKFLOW_PATH } from '../conf
 import { loadCopilotSession, loadSession, recordStartedWorkItemSelection, selectIntakeSource, selectWorkType } from '../session.mjs';
 import { documentSetLifecycleBinding } from '../document-publication.mjs';
 import { loadManualStory, promptManualStory } from '../intake.mjs';
-import { normalizeMcpTargetOrigin } from '../mcp-target.mjs';
+import { storyStartTargetOrigin } from '../mcp-target.mjs';
 import { automaticEnrollmentMayPublish, publishCurrentIdentityToConfiguration, enrolledConfigurationAuthority } from '../configuration-people.mjs';
 import { GitRemoteSession } from '../git-execution.mjs';
 import { configuredRemoteAuthority, configuredRemoteIdentity } from '../git-remote-diagnostics.mjs';
@@ -1133,12 +1133,9 @@ async function startCommandAtRoot(positionals, options) {
     approvedConfigurationSnapshot?.definition ?? config,
     approvedConfigurationSnapshot
   );
-  if (deterministicWorkType === 'poc-workflow') {
-    normalizeMcpTargetOrigin(optionString(options, 'target-url'), {
-      required: true,
-      label: 'POC target URL'
-    });
-  }
+  // A workflow with a step that smoke-checks a browser against the Story's authorized origin needs
+  // that origin now: start is the only place it is given, so refuse before any branch or session.
+  if (deterministicPolicy.resolved) storyStartTargetOrigin(optionString(options, 'target-url'), deterministicPolicy.resolved.phases);
   const initialDocumentInputs = [...withStartDocumentDefaults(preloadedManual?.documents ?? [], options), ...explicitDocumentInputs];
   await assertStartDocuments(initialDocumentInputs, {
     phaseOrder: deterministicPolicy.resolved?.phases?.map((phase) => phase.id) ?? null,
@@ -1293,17 +1290,12 @@ async function startCommandAtRoot(positionals, options) {
         exclude: Object.keys((await (await import('../workflow-archive.mjs')).readWorkflowArchive(root)).story)
       });
   }
-  if (deterministicWorkType === 'poc-workflow') {
-    normalizeMcpTargetOrigin(optionString(options, 'target-url'), {
-      required: true,
-      label: 'POC target URL'
-    });
-  }
   deterministicPolicy = await validateDeterministicStartPolicy(
     approvedConfigurationSnapshot?.definition ?? config,
     approvedConfigurationSnapshot,
     documentCapture.evidence
   );
+  if (deterministicPolicy.resolved) storyStartTargetOrigin(optionString(options, 'target-url'), deterministicPolicy.resolved.phases);
   // A materialized Epic Story branch already contains its governed seed commit. Its lineage base is
   // still the parent commit recorded in the seed, but Story-start recovery must recognize the
   // branch tip that existed before intake began or any later refusal becomes an unrecoverable
@@ -1422,12 +1414,9 @@ async function startCommandAtRoot(positionals, options) {
   const laterDocuments = preloadedManual ? [] : withStartDocumentDefaults(manual?.documents ?? [], options);
   let supportingDocuments = documentCapture.inputs;
   const workType = deterministicWorkType;
-  const targetOrigin = normalizeMcpTargetOrigin(optionString(options, 'target-url'), {
-    required: workType === 'poc-workflow',
-    label: 'POC target URL'
-  });
-  if (targetOrigin) source = { ...source, targetOrigin };
   let resolvedWorkType = assertWorkTypeStartable(resolveWorkType(config, workType));
+  const targetOrigin = storyStartTargetOrigin(optionString(options, 'target-url'), resolvedWorkType.phases);
+  if (targetOrigin) source = { ...source, targetOrigin };
   const retainedCapabilityMapBeforeEnrollment = validateConfigurationSnapshotCapabilities(
     approvedConfigurationSnapshot, { capabilityId: workflowCapabilityId }
   );

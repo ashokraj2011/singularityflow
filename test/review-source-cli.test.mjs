@@ -540,7 +540,7 @@ test('legacy/off-policy Story status does not demand a reviewer or published gen
   }, () => createWorkflow(root, config, {
     id: 'OFF-1', title: 'Off policy',
     source: { type: 'manual', key: 'OFF-1', title: 'Off policy',
-      description: 'No source review policy is pinned.' },
+      description: 'No source review policy is pinned.', targetOrigin: 'https://staging.example.test' },
     baseBranch: 'main', workType: 'spec-code-test-loop', agent: authorAgent, resolved
   }));
   git(root, 'add', '.');

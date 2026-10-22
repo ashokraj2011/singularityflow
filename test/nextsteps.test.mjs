@@ -291,3 +291,26 @@ test('a required after-step delivery comes before the held step\'s own work', ()
   assert.match(nextStepsText(snapshot), /integrations retry sad_2{40}/);
   assert.equal(workflowNextSteps(workflow({ phaseStatus: 'awaiting_approval', generation: 1 }), { stepActionHold: hold })[0].command.includes('integrations'), false, 'a step in review is not held');
 });
+
+test('unmet MCP readiness names its setup, in order, as NOW instead of a prepare that would refuse', () => {
+  const mcpHold = {
+    phase: 'intake',
+    errors: ['MCP server \'playwright\' has no Story-pinned authorized origin.', 'MCP server \'playwright\' has no successful live smoke receipt.'],
+    actions: [
+      { command: 'singularity-flow story target-origin NEXT-1 --url <AUTHORIZED-URL>', label: 'Pin the authorized target origin to this Story.' },
+      { command: 'singularity-flow mcp smoke playwright --url <AUTHORIZED-URL>', label: 'Run a live smoke of playwright.' }
+    ]
+  };
+  const held = workflowNextSteps(workflow(), { mcpHold });
+  assert.deepEqual(held.slice(0, 2).map((entry) => [entry.timing, entry.command]), [
+    ['now', mcpHold.actions[0].command], ['then', mcpHold.actions[1].command]
+  ]);
+  assert.match(held[0].reason, /^MCP readiness blocks intake \(2 unmet\): Pin the authorized target origin/);
+  assert.equal(held.find((entry) => entry.command === 'singularity-flow prepare intake')?.timing, 'then', 'prepare refuses until MCP readiness holds');
+  assert.equal(held.filter((entry) => entry.timing === 'now').length, 1);
+  const snapshot = nextStepsSnapshot({ workflow: workflow(), mcpHold });
+  assert.equal(snapshot.mcpHold, mcpHold);
+  assert.match(nextStepsText(snapshot), /1\. NOW — MCP readiness blocks intake[\s\S]*story target-origin NEXT-1/);
+  assert.equal(workflowNextSteps(workflow({ phaseStatus: 'awaiting_approval', generation: 1 }), { mcpHold })[0].command.includes('target-origin'), false, 'a step in review is not held');
+  assert.equal(workflowNextSteps(workflow(), { mcpHold: { ...mcpHold, phase: 'requirements' } })[0].command.includes('target-origin'), false, 'another step\'s readiness holds nothing here');
+});

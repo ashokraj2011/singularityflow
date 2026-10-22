@@ -972,7 +972,7 @@ Usage:
   singularity-flow story references inspect --reference-repository ID=URL --reference-branch ID=BRANCH [--prefetch] [--json]
   singularity-flow story references [list|verify|materialize] [--work-id WORK-ID] [--json]
   singularity-flow story inbox [--assigned-to-me] [--project KEY] [--json]
-  singularity-flow story fetch <STORY-KEY> [--directory PATH] [--json]
+  singularity-flow story fetch <STORY-KEY> [--directory PATH] [--target-url AUTHORIZED-URL] [--json]
   singularity-flow story interval status|checkpoint|reconcile|escalate [--parent STORY-KEY]
     checkpoint [--name TEXT] [--note TEXT]       (local only; never commits unfinished source)
     reconcile [--json]                          (deterministic local baseline/spec comparison)
@@ -992,6 +992,9 @@ Usage:
   singularity-flow story intent-amendment decide <AMD-ID> --decision approve|reject --confirm <AMD-ID>
   singularity-flow story intent-amendment acknowledge [AMD-ID]
   singularity-flow story skill-version status [--work-id ID] [--json]
+  singularity-flow story target-origin [WORK-ID] --url AUTHORIZED-URL [--reason TEXT --confirm PLAN-DIGEST] [--json]
+    Pins the authorized browser target to a Story started without --target-url. The preview names the
+    plan digest; a person who approves a step that smoke-checks it confirms it. A pinned origin is never replaced.
   singularity-flow story test-policy show [--work-id ID] [--json]
   singularity-flow story test-policy risks [--work-id ID] [--phase PHASE] [--obligation DOCUMENT-ID] [--operation publish|submit|approve|downstream|replay] [--json]
   singularity-flow story test-policy accept-risk --issue ISSUE-ID --reason TEXT --follow-up-owner ID --remediation TEXT

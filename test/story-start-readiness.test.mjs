@@ -24,6 +24,25 @@ test('a missing launch definition is safe to inspect, but never a ready final St
   }
 });
 
+test('a later step that smoke-checks a browser names its machine setup at start, from configuration alone', async () => {
+  const definition = await shippedDefinition();
+  // spec-code-test-loop's testing step gets its live smoke from the workflow's own phaseOverrides.
+  const result = inspectStoryStartReadiness(facts(definition, { workType: 'spec-code-test-loop' }));
+  assert.equal(result.ready, true, JSON.stringify(result.blockers));
+  const advisory = result.warnings.find((entry) => entry.id === 'later-step-prerequisites');
+  assert.equal(advisory?.code, 'STORY_LATER_STEP_MCP_SETUP_REQUIRED');
+  assert.match(advisory.message, /step testing needs a live playwright smoke against the authorized target origin this Story pins from --target-url/u);
+  for (const command of ['mcp scaffold playwright', 'mcp warm playwright --network', 'mcp attest playwright --confirm playwright',
+    'mcp smoke playwright --url <AUTHORIZED-URL>', 'mcp doctor --server playwright']) {
+    assert.ok(advisory.message.includes(`singularity-flow ${command}`), command);
+  }
+  assert.deepEqual(result.mcpPrerequisites.map((step) => [step.phase, step.servers]), [['testing', ['playwright']]]);
+  assert.equal(result.status, 'ready-with-warnings');
+  const feature = inspectStoryStartReadiness(facts(definition, { workType: 'feature' }));
+  assert.equal(feature.checks.some((entry) => entry.id === 'later-step-prerequisites'), false);
+  assert.deepEqual(feature.mcpPrerequisites, []);
+});
+
 test('explicit baseline deferral admits intake without turning missing or failing tests into passing evidence', async () => {
   const definition = await shippedDefinition();
   definition.repositoryReadiness.baselinePolicy = 'choice';

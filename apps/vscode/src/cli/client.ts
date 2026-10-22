@@ -398,6 +398,8 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'story' && args[1] === 'return') return 'read';
   if (args[0] === 'story' && args[1] === 'prepare-configuration') return 'read';
   if (args[0] === 'story' && args[1] === 'enhance-description') return 'read';
+  // The preview names the plan digest; only the digest-confirmed pin commits.
+  if (args[0] === 'story' && args[1] === 'target-origin') return hasOption(args, 'confirm') ? 'mutation' : 'read';
   if (args[0] === 'story' && args[1] === 'references') {
     return (args[2] ?? 'list') === 'materialize' ? 'mutation' : 'read';
   }

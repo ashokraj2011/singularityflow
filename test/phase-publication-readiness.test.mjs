@@ -185,6 +185,20 @@ test('missing MCP evidence and a missing required host are actionable without st
   f.phase.mcp.requiredServers = ['not-installed'];
   const host = await expectBlocked(f, 'host', 'MCP_PHASE_NOT_READY');
   assert.equal(host.commands.next, 'singularity-flow mcp doctor --json');
+  // A smoke-checked server this Story pinned without an origin: its own pin comes first, then the
+  // host it lacks; recovery lists every remaining command after it, in order.
+  f.workflow.resolution.mcpServers = { playwright: { id: 'playwright', hostReference: 'playwright', label: 'Playwright',
+    agents: [], phases: [], tools: ['browser_navigate'], required: false, approval: 'confirm',
+    evidence: { captureToolCalls: true, captureResults: true } } };
+  f.phase.mcp = { requiredServers: ['playwright'], requireSmoke: true, evidence: [] };
+  const origin = await expectBlocked(f, 'host', 'MCP_PHASE_NOT_READY');
+  assert.equal(origin.commands.next, 'singularity-flow story target-origin READY-1 --url <AUTHORIZED-URL>');
+  const recovery = await inspectPhaseRecovery(f.root, f.config, f.workflow, f.phase);
+  assert.deepEqual(recovery.actions.filter((entry) => entry.id.startsWith('resolve-mcp-host:')).map((entry) => entry.command), [
+    'singularity-flow story target-origin READY-1 --url <AUTHORIZED-URL>', 'singularity-flow mcp scaffold playwright',
+    'singularity-flow mcp warm playwright --network', 'singularity-flow mcp attest playwright --confirm playwright',
+    'singularity-flow mcp smoke playwright --url <AUTHORIZED-URL>'
+  ]);
 });
 
 test('approved inputs require both the file and its exact approved hash; optional and advisory inputs stay nonblocking', async t => {

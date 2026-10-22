@@ -6444,7 +6444,7 @@ test('POC Story intake explains the browser preflight and bounded validation bef
       phases: ['poc-intake', 'poc-ui-exploration', 'poc-validation']
     }]
   }));
-  assert.match(html, /POC browser readiness/);
+  assert.match(html, /Browser readiness/);
   assert.match(html, /mcp smoke playwright --url/);
   assert.match(html, /data-field="targetUrl"/);
   assert.deepEqual(intakeProblems(intake({
@@ -6456,6 +6456,35 @@ test('POC Story intake explains the browser preflight and bounded validation bef
     description: 'Generate coverage', workType: 'poc-workflow', targetUrl: 'https://staging.example.test'
   })).includes('--target-url'));
   assert.match(html, /at most two/);
+});
+
+test('any workflow the engine says needs a target URL asks for it, names its steps\' setup and passes --target-url', () => {
+  const loop = {
+    id: 'spec-code-test-loop', label: 'Spec, code and browser review', description: 'Browser-reviewed delivery',
+    phases: ['specification', 'implementation', 'testing', 'conformance'], targetUrl: 'required',
+    browserSteps: [{ phase: 'testing', label: 'Playwright testing review', servers: ['playwright'], setup: [
+      'singularity-flow mcp scaffold playwright', 'singularity-flow mcp warm playwright --network',
+      'singularity-flow mcp attest playwright --confirm playwright', 'singularity-flow mcp smoke playwright --url <AUTHORIZED-URL>'] }]
+  };
+  const draft = (targetUrl) => intake({
+    shape: 'story', tracker: 'none', id: 'loop-1', title: 'Browser review', description: 'Review the value in a browser',
+    workType: 'spec-code-test-loop', targetUrl, storyWorkflows: [...INTAKE_CHOICES.storyWorkflows, loop]
+  });
+  assert.ok(intakeProblems(draft('')).some((problem) => /authorized HTTPS target URL/.test(problem)));
+  const html = intakeHtml(draft('https://staging.example.test/app'));
+  assert.match(html, /Browser readiness/);
+  assert.match(html, /Before\s+Playwright testing review/);
+  assert.match(html, /mcp warm playwright --network/);
+  assert.match(html, /mcp smoke playwright --url https:\/\/staging\.example\.test\/app/);
+  assert.doesNotMatch(html, /at most two/, 'the POC validation note belongs to the POC alone');
+  const command = intakeCommand(draft('https://staging.example.test/app'));
+  assert.deepEqual(command.slice(command.indexOf('--target-url'), command.indexOf('--target-url') + 2), ['--target-url', 'https://staging.example.test/app']);
+  // A workflow without such a step neither asks nor passes one, whatever it is called.
+  const optional = intake({ shape: 'story', tracker: 'none', id: 'loop-2', title: 'Plain', description: 'No browser',
+    workType: 'spec-code-test-loop', targetUrl: '', storyWorkflows: [...INTAKE_CHOICES.storyWorkflows, { ...loop, targetUrl: 'optional', browserSteps: undefined }] });
+  assert.equal(intakeProblems(optional).some((problem) => /target URL/.test(problem)), false);
+  assert.equal(intakeCommand(optional).includes('--target-url'), false);
+  assert.doesNotMatch(intakeHtml(optional), /Browser readiness/);
 });
 
 test('a tracked Story is fetched by key', () => {

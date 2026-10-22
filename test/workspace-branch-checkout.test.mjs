@@ -106,7 +106,7 @@ test('fresh retry preserves even a completed checkout and selects a new independ
   assert.equal((await preparedWorkspaceBranch(f.workspace, 'app', 'main')).repositoryPath, second.repositoryPath);
 });
 
-test('automatic branch preparation coalesces concurrent requests and reuses without another clone', async (t) => {
+test('automatic intake resolves the existing workspace repository without a clone or checkout', async (t) => {
   const f = await fixture(t);
   const env = { ...process.env, SINGULARITY_FLOW_ACTIVE_WORKSPACE: f.selection, SINGULARITY_FLOW_WORKSPACE_REGISTRY: f.registry };
   const options = { 'preflight-story': 'AUTO-NEW', 'from-branch': 'main' };
@@ -121,10 +121,11 @@ test('automatic branch preparation coalesces concurrent requests and reuses with
   const both = await Promise.all([1, 2].map(() => automaticWorkspaceStoryCheckout('workspace', ['workspace', 'branches'],
     { ...options }, { cwd: f.original, env, prepareBranch })));
   assert.equal(both[0].repositoryPath, both[1].repositoryPath);
-  assert.equal(clones, 1);
+  assert.equal(both[0].repositoryPath, await realpath(f.original));
+  assert.equal(clones, 0);
   const repeat = await automaticWorkspaceStoryCheckout('workspace', ['workspace', 'branches'], { ...options }, { cwd: f.original, env, prepareBranch });
   assert.equal(repeat.reused, true);
-  assert.equal(clones, 1);
+  assert.equal(clones, 0);
   const other = path.join(f.root, 'unrelated');
   git(f.root, 'init', '--quiet', other);
   assert.equal(await automaticWorkspaceStoryCheckout('workspace', ['workspace', 'branches'], { ...options },
@@ -167,7 +168,8 @@ test('automatic start honors a human-selected base without copying or rebinding 
     assert.equal(routed.repositoryPath, prepared.repositoryPath, 'CLI aliases may copy options without losing the private handoff');
     assert.equal(automaticStorySelection(routedOptions, 'SIGNED-START').root, await realpath(f.original));
   });
-  await assert.rejects(readFile(path.join(prepared.repositoryPath, '.git/singularity-flow/choices', `${receipt.token}.json`)), { code: 'ENOENT' });
+  assert.equal(prepared.repositoryPath, await realpath(f.original), 'the original receipt is used in place, not copied');
+  assert.equal((await selectionReceiptStatus(f.original, receipt.token)).ready, true);
 });
 
 test('downloaded repositories and their linked Story worktrees remain manifest-bound workspace members', async (t) => {
@@ -306,7 +308,7 @@ test('workspace prepare-branch is available from the narrow CLI without an old o
   assert.ok(result.repositoryPath.startsWith(path.join(f.workspace.path, 'repos', workspaceBranchFolder('main'))));
 });
 
-test('readiness and direct Story start automatically use the branch checkout without fetching old objects', async (t) => {
+test('readiness is metadata-only and Start reuses workspace objects directly, preserving local work', async (t) => {
   const f = await fixture(t);
   await initializeDefinition(f.source);
   const workflowFile = path.join(f.source, 'singularity/workflow.yml');
@@ -320,8 +322,10 @@ test('readiness and direct Story start automatically use the branch checkout wit
   git(f.source, 'add', '.'); git(f.source, 'commit', '--quiet', '-m', 'governed configuration');
   git(f.source, 'push', '--quiet', 'origin', 'main', 'main:refs/heads/sflow/config');
   await writeFile(path.join(f.original, 'private-draft.txt'), 'preserve unpublished work');
-  await rename(path.join(f.original, '.git/objects'), path.join(f.original, '.git/retained-objects'));
-  await mkdir(path.join(f.original, '.git/objects'));
+  const originalHead = git(f.original, 'rev-parse', 'HEAD');
+  const originalBranch = git(f.original, 'branch', '--show-current');
+  git(f.original, 'config', 'user.email', 'fixture@example.com');
+  git(f.original, 'config', 'user.name', 'Fixture');
   const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Fixture',
     SINGULARITY_FLOW_ACTIVE_WORKSPACE: f.selection, SINGULARITY_FLOW_WORKSPACE_REGISTRY: f.registry,
     SINGULARITY_FLOW_LEAD_REGISTRY: path.join(f.root, 'leads.json') };
@@ -336,12 +340,14 @@ test('readiness and direct Story start automatically use the branch checkout wit
     '--from-branch', 'main', '--work-type', 'feature', '--selected-base-only', '--mint-intake-receipt', '--json']);
   assert.equal(preflight.preflight.passed, true, JSON.stringify(preflight.preflight));
   const result = { repositoryPath: preflight.repositoryPath };
-  assert.equal(result.repositoryPath, workspaceBranchPath(f.workspace.path, 'app', 'main'));
-  assert.equal(preflight.branchCheckout.originalPreserved, true);
+  assert.equal(result.repositoryPath, await realpath(f.original));
+  assert.equal(preflight.workspaceReuse, true);
+  assert.equal(preflight.branchCheckout, undefined);
+  await assert.rejects(readdir(path.dirname(workspaceBranchPath(f.workspace.path, 'app', 'main'))), { code: 'ENOENT' });
   const repeat = cli(['workspace', 'branches', '--intake', '--preflight-story', 'FRESH-STORY',
     '--from-branch', 'main', '--work-type', 'feature', '--selected-base-only', '--json']);
   assert.equal(repeat.repositoryPath, result.repositoryPath);
-  assert.equal(repeat.branchCheckout.reused, true, 'editing/rechecking intake must not make another clone');
+  assert.equal(repeat.workspaceReuse, true, 'editing/rechecking intake must not make another clone');
   git(result.repositoryPath, 'config', 'user.email', 'fixture@example.com');
   git(result.repositoryPath, 'config', 'user.name', 'Fixture');
   await writeFile(path.join(f.original, 'notes.txt'), 'Relative intake document');
@@ -355,13 +361,87 @@ test('readiness and direct Story start automatically use the branch checkout wit
   assert.equal(selected.selectionStatus, 'ready');
   assert.equal(selected.storyId, 'FRESH-STORY');
   assert.equal(selected.canonicalRepositoryPath, result.repositoryPath);
-  assert.equal(selected.branchCheckout.branch, 'main');
+  assert.equal(selected.branchCheckout, undefined);
   const old = await workspaceMemberContextForRepository(f.original, f.selection, f.registry, { strict: true });
   assert.equal(old.branchCheckout, undefined, 'the active fresh selection must not reclassify old workspace members');
   assert.equal(await readFile(path.join(f.original, 'private-draft.txt'), 'utf8'), 'preserve unpublished work');
-  assert.deepEqual(await readdir(path.join(f.original, '.git/objects')), [], 'no readiness or start fetch may write into the old object store');
+  assert.equal(await realpath(git(payload.repositoryPath, 'rev-parse', '--git-common-dir')), await realpath(path.join(f.original, '.git')));
+  assert.equal(git(f.original, 'rev-parse', 'HEAD'), originalHead);
+  assert.equal(git(f.original, 'branch', '--show-current'), originalBranch);
   const direct = cli(['start', 'DIRECT-STORY', '--from-branch', 'main', '--work-type', 'feature',
     '--title', 'No readiness click', '--description', 'Direct Story start also selects the independent branch folder', '--json']);
   assert.ok((direct.data ?? direct).repositoryPath);
-  assert.deepEqual(await readdir(path.join(f.original, '.git/objects')), []);
+  assert.equal(git(f.original, 'rev-parse', 'HEAD'), originalHead);
+  assert.equal(await readFile(path.join(f.original, 'private-draft.txt'), 'utf8'), 'preserve unpublished work');
+});
+
+test('a missing workspace repository is never cloned by preview; Start downloads objects without an intermediate checkout', async t => {
+  const f = await fixture(t);
+  await rename(f.original, `${f.original}-retained`);
+  const env = { ...process.env, SINGULARITY_FLOW_ACTIVE_WORKSPACE: f.selection, SINGULARITY_FLOW_WORKSPACE_REGISTRY: f.registry };
+  const settings = { cwd: f.workspace.path, env };
+  await assert.rejects(automaticWorkspaceStoryCheckout('workspace', ['workspace', 'branches'],
+    { 'preflight-story': 'MISSING', 'from-branch': 'main' }, settings), { code: 'WORKSPACE_REPOSITORY_MISSING' });
+  const started = await automaticWorkspaceStoryCheckout('start', ['start', 'MISSING'], { 'from-branch': 'main' }, settings);
+  assert.equal(started.independent, true);
+  assert.equal(git(started.repositoryPath, 'rev-parse', 'HEAD'), git(f.source, 'rev-parse', 'HEAD'));
+  await assert.rejects(readFile(path.join(started.repositoryPath, 'app.txt')), { code: 'ENOENT' });
+  assert.equal((await readFile(path.join(`${f.original}-retained`, 'app.txt'), 'utf8')).trim(), 'published application');
+});
+
+test('isolated capability start creates sibling worktrees and leaves dirty source checkouts untouched', async t => {
+  const f = await fixture(t);
+  const sibling = path.join(f.workspace.path, 'repos/sibling');
+  git(f.root, 'clone', '--quiet', f.remote, sibling);
+  await writeFile(path.join(sibling, 'private.txt'), 'preserve sibling draft');
+  const before = git(sibling, 'rev-parse', 'HEAD');
+  const plan = { repositories: [{ id: 'app', path: 'repos/app' }, { id: 'sibling', path: 'repos/sibling' }],
+    resolution: { resolved: { app: { branch: 'main' }, sibling: { branch: 'main' } } } };
+  const prepared = await prepareCapabilityRepositories(f.workspace.path, plan, 'feature/DIFFERENT-BRANCH', {
+    lifecycleRoot: f.original, isolatedWorktrees: true, workId: 'DIRECT-SIBLING', fetched: true
+  });
+  const item = prepared.find(entry => entry.repository === 'sibling');
+  assert.equal(item.action, 'isolated-worktree');
+  assert.notEqual(item.target, sibling);
+  assert.equal(git(item.target, 'branch', '--show-current'), 'feature/DIFFERENT-BRANCH');
+  assert.equal(git(sibling, 'branch', '--show-current'), 'main');
+  assert.equal(git(sibling, 'rev-parse', 'HEAD'), before);
+  assert.equal(await readFile(path.join(sibling, 'private.txt'), 'utf8'), 'preserve sibling draft');
+});
+
+test('receipt-only Start creates the worktree directly from its signed base, not source HEAD', async t => {
+  const f = await fixture(t);
+  await initializeDefinition(f.source);
+  const file = path.join(f.source, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(file, 'utf8'));
+  definition.worldModel.grounding = 'off'; definition.repositoryReadiness.requiredBeforeStory = false;
+  for (const authority of Object.values(definition.approvalAuthorities ?? {})) authority.members = [{ name: 'Fixture', email: 'fixture@example.com' }];
+  await writeFile(file, YAML.stringify(definition));
+  git(f.source, 'add', '.'); git(f.source, 'commit', '--quiet', '-m', 'configuration');
+  git(f.source, 'push', '--quiet', 'origin', 'main', 'main:refs/heads/sflow/config');
+  git(f.source, 'switch', 'feature/topic');
+  await writeFile(path.join(f.source, 'app.txt'), 'signed feature base\n');
+  git(f.source, 'add', '.'); git(f.source, 'commit', '--quiet', '-m', 'distinct feature tree');
+  git(f.source, 'push', '--quiet', 'origin', 'feature/topic');
+  const selectedBase = git(f.source, 'rev-parse', 'HEAD');
+  const receipt = await beginCustomSelectionReceipt(f.original, { action: 'start', workId: 'SIGNED-DIRECT',
+    choiceSets: [{ id: 'base-branch', label: 'Base branch', options: [{ id: 'feature/topic', label: 'Topic' }] },
+      { id: 'intake-source', label: 'Intake source', options: [{ id: 'manual', label: 'Manual' }] },
+      { id: 'workflow-template', label: 'Workflow template', options: [{ id: 'feature', label: 'Feature' }] }] });
+  await answerSelectionReceipt(f.original, receipt.token, 'base-branch', 'feature/topic');
+  await answerSelectionReceipt(f.original, receipt.token, 'intake-source', 'manual');
+  await answerSelectionReceipt(f.original, receipt.token, 'workflow-template', 'feature');
+  git(f.original, 'config', 'user.name', 'Fixture'); git(f.original, 'config', 'user.email', 'fixture@example.com');
+  const result = spawnSync(process.execPath, [path.join(packageRoot, 'bin/singularity-flow.mjs'), 'start', 'SIGNED-DIRECT',
+    '--selection-receipt', receipt.token, '--work-type', 'feature', '--title', 'Signed direct base',
+    '--description', 'Use the exact human-selected application tree', '--json'], {
+    cwd: f.original, env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Fixture',
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: f.selection, SINGULARITY_FLOW_WORKSPACE_REGISTRY: f.registry,
+      SINGULARITY_FLOW_LEAD_REGISTRY: path.join(f.root, 'leads.json') }, encoding: 'utf8', timeout: 90000, maxBuffer: 16 * 1024 * 1024
+  });
+  assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+  const payload = JSON.parse(result.stdout).data ?? JSON.parse(result.stdout);
+  assert.equal((await readFile(path.join(payload.repositoryPath, 'app.txt'), 'utf8')).trim(), 'signed feature base');
+  assert.equal(git(payload.repositoryPath, 'rev-parse', 'HEAD^'), selectedBase);
+  assert.equal(git(f.original, 'branch', '--show-current'), 'main');
 });

@@ -1,5 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
+import { realpathSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, readdir, unlink } from 'node:fs/promises';
 import { branch, gitCommonDir, governedCommitIdentity, head, refExists, refHead } from './git.mjs';
@@ -316,7 +317,16 @@ async function completedWorkflowAtTarget(root, record, pending = null) {
   return { completed: failures.length === 0, failures: [...new Set(failures)], commit };
 }
 
-function restoreRepositoryCheckout(repository, targetBranch) {
+async function restoreRepositoryCheckout(repository, targetBranch) {
+  if (repository?.isolatedWorktree) {
+    if (!repository.preparedWorktree || !refExists(repository.target, `refs/heads/${targetBranch}`)
+        && !refExists(repository.target, `refs/heads/${repository.preparedWorktree.stagingBranch}`)) return null;
+    try {
+      const { rollbackStoryWorktree } = await import('./story-worktree.mjs');
+      const result = rollbackStoryWorktree(repository.preparedWorktree);
+      return result.retained ? `${repository.repository}: isolated Story checkout retained at ${result.repositoryPath}` : null;
+    } catch (error) { return `${repository.repository}: ${error.message}`; }
+  }
   if (!repository?.target || !repository?.from) return null;
   const current = run('git', ['branch', '--show-current'], { cwd: repository.target, allowFailure: true });
   if (current.status !== 0) return `${repository.repository}: repository is unavailable`;
@@ -344,7 +354,29 @@ function restoreRepositoryCheckout(repository, targetBranch) {
 }
 
 /** Prove every checkout is still at a state recovery understands before writing any plane. */
-function inspectRepositoryCheckout(repository, targetBranch) {
+async function inspectRepositoryCheckout(repository, targetBranch) {
+  if (repository?.isolatedWorktree) {
+    const prepared = repository.preparedWorktree;
+    if (!prepared || !refExists(repository.target, `refs/heads/${targetBranch}`)
+        && !refExists(repository.target, `refs/heads/${prepared.stagingBranch}`)) return null;
+    try {
+      const { storyWorktreeChanges, samePlatformPath } = await import('./story-worktree.mjs');
+      // Native canonicalization expands Windows 8.3 aliases as well as links. The JavaScript
+      // realpath implementation can retain the short spelling reported by Git for Windows.
+      const observedStore = realpathSync.native(gitCommonDir(prepared.repositoryPath));
+      const expectedStore = realpathSync.native(gitCommonDir(repository.target));
+      if (!samePlatformPath(observedStore, expectedStore))
+        return `${repository.repository}: isolated checkout object store '${observedStore}' differs from '${expectedStore}'; existing work was preserved`;
+      const observedBranch = branch(prepared.repositoryPath);
+      if (![targetBranch, prepared.stagingBranch].includes(observedBranch))
+        return `${repository.repository}: isolated checkout moved to '${observedBranch}'; existing work was preserved`;
+      if (head(prepared.repositoryPath) !== repository.baseCommit)
+        return `${repository.repository}: isolated checkout has an unrecognized commit; existing work was preserved`;
+      const changes = storyWorktreeChanges(prepared.repositoryPath);
+      if (!changes.clean) return `${repository.repository}: isolated checkout has changed files (${changes.changedPaths.join(', ')}); existing work was preserved`;
+      return null;
+    } catch (error) { return `${repository.repository}: ${error.message}`; }
+  }
   if (!repository?.target || !repository?.from) return `${repository?.repository ?? 'repository'}: recovery record is incomplete`;
   const current = run('git', ['branch', '--show-current'], { cwd: repository.target, allowFailure: true });
   if (current.status !== 0) return `${repository.repository}: repository is unavailable`;
@@ -428,7 +460,7 @@ export async function recoverStoryStart(root, id, { force = false } = {}) {
     }
   }
   for (const repository of [...(record.siblingRepositories ?? [])].reverse()) {
-    const failure = inspectRepositoryCheckout(repository, record.targetBranch);
+    const failure = await inspectRepositoryCheckout(repository, record.targetBranch);
     if (failure) failures.push(failure);
   }
   if (failures.length) {
@@ -451,7 +483,7 @@ export async function recoverStoryStart(root, id, { force = false } = {}) {
   await restoreCopilotSession(root, record.originalCopilotSession ?? null);
 
   for (const repository of [...(record.siblingRepositories ?? [])].reverse()) {
-    const failure = restoreRepositoryCheckout(repository, record.targetBranch);
+    const failure = await restoreRepositoryCheckout(repository, record.targetBranch);
     if (failure) failures.push(failure);
   }
 

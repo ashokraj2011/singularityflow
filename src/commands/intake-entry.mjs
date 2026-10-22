@@ -1,7 +1,7 @@
 /** One pause-aware native Copilot intake preview. Choices are advisory, never creation authority. */
 import { copilotModePresentation, readCopilotMode } from '../copilot-mode.mjs';
 import { activeWorkspaceFile, readActiveWorkspaceContext, workspaceRegistryFile } from '../workspace-context.mjs';
-import { changes, repoRoot } from '../git.mjs';
+import { repoRoot } from '../git.mjs';
 import { versionLine } from '../build-info.mjs';
 import { optionString, SingularityFlowError } from '../util.mjs';
 import { validatePortableWorkId } from '../work-id.mjs';
@@ -27,9 +27,8 @@ export async function readIntakeEntry(options = {}) {
       command: 'singularity-flow workspace repair --help', modelFreeCommand: null } };
   const root = repoRoot(checkout?.repositoryPath ?? workspace?.repositoryPath ?? process.cwd());
   base.personalization = resolvePersonalization({ root });
-  const dirty = changes(root);
-  if (dirty.length) return { ...base, status: 'worktree-review-required', ready: false,
-    repositoryPath: root, changes: dirty };
+  // Intake does not edit this checkout. Unrelated source changes neither need a whole-repository
+  // status scan nor prevent the separately verified, isolated Story worktree from being created.
   const { readWorkspaceBranches } = await import('./workspace-branches.mjs');
   const catalog = await readWorkspaceBranches({ ...options, intake: true }, { root });
   return { ...base, ...catalog, resultType: 'intake-entry',
@@ -38,7 +37,7 @@ export async function readIntakeEntry(options = {}) {
         : catalog.preflight?.passed === true ? 'preflight-ready' : 'choices-ready',
     ready: (!catalog.existingWork || catalog.existingWork.status === 'new') && catalog.preflight?.passed !== false,
     repositoryPath: root, creationAuthorized: false,
-    agentInstruction: 'Reuse this packet for pause, workspace, build, clean-tree and catalog facts. Use personalization.replyName literally in replies, never artifacts or approval identity. Ask for explicit base/workflow and policy choices. Do not repeat those lookups. Run selected-base preflight once; Story creation revalidates live authority and repository deltas.' };
+    agentInstruction: 'Reuse this packet for pause, workspace, build and catalog facts. Intake does not scan or change the application working tree. Use personalization.replyName literally in replies, never artifacts or approval identity. Ask for explicit base/workflow and policy choices. Do not repeat those lookups. Run selected-base preflight once; Story creation revalidates live authority and repository deltas.' };
 }
 
 export async function run(options) { console.log(JSON.stringify(await readIntakeEntry(options), null, 2)); }

@@ -3,7 +3,7 @@ import { durableLocalStoryOnBranch, assertBaseCarriesGovernance, testRecoveryInt
 import { normalizeQualityGateMode } from '../phase-quality-risk.mjs';
 import path from 'node:path';
 import { SingularityFlowError, optionBoolean, optionString, optionStrings, posix } from '../util.mjs';
-import { branch, fetchRemote, fileAtRef, gitCommonDir, refExists, refHead, repoRoot } from '../git.mjs';
+import { branch, fileAtRef, gitCommonDir, refExists, refHead, repoRoot } from '../git.mjs';
 import { worldModelStateAuthority } from '../state-authority.mjs';
 import { mintStoryIntakeReceipt, storyIntakeReceiptsDisabled } from '../story-intake-receipt.mjs';
 import { validatePortableWorkId } from '../work-id.mjs';
@@ -86,13 +86,13 @@ async function readAtRoot(options, root) {
   if (unionStory && unionBases.length === 1 && !unionBases[0].includes('=')) {
     const { firstStoryAuthorityCandidate } = await import('../configuration-branch.mjs');
     const originUrl = await firstStoryAuthorityCandidate(root);
-    const observation = originUrl ? await intakeSession.observeAsync(originUrl, {
+    const observation = originUrl ? await measureCommandSpan('start.remote-observe', () => intakeSession.observeAsync(originUrl, {
       includeHead: false,
       refs: [
         `refs/heads/${CONFIGURATION_BRANCH}`, 'refs/heads/state',
         `refs/heads/${unionBases[0]}`, `refs/heads/${unionStoryBranch}`
       ]
-    }).catch(() => null) : null;
+    })).catch(() => null) : null;
     if (observation?.ok) originTips = { url: originUrl, observation };
   }
   // [perf] When authority resolution's first candidate is also the repository the catalog lists,
@@ -211,13 +211,12 @@ async function readAtRoot(options, root) {
             { code: 'STORY_REMOTE_UNREACHABLE' }
           );
         }
-        await fetchRemote(root, selected.remote, {
-          transportRemote: fetchAuthority.url, branches: [selected.localBase], respectPartialClone: true
-        });
+        // Legacy previews may use only an already available selected-base policy. They never
+        // transfer application objects merely to render intake; Start revalidates its fresh base.
         const selectedBaseRef = `refs/remotes/${selected.remote}/${selected.localBase}`;
         if (!refExists(root, selectedBaseRef)) {
           throw new SingularityFlowError(
-            `Selected base branch '${selected.localBase}' is no longer published by remote '${selected.remote}'. Nothing was changed.`,
+            `Selected base '${selected.localBase}' has no local workflow snapshot. Use an approved sflow/config authority or explicitly refresh this selected branch before retrying. Intake did not clone or check out files.`,
             { code: 'STORY_BASE_INVALID' }
           );
         }
@@ -299,7 +298,7 @@ async function readAtRoot(options, root) {
       // branch-local definition. Prove that the exact freshly fetched base selected above carries
       // that definition too. Otherwise the editor could show a green preflight from main's local
       // workflow even though Story start would cut a branch that immediately loses governance.
-      if (!approvedConfigurationSnapshot) {
+      if (!approvedConfigurationSnapshot && legacyBaseConfigurationCommit) {
         assertBaseCarriesGovernance(root, {
           config: definition,
           branchName: storyBranch,

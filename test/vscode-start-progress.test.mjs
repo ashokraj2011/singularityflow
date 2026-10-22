@@ -27,6 +27,9 @@ test('progress lines are taken out of stderr wherever the chunks split them', ()
   assert.equal(kept, 'warning: before\nnot @@sflow-progress/v1 start.fetch\n@@sflow-progress/v1 start.Evil\ntail',
     'anything that is not exactly a progress line passes through untouched');
   assert.equal(startProgressLabel('start.publication'), 'Publishing the Story');
+  assert.match(startProgressLabel('start.workspace-reuse'), /Reusing workspace Git objects/u);
+  assert.match(startProgressLabel('start.worktree'), /Story worktree/u);
+  assert.match(startProgressLabel('start.remote-observe'), /selected branch/u);
   assert.equal(startProgressLabel('start.unknown'), null, 'unknown stages are not shown');
   assert.equal(startProgressLabel('constructor'), null);
 });

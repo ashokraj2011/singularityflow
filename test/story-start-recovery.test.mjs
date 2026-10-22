@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -13,6 +13,7 @@ import {
   serializeConfigurationRestorePoint, updateStoryStartJournal
 } from '../src/story-start-journal.mjs';
 import { captureConfigurationState } from '../src/configuration-branch.mjs';
+import { prepareStoryWorktree, completeStoryWorktree } from '../src/story-worktree.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -38,6 +39,57 @@ async function missing(target) {
   try { await access(target); return false; }
   catch (error) { if (error?.code === 'ENOENT') return true; throw error; }
 }
+
+for (const changed of [false, true]) test(`isolated sibling recovery ${changed ? 'retains changed Story files' : 'removes only its clean owned worktree'} and preserves dirty source`, async t => {
+  const root = await repository('sflow-direct-recovery-lead-');
+  const sibling = await repository('sflow-direct-recovery-sibling-');
+  t.after(() => Promise.all([root, sibling].map(file => rm(file, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))));
+  const base = git(['rev-parse', 'HEAD'], root), siblingBase = git(['rev-parse', 'HEAD'], sibling);
+  const id = 'DIRECT-RECOVERY', targetBranch = 'feature/direct-recovery';
+  const prepared = await prepareStoryWorktree(sibling, id, { base: siblingBase, storyBranch: targetBranch });
+  git(['checkout', '-b', targetBranch], prepared.repositoryPath);
+  completeStoryWorktree(prepared);
+  await writeFile(path.join(sibling, 'operator.txt'), 'preserve unrelated source work');
+  if (changed) await writeFile(path.join(prepared.repositoryPath, 'story-draft.txt'), 'preserve Story work');
+  await beginStoryStartJournal(root, { id, targetBranch, targetBranchExisted: false,
+    originalBranch: 'main', originalHead: base, baseCommit: base,
+    siblingRepositories: [{ repository: 'sibling', target: sibling, from: 'main',
+      baseCommit: siblingBase, targetBranchExisted: false, isolatedWorktree: true, preparedWorktree: prepared }] });
+  if (changed) {
+    await assert.rejects(recoverStoryStart(root, id, { force: true }), { code: 'STORY_START_RECOVERY_DIVERGED' });
+    assert.equal(await readFile(path.join(prepared.repositoryPath, 'story-draft.txt'), 'utf8'), 'preserve Story work');
+  } else {
+    assert.equal((await recoverStoryStart(root, id, { force: true })).status, 'recovered');
+    assert.equal(await missing(prepared.repositoryPath), true);
+    assert.equal(git(['branch', '--list', targetBranch], sibling), '');
+  }
+  assert.equal(git(['branch', '--show-current'], sibling), 'main');
+  assert.equal(await readFile(path.join(sibling, 'operator.txt'), 'utf8'), 'preserve unrelated source work');
+});
+
+test('isolated sibling recovery still refuses a genuinely different object store', async t => {
+  const root = await repository('sflow-direct-owner-lead-');
+  const sibling = await repository('sflow-direct-owner-sibling-');
+  const foreign = await repository('sflow-direct-owner-foreign-');
+  t.after(() => Promise.all([root, sibling, foreign].map(file => rm(file, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))));
+  const base = git(['rev-parse', 'HEAD'], root), siblingBase = git(['rev-parse', 'HEAD'], sibling);
+  const id = 'FOREIGN-RECOVERY', targetBranch = 'feature/foreign-recovery';
+  const prepared = await prepareStoryWorktree(foreign, id, { storyBranch: targetBranch });
+  git(['checkout', '-b', targetBranch], prepared.repositoryPath);
+  completeStoryWorktree(prepared);
+  // The expected sibling has a same-named ref, but a different physical object store. Names
+  // and even identical base hashes cannot authorize removal of the foreign checkout.
+  git(['branch', targetBranch], sibling);
+  await beginStoryStartJournal(root, { id, targetBranch, targetBranchExisted: false,
+    originalBranch: 'main', originalHead: base, baseCommit: base,
+    siblingRepositories: [{ repository: 'sibling', target: sibling, from: 'main', baseCommit: siblingBase,
+      targetBranchExisted: false, isolatedWorktree: true, preparedWorktree: prepared }] });
+  await assert.rejects(recoverStoryStart(root, id, { force: true }), error =>
+    error.code === 'STORY_START_RECOVERY_DIVERGED' && /object store/u.test(error.message));
+  assert.equal(await missing(prepared.repositoryPath), false);
+  assert.equal(git(['branch', '--show-current'], sibling), 'main');
+  assert.ok(await readStoryStartJournal(root, id));
+});
 
 test('Story-start recovery restores the original checkout and removes only its untouched branch', async () => {
   const root = await repository('sflow-story-start-');

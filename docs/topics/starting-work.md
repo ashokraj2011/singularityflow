@@ -14,7 +14,7 @@ related:
   - pins
   - work-intervals
   - supporting-documents
-version: 30
+version: 31
 ---
 Three intake doors, one result: Jira, a manual description, or a Story released from an Epic breakdown. For every new Jira or manual Story, first run `sflow workspace branches --json` and explicitly choose a branch published by every required repository. `sflow start PAY-1234 --jira --from-branch main` then refreshes that remote base, verifies that the configured remote can accept `PAY-1234`, creates the canonical branch, pins its exact base commit, and pushes only `refs/heads/PAY-1234`. The selected base ref is never changed. Existing and Epic-materialized Stories keep their already-pinned lineage instead of choosing a second base.
 
@@ -30,10 +30,11 @@ git:
 
 Native Copilot `/sf-start` begins with one pause-aware packet:
 `singularity-flow workspace branches --entry --intake --work-id <WORK-ID> --for-agent --json`.
-It combines the selected workspace, installed build, clean working-tree check, existing-ID check
+It combines the selected workspace, installed build, existing-ID check
 and canonical branch/workflow catalog. It does not repeat separate pause, workspace, version,
-status and catalog calls. A paused result needs no Git. Missing selections and dirty work remain
-explicit repair/review states. Choices are never preselected, the selected-base preview remains
+status and catalog calls. A paused result needs no Git. Missing selections remain explicit
+repair states. Unrelated dirty source files are preserved and do not require a whole-tree status
+scan during this read-only preview. Choices are never preselected, the selected-base preview remains
 fresh, and the opening mutation revalidates authority and repository deltas. This packet is not a
 readiness receipt, publication permission, or an approval.
 
@@ -45,6 +46,35 @@ cuts the Story from that exact refreshed commit. A linked worktree shares the re
 objects and inherits its sparse checkout. Starting a Story does not pull or merge into the
 workspace's current branch. Resume, stale tracking refs, missing repositories, reference repositories,
 and required authority/state refreshes can still need their own Git reads or transfers.
+
+### Lightweight intake and direct Story checkout
+
+Intake resolves existing workspace repository locations; it does not create an independent branch
+clone, populate an application checkout, or prepare a Story worktree in the background. Selected-base
+readiness observes only the selected base/destination ref identities and the approved configuration.
+It does not fetch application objects, scan source status, test branch ancestry, or probe push permission.
+Its configurable advisory cache remains a preview, not permission to create or publish.
+
+After **Start Story**, the launch refreshes only the selected application branch, reusing objects
+already held by that workspace repository, and creates the Story worktree directly. Required state
+and configuration authorities remain separate targeted operations. Fresh identity, destination,
+ancestry, policy and publication checks still run before the applicable mutation. Capability siblings
+also receive isolated worktrees: dirty source checkouts are neither switched nor cleaned. Recovery
+journals bind those worktrees and retain changed files or unique commits.
+
+A missing repository may be downloaded by Start with no intermediate application checkout; intake
+reports that the workspace needs materialization instead of silently downloading it. Explicit
+**Download fresh branch checkout** remains an independent recovery action when the old object store
+is unavailable or cloud-only. Existing independent checkouts and active recovery are preserved.
+Legacy repositories without `sflow/config` need the selected base's workflow snapshot locally;
+intake reports its absence without guessing another branch's policy or downloading it implicitly.
+
+VS Code displays workspace-object reuse, selected-branch observation/download, Story-worktree
+creation and publication separately. Readiness displays elapsed seconds, retains a five-minute
+enterprise-transport budget, and preserves the draft and actual failure details on timeout.
+`node scripts/direct-story-worktree-benchmark.mjs --files 10000` qualifies the complete path using
+a disposable local remote, fresh Node processes, Git trace counts, and cold/repeated actions.
+It does not measure a real office network or flush the operating-system cache.
 
 On supported hosts, an exact passing intake receipt can be reused even when onboarding has
 pinned the configuration authority. Start still verifies live base, destination, configuration and

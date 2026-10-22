@@ -52,7 +52,7 @@ test('coarse families share one module identity and never import worker programs
   }
 });
 
-test('intake entry checks pause before Git, and reports dirty work without catalog lookups', async t => {
+test('intake entry checks pause before Git and preserves dirty source work without blocking isolated intake', async t => {
   const f = await createWarmReadFixture(); t.after(f.cleanup);
   const mode = path.join(f.directory, 'mode.json');
   await writeFile(mode, JSON.stringify({ schemaVersion: 1, paused: true }));
@@ -66,8 +66,7 @@ test('intake entry checks pause before Git, and reports dirty work without catal
   const dirty = spawnSync(process.execPath, [f.cli, ...args], { cwd: f.repository, env: f.env, encoding: 'utf8' });
   assert.equal(dirty.status, 0, dirty.stderr);
   const packet = JSON.parse(dirty.stdout);
-  assert.equal(packet.status, 'worktree-review-required');
-  assert.equal(packet.ready, false);
-  assert.match(JSON.stringify(packet.changes), /unreviewed.txt/);
+  assert.notEqual(packet.status, 'worktree-review-required');
+  assert.equal(packet.changes, undefined, 'advisory intake does not inventory source files');
   assert.equal(f.git(['branch', '--list', 'ENTRY-1']), '');
 });

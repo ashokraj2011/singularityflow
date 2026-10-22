@@ -45,7 +45,7 @@ import { mapLimit, nowIso, run, SingularityFlowError } from './util.mjs';
 import { GitRemoteSession, requireRemoteObservation, runRemoteGitAsync } from './git-execution.mjs';
 import { probeStoryBranchPublication, storyPublicationPreflightError } from './story-publication-preflight.mjs';
 import { publicationFailureMessage } from './git-hook-effects.mjs';
-import { incrementCommandCounter } from './dx-command-timing.mjs';
+import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { STORY_INTAKE_AUTHORITY_REUSE_MS, isStoryIntakeProof } from './story-intake-verification.mjs';
 import {
@@ -53,6 +53,7 @@ import {
 } from './git-remote-diagnostics.mjs';
 import { validatePortfolio } from './initiative-config.mjs';
 import { storyBranchLabels } from './story-base-lineage.mjs';
+import { automaticStoryRepositoryPath } from './workspace-story-location-scope.mjs';
 import { LIFECYCLE_EVENT, lifecycleEvent } from './lifecycle-event.mjs';
 import {
   freezeAndVerifySgosExistingLifecycleCommit, sgosLifecycleCandidateBinding,
@@ -62,6 +63,7 @@ import {
 const DEFAULT_REMOTE_WORKERS = 4;
 // Execution locations are process-private derivations, never caller-editable plan/JSON authority.
 const branchExecutionWorkspaces = new WeakMap();
+const isolatedWorktreeRollbacks = new WeakMap();
 
 function bindBranchExecution(repositories, workspace, context) {
   if (!context.branchCheckout) return;
@@ -71,6 +73,8 @@ function bindBranchExecution(repositories, workspace, context) {
 }
 
 async function executionRepositoryPath(workspaceRoot, repository, baseBranch) {
+  const handedOff = automaticStoryRepositoryPath(repository.id, baseBranch);
+  if (handedOff) return handedOff;
   const binding = branchExecutionWorkspaces.get(repository);
   if (!binding) return workspaceRepositoryPath({ path: workspaceRoot }, repository);
   const key = JSON.stringify([repository.id, baseBranch]);
@@ -760,6 +764,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   launchFetchObservation = null,
   observedTips = null,
   previewOnly = false,
+  isolatedWorktrees = false,
   intakeProof = null,
   workers = DEFAULT_REMOTE_WORKERS,
   runGit = runRemoteGitAsync
@@ -830,7 +835,8 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
     // workspace's canonical checkout intentionally contains unrelated work. Both paths share the
     // same Git common directory, so only sibling repositories still need the legacy clean-checkout
     // precondition here.
-    if (!lifecycleRoot || gitCommonDir(root) !== gitCommonDir(repoRoot(lifecycleRoot))) assertClean(root);
+    if (!previewOnly && !isolatedWorktrees
+        && (!lifecycleRoot || gitCommonDir(root) !== gitCommonDir(repoRoot(lifecycleRoot)))) assertClean(root);
     // Bind every checkout to the approved plan before the first fetch, dry-run push, or Git-config
     // mutation. A stale workspace path may now contain an entirely different clone; the manifest
     // URL alone does not prove the checkout at that path still belongs to the capability.
@@ -848,10 +854,6 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       ?? await loadDefinition(root).catch(() => null);
     candidates.push({
       repository, root, fetchAuthority, pushAuthority,
-      ...(previewOnly ? { previewRefs: localRefHeads(root, [
-        `refs/remotes/${remote}/${plan.resolution.resolved[repository.id].branch}`,
-        `refs/remotes/${remote}/${storyBranch}`, `refs/heads/${storyBranch}`
-      ]) } : {}),
       worldModelDefinition: repositoryDefinition
     });
   }
@@ -861,6 +863,21 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   const fetched = await mapLimit(candidates, workers, async (candidate) => {
     const baseBranch = plan.resolution.resolved[candidate.repository.id].branch;
     const session = new GitRemoteSession({ cwd: candidate.root, runAsyncCommand: runGit });
+    if (previewOnly) {
+      // Advisory intake needs ref identities, not file bytes or history. A selected base may not
+      // exist in this object store yet. Start fetches that exact ref and validates ancestry afresh.
+      const refs = [`refs/heads/${baseBranch}`, `refs/heads/${storyBranch}`];
+      const observation = requireRemoteObservation(observedTips?.url === candidate.fetchAuthority.url
+        && observedTips.observation?.ok && refs.every(ref => observedTips.observation.patterns?.includes(ref))
+        ? observedTips.observation
+        : await session.observeAsync(candidate.fetchAuthority.url, { includeHead: false, refs }),
+      `selected branch for required repository '${candidate.repository.id}'`);
+      if (observation.refs.has(`refs/heads/${storyBranch}`)) throw new SingularityFlowError(
+        `Story branch '${storyBranch}' already exists for required repository '${candidate.repository.id}'. Resume it instead.`,
+        { code: 'STORY_BRANCH_EXISTS' });
+      return { ...candidate, baseBranch, previewBase: observation.refs.get(`refs/heads/${baseBranch}`) ?? null,
+        result: { status: 0, stdout: '', stderr: '' }, fetchReused: false };
+    }
     const fetchReused = await reusableLaunchFetch(
       candidate, remote, plan.resolution.resolved[candidate.repository.id].branch,
       storyBranch, launchFetchProof, session, launchFetchObservation
@@ -907,7 +924,6 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       // the normal remote-tracking layout without letting a concurrent `remote set-url` redirect it.
       result,
       baseBranch,
-      previewRefsCurrent: previewOnly && (fetchReused || tipsCurrent),
       fetchReused
     };
   });
@@ -923,11 +939,9 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   }
 
   const candidatesToProbe = [];
-  for (const { repository, root, pushAuthority, fetchReused, previewRefs, previewRefsCurrent } of fetched) {
+  for (const { repository, root, pushAuthority, fetchReused, previewBase } of fetched) {
     const base = plan.resolution.resolved[repository.id];
     const sourceRef = `refs/remotes/${remote}/${base.branch}`;
-    const previewBase = previewOnly
-      ? (previewRefsCurrent ? previewRefs : localRefHeads(root, [sourceRef])).get(sourceRef) : null;
     if (previewOnly ? !previewBase : !refExists(root, sourceRef)) {
       throw new SingularityFlowError(
         `Selected base branch '${base.branch}' is no longer published for required repository `
@@ -935,7 +949,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
         { code: 'STORY_BASE_INVALID' }
       );
     }
-    assertStoryBaseSharesHistory(root, {
+    if (!previewOnly) assertStoryBaseSharesHistory(root, {
       remote, baseBranch: base.branch, defaultBranch: repository.defaultBranch ?? null, repositoryId: repository.id
     });
     // The exact observation above (or verified launch receipt) established destination absence.
@@ -1203,6 +1217,15 @@ export async function publishCapabilityRepositories(entries = [], {
 export function rollbackCapabilityRepositories(prepared, storyBranch) {
   const failures = [];
   for (const entry of [...(prepared ?? [])].reverse()) {
+    if (entry.preparedWorktree) {
+      try {
+        const rollback = isolatedWorktreeRollbacks.get(entry);
+        if (!rollback) throw new Error('Isolated checkout rollback requires its invocation-owned preparation. Use Story-start recovery for retained journals.');
+        rollback(entry.preparedWorktree);
+      }
+      catch (error) { failures.push(`${entry.repository}: ${error.message}`); }
+      continue;
+    }
     if (entry.action !== 'switched' || !entry.from) continue;
     const restored = run('git', ['switch', entry.from], { cwd: entry.target, allowFailure: true });
     if (restored.status !== 0) {
@@ -1220,7 +1243,8 @@ export function rollbackCapabilityRepositories(prepared, storyBranch) {
 }
 
 export async function prepareCapabilityRepositories(workspaceRoot, plan, storyBranch, {
-  remote = 'origin', lifecycleRoot = null, fetched = false
+  remote = 'origin', lifecycleRoot = null, fetched = false, isolatedWorktrees = false, workId = storyBranch,
+  onPrepared = null
 } = {}) {
   const prepared = [];
   try {
@@ -1240,6 +1264,19 @@ export async function prepareCapabilityRepositories(workspaceRoot, plan, storyBr
           source: base.source,
           action: 'isolated-worktree'
         });
+        continue;
+      }
+      if (isolatedWorktrees) {
+        const { prepareStoryWorktree, completeStoryWorktree, rollbackStoryWorktree } = await import('./story-worktree.mjs');
+        const preparedWorktree = await measureCommandSpan('start.worktree', () => prepareStoryWorktree(root, workId,
+          { base: `refs/remotes/${remote}/${base.branch}`, storyBranch }));
+        const entry = { repository: repository.id, target: preparedWorktree.repositoryPath,
+          base: base.branch, source: base.source, action: 'isolated-worktree', preparedWorktree };
+        prepared.push(entry); // Roll back this exact owned worktree if the following checkout fails.
+        isolatedWorktreeRollbacks.set(entry, rollbackStoryWorktree);
+        await onPrepared?.(entry);
+        await checkout(entry.target, storyBranch, { base: base.branch, fetch: false, remote, preferRemoteBase: true });
+        completeStoryWorktree(preparedWorktree);
         continue;
       }
       assertClean(root);

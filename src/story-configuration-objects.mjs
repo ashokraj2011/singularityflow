@@ -46,8 +46,12 @@ export function configurationObjectClosure(root, commit, { env, runCommand, limi
             || entry.name.includes('/') || names.has(entry.name)) return null;
         names.add(entry.name);
         const relative = directory.relative ? `${directory.relative}/${entry.name}` : entry.name;
-        if (entry.name === '.gitattributes' || relative === '.gitmodules') checkoutRequired = true;
-        const selected = isConfigurationAssetPath(relative, policy);
+        const checkoutControl = entry.name.toLowerCase() === '.gitattributes' || relative.toLowerCase() === '.gitmodules';
+        if (checkoutControl) checkoutRequired = true;
+        if (checkoutControl && !/^100(?:644|755)$/u.test(entry.mode)) return null;
+        // Native Git consumes these transformation controls too. Include their exact blobs in
+        // verification even when they are outside the materialized configuration asset inventory.
+        const selected = checkoutControl || isConfigurationAssetPath(relative, policy);
         const ancestor = roots.some(value => value.startsWith(`${relative}/`));
         if (!selected && !ancestor) continue;
         if (entry.name.includes('\ufffd')) return null;

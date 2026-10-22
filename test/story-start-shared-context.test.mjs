@@ -110,6 +110,12 @@ test('configuration attributes preserve checkout semantics without a remote clon
   f.git(f.source, 'add', '.'); f.git(f.source, 'commit', '-qm', 'configuration checkout attributes');
   f.git(f.source, 'push', '-q', 'origin', 'HEAD:refs/heads/sflow/config');
   f.git(f.original, 'fetch', '-q', 'origin', 'sflow/config');
+  const closure = configurationObjectClosure(f.original, authority(f).commit, {
+    env: f.env, limits: STORY_CONFIGURATION_OBJECT_CACHE_LIMITS, runCommand: run
+  });
+  assert.equal(closure.checkoutRequired, true);
+  assert.ok(closure.files.some(entry => entry.relative === '.gitattributes'),
+    'checkout transformation controls belong to the hash-verified blob closure');
   const { value: snapshot, counters } = await capture(f, () => loadStoryConfigurationSnapshot(authority(f), options(f)));
   assert.equal(counters['configuration.workspace-object-hit'], 1);
   assert.equal(counters['git.remote.command.clone'] ?? 0, 0);

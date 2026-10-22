@@ -779,8 +779,8 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
     }
     process.chdir(selectedRoot);
   }
-  // Selected-base intake owns an independent workspace checkout. Choose it before generic
-  // workspace repair, status, authority or fetch can open the original (possibly cloud-only) objects.
+  // Resolve workspace membership before generic routing. Intake only selects existing storage;
+  // Start reuses its Git objects and creates the Story worktree without a second full checkout.
   let automaticIntake = null;
   let automaticScope = action => action();
   if (definition.name === 'start' || definition.name === 'story' && ['start', 'prepare-worktree', 'prepare-configuration'].includes(positionals[1])

@@ -1331,13 +1331,20 @@ export class IntakePanel {
     this.preflightController = controller;
     this.preflightKey = JSON.stringify(command);
     this.update({ ...emptyStoryPreflight(), basePreflightChecking: true,
-      basePreflightReason: this.form.targetWorkspace ? 'Preparing the selected branch in workspace/repos…' : null }, { background: true });
+      basePreflightReason: 'Checking the selected branch and workflow without downloading application files…' }, { background: true });
     const armDeadline = () => setTimeout(() => controller.abort(new Error(
       `Story-start readiness timed out after ${STORY_READINESS_TIMEOUT_MS / 60_000} minutes. Your draft and selections are preserved. `
       + 'Check that repository files are available locally (not cloud-only), Git credentials, and remote access, then retry readiness. '
       + 'A timeout does not establish a DNS or network failure.'
     )), STORY_READINESS_TIMEOUT_MS);
     let deadline = armDeadline();
+    const startedAt = Date.now();
+    let activeStage = 'Checking the selected branch and workflow';
+    const elapsed = setInterval(() => {
+      if (version === this.preflightVersion && !this.disposed) this.update({
+        basePreflightReason: `${activeStage}… ${Math.floor((Date.now() - startedAt) / 1000)}s elapsed`
+      }, { background: true });
+    }, 1000);
     const timedStages = new Set<string>();
     try {
       const result = await this.storyExecutionClient.run<{
@@ -1358,7 +1365,7 @@ export class IntakePanel {
           timedStages.add(step); clearTimeout(deadline); deadline = armDeadline();
         }
         const label = startProgressLabel(step);
-        if (label) this.update({ basePreflightReason: `${label}…` }, { background: true });
+        if (label) { activeStage = label; this.update({ basePreflightReason: `${label}…` }, { background: true }); }
       } });
       if (version !== this.preflightVersion) return;
       const prepared = result.branchCheckout;
@@ -1434,13 +1441,8 @@ export class IntakePanel {
       const expiresAt = receipt?.issued ? Date.parse(receipt.expiresAt ?? '') : Number.NaN;
       this.intakeReceipt = receipt?.issued && typeof receipt.id === 'string' && Number.isFinite(expiresAt)
         ? { id: receipt.id, expiresAt, key: JSON.stringify(command) } : null;
-      if (this.intakeReceipt && this.form.readinessBaseline !== 'run') {
-        this.prep ??= (require(path.join(__dirname, 'runtime-prewarm.cjs')) as typeof import('../runtime-prewarm.ts'))
-          .intakePreparation(this.storyExecutionClient);
-        this.prep.schedule(this.intakeReceipt.key, [
-          ...intakeCommand(this.form), '--intake-receipt', this.intakeReceipt.id
-        ], result.preflight?.remote);
-      }
+      // A passing preview does not create or populate a worktree in the background. Start owns
+      // the one application checkout; explicit baseline/preparation commands remain available.
     } catch (error) {
       if (version !== this.preflightVersion) return;
       this.preflightKey = null;
@@ -1455,6 +1457,7 @@ export class IntakePanel {
       }, { background: true });
     } finally {
       clearTimeout(deadline);
+      clearInterval(elapsed);
       if (this.preflightController === controller) this.preflightController = null;
     }
   }

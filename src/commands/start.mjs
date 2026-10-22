@@ -393,13 +393,13 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
 
 export async function startCommand(positionals, options) {
   const previousDirectory = process.cwd();
-  const { automaticWorkspaceStoryCheckout, rebaseAutomaticStoryFiles } = await import('../workspace-story-checkout.mjs');
+  const { automaticWorkspaceStoryCheckout, rebaseAutomaticStoryFiles, withAutomaticStoryCheckout } = await import('../workspace-story-checkout.mjs');
   const checkout = await automaticWorkspaceStoryCheckout('start', positionals, options);
   if (!checkout) return startCommandAtRoot(positionals, options);
   rebaseAutomaticStoryFiles(options, previousDirectory);
   options['isolated-worktree'] = true;
   process.chdir(checkout.repositoryPath);
-  try { return await startCommandAtRoot(positionals, options); }
+  try { return await withAutomaticStoryCheckout(checkout, () => startCommandAtRoot(positionals, options)); }
   finally { process.chdir(previousDirectory); }
 }
 
@@ -1185,7 +1185,8 @@ async function startCommandAtRoot(positionals, options) {
         // Destination discovery observed this remote after the launch fetch, a moment ago.
         launchFetchObservation: destination.authority?.ok === true
           ? { url: destination.transportRemote, observation: destination.authority } : null,
-        intakeProof: intakeFresh() ? intakeProof : null
+        intakeProof: intakeFresh() ? intakeProof : null,
+        isolatedWorktrees: Boolean(managedStoryWorktree)
       }))
     : null;
   if (capabilityPreflight?.some((entry) => entry.dryRunVerified)) intakeStatus.reused.push('dry-run');
@@ -1619,6 +1620,7 @@ async function startCommandAtRoot(positionals, options) {
           repository: repository.id,
           target,
           from: branch(target),
+          isolatedWorktree: Boolean(managedStoryWorktree),
           targetBranchExisted: refs.has(`refs/heads/${canonicalBranch}`),
           baseCommit: refs.get(baseRef) ?? null
         };
@@ -1678,7 +1680,12 @@ async function startCommandAtRoot(positionals, options) {
     capabilityRepositoriesPrepared = await prepareCapabilityRepositories(
       storyBase.workspaceRoot, storyBase.plan, canonicalBranch, {
         remote, lifecycleRoot: managedStoryWorktree ? root : null,
-        fetched: Boolean(capabilityPreflight)
+        fetched: Boolean(capabilityPreflight), isolatedWorktrees: Boolean(managedStoryWorktree), workId: id,
+        onPrepared: async entry => {
+          const sibling = siblingRepositories.find(value => value.repository === entry.repository);
+          if (sibling) sibling.preparedWorktree = entry.preparedWorktree;
+          await updateStoryStartJournal(root, id, startJournal.transactionId, { siblingRepositories });
+        }
       }
     );
     if (!optionBoolean(options, 'json')) printCapabilityBase(storyBase.plan, capabilityRepositoriesPrepared);

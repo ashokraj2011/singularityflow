@@ -1,5 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
+import { realpathSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, readdir, unlink } from 'node:fs/promises';
 import { branch, gitCommonDir, governedCommitIdentity, head, refExists, refHead } from './git.mjs';
@@ -17,6 +18,7 @@ import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { verifiedSgosLifecycleCandidateForCommit } from './sgos/candidate-lifecycle.mjs';
 import { scavengeStoryDocumentCaptures } from './story-start-documents.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
+import { rollbackStoryWorktree, storyWorktreeChanges, samePlatformPath } from './story-worktree.mjs';
 
 const FAMILY = 'story-start-journal';
 
@@ -317,6 +319,14 @@ async function completedWorkflowAtTarget(root, record, pending = null) {
 }
 
 function restoreRepositoryCheckout(repository, targetBranch) {
+  if (repository?.isolatedWorktree) {
+    if (!repository.preparedWorktree || !refExists(repository.target, `refs/heads/${targetBranch}`)
+        && !refExists(repository.target, `refs/heads/${repository.preparedWorktree.stagingBranch}`)) return null;
+    try {
+      const result = rollbackStoryWorktree(repository.preparedWorktree);
+      return result.retained ? `${repository.repository}: isolated Story checkout retained at ${result.repositoryPath}` : null;
+    } catch (error) { return `${repository.repository}: ${error.message}`; }
+  }
   if (!repository?.target || !repository?.from) return null;
   const current = run('git', ['branch', '--show-current'], { cwd: repository.target, allowFailure: true });
   if (current.status !== 0) return `${repository.repository}: repository is unavailable`;
@@ -345,6 +355,20 @@ function restoreRepositoryCheckout(repository, targetBranch) {
 
 /** Prove every checkout is still at a state recovery understands before writing any plane. */
 function inspectRepositoryCheckout(repository, targetBranch) {
+  if (repository?.isolatedWorktree) {
+    const prepared = repository.preparedWorktree;
+    if (!prepared || !refExists(repository.target, `refs/heads/${targetBranch}`)
+        && !refExists(repository.target, `refs/heads/${prepared.stagingBranch}`)) return null;
+    try {
+      if (!samePlatformPath(realpathSync(gitCommonDir(prepared.repositoryPath)), realpathSync(gitCommonDir(repository.target)))
+          || ![targetBranch, prepared.stagingBranch].includes(branch(prepared.repositoryPath))
+          || head(prepared.repositoryPath) !== repository.baseCommit
+          || !storyWorktreeChanges(prepared.repositoryPath).clean) {
+        return `${repository.repository}: isolated checkout changed; existing work was preserved`;
+      }
+      return null;
+    } catch (error) { return `${repository.repository}: ${error.message}`; }
+  }
   if (!repository?.target || !repository?.from) return `${repository?.repository ?? 'repository'}: recovery record is incomplete`;
   const current = run('git', ['branch', '--show-current'], { cwd: repository.target, allowFailure: true });
   if (current.status !== 0) return `${repository.repository}: repository is unavailable`;

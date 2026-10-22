@@ -161,7 +161,9 @@ paths without cloning application code. `workspace use` can select that workspac
 repository as `missing` until files are needed. Starting work materializes the repositories
 required by an unambiguous Story capability; attaching an existing Story can materialize its
 selected deferred repository and safely select its branch. Generic intake
-prepares the required workspace set when no exact binding is known. If files are needed earlier, run
+reports missing repositories without cloning or materializing application files. After Start,
+existing workspace objects are reused for the direct Story worktree; only a missing repository
+needs a download. If files are needed earlier, run
 `sflow workspace repair <WORKSPACE-DIRECTORY> --repository <REPOSITORY-ID>`.
 From inside a saved workspace or one of its subdirectories, `sflow workspace status` and
 `sflow workspace repair --repository <REPOSITORY-ID>` infer that workspace. Outside it, pass

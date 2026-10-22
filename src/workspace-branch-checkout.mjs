@@ -7,7 +7,7 @@ import { GitRemoteSession, requireRemoteObservation, runRemoteGitAsync } from '.
 import { frozenRemoteTransport } from './git-remote-diagnostics.mjs';
 import { processResultSucceeded } from './process-result.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
-import { measureCommandSpan } from './dx-timing-context.mjs';
+import { measureCommandSpan, incrementCommandCounter } from './dx-timing-context.mjs';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
 import { workspaceRepositoryPath } from './workspace-manifest.mjs';
 import { cloneStrategyArguments, normalizeCloneStrategy, partialCloneFallbackDecision } from './clone-strategy.mjs';
@@ -30,7 +30,7 @@ async function safeParents(workspacePath, target) {
 }
 
 export async function prepareWorkspaceBranch(workspace, repositoryId, branch, {
-  signal = null, env = process.env, runGit = runRemoteGitAsync, reuse = false
+  signal = null, env = process.env, runGit = runRemoteGitAsync, reuse = false, materialize = true
 } = {}) {
   workspaceBranchFolder(branch);
   const repository = Object.hasOwn(workspace.repositories, repositoryId) ? workspace.repositories[repositoryId] : null;
@@ -78,6 +78,7 @@ export async function prepareWorkspaceBranch(workspace, repositoryId, branch, {
     if (!commit) throw new SingularityFlowError(`Selected branch '${branch}' is not published.`, { code: 'STORY_BASE_INVALID' });
     // --no-local also prevents hardlink/alternate borrowing for local-path remotes in tests or offices.
     const strategy = normalizeCloneStrategy(repository.clone);
+    incrementCommandCounter('workspace.branch-clones');
     const cloned = await measureCommandSpan('start.branch-download', () => invoke(['clone', '--no-local', '--no-tags', '--single-branch', '--no-checkout',
       '--no-recurse-submodules', ...cloneStrategyArguments(strategy), '--branch', branch, '--', transport.remote, target]));
     if (strategy.mode !== 'full') {
@@ -95,7 +96,7 @@ export async function prepareWorkspaceBranch(workspace, repositoryId, branch, {
       'The selected branch moved during the download. The download and original repository are preserved; retry for its new revision.',
       { code: 'STORY_BASE_INVALID' });
     if (strategy.mode === 'blobless-sparse') await invoke(['sparse-checkout', 'set', '--cone', '--', ...strategy.sparseCone], target);
-    await invoke(['checkout', branch], target);
+    if (materialize) await measureCommandSpan('start.checkout-files', () => invoke(['checkout', branch], target));
     if ((await invoke(['rev-parse', 'HEAD'], target)).stdout.trim() !== commit) {
       throw new SingularityFlowError('The fresh checkout no longer matches the downloaded revision. It was preserved, not selected.',
         { code: 'STORY_BASE_INVALID' });

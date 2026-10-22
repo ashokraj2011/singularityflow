@@ -1,4 +1,4 @@
-/** Automatic, machine-local new-Story execution locations. Never fetch in the old objects. */
+/** Resolve new-Story execution locations without copying an existing workspace repository. */
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
@@ -14,6 +14,11 @@ import { measureCommandSpan } from './dx-timing-context.mjs';
 const preparations = new WeakMap();
 const preparationScope = new AsyncLocalStorage();
 export function withAutomaticStoryCheckout(preparation, action) { return preparationScope.run(preparation, action); }
+/** Process-private location handoff; never accept execution paths from preview JSON or argv. */
+export function automaticStoryRepositoryPath(repositoryId, branch) {
+  return preparationScope.getStore()?.repositories?.find(entry =>
+    entry.repositoryId === repositoryId && entry.branch === branch)?.repositoryPath ?? null;
+}
 const canonical = async (file) => realpath(file).catch(error => {
   if (error.code === 'ENOENT') return path.resolve(file);
   throw error;
@@ -142,16 +147,27 @@ export async function automaticWorkspaceStoryCheckout(command, positionals, opti
   const cancel = () => controller.abort();
   process.once('SIGTERM', cancel); process.once('SIGINT', cancel);
   try {
-    const repositories = await measureCommandSpan('start.branch-checkout', async () => {
+    const repositories = await measureCommandSpan('start.workspace-reuse', async () => {
       const locations = [];
       for (const member of required) {
         const branch = request.selection.overrides[member.id] ?? request.selection.all ?? member.defaultBranch;
         workspaceBranchFolder(branch);
         if (recovered?.repositoryId === member.id && recovered.record.branch === branch) {
-          locations.push({ repositoryId: member.id, repositoryPath: recovered.repositoryPath, branch, reused: true });
+          locations.push({ repositoryId: member.id, repositoryPath: recovered.repositoryPath, branch, reused: true, independent: true });
         } else {
-          prepareBranch ??= (await import('./workspace-branch-checkout.mjs')).prepareWorkspaceBranch;
-          locations.push(await prepareBranch(workspace, member.id, branch, { reuse: true, env, signal: controller.signal }));
+          const repositoryPath = await canonical(workspaceRepositoryPath(workspace, member));
+          if (await lstat(path.join(repositoryPath, '.git')).catch(error => error.code === 'ENOENT' ? null : Promise.reject(error))) {
+            locations.push({ repositoryId: member.id, repositoryPath, branch, reused: true, independent: false });
+          } else if (request.start) {
+            // Only Start may download a missing repository. Do not materialize an intermediate
+            // application checkout: the existing isolated launch creates the one Story worktree.
+            prepareBranch ??= (await import('./workspace-branch-checkout.mjs')).prepareWorkspaceBranch;
+            locations.push({ ...await prepareBranch(workspace, member.id, branch,
+              { reuse: true, materialize: false, env, signal: controller.signal }), independent: true });
+          } else {
+            throw new SingularityFlowError(`Workspace repository '${member.id}' is not available locally. Repair the workspace before starting; intake did not clone or change it.`,
+              { code: 'WORKSPACE_REPOSITORY_MISSING', details: { repositoryPath } });
+          }
         }
       }
       return locations;

@@ -80,7 +80,9 @@ function nextActions(workflow, phase, sourceReviewEvidence, authoringProgress) {
   ];
   if (phase.status === 'awaiting_approval') return [
     copilotAction({ skill: '/sflow-approve', command: `singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`, reason: `Approve ${phase.id} using an authorized human Git identity; the phase-default agent is recorded automatically.` }),
-    copilotAction({ skill: '/sflow-reject', command: `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --fetch --to <phase> --reason <reason>`, reason: `Return ${phase.id} for correction.` })
+    // A step whose policy names no return target cannot be rejected; offer only what reject accepts.
+    ...((phase.approvalPolicy?.rejectTo ?? [phase.id]).length ? [copilotAction({ skill: '/sflow-reject', command: `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --fetch --to <phase> --reason <reason>`,
+      reason: `Return ${phase.id} for correction${phase.approvalPolicy?.rejectTo?.length ? ` (to ${phase.approvalPolicy.rejectTo.join(', ')})` : ''}.` })] : [])
   ];
   const regenerate = phaseNeedsGeneration(workflow, phase);
   if (regenerate && (authoringProgress ?? (phase.generationIntent ? phaseAuthoringProgress(workflow, phase) : null))?.next) {

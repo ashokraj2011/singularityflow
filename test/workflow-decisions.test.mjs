@@ -185,6 +185,11 @@ test('rules choose routes from recorded values, and a loop stops for a person at
   workflow.decisionRounds['until-ready'] = { count: 2 };
   const limit = decisionOutcome(workflow, workflow.phases.design);
   assert.deepEqual([limit.kind, limit.reason], ['pause', 'limit']);
+  assert.match(describeOutcome(workflow, again), /\(round 1 of 2\)\.$/u);
+  // A person may send it back once the rounds are used; that round is never "3 of 2".
+  const chosen = describeOutcome(workflow, { ...again, round: 3, by: 'person' });
+  assert.doesNotMatch(chosen, /3 of 2/u);
+  assert.match(chosen, /round 3, beyond its 2-round limit, chosen by a person/u);
   workflow.phases.design.decisionInputs.values = { ready: 'yes' };
   assert.equal(decisionOutcome(workflow, workflow.phases.design).kind, 'next', 'a met goal moves on even after rounds were used');
 

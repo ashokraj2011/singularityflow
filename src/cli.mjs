@@ -4058,7 +4058,7 @@ function printDecisionView(view) {
   }
   console.log(`Decisions in ${view.workId}:`);
   for (const decision of view.decisions) {
-    const rounds = decision.maxRounds ? ` · round ${decision.rounds} of ${decision.maxRounds} used` : '';
+    const rounds = decision.maxRounds ? ` · ${Math.min(decision.rounds, decision.maxRounds)} of ${decision.maxRounds} rounds used${decision.rounds > decision.maxRounds ? `, then ${decision.rounds - decision.maxRounds} more chosen by a person` : ''}` : '';
     console.log(`  After ${decision.afterLabel} — ${decision.label} (${decision.kind}${rounds})`);
     for (const route of decision.routes) {
       const where = route.reach === 'backward' ? `back to ${route.toLabel}`

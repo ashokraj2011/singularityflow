@@ -9,8 +9,9 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
-  ESCALATION_THRESHOLD, findingEscalation, findingFingerprint, observeFindingStreak, worktreeAttempt
+  ESCALATION_THRESHOLD, escalateRefusalEnvelope, findingEscalation, findingFingerprint, observeFindingStreak, worktreeAttempt
 } from '../src/finding-escalation.mjs';
+import { refusalEnvelope, renderRefusalPlan } from '../src/refusal-remediation.mjs';
 
 test('a repeat counts only when the attempt changed, and a different finding starts again', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-streak-'));
@@ -48,4 +49,21 @@ test('the escalation names a dispute only where the gate honours one, and always
   const other = findingEscalation({ count: 4, code: 'artifact.placeholder.unresolved', workId: 'W', phaseId: 'p' });
   assert.deepEqual(other.routes.map((route) => route.kind), ['documentation', 'inspect']);
   assert.match(other.routes[0].command, /explain findings --section "Document quality findings"/u);
+});
+
+test('the escalation step carries every route field, so the text plan names its Copilot route', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-escalation-render-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  spawnSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+  const error = Object.assign(new Error('Delivery evidence is missing.'), { code: 'CODE_DELIVERY_EVIDENCE_REQUIRED',
+    details: { workId: 'ESC-3', phase: 'implementation', problems: ['no acceptance test'] } });
+  const argv = ['phase', 'publish', 'implementation'];
+  let envelope;
+  for (let count = 0; count < ESCALATION_THRESHOLD; count += 1) envelope = escalateRefusalEnvelope(refusalEnvelope(error, argv), error, root);
+  const [step] = envelope.remediationPlan.steps;
+  assert.equal(step.id, 'escalate-repeated-finding');
+  assert.equal(step.copilotCommand, '/sf-docs');
+  const text = renderRefusalPlan(envelope.remediationPlan);
+  assert.doesNotMatch(text, /undefined/u);
+  assert.match(text, /Copilot: \/sf-docs\n\s+Shell: singularity-flow explain findings --section/u);
 });

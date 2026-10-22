@@ -125,6 +125,13 @@
       },
       "digest": "c7a87dced91aa73fe3f8302a6a0098dee67b3745a45a6a494c3ac7b730e2bbd9"
     },
+    "scripts/direct-story-worktree-benchmark.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "2b67486a00d9dc4054b6ffc029051a6944d5d67abe3ed3d63542e362c951a2f9"
+    },
     "scripts/story-readiness-benchmark.mjs": {
       "counts": {
         "command-git": 7,

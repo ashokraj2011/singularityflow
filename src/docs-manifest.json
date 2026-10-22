@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "12bda1160dd013098565f123f91d44cf19887a52",
+  "sourceCommit": "46bfa09bea23f24234f0109557b407c888ce3db7",
   "topicCount": 85,
-  "contentSha256": "e78cbbfff2d7d0bc14db08169edb2d245cba1c7a323b6ea7968f9c49529cca3b",
+  "contentSha256": "0a20732d0e59055161e319c05af1ba540e8af36b0639073eff3bb2006bbdf9cd",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -568,8 +568,8 @@
     {
       "id": "starting-work",
       "title": "Starting work",
-      "version": 30,
-      "sha256": "93d6ca7e468e1e333e878cdc5104bcdb7375bfdc5b8c2794cb85f3be61cfe221",
+      "version": 31,
+      "sha256": "ea3351bcb27e63e2deac5c9d6e6fdf3ceabf37bcb554e095f7eafbc1df8a3ecf",
       "routingSha256": "5693a64459940975a49c2840529f78c8668f80c781e37f8b1b33e46042b54d08",
       "file": "starting-work.md"
     },
@@ -672,8 +672,8 @@
     {
       "id": "workspaces-and-sessions",
       "title": "Workspaces, sessions, and current selection",
-      "version": 16,
-      "sha256": "a820a2d8abd874d682b96fe09eb15ed99f4de8de86b43e151930c04e0e53074c",
+      "version": 17,
+      "sha256": "c9069bcc8c5979d818974f5270d6575e906cbf23e222469d70e21d86dbbb6f0e",
       "routingSha256": "5c112c0653f816dd58697fe7898162ae44cb1679460dc56dece3daa01073e94a",
       "file": "workspaces-and-sessions.md"
     },

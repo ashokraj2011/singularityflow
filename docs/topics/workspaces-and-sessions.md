@@ -16,7 +16,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 16
+version: 17
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing repository state.
 

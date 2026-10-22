@@ -88,7 +88,11 @@ their pinned workflow; installing an updated template does not rewrite a running
    use the governed `reopen` path instead. Neither action silently edits or publishes source.
 4. Resume the new Code generation, repair the source and tests, publish a new passing receipt,
    and repeat the normal submission, approval, Testing, and Code-checking gates. Do not treat
-   the earlier Code receipt as proof for the changed generation.
+   the earlier Code receipt as proof for the changed generation. When the reviewer asked only for
+   a test, change only the test: the approved product source carries over unchanged and its
+   clause comments still count, so no product-source edit is needed. If no change turns out to be
+   needed, a Testing reviewer withdraws the return with
+   `singularity-flow story rework roll-forward --change-request <CR-ID>` instead.
 
 During Code, a developer may instead refine the current unpublished Candidate before publication:
 
@@ -117,7 +121,9 @@ singularity-flow reject testing --to implementation --repair --reason "Describe 
 Review the returned paths and exact confirmation digest, then rerun with `--confirm <sha256>`
 (Copilot: `/sf-reject`). The reviewer-authorized change request preserves the dirty files but
 reopens Code, where a new generation must pass structured tests and approval. A test-only repair
-can reuse unchanged approved product source; it must not add a fake product edit. A transient
+can reuse unchanged approved product source; it must not add a fake product edit. If the returned
+edits are all undone in Code, the generation publishes the approved bytes again as no further
+change, with fresh tests and approval. A transient
 browser or environment failure with **no** source/test change should be re-observed in Testing,
 not sent back to Code. Protected workflow configuration still uses its separate authority.
 

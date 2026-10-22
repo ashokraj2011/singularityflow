@@ -12,7 +12,8 @@ import {
 } from './manual-authorship.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import {
-  assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, otherStoryTagsNote, phaseRequiresCodeDelivery
+  assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, otherStoryTagsNote, phaseRequiresCodeDelivery,
+  unchangedClauseTagsNote
 } from './delivery-evidence.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import { commandGuidanceForCommands } from './safe-command-guidance.mjs';
@@ -253,7 +254,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
         findings.push({
           code: 'code.delivery.source-clause-tag-missing', category: 'traceability',
           path: missing.expectedPaths?.[0] ?? null, line: null, value: missing.clauseId,
-          message: `Planned clause ${missing.clauseId} needs @clause:${missing.clauseId} in an exact planned product source path: ${missing.expectedPaths.join(', ')}${otherStoryTagsNote(missing.otherStoryTags)}.`,
+          message: `Planned clause ${missing.clauseId} needs @clause:${missing.clauseId} in an exact planned product source path: ${missing.expectedPaths.join(', ')}${otherStoryTagsNote(missing.otherStoryTags)}${unchangedClauseTagsNote(missing.unchangedTags)}.`,
           fingerprint: null
         });
       }
@@ -288,6 +289,10 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
           message: finding.message, fingerprint: null
         });
       }
+      // A generation a return left unchanged names that return's withdrawal, a person's decision.
+      const deliveryRoute = error.details?.deliveryRoute;
+      if (deliveryRoute?.command && findings.length) codeEvidenceRepair ??= { class: 'human-context',
+        guidance: deliveryRoute.guidance, command: deliveryRoute.command, skill: deliveryRoute.skill };
     }
   }
 

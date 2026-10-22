@@ -23,7 +23,11 @@ function run(command, args, cwd, { allowFailure = false } = {}) {
   return result;
 }
 
-for (const workType of ['classic-delivery', 'quick-fix']) test(`${workType}: dirty review returns changed test bytes to Code with fresh evidence`, async (t) => {
+/**
+ * A Story of `workType` whose Code step published, submitted and (where it asks for one) approved
+ * a first generation that changes `src/value.mjs` with its clause tag and an acceptance-tagged test.
+ */
+async function approvedCodeStory(t, workType) {
   const codePhase = workType === 'quick-fix' ? 'implement' : 'implementation';
   const reviewPhase = workType === 'quick-fix' ? 'verify' : 'testing';
   const authorship = workType === 'quick-fix' ? ['deterministic', 'kernel-generator'] : ['human', 'manual-in-place'];
@@ -112,6 +116,17 @@ for (const workType of ['classic-delivery', 'quick-fix']) test(`${workType}: dir
   const originalCodeGeneration = approved.phases[codePhase].generation;
   const originalSource = await readFile(path.join(root, 'src/value.mjs'), 'utf8');
   const priorTest = await readFile(testPath, 'utf8');
+  return {
+    root, workId, codePhase, reviewPhase, authorship, item, summaryPath, testPath, cli, tryCli, workflow,
+    approved, originalCodeGeneration, originalSource, priorTest
+  };
+}
+
+for (const workType of ['classic-delivery', 'quick-fix']) test(`${workType}: dirty review returns changed test bytes to Code with fresh evidence`, async (t) => {
+  const {
+    root, codePhase, reviewPhase, authorship, summaryPath, testPath, cli, tryCli, workflow,
+    approved, originalCodeGeneration, originalSource, priorTest
+  } = await approvedCodeStory(t, workType);
 
   const reviewedTest = `${priorTest}// testing found an assertion fixture to correct\n`;
   await writeFile(testPath, reviewedTest);
@@ -206,5 +221,112 @@ for (const workType of ['classic-delivery', 'quick-fix']) test(`${workType}: dir
   assert.equal(reapproved.phases[codePhase].deliveryEvidence.testingRepair?.changeRequestId,
     returned.changeRequests.at(-1).id);
   assert.equal(await readFile(path.join(root, 'src/value.mjs'), 'utf8'), originalSource);
+  assert.equal(run('git', ['status', '--porcelain'], root).stdout, '');
+});
+
+/** Fill a review step's prepared report so it can be published, citing the Code receipt. */
+async function publishReview(story, phase) {
+  const { root, item, cli, workflow } = story;
+  cli('prepare', phase);
+  const current = await workflow();
+  const artifact = path.join(item, current.phases[phase].requiredArtifact.path);
+  const receiptPath = current.phases[story.codePhase].deliveryEvidence.receiptPath;
+  await writeFile(artifact, (await readFile(artifact, 'utf8'))
+    .replace(/TODO:[^\n]*/gu, `Verified ${story.workId}:AC-001 against ${receiptPath} and the committed passing unit-test receipt.`)
+    .replace(/\bTODO\b/gu, 'matched'));
+  cli('phase', 'publish', phase, '--authored', 'human', '--channel', 'manual-in-place');
+  assert.equal(run('git', ['status', '--porcelain'], root).stdout, '');
+}
+
+test('classic-delivery: a submitted review rejected back to Code accepts a test-only generation', async (t) => {
+  const story = await approvedCodeStory(t, 'classic-delivery');
+  const { root, workId, codePhase, reviewPhase, authorship, summaryPath, testPath, cli, tryCli, workflow, originalSource } = story;
+  await publishReview(story, reviewPhase);
+  cli('submit', reviewPhase);
+  const reject = () => {
+    cli('reject', reviewPhase, '--to', codePhase, '--reason', 'Add a test for a value that is not round');
+    cli('prepare', codePhase);
+  };
+  reject();
+  // Unchanged after the return: the refusal names the reviewer's withdrawal, which really restores
+  // the submitted review, never an edit to make the generation look changed.
+  const withdrawn = (await workflow()).changeRequests.at(-1);
+  assert.equal(withdrawn.testingRepair, undefined, 'an ordinary rejection, not the in-progress repair route');
+  const unchanged = JSON.parse(tryCli('phase', 'prepublish', codePhase, '--json').stdout);
+  const withdraw = `singularity-flow story rework roll-forward --work-id ${workId} --change-request ${withdrawn.id} --json`;
+  assert.equal(unchanged.status, 'correction-required');
+  assert.equal(unchanged.commands.next, withdraw);
+  assert.match(unchanged.findings.find((finding) => finding.code === 'code.delivery.incomplete').message,
+    new RegExp(`Nothing changed since generation 1, which ${withdrawn.id} returned to ${codePhase}`, 'u'));
+  // Recovery and the refused publication name the same withdrawal.
+  assert.ok(cli('recover', workId, '--phase', codePhase, '--json').stdout.includes(withdraw));
+  const refused = tryCli('phase', 'publish', codePhase, '--authored', authorship[0], '--channel', authorship[1]);
+  assert.notEqual(refused.status, 0);
+  assert.ok(`${refused.stdout}${refused.stderr}`.includes(withdraw), `${refused.stdout}${refused.stderr}`);
+  const plan = JSON.parse(cli('story', 'rework', 'roll-forward', '--work-id', workId, '--change-request', withdrawn.id, '--json').stdout);
+  cli('story', 'rework', 'roll-forward', '--work-id', workId, '--change-request', withdrawn.id, '--confirm', plan.confirmation);
+  const restored = await workflow();
+  assert.deepEqual([restored.currentPhase, restored.phases[reviewPhase].status, restored.phases[codePhase].status],
+    [reviewPhase, 'awaiting_approval', 'approved']);
+  assert.equal(restored.changeRequests.at(-1).status, 'abandoned');
+
+  reject();
+  const request = (await workflow()).changeRequests.at(-1);
+  // The reviewer asked only for a test: the approved source stays byte-for-byte as generation 1.
+  await writeFile(testPath, `${story.priorTest}test('value is an integer', () => assert.ok(Number.isInteger(value)));\n`);
+  await writeFile(summaryPath, `${await readFile(summaryPath, 'utf8')}\n## Test change\n\nAdded the requested test; the approved product source is unchanged.\n`);
+  const prepublish = JSON.parse(tryCli('phase', 'prepublish', codePhase, '--json').stdout);
+  assert.equal(prepublish.status, 'ready', JSON.stringify(prepublish.findings, null, 1));
+  cli('phase', 'publish', codePhase, '--authored', authorship[0], '--channel', authorship[1]);
+  cli('submit', codePhase);
+  cli('approve', codePhase, '--yes');
+  const reapproved = await workflow();
+  const evidence = reapproved.phases[codePhase].deliveryEvidence;
+  assert.equal(reapproved.phases[codePhase].generation, story.originalCodeGeneration + 1);
+  assert.equal(evidence.validation.status, 'passed');
+  assert.deepEqual(evidence.testingRepair, {
+    changeRequestId: request.id, priorGeneration: story.originalCodeGeneration,
+    priorReceiptSha256: story.approved.phases[codePhase].deliveryEvidence.receiptSha256, reusedSourcePaths: ['src/value.mjs']
+  });
+  assert.equal(await readFile(path.join(root, 'src/value.mjs'), 'utf8'), originalSource);
+  // The review reads the new generation's evidence as it reads any other.
+  await publishReview(story, reviewPhase);
+  cli('submit', reviewPhase);
+  assert.equal(run('git', ['status', '--porcelain'], root).stdout, '');
+});
+
+test('classic-delivery: a review repair whose test edit is undone publishes the approved bytes again', async (t) => {
+  const story = await approvedCodeStory(t, 'classic-delivery');
+  const { root, codePhase, reviewPhase, authorship, summaryPath, testPath, cli, tryCli, workflow, originalSource, priorTest } = story;
+  await writeFile(testPath, `${priorTest}// testing found an assertion fixture to correct\n`);
+  cli('prepare', reviewPhase);
+  const preview = tryCli('reject', reviewPhase, '--to', codePhase, '--repair', '--reason', 'Correct the unit-test fixture', '--json');
+  const digest = `${preview.stdout}\n${preview.stderr}`.match(/sha256:[a-f0-9]{64}/u)?.[0];
+  cli('reject', reviewPhase, '--to', codePhase, '--repair', '--reason', 'Correct the unit-test fixture', '--confirm', digest);
+  const request = (await workflow()).changeRequests.at(-1);
+  assert.ok(request.testingRepair);
+  const beginRefusal = tryCli('phase', 'begin', codePhase);
+  const adoption = `${beginRefusal.stdout}\n${beginRefusal.stderr}`.match(/sha256:[a-f0-9]{64}/u)?.[0];
+  cli('phase', 'begin', codePhase, '--adopt-existing', '--confirm', adoption);
+  cli('prepare', codePhase);
+  // The author finds the tester's edit was wrong and restores the approved test bytes: there is
+  // nothing further to change, and nothing to invent.
+  await writeFile(testPath, priorTest);
+  await writeFile(summaryPath, `${await readFile(summaryPath, 'utf8')}\n## Test repair\n\nThe returned fixture edit was not needed; the approved bytes stand.\n`);
+  const prepublish = JSON.parse(tryCli('phase', 'prepublish', codePhase, '--json').stdout);
+  assert.equal(prepublish.status, 'ready', JSON.stringify(prepublish.findings, null, 1));
+  cli('phase', 'publish', codePhase, '--authored', authorship[0], '--channel', authorship[1]);
+  cli('submit', codePhase);
+  cli('approve', codePhase, '--yes');
+  const reapproved = await workflow();
+  const evidence = reapproved.phases[codePhase].deliveryEvidence;
+  assert.equal(reapproved.phases[codePhase].generation, story.originalCodeGeneration + 1);
+  assert.equal(evidence.validation.status, 'passed');
+  assert.equal(evidence.testingRepair?.changeRequestId, request.id);
+  assert.deepEqual(evidence.testingRepair?.reusedSourcePaths, ['src/value.mjs']);
+  assert.equal(await readFile(path.join(root, 'src/value.mjs'), 'utf8'), originalSource);
+  assert.equal(await readFile(testPath, 'utf8'), priorTest);
+  await publishReview(story, reviewPhase);
+  cli('submit', reviewPhase);
   assert.equal(run('git', ['status', '--porcelain'], root).stdout, '');
 });

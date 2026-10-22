@@ -562,6 +562,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
                 ? `${error.message} This runtime cannot produce the required structured Rust test receipt. Use a supported registered adapter or a separately approved test policy; repeating /sf-code or publication against unchanged inputs cannot recover this phase.`
                 : testConfiguration
                   ? `${error.message} Inspect the suggestions with capability test-setup. An approved test command (kind: test, argv, workingDirectory, affectedRoots and a result adapter) from the original configuration authority is adopted for this Story through a reviewed story test-policy amend --reason TEXT; refreshing configuration alone does not change its pin. Code and tests are preserved, the tests still run, and repeating publication against unchanged inputs cannot recover this phase.`
+                  : error.details?.deliveryRoute ? error.message
                   : `${error.message} Keep this phase in progress, complete its application and test evidence, then inspect recovery again before publication.`,
           // Repository-owned runner declarations are ordinary in-scope application edits. A
           // malformed pinned command is not: it requires a distinct reviewed policy amendment.
@@ -573,10 +574,10 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
                 : invalidPinnedCommand && Number(phase.generation) === 0
                   ? 'singularity-flow explain test-recovery'
                   : null
-            : `singularity-flow phase show ${phase.id} --json`,
+            : error.details?.deliveryRoute?.command ?? `singularity-flow phase show ${phase.id} --json`,
           skill: configurationDependency
             ? missingRepositoryRunner ? '/sf-phase-documents' : testConfiguration ? '/sf-test-setup' : null
-            : '/sf-phase-documents',
+            : error.details?.deliveryRoute?.skill ?? '/sf-phase-documents',
           authoringSkill: configurationDependency ? null : generationSkill(phase, workflow)
         }));
       }

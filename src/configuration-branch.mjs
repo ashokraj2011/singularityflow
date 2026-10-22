@@ -79,7 +79,7 @@ const STORY_CONFIGURATION_TRANSACTIONS = { getStore: () => creationConfiguration
 
 /** Disposable checkout ownership lasts one start only; no persisted path is a reuse capability. */
 export async function withStoryConfigurationTransaction(action) {
-  return withCreationContext(action);
+  return withCreationContext(action, { configurationTransfers: true });
 }
 
 /** Consume only the checkout this transaction itself cloned and verified, once. */
@@ -91,6 +91,16 @@ export async function takeStoryConfigurationCheckout(snapshot, remote, expectedC
   verifiedStoryDefinition(snapshot);
   lease.taken = true;
   const env = enterpriseGitEnvironment();
+  if (lease.sourceRepository && !lease.directory) {
+    // A verified workspace-object capture has no checkout to lend. Borrow its objects for a
+    // disposable configuration-only index, not another remote clone/full application checkout.
+    // Ordinary template/commit hooks remain installed and execute normally; do not disable them.
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-enrollment-config-'));
+    owner.directories.add(directory);
+    await cloneWorkspaceConfiguration(lease.sourceRepository, directory, expectedCommit, remote, env);
+    lease.directory = directory;
+    incrementCommandCounter('configuration.enrollment-object-checkout');
+  }
   const current = configurationRepositoryHead(lease.directory, env);
   const status = gitReadOutput(run('git', ['status', '--porcelain=v1', '--untracked-files=all'], {
     cwd: lease.directory, env, allowFailure: true
@@ -1491,12 +1501,27 @@ async function cloneConfiguration(remote, target, { env = process.env, configura
       { code: clone.failure?.code ?? 'REMOTE_UNKNOWN' });
   }
   const commit = configurationRepositoryHead(target, frozen.env);
-  if (configurationOnly) {
+  if (configurationOnly) await projectConfigurationCheckout(target, commit, frozen.env);
+  return commit;
+}
+
+async function cloneWorkspaceConfiguration(source, target, commit, remote, env) {
+  run('git', ['-c', 'core.autocrlf=false', 'clone', '--quiet', '--shared', '--no-checkout',
+    '--single-branch', '--no-tags', '--config', 'core.sparseCheckout=true',
+    '--config', 'core.sparseCheckoutCone=false', '--', source, target], { env });
+  run('git', ['remote', 'set-url', 'origin', remote], { cwd: target, env });
+  run('git', ['update-ref', `refs/heads/${CONFIGURATION_BRANCH}`, commit], { cwd: target, env });
+  run('git', ['symbolic-ref', 'HEAD', `refs/heads/${CONFIGURATION_BRANCH}`], { cwd: target, env });
+  await projectConfigurationCheckout(target, commit, env);
+}
+
+async function projectConfigurationCheckout(target, commit, env) {
+  {
     // Historical configuration branches can still contain the entire application. Keep its full
     // parent tree in the index, but check out only exact configuration files. Enrollment's scoped
     // git add/commit therefore preserves every omitted application blob without statting it.
     const entries = configurationTreeEntries(target, commit, null, {
-      env: frozen.env, includeNonRegular: true
+      env, includeNonRegular: true
     });
     const paths = [...entries.keys()];
     const nonRegular = [...entries.values()].filter(entry => !/^100(?:644|755)$/u.test(entry.mode));
@@ -1536,11 +1561,10 @@ async function cloneConfiguration(remote, target, { env = process.env, configura
       );
     }
     await writeFile(path.join(info, 'sparse-checkout'), patterns, { flag: 'wx', mode: 0o600 });
-    run('git', ['read-tree', '-mu', commit], { cwd: target, env: frozen.env });
+    run('git', ['read-tree', '-mu', commit], { cwd: target, env });
     incrementCommandCounter('configuration.projected-checkouts');
     incrementCommandCounter('configuration.projected-assets', paths.length);
   }
-  return commit;
 }
 
 async function copyVerifiedStateConfiguration(remote, destination, branch = STATE_CONFIGURATION_BRANCH, {
@@ -2468,14 +2492,36 @@ function storyObjectCacheProfile(directory, commit, env, state) {
 
 // A prepared application object store is not an inert cache repository. Read only exact immutable
 // objects through the sealed environment; never interpret its configuration as a policy receipt.
-function storyConfigurationObjectProfile(directory, commit, env, state) {
+function storyConfigurationObjectProfile(directory, commit, env, state, { configurationOnly = false } = {}) {
   const declined = (reason) => { incrementCommandCounter(`configuration.object-cache-profile-${reason}`); return false; };
   const local = (args, maxBuffer = 64 * 1024, options = {}) => storyObjectCacheLocal(state, args, {
     cwd: directory, env, maxBuffer, ...options
   });
   const checked = local(['fsck', '--strict', '--no-reflogs', '--no-dangling', commit]);
   if (!processResultSucceeded(checked)) return declined('integrity');
-  const listed = local(['ls-tree', '-r', '-z', '--full-tree', commit],
+  let listed;
+  if (configurationOnly) {
+    // Historical sflow/config branches can include a large application. Qualify only the complete
+    // reviewed dependency closure, never count application files against a configuration budget.
+    const entries = configurationTreeEntries(directory, commit, null, {
+      env, includeNonRegular: true, maxBuffer: STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.listingBytes
+    });
+    const attributes = new Set(['.gitmodules']);
+    for (const relative of entries.keys()) {
+      let parent = path.posix.dirname(relative);
+      for (;;) {
+        attributes.add(parent === '.' ? '.gitattributes' : `${parent}/.gitattributes`);
+        if (parent === '.') break;
+        parent = path.posix.dirname(parent);
+      }
+    }
+    const transforms = local(['ls-tree', '-z', '--name-only', commit, '--', ...attributes],
+      STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.listingBytes);
+    if (!processResultSucceeded(transforms)) return declined('shape');
+    if (transforms.stdout.length) { state.checkoutRequired = true; return declined('transforms'); }
+    listed = { status: 0, stdout: Buffer.from([...entries.values()].map(entry =>
+      `${entry.mode} blob ${entry.object}\t${entry.relative}\0`).join('')) };
+  } else listed = local(['ls-tree', '-r', '-z', '--full-tree', commit],
     STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.listingBytes, { encoding: 'buffer' });
   let listing;
   try { listing = new TextDecoder('utf-8', { fatal: true }).decode(listed.stdout); }
@@ -2781,6 +2827,13 @@ async function loadStoryConfigurationSnapshotFresh(authority, {
     }
   }
   if (useObjectCache === true) {
+    // Workspace object reuse works on Windows too: no persisted compiled receipt, borrowed
+    // alternates, ACL trust shortcut, or extra cache repository. Live authority is still observed.
+    const workspace = STORY_CONFIGURATION_TRANSACTIONS.getStore()?.active && session?.cwd
+      ? await workspaceStoryConfigurationSnapshot(session.cwd, authority, {
+        env, captureAuthoringBytes, session, reuseAuthorityObservation
+      }) : null;
+    if (workspace) return workspace;
     const prepared = session?.cwd ? await preparedStoryConfigurationSnapshot(session.cwd, authority, {
       env, captureAuthoringBytes, session, reuseAuthorityObservation
     }) : null;
@@ -2863,6 +2916,67 @@ async function loadStoryConfigurationSnapshotFresh(authority, {
     }
   }
   throw lastMoved;
+}
+
+async function workspaceStoryConfigurationSnapshot(root, authority, {
+  env, captureAuthoringBytes, session, reuseAuthorityObservation
+}) {
+  if (env.SINGULARITY_FLOW_STORY_CONFIGURATION_CACHE === 'off' || authority.branch !== CONFIGURATION_BRANCH
+      || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(authority.commit ?? '')) return null;
+  const localEnv = inheritEnterpriseGitEnvironment(env, { ...env,
+    GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1'
+  });
+  const present = run('git', ['cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'], {
+    cwd: root, env: localEnv, allowFailure: true, input: `${authority.commit}\n`, maxBuffer: 1024
+  });
+  const presence = gitReadOutput(present, 'Workspace configuration objects').trim();
+  const transfer = presence === `${authority.commit} missing`;
+  if (!transfer && !new RegExp(`^${authority.commit} commit [0-9]+$`, 'u').test(presence)) {
+    throw new SingularityFlowError('Workspace configuration did not resolve to the exact approved commit.',
+      { code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID' });
+  }
+  if (transfer && !STORY_CONFIGURATION_TRANSACTIONS.getStore()?.configurationTransfers) return null;
+  const observed = await configurationBranchHead(authority.remote, { session,
+    refresh: !(reuseAuthorityObservation && session) });
+  requireRemoteObservation(observed.observation, 'Workspace Story configuration authority');
+  if (observed.sha !== authority.commit) throw new SingularityFlowError(
+    'Approved configuration changed before its workspace object read. Refresh and retry; nothing was changed.',
+    { code: 'STORY_CONFIGURATION_AUTHORITY_STALE' });
+  if (transfer) {
+    // Start owns this exact configuration transfer. Read-only intake never downloads objects by
+    // this route. The private ref is retention only; every later use still resolves live authority.
+    const transport = frozenRemoteTransport(authority.remote, { env });
+    const fetched = await runRemoteGitAsync(['fetch', '--quiet', '--no-tags', '--no-write-fetch-head',
+      '--recurse-submodules=no', '--', transport.remote, authority.commit], {
+      cwd: root, env: transport.env, operation: 'remote-configuration'
+    });
+    if (!processResultSucceeded(fetched)) throw new SingularityFlowError(
+      `Cannot fetch the exact approved configuration. ${fetched.failure?.advice ?? 'Review Git access and retry.'}`,
+      { code: fetched.failure?.code ?? 'REMOTE_UNKNOWN' });
+    run('git', ['update-ref', '--no-deref', preparedConfigurationRef(), authority.commit], { cwd: root, env: localEnv });
+    incrementCommandCounter('configuration.workspace-object-fetch');
+  }
+  const state = { cleanupUnproven: false };
+  const profile = storyConfigurationObjectProfile(root, authority.commit, localEnv, state, { configurationOnly: true });
+  if (!profile && !state.checkoutRequired) return null;
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-config-read-'));
+  let retainedCheckout = false;
+  try {
+    if (profile) await materializeStoryObjectCache(root, scratch, profile, localEnv, state);
+    else await cloneWorkspaceConfiguration(root, scratch, authority.commit, authority.remote, env);
+    incrementCommandCounter('configuration.workspace-object-hit');
+    const snapshot = await storyConfigurationSnapshotFromDirectory(authority, scratch, {
+      observedCommit: authority.commit, sourceCommit: authority.commit, env: localEnv,
+      captureAuthoringBytes, gitRoot: profile ? root : scratch, gitRef: authority.commit
+    });
+    const owner = STORY_CONFIGURATION_TRANSACTIONS.getStore();
+    if (owner?.active) {
+      owner.snapshots.set(snapshot, profile ? { sourceRepository: root, taken: false }
+        : { directory: scratch, taken: false });
+      if (!profile) { owner.directories.add(scratch); retainedCheckout = true; }
+    }
+    return snapshot;
+  } finally { if (!retainedCheckout && !state.cleanupUnproven) await removeTemporaryTree(scratch); }
 }
 
 function preparedConfigurationRef() {

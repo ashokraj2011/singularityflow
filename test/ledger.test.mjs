@@ -716,6 +716,24 @@ test('a lifecycle branch, its ledger entry and the entry pin land together in on
   assert.equal(verified.entries, 1);
 });
 
+test('first lifecycle publication creates the orphan ledger, entry and pin atomically without a bootstrap push', async t => {
+  const fixture = await repository(); t.after(() => rm(fixture.parent, { recursive: true, force: true }));
+  const { root, remote } = fixture;
+  git(root, ['switch', '-q', '-c', 'first-story']);
+  const commit = git(root, ['rev-parse', 'HEAD']).stdout.trim();
+  const intent = appendIntent('FIRST-STORY');
+  const timer = commandTimer('first-publication');
+  const result = await withCommandTiming(timer, () => publishBranchWithLedgerEntry(root, enabled, intent,
+    combinedOptions({ root, branch: 'first-story', commit })));
+  assert.equal(result.landed, true);
+  assert.equal(timer.finish().counters['git.remote.command.push'], 1);
+  assert.equal(remoteRef(remote, 'refs/heads/first-story'), commit);
+  assert.equal(remoteRef(remote, 'refs/heads/state'), result.ledger.ledgerCommit);
+  const verified = await verifyLedger(root, enabled);
+  assert.equal(verified.valid, true);
+  assert.equal(verified.entries, 1);
+});
+
 test('a combined push whose response is lost is verified by observation, not repeated', {
   skip: process.platform === 'win32'
 }, async () => {

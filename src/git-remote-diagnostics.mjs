@@ -5,6 +5,10 @@ import {
 } from './git-enterprise-environment.mjs';
 import { networkDisabled, run, SingularityFlowError } from './util.mjs';
 
+let creationRemoteConfiguration = null;
+/** Installed by the lazy creation owner; ordinary cold read surfaces load no creation services. */
+export function installCreationRead(read) { creationRemoteConfiguration = read; }
+
 export const REMOTE_FAILURE_CLASSES = Object.freeze([
   'network-transient',
   'operation-timeout',
@@ -419,8 +423,12 @@ export function configuredRemoteIdentity(root, remote = 'origin', {
   if (!['fetch', 'push'].includes(direction)) {
     throw new SingularityFlowError(`Unsupported Git remote direction '${direction}'.`);
   }
+  // Both directions consume the same file-fenced answer in one Start context. The ordinary Git
+  // fact cache invalidates it on config/include changes; this is not a cached transport authority.
+  // Injected diagnostics retain their original exact-key protocol and failure details.
+  const batch = runCommand === run ? creationRemoteConfiguration?.(root, remote, env) : null;
   const readValues = (key) => {
-    const result = runCommand('git', ['config', '--local', '--get-all', key], {
+    const result = batch ? batch(key) : runCommand('git', ['config', '--local', '--get-all', key], {
       cwd: root, allowFailure: true, env: withoutGitProcessOverrides(env),
       timeoutClass: 'local-read', operation: 'git.remote-config'
     });

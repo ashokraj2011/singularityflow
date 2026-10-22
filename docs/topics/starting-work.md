@@ -14,7 +14,7 @@ related:
   - pins
   - work-intervals
   - supporting-documents
-version: 31
+version: 32
 ---
 Three intake doors, one result: Jira, a manual description, or a Story released from an Epic breakdown. For every new Jira or manual Story, first run `sflow workspace branches --json` and explicitly choose a branch published by every required repository. `sflow start PAY-1234 --jira --from-branch main` then refreshes that remote base, verifies that the configured remote can accept `PAY-1234`, creates the canonical branch, pins its exact base commit, and pushes only `refs/heads/PAY-1234`. The selected base ref is never changed. Existing and Epic-materialized Stories keep their already-pinned lineage instead of choosing a second base.
 
@@ -75,6 +75,25 @@ enterprise-transport budget, and preserves the draft and actual failure details 
 `node scripts/direct-story-worktree-benchmark.mjs --files 10000` qualifies the complete path using
 a disposable local remote, fresh Node processes, Git trace counts, and cold/repeated actions.
 It does not measure a real office network or flush the operating-system cache.
+
+Story creation also reuses exact approved configuration objects already present in the workspace
+on macOS and Windows. Eligibility is bounded by the configuration dependency closure, not by the
+application file count. Start may fetch a missing exact configuration commit and retain it locally;
+intake does not do that speculative transfer. Configuration attributes still use Git's ordinary
+checkout semantics in a disposable configuration-only projection. Enrollment borrows local objects
+without a second remote clone or application checkout, and normal hooks continue to run.
+
+Within one request, exact captured configuration closures share compilation with independent
+consumer copies and rebound runtime paths. Remote URL/push-URL metadata is batched and fenced by
+Git configuration dependency stamps; changes are re-read. Mutable refs, authorization and final
+publication checks remain fresh. An absent ledger can be created with its first lifecycle event
+and pin in one atomic publication under absent-ref leases, with the existing recovery/fallback
+paths retained. `SINGULARITY_FLOW_STORY_CONFIGURATION_CACHE=off` disables workspace-object reuse;
+`SINGULARITY_FLOW_COMPILED_CONFIGURATION_CACHE=off` disables compilation caching.
+
+The benchmark's `--output` JSON retains full command stages, nested spans, classified performance
+traces, per-verb process counts/service time and time outside the command window. Summed service
+time can overlap and is not an additive wall-time breakdown. Terminal output is a compact summary.
 
 On supported hosts, an exact passing intake receipt can be reused even when onboarding has
 pinned the configuration authority. Start still verifies live base, destination, configuration and

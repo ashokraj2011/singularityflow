@@ -6,21 +6,38 @@ const contexts = new AsyncLocalStorage();
 const OID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 const LIMIT = 32 * 1024 * 1024;
 
-export async function withCreationContext(action) {
+export async function withCreationContext(action, { configurationTransfers = false } = {}) {
   if (contexts.getStore()?.active) return action();
+  await import('./creation-git-context.mjs');
   const frame = { active: true, configurations: new Map(), bytes: 0, identities: new Map(),
-    directories: new Set(), snapshots: new WeakMap(), cleanup: null };
+    configurationTransfers, compiled: new Map(), directories: new Set(), snapshots: new WeakMap(), cleanup: null };
   return contexts.run(frame, async () => {
     try { return await action(); }
     finally {
       frame.active = false;
-      frame.configurations.clear(); frame.identities.clear();
+      frame.configurations.clear(); frame.identities.clear(); frame.compiled.clear();
       const cleaned = await Promise.allSettled([...frame.directories].map(directory => frame.cleanup?.(directory)));
       if (cleaned.some(result => result.status === 'rejected')) console.warn(
         'Warning: a disposable configuration checkout could not be removed. The Story result is unchanged.');
       frame.directories.clear();
     }
   });
+}
+
+/** Exact captured dependency closures may share compilation, not live roots or mutable callers. */
+export async function creationCompiledConfiguration(key, root, compile, copy) {
+  const frame = contexts.getStore();
+  if (!frame?.active) return compile();
+  let pending = frame.compiled.get(key);
+  if (pending) incrementCommandCounter('configuration.creation-compiled-reuse');
+  else {
+    pending = Promise.resolve().then(async () => ({ root, definition: await compile() }));
+    if (frame.compiled.size < 4) frame.compiled.set(key, pending);
+  }
+  try {
+    const retained = await pending;
+    return copy(retained.definition, retained.root, root);
+  } catch (error) { frame.compiled.delete(key); throw error; }
 }
 
 export function creationConfigurationOwner(cleanup) {

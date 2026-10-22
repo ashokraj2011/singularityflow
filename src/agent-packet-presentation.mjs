@@ -32,12 +32,22 @@ export function agentOrIndentedJson(forAgent, value) {
   return forAgent ? agentJson(value) : JSON.stringify(value, null, 2);
 }
 
-/** Native-host presentation only; do not alter persisted records, bindings or gate decisions. */
+const sameJson = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+// An action's route fields that its own commandGuidance repeats word for word.
+const ROUTE_MIRRORS = ['command', 'executable', 'argv', 'copyable', 'platformCommands', 'skill', 'copilotCommand', 'modelFreeCommand'];
+
+/**
+ * Native-host presentation only; do not alter persisted records, bindings or gate decisions.
+ *
+ * An action that carries its routes in `commandGuidance` keeps them there once: the same values
+ * beside it are dropped. `act` already reads an action's routes from its commandGuidance first
+ * (agent-output.mjs routes()), so it is unchanged; a value that differs is kept. `[OUT:REQ-022]`
+ */
 export function agentPacketPresentation(packet, platform = process.platform) {
   const visit = value => {
     if (Array.isArray(value)) return value.map(visit);
     if (!value || typeof value !== 'object') return value;
-    return Object.fromEntries(Object.entries(value).map(([key, child]) => {
+    const visited = Object.fromEntries(Object.entries(value).map(([key, child]) => {
       // Every current-platform command remains exact. Unknown hosts retain all alternatives.
       // Never collapse the platform map when no verified command exists for this host.
       if (key === 'platformCommands' && child && typeof child[platform] === 'string') {
@@ -45,6 +55,13 @@ export function agentPacketPresentation(packet, platform = process.platform) {
       }
       return [key, visit(child)];
     }));
+    const guidance = visited.commandGuidance;
+    if (guidance && typeof guidance === 'object' && !Array.isArray(guidance) && (guidance.command || guidance.copilotCommand)) {
+      for (const key of ROUTE_MIRRORS) {
+        if (Object.hasOwn(visited, key) && Object.hasOwn(guidance, key) && sameJson(visited[key], guidance[key])) delete visited[key];
+      }
+    }
+    return visited;
   };
   return visit(packet);
 }
@@ -65,7 +82,6 @@ const PROMPT_RENDERED_TEXTS = [['mutationContract', 'toolProtocol', 'paths'],
   ['mutationContract', 'toolProtocol', 'localVerification', 'guidance'],
   ['retainedExecutionEvidence', 'instruction'], ['evidenceConsistency', 'instruction']];
 export const IN_CONTEXT_TEXT = 'Same text as in context.text.';
-const sameJson = (left, right) => JSON.stringify(left) === JSON.stringify(right);
 
 /**
  * The phase-entry agent view without its copies. `[OUT:REQ-021]` `[OUT:REQ-022]`

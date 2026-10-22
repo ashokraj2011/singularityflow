@@ -198,7 +198,8 @@ test('a real Story delivers source, configuration, test-only, removal, document 
     [['code.delivery.retained-evidence-missing', SCREEN, [ac(6), SCREEN_REQ]]]);
   const [issue] = prepublish.resolution.issues;
   assert.equal(issue.status, 'needs-correction');
-  assert.deepEqual([issue.choices[0].kind, issue.choices[0].copilotCommand, issue.choices[0].command],
+  const choice = issue.choices[0].commandGuidance ?? issue.choices[0]; // the agent view says routes once
+  assert.deepEqual([issue.choices[0].kind, choice.copilotCommand, choice.command],
     ['capture-retained-evidence', '/sf-code', 'singularity-flow phase prepublish implementation --for-agent --json']);
   assert.equal(prepublish.testExecution.handoff.runnerStatus, 'blocked');
   assert.equal(prepublish.testExecution.reason, 'CODE_DELIVERY_EVIDENCE_REQUIRED');

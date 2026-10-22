@@ -121,13 +121,22 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
     detail: `Preview restoring the exact approved bytes of the changed ${upstreamPhases.join(', ')} input. Nothing changes until its plan is confirmed, and a private checkpoint of the edited copy is kept.`
   });
 
-  const mcpHost = await capture(async () => ({
-    ...(await assertMcpPhaseReadiness(root, workflow, phase)), errors: []
-  }));
-  add('mcp-host', 'host', mcpHost.errors, {
+  // Captured like the others, keeping the commands the refusal names for each missing MCP prerequisite,
+  // in order; doctor stays the route when it names none.
+  let mcpHost;
+  try { mcpHost = { ...(await assertMcpPhaseReadiness(root, workflow, phase)), errors: [] }; }
+  catch (error) { mcpHost = { errors: [error.message], sourceCode: error.code ?? null, mcpActions: error.details?.actions ?? [] }; }
+  const [firstMcpAction, ...laterMcpActions] = mcpHost.mcpActions ?? [];
+  add('mcp-host', 'host', mcpHost.errors, firstMcpAction ? {
+    command: firstMcpAction.command, skill: '/sf-mcp', detail: firstMcpAction.label
+  } : {
     command: 'singularity-flow mcp doctor --json', skill: '/sf-mcp',
     detail: 'Inspect the pinned MCP host, warm proof and smoke receipt. Follow its explicit setup or authorization route before collecting evidence; no host was started by this check.'
   }, { code: mcpHost.sourceCode ?? 'MCP_PHASE_NOT_READY', message: mcpHost.errors.join('\n') });
+  if (mcpHost.errors.length) laterMcpActions.forEach((entry, index) => actions.push({
+    id: `resolve-mcp-host:${phase.id}:${index + 2}`, safe: true, automatic: false, mode: 'guided',
+    confirmation: 'none', skill: '/sf-mcp', command: entry.command, detail: entry.label
+  }));
 
   const grounding = await phaseGroundingPreflight(root, config, workflow, phase, {
     configuredProducer: producer, generation, ownership: { proven: Boolean(agent), agent }

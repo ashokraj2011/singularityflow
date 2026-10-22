@@ -1139,7 +1139,7 @@ const PAGES = Object.freeze({
       ['--story-file FILE', 'Read the Story from a YAML file.'],
       ['--reference-repository ID=URL', 'Repeatable read-only source repository. Pair every entry with the same ID in --reference-branch.'],
       ['--reference-branch ID=BRANCH', 'Branch to resolve and freeze as an exact reference commit before Story mutation.'],
-      ['--target-url URL', 'Exact authorized browser target. Required by the POC workflow and pinned into Story state.'],
+      ['--target-url URL', 'Exact authorized browser target, pinned into Story state. Required by the POC workflow; any other workflow with a step that smoke-checks a browser against it takes it here or pins it later with story target-origin. Workflow check and Story-start readiness name those steps.'],
       ['--base BRANCH', 'Cut from this branch instead of the configured default.'],
       ['--fetch', 'Fetch the remote before creating the branch.'],
       ['--json', 'Emit the created Story as JSON.']

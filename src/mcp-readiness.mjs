@@ -14,7 +14,8 @@ import {
   MCP_SCAFFOLD_VERSIONS, MCP_WORKSPACE_PATH, PLAYWRIGHT_MCP_HOST_ARGUMENTS
 } from './mcp-host.mjs';
 import {
-  authorizedMcpOrigins, MCP_SMOKE_MAX_AGE_MS, normalizeMcpTargetOrigin, safeMcpTargetUrl
+  authorizedMcpOrigins, isPlaywrightServer, MCP_SMOKE_MAX_AGE_MS, mcpServerSetupCommands, normalizeMcpTargetOrigin,
+  safeMcpTargetUrl
 } from './mcp-target.mjs';
 import { recordObservedMcpBrowserCapture } from './mcp-evidence.mjs';
 import {
@@ -50,10 +51,6 @@ const MCP_PACKAGE_TREE_MAX_ENTRIES = MCP_PACKAGE_CLOSURE_MAX_FILES + 1;
 const MCP_PACKAGE_CLOSURE_MAX_BYTES = 512 * 1024 * 1024;
 const MCP_PACKAGE_CLOSURE_FILE_MAX_BYTES = 64 * 1024 * 1024;
 const execFileAsync = promisify(execFile);
-
-// Workflow-scoped policy IDs may share the Playwright host. Host-specific containment and
-// authentication checks must follow that host, while receipts remain bound to the policy ID.
-const isPlaywrightServer = (server) => (server?.hostReference ?? server?.id) === 'playwright';
 
 function sources(root, home = os.homedir()) {
   return [
@@ -1798,42 +1795,83 @@ function validSmokeReceipt(receipt, { serverId, configured, expectedOrigins, now
   return { valid: true, origin };
 }
 
-export async function assertMcpPhaseReadiness(root, workflow, phase) {
+/**
+ * Whether a phase's MCP prerequisites hold for this Story on this machine, and the commands that make
+ * each missing one hold, in the order they apply: the Story's authorized origin (no machine setup can
+ * supply it), the host entry, the exact package warm-up, the host attestation, then a live smoke
+ * against that origin. Read-only: nothing is started, warmed, smoked or pinned here.
+ */
+export async function inspectMcpPhaseReadiness(root, workflow, phase) {
   const policy = phase?.mcp ?? { requiredServers: [], requireSmoke: false };
-  if (!policy.requiredServers?.length) return { servers: [] };
+  if (!policy.requiredServers?.length) return { ready: true, errors: [], actions: [], servers: [] };
   const definition = { mcpServers: workflow.resolution?.mcpServers ?? {} };
   const report = await mcpDoctor(root, definition);
   const errors = [];
+  const actions = [];
   const servers = [];
+  const act = (command, label) => {
+    if (!actions.some((entry) => entry.command === command)) actions.push({ command, label });
+  };
   for (const serverId of policy.requiredServers) {
     const configured = definition.mcpServers[serverId];
     const status = report.servers.find((entry) => entry.id === serverId);
+    const hostAbsent = Boolean(status) && status.readiness !== 'misconfigured' && !status.host?.sources?.length;
+    const expectedOrigins = configured && policy.requireSmoke ? authorizedMcpOrigins(workflow, serverId) : [];
+    if (configured && policy.requireSmoke && !expectedOrigins.length) {
+      errors.push(`MCP server '${serverId}' has no Story-pinned authorized origin.`);
+      act(`singularity-flow story target-origin${workflow.workItem?.id ? ` ${workflow.workItem.id}` : ''} --url <AUTHORIZED-URL>`,
+        `Pin the authorized target origin to this Story: the preview names its digest, and a person who approves ${phase.id} confirms it.`);
+    }
     if (!configured || !status) errors.push(`Required MCP server '${serverId}' is not pinned in this Story.`);
-    else if (status.readiness !== 'ready') errors.push(`MCP server '${serverId}' is ${status.readiness}: ${status.reasons.join(' ')}`);
+    else if (status.readiness !== 'ready') {
+      errors.push(`MCP server '${serverId}' is ${status.readiness}: ${status.reasons.join(' ')}`);
+      if (status.readiness === 'misconfigured') {
+        act(`singularity-flow mcp doctor --server ${serverId}`, `Inspect why MCP server '${serverId}' is misconfigured and apply the repair it names.`);
+      } else if (hostAbsent) {
+        act(mcpServerSetupCommands(serverId, configured)[0], `Add the '${configured.hostReference}' host entry, review and commit it, then start and trust the server in VS Code or Copilot CLI.`);
+      }
+    }
     if (isPlaywrightServer(configured) && status?.warm?.status !== 'valid') {
       errors.push(
         `MCP server '${serverId}' has no valid exact-package warm proof (${status?.warm?.status ?? 'unavailable'}${status?.warm?.reason ? `: ${status.warm.reason}` : ''}). Run singularity-flow mcp verify-offline ${serverId} if its package is already acquired, or singularity-flow mcp warm ${serverId} --network.`
       );
+      if (status?.readiness !== 'misconfigured') {
+        act(`singularity-flow mcp warm ${serverId} --network`, `Download and verify the exact Playwright MCP package on this machine (singularity-flow mcp verify-offline ${serverId} when it is already present).`);
+      }
+    }
+    if (configured && (hostAbsent || ['missing', 'stale'].includes(status?.attestation?.status))) {
+      act(`singularity-flow mcp attest ${serverId} --confirm ${serverId}`, `After starting, trusting and authenticating '${configured.hostReference}' in the host, attest it on this machine.`);
     }
     let smoke = null;
     if (configured && policy.requireSmoke) {
-      const expectedOrigins = authorizedMcpOrigins(workflow, serverId);
-      if (!expectedOrigins.length) errors.push(`MCP server '${serverId}' has no Story-pinned authorized origin.`);
+      const smokeCommand = `singularity-flow mcp smoke ${serverId} --url ${expectedOrigins[0] ?? '<AUTHORIZED-URL>'}`;
       smoke = await readSmokeReceipt(root, serverId);
-      if (!smoke || smoke.error) errors.push(`MCP server '${serverId}' has no successful live smoke receipt. Run singularity-flow mcp smoke ${serverId} --url <AUTHORIZED_URL>.`);
-      else {
+      if (!smoke || smoke.error) {
+        errors.push(`MCP server '${serverId}' has no successful live smoke receipt. Run singularity-flow mcp smoke ${serverId} --url <AUTHORIZED_URL>.`);
+        act(smokeCommand, `Run a live smoke of '${serverId}' against the Story's authorized origin; its receipt is valid for 24 hours.`);
+      } else {
         const validity = validSmokeReceipt(smoke, { serverId, configured, expectedOrigins });
         if (!validity.valid || smoke.hostEntrySha256 !== status?.host?.entrySha256
             || smoke.policySha256 !== status?.policy?.sha256
             || canonicalJson(smoke.authProfile ?? null) !== canonicalJson(status?.auth?.binding ?? null)) {
           errors.push(`MCP server '${serverId}' live smoke receipt is stale or unsuccessful${validity.reason ? `: ${validity.reason}` : ''}.`);
+          act(smokeCommand, `Run a fresh live smoke of '${serverId}' against the Story's authorized origin; its receipt is valid for 24 hours.`);
         }
       }
     }
     servers.push({ ...status, smoke });
   }
-  if (errors.length) throw new SingularityFlowError(`Phase '${phase.id}' MCP readiness is blocked:\n- ${errors.join('\n- ')}`, { code: 'MCP_PHASE_NOT_READY', details: { phase: phase.id, errors } });
-  return { servers };
+  return { ready: errors.length === 0, errors, actions, servers };
+}
+
+export async function assertMcpPhaseReadiness(root, workflow, phase) {
+  const readiness = await inspectMcpPhaseReadiness(root, workflow, phase);
+  if (readiness.errors.length) {
+    throw new SingularityFlowError(`Phase '${phase.id}' MCP readiness is blocked:\n- ${readiness.errors.join('\n- ')}`, {
+      code: 'MCP_PHASE_NOT_READY', details: { phase: phase.id, errors: readiness.errors, actions: readiness.actions }
+    });
+  }
+  return { servers: readiness.servers };
 }
 
 export async function attestMcpHost(root, definition, serverId, {
@@ -1882,6 +1920,9 @@ export async function mcpDoctor(root, definition, options = {}) {
   for (const server of Object.values(definition.mcpServers ?? {})) {
     const reasons = [];
     let readiness = 'ready';
+    // Whether this machine's host attestation was read at all, and what it said: a readiness
+    // refusal names `mcp attest` only when that is what is missing.
+    let attestation = 'not-checked';
     const auth = isPlaywrightServer(server)
       ? await playwrightAuthProfileStatus(root, {
         platform: options.platform ?? process.platform, windowsAcl: options.windowsAcl
@@ -1917,6 +1958,7 @@ export async function mcpDoctor(root, definition, options = {}) {
       const receipt = await readReceipt(root, server.id);
       if (!receipt || receipt.error || receipt.receiptKind !== 'host-attestation') {
         readiness = 'needs-host-setup';
+        attestation = 'missing';
         reasons.push('Host readiness has not been attested on this machine.');
       } else if (receipt.hostEntrySha256 !== rows[0].entrySha256
           || receipt.policySha256 !== policyHash(server)
@@ -1926,8 +1968,9 @@ export async function mcpDoctor(root, definition, options = {}) {
               : null
           )) {
         readiness = 'needs-host-setup';
+        attestation = 'stale';
         reasons.push('Host readiness attestation is stale because host, policy, or authentication profile configuration changed.');
-      }
+      } else attestation = 'valid';
     }
     const warm = isPlaywrightServer(server) && entries.get(server.hostReference)
       ? await playwrightWarmReadiness(root, server, entries.get(server.hostReference), options)
@@ -1960,6 +2003,7 @@ export async function mcpDoctor(root, definition, options = {}) {
       readiness,
       reasons,
       host: { sources: rows.map((row) => row.surface), entrySha256: rows[0]?.entrySha256 ?? null },
+      attestation: { status: attestation },
       policy: { sha256: policyHash(server), required: server.required },
       auth: {
         status: auth.status,

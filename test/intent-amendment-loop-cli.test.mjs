@@ -64,7 +64,7 @@ test(`${workType}: an amendment needs no convergence finding and authority decid
   git('remote', 'add', 'origin', remote);
   git('push', '-q', '-u', 'origin', 'main');
 
-  cli('start', WORK, '--from-branch', 'main', '--work-type', workType,
+  cli('start', WORK, '--from-branch', 'main', '--work-type', workType, '--target-url', 'https://staging.example.test',
     '--title', 'Validate a value', '--description', 'Return an approved value with browser-visible proof.');
   const item = path.join(root, 'singularity/work-items', WORK);
   const specPath = path.join(item, 'artifacts/specification/spec.md');

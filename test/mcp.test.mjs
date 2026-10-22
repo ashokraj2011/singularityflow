@@ -35,7 +35,7 @@ import { canonicalJson } from '../src/records.mjs';
 import { gitCommonDir } from '../src/git.mjs';
 import { secureWindowsAuthAcl } from '../src/mcp-auth-profile.mjs';
 import {
-  defaultNetworkProbe, rpcSmoke, verifyPlaywrightOfflineStart
+  defaultNetworkProbe, inspectMcpPhaseReadiness, rpcSmoke, verifyPlaywrightOfflineStart
 } from '../src/mcp-readiness.mjs';
 
 const configured = () => normalizeMcpServers({
@@ -1101,6 +1101,45 @@ test('phase readiness requires a hash-bound live smoke receipt when configured',
   await assert.rejects(() => smokeMcpHost(root, definition, 'playwright', {
     targetUrl: 'https://user:secret@example.test/health', probe: async () => ({ status: 'passed' })
   }), /must not contain credentials/);
+});
+
+test('an MCP readiness refusal names each missing prerequisite\'s command in the order it applies', async (t) => {
+  const root = await repository('sflow-mcp-readiness-actions-');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const definition = { mcpServers: configured() };
+  const phase = { id: 'verification', mcp: { requiredServers: ['playwright'], requireSmoke: true, evidence: [] } };
+  // A Story started without --target-url on a machine that never set the server up.
+  const workflow = { workItem: { id: 'WORK-NO-ORIGIN' }, resolution: { mcpServers: definition.mcpServers }, mcpAuthorizations: {} };
+  const bare = await inspectMcpPhaseReadiness(root, workflow, phase);
+  assert.equal(bare.ready, false);
+  // The Story's own origin first: no machine setup supplies it, and the smoke binds to it.
+  assert.deepEqual(bare.actions.map((entry) => entry.command), [
+    'singularity-flow story target-origin WORK-NO-ORIGIN --url <AUTHORIZED-URL>',
+    'singularity-flow mcp scaffold playwright',
+    'singularity-flow mcp warm playwright --network',
+    'singularity-flow mcp attest playwright --confirm playwright',
+    'singularity-flow mcp smoke playwright --url <AUTHORIZED-URL>'
+  ]);
+  const refusal = await assertMcpPhaseReadiness(root, workflow, phase).catch((error) => error);
+  assert.equal(refusal.code, 'MCP_PHASE_NOT_READY');
+  assert.match(refusal.message, /no Story-pinned authorized origin/);
+  assert.deepEqual(refusal.details.actions, bare.actions, 'prepare, publish and submit refuse with the same commands');
+  // Once the host is set up here, only the Story's origin and its smoke remain.
+  await scaffoldPlaywrightMcp(root);
+  await attestMcpHost(root, definition, 'playwright', { confirmation: 'playwright' });
+  await warmPlaywrightFixture(root, definition);
+  assert.deepEqual((await inspectMcpPhaseReadiness(root, workflow, phase)).actions.map((entry) => entry.command), [
+    'singularity-flow story target-origin WORK-NO-ORIGIN --url <AUTHORIZED-URL>',
+    'singularity-flow mcp smoke playwright --url <AUTHORIZED-URL>'
+  ]);
+  const pinned = { ...workflow, mcpAuthorizations: { playwright: {
+    schemaVersion: 1, origins: ['https://staging.example.test'], source: 'story-target-origin', pinnedAt: new Date().toISOString()
+  } } };
+  assert.deepEqual((await inspectMcpPhaseReadiness(root, pinned, phase)).actions.map((entry) => entry.command), [
+    'singularity-flow mcp smoke playwright --url https://staging.example.test'
+  ], 'the smoke names the pinned origin');
+  assert.deepEqual(await inspectMcpPhaseReadiness(root, workflow, { id: 'verification', mcp: { requiredServers: [], requireSmoke: false } }),
+    { ready: true, errors: [], actions: [], servers: [] });
 });
 
 test('browser navigation evidence is bound to the Story-authorized origin', async () => {

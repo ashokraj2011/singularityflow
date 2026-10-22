@@ -88,7 +88,7 @@ test('amendments honor required groups, retain all reviewers and let a prior rev
   run('git', ['init', '--bare', '-b', 'main', remote]);
   git('remote', 'add', 'origin', remote);
   git('push', '-q', '-u', 'origin', 'main');
-  cli('start', WORK, '--from-branch', 'main', '--work-type', 'spec-code-test-loop',
+  cli('start', WORK, '--from-branch', 'main', '--work-type', 'spec-code-test-loop', '--target-url', 'https://staging.example.test',
     '--title', 'Validate a value', '--description', 'Return the approved value.');
   const item = path.join(root, 'singularity/work-items', WORK);
   const specPath = path.join(item, 'artifacts/specification/spec.md');

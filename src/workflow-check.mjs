@@ -22,6 +22,7 @@ import YAML from 'yaml';
 import { loadDefinition, resolveWorkType, WORKFLOW_PATH } from './config.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { guidanceConflicts, scanGuidanceText } from './guidance-scan.mjs';
+import { mcpServerSetupCommands, mcpTargetOriginNeed, mcpTargetOriginSteps } from './mcp-target.mjs';
 import { phaseTopologyFindings } from './phase-semantics.mjs';
 import { SKILL_ATTACHMENTS_PATH } from './skill-library.mjs';
 import { explainWorkflow } from './workflow-explanation.mjs';
@@ -283,6 +284,20 @@ async function checkWorkflow(workflow, { definition, model, locate, guidance, gr
         title: (ROUTE_TITLES[entry.code] ?? (() => firstSentence(entry.message)))(words), detail: entry.message, fix: sendBack ?? ROUTE_FIXES[entry.code] ?? null,
         subject: { ...(entry.phase ? { step: entry.phase } : {}), ...(entry.decision ? { decision: entry.decision } : {}) },
         ...(entry.code === 'WORKFLOW_REJECTION_TARGET' && entry.phase ? { stopsAt: { step: entry.phase, when: 'rejection' } } : {}) });
+    }
+    // A step that smoke-checks a browser needs the Story's authorized origin, given at start or pinned later, and
+    // machine setup before it can be prepared, published or submitted. Nothing is wrong with that, but
+    // nobody should first hear of it from a refusal after earlier sign-offs.
+    const browserSteps = mcpTargetOriginSteps(resolved.phases);
+    if (browserSteps.length) {
+      const commands = [...new Set(browserSteps.flatMap((step) => step.servers)
+        .flatMap((serverId) => mcpServerSetupCommands(serverId, definition.mcpServers?.[serverId])))];
+      add({ code: 'CHECK_BROWSER_TARGET_REQUIRED', area: 'flow', severity: 'note',
+        title: `${browserSteps.map((step) => stepLabel(step.phase)).join(', ')} ${browserSteps.length === 1 ? 'checks' : 'check'} a live browser against the Story's authorized target`,
+        detail: `Story start pins its origin from --target-url <AUTHORIZED-URL>: ${mcpTargetOriginNeed(browserSteps)}. `
+          + `Before ${browserSteps[0].phase} can be prepared, published or submitted, the machine that runs it needs: ${commands.join('; ')} (a smoke receipt is valid for 24 hours). `
+          + 'A Story started without the origin can have it pinned by a person who approves that step: singularity-flow story target-origin <WORK-ID> --url <AUTHORIZED-URL>.',
+        subject: { step: browserSteps[0].phase } });
     }
     // What each step's template gives its author, judged by the readers that later judge the document.
     for (const entry of await templateConformanceFindings(resolved, { read: templates, label: stepLabel })) {

@@ -228,7 +228,7 @@ import {
 export { completionPhaseOf, nextPhaseAfterSkillAmendment } from './lifecycle-transitions.mjs';
 import { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
 export { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
-import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
+import { mcpTargetOriginServers, storyStartTargetOrigin } from './mcp-target.mjs';
 import { referenceRevision, registerReference } from './harness-imports.mjs';
 import {
   assertAstLifecycleGate, evaluateAstLifecycleGate, persistAstLifecycleReceipt,
@@ -422,7 +422,7 @@ function sourceSection(label, value, fallback = null) {
 function sourceMarkdown(source) {
   const details = [
     `- Source: ${source.type}`, source.url ? `- URL: ${source.url}` : null,
-    source.targetOrigin ? `- Authorized POC target origin: ${source.targetOrigin}` : null,
+    source.targetOrigin ? `- Authorized target origin: ${source.targetOrigin}` : null,
     source.status ? `- Status: ${source.status}` : null,
     source.priority ? `- Priority: ${source.priority}` : null,
     source.storyPoints != null ? `- Story points: ${source.storyPoints}` : null,
@@ -847,10 +847,6 @@ export async function createWorkflow(root, config, {
   const archived = await archive.readWorkflowArchive(root);
   const selectedType = workType ?? archive.firstLiveStoryWorkflow(config.workTypes, archived) ?? Object.keys(config.workTypes)[0];
   archive.assertWorkflowNotArchived(archived, selectedType);
-  const targetOrigin = normalizeMcpTargetOrigin(source?.targetOrigin, {
-    required: selectedType === 'poc-workflow',
-    label: 'POC target URL'
-  });
   // The resolver compares the digest against the exact secure byte buffer it parses, before its
   // capability-free early return. This keeps a vanished or collection-only replacement map from
   // silently downgrading a preflighted delivery Story.
@@ -860,6 +856,8 @@ export async function createWorkflow(root, config, {
   });
   assertCapabilitySource(capability, source);
   const selectedResolution = assertWorkTypeStartable(resolved ?? resolveWorkType(config, selectedType));
+  // Pinned below for every server a step smoke-checks against it; the POC workflow requires it.
+  const targetOrigin = storyStartTargetOrigin(source?.targetOrigin, selectedResolution.phases, { workType: selectedType });
   const resolution = applyCapabilityPolicyToWorkResolution(
     { ...selectedResolution, storage: structuredClone(config.storage ?? null) },
     capability
@@ -1040,9 +1038,9 @@ export async function createWorkflow(root, config, {
     // through the identity migration without being reinterpreted as skill phases.
     schemaVersion: currentSchemaVersion('story-workflow'),
     ...(executionOrigin ? { executionOrigin: structuredClone(executionOrigin) } : {}),
-    mcpAuthorizations: targetOrigin ? {
-      playwright: { schemaVersion: currentSchemaVersion('mcp-authorization'), origins: [targetOrigin], source: 'story-intake', pinnedAt: createdAt }
-    } : {},
+    mcpAuthorizations: targetOrigin ? Object.fromEntries(mcpTargetOriginServers(resolution.phases).map((server) => [server,
+      { schemaVersion: currentSchemaVersion('mcp-authorization'), origins: [targetOrigin], source: 'story-intake', pinnedAt: createdAt }
+    ])) : {},
     workItem: {
       id, title: title || id, workType: selectedType, workTypeLabel: resolution.label,
       branch: currentBranch, baseBranch,

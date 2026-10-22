@@ -11,6 +11,7 @@ import { baselineDeferralAllowed, baselineObservationPending, intakeBaselineChoi
 
 import { BUILD_INFO } from './build-info.mjs';
 import { assertWorkTypeStartable, resolveWorkType } from './config.mjs';
+import { mcpServerSetupCommands, mcpTargetOriginNeed, mcpTargetOriginSteps } from './mcp-target.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { VERSION } from './version.mjs';
 
@@ -248,6 +249,26 @@ export function inspectStoryStartReadiness({
         ));
   }
 
+  // A later step that smoke-checks a browser refuses to be prepared, published or submitted until
+  // this machine's MCP host is set up and smoked against the Story's pinned origin. Name it now, from
+  // configuration alone, so nobody finds it after earlier approvals.
+  const mcpPrerequisites = resolved ? mcpTargetOriginSteps(resolved.phases).map((step) => Object.freeze({
+    phase: step.phase, label: step.label, servers: step.servers,
+    commands: Object.freeze([...new Set(step.servers.flatMap((serverId) =>
+      mcpServerSetupCommands(serverId, definition.mcpServers?.[serverId])))])
+  })) : [];
+  if (mcpPrerequisites.length) {
+    const servers = [...new Set(mcpPrerequisites.flatMap((step) => step.servers))];
+    checks.push(check(
+      'later-step-prerequisites', 'warning', 'STORY_LATER_STEP_MCP_SETUP_REQUIRED',
+      `Later steps need machine setup before they can be prepared, published or submitted: ${mcpTargetOriginNeed(mcpPrerequisites,
+        { against: 'the authorized target origin this Story pins from --target-url, or after start with singularity-flow story target-origin <WORK-ID> --url <AUTHORIZED-URL>' })}. `
+      + `Before ${mcpPrerequisites[0].phase}, run: ${[...new Set(mcpPrerequisites.flatMap((step) => step.commands))].join('; ')} `
+      + '(warm downloads the exact package; a smoke receipt is valid for 24 hours). '
+      + `${servers.map((serverId) => `singularity-flow mcp doctor --server ${serverId}`).join('; ')} shows what this machine already has.`
+    ));
+  }
+
   checks.push(check(
     'optional-intelligence', 'pass', 'STORY_OPTIONAL_INTELLIGENCE_NON_BLOCKING',
     'World Model, AST, model-provider, telemetry, and Copilot availability do not block Story creation.'
@@ -299,6 +320,7 @@ export function inspectStoryStartReadiness({
     checks: Object.freeze(checks),
     blockers: Object.freeze(blocking),
     warnings: Object.freeze(warnings),
+    mcpPrerequisites: Object.freeze(mcpPrerequisites),
     upgrade: Object.freeze({
       mode: 'prompt',
       status: 'review-on-request',

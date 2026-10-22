@@ -155,7 +155,7 @@ function visualCoverageActions(hold, timing) {
 
 export function workflowNextSteps(workflow, {
   publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null,
-  repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null
+  repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null
 } = {}) {
   const workId = workflow.workItem.id;
   const phase = workflow.currentPhase ? workflow.phases[workflow.currentPhase] : null;
@@ -208,6 +208,20 @@ export function workflowNextSteps(workflow, {
     return [
       action('now', copilotSkillForCommand(command) ?? '/sf-integrations', command,
         stepActionHold.reason ?? 'The next step waits for a required after-step delivery.', { route: 'step-action-hold' }),
+      ...rest.map((entry) => (entry.timing === 'now' ? Object.freeze({ ...entry, timing: 'then' }) : entry))
+    ];
+  }
+
+  // A step whose MCP prerequisites do not hold on this machine refuses prepare, publish and submit
+  // alike (assertMcpPhaseReadiness), so the setup it names comes first, in order, and the step's
+  // own work follows it.
+  if (mcpHold?.actions?.length && phase.status === 'in_progress' && mcpHold.phase === phase.id) {
+    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions });
+    return [
+      ...mcpHold.actions.map((entry, index) => action(index === 0 ? 'now' : 'then',
+        copilotSkillForCommand(entry.command) ?? '/sf-mcp', entry.command,
+        index === 0 ? `MCP readiness blocks ${phase.id} (${mcpHold.errors.length} unmet): ${entry.label}` : entry.label,
+        { route: 'mcp-readiness' })),
       ...rest.map((entry) => (entry.timing === 'now' ? Object.freeze({ ...entry, timing: 'then' }) : entry))
     ];
   }
@@ -312,7 +326,7 @@ export function workflowNextSteps(workflow, {
   return withDecisionList(workflow, phase, actions, held);
 }
 
-export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null } = {}) {
+export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null } = {}) {
   if (!initialized) return {
     schemaVersion: 1,
     state: 'not_initialized',
@@ -341,7 +355,7 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
   };
   const contextBoundary = !publicationPending && !recovery?.requiresRecovery && !workflow.pendingDecision
     && !stepActionHold?.missing?.length ? contextBoundaryPresentation(pendingContextBoundary(workflow)) : null;
-  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, visualCoverageHold });
+  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, visualCoverageHold, mcpHold });
   return {
     schemaVersion: 1,
     state: publicationPending ? 'publication_pending' : recovery?.requiresRecovery ? 'recovery_required' : workflow.status,
@@ -354,6 +368,7 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
     ...(authoringProgress ? { authoringProgress } : {}),
     ...(contextBoundary ? { contextBoundary } : {}),
     ...(stepActionHold?.missing?.length ? { stepActionHold } : {}),
+    ...(mcpHold?.actions?.length ? { mcpHold } : {}),
     actions: contextBoundary ? actions.map(entry => ({ ...entry,
       ...(entry.timing === 'now' ? { copilotTiming: 'after-context-boundary' } : {}) })) : actions
   };

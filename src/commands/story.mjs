@@ -651,7 +651,9 @@ export async function storyFetchCommand(positionals, options) {
         planId: seed.story.planId,
         parentBranch: seed.story.parentBranch,
         branchCompletionPolicy: seed.story.branchCompletionPolicy,
-        requiredChecks: seed.story.requiredChecks
+        requiredChecks: seed.story.requiredChecks,
+        // The authorized origin a later browser smoke binds to, which start requires for that workflow.
+        ...(optionString(options, 'target-url') ? { targetOrigin: optionString(options, 'target-url') } : {})
       },
       baseBranch: seed.story.parentBranch ?? repository.defaultBranch,
       baseCommit: readinessBase ?? null,
@@ -775,6 +777,7 @@ export async function storyCommand(positionals, options) {
   }
   if (subcommand === 'return') return storyReturnCommand(positionals, options, root);
   if (subcommand === 'skill-version') return storySkillVersionCommand(positionals, options, root);
+  if (subcommand === 'target-origin') return (await import('./story-target-origin.mjs')).storyTargetOriginCommand(positionals, options);
   if (subcommand === 'test-policy') {
     const action = positionals[2] ?? 'show';
     if (action === 'baseline') {

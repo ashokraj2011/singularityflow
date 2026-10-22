@@ -212,6 +212,16 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
     ? await (await import('../visual-coverage.mjs')).visualCoverageHold(root, workflow, active, {
       itemDirectory: path.join(root, path.dirname(selected.location.path)), published: !phaseNeedsGeneration(workflow, active)
     }).catch(() => null) : null;
+  // A step that needs an MCP server refuses prepare, publish and submit until its host, warm proof,
+  // attestation, authorized origin and smoke hold here; name what is missing instead of a refusing
+  // prepare. Read-only: nothing is started, warmed or smoked.
+  let mcpHold = null;
+  if (active?.status === 'in_progress' && active.mcp?.requiredServers?.length) {
+    const { inspectMcpPhaseReadiness } = await import('../mcp-readiness.mjs');
+    const readiness = await measureCommandSpan('nextsteps.mcp-readiness',
+      () => inspectMcpPhaseReadiness(root, workflow, active)).catch(() => null);
+    if (readiness && !readiness.ready) mcpHold = { phase: active.id, errors: readiness.errors, actions: readiness.actions };
+  }
   const snapshot = {
     ...nextStepsSnapshot({
       branch: branch(root),
@@ -229,7 +239,8 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
       // Landing routes depend on the host: the GitHub CLI cannot open another host's merge request.
       repositoryHost: classifyGitHost(remoteUrl(root, definition.git?.remote ?? 'origin')),
       prerequisites: await measureCommandSpan('nextsteps.prerequisites', () => storyPrerequisites(root, workflow, selected, modelMode, { definition, executionCatalog, observeFile })),
-      modelMode
+      modelMode,
+      mcpHold
     }),
     evidence: evidenceSummary(workflow),
     repositoryChecks: repositoryCheckStatus(root)

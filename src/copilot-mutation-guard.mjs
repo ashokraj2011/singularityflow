@@ -470,6 +470,8 @@ function shellAllowed(call, mode, value) {
   // Accepting that a step's tests cannot run here, reusing another step's recorded run for it, or
   // saying one of its screen sizes does not apply, is its approvers' call too; the refusal names it.
   if (positionals[0] === 'decision' && ['test-risk', 'evidence-reuse', 'visual-profile'].includes(positionals[1])) return false;
+  // A Story's authorized browser target is a security boundary: a person pins it, in no turn (its preview is a read).
+  if (targetOriginPin(positionals, options)) return false;
   if (positionals[0] === 'spec' && positionals[1] === 'drift' && positionals[2] === 'decide') return false;
   // Setting held changes aside drops them from the checkout: the person who looked at them decides.
   if (positionals[0] === 'recover' && options['set-aside'] === true) return false;
@@ -551,6 +553,20 @@ function testRunRiskDecision(call, value) {
   return (positionals[0] === 'decision' && ['test-risk', 'evidence-reuse', 'visual-profile'].includes(positionals[1]))
     || (positionals[0] === 'spec' && positionals[1] === 'drift' && positionals[2] === 'decide');
 }
+
+/** A confirmed `story target-origin`: pinning a Story's authorized browser target origin. */
+function targetOriginPin(positionals, options) {
+  return positionals[0] === 'story' && positionals[1] === 'target-origin' && options.confirm !== undefined;
+}
+function targetOriginPinCall(call, value) {
+  const safe = verifiedShellForm(call, value);
+  if (!safe) return false;
+  const { positionals, options } = parseArgs(safe.argv);
+  return targetOriginPin(positionals, options);
+}
+const TARGET_ORIGIN_PIN_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: a Story\'s authorized browser target origin is a security boundary; '
+  + 'a person who approves the step that smoke-checks it confirms the pin in their own terminal, never this turn. '
+  + 'Show the user the preview (story target-origin <WORK-ID> --url <URL>, which is allowed) and its plan digest; do not retry it';
 
 function mentionsKernelExecution(call, value) {
   const command = scopedShellCommand(call, value) ?? call.args.command ?? call.args.cmd ?? call.args.script ?? '';
@@ -798,6 +814,9 @@ export async function mutationToolGuard(payload = {}) {
     if (guarded.some(call => TERMINALS.has(call.name) && workflowDeleteConfirmation(call, bootstrap))) {
       return { permissionDecision: 'deny', next: [], permissionDecisionReason: WORKFLOW_DELETE_CONFIRMATION_DENIAL };
     }
+    if (guarded.some(call => TERMINALS.has(call.name) && targetOriginPinCall(call, bootstrap))) {
+      return { permissionDecision: 'deny', next: [], permissionDecisionReason: TARGET_ORIGIN_PIN_DENIAL };
+    }
     if (turnExpired(record)) return turnExpiredDenial(record);
     return mutationDenial(null, 'PHASE_MUTATION_CONTRACT_REQUIRED: refresh the exact binding; expired/corrupt permissions require a new explicit turn; do not discard work');
   }
@@ -821,6 +840,7 @@ export async function mutationToolGuard(payload = {}) {
         if (workflowDeleteConfirmation(call, value)) return mutationDenial(contract, WORKFLOW_DELETE_CONFIRMATION_DENIAL);
         if (decisionListRecord(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: recording the decision list is the person\'s own step: they run the exact decisions record command in their own terminal (a /sf-decide turn may record only its upstream-issue options, after their explicit yes). Show the user the summary and the command, and stop; do not retry it or change its digest');
+        if (targetOriginPinCall(call, value)) return mutationDenial(contract, TARGET_ORIGIN_PIN_DENIAL);
         if (testRunRiskDecision(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step\'s tests cannot run here, reusing an earlier step\'s recorded run for it, that one of its screen sizes does not apply, or how a closed Story\'s drifted clause is resolved, is decided by a person who approves that step, in their own terminal, not by this turn. Show the user the command and stop; do not retry it');
         if (contract.turnMode !== 'authoring' && verifiedShellForm(call, value)) {

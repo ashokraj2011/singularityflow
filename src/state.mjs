@@ -100,7 +100,6 @@ import {
 } from './approval-authority.mjs';
 import { assertSourceBoundary, normalizeSourceBoundary } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
-import { specificationClaimLines, storyChangedPathLines } from './deterministic-summary-facts.mjs';
 import { assertIntentAmendmentAcknowledged, pendingIntentAmendmentAcknowledgement, sourceReviewRequired } from './source-review-policy.mjs';
 import { assertPhaseAgentMayMutate } from './phase-actor-policy.mjs';
 import { assertPhaseGovernanceMayAdvance } from './phase-governance-routing.mjs';
@@ -2207,6 +2206,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
     }
     let text;
     if (phase.generationPolicy?.producer === 'deterministic') {
+      const { specificationClaimLines, storyChangedPathLines } = await import('./deterministic-summary-facts.mjs');
       const pathContext = applicationPathContext(config, workflow);
       const uncommitted = changedFiles(root).map(posix)
         .filter((candidate) => isApplicationPath(candidate, pathContext));

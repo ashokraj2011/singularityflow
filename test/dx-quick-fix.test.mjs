@@ -4,7 +4,7 @@ import path from 'node:path';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import test from 'node:test';
 import { evaluateQuickFixWaiver, waiverNotAppliedMessage } from '../src/quick-fix-policy.mjs';
-import { receiptApprovalText } from '../src/receipt-approval-text.mjs';
+import { receiptApprovalText } from '../src/evidence-receipt.mjs';
 import { run } from '../src/util.mjs';
 
 function git(root, args) {

@@ -4,7 +4,7 @@ import { githubAuthStatus } from './github-evidence.mjs';
 import { branch as currentBranch, defaultBranchName } from './git.mjs';
 import { classifyGitHost } from './git-host.mjs';
 import { recap } from './narration/recap.mjs';
-import { receiptApprovalText } from './receipt-approval-text.mjs';
+import { receiptApprovalText } from './evidence-receipt.mjs';
 import { workItemWorkflowRelative } from './work-item-location.mjs';
 import { pullRequestTarget, readStorySeed } from './story-base-lineage.mjs';
 

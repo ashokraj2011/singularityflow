@@ -47,6 +47,7 @@ import {
 } from './util.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { phasePublicationCommand } from './manual-authorship.mjs';
+import { phasePublicationCommandForMode } from './phase-publication-route.mjs';
 import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
 import { artifactContentContractLines, authoredArtifactText } from './publication-preflight.mjs';
 import { resolveStoryExecutionContext } from './story-execution-context.mjs';
@@ -959,7 +960,7 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
     path: posix(path.relative(root, target)),
     sha256: current.sha256,
     publication,
-    next: phasePublicationCommand(phase)
+    next: phasePublicationCommandForMode(phase) ?? phasePublicationCommand(phase)
   };
 }
 

@@ -8,6 +8,8 @@ import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import {
   effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer
 } from './manual-authorship.mjs';
+import { phasePublicationCommandForMode } from './phase-publication-route.mjs';
+import { operationContext } from './operation-context.mjs';
 import { decisionSubmitArguments, describeOutcome, upcomingDecision } from './workflow-decisions.mjs';
 import { nextPhaseAfterSkillAmendment } from './lifecycle-transitions.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
@@ -23,6 +25,11 @@ function action(timing, skill, command, reason, metadata = {}) {
   // as plannedAction does for results. A mismatched skill must not hide a safe Shell command.
   const guidance = safeCommandGuidance(candidate) ?? safeCommandGuidance({ command });
   return guidance ? Object.freeze({ ...candidate, ...guidance }) : candidate;
+}
+
+/** The run's model mode, so a planner called without one never assumes a model is available. */
+function ambientModelMode() {
+  return operationContext()?.modelMode ?? { enabled: true };
 }
 
 // Hosts the GitHub CLI cannot open a pull request on; their merge request is opened by hand.
@@ -150,7 +157,7 @@ function afterCompletionActions(workflow, phase, { withoutApproval = false, repo
 }
 
 export function workflowNextSteps(workflow, {
-  publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null,
+  publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null,
   repositoryHost = null, pendingDecisions = undefined
 } = {}) {
   const workId = workflow.workItem.id;
@@ -222,16 +229,23 @@ export function workflowNextSteps(workflow, {
   }
   const actions = [...prerequisites.map(copilotAction), ...undecided, ...immediate];
   if (needsGeneration && !modelMode.enabled) {
-    if (modelFreeProducer === 'human') actions.unshift(action(
-      'now', generationSkillForPhase(phase, workflow), phasePublicationCommandForProducer(
+    // The draft `prepare` writes is published in place, the route prepublish offers when it is
+    // ready, the footers repeat and refusals name (phasePublicationCommandForMode). A file written
+    // elsewhere is imported instead.
+    if (modelFreeProducer === 'human') actions.push(action(
+      'then', generationSkillForPhase(phase, workflow), phasePublicationCommandForMode(phase, { modelEnabled: false }),
+      `Publish the ${phase.label} you authored in place, without invoking a model.`,
+      { operationId: 'phase', modelPolicy: 'never', route: 'manual' }
+    ), action(
+      'alternative', generationSkillForPhase(phase, workflow), phasePublicationCommandForProducer(
         phase, 'human', { source: '<FILE>', noModel: true }
       ),
-      `Import and publish ${phase.label} without invoking a model.`,
+      `Or import and publish ${phase.label} from a file written elsewhere, without invoking a model.`,
       { operationId: 'phase', modelPolicy: 'never', route: 'manual' }
     ));
     else if (modelFreeProducer === 'deterministic') {
       if (!convergenceProjectionRequired) actions.push(action(
-        'then', generationSkillForPhase(phase, workflow), phasePublicationCommandForProducer(phase, 'deterministic'),
+        'then', generationSkillForPhase(phase, workflow), phasePublicationCommandForMode(phase, { modelEnabled: false }),
         `Publish the deterministically generated ${phase.label} without invoking a model.`,
         { operationId: 'phase', modelPolicy: 'never', route: 'deterministic' }
       ));
@@ -293,7 +307,7 @@ export function workflowNextSteps(workflow, {
   return withDecisionList(workflow, phase, actions, held);
 }
 
-export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined } = {}) {
+export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined } = {}) {
   if (!initialized) return {
     schemaVersion: 1,
     state: 'not_initialized',

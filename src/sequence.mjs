@@ -10,7 +10,8 @@ import { actionCommandLines, copilotAction } from './copilot-guidance.mjs';
 import { action, because, commandResult, noEffects, refused, withCommandResult } from './narration/command-result.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { gitDir } from './git.mjs';
-import { phasePublicationCommand, phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
+import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
+import { phasePublicationCommandForMode } from './phase-publication-route.mjs';
 import { clearApprovalDisposition, clearDecisionState, completionPhaseOf } from './lifecycle-transitions.mjs';
 import { phaseNeedsGeneration } from './phase-generation-need.mjs';
 
@@ -67,17 +68,20 @@ export function sequenceGuidance(workflow) {
     ],
     alternativeSecond: true
   };
-  if (phase.status === 'in_progress' && phaseNeedsGeneration(workflow, phase)) return {
-    summary: isConvergencePhase(phase) && phaseUsesDeterministicGeneration(phase)
-      ? `Prepare deterministic phase '${phase.id}', then follow its returned human-review or publication action.`
-      : `${phase.generation > 0 ? 'Regenerate' : 'Generate'} and publish phase '${phase.id}' before submission.`,
-    actions: [
-      copilotAction({ skill: generationSkillForPhase(phase, workflow), command: `singularity-flow prepare ${phase.id}` }),
-      ...(isConvergencePhase(phase) && phaseUsesDeterministicGeneration(phase) ? [] : [
-        copilotAction({ skill: generationSkillForPhase(phase, workflow), command: phasePublicationCommand(phase) })
-      ])
-    ]
-  };
+  if (phase.status === 'in_progress' && phaseNeedsGeneration(workflow, phase)) {
+    const convergence = isConvergencePhase(phase) && phaseUsesDeterministicGeneration(phase);
+    // The publication named here follows the run's model mode, as the planner's does (nextsteps.mjs).
+    const publication = convergence ? null : phasePublicationCommandForMode(phase);
+    return {
+      summary: convergence
+        ? `Prepare deterministic phase '${phase.id}', then follow its returned human-review or publication action.`
+        : `${phase.generation > 0 ? 'Regenerate' : 'Generate'} and publish phase '${phase.id}' before submission.`,
+      actions: [
+        copilotAction({ skill: generationSkillForPhase(phase, workflow), command: `singularity-flow prepare ${phase.id}` }),
+        ...(publication ? [copilotAction({ skill: generationSkillForPhase(phase, workflow), command: publication })] : [])
+      ]
+    };
+  }
   const convergenceRoute = convergenceTransitionRoute(workflow, phase, { needsGeneration: phaseNeedsGeneration(workflow, phase) });
   if (convergenceRoute) return { summary: convergenceRoute.reason, actions: [copilotAction(convergenceRoute)] };
   if (phase.status === 'in_progress') return {

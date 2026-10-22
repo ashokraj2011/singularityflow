@@ -216,6 +216,7 @@ import {
   evaluateExternalCommandForModelMode, externalCommandText, normalizeExternalCommand
 } from './external-command-policy.mjs';
 import { assertProducerAllowed, buildGenerationAuthorship, normalizeAuthorshipOptions, phasePublicationCommand } from './manual-authorship.mjs';
+import { phasePublicationCommandForMode } from './phase-publication-route.mjs';
 import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';
 import {
   advanceCompletedPhase, clearApprovalDisposition, completionPhaseOf, nextPhaseAfterSkillAmendment, reopenPhaseRange,
@@ -3357,7 +3358,7 @@ export async function publishGeneration(root, config, workflow, {
           fingerprint: contentFindings.find((finding) => finding.fingerprint)?.fingerprint ?? null,
           retry: {
             skill: directCopilotSkill(generationSkillForPhase(phase, workflow)), maximumAttempts: 1, requiresFingerprintChange: true,
-            command: phasePublicationCommand(phase)
+            command: phasePublicationCommandForMode(phase) ?? phasePublicationCommand(phase)
           }
         }
       }

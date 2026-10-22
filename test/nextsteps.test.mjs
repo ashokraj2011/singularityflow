@@ -303,3 +303,46 @@ test('a required after-step delivery comes before the held step\'s own work', ()
   assert.match(nextStepsText(snapshot), /integrations retry sad_2{40}/);
   assert.equal(workflowNextSteps(workflow({ phaseStatus: 'awaiting_approval', generation: 1 }), { stepActionHold: hold })[0].command.includes('integrations'), false, 'a step in review is not held');
 });
+
+test('a model-free run names the human publication route in its footers, refusals and nextsteps', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-nextsteps-model-free-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const root = path.join(directory, 'repo');
+  const machine = path.join(directory, 'machine');
+  await mkdir(root); await mkdir(machine);
+  const env = { ...process.env, HOME: machine, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Next Steps Tester',
+    SINGULARITY_FLOW_NO_MODEL: '1' };
+  const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+  const run = (command, args, { status = 0 } = {}) => {
+    const result = spawnSync(command, args, { cwd: root, env, encoding: 'utf8' });
+    if (status != null) assert.equal(result.status, status, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+    return `${result.stdout}\n${result.stderr}`;
+  };
+  run('git', ['init', '-q', '-b', 'main']);
+  run('git', ['config', 'user.name', 'Next Steps Tester']);
+  run('git', ['config', 'user.email', 'next-steps@example.test']);
+  await writeFile(path.join(root, 'README.md'), '# Model-free fixture\n');
+  run(process.execPath, [cli, 'init']);
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.git.publish = 'off'; config.repositoryReadiness.requiredBeforeStory = false;
+  await writeFile(configPath, YAML.stringify(config));
+  run('git', ['add', '.']); run('git', ['commit', '-q', '-m', 'Model-free fixture']);
+  run('git', ['init', '-q', '--bare', '-b', 'main', path.join(directory, 'remote.git')]);
+  run('git', ['remote', 'add', 'origin', path.join(directory, 'remote.git')]);
+  run('git', ['push', '-q', '-u', 'origin', 'main']);
+  run(process.execPath, [cli, 'start', 'FREE-1', '--from-branch', 'main', '--work-type', 'feature',
+    '--title', 'Model-free routes', '--description', 'Every route names the human producer.']);
+  const human = 'singularity-flow phase publish intake --authored human --channel manual-in-place --no-model';
+  // The refusal's "Then:" step and its route (the sequence gate's planner).
+  const refused = run(process.execPath, [cli, 'submit', 'intake'], { status: null });
+  assert.ok(refused.includes(`Shell: ${human}`), refused);
+  // The footer printed after a lifecycle step, and the full nextsteps listing.
+  const prepared = run(process.execPath, [cli, 'prepare', 'intake']);
+  const listed = run(process.execPath, [cli, 'nextsteps']);
+  assert.ok(listed.includes(`Shell: ${human}`), listed);
+  for (const output of [refused, prepared, listed]) {
+    assert.doesNotMatch(output, /--authored governed-agent|--channel copilot-host/u, output);
+    assert.doesNotMatch(output, /singularity-flow reject intake/u, 'no rejection is offered before submission');
+  }
+});

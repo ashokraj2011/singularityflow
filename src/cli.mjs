@@ -65,7 +65,8 @@ import { launchHostSession } from './host-session-launcher.mjs';
 import { operationContext } from './operation-context.mjs';
 import { invokeModel, resolveModelProvider } from './model-runner.mjs';
 import { summarizingRoute } from './model-tiers.mjs';
-import { effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer } from './manual-authorship.mjs';
+import { effectivePhasePublicationProducer, phasePublicationCommandForProducer } from './manual-authorship.mjs';
+import { phasePublicationCommandForMode } from './phase-publication-route.mjs';
 import { initializationStatus, initializeDefinition, loadDefinition, resolveWorkType, WORKFLOW_PATH } from './config.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import { collectImpactEvidence, compareImpactReceipts, confirmImpactEnrollment, exportImpactReceipts, hydrateImpactPlan, impactDoctor, importImpactEvidence, listImpactReceipts, recordImpactExposure, verifyImpactReceipt } from './impact.mjs';
@@ -2078,12 +2079,11 @@ async function nextCommand(options) {
     }
   } else {
     console.log('\nAfter authoring and validation, publish the generation:');
-    const configuredCommand = phasePublicationCommand(phase);
-    const generationSkill = generationSkillForPhase(phase, workflow);
-    printCommandRoutes(configuredCommand, {
-      skill: generationSkill, indent: '  ', label: 'Configured producer'
-    });
-    if (phase.generationPolicy?.defaultProducer !== 'human'
+    const modelEnabled = operationContext()?.modelMode.enabled !== false, generationSkill = generationSkillForPhase(phase, workflow);
+    const configuredCommand = phasePublicationCommandForMode(phase, { modelEnabled });
+    if (configuredCommand) printCommandRoutes(configuredCommand, { skill: generationSkill, indent: '  ', label: modelEnabled ? 'Configured producer' : 'Without a model' });
+    else console.log(`  ${phase.label} has no producer that can publish it without a model.`);
+    if (modelEnabled && phase.generationPolicy?.defaultProducer !== 'human'
         && phase.generationPolicy?.allowedProducers?.includes('human')) {
       const manualCommand = phasePublicationCommandForProducer(phase, 'human');
       printCommandRoutes(manualCommand, {
@@ -2650,7 +2650,7 @@ async function clarificationCommand(positionals, options) {
     console.log(`${result.reused ? 'Reused the exact recorded' : 'Recorded'} ${result.record.responses.length} human clarification response${result.record.responses.length === 1 ? '' : 's'} for ${phase.id} generation ${result.record.generation}.`);
     console.log(`Record: ${result.path} · SHA-256: ${result.sha256}`);
     console.log(result.record.completed
-      ? `Next: author the phase artifact, then run ${phasePublicationCommand(phase)}`
+      ? `Next: author the phase artifact, then run ${phasePublicationCommandForMode(phase) ?? `singularity-flow phase prepublish ${phase.id}`}`
       : 'Publication remains blocked because at least one material decision is unresolved.');
   }
   emitCommandResult(commandResult({

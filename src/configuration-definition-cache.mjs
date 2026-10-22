@@ -8,6 +8,7 @@ import { PACKAGE_ROOT } from './package-root.mjs';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 import { gitCommonDir } from './git.mjs';
 import { readPrivateSidecar, writeImmutablePrivateSidecar, writeMutablePrivateSidecar } from './private-sidecar.mjs';
+import { creationCompiledConfiguration } from './creation-context.mjs';
 
 const FORMAT = 1;
 const MAXIMUM_BYTES = 8 * 1024 * 1024;
@@ -92,6 +93,15 @@ export function copyCompiledDefinition(definition, from, to) {
 
 /** One replaceable receipt per exact object store: build upgrades cannot grow an unbounded cache. */
 export async function compiledConfiguration(root, configurationRoot, assets, compile, { env = process.env } = {}) {
+  if (env.SINGULARITY_FLOW_COMPILED_CONFIGURATION_CACHE === 'off') return compile();
+  const rows = assets.map(({ relative, sha256, gitMode }) => [relative, sha256, gitMode])
+    .sort((a, b) => a[0].localeCompare(b[0]));
+  const requestKey = digest(JSON.stringify([rows, Object.entries(env).sort(([a], [b]) => a.localeCompare(b))]));
+  return creationCompiledConfiguration(requestKey, configurationRoot,
+    () => compiledConfigurationFresh(root, configurationRoot, rows, compile, env), copyCompiledDefinition);
+}
+
+async function compiledConfigurationFresh(root, configurationRoot, rows, compile, env) {
   // Native ACL qualification costs more than a fresh parse on the Windows first-request path.
   // Keep owner-verified in-memory reuse; the optional authenticated disk cache is explicit opt-in.
   const mode = env.SINGULARITY_FLOW_COMPILED_CONFIGURATION_CACHE;
@@ -99,8 +109,6 @@ export async function compiledConfiguration(root, configurationRoot, assets, com
   let directory, key;
   try {
     directory = path.join(gitCommonDir(root), 'singularity-flow', 'compiled-configuration-v1');
-    const rows = assets.map(({ relative, sha256, gitMode }) => [relative, sha256, gitMode])
-      .sort((a, b) => a[0].localeCompare(b[0]));
     key = digest(JSON.stringify([FORMAT, await configurationEngineIdentity(), rows]));
   } catch { return compile(); }
   const secretFile = path.join(directory, 'key');

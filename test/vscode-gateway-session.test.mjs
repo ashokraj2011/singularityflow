@@ -135,7 +135,22 @@ test('the editor bundles the shared docs planner with a verified package root', 
   const topics = await readFile(path.join(root, 'src', 'docs-topics.mjs'), 'utf8');
   const marker = topics.match(/export function (\w+)/)?.[1];
   assert.ok(marker, 'docs-topics.mjs exports something to look for');
-  assert.ok(bundle.includes(`function ${marker}(`), 'the shared documentation subsystem is bundled');
+  const map = JSON.parse(await readFile(path.join(isolatedBundle, 'gateway-runtime.cjs.map'), 'utf8'));
+  assert.ok(map.sources.some(source => source.endsWith('/src/docs-topics.mjs')));
+  assert.ok(bundle.includes(JSON.stringify(marker)), 'the shared documentation subsystem retains its runtime name');
+});
+
+test('compact packaged locals preserve public function names and their behavior', () => {
+  const load = createRequire(import.meta.url);
+  const runtime = load(path.join(isolatedBundle, 'gateway-runtime.cjs'));
+  const context = load(path.join(isolatedBundle, 'gateway-context-runtime.cjs'));
+  for (const [name, value] of Object.entries(runtime)) assert.equal(value.name, name);
+  assert.equal(context.activeRepositoryContext.name, 'activeRepositoryContext');
+  context.setActiveRepositoryContext({ root: '/fixture', workspaceId: null, workspaceName: null, repositoryId: null, origin: 'test' });
+  assert.equal(context.activeRepositoryContext().root, '/fixture');
+  context.setActiveRepositoryContext(null);
+  assert.equal(context.activeRepositoryContext(), null);
+  assert.equal(runtime.primaryAction({ next: [] }), null);
 });
 
 test('the host gateway refuses to start without being told which planners exist', async () => {

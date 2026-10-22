@@ -1,5 +1,14 @@
 # GAL Git bypass regression gate
 
+Story-start configuration reuse adds closed local sites for exact object presence, a private
+retention ref, and a disposable configuration-only shared-object checkout. Only that checkout's
+origin and HEAD/ref/index are initialized; no source index, application branch, or history scan is
+added. Missing exact configuration objects use the existing deadline-aware transport. The lazy
+creation metadata owner has one bounded NUL-delimited config batch, preserving failures and
+dependency-stamp invalidation. The diagnostic harness retains its one bounded Node launch while
+adding the existing process-count preload and classified trace flag. Only these reviewed call
+contexts change; no general owner, authority exemption, or timeout bypass is registered.
+
 Windows workflow-review cache repair adds two fixed local calls in the existing private
 configuration-object-store owner: set `core.longpaths=true` only during new inert pool
 initialization, and `pack-refs --all --prune` only inside its qualified, bounded, leased

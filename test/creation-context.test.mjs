@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { creationConfiguration, creationConfigurationOwner, withCreationContext } from '../src/creation-context.mjs';
+import { creationCompiledConfiguration, creationConfiguration, creationConfigurationOwner, withCreationContext } from '../src/creation-context.mjs';
 
 const authority = { remote: 'https://example.invalid/repository', branch: 'sflow/config', commit: 'a'.repeat(40) };
 const options = { env: { PATH: '/fixture' }, captureAuthoringBytes: false };
@@ -27,6 +27,25 @@ test('one creation shares only the exact successful capture and closes ownership
   assert.equal(frame.configurations.size, 0);
   await creationConfiguration(authority, options, load, verify);
   assert.equal(calls, 5, 'no cross-invocation permission or snapshot cache');
+});
+
+test('one captured closure compiles once with isolated values, changed inputs and failure retry', async () => {
+  let calls = 0;
+  const compile = async () => { calls++; return { entries: ['approved'] }; };
+  const copy = (definition, from, to) => ({ ...structuredClone(definition), from, to });
+  await withCreationContext(async () => {
+    const first = await creationCompiledConfiguration('closure-A', '/first', compile, copy);
+    first.entries.push('changed');
+    const second = await creationCompiledConfiguration('closure-A', '/second', compile, copy);
+    assert.deepEqual(second, { entries: ['approved'], from: '/first', to: '/second' });
+    assert.equal(calls, 1);
+    await creationCompiledConfiguration('closure-B', '/second', compile, copy);
+    await assert.rejects(creationCompiledConfiguration('failure', '/first', async () => { throw Error('invalid policy'); }, copy));
+    await creationCompiledConfiguration('failure', '/first', compile, copy);
+    assert.equal(calls, 3);
+  });
+  await creationCompiledConfiguration('closure-A', '/first', compile, copy);
+  assert.equal(calls, 4, 'no compiled authority or observation survives its request');
 });
 
 test('failed capture retries honestly and parallel requests have independent cleanup', async () => {

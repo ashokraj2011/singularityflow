@@ -587,7 +587,7 @@ export async function main(argv) {
     return await (positionals[0] === 'start'
       || positionals[0] === 'workspace' && positionals[1] === 'branches'
       || positionals[0] === 'story' && positionals[1] === 'prepare-worktree'
-      ? withCreationContext(invoke) : invoke());
+      ? withCreationContext(invoke, { configurationTransfers: positionals[0] === 'start' }) : invoke());
   }
   finally { uninstall(); }
 }

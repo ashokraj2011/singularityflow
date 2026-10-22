@@ -98,10 +98,14 @@ const options = {
   platform: 'node',
   target: 'node20',
   format: 'cjs',
-  // Ship compact whitespace/syntax while preserving identifiers. Source maps
-  // retain readable sources; do not inflate every lazy runtime for formatting-only bytes.
+  // Source maps retain readable source identifiers. Compact shipped locals too, but preserve
+  // observable function/class names (including error and provider names) at runtime.
   minifyWhitespace: true,
   minifySyntax: true,
+  minifyIdentifiers: true,
+  keepNames: true,
+  // Node reads CommonJS as UTF-8. Avoid inflating every user-facing symbol to an ASCII escape.
+  charset: 'utf8',
   external: ['vscode'],
   // The extension host never runs a bound CLI invocation; core drops those branches from these
   // bundles when it sees this flag (workspaceMemberContextForRepository).

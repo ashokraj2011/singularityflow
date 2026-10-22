@@ -130,7 +130,7 @@
         "process-import": 1,
         "process-launch": 1
       },
-      "digest": "2b67486a00d9dc4054b6ffc029051a6944d5d67abe3ed3d63542e362c951a2f9"
+      "digest": "2ed504270d5f746066ebaa18cb36631a48855225f5677f077c8006dcc96c4bbb"
     },
     "scripts/story-readiness-benchmark.mjs": {
       "counts": {
@@ -827,9 +827,13 @@
     },
     "src/configuration-branch.mjs": {
       "counts": {
-        "command-run": 28
+        "command-run": 34
       },
-      "digest": "6787d1bdbae7eb1be7bfdb30c0a04f78fcf07b9945fd3e68f02aa7fd75d4596c"
+      "digest": "afa9a427aa9cb912b7ea6d1129b4cbdca117e006c0e116af01970f510aab905e"
+    },
+    "src/creation-git-context.mjs": {
+      "counts": { "command-run": 1 },
+      "digest": "0d3e5d26757146edeaad7b0a914b510f90e01d3bc4aed969261dd07acd1b602b"
     },
     "src/configuration-people.mjs": {
       "counts": {

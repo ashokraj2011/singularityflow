@@ -2252,7 +2252,7 @@ export async function publishBranchWithLedgerEntry(root, rawConfig, intent, {
     if (config.remote !== upstreamRemote || !hasRemoteInEnvironment(root, config.remote, env)) return null;
     observation = ledgerFetchTransport(root, config, { env });
     if (!observation) return null;
-    audit = await prepareLedgerAppend(root, config, intent, commit, { env });
+    audit = await prepareLedgerAppend(root, config, intent, commit, { env, initializeIfAbsent: true });
   } catch {
     // Nothing was published. The sequential path reports any real problem with its own recovery.
     return null;
@@ -2264,7 +2264,7 @@ export async function publishBranchWithLedgerEntry(root, rawConfig, intent, {
   const updates = [
     [branchRef, commit, expectedBranchSha,
       expectedBranchSha === null ? ['*'] : expectedBranchSha === undefined ? [' ', '*'] : [' ', '+']],
-    [stateRef, audit.ledgerCommit, audit.expectedRemoteSha, [' ', '+']],
+    [stateRef, audit.ledgerCommit, audit.expectedRemoteSha, audit.expectedRemoteSha === null ? ['*'] : [' ', '+']],
     ...(audit.pinRef ? [[audit.pinRef, commit, null, ['*']]] : [])
   ];
   const frozen = frozenRemoteTransport(pushRemote, { push: true, env });

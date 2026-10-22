@@ -17,7 +17,14 @@ test('cold and repeated intake/start reuse workspace objects and only populate S
     assert.equal(row.workspaceBranchClones, 0, `${row.name}: no independent workspace branch clone`);
     assert.equal(row.sharesWorkspaceObjects, true, `${row.name}: Story uses the original Git common directory`);
     assert.ok(row.commands.worktree > 0, 'one direct Story worktree is created');
+    assert.ok(row.timing.telemetryComplete);
+    assert.ok(row.timing.spans['start.authority'] >= 0);
+    assert.ok(row.timing.spans['start.publication'] >= 0);
+    assert.ok(row.processes.length, 'retain process counts and per-verb service times');
+    assert.ok(row.performanceTrace?.spans.length, 'retain classified operation spans');
   }
+  assert.ok(result.rows.find(row => row.name === 'start-cold').commands.push <= 4,
+    'first creation co-publishes its new ledger root, entry and pin');
 });
 
 test('the VS Code readiness callback never schedules speculative application worktree creation', async () => {

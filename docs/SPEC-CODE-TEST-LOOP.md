@@ -124,7 +124,8 @@ The Testing reviewer records a clause-specific finding and chooses its target:
 - **Code or executable-test defect:** `/sf-reject` to `implementation`. SFlow records the change
   request, invalidates dependent approvals, and opens a new Code generation. Re-run the structured
   Code tests and Playwright review on the new code; old receipts remain in history but are stale
-  for the new generation.
+  for the new generation. A return that asks only for a test needs only the test change: the
+  approved product source carries over byte-for-byte with its clause comments.
 - **Source or test edit discovered while Testing is still in progress:** keep the edited bytes in
   the worktree; do not publish them as Testing output. Preview
   `singularity-flow reject testing --to implementation --repair --reason "<reason>"` (Copilot:

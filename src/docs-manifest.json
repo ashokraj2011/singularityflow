@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "12bda1160dd013098565f123f91d44cf19887a52",
+  "sourceCommit": "2a660dff7dd56d30de48a3c094ab23052bdc0f5e",
   "topicCount": 85,
-  "contentSha256": "e78cbbfff2d7d0bc14db08169edb2d245cba1c7a323b6ea7968f9c49529cca3b",
+  "contentSha256": "178727818e086da5a3e0e1a5734fa093d2771e4015f993ddf6692ef404e18ebb",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -240,8 +240,8 @@
     {
       "id": "findings",
       "title": "Findings — what a blocking finding means and how to recover",
-      "version": 5,
-      "sha256": "caf703da85203f6ec7364702208aa060be42d68bc05be533956eb2f128079857",
+      "version": 6,
+      "sha256": "711853b18f0f4575e2b95c371837d13c5e8fd8b6401284c90d22114bfb21f66a",
       "routingSha256": "63e669eb5eb939fd7ee9a8f6447d098138d7e424eac2ee4ff55901d902118539",
       "file": "findings.md"
     },
@@ -456,8 +456,8 @@
     {
       "id": "rejection-and-rework",
       "title": "Rejection and rework",
-      "version": 6,
-      "sha256": "81ae5253a24eea5da4a5d7719d7aa1ae324c1a03fbdbd90665f15170727d39fa",
+      "version": 7,
+      "sha256": "b3961416564abdd3b5ad1df6330b007255eb7f361390e7ddaa8480c61c89d8b7",
       "routingSha256": "1f6e7452a50ce8f4a4ce16c0cbc245d198d1d1815ff25a77c9429e37aff18825",
       "file": "rejection-and-rework.md"
     },

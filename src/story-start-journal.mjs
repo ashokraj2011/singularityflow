@@ -361,12 +361,15 @@ async function inspectRepositoryCheckout(repository, targetBranch) {
         && !refExists(repository.target, `refs/heads/${prepared.stagingBranch}`)) return null;
     try {
       const { storyWorktreeChanges, samePlatformPath } = await import('./story-worktree.mjs');
-      if (!samePlatformPath(realpathSync(gitCommonDir(prepared.repositoryPath)), realpathSync(gitCommonDir(repository.target)))
-          || ![targetBranch, prepared.stagingBranch].includes(branch(prepared.repositoryPath))
-          || head(prepared.repositoryPath) !== repository.baseCommit
-          || !storyWorktreeChanges(prepared.repositoryPath).clean) {
-        return `${repository.repository}: isolated checkout changed; existing work was preserved`;
-      }
+      if (!samePlatformPath(realpathSync(gitCommonDir(prepared.repositoryPath)), realpathSync(gitCommonDir(repository.target))))
+        return `${repository.repository}: isolated checkout belongs to a different Git object store; existing work was preserved`;
+      const observedBranch = branch(prepared.repositoryPath);
+      if (![targetBranch, prepared.stagingBranch].includes(observedBranch))
+        return `${repository.repository}: isolated checkout moved to '${observedBranch}'; existing work was preserved`;
+      if (head(prepared.repositoryPath) !== repository.baseCommit)
+        return `${repository.repository}: isolated checkout has an unrecognized commit; existing work was preserved`;
+      const changes = storyWorktreeChanges(prepared.repositoryPath);
+      if (!changes.clean) return `${repository.repository}: isolated checkout has changed files (${changes.changedPaths.join(', ')}); existing work was preserved`;
       return null;
     } catch (error) { return `${repository.repository}: ${error.message}`; }
   }

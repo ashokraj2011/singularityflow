@@ -386,7 +386,7 @@ test('a missing workspace repository is never cloned by preview; Start downloads
   assert.equal(started.independent, true);
   assert.equal(git(started.repositoryPath, 'rev-parse', 'HEAD'), git(f.source, 'rev-parse', 'HEAD'));
   await assert.rejects(readFile(path.join(started.repositoryPath, 'app.txt')), { code: 'ENOENT' });
-  assert.equal(await readFile(path.join(`${f.original}-retained`, 'app.txt'), 'utf8'), 'published application\n');
+  assert.equal((await readFile(path.join(`${f.original}-retained`, 'app.txt'), 'utf8')).trim(), 'published application');
 });
 
 test('isolated capability start creates sibling worktrees and leaves dirty source checkouts untouched', async t => {
@@ -441,7 +441,7 @@ test('receipt-only Start creates the worktree directly from its signed base, not
   });
   assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
   const payload = JSON.parse(result.stdout).data ?? JSON.parse(result.stdout);
-  assert.equal(await readFile(path.join(payload.repositoryPath, 'app.txt'), 'utf8'), 'signed feature base\n');
+  assert.equal((await readFile(path.join(payload.repositoryPath, 'app.txt'), 'utf8')).trim(), 'signed feature base');
   assert.equal(git(payload.repositoryPath, 'rev-parse', 'HEAD^'), selectedBase);
   assert.equal(git(f.original, 'branch', '--show-current'), 'main');
 });

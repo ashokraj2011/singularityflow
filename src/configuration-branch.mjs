@@ -2952,22 +2952,27 @@ async function workspaceStoryConfigurationSnapshot(root, authority, {
   const profile = await measureCommandSpan('configuration.object-verify', () =>
     storyConfigurationObjectProfile(root, authority.commit, localEnv, state, { configurationOnly: true }));
   if (!profile && !state.checkoutRequired) return null;
+  // Windows' native checkout preserves its EOL/filter semantics without first writing a second
+  // Node-authored projection. Retain that same sparse checkout for enrollment, rather than
+  // deleting the projection and creating another checkout after the Story worktree is built.
+  const nativeCheckout = process.platform === 'win32' || !profile;
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-config-read-'));
   let retainedCheckout = false;
   try {
-    await measureCommandSpan('configuration.object-project', () => profile
-      ? materializeStoryObjectCache(root, scratch, profile, localEnv, state)
-      : cloneWorkspaceConfiguration(root, scratch, authority.commit, authority.remote, env));
+    await measureCommandSpan('configuration.object-project', () => nativeCheckout
+      ? cloneWorkspaceConfiguration(root, scratch, authority.commit, authority.remote, env)
+      : materializeStoryObjectCache(root, scratch, profile, localEnv, state));
+    if (nativeCheckout) incrementCommandCounter('configuration.workspace-native-checkout');
     incrementCommandCounter('configuration.workspace-object-hit');
     const snapshot = await storyConfigurationSnapshotFromDirectory(authority, scratch, {
       observedCommit: authority.commit, sourceCommit: authority.commit, env: localEnv,
-      captureAuthoringBytes, gitRoot: profile ? root : scratch, gitRef: authority.commit
+      captureAuthoringBytes, gitRoot: nativeCheckout ? scratch : root, gitRef: authority.commit
     });
     const owner = STORY_CONFIGURATION_TRANSACTIONS.getStore();
     if (owner?.active) {
-      owner.snapshots.set(snapshot, profile ? { sourceRepository: root, taken: false }
-        : { directory: scratch, taken: false });
-      if (!profile) { owner.directories.add(scratch); retainedCheckout = true; }
+      owner.snapshots.set(snapshot, nativeCheckout ? { directory: scratch, taken: false }
+        : { sourceRepository: root, taken: false });
+      if (nativeCheckout) { owner.directories.add(scratch); retainedCheckout = true; }
     }
     return snapshot;
   } finally { if (!retainedCheckout && !state.cleanupUnproven) await removeTemporaryTree(scratch); }

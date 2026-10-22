@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
 import {
   chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile
@@ -1135,14 +1136,14 @@ test('the extension package contains every explicit lazy runtime used by the act
     'optional model-tool registration and prompt preparation have an explicit lazy boundary');
   assert.doesNotMatch(bundle, /world-model-build\.cjs/, 'the World Model build bundle was removed');
   assert.match(gatewayContext, /gateway-runtime\.cjs/);
-  assert.match(gatewayContext, /\bfunction\s+activeRepositoryContext\s*\(/u,
+  assert.equal(createRequire(import.meta.url)(path.join(extension, 'dist', 'gateway-context-runtime.cjs')).activeRepositoryContext.name, 'activeRepositoryContext',
     'the shared lightweight entry owns repository routing for every lazy bundle');
   assert.match(gateway, /investigate-problem/,
     'the lazy gateway runtime omitted the conversation router');
-  assert.match(gateway, /\bfunction\s+primaryAction\s*\(/u,
+  assert.equal(createRequire(import.meta.url)(path.join(extension, 'dist', 'gateway-runtime.cjs')).primaryAction.name, 'primaryAction',
     'the lazy gateway runtime omitted the result selector');
-  assert.match(help, /\bvar\s+HelpPanel\s*=\s*class\b/u);
-  assert.doesNotMatch(panels, /\bvar\s+HelpPanel\s*=\s*class\b/u,
+  assert.ok(JSON.parse(helpSourceMap).sources.some(source => source.endsWith('/views/help.ts')));
+  assert.ok(!JSON.parse(panelSourceMap).sources.some(source => source.endsWith('/views/help.ts')),
     'the frequent Help surface must not parse the complete panel graph');
   const extensionSources = JSON.parse(extensionSourceMap).sources;
   const helpSources = JSON.parse(helpSourceMap).sources;

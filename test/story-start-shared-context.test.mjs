@@ -79,7 +79,9 @@ test('enrollment borrows a configuration-only checkout, preserves application by
     assert.equal((await readFile(path.join(checkout, 'hook-ran.txt'), 'utf8')).trim(), 'ran');
     assert.equal(await takeStoryConfigurationCheckout(snapshot, selected.remote, selected.commit), null);
   });
-  assert.equal(counters['configuration.enrollment-object-checkout'], 1);
+  assert.equal((counters['configuration.enrollment-object-checkout'] ?? 0)
+    + (counters['configuration.workspace-native-checkout'] ?? 0), 1,
+  'capture and enrollment share exactly one native checkout');
   assert.equal(counters['git.remote.command.clone'] ?? 0, 0);
 });
 

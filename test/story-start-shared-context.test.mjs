@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import path from 'node:path';
-import { chmod, readFile, writeFile } from 'node:fs/promises';
+import { chmod, lstat, readFile, writeFile } from 'node:fs/promises';
 import { createStoryReadinessFixture } from '../scripts/story-readiness-benchmark.mjs';
 import { withCreationContext } from '../src/creation-context.mjs';
-import { loadStoryConfigurationSnapshot, takeStoryConfigurationCheckout } from '../src/configuration-branch.mjs';
+import { loadStoryConfigurationSnapshot, materializeConfigurationSnapshot, readConfigurationSource,
+  takeStoryConfigurationCheckout, STORY_CONFIGURATION_OBJECT_CACHE_LIMITS } from '../src/configuration-branch.mjs';
+import { configurationObjectClosure } from '../src/story-configuration-objects.mjs';
+import { run } from '../src/util.mjs';
 import { configuredRemoteIdentity } from '../src/git-remote-diagnostics.mjs';
 import { GitRemoteSession } from '../src/git-execution.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
@@ -31,6 +34,25 @@ test('large application trees reuse only their exact configuration closure on ev
   assert.ok(snapshot.assets.every(entry => !entry.relative.startsWith('src/')));
   assert.equal(f.git(f.original, 'rev-parse', 'HEAD'), before);
   assert.equal(f.git(f.original, 'status', '--porcelain'), '');
+  const commands = [];
+  const closure = configurationObjectClosure(f.original, selected.commit, {
+    env: f.env, limits: STORY_CONFIGURATION_OBJECT_CACHE_LIMITS,
+    runCommand: (command, args, options) => { commands.push(args[0]); return run(command, args, options); }
+  });
+  assert.equal(closure.files.length, snapshot.assets.length);
+  assert.ok(commands.length > 0 && commands.every(command => command === 'cat-file'),
+    'configuration verification never runs fsck, history, ref inventory or application subtree walks');
+  const corrupt = configurationObjectClosure(f.original, selected.commit, {
+    env: f.env, limits: STORY_CONFIGURATION_OBJECT_CACHE_LIMITS,
+    runCommand: (command, args, options) => {
+      const result = run(command, args, options);
+      if (args.includes('--batch') && Buffer.isBuffer(result.stdout)) {
+        result.stdout[result.stdout.indexOf(0x0a) + 1] ^= 1;
+      }
+      return result;
+    }
+  });
+  assert.equal(corrupt, null, 'corrupted exact commit/tree bodies are never accepted');
 });
 
 test('enrollment borrows a configuration-only checkout, preserves application bytes and retains normal hooks', async t => {
@@ -112,4 +134,26 @@ test('shared remote configuration batches both directions and invalidates change
     f.git(f.original, 'config', '--add', 'remote.origin.pushurl', 'https://example.invalid/other.git');
     assert.equal(configuredRemoteIdentity(f.original, 'origin', { direction: 'push' }).ambiguous, true);
   });
+});
+
+test('materialization preserves identical files but repairs changed bytes and removes obsolete assets', async t => {
+  const f = await createStoryReadinessFixture({ files: 0 }); t.after(f.cleanup);
+  const selected = authority(f);
+  const { value: snapshot } = await capture(f, () => loadStoryConfigurationSnapshot(selected, options(f)));
+  await materializeConfigurationSnapshot(f.original, { authority: selected, snapshot });
+  const file = path.join(f.original, 'singularity/workflow.yml');
+  const before = await lstat(file, { bigint: true });
+  const timer = commandTimer('materialize-existing');
+  await withCommandTiming(timer, () => materializeConfigurationSnapshot(f.original, { authority: selected, snapshot }));
+  assert.equal(timer.finish().counters['configuration.assets-reused'], snapshot.assets.length);
+  const after = await lstat(file, { bigint: true });
+  assert.equal(after.ino, before.ino);
+  assert.equal(after.mtimeNs, before.mtimeNs);
+  const template = snapshot.assets.find(entry => entry.relative.startsWith('singularity/templates/'));
+  await writeFile(path.join(f.original, template.relative), 'changed template\n');
+  await writeFile(path.join(f.original, 'singularity/templates/obsolete.txt'), 'obsolete\n');
+  await materializeConfigurationSnapshot(f.original, { authority: selected, snapshot });
+  assert.ok((await readFile(path.join(f.original, template.relative))).equals(template.contents));
+  await assert.rejects(readFile(path.join(f.original, 'singularity/templates/obsolete.txt')), { code: 'ENOENT' });
+  assert.equal((await readConfigurationSource(f.original, { verify: true, exactBytes: true })).commit, selected.commit);
 });

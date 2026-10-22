@@ -78,14 +78,18 @@ It does not measure a real office network or flush the operating-system cache.
 
 Story creation also reuses exact approved configuration objects already present in the workspace
 on macOS and Windows. Eligibility is bounded by the configuration dependency closure, not by the
-application file count. Start may fetch a missing exact configuration commit and retain it locally;
+application file count. Exact commit/tree/blob hashes are verified without `fsck`, ancestor history,
+or unrelated application subtree traversal. Start may fetch a missing exact configuration commit
+and retain it locally;
 intake does not do that speculative transfer. Configuration attributes still use Git's ordinary
 checkout semantics in a disposable configuration-only projection. Enrollment borrows local objects
 without a second remote clone or application checkout, and normal hooks continue to run.
 
 Within one request, exact captured configuration closures share compilation with independent
 consumer copies and rebound runtime paths. Remote URL/push-URL metadata is batched and fenced by
-Git configuration dependency stamps; changes are re-read. Mutable refs, authorization and final
+Git configuration dependency stamps; changes are re-read. Byte-identical ordinary configuration
+files retain their file/index identities instead of being deleted and rewritten; changed and
+obsolete assets still converge to the exact approved closure. Mutable refs, authorization and final
 publication checks remain fresh. An absent ledger can be created with its first lifecycle event
 and pin in one atomic publication under absent-ref leases, with the existing recovery/fallback
 paths retained. `SINGULARITY_FLOW_STORY_CONFIGURATION_CACHE=off` disables workspace-object reuse;
@@ -103,8 +107,8 @@ It still observes approved authority; admitted regular-blob trees are projected 
 directory without another Git clone or checkout. Unsupported trees use the original validated
 clone path. Windows receipts use a separate integrity key and a recursively verified private ACL
 store; unavailable or unsafe storage simply falls back to full start validation, without repairing
-ACLs or weakening readiness. The configuration object cache remains POSIX-only; the selected-base
-refresh and process-local reuse of unchanged Git location, HEAD and configuration answers and of
+ACLs or weakening readiness. The separate private bare-object cache remains POSIX-only; workspace
+object reuse above, selected-base refresh, and process-local reuse of unchanged Git location, HEAD and configuration answers and of
 ref-name checks are cross-platform (on Windows every place Git for Windows may read configuration
 from is tracked, including both home-folder candidates and `%PROGRAMDATA%\Git\config`).
 

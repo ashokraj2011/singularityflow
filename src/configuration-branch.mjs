@@ -47,7 +47,7 @@ import {
   createAndPushTransportIntent, listTransportIntents, retryTransportIntent
 } from './transport-intents.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { incrementCommandCounter } from './dx-command-timing.mjs';
+import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 import { acquireFileLease, inspectFileLease } from './file-lease.mjs';
 import {
   configurationAssetPolicy, configurationAssetSearchRoots, DEFAULT_CONFIGURATION_ASSET_POLICY,
@@ -59,6 +59,7 @@ import { recordSha256 } from './records.mjs';
 import { compiledConfiguration, copyCompiledDefinition } from './configuration-definition-cache.mjs';
 import { configurationHistoryRefs, retainedConfigurationHistoryRef } from './configuration-history-refs.mjs';
 import { readLocalGitBlobs } from './git-blob-batch.mjs';
+import { configurationObjectClosure } from './story-configuration-objects.mjs';
 import {
   assertSkillPackagePath, inspectSkillPackageContents, SKP_CAPTURE_LIMITS
 } from './skp-package.mjs';
@@ -97,7 +98,8 @@ export async function takeStoryConfigurationCheckout(snapshot, remote, expectedC
     // Ordinary template/commit hooks remain installed and execute normally; do not disable them.
     const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-enrollment-config-'));
     owner.directories.add(directory);
-    await cloneWorkspaceConfiguration(lease.sourceRepository, directory, expectedCommit, remote, env);
+    await measureCommandSpan('configuration.enrollment-checkout', () =>
+      cloneWorkspaceConfiguration(lease.sourceRepository, directory, expectedCommit, remote, env));
     lease.directory = directory;
     incrementCommandCounter('configuration.enrollment-object-checkout');
   }
@@ -810,9 +812,9 @@ async function copyConfigurationAssetsFromRef(source, ref, destination, { env = 
   return entries.map((entry) => entry.file).sort();
 }
 
-async function clearConfigurationAssets(root) {
-  const removed = await configurationAssetPaths(root);
-  for (const relative of removed) await rm(path.join(root, relative), { force: true });
+async function clearConfigurationAssets(root, keep = new Set(), removed = null) {
+  removed ??= await configurationAssetPaths(root);
+  for (const relative of removed) if (!keep.has(relative)) await rm(path.join(root, relative), { force: true });
   return removed;
 }
 
@@ -2497,32 +2499,22 @@ function storyConfigurationObjectProfile(directory, commit, env, state, { config
   const local = (args, maxBuffer = 64 * 1024, options = {}) => storyObjectCacheLocal(state, args, {
     cwd: directory, env, maxBuffer, ...options
   });
-  const checked = local(['fsck', '--strict', '--no-reflogs', '--no-dangling', commit]);
-  if (!processResultSucceeded(checked)) return declined('integrity');
   let listed;
   if (configurationOnly) {
-    // Historical sflow/config branches can include a large application. Qualify only the complete
-    // reviewed dependency closure, never count application files against a configuration budget.
-    const entries = configurationTreeEntries(directory, commit, null, {
-      env, includeNonRegular: true, maxBuffer: STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.listingBytes
+    const closure = configurationObjectClosure(directory, commit, {
+      env, limits: STORY_CONFIGURATION_OBJECT_CACHE_LIMITS,
+      runCommand: (_command, args, options) => storyObjectCacheLocal(state, args, options)
     });
-    const attributes = new Set(['.gitmodules']);
-    for (const relative of entries.keys()) {
-      let parent = path.posix.dirname(relative);
-      for (;;) {
-        attributes.add(parent === '.' ? '.gitattributes' : `${parent}/.gitattributes`);
-        if (parent === '.') break;
-        parent = path.posix.dirname(parent);
-      }
-    }
-    const transforms = local(['ls-tree', '-z', '--name-only', commit, '--', ...attributes],
-      STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.listingBytes);
-    if (!processResultSucceeded(transforms)) return declined('shape');
-    if (transforms.stdout.length) { state.checkoutRequired = true; return declined('transforms'); }
-    listed = { status: 0, stdout: Buffer.from([...entries.values()].map(entry =>
+    if (!closure) return declined('integrity');
+    if (closure.checkoutRequired) { state.checkoutRequired = true; return declined('transforms'); }
+    listed = { status: 0, stdout: Buffer.from(closure.files.map(entry =>
       `${entry.mode} blob ${entry.object}\t${entry.relative}\0`).join('')) };
-  } else listed = local(['ls-tree', '-r', '-z', '--full-tree', commit],
-    STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.listingBytes, { encoding: 'buffer' });
+  } else {
+    const checked = local(['fsck', '--strict', '--no-reflogs', '--no-dangling', commit]);
+    if (!processResultSucceeded(checked)) return declined('integrity');
+    listed = local(['ls-tree', '-r', '-z', '--full-tree', commit],
+      STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.listingBytes, { encoding: 'buffer' });
+  }
   let listing;
   try { listing = new TextDecoder('utf-8', { fatal: true }).decode(listed.stdout); }
   catch { return declined('listing'); }
@@ -2946,10 +2938,10 @@ async function workspaceStoryConfigurationSnapshot(root, authority, {
     // Start owns this exact configuration transfer. Read-only intake never downloads objects by
     // this route. The private ref is retention only; every later use still resolves live authority.
     const transport = frozenRemoteTransport(authority.remote, { env });
-    const fetched = await runRemoteGitAsync(['fetch', '--quiet', '--no-tags', '--no-write-fetch-head',
+    const fetched = await measureCommandSpan('configuration.object-fetch', () => runRemoteGitAsync(['fetch', '--quiet', '--no-tags', '--no-write-fetch-head',
       '--recurse-submodules=no', '--', transport.remote, authority.commit], {
       cwd: root, env: transport.env, operation: 'remote-configuration'
-    });
+    }));
     if (!processResultSucceeded(fetched)) throw new SingularityFlowError(
       `Cannot fetch the exact approved configuration. ${fetched.failure?.advice ?? 'Review Git access and retry.'}`,
       { code: fetched.failure?.code ?? 'REMOTE_UNKNOWN' });
@@ -2957,13 +2949,15 @@ async function workspaceStoryConfigurationSnapshot(root, authority, {
     incrementCommandCounter('configuration.workspace-object-fetch');
   }
   const state = { cleanupUnproven: false };
-  const profile = storyConfigurationObjectProfile(root, authority.commit, localEnv, state, { configurationOnly: true });
+  const profile = await measureCommandSpan('configuration.object-verify', () =>
+    storyConfigurationObjectProfile(root, authority.commit, localEnv, state, { configurationOnly: true }));
   if (!profile && !state.checkoutRequired) return null;
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-config-read-'));
   let retainedCheckout = false;
   try {
-    if (profile) await materializeStoryObjectCache(root, scratch, profile, localEnv, state);
-    else await cloneWorkspaceConfiguration(root, scratch, authority.commit, authority.remote, env);
+    await measureCommandSpan('configuration.object-project', () => profile
+      ? materializeStoryObjectCache(root, scratch, profile, localEnv, state)
+      : cloneWorkspaceConfiguration(root, scratch, authority.commit, authority.remote, env));
     incrementCommandCounter('configuration.workspace-object-hit');
     const snapshot = await storyConfigurationSnapshotFromDirectory(authority, scratch, {
       observedCommit: authority.commit, sourceCommit: authority.commit, env: localEnv,
@@ -3343,8 +3337,23 @@ export async function materializeConfigurationSnapshot(root, {
   {
     const baseCommit = configurationRepositoryHead(root);
     const before = configurationTreeEntries(root, baseCommit);
-    const removed = await clearConfigurationAssets(root);
-    const files = await writeCapturedStoryConfigurationAssets(captured, root);
+    const keep = new Set();
+    // Preserve identical ordinary files and their index/stat identities. Deleting and rewriting
+    // every template made Windows rescan/re-hash the entire closure during initial publication.
+    // This is byte equality, not an mtime cache; final provenance verification remains mandatory.
+    const current = new Set(await configurationAssetPaths(root));
+    for (const entry of captured) {
+      if (!current.has(entry.relative)) continue;
+      const target = path.join(root, entry.relative), info = await lstat(target);
+      if (info.isFile() && !info.isSymbolicLink() && info.nlink === 1
+          && (process.platform === 'win32' || (info.mode & 0o777) === entry.mode)
+          && (await readFile(target)).equals(entry.contents)) keep.add(entry.relative);
+    }
+    const removed = await clearConfigurationAssets(root, keep, [...current]);
+    const changed = captured.filter(entry => !keep.has(entry.relative));
+    const files = [...keep, ...await writeCapturedStoryConfigurationAssets(changed, root)].sort();
+    incrementCommandCounter('configuration.assets-reused', keep.size);
+    incrementCommandCounter('configuration.assets-written', changed.length);
     if (!files.includes('singularity/workflow.yml')) {
       throw new SingularityFlowError(
         `${CONFIGURATION_BRANCH}@${commit.slice(0, 12)} does not contain singularity/workflow.yml.`);

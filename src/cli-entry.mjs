@@ -16,6 +16,7 @@ import { versionLine } from './build-info.mjs';
 import { resolveModelMode, stripGlobalModelOptions } from './model-mode.mjs';
 import { withOperationContext } from './operation-context.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
+import { FROZEN_REMOTE_ALIAS } from './git-remote-diagnostics.mjs';
 import { abandonRemoteBranchObservations } from './remote-observation-prefetch.mjs';
 import { installFileLeaseSignalHandlers } from './file-lease.mjs';
 import { configurationReviewRetryDue, firstRunPassDue } from './product-alignment-gate.mjs';
@@ -281,7 +282,7 @@ export function hasLocalGovernanceAuthority(root) {
 export async function hasRemoteGovernanceAuthority(root) {
   if (!root) return false;
   const remotes = routingGitRead(root, ['remote'], 'Configured remotes')
-    .split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
+    .split(/\r?\n/).map((entry) => entry.trim()).filter((entry) => entry && !FROZEN_REMOTE_ALIAS.test(entry));
   for (const remote of remotes) {
     const advertised = await runRemoteGitAsync([
       'ls-remote', '--heads', '--', remote,

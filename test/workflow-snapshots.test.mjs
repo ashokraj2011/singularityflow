@@ -220,6 +220,13 @@ test('accepted Story snapshot hydrates only immutable closure blobs from a blobl
     }).stdout, /remote\.origin\.promisor true/);
     assert.match(run('git', ['config', '--local', '--get-regexp',
       '^remote\\..*\\.promisor$'], { cwd: partial }).stdout, /remote\.origin\.promisor true/);
+    // An older version's fetches left their one-shot aliases registered as promisor remotes; the
+    // creation record was then refused with "this checkout has 3".
+    for (const alias of ['sflow-frozen-74024af1-2b65-4027-b142-1241901058b7:',
+      'sflow-frozen-cf7fd459-1266-45fe-8ff5-bf8dcf7ec4c3:']) {
+      run('git', ['config', '--local', `remote.${alias}.promisor`, 'true'], { cwd: partial });
+      run('git', ['config', '--local', `remote.${alias}.partialclonefilter`, 'blob:none'], { cwd: partial });
+    }
     assert.notEqual(run('git', ['cat-file', '-e', creationOid], {
       cwd: partial, env: localOnly, allowFailure: true
     }).status, 0, 'the historical creation blob should initially be promised');

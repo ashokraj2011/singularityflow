@@ -20,7 +20,7 @@ import { probeStoryBranchPublication } from './story-publication-preflight.mjs';
 import { observePublicationHookEffects } from './git-hook-effects.mjs';
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, configuredRemoteAuthority,
-  configuredRemoteIdentity, frozenRemoteTransport, safeGitDiagnosticReference, isPortableAbsoluteGitPath
+  configuredRemoteIdentity, FROZEN_REMOTE_ALIAS, frozenRemoteTransport, safeGitDiagnosticReference, isPortableAbsoluteGitPath
 } from './git-remote-diagnostics.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { inWorktreeReadScope, scopedReadSync } from './read-scope.mjs';
@@ -166,7 +166,8 @@ export function recentBranches(root, { limit = 500 } = {}) {
 export function fetchMissingBlobs(root, commit, wanted, { limit = 20000 } = {}) {
   const promisors = git(['config', '--local', '--get-regexp', '^remote\\..*\\.promisor$'], { cwd: root, allowFailure: true });
   const remote = String(promisors.stdout ?? '').split('\n').map((line) => line.trim().split(/\s+/u))
-    .find(([, value]) => value === 'true')?.[0]?.replace(/^remote\.|\.promisor$/gu, '') ?? null;
+    .map(([key, value]) => [key?.replace(/^remote\.|\.promisor$/gu, ''), value])
+    .find(([name, value]) => value === 'true' && !FROZEN_REMOTE_ALIAS.test(name))?.[0] ?? null;
   if (!remote) return { fetched: 0, remote: null };
   const local = { ...process.env, GIT_NO_LAZY_FETCH: '1', GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' };
   const listed = git(['ls-tree', '-r', '-z', '--format=%(objecttype)%x09%(objectname)%x09%(path)', commit], { cwd: root, env: local, allowFailure: true });
@@ -805,7 +806,7 @@ export function hasRemote(root, remote = 'origin', { env = process.env } = {}) {
 /** Enumerate configured remote names through the shared Git execution boundary. */
 export function remoteNames(root, { env = process.env } = {}) {
   return gitAnswer(['remote'], { cwd: root, env }, 'Git remotes')
-    .split(/\r?\n/u).map((value) => value.trim()).filter(Boolean);
+    .split(/\r?\n/u).map((value) => value.trim()).filter((value) => value && !FROZEN_REMOTE_ALIAS.test(value));
 }
 
 /** Read one configured remote URL without exposing a raw Git subprocess at the caller. */

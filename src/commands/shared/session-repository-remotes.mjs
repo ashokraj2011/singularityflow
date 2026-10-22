@@ -1,5 +1,6 @@
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
 import { gitAnswer } from './git-answer.mjs';
+import { FROZEN_REMOTE_ALIAS } from '../../git-remote-diagnostics.mjs';
 
 /**
  * Which repository a session command is about. `[session]`
@@ -18,6 +19,6 @@ import { gitAnswer } from './git-answer.mjs';
  */
 export function sessionRepositoryRemotes(root) {
   const names = gitAnswer(root, ['remote'], 'Session repository remotes')
-    .split(/\r?\n/).map((name) => name.trim()).filter(Boolean);
+    .split(/\r?\n/).map((name) => name.trim()).filter((name) => name && !FROZEN_REMOTE_ALIAS.test(name));
   return [...new Set(['origin', ...names].filter((name) => names.includes(name)))];
 }

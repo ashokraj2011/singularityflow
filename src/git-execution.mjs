@@ -10,7 +10,7 @@
  */
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, failureEvidence, gitFailureDiagnostic, redactDiagnosticText,
-  frozenRemoteTransport, isPortableAbsoluteGitPath, sanitizeRemote
+  FROZEN_REMOTE_ALIAS, frozenRemoteTransport, isPortableAbsoluteGitPath, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -336,6 +336,33 @@ function throwRemoteFailure(observed) {
 }
 
 /**
+ * A filtered fetch from a URL, rather than from a configured remote, makes Git register that URL as
+ * a promisor remote in the repository's own config. SFlow fetches through a one-shot frozen alias,
+ * so every such fetch into a checkout left a `remote."sflow-frozen-…:"` section behind. The
+ * checkout then listed several remotes and refused to read its Story history (a Story started on
+ * one laptop and continued from a blobless clone on another). After the fetch, remove every SFlow
+ * alias section from a checkout, including ones older versions left. A bare repository is one of
+ * SFlow's own object stores: it may still read through its alias and seals itself.
+ */
+function releaseFrozenAliasRegistrations(args, cwd, env) {
+  const fetchAt = args.indexOf('fetch');
+  if (fetchAt < 0) return;
+  const rest = args.slice(fetchAt + 1);
+  if (!rest.some((arg) => String(arg).startsWith('--filter'))
+      || !rest.some((arg) => FROZEN_REMOTE_ALIAS.test(String(arg)))) return;
+  const local = (argv) => run('git', argv, { cwd, env, allowFailure: true });
+  const listed = local(['config', '--local', '--get-regexp',
+    '^(core\\.bare|remote\\.sflow-frozen-.*\\.(promisor|partialclonefilter))$']);
+  if (!processResultSucceeded(listed)) return;
+  const rows = String(listed.stdout ?? '').split(/\r?\n/u).filter(Boolean);
+  if (rows.some((row) => /^core\.bare true$/iu.test(row.trim()))) return;
+  const aliases = new Set(rows.map((row) => /^remote\.(\S+)\.(?:promisor|partialclonefilter)\s/u.exec(row)?.[1])
+    .filter((name) => FROZEN_REMOTE_ALIAS.test(name ?? '')));
+  // Best effort: a concurrent SFlow command may already have removed the same section.
+  for (const alias of aliases) local(['config', '--local', '--remove-section', `remote.${alias}`]);
+}
+
+/**
  * Execute one bounded remote Git operation and attach the shared failure classification.
  *
  * `allowFailure` defaults to true because most callers need to distinguish a missing ref from an
@@ -373,13 +400,14 @@ function runRemoteGitImpl(args, {
   }
   incrementCommandCounter('git.spawns');
   let result;
+  let executionEnvironment = null;
   try {
     result = runCommand('git', args, {
       cwd,
       // The runner is the final authority boundary. Callers should normally pass the marked
       // environment returned by enterpriseGitEnvironment/frozenRemoteTransport, but a legacy or
       // direct caller cannot bypass isolation merely by passing process.env itself.
-      env: nonInteractiveGitEnvironment(remoteGitEnvironment(env)),
+      env: executionEnvironment = nonInteractiveGitEnvironment(remoteGitEnvironment(env)),
       timeoutMs,
       allowFailure: true,
       // This adapter owns the logical-request, physical-spawn and service-time counters. The shared
@@ -390,6 +418,7 @@ function runRemoteGitImpl(args, {
     });
   } finally {
     incrementCommandCounter('git.service-ms', Math.max(0, Math.round(performance.now() - serviceStarted)));
+    if (runCommand === run && executionEnvironment) releaseFrozenAliasRegistrations(args, cwd, executionEnvironment);
   }
   const succeeded = processResultSucceeded(result);
   const failure = succeeded ? null : {
@@ -684,6 +713,7 @@ async function runRemoteGitAsyncImpl(args, {
   incrementCommandCounter('git.service-ms', Math.max(0, Math.round(serviceMs)));
   if (probeStarted) recordSubprocessTiming('git', args, serviceMs);
   if (probe?.url && result.timedOut && !result.unanswered) childWatch.recordUnanswered(probe.url);
+  if (spawnCommand === spawn && executionEnvironment && !localRead) releaseFrozenAliasRegistrations(args, cwd, executionEnvironment);
   const succeeded = processResultSucceeded(result);
   let classified = succeeded
     ? null
@@ -1170,7 +1200,7 @@ export function sealTemporaryGitReadTransport(root, { env = process.env } = {}) 
   if (!processResultSucceeded(bare) || bare.stdout.trim() !== 'true'
       || !processResultSucceeded(remotes)) return refused();
   const names = remotes.stdout.split('\n').filter(Boolean);
-  if (names.some((name) => !/^sflow-frozen-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}:$/u.test(name))) {
+  if (names.some((name) => !FROZEN_REMOTE_ALIAS.test(name))) {
     return refused();
   }
   for (const name of names) if (!processResultSucceeded(local(['remote', 'remove', name]))) return refused();

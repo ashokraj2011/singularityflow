@@ -1647,9 +1647,9 @@
     },
     "src/workflow-snapshots.mjs": {
       "counts": {
-        "command-run": 15
+        "command-run": 14
       },
-      "digest": "2a22df77e304a9586747d12453a96917f43bbe98f5618b722b0fa350ff6b9d84"
+      "digest": "7c4d1320684555f03ad8930df7a396076ff2c8e11dbc140efb891e90c2bc5254"
     },
     "src/workspace-bootstrap.mjs": {
       "counts": {

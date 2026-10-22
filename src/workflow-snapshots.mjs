@@ -28,7 +28,7 @@ import { SKP_CAPTURE_LIMITS, SKP_PACKAGE_FORMAT, SKP_PARSER_PROFILE,
   verifySkillPackage } from './skp-package.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import {
-  assertCredentialFreeRemote, configuredRemoteIdentity, frozenRemoteTransport, sanitizeRemote
+  assertCredentialFreeRemote, configuredRemoteIdentity, FROZEN_REMOTE_ALIAS, frozenRemoteTransport, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import {
   SingularityFlowError, gitHeadIsUnborn, gitOutsideRepository, posix, readJson, run, secureRepositoryPath,
@@ -1607,7 +1607,8 @@ function configuredPromisorIdentity(root, label) {
   const promisorNames = promisor.status === 0
     ? String(promisor.stdout ?? '').split(/\r?\n/u)
       .map((line) => /^remote\.([^\s]+)\.promisor\s+true$/iu.exec(line)?.[1] ?? null)
-      .filter(Boolean)
+      // A one-shot SFlow alias an older version's fetch left registered is not a remote.
+      .filter((name) => name && !FROZEN_REMOTE_ALIAS.test(name))
     : [];
   if (promisorNames.length !== 1) {
     fail(`${label} requires exactly one partial-clone promisor remote; this checkout has ${promisorNames.length}. Repair its Git remotes before retrying.`,
@@ -1623,15 +1624,6 @@ function configuredPromisorIdentity(root, label) {
   return identity;
 }
 
-function removeFrozenPromisorAlias(root, transport, label) {
-  const cleanup = run('git', ['config', '--local', '--remove-section',
-    `remote.${transport.remote}`], { cwd: root, allowFailure: true });
-  if (cleanup.status !== 0 && cleanup.status !== 5) {
-    fail(`${label} could not remove its temporary partial-clone transport configuration.`,
-      'WFA_DEPENDENCY_UNAVAILABLE');
-  }
-}
-
 function hydrateMissingSnapshotBlobs(root, objectIds, label, maximumObjectBytes = MAXIMUM_ASSET_BYTES) {
   const missing = missingLocalSnapshotBlobs(root, objectIds, label);
   if (!missing.length) return false;
@@ -1640,25 +1632,21 @@ function hydrateMissingSnapshotBlobs(root, objectIds, label, maximumObjectBytes 
   // An exact blob want cannot bring an application tree into the worktree. The server-side limit
   // refuses oversized objects before they transfer; the local reader still enforces the limit and
   // verifies every returned Git hash. Filtered fetch may persist this one-shot alias in the local
-  // Git config, so always remove exactly that random section before returning.
+  // Git config; the remote Git runner removes it after every filtered fetch.
   for (let offset = 0; offset < missing.length; offset += 128) {
     try {
-      try {
-        runRemoteGit([
-          'fetch', '--no-tags', '--no-write-fetch-head',
-          `--filter=blob:limit=${maximumObjectBytes + 1}`, transport.remote,
-          ...missing.slice(offset, offset + 128)
-        ], {
-          cwd: root, operation: 'remote-configuration', allowFailure: false,
-          env: transport.env, maxBuffer: 64 * 1024
-        });
-      } catch (error) {
-        if (error?.code === 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE') throw error;
-        fail(`${label} could not fetch a missing immutable blob from the configured partial-clone remote. Check Git access and promised-object support, then retry.`,
-          'WFA_DEPENDENCY_UNAVAILABLE', { remoteCode: error?.code ?? null });
-      }
-    } finally {
-      removeFrozenPromisorAlias(root, transport, label);
+      runRemoteGit([
+        'fetch', '--no-tags', '--no-write-fetch-head',
+        `--filter=blob:limit=${maximumObjectBytes + 1}`, transport.remote,
+        ...missing.slice(offset, offset + 128)
+      ], {
+        cwd: root, operation: 'remote-configuration', allowFailure: false,
+        env: transport.env, maxBuffer: 64 * 1024
+      });
+    } catch (error) {
+      if (error?.code === 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE') throw error;
+      fail(`${label} could not fetch a missing immutable blob from the configured partial-clone remote. Check Git access and promised-object support, then retry.`,
+        'WFA_DEPENDENCY_UNAVAILABLE', { remoteCode: error?.code ?? null });
     }
   }
   if (missingLocalSnapshotBlobs(root, missing, label).length) {
@@ -1700,26 +1688,22 @@ function ensureCompleteStoryCreationHistory(root, label) {
   }
   const head = run('git', ['rev-parse', '--verify', 'HEAD'], { cwd: root }).stdout.trim();
   const transport = frozenRemoteTransport(identity.url);
+  // Blobless unshallow transfers commits and trees, not application source. The one-shot frozen
+  // alias prevents a mutable local URL rewrite from changing the selected authority mid-fetch. Git
+  // may persist that alias as a promisor remote; the remote Git runner removes it afterwards and
+  // never rewrites the user's real origin or checkout state.
   try {
-    // Blobless unshallow transfers commits and trees, not application source. The one-shot frozen
-    // alias prevents a mutable local URL rewrite from changing the selected authority mid-fetch.
-    try {
-      runRemoteGit([
-        'fetch', '--no-tags', '--unshallow', '--filter=blob:none',
-        transport.remote, mergeRef
-      ], {
-        cwd: root, operation: 'remote-configuration', allowFailure: false,
-        env: transport.env, maxBuffer: 64 * 1024
-      });
-    } catch (error) {
-      if (error?.code === 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE') throw error;
-      fail(`${label} could not fetch complete blobless ancestry from its configured Story upstream. Check Git access, then retry.`,
-        'WFA_DEPENDENCY_UNAVAILABLE', { remoteCode: error?.code ?? null });
-    }
-  } finally {
-    // Git may persist a filtered one-shot alias as a promisor remote. Remove only this invocation's
-    // unpredictable alias; never rewrite the user's real origin or checkout state.
-    removeFrozenPromisorAlias(root, transport, label);
+    runRemoteGit([
+      'fetch', '--no-tags', '--unshallow', '--filter=blob:none',
+      transport.remote, mergeRef
+    ], {
+      cwd: root, operation: 'remote-configuration', allowFailure: false,
+      env: transport.env, maxBuffer: 64 * 1024
+    });
+  } catch (error) {
+    if (error?.code === 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE') throw error;
+    fail(`${label} could not fetch complete blobless ancestry from its configured Story upstream. Check Git access, then retry.`,
+      'WFA_DEPENDENCY_UNAVAILABLE', { remoteCode: error?.code ?? null });
   }
   const complete = run('git', ['rev-parse', '--is-shallow-repository'], { cwd: root });
   const unchanged = run('git', ['rev-parse', '--verify', 'HEAD'], { cwd: root });

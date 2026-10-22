@@ -572,6 +572,9 @@ function resolveSflowFrozenRemote(remote, env, push) {
  * single pass: the captured URL produced by this rule is the transport result, not new rewrite
  * input. The unguessable full-length alias also wins longest-prefix selection over ambient rules.
  */
+/** The exact one-shot alias name `frozenRemoteTransport` hands Git; never a remote someone configured. */
+export const FROZEN_REMOTE_ALIAS = /^sflow-frozen-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}:$/u;
+
 export function frozenRemoteTransport(remote, { push = false, env = process.env } = {}) {
   // Several governed flows clone through an invocation-local alias and then perform a second
   // exact observation or push from that isolated checkout. Git applies URL rewrites only once, so

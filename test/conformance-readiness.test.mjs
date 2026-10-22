@@ -7,7 +7,7 @@ import path from 'node:path';
 
 import {
   inspectConformanceReportContract, inspectConformanceVerdictAdvisories, inspectPhaseConformance, inspectPhaseQualifiedConformance,
-  inspectQualifiedConformanceReport, inspectSelfApprovalDisclosures
+  inspectQualifiedConformanceReport, inspectSelfApprovalDisclosures, selfApprovalDisclosureLines, undisclosedSelfApprovals
 } from '../src/conformance-readiness.mjs';
 import { phaseResolutionChoices } from '../src/phase-resolution.mjs';
 
@@ -116,6 +116,29 @@ test('self-approval disclosure comes from retained decisions and ignores managed
   ]);
   const disclosed = managedOnly.replace('None.', 'planning was self-approved by reviewer-one.');
   assert.deepEqual(inspectSelfApprovalDisclosures(disclosed, workflow), []);
+});
+
+test('a self-approval is disclosed only by its whole phase ID and approver, and the refusal names the line', () => {
+  // `implementation` was satisfied by `implementation-spec`, and the refusal never said what would
+  // satisfy it: six publications were refused before the right wording was found.
+  const workflow = {
+    phaseOrder: ['implementation-spec', 'implementation'],
+    phases: {
+      'implementation-spec': { approvals: [] },
+      implementation: { approvals: [{ decision: 'approved', selfApproval: true, actor: { email: 'suite@example.invalid' } }] }
+    }
+  };
+  const partial = '# Conformance\n\nThe implementation-spec was reviewed by suite@example.invalid.\nSee artifacts/implementation.md.\n';
+  const [finding] = inspectSelfApprovalDisclosures(partial, workflow);
+  assert.equal(finding?.code, 'conformance.self-approval-undisclosed');
+  const [line] = selfApprovalDisclosureLines(workflow);
+  assert.equal(line, '- `implementation`: self-approved by suite@example.invalid; not an independent review.');
+  assert.ok(finding.message.endsWith(line), finding.message);
+  // The gate reads the same predicate, so it refuses exactly what the draft check refuses.
+  assert.deepEqual(undisclosedSelfApprovals(partial, workflow).map((entry) => entry.message), [finding.message]);
+  assert.equal(undisclosedSelfApprovals(partial.replace('suite@example.invalid', 'suite@example.invalidx'), workflow).length, 1);
+  assert.deepEqual(inspectSelfApprovalDisclosures(`${partial}\n## Self-approval disclosures\n\n${line}\n`, workflow), []);
+  assert.deepEqual(undisclosedSelfApprovals(`${partial}\n${line}\n`, workflow), []);
 });
 
 test('a conformance report owes its self-approval disclosure before publication, whatever its row policy', async (t) => {

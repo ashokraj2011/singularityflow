@@ -94,8 +94,9 @@ test('design-intake names its missing design source before publication, and an u
   flow(['documents', 'upload', exportDirectory, '--kind', 'figma-export', '--name', 'Checkout export']);
   const command = 'singularity-flow mcp record figma --kind design-source --tool get_metadata --phase design-intake --output <METADATA-XML-PATH> --file-key <FIGMA-FILE-KEY> --file-version <FIGMA-FILE-VERSION>';
 
-  // Prepublish no longer says ready: it reports the refusal publication would raise, with its route.
-  const prepublished = json(flow(['phase', 'prepublish', phaseId, '--json'], { allowFailure: true }));
+  // Prepublish no longer says ready: it reports the refusal publication would raise, with its route. It is read
+  // for the human publication this test makes; a Copilot-authored one also needs the step's clarification first.
+  const prepublished = json(flow(['phase', 'prepublish', phaseId, '--no-model', '--json'], { allowFailure: true }));
   assert.notEqual(prepublished.status, 'ready');
   const finding = prepublished.findings.find((entry) => entry.details?.sourceCode === 'DESIGN_SOURCE_REQUIRED');
   assert.ok(finding, JSON.stringify(prepublished.findings));

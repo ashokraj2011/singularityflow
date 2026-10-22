@@ -961,7 +961,8 @@ test('a phase with no code phase before it cannot publish application code', asy
 
 test('a chore plan cannot list application source or tests as supporting files', async () => {
   const root = await repository(); const workId = 'CHORE-PLAN-1';
-  flow(root, ['start', workId, '--from-branch', 'main', '--title', 'Bump the ledger client', '--description', 'Maintenance only.'],
+  // A person authors this plan: read and publish it on the model-free route, which binds no clarification.
+  flow(root, ['--no-model', 'start', workId, '--from-branch', 'main', '--title', 'Bump the ledger client', '--description', 'Maintenance only.'],
     { selection: selection('chore', 'developer') });
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
@@ -972,19 +973,19 @@ test('a chore plan cannot list application source or tests as supporting files',
   // published, by the classifier the later step uses, and prepublish says so first.
   await writeFile(intake, completed.replace('## Validation', '- `package.json` — raises the ledger client.\n'
     + '- `src/ledger.mjs` — reads the new client.\n- `test/ledger.test.mjs` — covers it.\n\n## Validation'));
-  const preview = JSON.parse(flow(root, ['phase', 'prepublish', 'intake', '--json'], { selection: selection('chore', 'developer') }).stdout);
+  const preview = JSON.parse(flow(root, ['--no-model', 'phase', 'prepublish', 'intake', '--json'], { selection: selection('chore', 'developer') }).stdout);
   assert.equal(preview.status, 'correction-required');
   const invalid = preview.findings.find((finding) => finding.code === 'specification.supporting-file-invalid');
   assert.ok(invalid, JSON.stringify(preview.findings));
   assert.match(invalid.message, /`src\/ledger\.mjs`.*cannot be a supporting file.*no code step/s);
-  const refused = flow(root, ['phase', 'publish', 'intake', '--json'], { allowFailure: true, selection: selection('chore', 'developer') });
+  const refused = flow(root, ['--no-model', 'phase', 'publish', 'intake', '--json'], { allowFailure: true, selection: selection('chore', 'developer') });
   assert.notEqual(refused.status, 0);
   assert.match(refused.stdout, /SPEC_SUPPORTING_FILE_INVALID/);
   assert.equal(JSON.parse(await readFile(workflowFile, 'utf8')).phases.intake.generation, 0, 'nothing was published');
   // Dependency, build and documentation files are what a chore plans, and they still publish.
   await writeFile(intake, completed.replace('## Validation', '- `package.json` — raises the ledger client.\n\n## Validation'));
-  assert.equal(JSON.parse(flow(root, ['phase', 'prepublish', 'intake', '--json'], { selection: selection('chore', 'developer') }).stdout).status, 'ready');
-  flow(root, ['phase', 'publish', 'intake'], { selection: selection('chore', 'developer') });
+  assert.equal(JSON.parse(flow(root, ['--no-model', 'phase', 'prepublish', 'intake', '--json'], { selection: selection('chore', 'developer') }).stdout).status, 'ready');
+  flow(root, ['--no-model', 'phase', 'publish', 'intake'], { selection: selection('chore', 'developer') });
   assert.equal(JSON.parse(await readFile(workflowFile, 'utf8')).phases.intake.generation, 1);
 });
 

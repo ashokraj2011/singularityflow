@@ -854,10 +854,6 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       ?? await loadDefinition(root).catch(() => null);
     candidates.push({
       repository, root, fetchAuthority, pushAuthority,
-      ...(previewOnly ? { previewRefs: localRefHeads(root, [
-        `refs/remotes/${remote}/${plan.resolution.resolved[repository.id].branch}`,
-        `refs/remotes/${remote}/${storyBranch}`, `refs/heads/${storyBranch}`
-      ]) } : {}),
       worldModelDefinition: repositoryDefinition
     });
   }
@@ -928,7 +924,6 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       // the normal remote-tracking layout without letting a concurrent `remote set-url` redirect it.
       result,
       baseBranch,
-      previewRefsCurrent: previewOnly && (fetchReused || tipsCurrent),
       fetchReused
     };
   });

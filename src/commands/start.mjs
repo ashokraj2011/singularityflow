@@ -161,7 +161,11 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
       }));
   let launchDefinition = sealedConfiguration?.snapshot?.definition
     ?? await loadConfig(sourceRoot).catch(() => null);
-  const requestedBase = optionString(options, 'from-branch');
+  // With object reuse, source HEAD need not be the base selected by the human. Read that exact
+  // signed choice before creating the worktree, so receipt-only starts also write the tree once.
+  const requestedBase = optionString(options, 'from-branch')
+    ?? (await import('../workspace-story-checkout.mjs')).automaticStorySelection(options, id)
+      ?.receipt.answers?.['base-branch']?.id;
   let requestedRemote = optionString(options, 'remote')
     ?? launchDefinition?.git?.remote
     ?? 'origin';

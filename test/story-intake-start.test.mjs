@@ -598,7 +598,7 @@ test('a reference fetched during intake is copied at start, which then transfers
     'neither the base nor the reference is transferred again');
 });
 
-test('a readiness preview lists its own origin once and fetches only when a tip moved', intakePlatforms, async (t) => {
+test('a readiness preview lists origin once and defers even a moved application tip to Start', intakePlatforms, async (t) => {
   const { base, root } = await repository(t);
   const previewArgs = [
     'workspace', 'branches', '--json', '--intake', '--preflight-story', 'STORY-UNION', '--from-branch', 'main',
@@ -609,7 +609,7 @@ test('a readiness preview lists its own origin once and fetches only when a tip 
   assert.equal(JSON.parse(warm.stdout).preflight.passed, true);
   assert.equal(counter(warm.stderr, 'git.remote.command.ls-remote'), 1,
     'authority, base, destination and state come from one listing');
-  assert.equal(counter(warm.stderr, 'git.story-preflight-fetch-verified'), 1);
+  assert.equal(counter(warm.stderr, 'git.story-preflight-fetch-verified'), 0, 'preview performs no application fetch');
   assert.equal(counter(warm.stderr, 'git.remote.command.fetch'), 0, 'the tracking refs were already current');
   const events = (await readFile(path.join(root, '.git/singularity-flow/dx/timings.jsonl'), 'utf8'))
     .trim().split('\n').map(line => JSON.parse(line));
@@ -628,8 +628,12 @@ test('a readiness preview lists its own origin once and fetches only when a tip 
   git(other, 'commit', '-q', '-m', 'Move the base');
   git(other, 'push', '-q', 'origin', 'main');
   const moved = flow(root, previewArgs);
-  assert.equal(counter(moved.stderr, 'git.remote.command.fetch'), 1, 'a moved tip is fetched');
+  assert.equal(counter(moved.stderr, 'git.remote.command.fetch'), 0, 'a moved application tip is metadata until Start');
   assert.equal(JSON.parse(moved.stdout).preflight.repositories[0].baseCommit, git(other, 'rev-parse', 'HEAD'));
+  assert.notEqual(git(root, 'rev-parse', 'refs/remotes/origin/main'), git(other, 'rev-parse', 'HEAD'),
+    'preview did not transfer objects or update the selected tracking ref');
+  const started = data(start(root, 'STORY-UNION'));
+  assert.equal(git(started.repositoryPath, 'show', `${git(other, 'rev-parse', 'HEAD')}:moved.txt`), 'moved');
 });
 
 test('a reference branch that disappeared after the preview sends start down its ordinary path', intakePlatforms, async (t) => {

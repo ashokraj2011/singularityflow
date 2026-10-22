@@ -28,7 +28,7 @@ export async function benchmarkDirectStoryWorktree({ files = 10000, cliRoot = pa
       const ms = Math.round(performance.now() - began);
       assert.equal(result.status, 0, `${name}\n${result.stderr}\n${result.stdout}`);
       const packet = JSON.parse(result.stdout);
-      const starts = (await readFile(trace, 'utf8')).trim().split('\n').map(line => JSON.parse(line))
+      const starts = (await readFile(trace, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
         .filter(event => event.event === 'start');
       const verbs = ['clone', 'fetch', 'worktree', 'checkout', 'ls-remote', 'push', 'status'];
       const commands = Object.fromEntries(verbs.map(verb => [verb, starts.filter(event => event.argv?.includes(verb)).length]));

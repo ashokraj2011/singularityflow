@@ -1833,7 +1833,7 @@ test('large remote operations and lifecycle submissions get operation-appropriat
   assert.equal(timeouts[9], 30 * 60_000);
   assert.equal(timeouts[10], 15 * 60_000);
   assert.equal(timeouts[11], 15 * 60_000);
-  assert.equal(timeouts[12], 15 * 60_000, 'automatic preparation, download and readiness retain five minutes per stage');
+  assert.equal(timeouts[12], 5 * 60_000, 'Story preflight keeps the five-minute readiness budget; intake never clones the application tree');
   assert.equal(timeouts[13], 30 * 60_000);
   assert.equal(timeouts[14], 120_000);
   assert.equal(timeouts.length, 15,

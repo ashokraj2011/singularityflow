@@ -408,3 +408,36 @@ test('isolated capability start creates sibling worktrees and leaves dirty sourc
   assert.equal(git(sibling, 'rev-parse', 'HEAD'), before);
   assert.equal(await readFile(path.join(sibling, 'private.txt'), 'utf8'), 'preserve sibling draft');
 });
+
+test('receipt-only Start creates the worktree directly from its signed base, not source HEAD', async t => {
+  const f = await fixture(t);
+  await initializeDefinition(f.source);
+  const file = path.join(f.source, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(file, 'utf8'));
+  definition.worldModel.grounding = 'off'; definition.repositoryReadiness.requiredBeforeStory = false;
+  for (const authority of Object.values(definition.approvalAuthorities ?? {})) authority.members = [{ name: 'Fixture', email: 'fixture@example.com' }];
+  await writeFile(file, YAML.stringify(definition));
+  git(f.source, 'add', '.'); git(f.source, 'commit', '--quiet', '-m', 'configuration');
+  git(f.source, 'push', '--quiet', 'origin', 'main', 'main:refs/heads/sflow/config');
+  git(f.source, 'switch', 'feature/topic');
+  await writeFile(path.join(f.source, 'app.txt'), 'signed feature base\n');
+  git(f.source, 'add', '.'); git(f.source, 'commit', '--quiet', '-m', 'distinct feature tree');
+  git(f.source, 'push', '--quiet', 'origin', 'feature/topic');
+  const selectedBase = git(f.source, 'rev-parse', 'HEAD');
+  const receipt = await beginCustomSelectionReceipt(f.original, { action: 'start', workId: 'SIGNED-DIRECT',
+    choiceSets: [{ id: 'base-branch', label: 'Base branch', options: [{ id: 'feature/topic', label: 'Topic' }] }] });
+  await answerSelectionReceipt(f.original, receipt.token, 'base-branch', 'feature/topic');
+  git(f.original, 'config', 'user.name', 'Fixture'); git(f.original, 'config', 'user.email', 'fixture@example.com');
+  const result = spawnSync(process.execPath, [path.join(packageRoot, 'bin/singularity-flow.mjs'), 'start', 'SIGNED-DIRECT',
+    '--selection-receipt', receipt.token, '--work-type', 'feature', '--title', 'Signed direct base',
+    '--description', 'Use the exact human-selected application tree', '--json'], {
+    cwd: f.original, env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Fixture',
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: f.selection, SINGULARITY_FLOW_WORKSPACE_REGISTRY: f.registry,
+      SINGULARITY_FLOW_LEAD_REGISTRY: path.join(f.root, 'leads.json') }, encoding: 'utf8', timeout: 90000, maxBuffer: 16 * 1024 * 1024
+  });
+  assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+  const payload = JSON.parse(result.stdout).data ?? JSON.parse(result.stdout);
+  assert.equal(await readFile(path.join(payload.repositoryPath, 'app.txt'), 'utf8'), 'signed feature base\n');
+  assert.equal(git(payload.repositoryPath, 'rev-parse', 'HEAD^'), selectedBase);
+  assert.equal(git(f.original, 'branch', '--show-current'), 'main');
+});

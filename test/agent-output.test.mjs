@@ -14,7 +14,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
-import { agentAct, agentOutputGoverned, boundedAgentOutput, DEFAULT_AGENT_OUTPUT_BYTES, LOOP_THRESHOLD, observeAgentLoop, withAgentRoutes } from '../src/agent-output.mjs';
+import { agentAct, agentOutputGoverned, boundedAgentOutput, DEFAULT_AGENT_OUTPUT_BYTES, LOOP_THRESHOLD, observeAgentLoop, READ_CHUNK_BYTES, READ_PLAN_CHUNKS, withAgentRoutes } from '../src/agent-output.mjs';
 import { CLI_PATH_CONTRACT } from '../src/safe-command-guidance.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
@@ -198,6 +198,64 @@ test('a small result keeps every field with act first; a large one is written wh
   assert.equal(await readFile(context.textFiles[0].path, 'utf8'), prose, 'a long text is its own line-readable file, byte for byte');
 });
 
+/** The fields a set of line ranges holds, parsed back from the file. */
+async function fieldsIn(file, ranges) {
+  const lines = (await readFile(file, 'utf8')).split('\n');
+  const body = ranges.map(({ lines: [start, end] }) => lines.slice(start - 1, end).join('\n')).join('\n').replace(/,\s*$/u, '');
+  return JSON.parse(`{\n${body}\n}`);
+}
+
+test('the fields a view leaves out are written first and together, and named as one read', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-read-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const large = { resultType: 'sflow-phase-entry', status: 'clarification-required', repositoryPath: root, workId: 'W',
+    notes: Array.from({ length: 40 }, (_, index) => `Note ${index}: ${'n'.repeat(60)}`),
+    clarification: { checkpoint: { stage: 'derive-questions', instruction: 'Ask.' } },
+    recovery: { blockers: Array.from({ length: 60 }, (_, index) => ({ id: index, detail: 'x'.repeat(120) })) },
+    context: { text: Array.from({ length: 900 }, (_, index) => `Line ${index}.`).join('\n') } };
+  const text = await boundedAgentOutput(JSON.stringify(large), { cwd: root });
+  assert.ok(Buffer.byteLength(text) <= DEFAULT_AGENT_OUTPUT_BYTES, `${Buffer.byteLength(text)} bytes`);
+  const view = JSON.parse(text);
+  const omitted = view.omittedFields.map((entry) => entry.field);
+  assert.ok(omitted.length >= 2, omitted.join(', '));
+  // act reads context, so it is first; the rest follow in the result's own order.
+  assert.equal(omitted[0], 'context');
+  assert.deepEqual(view.agentOutput.read.length, 1, 'one read holds every field left out');
+  assert.equal(view.agentOutput.read[0].lines[0], 2, 'the fields left out start the file');
+  assert.ok(view.agentOutput.read[0].bytes <= READ_CHUNK_BYTES);
+  const read = await fieldsIn(view.agentOutput.path, view.agentOutput.read);
+  assert.deepEqual(Object.keys(read), omitted, 'exactly the fields left out, in the order they are read');
+  const full = JSON.parse(await readFile(view.agentOutput.path, 'utf8'));
+  for (const field of omitted) assert.deepEqual(read[field], full[field]);
+  assert.deepEqual(read.recovery, large.recovery);
+  assert.match(view.agentOutput.instruction, /together, in one response/u);
+  assert.doesNotMatch(view.agentOutput.instruction, /only the ranges you need/u);
+});
+
+test('large fields left out become at most three ranges of whole fields, each within one read', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-chunks-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const rows = (label, count) => Array.from({ length: count }, (_, index) => ({ id: `${label}-${index}`, detail: 'y'.repeat(150) }));
+  // authoring-entry reads mutationContract: it is read first although the result lists it last.
+  const large = { resultType: 'sflow-phase-entry', status: 'authoring-entry', repositoryPath: root, workId: 'W',
+    history: rows('history', 160), evidence: rows('evidence', 90), extra: rows('extra', 400), mutationContract: { rules: rows('rule', 40) } };
+  const view = JSON.parse(await boundedAgentOutput(JSON.stringify(large), { cwd: root }));
+  const { read } = view.agentOutput;
+  assert.ok(read.length >= 2 && read.length <= READ_PLAN_CHUNKS, JSON.stringify(read));
+  for (const [index, range] of read.entries()) {
+    assert.ok(range.bytes <= READ_CHUNK_BYTES, JSON.stringify(range));
+    if (index) assert.equal(range.lines[0], read[index - 1].lines[1] + 1, 'consecutive ranges');
+  }
+  const lines = (await readFile(view.agentOutput.path, 'utf8')).split('\n');
+  assert.match(lines[read[0].lines[0] - 1], /^ {2}"mutationContract":/u, 'what act reads comes first');
+  // A field larger than a read is split at line boundaries; every field the plan does not reach keeps its own range.
+  const reached = read.at(-1).lines[1];
+  for (const entry of view.omittedFields) assert.ok(entry.lines[0] <= reached || entry.lines[0] > reached, entry.field);
+  assert.ok(view.omittedFields.some((entry) => entry.field === 'extra'));
+});
+
 test('the CLI bounds a real phase entry, and the bytes it leaves out are in the file it names', { timeout: 300_000 }, async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-output-cli-'));
   t.after(() => rm(base, { recursive: true, force: true }));
@@ -245,6 +303,10 @@ test('the CLI bounds a real phase entry, and the bytes it leaves out are in the 
   const clarification = view.clarification ?? JSON.parse((await readFile(view.agentOutput.path, 'utf8')).split('\n')
     .slice(named.lines[0] - 1, named.lines[1]).join('\n').replace(/^ {2}"clarification": /u, '').replace(/,$/u, ''));
   assert.ok(clarification.checkpoint, 'the checkpoint act points at is in the view or at its named range');
+  // One read holds the fields it left out, from the top of the file.
+  assert.ok(view.agentOutput.read?.length >= 1 && view.agentOutput.read[0].lines[0] === 2, JSON.stringify(view.agentOutput.read));
+  const first = view.omittedFields[0];
+  assert.deepEqual(first.lines.slice(0, 1), [2], 'the first field left out starts the file');
   const context = view.omittedFields.find((entry) => entry.field === 'context');
   const whole = JSON.parse(run(['phase', 'enter', '--compose', '--for-agent', '--json'], { SINGULARITY_FLOW_AGENT_OUTPUT: 'full' }).stdout);
   assert.equal(await readFile(context.textFiles[0].path, 'utf8'), whole.context.text, 'the composed context is complete in its file');

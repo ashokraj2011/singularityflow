@@ -54,7 +54,7 @@ export const approvedInputsContractApplies = (contract) => contract === 'clarifi
  * repository (src/agent-output.mjs). Engine-owned like the contracts above, on the same Story
  * skills as the applicability contract.
  */
-export const COMPLETE_OUTPUT_CONTRACT = 'Act on a result\'s `act` first: its state, `do` routes and any `ask`. A bounded result lists `omittedFields` with exact line ranges in `agentOutput.path`; read only those you need with your file tool. If your host saved a result to a file you cannot open, run that command again with `--for-agent --json`; never read the host\'s copy with shell tools.';
+export const COMPLETE_OUTPUT_CONTRACT = 'Act on a result\'s `act` first: its state, `do` routes and any `ask`. A bounded result names `agentOutput.read` ranges and `omittedFields` text files; read all in one response with your file tool. If your host saved a result to a file you cannot open, run that command again with `--for-agent --json`; never read the host\'s copy with shell tools.';
 
 export function cliPathContractErrors(body) {
   const text = String(body ?? '');

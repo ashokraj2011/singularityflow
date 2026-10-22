@@ -32,10 +32,18 @@ import { parseArgs, writeAtomic } from './util.mjs';
 // 1.0.95, 2026-10-16): the largest inline was 8,191 characters, the smallest saved 8.0 KB. A 16 KB
 // view was therefore still saved. 7,500 bytes leaves room for the stderr lines in the same result.
 export const DEFAULT_AGENT_OUTPUT_BYTES = 7_500;
+// An agent read a 40 KB overflow file in three slices on average, up to eight: one model call per
+// slice, each re-sending the whole conversation (22% of all calls in recorded sessions, 2026-10-18
+// to 10-21). The same file tool showed whole files of up to 27,919 bytes. So the fields a view
+// leaves out are written first and together, and named as at most three ranges of whole fields,
+// each at most 24,000 bytes, to be read in one response.
+export const READ_CHUNK_BYTES = 24_000;
+export const READ_PLAN_CHUNKS = 3;
 export const LOOP_THRESHOLD = 3;
 const LOOP_WINDOW_MS = 2 * 60 * 60 * 1000;
 const UNCOUNTED_STATES = new Set(['author', 'read', 'paused']);
 const LARGE_TEXT_BYTES = 4_000;
+const FIELD_ORDER = 'agentOutputFieldOrder';
 const FIELD_BYTES = 6_000;
 const SMALL_FIELD_BYTES = 300;
 const KEPT_RESULTS = 40;
@@ -300,6 +308,38 @@ function topLevelRanges(text) {
   return ranges;
 }
 
+/**
+ * The ranges that hold the given fields, in order: consecutive whole fields grouped up to the chunk
+ * size, a larger field split at line boundaries. At most `chunks` ranges; what is left stays
+ * readable by each field's own range.
+ */
+function readPlan(text, ranges, fields, { chunkBytes = READ_CHUNK_BYTES, chunks = READ_PLAN_CHUNKS } = {}) {
+  const lines = text.split('\n');
+  const lineBytes = (index) => bytes(lines[index - 1]) + 1;
+  const plan = [];
+  let open = null;
+  const close = () => { if (open) plan.push({ lines: [open.start, open.end], bytes: open.bytes }); open = null; };
+  for (const field of fields) {
+    const [start, end] = ranges[field] ?? [];
+    if (!start || !end) continue;
+    let fieldBytes = 0;
+    for (let line = start; line <= end; line++) fieldBytes += lineBytes(line);
+    // A field that does not fit beside the open range starts its own; only a field larger than a
+    // whole range is split, at line boundaries.
+    if (open && open.bytes + fieldBytes > chunkBytes) close();
+    for (let line = start; line <= end; line++) {
+      const size = lineBytes(line);
+      if (open && open.bytes + size > chunkBytes) close();
+      if (plan.length >= chunks) return plan;
+      open ??= { start: line, end: line, bytes: 0 };
+      open.end = line;
+      open.bytes += size;
+    }
+  }
+  close();
+  return plan.slice(0, chunks);
+}
+
 async function prune(directory) {
   try {
     const names = (await readdir(directory)).filter((name) => /\.(?:json|txt)$/u.test(name));
@@ -417,19 +457,21 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
   const base = `${kind}-${now.toISOString().replace(/[:.]/gu, '-')}-${sha256(whole).slice(7, 15)}`;
   const texts = [];
   const full = await externalize(ordered, target.directory, base, [], texts, reviewSources);
-  const fullText = `${JSON.stringify(full, null, 2)}\n`;
   const file = path.join(target.directory, `${base}.json`);
-  await writeAtomic(file, fullText, { mode: 0o600 });
-  await registerReadFiles(target.root, [file, ...texts.map(entry => entry.textFile)]);
-  await prune(target.directory);
-  const ranges = topLevelRanges(fullText);
   const relative = path.relative(target.root, file);
-  const agentOutput = { complete: false, path: file,
+  const write = async (value) => {
+    const fullText = `${JSON.stringify(value, null, 2)}\n`;
+    await writeAtomic(file, fullText, { mode: 0o600 });
+    await registerReadFiles(target.root, [file, ...texts.map(entry => entry.textFile)]);
+    await prune(target.directory);
+    return fullText;
+  };
+  const describe = (fullText, instruction) => ({ complete: false, path: file,
     ...(relative && !relative.startsWith('..') && !path.isAbsolute(relative) ? { relativePath: relative.split(path.sep).join('/') } : {}),
-    bytes: bytes(fullText), lines: fullText.split('\n').length - 1, sha256: sha256(fullText),
-    instruction: 'A bounded view of a complete result. omittedFields lists each field left out with its exact line range in agentOutput.path, and long texts as their own files; read only the ranges you need with your file-reading tool. Nothing was truncated.' };
+    bytes: bytes(fullText), lines: fullText.split('\n').length - 1, sha256: sha256(fullText), instruction });
+  const catalogInstruction = 'Metadata-only catalog. Read a selected detailField from this exact retained result; long texts have their own referenced files. No definition was discarded. A summary does not replace selected skill/instruction bodies.';
   if (catalog) {
-    agentOutput.instruction = 'Metadata-only catalog. Read a selected detailField from this exact retained result; long texts have their own referenced files. No definition was discarded. A summary does not replace selected skill/instruction bodies.';
+    const agentOutput = describe(await write(full), catalogInstruction);
     // Prefer every identity to a richer partial list: a list-names task must not expand the
     // complete catalog just because descriptions and attachment detail used the inline budget.
     for (const [limit, identityOnly] of [[20, false], [20, true], [10, true], [5, true], [1, true]]) {
@@ -438,15 +480,15 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
       if (bytes(rendered) <= budget) return `${rendered}\n`;
     }
   }
+  const instruction = catalog ? catalogInstruction : 'A bounded view of a complete result. agentOutput.read names the lines of agentOutput.path that hold the fields left out (whole fields, 1-based, inclusive). Request those ranges and every omittedFields textFiles path together, in one response, with your file-reading tool. omittedFields gives each field\'s own range. Nothing was truncated.';
   const keys = Object.keys(ordered).filter((key) => key !== 'act');
   const size = Object.fromEntries(keys.map((key) => [key, bytes(JSON.stringify(ordered[key]) ?? 'null')]));
-  const reference = Object.fromEntries(keys.map((key) => {
-    const textFiles = texts.filter((entry) => entry.field === key || entry.field.startsWith(`${key}.`))
-      .map(({ field, textFile, bytes: length, lines }) => ({ field, path: textFile, bytes: length, lines }));
-    return [key, { field: key, bytes: size[key], lines: ranges[key] ?? null, ...(textFiles.length ? { textFiles } : {}) }];
-  }));
-  const render = (kept) => agentJson({ act: { ...(act ?? {}), complete: false }, agentOutput,
-    omittedFields: keys.filter((key) => !kept.has(key)).map((key) => reference[key]),
+  const textFiles = Object.fromEntries(keys.map((key) => [key, texts.filter((entry) => entry.field === key || entry.field.startsWith(`${key}.`))
+    .map(({ field, textFile, bytes: length, lines }) => ({ field, path: textFile, bytes: length, lines }))]));
+  const reference = (ranges) => Object.fromEntries(keys.map((key) => [key,
+    { field: key, bytes: size[key], lines: ranges[key] ?? null, ...(textFiles[key].length ? { textFiles: textFiles[key] } : {}) }]));
+  const render = (kept, agentOutput, references, order = keys) => agentJson({ act: { ...(act ?? {}), complete: false }, agentOutput,
+    omittedFields: order.filter((key) => !kept.has(key)).map((key) => references[key]),
     ...Object.fromEntries(keys.filter((key) => kept.has(key)).map((key) => [key, ordered[key]])) });
   // Keep every field without a long text, then move fields out until the view fits: larger ones
   // before small ones, and within each, the material before the packet's read order before what
@@ -456,13 +498,27 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
   const tier = (key) => actReads.has(key) ? 0 : readOrder.has(key) ? 1 : 2;
   const removalOrder = (left, right) => (size[right] > SMALL_FIELD_BYTES) - (size[left] > SMALL_FIELD_BYTES)
     || tier(right) - tier(left) || size[right] - size[left];
-  const kept = new Set(keys.filter((key) => !reference[key].textFiles && (size[key] <= FIELD_BYTES || tier(key) < 2)));
-  let view = render(kept);
-  while (bytes(view) > budget && kept.size) {
-    kept.delete([...kept].sort(removalOrder)[0]);
-    view = render(kept);
-  }
-  return `${view}\n`;
+  const kept = new Set(keys.filter((key) => textFiles[key].length === 0 && (size[key] <= FIELD_BYTES || tier(key) < 2)));
+  // What stays is decided first, against the widest numbers the file can produce: reordering its
+  // top-level fields changes neither its bytes nor its lines, so the final view never grows.
+  // The file keeps the command's own field order as its last entry, outside every read range, so
+  // completeAgentResult() returns the result exactly as the command produced it.
+  const fieldOrder = Object.keys(full);
+  const wholeText = `${JSON.stringify({ ...full, [FIELD_ORDER]: fieldOrder }, null, 2)}\n`;
+  const widest = wholeText.split('\n').length - 1;
+  const provisional = { ...describe(wholeText, instruction),
+    read: Array.from({ length: READ_PLAN_CHUNKS }, () => ({ lines: [widest, widest], bytes: 9_999_999 })) };
+  const provisionalReferences = reference(Object.fromEntries(keys.map((key) => [key, [widest, widest]])));
+  while (bytes(render(kept, provisional, provisionalReferences)) > budget && kept.size) kept.delete([...kept].sort(removalOrder)[0]);
+  // The fields left out come first in the file, in the order they are read, so a few ranges hold them.
+  const omitted = keys.filter((key) => !kept.has(key))
+    .map((key, index) => ({ key, index })).sort((left, right) => tier(left.key) - tier(right.key) || left.index - right.index).map(({ key }) => key);
+  const fileOrder = [...omitted, ...Object.keys(full).filter((key) => !omitted.includes(key))];
+  const fullText = await write({ ...Object.fromEntries(fileOrder.map((key) => [key, full[key]])), [FIELD_ORDER]: fieldOrder });
+  const ranges = topLevelRanges(fullText);
+  const read = readPlan(fullText, ranges, omitted);
+  const agentOutput = { ...describe(fullText, instruction), ...(read.length ? { read } : {}) };
+  return `${render(kept, agentOutput, reference(ranges), omitted)}\n`;
 }
 
 /**
@@ -501,5 +557,7 @@ export function completeAgentResult(output) {
   const inline = (value) => isTextReference(value) ? readFileSync(value.textFile, 'utf8')
     : Array.isArray(value) ? value.map(inline)
       : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, child]) => [key, inline(child)])) : value;
-  return inline(JSON.parse(readFileSync(view.agentOutput.path, 'utf8')));
+  const { [FIELD_ORDER]: order, ...stored } = JSON.parse(readFileSync(view.agentOutput.path, 'utf8'));
+  const keys = Array.isArray(order) ? [...order.filter((key) => Object.hasOwn(stored, key)), ...Object.keys(stored).filter((key) => !order.includes(key))] : Object.keys(stored);
+  return inline(Object.fromEntries(keys.map((key) => [key, stored[key]])));
 }

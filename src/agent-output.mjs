@@ -35,12 +35,12 @@ export const DEFAULT_AGENT_OUTPUT_BYTES = 7_500;
 // An agent read a 40 KB overflow file in three slices on average, up to eight: one model call per
 // slice, each re-sending the whole conversation (22% of all calls in recorded sessions, 2026-10-18
 // to 10-21). So the fields a view leaves out are written first and together, and named as at most
-// three ranges of whole fields, to be read in one response. In a live run (Copilot 1.0.95,
+// four ranges of whole fields (72 KB), to be read in one response. In a live run (Copilot 1.0.95,
 // 2026-10-22) its file tool cut a ranged read at about 20,000 characters ("Output truncated") and
 // refused a 28,205-byte file whole ("File too large to read at once"), so a range is at most
 // 18,000 bytes, and a long text file is named as ranges of that size too.
 export const READ_CHUNK_BYTES = 18_000;
-export const READ_PLAN_CHUNKS = 3;
+export const READ_PLAN_CHUNKS = 4;
 export const LOOP_THRESHOLD = 3;
 const LOOP_WINDOW_MS = 2 * 60 * 60 * 1000;
 const UNCOUNTED_STATES = new Set(['author', 'read', 'paused']);

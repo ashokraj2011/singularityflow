@@ -233,7 +233,7 @@ test('the fields a view leaves out are written first and together, and named as 
   assert.doesNotMatch(view.agentOutput.instruction, /only the ranges you need/u);
 });
 
-test('large fields left out become at most three ranges of whole fields, each within one read', async (t) => {
+test('large fields left out become a few ranges of whole fields, each within one read', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-chunks-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);

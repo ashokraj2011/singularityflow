@@ -425,8 +425,12 @@ test('receipt-only Start creates the worktree directly from its signed base, not
   git(f.source, 'push', '--quiet', 'origin', 'feature/topic');
   const selectedBase = git(f.source, 'rev-parse', 'HEAD');
   const receipt = await beginCustomSelectionReceipt(f.original, { action: 'start', workId: 'SIGNED-DIRECT',
-    choiceSets: [{ id: 'base-branch', label: 'Base branch', options: [{ id: 'feature/topic', label: 'Topic' }] }] });
+    choiceSets: [{ id: 'base-branch', label: 'Base branch', options: [{ id: 'feature/topic', label: 'Topic' }] },
+      { id: 'intake-source', label: 'Intake source', options: [{ id: 'manual', label: 'Manual' }] },
+      { id: 'workflow-template', label: 'Workflow template', options: [{ id: 'feature', label: 'Feature' }] }] });
   await answerSelectionReceipt(f.original, receipt.token, 'base-branch', 'feature/topic');
+  await answerSelectionReceipt(f.original, receipt.token, 'intake-source', 'manual');
+  await answerSelectionReceipt(f.original, receipt.token, 'workflow-template', 'feature');
   git(f.original, 'config', 'user.name', 'Fixture'); git(f.original, 'config', 'user.email', 'fixture@example.com');
   const result = spawnSync(process.execPath, [path.join(packageRoot, 'bin/singularity-flow.mjs'), 'start', 'SIGNED-DIRECT',
     '--selection-receipt', receipt.token, '--work-type', 'feature', '--title', 'Signed direct base',

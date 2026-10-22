@@ -41,7 +41,7 @@ export async function benchmarkDirectStoryWorktree({ files = 10000, cliRoot = pa
       const sharesWorkspaceObjects = name.startsWith('start')
         ? await realpath(f.git(payload.repositoryPath, 'rev-parse', '--git-common-dir')) === await realpath(path.join(f.original, '.git')) : null;
       rows.push({ name, ms, gitProcesses: counter('git.spawns'), tracedGitProcessesIncludingChildren: starts.length, commands,
-        workspaceBranchClones: counter('workspace.branch-clones'),
+        workspaceBranchClones: /workspace\.(?:repositories-reused|branch-clones)=/u.test(timing) ? counter('workspace.branch-clones') : null,
         preflightApplicationFetches: counter('git.remote-fetch'), sharesWorkspaceObjects,
         cache: packet.readinessSnapshot?.source ?? null });
       return packet;

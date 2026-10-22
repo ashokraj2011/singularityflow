@@ -9,7 +9,7 @@ import { capabilityRepositories, parseBaseSelection, assertStoryBaseSelection } 
 import { workspaceBranchFolder, workspaceBranchMember } from './workspace-branch-locations.mjs';
 import { isGitRefName, optionBoolean, optionString, optionStrings, SingularityFlowError } from './util.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
-import { measureCommandSpan } from './dx-timing-context.mjs';
+import { measureCommandSpan, incrementCommandCounter } from './dx-timing-context.mjs';
 
 const preparations = new WeakMap();
 const preparationScope = new AsyncLocalStorage();
@@ -153,10 +153,12 @@ export async function automaticWorkspaceStoryCheckout(command, positionals, opti
         const branch = request.selection.overrides[member.id] ?? request.selection.all ?? member.defaultBranch;
         workspaceBranchFolder(branch);
         if (recovered?.repositoryId === member.id && recovered.record.branch === branch) {
+          incrementCommandCounter('workspace.repositories-reused');
           locations.push({ repositoryId: member.id, repositoryPath: recovered.repositoryPath, branch, reused: true, independent: true });
         } else {
           const repositoryPath = await canonical(workspaceRepositoryPath(workspace, member));
           if (await lstat(path.join(repositoryPath, '.git')).catch(error => error.code === 'ENOENT' ? null : Promise.reject(error))) {
+            incrementCommandCounter('workspace.repositories-reused');
             locations.push({ repositoryId: member.id, repositoryPath, branch, reused: true, independent: false });
           } else if (request.start) {
             // Only Start may download a missing repository. Do not materialize an intermediate

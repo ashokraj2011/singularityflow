@@ -361,8 +361,12 @@ async function inspectRepositoryCheckout(repository, targetBranch) {
         && !refExists(repository.target, `refs/heads/${prepared.stagingBranch}`)) return null;
     try {
       const { storyWorktreeChanges, samePlatformPath } = await import('./story-worktree.mjs');
-      if (!samePlatformPath(realpathSync(gitCommonDir(prepared.repositoryPath)), realpathSync(gitCommonDir(repository.target))))
-        return `${repository.repository}: isolated checkout belongs to a different Git object store; existing work was preserved`;
+      // Native canonicalization expands Windows 8.3 aliases as well as links. The JavaScript
+      // realpath implementation can retain the short spelling reported by Git for Windows.
+      const observedStore = realpathSync.native(gitCommonDir(prepared.repositoryPath));
+      const expectedStore = realpathSync.native(gitCommonDir(repository.target));
+      if (!samePlatformPath(observedStore, expectedStore))
+        return `${repository.repository}: isolated checkout object store '${observedStore}' differs from '${expectedStore}'; existing work was preserved`;
       const observedBranch = branch(prepared.repositoryPath);
       if (![targetBranch, prepared.stagingBranch].includes(observedBranch))
         return `${repository.repository}: isolated checkout moved to '${observedBranch}'; existing work was preserved`;

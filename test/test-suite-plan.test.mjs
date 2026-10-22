@@ -7,7 +7,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
-  discoverTestSuite, needsTypeStripping, parsePositiveInteger, parseShard, partitionTestFiles,
+  discoverTestSuite, needsTypeStripping, parsePositiveInteger, parseShard, partitionTestFiles, SLOW_LANE_IMPORT,
   summarizeTestShardReceipts, testRunId, testSelectionSha256, testShardReceiptMatches
 } from '../scripts/test-suite-plan.mjs';
 
@@ -48,6 +48,33 @@ test('reviewed process-heavy integration files stay out of ordinary aggregate la
     assert.ok(shard, `${relative} was omitted from the aggregate`);
     assert.deepEqual(shard.files.map((entry) => entry.relative), [relative],
       `${relative} must not share a process-heavy lane`);
+  }
+});
+
+test('the slow lane holds exactly the files that import it, and the default suite still lists them', async () => {
+  const [slow, all] = await Promise.all([discoverTestSuite(root, 'slow'), discoverTestSuite(root, 'all')]);
+  const lane = new Set(slow.files.map((entry) => entry.relative));
+  assert.ok(lane.size > 0, 'no test opted into the slow lane');
+  const listed = new Set(all.files.map((entry) => entry.relative));
+  for (const relative of lane) assert.ok(listed.has(relative), `${relative} left the default suite`);
+  for (const entry of all.files) {
+    const imports = SLOW_LANE_IMPORT.test(await readFile(path.join(root, entry.relative), 'utf8'));
+    assert.equal(lane.has(entry.relative), imports, entry.relative);
+  }
+});
+
+test('a slow-lane test is skipped, with the lane named, unless the lane is on', async () => {
+  const { slowLane, SLOW_LANE_ENV, SLOW_LANE_SKIP } = await import('./helpers/slow-lane.mjs');
+  const previous = process.env[SLOW_LANE_ENV];
+  try {
+    delete process.env[SLOW_LANE_ENV];
+    assert.deepEqual(slowLane({ timeout: 5 }), { timeout: 5, skip: SLOW_LANE_SKIP });
+    assert.match(SLOW_LANE_SKIP, /npm run test:slow/u);
+    process.env[SLOW_LANE_ENV] = '1';
+    assert.deepEqual(slowLane({ timeout: 5 }), { timeout: 5 });
+  } finally {
+    if (previous === undefined) delete process.env[SLOW_LANE_ENV];
+    else process.env[SLOW_LANE_ENV] = previous;
   }
 });
 

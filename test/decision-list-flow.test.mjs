@@ -18,6 +18,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { slowLane } from './helpers/slow-lane.mjs';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
@@ -40,7 +41,7 @@ function run(command, args, cwd, { allowFailure = false, as = null } = {}) {
   return result;
 }
 
-test('the release-approval incident is one decision: recorded once, then approval succeeds', { timeout: 900_000 }, async (t) => {
+test('the release-approval incident is one decision: recorded once, then approval succeeds', slowLane({ timeout: 900_000 }), async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-decision-list-'));
   const remote = `${root}.git`;
   t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(remote, { recursive: true, force: true })]));

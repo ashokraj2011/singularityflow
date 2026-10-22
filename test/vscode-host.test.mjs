@@ -12,6 +12,7 @@
  * this substitution possible rather than a hack.
  */
 import test from 'node:test';
+import { slowLane } from './helpers/slow-lane.mjs';
 import { appendLedgerIntent, createLedgerIntent, initializeLedger } from '../src/ledger.mjs';
 import { storyLifecycleProgress } from '../src/session-roster.mjs';
 import { copilotStoryFollowDirectory, copilotStoryFollowFile, recordCopilotStoryFollow } from '../src/copilot-story-follow.mjs';
@@ -4249,7 +4250,7 @@ test('a completed reference row is checked and fetched on its own, whatever happ
     'its pinned commit was fetched ahead of Start');
 });
 
-test('the packaged POC release candidate journey survives publication, review, Copilot handoff, and restart', async (t) => {
+test('the packaged POC release candidate journey survives publication, review, Copilot handoff, and restart', slowLane(), async (t) => {
   if (!requireBundle(t)) return;
   const reviewer = { name: 'QA Reviewer', email: 'qa.reviewer@example.com' };
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-poc-release-candidate-'));

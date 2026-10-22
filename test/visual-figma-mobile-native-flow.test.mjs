@@ -17,6 +17,7 @@ import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promise
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { slowLane } from './helpers/slow-lane.mjs';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { encodePngRgba8 } from '../src/png-rgba8.mjs';
@@ -87,7 +88,7 @@ async function completeArtifact(root, workflow, phaseId) {
   return file;
 }
 
-test('a phone-only figma-mobile Story completes with a native phone capture and a not-applicable tablet', { timeout: 600_000 }, async (t) => {
+test('a phone-only figma-mobile Story completes with a native phone capture and a not-applicable tablet', slowLane({ timeout: 600_000 }), async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-visual-native-flow-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const { root, configPath } = await repository(base);

@@ -22,6 +22,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { slowLane } from './helpers/slow-lane.mjs';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
@@ -90,7 +91,7 @@ async function completePhase(root, phase, { articles = [] } = {}) {
   return result;
 }
 
-test('a Story runs specification through release from a fresh clone', async (t) => {
+test('a Story runs specification through release from a fresh clone', slowLane(), async (t) => {
   t.diagnostic('AC-008 drives the real binary through every phase; it is slow on purpose.');
 
   // ---- a fresh clone, with a remote, exactly as a team would have -------------------------------

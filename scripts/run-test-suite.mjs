@@ -75,6 +75,9 @@ delete isolated.SINGULARITY_FLOW_COLOR;
 // test plan and must not inherit Node's private marker or Node will silently skip every selected
 // file as a recursive run.
 delete isolated.NODE_TEST_CONTEXT;
+// The slow lane runs in its own suite, and always in release verification, which forbids skips.
+if (suite === 'slow' || failOnSkippedFiles || process.env.SINGULARITY_FLOW_TEST_SLOW === '1') isolated.SINGULARITY_FLOW_TEST_SLOW = '1';
+else delete isolated.SINGULARITY_FLOW_TEST_SLOW;
 
 const MAX_TEST_OUTPUT_BYTES = 128 * 1024 * 1024;
 const TERMINATION_GRACE_MS = 5_000;

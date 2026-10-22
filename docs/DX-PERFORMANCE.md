@@ -498,6 +498,20 @@ The aggregate prints a standard Node test summary, so existing verification-rece
 compatible. Sharding changes scheduling only: deterministic disjoint file-set digests prove that
 every discovered test file appears exactly once.
 
+### Slow lane
+
+A test that takes over a minute on a quiet machine opts into the slow lane with
+`slowLane()` from `test/helpers/slow-lane.mjs`. `npm test`, the suite shards and a single file under
+`node --test` skip it with a reason that names the lane, so the default run stays fast. `npm run
+test:slow` runs every file that holds one, and release verification, which forbids skipped tests,
+always sets `SINGULARITY_FLOW_TEST_SLOW=1` and so includes them. Set that variable yourself to run a
+slow test directly.
+
+```bash
+npm run test:slow
+SINGULARITY_FLOW_TEST_SLOW=1 node --test test/rework-lifecycle.test.mjs
+```
+
 The current liveness hardening at `main@03825387` also routes `SIGINT` and `SIGTERM` through the
 same bounded process-tree shutdown used for timeouts. The aggregate waits for detached descendants
 to quiesce and prints an exact retry command. Exact authority-state hashing no longer streams bytes

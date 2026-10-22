@@ -11,6 +11,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { slowLane } from './helpers/slow-lane.mjs';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
@@ -105,7 +106,7 @@ test('a removal followed by a re-addition leaves the clause in place', () => {
   ] }), ['A:AC-002']);
 });
 
-test('an amendment keeps the approval of a step it cites nothing of, refreshes one it cites, and the Story still closes', { timeout: 300_000 }, async (t) => {
+test('an amendment keeps the approval of a step it cites nothing of, refreshes one it cites, and the Story still closes', slowLane({ timeout: 300_000 }), async (t) => {
   const f = await fixture(t);
 
   // QN-1: AC-001 changes; fix-design cites only AC-002, so its approval stands (rule E8).

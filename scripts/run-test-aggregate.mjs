@@ -15,13 +15,13 @@ const argv = process.argv.slice(2);
 const suite = argv.find((argument) => !argument.startsWith('--')) ?? 'all';
 if (!TEST_SUITES.includes(suite)) throw new Error(`Test suite must be one of: ${TEST_SUITES.join(', ')}.`);
 const option = (name) => argv.find((argument) => argument.startsWith(`--${name}=`))?.slice(name.length + 3);
-const shardCount = parsePositiveInteger(
+const requestedShards = parsePositiveInteger(
   option('shards') ?? process.env.SINGULARITY_FLOW_TEST_SHARDS ?? 8,
   'Test aggregate shard count', { maximum: 64 }
 );
 const workers = parsePositiveInteger(
-  option('workers') ?? process.env.SINGULARITY_FLOW_TEST_SHARD_WORKERS ?? Math.min(2, shardCount),
-  'Test aggregate worker count', { maximum: shardCount }
+  option('workers') ?? process.env.SINGULARITY_FLOW_TEST_SHARD_WORKERS ?? Math.min(2, requestedShards),
+  'Test aggregate worker count', { maximum: requestedShards }
 );
 const deadlineMs = parsePositiveInteger(
   option('deadline-ms') ?? process.env.SINGULARITY_FLOW_TEST_DEADLINE_MS ?? 30 * 60 * 1000,
@@ -56,6 +56,8 @@ async function writeAtomic(file, value) {
 }
 
 const plan = await discoverTestSuite(root, suite);
+// A suite with fewer files than shards (the slow lane) gets one shard per file, never an empty shard.
+const shardCount = Math.min(requestedShards, plan.files.length);
 const shards = partitionTestFiles(plan.files, shardCount);
 const commit = git(['rev-parse', '--verify', 'HEAD']);
 const tree = git(['rev-parse', '--verify', 'HEAD^{tree}']);

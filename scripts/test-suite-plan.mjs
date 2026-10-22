@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-export const TEST_SUITES = Object.freeze(['all', 'cli', 'vscode']);
+// `slow` is the opt-in lane: every file that imports test/helpers/slow-lane.mjs for a slowLane() test.
+export const TEST_SUITES = Object.freeze(['all', 'cli', 'vscode', 'slow']);
+export const SLOW_LANE_IMPORT = /from ['"]\.\/helpers\/slow-lane\.mjs['"]/u;
 
 // These files perform full Story/worktree/remote/model-transport or durable-runtime journeys.
 // Source bytes radically understate that cost. Reviewed scheduling weights keep them out of the
@@ -37,7 +39,7 @@ export async function discoverTestSuite(root, suite = 'all') {
     const relative = path.posix.join('test', name);
     const source = await readFile(path.join(root, relative), 'utf8');
     const kind = source.includes('apps/vscode') ? 'vscode' : 'cli';
-    if (suite !== 'all' && suite !== kind) continue;
+    if (suite === 'slow' ? !SLOW_LANE_IMPORT.test(source) : suite !== 'all' && suite !== kind) continue;
     files.push(Object.freeze({
       relative,
       kind,

@@ -278,7 +278,7 @@ export class TeamImportJourney {
   async convert(): Promise<void> {
     if (this.view.busy) return;
     const entry = this.entryArgument();
-    if (!this.view.directory || !entry) { this.view.error = 'Inspect a team directory and choose its entry agent first.'; this.render(); return; }
+    if (!this.view.directory || !entry) { this.view.error = 'Inspect a team directory and choose its entry agent or skill first.'; this.render(); return; }
     const destination = this.view.useDestination && this.view.repository ? ` --destination ${argument(this.view.repository.root)}` : '';
     this.view.command = `/sf-import-team ${argument(this.view.directory)} --entry ${argument(entry)}${destination}`;
     this.view.error = null;

@@ -293,15 +293,15 @@ function acceptProposal(record, proposal) {
 }
 
 /**
- * An agent or prompt file that hands work to others is found twice: as itself and as the process
- * it describes. Both are that one file, so using either uses the other (also for a build an earlier
+ * An agent, prompt or skill file that hands work to others is found twice: as itself and as the
+ * process it describes. Both are that one file, so using either uses the other (also for a build an earlier
  * version left with one of them open).
  */
 function confirmProcessTwins(items) {
   const byPath = new Map();
   for (const item of items) {
     const where = item.evidence?.[0]?.path;
-    if (item.foundBy !== 'layout' || !where || !['process', 'agent', 'prompt'].includes(item.kind)) continue;
+    if (item.foundBy !== 'layout' || !where || !['process', 'agent', 'prompt', 'skill'].includes(item.kind)) continue;
     byPath.set(where, [...(byPath.get(where) ?? []), item]);
   }
   for (const group of byPath.values()) {

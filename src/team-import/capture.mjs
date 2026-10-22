@@ -286,6 +286,23 @@ function referenceCycles(references) {
   return [...cycles.values()].slice(0, 50);
 }
 
+const PROSE_NAME = /\b([a-z0-9][a-z0-9._-]{1,63})\s+(?:skill|agent|prompt|chat ?mode)s?\b/giu;
+
+/**
+ * Other captured agents, skills and prompts a skill names in prose ("the write-tests skill"), by path.
+ * Only names a captured item has count, and only for choosing where the process starts: they are
+ * not references, so nothing more is captured because of them.
+ */
+function namedInProse(text, byName, self) {
+  const targets = new Set();
+  for (const match of String(text ?? '').matchAll(PROSE_NAME)) {
+    for (const item of byName.get(match[1].toLowerCase()) ?? []) {
+      if (item.path !== self.path && ['agent', 'skill', 'procedure'].includes(item.role)) targets.add(item.path);
+    }
+  }
+  return targets;
+}
+
 const STEP_HEADING = /^#{1,6}\s.*\b(?:steps?|phases?|workflow|process|stages?|procedure)\b/imu;
 
 function multiStep(text) {
@@ -369,14 +386,22 @@ export async function captureTeamDirectory(directory, { roots = [], bounds = {},
   const cycles = referenceCycles(references);
   const outgoing = (where) => references.filter((reference) => reference.from === where && reference.status === 'resolved'
     && byPath.get(reference.target)?.role && ['agent', 'skill', 'procedure'].includes(byPath.get(reference.target).role));
-  const entryCandidates = items.filter((item) => ['agent', 'procedure'].includes(item.role)).map((item) => {
+  const scored = items.filter((item) => ['agent', 'procedure', 'skill'].includes(item.role)).map((item) => {
     const delegates = new Set(outgoing(item.path).map((reference) => reference.target));
+    // A skill names the agents and skills it hands work to in prose as often as by link: "use the write-tests skill".
+    if (item.role === 'skill') for (const target of namedInProse(contents.get(item.path), byName, item)) delegates.add(target);
     const steps = multiStep(contents.get(item.path));
     const reasons = [];
     if (delegates.size) reasons.push(`refers to ${delegates.size} other agent${delegates.size === 1 ? '' : 's'}, skill${delegates.size === 1 ? '' : 's'} or prompt${delegates.size === 1 ? '' : 's'}`);
     if (steps) reasons.push('describes ordered steps');
-    return { id: item.id, path: item.path, format: item.format, score: delegates.size * 2 + (steps ? 1 : 0), reasons };
-  }).filter((candidate) => candidate.score > 0)
+    return { id: item.id, path: item.path, format: item.format, role: item.role, delegates: delegates.size, steps, score: delegates.size * 2 + (steps ? 1 : 0), reasons };
+  });
+  // An orchestrator is often written as a skill. A skill is a starting point when it hands work to
+  // other agents, skills or prompts, or, when no agent or prompt file is one, when it lists ordered
+  // steps; so a team whose agent leads the process keeps that agent as its only suggestion.
+  const leads = scored.filter((candidate) => candidate.role !== 'skill' && candidate.score > 0);
+  const skills = scored.filter((candidate) => candidate.role === 'skill' && (candidate.delegates > 0 || (!leads.length && candidate.steps)));
+  const entryCandidates = [...leads, ...skills].map(({ role, delegates, steps, ...candidate }) => candidate)
     .sort((a, b) => b.score - a.score || (a.path < b.path ? -1 : 1));
   const manifest = {
     formatVersion: TEAM_IMPORT_FORMAT_VERSION,

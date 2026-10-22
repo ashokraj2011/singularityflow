@@ -1,10 +1,11 @@
 /**
- * `workflow import-team inspect`: capture a team directory and, once its entry agent is known,
+ * `workflow import-team inspect`: capture a team directory and, once its entry (the agent, prompt or
+ * skill that describes the process) is known,
  * open a conversion session. [TAWI §4.2, §6]
  *
  * Without an entry (and more than one plausible one), it only reports what it found, so choosing
- * an entry creates no throwaway session. With `--entry`, or when exactly one agent plausibly
- * describes the whole process, it creates a session, copies the screened files that
+ * an entry creates no throwaway session. With `--entry`, or when exactly one agent, prompt or
+ * skill plausibly describes the whole process, it creates a session, copies the screened files that
  * interpretation needs into it, and issues the one candidate path the model may write.
  */
 import path from 'node:path';

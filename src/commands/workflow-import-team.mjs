@@ -35,13 +35,13 @@ function printInspection(result) {
   for (const item of result.items) console.log(`  ${item.format.padEnd(24)} ${item.id.padEnd(28)} ${item.path}`);
   if (result.withheld.length) console.log(`Withheld (never read or returned): ${result.withheld.map((entry) => `${entry.path} (${entry.screening})`).join(', ')}`);
   if (result.entry.status === 'choose') {
-    console.log('Choose the entry agent: the one that describes the whole process.');
+    console.log('Choose the entry agent or skill: the one that describes the whole process.');
     for (const candidate of result.entry.candidates) console.log(`  ${candidate.id.padEnd(28)} ${candidate.path}  ${candidate.reasons.join('; ')}`);
-    console.log('Then: singularity-flow workflow import-team inspect <DIRECTORY> --entry <AGENT>');
+    console.log('Then: singularity-flow workflow import-team inspect <DIRECTORY> --entry <AGENT-OR-SKILL>');
     return;
   }
   if (result.entry.status === 'none') {
-    console.log('No agent or prompt describes a multi-step process. Name one with --entry <AGENT>.');
+    console.log('No agent, prompt or skill describes a multi-step process. Name one with --entry <AGENT-OR-SKILL>.');
     return;
   }
   console.log(`Entry: ${result.entry.selected.map((entry) => entry.id).join(', ')}${result.entry.selectedBy === 'only-candidate' ? ' (the only plausible entry)' : ''}`);

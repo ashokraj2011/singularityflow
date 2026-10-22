@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { lstat, mkdir, readFile, readdir, stat, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -41,6 +42,38 @@ test('each supported source format is recognised by path, and the hidden-tool la
   };
   for (const [file, format] of Object.entries(cases)) assert.equal(recognizeFormat(file, tools), format, file);
   assert.equal(recognizeFormat('ACME.md', new Set()), null, 'an upper-case file is a tool instruction file only beside its directory');
+});
+
+const ORCHESTRATOR_SKILL = ['---', 'name: release-orchestrator', 'description: Orchestrates a release.', '---', '## Step 1: Gather requirements', 'Write requirements.md.',
+  '## Step 2: Plan', 'Ask the planner agent for a plan.', '## Step 3: Implement', 'Use the write-tests skill, then implement.', ''].join('\n');
+const WRITE_TESTS = '---\nname: write-tests\ndescription: Writes tests first.\n---\n1. Write a failing test.\n2. Make it pass.\n3. Refactor.\n';
+
+async function teamOf(t, files) {
+  const base = await mkdtemp(path.join(tmpdir(), 'sflow-team-entry-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  for (const [relative, text] of Object.entries(files)) {
+    await mkdir(path.dirname(path.join(base, relative)), { recursive: true });
+    await writeFile(path.join(base, relative), text);
+  }
+  return (await captureTeamDirectory(base)).capture;
+}
+
+test('an orchestrator written as a skill is where the process starts; a team whose agent leads keeps that agent', async (t) => {
+  const ids = (capture) => capture.entryCandidates.map((candidate) => [candidate.id, candidate.format]);
+  const skillOnly = await teamOf(t, { '.github/skills/release-orchestrator/SKILL.md': ORCHESTRATOR_SKILL, '.github/skills/write-tests/SKILL.md': WRITE_TESTS });
+  assert.deepEqual(ids(skillOnly), [['release-orchestrator', 'skill'], ['write-tests', 'skill']], 'with no agent leading, skills that list steps are offered');
+  assert.deepEqual(skillOnly.entryCandidates[0].reasons, ['refers to 1 other agent, skill or prompt', 'describes ordered steps'], 'named in prose: the write-tests skill');
+  assert.deepEqual(skillOnly.references, [], 'a name in prose chooses the entry only; it is not a reference');
+  const alone = await teamOf(t, { 'skills/release-orchestrator/SKILL.md': ORCHESTRATOR_SKILL });
+  assert.deepEqual(ids(alone), [['release-orchestrator', 'skill']]);
+
+  const agentLeads = await teamOf(t, { '.github/agents/lead.agent.md': '---\nname: lead\ndescription: Leads.\n---\n1. Plan.\n2. Build with the write-tests skill.\n3. Review.\n',
+    '.github/skills/write-tests/SKILL.md': WRITE_TESTS });
+  assert.deepEqual(ids(agentLeads), [['lead', 'copilot-agent']], 'a skill that only lists steps is not offered beside an agent that leads');
+
+  const both = await teamOf(t, { '.github/agents/planner.agent.md': '---\nname: planner\ndescription: Plans.\n---\n1. Read.\n2. Plan.\n3. Hand back.\n',
+    '.github/skills/release-orchestrator/SKILL.md': ORCHESTRATOR_SKILL });
+  assert.deepEqual(ids(both), [['release-orchestrator', 'skill'], ['planner', 'copilot-agent']], 'a skill that hands work to others is offered, first when it leads');
 });
 
 test('capture screens secrets, never opens blocked paths, and resolves references deterministically [TAWI:AC-021]', async (t) => {

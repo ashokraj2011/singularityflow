@@ -58,9 +58,9 @@ export function teamImportHtml(view: TeamImportView): string {
         </tbody></table></div></details>` : '<p class="notice warning">No agent, prompt, skill or instruction file was recognized in this folder.</p>'}
         ${inspection.withheld.length ? `<p class="notice warning">Withheld (never read or returned): ${inspection.withheld.map(item => `<code>${escape(item.path)}</code> (${escape(item.screening)})`).join(', ')}</p>` : ''}` : ''}
     </section>
-    <section class="plain"><h2>2. Choose the entry agent and convert</h2>
-      <p class="muted">The entry is the agent or prompt that describes the whole process; the agents and skills it reaches become the workflow's steps.</p>
-      ${inspection?.items.length ? `<label class="field">Entry agent
+    <section class="plain"><h2>2. Choose the entry and convert</h2>
+      <p class="muted">The entry is the agent, prompt or skill that describes the whole process; the agents and skills it reaches become the workflow's steps.</p>
+      ${inspection?.items.length ? `<label class="field">Entry agent or skill
         <select data-team-entry${disabled}>
           ${inspection.entry.candidates.length ? `<optgroup label="Suggested">${inspection.entry.candidates.map(candidate => `<option value="${escape(candidate.path)}"${candidate.path === view.entry ? ' selected' : ''}>${escape(candidate.id)} · ${escape(candidate.path)}</option>`).join('')}</optgroup>` : ''}
           ${others.length ? `<optgroup label="Everything else">${others.map(item => `<option value="${escape(item.path)}"${item.path === view.entry ? ' selected' : ''}>${escape(item.id)} · ${escape(item.path)}</option>`).join('')}</optgroup>` : ''}

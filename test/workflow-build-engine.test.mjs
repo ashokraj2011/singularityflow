@@ -223,6 +223,29 @@ test('an agent file found as its agent and as its process is one file: a proposa
   }
 });
 
+test('an orchestrator written as a skill is the process the steps come from, and one file with its skill', async () => {
+  const { run, flow, json } = await harness();
+  const root = await repository(run, flow);
+  const folder = await mkdtemp(path.join(os.tmpdir(), 'sflow-build-engine-skill-'));
+  const files = {
+    '.github/skills/release-orchestrator/SKILL.md': ['---', 'name: release-orchestrator', 'description: Orchestrates a release.', '---', '## Step 1: Requirements', 'Write them down.',
+      '## Step 2: Build', 'Use the write-tests skill, then build it.', '## Step 3: Review', 'Security signs it off.', ''].join('\n'),
+    '.github/skills/write-tests/SKILL.md': '---\nname: write-tests\ndescription: Writes tests first.\n---\nWrite a failing test first.\n'
+  };
+  for (const [relative, text] of Object.entries(files)) {
+    await mkdir(path.dirname(path.join(folder, relative)), { recursive: true });
+    await writeFile(path.join(folder, relative), text);
+  }
+  const build = json(root, ['workflow', 'build', 'start', '--folder', folder]).build;
+  const pair = build.items.filter((entry) => entry.evidence[0].path === '.github/skills/release-orchestrator/SKILL.md' && ['process', 'skill'].includes(entry.kind));
+  assert.deepEqual(pair.map((entry) => entry.kind).sort(), ['process', 'skill'], JSON.stringify(build.items.map((entry) => [entry.kind, entry.name])));
+  assert.match(build.conversation[0].text, /release-orchestrator describes a process \(refers to 1 other agent, skill or prompt; describes ordered steps\), so it is where the steps would come from\./u);
+  json(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-'], { input: JSON.stringify({ ...FIRST,
+    evidence: [{ path: '.github/skills/release-orchestrator/SKILL.md', startLine: 5, endLine: 10 }], items: [pair.find((entry) => entry.kind === 'skill').id] }) });
+  const accepted = json(root, ['workflow', 'build', 'decide', '--build', build.id, '--proposal', 'p-1', '--accept']).build;
+  assert.deepEqual(pair.map((twin) => accepted.items.find((entry) => entry.id === twin.id).status), ['confirmed', 'confirmed']);
+});
+
 test('later decisions: a step other workflows share is copied, not changed; a proposal an earlier one overtook goes stale; items can be left out', async () => {
   const { run, flow, json, engineEnv } = await harness();
   const root = await repository(run, flow);

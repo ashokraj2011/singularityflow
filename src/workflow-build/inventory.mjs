@@ -4,7 +4,7 @@
  * anything it finds.
  *
  * Found by layout: agents, skills, instructions and prompt files (the team-import format table),
- * the process an agent or prompt describes, request files, MCP settings, scripts and documents.
+ * the process an agent, prompt or skill describes, request files, MCP settings, scripts and documents.
  * Found by pattern (src/guidance-scan.mjs): API calls, links, check commands and sign-off
  * checkpoints in any text. Found in an API description: each operation of an OpenAPI or Swagger
  * document and each request of a Postman collection.

@@ -36,7 +36,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 74
+version: 75
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1245,8 +1245,11 @@ singularity-flow workflow import-team compile --session tis_0123456789abcdef \
   --out delivery-flow.sflow-workflows.json --destination . --json
 ```
 
-1. **inspect** captures the directory, resolves links and names between files, and lists entry
-   agents. With the entry agent known it opens a machine-local session (seven days) and issues the
+1. **inspect** captures the directory, resolves links and names between files, and lists entries:
+   the agents, prompts or skills that describe the whole process. A skill is one when it hands work to
+   other agents, skills or prompts (named in prose too: "use the write-tests skill"), or, when no
+   agent or prompt file is one, when it lists ordered steps; a team whose orchestrator is a skill is
+   found as one. With the entry known it opens a machine-local session (seven days) and issues the
    one candidate file the conversion may write.
 2. The model writes a `team-import-candidate` record following the returned `candidate.guide`:
    namespaced phases, agents, skills, instructions and templates, decisions, and one mapping per
@@ -1265,7 +1268,7 @@ activated, tested or reviewed.
 
 In VS Code, **Import a Team Workflow…** (the command palette, or **Other ways to start** on
 Workflow Studio's Build with Copilot) runs the same steps without a terminal. Choose the folder to inspect
-it and pick the entry agent. **Convert with Copilot…** types the `/sf-import-team` command into
+it and pick the entry agent or skill. **Convert with Copilot…** types the `/sf-import-team` command into
 Copilot Chat, and shows it to copy when Copilot Chat is unavailable. The panel lists every session,
 whichever surface started it. **Check** runs compile with `--dry-run` and offers each open question's
 choices as buttons. **Write bundle…** saves the ready bundle beside the team directory.
@@ -1291,7 +1294,7 @@ singularity-flow workflow build status --build <ID> --json
 
 | Found | From |
 |---|---|
-| Process | An agent or prompt file that numbers its steps or hands off to other agents |
+| Process | An agent, prompt or skill file that numbers its steps or hands off to other agents or skills |
 | Steps, agents, skills | The workflow the build starts from, at their place in `singularity/workflow.yml` |
 | Agents, skills, instruction files, prompt files | Copilot agent and chat mode files, hidden tool folders, `SKILL.md` folders, `*.instructions.md`, `AGENTS.md`, `*.prompt.md` |
 | API calls | OpenAPI and Swagger operations, Postman requests, `.http` and `.rest` requests, and `curl`, `fetch`, `requests` and `METHOD /path` lines in documents and scripts |

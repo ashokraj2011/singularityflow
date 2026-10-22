@@ -7935,7 +7935,7 @@ test('configuration proposals stay visible in Workflow Studio and offer exact gu
   assert.match(save, /if \(!await boundary\.acknowledge\(\)\) return null;\s*args\.push\('--acknowledge-unprotected'\);/,
     'a direct unprotected merge requires a second explicit acknowledgement, asked before activation starts');
   assert.match(extension, /const acknowledge = 'Acknowledge and merge';/);
-  assert.match(extension, /application branch remains unchanged/i);
+  assert.match(extension, /application branch(?:es)? (?:remains|stay) unchanged/i);
   assert.match(extension, /'singularityFlow\.openDesigner': \(\) => vscode\.commands\.executeCommand\('singularityFlow\.openWorkflowStudio'\)/,
     'the retired Designer command opens Workflow Studio');
 });

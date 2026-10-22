@@ -48,8 +48,10 @@ test('nextsteps works before initialization and without an active work item', ()
 
 test('active generation plan includes current, subsequent, alternative, and following-phase actions', () => {
   const steps = workflowNextSteps(workflow());
-  assert.deepEqual(steps.map((item) => item.skill), ['/sf-phase', '/sf-publish', '/sf-submit', '/sf-approve', '/sf-reject', '/sf-cancel', '/sf-phase']);
-  assert.deepEqual(steps.map((item) => item.timing), ['now', 'then', 'then', 'then', 'alternative', 'alternative', 'then']);
+  // Rejection waits for submission: offered while the step awaits approval, never before.
+  assert.deepEqual(steps.map((item) => item.skill), ['/sf-phase', '/sf-publish', '/sf-submit', '/sf-approve', '/sf-cancel', '/sf-phase']);
+  assert.deepEqual(steps.map((item) => item.timing), ['now', 'then', 'then', 'then', 'alternative', 'then']);
+  assert.equal(steps.some((item) => item.command.startsWith('singularity-flow reject')), false);
   assert.equal(steps[1].command, 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host');
   assert.deepEqual(steps[1].argv, [
     'phase', 'publish', 'intake', '--authored', 'governed-agent', '--channel', 'copilot-host'
@@ -122,7 +124,15 @@ test('rejection, pending publication, and completion produce safe action plans',
 
   const complete = workflow({ status: 'closed', currentPhase: null, phaseStatus: 'approved', generation: 1 });
   const completed = workflowNextSteps(complete);
-  assert.deepEqual(completed.map((item) => item.skill), ['/sf-gate', '/sf-stack', '/sf-stack', '/sf-progress', '/sf-report']);
+  assert.deepEqual(completed.map((item) => item.skill), ['/sf-gate', '/sf-pr', '/sf-pr', '/sf-progress', '/sf-report']);
+  // Every pull-request step carries its Shell route; none renders as "not safe to display".
+  assert.doesNotMatch(nextStepsText(nextStepsSnapshot({ workflow: complete })), /not safe to display/);
+  for (const host of [null, { provider: 'gitlab', label: 'GitLab' }]) {
+    for (const item of workflowNextSteps(complete, { repositoryHost: host }).filter((entry) => entry.command.startsWith('singularity-flow pr '))) {
+      assert.equal(item.copilotCommand, '/sf-pr', item.command);
+      assert.ok(item.argv?.[0] === 'pr', item.command);
+    }
+  }
   assert.match(completed[0].command, /gate --terminal/);
   assert.equal(completed[1].command, 'singularity-flow pr NEXT-1');
   assert.equal(completed[2].command, 'singularity-flow pr NEXT-1 --create');
@@ -162,7 +172,9 @@ test('nextsteps text preserves timing and reason and reads Copilot, Shell, then 
   assert.match(text, /NOW — .*\n   Copilot: \/sf-phase\n   Shell: singularity-flow prepare intake\n   VS Code \(model-free\): not available for this action\n/);
   assert.match(text, /THEN — .*\n   Copilot: \/sf-publish intake\n   Shell: singularity-flow phase publish intake --authored governed-agent --channel copilot-host\n   VS Code \(model-free\): @sflow \/publish intake\n/);
   assert.match(text, /THEN — .*\n   Copilot: \/sf-submit\n   Shell: singularity-flow submit intake\n   VS Code \(model-free\): @sflow \/submit intake\n/);
-  assert.match(text, /ALTERNATIVE — .*\n   Copilot: \/sf-reject\n   Shell: singularity-flow reject/);
+  assert.doesNotMatch(text, /singularity-flow reject/, 'rejection is offered once the step awaits approval');
+  assert.match(nextStepsText(nextStepsSnapshot({ workflow: workflow({ generation: 1, phaseStatus: 'awaiting_approval' }) })),
+    /ALTERNATIVE — .*\n   Copilot: \/sf-reject\n   Shell: singularity-flow reject/);
 });
 
 test('agent trust and synchronization prerequisites precede generation', () => {
@@ -270,6 +282,17 @@ test('a step reopened by rework or a skill amendment gets the grounding prerequi
   const amended = structuredClone(story);
   amended.phases[second].skillAmendmentRevalidation = { state: 'affected', generationAtAdoption: 1 };
   assert.equal(await grounding(amended), true);
+  // The step's checkpoint is required: an agent-authored generation must record its clarification,
+  // which is bound to the composed prompt, so composing is not optional there.
+  const compose = async (enabled) => (await storyPrerequisites(root, reopened,
+    { location: { path: 'singularity/work-items/GROUND-1/workflow.json' } }, { enabled }))
+    .find((entry) => entry.route === 'grounding-composition');
+  const withModel = await compose(true);
+  assert.equal(withModel.timing, 'now');
+  assert.match(withModel.reason, /clarification is recorded against that prompt/);
+  const withoutModel = await compose(false);
+  assert.equal(withoutModel.timing, 'optional', 'a human-authored step publishes without the record');
+  assert.match(withoutModel.reason, /recording a clarification answer needs it first/);
 });
 
 test('a required after-step delivery comes before the held step\'s own work', () => {
@@ -313,4 +336,47 @@ test('unmet MCP readiness names its setup, in order, as NOW instead of a prepare
   assert.match(nextStepsText(snapshot), /1\. NOW — MCP readiness blocks intake[\s\S]*story target-origin NEXT-1/);
   assert.equal(workflowNextSteps(workflow({ phaseStatus: 'awaiting_approval', generation: 1 }), { mcpHold })[0].command.includes('target-origin'), false, 'a step in review is not held');
   assert.equal(workflowNextSteps(workflow(), { mcpHold: { ...mcpHold, phase: 'requirements' } })[0].command.includes('target-origin'), false, 'another step\'s readiness holds nothing here');
+});
+
+test('a model-free run names the human publication route in its footers, refusals and nextsteps', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-nextsteps-model-free-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const root = path.join(directory, 'repo');
+  const machine = path.join(directory, 'machine');
+  await mkdir(root); await mkdir(machine);
+  const env = { ...process.env, HOME: machine, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Next Steps Tester',
+    SINGULARITY_FLOW_NO_MODEL: '1' };
+  const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+  const run = (command, args, { status = 0 } = {}) => {
+    const result = spawnSync(command, args, { cwd: root, env, encoding: 'utf8' });
+    if (status != null) assert.equal(result.status, status, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+    return `${result.stdout}\n${result.stderr}`;
+  };
+  run('git', ['init', '-q', '-b', 'main']);
+  run('git', ['config', 'user.name', 'Next Steps Tester']);
+  run('git', ['config', 'user.email', 'next-steps@example.test']);
+  await writeFile(path.join(root, 'README.md'), '# Model-free fixture\n');
+  run(process.execPath, [cli, 'init']);
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.git.publish = 'off'; config.repositoryReadiness.requiredBeforeStory = false;
+  await writeFile(configPath, YAML.stringify(config));
+  run('git', ['add', '.']); run('git', ['commit', '-q', '-m', 'Model-free fixture']);
+  run('git', ['init', '-q', '--bare', '-b', 'main', path.join(directory, 'remote.git')]);
+  run('git', ['remote', 'add', 'origin', path.join(directory, 'remote.git')]);
+  run('git', ['push', '-q', '-u', 'origin', 'main']);
+  run(process.execPath, [cli, 'start', 'FREE-1', '--from-branch', 'main', '--work-type', 'feature',
+    '--title', 'Model-free routes', '--description', 'Every route names the human producer.']);
+  const human = 'singularity-flow phase publish intake --authored human --channel manual-in-place --no-model';
+  // The refusal's "Then:" step and its route (the sequence gate's planner).
+  const refused = run(process.execPath, [cli, 'submit', 'intake'], { status: null });
+  assert.ok(refused.includes(`Shell: ${human}`), refused);
+  // The footer printed after a lifecycle step, and the full nextsteps listing.
+  const prepared = run(process.execPath, [cli, 'prepare', 'intake']);
+  const listed = run(process.execPath, [cli, 'nextsteps']);
+  assert.ok(listed.includes(`Shell: ${human}`), listed);
+  for (const output of [refused, prepared, listed]) {
+    assert.doesNotMatch(output, /--authored governed-agent|--channel copilot-host/u, output);
+    assert.doesNotMatch(output, /singularity-flow reject intake/u, 'no rejection is offered before submission');
+  }
 });

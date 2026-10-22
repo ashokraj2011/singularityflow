@@ -179,6 +179,69 @@ test('code changed before generation begin routes through set-aside, begin and r
   assert.deepEqual(plan.steps.slice(0, 2).map(step => step.id), ['set-aside-before-begin', 'begin-then-reapply']);
   assert.equal(plan.steps[0].command, 'singularity-flow recover Story-1 --json');
   assert.match(plan.steps[0].label, /private recovery copy/u);
+  assert.equal(plan.steps[1].command, 'singularity-flow phase begin implementation --json', 'the begin step names its command');
+  // The paths the steps tell a person to review reach JSON callers.
+  const envelope = refusalEnvelope(error, ['phase', 'begin', 'implementation']);
+  assert.deepEqual(envelope.error.details.changedPaths, ['src/a.js', 'src/b.js']);
+  assert.equal(envelope.error.details.dirtyStartPolicy, 'block');
+});
+
+test('an adoptable change set names phase begin with its digest, whichever command met it', () => {
+  const digest = `sha256:${'c'.repeat(64)}`;
+  const adopt = `singularity-flow phase begin implementation --adopt-existing --confirm ${digest}`;
+  const details = { workId: 'Story-1', phase: 'implementation', changedPaths: ['src/a.js'], changeSetDigest: digest,
+    dirtyStartPolicy: 'block', boundary: 'since-previous-generation',
+    classification: { protectedPaths: [], outsideSourceBoundaryPaths: [] },
+    nextAction: { command: adopt, label: 'Adopt exactly this change set.' } };
+  for (const argv of [['prepare', 'implementation'], ['phase', 'begin', 'implementation']]) {
+    const error = Object.assign(new Error(`Code already changed before generation begin (1 path(s)). After reviewing the full application change set, adopt it with: ${adopt}`),
+      { code: 'GENERATION_DIRTY_START', details });
+    const plan = refusalRemediationPlan(error, argv);
+    assert.deepEqual(plan.steps.slice(0, 2).map(step => [step.id, step.command]), [
+      ['review-before-adoption', 'singularity-flow recover Story-1 --json'],
+      ['adopt-reviewed-changes', adopt]
+    ], argv.join(' '));
+    assert.equal(plan.steps.filter(step => step.command === adopt).length, 1, 'the producer route is not repeated');
+    const envelope = refusalEnvelope(error, argv);
+    assert.equal(envelope.error.details.changeSetDigest, digest);
+    assert.equal(envelope.error.details.nextAction, adopt);
+  }
+  const protectedPaths = refusalRemediationPlan(Object.assign(new Error('Code changed outside scope.'), {
+    code: 'GENERATION_DIRTY_START', details: { ...details, nextAction: undefined,
+      classification: { protectedPaths: ['src/a.js'], outsideSourceBoundaryPaths: [] } } }), ['prepare', 'implementation']);
+  assert.equal(protectedPaths.steps.some(step => /--adopt-existing/u.test(step.command ?? '')), false,
+    'protected paths are never offered for adoption');
+});
+
+test('a soft sequence gate names the exact command with its override', () => {
+  const error = Object.assign(new Error('Soft sequence warning [phaseStatus]: cannot reject.'), {
+    code: 'SEQUENCE_CONFIRMATION_REQUIRED', details: { gate: 'phaseStatus', confirmOverride: 'continue:phaseStatus' } });
+  const plan = refusalRemediationPlan(error, ['reject', 'intake', '--work-id', 'FEAT-1', '--to', 'intake', '--reason', 'needs work']);
+  assert.equal(plan.steps[0].id, 'confirm-soft-gate');
+  assert.equal(plan.steps[0].command,
+    "singularity-flow reject intake --work-id FEAT-1 --to intake --reason 'needs work' --confirm-override continue:phaseStatus");
+  assert.match(renderRefusalPlan(plan), /Shell: singularity-flow reject intake .* --confirm-override continue:phaseStatus/u);
+  // No command words, or an override already given for this gate: the sentence alone.
+  assert.equal(refusalRemediationPlan(error, []).steps[0].command, null);
+  assert.equal(refusalRemediationPlan(error, ['reject', 'intake', '--confirm-override', 'continue:phaseStatus']).steps[0].command, null);
+});
+
+test('the generic planner fallback answers without a workspace and is never the refused planner itself', () => {
+  const generic = (argv) => refusalRemediationPlan(Object.assign(new Error('Something failed.'), { code: 'SOMETHING_UNKNOWN' }), argv)
+    .steps.map(step => step.command);
+  assert.ok(generic(['recommend', '--json']).includes('singularity-flow nextsteps --json'), 'recommend without a workspace still has the repository planner');
+  assert.ok(generic(['status']).includes('singularity-flow nextsteps --json'));
+  assert.equal(generic(['nextsteps', '--json']).includes('singularity-flow nextsteps --json'), false);
+  assert.equal([...generic(['status']), ...generic(['recommend'])].some(command => /recommend --json/u.test(command ?? '')), false);
+});
+
+test('recording a clarification before its prompt is composed names wm compose first', () => {
+  const error = Object.assign(new Error('Compose the phase prompt before recording clarification: singularity-flow wm compose --phase requirements'), {
+    code: 'CLARIFICATION_PROMPT_NOT_COMPOSED',
+    details: { workId: 'FEAT-2', phase: 'requirements', nextAction: { command: 'singularity-flow wm compose --phase requirements', label: 'Compose it.' } } });
+  const plan = refusalRemediationPlan(error, ['clarification', 'record', 'requirements', '--response-file', 'answers.json']);
+  assert.equal(plan.steps[0].command, 'singularity-flow wm compose --phase requirements');
+  assert.equal(plan.context.phaseId, 'requirements');
 });
 
 test('skill-host refusal distinguishes an external prerequisite from repairable Story content', () => {
@@ -803,7 +866,8 @@ test('incomplete authoring remediation rejects unsafe phase metadata and preserv
 
   assert.equal(plan.steps[0].command, 'singularity-flow phase --help');
   assert.equal(plan.steps[1].command, 'singularity-flow doctor --json');
-  assert.equal(plan.steps[2].command, 'singularity-flow recommend --json');
+  // The repository planner, which answers in a plain `sflow init` repository; recommend needs a workspace.
+  assert.equal(plan.steps[2].command, 'singularity-flow nextsteps --json');
   assert.doesNotMatch(JSON.stringify(plan), /planning; publish release|draft-check/);
   assert.equal(plan.retry.automatic, false);
 });

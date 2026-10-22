@@ -61,8 +61,10 @@ function whyLines(result) {
 
 function nextLines(result) {
   const order = { NOW: 0, SOON: 1, LATER: 2 };
+  // Within a rank the producer's order stands (the sort is stable): a planner lists publish,
+  // submit, then approve, and sorting by id put approve first and "Cancel this Story" before all.
   return [...result.next]
-    .sort((a, b) => (order[a.rank] - order[b.rank]) || a.id.localeCompare(b.id))
+    .sort((a, b) => order[a.rank] - order[b.rank])
     // Every continuation names its supported entry points. Keeping the labels explicit prevents a
     // terminal command from being mistaken for the only supported route, and prevents Copilot from
     // guessing a slash command from prose.

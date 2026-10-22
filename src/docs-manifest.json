@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "2f551ad7bb0a4a3859a1238b4ae41e29f06c1295",
+  "sourceCommit": "7029687353728f784169e1faccd0c945e526b9e3",
   "topicCount": 85,
-  "contentSha256": "2eb6d44c857be30eaffbe82b2a7dccf66133e2691cc4381f70feca7e48a12216",
+  "contentSha256": "c87e1448eca9038ee339c2ea28fe1e20b69597a0810f4cfbb19ada1059d79ab9",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -496,8 +496,8 @@
     {
       "id": "revision-loop",
       "title": "Bounded code Candidate revision loop",
-      "version": 3,
-      "sha256": "83703083d9fa9bd47e69d8f0c19014d1c9eef3defc947fe447034d09532aef92",
+      "version": 4,
+      "sha256": "e0e00f0c352d200704f9d98d4cd3b2b35c49170b8d89e6333c15e3113386206f",
       "routingSha256": "da32593b0266e2e0d23bceecf9bd245d71449ec93893456df95884e41dd890c0",
       "file": "revision-loop.md"
     },

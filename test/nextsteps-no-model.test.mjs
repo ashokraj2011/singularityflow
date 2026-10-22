@@ -13,8 +13,26 @@ function workflow(allowedProducers) {
 test('nextsteps offers a human publication route when model mode is disabled', () => {
   const actions = workflowNextSteps(workflow(['governed-agent', 'human']), { modelMode: { enabled: false } });
   assert.ok(actions.length);
-  assert.match(actions[0].command, /--authored human/);
-  assert.equal(actions[0].modelPolicy, 'never');
+  assert.equal(actions[0].command, 'singularity-flow prepare design', 'the draft is prepared first, then published');
+  // The in-place route is the one prepublish offers for the prepared draft; importing is the alternative.
+  const publications = actions.filter((item) => item.command.startsWith('singularity-flow phase publish'));
+  assert.deepEqual(publications.map((item) => [item.timing, item.command]), [
+    ['then', 'singularity-flow phase publish design --authored human --channel manual-in-place --no-model'],
+    ['alternative', 'singularity-flow phase publish design --authored human --channel manual-import --from <FILE> --no-model']
+  ]);
+  assert.ok(publications.every((item) => item.modelPolicy === 'never'));
+  assert.equal(actions.some((item) => /governed-agent|copilot-host/.test(item.command)), false);
+});
+
+test('a planner called without a model mode follows the run\'s own mode, never assuming a model', async () => {
+  const { withOperationContext } = await import('../src/operation-context.mjs');
+  const state = workflow(['governed-agent', 'human']);
+  const offModel = await withOperationContext({ operation: { id: 'nextsteps', modelPolicy: 'never' },
+    modelMode: { enabled: false } }, async () => workflowNextSteps(state));
+  assert.equal(offModel.some((item) => /--authored governed-agent/.test(item.command)), false);
+  assert.ok(offModel.some((item) => item.command === 'singularity-flow phase publish design --authored human --channel manual-in-place --no-model'));
+  assert.ok(workflowNextSteps(state).some((item) => /--authored governed-agent --channel copilot-host$/.test(item.command)),
+    'outside an operation the configured producer is still named');
 });
 
 test('nextsteps explains a model-only generation block instead of returning no actions', () => {
@@ -30,7 +48,7 @@ test('nextsteps gives deterministic phases their exact model-free publication co
   const actions = workflowNextSteps(state, { modelMode: { enabled: false } });
   const publication = actions.find((item) => item.command.startsWith('singularity-flow phase publish'));
   assert.equal(publication.command,
-    'singularity-flow phase publish design --authored deterministic --channel kernel-generator');
+    'singularity-flow phase publish design --authored deterministic --channel kernel-generator --no-model');
   assert.equal(actions.some((item) => item.command.includes('--authored human')), false);
 });
 

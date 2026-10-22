@@ -1,5 +1,6 @@
 import { isConvergencePhase } from './phase-roles.mjs';
 import { phaseNeedsGeneration, workflowGuide } from './guide.mjs';
+import { phasePublicationCommandForMode } from './sequence.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { copilotAction, copilotSkillForCommand } from './copilot-guidance.mjs';
@@ -8,6 +9,7 @@ import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import {
   effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer
 } from './manual-authorship.mjs';
+import { operationContext } from './operation-context.mjs';
 import { decisionSubmitArguments, describeOutcome, reopenableSteps, upcomingDecision } from './workflow-decisions.mjs';
 import { nextPhaseAfterSkillAmendment } from './lifecycle-transitions.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
@@ -19,8 +21,15 @@ function action(timing, skill, command, reason, metadata = {}) {
   const candidate = copilotAction({
     timing, skill, command, reason, modelPolicy: 'never', availability: 'available', ...metadata
   });
-  const guidance = safeCommandGuidance(candidate);
+  // The planner's skill is kept when the pair is safe to show; otherwise the command's own route,
+  // as plannedAction does for results. A mismatched skill must not hide a safe Shell command.
+  const guidance = safeCommandGuidance(candidate) ?? safeCommandGuidance({ command });
   return guidance ? Object.freeze({ ...candidate, ...guidance }) : candidate;
+}
+
+/** The run's model mode, so a planner called without one never assumes a model is available. */
+function ambientModelMode() {
+  return operationContext()?.modelMode ?? { enabled: true };
 }
 
 // Hosts the GitHub CLI cannot open a pull request on; their merge request is opened by hand.
@@ -44,12 +53,12 @@ function landingActions(workflow, repositoryHost) {
         'After finalization, promote the finished child branch to the Story branch directly; no pull request is opened.')] : [])
     ];
   }
-  const preview = action('then', '/sflow-stack', `singularity-flow pr ${workId}`, 'Preview the pull request title, body, base, head, checks, and evidence before publishing anything.');
+  const preview = action('then', '/sflow-pr', `singularity-flow pr ${workId}`, 'Preview the pull request title, body, base, head, checks, and evidence before publishing anything.');
   if (MANUAL_PULL_REQUEST_HOSTS.has(repositoryHost?.provider)) return [preview,
-    action('then', '/sflow-stack', `singularity-flow pr describe ${workId} --clipboard`,
+    action('then', '/sflow-pr', `singularity-flow pr describe ${workId} --clipboard`,
       `Copy the reviewed description and open the merge request in ${repositoryHost.label} by hand; pr --create uses the GitHub CLI.`)];
   return [preview,
-    action('then', '/sflow-stack', `singularity-flow pr ${workId} --create`, 'After reviewing the preview, create the pull request with explicit confirmation.')];
+    action('then', '/sflow-pr', `singularity-flow pr ${workId} --create`, 'After reviewing the preview, create the pull request with explicit confirmation.')];
 }
 
 function completionActions(workflow, timing = 'now', repositoryHost = null) {
@@ -158,7 +167,7 @@ function visualCoverageActions(hold, timing) {
 }
 
 export function workflowNextSteps(workflow, {
-  publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null,
+  publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null,
   repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null
 } = {}) {
   const workId = workflow.workItem.id;
@@ -259,16 +268,23 @@ export function workflowNextSteps(workflow, {
   }
   const actions = [...prerequisites.map(copilotAction), ...undecided, ...immediate];
   if (needsGeneration && !modelMode.enabled) {
-    if (modelFreeProducer === 'human') actions.unshift(action(
-      'now', generationSkillForPhase(phase, workflow), phasePublicationCommandForProducer(
+    // The draft `prepare` writes is published in place, the route prepublish offers when it is
+    // ready, the footers repeat and refusals name (phasePublicationCommandForMode). A file written
+    // elsewhere is imported instead.
+    if (modelFreeProducer === 'human') actions.push(action(
+      'then', generationSkillForPhase(phase, workflow), phasePublicationCommandForMode(phase, { modelEnabled: false }),
+      `Publish the ${phase.label} you authored in place, without invoking a model.`,
+      { operationId: 'phase', modelPolicy: 'never', route: 'manual' }
+    ), action(
+      'alternative', generationSkillForPhase(phase, workflow), phasePublicationCommandForProducer(
         phase, 'human', { source: '<FILE>', noModel: true }
       ),
-      `Import and publish ${phase.label} without invoking a model.`,
+      `Or import and publish ${phase.label} from a file written elsewhere, without invoking a model.`,
       { operationId: 'phase', modelPolicy: 'never', route: 'manual' }
     ));
     else if (modelFreeProducer === 'deterministic') {
       if (!convergenceProjectionRequired) actions.push(action(
-        'then', generationSkillForPhase(phase, workflow), phasePublicationCommandForProducer(phase, 'deterministic'),
+        'then', generationSkillForPhase(phase, workflow), phasePublicationCommandForMode(phase, { modelEnabled: false }),
         `Publish the deterministically generated ${phase.label} without invoking a model.`,
         { operationId: 'phase', modelPolicy: 'never', route: 'deterministic' }
       ));
@@ -324,9 +340,10 @@ export function workflowNextSteps(workflow, {
           ? `After publishing ${phase.id}, run its checks, complete it without approval, and advance.`
           : `After publishing ${phase.id}, run its checks and submit it for approval.`
       ));
+  // Rejection is offered once the step awaits approval (workflowGuide): before submission the
+  // engine refuses it, so it is not listed as an available alternative to a later approval.
   if (!noApproval) actions.push(
-    action('then', '/sflow-approve', `singularity-flow approve ${phase.id} --work-id ${workId} --fetch`, `After submission, approve ${phase.id} using an authorized human Git identity; the phase agent is prompt context only.`),
-    action('alternative', '/sflow-reject', `singularity-flow reject ${phase.id} --work-id ${workId} --fetch --to <phase> --reason <reason>`, `Instead of approval, return ${phase.id} to an allowed earlier phase.`)
+    action('then', '/sflow-approve', `singularity-flow approve ${phase.id} --work-id ${workId} --fetch`, `After submission, approve ${phase.id} using an authorized human Git identity; the phase agent is prompt context only.`)
   );
   actions.push(
     action('alternative', '/sf-cancel', `singularity-flow cancel ${workId} --reason <reason> --confirm ${workId}`, 'Cancel this Story, preserve its artifacts, and move it to Archived.'),
@@ -335,7 +352,7 @@ export function workflowNextSteps(workflow, {
   return withDecisionList(workflow, phase, actions, held);
 }
 
-export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null } = {}) {
+export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null } = {}) {
   if (!initialized) return {
     schemaVersion: 1,
     state: 'not_initialized',

@@ -649,14 +649,32 @@ const KNOWN = Object.freeze({
   // Code changed before generation begin, which this Story's policy does not adopt. The policy's remedy
   // (preserve, return to the baseline, begin, reapply) as commands.
   GENERATION_DIRTY_START: (argv, error) => {
-    const workId = error?.details?.workId ?? null;
+    const details = error?.details ?? {};
+    const workId = safeWorkId(details.workId);
+    const phase = lowerKebab(details.phase) ?? commandPhase(argv);
+    const classification = details.classification ?? {};
+    // Policy permits adopting a bounded change set (after a published generation, or by explicit
+    // Story policy), unless it reaches protected or out-of-boundary paths. Only `phase begin`
+    // adopts; `prepare` meets the same boundary but takes no adoption flags.
+    const adoptable = /^sha256:[a-f0-9]{64}$/u.test(details.changeSetDigest ?? '') && phase
+      && (details.boundary === 'since-previous-generation' || details.dirtyStartPolicy === 'allow-explicit-adoption')
+      && !classification.protectedPaths?.length && !classification.outsideSourceBoundaryPaths?.length;
+    const review = `singularity-flow recover${workId ? ` ${workId}` : ''} --json`;
+    if (adoptable) return [
+      step('review-before-adoption',
+        'A person reviews the listed changes (details.changedPaths) and the recovery plan before anything is adopted; nothing is adopted automatically.',
+        review, 'remediation', '/sf-recover'),
+      step('adopt-reviewed-changes',
+        'Then adopt exactly this reviewed change set into the new generation; the digest refuses if anything changed since.',
+        `singularity-flow phase begin ${phase} --adopt-existing --confirm ${details.changeSetDigest}`, 'remediation')
+    ];
     return [
       step('set-aside-before-begin',
         'A person reviews the listed changes (details.changedPaths), then sets them aside with the set-aside-worktree command recovery returns: it keeps every byte in a private recovery copy (appeal checkpoint-show lists it) and returns the checkout to its baseline.',
-        `singularity-flow recover${workId ? ` ${workId}` : ''} --json`, 'remediation', '/sf-recover'),
+        review, 'remediation', '/sf-recover'),
       step('begin-then-reapply',
         'Begin the generation, then reapply the reviewed changes from the recovery copy; they become part of this generation and its review.',
-        null, 'remediation')
+        phase ? `singularity-flow phase begin ${phase} --json` : null, 'remediation')
     ];
   },
   // Changes nobody can attribute to the decision. A person keeps them (commits them) or sets them aside
@@ -996,16 +1014,18 @@ const KNOWN = Object.freeze({
         null, 'remediation')
     ];
   },
-  SEQUENCE_CONFIRMATION_REQUIRED: (_argv, error) => {
+  SEQUENCE_CONFIRMATION_REQUIRED: (argv, error) => {
     const gate = /^[A-Za-z]+$/.test(error?.details?.gate ?? '') ? error.details.gate : null;
-    return [step(
-      'confirm-soft-gate',
-      gate
-        ? `To continue past this soft gate, run the same command again with --confirm-override continue:${gate} added; the override is recorded. Otherwise take the Story's next step instead.`
-        : 'To continue past this soft gate, run the same command again in an interactive terminal and confirm; the override is recorded.',
-      null,
-      'remediation'
-    )];
+    // The exact command to run: the refused command's own words with this gate's override added,
+    // so the text plan shows it as a Shell line, not only a sentence. A command that cannot be
+    // shown safely (or a refusal with no command words) keeps the sentence alone.
+    const override = gate && argv.length && !argv.includes(`continue:${gate}`)
+      ? safeCommandGuidance({ argv: [...argv, '--confirm-override', `continue:${gate}`] })?.command ?? null : null;
+    const label = gate
+      ? `To continue past this soft gate, run the same command again with --confirm-override continue:${gate} added; the override is recorded. Otherwise take the Story's next step instead.`
+      : 'To continue past this soft gate, run the same command again in an interactive terminal and confirm; the override is recorded.';
+    return [(override && step('confirm-soft-gate', label, override, 'remediation'))
+      ?? step('confirm-soft-gate', label, null, 'remediation')];
   },
   ...Object.fromEntries(APPROVAL_IDENTITY_CODES.map((code) => [code, approvalIdentitySteps])),
   CLARIFICATION_AUTHORITY_REQUIRED: clarificationAuthoritySteps,
@@ -1034,9 +1054,12 @@ function genericSteps(argv) {
   }
   steps.push(step('diagnose-repository', 'Run read-only diagnostics for repository, policy, and recovery state.',
     'singularity-flow doctor --json'));
-  if (!['recommend', 'home', 'nextsteps'].includes(command)) {
+  // The repository's own planner: it answers in any repository (initialized or not, with or without
+  // a Story) and from an active workspace. `recommend` needs an active workspace and refuses in a
+  // plain `sflow init` repository, so a fallback naming it could only fail there.
+  if (!['nextsteps', 'next'].includes(command)) {
     steps.push(step('recommended-next', 'Ask the deterministic planner for the next currently legal action.',
-      'singularity-flow recommend --json'));
+      'singularity-flow nextsteps --json'));
   }
   return steps;
 }
@@ -1329,6 +1352,14 @@ export function refusalDetails(details) {
   });
   const paths = list(details.paths, text);
   if (paths.length) projected.paths = paths;
+  // Code changed before a generation began: the paths a person reviews, the digest an adoption
+  // confirms and the policy that decides between adopting and setting aside (GENERATION_DIRTY_START).
+  const changedPaths = list(details.changedPaths, text);
+  if (changedPaths.length) {
+    projected.changedPaths = changedPaths;
+    if (/^sha256:[a-f0-9]{64}$/u.test(details.changeSetDigest ?? '')) projected.changeSetDigest = details.changeSetDigest;
+    for (const key of ['dirtyStartPolicy', 'boundary']) if (text(details[key])) projected[key] = text(details[key]);
+  }
   // A missing environment file: its environment, path, template and both fixes, so an editor can offer them [ENVF].
   if (text(details.environment) && Array.isArray(details.commands)) {
     const file = (entry) => (entry && typeof entry === 'object' && text(entry.path)

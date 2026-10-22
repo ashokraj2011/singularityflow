@@ -107,7 +107,7 @@ test('an identity outside the approval groups is told who may decide and how to 
     const error = refusal(code, { ...refused.details, phase: 'specification', workId: 'W-1' }, refused.message);
     const plan = refusalRemediationPlan(error, ['approve', 'specification', '--work-id', 'W-1']);
     const text = JSON.stringify(plan);
-    assert.doesNotMatch(text, /sf-reject|singularity-flow reject|leave-approval-turn|doctor --json|recommend --json/u, code);
+    assert.doesNotMatch(text, /sf-reject|singularity-flow reject|leave-approval-turn|doctor --json|recommend --json|nextsteps --json/u, code);
     assert.match(text, /git config user\.email/u, code);
     assert.match(text, /quality-reviewers, engineering-reviewers \(/u, code);
     assert.match(text, /do not reject or resubmit it/u, code);

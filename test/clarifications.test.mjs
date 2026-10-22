@@ -186,6 +186,35 @@ test('clarification status names the route an unmet checkpoint holds back, never
   assert.doesNotMatch(clarificationStatusLines(none, off.phase, 1).stdout.join('\n'), /Applies to/);
 });
 
+test('recording before the prompt is composed is a coded refusal naming wm compose, and status says so first', async t => {
+  const value = await clarificationFixture();
+  t.after(() => rm(value.root, { recursive: true, force: true }));
+  const status = await verifyClarificationRecord(value.root, value.definition, value.workflow, value.phase);
+  assert.deepEqual(status.composition, { status: 'current', command: null }, 'a composed prompt needs no prerequisite');
+  const responses = [{ question: 'Is the described scope correct?', answer: 'Yes.' }];
+  const record = () => recordClarificationResponses(value.root, value.definition, value.workflow, value.phase, {
+    actor: { name: 'Product Owner', email: 'owner@example.com' }, agent: 'product-owner', responses });
+  // Stale: the prompt changed after composition.
+  await writeFile(path.join(value.root, value.promptPath), '# Changed governed prompt\n');
+  assert.equal((await verifyClarificationRecord(value.root, value.definition, value.workflow, value.phase)).composition.status, 'stale');
+  await assert.rejects(record, (error) => error.code === 'CLARIFICATION_PROMPT_NOT_COMPOSED'
+    && /missing or stale/u.test(error.message)
+    && error.details.nextAction.command === 'singularity-flow wm compose --phase requirements');
+  // Missing: never composed for this generation.
+  await rm(path.join(value.root, 'singularity/work-items/WORK-1/context/requirements-gen1.json'));
+  const uncomposed = await verifyClarificationRecord(value.root, value.definition, value.workflow, value.phase);
+  assert.deepEqual(uncomposed.composition, { status: 'missing', command: 'singularity-flow wm compose --phase requirements' });
+  await assert.rejects(record, (error) => error.code === 'CLARIFICATION_PROMPT_NOT_COMPOSED'
+    && /^Compose the phase prompt before recording clarification/u.test(error.message)
+    && error.details.phase === 'requirements' && error.details.workId === 'WORK-1');
+  const { clarificationCompositionLine, clarificationStatusContinuation } = await import('../src/clarification-guidance.mjs');
+  assert.match(clarificationCompositionLine(uncomposed), /compose this generation's prompt .*: singularity-flow wm compose --phase requirements$/u);
+  const next = clarificationStatusContinuation(uncomposed, value.phase);
+  assert.equal(next.next[0].command, 'singularity-flow wm compose --phase requirements');
+  assert.deepEqual(clarificationStatusContinuation(status, value.phase), { restState: 'informational' });
+  assert.equal(clarificationCompositionLine(status), null);
+});
+
 test('clarification verification rejects an unbound prompt path without opening it', async () => {
   const value = await clarificationFixture();
   const recorded = await recordClarificationResponses(value.root, value.definition, value.workflow, value.phase, {

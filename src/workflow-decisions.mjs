@@ -602,7 +602,10 @@ export function describeOutcome(workflow, outcome) {
         : `'${outcome.label}' waits for a person to choose what happens next.`;
     case 'loop': {
       const unmet = !outcome.because && outcome.goal ? ` until ${outcome.goal}` : why;
-      const round = outcome.maxRounds ? ` (round ${outcome.round} of ${outcome.maxRounds})` : '';
+      // A person may send it back again once the rounds are used; that round is past the limit.
+      const round = !outcome.maxRounds ? ''
+        : outcome.round > outcome.maxRounds ? ` (round ${outcome.round}, beyond its ${outcome.maxRounds}-round limit, chosen by a person)`
+          : ` (round ${outcome.round} of ${outcome.maxRounds})`;
       return `'${outcome.label}' goes back to ${name(outcome.target)}${unmet}${round}.`;
     }
     case 'end':

@@ -163,9 +163,11 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
       ? [`The ${phase.id} clarification record is not bound into this publication because it does not verify: ${recorded.errors[0]}`] : [])]
   };
   warnings.push(...clarification.warnings);
+  // Recording binds to the composed prompt; while it is not composed the status names that first,
+  // and so does this route, so nobody answers into a record that is refused.
   add('clarification', 'clarification', clarification.errors, {
     command: `singularity-flow clarification status ${phase.id} --json`,
-    detail: 'Ask the human checkpoint questions and record the actual answers against this generation. If a saved answer is stale, inspect its binding before obtaining a new response; never fabricate or copy an approval.'
+    detail: `${clarification.composition?.command ? `First compose this generation's prompt (${clarification.composition.command}): the clarification record is bound to it and refused without it. Then a` : 'A'}sk the human checkpoint questions and record the actual answers against this generation. If a saved answer is stale, inspect its binding before obtaining a new response; never fabricate or copy an approval.`
   }, { code: clarification.sourceCode ?? 'PHASE_CLARIFICATION_NOT_READY', file: clarification.path });
 
   const mcpEvidence = await capture(() => verifyPhaseMcpRequirements(root, workflow, phase, {

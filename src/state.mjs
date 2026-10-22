@@ -71,7 +71,7 @@ import {
 } from './inputs.mjs';
 import { prepareRemoteOutputs, updateRemoteOutputRenderedHashes } from './agents.mjs';
 import {
-  assertPhaseSequence, enforceSequenceGate, phaseExplicitlyReopened, phaseNeedsGeneration
+  assertPhaseSequence, enforceSequenceGate, phaseExplicitlyReopened, phaseNeedsGeneration, phasePublicationCommandForMode
 } from './sequence.mjs';
 import { assertPhasePublicationReadiness } from './phase-publication-readiness.mjs';
 import { answeredMarkerHashes, resolvedClarificationPolicy } from './clarifications.mjs';
@@ -3451,7 +3451,7 @@ export async function publishGeneration(root, config, workflow, {
           fingerprint: contentFindings.find((finding) => finding.fingerprint)?.fingerprint ?? null,
           retry: {
             skill: directCopilotSkill(generationSkillForPhase(phase, workflow)), maximumAttempts: 1, requiresFingerprintChange: true,
-            command: phasePublicationCommand(phase)
+            command: phasePublicationCommandForMode(phase) ?? phasePublicationCommand(phase)
           }
         }
       }

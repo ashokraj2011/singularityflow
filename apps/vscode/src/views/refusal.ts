@@ -335,9 +335,10 @@ function messageOnlyRecovery(error: unknown, text: string,
         command: 'singularity-flow wm brief --phase <phase>'
       },
       {
+        // The repository's planner: recommend needs an active workspace and refuses without one.
         id: 'recommended-next',
         label: 'Show the next safe repair.',
-        command: 'singularity-flow recommend --json'
+        command: 'singularity-flow nextsteps --json'
       }
     ], repositoryRoot);
   }
@@ -350,7 +351,7 @@ function messageOnlyRecovery(error: unknown, text: string,
     {
       id: 'recommended-next',
       label: 'Show what to do next.',
-      command: 'singularity-flow recommend --json'
+      command: 'singularity-flow nextsteps --json'
     }
   ], repositoryRoot);
 }

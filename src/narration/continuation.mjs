@@ -81,7 +81,11 @@ export function remediationActions(result, workflow = null) {
     .filter((entry) => (seen.has(entry.id) ? false : seen.add(entry.id)));
 }
 
-const PLANNER_RANKS = Object.freeze({ now: 'NOW', alternative: 'NOW', then: 'SOON', later: 'LATER' });
+// An alternative or optional step is never the thing to do now: it ranks after the planned route,
+// so "Cancel this Story" cannot head a list. A blocked step is the current state, said first.
+const PLANNER_RANKS = Object.freeze({
+  now: 'NOW', blocked: 'NOW', then: 'SOON', alternative: 'LATER', optional: 'LATER', later: 'LATER'
+});
 
 /**
  * The planner's own vocabulary, translated rather than re-invented.

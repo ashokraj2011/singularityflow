@@ -108,6 +108,15 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
       { details: { sourceCode: error.code ?? null } });
   }
 
+  // A plan in a workflow with no code step meets publication's supporting-files refusal here.
+  try {
+    await (await import('./state.mjs')).assertUncodedPlanSupportingFiles(root, config, workflow, phase);
+  } catch (error) {
+    if (error?.code !== 'SPEC_SUPPORTING_FILE_INVALID') throw error;
+    add('specification.supporting-file-invalid', 'planning-table', error.message,
+      { details: { sourceCode: error.code, ownerPhase: phase.id, repairScope: 'current-draft' } });
+  }
+
   const specPolicy = normalizeSpecPolicy(workflow.resolution?.spec ?? config.spec ?? {});
   const plannedPolicy = workflow.resolution?.plannedClaims;
   const definesClauses = isSpecificationDefinitionPhase(phase)
@@ -239,6 +248,28 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
   return { blockers, actions, evidenceRepair, planningContract };
 }
 
+const CHANGE_SCOPE_CODES = new Set(['CHANGE_SET_POLICY_VIOLATION', 'PHASE_ARTIFACT_ONLY_CHANGES',
+  'SOURCE_BOUNDARY_VIOLATION', 'PHASE_SOURCE_CHANGE_UNGOVERNED']);
+
+async function changeScopeBlocker(root, config, workflow, phase) {
+  try {
+    await (await import('./state.mjs')).assertPhaseChangeScope(root, config, workflow, phase);
+    return null;
+  } catch (error) {
+    // Only the scope refusals themselves; anything else stays publication's to report, as before.
+    if (!CHANGE_SCOPE_CODES.has(error?.code)) return null;
+    const paths = error.details?.paths ?? error.details?.changedPaths ?? [];
+    const protectedPath = error.details?.violationKind === 'protected-process-path';
+    return {
+      blocker: { code: error.code, category: protectedPath ? 'integrity' : 'change-scope', path: paths[0] ?? null,
+        line: null, message: `${error.message} (${error.code})`, details: { ...(error.details ?? {}), sourceCode: error.code } },
+      action: { command: error.details?.diagnosticAction?.command ?? error.details?.gate?.actions?.[0]?.command
+        ?? `singularity-flow phase prepublish ${phase.id} --json`, skill: null,
+      detail: `Phase ${phase.id} cannot publish these changes: take the route the refusal names, or move each listed file out of this step, then recheck.` }
+    };
+  }
+}
+
 async function staticPublicationBlockers(root, config, workflow, phase, { retained = false } = {}) {
   const blockers = [];
   const actions = [];
@@ -296,6 +327,11 @@ async function staticPublicationBlockers(root, config, workflow, phase, { retain
           : 'Open the code generation before changing source, then recheck.' });
     }
   }
+  // A step that delivers no code meets its publication's change-scope refusal here, from the same
+  // function: source a chore cannot publish was named only once `phase publish` refused it.
+  const scope = !retained && !phaseRequiresCodeDelivery(phase)
+    ? await changeScopeBlocker(root, config, workflow, phase) : null;
+  if (scope) { blockers.push(scope.blocker); actions.push(scope.action); }
   const sourceId = pinned?.testEvidenceFrom;
   if (sourceId) {
     const source = workflow.phases?.[sourceId];

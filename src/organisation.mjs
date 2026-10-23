@@ -42,7 +42,7 @@ import {
   proposalGitChangedPaths, proposalGitFile, proposalGitLineageCommit, proposalGitMergeProbe,
   proposalGitRef, proposalGitStatus, resolveGitCommitIdentity, resolveGitCommitSigning
 } from './git.mjs';
-import { GOVERNED_ROOTS, WORKFLOW_PATH, initializeDefinition, loadDefinition } from './config.mjs';
+import { GOVERNED_ROOTS, WORKFLOW_PATH, initializeDefinition, loadDefinition, refuseRetiredControlRoot } from './config.mjs';
 import {
   describeRepository, enableLedger, repositoryIdFromUrl, setDefaultBaseBranch
 } from './bootstrap.mjs';
@@ -8194,10 +8194,8 @@ async function initializeWorkspaceStateUnderLease(root, {
         `Cannot initialize Singularity Flow from '${current}'. Switch to the application branch '${applicationBranch}' first.`
       );
     }
-    if (!governed && !existsSync(path.join(root, 'singularity'))
-      && existsSync(path.join(root, '.singularity'))) {
-      throw new SingularityFlowError('This repository contains unsupported .singularity/ state. Run singularity-flow factory-reset to create a clean current configuration.');
-    }
+    // Checked here: the scratch clone that authors the proposal never materializes .singularity/.
+    if (!governed) refuseRetiredControlRoot(root);
     const sourceHead = run('git', ['rev-parse', 'HEAD'], { cwd: root, env: gitEnv }).stdout.trim();
     governanceBranch = `sflow/govern/${repositoryId}-${sourceHead.slice(0, 8)}`;
     const governanceRef = `refs/heads/${governanceBranch}`;
@@ -8286,13 +8284,13 @@ async function initializeWorkspaceStateUnderLease(root, {
 function retainedGovernanceProposal(root, governanceRef, sourceHead, env) {
   const row = organisationGitRead(root, env, [
     'for-each-ref', '--format=%(refname)%09%(objecttype)%09%(objectname)%09%(parent)', governanceRef
-  ], 'The retained governance proposal').split(/\r?\n/u).map((line) => line.split('\t'))
+  ], 'The kept configuration proposal').split(/\r?\n/u).map((line) => line.split('\t'))
     .find(([ref]) => ref === governanceRef);
   if (!row) return null;
   const [, type, commit, parents = ''] = row;
   if (type === 'commit' && (commit === sourceHead || parents.trim() === sourceHead)) return commit;
   throw new SingularityFlowError(
-    `Local configuration review branch '${governanceRef.slice('refs/heads/'.length)}' already exists and is not a governance proposal for ${sourceHead.slice(0, 8)}. Remove it before retrying.`
+    `Local configuration review branch '${governanceRef.slice('refs/heads/'.length)}' already exists and is not the configuration proposal for ${sourceHead.slice(0, 8)}. Remove it before retrying.`
   );
 }
 
@@ -8352,11 +8350,11 @@ async function authorGovernanceProposal(root, {
     // Created only where absent, or moved only from the bare application commit, so a concurrent
     // proposal or someone's own work on that branch is never overwritten.
     if (!kept || (commit !== previous && run('git', [
-      '-c', hooks, 'update-ref', '-m', 'Singularity Flow governance proposal',
+      '-c', hooks, 'update-ref', '-m', 'Singularity Flow configuration proposal',
       governanceRef, commit, previous ?? ''
     ], { cwd: root, env, allowFailure: true }).status !== 0)) {
       throw new SingularityFlowError(
-        `The governance proposal could not be kept as '${governanceRef.slice('refs/heads/'.length)}'. Your checkout was not changed; retry.`,
+        `The configuration proposal could not be kept as '${governanceRef.slice('refs/heads/'.length)}'. Your checkout was not changed; retry.`,
         { code: 'GOVERNANCE_PROPOSAL_NOT_RETAINED' }
       );
     }

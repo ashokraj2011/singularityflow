@@ -2403,6 +2403,11 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   function inputsEditor(decision) {
     var box = el('fieldset', { class: 'field decision-box' }, el('legend', { class: 'label', text: 'What ' + stepLabel(decision.after) + ' records' }));
     (decision.inputs || []).forEach(function (input, index) {
+      // A value reused from an earlier decision is that answer: shown, never asked or edited here.
+      if (input.from) {
+        box.appendChild(el('div', { class: 'decision-row muted', 'data-key': 'dec-input-reused-' + index, text: (input.label || input.name) + ': the answer already recorded for ' + input.from + ', not asked again.' }));
+        return;
+      }
       box.appendChild(el('div', { class: 'decision-row' },
         textInput('dec-input-name-' + index, input.label || input.name, function (value) { if (value.trim()) { renameInput(decision, index, value); relabelRules(decision); changed(); } }, { 'aria-label': 'Name of the value', style: 'width:120px' }),
         select('dec-input-type-' + index, [{ value: 'choice', label: 'one of' }, { value: 'number', label: 'a number' }], input.type === 'number' ? 'number' : 'choice', function (value) { setInputType(decision, index, value); relabelRules(decision); changed(); }, { 'aria-label': 'Kind of value' }),

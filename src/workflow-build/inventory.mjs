@@ -15,18 +15,18 @@ import YAML from 'yaml';
 import { CHECK_KINDS, scanGuidanceText } from '../guidance-scan.mjs';
 
 export const ITEM_KINDS = Object.freeze(['process', 'step', 'agent', 'skill', 'instruction', 'prompt', 'document', 'api-call', 'tool',
-  'link', 'command', 'checkpoint', 'script', 'withheld']);
+  'link', 'command', 'checkpoint', 'branch', 'script', 'withheld']);
 export const ITEM_KIND_LABELS = Object.freeze({
   process: 'Process', step: 'Steps', agent: 'Agents', skill: 'Skills', instruction: 'Instructions', prompt: 'Prompt files',
   document: 'Documents', 'api-call': 'API calls', tool: 'Tools and MCP servers', link: 'Links', command: 'Commands',
-  checkpoint: 'Sign-off points', script: 'Scripts', withheld: 'Withheld'
+  checkpoint: 'Sign-off points', branch: 'Branches', script: 'Scripts', withheld: 'Withheld'
 });
 /** How a count of each kind reads in a sentence: one and many. */
 export const ITEM_KIND_WORDS = Object.freeze({
   process: ['process', 'processes'], step: ['step', 'steps'], agent: ['agent', 'agents'], skill: ['skill', 'skills'],
   instruction: ['instruction file', 'instruction files'], prompt: ['prompt file', 'prompt files'], document: ['document', 'documents'],
   'api-call': ['API call', 'API calls'], tool: ['tool or MCP server', 'tools and MCP servers'], link: ['link', 'links'],
-  command: ['command', 'commands'], checkpoint: ['sign-off point', 'sign-off points'], script: ['script', 'scripts'], withheld: ['withheld file', 'withheld files']
+  command: ['command', 'commands'], checkpoint: ['sign-off point', 'sign-off points'], branch: ['branch', 'branches'], script: ['script', 'scripts'], withheld: ['withheld file', 'withheld files']
 });
 export const countWords = (kind, count) => `${count} ${ITEM_KIND_WORDS[kind][count === 1 ? 0 : 1]}`;
 /** Extensions the builder reads as text beyond team import's own (request files and scripts). */
@@ -204,6 +204,11 @@ export function inventoryCapture(capture, contents) {
     for (const command of scan.commands) {
       push(item('command', command.command, file, { startLine: command.line, foundBy: 'pattern', detail: commandDetail(command),
         extra: { category: command.category, checkable: Boolean(CHECK_KINDS[command.category]), ...(command.directory ? { directory: command.directory } : {}) } }));
+    }
+    for (const branch of scan.branches ?? []) {
+      push(item('branch', `${branch.subject}: ${branch.values.join(', ')}${branch.otherwise ? ', otherwise' : ''}`, file, { startLine: branch.line, endLine: branch.endLine,
+        foundBy: 'pattern', certainty: 'inferred', extra: { subject: branch.subject, values: branch.values, otherwise: branch.otherwise },
+        detail: `the work goes a different way when ${branch.subject} is ${branch.values.join(' or ')}${branch.otherwise ? ', and another way otherwise' : ''}; it can be a branch after the step that knows the ${branch.subject}` }));
     }
     for (const checkpoint of scan.checkpoints) {
       push(item('checkpoint', checkpoint.text, file, { startLine: checkpoint.line, foundBy: 'pattern', certainty: 'inferred' }));

@@ -50,10 +50,19 @@ function thenWords(step, workflow, { stepLabel, groupLabel, rejectTo }) {
     const next = order[order.indexOf(step.id) + 1];
     lines.push(`When the goal is met: ${next ? stepLabel(next) : 'the end'}.`);
   } else if (decision) {
-    const who = decision.kind === 'ask' ? `${decision.by?.length ? listWords(decision.by.map(groupLabel), 'or') : 'A person'} choose` : 'Decided by the recorded answer';
-    lines.push(`${decision.label ?? 'Decision'} (${who}):`);
-    for (const route of decision.routes ?? []) {
-      lines.push(`${route.label ?? route.id}: ${targetWords(route.to, step.id, order, stepLabel)}.`);
+    // A value reused from an earlier decision is the answer given there: say where.
+    const reused = (decision.inputs ?? []).filter((input) => input?.from);
+    const source = reused.length ? (workflow.decisions ?? []).find((entry) => entry.id === reused[0].from) : null;
+    const who = decision.kind === 'ask' ? `${decision.by?.length ? listWords(decision.by.map(groupLabel), 'or') : 'A person'} choose`
+      : source ? `Decided by the ${listWords(reused.map((input) => input.label ?? input.name))} chosen after ${stepLabel(source.after)}` : 'Decided by the recorded answer';
+    const targets = [...new Set((decision.routes ?? []).map((route) => route.to))];
+    // A branch coming back together (it reuses an answer, and every way goes to one place) is one line.
+    if (targets.length === 1 && source) lines.push(`${decision.label ?? 'Decision'}: ${targetWords(targets[0], step.id, order, stepLabel)}.`);
+    else {
+      lines.push(`${decision.label ?? 'Decision'} (${who}):`);
+      for (const route of decision.routes ?? []) {
+        lines.push(`${route.label ?? route.id}: ${targetWords(route.to, step.id, order, stepLabel)}.`);
+      }
     }
   } else {
     const next = order[order.indexOf(step.id) + 1];

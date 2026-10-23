@@ -22,7 +22,7 @@ related:
   - workflow-authoring
   - story-lifecycle
   - approvals
-version: 12
+version: 13
 ---
 A decision sits after one phase of a Story workflow and chooses what happens next: the next phase, a later one (skipping those between), an earlier one, or the end of the Story. Running Stories keep the decisions they started with.
 
@@ -99,6 +99,39 @@ workTypes:
 ```
 
 A route's `to` is a phase of the workflow, `next`, or `end`. A rule compares a recorded value with a choice, a list of choices, `{ not: ... }`, or for numbers `atLeast`, `atMost`, `above` and `below`. `by` names the approval groups that decide; it defaults to the approvers of the phase before the decision. Configuration refuses a route that skips a phase a later phase still reads, unless that input is optional, a route that skips the phase that plans the claims a code phase must meet, and a route that skips past every code phase after requirements were defined or claims were planned. Such a route, including `end` after requirements, would finish the Story with them unimplemented; finish before requirements run or after the code phase, or stop the Story with `singularity-flow cancel` instead. A route that genuinely leaves a responsibility undone may declare `omits` (each responsibility, a reason and the approval group that records why it does not apply); see `sflow explain workflow-authoring`.
+
+#### Branches that come back together
+
+A workflow is one ordered list of steps, so the steps of one way of a branch are followed by the
+steps of the next. To bring every way back to one step, the last step of each way but the last has
+a decision of its own that reuses the value the branch recorded, instead of asking for it again:
+an input with `from: <earlier decision id>` takes that decision's choices, is never asked at submit,
+and reads the answer recorded there in this Story.
+
+```yaml
+      - id: by-channel
+        after: implementation
+        kind: branch
+        label: Which channel?
+        inputs: [{ name: channel, values: [web, mobile, other] }]
+        routes:
+          - { id: web, label: Web, when: { channel: web }, to: web-test }
+          - { id: mobile, label: Mobile, when: { channel: mobile }, to: mobile-test }
+          - { id: otherwise, label: Otherwise, to: manual-test }
+      - id: web-back
+        after: web-test
+        kind: branch
+        label: Back together
+        inputs: [{ name: channel, from: by-channel }]
+        routes:
+          - { id: rejoin, label: Back together, when: { channel: web }, to: verification }
+          - { id: otherwise, label: Back together, to: verification }
+```
+
+The person who submits Implementation chooses the channel; Web test then goes straight on to
+Verification, skipping the other ways. The earlier decision must come before the one that reuses
+its value, and must record a choice of that name. The workflow builder's `branch.add` writes these
+decisions for you.
 
 ### During a Story
 

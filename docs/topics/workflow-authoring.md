@@ -36,7 +36,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 76
+version: 77
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1302,6 +1302,7 @@ singularity-flow workflow build status --build <ID> --json
 | Links | Web links, by kind: ticket, wiki page, repository, file share or web page |
 | Commands | Commands in code blocks and inline code of skills, instructions, agents, documents and scripts, such as `npm test`, `cd web && CI=true npm run test:unit`, `pytest -q` or `./scripts/deploy.sh`: each part of an `&&` chain, with the folder a `cd` puts it in, and what it is for (test, lint, type check, format, build, install, run, deploy, script) |
 | Sign-off points | Sentences that ask for a sign-off, an approval or someone's review |
+| Branches | Sentences where the work goes a different way by one value: "when the channel is web …, if it is mobile …, otherwise …" (two or more values of the same thing, or one with an otherwise) |
 | Documents and scripts | READMEs, runbooks and other text, and shell or PowerShell scripts |
 
 A file whose name looks like a credential, key or environment file is never read, and a file whose
@@ -1345,6 +1346,7 @@ singularity-flow workflow build finish --build <ID> --out payments-release.sflow
 | `decision.add`, `decision.remove` | Adds or removes a decision after a step |
 | `group.add` | Adds an approval group, empty; people are added in Workflow Studio |
 | `action.add` | Tells an existing integration target when a step is submitted, approved or rejected |
+| `branch.add` | Makes the work go different ways by one value and come back together: after the step that knows it (whoever submits it chooses the value), each arm's steps for its values, `otherwise` for every other value, then `join` (a step or `end`). It writes one branch decision and, at the end of each way, a decision that reuses the value, so nobody is asked twice. The steps must already be in that order |
 | `step.check` | Makes a test, lint, type-check, format or build command the material holds a check of a step: sflow runs it when the step is submitted, records the result, and a failing one stops the submit. It is the command as the team wrote it; install, run, script and deployment commands stay in their skill or instructions for the agent and are never checks |
 | `item.classify`, `item.leaveOut`, `item.keepAsLink`, `item.prerequisite` | Says what a found item is or becomes, or leaves it out with a reason |
 

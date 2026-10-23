@@ -201,6 +201,32 @@ test('rules choose routes from recorded values, and a loop stops for a person at
   assert.throws(() => decisionOutcome(workflow, workflow.phases.intake), (error) => error.code === 'DECISION_INPUTS_MISSING');
 });
 
+test('a later decision reuses the value an earlier one recorded, so every way comes back together without asking again', async () => {
+  const CHANNEL = { id: 'by-channel', after: 'intake', kind: 'branch', label: 'Which channel?', inputs: [{ name: 'channel', label: 'Channel', values: ['web', 'mobile'] }],
+    routes: [{ id: 'web', label: 'Web', when: { channel: 'web' }, to: 'requirements' }, { id: 'mobile', label: 'Mobile', to: 'design' }] };
+  const REJOIN = { id: 'web-back', after: 'requirements', kind: 'branch', label: 'Back together', inputs: [{ name: 'channel', from: 'by-channel' }],
+    routes: [{ id: 'rejoin', label: 'Back together', when: { channel: 'web' }, to: 'implementation-spec' }, { id: 'otherwise', label: 'Back together', to: 'implementation-spec' }] };
+  const overrides = { 'implementation-spec': { inputs: ['intake', { phase: 'design', optional: true }] } };
+  const definition = await definitionWith([CHANNEL, REJOIN], { overrides });
+  const pinned = resolveWorkType(definition, 'decide-demo').decisions.find((decision) => decision.id === 'web-back');
+  assert.deepEqual([pinned.inputs, pinned.reuses], [[], [{ name: 'channel', label: 'Channel', type: 'choice', values: ['web', 'mobile'], from: 'by-channel' }]]);
+  assert.deepEqual(normalizeDecisionInputValues(pinned, {}), {}, 'nothing is asked again at submit');
+
+  const workflow = story(definition, { intake: { status: 'approved', decisionInputs: { decision: 'by-channel', values: { channel: 'web' } } } });
+  assert.equal(decisionOutcome(workflow, workflow.phases.intake).target, 'requirements');
+  const back = decisionOutcome(workflow, workflow.phases.requirements);
+  assert.deepEqual([back.kind, back.target, back.skipped, back.because], ['forward', 'implementation-spec', ['design'], 'Channel is web']);
+  delete workflow.phases.intake.decisionInputs;
+  assert.throws(() => decisionOutcome(workflow, workflow.phases.requirements),
+    (error) => error.code === 'DECISION_INPUTS_MISSING' && /reuses 'channel', which this Story has not recorded/u.test(error.message));
+
+  await assert.rejects(() => definitionWith([CHANNEL, { ...REJOIN, inputs: [{ name: 'channel', from: 'nowhere' }] }], { overrides }), /reuses 'channel' from 'nowhere', which is not a decision of this workflow/u);
+  await assert.rejects(() => definitionWith([CHANNEL, { ...REJOIN, inputs: [{ name: 'platform', from: 'by-channel' }], routes: [{ id: 'a', label: 'A', when: { platform: 'web' }, to: 'implementation-spec' }, { id: 'b', label: 'B', to: 'implementation-spec' }] }], { overrides }),
+    /records no choice called 'platform'/u);
+  await assert.rejects(() => definitionWith([{ ...CHANNEL, inputs: [{ name: 'channel', from: 'web-back' }] }, { ...REJOIN, inputs: [{ name: 'channel', values: ['web', 'mobile'] }] }], { overrides }),
+    /which must decide before it/u);
+});
+
 test('recorded values are checked against the decision before anything is stored', async () => {
   const decision = resolveWorkType(await definitionWith([BRANCH]), 'decide-demo').decisions[0];
   assert.deepEqual(normalizeDecisionInputValues(decision, parseDecisionAssignments(['risk=HIGH'])), { risk: 'high' });

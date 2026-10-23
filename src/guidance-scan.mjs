@@ -47,6 +47,10 @@ const CATEGORIES = [
 ];
 /** Categories a step can run as its check, and the quality-command kind each becomes. */
 export const CHECK_KINDS = Object.freeze({ test: 'test', lint: 'lint', typecheck: 'static-analysis', format: 'format', build: 'compile' });
+// "When the channel is web", "if platform = mobile": a value the work goes a different way on.
+const CONDITION = /\b(?:if|when|for|where)\s+(?:the\s+)?([a-z][a-z0-9_-]*(?:\s[a-z][a-z0-9_-]*)?)\s+(?:is|==?|equals|is set to)\s+["'\u201c]?([A-Za-z0-9][\w.-]{0,40})/giu;
+const OTHERWISE = /\b(?:otherwise|else\b|in (?:all|any) other cases?|for (?:all|any) others?\b|for everything else)/iu;
+const NOT_A_SUBJECT = new Set(['it', 'this', 'that', 'there', 'they', 'he', 'she', 'you', 'we', 'one', 'nothing', 'everything', 'anything']);
 // Where a person has to look at the work before it goes on: sign-off, approval, review by someone.
 const CHECKPOINT = /\b(sign(?:s|ed)?[- ]off|approv(?:e|es|ed|al)\b|review(?:ed)? by|must be reviewed|needs? (?:a )?(?:human |manual )?review)/iu;
 const STOP_WORDS = new Set(['a', 'an', 'the', 'to', 'of', 'in', 'on', 'for', 'with', 'and', 'or', 'any', 'all', 'your', 'you',
@@ -142,7 +146,9 @@ function apiCallOn(line) {
  * - limits: `{ bound: 'max'|'min', value, unit, subject, text, line }`;
  * - commands: `{ command, category, directory?, line }` for commands in code (`npm test`, `mvn verify`, `./scripts/x.sh`),
  *   classified by classifyCommand;
- * - checkpoints: `{ text, line }` for prose that asks for a sign-off, an approval or someone's review.
+ * - checkpoints: `{ text, line }` for prose that asks for a sign-off, an approval or someone's review;
+ * - branches: `{ subject, values, otherwise, line, endLine, lines }` where the work goes different ways
+ *   by a value: "when the channel is web …, if it is mobile …, otherwise …".
  */
 export function scanGuidanceText(text, { startLine = 1 } = {}) {
   const commands = [];
@@ -151,6 +157,8 @@ export function scanGuidanceText(text, { startLine = 1 } = {}) {
   const apiCalls = [];
   const rules = [];
   const limits = [];
+  const conditions = [];
+  const otherwise = [];
   let fenced = false;
   const lines = String(text ?? '').replace(/^﻿/u, '').split(/\r?\n/u);
   lines.forEach((raw, index) => {
@@ -185,6 +193,12 @@ export function scanGuidanceText(text, { startLine = 1 } = {}) {
     }
     const prose = raw.replace(/`[^`]*`/gu, ' ').replace(/^\s*(?:[-*+]|\d+[.)])\s+/u, '');
     if (CHECKPOINT.test(prose) && !/^\s*#/u.test(raw)) checkpoints.push({ text: prose.trim(), line });
+    const plainLine = raw.replace(/`/gu, '');
+    for (const match of plainLine.matchAll(CONDITION)) {
+      const subject = match[1].toLowerCase();
+      if (!NOT_A_SUBJECT.has(subject.split(' ')[0])) conditions.push({ subject, value: match[2].replace(/[.,;:]+$/u, '').toLowerCase(), line, text: plainLine.trim() });
+    }
+    if (OTHERWISE.test(plainLine)) otherwise.push(line);
     for (const sentence of prose.split(/(?<=[.!?;])\s+/u)) {
       const negative = NEGATIVE.exec(sentence);
       const positive = negative ? null : POSITIVE.exec(sentence);
@@ -201,7 +215,27 @@ export function scanGuidanceText(text, { startLine = 1 } = {}) {
       }
     }
   });
-  return { links, apiCalls, rules, limits, commands, checkpoints };
+  return { links, apiCalls, rules, limits, commands, checkpoints, branches: branchesOf(conditions, otherwise) };
+}
+
+/**
+ * Conditions on the same thing, grouped: a branch is two or more of its values, or one with an
+ * "otherwise" close after it. One "when the PR is merged" on its own is just a sentence.
+ */
+function branchesOf(conditions, otherwise) {
+  const bySubject = new Map();
+  for (const condition of conditions) bySubject.set(condition.subject, [...(bySubject.get(condition.subject) ?? []), condition]);
+  const branches = [];
+  for (const [subject, found] of bySubject) {
+    const values = [...new Set(found.map((condition) => condition.value))];
+    const first = found[0].line;
+    const last = found.at(-1).line;
+    const otherLine = otherwise.find((line) => line >= first && line <= last + 3) ?? null;
+    if (values.length < 2 && otherLine == null) continue;
+    branches.push({ subject, values, otherwise: otherLine != null, line: first, endLine: Math.max(last, otherLine ?? last),
+      lines: found.map((condition) => ({ value: condition.value, line: condition.line, text: condition.text.slice(0, 200) })) });
+  }
+  return branches.sort((a, b) => a.line - b.line);
 }
 
 const sameWords = (a, b) => a.length === b.length && a.every((word, index) => word === b[index]);

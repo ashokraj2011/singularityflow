@@ -42,7 +42,8 @@ function candidateValues(input, decision) {
 /** For each route, recorded input values that make the engine choose it, or null when none do. */
 export function routeSelectors(decision) {
   if (decision.mode === 'ask') return new Map(decision.routes.map((route) => [route.id, { by: 'person' }]));
-  const inputs = decision.inputs ?? [];
+  // A reused value steers the route the same way a recorded one does.
+  const inputs = [...(decision.inputs ?? []), ...(decision.reuses ?? [])];
   const domains = inputs.map((input) => candidateValues(input, decision));
   const selectors = new Map(decision.routes.map((route) => [route.id, null]));
   let remaining = decision.routes.length;

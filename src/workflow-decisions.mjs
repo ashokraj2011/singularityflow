@@ -34,7 +34,7 @@ const INPUT_NAME = /^[a-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*$/;
 const LIMITS = Object.freeze({ routes: 10, inputs: 10, values: 20, label: 120, value: 60, rounds: 20 });
 const NUMBER_TESTS = Object.freeze(['atLeast', 'atMost', 'above', 'below']);
 const ENTRY_KEYS = Object.freeze(['id', 'after', 'kind', 'label', 'inputs', 'routes', 'goal', 'back', 'maxRounds', 'by', 'anyStep', 'enforceConditions']);
-const INPUT_KEYS = Object.freeze(['name', 'label', 'type', 'values', 'minimum', 'maximum']);
+const INPUT_KEYS = Object.freeze(['name', 'label', 'type', 'values', 'minimum', 'maximum', 'from']);
 const ROUTE_KEYS = Object.freeze(['id', 'label', 'when', 'to', 'omits']);
 /** The closed field sets of a decision, its inputs and its routes, for callers that check drafts. */
 export const DECISION_FIELDS = Object.freeze({ entry: ENTRY_KEYS, input: INPUT_KEYS, route: ROUTE_KEYS });
@@ -92,6 +92,12 @@ function normalizeInputs(value, where) {
     if (names.has(input.name)) throw invalid(`${where} records '${input.name}' twice.`);
     names.add(input.name);
     const display = text(input.label, `${label}.label`, { required: false }) ?? input.name;
+    if (input.from !== undefined) {
+      // Reused from an earlier decision of the workflow: resolved against it by normalizeDecisions.
+      if (!ID.test(input.from ?? '')) throw invalid(`${label}.from must name an earlier decision of this workflow.`);
+      if (input.type !== undefined || input.minimum !== undefined || input.maximum !== undefined) throw invalid(`${label} reuses '${input.name}', so it takes its type from '${input.from}'.`);
+      return { name: input.name, label: input.label == null ? null : display, from: input.from, values: input.values };
+    }
     if (input.type === 'number') {
       if (input.values !== undefined) throw invalid(`${label} is a number, so it takes minimum and maximum instead of values.`);
       for (const key of ['minimum', 'maximum']) {
@@ -289,6 +295,7 @@ export function normalizeDecisions(value, {
   const byId = new Map(phases.map((phase) => [phase.id, phase]));
   const ids = new Set();
   const afters = new Set();
+  const written = new Map(value.filter((entry) => entry && typeof entry === 'object').map((entry) => [entry.id, entry]));
   return value.map((entry, index) => {
     const label = `${prefix}[${index}]`;
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw invalid(`${label} must be an object.`);
@@ -313,14 +320,19 @@ export function normalizeDecisions(value, {
     if (kind === 'ask' && entry.inputs !== undefined) {
       throw invalid(`${where} is an ask decision: a person chooses, so it records no inputs.`);
     }
-    const inputs = normalizeInputs(entry.inputs, where);
-    if (kind !== 'ask' && !inputs.length) throw invalid(`${where} must declare the inputs its rules read.`);
+    const declared = normalizeInputs(entry.inputs, where);
+    // What the phase records at submit, and what the decision reuses from an earlier one: a value
+    // such as a channel is chosen once, and every later decision on it reads that same answer.
+    const inputs = declared.filter((input) => !input.from);
+    const reuses = declared.filter((input) => input.from).map((input) => reusedInput(input, { where, after: entry.after, written, order }));
+    const reads = [...inputs, ...reuses];
+    if (kind !== 'ask' && !reads.length) throw invalid(`${where} must declare the inputs its rules read.`);
     let routes;
     let goal = null;
     let back = null;
     if (kind === 'loop') {
       if (entry.routes !== undefined) throw invalid(`${where} is a loop: give goal, back and maxRounds instead of routes.`);
-      goal = normalizeWhen(entry.goal, inputs, `${where}.goal`, { required: true });
+      goal = normalizeWhen(entry.goal, reads, `${where}.goal`, { required: true });
       if (!order.includes(entry.back) || order.indexOf(entry.back) > order.indexOf(after.id)) {
         throw invalid(`${where}.back must name '${after.id}' or an earlier phase in this workflow.`);
       }
@@ -331,7 +343,7 @@ export function normalizeDecisions(value, {
       ];
     } else {
       if (entry.goal !== undefined || entry.back !== undefined) throw invalid(`${where}: goal and back belong to loop decisions.`);
-      routes = normalizeRoutes(entry.routes, { where, kind, inputs, order });
+      routes = normalizeRoutes(entry.routes, { where, kind, inputs: reads, order });
     }
     const reaches = routes.map((route) => routeReach(order, after.id, route.to));
     const goesBack = reaches.some((reach) => reach.kind === 'backward');
@@ -376,6 +388,7 @@ export function normalizeDecisions(value, {
       label: display,
       mode: kind === 'ask' ? 'ask' : 'auto',
       inputs,
+      ...(reuses.length ? { reuses } : {}),
       routes,
       ...(kind === 'loop' ? { goal, back } : {}),
       maxRounds,
@@ -384,6 +397,29 @@ export function normalizeDecisions(value, {
       ...(entry.enforceConditions === true ? { enforceConditions: true } : {})
     };
   });
+}
+
+/** An input reused from an earlier decision, with that decision's label and choices. */
+function reusedInput(input, { where, after, written, order }) {
+  const source = written.get(input.from);
+  if (!source || source.id === undefined) throw invalid(`${where} reuses '${input.name}' from '${input.from}', which is not a decision of this workflow.`);
+  if (!order.includes(source.after) || order.indexOf(source.after) >= order.indexOf(after)) {
+    throw invalid(`${where} reuses '${input.name}' from '${input.from}', which must decide before it.`);
+  }
+  const own = Array.isArray(source.inputs) ? source.inputs.find((entry) => entry?.name === input.name && entry.from === undefined) : null;
+  if (!own || source.kind === 'ask' || (own.type ?? 'choice') !== 'choice' || !Array.isArray(own.values)) {
+    throw invalid(`${where} reuses '${input.name}' from '${input.from}', which records no choice called '${input.name}'.`);
+  }
+  const values = own.values.map((choice) => String(choice).trim());
+  if (input.values !== undefined && (!Array.isArray(input.values) || input.values.length !== values.length || input.values.some((choice, index) => String(choice).trim() !== values[index]))) {
+    throw invalid(`${where} reuses '${input.name}' from '${input.from}', so its choices are that decision's: ${values.join(', ')}.`);
+  }
+  return { name: input.name, label: input.label ?? (typeof own.label === 'string' && own.label.trim() ? own.label.trim() : input.name), type: 'choice', values, from: source.id };
+}
+
+/** Everything a decision's rules read: what its phase records, then what it reuses. */
+export function decisionReads(decision) {
+  return [...(decision?.inputs ?? []), ...(decision?.reuses ?? [])];
 }
 
 /**
@@ -457,7 +493,7 @@ export function whenHolds(when, values, inputs) {
 
 /** The first route whose rule holds; the last route has none, so a branch or loop always chooses. */
 export function chooseRoute(decision, values) {
-  return decision.routes.find((route) => !route.when || whenHolds(route.when, values, decision.inputs)) ?? null;
+  return decision.routes.find((route) => !route.when || whenHolds(route.when, values, decisionReads(decision))) ?? null;
 }
 
 /** Plain words for a rule, for prompts, receipts and refusals. */
@@ -557,6 +593,23 @@ export function recordedDecisionValues(phase, decision) {
 }
 
 /**
+ * Everything a decision decides on in this Story: what its phase recorded this round, and what it
+ * reuses from the earlier decision that recorded it. Null while any of it is not recorded.
+ */
+export function decisionValues(workflow, phase, decision) {
+  const own = decision.inputs.length ? recordedDecisionValues(phase, decision) : {};
+  if (!own) return null;
+  const reused = {};
+  for (const input of decision.reuses ?? []) {
+    const source = (workflow?.resolution?.decisions ?? []).find((entry) => entry.id === input.from);
+    const recorded = source ? recordedDecisionValues(workflow.phases?.[source.after], source) : null;
+    if (recorded?.[input.name] == null) return null;
+    reused[input.name] = recorded[input.name];
+  }
+  return { ...reused, ...own };
+}
+
+/**
  * What completing `phase` does under its decision, without changing anything.
  *
  * `{ kind: 'next' | 'forward' | 'end', target, skipped }` move on; `{ kind: 'loop', target, round }`
@@ -568,18 +621,19 @@ export function decisionOutcome(workflow, phase) {
   if (!decision) return null;
   const base = { decision: decision.id, label: decision.label, after: phase.id };
   if (decision.mode === 'ask') return { ...base, kind: 'pause', reason: 'ask', by: 'person' };
-  const values = recordedDecisionValues(phase, decision);
+  const values = decisionValues(workflow, phase, decision);
   if (!values) {
-    throw new SingularityFlowError(
-      `Decision '${decision.label}' after '${phase.id}' has no recorded inputs. Submit '${phase.id}' with ${decisionInputsHint(decision)}.`,
+    throw new SingularityFlowError(decision.inputs.length && !recordedDecisionValues(phase, decision)
+      ? `Decision '${decision.label}' after '${phase.id}' has no recorded inputs. Submit '${phase.id}' with ${decisionInputsHint(decision)}.`
+      : `Decision '${decision.label}' after '${phase.id}' reuses ${(decision.reuses ?? []).map((input) => `'${input.name}'`).join(', ')}, which this Story has not recorded.`,
       { code: 'DECISION_INPUTS_MISSING', details: { decision: decision.id } }
     );
   }
   const route = chooseRoute(decision, values);
   const reach = routeReach(workflow.phaseOrder, phase.id, route.to);
-  const because = route.when ? describeWhen(route.when, decision.inputs) : null;
+  const because = route.when ? describeWhen(route.when, decisionReads(decision)) : null;
   // A loop goes back on its fallback route, which has no rule of its own; say which goal is unmet.
-  const goal = decision.kind === 'loop' ? describeWhen(decision.goal, decision.inputs) : null;
+  const goal = decision.kind === 'loop' ? describeWhen(decision.goal, decisionReads(decision)) : null;
   if (reach.kind === 'backward') {
     const used = workflow.decisionRounds?.[decision.id]?.count ?? 0;
     if (used >= decision.maxRounds) {
@@ -625,7 +679,7 @@ export function describeOutcome(workflow, outcome) {
  */
 export function pendingDecisionRecord(workflow, phase, outcome, { at }) {
   const decision = decisionAfter(workflow, phase.id);
-  const values = recordedDecisionValues(phase, decision);
+  const values = decisionValues(workflow, phase, decision);
   const matched = decision.enforceConditions && values ? chooseRoute(decision, values) : null;
   const record = {
     schemaVersion: 1,
@@ -692,7 +746,7 @@ export function resolveDecisionChoice(workflow, pending, { option = null, to = n
   // Read the pinned rule and submitted values, not the options/values echoed by a client.
   const decision = decisionAfter(workflow, pending.after);
   if (decision?.enforceConditions && !(to && reopenableSteps(workflow, pending).includes(to))) {
-    const values = recordedDecisionValues(workflow.phases?.[pending.after], decision);
+    const values = decisionValues(workflow, workflow.phases?.[pending.after], decision);
     const matched = values ? chooseRoute(decision, values) : null;
     if (!option || matched?.id !== route.id || matched?.to !== route.to) {
       throw new SingularityFlowError(
@@ -749,7 +803,7 @@ export function storyDecisionView(workflow) {
     : id === DECISION_NEXT ? 'Next step' : workflow?.phases?.[id]?.label ?? id;
   const current = workflow?.currentPhase ? workflow.phases?.[workflow.currentPhase] ?? null : null;
   const ahead = current ? decisionAfter(workflow, current.id) : null;
-  const recorded = current && ahead ? recordedDecisionValues(current, ahead) : null;
+  const recorded = current && ahead ? decisionValues(workflow, current, ahead) : null;
   let projection = null;
   if (ahead?.mode === 'auto' && recorded && !workflow.pendingDecision) {
     try {
@@ -783,9 +837,10 @@ export function storyDecisionView(workflow) {
       maxRounds: decision.maxRounds,
       rounds: workflow.decisionRounds?.[decision.id]?.count ?? 0,
       inputs: decision.inputs,
+      ...(decision.reuses?.length ? { reuses: decision.reuses } : {}),
       routes: decision.routes.map((route) => ({
         id: route.id, label: route.label, to: route.to, when: route.when,
-        rule: route.when ? describeWhen(route.when, decision.inputs) : null,
+        rule: route.when ? describeWhen(route.when, decisionReads(decision)) : null,
         ...reachOf(decision.after, route.to)
       }))
     })),
@@ -826,7 +881,7 @@ export function upcomingDecision(workflow, phase) {
   const decision = phase ? decisionAfter(workflow, phase.id) : null;
   if (!decision) return null;
   let outcome = null;
-  if (decision.mode === 'auto' && recordedDecisionValues(phase, decision)) {
+  if (decision.mode === 'auto' && decisionValues(workflow, phase, decision)) {
     try { outcome = decisionOutcome(workflow, phase); } catch { outcome = null; }
   }
   return { decision, outcome };

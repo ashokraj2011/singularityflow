@@ -16,7 +16,9 @@ const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const OUTPUTS = ['document', 'analysis', 'code', 'none'];
 const TRIGGERS = ['submitted', 'approved', 'rejected'];
 const SIGN_OFF_FIELDS = ['groups', 'minimum', 'sendBackTo'];
-const ITEM_AS = ['step', 'agent', 'skill', 'instruction', 'prompt', 'document', 'api-call', 'tool', 'link', 'command', 'checkpoint', 'script'];
+const ITEM_AS = ['step', 'agent', 'skill', 'instruction', 'prompt', 'document', 'api-call', 'tool', 'link', 'command', 'checkpoint', 'branch', 'script'];
+const INPUT_NAME = /^[a-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*$/u;
+const kebab = (value) => String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 60);
 
 export const MOVES = Object.freeze({
   'step.add': { required: ['id'], optional: ['label', 'after', 'from', 'agent', 'output', 'reads', 'signOff', 'purpose'] },
@@ -31,6 +33,8 @@ export const MOVES = Object.freeze({
   'instruction.add': { required: ['id', 'description'], optional: ['label', 'from', 'text'] },
   'decision.add': { required: ['after', 'kind', 'label'], optional: ['inputs', 'routes', 'goal', 'back', 'maxRounds', 'by'] },
   'decision.remove': { required: ['after'], optional: [] },
+  // The work goes a different way by one value (channel web, mobile, otherwise) and comes back together.
+  'branch.add': { required: ['after', 'name', 'arms', 'join'], optional: ['label', 'values', 'otherwise', 'item'] },
   'group.add': { required: ['id', 'label'], optional: [] },
   'action.add': { required: ['step', 'on', 'target'], optional: [] },
   'item.classify': { required: ['item', 'as'], optional: [] },
@@ -51,6 +55,8 @@ export function movesGuide() {
       { move: 'skill.add', id: 'pci-check', description: 'Checks a change against the PCI rules.', procedure: 'Check card data never reaches logs.' },
       { move: 'skill.attach', skill: 'pci-check', agent: 'pay-reviewer', steps: ['pay-pci-review'] },
       { move: 'step.check', id: 'pay-build', item: 'i-0123456789ab' },
+      { move: 'branch.add', after: 'intake', name: 'channel', arms: [{ when: 'web', steps: ['web-build', 'web-test'] }, { when: 'mobile', steps: ['mobile-build'] }],
+        otherwise: { steps: ['other-build'] }, join: 'release' },
       { move: 'item.leaveOut', item: 'i-0123456789ab', reason: 'CI already scans every change.' }
     ],
     proposal: {
@@ -68,6 +74,7 @@ export function movesGuide() {
       'Moves apply in order: step.add places the step after `after`, or last. A group, agent, skill or instruction the proposal adds can be used by any of its moves.',
       'A step that writes code (output code) needs a step that defines the requirements at or before the step just before it: reuse one the repository has that defines requirements (such as requirements or implementation-spec), as it is or copied with `from`. No move declares a workflow without requirements, so never offer that choice.',
       'action.add runs an integration target the repository has registered; a command found in the material is never invented as a target.',
+      "When the work goes different ways by one value (a branch item, or text like 'when channel is web … if mobile … otherwise …'), use branch.add: the person submitting the step after which it is known chooses the value; every way comes back to join. Put the steps in order first (after, each arm's steps, otherwise's steps, join), each way's steps its own; the last step of each way needs a sign-off to skip the other ways.",
       "A test, lint, type-check, format or build command the material holds (an item whose category says so) becomes the check of the step it belongs to with step.check: sflow runs it when that step is submitted and records the result. Install, run, script and deployment commands stay in their skill or instructions for the agent; never make them checks.",
       "signOff.sendBackTo (optional) names the steps an approver may send rejected work back to: the step itself or steps before it in this workflow. A reused step keeps its own; when the check says rejecting it returns to a step this workflow does not have before it, that finding's fix gives the step.change that repoints it.",
       'Approval groups are created empty; people are added in Workflow Studio, never by a move.',
@@ -237,6 +244,44 @@ export function validateMoves(moves, { model, draft }) {
         if (groupId) added.group.add(groupId);
         break;
       }
+      case 'branch.add': {
+        const inWorkflow = (stepId) => steps.has(stepId) || added.step.has(stepId);
+        if (move.after && !inWorkflow(move.after)) add(`${at}.after`, 'BUILD_MOVE_REFERENCE', `Step '${move.after}' is not in this workflow.`);
+        if (typeof move.name !== 'string' || !INPUT_NAME.test(move.name) || move.name.length > 40) add(`${at}.name`, 'BUILD_MOVE_SHAPE', 'name is what the work goes different ways on, like channel.');
+        const arms = Array.isArray(move.arms) ? move.arms : [];
+        if (!arms.length || arms.length > 8) add(`${at}.arms`, 'BUILD_MOVE_SHAPE', 'arms lists 1 to 8 ways: [{ when, steps, label }].');
+        const values = new Set();
+        const blocks = [];
+        arms.forEach((arm, armIndex) => {
+          const where = `${at}.arms[${armIndex}]`;
+          if (!plain(arm)) { add(where, 'BUILD_MOVE_SHAPE', `${where} is { when, steps, label }.`); return; }
+          for (const key of Object.keys(arm)) if (!['when', 'steps', 'label'].includes(key)) add(`${where}.${key}`, 'BUILD_MOVE_FIELD_UNKNOWN', `An arm has no field '${key}'; it takes when, steps and label.`);
+          const when = [arm.when].flat();
+          if (!when.length || when.some((value) => typeof value !== 'string' || !value.trim() || value.length > 60)) add(`${where}.when`, 'BUILD_MOVE_SHAPE', `when is a value of ${move.name ?? 'name'}, or a list of them.`);
+          for (const value of when.filter((entry) => typeof entry === 'string')) {
+            if (values.has(value.toLowerCase())) add(`${where}.when`, 'BUILD_MOVE_SHAPE', `'${value}' already leads another way.`);
+            values.add(value.toLowerCase());
+            if (Array.isArray(move.values) && !move.values.includes(value)) add(`${where}.when`, 'BUILD_MOVE_SHAPE', `'${value}' is not one of values.`);
+          }
+          if (!Array.isArray(arm.steps) || !arm.steps.length) { add(`${where}.steps`, 'BUILD_MOVE_SHAPE', 'steps lists the steps this way runs, in order.'); return; }
+          arm.steps.forEach((stepId, stepIndex) => { if (!inWorkflow(stepId)) add(`${where}.steps[${stepIndex}]`, 'BUILD_MOVE_REFERENCE', `Step '${stepId}' is not in this workflow.`); });
+          blocks.push(arm.steps);
+        });
+        if (move.otherwise != null) {
+          if (!plain(move.otherwise) || !Array.isArray(move.otherwise.steps) || !move.otherwise.steps.length) add(`${at}.otherwise`, 'BUILD_MOVE_SHAPE', 'otherwise is { steps, label }: the steps for every other value.');
+          else blocks.push(move.otherwise.steps);
+        }
+        if (Array.isArray(move.values) && (move.values.length > 20 || move.values.some((value) => typeof value !== 'string' || !value.trim()))) add(`${at}.values`, 'BUILD_MOVE_SHAPE', 'values lists the choices, at most 20.');
+        if (move.join !== 'end' && !(typeof move.join === 'string' && inWorkflow(move.join))) add(`${at}.join`, 'BUILD_MOVE_REFERENCE', 'join is the step every way comes back to, or end.');
+        if (order && blocks.length === arms.length + (move.otherwise != null ? 1 : 0) && blocks.length) {
+          const expected = [move.after, ...blocks.flat(), ...(move.join === 'end' ? [] : [move.join])];
+          const start = order.indexOf(move.after);
+          const fits = start >= 0 && JSON.stringify(order.slice(start, start + expected.length)) === JSON.stringify(expected)
+            && (move.join !== 'end' || start + expected.length === order.length);
+          if (!fits) add(`${at}.arms`, 'BUILD_BRANCH_ORDER', `Put the steps in this order first (step.add with after, or step.move): ${expected.join(' → ')}${move.join === 'end' ? ', last in the workflow' : ''}.`);
+        }
+        break;
+      }
       case 'step.check':
         if (move.id && !steps.has(move.id) && !added.step.has(move.id)) add(`${at}.id`, 'BUILD_MOVE_REFERENCE', `Step '${move.id}' is not in this workflow.`);
         if (move.requirement != null && !['required', 'advisory'].includes(move.requirement)) add(`${at}.requirement`, 'BUILD_MOVE_SHAPE', 'requirement is required or advisory.');
@@ -336,6 +381,26 @@ export function applyMoves(draft, moves) {
         break;
       }
       case 'decision.remove': next.workflow.decisions = next.workflow.decisions.filter((entry) => entry.after !== move.after); break;
+      case 'branch.add': {
+        // One decision after the step that knows the value, and one at the end of every way but the
+        // last, reusing that value, so each way comes back to the join without asking again.
+        const id = next.workflow.id;
+        const arms = move.arms.map((arm) => ({ ...arm, when: [arm.when].flat() }));
+        const values = move.values ?? [...arms.flatMap((arm) => arm.when), ...(move.otherwise ? ['other'] : [])];
+        const test = (when) => ({ [move.name]: when.length === 1 ? when[0] : when });
+        const branch = { id: `${id}-${move.after}`, after: move.after, kind: 'branch', label: move.label ?? `Which ${move.name}?`,
+          inputs: [{ name: move.name, label: move.name, values }],
+          routes: [...arms.map((arm, index) => ({ id: kebab(arm.when.join('-')) || `way-${index + 1}`, label: arm.label ?? `${move.name} is ${arm.when.join(' or ')}`, when: test(arm.when), to: arm.steps[0] })),
+            { id: 'otherwise', label: move.otherwise?.label ?? (move.otherwise ? 'Otherwise' : `Any other ${move.name}`), to: move.otherwise?.steps[0] ?? move.join }] };
+        const rejoin = (move.otherwise ? arms : arms.slice(0, -1)).map((arm) => ({
+          id: `${id}-${arm.steps.at(-1)}`, after: arm.steps.at(-1), kind: 'branch', label: `Back together after ${move.name} ${arm.when.join(' or ')}`.slice(0, 120),
+          inputs: [{ name: move.name, from: branch.id }],
+          routes: [{ id: 'rejoin', label: 'Back together', when: test(arm.when), to: move.join }, { id: 'otherwise', label: 'Back together', to: move.join }]
+        }));
+        const made = [branch, ...rejoin];
+        next.workflow.decisions = [...next.workflow.decisions.filter((entry) => !made.some((decision) => decision.after === entry.after)), ...made];
+        break;
+      }
       case 'step.check':
         next.checks ??= {};
         next.checks[move.id] = [...(next.checks[move.id] ?? []).filter((check) => check.command !== move.command),

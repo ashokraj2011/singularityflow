@@ -274,6 +274,42 @@ test('a test, lint or build command in a skill becomes a step check sflow runs; 
   assert.match(flow(root, ['workflow', 'build', 'check', '--build', build.id]).stdout, /^ {2}changed {2}Verification: checks: CI=true npm run test:unit$/mu);
 });
 
+test('work that goes different ways by channel becomes one branch whose ways come back together', async () => {
+  const { run, flow, json } = await harness();
+  const root = await repository(run, flow);
+  const folder = await mkdtemp(path.join(os.tmpdir(), 'sflow-build-engine-branch-'));
+  await mkdir(path.join(folder, '.github/skills/release'), { recursive: true });
+  await writeFile(path.join(folder, '.github/skills/release/SKILL.md'), ['---', 'name: release', 'description: How a change is tested by channel.', '---',
+    'When the channel is web, run the Playwright suite.', 'If channel is mobile, run the Detox suite.', 'Otherwise, a person tests it by hand.', ''].join('\n'));
+  const build = json(root, ['workflow', 'build', 'start', '--change', 'repo-feature', '--folder', folder]).build;
+  const branch = build.items.find((entry) => entry.kind === 'branch');
+  assert.deepEqual([branch.name, branch.subject, branch.values, branch.otherwise, branch.evidence[0].startLine], ['channel: web, mobile, otherwise', 'channel', ['web', 'mobile'], true, 5]);
+  const test = (id, label, after) => ({ move: 'step.add', id, label, after, agent: 'qa', output: 'document', reads: ['implementation'],
+    signOff: { groups: ['quality-reviewers'], minimum: 1 }, purpose: `${label} for this channel.` });
+  const byChannel = { move: 'branch.add', after: 'implementation', name: 'channel', item: branch.id, join: 'verification',
+    arms: [{ when: 'web', steps: ['web-test'] }, { when: 'mobile', steps: ['mobile-test'] }], otherwise: { steps: ['manual-test'] } };
+  const proposal = (moves) => JSON.stringify({ title: 'Test by channel', why: 'The release skill tests each channel its own way.', moves,
+    evidence: [{ path: '.github/skills/release/SKILL.md', startLine: 5, endLine: 7 }] });
+  const wrong = flow(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-'], { allowFailure: true,
+    input: proposal([test('mobile-test', 'Mobile test', 'implementation'), test('web-test', 'Web test', 'mobile-test'), test('manual-test', 'Manual test', 'web-test'), byChannel]) });
+  assert.match(wrong.stderr + wrong.stdout, /moves\[3\]\.arms: Put the steps in this order first \(step\.add with after, or step\.move\): implementation → web-test → mobile-test → manual-test → verification\./u);
+  json(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-', '--by', 'you', '--accept'],
+    { input: proposal([test('web-test', 'Web test', 'implementation'), test('mobile-test', 'Mobile test', 'web-test'), test('manual-test', 'Manual test', 'mobile-test'), byChannel]) });
+  const checked = json(root, ['workflow', 'build', 'check', '--build', build.id]);
+  assert.equal(checked.plan.valid, true, JSON.stringify(checked.plan.problems));
+  const decisions = checked.changeSet.changes.find((change) => change.op === 'workflow.update').decisions;
+  assert.deepEqual(decisions.map((decision) => [decision.after, decision.inputs, decision.routes.map((route) => [route.when ?? null, route.to])]), [
+    ['implementation', [{ name: 'channel', label: 'channel', values: ['web', 'mobile', 'other'] }], [[{ channel: 'web' }, 'web-test'], [{ channel: 'mobile' }, 'mobile-test'], [null, 'manual-test']]],
+    ['web-test', [{ name: 'channel', from: 'repo-feature-implementation' }], [[{ channel: 'web' }, 'verification'], [null, 'verification']]],
+    ['mobile-test', [{ name: 'channel', from: 'repo-feature-implementation' }], [[{ channel: 'mobile' }, 'verification'], [null, 'verification']]]
+  ], 'the channel is chosen once, after Implementation; each way comes back to Verification without asking again');
+  const step = (id) => checked.explanation.steps.find((entry) => entry.id === id);
+  assert.deepEqual(step('implementation').then.slice(0, 4), ['Which channel? (Decided by the recorded answer):', 'channel is web: Web test.', 'channel is mobile: Mobile test.', 'Otherwise: Manual test.']);
+  assert.equal(step('web-test').then[0], 'Back together after channel web: Verification.');
+  assert.deepEqual(checked.changes.decisions.added.map((decision) => decision.after), ['implementation', 'web-test', 'mobile-test']);
+  assert.equal(json(root, ['workflow', 'build', 'status', '--build', build.id]).build.items.find((entry) => entry.id === branch.id).status, 'confirmed');
+});
+
 test('later decisions: a step other workflows share is copied, not changed; a proposal an earlier one overtook goes stale; items can be left out', async () => {
   const { run, flow, json, engineEnv } = await harness();
   const root = await repository(run, flow);

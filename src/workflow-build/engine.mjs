@@ -172,7 +172,7 @@ function validateProposal(payload, record) {
     if (!items.has(item)) add(`items[${index}]`, 'BUILD_ITEM_UNKNOWN', `The build has no item '${item}'.`);
   }
   for (const [index, move] of (Array.isArray(moves) ? moves : []).entries()) {
-    if (plain(move) && (String(move.move).startsWith('item.') || move.move === 'step.check') && !items.has(move.item)) add(`moves[${index}].item`, 'BUILD_ITEM_UNKNOWN', `The build has no item '${move.item}'.`);
+    if (plain(move) && (String(move.move).startsWith('item.') || move.move === 'step.check' || (move.move === 'branch.add' && move.item != null)) && !items.has(move.item)) add(`moves[${index}].item`, 'BUILD_ITEM_UNKNOWN', `The build has no item '${move.item}'.`);
   }
   for (const [index, question] of (Array.isArray(questions) ? questions : []).entries()) {
     const at = `questions[${index}]`;
@@ -310,7 +310,7 @@ function withFoundCommands(moves, record) {
 /** Mark a checked proposal accepted, and what it says about found items. */
 function acceptProposal(record, proposal) {
   Object.assign(proposal, { status: 'accepted', decidedAt: new Date().toISOString() });
-  const used = new Set([...proposal.items, ...proposal.moves.filter((move) => move.move === 'step.check').map((move) => move.item)]);
+  const used = new Set([...proposal.items, ...proposal.moves.filter((move) => ['step.check', 'branch.add'].includes(move.move) && move.item).map((move) => move.item)]);
   for (const item of record.items) {
     const change = applyMoves({ items: {}, workflow: { phases: [], decisions: [] }, steps: {}, overrides: {}, actions: {} }, proposal.moves.filter((move) => move.item === item.id)).items[item.id];
     if (change) Object.assign(item, change);

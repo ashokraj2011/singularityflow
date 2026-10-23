@@ -31,7 +31,7 @@ import { loadCopilotSession, loadSession, recordStartedWorkItemSelection, select
 import { documentSetLifecycleBinding } from '../document-publication.mjs';
 import { loadManualStory, promptManualStory } from '../intake.mjs';
 import { storyStartTargetOrigin } from '../mcp-target.mjs';
-import { automaticEnrollmentMayPublish, enrollmentPendingError, publishCurrentIdentityToConfiguration, enrolledConfigurationAuthority } from '../configuration-people.mjs';
+import { automaticEnrollmentMayPublish, enrollmentPendingNotice, publishCurrentIdentityToConfiguration, enrolledConfigurationAuthority } from '../configuration-people.mjs';
 import { GitRemoteSession } from '../git-execution.mjs';
 import { configuredRemoteAuthority, configuredRemoteIdentity } from '../git-remote-diagnostics.mjs';
 import { capabilityLines } from '../verification/capability.mjs';
@@ -550,7 +550,7 @@ async function startCommandAtRoot(positionals, options) {
     if (referenceRequests.length) {
       throw new SingularityFlowError(
         `Story '${id}' already exists. Reference repositories are immutable intake inputs; inspect its pinned set with singularity-flow story references list --work-id ${id}.`,
-        { code: 'REFERENCE_REPOSITORY_STORY_EXISTS' }
+        { code: 'REFERENCE_REPOSITORY_STORY_EXISTS', details: { nextAction: `singularity-flow story references list --work-id ${id}` } }
       );
     }
     refuseStartDocumentsForExistingStory(root, id, localStory, explicitFiles, explicitUrls, optionStrings(options, 'document-name'));
@@ -1538,8 +1538,9 @@ async function startCommandAtRoot(positionals, options) {
       session: storyRemoteSession
     }));
     automaticEnrollment = enrollment;
-    if (enrollment.changed && !enrollment.pushed) throw enrollmentPendingError(enrollment);
-    if (enrollment.changed) {
+    // An enrollment push the remote refuses (a protected branch, a read-only account, a hook) does
+    // not stop the Story: it starts with the approved configuration inspected above, and says so.
+    if (enrollment.changed && enrollment.pushed) {
       const enrollmentParent = gitAnswer(root, ['rev-parse', '--verify', '--quiet', `${enrollment.commit}^`],
         'Automatic enrollment parent', { absentStatus: 1 })?.trim() ?? '';
       if (!approvedConfigurationSnapshot?.sourceCommit
@@ -1982,7 +1983,8 @@ async function startCommandAtRoot(positionals, options) {
           automatic: true,
           target: '*',
           commit: automaticEnrollment.commit,
-          pushed: automaticEnrollment.pushed === true
+          pushed: automaticEnrollment.pushed === true,
+          ...(automaticEnrollment.pushed ? {} : { pending: enrollmentPendingNotice(automaticEnrollment) })
         }
       } : {}),
       ...(storyBase.scope === 'capability' ? {
@@ -2016,7 +2018,13 @@ async function startCommandAtRoot(positionals, options) {
         label: 'See what this phase expects',
         command: `singularity-flow phase show ${workflow.currentPhase}`,
         rank: 'LATER'
-      })
+      }),
+      ...(automaticEnrollment?.changed && !automaticEnrollment.pushed && enrollmentPendingNotice(automaticEnrollment).nextAction ? [narrationAction({
+        id: 'start.enrollment-retry',
+        label: 'Add yourself to the approval groups once the push can land',
+        command: enrollmentPendingNotice(automaticEnrollment).nextAction.command,
+        rank: 'LATER'
+      })] : [])
     ]
   });
   if (!optionBoolean(options, 'json')) {
@@ -2033,8 +2041,10 @@ async function startCommandAtRoot(positionals, options) {
         label: 'Review the optional configuration upgrade'
       });
     }
-    if (automaticEnrollment?.changed) {
+    if (automaticEnrollment?.changed && automaticEnrollment.pushed) {
       console.log(`Approval enrollment: current Git identity added to configured authorities on ${CONFIGURATION_BRANCH}@${automaticEnrollment.commit.slice(0, 12)} (published).`);
+    } else if (automaticEnrollment?.changed) {
+      console.log(`Approval enrollment pending: ${enrollmentPendingNotice(automaticEnrollment).message}`);
     }
     if (managedStoryWorktree) {
       console.log(`Isolated Story checkout: ${root}`);
@@ -2114,7 +2124,11 @@ function refuseStartDocumentsForExistingStory(root, id, story, files, urls, name
   if (!missing) return;
   throw new SingularityFlowError(
     `Story '${id}' already exists, so the ${missing} document(s) given here would not be added. Resume it without --document or --document-url, then add them with singularity-flow documents upload <FILE...> --name <NAME>... (or --url <URL> --name <NAME>). Nothing was changed.`,
-    { code: 'STORY_START_DOCUMENTS_STORY_EXISTS', details: { workId: id, documents: missing } }
+    { code: 'STORY_START_DOCUMENTS_STORY_EXISTS', details: {
+      workId: id, documents: missing,
+      nextAction: { command: `singularity-flow resume ${id}`, skill: '/sf-resume' },
+      recoveryCommands: ['singularity-flow documents upload <FILE> --name <NAME>']
+    } }
   );
 }
 

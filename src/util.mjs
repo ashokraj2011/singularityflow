@@ -949,7 +949,15 @@ export function run(command, args = [], {
       { code: 'SUBPROCESS_OUTPUT_TOO_LARGE' }
     );
   }
-  if (result.error && !allowFailure && !timedOut) throw new SingularityFlowError(`Unable to run ${command}: ${result.error.message}`);
+  if (result.error && !allowFailure && !timedOut) {
+    // Node names the program, not the folder, when the folder it was asked to run in is gone.
+    if (result.error.code === 'ENOENT' && cwd && !existsSync(cwd)) {
+      throw new SingularityFlowError(`Unable to run ${command}: the folder it was asked to run in no longer exists (${cwd}).`, {
+        code: 'WORKING_DIRECTORY_MISSING', details: { command, cwd }
+      });
+    }
+    throw new SingularityFlowError(`Unable to run ${command}: ${result.error.message}`);
+  }
   if (timedOut && !allowFailure) {
     throw new SingularityFlowError(`${command} did not respond within ${timeoutMs}ms.`, { code: 'SUBPROCESS_TIMEOUT' });
   }

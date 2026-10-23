@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -1834,6 +1834,50 @@ test('isolated enrollment reuses one owned clone and hands off only the exact pu
     assert.deepEqual(await readFile(path.join(checkout, '.git', 'index')), index);
     assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: checkout }).stdout.trim(), head);
   } finally { await rm(fixture.root, { recursive: true, force: true }); }
+});
+
+test('a refused enrollment from a Story checkout stays retryable after that checkout is removed', { skip: process.platform === 'win32' }, async () => {
+  const fixture = await repositoryFixture();
+  const outbox = path.join(fixture.root, 'outbox');
+  const previousOutbox = process.env.SINGULARITY_FLOW_TRANSPORT_OUTBOX;
+  process.env.SINGULARITY_FLOW_TRANSPORT_OUTBOX = outbox;
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const checkout = path.join(fixture.root, 'launch');
+    run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'Office Developer'], { cwd: checkout });
+    run('git', ['config', 'user.email', 'office.developer@example.invalid'], { cwd: checkout });
+    // Story intake starts in its own linked checkout, which a failed start removes.
+    const story = path.join(fixture.root, 'story-checkout');
+    run('git', ['worktree', 'add', '-q', '-b', 'STORY-1', story], { cwd: checkout });
+    const refuse = path.join(fixture.remote, 'hooks', 'pre-receive');
+    await writeFile(refuse, '#!/bin/sh\necho "configuration enrollment rejected" >&2\nexit 1\n');
+    run('chmod', ['+x', refuse], { cwd: fixture.root });
+    const authority = await resolveRemoteStoryConfigurationAuthority(fixture.remote);
+    const before = await loadStoryConfigurationSnapshot(authority);
+    const enrollment = await publishCurrentIdentityToConfiguration(story, {
+      automatic: true, configurationSnapshot: before, expectedSourceCommit: before.sourceCommit
+    });
+    assert.equal(enrollment.pushed, false);
+    const { readTransportIntent, retryTransportIntent } = await import('../src/transport-intents.mjs');
+    const intent = await readTransportIntent(enrollment.transportIntent);
+    assert.equal(intent.repositoryRoot, await realpath(checkout), 'saved in the main checkout, which outlives the Story checkout');
+    run('git', ['worktree', 'remove', '--force', story], { cwd: checkout });
+    await rm(refuse);
+    const retried = await retryTransportIntent(enrollment.transportIntent, { allowNeedsUser: true });
+    assert.equal(retried.status, 'succeeded');
+    assert.equal(run('git', ['--git-dir', fixture.remote, 'rev-parse', 'refs/heads/sflow/config'], { cwd: fixture.root }).stdout.trim(), enrollment.commit);
+  } finally {
+    if (previousOutbox == null) delete process.env.SINGULARITY_FLOW_TRANSPORT_OUTBOX;
+    else process.env.SINGULARITY_FLOW_TRANSPORT_OUTBOX = previousOutbox;
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('Git started in a folder that no longer exists names the folder, not a missing Git', async () => {
+  const gone = path.join(os.tmpdir(), `sflow-missing-${process.pid}-${Date.now()}`);
+  assert.throws(() => run('git', ['status'], { cwd: gone }), (error) => error.code === 'WORKING_DIRECTORY_MISSING'
+    && error.message === `Unable to run git: the folder it was asked to run in no longer exists (${gone}).`);
 });
 
 test('configuration projection omits application/runtime files and enrollment preserves their exact tree', async () => {

@@ -12,7 +12,7 @@ import {
   admitGovernedPublication, assertNotDefaultBranch, branch, changedFiles, commitIsolated,
   fileAtRef, GITHUB_LOOKUP, head, identity, exactRemoteHeadsObservationAsync
 } from './git.mjs';
-import { createTransportIntent, retryTransportIntent } from './transport-intents.mjs';
+import { createTransportIntent, pendingPublicationNote, retryTransportIntent, transportIntentsForRepository } from './transport-intents.mjs';
 import {
   assertWorkflowReadinessChanges, DEFAULT_PLANNING_PROMPT, ensureRepositoryTemplates, loadDefinition, normalizePlanning,
   resolveWorkType, validateDefinition, withDefinitionCache, WORKFLOW_PATH
@@ -48,7 +48,7 @@ import {
 } from './agents.mjs';
 import { readConfigurationSource } from './configuration-branch.mjs';
 import {
-  configuredRemoteAuthority, configuredRemoteIdentity, redactDiagnosticText, remoteFingerprint
+  classifyGitRemoteFailure, configuredRemoteAuthority, configuredRemoteIdentity, redactDiagnosticText, remoteFingerprint
 } from './git-remote-diagnostics.mjs';
 import { createReviewBundle, reviewMarkdown } from './review.mjs';
 import { doctorSnapshot } from './doctor.mjs';
@@ -2010,6 +2010,17 @@ export async function validateEditorConfiguration(root, { baselineDefinition = n
   };
 }
 
+/** The refusal that names an earlier Commit & push of this branch still waiting to land, and its retry. */
+function pendingConfigurationPush(intent, branch) {
+  const note = pendingPublicationNote(intent);
+  return new SingularityFlowError(
+    `An earlier configuration commit ${intent.sourceCommit.slice(0, 8)} on '${branch}' was never pushed (${intent.intentId} is ${intent.status}).${note.sentence} `
+    + 'No new configuration commit was created; Commit & push again once it has landed.', {
+      code: 'CONFIGURATION_PUBLICATION_PENDING', details: { branch, ...note.details }
+    }
+  );
+}
+
 export async function publishEditorConfiguration(
   root, message = 'Configure Singularity Flow workflow', { transport = {}, fault = null } = {}
 ) {
@@ -2100,21 +2111,33 @@ export async function publishEditorConfiguration(
       const diagnostic = redactDiagnosticText(
         String(observed.result?.stderr || observed.result?.stdout || '').trim()
       );
+      // Say why (a proxy, sign-in or SSO), as Git did, not only that the check failed.
+      const failure = observed.malformed ? null : observed.result?.failure ?? classifyGitRemoteFailure(observed.result);
+      const firstLine = diagnostic.split('\n').map((line) => line.trim()).find(Boolean);
       throw new SingularityFlowError(
-        `Configuration publication could not verify remote branch '${remote}/${targetBranch}' before committing. `
-        + 'No configuration commit was created.', {
+        `Configuration publication could not verify remote branch '${remote}/${targetBranch}' before committing`
+        + `${failure ? ` (${failure.classification}${firstLine ? `: ${firstLine.slice(0, 300)}` : ''})` : ''}. `
+        + `${failure?.advice ? `${failure.advice} ` : ''}No configuration commit was created; retry Commit & push once that is fixed.`, {
           code: 'CONFIGURATION_REMOTE_PREFLIGHT_FAILED',
           details: {
             remote,
             branch: targetBranch,
             diagnostic: diagnostic.slice(0, 1024),
-            nextAction: 'Run singularity-flow workspace doctor --network, then retry Commit & push.'
+            ...(failure ? { classification: failure.classification } : {}),
+            nextAction: { command: 'singularity-flow workspace doctor --network', skill: '/sf-doctor' }
           }
         }
       );
     }
+    // An earlier Commit & push of this branch whose push did not land keeps its commit as the local
+    // parent: the refusals below would send the person to fetch or recover history, when the way
+    // out is that pending push. Name it.
+    const pendingPush = async () => (await transportIntentsForRepository(root, { remote }).catch(() => []))
+      .find((intent) => intent.targetRef === `refs/heads/${targetBranch}` && intent.sourceCommit === parent) ?? null;
     expectedRemote = observed.heads[targetBranch] ?? null;
     if (expectedRemote !== null && expectedRemote !== parent) {
+      const pending = await pendingPush();
+      if (pending) throw pendingConfigurationPush(pending, targetBranch);
       throw new SingularityFlowError(
         `Configuration branch '${targetBranch}' is not based on the exact current remote revision. `
         + 'Fetch and reconcile it before publishing; no configuration commit was created.', {
@@ -2135,6 +2158,8 @@ export async function publishEditorConfiguration(
         .map(([name]) => `refs/heads/${name}`)
         .sort();
       if (!remoteParentRefs.length) {
+        const pending = await pendingPush();
+        if (pending) throw pendingConfigurationPush(pending, targetBranch);
         throw new SingularityFlowError(
           `Configuration branch '${targetBranch}' does not exist remotely, and its local parent is not an exact published remote head. `
           + 'The first push would include hidden local ancestry, so no configuration commit was created.', {
@@ -2246,19 +2271,11 @@ export async function publishEditorConfiguration(
     );
   }
   if (publication.status !== 'succeeded') {
+    const note = pendingPublicationNote(publication);
     throw new SingularityFlowError(
-      `Configuration commit ${sha.slice(0, 8)} is retained, but publication is ${publication.status}. `
-      + `Run singularity-flow push status ${publication.intentId}.`, {
+      `Configuration commit ${sha.slice(0, 8)} is retained, but publication is ${publication.status}.${note.sentence}`, {
         code: 'CONFIGURATION_PUBLICATION_PENDING',
-        details: {
-          sha,
-          remote,
-          branch: targetBranch,
-          intentId: publication.intentId,
-          status: publication.status,
-          nextAction: publication.nextAction?.command
-            ?? `singularity-flow push retry ${publication.intentId}`
-        }
+        details: { sha, remote, branch: targetBranch, ...note.details }
       }
     );
   }

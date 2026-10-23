@@ -615,24 +615,45 @@ test('an offline dry-run cannot authorize another actor exact update', async () 
 
 test('a refusal only a person can clear names its cause, and push status says why and offers the retry', async () => {
   const item = await fixture();
-  // An office repository's husky hook judges every push from the checkout, sflow/config included,
-  // and Git runs it for the dry-run too.
+  // An office repository's husky hook judges every push of its application branches, and Git runs it
+  // for the dry-run too. SFlow's own branches (sflow/*) are not application code and skip it.
   const hook = path.join(item.work, '.git', 'hooks', 'pre-push');
   await writeFile(hook, '#!/bin/sh\necho "husky - pre-push hook exited with code 1 (npm run lint)" >&2\nexit 1\n');
   run('chmod', ['+x', hook]);
-  const created = await createTransportIntent({
+  const own = await createTransportIntent({
     repositoryRoot: item.work, sourceCommit: item.commit, targetRef: 'refs/heads/sflow/config', expectedRemote: null
+  }, item.options);
+  assert.equal((await retryTransportIntent(own.intentId, item.options)).status, 'succeeded', 'the hook does not judge sflow/config');
+  const created = await createTransportIntent({
+    repositoryRoot: item.work, sourceCommit: item.commit, targetRef: 'refs/heads/feature/hooked', expectedRemote: null
   }, item.options);
   const refused = await retryTransportIntent(created.intentId, item.options);
   assert.equal(refused.status, 'needs-user');
   assert.equal(refused.fault.classification, 'local-hook-failed');
   assert.match(refused.fault.evidence.diagnostic, /husky - pre-push hook exited with code 1/u);
   assert.equal(refused.nextAction.command, `singularity-flow push status ${created.intentId}`, 'retrying alone meets the same hook');
+  // An automatic caller (a resumed workspace setup) gets the intent and its retry, not a loop back to resume.
+  await assert.rejects(retryTransportIntent(created.intentId, item.options), (error) => error.code === 'TRANSPORT_INTENT_NEEDS_USER'
+    && error.details.intentId === created.intentId
+    && error.details.nextAction.command === `singularity-flow push retry ${created.intentId}`
+    && /Git refused it \(local-hook-failed: husky - pre-push hook exited with code 1/u.test(error.message));
+  // A remote that could not be read leaves the outcome unknown: the retry reconciles it, not push status again.
+  const unknown = await createTransportIntent({
+    repositoryRoot: item.work, sourceCommit: item.commit, targetRef: 'refs/heads/feature/unknown', expectedRemote: null
+  }, item.options);
+  const unread = await retryTransportIntent(unknown.intentId, {
+    ...item.options,
+    runAsyncProbeCommand: async () => ({ status: 128, stdout: '', stderr: 'fatal: unable to access: Could not resolve host: git.example.invalid', signal: null })
+  });
+  assert.equal(unread.status, 'outcome-unknown');
 
   const cli = new URL('../bin/singularity-flow.mjs', import.meta.url).pathname;
   const status = run(process.execPath, [cli, '--no-model', 'push', 'status', created.intentId], { cwd: item.work, env: item.env }).stdout;
   assert.match(status, /is needs-user; commit [0-9a-f]{12} remains addressable\. Git refused it \(local-hook-failed: husky - pre-push hook exited with code 1 \(npm run lint\)\)\. Review the local Git hook output/u);
   assert.match(status, new RegExp(`singularity-flow push retry ${created.intentId}`, 'u'), 'after the fix, the retry publishes the same commit');
+  const unknownStatus = run(process.execPath, [cli, '--no-model', 'push', 'status', unknown.intentId], { cwd: item.work, env: item.env }).stdout;
+  assert.match(unknownStatus, new RegExp(`Retry this preserved publication[\\s\\S]*singularity-flow push retry ${unknown.intentId}`, 'u'));
+  assert.doesNotMatch(unknownStatus, /Shell: singularity-flow push status/u, 'never a route back to itself');
 
   // A push the account may not make is a missing write permission, not read access.
   const denied = await createTransportIntent({
@@ -647,11 +668,11 @@ test('a refusal only a person can clear names its cause, and push status says wh
   assert.equal(refusedWrite.fault.classification, 'authorization-denied');
   assert.match(refusedWrite.fault.advice, /cannot push to it\. Ask the repository owner for write access/u);
 
-  // The branch moved on (another enrollment landed): the retry explains instead of failing to render.
+  // The branch moved on (someone else pushed it): the retry explains instead of failing to render.
   await rm(hook);
   await writeFile(path.join(item.work, 'README.md'), 'second\n');
   run('git', ['commit', '-qam', 'second'], { cwd: item.work });
-  run('git', ['push', '-q', 'origin', 'HEAD:refs/heads/sflow/config'], { cwd: item.work });
+  run('git', ['push', '-q', 'origin', 'HEAD:refs/heads/feature/hooked'], { cwd: item.work });
   const retried = run(process.execPath, [cli, '--no-model', 'push', 'retry', created.intentId], { cwd: item.work, env: item.env }).stdout;
   assert.match(retried, /is remote-diverged after the authorized retry\. Git refused it \(remote-diverged\)\. The remote branch moved after this commit was made/u);
   await assert.rejects(retryTransportIntent(created.intentId, { ...item.options, allowNeedsUser: true }),

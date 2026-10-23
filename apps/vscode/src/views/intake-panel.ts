@@ -1577,6 +1577,7 @@ export class IntakePanel {
         publication?: Started['publication'];
         configuration?: Started['configuration'];
         intakeReceipt?: { status?: string; reason?: string | null; reused?: string[] };
+        approvalEnrollment?: { pushed?: boolean; pending?: { message?: string } };
       };
       // The engine reports each stage it enters; show it where the person is looking.
       const result = await vscode.window.withProgress(
@@ -1595,6 +1596,12 @@ export class IntakePanel {
         this.output.appendLine(verified.status === 'verified'
           ? `Story start confirmed the readiness check in one pass (reused: ${(verified.reused ?? []).join(', ') || 'nothing'}).`
           : `Story start ran its full checks: the intake receipt was ${verified.status}${verified.reason ? ` (${verified.reason})` : ''}.`);
+      }
+      // The Story started, but the push adding this person to the approval groups did not land.
+      const enrollmentPending = payload.approvalEnrollment?.pending?.message;
+      if (enrollmentPending) {
+        this.output.appendLine(`Approval enrollment pending: ${enrollmentPending}`);
+        void vscode.window.showWarningMessage(enrollmentPending);
       }
       // The identifier a local Epic minted is only knowable from what came back — and `epic start
       // --local --json` reports it as `initiativeId`, which was not among the names read here, so

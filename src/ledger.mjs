@@ -1,7 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
-import { constants as fsConstants } from 'node:fs';
-import { access, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -21,6 +20,7 @@ import { LEDGER_INTENT_DIRECTORY, LIFECYCLE_EVENT_TYPES } from './lifecycle-even
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { GitRemoteSession, runRemoteGitAsync, gitRemoteProbeTimeout } from './git-execution.mjs';
 import { observePublicationHookEffects } from './git-hook-effects.mjs';
+import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { storyPointersFromLedger } from './story-state-index.mjs';
 import { compactCanonicalJson } from './records.mjs';
@@ -742,9 +742,10 @@ async function temporaryWorktree(root, ref, callback, { env = process.env } = {}
   // same unborn, empty branch from plumbing available in older Git: attach a no-checkout worktree,
   // point its worktree-local HEAD at its private unborn ref, and clear its index. No application
   // bytes are checked out and the first callback commit remains a true root commit.
+  const hooksOff = ['-c', `core.hooksPath=${gitDisabledHooksPath()}`];
   const args = bootstrap
-    ? ['worktree', 'add', '--detach', '--no-checkout', worktree, 'HEAD']
-    : ['worktree', 'add', '--detach', worktree, ref];
+    ? [...hooksOff, 'worktree', 'add', '--detach', '--no-checkout', worktree, 'HEAD']
+    : [...hooksOff, 'worktree', 'add', '--detach', worktree, ref];
   const added = git(root, args, { allowFailure: true, env });
   if (added.status !== 0) {
     await rm(parent, { recursive: true, force: true });
@@ -974,6 +975,7 @@ async function writeCanonicalJson(file, value) {
 
 function commitArgs(config, message, commitIdentity = null, commitSigning = null) {
   return [
+    '-c', `core.hooksPath=${gitDisabledHooksPath()}`,
     ...(commitIdentity ? gitCommitIdentityArgs(commitIdentity) : []),
     ...(config.signing === 'commit' ? gitCommitSigningArgs(commitSigning) : []),
     'commit', ...(config.signing === 'commit' ? ['-S'] : []), '-m', message
@@ -1027,7 +1029,7 @@ async function pushLedgerAsync(worktree, config, expectedRemoteSha = undefined, 
     ? null
     : frozenRemoteTransport(transportRemote, { push: true, env });
   return runRemoteGitAsync([
-    'push', lease,
+    'push', '--no-verify', lease,
     frozen?.remote ?? config.remote,
     `HEAD:refs/heads/${config.branch}`
   ], { cwd: worktree, operation: 'remote-push', env: frozen?.env ?? env });
@@ -1540,7 +1542,7 @@ async function publishPinAsync(root, config, intent, publishedCommit, {
     );
   }
   const pushed = await runRemoteGitAsync([
-    'push', remote, `${publishedCommit}:${ref}`
+    'push', '--no-verify', remote, `${publishedCommit}:${ref}`
   ], { cwd: root, operation: 'remote-push', env: remoteEnv });
   if (pushed.status !== 0) {
     throw new SingularityFlowError(
@@ -1969,32 +1971,13 @@ async function commitLedgerEntry(worktree, config, intent, publishedCommit, idem
 }
 
 /**
- * Hooks the worktree append can run: committing in a checkout runs the commit hooks, adding the
- * checkout runs post-checkout, and moving its HEAD runs reference-transaction.
+ * Ledger commits are SFlow's own records, so the application repository's hooks (pre-commit,
+ * commit-msg, post-checkout, ...) never judge them: they are built from Git objects, which runs no
+ * hook, unless `SINGULARITY_FLOW_LEDGER_APPEND_WORKTREE=1` asks for the worktree append, whose
+ * commands run with hooks disabled too.
  */
-const LEDGER_WORKTREE_HOOKS = Object.freeze([
-  'pre-commit', 'prepare-commit-msg', 'commit-msg', 'post-commit', 'post-checkout',
-  'reference-transaction', 'post-index-change'
-]);
-
-/** Whether any of those hooks is installed. The append built from Git objects runs none of them. */
-async function ledgerWorktreeHooksInstalled(root, env) {
-  const located = git(root, ['rev-parse', '--git-path', 'hooks'], { env, allowFailure: true });
-  const directory = located.status === 0 ? located.stdout.trim() : '';
-  if (!directory) return true;
-  for (const name of LEDGER_WORKTREE_HOOKS) {
-    try {
-      await access(path.join(path.resolve(root, directory), name),
-        process.platform === 'win32' ? fsConstants.F_OK : fsConstants.X_OK);
-      return true;
-    } catch { /* Absent, or not executable, so Git would not run it. */ }
-  }
-  return false;
-}
-
 async function canBuildLedgerObjects(root, env) {
-  return env.SINGULARITY_FLOW_LEDGER_APPEND_WORKTREE !== '1'
-    && !await ledgerWorktreeHooksInstalled(root, env);
+  return env.SINGULARITY_FLOW_LEDGER_APPEND_WORKTREE !== '1';
 }
 
 /**
@@ -2159,7 +2142,7 @@ async function appendLedgerIntentAtomically(root, config, intent, publishedCommi
     ? null
     : frozenRemoteTransport(transportRemote, { push: true, env });
   const pushed = await runRemoteGitAsync([
-    'push', '--atomic', '--porcelain',
+    'push', '--no-verify', '--atomic', '--porcelain',
     ...updates.map(([ref, , expected]) => `--force-with-lease=${ref}:${expected ?? ''}`),
     frozen?.remote ?? config.remote, ...updates.map(([ref, commit]) => `${commit}:${ref}`)
   ], { cwd: root, operation: 'remote-push', env: frozen?.env ?? env, allowFailure: true });
@@ -3642,7 +3625,7 @@ export async function repairLedgerPins(root, rawConfig, {
       const refspecs = toPush.map((item) => `${item.expectedCommit}:${item.pinRef}`);
       const atomic = toPush.length > 1 ? ['--atomic'] : [];
       const preflight = await runRemoteGitAsync([
-        'push', '--dry-run', ...atomic, remote, ...refspecs
+        'push', '--no-verify', '--dry-run', ...atomic, remote, ...refspecs
       ], { cwd: root, operation: 'remote-push' });
       if (preflight.status !== 0) {
         throw new SingularityFlowError(
@@ -3651,7 +3634,7 @@ export async function repairLedgerPins(root, rawConfig, {
         );
       }
       const pushed = await runRemoteGitAsync([
-        'push', ...atomic, remote, ...refspecs
+        'push', '--no-verify', ...atomic, remote, ...refspecs
       ], { cwd: root, operation: 'remote-push' });
       if (pushed.status !== 0) {
         throw new SingularityFlowError(

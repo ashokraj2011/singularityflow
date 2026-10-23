@@ -44,7 +44,7 @@ import { enterpriseGitEnvironment, inheritEnterpriseGitEnvironment } from './git
 import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import {
-  createAndPushTransportIntent, listTransportIntents, retryTransportIntent
+  createAndPushTransportIntent, listTransportIntents, pendingPublicationNote, retryTransportIntent
 } from './transport-intents.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
@@ -1311,9 +1311,10 @@ export async function ensureConfigurationBranch(remote, {
     if (existing) {
       const resumed = await retryTransportIntent(existing.intentId, transportOptions);
       if (resumed.status !== 'succeeded') {
+        const note = pendingPublicationNote(resumed);
         throw new SingularityFlowError(
-          `Configuration publication ${resumed.intentId} is ${resumed.status}; its exact local commit remains available for 'singularity-flow push status ${resumed.intentId}'.`,
-          { code: 'CONFIGURATION_PUBLICATION_PENDING', details: { intentId: resumed.intentId, status: resumed.status } }
+          `Configuration publication ${resumed.intentId} is ${resumed.status}; its exact local commit is kept.${note.sentence}`,
+          { code: 'CONFIGURATION_PUBLICATION_PENDING', details: note.details }
         );
       }
       return { ...(await inspectApprovedConfiguration(url, capability, { env: gitEnv })), transportIntent: resumed.intentId };
@@ -1390,6 +1391,7 @@ export async function ensureConfigurationBranch(remote, {
     let push;
     let transportIntent = null;
     let transportStatus = null;
+    let publishedIntent = null;
     if (canonicalPublisher) {
       const imported = run('git', ['fetch', '--no-tags', '--', scratch, commit], {
         cwd: canonicalPublisher, env: gitEnv, allowFailure: true
@@ -1408,6 +1410,7 @@ export async function ensureConfigurationBranch(remote, {
       }, transportOptions);
       transportIntent = published.intentId;
       transportStatus = published.status;
+      publishedIntent = published;
       push = published.status === 'succeeded'
         ? { status: 0, stdout: '', stderr: '' }
         : { status: 1, stdout: '', stderr: `transport ${published.intentId} is ${published.status}` };
@@ -1418,12 +1421,10 @@ export async function ensureConfigurationBranch(remote, {
     }
     if (push.status !== 0) {
       if (transportIntent) {
+        const note = pendingPublicationNote(publishedIntent);
         throw new SingularityFlowError(
-          `Configuration publication ${transportIntent} is ${transportStatus}; its exact local commit remains available for 'singularity-flow push status ${transportIntent}'.`,
-          {
-            code: 'CONFIGURATION_PUBLICATION_PENDING',
-            details: { intentId: transportIntent, status: transportStatus }
-          }
+          `Configuration publication ${transportIntent} is ${transportStatus}; its exact local commit is kept.${note.sentence}`,
+          { code: 'CONFIGURATION_PUBLICATION_PENDING', details: note.details }
         );
       }
       session.invalidate(url);

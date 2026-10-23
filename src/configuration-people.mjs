@@ -2,6 +2,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 
@@ -14,9 +15,10 @@ import {
 import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
 import { identity } from './git.mjs';
 import { assertCredentialFreeRemote, sanitizeRemote } from './git-remote-diagnostics.mjs';
+import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import { gitReadOutput, removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
-import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
+import { GitRemoteSession, gitCommonDir, runRemoteGitAsync } from './git-execution.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
 
 const TARGETS = new Set(['*', 'story:*', 'initiative:*']);
@@ -218,28 +220,38 @@ export function automaticEnrollmentMayPublish(root, configurationSnapshot) {
   }
 }
 
+/** The repository's main checkout when `root` is a linked worktree of it, else `root` itself. */
+function durableCheckout(root) {
+  try {
+    const common = gitCommonDir(root);
+    const main = path.basename(common) === '.git' ? path.dirname(common) : null;
+    return main && existsSync(common) && existsSync(main) ? main : root;
+  } catch {
+    return root;
+  }
+}
+
 /**
- * Why automatic approval enrollment stopped a Story start. The retained commit could not be pushed
- * to `sflow/config`; retrying alone meets the same refusal, so the error names Git's reason and its
- * fix before the retry that publishes the commit afterwards.
+ * What a Story start says when its automatic approval enrollment could not be pushed to
+ * `sflow/config`. The Story starts anyway with the approved configuration it inspected; this names
+ * Git's reason and its fix, and the retry that publishes the retained commit once that is fixed.
+ * A branch that moved meanwhile cannot take this commit: the next Story start enrolls again.
  */
-export function enrollmentPendingError(enrollment) {
+export function enrollmentPendingNotice(enrollment) {
   const fault = enrollment?.fault ?? null;
-  const retry = enrollment?.transportIntent ? `singularity-flow push retry ${enrollment.transportIntent}` : null;
-  const reason = fault ? ` Git refused the push to ${CONFIGURATION_BRANCH}${fault.classification ? ` (${fault.classification})` : ''}`
-    + `${fault.evidence?.diagnostic?.trim() ? `: "${fault.evidence.diagnostic.trim()}"` : ''}.${fault.advice ? ` ${fault.advice}` : ''}` : '';
-  const then = retry
-    ? ` ${fault ? 'After fixing that, run' : 'Run'}: ${retry}, then start the Story again.`
-    : enrollment?.nextAction?.command ? ` Run: ${enrollment.nextAction.command}`
-      : ' Publish the retained configuration commit and start again.';
-  return new SingularityFlowError(`Automatic approval enrollment is pending publication.${reason}${then}`, {
-    code: 'CONFIGURATION_ENROLLMENT_PENDING',
-    details: {
-      ...(retry ? { nextAction: { command: retry, skill: '/sf-push' } } : {}),
-      intentId: enrollment?.transportIntent ?? null, status: enrollment?.transportStatus ?? null,
-      classification: fault?.classification ?? null
-    }
-  });
+  const diverged = enrollment?.transportStatus === 'remote-diverged' || fault?.classification === 'remote-diverged';
+  const retry = enrollment?.transportIntent && !diverged ? `singularity-flow push retry ${enrollment.transportIntent}` : null;
+  const reason = diverged
+    ? ` ${CONFIGURATION_BRANCH} moved before the push landed, so the next Story start adds you again.`
+    : fault ? ` Git refused the push to ${CONFIGURATION_BRANCH}${fault.classification ? ` (${fault.classification})` : ''}`
+      + `${fault.evidence?.diagnostic?.trim() ? `: "${fault.evidence.diagnostic.trim()}"` : ''}.${fault.advice ? ` ${fault.advice}` : ''}` : '';
+  const then = retry ? ` ${fault ? 'After fixing that, run' : 'Run'}: ${retry}.` : '';
+  return {
+    message: `Your Git identity was not added to the approval groups on ${CONFIGURATION_BRANCH}; until it is, approvals need someone already in them.${reason}${then}`,
+    intentId: enrollment?.transportIntent ?? null, status: enrollment?.transportStatus ?? null,
+    classification: fault?.classification ?? null,
+    nextAction: retry ? { command: retry, skill: '/sf-push' } : null
+  };
 }
 
 /**
@@ -409,22 +421,26 @@ export async function publishCurrentIdentityToConfiguration(root, {
     }
     run('git', ['add', '--', ...files], { cwd: scratch });
     run('git', [
+      '-c', `core.hooksPath=${gitDisabledHooksPath()}`,
       '-c', `user.name=${member.name || 'Singularity Flow contributor'}`,
       '-c', `user.email=${member.email || 'unknown@invalid'}`,
       'commit', '-m', `[configuration] add ${member.email || member.githubLogin} to approval authorities`
     ], { cwd: scratch });
     const commit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
 
+    // A Story starts in its own checkout, which a failed start removes. Retain and push the commit
+    // from the repository's main checkout, which outlives it, so a later `push retry` can still run.
+    const publisher = durableCheckout(root);
     const retained = run('git', ['fetch', '--no-tags', '--', scratch, commit], {
-      cwd: root, allowFailure: true
+      cwd: publisher, allowFailure: true
     });
     if (retained.status !== 0) {
       throw new SingularityFlowError('The approved configuration commit could not be retained for recoverable publication.');
     }
-    run('git', ['update-ref', `refs/singularity/transport/configuration/${commit}`, commit], { cwd: root });
-    const remote = configurationRemoteName(root, remoteUrl);
+    run('git', ['update-ref', `refs/singularity/transport/configuration/${commit}`, commit], { cwd: publisher });
+    const remote = configurationRemoteName(publisher, remoteUrl);
     const publication = await createAndPushTransportIntent({
-      repositoryRoot: root,
+      repositoryRoot: publisher,
       remote,
       sourceCommit: commit,
       targetRef: `refs/heads/${CONFIGURATION_BRANCH}`,

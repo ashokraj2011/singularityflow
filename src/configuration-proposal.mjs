@@ -39,7 +39,7 @@ import { executeGitQuery } from './git-query.mjs';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 import { prepareConfigurationObjectCheckout } from './configuration-object-store.mjs';
 import { readGitNameStatusDiff } from './git-diff-name-status.mjs';
-import { createAndPushTransportIntent, createTransportIntent } from './transport-intents.mjs';
+import { createAndPushTransportIntent, createTransportIntent, transportRetryAction } from './transport-intents.mjs';
 import { openConfigurationStateService, readConfigurationTransactionJournals } from './configuration-state-service.mjs';
 import { prepareConfigurationStateTransaction, materializeConfigurationSnapshot,
   hydrateConfigurationProposal, configurationStateAtRef } from './configuration-state-git.mjs';
@@ -1206,7 +1206,10 @@ export async function proposeConfigurationChange(root, {
         + `After repairing the reported error, retry the retained upload: singularity-flow push retry ${publication.intentId} --json.`, {
           code: 'CONFIGURATION_PROPOSAL_PUBLICATION_PENDING',
           details: { branch: reviewBranch, commit, intentId: publication.intentId, status: publication.status,
-            failure: publication.fault, retryCommand: `singularity-flow push retry ${publication.intentId} --json` }
+            failure: publication.fault, retryCommand: `singularity-flow push retry ${publication.intentId} --json`,
+            // The routed way out (recovery plans read nextAction, not retryCommand).
+            ...(transportRetryAction(publication) ? { nextAction: transportRetryAction(publication) } : {}),
+            recoveryCommands: [`singularity-flow push status ${publication.intentId}`] }
         }
       );
     }

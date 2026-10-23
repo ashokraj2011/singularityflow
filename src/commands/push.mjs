@@ -1,6 +1,6 @@
 /** Inspect and retry exact pre-Story transport intents. */
 import {
-  listTransportIntents, readTransportIntent, REMOTE_DIVERGED_ADVICE, retryTransportIntent, transportIntentsForRepository
+  listTransportIntents, readTransportIntent, retryTransportIntent, transportCheckoutMissing, transportFaultSummary, transportIntentsForRepository
 } from '../transport-intents.mjs';
 import {
   action, commandResult, effects, noEffects, succeeded
@@ -10,29 +10,26 @@ import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
 /** Why a publication has not landed, when Git said: its class, Git's own line and the fix. */
 function faultSlots(intent) {
-  const fault = intent?.status === 'succeeded' ? null : intent?.fault;
-  if (!fault) return {};
-  const advice = fault.advice ?? (fault.classification === 'remote-diverged' ? REMOTE_DIVERGED_ADVICE : null);
-  return {
-    reason: `${fault.classification ?? 'unknown'}${fault.evidence?.diagnostic?.trim() ? `: ${fault.evidence.diagnostic.trim()}` : ''}`,
-    ...(advice ? { advice } : {})
-  };
+  return transportFaultSummary(intent) ?? {};
 }
 
+/**
+ * The way on, chosen from the intent's status, never from its stored action (which can name
+ * `push status` itself, or a raw `git fetch`): the retry while one can land the commit, nothing once
+ * it landed or the branch moved past it (the advice says to repeat the operation).
+ */
 function nextActions(intent) {
+  // Its checkout is gone: nothing can run there (the advice says to repeat the operation).
+  if (transportCheckoutMissing(intent)) return [];
+  const retry = `singularity-flow push retry ${intent?.intentId}`;
+  if (['pending', 'pushing', 'outcome-unknown'].includes(intent?.status)) {
+    return [action({ id: 'transport-next-action', label: 'Retry this preserved publication', command: retry, kind: 'remediation' })];
+  }
   // A refusal only a person can clear: once they have, the retry publishes the same commit.
   if (['needs-user', 'attempt-budget-exhausted'].includes(intent?.status)) {
-    return [action({ id: 'transport-next-action', label: 'Retry after fixing the cause',
-      command: `singularity-flow push retry ${intent.intentId}`, kind: 'remediation' })];
+    return [action({ id: 'transport-next-action', label: 'Retry after fixing the cause', command: retry, kind: 'remediation' })];
   }
-  // A diverged intent names a raw `git fetch`; only SFlow's own commands are routed actions.
-  if (!intent?.nextAction?.command?.startsWith('singularity-flow ')) return [];
-  return [action({
-    id: 'transport-next-action',
-    label: intent.status === 'pending' ? 'Retry this preserved publication' : 'Inspect this transport intent',
-    command: intent.nextAction.command,
-    kind: intent.status === 'pending' ? 'remediation' : 'informational'
-  })];
+  return [];
 }
 
 function result(operation, outcome, { intent = null, intents = null, changed = false } = {}) {

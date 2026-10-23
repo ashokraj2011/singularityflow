@@ -1181,24 +1181,19 @@ test('desktop Story intake binds a divergent launch checkout to the exact select
       choice.branch === 'release-capability' && choice.everywhere
     )), 'legacy interactive intake can choose a base before exact-base map validation');
 
-    const siblingCommonDirectory = path.resolve(
-      sibling.source,
-      run('git', ['rev-parse', '--git-common-dir'], sibling.source).stdout.trim()
-    );
-    const candidateStore = path.join(
-      siblingCommonDirectory, 'singularity-flow', 'sgos', 'candidates'
-    );
     const rejectConfigurationHook = path.join(lead.remote, 'hooks', 'pre-receive');
     run('git', ['config', 'user.email', 'new-story-identity@example.com'], lead.source);
-    await assert.rejects(
-      () => startStory(lead.source, {
-        id: 'WORK-CAP-REFUSED',
-        source: manualStorySource('WORK-CAP-REFUSED', {
-          title: 'Refuse enrollment before candidate retention'
-        }),
-        workType: 'feature', baseBranch: 'release-capability', capabilityId: 'payments',
-        afterPublicationPreflight: async () => {
-          await writeFile(rejectConfigurationHook, `#!/bin/sh
+    const launchBranch = run('git', ['branch', '--show-current'], lead.source).stdout.trim();
+    // A remote that refuses the enrollment push does not stop the Story: it starts with the approved
+    // configuration it inspected and names Git's reason and the retry.
+    const refused = await startStory(lead.source, {
+      id: 'WORK-CAP-REFUSED',
+      source: manualStorySource('WORK-CAP-REFUSED', {
+        title: 'Start although enrollment is refused'
+      }),
+      workType: 'feature', baseBranch: 'release-capability', capabilityId: 'payments',
+      afterPublicationPreflight: async () => {
+        await writeFile(rejectConfigurationHook, `#!/bin/sh
 while read old new ref; do
   if [ "$ref" = "refs/heads/sflow/config" ]; then
     echo "configuration enrollment rejected" >&2
@@ -1207,20 +1202,15 @@ while read old new ref; do
 done
 exit 0
 `);
-          run('chmod', ['+x', rejectConfigurationHook], lead.source);
-        }
-      }),
-      (error) => {
-        assert.equal(error?.code, 'CONFIGURATION_ENROLLMENT_PENDING');
-        // Retrying alone meets the same refusal: the error names Git's reason, then the retry.
-        assert.match(error.message, /Git refused the push to sflow\/config \([a-z-]+\): "remote: configuration enrollment rejected"\. /u);
-        assert.match(error.message, /run: singularity-flow push retry psh_[0-9a-f-]+, then start the Story again\.$/u);
-        assert.match(error.details.nextAction.command, /^singularity-flow push retry psh_[0-9a-f-]+$/u);
-        return true;
+        run('chmod', ['+x', rejectConfigurationHook], lead.source);
       }
-    );
-    await assert.rejects(stat(candidateStore), (error) => error?.code === 'ENOENT');
+    });
+    assert.equal(refused.workflow.workItem.id, 'WORK-CAP-REFUSED');
+    assert.equal(refused.approvalEnrollment.pushed, false);
+    assert.match(refused.approvalEnrollment.pending.message, /^Your Git identity was not added to the approval groups on sflow\/config; .* Git refused the push to sflow\/config \([a-z-]+\): "remote: configuration enrollment rejected"\. .* After fixing that, run: singularity-flow push retry psh_[0-9a-f-]+\.$/u);
+    assert.match(refused.approvalEnrollment.pending.nextAction.command, /^singularity-flow push retry psh_[0-9a-f-]+$/u);
     await rm(rejectConfigurationHook);
+    if (run('git', ['branch', '--show-current'], lead.source).stdout.trim() !== launchBranch) run('git', ['switch', '-q', launchBranch], lead.source);
 
     const started = await startStory(lead.source, {
       id: 'WORK-CAP-1',

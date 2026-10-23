@@ -442,17 +442,25 @@ test('the append built from Git objects is the commit the worktree append makes'
   assert.equal(header(objectCommit), header(worktreeCommit), 'tree, parent, author, committer and message match');
 });
 
-test('an installed hook the worktree append would run keeps the worktree append', { skip: process.platform === 'win32' }, async () => {
+test('the application repository\'s hooks never judge a ledger append, built from objects or in a worktree', { skip: process.platform === 'win32' }, async () => {
   const { root, parent } = await repository();
   await initializeLedger(root, enabled);
   const publishedCommit = git(root, ['rev-parse', 'HEAD']).stdout.trim();
-  const marker = path.join(parent, 'post-checkout-ran');
-  const hook = path.join(root, '.git', 'hooks', 'post-checkout');
-  await writeFile(hook, `#!/bin/sh\ntouch '${marker}'\n`);
-  await chmod(hook, 0o755);
-  const prepared = await prepareLedgerAppend(root, enabled, appendIntent('WORK-HOOKED'), publishedCommit);
-  assert.ok(prepared?.ledgerCommit);
-  assert.equal(await readFile(marker, 'utf8'), '', 'the hook ran because the worktree append ran');
+  // An office repository's hooks: a pre-commit framework with no config here, a commit-msg rule that
+  // wants a Jira key, and a post-checkout script. Ledger commits are SFlow's own records.
+  const marker = path.join(parent, 'hook-ran');
+  for (const name of ['pre-commit', 'commit-msg', 'post-checkout']) {
+    const hook = path.join(root, '.git', 'hooks', name);
+    await writeFile(hook, `#!/bin/sh\necho ${name} >> '${marker}'\nexit 1\n`);
+    await chmod(hook, 0o755);
+  }
+  const fromObjects = await prepareLedgerAppend(root, enabled, appendIntent('WORK-HOOKED'), publishedCommit);
+  assert.ok(fromObjects?.ledgerCommit);
+  const inWorktree = await prepareLedgerAppend(root, enabled, appendIntent('WORK-HOOKED-WORKTREE'), publishedCommit, {
+    env: { ...process.env, SINGULARITY_FLOW_LEDGER_APPEND_WORKTREE: '1' }
+  });
+  assert.ok(inWorktree?.ledgerCommit);
+  await assert.rejects(readFile(marker, 'utf8'), (error) => error.code === 'ENOENT', 'no application hook ran');
 });
 
 test('a ledger entry and its pin land together in one atomic push after one observation', async () => {

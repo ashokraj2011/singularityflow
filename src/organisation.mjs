@@ -62,7 +62,7 @@ import {
 import { configurationAssetPolicy, mergeConfigurationAssetPolicies } from './configuration-assets.mjs';
 import { normalizeCloneStrategy } from './clone-strategy.mjs';
 import { normalizeSourceRoots } from './source-scope.mjs';
-import { createAndPushTransportIntent } from './transport-intents.mjs';
+import { createAndPushTransportIntent, pendingPublicationNote } from './transport-intents.mjs';
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, configuredRemoteIdentity,
   frozenRemoteTransport, remoteFingerprint, redactDiagnosticText, safeGitDiagnosticReference,
@@ -8234,7 +8234,7 @@ async function initializeWorkspaceStateUnderLease(root, {
     governancePublished = publicationIntent.status === 'succeeded';
     publicationError = governancePublished
       ? null
-      : `Transport ${publicationIntent.intentId} is ${publicationIntent.status}`;
+      : `Transport ${publicationIntent.intentId} is ${publicationIntent.status}.${pendingPublicationNote(publicationIntent).sentence}`;
   }
   if (push && governancePublished && url && governanceBranch.startsWith('sflow/govern/')) {
     await ensureConfigurationBranch(url, {

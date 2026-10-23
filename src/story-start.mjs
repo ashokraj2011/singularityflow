@@ -43,7 +43,7 @@ import {
   captureConfigurationState, CONFIGURATION_BRANCH, loadStoryConfigurationSnapshot,
   materializeConfigurationSnapshot, readConfigurationSource, resolveNewStoryConfigurationAuthority
 } from './configuration-branch.mjs';
-import { enrollmentPendingError, publishCurrentIdentityToConfiguration } from './configuration-people.mjs';
+import { enrollmentPendingNotice, publishCurrentIdentityToConfiguration } from './configuration-people.mjs';
 import {
   publishCapabilityRepositoriesDurably, retainCapabilityPublicationRecovery
 } from './capability-publication-recovery.mjs';
@@ -252,6 +252,7 @@ export async function startStory(root, {
 } = {}) {
   normalizeQualityGateMode(qualityGateMode);
   assertSafeStoryId(id);
+  let approvalEnrollmentPending = null;
   if (!['reference', 'shadow'].includes(gitReadMode)) {
     throw new SingularityFlowError(`Unsupported Story-start Git read mode '${gitReadMode}'.`, {
       code: 'FOS_GIT_SHADOW_MODE_INVALID'
@@ -573,8 +574,9 @@ export async function startStory(root, {
         target: '*', automatic: true, configurationSnapshot: approvedConfigurationSnapshot,
         expectedSourceCommit: selectedConfigurationCommit
       });
-      if (enrollment.changed && !enrollment.pushed) throw enrollmentPendingError(enrollment);
-      if (enrollment.changed) {
+      // A refused enrollment push does not stop the Story; it starts with the configuration inspected.
+      if (enrollment.changed && !enrollment.pushed) approvalEnrollmentPending = enrollmentPendingNotice(enrollment);
+      if (enrollment.changed && enrollment.pushed) {
         // `rev-parse` without --verify echoes an unresolved argument, and a failed read is not a
         // concurrent configuration change: only Git's clean "no parent" may fall through to stale.
         const enrollmentParent = gitReadOutput(run('git', [
@@ -922,6 +924,7 @@ export async function startStory(root, {
       cohort: workflow.measurement.plan.groupId,
       promptVariant: workflow.measurement.plan.variantId ?? null
     } : { status: workflow.measurement?.status ?? 'not-enrolled' },
+    ...(approvalEnrollmentPending ? { approvalEnrollment: { automatic: true, pushed: false, pending: approvalEnrollmentPending } } : {}),
     astWarm,
     readiness: startReadiness,
     capabilityPublication,

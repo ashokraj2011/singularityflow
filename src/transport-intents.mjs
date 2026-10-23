@@ -1,5 +1,6 @@
 /** Durable, exact commit-to-ref transport intents for pushes outside Story publication. */
 import { createHash, randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { readFile, readdir, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -28,6 +29,64 @@ const TERMINAL = new Set(['succeeded', 'remote-diverged', 'needs-user', 'attempt
 /** What a person does when the target branch moved past a retained commit: no retry can land it. */
 export const REMOTE_DIVERGED_ADVICE = 'The remote branch moved after this commit was made, so it cannot be pushed as it is. '
   + 'Repeat the operation that made it; a Story start makes its approval enrollment again from the current branch.';
+
+/**
+ * Why a retained publication has not landed, as Git said it: its class with Git's own first line,
+ * and the fix. Null once it landed or when nothing was recorded. Every surface that reports a
+ * pending publication uses this, so none of them leaves the reason out.
+ */
+export function transportFaultSummary(intent) {
+  const fault = intent?.status === 'succeeded' ? null : intent?.fault;
+  if (transportCheckoutMissing(intent)) {
+    return { reason: `checkout-missing: ${intent.repositoryRoot}`, advice: CHECKOUT_MISSING_ADVICE };
+  }
+  if (!fault) return null;
+  const advice = fault.advice ?? (fault.classification === 'remote-diverged' ? REMOTE_DIVERGED_ADVICE : null);
+  return {
+    reason: `${fault.classification ?? 'unknown'}${fault.evidence?.diagnostic?.trim() ? `: ${fault.evidence.diagnostic.trim()}` : ''}`,
+    ...(advice ? { advice } : {})
+  };
+}
+
+/** The same, as a sentence to append to a message: " Git refused it (<reason>). <advice>" or "". */
+export function transportFaultSentence(intent) {
+  const summary = transportFaultSummary(intent);
+  return summary ? ` Git refused it (${summary.reason}).${summary.advice ? ` ${summary.advice}` : ''}` : '';
+}
+
+/**
+ * What a report of a pending publication adds: Git's reason, then the retry while one can still land
+ * the commit; and the refusal details that route it (the retry, with push status to inspect).
+ */
+export function pendingPublicationNote(intent) {
+  const retry = transportRetryAction(intent);
+  const reason = intent?.status === 'remote-diverged' ? ` ${REMOTE_DIVERGED_ADVICE}` : transportFaultSentence(intent);
+  return {
+    sentence: `${reason}${retry ? ` ${reason ? 'Once that is fixed, retry it' : 'Retry it'}: ${retry.command}.` : ''}`,
+    details: {
+      intentId: intent?.intentId ?? null, status: intent?.status ?? null,
+      ...(retry ? { nextAction: retry } : {}),
+      ...(intent?.intentId ? { recoveryCommands: [`singularity-flow push status ${intent.intentId}`] } : {})
+    }
+  };
+}
+
+/**
+ * Whether the checkout a push was saved in is gone (a failed Story start removes its own folder):
+ * nothing can run there, so no retry is offered and the operation that made the commit is repeated.
+ */
+export function transportCheckoutMissing(intent) {
+  return Boolean(intent?.repositoryRoot) && intent.status !== 'succeeded' && !existsSync(intent.repositoryRoot);
+}
+
+export const CHECKOUT_MISSING_ADVICE = 'The checkout this push was saved in no longer exists, so it cannot be retried. '
+  + 'Repeat the operation that made the commit; a Story start adds you to the approval groups again.';
+
+/** The retry that publishes a retained commit, while one can still land it. */
+export function transportRetryAction(intent) {
+  return intent?.intentId && !['succeeded', 'remote-diverged'].includes(intent.status) && !transportCheckoutMissing(intent)
+    ? { command: `singularity-flow push retry ${intent.intentId}`, skill: '/sf-push' } : null;
+}
 const TRANSPORT_DIAGNOSTIC_MAX_BYTES = 4096;
 const TRANSPORT_PUSH_MAX_BYTES = 1024 * 1024;
 
@@ -413,8 +472,12 @@ function pushAcquiredExpectedTransition(result, intent) {
  */
 async function executeIntentPush(intent, { dryRun, lease, env, runCommand, runAsyncCommand }) {
   const transport = frozenRemoteTransport(intent.remoteUrl, { push: true, env });
+  // SFlow's own branches (sflow/config, its review and governance branches) carry configuration,
+  // not application code: the repository's pre-push hook (lint, tests, branch-name rules) is for
+  // its application branches, so it does not judge them. Other targets keep their hooks.
   const args = [
-    'push', ...(dryRun ? ['--dry-run'] : []), '--porcelain', lease,
+    'push', ...(intent.targetRef.startsWith('refs/heads/sflow/') ? ['--no-verify'] : []),
+    ...(dryRun ? ['--dry-run'] : []), '--porcelain', lease,
     transport.remote, `${intent.sourceCommit}:${intent.targetRef}`
   ];
   const options = {
@@ -470,15 +533,27 @@ export async function retryTransportIntent(intentId, {
   runAsyncCommand = null, runAsyncProbeCommand = null, allowNeedsUser = false
 } = {}) {
   const outbox = transportOutboxRoot(env, home);
+  // The lease and every Git step run in the checkout the push was saved in; when that folder is gone
+  // (a failed Story start removes its own), say so rather than fail to start Git there.
+  const saved = await readTransportIntent(intentId, { env, home });
+  if (transportCheckoutMissing(saved)) {
+    throw new SingularityFlowError(`Transport intent '${intentId}' cannot be retried: the checkout it was saved in (${saved.repositoryRoot}) `
+      + 'no longer exists. Nothing was pushed. Repeat the operation that made the commit; a Story start adds you to the approval groups again.', {
+        code: 'TRANSPORT_REPOSITORY_MISSING', details: { intentId, status: saved.status, repositoryRoot: saved.repositoryRoot }
+      });
+  }
   return withIntentLease(intentId, { env, home }, async () => {
     const localGitEnv = withoutGitProcessOverrides(env);
     let intent = await readTransportIntent(intentId, { env, home });
     if (intent.status === 'succeeded') return intent;
     if (intent.status === 'remote-diverged' || (intent.status === 'needs-user' && !allowNeedsUser)) {
-      const why = intent.status === 'remote-diverged' ? ` ${REMOTE_DIVERGED_ADVICE}`
-        : intent.fault?.advice ? ` Git refused it (${intent.fault.classification}). ${intent.fault.advice}` : '';
+      const why = intent.status === 'remote-diverged' ? ` ${REMOTE_DIVERGED_ADVICE}` : transportFaultSentence(intent);
+      // The person's own `push retry` is the way out once the cause is fixed; an automatic caller
+      // (a resumed workspace setup) routes it instead of starting over into the same refusal.
+      const retry = intent.status === 'needs-user' ? transportRetryAction(intent) : null;
       throw new SingularityFlowError(`Transport intent '${intentId}' requires human reconciliation.${why}`, {
-        code: 'TRANSPORT_INTENT_NEEDS_USER', details: { status: intent.status }
+        code: 'TRANSPORT_INTENT_NEEDS_USER',
+        details: { status: intent.status, intentId, ...(retry ? { nextAction: retry } : {}) }
       });
     }
     if (await repositoryFingerprint(intent.repositoryRoot) !== intent.repositoryRootFingerprint) {
@@ -497,8 +572,12 @@ export async function retryTransportIntent(intentId, {
     if (!configuredUrl
       || `sha256:${remoteFingerprint(configuredUrl)}` !== intent.remoteFingerprint
       || configuredUrl !== intent.remoteUrl) {
+      // Switching a remote (HTTPS to SSH, say) is the usual way round a sign-in problem; say which
+      // URL this saved push was made for, so the person can point the remote back or start over.
       throw new SingularityFlowError(
-        `Transport intent '${intentId}' no longer points to its authorized remote. Nothing was pushed.`, {
+        `Transport intent '${intentId}' no longer points to its authorized remote: it was saved for ${sanitizeRemote(intent.remoteUrl)}, `
+        + `and '${intent.remote}' now points elsewhere. Nothing was pushed. Point '${intent.remote}' back at that URL with git remote set-url, `
+        + 'or repeat the operation that made this commit.', {
           code: 'TRANSPORT_REMOTE_DRIFTED',
           details: { remote: intent.remote, expectedRemote: sanitizeRemote(intent.remoteUrl) }
         }
@@ -516,7 +595,8 @@ export async function retryTransportIntent(intentId, {
       ], { cwd: intent.repositoryRoot, allowFailure: true, env: localGitEnv });
       if (retained.status !== 0 || retained.stdout.trim() !== intent.sourceCommit) {
         throw new SingularityFlowError(
-          `Transport intent '${intentId}' is reserved, but its exact commit is not installed on ${requiredLocalRef}. Nothing was pushed.`, {
+          `Transport intent '${intentId}' is reserved, but its exact commit is not installed on ${requiredLocalRef}: the branch has moved past it or never took it. `
+          + 'Nothing was pushed, and this saved push cannot land as it is; repeat the operation that made the commit.', {
             code: 'TRANSPORT_SOURCE_NOT_INSTALLED',
             details: {
               sourceCommit: intent.sourceCommit,

@@ -22,16 +22,16 @@ and `.git/singularity-flow/` directory; all workspace directories and registrati
 credentials; Node.js; npm; and personal Copilot skills that lack the managed marker.
 
 1. Require the contributor to identify the Singularity Flow source checkout to install. From a promoted release directory
-   instead, run `sf-install --release-dir "<DIR>" --artifact-key "<PUBLIC-KEY>"` with
-   `--dry-run`, then steps 3-7 with `--confirm "<EXACT CONFIRMATION>"`; without either flag it applies at once.
-2. Preview with `sf-reinstall --checkout "<CHECKOUT>" --dry-run`. `--registry "<URL>"` selects a company registry; `--cli-only` omits Copilot/VS Code only by request.
+   instead, no SFlow command installs: give the person `sf-install --release-dir "<DIR>" --artifact-key "<PUBLIC-KEY>"` with
+   `--dry-run`, then `--confirm "<EXACT CONFIRMATION>"`, for their own terminal; without either flag it applies at once.
+2. Preview with `singularity-flow reinstall --checkout "<CHECKOUT>" --dry-run`. `--registry "<URL>"` selects a company registry; `--cli-only` omits Copilot/VS Code only by request.
    `--skip-tests` needs explicit consent, never inferred from failures. Keep build/artifact checks;
    disclose skipped tests.
 3. Show the complete **Replace**, **Preserve**, artifact hashes, fingerprint and any unavailable
    optional surface; never summarize away a preserved-data guarantee.
 4. The contributor must give the exact fingerprint-bound confirmation in a separate response; never
    generate, infer or submit it for them.
-5. After that explicit response, run `sf-reinstall --checkout "<CHECKOUT>" --confirm "<EXACT CONFIRMATION>"`.
+5. After that explicit response, run `singularity-flow reinstall --checkout "<CHECKOUT>" --confirm "<EXACT CONFIRMATION>"`.
    Repeat the preview's `--registry`, `--cli-only`, `--skip-tests` and telemetry choices.
 6. Build/test/package output is staging, not activation; matching versions do not prove build identity.
    Report full installation only when the final banner is exactly `Singularity Flow product activation — COMPLETE AND VERIFIED`, the installed

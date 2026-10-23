@@ -126,7 +126,7 @@ import { adoptEpicStory, completeEpicIntake, completeEpicPublication, EPIC_PHASE
 import { finalizeStoryDelivery } from './story-lineage.mjs';
 import { cancelledWorktreeReleasePlan, releaseCancelledWorktree } from './cancelled-worktree.mjs';
 import { readReturnLocatorAtRef } from './return-locator.mjs';
-import { attemptRepair, authorizeRepair, cancelRepair, diagnoseFault, listFaults, listRepairs, governedFaultRepairPolicy, parseVerificationArgv, readFault, readRepair, repairNextActions, reportFault, requestRepair, wrapCommandWithFaultRepair } from './fault-repair.mjs';
+import { attemptRepair, authorizeRepair, cancelRepair, diagnoseFault, faultRepairStateRoot, listFaults, listRepairs, governedFaultRepairPolicy, parseVerificationArgv, readFault, readRepair, repairNextActions, reportFault, requestRepair, wrapCommandWithFaultRepair } from './fault-repair.mjs';
 import { createPullRequest, createStoryPullRequest, epicPullRequestPlan, storyPullRequestPlan, updateStoryPullRequest } from './pull-request.mjs';
 import { copyToClipboard } from './clipboard.mjs';
 import { epicCheckStory, epicReviewDecision, epicReviewStory, listEpicReviewInbox } from './epic-review.mjs';
@@ -6173,7 +6173,13 @@ async function repairCommand(positionals, options) {
     : subcommand === 'status' ? 'repair.returned'
       : subcommand === 'authorize' ? 'repair.authorized'
         : subcommand === 'attempt' ? 'repair.attempted' : 'repair.cancelled';
-  const commands = state ? repairNextActions(state).map((command) => ({ label: 'Continue the repair', command })) : [];
+  // A repair awaiting its patch names the one file to write it in; live /sf-fix turns may write exactly that file.
+  const patchFile = state?.status === 'awaiting-patch' && ['authorize', 'status'].includes(subcommand)
+    ? path.join(faultRepairStateRoot(root), 'patch-drafts', `${state.repairId}.patch`) : null;
+  if (patchFile) await mkdir(path.dirname(patchFile), { recursive: true, mode: 0o700 }).then(() => import('./copilot-mutation-guard.mjs'))
+    .then(({ issueDraftStaging }) => issueDraftStaging('repair', [patchFile], { root })).catch(() => 0);
+  const commands = state ? repairNextActions(state).map((command) => ({ label: 'Continue the repair',
+    command: patchFile ? command.replace('<PATCH-FILE>', /^[\w./:@%+=,-]+$/u.test(patchFile) ? patchFile : `'${patchFile}'`) : command })) : [];
   return emitFaultRepairResult({
     operationId: `repair.${subcommand}`, classification: read ? 'read' : 'mutation', messageId,
     slots: subcommand === 'list' ? { count: result.repairs.length }
@@ -7736,6 +7742,12 @@ function initiativeDraftTransaction(root, portfolio, initiative, operation, writ
   });
 }
 
+/** Let live Epic and Initiative drafting turns edit exactly these step outputs (copilot-mutation-guard.mjs). */
+async function issueInitiativeDrafts(root, outputs) {
+  await import('./copilot-mutation-guard.mjs').then(({ issueDraftStaging }) => issueDraftStaging('initiative',
+    outputs.map((output) => path.join(root, output.path)), { root })).catch(() => 0);
+}
+
 async function initiativeCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
   const root = repoRoot();
@@ -8027,6 +8039,9 @@ async function initiativeCommand(positionals, options) {
       const result = await initiativePhaseDraftCheck(root, initiativeId, phaseId, {
         session
       });
+      // While the step is authored, live drafting turns may edit exactly its authored outputs.
+      if (result.phaseStatus === 'in_progress') await issueInitiativeDrafts(root, result.outputs.filter((output) => output.producer !== 'deterministic'
+        && ['markdown', 'yaml', 'interface-contract'].includes(output.kind)));
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
       console.log(`${initiative.phases[phaseId]?.label ?? phaseId} draft: ${result.status}.`);
       for (const output of result.outputs) {
@@ -8112,6 +8127,7 @@ async function initiativeCommand(positionals, options) {
         }
       );
       const { context, ...result } = prepared;
+      await issueInitiativeDrafts(root, result.outputs.filter((document) => !document.generated && !document.awaitingUpload));
       console.log(`Prepared ${result.outputs.length} ${phaseId} documents. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
       console.log(`Copilot prompt: ${context.record.promptPath} (${context.record.renderedSha256.slice(0, 12)})`);
       context.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));

@@ -1,7 +1,7 @@
 /** Explicit-turn interception. Ordinary chat/pause never loads Story policy. */
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { realpathSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { deriveMutationContract, mutationContractPresentation, mutationDenial, mutationPathDecision, mutationTurnMode } from './phase-mutation-contract.mjs';
@@ -59,6 +59,33 @@ const UPSTREAM_ISSUE_DECISIONS = Object.freeze(['decide', 'decide-amendment', 'r
 export const DECISION_LIST_CHAT_OPTIONS = Object.freeze(['accept-risk', 'dismiss', 'return']);
 const DELEGATION = new Set(['task', 'spawn_agent', 'write_agent', 'delegate', 'run_subagent']);
 const IMPORT_TEAM_COMMANDS = Object.freeze(['inspect', 'compile', 'status']);
+/**
+ * Skills whose own steps write exact files an SFlow command issued to this turn, which another of their
+ * commands then consumes. `initiative`: an Epic or Initiative step's authored outputs, issued by
+ * `initiative phase` (which `epic requirements|planning prepare` run) and `initiative phase draft-check`
+ * and published from where they are by `initiative phase publish`; the Epic skills also get one
+ * Git-private source-text draft, named in their turn's rules, for `epic sources note|answer --text-file`.
+ * `repair`: the patch file `repair authorize|status` names for /sf-fix's `repair attempt --patch`.
+ * Each grant is one exact file, never a directory or another repository file.
+ */
+const DRAFT_SKILLS = Object.freeze({ 'epic-story-draft': 'initiative', 'epic-planning': 'initiative',
+  'epic-requirements': 'initiative', 'initiative-phase': 'initiative', fix: 'repair' });
+const SOURCE_TEXT_SKILLS = Object.freeze(['epic-story-draft', 'epic-planning', 'epic-requirements']);
+const skillName = skill => String(skill ?? '').replace(/^\/?(?:sf|sflow)-/u, '');
+const draftKind = skill => DRAFT_SKILLS[skillName(skill)] ?? null;
+/** The Epic source-text draft beside the checkout's Git data, for `epic sources note|answer --text-file`. */
+export function epicSourceTextDraftPath(gitDirectory) {
+  return path.join(gitDirectory, 'singularity-flow', 'epic-source-drafts', 'source-text.md');
+}
+async function derivedDraftStaging(skill, gitDirectory) {
+  if (!gitDirectory || !SOURCE_TEXT_SKILLS.includes(skillName(skill))) return [];
+  const draft = epicSourceTextDraftPath(gitDirectory);
+  // The kernel prepares only this file's parent; the parent grants no edits.
+  await mkdir(path.dirname(draft), { recursive: true, mode: 0o700 }).catch(() => {});
+  return [draft];
+}
+const sourceTextRule = files => files.length
+  ? ` Write an Epic source note or answer only at the issued file ${files[0]}, for epic sources note|answer --text-file.` : '';
 const digest = value => createHash('sha256').update(value).digest('hex');
 const directory = () => path.join(path.dirname(copilotModeFile()), 'copilot-boundaries');
 function key(payload) {
@@ -156,6 +183,9 @@ async function createRecord(payload, record, root, accepted, previous = null) {
   if (mode === 'approval-only' && contract.allow.staging.length) {
     contract.summary = `${contract.summary} Draft an intent amendment only at the issued file ${contract.allow.staging.join(', ')}, for story intent-amendment propose --file.`;
   }
+  const sourceText = await derivedDraftStaging(record.skill, gitIdentity.gitDir);
+  contract.summary += sourceTextRule(sourceText);
+  const draftStaging = [...new Set([...sourceText, ...(previous?.draftStaging ?? [])])];
   const value = { schemaVersion: currentSchemaVersion('copilot-mutation-contract'), kind: 'copilot-mutation-contract',
     turnId: record.turnId, sessionId: record.sessionId, skill: record.skill, recordedAt: record.recordedAt,
     modeChangedAt: record.modeChangedAt, contract,
@@ -168,6 +198,7 @@ async function createRecord(payload, record, root, accepted, previous = null) {
     ...(previous?.buildStaging ? { buildStaging: previous.buildStaging } : {}),
     ...(previous?.fixStaging ? { fixStaging: previous.fixStaging } : {}),
     ...(previous?.appDraftStaging ? { appDraftStaging: previous.appDraftStaging } : {}),
+    ...(draftStaging.length ? { draftStaging } : {}),
     // Which turn rules this conversation already has: a refreshed contract does not take them back.
     ...(previous?.contextDigest ? { contextDigest: previous.contextDigest } : {}) };
   return value;
@@ -244,9 +275,16 @@ export async function captureMutationTurn(payload, record, {
     }
     return { additionalContext: turnBoundaryText(context, given) };
   } catch {
+    // An Epic or Initiative checkout binds no Story: its drafting skills still write the files their
+    // own SFlow commands issue, and the Epic skills one source-text draft, named here.
+    const draftStaging = root && draftKind(record.skill)
+      ? await import('./git.mjs').then(({ gitDir }) => derivedDraftStaging(record.skill, gitDir(root))).catch(() => []) : [];
     await atomicRecord(file, { schemaVersion: currentSchemaVersion('copilot-mutation-contract'), kind: 'copilot-mutation-contract',
       sessionId: record.sessionId, turnId: record.turnId, skill: record.skill, modeChangedAt: record.modeChangedAt,
-      contract: null, repositoryRoot: root, recordedAt: record.recordedAt });
+      contract: null, repositoryRoot: root, recordedAt: record.recordedAt, ...(draftStaging.length ? { draftStaging } : {}) });
+    if (root && draftKind(record.skill)) return { additionalContext: `SFlow turn boundary (${record.skill}): ${mutationTurnMode(record.skill)} turn, no Story. `
+      + `Edit only the exact files this turn's SFlow commands issue (${draftKind(record.skill) === 'repair' ? 'the patch file repair authorize or repair status names'
+        : 'the step outputs initiative phase prepare or draft-check returns'}); no other file.${sourceTextRule(draftStaging)} ${CLI_PATH_REFERENCE}` };
   }
 }
 
@@ -416,9 +454,41 @@ function verifiedShellForm(call, value) {
 
 function shellAllowed(call, mode, value) {
   const safe = verifiedShellForm(call, value);
-  if (!safe) return false;
-  const { positionals, options } = parseArgs(safe.argv);
-  if (['hook', 'run', 'exec'].includes(positionals[0])) return false;
+  return Boolean(safe) && argvAllowed(safe.argv, mode, value);
+}
+
+/**
+ * The stored argv of the planned action `action execute` names, read as `selectPlannedAction` selects
+ * it (exact or prefix ID, or the plan's only executable action), or null when it cannot be read here.
+ * The CLI still verifies the plan's content hash, freshness and the one-time authorization.
+ */
+function plannedActionArgv(positionals, options, value) {
+  const planId = positionals[2] ?? options.plan;
+  if (!value.binding?.gitDir || typeof planId !== 'string' || !/^[a-f0-9]{12,64}$/iu.test(planId)) return null;
+  try {
+    const plan = JSON.parse(readFileSync(path.join(value.binding.gitDir, 'singularity-flow', 'action-plans', `${planId}.json`), 'utf8'));
+    const actions = Array.isArray(plan?.actions) ? plan.actions : [];
+    const selected = options.action === undefined ? actions.filter(action => action?.executable)
+      : actions.filter(action => typeof options.action === 'string' && typeof action?.actionId === 'string'
+        && action.actionId.startsWith(options.action)).slice(0, 1);
+    const argv = selected.length === 1 && selected[0].executable ? selected[0].argv : null;
+    return Array.isArray(argv) && argv.length && argv.every(item => typeof item === 'string' && !/[\u0000-\u001f\u007f]/u.test(item))
+      ? argv : null;
+  } catch { return null; }
+}
+
+function argvAllowed(argv, mode, value) {
+  const { positionals, options } = parseArgs(argv);
+  // A lifecycle hook records host decisions (a turn's own boundary among them): the host runs it, never a turn.
+  if (['hook', 'exec'].includes(positionals[0])) return false;
+  // `run --repair-on-fault` runs the command it wraps unchecked; the guided `run` is `next` and `submit`.
+  if (positionals[0] === 'run' && (positionals.length > 1 || options['repair-on-fault'] !== undefined)) return false;
+  // `action execute` runs its plan's stored command in this process: a turn admits it only when it
+  // would admit that command itself, so a plan cannot carry an approval or a person's decision past it.
+  if (positionals[0] === 'action' && positionals[1] === 'execute') {
+    const planned = plannedActionArgv(positionals, options, value);
+    if (!planned || planned[0] === 'action' || !argvAllowed(planned, mode, value)) return false;
+  }
   // Environment values come only from the person's own secret helper on standard input, in no turn.
   if (positionals[0] === 'env' && ['bind', 'unbind'].includes(positionals[1])) return false;
   // Confirming a workflow delete is the person's own step, in any turn; the preview stays allowed.
@@ -574,6 +644,22 @@ function environmentBinding(call, value) {
   const { positionals } = parseArgs(safe.argv);
   return positionals[0] === 'env' && ['bind', 'unbind'].includes(positionals[1]);
 }
+const ENVIRONMENT_BINDING_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: environment values are bound and removed only by the person: they pipe their own secret helper into `singularity-flow env bind <ENV> --stdin`, or run `singularity-flow env unbind <ENV> --json`, in their own terminal. Give them that command; never ask for, type or pipe a value';
+
+/** A verified `action execute` this turn refused for the planned command it would run. */
+function plannedActionExecution(call, value) {
+  const safe = verifiedShellForm(call, value);
+  if (!safe) return false;
+  const { positionals } = parseArgs(safe.argv);
+  return positionals[0] === 'action' && positionals[1] === 'execute';
+}
+/** A verified `hook`: a host integration point no turn runs. */
+function hookInvocation(call, value) {
+  const safe = verifiedShellForm(call, value);
+  return Boolean(safe) && parseArgs(safe.argv).positionals[0] === 'hook';
+}
+const HOOK_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: a lifecycle hook records the host\'s own decisions (a turn\'s boundary among them), so only the host runs it, or the person in their own terminal with the exact payload. Give them the command; do not retry it';
+const PLANNED_ACTION_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: action execute runs its planned command in this process, and this turn may not run that command itself (an approval or rejection, a person\'s own decision, or a plan this checkout does not hold). Show the user the planned command and its own route; do not retry it';
 
 /** A verified `recover --set-aside`: a person's decision about changes held for review. */
 function setAsideDecision(call, value) {
@@ -638,13 +724,16 @@ const NO_STORY_COMMANDS = Object.freeze({
   'epic-review-decision': ['epic'], 'epic-sources': ['epic'], 'epic-start': ['epic', 'initiative'],
   'epic-stories': ['epic'], 'epic-story-draft': ['epic', 'initiative'], 'epic-sync': ['epic'],
   'factory-reset': ['factory-reset'], fault: ['fault'], 'fresh-install': ['fresh-install'], goal: ['goal'],
+  // A fault and its bounded repair need no Story (/sf-fault records one in any checkout).
+  fix: ['fault', 'fix', 'repair'],
   'governance-rebuild': ['governance'],
   impact: ['impact'], import: ['import', 'imports', 'marketplace'],
   'initiative-approve': ['initiative'], 'initiative-evidence': ['initiative'], 'initiative-materialize': ['initiative'],
   'initiative-phase': ['initiative'], 'initiative-start': ['initiative'], 'jira-initiative': ['initiative'],
   'jira-update': ['jira'], integrations: ['integrations'], journal: ['journal'], knowledge: ['knowledge'], learn: ['learn'],
   ledger: ['ledger'], local: ['local'], 'local-reset': ['local-reset'], mcp: ['mcp'], plugin: ['plugin'],
-  product: ['product'], 'prompt-log': ['prompt-log'], push: ['push'], quickstart: ['quickstart'], ready: ['precheck'],
+  product: ['product'], 'prompt-log': ['prompt-log'], push: ['push'], quickstart: ['quickstart'],
+  ready: ['precheck'], reinstall: ['reinstall'],
   'refresh-configuration': ['workspace'], 'reset-all': ['reset-all'], return: ['return'], secrets: ['secrets'],
   sgos: ['intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit',
     'device', 'authority-store', 'pack', 'memory', 'meta-tool'],
@@ -793,7 +882,7 @@ async function runAndTestGuard(payload, record, toolCalls) {
     if (DELEGATION.has(call.name)) return deny('RUN_AND_TEST_DELEGATION_NOT_ALLOWED: start the application or run the tests in this turn; it does not delegate');
     if (TERMINALS.has(call.name)) {
       if (shellAllowed(call, 'run-and-test', scope)) continue;
-      if (environmentBinding(call, scope)) return deny('PHASE_MUTATION_OPERATION_NOT_ALLOWED: environment values are bound only by the person, who pipes their own secret helper into `singularity-flow env bind <ENV> --stdin` in their own terminal. Give them that command; never ask for, type or pipe a value');
+      if (environmentBinding(call, scope)) return deny(ENVIRONMENT_BINDING_DENIAL);
       const draft = unissuedDraftOption(call, scope, 'run-and-test', 'appDraftStaging',
         (positionals, options) => positionals[0] === 'capability' ? options['application-file'] : null);
       if (draft) return deny(`RUN_AND_TEST_DRAFT_NOT_ISSUED: ${draft} is not issued to this turn. Run singularity-flow app suggest --json standalone in this turn first: it issues the same draft file and leaves what is in it unchanged. Then run this command again`);
@@ -882,6 +971,22 @@ export async function mutationToolGuard(payload = {}) {
   if (mutationTurnMode(record.skill) === 'build-workflow') return buildWorkflowGuard(payload, record, toolCalls);
   if (mutationTurnMode(record.skill) === 'fix-workflow') return fixWorkflowGuard(payload, record, toolCalls);
   if (mutationTurnMode(record.skill) === 'run-and-test') return runAndTestGuard(payload, record, toolCalls);
+  // A drafting skill's edits to exactly the files its SFlow commands issued to this live turn pass;
+  // every other call in the batch is judged as it would be alone.
+  const drafts = draftKind(record.skill) && guarded.some(call => isEdit(call.name)) ? await importTeamTurn(payload, record) : null;
+  const issuedDrafts = (drafts?.draftStaging ?? []).map(file => path.resolve(file));
+  if (issuedDrafts.length) {
+    const root = drafts.contract?.repositoryRoot ?? drafts.repositoryRoot ?? process.cwd();
+    // The same exact-file check as a phase's staging grant (no links, no other path), with nothing else allowed.
+    const only = { repositoryRoot: root, allow: { staging: issuedDrafts, artifacts: [], application: false },
+      deny: { protectedPaths: [] }, ownership: { caseInsensitivePaths: false }, policy: {} };
+    const issuedEdit = call => isEdit(call.name) && targets(call.args).length > 0 && targets(call.args).every(target => {
+      try { return mutationPathDecision(only, target, call.args.cwd ?? payload.cwd ?? root).staging === true; } catch { return false; }
+    });
+    const rest = toolCalls.filter(call => !issuedEdit(call));
+    if (rest.length < toolCalls.length) return rest.some(call => TERMINALS.has(call.name) || DELEGATION.has(call.name) || isEdit(call.name))
+      ? mutationToolGuard({ ...payload, toolName: undefined, tool_name: undefined, toolArgs: undefined, tool_input: undefined, toolCalls: rest }) : {};
+  }
   let value;
   try { value = await currentContract(payload, record); }
   catch {
@@ -896,7 +1001,16 @@ export async function mutationToolGuard(payload = {}) {
     if (guarded.some(call => TERMINALS.has(call.name) && targetOriginPinCall(call, bootstrap))) {
       return { permissionDecision: 'deny', next: [], permissionDecisionReason: TARGET_ORIGIN_PIN_DENIAL };
     }
+    if (guarded.some(call => TERMINALS.has(call.name) && hookInvocation(call, bootstrap))) {
+      return { permissionDecision: 'deny', next: [], permissionDecisionReason: HOOK_DENIAL };
+    }
     if (turnExpired(record)) return turnExpiredDenial(record);
+    if (draftKind(record.skill) && guarded.some(call => isEdit(call.name))) return { permissionDecision: 'deny', next: [],
+      permissionDecisionReason: `DRAFT_PATH_DENIED: this turn edits only the exact files its SFlow commands issued to it${issuedDrafts.length ? ` (${issuedDrafts.join(', ')})` : ', and none is issued yet'}. `
+        + (draftKind(record.skill) === 'repair'
+          ? 'Run singularity-flow repair status <REPAIR-ID> --json in this turn: while the repair awaits a patch, its repair attempt action names the patch file to write'
+          : 'Run singularity-flow initiative phase draft-check <PHASE> --json in this turn (or the step\'s prepare): it issues the step\'s outputs; write only those paths')
+        + '. No file was written; never write another repository file' };
     return mutationDenial(null, 'PHASE_MUTATION_CONTRACT_REQUIRED: refresh the exact binding; expired/corrupt permissions require a new explicit turn; do not discard work');
   }
   const contract = value.contract;
@@ -912,8 +1026,9 @@ export async function mutationToolGuard(payload = {}) {
       const kernel = shellAllowed(call, contract.turnMode, value);
       if (!kernel && value.findings.length) return mutationDenial({ ...contract, next: recoveryRoutes(contract) }, 'PHASE_MUTATION_REPAIR_REQUIRED');
       if (!kernel) {
-        if (environmentBinding(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: environment values are bound only by the person, who pipes their own secret helper into `singularity-flow env bind <ENV> --stdin` in their own terminal. Give them that command; never ask for, type or pipe a value');
+        if (environmentBinding(call, value)) return mutationDenial(contract, ENVIRONMENT_BINDING_DENIAL);
+        if (plannedActionExecution(call, value)) return mutationDenial(contract, PLANNED_ACTION_DENIAL);
+        if (hookInvocation(call, value)) return mutationDenial(contract, HOOK_DENIAL);
         if (setAsideDecision(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: setting held changes aside removes them from the checkout (after a private recovery copy); the person who looked at them runs it in their own terminal. Show the user the listed files and the command, and stop; do not retry it');
         if (workflowDeleteConfirmation(call, value)) return mutationDenial(contract, WORKFLOW_DELETE_CONFIRMATION_DENIAL);
@@ -1243,6 +1358,31 @@ export async function issueRunAppDraftStaging(target, { root = null } = {}) {
     const owner = value.contract?.repositoryRoot ?? value.repositoryRoot ?? null;
     if (owner && resolvedRoot && owner !== resolvedRoot) continue;
     value.appDraftStaging = [...new Set([...(value.appDraftStaging ?? []), path.resolve(target)])].slice(-16);
+    await atomicRecord(file, value);
+    issued += 1;
+  }
+  return issued;
+}
+
+/**
+ * Let live turns of the skills that draft `kind` files (DRAFT_SKILLS) in this repository edit exactly
+ * `targets`, files an SFlow command just issued: an Epic or Initiative step's authored outputs, or a
+ * repair's patch file. A turn without a known repository receives nothing. Returns how many turns did.
+ */
+export async function issueDraftStaging(kind, targets, { root }) {
+  if (readCopilotMode().paused || !targets.length) return 0;
+  const resolvedRoot = await realpath(root).catch(() => path.resolve(root));
+  // Canonical like the turn's root, so a symlinked temporary directory still names the same file.
+  const exact = await Promise.all(targets.map(target => realpath(path.dirname(path.resolve(target)))
+    .then(parent => path.join(parent, path.basename(target))).catch(() => path.resolve(target))));
+  let issued = 0;
+  for (const name of (await readdir(directory()).catch(() => [])).filter(name => /^[a-f0-9]{64}\.mutation\.json$/u.test(name))) {
+    const file = path.join(directory(), name);
+    const value = await boundedRecord(file).catch(() => null);
+    if (!value || draftKind(value.skill) !== kind || (value.contract?.repositoryRoot ?? value.repositoryRoot) !== resolvedRoot) continue;
+    const record = await turn({ sessionId: value.sessionId });
+    if (!record || !await importTeamTurn({ sessionId: value.sessionId }, record)) continue;
+    value.draftStaging = [...new Set([...(value.draftStaging ?? []), ...exact])].slice(-32);
     await atomicRecord(file, value);
     issued += 1;
   }

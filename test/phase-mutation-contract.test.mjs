@@ -8,14 +8,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { deriveMutationContract, mutationContractPresentation, mutationPathDecision, mutationTurnMode } from '../src/phase-mutation-contract.mjs';
 import { recordRepositoryBoundaryTurn, endRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
-import { captureMutationTurn, mutationToolGuard, mutationPostToolGuard, issueMutationStaging, issueImportTeamStaging, issueBuildStaging, issueFixWorkflowStaging, issueRunAppDraftStaging, refreshMutationContracts, endMutationDecisionTurns } from '../src/copilot-mutation-guard.mjs';
+import { captureMutationTurn, mutationToolGuard, mutationPostToolGuard, issueMutationStaging, issueImportTeamStaging, issueBuildStaging, issueFixWorkflowStaging, issueRunAppDraftStaging, issueDraftStaging, epicSourceTextDraftPath, refreshMutationContracts, endMutationDecisionTurns } from '../src/copilot-mutation-guard.mjs';
 import { createHash } from 'node:crypto';
 import { setCopilotPaused } from '../src/copilot-mode.mjs';
 import { assertPhaseSequence } from '../src/sequence.mjs';
 import { readFileSync } from 'node:fs';
 import YAML from 'yaml';
 import { resolveWorkType } from '../src/config.mjs';
-import { CLI_PATH_CONTRACT, CLI_PATH_REFERENCE, renderPlatformCommand } from '../src/safe-command-guidance.mjs';
+import { CLI_PATH_CONTRACT, CLI_PATH_REFERENCE, renderPlatformCommand, validateSafeSflowCommand, validateSflowExecutionCommand } from '../src/safe-command-guidance.mjs';
 import { readCopilotStoryFollow } from '../src/copilot-story-follow.mjs';
 import { gitDir } from '../src/git-execution.mjs';
 import { recordCopilotSession } from '../src/session.mjs';
@@ -509,7 +509,11 @@ test('/sf-run-app and /sf-test turns run the declared application and tests; no 
   assert.deepEqual(await shell('singularity-flow tests run --json'), {});
   const bind = await shell('singularity-flow env bind qa --stdin');
   assert.equal(bind.permissionDecision, 'deny');
-  assert.match(bind.permissionDecisionReason, /bound only by the person.*env bind <ENV> --stdin/u);
+  assert.match(bind.permissionDecisionReason, /bound and removed only by the person.*env bind <ENV> --stdin.*env unbind <ENV> --json/u);
+  // Removing a binding is the person's too, with the command they run named.
+  const unbind = await shell('singularity-flow env unbind qa --json');
+  assert.equal(unbind.permissionDecision, 'deny');
+  assert.match(unbind.permissionDecisionReason, /OPERATION_NOT_ALLOWED: environment values are bound and removed only by the person.*env unbind <ENV> --json/u);
 });
 
 test('/sf-decide turns permit only the bound decision commands its skill runs', async t => {
@@ -832,17 +836,25 @@ test('a delegation skill takes the turn of the skill it delegates to, so the del
 
 // The registry-wide check below reads every skill's own SFlow commands, fills their placeholders,
 // and asks the guard whether that skill's turn admits each one. A command is skipped when the guard
-// itself names it the person's (a kernel-only turn refuses it with OPERATION_NOT_ALLOWED: approval,
-// environment values, a decision-list record, a workflow-delete confirmation, a host hook) or it is
-// listed below with its reason; anything else the turn refuses fails, so a skill can no longer get a
-// turn that refuses its own steps.
+// itself names it the person's or another turn's: a kernel-only turn refuses it with one of its specific
+// OPERATION_NOT_ALLOWED reasons (binding or removing environment values, a decision-list record, a
+// workflow-delete confirmation, a set-aside, a test-risk or evidence-reuse decision, a target-origin pin,
+// a host hook), never with its generic "not permitted by the bound turn mode" or a planned action it
+// would not run (the fixture plan's one action is `sync`), or it is listed below with its reason.
+// Anything else the turn refuses fails, so a skill can no longer get a turn that refuses its own steps.
+const PERSON_OR_OTHER_TURN = /OPERATION_NOT_ALLOWED: (?!this standalone command is not permitted by the bound turn mode|action execute runs its planned command)/u;
 const SKILL_COMMAND_RECEIPT = '8232baec-10cb-4dd1-a8af-066d1fb06841';
+// `action execute <PLAN-ID> --action <ACTION-ID>` resolves to this fixture plan, whose one action is `sync`.
+const SKILL_COMMAND_PLAN = '0123456789abcdef01234567';
+const SKILL_COMMAND_ACTION = 'fedcba9876543210fedcba98';
 const LEGACY_PLACEHOLDER = /^(?:FILE|URL|PATH|PHASE|TYPE|TEXT|ID|SHA|SHA256|REVISION|PROFILE|SLICE|LEVEL|ASSURANCE|VERSION|STATUS|SOURCE|ENV|SECONDS|BYTES|WORK-ID|GOAL-ID|BOOTSTRAP-ID)$/u;
 function skillPlaceholderValue(name, root) {
   const key = name.toUpperCase();
   if (/^(?:WORK-ID|STORY-KEY|STORY-ID|JIRA-ID|JIRA-KEY|ID\|NAME)$/u.test(key)) return 'PMC-1';
   if (/^(?:TYPED-PHASE|PHASE|PHASE-ID|EARLIER-PHASE|STEP|EARLIER-STEP|OWNING-STEP)$/u.test(key)) return 'custom-step';
   if (key === 'TOKEN') return SKILL_COMMAND_RECEIPT;
+  if (key === 'PLAN-ID') return SKILL_COMMAND_PLAN;
+  if (key === 'ACTION-ID') return SKILL_COMMAND_ACTION;
   if (key === 'UPI-ID') return 'UPI-001';
   if (/SHA|HASH|DIGEST|COMMIT/u.test(key)) return 'a'.repeat(64);
   if (/URL/u.test(key)) return 'https://example.test/x';
@@ -872,13 +884,14 @@ const NOT_RUN_BY_THIS_TURN = Object.freeze({
   'sflow-fix-workflow': [[/^configuration approve\b/u, 'the reviewer approves in their own terminal'],
     [/^workflow studio apply\b.*--propose\b/u, 'proposes only the change set `workflow validate` issued to the turn (its own test)']],
   'sflow-run-app': [[/^capability (?:edit|set)\b/u, 'proposes only the application draft `app suggest` issued to the turn (its own test)']],
-  'sflow-reinstall': [[/^plugin verify\b/u, 'the installer\'s own verification it reports, run by sf-reinstall']],
+  'sflow-reinstall': [[/^plugin verify\b/u, 'the installer\'s own verification, which `singularity-flow reinstall` runs and reports']],
   'sflow-revision-checks': [[/^revision checks run\b/u, 'displayed for separate Shell review; never run from this skill']],
   'sflow-initiative-checklist': [[/^initiative evidence add\b/u, 'shown as an example; registration is /sf-initiative-evidence']],
   'sflow-jira-work': [[/^start PMC-1 --jira\b/u, 'the Shell form of the /sf-start route it offers']],
   'sflow-nextsteps': [[/^sync$/u, 'lists the returned actions; /sf-next runs them']],
   'sflow-reject': [[/^story intent-amendment propose$/u, 'names the nextsteps action; its full command is checked']],
-  'sflow-continue': [[/^action execute\b.*--authorization\b/u, 'left: the execution validator refuses an --authorization value as a credential in every turn']],
+  'sflow-decide': [[/^upstream-issue decide$/u, 'names the family in its turn boundary; its full `upstream-issue decide <UPI-ID> --work-id` step is checked']],
+  'sflow-workflow-rules': [[/^approve$/u, 'says who may approve; an approval is recorded only in an /sf-approve turn']],
   'sflow-sgos-create': [[/^(?:process (?:start|step|run)|intent (?:ratify|compile))\b/u, 'named only as commands it never runs']],
   'sflow-auto': [[/^auto flight-step\b/u, 'named only as a command it never invokes directly']],
   'sflow-integrations': [[/^integrations deliver\b/u, 'for pipelines; not run from chat']]
@@ -904,6 +917,9 @@ test('every registry skill\'s turn admits the SFlow commands its own body runs, 
   const { commandDefinition } = await import('../src/command-registry.mjs');
   const { parseArgs } = await import('../src/util.mjs');
   const f = await fixture(t);
+  await mkdir(path.join(gitDir(f.root), 'singularity-flow', 'action-plans'), { recursive: true });
+  await writeFile(path.join(gitDir(f.root), 'singularity-flow', 'action-plans', `${SKILL_COMMAND_PLAN}.json`),
+    JSON.stringify({ kind: 'governed-action-plan', actions: [{ actionId: SKILL_COMMAND_ACTION, executable: true, argv: ['sync'] }] }));
   const bare = async (skill, sessionId) => {
     const payload = { cwd: f.root, sessionId, prompt: skill };
     await recordRepositoryBoundaryTurn(payload, { captureMutation: (value, record) => captureMutationTurn(value, record,
@@ -928,7 +944,7 @@ test('every registry skill\'s turn admits the SFlow commands its own body runs, 
       const shell = payload => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
       const personOnly = async () => {
         const decision = await shell(kernel);
-        return decision.permissionDecision === 'deny' && /OPERATION_NOT_ALLOWED/u.test(decision.permissionDecisionReason ?? '');
+        return decision.permissionDecision === 'deny' && PERSON_OR_OTHER_TURN.test(decision.permissionDecisionReason ?? '');
       };
       checked += 1;
       const decision = await shell(bound);
@@ -1036,6 +1052,139 @@ test('no-Story setup skills run their own command families before a Story exists
   const status = await bare('/sf-epic-status', 'epic-status-bare');
   assert.deepEqual(await shell(status, 'singularity-flow epic status EPIC-1 --json'), {});
   assert.equal((await shell(status, 'singularity-flow epic sync EPIC-1 --json')).permissionDecision, 'deny');
+});
+
+test('/sf-continue executes an authorized planned action only when its own turn would run that action', async t => {
+  const f = await fixture(t);
+  const plans = path.join(gitDir(f.root), 'singularity-flow', 'action-plans');
+  await mkdir(plans, { recursive: true });
+  const action = 'a'.repeat(24);
+  const plan = (id, argv, extra = {}) => writeFile(path.join(plans, `${id}.json`), JSON.stringify({ kind: 'governed-action-plan',
+    actions: [{ actionId: action, executable: true, argv, ...extra }] }));
+  const ids = Object.fromEntries(['sync', 'approve', 'risk', 'bind', 'nested', 'later', 'missing'].map((name, index) => [name, String(index + 1).repeat(24)]));
+  await plan(ids.sync, ['sync']);
+  await plan(ids.approve, ['approve', 'custom-step', '--work-id', 'PMC-1']);
+  await plan(ids.risk, ['decision', 'test-risk', 'PMC-1', '--reason', 'x']);
+  await plan(ids.bind, ['env', 'bind', 'qa', '--stdin']);
+  await plan(ids.nested, ['action', 'execute', ids.sync, '--action', action]);
+  await plan(ids.later, ['sync'], { executable: false });
+  const execute = (id, token = SKILL_COMMAND_RECEIPT) => `singularity-flow action execute ${id} --action ${action.slice(0, 10)} --authorization ${token}`;
+  const payload = await f.enter('/sf-continue', 'continue-execute');
+  const shell = command => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  // The token `action authorize` issued is a one-time receipt, not a credential: valid only on `action execute`, as a UUID.
+  assert.ok(validateSflowExecutionCommand(execute(ids.sync)));
+  assert.equal(validateSafeSflowCommand(execute(ids.sync)), null, 'never reusable display guidance');
+  assert.deepEqual(await shell(execute(ids.sync)), {});
+  assert.deepEqual(await mutationPostToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: execute(ids.sync), cwd: f.root } }), {});
+  assert.deepEqual(await shell(`singularity-flow action authorize ${ids.sync} --action ${action} --confirm ${action} --json`), {});
+  // An approval, a person's own decision, an environment value, a nested plan, a later or missing action: refused, named.
+  for (const id of [ids.approve, ids.risk, ids.bind, ids.nested, ids.later, ids.missing]) {
+    const refusal = await shell(execute(id));
+    assert.equal(refusal.permissionDecision, 'deny', id);
+    assert.match(refusal.permissionDecisionReason, /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: action execute runs its planned command/u, id);
+  }
+  for (const command of [execute(ids.sync, 'not-a-receipt'), `singularity-flow sync --authorization ${SKILL_COMMAND_RECEIPT}`,
+    `${execute(ids.sync)} --authorization ${SKILL_COMMAND_RECEIPT}`]) {
+    assert.equal((await shell(command)).permissionDecision, 'deny', command);
+  }
+  // A read turn runs no planned mutation at all.
+  const read = await f.enter('/sf-nextsteps', 'continue-read');
+  assert.equal((await mutationToolGuard({ ...read, toolName: 'bash', toolArgs: { command: execute(ids.sync), cwd: f.root } })).permissionDecision, 'deny');
+});
+
+test('Epic, Initiative and repair drafting turns edit exactly the files their SFlow commands issued, with or without a Story', async t => {
+  const f = await fixture(t);
+  const bare = async (skill, sessionId) => {
+    const payload = { cwd: f.root, sessionId, prompt: skill };
+    const context = await recordRepositoryBoundaryTurn(payload, { captureMutation: (value, record) => captureMutationTurn(value, record,
+      { resolveRoot: async () => f.root, load: async () => { throw new Error('No Story yet'); } }) });
+    return { payload, context };
+  };
+  const edit = (payload, target, cwd = f.root) => mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: target, cwd } });
+  const shell = (payload, command) => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  const outputs = path.join(f.root, 'singularity', 'initiatives', 'EPIC-1', 'artifacts', 'epic-planning');
+  await mkdir(outputs, { recursive: true });
+  const plan = path.join(outputs, 'story-plan.yml');
+  const parent = path.join(outputs, 'parent-spec.md');
+  await writeFile(plan, 'version: 1\n'); await writeFile(parent, '# Parent\n');
+  const { payload: draft, context } = await bare('/sf-epic-story-draft', 'epic-draft');
+  const status = (await bare('/sf-epic-status', 'epic-status')).payload;
+  const sync = (await bare('/sf-epic-sync', 'epic-sync')).payload;
+  // Before its command issues anything, the turn may write only the source-text draft its rules name.
+  const sourceText = epicSourceTextDraftPath(gitDir(f.root));
+  assert.ok(context.additionalContext.includes(sourceText), context.additionalContext);
+  assert.match(context.additionalContext, /no Story\. Edit only the exact files this turn's SFlow commands issue/u);
+  assert.deepEqual(await edit(draft, sourceText), {});
+  const before = await edit(draft, plan);
+  assert.equal(before.permissionDecision, 'deny');
+  assert.match(before.permissionDecisionReason, /^DRAFT_PATH_DENIED: .*initiative phase draft-check <PHASE> --json/u);
+  // `initiative phase` prepare or draft-check issue the step's authored outputs to the live drafting turns only.
+  assert.equal(await issueDraftStaging('initiative', [plan, parent], { root: f.root }), 1);
+  assert.deepEqual(await edit(draft, plan), {});
+  assert.deepEqual(await edit(draft, path.relative(f.root, parent)), {}, 'a path relative to the bound checkout is the same file');
+  for (const target of [path.join(outputs, 'other.yml'), path.join(outputs, 'stories', 'STORY-001', 'story-spec.md'), 'src/App.jsx',
+    path.join(f.root, 'singularity', 'initiatives', 'EPIC-1', 'initiative.json')]) {
+    const refusal = await edit(draft, target);
+    assert.equal(refusal.permissionDecision, 'deny', target);
+    assert.match(refusal.permissionDecisionReason, /^DRAFT_PATH_DENIED/u, target);
+  }
+  for (const payload of [status, sync]) {
+    assert.equal((await edit(payload, plan)).permissionDecision, 'deny');
+    assert.equal((await edit(payload, sourceText)).permissionDecision, 'deny');
+  }
+  // In a batch, the issued edit passes and every other call is judged as it is alone.
+  const batch = calls => mutationToolGuard({ ...draft, toolCalls: calls });
+  assert.deepEqual(await batch([{ name: 'edit', args: { path: plan } }, { name: 'bash', args: { command: 'singularity-flow epic planning publish', cwd: f.root } }]), {});
+  assert.equal((await batch([{ name: 'edit', args: { path: plan } }, { name: 'bash', args: { command: 'git status --short', cwd: f.root } }])).permissionDecision, 'deny');
+  assert.equal((await batch([{ name: 'edit', args: { path: plan } }, { name: 'edit', args: { path: 'src/App.jsx' } }])).permissionDecision, 'deny');
+  // A Story-bound drafting turn receives the same exact grant and nothing else.
+  const bound = await f.enter('/sf-initiative-phase', 'initiative-bound');
+  assert.equal(await issueDraftStaging('initiative', [plan], { root: f.root }), 2);
+  assert.deepEqual(await edit(bound, plan), {});
+  assert.equal((await edit(bound, 'src/App.jsx')).permissionDecision, 'deny');
+  assert.equal((await edit(bound, sourceText)).permissionDecision, 'deny', '/sf-initiative-phase records no Epic source text');
+  // A repair's patch file: only /sf-fix turns, issued by `repair authorize|status`; its own commands need no Story.
+  const fix = (await bare('/sf-fix', 'fix-bare')).payload;
+  const patch = path.join(gitDir(f.root), 'singularity-flow', 'fault-repair', 'patch-drafts', 'RPR-1.patch');
+  assert.match((await edit(fix, patch)).permissionDecisionReason, /^DRAFT_PATH_DENIED: .*repair status <REPAIR-ID> --json/u);
+  assert.equal(await issueDraftStaging('repair', [patch], { root: f.root }), 1);
+  assert.deepEqual(await edit(fix, patch), {});
+  assert.equal((await edit(draft, patch)).permissionDecision, 'deny');
+  for (const command of ['singularity-flow fault show FLT-1 --json', 'singularity-flow fix FLT-1 --diagnose-only --json',
+    `singularity-flow repair attempt RPR-1 --patch ${patch} --json`]) assert.deepEqual(await shell(fix, command), {}, command);
+  assert.equal((await shell(fix, 'singularity-flow sync')).permissionDecision, 'deny');
+  // A paused Copilot issues nothing.
+  await setCopilotPaused(true);
+  assert.equal(await issueDraftStaging('initiative', [plan], { root: f.root }), 0);
+});
+
+test('guided run, documentation of changed code and the reinstall preview get the turn their skills need; hooks stay the host\'s', async t => {
+  const f = await fixture(t);
+  assert.equal(mutationTurnMode('/sf-code-docs'), 'authoring');
+  assert.equal(mutationTurnMode('/sf-run'), 'authoring');
+  assert.equal(mutationTurnMode('/sf-reinstall'), 'kernel-only');
+  assert.equal(mutationTurnMode('/sf-hook'), 'read');
+  const run = await f.enter('/sf-run', 'guided-run');
+  const shell = (payload, command) => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  for (const command of ['singularity-flow run', 'singularity-flow run --yes']) assert.deepEqual(await shell(run, command), {}, command);
+  // `run --repair-on-fault` runs the command it wraps unchecked, and a hook records host decisions: no turn runs either.
+  for (const skill of ['/sf-run', '/sf-next', '/sf-phase', '/sf-hook']) {
+    const payload = await f.enter(skill, `host-only-${skill}`);
+    assert.equal((await shell(payload, 'singularity-flow run --repair-on-fault -- npm test')).permissionDecision, 'deny', skill);
+    for (const command of ['singularity-flow hook turn-intent', 'singularity-flow hook agent-guard']) {
+      const refusal = await shell(payload, command);
+      assert.equal(refusal.permissionDecision, 'deny', `${skill}: ${command}`);
+      assert.match(refusal.permissionDecisionReason, /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: a lifecycle hook records the host's own decisions/u, `${skill}: ${command}`);
+    }
+  }
+  const reinstall = { cwd: f.root, sessionId: 'reinstall-bare', prompt: '/sf-reinstall' };
+  await recordRepositoryBoundaryTurn(reinstall, { captureMutation: (value, record) => captureMutationTurn(value, record,
+    { resolveRoot: async () => f.root, load: async () => { throw new Error('No Story yet'); } }) });
+  for (const command of ['singularity-flow reinstall --checkout /tmp/source --dry-run',
+    'singularity-flow reinstall --checkout /tmp/source --confirm "REINSTALL abc"']) assert.deepEqual(await shell(reinstall, command), {}, command);
+  for (const command of ['sf-reinstall --checkout /tmp/source --dry-run', 'singularity-flow factory-reset --confirm RESET']) {
+    assert.equal((await shell(reinstall, command)).permissionDecision, 'deny', command);
+  }
 });
 
 test('local verification does not widen review, publication, decision, read or kernel-only turns', async t => {

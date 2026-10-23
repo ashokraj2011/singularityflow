@@ -35,7 +35,7 @@ const KERNEL_ONLY_SKILLS = new Set([
   'capability-add', 'capability-depend', 'capability-protect', 'capability-doctor',
   'workspace-bootstrap', 'workspace-impact', 'refresh-configuration',
   // Machine-level installation, reset and local state.
-  'fresh-install', 'local-reset', 'local', 'product', 'plugin', 'push', 'quickstart', 'goal', 'journal',
+  'fresh-install', 'local-reset', 'local', 'product', 'plugin', 'push', 'quickstart', 'goal', 'journal', 'reinstall',
   // Epic, Initiative and Jira actions (Epic and Initiative checkouts bind no Story).
   'epic-complete', 'epic-drift', 'epic-merge-plan', 'epic-planning', 'epic-publish', 'epic-requirements', 'epic-resume',
   'epic-review', 'epic-review-decision', 'epic-sources', 'epic-start', 'epic-stories', 'epic-story-draft', 'epic-sync',
@@ -76,7 +76,10 @@ export function mutationTurnMode(skill) {
   // delegation skill takes the turn of the skill it delegates to (phase-mutation-contract.test.mjs).
   // /sf-converge writes the step's document at a model-generation checkpoint; a deterministic step's
   // contract still grants no edits (deriveMutationContract), so its kernel-built publication is unchanged.
-  if (['specify', 'plan', 'verify', 'implement', 'call', 'scenario-repair', 'converge'].includes(name)) return 'authoring';
+  // /sf-code-docs writes doc comments into the code the open generation changed, under that step's
+  // own policy like /sf-code; a closed or published generation grants it no source edits. /sf-run runs
+  // the guided `run` (`next` and `submit`) and then the returned canonical author in the same turn.
+  if (['specify', 'plan', 'verify', 'implement', 'call', 'scenario-repair', 'converge', 'code-docs', 'run'].includes(name)) return 'authoring';
   // Kernel actions have their own authority checks. This never permits direct source edits.
   if (KERNEL_ONLY_SKILLS.has(name)) return 'kernel-only';
   // Every other skill only reads. Each registry skill's own SFlow commands are held to its turn by

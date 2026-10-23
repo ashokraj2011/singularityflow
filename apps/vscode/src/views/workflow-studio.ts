@@ -67,6 +67,41 @@ export interface IntegrationSecretStore {
 }
 
 
+/** What a build changes in the workflow it starts from (workflow build check `changes`). */
+interface BuildChanges {
+  label: string; inPlace?: boolean; none?: boolean; renamed?: { from: string; to: string };
+  added?: Array<{ label: string; position: number }>; removed?: Array<{ label: string; goes: string[] }>;
+  moved?: Array<{ label: string; position: number }>; changed?: Array<{ label: string; what: string[] }>;
+  decisions?: { added?: Array<{ after: string; label: string }>; removed?: Array<{ after: string; label: string }> };
+}
+
+/** Every change a finished build makes, one line each, for the one confirmation that finishes and activates it. */
+export function buildChangeLines(check: { build: { label: string }; changes?: BuildChanges | null; draft?: { workflow?: { phases?: string[] } } }): string[] {
+  const changes = check.changes;
+  if (!changes) return [`New workflow ${check.build.label}: ${check.draft?.workflow?.phases?.length ?? 0} steps.`];
+  const lines = [changes.inPlace ? `Changes to ${changes.label}:` : `New workflow ${check.build.label}, a copy of ${changes.label}:`];
+  if (changes.renamed) lines.push(`• Renamed from ${changes.renamed.from} to ${changes.renamed.to}`);
+  for (const step of changes.added ?? []) lines.push(`• Adds ${step.label} as step ${step.position}`);
+  for (const step of changes.removed ?? []) lines.push(`• Removes ${step.label}${step.goes.length ? `; with it go ${step.goes.join(', ')}` : ''}`);
+  for (const step of changes.moved ?? []) lines.push(`• Moves ${step.label} to step ${step.position}`);
+  for (const step of changes.changed ?? []) lines.push(`• Changes ${step.label}: ${step.what.join(', ')}`);
+  for (const decision of changes.decisions?.added ?? []) lines.push(`• Adds the decision after ${decision.after}: ${decision.label}`);
+  for (const decision of changes.decisions?.removed ?? []) lines.push(`• Removes the decision after ${decision.after}: ${decision.label}`);
+  if (lines.length === 1) lines.push('• Nothing else');
+  return lines;
+}
+
+/** The changes in one line, for the short form of the confirmation; the full list is behind its details. */
+export function buildChangeSummary(check: { build: { label: string }; changes?: BuildChanges | null; draft?: { workflow?: { phases?: string[] } } }): string {
+  const changes = check.changes;
+  if (!changes) return `A new workflow with ${check.draft?.workflow?.phases?.length ?? 0} steps. New Stories can use it at once; nothing else changes.`;
+  const count = (list: unknown[] | undefined, one: string, many: string) => (list?.length ? `${list.length} ${list.length === 1 ? one : many}` : null);
+  const parts = [count(changes.added, 'step added', 'steps added'), count(changes.removed, 'step removed', 'steps removed'), count(changes.moved, 'step moved', 'steps moved'),
+    count(changes.changed, 'step changed', 'steps changed'), count(changes.decisions?.added, 'decision added', 'decisions added'),
+    count(changes.decisions?.removed, 'decision removed', 'decisions removed'), changes.renamed ? 'renamed' : null].filter(Boolean);
+  return `${parts.join(', ') || 'No change'}. New Stories use it at once; Stories already running keep theirs.`;
+}
+
 export interface WorkflowStudioActions {
   /** Re-read repository state after a publish, so the rest of the extension sees it. */
   refresh(): Promise<void>;
@@ -75,6 +110,11 @@ export interface WorkflowStudioActions {
    * separate acknowledgement an unprotected configuration branch needs. Returns why it stopped, if it did.
    */
   reviewProposal(branch: string): Promise<string | null | void>;
+  /**
+   * Activate a proposal the person already confirmed on the page that made it, with no diff tab and
+   * no second acknowledgement. Server policy still applies; when it refuses, the proposal waits.
+   */
+  activateProposal?(branch: string): Promise<{ activated: boolean; message: string }>;
   /** Export the chosen workflows (`story:<id>`, `initiative:<id>`) and their dependencies as one bundle. */
   exportWorkflows?(selectors: readonly string[]): Promise<string | null>;
   /**
@@ -240,7 +280,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     'studio.build.mine': (message) => this.buildMine(stringField(message, 'build'), stringField(message, 'proposal')),
     'studio.build.preview': (message) => this.buildPreview(stringField(message, 'build'), stringField(message, 'proposal')),
     'studio.build.source': (message) => this.buildSource(stringField(message, 'build'), stringField(message, 'path'), integerField(message, 'from')),
-    'studio.build.finish': (message) => this.buildFinish(stringField(message, 'build'), stringField(message, 'how')),
+    'studio.build.finish': (message) => this.buildFinish(stringField(message, 'build'), stringField(message, 'how'), message.activate === true),
     'studio.build.chat': (message) => this.buildChat(stringField(message, 'build')),
     'studio.duplicateWorkflow': (message) => this.duplicateWorkflow(stringField(message, 'selector'), integerField(message, 'pending') ?? 0),
     'studio.retireWorkflow': (message) => this.retireWorkflow(enumField(message, 'action', ['archive', 'restore', 'delete'] as const),
@@ -933,7 +973,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
    * Finish: one reviewed proposal on the approved configuration (or, on a working-tree authority,
    * the files written as Studio's Publish writes them), or a portable file to import elsewhere.
    */
-  private async buildFinish(raw: string | null, how: string | null): Promise<void> {
+  private async buildFinish(raw: string | null, how: string | null, activate = false): Promise<void> {
     const id = this.openBuildId(raw);
     if (!id) return;
     try {
@@ -951,20 +991,37 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       try { publishArgs = studioPublishArgs(this.model?.authority); }
       catch (error) { return this.buildFailed((error as Error).message); }
       const proposal = publishArgs.includes('--propose');
-      const check = await this.client.run<{ ready: boolean; changeSet: unknown; build: { workflow: string; label: string }; changes?: { inPlace?: boolean } | null }>(studioBuildArgs('check', id));
+      const check = await this.client.run<{ ready: boolean; changeSet: unknown; build: { workflow: string; label: string }; changes?: BuildChanges | null;
+        draft?: { workflow?: { phases?: string[] } } }>(studioBuildArgs('check', id));
       if (!check.ready) return this.buildFailed('The build is not ready to finish. Its check says what is left.');
-      // A change build changes the workflow it names; it never creates one.
-      const confirmed = await showCompactWarningMessage(`${check.changes?.inPlace ? 'Change' : 'Create'} the workflow ${check.build.label}?`, {
+      // A change build changes the workflow it names; it never creates one. Finishing and activating
+      // here asks once, with every change listed, instead of a diff tab and two more confirmations.
+      const now = activate && proposal && Boolean(this.actions.activateProposal);
+      const verb = check.changes?.inPlace ? 'Change' : 'Create';
+      const confirmed = await showCompactWarningMessage(now ? `${verb} the workflow ${check.build.label} and activate it now?` : `${verb} the workflow ${check.build.label}?`, {
         modal: true,
-        detail: proposal
-          ? 'It becomes one review proposal on the approved configuration. Nothing changes for running or new Stories until it is reviewed and activated.'
-          : 'The files are written to this repository. Review the diff and commit it through your usual review.'
-      }, proposal ? 'Create the proposal' : 'Write files');
+        ...(now ? { compactDetail: buildChangeSummary(check) } : {}),
+        detail: now
+          ? [...buildChangeLines(check), '', 'One reviewed proposal is created and merged into the approved configuration at its exact commit; server rules still apply. New Stories use it at once; Stories already running keep theirs.'].join('\n')
+          : proposal
+            ? 'It becomes one review proposal on the approved configuration. Nothing changes for running or new Stories until it is reviewed and activated.'
+            : 'The files are written to this repository. Review the diff and commit it through your usual review.'
+      }, now ? 'Finish and activate' : proposal ? 'Create the proposal' : 'Write files');
       if (!confirmed) { this.post({ type: 'studio.buildCancelled' }); return; }
       const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Finishing the workflow build', cancellable: false },
         () => proposal
           ? this.client.run<StudioApplyResult>(studioBuildArgs('finish', id, ['--propose']))
           : this.client.runWithInput<StudioApplyResult>(publishArgs, JSON.stringify(check.changeSet)));
+      if (now && result.reviewRequired && result.branch) {
+        const activation = await this.actions.activateProposal!(result.branch);
+        this.post({ type: 'studio.buildFinished', build: id, how: 'publish', activated: activation.activated, summary: activation.activated
+          ? `Activated: ${check.build.label} is in the approved configuration, and new Stories use it now. Stories already running keep theirs.`
+          : `Proposed for review as ${result.branch}, not activated: ${activation.message}` });
+        await this.buildRefresh(id);
+        await this.load(true);
+        await this.actions.refresh();
+        return;
+      }
       const summary = result.reviewRequired && result.branch ? `Proposed for review as ${result.branch}. Review and activate it under Changes.`
         : `Wrote ${(result.written ?? []).length} file(s) to this repository. Review the diff and commit it.`;
       this.post({ type: 'studio.buildFinished', build: id, how: 'publish', summary });

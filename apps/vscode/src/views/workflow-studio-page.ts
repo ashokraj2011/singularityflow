@@ -21,6 +21,8 @@ const STUDIO_STYLE = `
 .build-start-body textarea,.build-add textarea,.build-step-tools textarea{width:100%;box-sizing:border-box;font:inherit}
 .build-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--sf-space-2)}
 .build-tabs{display:flex;gap:4px}
+.build-section{margin-top:var(--sf-space-4);scroll-margin-top:8px}
+.build-section>h2{margin:0 0 8px}
 .build-tab{display:inline-flex;align-items:center;gap:6px;background:transparent;color:inherit;border:1px solid var(--sf-border-color);border-radius:14px;padding:4px 12px;cursor:pointer}
 .build-tab[aria-selected=true]{border-color:var(--sf-accent);background:var(--sf-accent-quiet);font-weight:600}
 .build-grid{display:grid;grid-template-columns:minmax(280px,1.1fr) minmax(240px,.9fr) minmax(280px,1fr);gap:var(--sf-space-3);align-items:start}
@@ -6097,8 +6099,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     changes.removed.forEach(function (step) { row('−', 'Removes ' + step.label + (step.goes.length ? '; with it go ' + step.goes.join(', ') : '') + '.'); });
     changes.moved.forEach(function (step) { row('~', 'Moves ' + step.label + ' to step ' + step.position + '.'); });
     changes.changed.forEach(function (step) { row('~', 'Changes ' + step.label + ': ' + step.what.join(', ') + '.'); });
-    changes.decisions.added.forEach(function (decision) { row('+', 'Adds the decision after ' + decision.after + ': ' + decision.label + '.'); });
-    changes.decisions.removed.forEach(function (decision) { row('−', 'Removes the decision after ' + decision.after + ': ' + decision.label + '.'); });
+    var sentence = function (text) { return /[.?!]$/.test(text) ? text : text + '.'; };
+    changes.decisions.added.forEach(function (decision) { row('+', sentence('Adds the decision after ' + buildStepLabel(decision.after) + ': ' + decision.label)); });
+    changes.decisions.removed.forEach(function (decision) { row('−', sentence('Removes the decision after ' + buildStepLabel(decision.after) + ': ' + decision.label)); });
     return el('div', { 'data-key': 'build-changes' },
       el('p', { class: 'muted', text: changes.inPlace ? 'Changes to ' + changes.label + ' itself; Stories already running keep the workflow they started with.' : 'Compared with ' + changes.label + ', which this copies; ' + changes.label + ' stays as it is.' }),
       changes.none ? el('p', { class: 'muted', text: 'Nothing is changed yet.' }) : rows);
@@ -6151,6 +6154,12 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       case 'instruction.add': return 'Add the instruction ' + (move.label || move.id);
       case 'decision.add': return 'Add a decision after ' + buildStepLabel(move.after) + ': ' + move.label;
       case 'decision.remove': return 'Remove the decision after ' + buildStepLabel(move.after);
+      case 'branch.add': return 'Go different ways by ' + move.name + ' after ' + buildStepLabel(move.after) + ' (whoever submits it chooses the ' + move.name + '): '
+        + (move.arms || []).map(function (arm) { return [].concat(arm.when).join(' or ') + ' → ' + (arm.steps || []).map(buildStepLabel).join(', '); }).join('; ')
+        + (move.otherwise ? '; otherwise → ' + (move.otherwise.steps || []).map(buildStepLabel).join(', ') : '')
+        + '; then every way comes back together at ' + (move.join === 'end' ? 'the end' : buildStepLabel(move.join));
+      case 'step.check': return 'When ' + buildStepLabel(move.id) + ' is submitted, sflow runs ' + (move.command || buildItemName(move.item)) + (move.directory ? ' in ' + move.directory + '/' : '')
+        + ' as its check' + (move.requirement === 'advisory' ? ' (advisory)' : '');
       case 'group.add': return 'Add the approval group ' + move.label + ' (people are added later)';
       case 'action.add': return 'Tell ' + move.target + ' when ' + buildStepLabel(move.step) + ' is ' + move.on;
       case 'item.classify': return 'Treat ' + buildItemName(move.item) + ' as ' + move.as;
@@ -6241,24 +6250,33 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var build = b.view.build;
     var pending = build.proposals.filter(function (proposal) { return proposal.status === 'pending'; }).length;
     var ready = b.check && b.check.ready;
+    // One page: the workflow and its explanation, what the material holds, and finishing, one after
+    // another. These jump to a part of it; nothing is hidden behind them.
     function tab(key, label, count) {
-      return el('button', { type: 'button', role: 'tab', class: 'build-tab', 'aria-selected': b.tab === key ? 'true' : 'false', 'data-key': 'build-tab-' + key,
-        onclick: function () { b.tab = key; b.source = null; render(); } }, label, count ? el('span', { class: 'count attention', text: String(count) }) : null);
+      return el('button', { type: 'button', class: 'build-tab', 'aria-current': b.tab === key ? 'true' : 'false', 'data-key': 'build-tab-' + key,
+        onclick: function () { buildJump(key); } }, label, count ? el('span', { class: 'count attention', text: String(count) }) : null);
     }
+    var open = build.items.filter(buildItemOpen).length;
     main.appendChild(el('div', { class: 'board-head build-head' },
       el('div', { class: 'studio-row' },
         el('button', { type: 'button', class: 'crumb', 'data-key': 'build-back', onclick: openBuilds }, 'Builds'),
         el('span', { class: 'crumb-sep', 'aria-hidden': 'true', text: '›' }),
         el('strong', { text: build.label }),
         el('span', { class: 'muted', text: 'kept on this computer until ' + buildWhen(build.expiresAt) })),
-      el('div', { class: 'build-tabs', role: 'tablist', 'aria-label': 'Build' },
-        tab('found', 'What we found', 0), tab('build', 'Build', pending), tab('finish', ready ? 'Finish ✓' : 'Finish', 0))));
+      el('nav', { class: 'build-tabs', 'aria-label': 'Go to' },
+        tab('build', 'Build', pending), tab('found', 'What we found', open), tab('finish', ready ? 'Finish ✓' : 'Finish', 0))));
     if (b.error) main.appendChild(el('div', { class: 'callout bad', role: 'alert', 'data-key': 'build-error', text: b.error }));
     if (buildLanded()) main.appendChild(landedCallout(buildLanded()));
-    if (b.tab === 'found') renderBuildFound(main);
-    else if (b.tab === 'finish') renderBuildFinish(main);
-    else renderBuildWork(main);
+    var work = el('section', { class: 'build-section', 'data-key': 'build-section-build', 'aria-label': 'The workflow' });
+    renderBuildWork(work);
+    var found = el('section', { class: 'build-section', 'data-key': 'build-section-found', 'aria-label': 'What the material holds' }, el('h2', { text: 'What the material holds' }));
+    renderBuildFound(found);
+    var finish = el('section', { class: 'build-section', 'data-key': 'build-section-finish', 'aria-label': 'Finish' });
+    renderBuildFinish(finish);
+    main.appendChild(work); main.appendChild(found); main.appendChild(finish);
   }
+  /** Scroll the Build view to one of its parts. */
+  function buildJump(key) { var b = buildState(); b.tab = key; b.source = null; state.scrollKey = 'build-section-' + key; render(); }
 
   function evidenceButton(span, label) {
     var b = buildState();
@@ -6628,11 +6646,11 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     if (findings.length) pane.appendChild(findingList(null, findings, { files: false, show: function (subject) { if (subject.step) { b.selected = subject.step; b.source = null; render(); } } }));
     else pane.appendChild(el('div', { class: 'callout ok', text: 'Nothing to fix in this workflow.' }));
     if (findings.some(function (item) { return item.code === 'BUILD_ITEMS_OPEN'; })) {
-      pane.appendChild(el('div', { class: 'studio-row' }, button('See what is not used yet', function () { b.tab = 'found'; b.kind = null; render(); }, { class: 'secondary', 'data-key': 'build-see-open' })));
+      pane.appendChild(el('div', { class: 'studio-row' }, button('See what is not used yet', function () { b.kind = null; buildJump('found'); }, { class: 'secondary', 'data-key': 'build-see-open' })));
     }
     if (!(b.preview && b.preview.result) && !result.landed) {
       pane.appendChild(result.ready
-        ? el('div', { class: 'callout ok', 'data-key': 'build-ready' }, 'Ready to finish. ', button('Finish…', function () { b.tab = 'finish'; render(); }, { class: 'primary', 'data-key': 'build-go-finish' }))
+        ? el('div', { class: 'callout ok', 'data-key': 'build-ready' }, 'Ready to finish. ', button('Finish…', function () { buildJump('finish'); }, { class: 'primary', 'data-key': 'build-go-finish' }))
         : el('div', { class: 'callout wait', 'data-key': 'build-not-ready', text: buildBlockers(result).join(' ') || 'Not ready to finish yet.' }));
     }
     return pane;
@@ -6643,8 +6661,10 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   function landedCallout(landed) {
     var b = buildState();
     return el('div', { class: 'callout ok', 'data-key': 'build-landed' },
-      el('div', { text: landed.change
-        ? 'Finished: the change to ' + landed.label + ' is a configuration proposal; review and activate it in Changes. To change it again, change it with Copilot.'
+      el('div', { text: landed.change && b.finished && b.finished.activated
+        ? 'Finished and activated: ' + landed.label + ' is in the approved configuration, and new Stories use it now. To change it again, change it with Copilot.'
+        : landed.change
+        ? 'Finished: the change to ' + landed.label + ' was proposed; once it is reviewed and activated (Changes), new Stories use it. To change it again, change it with Copilot.'
         : 'Finished: ' + landed.label + ' is in the approved configuration. Running and new Stories can use it. Change it in place with Copilot, or start a build from it to make a copy.' }),
       el('div', { class: 'studio-row', style: 'margin-top:6px' },
         button('Change ' + landed.label + ' with Copilot', function () { buildAction('start', { from: 'change', workflow: landed.workflow, name: null }, 'start'); },
@@ -6680,18 +6700,21 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var pending = (result.pending || []).length;
     if (pending) card.appendChild(el('div', { class: 'callout wait', text: pending + (pending === 1 ? ' proposal is' : ' proposals are') + ' still waiting for you; finishing leaves ' + (pending === 1 ? 'it' : 'them') + ' out.' }));
     var open = (result.findings || []).find(function (item) { return item.code === 'BUILD_ITEMS_OPEN'; });
-    if (open) card.appendChild(el('div', { class: 'callout wait' }, open.title + '. ', button('See them', function () { b.tab = 'found'; render(); }, { class: 'secondary' })));
+    if (open) card.appendChild(el('div', { class: 'callout wait' }, open.title + '. ', button('See them', function () { buildJump('found'); }, { class: 'secondary' })));
     var reasons = buildBlockers(result);
     card.appendChild(result.ready ? el('div', { class: 'callout ok', 'data-key': 'build-finish-ready', text: 'Ready: ' + countWords(result.counts) + '.' })
       : el('div', { class: 'callout bad', 'data-key': 'build-finish-blocked', text: 'Not ready: ' + reasons.join(' ') }));
     var authority = (state.model.authority || {}).kind || 'working-tree';
     var proposal = authority !== 'working-tree';
     card.appendChild(el('div', { class: 'studio-row' },
-      button(b.busy === 'finish' ? 'Finishing…' : proposal ? 'Create the proposal' : 'Write the files', function () { buildAction('finish', { how: 'publish' }, 'finish'); },
-        { class: 'primary', 'data-key': 'build-finish-publish', disabled: !result.ready || Boolean(b.busy) }),
+      // Finished and in use from this page: one confirmation, no diff tab, no second acknowledgement.
+      proposal ? button(b.busy === 'finish' ? 'Finishing…' : 'Finish and activate…', function () { buildAction('finish', { how: 'publish', activate: true }, 'finish'); },
+        { class: 'primary', 'data-key': 'build-finish-activate', disabled: !result.ready || Boolean(b.busy) }) : null,
+      button(b.busy === 'finish' && !proposal ? 'Finishing…' : proposal ? 'Create the proposal for review' : 'Write the files', function () { buildAction('finish', { how: 'publish' }, 'finish'); },
+        { class: proposal ? 'secondary' : 'primary', 'data-key': 'build-finish-publish', disabled: !result.ready || Boolean(b.busy) }),
       button('Save as a portable file…', function () { buildAction('finish', { how: 'file' }, 'finish'); }, { class: 'secondary', 'data-key': 'build-finish-file', disabled: !result.ready || Boolean(b.busy) })));
     card.appendChild(el('p', { class: 'hint', text: proposal
-      ? 'Create the proposal makes one reviewed change on the approved configuration, like publishing from Workflow Studio. Running Stories keep their workflow; new Stories use it once it is activated.'
+      ? 'Finish and activate makes one reviewed change on the approved configuration and activates it here, after one confirmation that lists every change; new Stories use it at once, running Stories keep theirs. If you may not approve configuration, the change waits as a proposal for someone who may. Create the proposal for review leaves it for another person to review and activate.'
       : 'Write the files puts the workflow in this repository\'s configuration; review the diff and commit it. A portable file can be imported in another repository with Import….' }));
     if (b.finished) {
       card.appendChild(el('div', { class: 'callout ok', role: 'status', 'data-key': 'build-finished' }, b.finished.summary,
@@ -6752,6 +6775,12 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     root.appendChild(frame);
     if (state.view === 'board') fitBoard();
     if (active) { var again = root.querySelector('[data-key="' + active.replace(/"/g, '') + '"]'); if (again) again.focus(); }
+    // A jump to a part of a long page (the Build view's sections) scrolls it into view after the render.
+    if (state.scrollKey) {
+      var target = root.querySelector('[data-key="' + state.scrollKey.replace(/"/g, '') + '"]');
+      state.scrollKey = null;
+      if (target && target.scrollIntoView) target.scrollIntoView({ block: 'start' });
+    }
   }
 
   window.addEventListener('message', function (event) {
@@ -6862,7 +6891,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       var calm = buildState(); calm.busy = null; if (message.status) setStatus(message.status); if (state.view === 'build') render();
     } else if (message.type === 'studio.buildFinished') {
       var done = buildState();
-      done.busy = null; done.finished = { how: message.how, summary: message.summary || 'Finished.' }; setStatus(done.finished.summary); render();
+      done.busy = null; done.finished = { how: message.how, summary: message.summary || 'Finished.', activated: message.activated === true }; setStatus(done.finished.summary); render();
     } else if (message.type === 'studio.focus') {
       if (typeof message.build === 'string') { state.view = 'build'; openBuild(message.build); }
       else if (message.view === 'build') openBuilds();

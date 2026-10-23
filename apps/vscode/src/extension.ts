@@ -7810,6 +7810,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           detail }, 'Archive branches') === 'Archive branches';
     }
   });
+  /**
+   * Activate a proposal its author confirmed on the page that made it (Build with Copilot's Finish
+   * and activate): the same exact-commit leased update as Review and activate, without the diff tab
+   * and second acknowledgement the person already answered. Server policy still applies.
+   */
+  const activateWorkflowProposalNow = async (branch: string): Promise<{ activated: boolean; message: string }> => {
+    try {
+      const inspected = await client.run<{ branch: string; proposalCommit: string; targetBranch: string; valid: boolean; merged?: boolean }>(
+        ['workflow', 'proposal', branch, '--json']);
+      if (!inspected.valid) return { activated: false, message: 'the proposal contains invalid or out-of-scope configuration changes; review it under Changes' };
+      const activation = await activateReviewedWorkflowProposal<{
+        activated?: boolean; status?: string; targetBranch?: string; targetCommit?: string;
+        failure?: ConfigurationGitFailure & { message?: string }; nextAction?: string; recoveryCommand?: string;
+      }>(inspected, { acknowledge: async () => true, activate: args => client.run(args) });
+      if (!activation || activation.activated === false) {
+        const message = activation?.failure?.message ?? `activation is ${activation?.status ?? 'waiting for repository review'}`;
+        output.appendLine([message, lazyPanels().configurationGitFailureText(activation?.failure), `Preserved proposal: ${inspected.branch}@${inspected.proposalCommit}`,
+          activation?.recoveryCommand, activation?.nextAction].filter(Boolean).join('\n\n'));
+        return { activated: false, message: `${message}. It waits under Changes for someone who may approve configuration.` };
+      }
+      await refreshAfterKnownMutation();
+      await lazyPanels().WorkflowStudioPanel.refreshAfterConfigurationSync();
+      return { activated: true, message: `Activated on ${activation.targetBranch ?? 'sflow/config'} at ${activation.targetCommit?.slice(0, 12) ?? 'the reviewed commit'}.` };
+    } catch (error) {
+      output.appendLine(`  refused: ${(error as Error).message}`);
+      return { activated: false, message: (error as Error).message };
+    }
+  };
   const reviewAndActivateWorkflowProposal = async (branch: string): Promise<string | null> => {
     try {
       const inspected = await client.run<{
@@ -8942,6 +8970,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       WorkflowStudioPanel.show(client, output, {
         refresh: refreshAfterKnownMutation,
         reviewProposal: (branch) => reviewAndActivateWorkflowProposal(branch),
+        activateProposal: (branch) => activateWorkflowProposalNow(branch),
         exportWorkflows: (selectors) => exportWorkflowBundle(selectors),
         importWorkflows: (source) => importWorkflowBundle(source),
         importTeam: () => vscode.commands.executeCommand('singularityFlow.importTeamWorkflow'),

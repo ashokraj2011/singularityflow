@@ -311,6 +311,32 @@ test('a workflow you have is changed in place with Copilot: explained as it is, 
   assert.deepEqual([state.changes.inPlace, state.changes.removed.map((step) => step.id)], [true, ['conformance']], 'Copilot reads it in the tool state');
 });
 
+test('a build is one page: the workflow, what the material holds and finishing, and it finishes and activates from there', async () => {
+  const { buildStudioModel } = await import('../src/workflow-studio.mjs');
+  const { root, team, json } = await harness();
+  const { page, posted, send, draw } = studio(await buildStudioModel(root));
+  page.openBuilds();
+  const started = json(root, ['workflow', 'build', 'start', '--folder', team, '--json']);
+  const view = json(root, ['workflow', 'build', 'propose', '--build', started.build.id, '--proposal', '-', '--by', 'you', '--accept', '--json'],
+    JSON.stringify({ ...FIRST, questions: [] }));
+  send({ type: 'studio.build', build: view.build.id, view, checking: false, modelAvailable: false });
+  send({ type: 'studio.buildChecked', build: view.build.id, result: json(root, ['workflow', 'build', 'check', '--build', view.build.id, '--json']) });
+  for (const tab of ['found', 'build', 'finish']) {
+    page.buildState().tab = tab;
+    const main = draw();
+    assert.deepEqual(['build-section-build', 'build-section-found', 'build-section-finish'].map((key) => Boolean(byKey(main, key))), [true, true, true], `everything shows with ${tab} chosen`);
+  }
+  byKey(draw(), 'build-tab-found').listeners.click();
+  assert.equal(page.state().scrollKey, 'build-section-found', 'a jump scrolls to the part; nothing is hidden behind it');
+  page.state().scrollKey = null;
+  assert.equal(byKey(draw(), 'build-finish-activate'), null, 'a working-tree configuration has no proposal to activate');
+  page.state().model.authority = { kind: 'approved-configuration-ref' };
+  const main = draw();
+  assert.match(textOf(byKey(main, 'build-finish-publish')), /Create the proposal for review/u);
+  byKey(main, 'build-finish-activate').listeners.click();
+  assert.deepEqual(posted.at(-1), { type: 'studio.build.finish', build: view.build.id, how: 'publish', activate: true });
+});
+
 test('every move reads as a plain sentence', async () => {
   const { buildStudioModel } = await import('../src/workflow-studio.mjs');
   const { root } = await harness();
@@ -334,6 +360,9 @@ test('every move reads as a plain sentence', async () => {
   assert.equal(said({ move: 'decision.add', after: 'design', kind: 'branch', label: 'Risky?' }), `Add a decision after ${design}: Risky?`);
   assert.equal(said({ move: 'action.add', step: 'design', on: 'approved', target: 'team-events' }), `Tell team-events when ${design} is approved`);
   assert.equal(said({ move: 'item.keepAsLink', item: 'i-unknown' }), 'Keep i-unknown as a link');
+  assert.equal(said({ move: 'branch.add', after: 'intake', name: 'channel', arms: [{ when: 'web', steps: ['web-test'] }, { when: ['ios', 'android'], steps: ['mobile-test'] }], otherwise: { steps: ['manual-test'] }, join: 'end' }),
+    'Go different ways by channel after Intake (whoever submits it chooses the channel): web → web-test; ios or android → mobile-test; otherwise → manual-test; then every way comes back together at the end');
+  assert.equal(said({ move: 'step.check', id: 'intake', item: 'i-x', command: 'npm test', directory: 'web' }), 'When Intake is submitted, sflow runs npm test in web/ as its check');
 });
 
 test('the chat tool reads and records for the open build only, and has nothing that accepts, answers or finishes', async () => {

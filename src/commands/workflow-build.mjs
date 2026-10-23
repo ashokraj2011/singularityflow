@@ -112,7 +112,7 @@ function printCheck(result) {
   for (const question of result.questions) console.log(`  question ${question.id}: ${question.question} (${question.choices.join(' | ')})`);
   if (result.landed) {
     console.log(result.landed.change
-      ? `Finished: the change to ${result.landed.label} is a configuration proposal; review and activate it. To change it again: singularity-flow workflow build start --change ${result.landed.workflow}`
+      ? `Finished: the change to ${result.landed.label} was proposed; once it is reviewed and activated, new Stories use it. To change it again: singularity-flow workflow build start --change ${result.landed.workflow}`
       : `Finished: ${result.landed.label} is in the approved configuration. To change it in place: singularity-flow workflow build start --change ${result.landed.workflow}`);
     return;
   }

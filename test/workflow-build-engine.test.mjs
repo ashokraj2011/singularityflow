@@ -497,7 +497,7 @@ test('starting from a workflow copies it; finishing writes a bundle that imports
   assert.match(yaml, /chore-with-notes:/u);
   assert.doesNotMatch(yaml.slice(yaml.indexOf('chore-with-notes:')).split(/\n {2}\S/u)[0], /chore-notes/u, 'the step left the workflow');
   const again = flow(seed, ['workflow', 'build', 'finish', '--build', change.id, '--propose'], { allowFailure: true });
-  assert.match(again.stderr + again.stdout, /its change to Chore with notes is a configuration proposal\. To change Chore with notes again: singularity-flow workflow build start --change chore-with-notes/u);
+  assert.match(again.stderr + again.stdout, /its change to Chore with notes was proposed, and once activated new Stories use it\. To change Chore with notes again: singularity-flow workflow build start --change chore-with-notes/u);
 });
 
 test('a copy keeps the description of the workflow it copies; a change build that changes nothing writes nothing', async () => {

@@ -66,7 +66,7 @@ function landedIn(record, model) {
 function finishedMessage(record, label) {
   const again = `singularity-flow workflow build start --change ${record.goal.workflow}`;
   return record.goal.change
-    ? `Build ${record.id} is finished: its change to ${label} is a configuration proposal. To change ${label} again: ${again}`
+    ? `Build ${record.id} is finished: its change to ${label} was proposed, and once activated new Stories use it. To change ${label} again: ${again}`
     : `Build ${record.id} is finished: ${label} is in the approved configuration. To change it in place: ${again}`;
 }
 

@@ -36,7 +36,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 77
+version: 78
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1384,7 +1384,10 @@ edits a repository; finishing is still Workflow Studio's reviewed proposal.
 
 ### Build with Copilot in Workflow Studio
 
-Workflow Studio's **Build with Copilot** is the same build on one screen. **Change a workflow you
+Workflow Studio's **Build with Copilot** is the same build on one page: the conversation, the workflow
+drawn with its branches and checks, what each step does and what changes, then everything the
+material holds, then finishing, one after another; **Build**, **What we found** and **Finish** at the
+top jump to each part. **Change a workflow you
 have** (also **Change with Copilot** beside each of your workflows and on its canvas) changes it in
 place; **What changes** lists what the build does to it. Or start from a copy of a workflow you
 have, from a team's folders or files, or from a description; this repository's builds are listed
@@ -1407,8 +1410,12 @@ to continue.
   Copilot records appears in Studio as it records it.
 - With model features off you build by hand: add steps, move them or take them out, and say what
   each is for. Your own changes are accepted as they are recorded (`propose --by you --accept`).
-- **Finish** creates one reviewed proposal on the approved configuration (on a working-tree
-  configuration it writes the files, as Publish does), or saves a portable file to import elsewhere.
+- **Finish and activate…** finishes and activates the workflow from this page after one confirmation
+  that lists every change: one reviewed proposal is created and merged into the approved
+  configuration at its exact commit, and new Stories use it at once (server rules still apply; when
+  they refuse, the proposal waits under Changes). **Create the proposal for review** leaves it for
+  another person; on a working-tree configuration **Write the files** writes it, as Publish does;
+  **Save as a portable file…** saves it to import elsewhere.
 
 ## Check that a workflow makes sense
 

@@ -118,7 +118,7 @@ export async function run({ positionals, options, invocationCwd = process.cwd() 
   await (await import('../workspace-retention-background.mjs')).scheduleWorkspaceRetention(result.executionContext?.workspace?.path,
     { protect: [checkout] });
   if (options['for-agent']) Object.assign(result, agentSessionView(result), { ready: true,
-    agentInstruction: 'Reuse the verified open/session binding, brief and nextsteps in this result. Do not repeat pause, workspace, session, context or nextsteps lookups merely to obtain the same fields. Selection changes and later operation-specific readiness/consent still require fresh checks.' });
+    agentInstruction: 'Reuse this verified binding, brief and nextsteps. Do not repeat pause, workspace, session, context or nextsteps lookups; selection changes and later readiness or consent still need fresh checks.' });
   if (json) return console.log(JSON.stringify(result, null, 2));
   console.log(`${workId} is ready at ${checkout} (${attached ? 'attached from the remote' : opened.value.remoteSync?.status === 'unavailable'
     ? 'local checkout; the remote could not be reached' : 'local checkout, synchronized with the remote'}).`);

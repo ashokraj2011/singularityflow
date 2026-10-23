@@ -15,8 +15,10 @@ checkout. All of these handoffs now distinguish command cwd from exact returned 
 
 Every packaged skill and every bundled or template agent carries the shared `CLI_PATH_CONTRACT`.
 Workflow Studio-created agents inherit it from the canonical agent boundary. Phase entry tool
-protocols, composed phase prompts, source-review staging protocols, and the first `act` field of
-bounded agent results repeat the same rule. It applies to seeded, renamed, imported and future
+protocols, composed phase prompts and source-review staging protocols repeat the same rule. The
+first `act` field of an agent result and the per-prompt turn boundary name it in one sentence
+(`CLI_PATH_REFERENCE`), and `act` names it only when the result returns paths to use: its own path
+fields, or the file a bounded view writes. It applies to seeded, renamed, imported and future
 custom phases without inferring permissions from a phase name.
 
 - Copy a CLI-issued absolute file path verbatim, including Git-private components, spaces and

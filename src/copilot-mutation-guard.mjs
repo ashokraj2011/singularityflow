@@ -12,7 +12,7 @@ const stagingPaths = () => import('./phase-staging-paths.mjs');
 import { parseArgs } from './util.mjs';
 import { resolveOperation } from './command-registry.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { safeCommandGuidance, validateSflowExecutionCommand } from './safe-command-guidance.mjs';
+import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSflowExecutionCommand } from './safe-command-guidance.mjs';
 
 const MAX_AGE = 30 * 60 * 1000;
 
@@ -163,8 +163,45 @@ async function createRecord(payload, record, root, accepted, previous = null) {
     ...(previous?.importTeamStaging ? { importTeamStaging: previous.importTeamStaging } : {}),
     ...(previous?.buildStaging ? { buildStaging: previous.buildStaging } : {}),
     ...(previous?.fixStaging ? { fixStaging: previous.fixStaging } : {}),
-    ...(previous?.appDraftStaging ? { appDraftStaging: previous.appDraftStaging } : {}) };
+    ...(previous?.appDraftStaging ? { appDraftStaging: previous.appDraftStaging } : {}),
+    // Which turn rules this conversation already has: a refreshed contract does not take them back.
+    ...(previous?.contextDigest ? { contextDigest: previous.contextDigest } : {}) };
   return value;
+}
+
+/**
+ * A prompt's context in two parts. `[OUT:REQ-032]` The volatile part names this turn (skill, mode,
+ * Story, step, readiness, prerequisite) in at most 400 bytes. The stable part is the turn's rules: sent
+ * whole when they differ from the rules this conversation was last given, otherwise named by digest.
+ * Recorded prompts carried 0.8 KB (up to 1.9 KB) each, the full path rule included, beside a skill
+ * that states it once already (2026-10-18 to 10-22).
+ */
+export function turnBoundaryContext(value, presented = mutationContractPresentation(value.contract)) {
+  const { contract } = value;
+  const volatile = [
+    `SFlow turn boundary (${value.skill}): ${contract.turnMode} turn, ${contract.workId ?? 'no Story'} step ${contract.phaseId ?? 'none'} generation ${contract.generation ?? 'none'}.`,
+    `Code authoring ready: ${presented.codeAuthoringReady}.`,
+    presented.sourceEditPrerequisite ? `Before source edits: ${presented.sourceEditPrerequisite.command}.` : null
+  ].filter(Boolean).join(' ');
+  const stable = [
+    presented.summary,
+    CLI_PATH_REFERENCE,
+    presented.toolProtocol.terminal,
+    presented.toolProtocol.localVerification.allowed ? presented.toolProtocol.localVerification.guidance : null,
+    'Binding readiness is not source-edit permission.',
+    presented.sourceEditPrerequisite
+      ? 'After the "Before source edits" operation, re-enter the phase to verify fresh permissions; never auto-adopt or discard edits.' : null,
+    contract.turnMode === 'kernel-only'
+      ? 'Do not inline /sf-code or edit files in this kernel-only turn. Return the configured authoring skill and stop; the human invokes it explicitly.' : null
+  ].filter(Boolean).join(' ');
+  return { volatile, stable, digest: `sha256:${digest(stable).slice(0, 16)}` };
+}
+
+/** The additionalContext text: the stable rules whole, or by digest when this conversation has them. */
+export function turnBoundaryText(context, previous = null) {
+  return previous === context.digest
+    ? `${context.volatile} Turn rules unchanged (${context.digest}): given in full earlier in this conversation.`
+    : `${context.volatile} ${context.stable} Turn rules ${context.digest}.`;
 }
 
 export async function captureMutationTurn(payload, record, {
@@ -178,11 +215,17 @@ export async function captureMutationTurn(payload, record, {
     const candidate = await resolveRoot(payload);
     root = candidate ? await realpath(candidate) : null;
     if (!root) throw new Error('No verified Story checkout');
+    // The rules this conversation was last given, from its previous explicit turn's record. A native
+    // prompt in between removes that record, so its rules are sent whole again.
+    const earlier = await boundedRecord(file).catch(() => null);
     const value = await createRecord(payload, record, root, await load(root));
+    const context = turnBoundaryContext(value);
+    const given = earlier?.sessionId === record.sessionId && earlier.modeChangedAt === record.modeChangedAt
+      ? earlier.contextDigest ?? null : null;
     await rm(`${file}.issued`, { recursive: true, force: true }).catch(() => {});
     // One content-bound baseline, not a path/status-only baseline. It is deliberately lazy:
     // edit-tool interception needs no Git process; post-shell detection records its own baseline.
-    await atomicRecord(file, value);
+    await atomicRecord(file, { ...value, contextDigest: context.digest });
     // A verified native Copilot turn may be rooted in the canonical workspace while its Story
     // lives in a linked checkout. Tell only that launch folder's window, never every open window.
     const follow = await import('./copilot-story-follow.mjs');
@@ -195,18 +238,7 @@ export async function captureMutationTurn(payload, record, {
         originPath: payload.cwd, repositoryPath: root, workId: value.contract.workId
       }).catch(() => {});
     }
-    const presented = mutationContractPresentation(value.contract);
-    return { additionalContext: [
-      `SFlow turn boundary (${value.skill}): ${presented.summary}`,
-      presented.toolProtocol.paths,
-      presented.toolProtocol.terminal,
-      presented.toolProtocol.localVerification.allowed ? presented.toolProtocol.localVerification.guidance : null,
-      `Binding readiness is not source-edit permission. Code authoring ready: ${presented.codeAuthoringReady}.`,
-      presented.sourceEditPrerequisite
-        ? `Before source edits: ${presented.sourceEditPrerequisite.command}. Re-enter the phase after that operation to verify fresh permissions; never auto-adopt or discard edits.` : null,
-      value.contract.turnMode === 'kernel-only'
-        ? 'Do not inline /sf-code or edit files in this kernel-only turn. Return the configured authoring skill and stop; the human invokes it explicitly.' : null
-    ].filter(Boolean).join(' ') };
+    return { additionalContext: turnBoundaryText(context, given) };
   } catch {
     await atomicRecord(file, { schemaVersion: currentSchemaVersion('copilot-mutation-contract'), kind: 'copilot-mutation-contract',
       sessionId: record.sessionId, turnId: record.turnId, skill: record.skill, modeChangedAt: record.modeChangedAt,

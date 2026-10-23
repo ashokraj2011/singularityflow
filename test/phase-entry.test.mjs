@@ -512,7 +512,7 @@ test('session agent entry retains the verified custom-root binding with no Story
   assert.equal(packet.paused, false);
   assert.equal(packet.workItemRoot, 'team/stories');
   assert.equal(packet.workId, 'ENTRY-1');
-  assert.match(packet.agentInstruction, /Operation-specific readiness and human confirmations remain required/);
+  assert.match(packet.agentInstruction, /Readiness and human confirmations remain required/);
   assert.match(packet.agentInstruction, /literally[^.]*never in artifacts or approval identity/);
   assert.equal(await readFile(path.join(item.root, 'team/stories/ENTRY-1/workflow.json'), 'utf8'), original);
   assert.equal(git(item.root, 'rev-parse', 'HEAD'), before);

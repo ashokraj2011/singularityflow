@@ -15,7 +15,7 @@ import { assertPhaseSequence } from '../src/sequence.mjs';
 import { readFileSync } from 'node:fs';
 import YAML from 'yaml';
 import { resolveWorkType } from '../src/config.mjs';
-import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
+import { CLI_PATH_CONTRACT, CLI_PATH_REFERENCE, renderPlatformCommand } from '../src/safe-command-guidance.mjs';
 import { readCopilotStoryFollow } from '../src/copilot-story-follow.mjs';
 import { gitDir } from '../src/git-execution.mjs';
 import { recordCopilotSession } from '../src/session.mjs';
@@ -203,6 +203,32 @@ test('prompt submission announces the exact code prerequisite before a denied ed
   assert.match(next.additionalContext, /kernel-only.*no direct repository edits/);
   assert.match(next.additionalContext, /Do not inline \/sf-code/);
   assert.equal((await mutationToolGuard({ ...edit, sessionId: 'next-only' })).permissionDecision, 'deny');
+});
+
+test('prompt context sends its stable rules once per conversation and keeps the volatile part under 400 bytes', async t => {
+  // `[OUT:REQ-032]` `[OUT:AC-033]`
+  const f = await fixture(t, { writeScope: 'source-and-artifact', generationPolicy: { task: 'code', requirement: 'required' } });
+  const capture = (payload, record) => captureMutationTurn(payload, record, { resolveRoot: async () => f.root, load: async () => f.accepted });
+  const turn = (prompt, sessionId = 'stable-rules') => recordRepositoryBoundaryTurn({ cwd: f.root, sessionId, prompt }, { captureMutation: capture });
+  const rules = (text) => text.match(/Turn rules (?:unchanged \()?(sha256:[a-f0-9]{16})/u)?.[1];
+  const volatile = (text) => text.slice(0, text.indexOf(' Turn rules unchanged'));
+  const first = (await turn('/sf-code')).additionalContext;
+  assert.match(first, /Before source edits: singularity-flow phase begin custom-step --json/);
+  assert.match(first, /never auto-adopt or discard edits/);
+  assert.ok(first.includes(CLI_PATH_REFERENCE) && !first.includes(CLI_PATH_CONTRACT), 'the skill states the full path rule; the hook names it');
+  const again = (await turn('/sf-code')).additionalContext;
+  assert.match(again, /Turn rules unchanged \(sha256:[a-f0-9]{16}\): given in full earlier in this conversation\./);
+  assert.equal(rules(again), rules(first));
+  assert.match(again, /Before source edits: singularity-flow phase begin custom-step --json/, 'what changes per turn is always sent');
+  assert.doesNotMatch(again, /never auto-adopt or discard edits/);
+  assert.ok(Buffer.byteLength(volatile(again)) <= 400, `${Buffer.byteLength(volatile(again))} volatile bytes`);
+  // Other rules (a kernel-only turn), a native prompt in between, or another chat: sent whole again.
+  const kernel = (await turn('/sf-next')).additionalContext;
+  assert.match(kernel, /Do not inline \/sf-code/);
+  assert.notEqual(rules(kernel), rules(first));
+  await turn('explain this file');
+  assert.match((await turn('/sf-next')).additionalContext, /Do not inline \/sf-code/);
+  assert.match((await turn('/sf-code', 'another-chat')).additionalContext, /never auto-adopt or discard edits/);
 });
 
 test('native Copilot binds its launch window to the accepted Story without changing the profile', async t => {

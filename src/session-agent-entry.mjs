@@ -21,5 +21,7 @@ export function sessionAgentResult(result, workItemRoot) {
   return { schemaVersion: 1, resultType: 'sflow-session-entry', paused: false, ...result,
     workItemRoot, personalization: resolvePersonalization({ root: result.repositoryPath }),
     effects: { storyAdvanced: false, committed: false, pushed: false, testsRun: false },
-    agentInstruction: 'Use personalization.replyName literally, once per reply/suggestion group, never in artifacts or approval identity; do not guess a missing name. Reuse this invocation binding. Do not repeat pause, session, status or repository lookups merely to discover the same fields. Operation-specific readiness and human confirmations remain required; re-enter after selection changes.' };
+    // One sentence each, under 200 bytes: every skill turn starts with this result, and the skills that
+    // read it carry the full personalization and binding rules. `[OUT:REQ-031]`
+    agentInstruction: 'Use personalization.replyName literally (no name if absent), never in artifacts or approval identity; reuse this binding, not its lookups. Readiness and human confirmations remain required.' };
 }

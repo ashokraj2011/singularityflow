@@ -36,7 +36,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 81
+version: 82
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -299,6 +299,34 @@ The same holds for every role:
   approved.
 - **Low-risk waiver**: a Story signed off by a waiver policy stays within that policy's changed-path
   limit and protected paths, whatever its work type is called.
+
+## A verification step runs the repository's tests
+
+A step that is not a code step and sets `repositoryTests: run` also runs the repository's own test
+suite when it is submitted: the command its build files name, such as `npm test`, `mvn test` or
+`go test ./...`. The packaged `verification` and `testing` steps set it, so their test evidence is
+no longer only what the author wrote. Set `repositoryTests: off` in a work type's
+`phaseOverrides` to rely on the code step's tests alone. Code steps already run their tests, so the
+setting changes nothing there.
+
+- **Pass:** the run is recorded with the step's checks and shown in its review.
+- **Fail:** the submission still completes, and the warning says so. Its reviewer cannot approve the
+  step (`PHASE_VALIDATION_FAILED`) and returns it with `reject --to <step>` to the step that
+  repairs it.
+- **No test command found, or the launcher is not installed here:** a note is recorded instead, with
+  how to add one (Copilot `/sf-test-setup`; Shell `singularity-flow capability test-setup --json`).
+  It does not hold the step.
+
+Nothing is added when:
+
+- the step names its own test command in `qualityCommands`;
+- it reviews one code step's committed test receipt (`testEvidenceFrom`);
+- the Story accepted known test failures, or its code step's tests did not pass here. In this case a
+  note says why.
+
+A Story keeps the setting it started with: one started before its workflow asked for this runs
+nothing extra. A repository's own `singularity/workflow.yml` gets the setting when someone adds it,
+or when a configuration refresh merges the packaged steps into steps the repository has not edited.
 
 ## Use it from each surface
 

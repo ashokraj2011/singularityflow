@@ -1214,6 +1214,11 @@ phases:
     writeScope: source-and-artifact
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [implementation, verification] }
     qualityCommands: []
+    # Submission also runs the repository's own tests (npm test, mvn test, go test, ...), found from
+    # its build files, unless the step names its own test command. A failing run goes to the reviewer,
+    # who returns the step to repair; a repository with no test command gets a note, not a refusal.
+    # Set off to rely on the code step's tests alone.
+    repositoryTests: run
   testing:
     label: Testing
     defaultTemplate: benchmark/testing.md
@@ -1222,6 +1227,9 @@ phases:
     writeScope: source-and-artifact
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [implementation, testing] }
     qualityCommands: []
+    # As for verification. A review of one code step's committed test receipt (testEvidenceFrom)
+    # does not run them again.
+    repositoryTests: run
   visual-verification:
     label: Mobile visual verification
     defaultTemplate: figma-mobile/visual-verification.md

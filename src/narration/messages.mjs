@@ -250,6 +250,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Recorded ${slot(s.record)}; the observation stays visible, and the decision counts only until it expires or is revoked.`,
     preserves: false
   },
+  'decision.test-command.succeeded': {
+    headline: (s) => `Recorded ${slot(s.record)}; an accepted command runs at every publication and submission of its step, and its tests must pass.`,
+    preserves: false
+  },
   'decision.test-risk.succeeded': {
     headline: (s) => `Recorded ${slot(s.record)}; the tests still run every time, and only a run in which no test executed is let through until it expires or is revoked.`,
     preserves: false

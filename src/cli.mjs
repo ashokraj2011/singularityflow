@@ -4025,10 +4025,11 @@ async function decisionCommand(positionals, options) {
   if (action === 'plan') return decisionPlanCommand(positionals, options);
   if (action === 'risk') return decisionRiskCommand(positionals, options);
   if (action === 'test-risk') return (await import('./commands/decision-test-risk.mjs')).decisionTestRiskCommand(positionals, options);
+  if (action === 'test-command') return (await import('./commands/decision-test-command.mjs')).decisionTestCommandCommand(positionals, options);
   if (action === 'evidence-reuse') return (await import('./commands/decision-evidence-reuse.mjs')).decisionEvidenceReuseCommand(positionals, options);
   if (action === 'visual-profile') return (await import('./commands/decision-visual-profile.mjs')).decisionVisualProfileCommand(positionals, options);
   if (action === 'witness') return decisionWitnessCommand(positionals, options);
-  throw new SingularityFlowError(`Unknown decision action '${action}'. Use decision show, decision choose, decision applicability, decision scope, decision completeness, decision plan, decision risk, decision test-risk, decision evidence-reuse, decision visual-profile or decision witness.`, { code: 'COMMAND_UNKNOWN' });
+  throw new SingularityFlowError(`Unknown decision action '${action}'. Use decision show, decision choose, decision applicability, decision scope, decision completeness, decision plan, decision risk, decision test-risk, decision test-command, decision evidence-reuse, decision visual-profile or decision witness.`, { code: 'COMMAND_UNKNOWN' });
 }
 
 function printApplicability(rows) {

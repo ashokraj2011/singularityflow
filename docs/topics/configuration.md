@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 8
+version: 9
 commands:
   - configuration
   - workflow
@@ -73,7 +73,10 @@ test-setup --step <STEP> [--workflow <WORKFLOW>]` and either `--use <SUGGESTION-
 full (`--id`, `--argv '<JSON ARRAY>'`, `--working-directory`, `--affected-root`, `--adapter`,
 `--report`). The preview shows the `singularity/workflow.yml` diff and changes nothing; its printed
 `--confirm <digest>` command proposes exactly that change through the same reviewed save as the
-Test setup page. A command with the same ID is replaced; every other check is kept.
+Test setup page. A command with the same ID is replaced; every other check is kept. Run from a
+Story's checkout, it also names the Story's adoption once the proposal is activated. For a command one
+Story needs before that, a step approver accepts a Story-only command (`decision test-command`, see
+test-recovery).
 
 Existing Stories retain their configuration pin. An approved command-only revision can be reviewed
 for adoption in the **current code phase** through `singularity-flow story test-policy amend <WORK-ID>

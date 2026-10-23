@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 21
+version: 22
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -231,6 +231,23 @@ singularity-flow decision test-risk <WORK-ID> --phase <PHASE> --command <COMMAND
 - **How long:** the step then carries through approval, later steps and Story completion while the decision is active. The evidence matrix shows its criteria as satisfied with an exception, never as passed. Once the decision expires or is revoked (`decision test-risk --revoke TRR-001 --reason TEXT`), the next gate refuses again; a new decision on the same command carries the runs an earlier one let through.
 
 This needs no test-policy agreement at intake and works on any Story. The test-policy exception below is narrower and stricter: it covers only a missing executable, needs an agreement and named risk reviewers, and takes a decision for each transition.
+
+### When no runner is found: a command for this Story only
+
+Publication refuses with `CODE_DELIVERY_TEST_COMMAND_REQUIRED` when no test command is configured for the step and none can be inferred for its changed code. The same check runs as the code step opens, on the paths its plan names, so `phase enter` and `recover` say so before the code is written (`testExecution.planned.runner: missing`). Three routes, all person-decided:
+
+- **This Story only:** the developer, or their agent, requests the exact command that runs the tests, and a person who approves the step accepts it.
+
+```text
+singularity-flow decision test-command <WORK-ID> --phase <PHASE> --use <SUGGESTION-ID> --reason "<why this command tests the step>"
+singularity-flow decision test-command <WORK-ID> --phase <PHASE> --id <ID> --argv '<JSON ARRAY>' --working-directory <DIR> --affected-root <DIR> --adapter <ADAPTER> --report <PATH> --reason "<why>"
+singularity-flow decision test-command <WORK-ID> --accept TCD-001        (a person who approves the step; or from /sf-decide)
+singularity-flow decision test-command <WORK-ID> --revoke TCD-001 --reason "<why>"
+```
+
+  The request appears in the decision list of the people who may accept it. An accepted command runs at every publication and submission of the step like a configured one, covers its affected roots, and its tests must pass; nothing is waived. A step nobody approves is decided by the next step on the route that has approvers, under that step's self-approval rule. An agent may request, never accept or revoke. The repository configuration does not change.
+- **Every later Story:** `/sf-test-setup` proposes the command (`capability test-setup --step <STEP> … --confirm`). Once a configuration approver activates it, `recover` offers this Story the adoption: a person who approves the step previews and applies `story test-policy amend --reason TEXT`, and the tests run fresh.
+- **The repository's own runner:** repair an in-scope test script or runner declaration so a supported runner is inferred.
 
 ### Reusing a run an earlier step recorded
 

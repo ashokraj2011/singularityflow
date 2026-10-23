@@ -93,8 +93,24 @@ export async function planTestCommandProposal(root, { step: phase, workflow = nu
   }, { preferAuthority: true });
 }
 
+/**
+ * Test commands the activated configuration now gives a Story's step that its pinned policy lacks:
+ * what `story test-policy amend` would adopt. Empty when there are none or the authority cannot be read.
+ */
+export async function activatedTestCommandsFor(root, workflow, phaseId) {
+  try {
+    return await withApprovedConfigurationRead(root, async () => {
+      const raw = YAML.parse(await readFile(path.join(configurationReadRoot(root), WORKFLOW_PATH), 'utf8')) ?? {};
+      const commands = raw.workTypes?.[workflow.workItem?.workType]?.phaseOverrides?.[phaseId]?.qualityCommands
+        ?? raw.phases?.[phaseId]?.qualityCommands ?? [];
+      const pinned = (workflow.resolution?.phases?.find((entry) => entry.id === phaseId)?.qualityCommands ?? []).map(canonicalJson);
+      return commands.filter((entry) => entry?.kind === 'test' && !pinned.includes(canonicalJson(entry)));
+    }, { preferAuthority: true });
+  } catch { return []; }
+}
+
 /** The test command the options name: an inspected suggestion (--use), or the one given in full. */
-async function requestedCommand(root, options) {
+export async function requestedCommand(root, options) {
   const use = optionString(options, 'use');
   if (use) {
     const { inspectRepositoryTestSetup } = await import('./repository-test-setup.mjs');
@@ -167,14 +183,22 @@ export async function runTestCommandProposal(options) {
       '--expected-sha256', plan.workflowSha256, ...(json ? ['--json'] : [])]));
   } finally { console.log = original; }
   const proposal = json ? JSON.parse(lines.join('\n')) : null;
+  // The Story that asked adopts the activated command through its reviewed amendment.
+  const workId = (await (await import('./session.mjs')).loadSession(root, { required: false }).catch(() => null))?.workId ?? null;
+  const adopt = workId ? `singularity-flow story test-policy amend --work-id ${workId} --phase ${step} --reason "Adopt the activated test command for this step" --json` : null;
   const nextCommand = typeof proposal?.nextAction === 'string' ? proposal.nextAction : proposal?.nextAction?.command ?? null;
-  if (!json) console.log('Stories already started keep their test policy; a Story adopts the activated command through singularity-flow story test-policy amend.');
+  if (!json) console.log(adopt ? `Once it is activated, a person who approves ${step} adopts it in Story ${workId}: ${adopt}`
+    : 'Stories already started keep their test policy; a Story adopts the activated command through singularity-flow story test-policy amend.');
   emitCommandResult(commandResult({
     operation: { id: 'capability.test-setup.propose', classification: 'mutation' },
     outcome: succeeded('capability.test-setup.proposed', { step, command: command.id }),
     effects: effects({ filesChanged: true, publicationCreated: true }),
-    next: nextCommand?.startsWith('singularity-flow ') ? [action({ id: 'capability.test-setup.activate', command: nextCommand, rank: 'NOW', kind: 'review',
-      label: 'A configuration approver reviews and activates the proposal; until then no Story runs this command.' })] : [],
+    next: [
+      ...(nextCommand?.startsWith('singularity-flow ') ? [action({ id: 'capability.test-setup.activate', command: nextCommand, rank: 'NOW', kind: 'review',
+        label: 'A configuration approver reviews and activates the proposal; until then no Story runs this command.' })] : []),
+      ...(adopt ? [action({ id: 'capability.test-setup.adopt', command: adopt, rank: 'SOON', kind: 'review',
+        label: `Once it is activated, a person who approves ${step} previews and applies its adoption in Story ${workId}; the tests run fresh.` })] : [])
+    ],
     data: { step, workflow, command, planSha256: plan.planSha256, branch: proposal?.branch ?? null, proposal, testsExecuted: false }
   }), { json });
 }

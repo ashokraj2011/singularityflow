@@ -894,17 +894,25 @@ const KNOWN = Object.freeze({
       'Preserve the imported organisation map, establish its authority, and add the new capability through a separate reviewed proposal.',
       'singularity-flow capability map <CAPABILITY-ID> --lead <LEAD-URL> --json', 'remediation')
   ],
-  CODE_DELIVERY_TEST_COMMAND_REQUIRED: (argv, error) => [
-    step('inspect-current-phase',
-      'Inspect the current phase and approved source scope before repairing a repository-owned test runner declaration.',
-      `singularity-flow phase show${artifactAuthoringPhase(argv, error) ? ` ${artifactAuthoringPhase(argv, error)}` : ''} --json`, 'diagnostic', '/sf-phase-documents'),
-    step('repair-in-scope-repository-runner',
-      'If the affected module has an in-scope test script or runner declaration, repair it without changing the pinned workflow or suppressing tests. Otherwise, an authorized reviewer can preview story test-policy amend --reason TEXT after the configuration authority approves an explicit runner. The engine determines current-Story eligibility; refresh alone does not change its pin. A newer runtime may also add native support.',
-      null, 'remediation'),
-    step('recheck-structured-test-contract',
-      'After a real repository/runtime repair or accepted command amendment, follow its returned preparation or fresh-validation route. This read-only check does not republish unchanged code. Do not retry publication against unchanged inputs.',
-      `singularity-flow phase prepublish${artifactAuthoringPhase(argv, error) ? ` ${artifactAuthoringPhase(argv, error)}` : ''} --json`, 'diagnostic', '/sf-code')
-  ],
+  // Within the three-step cap: what SFlow suggests (and the repository routes from there), the
+  // Story-only command a step approver accepts, and the recheck after either.
+  CODE_DELIVERY_TEST_COMMAND_REQUIRED: (argv, error) => {
+    const phase = artifactAuthoringPhase(argv, error);
+    const workId = safeWorkId(error?.details?.workId) ?? safeWorkId(optionValueRaw(argv, 'work-id'));
+    return [
+      step('inspect-test-setup',
+        'See which runner SFlow suggests for the changed modules (add --source-root <DIRECTORY> for one below the repository root); inspection runs nothing. '
+        + `/sf-test-setup then proposes it for every later Story with capability test-setup --step ${phase ?? '<STEP>'}: a configuration approver activates it, and a person who approves this step adopts it here with story test-policy amend --reason TEXT, because refresh alone does not change its pin. `
+        + 'If the affected module has an in-scope test script or runner declaration, repairing it within this step\'s scope works too; never suppress tests. A newer runtime may also add native support.',
+        'singularity-flow capability test-setup --json', 'diagnostic', '/sf-test-setup'),
+      step('request-story-test-command',
+        'Or request the exact command that runs this step\'s tests, for this Story only: --use a suggestion, or give --id, --argv \'<JSON ARRAY>\', --working-directory, --affected-root, --adapter and --report. A person who approves the step accepts it from the decision list (/sf-decide); an agent never accepts it.',
+        `singularity-flow decision test-command ${workId ?? '<WORK-ID>'} --phase ${phase ?? '<PHASE>'} --use <SUGGESTION-ID> --reason "<why this command tests the step>"`, 'remediation'),
+      step('recheck-structured-test-contract',
+        'After an accepted Story-only command, an adopted amendment or a real repository/runtime repair, recheck: this read-only check names the resolved runner and does not republish unchanged code. Do not retry publication against unchanged inputs.',
+        `singularity-flow phase prepublish${phase ? ` ${phase}` : ''} --json`, 'diagnostic', '/sf-code')
+    ];
+  },
   CODE_TEST_FAILED: (argv, error) => requiredTestFailureSteps(argv, error),
   TRP_PHASE_GATE_BLOCKED: (_argv, error) => {
     const workId = safeWorkId(error?.details?.workId);
@@ -1279,7 +1287,7 @@ export function refusalRemediationPlan(error, argv = []) {
   const retryLabel = skillHostBlocked
     ? 'Do not retry generation, publication, submission or approval until the approved live host controls and exact delivery owner are implemented and qualified. Diagnostics cannot enable execution.'
     : repositoryRunnerBlocked
-    ? 'Do not retry unchanged publication. An in-scope repository runner repair, updated runtime or reviewed command amendment must establish the structured contract; then follow the returned preparation or fresh-validation route.'
+    ? 'Do not retry unchanged publication. An accepted Story-only command, an in-scope repository runner repair, an updated runtime or a reviewed command amendment must establish the structured contract; then follow the returned preparation or fresh-validation route.'
     : pinnedTestPolicyBlocked
     ? 'Do not retry unchanged publication. Preview a reviewed test-command amendment from corrected approved configuration for the active current code phase. Retain any existing publication and follow the returned preparation or fresh-validation route.'
     : code === 'CLARIFICATION_AUTHORITY_REQUIRED'

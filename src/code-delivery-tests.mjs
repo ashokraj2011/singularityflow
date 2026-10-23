@@ -643,7 +643,7 @@ export function normalizeRequiredTestCommand(value, index = 0) {
   return command;
 }
 
-export function structuredTestCommandRequiredError(phase) {
+export function structuredTestCommandRequiredError(phase, { workId = null, paths = [] } = {}) {
   return new SingularityFlowError(
     `Phase ${phase.id} has no structured repository test command and Singularity Flow could not infer one. `
     + 'An in-scope repository test script or runner declaration may be repaired in this Story, then '
@@ -653,11 +653,12 @@ export function structuredTestCommandRequiredError(phase) {
     + 'authority. An eligible current Story can preview story test-policy amend to adopt '
     + 'that exact approved command with live human review; configuration refresh alone '
     + 'does not change its pin. Unsupported Stories need the returned repair route or '
-    + 'deterministic support for the native runner.',
+    + 'deterministic support for the native runner. A person who approves the step may instead accept '
+    + 'a Story-only command requested with singularity-flow decision test-command.',
     {
       code: 'CODE_DELIVERY_TEST_COMMAND_REQUIRED',
       details: {
-        phase: phase.id,
+        phase: phase.id, ...(workId ? { workId } : {}), paths: (paths ?? []).slice(0, 20),
         diagnosticAction: { command: `singularity-flow recover --phase ${phase.id} --json` },
         remediation: { action: 'repair-in-scope-repository-runner-or-review-test-command-amendment' }
       }

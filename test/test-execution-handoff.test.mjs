@@ -69,7 +69,7 @@ test('missing, invalid, unverified or unavailable runner plans never gain an exe
     assert.equal(handoff.command, null);
     assert.equal(handoff.onSuccess, null);
     // Every stall a code step hits here names the person-decided route, never a way around the tests.
-    assert.match(handoff.guidance, /No runner: \/sf-test-setup, or a reviewer previews `story test-policy amend --reason TEXT`/u);
+    assert.match(handoff.guidance, /No runner: \/sf-test-setup, or request a Story-only command a step approver accepts \(`decision test-command`\), or a reviewer previews `story test-policy amend --reason TEXT`/u);
     assert.match(handoff.guidance, /Tests cannot run here \(none executed\): a step approver may run `decision test-risk`/u);
     assert.match(handoff.guidance, /already failed before this Story: `story test-policy risks --json`/u);
     assert.match(handoff.guidance, /never skip or weaken tests/u);

@@ -1,12 +1,13 @@
 /** Project a normalized runner without disclosing arbitrary approved command arguments. */
-export function projectTestExecutionCommand(command, { configuredIndex = -1, testPolicy = null } = {}) {
+export function projectTestExecutionCommand(command, { configuredIndex = -1, testPolicy = null, storyDecision = null } = {}) {
   const configured = configuredIndex >= 0;
   return {
     id: configured ? `qualityCommands[${configuredIndex}]` : command.id,
     availability: 'ready',
     argv: configured ? null : command.argv,
     argvWithheld: configured,
-    argvSource: configured ? 'approved-configuration' : 'inferred',
+    argvSource: configured ? 'approved-configuration' : storyDecision ? 'story-decision' : 'inferred',
+    ...(storyDecision ? { storyDecision } : {}),
     workingDirectory: command.workingDirectory,
     affectedRoots: command.affectedRoots,
     result: {
@@ -44,7 +45,7 @@ export function testExecutionHandoff(testExecution, { published = false, command
     runnerStatus: 'unavailable', configurationRequired: null, repositoryEditsRequired: null,
     executionOwner: null, command: null, onSuccess: null,
     guidance: 'Follow the reported runner or lifecycle repair action; no executable test handoff is ready. '
-      + 'No runner: /sf-test-setup, or a reviewer previews `story test-policy amend --reason TEXT`. '
+      + 'No runner: /sf-test-setup, or request a Story-only command a step approver accepts (`decision test-command`), or a reviewer previews `story test-policy amend --reason TEXT`. '
       + 'Tests cannot run here (none executed): a step approver may run `decision test-risk`. '
       + 'Tests that already failed before this Story: `story test-policy risks --json` shows whether a delegated reviewer can accept them. Each is a person\'s decision; never skip or weaken tests to get past one.'
   };

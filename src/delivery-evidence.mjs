@@ -1663,8 +1663,14 @@ export function isTestQualityCommand(command) {
   return /(^|[._-])(test|tests|acceptance|e2e)(?:[._-]|$)/.test(executable);
 }
 
+/** Where a step's test command came from: a person's Story-only decision, approved configuration, or inference. */
+export function testCommandProvenance(phase, command) {
+  return command?.storyDecision ? 'story-decision' : (phase.qualityCommands ?? []).includes(command) ? 'configured' : 'inferred';
+}
+
 export async function resolveDeliveryQualityCommands(root, phase, { executionMode = 'changed-and-affected' } = {}) {
-  const configured = [...(phase.qualityCommands ?? [])];
+  // Commands a step approver accepted for this Story only (src/story-test-commands.mjs) run like configured ones.
+  const configured = [...(phase.qualityCommands ?? []), ...(phase.storyTestCommands ?? [])];
   if (!phaseRequiresCodeDelivery(phase)) return configured;
   const configuredTests = configured.filter((command) =>
     command && typeof command === 'object' && !Array.isArray(command) && command.kind === 'test');

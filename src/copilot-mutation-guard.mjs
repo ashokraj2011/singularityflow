@@ -583,6 +583,8 @@ function argvAllowed(argv, mode, value) {
   // Accepting that a step's tests cannot run here, reusing another step's recorded run for it, or
   // saying one of its screen sizes does not apply, is its approvers' call too; the refusal names it.
   if (positionals[0] === 'decision' && ['test-risk', 'evidence-reuse', 'visual-profile'].includes(positionals[1])) return false;
+  // An agent may request a Story-only test command; accepting or revoking it is the step approvers' call.
+  if (storyTestCommandDecision(positionals, options)) return false;
   // A Story's authorized browser target is a security boundary: a person pins it, in no turn (its preview is a read).
   if (targetOriginPin(positionals, options)) return false;
   if (positionals[0] === 'spec' && positionals[1] === 'drift' && positionals[2] === 'decide') return false;
@@ -678,9 +680,15 @@ function setAsideDecision(call, value) {
 function testRunRiskDecision(call, value) {
   const safe = verifiedShellForm(call, value);
   if (!safe) return false;
-  const { positionals } = parseArgs(safe.argv);
+  const { positionals, options } = parseArgs(safe.argv);
   return (positionals[0] === 'decision' && ['test-risk', 'evidence-reuse', 'visual-profile'].includes(positionals[1]))
+    || storyTestCommandDecision(positionals, options)
     || (positionals[0] === 'spec' && positionals[1] === 'drift' && positionals[2] === 'decide');
+}
+
+/** `decision test-command --accept|--revoke`: a step approver's decision on a requested command. */
+function storyTestCommandDecision(positionals, options) {
+  return positionals[0] === 'decision' && positionals[1] === 'test-command' && (options.accept !== undefined || options.revoke !== undefined);
 }
 
 /** A confirmed `story target-origin`: pinning a Story's authorized browser target origin. */

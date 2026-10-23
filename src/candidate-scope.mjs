@@ -32,6 +32,19 @@ export async function codeCandidateScope(itemDirectory, workflow, phase) {
   });
 }
 
+/** The paths the plan names for a code step: expected source paths and planned tests, before any change. */
+export async function plannedStepPaths(itemDirectory, workflow, phase) {
+  const sourcePaths = new Set(); const testPaths = new Set();
+  if (!phaseRequiresCodeDelivery(phase) || workflow?.resolution?.plannedClaims?.mode !== 'required') return { sourcePaths: [], testPaths: [] };
+  const records = await loadActiveSpecRecords(itemDirectory, workflow);
+  for (const claim of Object.values(mergePlannedClaimRecords(records.planned ?? []))) {
+    if ((claim.steps ?? []).length && !claim.steps.includes(phase.id)) continue;
+    for (const candidate of claim.expectedPaths ?? []) sourcePaths.add(candidate);
+    for (const candidate of claim.tests ?? []) testPaths.add(candidate);
+  }
+  return { sourcePaths: [...sourcePaths].sort(), testPaths: [...testPaths].sort() };
+}
+
 /**
  * Whether a changed file is outside every code step's candidate: no step's plan names it as an
  * expected path, test, supporting change or amendment [E2G-027]. Such a file stays in the worktree

@@ -252,7 +252,7 @@ skills:
   sflow-story-fetch: { class: interactive, executionBoundary: repository }
   sflow-story-inbox: { class: echo, executionBoundary: repository }
   sflow-work-interval: { class: mutation }
-  sflow-story-start: { class: interactive, kernelModelPolicy: never, executionBoundary: repository, maximumTokenOverride: 827, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit. It asks for --target-url whenever the chosen workflow requires or recommends one, not for one workflow ID." }
+  sflow-story-start: { class: interactive, kernelModelPolicy: never, executionBoundary: repository, maximumTokenOverride: 851, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit. It asks for --target-url whenever the chosen workflow requires or recommends one, not for one workflow ID. Its clean-tree step names the full `workspace branches --entry --intake` read in place of a raw `git status`, which its turn refuses (2026-10-23)." }
   sflow-story-skill-version: { class: mutation }
   sflow-submit: { class: review, maximumTokenOverride: 828, exception: "Readiness with `--submit-if-ready` submits and returns the review in the same command instead of three Copilot round trips, so the skill names when not to run the submit command itself. A Convergence digest confirmed in its arguments advances without another preview loop. Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open." }
   sflow-telemetry: { class: echo, executionBoundary: repository }

@@ -17,7 +17,17 @@ export const COMMAND_PRESENTATION_CONTRACT = 'For every next action, honor retur
  * contracts: fixed overhead added to the budget, not per-skill prose, and only on Story authoring
  * and mutation skills (approval and review turns never run automatic actions).
  */
-export const REFUSAL_HANDLING_CONTRACT = 'On a refusal read `remediationPlan`: run its first read-only step once and follow `context.strategy`; never retry an unchanged condition or edit an earlier phase to clear it. One returned `automatic` plan-hash action (such as `sync`) may run once, then re-enter once.';
+export const REFUSAL_HANDLING_CONTRACT = 'On a refusal read `remediationPlan`: run its first read-only step once and follow `context.strategy`; never retry an unchanged condition or edit an earlier phase to clear it.';
+
+/**
+ * A returned automatic action (`sync`) is a kernel mutation, so only a skill whose turn may run kernel
+ * mutations (authoring or kernel-only) is told it may run one. /sf-publish, /sf-review-decide and
+ * read turns were told so, and their turn refused the `sync` they then ran.
+ */
+export const AUTOMATIC_ACTION_CONTRACT = 'One returned `automatic` plan-hash action (such as `sync`) may run once, then re-enter once.';
+export function automaticActionApplies(name, rule) {
+  return refusalHandlingApplies(rule) && ['authoring', 'kernel-only'].includes(mutationTurnMode(name));
+}
 
 /**
  * A skill that writes its own document does that work in the turn. A live /sf-phase run ended three turns
@@ -76,9 +86,11 @@ export function authoringTurnApplies(rule) {
   return rule?.class === 'generative';
 }
 
-/** The refusal and authoring-turn contracts a skill carries, as one engine-owned text, or null. */
-export function refusalContractFor(rule) {
-  const parts = [refusalHandlingApplies(rule) ? REFUSAL_HANDLING_CONTRACT : null, authoringTurnApplies(rule) ? AUTHORING_TURN_CONTRACT : null].filter(Boolean);
+/** The refusal, automatic-action and authoring-turn contracts a skill carries, as one engine-owned text, or null. */
+export function refusalContractFor(rule, name = null) {
+  const parts = [refusalHandlingApplies(rule) ? REFUSAL_HANDLING_CONTRACT : null,
+    name && automaticActionApplies(name, rule) ? AUTOMATIC_ACTION_CONTRACT : null,
+    authoringTurnApplies(rule) ? AUTHORING_TURN_CONTRACT : null].filter(Boolean);
   return parts.length ? parts.join(' ') : null;
 }
 
@@ -637,7 +649,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     let text = await readFile(file, 'utf8');
     if (write) {
       text = withAutomaticPolicy(text, automatic.has(name), AUTOMATIC_DESCRIPTIONS[name], file);
-      text = withOutputContract(text, classPolicy.outputContract, kernelModelPolicy, file, executionBoundaryKind, refusalContractFor(rule), applicabilityContractApplies(rule));
+      text = withOutputContract(text, classPolicy.outputContract, kernelModelPolicy, file, executionBoundaryKind, refusalContractFor(rule, name), applicabilityContractApplies(rule));
       text = withCopilotPauseGuard(text, pauseGuardRequired, file, name, executionBoundaryKind);
       await writeFile(file, text);
     }
@@ -654,7 +666,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     const artifactPresentationTokens = estimatedTokens(` ${ARTIFACT_PRESENTATION_CONTRACT}`);
     const refusalHandling = refusalHandlingApplies(rule);
     const authoringTurn = authoringTurnApplies(rule);
-    const refusalText = refusalContractFor(rule);
+    const refusalText = refusalContractFor(rule, name);
     const refusalHandlingTokens = refusalText ? estimatedTokens(` ${refusalText}`) : 0;
     const applicability = applicabilityContractApplies(rule);
     // Measured in this body like the approved-inputs contract, so a longer shared contract never
@@ -698,6 +710,9 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     if (!skill.body.includes(COMMAND_PRESENTATION_CONTRACT)) errors.push(`${name}: missing Shell/Copilot presentation contract`);
     if (refusalHandling !== skill.body.includes(REFUSAL_HANDLING_CONTRACT)) {
       errors.push(`${name}: ${refusalHandling ? 'missing' : 'unexpected'} engine refusal-handling contract`);
+    }
+    if (automaticActionApplies(name, rule) !== skill.body.includes(AUTOMATIC_ACTION_CONTRACT)) {
+      errors.push(`${name}: ${automaticActionApplies(name, rule) ? 'missing' : 'unexpected'} automatic-action clause (only authoring and kernel-only turns run \`sync\`)`);
     }
     if (authoringTurn !== skill.body.includes(AUTHORING_TURN_CONTRACT)) {
       errors.push(`${name}: ${authoringTurn ? 'missing' : 'unexpected'} engine authoring-turn contract`);

@@ -11,7 +11,8 @@ import {
 import { phaseRepairLoopSummary } from '../src/phase-repair-journal.mjs';
 import { phaseUpstreamDiscrepancies, upstreamDiscrepanciesFromMarkdown } from '../src/phase-upstream-discrepancies.mjs';
 import {
-  AUTHORING_TURN_CONTRACT, REFUSAL_HANDLING_CONTRACT, authoringTurnApplies, refusalHandlingApplies
+  AUTHORING_TURN_CONTRACT, AUTOMATIC_ACTION_CONTRACT, REFUSAL_HANDLING_CONTRACT, authoringTurnApplies, automaticActionApplies,
+  refusalHandlingApplies
 } from '../scripts/skill-policy.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -71,6 +72,8 @@ test('every Story authoring and mutation skill carries the engine refusal contra
     const body = await readFile(path.join(root, 'plugin/skills', name, 'SKILL.md'), 'utf8').catch(() => null);
     if (body == null) continue;
     assert.equal(body.includes(REFUSAL_HANDLING_CONTRACT), refusalHandlingApplies(rule), name);
+    // Only a turn that may run a kernel mutation is told it may run the returned `sync`.
+    assert.equal(body.includes(AUTOMATIC_ACTION_CONTRACT), automaticActionApplies(name, rule), name);
     if (refusalHandlingApplies(rule)) carrying += 1;
   }
   assert.ok(carrying >= 30, `${carrying} skills carry the refusal contract`);
@@ -84,7 +87,14 @@ test('every Story authoring and mutation skill carries the engine refusal contra
   // The refusal contract says only how to read a refusal; it gives no turn a reason to stop and relay.
   // Widening it ("On a refusal or any stop, relay the returned route ...") made a live /sf-phase run
   // relay its own route three turns running instead of writing the document.
-  assert.equal(REFUSAL_HANDLING_CONTRACT, 'On a refusal read `remediationPlan`: run its first read-only step once and follow `context.strategy`; never retry an unchanged condition or edit an earlier phase to clear it. One returned `automatic` plan-hash action (such as `sync`) may run once, then re-enter once.');
+  assert.equal(REFUSAL_HANDLING_CONTRACT, 'On a refusal read `remediationPlan`: run its first read-only step once and follow `context.strategy`; never retry an unchanged condition or edit an earlier phase to clear it.');
+  assert.equal(AUTOMATIC_ACTION_CONTRACT, 'One returned `automatic` plan-hash action (such as `sync`) may run once, then re-enter once.');
+  for (const name of ['sflow-next', 'sflow-phase', 'sflow-pr']) assert.ok(automaticActionApplies(name, registry.skills[name]), name);
+  // A publish-only, review-decision-only or read turn refuses `sync`, so its skill is never told to run it.
+  for (const name of ['sflow-publish', 'sflow-review-decide', 'sflow-hook']) {
+    assert.ok(refusalHandlingApplies(registry.skills[name]), name);
+    assert.equal(automaticActionApplies(name, registry.skills[name]), false, name);
+  }
 });
 
 test('only skills that write their own document are told a route back to them is their own work', async () => {

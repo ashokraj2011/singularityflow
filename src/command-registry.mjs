@@ -22,6 +22,47 @@ const SKILL_READ_SUBCOMMANDS = Object.freeze(['inspect', 'approved', 'doctor', '
 const SKILL_MUTATION_SUBCOMMANDS = Object.freeze(['create', 'edit', 'attach', 'detach', 'remove']);
 const AGENT_READ_SUBCOMMANDS = Object.freeze(['list', 'mappings', 'status']);
 const PROMPT_LOG_READ_SUBCOMMANDS = Object.freeze(['status', 'list', 'view']);
+// Subcommands of commands named as mutations whose handlers write nothing (read 2026-10-23): Jira
+// discovery and issue reads are GETs (src/jira.mjs imports no writer; `jira doctor` reads the active
+// workspace without refreshing it), the Initiative and Epic reads load committed records only, `harness
+// report` reads the local harness journal and `regression analyze` (without --fetch) reads Git history.
+// A copilot turn that only reads ran into a mutation refusal for each. Left as mutations on purpose:
+// `initiative report --out` (writes the file), `epic requirements status` (accepts Intake and commits
+// on an Epic branch), `epic merge-plan` and `epic pr` (fetch managed repository caches) and
+// `pr describe` (fetches the state branch into a remote-tracking ref).
+const JIRA_READ_SUBCOMMANDS = Object.freeze(['status', 'doctor', 'projects', 'epics', 'children', 'permissions',
+  'boards', 'board', 'list', 'assigned', 'pull', 'show', 'get', 'fields', 'transitions']);
+const INITIATIVE_READ_SUBCOMMANDS = Object.freeze(['status', 'report', 'next', 'journey', 'documents', 'checklist', 'verify']);
+const EPIC_READ_SUBCOMMANDS = Object.freeze(['status', 'report', 'next', 'journey']);
+const KNOWLEDGE_READ_SUBCOMMANDS = Object.freeze(['list', 'show']);
+
+/** The read operation of a mutation-named command's read-only subcommand, or null. */
+function readOnlySubcommandOperation(definition, positionals, options) {
+  const [, subcommand, action] = positionals;
+  if (definition.name === 'initiative') {
+    const sub = subcommand ?? 'status';
+    if (sub === 'report' && optionString(options, 'out') != null) return null;
+    if (INITIATIVE_READ_SUBCOMMANDS.includes(sub)) return never(`initiative.${sub}`, definition, 'read');
+    if (sub === 'evidence' && (action ?? 'list') === 'list') return never('initiative.evidence.list', definition, 'read');
+    return null;
+  }
+  if (definition.name === 'epic') {
+    const sub = subcommand ?? 'status';
+    if (sub === 'report' && optionString(options, 'out') != null) return null;
+    if (EPIC_READ_SUBCOMMANDS.includes(sub)) return never(`epic.${sub}`, definition, 'read');
+    if (sub === 'stories' && ['list', 'show'].includes(action ?? 'list')) return never(`epic.stories.${action ?? 'list'}`, definition, 'read');
+    if (sub === 'sources' && (action ?? 'list') === 'list') return never('epic.sources.list', definition, 'read');
+    return null;
+  }
+  if (definition.name === 'knowledge') {
+    const sub = subcommand ?? 'list';
+    return KNOWLEDGE_READ_SUBCOMMANDS.includes(sub) ? never(`knowledge.${sub}`, definition, 'read') : null;
+  }
+  if (definition.name === 'harness') return (subcommand ?? 'report') === 'report' ? never('harness.report', definition, 'read') : null;
+  if (definition.name === 'regression') return (subcommand ?? 'analyze') === 'analyze' && !optionBoolean(options, 'fetch')
+    ? never('regression.analyze', definition, 'read') : null;
+  return null;
+}
 
 const LAZY_MODULES = Object.freeze({
   start: './commands/start.mjs',
@@ -267,7 +308,7 @@ const WORKSPACE_NEVER_OPERATIONS = new Set([
 const WORKSPACE_SUBCOMMAND_ALIASES = new Map([['switch', 'use']]);
 const WORKSPACE_IMPACT_OPERATIONS = new Set(['analyze', 'list', 'show', 'promote']);
 const WORKSPACE_BOOTSTRAP_READ_ACTIONS = new Set(['status']);
-const WORKSPACE_BOOTSTRAP_MUTATION_ACTIONS = new Set(['resume', 'abandon']);
+const WORKSPACE_BOOTSTRAP_MUTATION_ACTIONS = new Set(['resume', 'retry', 'abandon']);
 const WORKSPACE_BOOTSTRAP_ACTIONS = new Set([
   ...WORKSPACE_BOOTSTRAP_READ_ACTIONS, ...WORKSPACE_BOOTSTRAP_MUTATION_ACTIONS
 ]);
@@ -1450,10 +1491,14 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'agents' && AGENT_READ_SUBCOMMANDS.includes(positionals[1])) {
     return never(`agents.${positionals[1]}`, definition, 'read');
   }
+  const readOnly = readOnlySubcommandOperation(definition, positionals, options);
+  if (readOnly) return readOnly;
   if (definition.operation) return definition.operation;
   if (definition.name === 'init') {
     if (optionBoolean(options, 'recover')) return never('init.smart-detect.recover', definition, 'mutation');
-    if (!optionBoolean(options, 'smart-detect')) return never('init.legacy', definition, 'mutation');
+    // `init --check` reports what is installed and what the approved authority holds; it writes nothing.
+    if (!optionBoolean(options, 'smart-detect')) return optionBoolean(options, 'check') && !optionBoolean(options, 'repair')
+      ? never('init.check', definition, 'read') : never('init.legacy', definition, 'mutation');
     return optionBoolean(options, 'dry-run') && optionString(options, 'output') == null
       ? never('init.smart-detect.preview', definition, 'read')
       : never('init.smart-detect.activate', definition, 'mutation');
@@ -1533,8 +1578,8 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   }
   // These handlers only discover Jira via GET or read the existing audit files. Logging a CLI
   // invocation is incidental diagnostics, not permission to treat the handler as a mutation.
-  if (definition.name === 'jira') return positionals[1] === 'status'
-    ? never('jira.status', definition, 'read') : never('jira', definition, 'mutation');
+  if (definition.name === 'jira') return JIRA_READ_SUBCOMMANDS.includes(positionals[1])
+    ? never(`jira.${positionals[1]}`, definition, 'read') : never('jira', definition, 'mutation');
   if (definition.name === 'prompt-log') return PROMPT_LOG_READ_SUBCOMMANDS.includes(positionals[1] ?? 'status')
     ? never(`prompt-log.${positionals[1] ?? 'status'}`, definition, 'read')
     : never('prompt-log', definition, 'mutation');
@@ -1790,6 +1835,7 @@ export function operationCatalog() {
       'revision.checks.' + action, revisionDefinition, 'mutation'
     )),
     never('init.legacy', initDefinition, 'mutation'),
+    never('init.check', initDefinition, 'read'),
     never('init.smart-detect.preview', initDefinition, 'read'),
     never('init.smart-detect.activate', initDefinition, 'mutation'),
     never('init.smart-detect.recover', initDefinition, 'mutation'),
@@ -1800,8 +1846,15 @@ export function operationCatalog() {
     never('configuration.edit', configurationDefinition, 'mutation'),
     never('configuration.cleanup-history.preview', configurationDefinition, 'read'),
     never('configuration.cleanup-history.apply', configurationDefinition, 'mutation'),
-    never('jira.status', jiraDefinition, 'read'),
+    ...JIRA_READ_SUBCOMMANDS.map((name) => never(`jira.${name}`, jiraDefinition, 'read')),
     never('jira', jiraDefinition, 'mutation'),
+    ...INITIATIVE_READ_SUBCOMMANDS.map((name) => never(`initiative.${name}`, commandDefinition('initiative'), 'read')),
+    never('initiative.evidence.list', commandDefinition('initiative'), 'read'),
+    ...EPIC_READ_SUBCOMMANDS.map((name) => never(`epic.${name}`, commandDefinition('epic'), 'read')),
+    ...['stories.list', 'stories.show', 'sources.list'].map((name) => never(`epic.${name}`, commandDefinition('epic'), 'read')),
+    ...KNOWLEDGE_READ_SUBCOMMANDS.map((name) => never(`knowledge.${name}`, commandDefinition('knowledge'), 'read')),
+    never('harness.report', commandDefinition('harness'), 'read'),
+    never('regression.analyze', commandDefinition('regression'), 'read'),
     ...PROMPT_LOG_READ_SUBCOMMANDS.map((name) => never(`prompt-log.${name}`, promptLogDefinition, 'read')),
     never('prompt-log', promptLogDefinition, 'mutation'),
     never('factory-reset.preview', factoryResetDefinition, 'read'),

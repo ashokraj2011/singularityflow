@@ -125,7 +125,12 @@ test('dynamic read routes and unknown commands retain explicit read versus conse
     ['workspace', 'bootstrap', 'status'], ['configuration', 'read', 'singularity/workflow.yml'],
     ['capability', 'test-setup', '--source-root', 'apps/client', '--json'],
     ['configuration', 'validate'], ['factory-reset', '--dry-run'],
-    ['integrations', 'list'], ['integrations', 'status'], ['integrations', 'test', 'team-events', '--send-test']
+    ['integrations', 'list'], ['integrations', 'status'], ['integrations', 'test', 'team-events', '--send-test'],
+    // Read forms of mutation-named commands: the same split in both places.
+    ['init', '--check', '--json'], ['jira', 'assigned', '--json'], ['jira', 'pull', 'PROJ-1'], ['jira', 'doctor'],
+    ['initiative', 'status'], ['initiative', 'evidence'], ['initiative', 'report', '--format', 'json'],
+    ['epic', 'journey', 'EPIC-1'], ['epic', 'stories', 'list'], ['epic', 'sources', 'list'],
+    ['knowledge', 'list'], ['harness', 'report'], ['regression', 'analyze', '--base', 'main']
   ];
   const catalog = new Map(operationCatalog().map((entry) => [entry.id, entry]));
   for (const args of reads) {
@@ -137,7 +142,9 @@ test('dynamic read routes and unknown commands retain explicit read versus conse
   for (const args of [
     ['jira', 'transition', 'ISSUE-1'], ['jira', 'unknown'], ['prompt-log', 'clear'],
     ['prompt-log', 'unknown'], ['configuration', 'future-action'], ['factory-reset', '--dry-run=false'],
-    ['factory-reset', '--no-dry-run'], ['integrations', 'retry', 'sad_0123']
+    ['factory-reset', '--no-dry-run'], ['integrations', 'retry', 'sad_0123'],
+    ['init', '--check', '--repair'], ['initiative', 'report', '--out', 'report.md'], ['initiative', 'approve', 'phase'],
+    ['epic', 'merge-plan'], ['epic', 'sources', 'add'], ['knowledge', 'record', 'decision'], ['regression', 'analyze', '--fetch']
   ]) {
     assert.equal(commandClass(args), 'mutation', args.join(' '));
     assert.equal(resolved(args).classification, 'mutation', args.join(' '));

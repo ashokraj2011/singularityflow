@@ -14,6 +14,35 @@ import { phasePublicationContract } from './manual-authorship.mjs';
 import { consumedByPublishedGeneration, nextPhaseGeneration } from './phase-generation.mjs';
 
 export const MUTATION_CONTRACT_VERSION = 1;
+/**
+ * The skills whose own steps run registered SFlow commands the registry calls mutations and edit no
+ * file. A read turn refused each of them its core step (`finalize`, `pr --create`, `push retry`,
+ * `story start`, `epic start`, `mcp smoke`, …). The kernel-only turn admits any registered command
+ * except approval, rejection and the person-only decisions the guard names, and no file edits.
+ */
+const KERNEL_ONLY_SKILLS = new Set([
+  'inputs', 'next', 'recover', 'appeal', 'clarify', 'revise', 'submit', 'continue',
+  'admin', 'init', 'configuration', 'documents', 'upload', 'workflows', 'workflow-rules', 'skills', 'instructions',
+  'capability-map', 'workspace', 'worldmodel', 'start', 'test-setup',
+  // Story lifecycle actions on a bound Story.
+  'assign', 'cancel', 'finalize', 'fix', 'gate', 'pr', 'refresh-branch', 'review', 'revision-attachments',
+  'spec', 'story-checks', 'story-skill-version', 'visual', 'work-interval',
+  // Story intake, setup and repository-level actions that run before or without a Story.
+  'story-start', 'story-fetch', 'story-branch', 'ready', 'return', 'adhoc', 'agents', 'auto', 'constitution',
+  'call-add', 'environment', 'factory-reset', 'fault', 'governance-rebuild', 'impact', 'import', 'integrations',
+  'knowledge', 'learn', 'ledger', 'mcp', 'prompt-log', 'reset-all', 'secrets', 'sgos', 'sgos-create', 'stack',
+  'telemetry', 'watch',
+  'capability-add', 'capability-depend', 'capability-protect', 'capability-doctor',
+  'workspace-bootstrap', 'workspace-impact', 'refresh-configuration',
+  // Machine-level installation, reset and local state.
+  'fresh-install', 'local-reset', 'local', 'product', 'plugin', 'push', 'quickstart', 'goal', 'journal',
+  // Epic, Initiative and Jira actions (Epic and Initiative checkouts bind no Story).
+  'epic-complete', 'epic-drift', 'epic-merge-plan', 'epic-planning', 'epic-publish', 'epic-requirements', 'epic-resume',
+  'epic-review', 'epic-review-decision', 'epic-sources', 'epic-start', 'epic-stories', 'epic-story-draft', 'epic-sync',
+  'initiative-approve', 'initiative-evidence', 'initiative-materialize', 'initiative-phase', 'initiative-start',
+  'jira-initiative', 'jira-update'
+]);
+
 export function mutationTurnMode(skill) {
   const name = String(skill ?? '').replace(/^\/?(?:sf|sflow)-/u, '');
   if (['approve', 'reject'].includes(name)) return 'approval-only';
@@ -26,6 +55,9 @@ export function mutationTurnMode(skill) {
   // /sf-run-app and /sf-test start, check and stop the declared application and run the declared
   // tests (`app` and `tests`); they edit nothing and never bind environment values.
   if (['run-app', 'test'].includes(name)) return 'run-and-test';
+  // /sf-inbox, /sf-stories and /sf-workspace-session read and then attach a session (`session attach`,
+  // the /sf-session steps, `session workspace`).
+  if (['inbox', 'stories', 'workspace-session'].includes(name)) return 'session-only';
   if (name === 'publish') return 'publish-only';
   // /sf-import-team converts a team directory through its own CLI commands and one issued
   // candidate file; it never edits a repository (copilot-mutation-guard.mjs importTeamGuard).
@@ -42,11 +74,14 @@ export function mutationTurnMode(skill) {
   // /sf-phase) in the same turn. No step names them as its author, but they author like /sf-phase,
   // bound to the current step's own policy; a read turn refused what their instructions do. Every
   // delegation skill takes the turn of the skill it delegates to (phase-mutation-contract.test.mjs).
-  if (['specify', 'plan', 'verify', 'implement', 'call', 'scenario-repair'].includes(name)) return 'authoring';
+  // /sf-converge writes the step's document at a model-generation checkpoint; a deterministic step's
+  // contract still grants no edits (deriveMutationContract), so its kernel-built publication is unchanged.
+  if (['specify', 'plan', 'verify', 'implement', 'call', 'scenario-repair', 'converge'].includes(name)) return 'authoring';
   // Kernel actions have their own authority checks. This never permits direct source edits.
-  if (['inputs', 'next', 'recover', 'appeal', 'clarify', 'revise', 'submit', 'converge', 'continue',
-    'admin', 'init', 'configuration', 'documents', 'upload', 'workflows', 'workflow-rules', 'skills', 'instructions',
-    'capability-map', 'workspace', 'worldmodel', 'start', 'test-setup'].includes(name)) return 'kernel-only';
+  if (KERNEL_ONLY_SKILLS.has(name)) return 'kernel-only';
+  // Every other skill only reads. Each registry skill's own SFlow commands are held to its turn by
+  // the registry-wide test in phase-mutation-contract.test.mjs, so a new skill cannot silently get one
+  // that refuses its own steps.
   return 'read';
 }
 

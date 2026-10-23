@@ -1886,7 +1886,7 @@ async function draftIntentAmendment(root, config, workflow, options) {
       + `${workId} (--adopt CLAUSE-ID, or spec drift decide --adopt --story ${workId}), and no --clause was named.`, { code: 'INTENT_AMENDMENT_DRAFT_EMPTY' });
   }
   const out = optionString(options, 'out') ? path.resolve(optionString(options, 'out'))
-    : path.join(gitDir(root), 'singularity-flow', 'intent-amendment-drafts', `${workId}.md`);
+    : (await import('../phase-staging-paths.mjs')).intentAmendmentDraftPath(gitDir(root), workflow);
   const proposeCommand = `singularity-flow story intent-amendment propose --work-id ${workId} --file "${out}" --reason "<why the specification changes>"`;
   const { buildIntentAmendmentDraft } = await import('../intent-amendment-draft.mjs');
   const draft = buildIntentAmendmentDraft({ text, clauses, namespace: workId.toUpperCase(),

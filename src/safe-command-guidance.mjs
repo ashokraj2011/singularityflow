@@ -254,8 +254,11 @@ function executionSecretCheckArgv(tokens) {
   const receiptOptions = tokens.filter(token => /^--selection-receipt(?:=|$)/u.test(token));
   if (!receiptOptions.length) return tokens;
   const argv = tokens.slice(1);
+  // `story start` and `epic start <KEY>` hand the same receipt to the `start` and `initiative start`
+  // handlers; /sf-story-start and /sf-epic-start record their choices and start with it.
   const supportsReceipt = ['start', 'approve', 'reject'].includes(argv[0])
     || argv[0] === 'initiative' && ['start', 'approve'].includes(argv[1])
+    || ['story', 'epic'].includes(argv[0]) && argv[1] === 'start'
     || argv[0] === 'epic' && argv[1] === 'review' && ['approve', 'reject'].includes(argv[2]);
   if (!supportsReceipt || receiptOptions.length !== 1) return null;
   const index = tokens.indexOf(receiptOptions[0]);

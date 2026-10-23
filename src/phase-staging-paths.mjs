@@ -44,11 +44,24 @@ export function sourceReviewStagingPath(gitDirectory, workflow, phase) {
 }
 
 /**
+ * The Story's intent-amendment draft beside the checkout's Git data: where `story intent-amendment
+ * draft` writes by default and what `story intent-amendment propose --file` proposes.
+ */
+export function intentAmendmentDraftPath(gitDirectory, workflow) {
+  return path.join(gitDirectory, 'singularity-flow', 'intent-amendment-drafts', `${workflow.workItem.id}.md`);
+}
+
+/**
  * The staging files a turn in `turnMode` may write for the current step. An authoring turn gets the
  * clarification file while the step's checkpoint is on; a source-review turn gets the report file
- * unless the reviewer would review its own work. Every other turn gets none.
+ * unless the reviewer would review its own work; a /sf-reject turn gets the Story's intent-amendment
+ * draft, whatever the step's status (its skill drafts the amended scope there and proposes it; the
+ * scope's approvers decide it). Every other turn gets none.
  */
-export function phaseStagingPaths({ gitDirectory, definition, workflow, phase = workflow?.phases?.[workflow?.currentPhase], turnMode }) {
+export function phaseStagingPaths({ gitDirectory, definition, workflow, phase = workflow?.phases?.[workflow?.currentPhase], turnMode, skill = null }) {
+  if (turnMode === 'approval-only' && /^\/?(?:sf|sflow)-reject$/u.test(String(skill ?? '')) && gitDirectory && workflow?.workItem?.id) {
+    return [intentAmendmentDraftPath(gitDirectory, workflow)];
+  }
   if (!gitDirectory || !phase?.id || phase.status !== 'in_progress' || workflow?.currentPhase !== phase.id) return [];
   if (turnMode === 'authoring' && pinnedClarificationMode(definition, workflow, phase) !== 'off') {
     return [clarificationStagingPath(gitDirectory, workflow, phase)];

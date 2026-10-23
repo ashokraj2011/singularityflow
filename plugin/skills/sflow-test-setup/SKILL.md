@@ -33,7 +33,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    singularity/workflow.yml --json`; show a command-only qualityCommands diff. Keep non-test commands,
    approval rules, test scope and other workflows unchanged. Use `kind: test`, `modelPolicy: never`,
    argv, workingDirectory, affectedRoots and result.adapter/path. Report paths are module-relative.
-   Only after explicit consent delegate the exact proposal save to `/sf-configuration`.
+   Only after explicit consent run `/sf-configuration`'s exact proposal save (no sub-agent).
    Do not rewrite the application's checkout, run tests, merge, or push without the corresponding request.
 6. Inference and hidden approved argv (`argvWithheld: true`) need no YAML proposal/amendment.
    Existing Stories retain explicit pins. Only for explicit command revisions approved in sflow/config,

@@ -5108,7 +5108,7 @@ Exact Home actions: `home:work.continue`, `home:work.list`, `home:work.return`,
           <span class="pill">mutation</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~791 body tokens</span>
+          <span class="pill">~768 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-hook</code></dd></div>
@@ -5132,7 +5132,7 @@ argument-hint: &quot;turn-intent|turn-end|agent-start|session-start|agent-guard&
 Reuse a verified pause-aware entry supplied in this invocation before any mutation or selection change; otherwise first run `singularity-flow session current --for-agent --json` once; pause precedes Git. If `paused`: native Copilot, only `/sf-pause off`, never resume implicitly. Reuse binding/`personalization.replyName`; fresh operation checks/consent remain required.
 
 &lt;!-- sflow-output-contract: deterministic-mutation --&gt;
-**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say &quot;not available for this action&quot;. Missing Copilot: &quot;no verified equivalent&quot;. Never invent routes. On a refusal read `remediationPlan`: run its first read-only step once and follow `context.strategy`; never retry an unchanged condition or edit an earlier phase to clear it. One returned `automatic` plan-hash action (such as `sync`) may run once, then re-enter once. Run a check only when a returned field or command asks for it; never decide from a step&#39;s name, kind or route that it applies. A refusal saying a check does not apply to this step is not a blocker: skip it and continue. Act on a result&#39;s `act` first: its state, `do` routes and any `ask`. A bounded result names `agentOutput.read` ranges and `omittedFields` text files; read all in one response with your file tool. If your host saved a result to a file you cannot open, run that command again with `--for-agent --json`; never read the host&#39;s copy with shell tools.
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say &quot;not available for this action&quot;. Missing Copilot: &quot;no verified equivalent&quot;. Never invent routes. On a refusal read `remediationPlan`: run its first read-only step once and follow `context.strategy`; never retry an unchanged condition or edit an earlier phase to clear it. Run a check only when a returned field or command asks for it; never decide from a step&#39;s name, kind or route that it applies. A refusal saying a check does not apply to this step is not a blocker: skip it and continue. Act on a result&#39;s `act` first: its state, `do` routes and any `ask`. A bounded result names `agentOutput.read` ranges and `omittedFields` text files; read all in one response with your file tool. If your host saved a result to a file you cannot open, run that command again with `--for-agent --json`; never read the host&#39;s copy with shell tools.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** reuse entry `ready`/`workId`, cwd=`repositoryPath`; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
@@ -8139,7 +8139,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">mutation</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1064 body tokens</span>
+          <span class="pill">~1041 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-publish</code></dd></div>
@@ -8164,7 +8164,7 @@ argument-hint: &quot;[phase]&quot;
 Reuse a verified pause-aware entry supplied in this invocation before any mutation or selection change; otherwise first run `singularity-flow session current --for-agent --json` once; pause precedes Git. If `paused`: native Copilot, only `/sf-pause off`, never resume implicitly. Reuse binding/`personalization.replyName`; fresh operation checks/consent remain required.
 
 &lt;!-- sflow-output-contract: deterministic-mutation --&gt;
-**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say &quot;not available for this action&quot;. Missing Copilot: &quot;no verified equivalent&quot;. Never invent routes. On a refusal read `remediationPlan`: run its first read-only step once and follow `context.strategy`; never retry an unchanged condition or edit an earlier phase to clear it. One returned `automatic` plan-hash action (such as `sync`) may run once, then re-enter once. Run a check only when a returned field or command asks for it; never decide from a step&#39;s name, kind or route that it applies. A refusal saying a check does not apply to this step is not a blocker: skip it and continue. Act on a result&#39;s `act` first: its state, `do` routes and any `ask`. A bounded result names `agentOutput.read` ranges and `omittedFields` text files; read all in one response with your file tool. If your host saved a result to a file you cannot open, run that command again with `--for-agent --json`; never read the host&#39;s copy with shell tools.
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say &quot;not available for this action&quot;. Missing Copilot: &quot;no verified equivalent&quot;. Never invent routes. On a refusal read `remediationPlan`: run its first read-only step once and follow `context.strategy`; never retry an unchanged condition or edit an earlier phase to clear it. Run a check only when a returned field or command asks for it; never decide from a step&#39;s name, kind or route that it applies. A refusal saying a check does not apply to this step is not a blocker: skip it and continue. Act on a result&#39;s `act` first: its state, `do` routes and any `ask`. A bounded result names `agentOutput.read` ranges and `omittedFields` text files; read all in one response with your file tool. If your host saved a result to a file you cannot open, run that command again with `--for-agent --json`; never read the host&#39;s copy with shell tools.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** reuse entry `ready`/`workId`, cwd=`repositoryPath`; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
@@ -9405,7 +9405,7 @@ Run `singularity-flow review &lt;phase&gt; --format json` for the explicit or ac
           <span class="pill">mutation</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1049 body tokens</span>
+          <span class="pill">~1025 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-review-decide</code></dd></div>
@@ -9430,7 +9430,7 @@ argument-hint: &quot;&lt;phase&gt; --finding &lt;ID&gt; --reason &lt;TEXT&gt; [-
 Reuse a verified pause-aware entry supplied in this invocation before any mutation or selection change; otherwise first run `singularity-flow session current --for-agent --json` once; pause precedes Git. If `paused`: native Copilot, only `/sf-pause off`, never resume implicitly. Reuse binding/`personalization.replyName`; fresh operation checks/consent remain required.
 
 &lt;!-- sflow-output-contract: deterministic-mutation --&gt;
-**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say &quot;not available for this action&quot;. Missing Copilot: &quot;no verified equivalent&quot;. Never invent routes. On a refusal read `remediationPlan`: run its first read-only step once and follow `context.strategy`; never retry an unchanged condition or edit an earlier phase to clear it. One returned `automatic` plan-hash action (such as `sync`) may run once, then re-enter once. Run a check only when a returned field or command asks for it; never decide from a step&#39;s name, kind or route that it applies. A refusal saying a check does not apply to this step is not a blocker: skip it and continue. Act on a result&#39;s `act` first: its state, `do` routes and any `ask`. A bounded result names `agentOutput.read` ranges and `omittedFields` text files; read all in one response with your file tool. If your host saved a result to a file you cannot open, run that command again with `--for-agent --json`; never read the host&#39;s copy with shell tools.
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say &quot;not available for this action&quot;. Missing Copilot: &quot;no verified equivalent&quot;. Never invent routes. On a refusal read `remediationPlan`: run its first read-only step once and follow `context.strategy`; never retry an unchanged condition or edit an earlier phase to clear it. Run a check only when a returned field or command asks for it; never decide from a step&#39;s name, kind or route that it applies. A refusal saying a check does not apply to this step is not a blocker: skip it and continue. Act on a result&#39;s `act` first: its state, `do` routes and any `ask`. A bounded result names `agentOutput.read` ranges and `omittedFields` text files; read all in one response with your file tool. If your host saved a result to a file you cannot open, run that command again with `--for-agent --json`; never read the host&#39;s copy with shell tools.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** reuse entry `ready`/`workId`, cwd=`repositoryPath`; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
@@ -9751,7 +9751,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">mutation</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~902 body tokens</span>
+          <span class="pill">~878 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-run</code></dd></div>
@@ -9776,7 +9776,7 @@ argument-hint: &quot;[task focus]&quot;
 Reuse a verified pause-aware entry supplied in this invocation before any mutation or selection change; otherwise first run `singularity-flow session current --for-agent --json` once; pause precedes Git. If `paused`: native Copilot, only `/sf-pause off`, never resume implicitly. Reuse binding/`personalization.replyName`; fresh operation checks/consent remain required.
 
 &lt;!-- sflow-output-contract: deterministic-mutation --&gt;
-**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say &quot;not available for this action&quot;. Missing Copilot: &quot;no verified equivalent&quot;. Never invent routes. On a refusal read `remediationPlan`: run its first read-only step once and follow `context.strategy`; never retry an unchanged condition or edit an earlier phase to clear it. One returned `automatic` plan-hash action (such as `sync`) may run once, then re-enter once. Run a check only when a returned field or command asks for it; never decide from a step&#39;s name, kind or route that it applies. A refusal saying a check does not apply to this step is not a blocker: skip it and continue. Act on a result&#39;s `act` first: its state, `do` routes and any `ask`. A bounded result names `agentOutput.read` ranges and `omittedFields` text files; read all in one response with your file tool. If your host saved a result to a file you cannot open, run that command again with `--for-agent --json`; never read the host&#39;s copy with shell tools.
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say &quot;not available for this action&quot;. Missing Copilot: &quot;no verified equivalent&quot;. Never invent routes. On a refusal read `remediationPlan`: run its first read-only step once and follow `context.strategy`; never retry an unchanged condition or edit an earlier phase to clear it. Run a check only when a returned field or command asks for it; never decide from a step&#39;s name, kind or route that it applies. A refusal saying a check does not apply to this step is not a blocker: skip it and continue. Act on a result&#39;s `act` first: its state, `do` routes and any `ask`. A bounded result names `agentOutput.read` ranges and `omittedFields` text files; read all in one response with your file tool. If your host saved a result to a file you cannot open, run that command again with `--for-agent --json`; never read the host&#39;s copy with shell tools.
 &lt;!-- sflow-execution-boundary --&gt;
 **Boundary:** reuse entry `ready`/`workId`, cwd=`repositoryPath`; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
@@ -11088,7 +11088,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1146 body tokens</span>
+          <span class="pill">~1169 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-story-start</code></dd></div>
@@ -11120,7 +11120,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 1. No key: run `singularity-flow jira assigned --type Story --json`; ask the contributor to choose. Never infer it.
 2. Run `singularity-flow jira pull &lt;STORY-KEY&gt; --json`; show its details before mutation.
 3. Verify its Jira project routes to this repository or active workspace; otherwise switch first.
-4. Run `git status --short`; list unrelated changes and stop until the person lands (`/sf-adhoc`) or moves them.
+4. Run `singularity-flow workspace branches --entry --intake --work-id &lt;STORY-KEY&gt; --for-agent --json` once; list unrelated changes it reports and stop until the person lands (`/sf-adhoc`) or moves them.
 5. Run `singularity-flow workspace branches --json`. Present branches published by every required delivery repository and require a choice; stop if a remote fails. Ask separately for optional **read-only reference repositories**. Each requires an explicit lower-kebab ID, credential-free Git URL, and branch and becomes paired `--reference-repository ID=URL --reference-branch ID=BRANCH` options. Never infer one or describe it as a delivery repository. Ask for baseline (`reuse`, reviewed `run`, `defer`), tests (`changed-and-affected`, `all-configured`) and gates (`hard`; `soft` needs human coverage-risk review, reason, expiry) separately; never default them silently. Start `singularity-flow story start &lt;STORY-KEY&gt; --fetch --from-branch &lt;SELECTED-BRANCH&gt; --readiness-baseline &lt;CHOICE&gt; --test-execution-mode &lt;MODE&gt; --gate-mode &lt;GATES&gt;` interactively and bridge workflow choices through `ask_user`. If the chosen workflow&#39;s `targetUrl` is `required` (start refuses without it) or `recommended`, ask for its authorized target and pass `--target-url &lt;AUTHORIZED-URL&gt;`.
 6. If persistent terminal input is unavailable:
    - Run `singularity-flow choices begin start &lt;STORY-KEY&gt; --for-agent --json`.
@@ -11336,7 +11336,7 @@ The commands are the ones the capability selects, else the ones the Story&#39;s 
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1117 body tokens</span>
+          <span class="pill">~1118 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-test-setup</code></dd></div>
@@ -11383,7 +11383,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    singularity/workflow.yml --json`; show a command-only qualityCommands diff. Keep non-test commands,
    approval rules, test scope and other workflows unchanged. Use `kind: test`, `modelPolicy: never`,
    argv, workingDirectory, affectedRoots and result.adapter/path. Report paths are module-relative.
-   Only after explicit consent delegate the exact proposal save to `/sf-configuration`.
+   Only after explicit consent run `/sf-configuration`&#39;s exact proposal save (no sub-agent).
    Do not rewrite the application&#39;s checkout, run tests, merge, or push without the corresponding request.
 6. Inference and hidden approved argv (`argvWithheld: true`) need no YAML proposal/amendment.
    Existing Stories retain explicit pins. Only for explicit command revisions approved in sflow/config,
@@ -11414,7 +11414,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">delegation</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~490 body tokens</span>
+          <span class="pill">~509 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-upload</code></dd></div>
@@ -11443,7 +11443,7 @@ argument-hint: &quot;attach &lt;PATH...&gt; [--epic EPIC-ID] | list [OWNER-ID] |
 
 REV feedback: use `/sf-revision-attachments`; ordinary upload cannot bypass its importer.
 
-Delegate once to `/sf-documents`, mapping `attach` to `upload` and preserving paths, names, owner selectors, and the requested list/view/detach action. That canonical skill owns context resolution, choices, preview, confirmation, mutation, and reporting. Stop when it returns; preserve its result and next action. Do not repeat a preview, ask again for a choice already accepted by the canonical skill, or run a second upload/detach command.
+Delegate once to `/sf-documents`: load it and do its steps in this turn yourself, never through a sub-agent, mapping `attach` to `upload` and preserving paths, names, owner selectors, and the requested list/view/detach action. That canonical skill owns context resolution, choices, preview, confirmation, mutation, and reporting. Stop when it returns; preserve its result and next action. Do not repeat a preview, ask again for a choice already accepted by the canonical skill, or run a second upload/detach command.
 </code></pre>
       </div>
     </details>

@@ -830,6 +830,214 @@ test('a delegation skill takes the turn of the skill it delegates to, so the del
   }
 });
 
+// The registry-wide check below reads every skill's own SFlow commands, fills their placeholders,
+// and asks the guard whether that skill's turn admits each one. A command is skipped when the guard
+// itself names it the person's (a kernel-only turn refuses it with OPERATION_NOT_ALLOWED: approval,
+// environment values, a decision-list record, a workflow-delete confirmation, a host hook) or it is
+// listed below with its reason; anything else the turn refuses fails, so a skill can no longer get a
+// turn that refuses its own steps.
+const SKILL_COMMAND_RECEIPT = '8232baec-10cb-4dd1-a8af-066d1fb06841';
+const LEGACY_PLACEHOLDER = /^(?:FILE|URL|PATH|PHASE|TYPE|TEXT|ID|SHA|SHA256|REVISION|PROFILE|SLICE|LEVEL|ASSURANCE|VERSION|STATUS|SOURCE|ENV|SECONDS|BYTES|WORK-ID|GOAL-ID|BOOTSTRAP-ID)$/u;
+function skillPlaceholderValue(name, root) {
+  const key = name.toUpperCase();
+  if (/^(?:WORK-ID|STORY-KEY|STORY-ID|JIRA-ID|JIRA-KEY|ID\|NAME)$/u.test(key)) return 'PMC-1';
+  if (/^(?:TYPED-PHASE|PHASE|PHASE-ID|EARLIER-PHASE|STEP|EARLIER-STEP|OWNING-STEP)$/u.test(key)) return 'custom-step';
+  if (key === 'TOKEN') return SKILL_COMMAND_RECEIPT;
+  if (key === 'UPI-ID') return 'UPI-001';
+  if (/SHA|HASH|DIGEST|COMMIT/u.test(key)) return 'a'.repeat(64);
+  if (/URL/u.test(key)) return 'https://example.test/x';
+  if (/FILE|PATH|DIRECTORY|^DIR$|^OUT$|^XML$|^PNG$|CHECKOUT/u.test(key)) return path.join(root, 'notes.md');
+  return 'x1';
+}
+/** One named command with placeholders filled, optional groups dropped and `a|b` choices expanded. */
+function expandSkillCommand(raw, root) {
+  const text = raw.replace(/\s+/gu, ' ').trim().replace(/'?\$ARGUMENTS'?/gu, ' ').replace(/\[[^\]]*\]/gu, ' ')
+    .replace(/\.{3}|…/gu, ' ').replace(/<([^<>]+)>/gu, (_, name) => skillPlaceholderValue(name, root));
+  const words = text.split(' ').filter(Boolean).map(word => LEGACY_PLACEHOLDER.test(word) ? skillPlaceholderValue(word, root) : word);
+  const choice = words.findIndex(word => /^[a-z][a-z-]*(?:\|[A-Za-z0-9][A-Za-z0-9._-]*)+$/u.test(word));
+  return choice < 0 ? [words.join(' ')] : words[choice].split('|').flatMap(option =>
+    expandSkillCommand([...words.slice(0, choice), option, ...words.slice(choice + 1)].join(' '), root));
+}
+/** Every SFlow command a skill body names: inline code spans and the lines of fenced blocks. */
+function skillBodyCommands(body) {
+  const spans = [...body.replace(/```[\s\S]*?```/gu, ' ').matchAll(/`((?:singularity-flow|sflow) [^`]+)`/gu)].map(match => match[1]);
+  const fenced = [...body.matchAll(/```[a-z]*\n([\s\S]*?)```/gu)].flatMap(match => match[1].replace(/\\\n\s*/gu, ' ').split('\n'))
+    .map(line => line.replace(/\s+#.*$/u, '').trim()).filter(line => /^(?:singularity-flow|sflow) /u.test(line));
+  return [...new Set([...spans, ...fenced].map(command => command.replace(/\s+/gu, ' ').trim()))];
+}
+/** Commands a skill names but hands to the person, offers as another skill's route, or only describes. */
+const NOT_RUN_BY_THIS_TURN = Object.freeze({
+  'sflow-advise': [[/^workspace reinitialize\b/u, 'advisory only: offers /sf-admin reinitialize and never runs it']],
+  'sflow-build-workflow': [[/^configuration approve\b/u, 'the reviewer approves in their own terminal']],
+  'sflow-fix-workflow': [[/^configuration approve\b/u, 'the reviewer approves in their own terminal'],
+    [/^workflow studio apply\b.*--propose\b/u, 'proposes only the change set `workflow validate` issued to the turn (its own test)']],
+  'sflow-run-app': [[/^capability (?:edit|set)\b/u, 'proposes only the application draft `app suggest` issued to the turn (its own test)']],
+  'sflow-reinstall': [[/^plugin verify\b/u, 'the installer\'s own verification it reports, run by sf-reinstall']],
+  'sflow-revision-checks': [[/^revision checks run\b/u, 'displayed for separate Shell review; never run from this skill']],
+  'sflow-initiative-checklist': [[/^initiative evidence add\b/u, 'shown as an example; registration is /sf-initiative-evidence']],
+  'sflow-jira-work': [[/^start PMC-1 --jira\b/u, 'the Shell form of the /sf-start route it offers']],
+  'sflow-nextsteps': [[/^sync$/u, 'lists the returned actions; /sf-next runs them']],
+  'sflow-reject': [[/^story intent-amendment propose$/u, 'names the nextsteps action; its full command is checked']],
+  'sflow-continue': [[/^action execute\b.*--authorization\b/u, 'left: the execution validator refuses an --authorization value as a credential in every turn']],
+  'sflow-sgos-create': [[/^(?:process (?:start|step|run)|intent (?:ratify|compile))\b/u, 'named only as commands it never runs']],
+  'sflow-auto': [[/^auto flight-step\b/u, 'named only as a command it never invokes directly']],
+  'sflow-integrations': [[/^integrations deliver\b/u, 'for pipelines; not run from chat']]
+});
+/** Commands of a skill that needs no Story which act on a bound Story, so only a Story-bound turn runs them. */
+const NEEDS_A_STORY = Object.freeze({
+  'sflow-documents': [[/^documents restore\b/u, 'rehydrates a bound Story\'s pinned document']],
+  'sflow-test-setup': [[/^story test-policy amend\b/u, 'previews an active Story\'s test-policy amendment']],
+  'sflow-start': [[/^resume PMC-1\b/u, 'the route to an existing Story it offers']],
+  'sflow-ready': [[/^start PMC-1\b/u, 'the Shell form of its /sf-start handoff']],
+  'sflow-return': [[/^resume\b/u, 'named only as the command it must not substitute']],
+  'sflow-push': [[/^sync$/u, 'named only as the Story publication command it must not substitute']],
+  'sflow-prompt-log': [[/^wm compose$/u, 'describes which handoffs capture prompts']],
+  'sflow-quickstart': [[/^(?:init|bootstrap)\b/u, 'the next step it offers for the person\'s own repository']]
+});
+/** Skills whose registry boundary needs no Story but whose steps are Story work. */
+const STORY_WORK_SKILLS = Object.freeze({
+  'sflow-workflow-rules': 'its steps start from a ready Story session (`session current`) and act on its phases'
+});
+
+test('every registry skill\'s turn admits the SFlow commands its own body runs, with and without a bound Story', async t => {
+  const { skills } = YAML.parse(readFileSync(new URL('../plugin/skills/registry.yml', import.meta.url), 'utf8'));
+  const { commandDefinition } = await import('../src/command-registry.mjs');
+  const { parseArgs } = await import('../src/util.mjs');
+  const f = await fixture(t);
+  const bare = async (skill, sessionId) => {
+    const payload = { cwd: f.root, sessionId, prompt: skill };
+    await recordRepositoryBoundaryTurn(payload, { captureMutation: (value, record) => captureMutationTurn(value, record,
+      { resolveRoot: async () => f.root, load: async () => { throw new Error('No Story yet'); } }) });
+    return payload;
+  };
+  const kernel = await f.enter('/sf-next', 'registry-kernel');
+  const listed = (table, id, argv) => (table[id] ?? []).some(([pattern]) => pattern.test(argv));
+  const failures = [];
+  let checked = 0;
+  for (const [id, rule] of Object.entries(skills)) {
+    const skill = `/${id.replace(/^sflow-/u, 'sf-')}`;
+    const body = readFileSync(new URL(`../plugin/skills/${id}/SKILL.md`, import.meta.url), 'utf8');
+    const bound = await f.enter(skill, `registry-${id}`);
+    const unbound = (rule.executionBoundary ?? 'story') !== 'story' && !STORY_WORK_SKILLS[id] ? await bare(skill, `registry-bare-${id}`) : null;
+    for (const named of skillBodyCommands(body)) for (const command of expandSkillCommand(named, f.root)) {
+      const argv = command.replace(/^(?:singularity-flow|sflow) ?/u, '');
+      const first = parseArgs(argv.split(' ').filter(Boolean)).positionals[0];
+      // `singularity-flow <action>` or `$ARGUMENTS` alone describes the CLI form; it names no command.
+      try { if (!first) continue; commandDefinition(first); } catch { continue; }
+      if (listed(NOT_RUN_BY_THIS_TURN, id, argv)) continue;
+      const shell = payload => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+      const personOnly = async () => {
+        const decision = await shell(kernel);
+        return decision.permissionDecision === 'deny' && /OPERATION_NOT_ALLOWED/u.test(decision.permissionDecisionReason ?? '');
+      };
+      checked += 1;
+      const decision = await shell(bound);
+      if (decision.permissionDecision === 'deny' && !(await personOnly())) {
+        failures.push(`${id} (${mutationTurnMode(id)} turn, Story bound) refuses: ${command} — ${decision.permissionDecisionReason?.split('.')[0]}`);
+      }
+      if (unbound && !listed(NEEDS_A_STORY, id, argv)) {
+        const before = await shell(unbound);
+        if (before.permissionDecision === 'deny' && !(await personOnly())) {
+          failures.push(`${id} (${mutationTurnMode(id)} turn, no Story yet) refuses: ${command} — ${before.permissionDecisionReason?.split('.')[0]}`);
+        }
+      }
+    }
+  }
+  assert.ok(checked > 900, `${checked} skill commands checked`);
+  assert.deepEqual(failures, []);
+  // Every listed exception still names a command its skill has, so the lists cannot go stale.
+  for (const table of [NOT_RUN_BY_THIS_TURN, NEEDS_A_STORY]) for (const [id, entries] of Object.entries(table)) {
+    const commands = skillBodyCommands(readFileSync(new URL(`../plugin/skills/${id}/SKILL.md`, import.meta.url), 'utf8'))
+      .flatMap(named => expandSkillCommand(named, f.root)).map(command => command.replace(/^(?:singularity-flow|sflow) ?/u, ''));
+    for (const [pattern, reason] of entries) assert.ok(commands.some(command => pattern.test(command)), `${id}: ${pattern} (${reason}) matches none of its commands`);
+  }
+});
+
+test('skills that run their own kernel steps get a kernel-only turn; /sf-inbox only attaches; reads stay read', () => {
+  for (const skill of ['/sf-finalize', '/sf-pr', '/sf-push', '/sf-story-start', '/sf-refresh-branch', '/sf-cancel', '/sf-return',
+    '/sf-assign', '/sf-mcp', '/sf-ready', '/sf-epic-start', '/sf-epic-sync', '/sf-jira-update', '/sf-upload', '/sf-test-setup']) {
+    assert.equal(mutationTurnMode(skill), 'kernel-only', skill);
+  }
+  for (const skill of ['/sf-inbox', '/sf-stories', '/sf-workspace-session']) assert.equal(mutationTurnMode(skill), 'session-only', skill);
+  // Reads stay read: their commands are reads, and what they hand on is another skill's route.
+  for (const skill of ['/sf-nextsteps', '/sf-check', '/sf-doctor', '/sf-epic-status', '/sf-jira-assigned', '/sf-initiative-status', '/sf-harness']) {
+    assert.equal(mutationTurnMode(skill), 'read', skill);
+  }
+  // /sf-converge authors the step at a model-generation checkpoint; a deterministic step still grants no edits.
+  assert.equal(mutationTurnMode('/sf-converge'), 'authoring');
+  const deterministic = { id: 'convergence', status: 'in_progress', generation: 0, writeScope: 'source-and-artifact',
+    generationPolicy: { task: 'document', requirement: 'required', allowedProducers: ['deterministic'] } };
+  const contract = deriveMutationContract({ root: null, definition: { workItemRoot: 'singularity/work-items' },
+    workflow: { workItem: { id: 'PMC-1' }, currentPhase: 'convergence', phaseOrder: ['convergence'], phases: { convergence: deterministic }, resolution: {} },
+    turnMode: mutationTurnMode('/sf-converge') });
+  assert.deepEqual(contract.allow.artifacts, []);
+  assert.equal(contract.allow.application, false);
+});
+
+test('a /sf-reject turn proposes an amendment, reopens and rolls forward the bound Story only, and drafts only the issued file', async t => {
+  const f = await fixture(t);
+  const payload = await f.enter('/sf-reject', 'reject-routes');
+  const shell = (value, command) => mutationToolGuard({ ...value, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  const draft = path.join(gitDir(f.root), 'singularity-flow', 'intent-amendment-drafts', 'PMC-1.md');
+  for (const command of [
+    'singularity-flow reject custom-step --work-id PMC-1 --fetch --to custom-step --reason "Scope changed."',
+    'singularity-flow reopen PMC-1 --fetch --to custom-step --reason "A closed Story needs a fix."',
+    `singularity-flow story intent-amendment propose --work-id PMC-1 --file "${draft}" --reason "Scope changed." --authored governed-agent --channel copilot-host --json`,
+    'singularity-flow story rework roll-forward --work-id PMC-1 --change-request CR-001 --json',
+    `singularity-flow story rework roll-forward --work-id PMC-1 --change-request CR-001 --confirm ${'a'.repeat(64)} --json`
+  ]) assert.deepEqual(await shell(payload, command), {}, command);
+  for (const command of [
+    'singularity-flow reopen OTHER-1 --fetch --to custom-step --reason "x"',
+    `singularity-flow story intent-amendment propose --work-id OTHER-1 --file "${draft}" --reason x`,
+    `singularity-flow story intent-amendment propose --file "${draft}" --reason x`,
+    'singularity-flow story intent-amendment decide FAM-001 --decision approve --confirm FAM-001 --work-id PMC-1',
+    'singularity-flow story rework roll-forward --work-id OTHER-1 --change-request CR-001 --json',
+    'singularity-flow submit custom-step --work-id PMC-1'
+  ]) assert.equal((await shell(payload, command)).permissionDecision, 'deny', command);
+  // The amendment draft is the one file this turn may write, and its rules name it.
+  assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: draft } }), {});
+  assert.equal((await mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: path.join(f.root, 'amended-scope.md') } })).permissionDecision, 'deny');
+  assert.equal((await mutationToolGuard(payload)).permissionDecision, 'deny', 'no application edits');
+  const record = JSON.parse(await readFile(path.join(path.dirname(process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE), 'copilot-boundaries',
+    `${createHash('sha256').update('reject-routes').digest('hex')}.mutation.json`), 'utf8'));
+  assert.match(record.contract.summary, new RegExp(`issued file ${draft.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}`, 'u'));
+  // An approval turn gains none of it.
+  const approve = await f.enter('/sf-approve', 'approve-routes');
+  assert.equal((await shell(approve, 'singularity-flow reopen PMC-1 --fetch --to custom-step --reason "x"')).permissionDecision, 'deny');
+  assert.equal((await mutationToolGuard({ ...approve, toolName: 'edit', toolArgs: { path: draft } })).permissionDecision, 'deny');
+});
+
+test('no-Story setup skills run their own command families before a Story exists, and nothing else', async t => {
+  const f = await fixture(t);
+  const bare = async (skill, sessionId) => {
+    const payload = { cwd: f.root, sessionId, prompt: skill };
+    await recordRepositoryBoundaryTurn(payload, { captureMutation: (value, record) => captureMutationTurn(value, record,
+      { resolveRoot: async () => f.root, load: async () => { throw new Error('No Story yet'); } }) });
+    return payload;
+  };
+  const shell = (value, command) => mutationToolGuard({ ...value, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  const start = await bare('/sf-story-start', 'story-start-bare');
+  for (const command of ['singularity-flow jira assigned --type Story --json', 'singularity-flow jira pull PROJ-1 --json',
+    'singularity-flow workspace branches --entry --intake --work-id PROJ-1 --for-agent --json',
+    'singularity-flow story start PROJ-1 --fetch --from-branch main --readiness-baseline defer --test-execution-mode changed-and-affected --gate-mode hard',
+    `singularity-flow story start PROJ-1 --fetch --selection-receipt ${SKILL_COMMAND_RECEIPT}`]) {
+    assert.deepEqual(await shell(start, command), {}, command);
+    assert.deepEqual(await mutationPostToolGuard({ ...start, toolName: 'bash', toolArgs: { command, cwd: f.root } }), {}, command);
+  }
+  for (const command of ['singularity-flow epic start EPIC-1 --selection-receipt ' + SKILL_COMMAND_RECEIPT, 'singularity-flow approve custom-step',
+    'singularity-flow factory-reset --confirm "RESET" --json', 'git status --short']) {
+    assert.equal((await shell(start, command)).permissionDecision, 'deny', command);
+  }
+  assert.equal((await mutationToolGuard({ ...start, toolName: 'edit', toolArgs: { path: 'src/App.jsx' } })).permissionDecision, 'deny');
+  const epic = await bare('/sf-epic-start', 'epic-start-bare');
+  assert.deepEqual(await shell(epic, `singularity-flow epic start EPIC-1 --selection-receipt ${SKILL_COMMAND_RECEIPT}`), {});
+  assert.equal((await shell(epic, 'singularity-flow story start PROJ-1 --fetch')).permissionDecision, 'deny');
+  // A read skill before a Story still reads only.
+  const status = await bare('/sf-epic-status', 'epic-status-bare');
+  assert.deepEqual(await shell(status, 'singularity-flow epic status EPIC-1 --json'), {});
+  assert.equal((await shell(status, 'singularity-flow epic sync EPIC-1 --json')).permissionDecision, 'deny');
+});
+
 test('local verification does not widen review, publication, decision, read or kernel-only turns', async t => {
   const f = await fixture(t);
   for (const skill of ['/sf-review-source', '/sf-publish', '/sf-approve', '/sf-next', '/sf-inspect']) {

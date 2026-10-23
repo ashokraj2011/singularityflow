@@ -25,7 +25,9 @@ test('a private approval receipt is executable syntax but never presentation gui
 
 test('only consuming CLI forms accept one exact UUID receipt in private execution', () => {
   for (const family of ['approve specification --work-id W1', 'reject planning --work-id W1 --to specification --reason fix',
-    'start W1 --title Example', 'initiative start I1', 'initiative approve planning', 'epic review approve W1', 'epic review reject W1 --reason fix']) {
+    'start W1 --title Example', 'initiative start I1', 'initiative approve planning', 'epic review approve W1', 'epic review reject W1 --reason fix',
+    // story start and epic start hand the receipt to the start and initiative start handlers.
+    'story start PROJ-1 --fetch', 'epic start EPIC-1']) {
     for (const option of [`--selection-receipt ${receipt}`, `--selection-receipt=${receipt}`]) {
       assert.ok(validateSflowExecutionCommand(`singularity-flow ${family} ${option}`)?.copyable, family);
     }
@@ -38,7 +40,8 @@ test('only consuming CLI forms accept one exact UUID receipt in private executio
     `--selection-receipt ${receipt.toUpperCase()}`]) {
     assert.equal(validateSflowExecutionCommand(`singularity-flow approve specification ${tail}`), null, tail);
   }
-  for (const family of ['status', 'phase publish specification', 'review-source submit specification', 'hook preToolUse', 'initiative status', 'epic review status']) {
+  for (const family of ['status', 'phase publish specification', 'review-source submit specification', 'hook preToolUse', 'initiative status', 'epic review status',
+    'story fetch PROJ-1', 'epic status EPIC-1']) {
     assert.equal(validateSflowExecutionCommand(`singularity-flow ${family} --selection-receipt ${receipt}`), null, family);
   }
 });

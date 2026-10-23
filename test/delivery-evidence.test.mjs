@@ -161,6 +161,50 @@ test('explicit all-configured scope includes the repository suite without droppi
   assert.equal(new Set(full.map(command => command.id)).size, full.length);
 });
 
+test('pnpm workspace, Turborepo and Lerna packages run their own test script, never the root one', async (t) => {
+  const monorepo = async (files) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-package-'));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    for (const [file, content] of Object.entries(files)) {
+      await mkdir(path.dirname(path.join(root, file)), { recursive: true });
+      await writeFile(path.join(root, file), typeof content === 'string' ? content : JSON.stringify(content));
+    }
+    return root;
+  };
+  const changed = async (root, ...paths) => (await resolveDeliveryQualityCommands(root, {
+    writeScope: 'source-and-artifact', generationPolicy: { task: 'code' }, requiredArtifact: { kind: 'implementation-summary' },
+    qualityCommands: [], deliveryEvidence: { sourcePaths: paths.filter((file) => !file.includes('.test.')), testPaths: paths.filter((file) => file.includes('.test.')) }
+  })).map((command) => [command.argv.join(' '), command.workingDirectory, command.affectedRoots.join(','), command.result.adapter]);
+  const pnpm = await monorepo({
+    'package.json': { name: 'mono', private: true, packageManager: 'pnpm@9.12.0', scripts: { test: 'pnpm -r test' } },
+    'pnpm-workspace.yaml': "packages:\n  - 'packages/*'\n", 'pnpm-lock.yaml': 'lockfileVersion: 9\n',
+    'packages/web/package.json': { name: '@mono/web', scripts: { test: 'vitest run' } }
+  });
+  assert.deepEqual(await changed(pnpm, 'packages/web/src/cart.ts', 'packages/web/src/cart.test.ts'), [[
+    'pnpm test -- --reporter=json --outputFile=.sflow/results/node-tests.json', 'packages/web', 'packages/web', 'vitest-json'
+  ]]);
+  const turbo = await monorepo({
+    'package.json': { name: 'mono', private: true, packageManager: 'npm@10.8.0', workspaces: ['apps/*', 'packages/*'], scripts: { test: 'turbo run test' } },
+    'turbo.json': { tasks: { test: { dependsOn: ['^build'] } } }, 'package-lock.json': '{}',
+    'apps/api/package.json': { name: 'api', scripts: { test: 'jest' } },
+    'packages/config/package.json': { name: 'config' }
+  });
+  assert.deepEqual(await changed(turbo, 'apps/api/src/orders.ts'), [[
+    'npm test -- --json --outputFile .sflow/results/node-tests.json', 'apps/api', 'apps/api', 'jest-json'
+  ]]);
+  // A package with no test script of its own does not borrow the root's `turbo run test`.
+  assert.deepEqual(await changed(turbo, 'packages/config/src/index.ts'), []);
+  assert.deepEqual(await inferRepositoryTestCommands(turbo), [], 'the root script runs no recognized runner itself');
+  const lerna = await monorepo({
+    'package.json': { name: 'mono', private: true, workspaces: ['packages/*'], scripts: { test: 'lerna run test --stream' } },
+    'lerna.json': { version: '1.0.0', npmClient: 'yarn' }, 'yarn.lock': '',
+    'packages/core/package.json': { name: '@mono/core', scripts: { test: 'jest --ci' } }
+  });
+  assert.deepEqual(await changed(lerna, 'packages/core/lib/core.js', 'packages/core/__tests__/core.test.js'), [[
+    'yarn test --json --outputFile .sflow/results/node-tests.json', 'packages/core', 'packages/core', 'jest-json'
+  ]]);
+});
+
 test('acceptance tags are required from every predecessor artifact kind', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cross-workflow-acceptance-'));
   const relative = 'singularity/work-items/POC-1/artifacts/poc-intake/intake.md';

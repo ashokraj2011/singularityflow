@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 8
+version: 9
 commands:
   - configuration
   - workflow
@@ -67,6 +67,11 @@ In an Nx workspace a project's Playwright target is a suggestion: its `project.j
 `@nx/playwright/plugin` infers from its `playwright.config.*`. It runs as `nx run <project>:<target>
 --skip-nx-cache --reporter=json` from the workspace root and also covers the projects beside it that
 it names in `implicitDependencies`. Publication infers it the same way, with no configuration.
+A project's own Jest or Vitest target (the `@nx/jest:jest` executor, a plain `jest`, `vitest` or
+`vitest run` command, or the target `@nx/jest/plugin` or `@nx/vite/plugin` infers) is suggested beside
+it, with `--json --outputFile=<report>` or `--run --reporter=json --outputFile=<report>` and the report
+path written relative to the directory the runner resolves it against; publication runs both for a
+changed application. The `@nx/vite:test` executor is not inferred and needs an approved command.
 
 To save a chosen command from Copilot or a terminal, preview it with `singularity-flow capability
 test-setup --step <STEP> [--workflow <WORKFLOW>]` and either `--use <SUGGESTION-ID>` or the command in

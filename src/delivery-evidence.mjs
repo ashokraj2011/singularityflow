@@ -1705,9 +1705,9 @@ export async function resolveDeliveryQualityCommands(root, phase, { executionMod
     if (moduleCoveredByConfiguredTest(module.root)) continue;
     const command = await inferModuleTestCommand(root, module);
     if (command) inferred.push(command);
-    if (module.system === 'node' && command?.result?.adapter !== 'playwright-json') {
-      // A Node unit script is not evidence that newly authored browser tests ran. Add one
-      // unambiguous direct Playwright script when the module declares it separately.
+    if (['node', 'nx'].includes(module.system) && command?.result?.adapter !== 'playwright-json') {
+      // A unit command is not evidence that newly authored browser tests ran. Add one unambiguous
+      // direct Playwright script (or Nx Playwright target) when the module declares it separately.
       for (const nodeScript of ['test:e2e', 'test:playwright', 'e2e']) {
         const browserCommand = await inferModuleTestCommand(root, module, { nodeScript });
         if (browserCommand?.result?.adapter === 'playwright-json') {

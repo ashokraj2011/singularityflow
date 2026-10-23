@@ -263,6 +263,7 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
         conflict: conflicts.length ? conflictText(conflicts[0].disagreement) : null,
         parts: { field: statement.field, type: statement.type, constraints: statement.constraints, bound: anchors.bounds[0] ?? null, message: anchors.message },
         sources: { code: citation ? [{ path: citation.path, line: citation.lines?.[0] ?? null, symbol: item.subject?.symbol ?? null }] : [], docs: links.map((link) => link.doc.source), tests: [] },
+        quotes: links.map((link) => link.doc.text),
         weight: 4,
         words: new Set([...anchors.words, ...links.flatMap((link) => [...link.doc.anchors.words])])
       });
@@ -283,6 +284,7 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
         docs: links.map((link) => link.doc.source),
         tests
       },
+      quotes: links.map((link) => link.doc.text),
       weight: KIND_WEIGHT[item.statement?.kind] ?? 2,
       words: new Set([...anchors.words, ...links.flatMap((link) => [...link.doc.anchors.words])])
     });
@@ -295,6 +297,7 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
       status: 'documented-only', documented: true, enforced: false, tested: false, conflict: null,
       parts: { bound: doc.anchors.bounds[0] ?? null, statuses: [...doc.anchors.statuses] },
       sources: { code: [], docs: [doc.source], tests: [] },
+      quotes: [],
       weight: 3, words: doc.anchors.words
     });
   }
@@ -337,10 +340,10 @@ export function ruleQuestions(records, { limit = 4 } = {}) {
   for (const record of records) {
     if (questions.length >= limit) break;
     const source = [...record.sources.code, ...record.sources.docs];
-    if (record.status === 'conflict') questions.push({ text: `Docs and code disagree on ${subject(record)}: ${record.conflict}. Which is right?`, source });
-    else if (record.declaredOnly) questions.push({ text: `${record.parts.type}.${record.parts.field} is declared ${constraintText(record.parts.constraints)}, but no endpoint validates ${record.parts.type}. Should it be validated (@Valid)?`, source });
-    else if (record.status === 'documented-only' && record.parts.bound) questions.push({ text: `The docs say ${subject(record)}, but no code enforcing it was found. Is it still required?`, source });
-    else if (record.status === 'enforced-only' && !record.tested && record.parts.outcome?.kind === 'refuses') questions.push({ text: `The code refuses ${subject(record)}, but the docs do not state it and no test reaches it. Is it still required?`, source });
+    if (record.status === 'conflict') questions.push({ text: `Docs and code disagree on ${subject(record)}: ${record.conflict}. Which is right?`, source, record: record.id });
+    else if (record.declaredOnly) questions.push({ text: `${record.parts.type}.${record.parts.field} is declared ${constraintText(record.parts.constraints)}, but no endpoint validates ${record.parts.type}. Should it be validated (@Valid)?`, source, record: record.id });
+    else if (record.status === 'documented-only' && record.parts.bound) questions.push({ text: `The docs say ${subject(record)}, but no code enforcing it was found. Is it still required?`, source, record: record.id });
+    else if (record.status === 'enforced-only' && !record.tested && record.parts.outcome?.kind === 'refuses') questions.push({ text: `The code refuses ${subject(record)}, but the docs do not state it and no test reaches it. Is it still required?`, source, record: record.id });
   }
   return questions;
 }

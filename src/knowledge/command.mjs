@@ -23,8 +23,7 @@ import path from 'node:path';
 
 import { loadDefinition } from '../config.mjs';
 import { checkedOutBranch, commitOfRef, defaultBranchName, fetchMissingBlobs, recentBranches } from '../git.mjs';
-import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
-import { loadModelTiers } from '../model-tiers.mjs';
+import { invokeModel } from '../model-runner.mjs';
 import { operationContext } from '../operation-context.mjs';
 import { optionBoolean, optionNumber, optionString, SingularityFlowError } from '../util.mjs';
 import { applyReviews, readConfirmations, recordReview } from './confirm.mjs';
@@ -42,6 +41,7 @@ import { buildFlowRecords, renderFlowRecords } from './records/flows.mjs';
 import { buildImpactRecords, impactSymbols, knowledgePaths, readChange, renderImpactRecords } from './records/impact.mjs';
 import { buildRiskRecords, renderRiskRecords } from './records/risks.mjs';
 import { KNOWLEDGE_KINDS } from './items.mjs';
+import { knowledgeModel } from './model.mjs';
 import { KNOWLEDGE_ROLES, KNOWLEDGE_VIEWS, renderKnowledgeSlice, renderKnowledgeView, roleForPhase } from './render.mjs';
 import { readKnowledgeSource } from './source.mjs';
 import { buildKnowledge } from './store.mjs';
@@ -174,28 +174,6 @@ export async function knowledgeCommand(root, positionals, options) {
  * whose code names, numbers and quoted texts are found in what they cite. Without a model (the
  * operation's never-model fallback) it says so; --dry-run prints the exact prompt instead.
  */
-/**
- * The provider for a knowledge model call, in any repository. Without singularity/workflow.yml the
- * default provider is used. A configured model is named directly; otherwise the request routes by
- * task when singularity/modelTiers.yml exists, and leaves the choice to the provider when it does not.
- */
-async function knowledgeModel(root) {
-  let definition = null;
-  try { definition = await loadDefinition(root); } catch { definition = null; }
-  const provider = resolveModelProvider(definition);
-  const tiers = provider.model ? null : await loadModelTiers(root);
-  return {
-    model: provider.model,
-    label: provider.model ?? provider.provider ?? null,
-    request: {
-      provider: provider.provider,
-      // The transport reads the executable and transport from this; an empty one means `copilot`, auto.
-      providerConfig: provider.providerConfig ?? {},
-      ...(tiers ? { task: 'summarize' } : { model: provider.model })
-    }
-  };
-}
-
 async function explainCommand(root, result, options) {
   const json = optionBoolean(options, 'json');
   const { knowledge } = result;

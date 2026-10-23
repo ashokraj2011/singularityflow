@@ -11,11 +11,20 @@
  *
  *   worldModel.knowledge.prompt:   slice (default) | off
  *   worldModel.knowledge.maxBytes: bytes for every phase's brief, replacing the per-phase defaults
+ *
+ * A model may phrase the selected lines (`wm brief --polish`, see brief-polish.mjs). Composing a
+ * prompt never calls one: it reuses a phrasing saved for exactly these records while model use is on,
+ * and otherwise keeps the fixed wording. The receipt names the records the brief included.
  */
+import { createHash } from 'node:crypto';
+
+import { resolveModelMode } from '../model-mode.mjs';
+import { operationContext } from '../operation-context.mjs';
 import { briefEvidence, briefNotKnown, readDocumentation, templateBrief } from './brief.mjs';
+import { polishKey, polishPrompt, readPolish, validatePolish, writePolish } from './brief-polish.mjs';
 import { applyReviews, readConfirmations } from './confirm.mjs';
 import { readExplanations } from './explain.mjs';
-import { phaseBriefProfile, renderPhaseBrief } from './phase-brief.mjs';
+import { PHASE_BRIEF_RENDERER, phaseBriefProfile, renderPhaseBrief } from './phase-brief.mjs';
 import { buildRuleRecords, ruleQuestions } from './records/rules.mjs';
 import { buildContractRecords } from './records/contracts.mjs';
 import { buildFlowRecords } from './records/flows.mjs';
@@ -44,9 +53,43 @@ async function storyKnowledge(root, { focus, changedPaths, limits }) {
   return result;
 }
 
-/** The phase's repository brief. */
+/**
+ * The model's phrasing of the selected lines: saved for exactly this selection, or (`write`) asked
+ * for and saved. Null when there is none; a failure is a warning and the fixed wording stands.
+ */
+async function phrasing(root, selection, { mode, refresh, ask, key, prompt, warnings }) {
+  if (mode === 'off' || !selection.length) return null;
+  // Without model use the fixed wording stands, byte for byte, whatever was saved before.
+  if (mode === 'cached' && !(operationContext()?.modelMode?.enabled ?? resolveModelMode([]).enabled)) return null;
+  const saved = refresh ? null : await readPolish(root, key);
+  if (saved || mode !== 'write') return saved ? { ...saved, cached: true } : null;
+  try {
+    const answer = await (ask ?? (async (text) => (await import('./model.mjs')).askKnowledgeModel(root, {
+      text, channel: 'repository-brief-polish', subject: { kind: 'repository-knowledge', id: 'phase-brief' }
+    })))(prompt.text);
+    const checked = validatePolish(answer.output, selection);
+    const record = {
+      key, model: answer.model ?? null, createdAt: new Date().toISOString(), promptSha256: prompt.sha256,
+      records: prompt.records, accepted: checked.accepted, rejected: checked.rejected
+    };
+    await writePolish(root, key, record);
+    return { ...record, cached: false };
+  } catch (error) {
+    warnings.push(`The brief keeps its fixed wording: the model could not phrase it (${error instanceof Error ? error.message : String(error)}).`);
+    return null;
+  }
+}
+
+const sha256 = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+
+/**
+ * The phase's repository brief. `polish` is `cached` (reuse a saved phrasing while model use is on),
+ * `write` (ask the model when none is saved; `refresh` asks again) or `off`. `ask(text)` replaces
+ * the model call, for tests.
+ */
 export async function repositoryBriefPrompt(root, {
-  definition, phase, workflow, changedPaths = [], plannedPaths = [], limits = undefined, knowledge: knowledgeOn = true
+  definition, phase, workflow, changedPaths = [], plannedPaths = [], limits = undefined, knowledge: knowledgeOn = true,
+  polish = 'cached', refresh = false, ask = null
 }) {
   const policy = knowledgePromptPolicy(definition);
   const explicitBudget = Number.isInteger(definition?.worldModel?.knowledge?.maxBytes) ? policy.maxBytes : null;
@@ -66,12 +109,15 @@ export async function repositoryBriefPrompt(root, {
   let explanations = [];
   let knowledge = null;
   let cache = null;
+  let knowledgeKey = null;
+  let changeSha256 = null;
   let status = 'ok';
   if (knowledgeOn && policy.prompt !== 'off') {
     try {
       const result = await storyKnowledge(root, { focus, changedPaths, limits });
       if (result.status === 'ok') {
         cache = result.cache;
+        knowledgeKey = result.key ?? null;
         knowledge = applyReviews(result.knowledge, await readConfirmations(root));
         // Explanations are read from this machine's cache only; composing a prompt never calls a model for them.
         explanations = (await readExplanations(root, result.key))?.accepted ?? [];
@@ -86,6 +132,7 @@ export async function repositoryBriefPrompt(root, {
           ? await readChange(root, workflow?.workItem?.baseCommit ?? workflow?.workItem?.baseBranch ?? null, { paths: changedPaths, keep: (file) => known.has(file) })
           : { changedRanges: null };
         impact = buildImpactRecords(knowledge, { changedPaths, changedRanges, plannedPaths });
+        changeSha256 = sha256({ changedPaths, changedRanges, plannedPaths });
         risks = buildRiskRecords(knowledge, { focus: focus || null, changedPaths, changedSymbols: changedRanges ? impactSymbols(impact) : null });
       } else {
         status = result.status;
@@ -98,19 +145,35 @@ export async function repositoryBriefPrompt(root, {
   } else {
     status = 'off';
   }
-  if (!template) return { text: '', warnings, status, role: profile.reader, profile: profile.id };
-  const rendered = renderPhaseBrief({
-    repository: knowledge?.repository?.name ?? workflow?.workItem?.repository ?? 'repository',
-    commit: knowledge?.repository?.commit ?? null,
+  if (!template) return { text: '', warnings, status, role: profile.reader, profile: profile.id, receipt: null };
+  const repository = knowledge?.repository?.name ?? workflow?.workItem?.repository ?? 'repository';
+  const inputs = {
+    repository, commit: knowledge?.repository?.commit ?? null,
     profile, focus, template, phase,
     rules, questions: rules ? ruleQuestions(rules) : null, contracts, flows, impact, risks,
     explanations,
     notKnown: template?.notKnown ?? []
-  });
+  };
+  let rendered = renderPhaseBrief(inputs);
+  const prompt = polishPrompt(rendered.selection, { repository, profile: profile.id });
+  const key = polishKey({ knowledgeKey, diffSha256: changeSha256, prompt });
+  const phrased = await phrasing(root, rendered.selection, { mode: polish, refresh, ask, key, prompt, warnings });
+  if (phrased?.accepted?.length) rendered = renderPhaseBrief({ ...inputs, phrasing: { model: phrased.model, sentences: phrased.accepted } });
+  const applied = rendered.phrased > 0;
   return {
     text: rendered.text,
     warnings, status, role: profile.reader, profile: profile.id, cache,
-    budget: profile.budget, included: rendered.included, omitted: rendered.omitted
+    budget: profile.budget, included: rendered.included, omitted: rendered.omitted,
+    // What the prompt receipt records: which records were sent, and whether a model phrased them.
+    receipt: {
+      renderer: `${PHASE_BRIEF_RENDERER.id}@${PHASE_BRIEF_RENDERER.version}`, profile: profile.id, budget: profile.budget,
+      bytes: Buffer.byteLength(rendered.text), records: rendered.records, omitted: rendered.omitted,
+      phrasing: applied ? { by: 'model', model: phrased.model ?? null, key, sentences: rendered.phrased } : { by: 'template' }
+    },
+    polish: phrased ? {
+      key, cached: phrased.cached, model: phrased.model ?? null, sent: phrased.records ?? [],
+      accepted: phrased.accepted.length, applied: rendered.phrased, rejected: phrased.rejected ?? []
+    } : { key, cached: false, sent: [], accepted: 0, applied: 0, rejected: [] }
   };
 }
 

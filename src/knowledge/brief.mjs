@@ -67,7 +67,8 @@ export function isDocumentationPath(relative) {
 const NORMATIVE = /\b(?:must(?: not)?|shall|should|required|requires?|only|never|always|at (?:least|most)|cannot|can't|not allowed|not permitted|maximum|minimum|max|min|limit(?:ed|s)?|defaults? to|when|if|unless|otherwise|returns?|rejects?|refuses?|fails?|errors?|invalid|valid(?:ates?|ation)?|allowed|accepts?|supports?)\b/iu;
 const RULE_HEADING = /\b(?:rules?|validation|constraints?|limits?|errors?|requirements?|polic(?:y|ies)|business|behaviou?r|notes?|responses?|requests?|api|endpoints?|usage|formats?|schemas?|operators?|status|codes?|eligib\w*|pricing|fees?|rates?|workflow)\b/iu;
 const ANCHOR = /`[^`]+`|"[^"]{2,}"|\b[1-5]\d\d\b|\d/u;
-const JUDGEMENT = /\b(?:proves?|correct(?:ly)?|bug-?free|secure|safe|verified|production[- ]ready|works? (?:correctly|as intended)|guarantee[sd]?|well[- ](?:designed|written|structured)|clean code|poorly|badly|should be refactored|best practice)\b/iu;
+/** Words that judge code instead of describing it; a model statement using one is dropped. */
+export const JUDGEMENT = /\b(?:proves?|correct(?:ly)?|bug-?free|secure|safe|verified|production[- ]ready|works? (?:correctly|as intended)|guarantee[sd]?|well[- ](?:designed|written|structured)|clean code|poorly|badly|should be refactored|best practice)\b/iu;
 
 function digest(value) {
   return createHash('sha256').update(value).digest('hex');

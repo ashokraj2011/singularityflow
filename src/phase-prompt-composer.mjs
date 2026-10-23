@@ -925,14 +925,17 @@ export async function compose(root, options, {
     })
     : { markdown: '', files: [], warnings: [] };
   // One repository brief for this phase's reader: repository knowledge and docs, ranked by the
-  // Story and cut to the phase's budget, each line with its file and line.
+  // Story and cut to the phase's budget, each line with its file and line. `wm brief --polish`
+  // (only) asks a model to phrase it; every other compose reuses a saved phrasing or none.
   const knowledgeOn = Boolean(workflow && !worldModelDisabledForWorkflow(workflow));
   const repositoryBrief = knowledgeOn
     ? await (await import(KNOWLEDGE_PROMPT_MODULE)).repositoryBriefPrompt(root, {
       definition, phase: signals.phase, workflow, changedPaths: signals.changedPaths ?? [],
-      plannedPaths: await workflowPlannedPaths(root, workItemRoot, workflow)
+      plannedPaths: await workflowPlannedPaths(root, workItemRoot, workflow),
+      polish: options['brief-polish'] === 'write' ? 'write' : 'cached', refresh: options['brief-polish-refresh'] === true
     })
-    : { text: '', warnings: [] };
+    : { text: '', warnings: [], receipt: null };
+  if (typeof options['brief-observer'] === 'function') options['brief-observer'](repositoryBrief);
   const structural = workflow
     ? await requiredStructuralPromptContext(root, workflow)
     : { text: '', record: null, warnings: [] };
@@ -1235,6 +1238,7 @@ export async function compose(root, options, {
       promptBudget: promptComposition,
       persistedGrounding: null,
       tokenReduction: tokenReductionReceipt,
+      repositoryBrief: repositoryBrief.receipt ?? null,
       executionContext: executionIdentity
     }, {
       workDir: path.join(root, workItemRoot, workflow.workItem.id),

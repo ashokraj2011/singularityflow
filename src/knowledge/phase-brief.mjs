@@ -7,6 +7,7 @@
  * reader, and cut to a small per-phase budget. Every bullet names its source as a file and line;
  * what could not be determined is one closing "Not known" line.
  */
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import { ruleStatusWords } from './records/rules.mjs';
@@ -116,44 +117,84 @@ function collapseNotKnown(entries) {
   return [...(types.length ? [`no registered producer for ${named}`] : []), ...other];
 }
 
+/** A stable ID for a template line, so a receipt and a model phrasing can name it. */
+function templateId(section, text) {
+  return `T-${createHash('sha256').update(`${section}\u0000${text}`).digest('hex').slice(0, 12)}`;
+}
+
+/**
+ * A model's sentence in place of the lines it covers: at the first one's place, citing all of their
+ * sources. A rule keeps its status, which the brief adds; a sentence naming a line that is not in
+ * this section any more is skipped.
+ */
+function applyPhrasing(sections, sentences) {
+  let phrased = 0;
+  for (const [id, entries] of sections) {
+    const at = new Map(entries.map((entry, index) => [entry.id, index]));
+    const replaced = new Map();
+    for (const sentence of sentences.filter((entry) => entry.section === id)) {
+      const indexes = sentence.cites.map((cite) => at.get(cite));
+      if (!indexes.length || indexes.some((index) => index == null || replaced.has(index))) continue;
+      const covered = indexes.map((index) => entries[index]);
+      const status = covered[0].status;
+      const text = status ? `${sentence.text.replace(/[.\s]+$/u, '')}. ${status}` : sentence.text;
+      replaced.set(indexes[0], {
+        ...covered[0], text: clip(text), ids: sentence.cites, phrased: true,
+        source: covered.flatMap((entry) => [entry.source].flat()).filter(Boolean)
+      });
+      for (const index of indexes.slice(1)) replaced.set(index, null);
+      phrased += 1;
+    }
+    sections.set(id, entries.flatMap((entry, index) => (replaced.has(index) ? (replaced.get(index) ? [replaced.get(index)] : []) : [entry])));
+  }
+  return phrased;
+}
+
 /**
  * Render the brief. `template` is `templateBrief(briefEvidence(…))` (null when knowledge is off or
- * unavailable); `explanations` are accepted plain-language
- * sentences. The text never exceeds `profile.budget` bytes except for its header and closing lines.
+ * unavailable); `explanations` are accepted plain-language sentences; `phrasing` is a model's
+ * checked sentences over the lines a template render selected (see brief-polish.mjs). The text never
+ * exceeds `profile.budget` bytes except for its header and closing lines. `records` are the IDs of
+ * the lines it includes, for the prompt receipt; `selection` is those lines, for a model to phrase.
  */
 export function renderPhaseBrief({
   repository = 'repository', commit = null, profile, focus = null, template = null,
   explanations = [], notKnown = [], phase = null, rules = null, questions = null, contracts = null,
-  flows = null, impact = null, risks = null
+  flows = null, impact = null, risks = null, phrasing = null
 }) {
   const focusWords = words(focus);
   const sections = new Map(Object.keys(SECTION_TITLES).map((id) => [id, []]));
   const shown = new Set();
-  const push = (section, text, source) => {
+  // `facts` is what a model phrasing this line may draw on; `status` is a rule's, which stays the brief's own words.
+  const push = (section, text, source, { id = null, facts = null, status = null } = {}) => {
     const value = clip(text);
     const key = value.toLowerCase();
     if (!value || shown.has(key)) return;
     shown.add(key);
-    sections.get(section)?.push({ text: value, source });
+    sections.get(section)?.push({ section, text: value, source, id: id ?? templateId(section, value), facts: facts ?? value, status });
   };
   // Rule records (docs, code and tests linked, each with its status) replace the template's rules and questions.
   if (rules) {
     for (const record of rules) {
-      push('rules', `${record.text.replace(/[.\s]+$/u, '')}. ${ruleStatusWords(record)}`, [...record.sources.code, ...record.sources.docs]);
+      const status = ruleStatusWords(record);
+      const said = (record.quotes ?? []).map((quote) => `the docs say: ${quote}`);
+      push('rules', `${record.text.replace(/[.\s]+$/u, '')}. ${status}`, [...record.sources.code, ...record.sources.docs], {
+        id: record.id, status, facts: [...said, record.conflict ? `conflict: ${record.conflict}` : null].filter(Boolean).join(' | ') || null
+      });
     }
   }
-  for (const question of questions ?? []) push('questions', question.text, question.source);
+  for (const question of questions ?? []) push('questions', question.text, question.source, { id: question.record ? `Q-${question.record.slice(2)}` : null });
   // Contract records (endpoints with their request, response and statuses; seams; storage; calls) replace the template's contracts.
   for (const record of contracts ?? []) {
     const tested = record.category === 'endpoint' && record.tested != null ? (record.tested ? '; tested' : '; no test reaches it') : '';
-    push('contracts', `${record.text}${tested}`, record.sources.code);
+    push('contracts', `${record.text}${tested}`, record.sources.code, { id: record.id });
   }
   // Flow, impact and risk records replace the template's when there are any. With no changed or
   // planned file, the template's impact (what depends on the functions the Story names) stays.
-  for (const record of flows ?? []) push('flows', record.text, record.sources.code);
+  for (const record of flows ?? []) push('flows', record.text, record.sources.code, { id: record.id });
   // A file-level record begins with its path, so it needs no citation after it.
-  for (const record of impact ?? []) push('impact', record.text, record.scope === 'file' ? null : record.sources.code);
-  for (const record of risks ?? []) push('risks', `${record.change === 2 ? '(changed by this Story) ' : ''}${record.text}`, record.scope === 'file' ? null : record.sources.code);
+  for (const record of impact ?? []) push('impact', record.text, record.scope === 'file' ? null : record.sources.code, { id: record.id });
+  for (const record of risks ?? []) push('risks', `${record.change === 2 ? '(changed by this Story) ' : ''}${record.text}`, record.scope === 'file' ? null : record.sources.code, { id: record.id });
   const replaced = { rules, questions, contracts, flows: flows?.length ? flows : null, impact: impact?.length ? impact : null, risks: risks?.length ? risks : null };
   for (const id of Object.keys(SECTION_TITLES)) {
     if (replaced[id]) continue;
@@ -163,20 +204,23 @@ export function renderPhaseBrief({
       push(id, statement.text, source ? { path: source.path, line: source.line ?? null, heading } : null);
     }
   }
+  const phrased = phrasing?.sentences?.length ? applyPhrasing(sections, phrasing.sentences) : 0;
   const order = profile.reader === 'product' ? profile.order : profile.order.filter((id) => id !== 'questions');
   const label = sourceLabeler([...sections.values()].flat().map((entry) => entry.source));
-  const header = `# Repository brief: ${repository}${commit ? ` at ${String(commit).slice(0, 12)}` : ''} (for ${profile.id}${focusWords.size ? ', focused on this Story' : ''})`;
+  const header = `# Repository brief: ${repository}${commit ? ` at ${String(commit).slice(0, 12)}` : ''} (for ${profile.id}${focusWords.size ? ', focused on this Story' : ''}${phrased ? '; phrased by a model' : ''})`;
   const unknown = collapseNotKnown(notKnown);
   const footer = [
     ...(unknown.length ? [`Not known: ${unknown.join('; ')}.`] : []),
-    'Read without a model from the committed source. Open the cited lines before relying on a detail.'
+    phrased
+      ? `Read from the committed source; ${phrased} ${phrased === 1 ? 'line was' : 'lines were'} phrased by ${phrasing.model ?? 'a model'}, each checked against the records it cites. Open the cited lines before relying on a detail.`
+      : 'Read without a model from the committed source. Open the cited lines before relying on a detail.'
   ];
   const body = [];
   const pointer = (count) => `- … ${count} more: singularity-flow wm brief${phase ? ` --phase ${phase}` : ''}`;
   // The whole brief fits the budget: header, closing lines and the "more" pointer are set aside first.
   let remaining = profile.budget - Buffer.byteLength(`${header}\n\n${footer.join('\n')}\n${pointer(99)}\n\n`);
   let omitted = 0;
-  let included = 0;
+  const kept = [];
   // Sections share what is left: the first may take more than an even share, so one long list
   // cannot crowd out every section after it.
   const addSection = (title, entries, sectionsLeft, first) => {
@@ -190,7 +234,7 @@ export function renderPhaseBrief({
       const bytes = Buffer.byteLength(`${line}\n`);
       if (size + bytes > share) { omitted += 1; continue; }
       lines.push(line);
-      included += 1;
+      kept.push({ ...entry, label: source });
       size += bytes;
     }
     if (!lines.length) return;
@@ -204,5 +248,11 @@ export function renderPhaseBrief({
   addSection(EXPLANATIONS_TITLE, explained, filled.length + 1, false);
   filled.forEach((id, index) => addSection(SECTION_TITLES[id], sections.get(id), filled.length - index, index === 0));
   if (omitted) body.push(pointer(omitted), '');
-  return { text: [header, '', ...body, ...footer].join('\n').trimEnd(), omitted, included };
+  const lines = kept.filter((entry) => entry.id);
+  return {
+    text: [header, '', ...body, ...footer].join('\n').trimEnd(), omitted, included: kept.length, phrased,
+    records: lines.flatMap((entry) => entry.ids ?? [entry.id]),
+    // Explanations are model-written already, and a phrased line is phrased; neither is offered again.
+    selection: lines.filter((entry) => !entry.phrased).map(({ id, section, text, facts, status, label: cited }) => ({ id, section, text, facts, status, label: cited }))
+  };
 }

@@ -1244,6 +1244,8 @@ function resolveWorldModelOperation(definition, positionals, options) {
   if (subcommand === 'show-prompt' && optionBoolean(options, 'record-audit')) {
     return never('wm.show-prompt.record-audit', definition, 'mutation');
   }
+  // --polish: a model phrases the brief, or it keeps its fixed wording.
+  if (subcommand === 'brief' && optionBoolean(options, 'polish')) return optional('wm.brief.polish', 'wm.brief', { ...definition, classification: 'read' });
   if (WM_NEVER_OPERATIONS.has(subcommand)) return never(id, definition, WM_READ_OPERATIONS.has(subcommand) ? 'read' : 'mutation');
   return unknownSubcommand('wm', subcommand, RESOLVER_SUBCOMMANDS.wm);
 }
@@ -1675,6 +1677,7 @@ export function operationCatalog() {
   wm.push(optional('wm.knowledge.explain', 'wm.knowledge.explain.deterministic', { ...commandDefinition('wm'), classification: 'read' }));
   wm.push(never('wm.knowledge.explain.deterministic', commandDefinition('wm'), 'read'));
   wm.push(optional('wm.knowledge.brief', 'wm.knowledge.brief.deterministic', { ...commandDefinition('wm'), classification: 'read' }));
+  wm.push(optional('wm.brief.polish', 'wm.brief', { ...commandDefinition('wm'), classification: 'read' }));
   wm.push(never('wm.knowledge.brief.deterministic', commandDefinition('wm'), 'read'));
   const workspace = [...WORKSPACE_NEVER_OPERATIONS]
     .map((name) => never(`workspace.${name}`, commandDefinition('workspace'), WORKSPACE_READ_OPERATIONS.has(name) ? 'read' : 'mutation'))

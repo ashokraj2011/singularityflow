@@ -857,6 +857,62 @@ Both runs followed the CLI's approval output, "Context boundary: new … /clear,
 - Run 3's model needed three corrective messages. It tagged an unapproved clause, published an Agent brief it could not correct without a new generation, and missed the committed test receipt. Model choice moves these numbers as much as the workflow does.
 - An agent that extracts chosen fields with `python3` or truncates with `head -c` can miss what it did not extract. Run 2's agent never read `contextBoundary` in an old conversation. It also missed the Story description, which sits deep in the composed context. Field-only hints are not enough on their own; the surface that approves should start the fresh conversation.
 
+## SPEC-OUT v3 pilot (M6) — 2026-10-23
+
+A paired run of the same Story script on two builds, measured with
+`npm run audit:copilot -- --sessions`:
+- **before:** `d9dd31ed`, main just before SPEC-OUT M1;
+- **after:** `96fd4e98`, with M1 to M3.
+
+Everything else was pinned:
+- model `gpt-6-luna`;
+- the same fixture repository (a small Node module with one test);
+- workflow Quick fix, Story TOK-1 ("Add slugify");
+- the same prompts in two Copilot conversations, as the CLI asks: `/sf-phase`, `/sf-submit`, `/sf-approve intake`, then in a fresh conversation `/sf-code` and `/sf-submit`.
+
+Copilot updated itself from 1.0.102 to 1.0.103 between the two conversations. That happened for both builds, so each conversation pair ran on one host version.
+
+Each build sent 6 user messages, because the model needed one extra message on each side:
+- the before build asked which test file to use;
+- the after build asked the reviewer to type `intake` to confirm the approval.
+
+Both runs ended in the same state: intake approved, implement approved by Quick fix's automatic policy, verify open.
+
+| Whole script | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Premium requests | 6 | 6 | 0 |
+| Model calls | 64 | 43 | −33% |
+| Input tokens | 4,417,415 | 2,500,867 | −43% |
+| Of which uncached | 184,884 | 178,718 | −3% |
+| Output tokens | 51,474 | 34,864 | −32% |
+| Tool results (bytes) | 104 (462.7 KB) | 76 (378.1 KB) | −18% bytes |
+| Overflow-file reads (files) | 44 (14) | 26 (11) | −41% reads |
+| Overflow reads per file, p90 | 7 | 3 | |
+
+Calls by cause (calls / input tokens):
+
+| Cause | Before | After |
+| --- | --- | --- |
+| user-turn | 6 / 377K | 6 / 323K |
+| sflow-result | 23 / 1.77M | 17 / 1.03M |
+| sflow-overflow | 14 / 928K | 8 / 487K |
+| source-read | 3 / 164K | 4 / 202K |
+| host-shell | 3 / 213K | 2 / 130K |
+| other | 15 / 963K | 6 / 332K |
+
+Per skill:
+- **`/sf-code`, the cleanest pair** (same prompt, finished in one turn on both builds): 25 → 18 calls and 1.51M → 0.99M input tokens (−35%). Uncached input was 75K → 83K.
+- **`/sf-submit`, two runs each:** 673K → 601K input tokens.
+- **Intake:** not comparable. The before build's clarification question split its drafting across two turns (191K + 1.39M input tokens); the after build drafted in one (339K).
+- **Approval:** before 650K in one turn; after 270K plus 304K for the typed confirmation.
+
+What this shows, and what it does not:
+- **Input tokens and calls.** The levers cut input tokens and model calls: fewer SFlow results and overflow reads per task, and each overflow file read in fewer, larger reads. Almost all of the saving is in cached input.
+- **Uncached input and premium requests.** Uncached input, which is billed at the full rate, barely moved. So did premium requests, which count user messages, not tokens.
+- **The fixed opening text** is unchanged: 20,497 → 20,486 tokens for the first call, 30% and 35% of input. It is almost all Copilot's own (system prompt, 36 tool definitions); the opening skill and hook context are about 8 KB of it.
+- **Failures.** The before build's submit hit a post-tool hook warning (`PHASE_MUTATION_BASELINE_UNAVAILABLE`); the after build had none.
+- **Sample size.** This is one pair of runs. The model's own choices (a clarification, a confirmation) move single tasks by more than the levers do. Read the totals as direction, not as a measured rate; a rate needs repeated pairs.
+
 ## Regression checks
 
 ```sh

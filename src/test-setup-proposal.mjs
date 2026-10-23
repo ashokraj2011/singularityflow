@@ -140,6 +140,10 @@ export async function requestedCommand(root, options) {
   };
 }
 
+function cliOnly() {
+  throw new SingularityFlowError('A test command is proposed from the command line: singularity-flow capability test-setup.');
+}
+
 export async function runTestCommandProposal(options) {
   const json = optionBoolean(options, 'json');
   const confirm = optionString(options, 'confirm');
@@ -174,7 +178,11 @@ export async function runTestCommandProposal(options) {
   }
   if (problems.length) throw new SingularityFlowError(`Test command '${command.id}' cannot be proposed: ${problems[0]}`, { code: 'TEST_SETUP_PROPOSAL_INVALID', details: { subjectKind: 'configuration', problems } });
   // The same transaction as VS Code's Test setup: `configuration save --propose`, bound to the bytes previewed.
-  const [legacy, { withStdinText }] = await Promise.all([import('./commands/legacy.mjs'), import('./read-stdin.mjs')]);
+  // The extension host loads this module only for activatedTestCommandsFor, so its bundles drop this
+  // branch and the whole CLI with it (the CLI's installer module uses top-level await, which a
+  // CommonJS bundle cannot hold).
+  const [legacy, { withStdinText }] = globalThis.__SFLOW_EXTENSION_HOST__ === true
+    ? cliOnly() : await Promise.all([import('./commands/legacy.mjs'), import('./read-stdin.mjs')]);
   const lines = [];
   const original = console.log;
   if (json) console.log = (...args) => lines.push(args.join(' '));

@@ -40,7 +40,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 86
+version: 87
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1128,7 +1128,8 @@ constitution no carried workflow names. When the destination already has a diffe
 the import offers keep (suggested) or replace. A v9 or older bundle carries no user-defined agent
 folder, so the reader refuses one that brings such an agent; export it again from the source. Where
 the destination has the same folder, it is already there; a different folder under the same name is
-a conflict of its agent, kept or replaced with it. A user-defined agent cannot arrive under a new
+a conflict of its agent, kept or replaced with it. Replacing it removes the files the old folder had
+and the imported one does not; the preview lists them under Removes. A user-defined agent cannot arrive under a new
 name, because its agent names its folder and pins the manifest. Export refuses
 an imported copy that no longer matches its lock; check it with `singularity-flow imports check`
 and import it again first. MCP assignments reachable from selected phases or agents are included,

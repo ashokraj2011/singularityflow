@@ -2657,6 +2657,8 @@ async function importPlan(root, destination, original, chosen) {
   const candidates = Object.fromEntries(['story', 'initiative'].map((governs) => [
     governs, mergedConfigurationValue(values[governs], bundle, governs, replacedObjects)
   ]));
+  const removals = await droppedUserDefinedFiles(target.root, assetTargets,
+    new Set([...additions, ...replaced].map((item) => item.id)));
   try {
     const writing = new Set([...additions, ...replaced].map((item) => item.id));
     const files = await Promise.all(assetTargets.filter(({ relative }) => writing.has(relative)).map(async ({ relative, asset }) => {
@@ -2666,6 +2668,7 @@ async function importPlan(root, destination, original, chosen) {
       }
       return { path: relative, before, after: assetBytes(asset) };
     }));
+    for (const item of removals) files.push({ path: item.id, before: await readFile(path.join(target.root, item.id)), after: null });
     assertSeededWorkflowsUnchanged(await seededWorkflowProtection(values.story, values.initiative, targetAgents), values, candidates, {
       beforeAgents: targetAgents, afterAgents: [...agentCatalog.values()],
       files
@@ -2714,6 +2717,7 @@ async function importPlan(root, destination, original, chosen) {
   for (const item of writes) {
     if (['agent', 'template', 'vendored', 'user-defined', 'skill', 'instruction', 'constitution', 'asset', 'skill-package-file', 'skill-package-attributes'].includes(item.kind)) changedPaths.add(item.id);
   }
+  for (const item of removals) changedPaths.add(item.id);
   // What is still open, one entry per subject: why, which of the repository's workflows use it,
   // and the choices, with a free new name ready for rename.
   const usage = targetUsage(values, targetAgents);
@@ -2809,6 +2813,7 @@ async function importPlan(root, destination, original, chosen) {
       add: additions.sort(byIdentity), reuse: reuse.sort(byIdentity),
       ...(replaced.length ? { replace: replaced.sort(byIdentity) } : {}),
       ...(kept.length ? { keep: kept.sort(byIdentity) } : {}),
+      ...(removals.length ? { remove: removals } : {}),
       conflicts: open.sort(byIdentity)
     },
     ...(renamed.length ? { renamed } : {}),
@@ -2820,6 +2825,7 @@ async function importPlan(root, destination, original, chosen) {
     ...planCore, planSha256, status: open.length ? 'blocked' : 'ready',
     added: planCore.operations.add, reused: planCore.operations.reuse,
     replaced: planCore.operations.replace ?? [], kept: planCore.operations.keep ?? [],
+    ...(removals.length ? { removed: removals, removesText: planEntriesText(removals) } : {}),
     conflicts: planCore.operations.conflicts, unresolved, identities,
     // The same plan in words: what is added, and what this repository already has.
     addsText: planEntriesText(planCore.operations.add), alreadyHereText: planEntriesText(planCore.operations.reuse),
@@ -2841,6 +2847,33 @@ async function importPlan(root, destination, original, chosen) {
   return result;
 }
 
+/**
+ * Files a replaced user-defined agent folder no longer has: those the repository's current manifest
+ * lists and the imported one does not. They go, as with Workflow Studio's replace, because nothing
+ * reads a file its agent's manifest does not list. Each carries its current hash, so the confirmed
+ * plan names the exact bytes it removes.
+ */
+async function droppedUserDefinedFiles(root, assetTargets, writing) {
+  const removals = [];
+  for (const { asset, relative } of assetTargets) {
+    if (asset.kind !== 'user-defined' || !writing.has(relative) || path.posix.dirname(relative) !== USER_DEFINED_ROOT) continue;
+    const name = path.posix.basename(relative, '.json');
+    const before = await readFile(path.join(root, relative), 'utf8').catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
+    let previous = null;
+    try { previous = before == null ? null : JSON.parse(before); } catch { /* An unreadable manifest names no files. */ }
+    if (!Array.isArray(previous?.files)) continue;
+    const kept = new Set(JSON.parse(asset.content).files.map((file) => file.path));
+    for (const file of previous.files) {
+      if (typeof file?.path !== 'string' || kept.has(file.path)) continue;
+      const dropped = `${userDefinedFolderPath(name)}/${file.path}`;
+      try { safeAssetPath(dropped); } catch { continue; }
+      const bytes = await readFile(path.join(root, dropped)).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
+      if (bytes != null) removals.push(entry('user-defined', dropped, { sha256: digest(bytes) }));
+    }
+  }
+  return removals.sort((a, b) => a.id.localeCompare(b.id));
+}
+
 async function rollbackWrites(applied) {
   const failures = [];
   for (const item of [...applied].reverse()) {
@@ -2857,9 +2890,13 @@ async function rollbackWrites(applied) {
 async function applyFiles(files) {
   const applied = [];
   try {
-    for (const { file, content } of files) {
+    for (const { file, content, remove } of files) {
       const info = await lstat(file).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
       const previous = info ? await readFile(file) : null;
+      if (remove) {
+        if (previous != null) { await rm(file); applied.push({ file, previous }); }
+        continue;
+      }
       const directory = path.dirname(file);
       await mkdir(directory, { recursive: true });
       const temporary = path.join(directory, `.sflow-workflow-import-${process.pid}-${randomBytes(6).toString('hex')}`);
@@ -2976,12 +3013,14 @@ export async function applyWorkflowImport(root, bundleOrPath, {
     if (!writes.has(`${asset.kind}\0${relative}`)) continue;
     outputs.push({ file: await assertSafeTarget(target.root, relative), content: assetBytes(asset) });
   }
+  for (const item of plan.operations.remove ?? []) outputs.push({ file: await assertSafeTarget(target.root, item.id), remove: true });
   await applyFiles(outputs);
   return {
     schemaVersion: 1, resultType: 'workflow-import', status: outputs.length ? 'imported' : 'current',
     planSha256: plan.planSha256, bundleSha256: plan.bundleSha256,
     workflows: bundle.workflows, added: plan.added, reused: plan.reused,
     replaced: plan.replaced, kept: plan.kept, renamed: plan.renamed ?? [], conflicts: [],
+    ...(plan.removed ? { removed: plan.removed } : {}),
     changed: outputs.length > 0,
     paths: outputs.map((item) => path.relative(target.root, item.file).split(path.sep).join('/')).sort()
   };

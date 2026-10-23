@@ -121,6 +121,7 @@ test('a user-defined agent\'s folder travels with its workflow, and an import th
   // C: a different folder under the same name is a conflict of the agent, kept or replaced, never renamed.
   const c = await repository('c');
   const other = await teamFolder(path.join(base, 'other'), 'Other rules.');
+  await writeFile(path.join(other, 'notes', 'extra.md'), '# Extra\nOnly this repository has it.\n');
   addAgent(c, other);
   const blocked = json(c.root, 'workflow', 'import', bundlePath, '--dry-run');
   const agent = blocked.unresolved.find((entry) => entry.subject === 'agent:orchestrator');
@@ -128,6 +129,27 @@ test('a user-defined agent\'s folder travels with its workflow, and an import th
   assert.ok(blocked.conflicts.some((entry) => entry.kind === 'user-defined' && entry.id === 'singularity/user-defined/orchestrator/notes/style.md'));
   assert.ok(blocked.reused.some((entry) => entry.kind === 'user-defined' && entry.id === 'singularity/user-defined/orchestrator/skills/review/SKILL.md'),
     'an identical file is already here');
+  assert.equal(blocked.removed, undefined, 'nothing is removed before the agent is replaced');
+
+  // Replacing it removes the file the imported folder does not have, as Workflow Studio's replace does.
+  const choices = blocked.unresolved.filter((entry) => entry.choices.includes('replace')).flatMap((entry) => ['--resolve', `${entry.subject}=replace`]);
+  const replacing = json(c.root, 'workflow', 'import', bundlePath, '--dry-run', ...choices);
+  assert.equal(replacing.status, 'ready', JSON.stringify(replacing.unresolved));
+  assert.deepEqual(replacing.removed.map((entry) => entry.id), ['singularity/user-defined/orchestrator/notes/extra.md']);
+  assert.ok(replacing.changedPaths.includes('singularity/user-defined/orchestrator/notes/extra.md'));
+  assert.match(sflow(c.root, 'workflow', 'import', bundlePath, '--dry-run', ...choices),
+    /Removes: user-defined agent file orchestrator\/notes\/extra\.md \(the replaced folder no longer has it\)/u);
+  sflow(c.root, 'workflow', 'import', bundlePath, '--confirm', replacing.planSha256, ...choices, '--propose');
+  activate(c);
+  const folderFiles = run('git', ['--git-dir', c.remote, 'ls-tree', '-r', '--name-only', 'sflow/config', 'singularity/user-defined/'], base).stdout.trim().split('\n');
+  assert.deepEqual(folderFiles.filter((relative) => relative.includes('/orchestrator')), [
+    'singularity/user-defined/orchestrator.json',
+    'singularity/user-defined/orchestrator/notes/style.md',
+    'singularity/user-defined/orchestrator/orchestrator.agent.md',
+    'singularity/user-defined/orchestrator/skills/review/SKILL.md'
+  ]);
+  assert.equal(run('git', ['--git-dir', c.remote, 'show', 'sflow/config:singularity/user-defined/orchestrator.json'], base).stdout,
+    bundle.assets.find((asset) => asset.path === 'singularity/user-defined/orchestrator.json').content);
 
   // An older bundle (v9 carried no folder), a changed file, or a stray file is refused, not imported.
   const write = async (name, value) => { const file = path.join(base, name); await writeFile(file, `${JSON.stringify(value, null, 2)}\n`); return file; };

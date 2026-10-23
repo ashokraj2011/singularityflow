@@ -279,6 +279,7 @@ export function importPlanText(plan, file, { propose = false } = {}) {
     + ` · Conflicts: ${counts.conflicts ?? 0}`);
   if (plan.added?.length) lines.push(`  Adds: ${planEntriesText(plan.added)}`);
   if (plan.reused?.length) lines.push(`  Already here: ${planEntriesText(plan.reused)}`);
+  if (plan.removesText) lines.push(`  Removes: ${plan.removesText} (the replaced folder no longer has ${plan.removed.length === 1 ? 'it' : 'them'})`);
   for (const item of plan.renamed ?? []) {
     const { kind, id } = parseSubject(item.subject);
     lines.push(`  New name: ${subjectNoun(kind)} ${id} → ${item.to}`);

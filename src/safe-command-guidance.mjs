@@ -250,24 +250,32 @@ function normalizedSkill(value) {
 // Receipt capabilities belong in private execution, never in reusable command guidance.
 // This is syntax validation only: the CLI still authenticates the exact receipt, packet,
 // phase, identity, expiry and one-time consumption before recording a decision.
-function executionSecretCheckArgv(tokens) {
-  const receiptOptions = tokens.filter(token => /^--selection-receipt(?:=|$)/u.test(token));
-  if (!receiptOptions.length) return tokens;
-  const argv = tokens.slice(1);
+// `action execute` consumes the one-time token `action authorize` issued: a random UUID bound to one
+// plan, action and local identity (action-authorization.mjs), a receipt like the others, not a credential.
+const EXECUTION_RECEIPTS = Object.freeze({
   // `story start` and `epic start <KEY>` hand the same receipt to the `start` and `initiative start`
   // handlers; /sf-story-start and /sf-epic-start record their choices and start with it.
-  const supportsReceipt = ['start', 'approve', 'reject'].includes(argv[0])
+  'selection-receipt': argv => ['start', 'approve', 'reject'].includes(argv[0])
     || argv[0] === 'initiative' && ['start', 'approve'].includes(argv[1])
     || ['story', 'epic'].includes(argv[0]) && argv[1] === 'start'
-    || argv[0] === 'epic' && argv[1] === 'review' && ['approve', 'reject'].includes(argv[2]);
-  if (!supportsReceipt || receiptOptions.length !== 1) return null;
-  const index = tokens.indexOf(receiptOptions[0]);
-  if (tokens.includes('--') && tokens.indexOf('--') < index) return null;
-  const equals = receiptOptions[0].startsWith('--selection-receipt=');
-  const receipt = equals ? receiptOptions[0].slice('--selection-receipt='.length) : tokens[index + 1];
-  if (typeof receipt !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(receipt)) return null;
-  const checked = [...tokens];
-  checked.splice(index, equals ? 1 : 2);
+    || argv[0] === 'epic' && argv[1] === 'review' && ['approve', 'reject'].includes(argv[2]),
+  authorization: argv => argv[0] === 'action' && argv[1] === 'execute'
+});
+function executionSecretCheckArgv(tokens) {
+  let checked = tokens;
+  for (const [name, supports] of Object.entries(EXECUTION_RECEIPTS)) {
+    const flag = `--${name}`;
+    const found = checked.filter(token => token === flag || token.startsWith(`${flag}=`));
+    if (!found.length) continue;
+    if (!supports(checked.slice(1)) || found.length !== 1) return null;
+    const index = checked.indexOf(found[0]);
+    if (checked.includes('--') && checked.indexOf('--') < index) return null;
+    const equals = found[0] !== flag;
+    const receipt = equals ? found[0].slice(flag.length + 1) : checked[index + 1];
+    if (typeof receipt !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(receipt)) return null;
+    checked = [...checked];
+    checked.splice(index, equals ? 1 : 2);
+  }
   return checked;
 }
 

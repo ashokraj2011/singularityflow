@@ -14,7 +14,7 @@ related:
   - visual-verification
 commands:
   - env
-version: 3
+version: 4
 ---
 An environment binding separates a names-only repository declaration from values held in private machine state. Put the closed declaration in `singularity/environments.yml`, bind values through standard input or an approved reference, and inspect only redacted status metadata. SFlow refuses declared local files at commit, candidate, publication, document-intake, and World Model boundaries. A missing binding is unavailable and never a pass. An environment-linked check runs on this machine only when the capability policy `localIntegrationEvidence` is `allowed` and the binding is complete: its values go to that process only, its output is redacted, and the run is recorded as `local-integration`, never as governed or isolated evidence. With the policy `off` (the default) it stays blocked.
 
@@ -27,7 +27,7 @@ Before binding, select the intended workspace and repository, confirm that its a
 ## Use it from each surface
 
 - **Shell:** `singularity-flow env status`, `singularity-flow env audit`, `singularity-flow env bind <name> --stdin`, and `singularity-flow env unbind <name>`; `singularity-flow env files` for environment files.
-- **Copilot:** `/sf-environment` can explain status and audit. It must direct secret entry to the terminal and must never ask for a value in chat.
+- **Copilot:** `/sf-environment` can explain status and audit. Binding and removing values are the person's own steps: it gives them `singularity-flow env bind <name> --stdin` or `singularity-flow env unbind <name>` for their terminal (the Copilot guard refuses both in every turn) and must never ask for a value in chat.
 - **VS Code:** use the terminal command until an approved SecretStorage-backed binding control is available. Never put a secret in a webview command argument.
 
 ## Guided workflow

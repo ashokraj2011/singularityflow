@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "ee25f97df860b42daabc4f15dcb7974dccf358ac",
+  "sourceCommit": "4cd5b705e89848d56a86a998029ce8ef86366cec",
   "topicCount": 85,
-  "contentSha256": "ffc99029203865b37ccf407477fbe6c06b334c02ce21c10ebe136f8deb222373",
+  "contentSha256": "82b19be4fa4084d606237bbf84511b89e390760aa3cc015145a22fa4625452b8",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -176,8 +176,8 @@
     {
       "id": "environment-bindings",
       "title": "Test environments without committing their values",
-      "version": 3,
-      "sha256": "e2f1bab4e3ee4ce450794f63587d39c7dab8ef18f8f88a79071c58d45e1a9bd6",
+      "version": 4,
+      "sha256": "a41fa7aeedafad0215872bcbc953813337cac2c7bb467b9ada191879ba4da1b5",
       "routingSha256": "3f61bd3248485e24065d018c2cc3d1fcd7f9e68c572106f2f5ae5e77f7c668bb",
       "file": "environment-bindings.md"
     },

@@ -39,8 +39,8 @@ the reset or being deleted.
      --expect-scope-sha256 "<EXACT resetScopeSha256>" [--allow-dirty] --json
    ```
 
-5. Run `singularity-flow init --check --json` and show `git status --short`.
-   Explain that the reset is intentionally uncommitted and must be reviewed.
+5. Run `singularity-flow init --check --json`, then `singularity-flow factory-reset --dry-run --json` and show its
+   `uncommittedResetPaths`. Explain that the reset is intentionally uncommitted and must be reviewed.
 
 Pass `--allow-dirty` only when `uncommittedDiscardPaths` was non-empty and the
 contributor explicitly selected the data-loss action after seeing those exact

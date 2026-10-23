@@ -49,7 +49,7 @@ For ordinary `init`, `--check`, or `--repair`:
 5. Rerun `singularity-flow init --check --json`, then run
    `singularity-flow doctor --offline --json`. Report every remaining failure
    and warning with its exact fix.
-6. Show `git status --short` and added files. Do not commit or push repair automatically; after review,
+6. Show the files the repair reported. Do not commit or push repair automatically; after review,
    offer `/sf-configuration publish` to commit and push the setup branch.
 7. Before the first Story, offer `/sf-ready` and
    `singularity-flow precheck --run --scope dependency-test --json`.

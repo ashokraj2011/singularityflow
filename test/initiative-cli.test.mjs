@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -102,6 +102,37 @@ test('initiative CLI starts, prepares, publishes, records evidence, approves, an
   assert.match(next[0].command, /initiative phase plan/);
   assert.match(git(root, ['log', '--format=%s']), /\[INIT-CLI\]\[initiative:define\]\[approve\] phase/);
   assert.match(git(root, ['ls-files']), /singularity\/initiatives\/INIT-CLI\/evidence\/files\//);
+});
+
+test('initiative phase preparation and its draft check let a live drafting turn edit exactly the step outputs', async (t) => {
+  const root = await realpath(await repository());
+  const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-initiative-turn-'));
+  const previous = process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
+  process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = path.join(machine, 'mode.json');
+  t.after(() => {
+    if (previous === undefined) delete process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
+    else process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = previous;
+  });
+  const { recordRepositoryBoundaryTurn } = await import('../src/copilot-repository-boundary.mjs');
+  const { captureMutationTurn, mutationToolGuard } = await import('../src/copilot-mutation-guard.mjs');
+  execute(root, ['initiative', 'start', 'INIT-DRAFT', '--title', 'Drafted initiative']);
+  // An Initiative checkout binds no Story.
+  const payload = { cwd: root, sessionId: 'initiative-drafting', prompt: '/sf-initiative-phase' };
+  const enter = () => recordRepositoryBoundaryTurn(payload, { captureMutation: (value, record) => captureMutationTurn(value, record,
+    { resolveRoot: async () => root, load: async () => { throw new Error('No Story'); } }) });
+  const edit = target => mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: target } });
+  const output = path.join(root, 'singularity', 'initiatives', 'INIT-DRAFT', 'artifacts', 'define', 'business-case.md');
+  await enter();
+  assert.equal((await edit(output)).permissionDecision, 'deny');
+  assert.match(execute(root, ['initiative', 'phase', 'define']).stdout, /Prepared 3 define documents/);
+  assert.deepEqual(await edit(output), {});
+  for (const target of [path.join(root, 'README.md'), path.join(root, 'singularity', 'portfolio.yml'),
+    path.join(path.dirname(output), 'unlisted.md')]) assert.equal((await edit(target)).permissionDecision, 'deny', target);
+  // A new turn starts with nothing issued; the read-only draft check issues the same outputs again.
+  await enter();
+  assert.equal((await edit(output)).permissionDecision, 'deny');
+  assert.equal(JSON.parse(execute(root, ['initiative', 'phase', 'draft-check', 'define', '--json']).stdout).phaseStatus, 'in_progress');
+  assert.deepEqual(await edit(output), {});
 });
 
 test('initiative publication gate checks the configured push destination', async () => {

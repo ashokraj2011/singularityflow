@@ -93,7 +93,8 @@ test('repository readiness proves execution and confines setup repair before Sto
   assert.match(content, /no Story required/i);
   assert.match(content, /Select `dependency-test` unless[\s\S]*precheck --run --scope <SCOPE> --json[\s\S]*once for its plan/i);
   assert.match(content, /--confirm-plan <PLAN-ID>/);
-  assert.match(content, /committable setup[\s\S]*edit only confirmed paths/i);
+  // No turn before a Story edits files or runs Git, so the reviewed setup edits and commit are the person's.
+  assert.match(content, /committable setup[\s\S]*No turn before a Story edits files or runs Git[\s\S]*the person creates\s+`sflow\/readiness\/<PLAN-DIGEST-PREFIX>`, edits only confirmed paths/i);
   assert.match(content, /commands, adapters, timeouts/i);
   assert.match(content, /Build\/start\/end-to-end need `--full` and approved policy/i);
   // Failed tests only warn at Story start (STORY_PRE_EXISTING_TEST_FAILURES_OBSERVED); a Bug-fix Story is a choice.

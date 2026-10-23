@@ -17,7 +17,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 Hooks are host integration points, not shortcuts for lifecycle commands.
 
 1. Prefer `/sf-logs` when the user only wants to understand a hook decision.
-2. Invoke `singularity-flow hook <HOOK>` only when the user explicitly requests the hook and provides the exact payload or environment required by that host contract.
+2. A hook records the host's own decisions (a turn's boundary among them), so the guard refuses `singularity-flow hook` in every turn. When the user explicitly requests one and provides its exact payload or environment, give them `singularity-flow hook <HOOK>` with that payload on standard input for their own terminal.
 3. Preserve allow/deny, reason, selected work, session, agent, and exit status exactly.
 4. Never fabricate host identifiers, bypass a guard, or translate a denied hook into a direct mutation.
 

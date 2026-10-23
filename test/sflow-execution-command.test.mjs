@@ -60,3 +60,18 @@ test('receipt handling cannot admit shell execution or other credentials', () =>
   assert.ok(validateSflowExecutionCommand(`singularity-flow 'approve' 'specification' '--selection-receipt' '${receipt}' '--json'`, { shell: 'powershell' })?.copyable);
   assert.equal(validateSflowExecutionCommand(`${command} --reason '<REASON>'`)?.copyable, false);
 });
+
+test('action execute carries the one-time authorization token action authorize issued, and nothing else does', () => {
+  // The token is a random UUID bound to one plan, action and local identity (src/action-authorization.mjs).
+  const execute = `singularity-flow action execute 0123456789abcdef01234567 --action abcdef0123`;
+  assert.ok(validateSflowExecutionCommand(`${execute} --authorization ${receipt}`)?.copyable);
+  assert.ok(validateSflowExecutionCommand(`${execute} --authorization=${receipt} --json`)?.copyable);
+  for (const unsafe of [`${execute} --authorization hidden`, `${execute} --authorization ${receipt.toUpperCase()}`,
+    `${execute} --authorization ${receipt} --authorization ${receipt}`, `${execute} -- --authorization ${receipt}`,
+    `${execute} --authorization ${receipt} --token hidden`, `singularity-flow action authorize 0123456789abcdef01234567 --authorization ${receipt}`,
+    `singularity-flow sync --authorization ${receipt}`, `${execute} --selection-receipt ${receipt}`]) {
+    assert.equal(validateSflowExecutionCommand(unsafe), null, unsafe);
+  }
+  // Private execution only: reusable display guidance still never carries it.
+  assert.equal(validateSafeSflowCommand(`${execute} --authorization ${receipt}`), null);
+});

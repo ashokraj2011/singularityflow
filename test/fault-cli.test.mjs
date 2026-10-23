@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -79,6 +79,29 @@ test('fault report/list/show and fix preview are reachable through the public CL
   assert.equal(structured.status, 0, structured.stderr);
   assert.deepEqual(JSON.parse(structured.stdout).data.plan.verification[0].argv,
     ['C:\\Program Files\\nodejs\\node.exe', '--version']);
+});
+
+test('a repair awaiting its patch names the one patch file to write, in its attempt action', async () => {
+  const root = await fixture();
+  const { authorizeRepair, reportFault, requestRepair } = await import('../src/fault-repair.mjs');
+  const reported = await reportFault(root, { source: 'test-runner', environment: 'local', severity: 'high',
+    failure: { type: 'unit-test', command: 'node --version', commandArgv: ['node', '--version'], exitCode: 1, message: 'failed' } });
+  const requested = await requestRepair(root, reported.fault.faultId, { mode: 'guided', allowedPaths: ['README.md'],
+    verification: [[process.execPath, '--version']] });
+  const before = JSON.parse(invoke(root, ['repair', 'status', requested.repair.repairId, '--json']).stdout);
+  assert.doesNotMatch(JSON.stringify(before.next), /patch-drafts/u, 'nothing to write before authorization');
+  await authorizeRepair(root, requested.repair.repairId, { confirmation: requested.plan.integrity.sha256 });
+  const status = invoke(root, ['repair', 'status', requested.repair.repairId, '--json']);
+  assert.equal(status.status, 0, status.stderr);
+  const command = JSON.parse(status.stdout).next[0].command;
+  const prefix = `singularity-flow repair attempt ${requested.repair.repairId} --patch `;
+  assert.ok(command.startsWith(prefix), command);
+  const draft = command.slice(prefix.length).replace(/^'(.*)'$/u, '$1');
+  assert.ok(path.isAbsolute(draft), draft);
+  assert.equal(path.basename(path.dirname(draft)), 'patch-drafts');
+  assert.equal(path.basename(draft), `${requested.repair.repairId}.patch`);
+  assert.ok((await stat(path.dirname(draft))).isDirectory(), 'the kernel prepares only the draft\'s parent');
+  await assert.rejects(stat(draft), { code: 'ENOENT' });
 });
 
 test('fault report accepts structured command argv and unsigned Windows termination codes', async () => {

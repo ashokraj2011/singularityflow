@@ -40,10 +40,11 @@ Setup only: Never change product behavior, weaken tests, upgrade versions, insta
    reason and expiry (max 30 days) via `singularity-flow precheck --accept-test-risk
    --confirm-baseline <SHA256> --reason <TEXT> --expires <ISO-8601> --json`. Acceptance never
    marks tests passed or waives publication checks.
-6. Without `--repair`, stop. With it, ask before committable setup; create
-   `sflow/readiness/<PLAN-DIGEST-PREFIX>`, edit only confirmed paths, and show full diff.
-7. After explicit diff approval, rerun and commit only the reviewed paths. Do not push or
-   merge unless separately requested. A commit changes the base; obtain a new `planId`,
+6. Without `--repair`, stop. With it, ask before committable setup and name the exact paths and changes.
+   No turn before a Story edits files or runs Git (edits bind to a step's policy), so the person creates
+   `sflow/readiness/<PLAN-DIGEST-PREFIX>`, edits only confirmed paths and shows the full diff in their own terminal.
+7. After explicit diff approval they commit only the reviewed paths. Do not push or
+   merge unless separately requested. A commit changes the base; rerun `/sf-ready` for a new `planId`,
    confirmation and receipt.
 8. Report commit/blockers and handoffs: Copilot `/sf-start`; Shell
    `singularity-flow start <WORK-ID>`. A Git refusal retains the setup branch and creates no Story.

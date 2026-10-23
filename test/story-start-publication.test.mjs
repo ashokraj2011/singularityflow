@@ -977,12 +977,14 @@ test('the intake catalog says whether its workflows depend on the chosen base, a
   // A repeated catalog is served from its advisory snapshot (9dd17bc1); refresh it to measure the read.
   const warm = flow(root, ['workspace', 'branches', '--json', '--intake', '--refresh-readiness', '--timings']);
   assert.equal(JSON.parse(warm.stdout).intake.workflowCatalogScope, 'approved-configuration');
+  // Elsewhere a cached read: since b3c8bf7f the configuration objects this checkout already holds are
+  // read in place (workspace-object-hit) before the shared object cache is consulted.
   if (process.platform === 'win32') {
     assert.match(warm.stderr, /configuration\.object-cache-declined=1(?:\s|$)/,
       'Windows deliberately keeps the persistent configuration cache disabled');
     assert.match(warm.stderr, /configuration\.snapshot-read=1(?:\s|$)/,
       'the fresh independent read still verifies approved configuration');
-  } else assert.match(warm.stderr, /configuration\.object-cache-hit=1(?:\s|$)/);
+  } else assert.match(warm.stderr, /configuration\.(?:workspace-object|object-cache)-hit=1(?:\s|$)/);
   assert.match(warm.stderr, /git\.remote\.command\.ls-remote=1(?:\s|$)/,
     'one listing of every head selects approved configuration, admits its cached copy and is the inventory');
   assert.match(warm.stderr, /git\.remote-inventory-shared=1(?:\s|$)/);

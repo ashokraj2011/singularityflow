@@ -39,7 +39,12 @@ test('selected configuration prepares exact objects without a checkout and still
   const snapshot = await withCommandTiming(timer, () => withStoryConfigurationTransaction(() =>
     loadStoryConfigurationSnapshot(authority, { useObjectCache: true, session: new GitRemoteSession({ cwd: app }) })));
   assert.equal(snapshot.sourceCommit, authority.commit);
-  assert.equal(timer.finish().counters['configuration.prepared-object-hit'], 1);
+  // Since b3c8bf7f the workspace reader serves the prepared objects first; either reader takes them from
+  // this repository, never by a fetch or a checkout.
+  const counters = timer.finish().counters;
+  assert.equal((counters['configuration.workspace-object-hit'] ?? 0) + (counters['configuration.prepared-object-hit'] ?? 0), 1, JSON.stringify(counters));
+  assert.equal(counters['configuration.workspace-object-fetch'], undefined);
+  assert.equal(counters['configuration.workspace-native-checkout'], undefined);
   assert.equal(git(app, 'status', '--porcelain=v1'), before);
   git(source, 'switch', '-q', 'sflow/config');
   await writeFile(path.join(source, 'README.md'), 'advanced configuration\n');

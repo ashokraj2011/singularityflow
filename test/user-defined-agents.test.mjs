@@ -120,7 +120,8 @@ test('the packaged sample agent is a consistent folder, and init seeds it ready 
   assert.equal(await readFile(path.join(templates, 'user-defined', 'careful-change.json'), 'utf8'), userDefinedManifestText(plan));
   const agent = await readFile(path.join(templates, 'agents', 'careful-change.agent.md'), 'utf8');
   assert.match(agent, new RegExp(`sflow-user-defined: careful-change\\n {2}sflow-user-defined-manifest: "${plan.manifestSha256}"`, 'u'));
-  assert.ok(agent.trimEnd().endsWith(instructions), 'the agent\'s instructions are the main file\'s own');
+  assert.ok(agent.includes(`\n\n${instructions}\n\n`), 'the agent\'s instructions are the main file\'s own');
+  assert.match(agent, /---\n\nResolve the active Story checkout from this invocation's verified entry packet/u, 'after the repository boundary every agent carries');
   const workflow = YAML.parse(await readFile(path.join(templates, 'workflow.yml'), 'utf8'));
   assert.deepEqual(workflow.workTypes['careful-change'].phases, ['careful-change']);
   assert.deepEqual(workflow.workTypes['careful-change'].omits.map((entry) => entry.responsibility), ['scope', 'plan']);
@@ -199,7 +200,8 @@ test('a real folder is proposed, activated, started with --agent and finished as
   }
   const agentFile = run('git', ['--git-dir', remote, 'show', `${branch}:.github/agents/orchestrator.agent.md`]).stdout;
   assert.match(agentFile, /sflow-user-defined: orchestrator\n {2}sflow-user-defined-manifest: "sha256:[a-f0-9]{64}"/u);
-  assert.match(agentFile, /---\n\n# Orchestrator\n\n1\. Plan the change in three bullets\./u);
+  // The repository boundary every agent carries, then the main file's own instructions unchanged.
+  assert.match(agentFile, /---\n\nResolve the active Story checkout[^\n]*\n\n# Orchestrator\n\n1\. Plan the change in three bullets\./u);
   assert.equal(run('git', ['--git-dir', remote, 'cat-file', '-e', `${branch}:singularity/user-defined/orchestrator/.env`], { allowFailure: true }).status === 0, false);
   sflow('workflow', 'activate', branch, '--confirm', run('git', ['--git-dir', remote, 'rev-parse', branch]).stdout.trim(), '--acknowledge-unprotected');
 

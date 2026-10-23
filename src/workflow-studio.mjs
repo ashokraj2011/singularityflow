@@ -2033,7 +2033,9 @@ class StudioCandidate {
     this.agents.set(name, {
       id: name, scope: 'repository', relative: posix(path.join('.github', 'agents', `${name}.agent.md`)), fileName: `${name}.agent.md`,
       text: userDefinedAgentHeader({ name, label, description, manifestSha256: change.manifestSha256 }),
-      label, description, tools, views: [], phases: [], defaultFor: [], body: String(change.instructions ?? ''), touched: true, created: true
+      // The repository boundary every agent carries, then the main file's own instructions unchanged.
+      label, description, tools, views: [], phases: [], defaultFor: [], touched: true, created: true,
+      body: [REPOSITORY_AGENT_BOUNDARY, '', String(change.instructions ?? '').trim(), '', AGENT_CLARIFICATION_GUIDANCE].join('\n')
     });
     this.summary.push(`User-defined agent ${label}: its folder (${files.length} file${files.length === 1 ? '' : 's'}) copied unchanged to singularity/user-defined/${name}/; its main file's instructions are the agent's.`);
   }

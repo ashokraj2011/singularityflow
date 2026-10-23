@@ -438,7 +438,7 @@ const AGENTS_BEFORE_NATIVE_ENTRY_REUSE = Object.freeze({
 export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   // The sample user-defined agent (careful-change): its agent, its step's starter template, and
   // its folder and manifest under singularity/user-defined/.
-  '.github/agents/careful-change.agent.md': 'eb3e023e045ab108a481a1feb17de8f27ebb30e8b01fb6b9fbc2626c9ea0ebad',
+  '.github/agents/careful-change.agent.md': '6a338fe29e85178371e13456a4c6dfe12b9449126f10cc568cf44bfb12cfd672',
   'singularity/templates/common/careful-change.md': '28de53a2eec7fb9d0cb495102e1e064a8b201615d9a599038064d2524d403dfc',
   'singularity/user-defined/careful-change/README.md': '07ef0ea5d847e239a34efd4a0d21a4010e51419364363fced33171d6c1640604',
   'singularity/user-defined/careful-change/careful-change.agent.md': 'bddfc3272ede5e9e1ca7d1383cff3293edf90d66c7608a4dc1535c7ad572877a',

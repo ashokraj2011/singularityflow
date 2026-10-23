@@ -511,9 +511,6 @@ for (const entry of agentFiles) {
 for (const entry of await readdir(path.join(root, 'templates/agents'))) {
   if (!entry.endsWith('.agent.md')) continue;
   const text = await readFile(path.join(root, 'templates/agents', entry), 'utf8');
-  // A user-defined agent's instructions are its folder's main file, pinned by its manifest; the
-  // composed step prompt carries the path contract, so its own text is never rewritten to add one.
-  if (/^ {2}sflow-user-defined: /mu.test(text)) continue;
   for (const message of cliPathContractErrors(text)) fail(`templates/agents/${entry}: ${message}`);
 }
 

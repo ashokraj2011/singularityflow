@@ -40,7 +40,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 84
+version: 85
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1280,7 +1280,7 @@ In Copilot: `/sf-call-add ~/team-agents`, then `/sf-start JIRA-123 --agent orche
 - **Proposal.** With the plan digest, it proposes one reviewed configuration change: the folder copied
   unchanged to `singularity/user-defined/<name>/`, its manifest beside it
   (`singularity/user-defined/<name>.json`, every file's SHA-256), one agent whose instructions are the
-  main file's own, and one step and one workflow under the same name. A name an agent or workflow
+  main file's own (after the repository boundary every SFlow agent carries), and one step and one workflow under the same name. A name an agent or workflow
   already has is refused; choose another with `--name`.
 - **Starting.** Once the proposal is activated, `start <WORK-ID> --agent <name>` with no
   `--work-type` starts a Story on that workflow. For any other agent, `--agent` keeps choosing the

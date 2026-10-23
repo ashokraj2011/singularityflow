@@ -72,7 +72,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,045,000 (next 5,000 boundary): the packaged sample user-defined agent (careful-change) adds its
     // agent, starter template, folder and manifest digests to packaged-asset-history.mjs and its work type
     // and step to packaged-workflow-history.mjs, which every Story start reads: 9,041,169. No new file.
-    assert.ok(closure.bytes <= 9_045_000, `${file} exceeds the 9 MB eager-source budget`);
+    // 9,055,000 (next 5,000 boundary): the office enrollment blocker and its routes (29d5e906, 946f9716) add
+    // 12,014 to 9,053,183: transport-intents.mjs +4,923 (a push's reason, retry and missing-checkout helpers),
+    // commands/start.mjs +1,069 and configuration-people.mjs +989 (start carries on with a pending enrollment
+    // from the main checkout), publication-unit-of-work.mjs +701, state.mjs +632, refusal-remediation.mjs +558,
+    // sequence.mjs +501, util.mjs +388 (a missing working folder) and smaller. No new file.
+    assert.ok(closure.bytes <= 9_055_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

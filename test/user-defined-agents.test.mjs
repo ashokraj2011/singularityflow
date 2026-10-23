@@ -12,6 +12,7 @@ import {
   userDefinedAgentPlan, userDefinedManifestText
 } from '../src/user-defined-agents.mjs';
 import { userDefinedAgentWorkType } from '../src/user-defined-agent-identity.mjs';
+import { refusalEnvelope } from '../src/refusal-remediation.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const sha = (text) => `sha256:${createHash('sha256').update(text).digest('hex')}`;
@@ -63,6 +64,22 @@ test('the main agent is the only agent file, the one --main names, and never a g
   assert.throws(() => chooseMainAgent(files(['notes.md'])), (error) => error.code === 'USER_AGENT_MAIN_REQUIRED');
   assert.equal(chooseMainAgent(files(['a.agent.md', 'b.agent.md']), './b.agent.md').path, 'b.agent.md');
   assert.throws(() => chooseMainAgent(files(['a.agent.md']), 'missing.md'), (error) => error.code === 'USER_AGENT_MAIN_UNKNOWN');
+});
+
+test('a plain Markdown agent at the top of the folder is its main agent, and a refusal carries the files to choose from', () => {
+  const agent = '---\nname: reviewer\ndescription: Reviews code\n---\nReview the change.\n';
+  const files = (entries) => entries.map(([entry, text = '# x']) => ({ path: entry, text }));
+  assert.equal(chooseMainAgent(files([['reviewer.md', agent], ['skills/review/SKILL.md', agent], ['README.md', agent], ['notes.md']])).path, 'reviewer.md');
+  assert.equal(chooseMainAgent(files([['reviewer.md', agent], ['lead.agent.md']])).path, 'lead.agent.md', 'the naming conventions still come first');
+  assert.throws(() => chooseMainAgent(files([['reviewer.md', agent], ['writer.md', agent]])),
+    (error) => error.code === 'USER_AGENT_MAIN_AMBIGUOUS' && error.details.candidates.join() === 'reviewer.md,writer.md');
+  // A refusal reaches an editor as the JSON envelope: it must still name what the person can pick.
+  let refusal;
+  try { chooseMainAgent(files([['config.yml', 'a: 1'], ['notes.md'], ['skills/x/SKILL.md']])); } catch (error) { refusal = refusalEnvelope(error); }
+  assert.equal(refusal.error.code, 'USER_AGENT_MAIN_REQUIRED');
+  assert.deepEqual(refusal.error.details.candidates, ['notes.md', 'skills/x/SKILL.md', 'config.yml'], 'Markdown files first');
+  try { chooseMainAgent(files([['a.agent.md'], ['b.agent.md']])); } catch (error) { refusal = refusalEnvelope(error); }
+  assert.deepEqual(refusal.error.details.candidates, ['a.agent.md', 'b.agent.md']);
 });
 
 test('Workflow Studio writes only files that match their digests, inside the folder, with the main file as instructions', async (t) => {

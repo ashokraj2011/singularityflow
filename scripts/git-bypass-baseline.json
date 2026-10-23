@@ -1310,7 +1310,7 @@
       "counts": {
         "command-run": 64
       },
-      "digest": "9ef7b67102151fac1ba31750831714f0a8228bf180bb7b72245cba9f4153f4a4"
+      "digest": "689d50a11fb97b805c8655ec38d4bc208d2dfdb7c108aee89a467a4af8f5b5f5"
     },
     "src/performance-doctor.mjs": {
       "counts": {

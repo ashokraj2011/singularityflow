@@ -80,7 +80,9 @@ export async function addUserAgentFolder(host: UserAgentHost): Promise<UserAgent
       // Several agent files, or none recognised: the person says which one runs the others.
       if (refused.code === 'USER_AGENT_MAIN_AMBIGUOUS' || refused.code === 'USER_AGENT_MAIN_REQUIRED') {
         const candidates = (refused.details.candidates ?? refused.details.files ?? []) as string[];
-        const main = candidates.length ? await host.pick('Which file is the main agent, the one that runs the others?', candidates) : undefined;
+        // Nothing to choose from: say why, rather than closing as if the person had cancelled.
+        if (!candidates.length) { await host.error(refused.message); return 'refused'; }
+        const main = await host.pick('Which file is the main agent, the one that runs the others?', candidates);
         if (!main) return 'cancelled';
         choices.main = main;
         continue;

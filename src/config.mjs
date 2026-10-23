@@ -1730,10 +1730,15 @@ async function copyIfMissing(source, destination, repositoryRoot = null) {
   return true;
 }
 
-export async function initializeDefinition(root) {
+/** Refuses a repository that holds only retired `.singularity/` state. */
+export function refuseRetiredControlRoot(root) {
   if (!existsSync(path.join(root, CONTROL_ROOT)) && existsSync(path.join(root, LEGACY_CONTROL_ROOT))) {
     throw new SingularityFlowError(`This repository contains unsupported ${LEGACY_CONTROL_ROOT}/ state. Run singularity-flow factory-reset to create a clean current configuration.`);
   }
+}
+
+export async function initializeDefinition(root) {
+  refuseRetiredControlRoot(root);
   const wrote = [];
   for (const [source, destination] of INITIALIZATION_MAPPINGS) {
     if (await copyIfMissing(

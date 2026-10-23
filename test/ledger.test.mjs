@@ -736,6 +736,20 @@ test('combined lifecycle publication retains a local hook failure instead of ret
   assert.equal(await readFile(path.join(root, 'hook-report.txt'), 'utf8'), 'hook attempt\n');
 });
 
+test('a hook that refuses only SFlow\'s own ledger refs leaves the branch to be pushed alone', async (t) => {
+  const fixture = await lifecycleCommit('WORK-COMBINED-STATE-RULE');
+  const { parent, root, remote, branch, intent } = fixture;
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  // An office branch-name rule: application branches pass, anything else is refused by its short name.
+  const hook = path.join(root, '.git/hooks/pre-push');
+  await writeFile(hook, '#!/bin/sh\nwhile read local_ref local_sha remote_ref remote_sha; do\n  case "$remote_ref" in refs/heads/WORK-*) ;; *) echo "pre-push: ${remote_ref#refs/heads/} is not an allowed branch" >&2; echo "husky - pre-push script failed (code 1)" >&2; exit 1;; esac\ndone\nexit 0\n');
+  await chmod(hook, 0o755);
+  const result = await publishBranchWithLedgerEntry(root, enabled, intent, combinedOptions(fixture));
+  assert.equal(result.refused, true);
+  assert.equal(result.hookRejected, undefined, 'the person\'s publication falls back to the branch alone');
+  assert.equal(remoteRef(remote, `refs/heads/${branch}`), null, 'nothing landed from the refused combined push');
+});
+
 test('a lifecycle branch, its ledger entry and the entry pin land together in one push', async () => {
   const fixture = await lifecycleCommit('WORK-COMBINED');
   const { remote, root, branch, commit, intent } = fixture;

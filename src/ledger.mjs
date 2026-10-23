@@ -2259,7 +2259,17 @@ export async function publishBranchWithLedgerEntry(root, rawConfig, intent, {
   ], { cwd: root, operation: 'remote-push', env: frozen.env, allowFailure: true }));
   // A local hook failure is not lack of atomic-push support. Do not immediately run that same
   // hook again through the sequential fallback; preserve its result for exact publication recovery.
-  if (pushed.status !== 0 && pushed.failure?.hook) return { refused: true, hookRejected: true, result: pushed };
+  if (pushed.status !== 0 && pushed.failure?.hook) {
+    // A hook that refused one of SFlow's own refs in this one push (a branch-name rule that admits
+    // only feature branches, say) must not fail the person's publication over a ref they never
+    // pushed themselves. When its output names the state branch or the pin (in full or without
+    // refs/heads/) and it changed nothing, the branch is pushed alone (its hooks still judge it) and
+    // the ledger follows without them. A hook failure that names neither is kept as it was.
+    const said = `${pushed.failure?.diagnostics ?? ''}\n${pushed.stderr ?? ''}\n${pushed.stdout ?? ''}`;
+    const ownRefs = [stateRef, audit.pinRef].filter(Boolean).flatMap((ref) => [ref, ref.replace(/^refs\/heads\//u, '')]);
+    if (pushed.hookWorktree?.status !== 'changed' && ownRefs.some((ref) => said.includes(ref))) return { refused: true };
+    return { refused: true, hookRejected: true, result: pushed };
+  }
   const flags = porcelainPushFlags(pushed.stdout);
   let landed = pushed.status === 0
     && updates.every(([ref, , , acquired]) => acquired.includes(flags.get(ref)));

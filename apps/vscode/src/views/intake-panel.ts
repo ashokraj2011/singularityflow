@@ -115,6 +115,8 @@ interface EngineStoryWorkflow {
   browserSteps?: Array<{ phase: string; label: string; servers: string[]; setup?: string[] }>;
   /** Archived: new Stories are never offered it (docs/SPEC-WORKFLOW-RETIREMENT-v1.md). */
   archived?: boolean;
+  /** A user-defined agent's one-step workflow (`call add`). */
+  userDefinedAgent?: boolean;
 }
 
 interface EngineStoryWorkflowCatalog {
@@ -153,7 +155,8 @@ function storyWorkflowChoices(entries: EngineStoryWorkflow[] = []): ProfileChoic
     id: entry.id!, label: entry.label ?? entry.id!, description: entry.description ?? '',
     phases: entry.phases ?? [], referenceMode: entry.references ?? 'optional',
     generatesCode: entry.generatesCode, codePhases: entry.codePhases, documentStorage: entry.documentStorage,
-    targetUrl: entry.targetUrl, browserSteps: entry.browserSteps
+    targetUrl: entry.targetUrl, browserSteps: entry.browserSteps,
+    ...(entry.userDefinedAgent ? { userDefinedAgent: true } : {})
   }));
 }
 

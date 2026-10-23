@@ -17,6 +17,7 @@ import {
 } from './config.mjs';
 import { applicationPathContext, isApplicationPath } from './application-paths.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
+import { userDefinedAgentName } from './user-defined-agent-identity.mjs';
 import { renderMcpPromptPolicy } from './mcp.mjs';
 import { injectAgentPrompt, readPromptGeneration, recordInjection, supersedePromptGeneration } from './inject.mjs';
 import { loadSession } from './session.mjs';
@@ -867,6 +868,11 @@ export async function compose(root, options, {
     resolvedAgent: config.executionContext?.agent ?? null
   });
   const { text, injection } = agentPrompt;
+  // A user-defined agent is given the rest of its folder, checked against the manifest its pinned
+  // agent names; any other agent has no such section.
+  const agentProfile = config.executionContext?.agent ?? definition.agents?.[agent];
+  const userFolder = userDefinedAgentName(agentProfile)
+    ? await (await import('./user-defined-agents.mjs')).renderUserDefinedFolder(configurationReadRoot(root), agentProfile) : '';
   const remote = phase ? await renderAgentSkills(root, workflow, phase, { ...(session ?? {}), agent }, {
     record: !dryRun && !renderOnly,
     itemDirectory: path.join(root, workItemRoot, workflow.workItem.id),
@@ -1012,6 +1018,7 @@ export async function compose(root, options, {
     // The persona without its skill tables: section agent-skills renders those skills, filtered to
     // this step, so the tables only repeated them (and named steps and URLs that are not this step's).
     { id: 'governed-agent-policy', text: withoutTableSection(withoutAttachedSkills(text), 'Remote skills').trimEnd(), mandatory: true, priority: 0 },
+    { id: 'user-defined-folder', text: userFolder, mandatory: true, priority: 0 },
     { id: 'mcp-policy', text: mcpPolicy, mandatory: true, priority: 0 },
     { id: 'pinned-constitution', text: constitution.text, mandatory: true, priority: 0 },
     { id: 'design-sources', text: designSources.markdown, mandatory: true, priority: 5 },

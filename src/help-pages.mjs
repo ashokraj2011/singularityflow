@@ -1370,6 +1370,33 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['approve', 'upstream-issue', 'decision']
   },
+  call: {
+    summary: 'Add your own agent folder (a main agent and the skills it uses) and run it as a Story\'s one step.',
+    description: [
+      'call add previews the folder: the main agent (the one *.agent.md, *.chatmode.md, agents/*.md or AGENTS.md,',
+      'or --main), every text file it copies unchanged to singularity/user-defined/<name>/, and every file it',
+      'leaves out with why (links, binary files, secret-looking files, dependency directories). With the plan',
+      'digest it proposes one reviewed configuration change: the folder, its manifest, one agent whose',
+      'instructions are the main file\'s own, and one step and workflow under the same name. A Story then runs',
+      'it with start <WORK-ID> --agent <name>; its step prompt gives the agent the rest of its folder, checked',
+      'against the manifest the Story pinned. A code step omits scope and plan, which its approvers record as',
+      'not applicable before the Story finishes. Nothing in the folder is executed by SFlow.'
+    ],
+    options: [
+      ['--name ID', 'The agent, step and workflow name; the main file\'s name or the folder\'s by default.'],
+      ['--label TEXT', 'The name people see.'],
+      ['--main FILE', 'The file that runs the others, when the folder has several agent files.'],
+      ['--output code|document', 'Whether the step changes code and tests (default) or writes a document.'],
+      ['--approval-group ID', 'Who approves the step; the first approval group by default.'],
+      ['--confirm sha256:PLAN', 'add only: propose exactly the previewed plan.']
+    ],
+    examples: [
+      ['singularity-flow call add ~/team-agents', 'Shows what would be copied and the plan digest.'],
+      ['singularity-flow call add ~/team-agents --confirm sha256:<PLAN>', 'Proposes it for review.'],
+      ['singularity-flow start JIRA-123 --agent team-agents', 'Starts a Story that the agent runs.']
+    ],
+    seeAlso: ['start', 'workflow', 'agents']
+  },
   'upstream-issue': {
     summary: 'Record a defect in an earlier step without stopping the current one; its approvers decide it.',
     description: [

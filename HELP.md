@@ -3855,6 +3855,9 @@ singularity-flow decisions [WORK-ID] [--phase PHASE] [--json]
 singularity-flow decisions record [WORK-ID] --choose ITEM=OPTION [--reason ITEM=TEXT] [--expires ITEM=YYYY-MM-DD] --confirm sha256:DIGEST
 # Everything people must decide before the step can move, in plain words with choices; recorded with one confirmation.
 # In an interactive terminal, decisions record [WORK-ID] asks for each choice, shows a summary and asks y/N.
+# Your own agent folder as a user-defined agent: previewed, then proposed by its plan digest; start <WORK-ID> --agent NAME runs it.
+singularity-flow call add FOLDER [--name ID] [--main FILE] [--output code|document] [--confirm sha256:PLAN] [--json]
+singularity-flow call list|show NAME [--json]
 singularity-flow upstream-issue raise --phase EARLIER --about ID|SECTION --problem TEXT [--supersedes UPI-ID] [--from-artifact] [--json]
 singularity-flow upstream-issue list [--open] [--json]
 singularity-flow upstream-issue decide UPI-ID --outcome plan-correction|amend|return|accept-risk|dismiss --reason TEXT [--link PRC-ID|FAM-ID] [--expires YYYY-MM-DD]

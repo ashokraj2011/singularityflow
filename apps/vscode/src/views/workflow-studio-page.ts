@@ -1620,6 +1620,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         button('Open Changes', function () { state.view = 'changes'; render(); }, { class: 'secondary' })) : null));
     main.appendChild(el('div', { class: 'studio-row spread' }, el('h2', { text: 'Your workflows' }), el('div', { class: 'studio-row' },
       button(state.busy === 'import' ? 'Importing…' : 'Import…', importWorkflows, { class: 'secondary', disabled: Boolean(state.busy), title: 'Add workflows from a bundle file, as one reviewed change' }),
+      button('Add your own agent…', function () { post({ type: 'studio.addUserAgent' }); }, { class: 'secondary', 'data-key': 'home-add-user-agent', title: 'Bring a folder with your main agent and the skills it uses: it is copied unchanged and runs as one step, without converting it into a workflow' }),
       button('Build with Copilot…', openBuilds, { class: 'secondary', 'data-key': 'home-build', title: 'Grow a workflow a piece at a time from a workflow you have, a team\'s agents, skills, instructions and runbooks, or a description: Copilot proposes, you accept, and every change is explained and checked' }),
       button('Export…', function () { state.exporting = state.exporting || {}; render(); }, { class: 'secondary' }),
       button('New workflow', function () { state.view = 'new'; state.wizard = { label: '', from: null }; render(); }, { class: 'primary' }))));
@@ -1636,12 +1637,14 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       var archived = archivedWorkflow('story', id);
       if (archived && !archivedWorkflows) return;
       var code = workflow.phases.some(function (phaseId) { return stepOutput(id, phaseId) === 'code'; });
+      var userAgent = ((state.model && state.model.workflows) || []).some(function (entry) { return entry.id === id && entry.userDefinedAgent; });
       var pendingProposal = waitingProposals.find(function (proposal) {
         return (proposal.workflows || []).some(function (entry) { return entry.id === id && entry.governs !== 'initiative'; });
       });
       var card = el('article', { class: 'studio-card ' + (readOnly ? 'workflow-seeded' : 'workflow-editable') + (archived ? ' workflow-archived' : ''), 'data-workflow-card': id },
         el('div', { class: 'studio-row spread' },
           el('div', { class: 'studio-row' }, el('strong', { text: workflow.label }), workflowOrigin(readOnly), archivedPill(archived),
+            userAgent ? el('span', { class: 'pill origin-editable', text: 'Your agent', title: 'Your own agent folder, run as one step with its own instructions and files (call add)' }) : null,
             workflow.isNew || workflow.installFrom ? el('span', { class: 'pill new', text: 'NEW' }) : null,
             pendingProposal ? el('span', { class: 'pill new', text: 'Pending review' }) : null),
           el('div', { class: 'studio-row' },
@@ -1659,7 +1662,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         rail(workflow.phases));
       var group = archived ? archivedWorkflows : readOnly ? seededWorkflows : userWorkflows;
       group.appendChild(card);
-      search.add(card, [id, workflow.label, workflow.description, readOnly ? 'seeded read-only' : 'editable', archived ? 'archived ' + (archived.reason || '') : '',
+      search.add(card, [id, workflow.label, workflow.description, readOnly ? 'seeded read-only' : 'editable', archived ? 'archived ' + (archived.reason || '') : '', userAgent ? 'your agent user-defined' : '',
         workflow.phases.map(stepLabel).join(' '), workflow.phases.join(' '),
         (workflow.reworkLoops || []).map(function (loop) { return 'rejected ' + stepLabel(loop.from) + ' ' + stepLabel(loop.to); }).join(' '),
         (workflow.decisions || []).map(function (decision) { return decision.label + ' ' + decisionLines(workflow, decision).join(' '); }).join(' ')], [id, workflow.label], group);

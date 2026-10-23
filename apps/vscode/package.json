@@ -592,6 +592,11 @@
         "icon": "$(cloud-download)"
       },
       {
+        "command": "singularityFlow.addUserAgent",
+        "title": "Singularity Flow: Add Your Own Agent Folder…",
+        "icon": "$(person-add)"
+      },
+      {
         "command": "singularityFlow.decideStory",
         "title": "Singularity Flow: Choose What Happens Next",
         "icon": "$(git-compare)"

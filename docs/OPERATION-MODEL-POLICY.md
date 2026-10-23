@@ -113,6 +113,10 @@ Every public operation is classified before its implementation module is importe
 | auto.takeover | mutation | never | — | — |
 | bootstrap | mutation | never | — | — |
 | cache | mutation | never | — | — |
+| call.add | mutation | never | — | — |
+| call.add.preview | read | never | — | — |
+| call.list | read | never | — | — |
+| call.show | read | never | — | — |
 | cancel | mutation | never | — | — |
 | candidate.diff-argv | read | never | — | — |
 | candidate.freeze | mutation | never | — | — |

@@ -58,6 +58,7 @@ import { incrementCommandCounter, measureCommandSpan } from '../dx-timing-contex
 import { publishCapabilityRepositoriesDurably, retainCapabilityPublicationRecovery } from '../capability-publication-recovery.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
+import { userDefinedAgentWorkType } from '../user-defined-agent-identity.mjs';
 
 export async function run(argv, { positionals, options }) {
   if (Object.hasOwn(options, 'prepare-only') || Object.hasOwn(options, 'discard-prepared')) {
@@ -1077,7 +1078,11 @@ async function startCommandAtRoot(positionals, options) {
   // base may itself contain an Epic seed, so defer an otherwise-interactive workflow choice until
   // the exact refreshed base ref is available below; this preserves the seed as reviewed input
   // without letting enrollment happen before the choice is known.
-  let deterministicWorkType = preselectedWorkType ?? materializedSeed?.suggestedWorkType ?? null;
+  // `--agent NAME` alone starts the Story on the workflow a user-defined agent owns (call add made both
+  // under one name); for any other agent it keeps choosing the step's agent.
+  let deterministicWorkType = preselectedWorkType
+    ?? userDefinedAgentWorkType(approvedConfigurationSnapshot?.definition ?? config, optionString(options, 'agent'))
+    ?? materializedSeed?.suggestedWorkType ?? null;
   const validateDeterministicStartPolicy = async (definition, snapshot, evidence = []) => {
     let resolved = null;
     if (deterministicWorkType) {

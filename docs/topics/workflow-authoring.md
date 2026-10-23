@@ -15,6 +15,8 @@ aliases:
   - authoring-skill
   - workflow-check
   - workflow-build
+  - user-defined-agents
+  - call
 questions:
   - How do I export or import several workflows with their dependencies?
   - What happens when an imported workflow uses names my repository already has?
@@ -27,8 +29,10 @@ questions:
   - How do I turn my team's agents, skills and instructions into a workflow?
   - Does my workflow make sense, and what does each step do?
   - How do I bring my team's agents, runbooks and API specs in to build a workflow?
+  - How do I run my own agent folder without turning it into a workflow?
 commands:
   - workflow
+  - call
   - configuration
   - skill
 related:
@@ -36,7 +40,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 82
+version: 83
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1252,6 +1256,48 @@ New Story workflows infer a required planned-claims contract when a qualifying c
 To make review-led correction part of a Story workflow, add a bounded backward **rework loop** with a step's send-back rules in Workflow Studio or with `workflow edit <ID> --loop <REVIEW-PHASE>:<EARLIER-PHASE>:<MAX-ATTEMPTS>[:<RESET-PHASE>] --propose`. The optional reset phase must be strictly earlier than the return target. The loop becomes a reviewer rejection route and a repair-attempt budget; it does not execute phases, approve artifacts, or amend a specification automatically. Existing Stories retain their pinned workflow. See [Bounded rework loops](../WORKFLOW-REWORK-LOOPS.md) for the full sequence and safety boundaries.
 
 `workflow phase add` defaults to a Story phase. An unknown phase named by `workflow create` is not silently created: a new Story phase also needs a reviewed template, approval authority, and exactly one default Agent Markdown mapping. Add that contract through a configuration change before using the phase. The CLI names eligible clause phases when a selection cannot carry planned claims.
+
+## Run your own agent folder
+
+A team that already has an agent folder (a main agent and the skills, templates and notes it uses)
+can run it as it is, as a Story's one governed step, instead of converting it into a workflow:
+
+```bash
+singularity-flow call add ~/team-agents
+singularity-flow call add ~/team-agents --confirm sha256:<PLAN>
+singularity-flow start JIRA-123 --agent orchestrator
+```
+
+In Copilot: `/sf-call-add ~/team-agents`, then `/sf-start JIRA-123 --agent orchestrator` and
+`/sf-call orchestrator`.
+
+- **Preview.** `call add` finds the main agent (the folder's one `*.agent.md`, `*.chatmode.md`,
+  `agents/*.md` or `AGENTS.md`, or the file `--main` names) and lists every text file it would copy,
+  every file it leaves out with why (links, binary files, files that look like secrets or keys,
+  dependency and build directories), and the main file's front-matter fields SFlow does not use (its
+  own `tools` or `model`). Nothing is silently dropped. A folder holds at most 256 text files and
+  192 KiB of text, and the main file's instructions at most 30,000 bytes.
+- **Proposal.** With the plan digest, it proposes one reviewed configuration change: the folder copied
+  unchanged to `singularity/user-defined/<name>/`, its manifest beside it
+  (`singularity/user-defined/<name>.json`, every file's SHA-256), one agent whose instructions are the
+  main file's own, and one step and one workflow under the same name. A name an agent or workflow
+  already has is refused; choose another with `--name`.
+- **Starting.** Once the proposal is activated, `start <WORK-ID> --agent <name>` with no
+  `--work-type` starts a Story on that workflow. For any other agent, `--agent` keeps choosing the
+  step's agent.
+- **Running.** The step's prompt carries the agent's own instructions, then every other file of its
+  folder, exact, read from the configuration and checked against the manifest digest the Story's
+  pinned agent names. A folder changed after the Story started is refused, never substituted.
+  SFlow executes nothing in the folder.
+- **Finishing.** A code step (`--output code`, the default) implements, runs its tests and is
+  reviewed, but no earlier step defines its requirements or plans it. Its workflow omits scope and
+  plan, and before the Story finishes the step's approvers record why they do not apply
+  (`decision applicability --responsibility scope|plan --reason TEXT`). A document step
+  (`--output document`) writes its deliverable and omits nothing.
+
+`call list` and `call show <name>` show each user-defined agent, its folder and whether the
+folder still matches its manifest. To give a team's agent checks between its own steps, convert the
+same folder into a workflow instead (below).
 
 ## Convert a team's agents into a workflow
 

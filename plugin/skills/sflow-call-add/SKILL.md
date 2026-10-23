@@ -1,0 +1,22 @@
+---
+name: sflow-call-add
+description: Add a person's own agent folder (a main agent and the skills it uses) as a user-defined agent, copied unchanged into the reviewed configuration.
+disable-model-invocation: true
+argument-hint: "<FOLDER> [--name <ID>] [--main <FILE>] [--output code|document] | list | show <NAME>"
+---
+# Add a user-defined agent
+
+<!-- sflow-copilot-pause -->
+Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
+
+<!-- sflow-output-contract: deterministic-mutation -->
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say "not available for this action". Missing Copilot: "no verified equivalent". Never invent routes.
+<!-- sflow-execution-boundary -->
+**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
+
+1. Use only the folder the person named; never choose, search for or create one. For `list` run `singularity-flow call list --json`; for `show` run `singularity-flow call show <NAME> --json`; relay and stop.
+2. Preview once: `singularity-flow call add <FOLDER> [--name <ID>] [--main <FILE>] [--output code|document] --json`, keeping only the options the person gave. Show the main agent, every file copied unchanged with its size, every file left out with its reason, the front-matter fields not used, the step and workflow it adds, any `problems`, and the full `planSha256`.
+3. A main-agent refusal lists the candidates: ask which file runs the others and preview again with `--main`. A name already taken: ask for another and preview again with `--name`.
+4. Propose only after the person types that full digest: run the returned `confirmCommand` once. Assent or skill invocation is not confirmation. A changed-plan refusal means the folder or the choices changed: preview again.
+5. Relay the proposal and its activation route exactly. Once it is activated, a Story runs the agent with `/sf-start <WORK-ID> --agent <NAME>`, then `/sf-call <NAME>`.
+6. Never edit the folder, the copied files, the agent file or `singularity/workflow.yml` by hand, and never activate or approve for the person.

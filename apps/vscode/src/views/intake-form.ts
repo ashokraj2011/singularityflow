@@ -51,6 +51,8 @@ export interface ProfileChoice {
   targetUrl?: 'required' | 'recommended' | 'optional';
   /** Those steps, the MCP servers each checks and the commands that set them up, in workflow order. */
   browserSteps?: Array<{ phase: string; label: string; servers: string[]; setup?: string[] }>;
+  /** A person's own agent folder run as one step (`call add`), listed under Your agents. */
+  userDefinedAgent?: boolean;
 }
 
 /**
@@ -1165,10 +1167,13 @@ function storyWorkflowHtml(form: IntakeForm): string {
       <div class="choices" aria-label="Favourite Story workflows" data-workflow-favourite-list></div>
       <p class="meta" data-workflow-favourites-empty>No favourites yet. Use a workflow's star button.</p>
     </div>
+    ${installed.some((workflow) => workflow.userDefinedAgent) ? `<div data-workflow-agents><h3>Your agents</h3>
+      <p class="meta">Your own agent folders, each run as one step with its own instructions and files.</p>
+      <div class="choices" aria-label="Your agents" data-workflow-agent-list></div></div>` : ''}
     <details data-workflow-other><summary>Other workflows (${installed.length})</summary>
     <div class="choices" aria-label="Ready to use Story workflows" data-workflow-other-list>
       ${installed.map((workflow) => `
-      <article data-workflow-choice="${escape(workflow.id)}" data-workflow-search-text="${escape([workflow.id, workflow.label, workflow.description, ...workflow.phases].join(' '))}">
+      <article data-workflow-choice="${escape(workflow.id)}"${workflow.userDefinedAgent ? ' data-workflow-agent' : ''} data-workflow-search-text="${escape([workflow.id, workflow.label, workflow.description, ...workflow.phases].join(' '))}">
       <label class="choice workflow-choice${workflow.id === form.workType ? ' chosen' : ''}">
         <input type="radio" name="workType" value="${escape(workflow.id)}" data-work-type="${escape(workflow.id)}"${workflow.id === form.workType ? ' checked' : ''}>
         <span class="workflow-copy">
@@ -1642,12 +1647,15 @@ let workflowOtherOpen = savedWorkflowView.workflowOtherOpen === true;
 const arrangeWorkflows = () => {
   const favourites = document.querySelector('[data-workflow-favourite-list]');
   const others = document.querySelector('[data-workflow-other-list]');
+  const agents = document.querySelector('[data-workflow-agent-list]');
   if (!favourites || !others) return;
   const installed = workflowRows.filter((row) => row.hasAttribute('data-workflow-choice'));
   installed.forEach((row) => {
     const favourite = row.querySelector('[data-workflow-favourite]')?.getAttribute('aria-pressed') === 'true';
-    (favourite ? favourites : others).appendChild(row);
+    (favourite ? favourites : agents && row.hasAttribute('data-workflow-agent') ? agents : others).appendChild(row);
   });
+  const agentGroup = document.querySelector('[data-workflow-agents]');
+  if (agentGroup) agentGroup.hidden = !agents || agents.children.length === 0;
   const empty = document.querySelector('[data-workflow-favourites-empty]');
   if (empty) empty.hidden = favourites.children.length > 0;
   const summary = otherWorkflows?.querySelector('summary');

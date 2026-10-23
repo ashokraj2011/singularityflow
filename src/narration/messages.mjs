@@ -49,6 +49,22 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Story risk review is ${slot(s.status)}. Failed or unavailable validation remains failed or unavailable; phase advancement is evaluated separately.`,
     preserves: false
   },
+  'call.add.previewed': {
+    headline: (s) => `Previewed adding user-defined agent ${slot(s.name)} with ${slot(s.files, '0')} file(s). Nothing was proposed; confirm the plan digest to propose it.`,
+    preserves: true
+  },
+  'call.add.proposed': {
+    headline: (s) => `Proposed user-defined agent ${slot(s.name)}: ${slot(s.files, '0')} file(s) copied unchanged, plus its agent, step and workflow. New Stories can run it once the proposal is activated.`,
+    preserves: false
+  },
+  'call.listed': {
+    headline: (s) => `${slot(s.count, '0')} user-defined agent(s).`,
+    preserves: true
+  },
+  'call.shown': {
+    headline: (s) => `User-defined agent ${slot(s.name)}.`,
+    preserves: true
+  },
   'story.target-origin.previewed': {
     headline: (s) => `Previewed pinning ${slot(s.origin)} as this Story's authorized target origin. Nothing was pinned; a person who approves the step that checks it confirms the plan digest.`,
     preserves: true

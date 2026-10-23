@@ -69,6 +69,8 @@ import {
 import { STORES, pinAuthoredStoryPlannedClaims } from './workflow-authoring.mjs';
 import { isSpecificationDefinitionPhase } from './specifications.mjs';
 import { seededWorkflowProtection, assertSeededWorkflowsUnchanged } from './seeded-workflow-protection.mjs';
+import { userDefinedAgentFiles, userDefinedAgentHeader } from './user-defined-agents.mjs';
+import { userDefinedAgentWorkType } from './user-defined-agent-identity.mjs';
 
 export const STUDIO_CHANGE_SET_SCHEMA = 'sflow-studio-change-set@1';
 
@@ -424,6 +426,8 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       worldModel: type.intelligence?.worldModel ?? 'inherit',
       status: !packaged ? 'local' : JSON.stringify(packaged) === JSON.stringify(definition?.workTypes?.[id] ?? type) ? 'packaged' : 'customized',
       generatesCode: resolved ? Boolean(workflowCodeGeneration(resolved).generatesCode) : (type.phases ?? []).some((phase) => outputOf(phases[phase]) === 'code'),
+      // A person's own agent folder run as one step (`call add`); present only then.
+      ...(definition && userDefinedAgentWorkType(definition, id) ? { userDefinedAgent: true } : {}),
       // Kept whole: a send-back rule's reset phase is part of its repair budget, and a decision is
       // edited in the shape it is written in.
       reworkLoops: (type.reworkLoops ?? []).map((loop) => ({
@@ -667,7 +671,7 @@ export function unifiedDiff(before, after, file) {
 // lists, so who owns a per-workflow setting is decided by the lists the change set ends with
 // (finalWorkflowPhases), not by the lists at that moment.
 const RANK = Object.freeze({
-  'marketplace.add': 0, 'marketplace.remove': 0, 'integration.target.create': 0, 'integration.target.update': 0.5, 'group.create': 0, 'group.update': 1, 'agent.create': 2, 'import.agent': 2.5, 'workflow.install': 3,
+  'marketplace.add': 0, 'marketplace.remove': 0, 'integration.target.create': 0, 'integration.target.update': 0.5, 'group.create': 0, 'group.update': 1, 'agent.create': 2, 'import.agent': 2.5, 'userAgent.add': 2.6, 'workflow.install': 3,
   'import.template': 3.5, 'template.create': 3.6, 'template.update': 3.6, 'artifactSet.create': 3.7, 'artifactSet.update': 3.7,
   'phase.create': 4, 'workflow.create': 4.5, 'phase.update': 5, 'workflow.update': 7, 'artifactSet.remove': 11.6,
   'epicStep.create': 4.2, 'epicWorkflow.create': 4.7, 'epicStep.update': 5.2, 'epicOutput.set': 5.3, 'epicOutput.remove': 5.4, 'epicWorkflow.update': 7.2,
@@ -953,6 +957,7 @@ class StudioCandidate {
       case 'group.update': return this.updateGroup(change);
       case 'agent.create': return this.createAgent(change);
       case 'agent.update': return this.updateAgent(change);
+      case 'userAgent.add': return this.addUserDefinedAgent(change);
       case 'workflow.install': return this.installBlueprint(change);
       case 'phase.create': return this.createPhase(change);
       case 'phase.update': return this.updatePhase(change);
@@ -2010,6 +2015,29 @@ class StudioCandidate {
       : `New agent ${name}: ${toolList.map((tool) => TOOL_LABELS[tool] ?? tool).join(', ').toLowerCase() || 'no tools'}.`);
   }
 
+  /**
+   * A person's own agent folder (`call add`): the files copied unchanged under
+   * singularity/user-defined/<name>/ with their manifest, and one agent whose instructions are the
+   * main file's own. Its step and workflow are their own changes in the same set.
+   */
+  addUserDefinedAgent(change) {
+    const { name, manifest, files, tools } = userDefinedAgentFiles(change);
+    if (this.agents.has(name)) throw new SingularityFlowError(`An agent called '${name}' already exists; add the folder under another name with --name.`, { code: 'STUDIO_AGENT_EXISTS' });
+    if (this.content.workTypes?.[name]) throw new SingularityFlowError(`A workflow called '${name}' already exists; add the folder under another name with --name.`, { code: 'STUDIO_WORKFLOW_EXISTS' });
+    if (existsSync(path.join(this.sources.configRoot, manifest.path))) throw new SingularityFlowError(`A user-defined agent called '${name}' already exists.`, { code: 'STUDIO_AGENT_EXISTS' });
+    const label = requireLabel(change.label, 'The agent');
+    const description = String(change.description ?? '').replace(/\s+/g, ' ').trim();
+    if (!description) throw new SingularityFlowError(`Say what ${label} does in one sentence.`, { code: 'STUDIO_AGENT_INVALID' });
+    for (const file of files) this.vendored.set(file.path, file.bytes);
+    this.vendored.set(manifest.path, manifest.bytes);
+    this.agents.set(name, {
+      id: name, scope: 'repository', relative: posix(path.join('.github', 'agents', `${name}.agent.md`)), fileName: `${name}.agent.md`,
+      text: userDefinedAgentHeader({ name, label, description, manifestSha256: change.manifestSha256 }),
+      label, description, tools, views: [], phases: [], defaultFor: [], body: String(change.instructions ?? ''), touched: true, created: true
+    });
+    this.summary.push(`User-defined agent ${label}: its folder (${files.length} file${files.length === 1 ? '' : 's'}) copied unchanged to singularity/user-defined/${name}/; its main file's instructions are the agent's.`);
+  }
+
   updateAgent({ id, label, description, tools, views, instructions }) {
     const agent = this.touch(this.requireAgent(requireId(id, 'An agent ID')));
     if (label != null) agent.label = requireLabel(label, 'The agent');
@@ -2390,7 +2418,7 @@ class StudioCandidate {
     this.summary.push(`${this.phaseLabel(phaseId)} is now drafted by ${this.agentLabel(agentId)}${previous ? ` (was ${this.agentLabel(previous)})` : ''}${users.length > 1 ? `, in all ${users.length} workflows that use it` : ''}.`);
   }
 
-  createWorkflow({ id, label, description, phases, copyOf = null }) {
+  createWorkflow({ id, label, description, phases, copyOf = null, omits = null }) {
     const workflowId = requireId(id, 'A workflow ID');
     if (this.content.workTypes?.[workflowId]) throw new SingularityFlowError(`A workflow called '${workflowId}' already exists.`, { code: 'STUDIO_WORKFLOW_EXISTS' });
     const name = requireLabel(label, 'The workflow');
@@ -2415,6 +2443,11 @@ class StudioCandidate {
         if (!Object.keys(node[key]).length) delete node[key];
       }
       copied = source.label ?? sourceId;
+    }
+    // A workflow that leaves a responsibility undone says so (a user-defined agent's one code step omits
+    // scope); configuration validation checks each entry.
+    if (Array.isArray(omits) && omits.length) {
+      node.omits = omits.map((entry) => ({ responsibility: String(entry?.responsibility ?? ''), reason: String(entry?.reason ?? '').trim(), authority: String(entry?.authority ?? '') }));
     }
     this.document.setIn(['workTypes', workflowId], this.document.createNode(node));
     if (copyOf) {

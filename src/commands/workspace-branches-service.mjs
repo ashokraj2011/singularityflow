@@ -19,6 +19,7 @@ import { parseReferenceRepositoryOptions } from '../reference-repositories.mjs';
 import { optionalWorkflowCatalog, workflowCatalogForDefinition } from '../workflow-catalog.mjs';
 import { loadPortfolio } from '../initiative-config.mjs';
 import { CONFIGURATION_BRANCH } from '../configuration-branch.mjs';
+import { userDefinedAgentWorkType } from '../user-defined-agent-identity.mjs';
 import { inspectStoryStartReadiness, requiredRepositoryReadinessScope, repositoryReadinessRequired } from '../story-start-readiness.mjs';
 import { collectRepositoryReadinessEvidence, preflightTestReadiness } from '../repository-readiness-evidence.mjs';
 import { loadLegacyStoryBaseContext } from '../story-start-base-configuration.mjs';
@@ -43,6 +44,8 @@ async function intakeStoryWorkflows(root, definition) {
       id, label: workflow.label ?? id, description: workflow.description ?? '',
       phases: workflow.phases ?? [], references: workflow.references?.mode ?? 'optional',
       governs: 'story', installed: true,
+      // A person's own agent folder run as one step: Start Work lists it under Your agents.
+      ...(userDefinedAgentWorkType(definition, id) ? { userDefinedAgent: true } : {}),
       ...workflowCodeGeneration(resolved),
       // Where its documents may be kept, so Start Work offers only what the policy allows.
       documentStorage: documentStorageChoices(resolved.documents),

@@ -988,7 +988,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openReconciliation',
     'singularityFlow.openEvidenceMatrix',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
-    'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.decideStory', 'singularityFlow.decisions',
+    'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.addUserAgent', 'singularityFlow.decideStory', 'singularityFlow.decisions',
     'singularityFlow.startApplication', 'singularityFlow.runTests', 'singularityFlow.testSummary', 'singularityFlow.editRunConfigurations', ...RUN_CONFIGURATION_COMMANDS,
     'singularityFlow.openEnvironmentFiles',
     'singularityFlow.publishConfiguration',
@@ -8958,6 +8958,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openEnvironmentFiles': (target?: unknown) => lazyPanels().environmentFilesCommand(runAndTestHost(), target),
     // The run widget and the Run view: a row, `{ key }` or `{ capability, configuration }` names a configuration.
     ...Object.fromEntries(RUN_CONFIGURATION_COMMANDS.map((id) => [id, (target?: unknown) => runWidget().command(id, target)])),
+    // A person's own agent folder (a main agent and the skills it uses): previewed with call add,
+    // proposed by its plan digest, then reviewed and activated like any workflow proposal.
+    'singularityFlow.addUserAgent': async () => {
+      try {
+        await lazyPanels().addUserAgentFolder({
+          pickFolder: async () => (await vscode.window.showOpenDialog({
+            title: 'Choose your agent folder (a main agent and the skills it uses)', openLabel: 'Add This Agent Folder',
+            canSelectFiles: false, canSelectFolders: true, canSelectMany: false
+          }))?.[0]?.fsPath ?? null,
+          run: (argv) => { output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(argv)}`); return client.run(argv); },
+          confirm: (message, detail, buttons) => showCompactWarningMessage(message, { modal: true, detail }, ...buttons),
+          pick: (title, items) => vscode.window.showQuickPick(items, { title, ignoreFocusOut: true }),
+          input: (prompt, value, validate) => vscode.window.showInputBox({ prompt, value, ignoreFocusOut: true, validateInput: validate }),
+          info: (message, buttons) => showCompactInformationMessage(message, ...buttons),
+          error: async (message) => { showRefusal(message, { headline: 'Your agent folder cannot be added' }); },
+          reviewAndActivate: (branch) => reviewAndActivateWorkflowProposal(branch),
+          openStudio: () => vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'changes' })
+        });
+      } catch (error) { showRefusal(error, { headline: 'Your agent folder cannot be added' }); }
+    },
     // Workflow Studio, optionally at one section: `{ view: 'changes' }` opens the proposals waiting
     // for review, `{ view: 'artifacts' }` the templates.
     'singularityFlow.openWorkflowStudio': async (target?: unknown) => {
@@ -8974,6 +8994,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         exportWorkflows: (selectors) => exportWorkflowBundle(selectors),
         importWorkflows: (source) => importWorkflowBundle(source),
         importTeam: () => vscode.commands.executeCommand('singularityFlow.importTeamWorkflow'),
+        addUserAgent: () => vscode.commands.executeCommand('singularityFlow.addUserAgent'),
         duplicateWorkflow: (selector) => duplicateWorkflow(selector),
         openFile: async (relative, line) => {
           // A check finding names a line: open the text there when the file is in this checkout.

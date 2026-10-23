@@ -15,6 +15,7 @@ export { WorkspacesPanel } from './views/workspaces-panel.ts';
 export { AfterInstallPanel } from './views/after-install-panel.ts';
 export { AboutPanel } from './views/about-panel.ts';
 export { TeamImportPanel } from './views/team-import-panel.ts';
+export { addUserAgentFolder } from './user-agent-folder.ts';
 export { collectReviewConfirmation } from './views/review-confirmation.ts';
 export { DiagnosticsPanel } from './views/diagnostics.ts';
 export { ComprehensionCenterPanel } from './views/comprehension-center.ts';

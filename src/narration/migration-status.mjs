@@ -17,7 +17,7 @@ export const MIGRATED_NARRATION_COMMANDS = Object.freeze([
   'reinstall', 'reject', 'repair', 'request', 'resume', 'return', 'revise', 'revision', 'review-source', 'secrets', 'specify', 'precheck',
   'instruction', 'skill', 'start', 'submit', 'task', 'tokens', 'upstream-issue', 'decisions', 'verify', 'why',
   // Like env: model-free commands whose --json is their own structured result (sflow-app-*, sflow-test-*).
-  'app', 'tests'
+  'app', 'tests', 'call'
 ]);
 
 export const LEGACY_NARRATION_COMMANDS = Object.freeze([

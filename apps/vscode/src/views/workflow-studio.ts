@@ -125,6 +125,8 @@ export interface WorkflowStudioActions {
   importWorkflows?(source?: string): Promise<StudioChangeOutcome>;
   /** Open the team-import panel, which turns a team's agent directory into a bundle to import. */
   importTeam?(): Thenable<unknown> | Promise<unknown>;
+  /** Add a person's own agent folder as a user-defined agent (call add). */
+  addUserAgent?(): Thenable<unknown> | Promise<unknown>;
   duplicateWorkflow?(selector: string): Promise<StudioChangeOutcome>;
   /** Open a repository file in an editor: the governed workflow or portfolio file, or a template. */
   openFile?(relative: string, line?: number): Promise<void>;
@@ -259,6 +261,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     'studio.retryUpload': (message) => this.retryUpload(stringField(message, 'intentId')),
     'studio.checkSignIn': (message) => this.checkSignIn(stringField(message, 'intentId')),
     'studio.importTeam': () => this.actions.importTeam?.(),
+    'studio.addUserAgent': () => this.actions.addUserAgent?.(),
     'studio.markup': async () => {
       // CommonJS cannot split import() automatically; load this editor only on explicit use.
       const { WorkflowMarkupPanel } = require(path.join(__dirname, 'workflow-markup-runtime.cjs')) as typeof import('./workflow-markup-panel.ts');

@@ -12,6 +12,7 @@ import { familyForStoredPath, migrationRegistrySnapshot, readRecord } from './sc
 import { loadDefinition } from './config.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { worldModelStateAuthority } from './state-authority.mjs';
+import { USER_DEFINED_ROOT } from './user-defined-agent-identity.mjs';
 
 const MAXIMUM_STATE_AUTHORITY_CENSUS_BYTES = 64 * 1024 * 1024;
 const MAXIMUM_LIFECYCLE_REF_CENSUS_BYTES = 64 * 1024 * 1024;
@@ -19,6 +20,9 @@ const DEFAULT_MAXIMUM_LIFECYCLE_REFS = 2_000;
 // Starter-pack draft inputs are templates, not durable lifecycle records. Including them in a
 // census makes an otherwise empty main branch look like a Story-bearing lifecycle ref.
 const STARTER_PACK_TEMPLATES = 'singularity/templates/starter-packs/';
+// A user-defined agent's folder is a person's own files (any JSON among them) and its manifest:
+// configuration content, never a lifecycle record, for the same reason.
+const USER_DEFINED_FOLDERS = `${USER_DEFINED_ROOT}/`;
 
 function isInside(boundary, candidate) {
   const relative = path.relative(boundary, candidate);
@@ -483,7 +487,7 @@ function lifecycleRefFiles(root, refs, roots, historyDir, {
           matched = true; // retired branch tips still bind the exact cutover confirmation
           return false;
         }
-        if (relativePath.startsWith(STARTER_PACK_TEMPLATES)) return false;
+        if (relativePath.startsWith(STARTER_PACK_TEMPLATES) || relativePath.startsWith(USER_DEFINED_FOLDERS)) return false;
         if (excludedHistoryObjects.some((prefix) => relativePath.startsWith(prefix))) return false;
         if (excludedWorldModelPrefixes.some((prefix) => relativePath.startsWith(prefix))) return false;
         matched = true;
@@ -653,6 +657,7 @@ export async function schemaCensus(root, {
     const excludedDirectories = [
       repositoryHistoryObjectsRoot,
       path.join(root, STARTER_PACK_TEMPLATES),
+      path.join(root, USER_DEFINED_FOLDERS),
       ...retiredStoryIds.flatMap(id => ['singularity/work-items', familyRoots.workItemRoot]
         .filter(Boolean).map(prefix => path.join(root, prefix, id)))
     ];

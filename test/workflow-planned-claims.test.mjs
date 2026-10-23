@@ -28,6 +28,8 @@ const SHIPPED_STORY_CONTRACTS = Object.freeze({
     mode: 'required', clausePhases: ['mobile-spec'], owners: { implementation: 'mobile-spec' }
   },
   'quick-fix': { mode: 'required', clausePhases: ['intake'], owners: { implement: 'intake' } },
+  // The sample user-defined agent: one code step that omits scope (and plan), like POC Lite.
+  'careful-change': { mode: 'omitted', omits: ['scope', 'plan'] },
   'classic-delivery': {
     mode: 'required', clausePhases: ['intake'], owners: { implementation: 'intake' }
   },
@@ -47,7 +49,7 @@ const SHIPPED_STORY_CONTRACTS = Object.freeze({
     mode: 'required', clausePhases: ['demo-instruction-intake'],
     owners: { 'demo-instruction-repair': 'demo-instruction-intake' }
   },
-  'poc-lite': { mode: 'omitted' },
+  'poc-lite': { mode: 'omitted', omits: ['scope'] },
   'benchmarking-a': {
     mode: 'required', clausePhases: ['intake'], owners: { implementation: 'design' }
   },
@@ -118,7 +120,8 @@ test('every bundled Story workflow declares a complete current planned-claim con
       // No clauses to plan against: the work type declares the omission and who records why.
       assert.ok(policy.reason.length >= 20, `${id} has no reviewable omission reason`);
       assert.equal(resolved.spec.acceptance, 'off', `${id} omission left the acceptance gate active`);
-      assert.deepEqual(resolved.obligationGraph.endpoints.flatMap((endpoint) => endpoint.omits.map((entry) => entry.responsibility)), ['scope']);
+      // POC Lite plans in its own step; the one-step sample agent plans inside it, so it omits plan too.
+      assert.deepEqual(resolved.obligationGraph.endpoints.flatMap((endpoint) => endpoint.omits.map((entry) => entry.responsibility)), expected.omits);
     } else {
       assert.deepEqual(resolved.phases.filter(phaseRequiresCodeDelivery), [],
         `${id} disabled planned claims despite containing code delivery`);

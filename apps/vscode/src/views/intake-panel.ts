@@ -1603,7 +1603,7 @@ export class IntakePanel {
       const enrollmentPending = payload.approvalEnrollment?.pending?.message;
       if (enrollmentPending) {
         this.output.appendLine(`Approval enrollment pending: ${enrollmentPending}`);
-        void vscode.window.showWarningMessage(enrollmentPending);
+        void showCompactWarningMessage(enrollmentPending);
       }
       // The identifier a local Epic minted is only knowable from what came back — and `epic start
       // --local --json` reports it as `initiativeId`, which was not among the names read here, so

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -89,37 +90,42 @@ test('workflow import retains a hook-refused upload, shows the actual error, and
   const appHead = git(item.root, 'rev-parse', 'HEAD');
   const appIndex = git(item.root, 'write-tree');
   const appConfig = await readFile(path.join(item.root, 'singularity/workflow.yml'), 'utf8');
+  // The application's own pre-push hook judges its application branches, never SFlow's sflow/* proposal.
   const hook = path.join(item.root, '.git/hooks/pre-push');
-  await writeFile(hook, '#!/bin/sh\nprintf "configuration hook stdout\\n"\nprintf "hook evidence\\n" > hook-evidence.txt\nprintf ".git/hooks/pre-push: line 7: missing-checker: command not found\\n" >&2\nprintf "local hook declined this update\\n" >&2\nexit 1\n');
+  await writeFile(hook, '#!/bin/sh\nprintf "hook evidence\\n" > hook-evidence.txt\nexit 1\n');
   await chmod(hook, 0o755);
+  // The server's policy refuses the upload.
+  const receive = path.join(item.remoteA, 'hooks', 'pre-receive');
+  await writeFile(receive, '#!/bin/sh\nprintf "configuration hook stdout\\n"\nprintf "missing-checker: command not found\\n" >&2\nprintf "server hook declined this update\\n" >&2\nexit 1\n');
+  await chmod(receive, 0o755);
   const plan = importPreview(item);
   const refused = flow(item.root, 'workflow', 'import', item.bundleFile,
     '--confirm', plan.planSha256, '--propose', '--json');
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stdout + refused.stderr, /missing-checker: command not found/u);
+  assert.match(refused.stdout + refused.stderr, /server hook declined this update/u);
   assert.match(refused.stdout + refused.stderr, /configuration hook stdout/u);
   const env = { ...process.env, SINGULARITY_FLOW_TRANSPORT_OUTBOX: path.join(item.root, '.git/test-transfer-outbox') };
   const intents = await listTransportIntents({ env, home: item.base });
   const intent = intents.find(entry => entry.scope.operation.includes('import'));
   assert.ok(intent, 'the exact generated proposal survives the hook refusal');
   assert.equal(intent.status, 'needs-user');
-  assert.equal(intent.fault.classification, 'local-hook-tool-unavailable',
-    'words quoted by a local hook must not change its origin to server policy');
-  assert.equal(intent.fault.hook.tool, 'missing-checker');
+  assert.equal(intent.fault.classification, 'hook-rejected',
+    'words quoted by a server hook must not change its origin to a local hook tool');
+  assert.equal(intent.fault.code, 'REMOTE_POLICY_REJECTED');
   assert.equal(intent.fault.evidence.exitCode, 1);
-  assert.match(intent.fault.evidence.diagnostics, /stdout:\nconfiguration hook stdout/u);
-  assert.match(intent.fault.evidence.diagnostics, /stderr:\n[\s\S]*missing-checker/u);
+  assert.match(intent.fault.evidence.diagnostics, /pre-receive hook declined/u);
+  assert.match(intent.fault.evidence.diagnostics, /stderr:\n[\s\S]*remote: server hook declined this update/u);
   assert.match(refused.stdout + refused.stderr, new RegExp('push retry ' + intent.intentId));
   assert.equal(git(item.root, 'rev-parse', intent.scope.requiredLocalRef), intent.sourceCommit);
   assert.equal(git(item.root, 'rev-parse', 'HEAD'), appHead);
   assert.equal(git(item.root, 'write-tree'), appIndex);
   assert.equal(await readFile(path.join(item.root, 'singularity/workflow.yml'), 'utf8'), appConfig);
-  assert.equal(await readFile(path.join(item.root, 'hook-evidence.txt'), 'utf8'), 'hook evidence\n');
+  assert.equal(existsSync(path.join(item.root, 'hook-evidence.txt')), false, "the application's pre-push hook never judged SFlow's own branch");
   assert.equal(git(item.base, '--git-dir', item.remoteA, 'rev-parse', 'sflow/config'), item.approved);
 
   // Repair the hook, not its authority: the very same intent/commit can then be reviewed.
-  await writeFile(hook, '#!/bin/sh\nexit 0\n');
-  await chmod(hook, 0o755);
+  await writeFile(receive, '#!/bin/sh\nexit 0\n');
+  await chmod(receive, 0o755);
   const resumed = await retryTransportIntent(intent.intentId, { env, home: item.base, allowNeedsUser: true });
   assert.equal(resumed.status, 'succeeded');
   assert.equal(resumed.sourceCommit, intent.sourceCommit);
@@ -132,7 +138,7 @@ test('workflow import retains a hook-refused upload, shows the actual error, and
   assert.equal(activated.status, 0, activated.stderr + activated.stdout);
   assert.equal(JSON.parse(activated.stdout).activated, true);
   assert.equal(git(item.root, 'rev-parse', 'HEAD'), appHead);
-  assert.equal(await readFile(path.join(item.root, 'hook-evidence.txt'), 'utf8'), 'hook evidence\n');
+  assert.equal(existsSync(path.join(item.root, 'hook-evidence.txt')), false);
 });
 
 test('workflow import confirmation refuses byte-identical destination authority and commit changes, then permits fresh review-only proposal', async (t) => {

@@ -1374,7 +1374,7 @@ const PAGES = Object.freeze({
     summary: 'Add your own agent folder (a main agent and the skills it uses) and run it as a Story\'s one step.',
     description: [
       'call add previews the folder: the main agent (the one *.agent.md, *.chatmode.md, agents/*.md or AGENTS.md,',
-      'or --main), every text file it copies unchanged to singularity/user-defined/<name>/, and every file it',
+      'else the one top-level Markdown file whose front matter has a name or description, or --main), every text file it copies unchanged to singularity/user-defined/<name>/, and every file it',
       'leaves out with why (links, binary files, secret-looking files, dependency directories). With the plan',
       'digest it proposes one reviewed configuration change: the folder, its manifest, one agent whose',
       'instructions are the main file\'s own, and one step and workflow under the same name. A Story then runs',

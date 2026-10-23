@@ -67,6 +67,14 @@ test('several agent files ask which one is main, a taken name asks for another, 
   assert.deepEqual(fake.seen.reviewed, [], 'nothing is activated unless the person chooses to review it');
 });
 
+test('a refusal with nothing to choose from is shown, never closed as if the person had cancelled', async () => {
+  const fake = host({ folder: '/work/empty-agent',
+    run: () => { throw refusal('USER_AGENT_MAIN_REQUIRED', 'No main agent file was found. Name it with --main <FILE>.', {}); } });
+  assert.equal(await addUserAgentFolder(fake), 'refused');
+  assert.deepEqual(fake.seen.errors, ['No main agent file was found. Name it with --main <FILE>.']);
+  assert.deepEqual(fake.seen.picks, []);
+});
+
 test('a folder named like one of your agents offers to replace its folder under the same name', async () => {
   const taken = "A user-defined agent called 'orchestrator' already exists; replace its folder with --replace, or add this one under another name with --name.";
   const fake = host({

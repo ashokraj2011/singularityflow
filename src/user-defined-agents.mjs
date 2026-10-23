@@ -87,19 +87,36 @@ function agentCandidates(files) {
     || /(?:^|\/)agents\/[^/]+\.md$/iu.test(file.path) || /^AGENTS\.md$/iu.test(file.path)).map((file) => file.path);
 }
 
+/**
+ * A plain Markdown agent at the top of the folder (`reviewer.md`): its front matter names or describes
+ * it, and it is not a README or a skill. Considered only when no file follows the conventions above.
+ */
+function plainAgentCandidates(files) {
+  return files.filter((file) => /^[^/]+\.md$/iu.test(file.path) && !/^(?:readme|skill|changelog|contributing|license)\.md$/iu.test(file.path))
+    .filter((file) => {
+      const { frontMatter, problem } = splitFrontMatter(file.text);
+      return !problem && ['name', 'description'].some((key) => typeof frontMatter[key] === 'string' && frontMatter[key].trim());
+    }).map((file) => file.path);
+}
+
+/** Every text file a person may name as the main agent, Markdown first. */
+const choosableFiles = (files) => [...files.filter((file) => /\.md$/iu.test(file.path)), ...files.filter((file) => !/\.md$/iu.test(file.path))]
+  .map((file) => file.path);
+
 /** The main agent: the one `--main` names, else the folder's only agent file. Never a guess between several. */
 export function chooseMainAgent(files, requested = null) {
   if (requested) {
     const wanted = String(requested).replace(/\\/gu, '/').replace(/^\.\//u, '');
     const match = files.find((file) => file.path === wanted);
-    if (!match) fail('USER_AGENT_MAIN_UNKNOWN', `${wanted} is not one of the folder's text files.`, { files: files.map((file) => file.path) });
+    if (!match) fail('USER_AGENT_MAIN_UNKNOWN', `${wanted} is not one of the folder's text files.`, { files: files.map((file) => file.path), candidates: choosableFiles(files) });
     return match;
   }
-  const candidates = agentCandidates(files);
+  const conventional = agentCandidates(files);
+  const candidates = conventional.length ? conventional : plainAgentCandidates(files);
   if (candidates.length === 1) return files.find((file) => file.path === candidates[0]);
   if (!candidates.length) {
-    fail('USER_AGENT_MAIN_REQUIRED', 'No main agent file was found (an *.agent.md, *.chatmode.md, agents/*.md or AGENTS.md). Name it with --main <FILE>.',
-      { files: files.map((file) => file.path) });
+    fail('USER_AGENT_MAIN_REQUIRED', 'No main agent file was found (an *.agent.md, *.chatmode.md, agents/*.md, AGENTS.md, or a Markdown file at the top of the folder whose front matter has a name or description). Name it with --main <FILE>.',
+      { files: files.map((file) => file.path), candidates: choosableFiles(files) });
   }
   fail('USER_AGENT_MAIN_AMBIGUOUS', `The folder has ${candidates.length} agent files: ${candidates.join(', ')}. Name the one that runs the others with --main <FILE>.`,
     { candidates });

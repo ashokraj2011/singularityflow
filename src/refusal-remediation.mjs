@@ -1377,6 +1377,9 @@ export function refusalDetails(details) {
   });
   const paths = list(details.paths, text);
   if (paths.length) projected.paths = paths;
+  // What a person may pick from (USER_AGENT_MAIN_*: the main agent file).
+  const candidates = list(details.candidates, text);
+  if (candidates.length) projected.candidates = candidates;
   // Code changed before a generation began: the paths a person reviews, the digest an adoption
   // confirms and the policy that decides between adopting and setting aside (GENERATION_DIRTY_START).
   const changedPaths = list(details.changedPaths, text);

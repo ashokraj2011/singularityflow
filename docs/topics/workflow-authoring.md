@@ -40,7 +40,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 87
+version: 88
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1280,7 +1280,8 @@ In Copilot: `/sf-call-add ~/team-agents`, then `/sf-start JIRA-123 --agent orche
 `/sf-call orchestrator`.
 
 - **Preview.** `call add` finds the main agent (the folder's one `*.agent.md`, `*.chatmode.md`,
-  `agents/*.md` or `AGENTS.md`, or the file `--main` names) and lists every text file it would copy,
+  `agents/*.md` or `AGENTS.md`; failing those, its one Markdown file at the top of the folder whose front
+  matter has a `name` or `description`; or the file `--main` names) and lists every text file it would copy,
   every file it leaves out with why (links, binary files, files that look like secrets or keys,
   dependency and build directories), and the main file's front-matter fields SFlow does not use (its
   own `tools` or `model`). Nothing is silently dropped. A folder holds at most 256 text files and

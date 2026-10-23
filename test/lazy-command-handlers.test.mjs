@@ -69,7 +69,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // the gate's re-check of a human generation's clarification record, the after-start origin in the MCP tool policy)
     // added 765 and verification steps that run the repository's tests (cfcbd295: the repositoryTests setting in
     // config.mjs and state.mjs) 1,871, together 9,035,749. The test runner itself is lazy; no new file.
-    assert.ok(closure.bytes <= 9_040_000, `${file} exceeds the 9 MB eager-source budget`);
+    // 9,045,000 (next 5,000 boundary): the packaged sample user-defined agent (careful-change) adds its
+    // agent, starter template, folder and manifest digests to packaged-asset-history.mjs and its work type
+    // and step to packaged-workflow-history.mjs, which every Story start reads: 9,041,169. No new file.
+    assert.ok(closure.bytes <= 9_045_000, `${file} exceeds the 9 MB eager-source budget`);
   }
 });
 

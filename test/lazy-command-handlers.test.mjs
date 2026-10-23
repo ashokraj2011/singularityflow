@@ -65,7 +65,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // value an earlier decision recorded, so branches come back together) added 4,037 bytes to workflow-decisions.mjs,
     // which every Story transition reads, and the build/import-team export actions 257 to command-registry.mjs: 9,033,113.
     // No new file.
-    assert.ok(closure.bytes <= 9_035_000, `${file} exceeds the 9 MB eager-source budget`);
+    // 9,040,000 (next 5,000 boundary): the workflow-audit leftovers (50d5a5ce: approval's --yes remediation route,
+    // the gate's re-check of a human generation's clarification record, the after-start origin in the MCP tool policy)
+    // added 765 and verification steps that run the repository's tests (cfcbd295: the repositoryTests setting in
+    // config.mjs and state.mjs) 1,871, together 9,035,749. The test runner itself is lazy; no new file.
+    assert.ok(closure.bytes <= 9_040_000, `${file} exceeds the 9 MB eager-source budget`);
   }
 });
 

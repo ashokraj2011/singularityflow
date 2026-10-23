@@ -44,7 +44,7 @@ import { listTransportIntents, retryTransportIntent } from '../src/transport-int
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { readConfigurationSource } from '../src/configuration-branch.mjs';
 import { runRemoteGitAsync } from '../src/git-execution.mjs';
-import { proposalGitMergeProbe } from '../src/git.mjs';
+import { gitCommitIdentity, proposalGitMergeProbe } from '../src/git.mjs';
 import {
   createCapabilityAuthorityLink, publishCapabilityAuthorityLinkSet, readCapabilityAuthorityLink
 } from '../src/capability-authority-link.mjs';
@@ -6693,13 +6693,25 @@ test('initialising a workspace creates the orphan state branch, and checks befor
     env: { ...process.env, SINGULARITY_FLOW_TRANSPORT_OUTBOX: path.join(org.base, 'transport-outbox') },
     home: org.base
   };
+  const applicationHead = run('git', ['rev-parse', 'HEAD'], { cwd: work }).stdout.trim();
   const first = await initializeWorkspaceState(work, { transport });
   assert.equal(first.governed, false, 'a delivery repository is not governed in its own right');
   assert.equal(first.existed, false);
   assert.equal(first.created, true);
   assert.equal(first.governancePublished, true);
   assert.match(first.governanceBranch, /^sflow\/govern\/api-/);
-  assert.ok(existsSync(path.join(work, 'singularity/workflow.yml')));
+  // The proposal is authored in a scratch clone: the person's checkout is not switched, written,
+  // staged or committed, and the proposal is kept as a branch nobody has checked out.
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: work }).stdout.trim(), 'main');
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: work }).stdout.trim(), applicationHead);
+  assert.equal(run('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: work }).stdout, '');
+  assert.equal(existsSync(path.join(work, 'singularity')), false);
+  const proposal = run('git', ['rev-parse', `refs/heads/${first.governanceBranch}`], { cwd: work }).stdout.trim();
+  assert.equal(run('git', ['rev-parse', `${proposal}^`], { cwd: work }).stdout.trim(), applicationHead);
+  assert.equal(run('git', ['log', '-1', '--format=%s', proposal], { cwd: work }).stdout.trim(),
+    'Govern this repository with Singularity Flow');
+  assert.equal(run('git', ['--git-dir', org.api, 'rev-parse', `refs/heads/${first.governanceBranch}`])
+    .stdout.trim(), proposal, 'the kept branch is exactly what was published');
   assert.match(run('git', ['ls-remote', '--heads', 'origin', 'state'], { cwd: work }).stdout,
     /refs\/heads\/state/, 'and it reached the remote');
   assert.equal(
@@ -6727,9 +6739,15 @@ test('initialising a workspace creates the orphan state branch, and checks befor
     1);
 
   // Re-running finds both and does nothing, which is what makes it safe to call on every create.
+  // The checkout itself stays ungoverned until the proposal is merged into its application branch.
   const second = await initializeWorkspaceState(work, { transport });
-  assert.equal(second.governed, true);
+  assert.equal(second.governed, false);
   assert.equal(second.existed, true);
+  assert.equal(second.governanceBranch, first.governanceBranch);
+  assert.equal(second.governancePublished, true);
+  assert.equal(second.publicationIntent, null, 'an already published proposal is not pushed again');
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: work }).stdout.trim(), 'main');
+  assert.equal(run('git', ['rev-parse', `refs/heads/${first.governanceBranch}`], { cwd: work }).stdout.trim(), proposal);
 });
 
 test('workspace creation state initialization observes a factory-reset barrier after clone claim', async () => {
@@ -6811,11 +6829,15 @@ test('workspace initialization resumes the same governance publication before it
   const first = await initializeWorkspaceState(work, { transport: { ...transport, runCommand } });
   assert.equal(first.governancePublished, false);
   assert.equal(first.publicationIntent.status, 'pending');
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: work }).stdout.trim(), 'main');
+  assert.equal(run('git', ['rev-parse', `refs/heads/${first.governanceBranch}`], { cwd: work }).stdout.trim(),
+    first.publicationIntent.sourceCommit, 'the unpublished proposal is kept as a branch');
   const intentId = first.publicationIntent.intentId;
   failPush = false;
   const resumed = await initializeWorkspaceState(work, { transport: { ...transport, runCommand } });
   assert.equal(resumed.governancePublished, true);
   assert.equal(resumed.publicationIntent.intentId, intentId, 'resume created a duplicate governance intent');
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: work }).stdout.trim(), 'main');
   assert.match(run('git', ['ls-remote', '--heads', 'origin', resumed.governanceBranch], { cwd: work }).stdout,
     new RegExp(`refs/heads/${resumed.governanceBranch}`));
   assert.match(run('git', ['ls-remote', '--heads', 'origin', 'sflow/config'], { cwd: work }).stdout,
@@ -6870,6 +6892,108 @@ test('configuration initialization exposes and resumes its exact transport inten
     /refs\/heads\/sflow\/config/);
   assert.equal((await listTransportIntents({ ...transport, includeSucceeded: true }))
     .filter((intent) => intent.targetRef === 'refs/heads/sflow/config').length, 1);
+});
+
+test('workspace initialization authors its proposal where the repository commit hooks cannot judge it', async () => {
+  const org = await remotes('hooked-api');
+  const work = path.join(org.base, 'hooked-work');
+  run('git', ['clone', '-q', org['hooked-api'], work], { cwd: org.base });
+  run('git', ['config', 'user.email', 'hooked@example.test'], { cwd: work });
+  run('git', ['config', 'user.name', 'Hooked Tester'], { cwd: work });
+  // A commitlint commit-msg hook and a pre-commit framework hook, both refusing every commit.
+  const marker = path.join(org.base, 'hooks-ran.log');
+  for (const name of ['pre-commit', 'commit-msg']) {
+    const hook = path.join(work, '.git', 'hooks', name);
+    await writeFile(hook, `#!/bin/sh\necho ${name} >> "${marker}"\nexit 1\n`);
+    await chmod(hook, 0o755);
+  }
+  assert.notEqual(run('git', ['commit', '--allow-empty', '-m', 'probe'], {
+    cwd: work, allowFailure: true
+  }).status, 0, 'the fixture hooks refuse an ordinary commit in this checkout');
+  await rm(marker, { force: true });
+  const applicationHead = run('git', ['rev-parse', 'HEAD'], { cwd: work }).stdout.trim();
+  const transport = {
+    env: { ...process.env, SINGULARITY_FLOW_TRANSPORT_OUTBOX: path.join(org.base, 'hooked-outbox') },
+    home: org.base
+  };
+
+  const result = await initializeWorkspaceState(work, { transport });
+
+  assert.equal(result.governancePublished, true, result.publicationError ?? '');
+  assert.equal(result.publicationError, null);
+  assert.equal(existsSync(marker), false, 'a repository commit hook judged the governance proposal');
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: work }).stdout.trim(), 'main');
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: work }).stdout.trim(), applicationHead);
+  assert.equal(run('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: work }).stdout, '',
+    'initialization left files written or staged in the checkout');
+  const published = run('git', ['--git-dir', org['hooked-api'], 'rev-parse', `refs/heads/${result.governanceBranch}`])
+    .stdout.trim();
+  assert.equal(run('git', ['rev-parse', `refs/heads/${result.governanceBranch}`], { cwd: work }).stdout.trim(), published);
+  assert.equal(run('git', ['--git-dir', org['hooked-api'], 'log', '-1', '--format=%s%n%P%n%ae', published])
+    .stdout.trim(), `Govern this repository with Singularity Flow\n${applicationHead}\n${gitCommitIdentity(work).email}`,
+  'the proposal keeps its message, its application parent and the person\'s commit identity');
+  assert.deepEqual(run('git', ['--git-dir', org['hooked-api'], 'diff', '--name-only', applicationHead, published])
+    .stdout.split('\n').filter(Boolean).filter((file) => !/^(?:singularity|\.github\/agents)\//.test(file)), [],
+  'the proposal changes only the governed roots');
+  assert.match(run('git', ['ls-remote', '--heads', 'origin', 'sflow/config', 'state'], { cwd: work }).stdout,
+    /refs\/heads\/sflow\/config[\s\S]*refs\/heads\/state|refs\/heads\/state[\s\S]*refs\/heads\/sflow\/config/);
+});
+
+test('workspace initialization resumes a hook-refused proposal from its kept branch without switching', async () => {
+  const org = await remotes('refused-api');
+  const work = path.join(org.base, 'refused-work');
+  run('git', ['clone', '-q', org['refused-api'], work], { cwd: org.base });
+  run('git', ['config', 'user.email', 'refused@example.test'], { cwd: work });
+  run('git', ['config', 'user.name', 'Refused Tester'], { cwd: work });
+  const applicationHead = run('git', ['rev-parse', 'HEAD'], { cwd: work }).stdout.trim();
+  const transport = {
+    env: { ...process.env, SINGULARITY_FLOW_TRANSPORT_OUTBOX: path.join(org.base, 'refused-outbox') },
+    home: org.base
+  };
+  const receive = path.join(org['refused-api'], 'hooks', 'pre-receive');
+  await writeFile(receive, '#!/bin/sh\necho "governance proposals are reviewed elsewhere" >&2\nexit 1\n');
+  await chmod(receive, 0o755);
+  const clean = () => {
+    assert.equal(run('git', ['branch', '--show-current'], { cwd: work }).stdout.trim(), 'main');
+    assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: work }).stdout.trim(), applicationHead);
+    assert.equal(run('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: work }).stdout, '');
+  };
+
+  const refused = await initializeWorkspaceState(work, { transport });
+  assert.equal(refused.governancePublished, false);
+  assert.equal(refused.publicationIntent.status, 'needs-user');
+  assert.match(refused.publicationError, new RegExp(refused.publicationIntent.intentId));
+  clean();
+  const kept = run('git', ['rev-parse', `refs/heads/${refused.governanceBranch}`], { cwd: work }).stdout.trim();
+  assert.equal(kept, refused.publicationIntent.sourceCommit, 'the refused proposal is kept as a branch');
+  assert.equal(run('git', ['rev-parse', `${kept}^`], { cwd: work }).stdout.trim(), applicationHead);
+  assert.equal(run('git', ['--git-dir', org['refused-api'], 'show-ref', '--verify', '--quiet',
+    `refs/heads/${refused.governanceBranch}`], { allowFailure: true }).status, 1);
+
+  // Run again while the refusal stands: the same saved push is routed to the person, never a
+  // second proposal, and the existing local branch is not reported as a conflict.
+  await assert.rejects(() => initializeWorkspaceState(work, { transport }), (error) =>
+    error?.code === 'TRANSPORT_INTENT_NEEDS_USER'
+      && error.details?.intentId === refused.publicationIntent.intentId);
+  clean();
+
+  await rm(receive, { force: true });
+  const retried = await retryTransportIntent(refused.publicationIntent.intentId, {
+    ...transport, allowNeedsUser: true
+  });
+  assert.equal(retried.status, 'succeeded');
+  const resumed = await initializeWorkspaceState(work, { transport });
+  assert.equal(resumed.governanceBranch, refused.governanceBranch);
+  assert.equal(resumed.governancePublished, true);
+  assert.equal(resumed.publicationError, null);
+  clean();
+  assert.equal(run('git', ['--git-dir', org['refused-api'], 'rev-parse', `refs/heads/${resumed.governanceBranch}`])
+    .stdout.trim(), kept, 'the resumed publication is the kept commit');
+  assert.equal(run('git', ['--git-dir', org['refused-api'], 'cat-file', '-e', 'sflow/config:singularity/workflow.yml'], {
+    allowFailure: true
+  }).status, 0, 'configuration authority is seeded from the resumed proposal');
+  assert.equal((await listTransportIntents({ ...transport, includeSucceeded: true }))
+    .filter((intent) => intent.targetRef === `refs/heads/${resumed.governanceBranch}`).length, 1);
 });
 
 /**

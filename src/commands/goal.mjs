@@ -32,6 +32,16 @@ import { localStorySubjectIndex } from '../local-story-subject-index.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { sessionDiscoveryConfiguration } from './shared/session-discovery-configuration.mjs';
 
+/**
+ * The lead's definition: its own copy when the checkout has one, otherwise the approved authority.
+ * A lead governed by a workspace keeps its application branch free of the definition; its proposal
+ * is a branch the checkout never switches to.
+ */
+async function leadConfiguration(context) {
+  const root = context.leadRepositoryPath;
+  return withApprovedConfigurationRead(root, () => loadConfig(root));
+}
+
 function terminalStatus(state) {
   return ['closed', 'complete', 'completed', 'cancelled', 'archived'].includes(String(state ?? '').toLowerCase());
 }
@@ -438,7 +448,7 @@ export async function run(_argv, { positionals, options, operation }) {
   if (subcommand === 'govern') {
     const loadedPersonal = await readGoalState(context);
     const personal = findGoal(loadedPersonal.state, goalReference(positionals), { activeOnly: true });
-    const config = await loadConfig(context.leadRepositoryPath);
+    const config = await leadConfiguration(context);
     const created = await createGovernedGoal(context, personal, {
       id: optionString(options, 'id'), config
     });
@@ -454,7 +464,7 @@ export async function run(_argv, { positionals, options, operation }) {
   }
 
   if (subcommand === 'list' && optionString(options, 'mode') === 'governed') {
-    const config = await loadConfig(context.leadRepositoryPath);
+    const config = await leadConfiguration(context);
     const listed = await listGovernedGoals(context, { config });
     return emitCommandResult(commandResult({
       operation: { id: operation.id, classification: operation.classification },
@@ -468,7 +478,7 @@ export async function run(_argv, { positionals, options, operation }) {
   const nestedApproval = subcommand === 'plan' && positionals[2] === 'approve';
   const governedId = governedReference(nestedApproval ? positionals[3] : positionals[2]);
   if (governedId) {
-    const config = await loadConfig(context.leadRepositoryPath);
+    const config = await leadConfiguration(context);
     if (['inspect', 'show', 'status', 'next', 'impact', 'change', 'trace'].includes(subcommand)) {
       const loaded = await loadGovernedGoal(context, governedId, { config });
       const links = await resolveGovernedLinks(context, loaded.contract);

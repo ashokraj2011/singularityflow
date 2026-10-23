@@ -100,6 +100,10 @@ export function renameRefusal(kind, id, bundle) {
     return `Skill step '${id}' is compiled against its own step ID, so it cannot arrive under a new name. Keep or replace it.`;
   }
   if (kind === 'constitution') return `Constitution '${id}' is named by the workflow's constitution policy, so it cannot arrive under a new name. Keep or replace it.`;
+  // Its folder, manifest and agent pin are all named by the agent's ID.
+  if (kind === 'agent' && (bundle.assets ?? []).some((asset) => asset.kind === 'user-defined' && asset.owner?.id === id)) {
+    return `User-defined agent '${id}' names its folder and manifest, which its agent pins, so it cannot arrive under a new name. Keep or replace it.`;
+  }
   if (kind === 'initiative-phase' && Object.values(EPIC_PHASES).includes(id)) {
     return `Epic step '${id}' must keep its canonical ID. Keep or replace it.`;
   }
@@ -219,6 +223,7 @@ export function bundleContentsLines(dependencies = {}) {
     ...(list('mcpServers').length ? [named(list('mcpServers').length, 'MCP server', list('mcpServers'))] : []),
     ...(list('integrationTargets').length ? [named(list('integrationTargets').length, 'integration target', list('integrationTargets'))] : []),
     ...(list('constitutions').length ? [named(list('constitutions').length, 'constitution', list('constitutions'))] : []),
+    ...(list('userDefinedFolders').length ? [named(list('userDefinedFolders').length, 'user-defined agent folder', list('userDefinedFolders'))] : []),
     ...(list('vendoredCopies').length ? [plural(list('vendoredCopies').length, 'imported copy', 'imported copies')] : [])
   ];
   return lines.map((line) => `  ${line}`);
@@ -230,11 +235,12 @@ function planEntryName(entry) {
   if (entry.kind === 'agent') return id.replace(/^.*\//u, '').replace(/\.agent\.md$/u, '');
   if (entry.kind === 'skill' || entry.kind === 'instruction') return id.split('/').at(-2) ?? id;
   if (entry.kind === 'constitution') return id;
+  if (entry.kind === 'user-defined') return id.replace(/^singularity\/user-defined\//u, '');
   if (entry.kind === 'template') return id.replace(/^singularity\/(?:templates|initiative-templates)\//u, '');
   return id;
 }
 const PLAN_KIND_NOUNS = Object.freeze({
-  agent: 'agent', skill: 'skill', instruction: 'instruction', template: 'template', vendored: 'imported copy',
+  agent: 'agent', skill: 'skill', instruction: 'instruction', template: 'template', vendored: 'imported copy', 'user-defined': 'user-defined agent file',
   'workflow-skill-attachments': 'skill attachments of workflow', 'agent-skill-attachments': 'skill attachments of agent',
   constitution: 'constitution', 'import-record': 'import record'
 });

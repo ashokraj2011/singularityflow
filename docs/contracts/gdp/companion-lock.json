@@ -4,10 +4,10 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "2a03aa4e88d7e59cc9b12eeaf01ea568c8e1a41f",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-23-SAMPLE-USER-DEFINED-AGENT.md",
+    "reviewedAtCommit": "e3b13fe21662c20c828ea306cc44d4dd923b8ed3",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-23-WORKFLOW-BUNDLE-V10-USER-DEFINED-FOLDERS.md",
     "companionIds": [
-      "workflow-configuration"
+      "migration-registry"
     ]
   },
   "companions": [
@@ -94,7 +94,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:3e5a95c3416eff77bf5643d9a652664ef8c416540e50ed6c24514294787b5440"
+      "sha256": "sha256:31054ef20836147789698b24a358421fd7de45f26fb64e887395021476741477"
     },
     {
       "id": "smart-initialization-v1",

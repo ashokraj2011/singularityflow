@@ -540,7 +540,7 @@ test('state of a build like the live run is read inline, with everything Copilot
   assert.deepEqual(rejection.fixMove, { move: 'step.change', id: 'release', signOff: { groups: ['quality-reviewers'], minimum: 1, sendBackTo: ['implementation', 'release'] } }, 'the one move that fixes it, to propose as it is');
   assert.equal(state.findings.filter((finding) => finding.code === 'WORKFLOW_REJECTION_TARGET').length, 1);
   assert.equal(state.findings.find((finding) => finding.code === 'BUILD_ITEMS_OPEN'), undefined, 'nothing found is left to propose about');
-  assert.deepEqual(state.counts, { problem: 4, warning: 0, note: 1 });
+  assert.deepEqual(state.counts, { problem: 4, warning: 1, note: 1 }, 'the warning: the group it creates has nobody in it yet');
   assert.equal(state.ready, false);
 
   // The guide and the items are each one inline answer too.

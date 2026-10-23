@@ -15,6 +15,7 @@
  *   change set, so the result is one reviewed proposal; `--out` writes a portable workflow bundle.
  */
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { SingularityFlowError } from '../util.mjs';
 import { applyMoves, initialDraft, invalidMoves, lowerDraft, validateMoves } from './moves.mjs';
@@ -86,6 +87,20 @@ function confirmGuidanceCommands(items) {
   for (const item of items) {
     if (item.kind !== 'command' || item.status !== 'open' || item.checkable || !used.has(item.evidence?.[0]?.path)) continue;
     Object.assign(item, { status: 'confirmed', usedAs: 'guidance' });
+  }
+}
+
+/**
+ * A script, run, install or deployment command inside an agent, skill, instruction or prompt a person
+ * left out goes with it, saying why; a test, lint or build command still waits, since it can be a check.
+ */
+function leaveOutWithFile(items) {
+  const left = new Map(items.filter((item) => item.status === 'left-out' && ['agent', 'prompt', 'skill', 'instruction'].includes(item.kind))
+    .map((item) => [item.evidence?.[0]?.path, item]));
+  for (const item of items) {
+    const file = left.get(item.evidence?.[0]?.path);
+    if (!file || item.kind !== 'command' || item.status !== 'open' || item.checkable) continue;
+    Object.assign(item, { status: 'left-out', reason: `${file.name} is left out${file.reason ? `: ${file.reason}` : ''}`.slice(0, 600) });
   }
 }
 
@@ -319,6 +334,7 @@ function acceptProposal(record, proposal) {
   }
   confirmProcessTwins(record.items);
   confirmGuidanceCommands(record.items);
+  leaveOutWithFile(record.items);
   record.conversation.push(turn('you', 'decision', `Accepted ${proposal.title}.`, { proposal: proposal.id }));
 }
 
@@ -380,12 +396,20 @@ export async function answerInBuild(id, questionId, choice, { env = process.env 
 }
 
 /** The check of a finished build whose workflow is active: that workflow as the configuration has it, explained and checked. */
-async function landedCheck(record, { landed, preview, check }) {
+async function landedCheck(record, { landed, preview, check }, { env = process.env } = {}) {
   const live = check.workflows?.[0] ?? null;
+  // A change build's proposal is active once the approved workflow is exactly what it proposed;
+  // a new workflow is active once the approved configuration has it.
+  const activated = !record.goal.change || (Boolean(record.finished.fingerprint) && workflowFingerprint(preview?.workflows?.[0]) === record.finished.fingerprint);
+  if (activated && record.finished.kind === 'proposal' && !record.finished.activatedSeen) {
+    record.finished.activatedSeen = new Date().toISOString();
+    record.conversation.push(turn('sflow', 'activated', `${landed.label} is in the approved configuration with this ${record.goal.change ? 'change' : 'workflow'}; new Stories use it.`));
+    await saveWorkflowBuild(record, { env });
+  }
   return {
     schemaVersion: 1, resultType: 'workflow-build-check',
     build: { id: record.id, label: record.goal.label, workflow: landed.id, updatedAt: record.updatedAt },
-    landed: { workflow: landed.id, label: landed.label, finishedAt: record.finished.at, change: Boolean(record.goal.change) },
+    landed: { workflow: landed.id, label: landed.label, finishedAt: record.finished.at, change: Boolean(record.goal.change), activated },
     draft: { workflow: { id: landed.id, label: landed.label, phases: landed.phases, decisions: (landed.decisions ?? []).length },
       newSteps: [], newAgents: [], newSkills: [], newInstructions: [], newGroups: [] },
     changeSet: { schema: 'sflow-studio-change-set@1', changes: [] }, plan: { valid: true, changed: false, problems: [], warnings: [], summary: [], files: [] },
@@ -409,6 +433,23 @@ function withSendBackMove(finding, workflow) {
     + ` with signOff { groups: [${groups.join(', ')}], minimum: ${minimum}, sendBackTo: [${sendBackTo.join(', ')}] }.` } };
 }
 
+/**
+ * Approval groups the build creates have nobody in them until people are added in People &
+ * approvals; until then, unless the repository requires named people, whoever starts a Story is
+ * enrolled and signs off. Said once, as a warning that never blocks finishing.
+ */
+function emptyGroupFindings(draft) {
+  const created = Object.entries(draft.groups ?? {});
+  if (!created.length) return [];
+  const names = created.map(([id, group]) => group.label ?? id);
+  return [{
+    id: 'f-groups-empty', code: 'BUILD_GROUPS_EMPTY', area: 'people', severity: 'warning',
+    title: `${names.length === 1 ? `The approval group ${names[0]} has` : `${names.length} new approval groups have`} nobody in it yet`,
+    detail: `${names.join(', ')}: unless the repository requires named people, whoever starts a Story is enrolled and can sign off the steps ${names.length === 1 ? 'it approves' : 'they approve'}.`,
+    fix: { text: 'Add the people in Workflow Studio\'s People & approvals once the workflow is active, or have the step signed off by a group that has people.' }, subject: {}
+  }];
+}
+
 /** Found items that are not used or left out yet, as one onboarding finding. */
 function onboardingFindings(record) {
   const open = record.items.filter((entry) => entry.foundBy !== 'workflow' && entry.status === 'open' && entry.kind !== 'withheld');
@@ -420,6 +461,18 @@ function onboardingFindings(record) {
     detail: `${listed}${open.length > 8 ? `, and ${open.length - 8} more` : ''}.`,
     fix: { text: 'Use each one in a proposal, keep it as a link, or leave it out with a reason.' }, subject: {}
   }];
+}
+
+/**
+ * What a workflow is, as one digest: its steps in order with what each does, reads, runs and needs
+ * signed off, and its decisions. Equal digests mean the approved workflow is the one a build proposed.
+ */
+function workflowFingerprint(workflow) {
+  if (!workflow) return null;
+  const steps = (workflow.steps ?? []).map((step) => ({ id: step.id, label: step.label, description: step.description ?? '', agent: step.agent ?? null,
+    output: step.output ?? null, approval: step.approval ?? null, inputs: step.inputs ?? [], qualityCommands: step.qualityCommands ?? [], afterStep: step.afterStep ?? [] }));
+  const text = JSON.stringify({ id: workflow.id, label: workflow.label, phases: workflow.phases, decisions: workflow.decisions ?? [], steps });
+  return `sha256:${createHash('sha256').update(text).digest('hex')}`;
 }
 
 /** What Workflow Studio's canvas needs to draw the workflow a build makes, from the staged configuration. */
@@ -472,12 +525,12 @@ export async function checkBuild(id, { root = null, include = null, env = proces
     }
     return { draft, accepted, changeSet, plan, changes };
   });
-  if (result.landed) return landedCheck(record, result);
+  if (result.landed) return landedCheck(record, result, { env });
   const { draft, accepted, changeSet, plan, changes } = result;
   // A change build is ready only once it changes something.
   const unchanged = draft.workflow.inPlace && !changeSet.changes.length;
   const inspection = plan.inspection?.check ?? null;
-  const onboarding = onboardingFindings(record);
+  const onboarding = [...onboardingFindings(record), ...emptyGroupFindings(draft)];
   const built = plan.inspection?.preview?.workflows?.[0] ?? null;
   const findings = [...(inspection?.workflows?.[0]?.findings ?? []).map((entry) => withSendBackMove(entry, built)), ...onboarding];
   const counts = Object.fromEntries(['problem', 'warning', 'note'].map((severity) => [severity, findings.filter((entry) => entry.severity === severity).length
@@ -548,8 +601,9 @@ export async function finishBuild(id, { propose = false, out = null, root = null
   try {
     await (await import('../commands/legacy.mjs')).run(['workflow', 'studio', 'apply', '--change-set', file, '--propose', ...(json ? ['--json'] : [])]);
   } finally { process.chdir(previous); }
-  record.finished = { at: new Date().toISOString(), kind: 'proposal', changeSetSha256: `sha256:${(await import('node:crypto')).createHash('sha256').update(await readFile(file)).digest('hex')}` };
-  record.conversation.push(turn('sflow', 'finished', 'Created one configuration proposal from this build. Review and activate it in Workflow Studio\'s Changes.'));
+  record.finished = { at: new Date().toISOString(), kind: 'proposal', changeSetSha256: `sha256:${(await import('node:crypto')).createHash('sha256').update(await readFile(file)).digest('hex')}`,
+    fingerprint: workflowFingerprint(result.preview?.workflows?.[0]) };
+  record.conversation.push(turn('sflow', 'finished', 'Created one configuration proposal from this build. Once it is activated (Workflow Studio\'s Changes, or Finish and activate), new Stories use it.'));
   await saveWorkflowBuild(record, { env });
   return { kind: 'proposal', check: result };
 }

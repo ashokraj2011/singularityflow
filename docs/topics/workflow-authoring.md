@@ -36,7 +36,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 78
+version: 79
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1399,7 +1399,9 @@ to continue.
   documents, API calls, tools and scripts are kept as links, and the rest are left out with the one
   reason you give (up to 50 at a time). A test, lint or build command offers **Make it a check** on
   the step you choose; a script or deployment inside a skill or instructions the workflow uses is
-  marked agent guidance: the agent runs it, sflow never does.
+  marked agent guidance: the agent runs it, sflow never does. Leaving out a skill, agent or
+  instructions file leaves its scripts and deployments out with it, saying why; its test, lint and
+  build commands still wait, since they can be checks.
 - **Build** shows the conversation, the workflow drawn step by step, and what each step does with
   the check's findings. Each proposal reads in plain words with Preview, Accept and Decline; each
   question offers its choices. Preview draws and checks the workflow as a waiting proposal would
@@ -1415,7 +1417,13 @@ to continue.
   configuration at its exact commit, and new Stories use it at once (server rules still apply; when
   they refuse, the proposal waits under Changes). **Create the proposal for review** leaves it for
   another person; on a working-tree configuration **Write the files** writes it, as Publish does;
-  **Save as a portable file…** saves it to import elsewhere.
+  **Save as a portable file…** saves it to import elsewhere. Afterwards the build says whether the
+  approved workflow is now exactly what it proposed (finished and activated) or the proposal is
+  still waiting.
+- An approval group the build creates has nobody in it until people are added in **People &
+  approvals**; until then, unless the repository requires named people, whoever starts a Story is
+  enrolled and can sign off. The check says so as a warning; team import says the same for the
+  groups a conversion creates.
 
 ## Check that a workflow makes sense
 

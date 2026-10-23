@@ -6661,7 +6661,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   function landedCallout(landed) {
     var b = buildState();
     return el('div', { class: 'callout ok', 'data-key': 'build-landed' },
-      el('div', { text: landed.change && b.finished && b.finished.activated
+      el('div', { text: landed.change && (landed.activated || (b.finished && b.finished.activated))
         ? 'Finished and activated: ' + landed.label + ' is in the approved configuration, and new Stories use it now. To change it again, change it with Copilot.'
         : landed.change
         ? 'Finished: the change to ' + landed.label + ' was proposed; once it is reviewed and activated (Changes), new Stories use it. To change it again, change it with Copilot.'

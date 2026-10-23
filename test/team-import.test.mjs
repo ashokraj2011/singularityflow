@@ -195,6 +195,10 @@ test('a code phase keeps its checks and only it writes source; planning stays ar
   assert.ok(unchecked.result.findings.some((finding) => finding.code === 'TEAM_IMPORT_QUALITY_COMMAND_MISSING' && finding.owner === 'person'));
   const invented = await compiled(t, (candidate) => { candidate.phases[1].qualityCommands[0].evidence = []; });
   assert.ok(invented.result.findings.some((finding) => finding.code === 'TEAM_IMPORT_EVIDENCE_MISSING'));
+  const { result: plain } = await compiled(t, () => {});
+  const groups = plain.findings.filter((finding) => finding.code === 'TEAM_IMPORT_GROUP_EMPTY');
+  assert.ok(groups.length && groups.every((finding) => finding.severity === 'warning' && finding.owner === 'person' && /whoever starts a Story is enrolled/u.test(finding.message)),
+    'a group the conversion creates is said to be empty, without blocking');
   const deploy = await compiled(t, (candidate) => { candidate.phases[1].qualityCommands[0].argv = ['./scripts/deploy.sh', 'prod']; });
   assert.ok(deploy.result.findings.some((finding) => finding.code === 'TEAM_IMPORT_NOT_A_CHECK' && /a deploy command, not a check/u.test(finding.message)),
     'sflow runs checks at every submit, so a deployment is never one');

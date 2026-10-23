@@ -75,6 +75,11 @@ function crossReferences(candidate, baseline) {
       add(`${at}.qualityCommands`, 'TEAM_IMPORT_QUALITY_COMMAND_MISSING', `Code phase '${phase.id}' has no quality command from the source. Declare a quality-command prerequisite; never invent argv. [TAWI-REQ-010]`, 'person');
     }
   }
+  // A group the conversion creates has nobody in it yet. Said, never blocking: who belongs is the destination's call.
+  for (const [index, authority] of candidate.authorities.entries()) {
+    findings.push({ at: `$.authorities[${index}]`, code: 'TEAM_IMPORT_GROUP_EMPTY', owner: 'person', severity: 'warning',
+      message: `Approval group '${authority.label ?? authority.id}' is created with nobody in it. Unless the repository requires named people, whoever starts a Story is enrolled and can sign off its steps; add the people in Workflow Studio's People & approvals after importing.` });
+  }
   const review = candidate.workflow.sourceReview;
   if (review && !agents.has(review.reviewerAgent)) add('$.workflow.sourceReview.reviewerAgent', 'TEAM_IMPORT_REFERENCE', `sourceReview names agent '${review.reviewerAgent}', which the candidate does not carry.`);
   if (review) {

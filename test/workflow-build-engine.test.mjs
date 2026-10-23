@@ -177,6 +177,9 @@ test('propose, accept, answer and check: the workflow as the accepted moves leav
   const open = result.findings.find((entry) => entry.code === 'BUILD_ITEMS_OPEN');
   assert.equal(open.severity, 'warning');
   assert.match(open.title, /^\d+ things found in the material are not used or left out yet$/u);
+  const emptyGroups = result.findings.find((entry) => entry.code === 'BUILD_GROUPS_EMPTY');
+  assert.deepEqual([emptyGroups.severity, emptyGroups.title], ['warning', 'The approval group Payments security has nobody in it yet']);
+  assert.match(emptyGroups.detail, /whoever starts a Story is enrolled and can sign off the steps it approves/u);
   assert.equal(result.ready, true);
   assert.equal(run('git', ['status', '--porcelain'], root).stdout, '', 'checking a build writes nothing in the repository');
 
@@ -272,6 +275,12 @@ test('a test, lint or build command in a skill becomes a step check sflow runs; 
   assert.equal(checked.plan.valid, true, JSON.stringify(checked.plan.problems));
   assert.deepEqual(checked.explanation.steps.find((step) => step.id === 'implementation').checks.map((check) => check.command), ['npm run lint']);
   assert.match(flow(root, ['workflow', 'build', 'check', '--build', build.id]).stdout, /^ {2}changed {2}Verification: checks: CI=true npm run test:unit$/mu);
+  // Leaving the skill out takes its deployment with it, saying why.
+  const skill = build.items.find((entry) => entry.kind === 'skill' && entry.name === 'release-checks');
+  const left = json(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-', '--by', 'you', '--accept'], { input: JSON.stringify({ title: 'No release checks skill',
+    why: 'The checks are steps now.', moves: [{ move: 'item.leaveOut', item: skill.id, reason: 'Its checks are steps now.' }] }) }).build;
+  assert.deepEqual([left.items.find((entry) => entry.id === command('./scripts/deploy.sh staging').id).status, left.items.find((entry) => entry.id === command('./scripts/deploy.sh staging').id).reason],
+    ['left-out', 'release-checks is left out: Its checks are steps now.']);
 });
 
 test('work that goes different ways by channel becomes one branch whose ways come back together', async () => {
@@ -496,6 +505,17 @@ test('starting from a workflow copies it; finishing writes a bundle that imports
   const yaml = run('git', ['--git-dir', remote, 'show', `${changed.branch}:singularity/workflow.yml`], base).stdout;
   assert.match(yaml, /chore-with-notes:/u);
   assert.doesNotMatch(yaml.slice(yaml.indexOf('chore-with-notes:')).split(/\n {2}\S/u)[0], /chore-notes/u, 'the step left the workflow');
+  assert.match(json(seed, ['workflow', 'build', 'status', '--build', change.id]).build.conversation.at(-1).text, /Once it is activated .*new Stories use it\.$/u, 'finishing never says it is active');
+  const proposed = json(seed, ['workflow', 'build', 'check', '--build', change.id]);
+  assert.equal(proposed.landed.activated, false, 'a proposal nobody activated is not active');
+  // Activated: the approved workflow is now exactly what the build proposed.
+  const activatedAt = run('git', ['--git-dir', remote, 'rev-parse', changed.branch], base).stdout.trim();
+  run('git', ['--git-dir', remote, 'update-ref', 'refs/heads/sflow/config', activatedAt], base);
+  run('git', ['fetch', '-q', 'origin'], seed);
+  const active = json(seed, ['workflow', 'build', 'check', '--build', change.id]);
+  assert.equal(active.landed.activated, true);
+  assert.match(json(seed, ['workflow', 'build', 'status', '--build', change.id]).build.conversation.at(-1).text, /^Chore with notes is in the approved configuration with this change; new Stories use it\.$/u);
+  assert.match(flow(seed, ['workflow', 'build', 'check', '--build', change.id]).stdout, /^Finished and activated: Chore with notes is in the approved configuration with this change\./mu);
   const again = flow(seed, ['workflow', 'build', 'finish', '--build', change.id, '--propose'], { allowFailure: true });
   assert.match(again.stderr + again.stdout, /its change to Chore with notes was proposed, and once activated new Stories use it\. To change Chore with notes again: singularity-flow workflow build start --change chore-with-notes/u);
 });

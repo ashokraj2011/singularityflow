@@ -72,8 +72,12 @@ const HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'poc-workflow': Object.freeze(['dc72ed2683f76ed9c561ffe0135b442e8eb88202a661ea39031545d29a965d75'])
   }),
   phases: Object.freeze({
-    // Native v4 assignments supersede these exact packaged legacy revisions.
-    testing: Object.freeze(['4ecef918781975e253ea4b85baeb635a15966f9eb9b24c68815ba1cb54e18e09']),
+    testing: Object.freeze([
+      // Native v4 assignments supersede these exact packaged legacy revisions.
+      '4ecef918781975e253ea4b85baeb635a15966f9eb9b24c68815ba1cb54e18e09',
+      // Before repositoryTests: run (2026-10-23).
+      '3953d7c4c106cfdde9ce7654b93b718e36cbf57618b06f4c417bdd3f6a1867c9'
+    ]),
     'poc-intake': Object.freeze(['76811191e717df47e168692e756258fcabc7ef9ce041b5da4ab48549509fec98']),
     'poc-impact-analysis': Object.freeze(['2373b60e36c6e9dea243ea23da8c72a4fd9350520aa3216fc35db2f7ea05cda3']),
     'poc-ui-exploration': Object.freeze([
@@ -140,7 +144,11 @@ const HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
       '4ecd5cf51485d28136f4ac819b091242b0de8f4fc2fb6657814cd4d100356460'
     ]),
     implementation: Object.freeze(['ac65a5896a978d4bb4fafacb3e88770f63d548dc736608a0872ef80b2a42d0dc', '36d1474a044734c2a03ddb3295b152b282159f693807dda91786022e0d91a7e2']),
-    verification: Object.freeze(['b76ea4b72e122af77b6c2b42492a929d99fb927cb8cf8d23407dc429e372ea42', '9c15223a3f11cf23bf94000c089dc47d87b63cf2c2a44d2e56a783fd32907493']),
+    verification: Object.freeze([
+      'b76ea4b72e122af77b6c2b42492a929d99fb927cb8cf8d23407dc429e372ea42', '9c15223a3f11cf23bf94000c089dc47d87b63cf2c2a44d2e56a783fd32907493',
+      // Before repositoryTests: run (2026-10-23).
+      '11caa9e7cf51ecb81ff24eec8effdde40cfdf60fef25f11a54cc97667ae1e3cb'
+    ]),
     'visual-verification': Object.freeze([
       'c5d6cce09178cb6780dd21dd61dd642b44da5c5bc214e5bdb81bef7241d36453',
       '472d021acf80e259457dfa19fa80f3fd93e08f998c74d99c2600d0ba37444aed',
@@ -315,8 +323,8 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'scenario-repair': 'cf0575cfaedb47919f13f239d55a9c6508c70086508e6b60a4df659bf3996e55',
     'scenario-retest': '57decaee448ea9be8ab55b625aaa38f323b5c27797cc1336cbd7b9d177592de3',
     specification: '58c900068d634f95ed90bd5dff25741a1a948e33c802f76ea4af7fc2c851ed39',
-    testing: '3953d7c4c106cfdde9ce7654b93b718e36cbf57618b06f4c417bdd3f6a1867c9',
-    verification: '11caa9e7cf51ecb81ff24eec8effdde40cfdf60fef25f11a54cc97667ae1e3cb',
+    testing: '85cc97324578f64ce95470a36acc03ad5d585ec4ce7a6d50a2b44f4fae0b8007',
+    verification: 'eac367d76e194fec085356e3413db5e333e17c7e81b2f1bbc4d06aa8f3161061',
     verify: '3fb605371c18b1a2877f4447f164f0e7893c1ec56095e19fde7aa4b2d5d3dccd',
     'visual-verification': 'e929feaf22bc30c7f8d698909f4a0b3c08faaa3b29cf4379ca6b270150086f60'
   }),

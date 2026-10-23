@@ -4,18 +4,17 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "275abcb0000e435750e465cff48d098bad943856",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-21-AUTO-RETENTION-DIAGNOSTICS.md",
+    "reviewedAtCommit": "f26e2e384f4bf81e8eeb9a0fd4bbd26c6741227f",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-23-VERIFICATION-REPOSITORY-TESTS.md",
     "companionIds": [
-      "candidate-custody",
-      "migration-registry"
+      "workflow-configuration"
     ]
   },
   "companions": [
     {
       "id": "workflow-configuration",
       "path": "templates/workflow.yml",
-      "sha256": "sha256:5e28785c9d8b2f52712f4fc15c3688ddc210afe4fecd7367e3843dfea4ebfc8d"
+      "sha256": "sha256:d4dbe8be1e512262ac89b52e5b3e27b28d8a89401464611e71398c9ff0fec64f"
     },
     {
       "id": "sgos-portable-schema",

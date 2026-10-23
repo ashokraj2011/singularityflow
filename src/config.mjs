@@ -1192,6 +1192,7 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
       phase.repairBudget = phaseRepairBudget;
     }
     for (const [index, command] of (phase.qualityCommands ?? []).entries()) normalizeExternalCommand(command, index);
+    repositoryTestsPolicy(phase.repositoryTests, `Phase '${id}'`);
     normalizePhaseInputs(phase.inputs, `Phase '${id}' inputs`);
     normalizeClarificationPolicy(phase.clarification);
     // Validated here rather than only where it is consumed. A `specificationQuality` block reached
@@ -1820,6 +1821,13 @@ function declaredCatalogValue(catalog, id) {
  */
 export { mergePhaseOverride };
 
+/** `run`: a non-code step's submission also runs the repository's tests (verification/repository-tests.mjs). */
+function repositoryTestsPolicy(value, label) {
+  if (value == null) return 'off';
+  if (value !== 'run' && value !== 'off') throw new SingularityFlowError(`${label} repositoryTests must be run or off.`);
+  return value;
+}
+
 export function resolveWorkType(definition, workTypeId) {
   const workType = declaredCatalogValue(definition.workTypes, workTypeId);
   if (!workType) throw new SingularityFlowError(`Unknown work type '${workTypeId}'.`);
@@ -1907,6 +1915,9 @@ export function resolveWorkType(definition, workTypeId) {
     const afterStep = normalizeStepActions(merged.afterStep, integrations, `Work type '${workTypeId}' phase '${id}'`);
     if (afterStep.length) resolvedPhase.afterStep = pinStepActions(afterStep, integrations);
     else delete resolvedPhase.afterStep;
+    // Off resolves to the shape a step always had, so workflows that ask for nothing hash as before.
+    if (repositoryTestsPolicy(merged.repositoryTests, `Work type '${workTypeId}' phase '${id}'`) === 'run') resolvedPhase.repositoryTests = 'run';
+    else delete resolvedPhase.repositoryTests;
     return resolvedPhase;
   });
   const phaseById = Object.fromEntries(phases.map((phase) => [phase.id, phase]));

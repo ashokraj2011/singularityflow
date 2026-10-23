@@ -5269,6 +5269,11 @@ async function submitPhaseTransition(root, config, workflow, {
   }
   const riskRun = codeDeliveryRequired && !retainedRisk
     ? await beginStoryTestRiskRun(root, config, workflow, phase, { commands: requiredTestCommands, selection: trpSelection?.selection }) : null;
+  // A verification step whose workflow asks for it also runs the repository's own tests.
+  const repositoryTests = !codeDeliveryRequired && runChecks
+    ? await (await import('./verification/repository-tests.mjs')).verificationRepositoryTests(root, config, workflow, phase, deliveryCommands)
+    : null;
+  if (repositoryTests?.commands.length) deliveryCommands = [...deliveryCommands, ...repositoryTests.commands];
   phase.checks = runChecks ? await qualityChecks(root, phase, config, workflow,
     retainedRisk ? deliveryCommands.filter(command => command?.kind !== 'test') : deliveryCommands, {
     // Assign provenance from trusted resolution identity, never a field supplied by configuration.
@@ -5291,6 +5296,8 @@ async function submitPhaseTransition(root, config, workflow, {
     // command may emit no report at all, so it cannot authorize discarding a preserved report.
     for (const check of phase.checks) await restoreTransientQualityResult(check);
   }
+  const repositoryTestFailures = repositoryTests
+    ? (await import('./verification/repository-tests.mjs')).settleRepositoryTestChecks(phase.checks, repositoryTests) : [];
   const testExecutions = [];
   const attemptHistory = [];
   const submittedAttempts = new Map();
@@ -5406,7 +5413,10 @@ async function submitPhaseTransition(root, config, workflow, {
   const { failed, unavailable, unavailableRequired } = validation;
   const unacceptedFailed = failed.filter(check => (!retainedRisk
     || check.trpObservationSha256 !== retainedRisk.observation.recordSha256) && !check.testRunRisk);
-  const reviewableFailure = Boolean(phase.repairBudget && unacceptedFailed.length);
+  // A failing run of the repository's own tests goes to its reviewer, who returns the step to repair.
+  const repositoryTestsFailed = phase.approvalPolicy?.mode !== 'none' && unacceptedFailed.length > 0
+    && unacceptedFailed.every((check) => repositoryTestFailures.includes(check));
+  const reviewableFailure = Boolean((phase.repairBudget || repositoryTestsFailed) && unacceptedFailed.length);
   if (unacceptedFailed.length && !reviewableFailure) errors.push(`Quality command failed: ${unacceptedFailed.map((check) => check.command).join(', ')}`);
   const unacceptedUnavailable = unavailableRequired.filter(check => (!retainedRisk
     || check.trpObservationSha256 !== retainedRisk.observation.recordSha256) && !check.testRunRisk);
@@ -5414,6 +5424,10 @@ async function submitPhaseTransition(root, config, workflow, {
     errors.push(`Required quality command was unavailable: ${unacceptedUnavailable.map((check) => check.command).join(', ')}`);
   }
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} is not ready:\n- ${errors.join('\n- ')}`);
+  if (repositoryTestsFailed) {
+    console.warn(`Warning: the repository's tests failed: ${unacceptedFailed.map((check) => check.command).join(', ')}. `
+      + `${phase.id} goes to its reviewer, who cannot approve it and returns it to the step that repairs it.`);
+  }
   phase.validationVerdict = validation.verdict;
   if (codeDeliveryRequired) {
     const validatedSourceTreeSha256 = await sourceTreeHash(root, config, workflow);

@@ -38,9 +38,11 @@ export function mutationTurnMode(skill) {
   if (name === 'fix-workflow') return 'fix-workflow';
   if (AUTHORING_SKILL_DECLARATION[`sflow-${name}`]) return 'authoring';
   // /sf-specify, /sf-plan and /sf-verify run `prepare` and write the current step's artifacts, and
-  // /sf-implement runs /sf-code in the same turn. No step names them as its author, but they author like
-  // /sf-phase, bound to the current step's own policy; a read turn refused what their instructions do.
-  if (['specify', 'plan', 'verify', 'implement'].includes(name)) return 'authoring';
+  // /sf-implement, /sf-call and /sf-scenario-repair run /sf-code (/sf-call a document step through
+  // /sf-phase) in the same turn. No step names them as its author, but they author like /sf-phase,
+  // bound to the current step's own policy; a read turn refused what their instructions do. Every
+  // delegation skill takes the turn of the skill it delegates to (phase-mutation-contract.test.mjs).
+  if (['specify', 'plan', 'verify', 'implement', 'call', 'scenario-repair'].includes(name)) return 'authoring';
   // Kernel actions have their own authority checks. This never permits direct source edits.
   if (['inputs', 'next', 'recover', 'appeal', 'clarify', 'revise', 'submit', 'converge', 'continue',
     'admin', 'init', 'configuration', 'documents', 'upload', 'workflows', 'workflow-rules', 'skills', 'instructions',

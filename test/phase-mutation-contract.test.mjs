@@ -816,6 +816,20 @@ test('native authoring verification runs a real test and starts/stops only its o
   assert.deepEqual(await mutationPostToolGuard(stop), {});
 });
 
+test('a delegation skill takes the turn of the skill it delegates to, so the delegated run is not refused', async t => {
+  const { skills } = YAML.parse(readFileSync(new URL('../plugin/skills/registry.yml', import.meta.url), 'utf8'));
+  const delegations = Object.entries(skills).filter(([, rule]) => rule.class === 'delegation');
+  assert.ok(delegations.some(([id]) => id === 'sflow-call'));
+  for (const [id, rule] of delegations) assert.equal(mutationTurnMode(id), mutationTurnMode(rule.delegatesTo), `${id} delegates to ${rule.delegatesTo}`);
+  // A live /sf-call ran /sf-code through a sub-agent, which a read turn refused (PHASE_MUTATION_DELEGATION_NOT_ALLOWED).
+  const f = await fixture(t);
+  for (const skill of ['/sf-call', '/sf-scenario-repair']) {
+    const payload = await f.enter(skill, `delegate-${skill}`);
+    const decision = await mutationToolGuard({ ...payload, toolName: 'task', toolArgs: { prompt: 'Run /sf-code once for the current step.' } });
+    assert.doesNotMatch(JSON.stringify(decision), /DELEGATION_NOT_ALLOWED/u, skill);
+  }
+});
+
 test('local verification does not widen review, publication, decision, read or kernel-only turns', async t => {
   const f = await fixture(t);
   for (const skill of ['/sf-review-source', '/sf-publish', '/sf-approve', '/sf-next', '/sf-inspect']) {

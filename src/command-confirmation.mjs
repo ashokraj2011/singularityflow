@@ -6,8 +6,8 @@ export async function withCommandConfirmation(options, invoke) {
     .flatMap(value => String(value).split(',')).map(value => value.trim()).filter(Boolean));
   if (!overrides.size) return invoke();
   const { sequenceConfirmationRequired, withConfirmationPort } = await import('./sequence.mjs');
-  return withConfirmationPort((message, gate) => {
+  return withConfirmationPort((message, gate, next) => {
     if (overrides.has(`continue:${gate}`)) return true;
-    throw sequenceConfirmationRequired(message, gate);
+    throw sequenceConfirmationRequired(message, gate, next);
   }, invoke);
 }

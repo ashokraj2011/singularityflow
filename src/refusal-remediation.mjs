@@ -40,6 +40,8 @@ function explicitCommands(error) {
     details?.repairCommand,
     typeof details?.command === 'string' ? details.command : null,
     details?.retry,
+    // A throw site that names its retry under this name (a pending sync or proposal upload).
+    typeof details?.retryCommand === 'string' ? details.retryCommand : null,
     ...(Array.isArray(details?.recoveryCommands) ? details.recoveryCommands : []),
     ...(Array.isArray(details?.actions) ? details.actions : []),
     // A gate refusal's own actions, so the recovery plan every surface renders is the gate's
@@ -1113,6 +1115,8 @@ function deduplicate(steps) {
   }).filter((entry, index) => index < PLAN_STEP_LIMIT || PLAN_RESERVED_STEP_IDS.includes(entry.id));
 }
 
+const RETAINED_RETRIES = Object.freeze([['push', 'retry'], ['sync'], ['initiative', 'sync'], ['goal', 'sync'], ['story', 'branch', 'promote']]);
+
 export function refusalRemediationPlan(error, argv = []) {
   // The CLI drops the global --no-model before dispatching; the phase this refusal belongs to is
   // read from the same command words, or a no-model run loses its phase scope.
@@ -1129,10 +1133,12 @@ export function refusalRemediationPlan(error, argv = []) {
     retry: Object.freeze({ label: 'Do not retry until the compiler/build has been repaired or aligned and a fresh designer handoff is available.', automatic: false })
   });
   const hookFailure = error?.details?.remoteFailure?.hook ?? localGitHookFailure({ stderr: error?.message });
-  // A refusal that retained its publication names the exact retry; after the repair that is the way
-  // out, where a diagnosis would only describe the hook again.
+  // A refusal that retained its publication names the exact retry (push retry, sync, initiative or
+  // goal sync, a branch promotion); after the repair that is the way out, where a diagnosis would
+  // only describe the hook again.
   const retainedRetry = hookFailure
-    ? explicitCommands(error).find((entry) => entry.argv?.[0] === 'push' && entry.argv?.[1] === 'retry') ?? null : null;
+    ? explicitCommands(error).find((entry) => RETAINED_RETRIES.some((form) => form.every((word, index) => entry.argv?.[index] === word))) ?? null
+    : null;
   if (hookFailure) return Object.freeze({
     schemaVersion: 1, // schema-transient: process-boundary guidance, never persisted
     status: 'blocked', code,
@@ -1245,7 +1251,9 @@ export function refusalRemediationPlan(error, argv = []) {
     : configurationProblemsBlocked ? [...known, ...nonDuplicateExplicit]
     : selfGuidedBlocked ? [...nonDuplicateExplicit, ...known]
     : sessionTransportBlocked ? [...known, ...nonDuplicateExplicit]
-    : repositoryRunnerBlocked || pinnedTestPolicyBlocked || softGateBlocked || approvalTerminalBlocked || unknownRecoveryPhase || identityBlocked ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
+    // A soft gate's alternative to the override is the Story's own next step: name it first.
+    : softGateBlocked ? [...nonDuplicateExplicit, ...known]
+    : repositoryRunnerBlocked || pinnedTestPolicyBlocked || approvalTerminalBlocked || unknownRecoveryPhase || identityBlocked ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
     ? phaseContext.turn === 'new-turn'
       // Reserve the bounded recovery/new-turn steps before the global three-step presentation cap;
       // arbitrary producer diagnostics must never displace the instruction that ends approval.

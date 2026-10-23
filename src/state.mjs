@@ -334,7 +334,7 @@ function convergenceAdvanceRequired(workflow, details = {}) {
     `Convergence can be submitted only through explicit human advancement. Run singularity-flow story advance --work-id ${workId} to review the deterministic result and receive its digest-bound confirmation command.`,
     {
       code: 'CONVERGENCE_ADVANCE_CONFIRMATION_REQUIRED',
-      details: { workId, ...details }
+      details: { workId, ...details, nextAction: `singularity-flow story advance --work-id ${workId}` }
     }
   );
 }
@@ -2081,7 +2081,9 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       `Phase '${phase.id}' generation ${phase.generation} is already published. `
       + `Run singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json, `
       + 'then execute its exact phase-begin action before preparing the next generation.',
-      { code: 'GENERATION_INTENT_ALREADY_CONSUMED' }
+      { code: 'GENERATION_INTENT_ALREADY_CONSUMED', details: {
+        nextAction: { command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`, skill: '/sf-recover' }
+      } }
     );
   }
   await assertMcpPhaseReadiness(root, workflow, phase);
@@ -3131,7 +3133,9 @@ export async function generationResultMatches(root, config, workflow, phase) {
 
 function assertRequiredAssignment(workflow, phase) {
   if (workflow.resolution?.collaboration?.assignmentMode === 'required' && !workflow.collaboration?.assignments?.[phase.id]) {
-    throw new SingularityFlowError(`Phase '${phase.id}' requires an assignment. Run singularity-flow assign ${phase.id} <assignee> before publishing.`);
+    throw new SingularityFlowError(`Phase '${phase.id}' requires an assignment. Run singularity-flow assign ${phase.id} <assignee> before publishing.`, {
+      details: { nextAction: `singularity-flow assign ${phase.id} <assignee>` }
+    });
   }
 }
 
@@ -3392,7 +3396,7 @@ export async function publishGeneration(root, config, workflow, {
         && await generationResultMatches(root, config, workflow, phase)) return phase;
     throw new SingularityFlowError(
       `Generation intent ${phase.generationIntent.id} was already consumed and the source or artifact bytes now differ. Run singularity-flow phase rollover ${phase.id} to preview the exact guarded next-generation command.`,
-      { code: 'GENERATION_INTENT_ALREADY_CONSUMED' }
+      { code: 'GENERATION_INTENT_ALREADY_CONSUMED', details: { nextAction: `singularity-flow phase rollover ${phase.id}` } }
     );
   }
   const generationIntent = await verifyOpenGenerationIntent(root, workflow, phase);
@@ -5056,7 +5060,8 @@ async function submitPhaseTransition(root, config, workflow, {
           details: {
             workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
             status: review.status, findings: review.findings ?? [],
-            pendingDispositions: review.pendingDispositions ?? []
+            pendingDispositions: review.pendingDispositions ?? [],
+            nextAction: { command: `singularity-flow review-source context ${phase.id} --json`, skill: '/sf-review-source' }
           }
         }
       );
@@ -5800,7 +5805,8 @@ export async function approvePhase(root, config, workflow, {
           code: 'SOURCE_REVIEW_REQUIRED',
           details: {
             workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
-            status: review.status, findings: review.findings ?? []
+            status: review.status, findings: review.findings ?? [],
+            nextAction: { command: `singularity-flow review-source context ${phase.id} --json`, skill: '/sf-review-source' }
           }
         }
       );

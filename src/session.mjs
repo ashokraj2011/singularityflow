@@ -181,7 +181,7 @@ export async function setNativeCopilotAgentSession(root, resolved, actor = null)
 export async function loadSession(root, { required = true } = {}) {
   const file = sessionPath(root);
   if (!(await exists(file))) {
-    if (required) throw new SingularityFlowError('No active agent session. Run singularity-flow resume <WORK-ID>.');
+    if (required) throw new SingularityFlowError('No active agent session. Run singularity-flow resume <WORK-ID>.', { details: { nextAction: 'singularity-flow resume <WORK-ID>' } });
     return null;
   }
   return readRecord(SESSION_FAMILY, await readFile(file)).record;

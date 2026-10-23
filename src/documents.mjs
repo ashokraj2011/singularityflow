@@ -381,7 +381,7 @@ function assertStoryOpenForDocuments(workflow, action) {
   }
   if (workflow.status === 'closed' || workflow.currentPhase == null) {
     throw new SingularityFlowError(`Story '${id}' is complete; reopen it (singularity-flow reopen ${id} --to PHASE --reason TEXT) before its documents are ${action}.`,
-      { code: 'DOCUMENT_STORY_CLOSED', details: { workId: id, status: workflow.status ?? 'closed' } });
+      { code: 'DOCUMENT_STORY_CLOSED', details: { workId: id, status: workflow.status ?? 'closed', nextAction: `singularity-flow reopen ${id} --to <PHASE> --reason <TEXT>` } });
   }
 }
 

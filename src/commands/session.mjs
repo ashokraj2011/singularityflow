@@ -313,7 +313,8 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
     if (context.repositoryState !== 'ready') {
       throw new SingularityFlowError(
         `Workspace '${context.workspaceName}' is selected, but repository '${context.repositoryId}' is ${context.repositoryState}. `
-        + `Run 'singularity-flow workspace repair ${context.workspacePath}' before attaching a session.`
+        + `Run 'singularity-flow workspace repair ${context.workspacePath}' before attaching a session.`,
+        { details: { nextAction: `singularity-flow workspace repair ${context.workspacePath}` } }
       );
     }
     const currentDirectory = path.resolve(process.cwd());
@@ -436,7 +437,7 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
     if (!managed) {
       throw new SingularityFlowError(
         `No managed checkout currently owns Story '${workId}'. Reattach it with 'singularity-flow session attach ${workId} --json'.`,
-        { code: 'ACTIVE_SUBJECT_UNAVAILABLE' }
+        { code: 'ACTIVE_SUBJECT_UNAVAILABLE', details: { nextAction: `singularity-flow session attach ${workId} --json` } }
       );
     }
     const repaired = await activateWorkspaceStoryContext(

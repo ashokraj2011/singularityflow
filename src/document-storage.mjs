@@ -240,7 +240,9 @@ export async function readLocalDocument(root, workId, record) {
   }
   fail(unavailableMessage(record, located.status),
     located.status === 'changed' ? 'DOCUMENT_LOCAL_CHANGED' : 'DOCUMENT_LOCAL_UNAVAILABLE',
-    { documentId: record.id, sha256: record.sha256, availability: located.status });
+    { documentId: record.id, sha256: record.sha256, availability: located.status,
+      // The message's own way out; its file placeholder keeps it a route the person completes.
+      nextAction: `singularity-flow documents restore ${record.id} --file <LOCAL-FILE>` });
 }
 
 export { unavailableMessage as localDocumentUnavailableMessage };

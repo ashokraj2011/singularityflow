@@ -4,10 +4,10 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "e3b13fe21662c20c828ea306cc44d4dd923b8ed3",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-23-WORKFLOW-BUNDLE-V10-USER-DEFINED-FOLDERS.md",
+    "reviewedAtCommit": "507ade77b65e3641596ef36ca0c131708875a38e",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-23-PUBLICATION-PUSH-FAILURE-ROUTE.md",
     "companionIds": [
-      "migration-registry"
+      "publication-unit-of-work"
     ]
   },
   "companions": [
@@ -84,7 +84,7 @@
     {
       "id": "publication-unit-of-work",
       "path": "src/publication-unit-of-work.mjs",
-      "sha256": "sha256:443f59dcd45fbad7f2fc968985da63b58e5d2d148aef5a182c3d668ddc8541db"
+      "sha256": "sha256:bbff2a3a9cc255c7c697fa45862e1be57bf92e74bb6a3944813e61e6f32ce807"
     },
     {
       "id": "action-authorization",

@@ -124,18 +124,23 @@ function commandLines(actions, alternativeSecond = false) {
   ));
 }
 
+/** The way on a gate names: publish a retained commit first, or the Story's own next step. */
+function gateGuidance(workflow, gate) {
+  return gate === 'publicationPending'
+    ? {
+        summary: 'Publish the retained local lifecycle commit before any further mutation.',
+        actions: [copilotAction({ command: 'singularity-flow sync' })]
+      }
+    : sequenceGuidance(workflow);
+}
+
 function sequenceMessage(workflow, gate, action, { requestedPhase = null, reason = null, mode = sequenceGateMode(workflow, gate), guidance: withGuidance = true } = {}) {
   const phase = activePhase(workflow);
   const target = requestedPhase ?? phase?.id ?? null;
   const current = phase
     ? `phase '${phase.id}' is ${phase.status} at generation ${phase.generation ?? 0}`
     : `workflow '${workflow.workItem.id}' is complete`;
-  const guidance = gate === 'publicationPending'
-    ? {
-        summary: 'Publish the retained local lifecycle commit before any further mutation.',
-        actions: [copilotAction({ command: 'singularity-flow sync' })]
-      }
-    : sequenceGuidance(workflow);
+  const guidance = gateGuidance(workflow, gate);
   return [
     `${mode === 'soft' ? 'Soft sequence warning' : 'Out of sequence'} [${gate}]: cannot ${action}${target ? ` for phase '${target}'` : ''}.`,
     `Current state: ${current}.`,
@@ -248,20 +253,24 @@ function confirmationKey(gate, requestedPhase, reason) {
  * The refusal when a soft gate cannot be confirmed here: no terminal to ask in, or an override that
  * does not name this gate. It says exactly what to add, so a script or an editor can continue.
  */
-export function sequenceConfirmationRequired(message, gate) {
+export function sequenceConfirmationRequired(message, gate, next = null) {
   return new SingularityFlowError(
     `${message}\nTo continue anyway, run it again in an interactive terminal, or add --confirm-override continue:${gate} (once for each gate it reports). The override is recorded. Nothing was changed.`,
-    { exitCode: 2, code: 'SEQUENCE_CONFIRMATION_REQUIRED', details: { gate, confirmOverride: `continue:${gate}` } }
+    { exitCode: 2, code: 'SEQUENCE_CONFIRMATION_REQUIRED', details: {
+      gate, confirmOverride: `continue:${gate}`,
+      // The Story's next step, the alternative to overriding: recovery routes it before the override.
+      ...(next ? { nextAction: next } : {})
+    } }
   );
 }
 
-async function askToContinue(message, gate) {
+async function askToContinue(message, gate, next = null) {
   const testConfirmation = process.env.NODE_ENV === 'test' ? process.env.SINGULARITY_FLOW_TEST_SEQUENCE_CONFIRM : null;
   if (testConfirmation != null) {
     const accepted = testConfirmation.split(',').map((value) => value.trim()).filter(Boolean);
     return accepted.includes('all') || accepted.includes(gate);
   }
-  if (!input.isTTY || !output.isTTY) throw sequenceConfirmationRequired(message, gate);
+  if (!input.isTTY || !output.isTTY) throw sequenceConfirmationRequired(message, gate, next);
   console.warn(`\n${message}`);
   const io = readline.createInterface({ input, output });
   try {
@@ -273,8 +282,8 @@ async function askToContinue(message, gate) {
 }
 
 /** Port used by terminal and editor confirmation adapters. */
-export async function confirmOverride({ message, gate }, confirmationPort = activeConfirmationPort ?? askToContinue) {
-  return confirmationPort(message, gate);
+export async function confirmOverride({ message, gate, next = null }, confirmationPort = activeConfirmationPort ?? askToContinue) {
+  return confirmationPort(message, gate, next);
 }
 
 /** Scope one surface adapter to one command; it can never leak into the next invocation. */
@@ -322,7 +331,8 @@ export async function enforceSequenceGate(root, workflow, gate, action, { reques
   // The Story's own next step is unrelated to adding a document outside its upload window, so that
   // gate's warning leaves it out; the other gates' next steps are the alternative to continuing.
   const message = sequenceMessage(workflow, gate, action, { requestedPhase, reason, mode, guidance: gate !== 'documentPhase' });
-  if (!(await confirmOverride({ message, gate }))) {
+  const next = gate === 'documentPhase' ? null : gateGuidance(workflow, gate).actions?.[0]?.command ?? null;
+  if (!(await confirmOverride({ message, gate, next }))) {
     throw new SingularityFlowError(`${message}\nSoft gate was not confirmed. Nothing was changed.`, { exitCode: 2 });
   }
   const phase = activePhase(workflow);

@@ -181,7 +181,8 @@ export async function proposeDrafts(root, { apply, message = null }) {
     fail(drafts.proposed
       ? `No drafts are waiting. Your last proposal, ${drafts.proposed.branch}, is ready for approval: singularity-flow configuration approve`
       : 'No drafts are waiting. Create or edit an agent, skill or instruction first; each change is saved as a draft.',
-    'CONFIGURATION_DRAFTS_EMPTY');
+    'CONFIGURATION_DRAFTS_EMPTY',
+    drafts.proposed ? { nextAction: `singularity-flow configuration approve ${drafts.proposed.branch}` } : null);
   }
   const changes = drafts.changes.map((entry) => entry.change);
   const identity = batchIdentity(changes, changes[0].id ?? changes[0].skill ?? 'change', `[configuration] ${describeChange(changes[0])}`);
@@ -283,7 +284,10 @@ export async function approveProposal(root, requested, {
     if (!open.length) fail('No configuration proposal is waiting for approval.', 'CONFIGURATION_APPROVE_NOTHING');
     if (open.length > 1) {
       fail(`${open.length} proposals are waiting. Name the one to approve:\n${open.map((entry) => `  singularity-flow configuration approve ${entry.branch}`).join('\n')}`,
-        'CONFIGURATION_APPROVE_PROPOSAL_REQUIRED', { proposals: open.map((entry) => entry.branch) });
+        'CONFIGURATION_APPROVE_PROPOSAL_REQUIRED', {
+          proposals: open.map((entry) => entry.branch),
+          recoveryCommands: open.map((entry) => `singularity-flow configuration approve ${entry.branch}`)
+        });
     }
     branch = open[0].branch;
   }

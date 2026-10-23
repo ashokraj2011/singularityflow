@@ -738,9 +738,18 @@ export class GitPublicationUnitOfWork {
           event: envelope, ledger: null, candidate: candidateBinding,
           ...(revisionSelection ? { revisionSelection } : {})
         };
-        throw new SingularityFlowError(`${message} Run the appropriate sync command after ${result.failure?.hook ? 'repairing the local hook or runtime' : 'fixing remote access'}.`, {
-          ...(result.failure?.hook ? { code: result.failure.code, details: { remoteFailure: result.failure } } : {})
+        // The commit is on its branch; only the push failed. Name the sync that publishes this exact
+        // commit (it never authors again), so recovery routes it instead of repeating the command,
+        // or rejecting a step whose approval is already committed.
+        const sync = subject.kind === 'story' ? `singularity-flow sync ${subject.id}`
+          : subject.kind === 'initiative' ? `singularity-flow initiative sync ${subject.id}` : null;
+        const failure = new SingularityFlowError(`${message} ${sync ? `Run ${sync}` : 'Run the appropriate sync command'} after ${result.failure?.hook ? 'repairing the local hook or runtime' : 'fixing remote access'}.`, {
+          ...(result.failure?.hook ? { code: result.failure.code } : {}),
+          details: { ...(result.failure?.hook ? { remoteFailure: result.failure } : {}), ...(sync ? { nextAction: sync } : {}) }
         });
+        failure.publicationRefAdvanced = true;
+        failure.publicationCommit = sourceCommit;
+        throw failure;
       }
       pushed = true;
       await updatePublicationJournal(root, subject, {

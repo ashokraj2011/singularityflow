@@ -232,7 +232,7 @@ export function requireOpenGenerationIntent(workflow, phase) {
   if (!intent || intent.status !== 'open' || Number(intent.generation) !== expectedGeneration) {
     throw new SingularityFlowError(
       `Phase '${phase.id}' requires an open generation intent. Run singularity-flow phase begin ${phase.id} before changing source.`,
-      { code: 'GENERATION_INTENT_REQUIRED' }
+      { code: 'GENERATION_INTENT_REQUIRED', details: { nextAction: `singularity-flow phase begin ${phase.id}` } }
     );
   }
   return intent;

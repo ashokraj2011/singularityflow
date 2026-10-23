@@ -4995,7 +4995,7 @@ async function explainLostPublicationRace(root, config, workflow, error) {
     return new SingularityFlowError(
       `Another clone published to ${workflow.workItem.id} first, so its retained document upload (commit ${plan.commit.slice(0, 8)}) cannot be pushed as it is. `
       + 'Replay it onto the published Story with singularity-flow sync --replay (preview with --dry-run): the same documents are added again and take the next free IDs. Nothing was changed.',
-      { code: 'STORY_PUBLICATION_RACE_LOST', details: { commit: plan.commit, remoteTip: plan.remoteTip, documents: plan.documents } }
+      { code: 'STORY_PUBLICATION_RACE_LOST', details: { commit: plan.commit, remoteTip: plan.remoteTip, documents: plan.documents, nextAction: 'singularity-flow sync --replay --dry-run' } }
     );
   }
   if (plan?.reason === 'name-taken') {
@@ -9794,6 +9794,7 @@ async function workspaceCommand(positionals, options) {
         console.log('Application checkout is deferred until work starts. Use --clone to create it now.');
       }
       if (state?.error) console.log(`  the ${optionString(options, 'state-branch', 'state')} branch was not created: ${state.error}`);
+      else if (state?.publicationError) console.log(`  the ${state.branch} branch was created locally, but its configuration was not published: ${state.publicationError}`);
       else if (state?.created) console.log(`  created the ${state.branch} branch in ${localResult.workspace.leadRepository}`);
       else if (state) console.log(`  the ${state.branch} branch is already in ${localResult.workspace.leadRepository}`);
       if (state?.pinRepair && !state.pinRepair.valid) {
@@ -11868,9 +11869,9 @@ async function dispatch(command, positionals, options, argv) {
   try {
     if (overrides.size) {
       return withConfirmationPort(
-        (message, gate) => {
+        (message, gate, next) => {
           if (overrides.has(`continue:${gate}`)) return true;
-          throw sequenceConfirmationRequired(message, gate);
+          throw sequenceConfirmationRequired(message, gate, next);
         },
         invoke
       );

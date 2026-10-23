@@ -350,7 +350,12 @@ export async function activeWorkspaceRepositoryRoot(command, {
     `Active workspace '${context.workspaceName ?? context.workspaceId}' points to '${selectedPath}', which is not an available Git repository. Repair the workspace or run 'singularity-flow workspace use <WORKSPACE>'.`,
     {
       code: 'ACTIVE_WORKSPACE_REPOSITORY_UNAVAILABLE',
-      details: { workspaceId: context.workspaceId, repositoryId: context.repositoryId, repositoryPath: selectedPath }
+      details: {
+        workspaceId: context.workspaceId, repositoryId: context.repositoryId, repositoryPath: selectedPath,
+        // Workspace commands run without a repository; doctor and nextsteps would meet this again.
+        nextAction: 'singularity-flow workspace list',
+        recoveryCommands: ['singularity-flow workspace use <WORKSPACE>']
+      }
     }
   );
 }
@@ -831,7 +836,10 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
   if (!root && !routingExcluded) {
     throw new SingularityFlowError(
       "Run Singularity Flow from inside a Git repository, or select one with 'singularity-flow workspace use <WORKSPACE>'.",
-      { code: 'REPOSITORY_CONTEXT_REQUIRED' }
+      { code: 'REPOSITORY_CONTEXT_REQUIRED', details: {
+        nextAction: 'singularity-flow workspace list',
+        recoveryCommands: ['singularity-flow workspace use <WORKSPACE>']
+      } }
     );
   }
   if (utilityEntry) utilityEntry.repositoryPath = root;

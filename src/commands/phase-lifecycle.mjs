@@ -246,7 +246,7 @@ export async function phaseCommand(positionals, options) {
     if (!(await generationResultMatches(root, config, workflow, requestedPhase))) {
       throw new SingularityFlowError(
         `Generation intent ${requestedPhase.generationIntent.id} was already consumed and the source or artifact bytes now differ. Run singularity-flow phase rollover ${phaseId} to preview the exact guarded next-generation command.`,
-        { code: 'GENERATION_INTENT_ALREADY_CONSUMED' }
+        { code: 'GENERATION_INTENT_ALREADY_CONSUMED', details: { nextAction: `singularity-flow phase rollover ${phaseId}` } }
       );
     }
     if (optionBoolean(options, 'json')) {

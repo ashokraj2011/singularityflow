@@ -24,18 +24,59 @@ import { structuredTestCommandRequiredError } from '../src/code-delivery-tests.m
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 
-test('a Story start stopped by its enrollment push names the cause, and the way out is the exact retry', async () => {
-  const { enrollmentPendingError } = await import('../src/configuration-people.mjs');
+test('a refused enrollment push names its cause and the retry, and a moved branch offers no retry', async () => {
+  const { enrollmentPendingNotice } = await import('../src/configuration-people.mjs');
   const intent = 'psh_7e94aa00-1111-2222-3333-444455556666';
-  const refused = (fault) => enrollmentPendingError({ transportIntent: intent, transportStatus: 'needs-user', fault });
-  const hook = refused({ classification: 'local-hook-failed', advice: 'Review the local Git hook output.',
+  const notice = (status, fault) => enrollmentPendingNotice({ transportIntent: intent, transportStatus: status, fault });
+  const hook = notice('needs-user', { classification: 'local-hook-failed', advice: 'Review the local Git hook output.',
     evidence: { diagnostic: 'husky - pre-push hook exited with code 1 (npm run lint)  ' } });
-  assert.match(hook.message, /^Automatic approval enrollment is pending publication\. Git refused the push to sflow\/config \(local-hook-failed\): "husky - pre-push hook exited with code 1 \(npm run lint\)"\. Review the local Git hook output\. After fixing that, run: singularity-flow push retry psh_7e94aa00-1111-2222-3333-444455556666, then start the Story again\.$/u);
-  const hookPlan = refusalRemediationPlan(hook, ['start', 'PMBEPP-1']);
-  assert.equal(hookPlan.steps.at(-1).command, `singularity-flow push retry ${intent}`, 'not another diagnosis of the hook');
-  const write = refused({ classification: 'authorization-denied', advice: 'Ask for write access, then retry.',
-    evidence: { diagnostic: 'remote: Permission to org/app.git denied to someone.' } });
-  assert.equal(refusalRemediationPlan(write, ['start', 'PMBEPP-1']).steps[0].command, `singularity-flow push retry ${intent}`);
+  assert.equal(hook.message, 'Your Git identity was not added to the approval groups on sflow/config; until it is, approvals need someone already in them.'
+    + ' Git refused the push to sflow/config (local-hook-failed): "husky - pre-push hook exited with code 1 (npm run lint)". Review the local Git hook output.'
+    + ` After fixing that, run: singularity-flow push retry ${intent}.`);
+  assert.deepEqual(hook.nextAction, { command: `singularity-flow push retry ${intent}`, skill: '/sf-push' });
+  const moved = notice('remote-diverged', { classification: 'remote-diverged' });
+  assert.equal(moved.nextAction, null, 'a retry of a commit the branch moved past can only fail');
+  assert.match(moved.message, /sflow\/config moved before the push landed, so the next Story start adds you again\.$/u);
+});
+
+test('a local pre-push hook refusal that retained its publication ends at that exact retry, not another diagnosis', () => {
+  const intent = 'psh_7e94aa00-1111-2222-3333-444455556666';
+  const refusal = Object.assign(new Error('Publication is pending. Git refused it: "husky - pre-push hook exited with code 1".'), {
+    code: 'CONFIGURATION_PROPOSAL_PUBLICATION_PENDING',
+    details: { nextAction: { command: `singularity-flow push retry ${intent}`, skill: '/sf-push' } }
+  });
+  assert.equal(refusalRemediationPlan(refusal, ['workflow', 'import']).steps.at(-1).command, `singularity-flow push retry ${intent}`);
+});
+
+test('refusals that name their way out route it, instead of --help, doctor or a step that meets the same refusal', async () => {
+  const refusal = (code, message, details, extra = {}) => Object.assign(new Error(message), { code, details, ...extra });
+  const commands = (error, argv) => refusalRemediationPlan(error, argv).steps.map((entry) => entry.command);
+  // The workspace refusals: workspace commands run without a repository; doctor would meet this again.
+  const workspace = commands(refusal('ACTIVE_WORKSPACE_REPOSITORY_UNAVAILABLE', 'Active workspace points nowhere.', {
+    nextAction: 'singularity-flow workspace list', recoveryCommands: ['singularity-flow workspace use <WORKSPACE>'] }), ['status']);
+  assert.ok(workspace.includes('singularity-flow workspace list'), workspace.join(' | '));
+  assert.ok(workspace.slice(0, 2).every((command) => /^singularity-flow workspace (?:list|use)\b/u.test(command)), workspace.join(' | '));
+  assert.ok(commands(refusal('SOURCE_REVIEW_REQUIRED', 'Review is not ready.', {
+    workId: 'W-1', phase: 'spec', nextAction: { command: 'singularity-flow review-source context spec --json', skill: '/sf-review-source' } }), ['submit', 'spec'])
+    .includes('singularity-flow review-source context spec --json'));
+  assert.ok(commands(refusal('GENERATION_INTENT_REQUIRED', 'Open a generation intent.', { nextAction: 'singularity-flow phase begin build' }), ['prepare', 'build'])
+    .includes('singularity-flow phase begin build'));
+  assert.equal(commands(refusal('STORY_PUBLICATION_RACE_LOST', 'Another clone published first.', { nextAction: 'singularity-flow sync --replay --dry-run' }), ['documents', 'upload'])[0],
+    'singularity-flow sync --replay --dry-run');
+  assert.deepEqual(commands(refusal('CONFIGURATION_APPROVE_PROPOSAL_REQUIRED', '2 proposals are waiting.', {
+    proposals: ['sflow/config-change/a', 'sflow/config-change/b'],
+    recoveryCommands: ['singularity-flow configuration approve sflow/config-change/a', 'singularity-flow configuration approve sflow/config-change/b'] }), ['configuration', 'approve']).slice(0, 2),
+  ['singularity-flow configuration approve sflow/config-change/a', 'singularity-flow configuration approve sflow/config-change/b'], 'not an empty plan');
+  // A soft gate: the Story's next step first, the recorded override after it.
+  const { sequenceConfirmationRequired } = await import('../src/sequence.mjs');
+  const gate = commands(sequenceConfirmationRequired('Soft sequence warning [phaseStatus]: cannot prepare.', 'phaseStatus', 'singularity-flow approve spec'), ['prepare', 'spec']);
+  assert.equal(gate[0], 'singularity-flow approve spec');
+  assert.ok(gate.includes('singularity-flow prepare spec --confirm-override continue:phaseStatus'));
+  // A Story push that failed after its commit: finish it with sync, never repeat or reject the step.
+  const pushed = refusal(undefined, 'story commit 1234abcd was retained locally but push failed. Run singularity-flow sync W-1 after fixing remote access.',
+    { nextAction: 'singularity-flow sync W-1' }, { publicationRefAdvanced: true, publicationCommit: 'a'.repeat(40) });
+  assert.equal(commands(pushed, ['approve', 'spec'])[0], 'singularity-flow sync');
+  assert.equal(commands(pushed, ['phase', 'publish', 'spec'])[0], 'singularity-flow sync');
 });
 
 test('session transport refusal retains the selected listing scope and explicit refresh without retry', () => {

@@ -21,7 +21,7 @@ import { readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { observeFindingStreak } from './finding-escalation.mjs';
 import { gitDir } from './git-execution.mjs';
-import { CLI_PATH_CONTRACT, safeCommandGuidance, validateSafeSflowCommand } from './safe-command-guidance.mjs';
+import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSafeSflowCommand } from './safe-command-guidance.mjs';
 import { validateAgentEntryRequest } from './agent-entry-options.mjs';
 import { interpretsForAgent } from './cli-json-output.mjs';
 import { parseArgs, writeAtomic } from './util.mjs';
@@ -515,6 +515,26 @@ export async function withAgentRoutes(value) {
   return walk(value);
 }
 
+// A field that hands the agent a path: its key names one and its value is one (or a list of them).
+// `repositoryPath` alone is the command cwd every skill boundary already names.
+const PATH_KEY = /^(?:path|file|root|directory|textFile)$|(?:Path|File|Root|Directory)$/u;
+const PATH_LIST_KEY = /^(?:paths|files|textFiles)$|(?:Paths|Files)$/u;
+
+/** Whether a result returns file paths the agent is expected to use. `[OUT:REQ-030]` */
+export function returnsAgentPaths(result) {
+  const visit = (node, top) => {
+    if (Array.isArray(node)) return node.some((child) => visit(child, false));
+    if (!node || typeof node !== 'object') return false;
+    return Object.entries(node).some(([key, value]) => {
+      if (top && (key === 'act' || key === 'repositoryPath')) return false;
+      if (typeof value === 'string') return PATH_KEY.test(key) && /[/\\]/u.test(value);
+      if (PATH_LIST_KEY.test(key) && Array.isArray(value) && value.some((entry) => typeof entry === 'string' && entry)) return true;
+      return visit(value, false);
+    });
+  };
+  return visit(result, true);
+}
+
 /**
  * The agent view of one command's JSON stdout. Small results keep every field, with `act` first;
  * larger ones are written whole and stdout keeps what fits. Text that is not one JSON object is
@@ -532,18 +552,28 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
   const derived = result.act ?? agentAct(result);
   const counted = derived && !UNCOUNTED_STATES.has(derived.state) && (derived.do || derived.ask);
   const observed = counted && locate() ? observeAgentLoop(locate().root, result, derived, { now: now.getTime() }) : derived;
-  // Put the rule in the mandatory first field, never an omitted long instruction or catalog body.
-  // Presentation only: no new filesystem/Git lookup, path rewriting or permission is introduced.
-  const act = observed && !result.paused ? { ...observed, paths: CLI_PATH_CONTRACT } : observed;
-  const ordered = await withAgentRoutes(act ? { act, ...Object.fromEntries(Object.entries(result).filter(([key]) => key !== 'act')) } : result);
-  const whole = agentJson(ordered);
+  // Name the path rule in the mandatory first field, never an omitted long instruction or catalog
+  // body, and only where the view returns paths to use: its own fields, or the file a bounded view
+  // writes. Presentation only: no new filesystem/Git lookup, path rewriting or permission.
+  const rest = Object.fromEntries(Object.entries(result).filter(([key]) => key !== 'act'));
+  const presented = async (paths) => {
+    const act = observed && !result.paused && paths ? { ...observed, paths: CLI_PATH_REFERENCE } : observed;
+    const ordered = await withAgentRoutes(act ? { act, ...rest } : result);
+    return { act, ordered, whole: agentJson(ordered) };
+  };
+  let { act, ordered, whole } = await presented(returnsAgentPaths(result));
   const { catalogAgentView } = await import('./agent-catalog-presentation.mjs');
-  const catalog = catalogAgentView(ordered);
+  let catalog = catalogAgentView(ordered);
   // JSON packet lines are not source citation lines. Keep exact bytes once in a native-readable
   // file even for short review sources, rather than duplicating them as numbered prompt text.
   const reviewSources = ['source-review-agent-context', 'source-review-context'].includes(result.resultType)
     && result.canReview && Array.isArray(result.sources) && result.sources.length > 0;
   if ((!catalog && !reviewSources && bytes(whole) <= budget) || !locate()) return `${whole}\n`;
+  // A bounded view returns the file it wrote, so it names the rule too.
+  if (act && !act.paths && !result.paused) {
+    ({ act, ordered, whole } = await presented(true));
+    catalog = catalogAgentView(ordered);
+  }
   const target = locate();
   const kind = String(result.resultType ?? (result.error ? 'refusal' : 'result')).replace(/[^A-Za-z0-9-]/gu, '-').slice(0, 48);
   const base = `${kind}-${now.toISOString().replace(/[:.]/gu, '-')}-${sha256(whole).slice(7, 15)}`;
@@ -561,7 +591,9 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
   const describe = (fullText, instruction) => ({ complete: false, path: file,
     ...(relative && !relative.startsWith('..') && !path.isAbsolute(relative) ? { relativePath: relative.split(path.sep).join('/') } : {}),
     bytes: bytes(fullText), lines: fullText.split('\n').length - 1, sha256: sha256(fullText), instruction });
-  const catalogInstruction = 'Metadata-only catalog. Read a selected detailField from this exact retained result; long texts have their own referenced files. No definition was discarded. A summary does not replace selected skill/instruction bodies.';
+  // Each instruction is one sentence under 200 bytes; the skills' output contract states the rule in
+  // full (COMPLETE_OUTPUT_CONTRACT in scripts/skill-policy.mjs). `[OUT:REQ-031]`
+  const catalogInstruction = 'Metadata-only catalog: read a selected detailField from this retained result (long texts have their own files); no definition was discarded, and a summary never replaces a selected body.';
   if (catalog) {
     const agentOutput = describe(await write(full), catalogInstruction);
     // Prefer every identity to a richer partial list: a list-names task must not expand the
@@ -572,7 +604,7 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
       if (bytes(rendered) <= budget) return `${rendered}\n`;
     }
   }
-  const instruction = catalog ? catalogInstruction : 'A bounded view of a complete result. agentOutput.read names the lines of agentOutput.path that hold the fields left out (whole fields, 1-based, inclusive). Request those ranges and every omittedFields textFiles path (by its read ranges when it has them) together, in one response, with your file-reading tool. omittedFields gives each field\'s own range. Nothing was truncated.';
+  const instruction = catalog ? catalogInstruction : 'Bounded result: request every agentOutput.read line range (1-based, inclusive) and every omittedFields textFiles path, by its read ranges when given, together in one response; nothing was truncated.';
   const keys = Object.keys(ordered).filter((key) => key !== 'act');
   const size = Object.fromEntries(keys.map((key) => [key, bytes(JSON.stringify(ordered[key]) ?? 'null')]));
   const textFiles = Object.fromEntries(keys.map((key) => [key, texts.filter((entry) => entry.field === key || entry.field.startsWith(`${key}.`))

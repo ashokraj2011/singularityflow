@@ -14,8 +14,8 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
-import { agentAct, agentOutputGoverned, boundedAgentOutput, completeAgentResult, DEFAULT_AGENT_OUTPUT_BYTES, LOOP_THRESHOLD, observeAgentLoop, READ_CHUNK_BYTES, READ_PLAN_CHUNKS, withAgentRoutes } from '../src/agent-output.mjs';
-import { CLI_PATH_CONTRACT } from '../src/safe-command-guidance.mjs';
+import { agentAct, agentOutputGoverned, boundedAgentOutput, completeAgentResult, DEFAULT_AGENT_OUTPUT_BYTES, LOOP_THRESHOLD, observeAgentLoop, READ_CHUNK_BYTES, READ_PLAN_CHUNKS, returnsAgentPaths, withAgentRoutes } from '../src/agent-output.mjs';
+import { CLI_PATH_REFERENCE } from '../src/safe-command-guidance.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const digest = `sha256:${'e'.repeat(64)}`;
@@ -29,7 +29,7 @@ test('every agent command preserves issued path bytes and presents the path rule
       stagingPath: returned, stagingProtocol: { path: returned }, artifact: { path: returned } };
     const copy = structuredClone(original);
     const view = JSON.parse(await boundedAgentOutput(JSON.stringify(original)));
-    assert.equal(view.act.paths, CLI_PATH_CONTRACT);
+    assert.equal(view.act.paths, CLI_PATH_REFERENCE);
     assert.equal(Object.keys(view)[0], 'act');
     assert.equal(view.stagingPath, returned);
     assert.equal(view.stagingProtocol.path, returned);
@@ -185,7 +185,7 @@ test('a small result keeps every field with act first; a large one is written wh
   assert.deepEqual(Object.keys(view).slice(0, 3), ['act', 'agentOutput', 'omittedFields']);
   assert.equal(view.act.state, 'ask-person');
   assert.equal(view.act.complete, false);
-  assert.equal(view.act.paths, CLI_PATH_CONTRACT, 'the rule is inline even when phase instructions are externalized');
+  assert.equal(view.act.paths, CLI_PATH_REFERENCE, 'the rule is named even when phase instructions are externalized');
   assert.deepEqual(view.clarification, large.clarification, 'the field act reads stays in the view');
   assert.equal(view.workId, 'W', 'small fields stay');
   // The complete result lives inside the repository's Git directory, readable by line range.
@@ -229,7 +229,7 @@ test('the fields a view leaves out are written first and together, and named as 
   const full = JSON.parse(await readFile(view.agentOutput.path, 'utf8'));
   for (const field of omitted) assert.deepEqual(read[field], full[field]);
   assert.deepEqual(read.recovery, large.recovery);
-  assert.match(view.agentOutput.instruction, /together, in one response/u);
+  assert.match(view.agentOutput.instruction, /together in one response/u);
   assert.doesNotMatch(view.agentOutput.instruction, /only the ranges you need/u);
 });
 
@@ -272,7 +272,7 @@ test('a long text file is named as ranges the file tool shows whole, to request 
     assert.ok(Buffer.byteLength(lines.slice(start - 1, end).join('\n')) <= READ_CHUNK_BYTES, `range ${start}-${end}`);
     if (index) assert.equal(start, text.read[index - 1][1] + 1, 'consecutive ranges');
   }
-  assert.match(view.agentOutput.instruction, /by its read ranges when it has them/u);
+  assert.match(view.agentOutput.instruction, /by its read ranges when given/u);
 });
 
 test('review document bodies and text given elsewhere become reference files outside the reads, restored whole', async (t) => {

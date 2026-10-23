@@ -19,7 +19,14 @@ import {
 /** Shared host/skill rule; paths are data, never permission or a checkout-relative guess. */
 export const CLI_PATH_CONTRACT = 'Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.';
 
-export const CLI_REPOSITORY_SCOPE = 'Never discover repositories by searching `$HOME`, parents or unrelated directories. Use the CLI\'s exact artifact, packet and staging paths for this binding.';
+/**
+ * The rule as one sentence, where a result or hook repeats it. Every skill and agent template already
+ * carries CLI_PATH_CONTRACT once (scripts/check.mjs), so a result that returns paths names the rule
+ * instead of restating it: 417 bytes in 286 of 432 recorded results, 2026-10-18 to 10-22. `[OUT:REQ-030]`
+ */
+export const CLI_PATH_REFERENCE = 'Exact-path rule (full text in your skill or agent instructions): use each returned path exactly as given; never rebase it onto repositoryPath, strip .git/worktrees, or search for or recreate it.';
+
+export const CLI_REPOSITORY_SCOPE ='Never discover repositories by searching `$HOME`, parents or unrelated directories. Use the CLI\'s exact artifact, packet and staging paths for this binding.';
 
 /** Local verification is ordinary authoring work, not publication or permission to edit config. */
 export const AUTHORING_VERIFICATION_PROTOCOL = 'Local verification is allowed in this admitted authoring turn: run repository-declared test, build and check commands from the verified checkout, and start the application, service or simulator/emulator only when this step\'s verification needs it. When the capability declares how to start it (`singularity-flow app plan --json`), start it with `singularity-flow app start <ID>` and stop it with `singularity-flow app stop <ID>`, and run its tests with `singularity-flow tests run`, instead of guessing a command. Use a native terminal/process tool; an existing VS Code task is optional, not a prerequisite. Bind the app to loopback on a free port, keep its terminal/session handle, and stop only the process/session you started (for example Ctrl+C), including on failure. Never kill unrelated processes, deploy, change protected configuration or install global tools. Save evidence only at authorized exact paths. Development test runs are diagnostic: report real argv/cwd, exit and failures; they do not replace the fresh publication/submission tests or grant approval. This mode-specific runtime guidance overrides older generic standalone-SFlow-only or no-pre-run wording, not explicit project security or environment policy.';

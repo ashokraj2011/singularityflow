@@ -1,4 +1,5 @@
 /** Model-free, read-only governed Goal projections for gateway and MCP hosts. */
+import { withApprovedConfigurationRead } from '../../approved-configuration-reader.mjs';
 import { governedGoalImpact, governedGoalTrace, loadGovernedGoal } from '../../governed-goals.mjs';
 import { loadConfig } from '../../state-stores.mjs';
 import { SingularityFlowError } from '../../util.mjs';
@@ -13,7 +14,8 @@ function repositoryRoot(root, operation) {
 
 async function loaded(root, args, operation) {
   const repository = repositoryRoot(root, operation);
-  const config = await loadConfig(repository);
+  // A workspace lead keeps its application branch free of the definition: read the approved one.
+  const config = await withApprovedConfigurationRead(repository, () => loadConfig(repository));
   return loadGovernedGoal({ leadRepositoryPath: repository }, args.goalId, { config });
 }
 

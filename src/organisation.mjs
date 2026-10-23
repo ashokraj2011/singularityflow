@@ -8101,6 +8101,9 @@ function flatten(nodes, ancestors = []) {
  * Checks before it creates, in both directions. A lead that is already governed keeps its own
  * definition; a lead that already has the branch is left alone. Neither is an error — re-running
  * this on an established workspace should do nothing and say so.
+ *
+ * A lead that is not governed yet gets a `sflow/govern/...` proposal authored in a scratch clone.
+ * The person's checkout stays on its application branch with nothing written, staged or committed.
  */
 export async function initializeWorkspaceState(leadDirectory, {
   branch = 'state', push = true, transport = {}
@@ -8173,9 +8176,11 @@ async function initializeWorkspaceStateUnderLease(root, {
     }
     return observed.stdout.trim();
   };
-  let resumeGovernancePublication = false;
+  let publishGovernance = false;
+  let governanceCommit = null;
   if (!needsGovernanceProposal && current.startsWith('sflow/govern/')) {
-    resumeGovernancePublication = !(await observeBranch(current));
+    // A checkout an earlier release left on its governance branch: that branch is the proposal.
+    publishGovernance = !(await observeBranch(current));
   }
   if (needsGovernanceProposal) {
     const trackedHead = organisationGitRead(root, gitEnv, [
@@ -8189,44 +8194,39 @@ async function initializeWorkspaceStateUnderLease(root, {
         `Cannot initialize Singularity Flow from '${current}'. Switch to the application branch '${applicationBranch}' first.`
       );
     }
+    if (!governed && !existsSync(path.join(root, 'singularity'))
+      && existsSync(path.join(root, '.singularity'))) {
+      throw new SingularityFlowError('This repository contains unsupported .singularity/ state. Run singularity-flow factory-reset to create a clean current configuration.');
+    }
     const sourceHead = run('git', ['rev-parse', 'HEAD'], { cwd: root, env: gitEnv }).stdout.trim();
     governanceBranch = `sflow/govern/${repositoryId}-${sourceHead.slice(0, 8)}`;
+    const governanceRef = `refs/heads/${governanceBranch}`;
     const remoteReview = await observeBranch(governanceBranch);
-    if (remoteReview) {
+    // Authored once in a scratch clone and kept as a branch nobody has checked out, so a refused
+    // push or an interrupted run resumes from that commit whatever the checkout is on now. Only a
+    // remote branch that is not that commit is refused.
+    const retained = retainedGovernanceProposal(root, governanceRef, sourceHead, gitEnv);
+    const remoteCommit = remoteReview.split(/\r?\n/u).map((line) => line.split('\t'))
+      .find(([, ref]) => ref === governanceRef)?.[0] ?? null;
+    if (remoteReview && (!retained || remoteCommit !== retained)) {
       throw new SingularityFlowError(
         `Configuration review branch '${governanceBranch}' already exists. Review or remove that proposal before retrying.`
       );
     }
-    const localReview = run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${governanceBranch}`], {
-      cwd: root, env: gitEnv, allowFailure: true
-    });
-    if (localReview.status === 0) {
-      throw new SingularityFlowError(
-        `Local configuration review branch '${governanceBranch}' already exists. Resume or remove it before retrying.`
-      );
-    }
-    run('git', ['switch', '-c', governanceBranch], { cwd: root, env: gitEnv });
-    if (!governed) {
-      await initializeDefinition(root);
-      await setDefaultBaseBranch(root, applicationBranch);
-    }
-    const actor = gitCommitIdentity(root, { env: gitEnv });
-    if (!governed && url) {
-      await describeRepository(root, repositoryIdFromUrl(url), url, applicationBranch, actor);
-    }
-    await enableLedger(root, branch);
-    run('git', ['add', '--', ...GOVERNED_ROOTS], { cwd: root, env: gitEnv });
-    if (run('git', ['diff', '--cached', '--name-only'], { cwd: root, env: gitEnv }).stdout.trim()) {
-      run('git', ['-c', `user.name=${actor.name || 'Singularity Flow'}`,
-        '-c', `user.email=${actor.email || 'unknown@invalid'}`,
-        'commit', '-m', 'Govern this repository with Singularity Flow'], { cwd: root, env: gitEnv });
-    }
+    governanceCommit = retained && (retained !== sourceHead || remoteReview)
+      ? retained
+      : await authorGovernanceProposal(root, {
+        sourceHead, previous: retained, applicationBranch, governanceRef, url, branch,
+        actor: gitCommitIdentity(root, { env: gitEnv }), env: gitEnv
+      });
+    publishGovernance = !remoteReview;
   }
-  if (push && (needsGovernanceProposal || resumeGovernancePublication)) {
+  if (push && publishGovernance) {
     publicationIntent = await createAndPushTransportIntent({
       repositoryRoot: root,
       remote: 'origin',
-      sourceCommit: run('git', ['rev-parse', 'HEAD'], { cwd: root, env: gitEnv }).stdout.trim(),
+      sourceCommit: governanceCommit
+        ?? run('git', ['rev-parse', 'HEAD'], { cwd: root, env: gitEnv }).stdout.trim(),
       targetRef: `refs/heads/${governanceBranch}`,
       expectedRemote: null,
       scope: { operation: 'sflow.initialize', repositoryId, governanceBranch }
@@ -8276,4 +8276,93 @@ async function initializeWorkspaceStateUnderLease(root, {
     } : null,
     pinRepair: ledger?.pinRepair ?? null
   };
+}
+
+/**
+ * The proposal an earlier attempt kept for this application commit, or null. Only one commit on
+ * that commit, or the commit itself (re-authored), is resumed; a branch moved anywhere else, such
+ * as work committed onto a governance branch an earlier release left checked out, is refused.
+ */
+function retainedGovernanceProposal(root, governanceRef, sourceHead, env) {
+  const row = organisationGitRead(root, env, [
+    'for-each-ref', '--format=%(refname)%09%(objecttype)%09%(objectname)%09%(parent)', governanceRef
+  ], 'The retained governance proposal').split(/\r?\n/u).map((line) => line.split('\t'))
+    .find(([ref]) => ref === governanceRef);
+  if (!row) return null;
+  const [, type, commit, parents = ''] = row;
+  if (type === 'commit' && (commit === sourceHead || parents.trim() === sourceHead)) return commit;
+  throw new SingularityFlowError(
+    `Local configuration review branch '${governanceRef.slice('refs/heads/'.length)}' already exists and is not a governance proposal for ${sourceHead.slice(0, 8)}. Remove it before retrying.`
+  );
+}
+
+/**
+ * Author the governance commit in a scratch clone and keep it here as a branch nobody checks out.
+ * Committing in the person's checkout left them on that branch, let the repository's own commit
+ * hooks judge the commit, and left files staged when a hook refused it. The scratch shares this
+ * repository's objects, materializes only the governed roots and the ignore/attribute files above
+ * them, and commits with hooks off and no global configuration, as the same identity and message.
+ */
+async function authorGovernanceProposal(root, {
+  sourceHead, previous, applicationBranch, governanceRef, url, branch, actor, env
+}) {
+  const hooks = `core.hooksPath=${gitDisabledHooksPath()}`;
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-govern-'));
+  try {
+    run('git', [
+      'clone', '--quiet', '--shared', '--no-checkout', '--single-branch', '--no-tags',
+      '--config', 'core.sparseCheckout=true', '--config', 'core.sparseCheckoutCone=false',
+      '--', root, scratch
+    ], { cwd: path.dirname(scratch), env });
+    const patterns = new Set();
+    for (const governedRoot of GOVERNED_ROOTS) {
+      patterns.add(`/${governedRoot}/`);
+      for (let directory = path.posix.dirname(governedRoot); ; directory = path.posix.dirname(directory)) {
+        for (const name of ['.gitattributes', '.gitignore']) {
+          patterns.add(directory === '.' ? `/${name}` : `/${directory}/${name}`);
+        }
+        if (directory === '.') break;
+      }
+    }
+    await mkdir(path.join(scratch, '.git', 'info'), { recursive: true });
+    await writeFile(path.join(scratch, '.git', 'info', 'sparse-checkout'),
+      `${[...patterns].sort().join('\n')}\n`, { flag: 'wx', mode: 0o600 });
+    // Detached at the exact application commit the proposal is named after. Every path outside
+    // the governed roots stays in the index unread, so the scoped add cannot stage or drop it.
+    run('git', ['update-ref', '--no-deref', 'HEAD', sourceHead], { cwd: scratch, env });
+    run('git', ['read-tree', '-mu', sourceHead], { cwd: scratch, env });
+    if (!existsSync(path.join(scratch, WORKFLOW_PATH))) {
+      await initializeDefinition(scratch);
+      await setDefaultBaseBranch(scratch, applicationBranch);
+      if (url) await describeRepository(scratch, repositoryIdFromUrl(url), url, applicationBranch, actor);
+    }
+    await enableLedger(scratch, branch);
+    run('git', ['add', '--', ...GOVERNED_ROOTS.filter((entry) => existsSync(path.join(scratch, entry)))], {
+      cwd: scratch, env
+    });
+    if (run('git', ['diff', '--cached', '--name-only'], { cwd: scratch, env }).stdout.trim()) {
+      run('git', ['-c', hooks, '-c', `user.name=${actor.name || 'Singularity Flow'}`,
+        '-c', `user.email=${actor.email || 'unknown@invalid'}`,
+        'commit', '-m', 'Govern this repository with Singularity Flow'], { cwd: scratch, env });
+    }
+    const commit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch, env }).stdout.trim();
+    const kept = commit === sourceHead || run('git', [
+      '-c', hooks, 'fetch', '--quiet', '--no-tags', '--no-recurse-submodules', '--', scratch, commit
+    ], { cwd: root, env, allowFailure: true }).status === 0;
+    // Created only where absent, or moved only from the bare application commit, so a concurrent
+    // proposal or someone's own work on that branch is never overwritten.
+    if (!kept || (commit !== previous && run('git', [
+      '-c', hooks, 'update-ref', '-m', 'Singularity Flow governance proposal',
+      governanceRef, commit, previous ?? ''
+    ], { cwd: root, env, allowFailure: true }).status !== 0)) {
+      throw new SingularityFlowError(
+        `The governance proposal could not be kept as '${governanceRef.slice('refs/heads/'.length)}'. Your checkout was not changed; retry.`,
+        { code: 'GOVERNANCE_PROPOSAL_NOT_RETAINED' }
+      );
+    }
+    return commit;
+  } finally {
+    // Disposable: a scratch left behind cannot undo the kept proposal or replace a real failure.
+    await removeTemporaryTree(scratch).catch(() => {});
+  }
 }

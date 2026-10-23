@@ -24,6 +24,9 @@ test('remote Git cannot bypass the bounded non-interactive execution boundary', 
     'configuration-branch.mjs:fetch',
     'configuration-people.mjs:fetch',
     'first-run-guide.mjs:clone',
+    // The governance proposal's scratch clone shares the person's own local checkout; the proposal
+    // reaches the remote only through its transport intent.
+    'organisation.mjs:clone',
     'workspace-impact.mjs:clone',
     // The refresh cache copies from its already-validated local disposable checkout; it never
     // addresses a transport authority and apply re-observes the exact remote SHAs independently.

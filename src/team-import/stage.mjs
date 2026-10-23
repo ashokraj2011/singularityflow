@@ -13,6 +13,7 @@ import YAML from 'yaml';
 import { discoverAgents } from '../agents.mjs';
 import { initializeDefinition } from '../config.mjs';
 import { SKILL_ATTACHMENTS_PATH } from '../skill-library.mjs';
+import { CHECK_KINDS, classifyCommand } from '../guidance-scan.mjs';
 
 const WORKFLOW_FILE = 'singularity/workflow.yml';
 
@@ -21,6 +22,21 @@ function frontMatter(fields) {
 }
 
 const csv = (values) => (values.length ? [...new Set(values)].join(', ') : '-');
+
+/**
+ * A phase's checks as sflow runs them: each named, of its kind, and using no model, so a check is
+ * never left unavailable because its model behaviour is unknown.
+ */
+function qualityChecks(commands) {
+  const taken = new Set();
+  return commands.map((command) => {
+    const stem = command.argv.join(' ').toLowerCase().replace(/[^a-z0-9]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 60) || 'check';
+    let id = stem;
+    for (let index = 2; taken.has(id); index += 1) id = `${stem}-${index}`;
+    taken.add(id);
+    return { id, modelPolicy: 'never', argv: [...command.argv], kind: CHECK_KINDS[classifyCommand(command.argv.join(' '))] ?? 'other' };
+  });
+}
 
 /** The workflow.yml phase a candidate phase becomes. */
 function phaseDefinition(phase) {
@@ -32,7 +48,7 @@ function phaseDefinition(phase) {
   };
   if (phase.inputs?.length) definition.inputs = [...phase.inputs];
   if (phase.code === true) definition.generation = { task: 'code' };
-  if (phase.qualityCommands?.length) definition.qualityCommands = phase.qualityCommands.map((command) => ({ argv: [...command.argv] }));
+  if (phase.qualityCommands?.length) definition.qualityCommands = qualityChecks(phase.qualityCommands);
   definition.approval = phase.approval === 'none' ? 'none' : {
     authorities: [...phase.approval.authorities],
     minimum: phase.approval.minimum,

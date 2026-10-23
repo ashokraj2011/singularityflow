@@ -111,6 +111,11 @@ export function explainWorkflow(model, workflowId, { resolved = null, guidance =
       skills: (step.skills ?? []).map((entry) => ({ id: entry.id, label: skills.get(entry.id)?.label ?? entry.id, use: entry.use ?? null, scope: entry.scope ?? 'agent' })),
       instructions: [...new Set((step.skills ?? []).flatMap((entry) => skills.get(entry.id)?.instructionRefs ?? []))],
       reads: (step.inputs ?? []).map((id) => ({ id, label: stepLabel(id), optional: optional.has(id) })),
+      // The commands sflow runs when the step is submitted; a failing required one stops the submit.
+      checks: (step.qualityCommands ?? []).map((entry) => (typeof entry === 'string'
+        ? { id: entry, command: entry, kind: null, requirement: 'required' }
+        : { id: entry.id ?? null, command: entry.command ?? (entry.argv ?? []).join(' '), kind: entry.kind ?? null, requirement: entry.requirement ?? 'required',
+          ...(entry.workingDirectory ? { directory: entry.workingDirectory } : {}) })),
       signOff: signOffWords(step.approval, groupLabel),
       then: thenWords(step, workflow, { stepLabel, groupLabel, rejectTo: resolvedPhases.get(step.id)?.approval?.rejectTo ?? [] }),
       links: found.links,

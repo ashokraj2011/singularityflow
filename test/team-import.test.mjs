@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import YAML from 'yaml';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -194,6 +195,9 @@ test('a code phase keeps its checks and only it writes source; planning stays ar
   assert.ok(unchecked.result.findings.some((finding) => finding.code === 'TEAM_IMPORT_QUALITY_COMMAND_MISSING' && finding.owner === 'person'));
   const invented = await compiled(t, (candidate) => { candidate.phases[1].qualityCommands[0].evidence = []; });
   assert.ok(invented.result.findings.some((finding) => finding.code === 'TEAM_IMPORT_EVIDENCE_MISSING'));
+  const deploy = await compiled(t, (candidate) => { candidate.phases[1].qualityCommands[0].argv = ['./scripts/deploy.sh', 'prod']; });
+  assert.ok(deploy.result.findings.some((finding) => finding.code === 'TEAM_IMPORT_NOT_A_CHECK' && /a deploy command, not a check/u.test(finding.message)),
+    'sflow runs checks at every submit, so a deployment is never one');
 });
 
 test('open questions hold the state at needs-decision until a person answers with one of their choices [TAWI:AC-009 AC-023]', async (t) => {
@@ -304,6 +308,9 @@ test('a destination preview binds the plan; a destination that changes is refuse
   await writeFile(file, original);
   const fresh = await planWorkflowImport(destination, bundle, importResolutionOptions([], 'suggested'));
   await applyWorkflowImport(destination, bundle, { expectedPlanSha256: fresh.planSha256, ...importResolutionOptions([], 'suggested') });
+  const imported = YAML.parse(await readFile(file, 'utf8'));
+  assert.deepEqual(Object.values(imported.phases).flatMap((phase) => phase.qualityCommands ?? []).filter((command) => command.argv?.join(' ') === 'npm test'),
+    [{ id: 'npm-test', modelPolicy: 'never', argv: ['npm', 'test'], kind: 'test' }], 'a check is named, of its kind, and uses no model');
   // Round trip: export the imported workflow again; importing that bundle is all reuse.
   const exported = await compileWorkflowBundle(destination, ['delivery-flow']);
   const again = await planWorkflowImport(destination, exported, importResolutionOptions([], 'suggested'));

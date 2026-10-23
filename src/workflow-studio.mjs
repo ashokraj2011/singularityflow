@@ -57,6 +57,7 @@ import { KNOWLEDGE_READER_RULES, knowledgePromptPolicy } from './knowledge/rende
 import { INITIATIVE_OUTPUT_KINDS, PORTFOLIO_PATH, loadPortfolio } from './initiative-config.mjs';
 import { WORKFLOW_ARCHIVE_PATH, parseWorkflowArchive, workflowArchived } from './workflow-archive.mjs';
 import { STEP_OUTPUTS, newStepContract, newStepTemplate } from './step-outputs.mjs';
+import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { SingularityFlowError, nearestNames, posix, secureRepositoryPath } from './util.mjs';
 import { lineOperations, preserveYamlFormatting, renderPreservingFormatting } from './yaml-formatting.mjs';
@@ -457,6 +458,8 @@ export async function buildStudioModel(root, { authority = null } = {}) {
           ...workflowAttachments.filter((entry) => entry.workflow === id && (!entry.phases.length || entry.phases.includes(phase.id)))
             .map(({ id: skillId, use }) => ({ id: skillId, use, origin: 'attachments', scope: 'workflow' }))],
           afterStepSetByWorkflow: Boolean(type.phaseOverrides?.[phase.id] && Object.hasOwn(type.phaseOverrides[phase.id], 'afterStep')),
+          // The checks sflow runs when the step is submitted, as written (a change adds to them).
+          qualityCommands: structuredClone(phase.qualityCommands ?? []),
           // Steps the engine generates, and compiled skill steps, cannot choose a drafting skill.
           generatedByEngine: isConvergencePhase(phase) || deterministicOnlyGeneration(phase),
           convergence: isConvergencePhase(phase),
@@ -2231,7 +2234,7 @@ class StudioCandidate {
     });
   }
 
-  updatePhase({ id, workflow, label, description, output, inputs, approval, views, clarification, authoringSkill, afterStep, template, artifactSet, artifactFile }) {
+  updatePhase({ id, workflow, label, description, output, inputs, approval, views, clarification, authoringSkill, afterStep, qualityCommands, template, artifactSet, artifactFile }) {
     const phaseId = this.requirePhase(requireId(id, 'A step ID'));
     const name = this.phaseLabel(phaseId);
     // Shared once the change set is applied: a step this change set also adds to another workflow
@@ -2310,6 +2313,24 @@ class StudioCandidate {
       if (actions.length || scope === override) this.document.setIn([...scope, 'afterStep'], this.document.createNode(actions));
       else if (this.document.hasIn([...scope, 'afterStep'])) this.document.deleteIn([...scope, 'afterStep']);
       changed.push('actions after the step');
+    }
+    if (qualityCommands !== undefined) {
+      // The checks sflow runs when the step is submitted: per workflow on a shared step, like sign-off.
+      const scope = scopeFor('qualityCommands');
+      if (!Array.isArray(qualityCommands) || qualityCommands.length > 20) {
+        throw new SingularityFlowError(`The checks of ${name} are a list of at most 20 commands.`, { code: 'STUDIO_CHECKS_INVALID' });
+      }
+      const ids = new Set();
+      qualityCommands.forEach((command, index) => {
+        let normalized;
+        try { normalized = normalizeExternalCommand(command, index); }
+        catch (error) { throw new SingularityFlowError(`A check of ${name} is not valid: ${error.message}`, { code: 'STUDIO_CHECKS_INVALID' }); }
+        if (ids.has(normalized.id)) throw new SingularityFlowError(`${name} has two checks called '${normalized.id}'.`, { code: 'STUDIO_CHECKS_INVALID' });
+        ids.add(normalized.id);
+      });
+      if (qualityCommands.length || scope === override) this.document.setIn([...scope, 'qualityCommands'], this.document.createNode(structuredClone(qualityCommands)));
+      else if (this.document.hasIn([...scope, 'qualityCommands'])) this.document.deleteIn([...scope, 'qualityCommands']);
+      changed.push('checks');
     }
     if (clarification != null) {
       if (!CLARIFICATION_MODES.some((mode) => mode.id === clarification)) throw new SingularityFlowError('Clarifying questions are off, when-needed or required.', { code: 'STUDIO_CLARIFICATION_INVALID' });

@@ -18,9 +18,35 @@ const CLIENT_CALL = /\b(curl|wget|fetch|axios(?:\.(?:get|post|put|patch|delete))
 const NEGATIVE = /\b(never|must not|mustn't|do not|don't|should not|shouldn't|avoid)\b/iu;
 const POSITIVE = /\b(always|must|should|make sure to|be sure to)\b/iu;
 const LIMIT = /\b(at most|no more than|up to|maximum of|max(?:imum)?|at least|no fewer than|minimum of|min(?:imum)?)\s+(\d+)\s+([a-z][a-z-]*)/iu;
-// Commands a team runs to check its work, as runbooks and skills write them. Recorded, never run.
-const COMMAND = /^(?:\$\s+)?((?:npm|pnpm|yarn|npx|mvn|\.\/mvnw|gradle|\.\/gradlew|pytest|tox|nox|make|go|dotnet|cargo|bundle|rake|ruff|eslint|tsc|bash|sh|pwsh|\.\/[\w./-]+\.(?:sh|ps1|py))(?:\s+[^\s|;&]+)*)/u;
-const COMMAND_FIRST = /^(?:npm|pnpm|yarn)\s+(?:run|test|ci|install|build|lint)\b|^npx\s|^(?:mvn|\.\/mvnw)\s|^(?:gradle|\.\/gradlew)\s|^(?:python3?\s+-m\s+)?pytest\b|^tox\b|^nox\b|^make(?:\s|$)|^go\s+(?:test|build|vet)\b|^dotnet\s+(?:test|build)\b|^cargo\s+(?:test|build|clippy)\b|^bundle\s+exec\b|^rake\b|^ruff\b|^eslint\b|^tsc\b|^(?:bash|sh|pwsh)\s+\S+\.(?:sh|ps1)\b|^\.\/[\w./-]+\.(?:sh|ps1|py)\b/u;
+// Commands a team runs, as runbooks, skills and instructions write them: one per line of code, or
+// in inline code in prose. Recorded and classified, never run.
+const COMMAND = /^((?:[\w./-]+)(?:\s+[^\s|;&<>]+)*)/u;
+const COMMAND_FIRST = new RegExp([
+  String.raw`^(?:npm|pnpm|yarn)\s+(?:run(?:-script)?\s+\S+|(?:test|t|ci|install|i|build|lint|start|exec|publish|audit)\b)`, String.raw`^(?:pnpm|yarn)\s+[a-z][\w:-]*$`,
+  String.raw`^(?:pnpm|yarn)\s+[a-z][\w:-]*\s`, String.raw`^npx\s`, String.raw`^(?:mvn|\.\/mvnw)(?:\s|$)`, String.raw`^(?:gradle|\.\/gradlew)\s`,
+  String.raw`^(?:python3?\s+-m\s+)?pytest\b`, String.raw`^python3?\s+(?:-m\s+[\w.]+|[\w./-]+\.py|manage\.py)\b`, String.raw`^node\s+[\w./-]+\.(?:js|mjs|cjs|ts)\b`,
+  String.raw`^(?:tox|nox|jest|vitest|mocha|cypress|playwright|phpunit|rspec|rake|ruff|eslint|tsc|mypy|flake8|pylint|black|prettier|gofmt|swiftlint|ktlint|detekt)\b`,
+  String.raw`^make(?:\s|$)`, String.raw`^go\s+(?:test|build|vet|run|fmt)\b`, String.raw`^dotnet\s+(?:test|build|run|format|publish)\b`,
+  String.raw`^cargo\s+(?:test|build|clippy|fmt|run)\b`, String.raw`^bundle\s+exec\b`, String.raw`^composer\s+(?:test|run|install)\b`,
+  String.raw`^(?:swift\s+(?:test|build)|xcodebuild\b|flutter\s+(?:test|build|analyze)|dart\s+(?:test|analyze))`,
+  String.raw`^(?:docker(?:-compose)?|kubectl|helm|terraform|ansible-playbook|fastlane|firebase|az|aws|gcloud)\s`,
+  String.raw`^(?:bash|sh|zsh|pwsh)\s+(?:-File\s+)?\S+\.(?:sh|ps1)\b`, String.raw`^\.?\/?(?:scripts?|bin|tools)\/[\w./-]+\b`, String.raw`^\.\/[\w./-]+\.(?:sh|ps1|py)\b`
+].join('|'), 'u');
+// What a command is for. Tests, lint, type checks, builds and formatting can become a step's check
+// that sflow runs at submit; scripts, runs, installs and deployments stay with the agent.
+const CATEGORIES = [
+  ['deploy', /\b(?:deploy|release|publish|rollout|promote)\b|^(?:kubectl|helm|terraform\s+apply|ansible-playbook|fastlane|firebase\s+deploy|docker\s+push|az\b|aws\b|gcloud\b)/u],
+  ['test', /\b(?:test|tests|spec|specs|e2e|pytest|jest|vitest|mocha|cypress|playwright|phpunit|rspec|tox|nox|verify|check)\b|^(?:npm|pnpm|yarn)\s+t\b/u],
+  ['lint', /\b(?:lint|eslint|ruff|flake8|pylint|clippy|vet|swiftlint|ktlint|detekt|analy[sz]e)\b/u],
+  ['typecheck', /\b(?:tsc|mypy|typecheck|type-check|types)\b/u],
+  ['format', /\b(?:format|fmt|prettier|black|gofmt)\b/u],
+  ['build', /\b(?:build|compile|package|assemble)\b/u],
+  ['install', /\b(?:install|ci|i|bundle\s+install|pip\s+install|restore)\b|^(?:npm|pnpm|yarn)\s+(?:ci|install|i)\b/u],
+  ['run', /^(?:npm|pnpm|yarn)\s+(?:start|exec)\b|^node\s|^python3?\s+(?:[\w./-]+\.py|manage\.py\s+runserver)|\brun\b|^docker(?:-compose)?\s+(?:run|up)\b/u],
+  ['script', /^(?:bash|sh|zsh|pwsh)\s|^\.?\/?(?:scripts?|bin|tools)\/|^\.\/[\w./-]+\.(?:sh|ps1|py)\b|^make(?:\s|$)/u]
+];
+/** Categories a step can run as its check, and the quality-command kind each becomes. */
+export const CHECK_KINDS = Object.freeze({ test: 'test', lint: 'lint', typecheck: 'static-analysis', format: 'format', build: 'compile' });
 // Where a person has to look at the work before it goes on: sign-off, approval, review by someone.
 const CHECKPOINT = /\b(sign(?:s|ed)?[- ]off|approv(?:e|es|ed|al)\b|review(?:ed)? by|must be reviewed|needs? (?:a )?(?:human |manual )?review)/iu;
 const STOP_WORDS = new Set(['a', 'an', 'the', 'to', 'of', 'in', 'on', 'for', 'with', 'and', 'or', 'any', 'all', 'your', 'you',
@@ -59,12 +85,34 @@ function endpoint(value) {
   return String(value).replace(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/gu, '{$1}').replace(/[?#].*$/u, '').replace(/[.,;:]+$/u, '');
 }
 
-/** A check or build command on one line of code, as written (one command, no shell chaining). */
-function commandOn(text) {
-  if (text == null) return null;
-  const line = String(text).trim().replace(/^\$\s+/u, '');
-  if (!COMMAND_FIRST.test(line)) return null;
-  return (COMMAND.exec(line)?.[1] ?? line).trim().slice(0, 200);
+/**
+ * What a command is for: test, lint, typecheck, format, build, install, run, deploy, script or
+ * other. Deployment wins over everything (a "release test" still releases).
+ */
+export function classifyCommand(command) {
+  const text = String(command ?? '').toLowerCase().replace(/^(?:[a-z_][a-z0-9_]*=\S*\s+)+/u, '');
+  return CATEGORIES.find(([, pattern]) => pattern.test(text))?.[0] ?? 'other';
+}
+
+/**
+ * The commands on one line of code, as written: each part of an `a && b` chain, with environment
+ * settings kept in the command. A leading `cd <dir>` (inside the repository) becomes the
+ * directory the commands after it run in, so nothing is dropped. A pipe, `;` or redirection ends a command.
+ */
+function commandsOn(text) {
+  if (text == null) return [];
+  const found = [];
+  let directory = null;
+  for (const part of String(text).trim().replace(/^\$\s+/u, '').split(/\s*&&\s*/u)) {
+    const env = /^((?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*)(.*)$/u.exec(part.trim());
+    const line = env[2];
+    const into = /^cd\s+([\w./-]+)\/?$/u.exec(line)?.[1];
+    if (into) { directory = into.startsWith('/') || into.split('/').includes('..') ? null : [directory, into.replace(/^\.\//u, '')].filter((entry) => entry && entry !== '.').join('/') || null; continue; }
+    if (!COMMAND_FIRST.test(line)) continue;
+    const command = `${env[1]}${(COMMAND.exec(line)?.[1] ?? line).trim()}`.trim().slice(0, 200);
+    found.push({ command, category: classifyCommand(command), ...(directory ? { directory } : {}) });
+  }
+  return found;
 }
 
 function apiCallOn(line) {
@@ -92,7 +140,8 @@ function apiCallOn(line) {
  * - apiCalls: `{ method, target, host, via, line }`;
  * - rules: `{ polarity: 'do'|'never', words, text, line }` for sentences that say always/must or never/do not;
  * - limits: `{ bound: 'max'|'min', value, unit, subject, text, line }`;
- * - commands: `{ command, line }` for check and build commands in code (`npm test`, `mvn verify`, `./scripts/x.sh`);
+ * - commands: `{ command, category, directory?, line }` for commands in code (`npm test`, `mvn verify`, `./scripts/x.sh`),
+ *   classified by classifyCommand;
  * - checkpoints: `{ text, line }` for prose that asks for a sign-off, an approval or someone's review.
  */
 export function scanGuidanceText(text, { startLine = 1 } = {}) {
@@ -109,12 +158,12 @@ export function scanGuidanceText(text, { startLine = 1 } = {}) {
     if (FENCE.test(raw)) { fenced = !fenced; return; }
     const call = apiCallOn(raw);
     if (call) apiCalls.push({ ...call, line });
-    const command = commandOn(fenced ? raw : null);
-    if (command) commands.push({ command, line });
+    for (const command of commandsOn(fenced ? raw : null)) commands.push({ ...command, line });
     if (fenced) return;
     for (const span of raw.matchAll(/`([^`\n]+)`/gu)) {
-      const inline = commandOn(span[1]);
-      if (inline && !commands.some((entry) => entry.line === line && entry.command === inline)) commands.push({ command: inline, line });
+      for (const inline of commandsOn(span[1])) {
+        if (!commands.some((entry) => entry.line === line && entry.command === inline.command)) commands.push({ ...inline, line });
+      }
     }
     const seen = new Set();
     for (const match of raw.matchAll(MARKDOWN_LINK)) {

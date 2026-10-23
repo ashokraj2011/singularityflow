@@ -12,7 +12,7 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import YAML from 'yaml';
-import { scanGuidanceText } from '../guidance-scan.mjs';
+import { CHECK_KINDS, scanGuidanceText } from '../guidance-scan.mjs';
 
 export const ITEM_KINDS = Object.freeze(['process', 'step', 'agent', 'skill', 'instruction', 'prompt', 'document', 'api-call', 'tool',
   'link', 'command', 'checkpoint', 'script', 'withheld']);
@@ -50,6 +50,14 @@ function item(kind, name, file, { startLine = 1, endLine = startLine, detail = n
     evidence: [{ path: file.path, sha256: file.sha256 ?? null, startLine, endLine }],
     foundBy, certainty, status: 'open', ...extra
   };
+}
+
+/** What a found command is, and what the workflow can do with it, in words. */
+function commandDetail({ category, directory }) {
+  const where = directory ? ` (in ${directory}/)` : '';
+  if (CHECK_KINDS[category]) return `a ${category === 'typecheck' ? 'type-check' : category} command${where}; it can be a step's check, which sflow runs when the step is submitted`;
+  if (category === 'deploy') return `a deployment command${where}; it stays with the agent, and sflow never runs it`;
+  return `${category === 'other' ? 'a command' : `a${category === 'install' ? 'n' : ''} ${category} command`}${where} the agent runs; sflow never runs it`;
 }
 
 /** Line numbers for nodes of a YAML or JSON document (JSON is YAML). */
@@ -193,7 +201,10 @@ export function inventoryCapture(capture, contents) {
     for (const link of scan.links.filter((entry) => entry.kind !== 'relative')) {
       push(item('link', link.url, file, { startLine: link.line, foundBy: 'pattern', detail: link.kind, extra: { linkKind: link.kind, host: link.host } }));
     }
-    for (const command of scan.commands) push(item('command', command.command, file, { startLine: command.line, foundBy: 'pattern' }));
+    for (const command of scan.commands) {
+      push(item('command', command.command, file, { startLine: command.line, foundBy: 'pattern', detail: commandDetail(command),
+        extra: { category: command.category, checkable: Boolean(CHECK_KINDS[command.category]), ...(command.directory ? { directory: command.directory } : {}) } }));
+    }
     for (const checkpoint of scan.checkpoints) {
       push(item('checkpoint', checkpoint.text, file, { startLine: checkpoint.line, foundBy: 'pattern', certainty: 'inferred' }));
     }

@@ -144,6 +144,7 @@ function stateStep(step: Entry, index: number, steps: Entry[]): Entry {
     skills: skills.map((skill) => (skill.use || (skill.scope && skill.scope !== 'agent')) ? kept({ id: skill.id, use: skill.use, scope: skill.scope }) : skill.id),
     instructions: step.instructions,
     reads: ids(reads.filter((read) => !read.optional)), optionalReads: ids(reads.filter((read) => read.optional)),
+    checks: Array.isArray(step.checks) ? step.checks.filter(plain).map((check) => check.command) : null,
     signOff: step.signOff, then: Array.isArray(step.then) ? step.then.filter((line) => line !== order) : step.then, links: step.links, apiCalls: step.apiCalls
   });
 }

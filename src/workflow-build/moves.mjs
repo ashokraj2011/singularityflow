@@ -3,11 +3,13 @@
  *
  * A proposal (from Copilot or the person) is a short list of moves: add or change a step, add an
  * agent from an existing one, add or attach a skill, add an instruction, a decision, an approval
- * group, an action after a step, or say what a found item becomes. Each move is checked on its own
+ * group, an action after a step, a check a step runs (a command the material holds), or say what a
+ * found item becomes. Each move is checked on its own
  * (closed fields, IDs, references), every finding located at `moves[i].field`. Accepted moves fold
  * into a draft, and the draft lowers to ordinary Studio operations, so a build finishes through
  * Studio's own reviewed proposal and the check runs on exactly what would be published.
  */
+import { CHECK_KINDS } from '../guidance-scan.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
@@ -21,6 +23,8 @@ export const MOVES = Object.freeze({
   'step.change': { required: ['id'], optional: ['label', 'purpose', 'agent', 'output', 'reads', 'signOff'] },
   'step.remove': { required: ['id'], optional: [] },
   'step.move': { required: ['id'], optional: ['after'] },
+  // command, category and directory are filled in from the found command, never written by hand.
+  'step.check': { required: ['id', 'item'], optional: ['requirement', 'command', 'category', 'directory'] },
   'agent.add': { required: ['id', 'label', 'description'], optional: ['from', 'instructions', 'tools'] },
   'skill.add': { required: ['id', 'description'], optional: ['label', 'from', 'procedure', 'loading'] },
   'skill.attach': { required: ['skill'], optional: ['agent', 'steps', 'use'] },
@@ -39,13 +43,14 @@ export const MOVES = Object.freeze({
 export function movesGuide() {
   return {
     moves: Object.fromEntries(Object.entries(MOVES).map(([name, fields]) => [name, fields])),
-    values: { output: OUTPUTS, on: TRIGGERS, as: ITEM_AS, signOff: "'none' or { groups: [group IDs], minimum, sendBackTo: [step IDs] }" },
+    values: { output: OUTPUTS, on: TRIGGERS, as: ITEM_AS, requirement: ['required', 'advisory'], signOff: "'none' or { groups: [group IDs], minimum, sendBackTo: [step IDs] }" },
     examples: [
       { move: 'step.add', id: 'pay-pci-review', label: 'PCI review', after: 'pay-build', agent: 'pay-reviewer', output: 'document',
         reads: ['pay-build'], signOff: { groups: ['payments-security'], minimum: 1 }, purpose: 'Checks the change against the PCI rules before release.' },
       { move: 'agent.add', id: 'pay-reviewer', label: 'Payments reviewer', description: 'Reviews payment changes against PCI rules.', from: 'architect' },
       { move: 'skill.add', id: 'pci-check', description: 'Checks a change against the PCI rules.', procedure: 'Check card data never reaches logs.' },
       { move: 'skill.attach', skill: 'pci-check', agent: 'pay-reviewer', steps: ['pay-pci-review'] },
+      { move: 'step.check', id: 'pay-build', item: 'i-0123456789ab' },
       { move: 'item.leaveOut', item: 'i-0123456789ab', reason: 'CI already scans every change.' }
     ],
     proposal: {
@@ -62,7 +67,8 @@ export function movesGuide() {
       'A step that other workflows use keeps its name, output, agent and purpose; add a copy with step.add and `from` to change those.',
       'Moves apply in order: step.add places the step after `after`, or last. A group, agent, skill or instruction the proposal adds can be used by any of its moves.',
       'A step that writes code (output code) needs a step that defines the requirements at or before the step just before it: reuse one the repository has that defines requirements (such as requirements or implementation-spec), as it is or copied with `from`. No move declares a workflow without requirements, so never offer that choice.',
-      'action.add runs an integration target the repository has registered; a command found in the material is kept with item.classify (command) or item.prerequisite, never invented as a target.',
+      'action.add runs an integration target the repository has registered; a command found in the material is never invented as a target.',
+      "A test, lint, type-check, format or build command the material holds (an item whose category says so) becomes the check of the step it belongs to with step.check: sflow runs it when that step is submitted and records the result. Install, run, script and deployment commands stay in their skill or instructions for the agent; never make them checks.",
       "signOff.sendBackTo (optional) names the steps an approver may send rejected work back to: the step itself or steps before it in this workflow. A reused step keeps its own; when the check says rejecting it returns to a step this workflow does not have before it, that finding's fix gives the step.change that repoints it.",
       'Approval groups are created empty; people are added in Workflow Studio, never by a move.',
       'Cite the lines you relied on in the proposal evidence; say what you inferred in `why`.'
@@ -231,6 +237,14 @@ export function validateMoves(moves, { model, draft }) {
         if (groupId) added.group.add(groupId);
         break;
       }
+      case 'step.check':
+        if (move.id && !steps.has(move.id) && !added.step.has(move.id)) add(`${at}.id`, 'BUILD_MOVE_REFERENCE', `Step '${move.id}' is not in this workflow.`);
+        if (move.requirement != null && !['required', 'advisory'].includes(move.requirement)) add(`${at}.requirement`, 'BUILD_MOVE_SHAPE', 'requirement is required or advisory.');
+        if (typeof move.command !== 'string' || !move.command) add(`${at}.item`, 'BUILD_MOVE_REFERENCE', 'item names a command this build found in the material.');
+        else if (!CHECK_KINDS[move.category]) {
+          add(`${at}.item`, 'BUILD_CHECK_NOT_A_CHECK', `'${move.command}' is a${move.category === 'install' ? 'n' : ''} ${move.category} command: it stays with its skill or instructions for the agent, and sflow never runs it as a check.`);
+        }
+        break;
       case 'action.add':
         if (move.step && !steps.has(move.step) && !added.step.has(move.step)) add(`${at}.step`, 'BUILD_MOVE_REFERENCE', `Step '${move.step}' is not in this workflow.`);
         if (!Array.isArray(move.on) || !move.on.length || move.on.some((trigger) => !TRIGGERS.includes(trigger))) add(`${at}.on`, 'BUILD_MOVE_SHAPE', `on lists one or more of ${TRIGGERS.join(', ')}.`);
@@ -265,7 +279,7 @@ export function initialDraft(build, model) {
       decisions: source ? structuredClone(source.decisions ?? []) : [],
       baseDecisions: source ? structuredClone(source.decisions ?? []) : []
     },
-    steps: {}, overrides: {}, agents: {}, skills: {}, instructions: {}, groups: {}, attachments: [], actions: {},
+    steps: {}, overrides: {}, agents: {}, skills: {}, instructions: {}, groups: {}, attachments: [], actions: {}, checks: {},
     items: {}
   };
 }
@@ -302,7 +316,7 @@ export function applyMoves(draft, moves) {
       }
       case 'step.remove':
         next.workflow.phases = next.workflow.phases.filter((entry) => entry !== move.id);
-        delete next.steps[move.id]; delete next.overrides[move.id]; delete next.actions[move.id];
+        delete next.steps[move.id]; delete next.overrides[move.id]; delete next.actions[move.id]; if (next.checks) delete next.checks[move.id];
         next.workflow.decisions = next.workflow.decisions.filter((decision) => decision.after !== move.id);
         break;
       case 'step.move':
@@ -322,6 +336,11 @@ export function applyMoves(draft, moves) {
         break;
       }
       case 'decision.remove': next.workflow.decisions = next.workflow.decisions.filter((entry) => entry.after !== move.after); break;
+      case 'step.check':
+        next.checks ??= {};
+        next.checks[move.id] = [...(next.checks[move.id] ?? []).filter((check) => check.command !== move.command),
+          { item: move.item, command: move.command, category: move.category, ...(move.directory ? { directory: move.directory } : {}), requirement: move.requirement ?? 'required' }];
+        break;
       case 'action.add': next.actions[move.step] = [...(next.actions[move.step] ?? []), { on: move.on, target: move.target }]; break;
       case 'item.classify': next.items[move.item] = { ...next.items[move.item], kind: move.as }; break;
       case 'item.leaveOut': next.items[move.item] = { ...next.items[move.item], status: 'left-out', reason: move.reason }; break;
@@ -406,11 +425,35 @@ export function lowerDraft(draft, model) {
     changes.push({ op: 'phase.update', id, workflow: workflowId, afterStep: actions.map((action, index) => ({ id: `${id}-action-${index + 1}`, on: action.on, target: action.target })) });
   }
   if (decisionsChanged && !draft.workflow.inPlace) changes.push({ op: 'workflow.update', id: workflowId, decisions: structuredClone(draft.workflow.decisions) });
+  // Checks are added to what the step already runs here, never in place of it.
+  const base = model.workflows.find((workflow) => workflow.id === (draft.workflow.inPlace ? workflowId : draft.workflow.copyOf));
+  for (const [id, checks] of Object.entries(draft.checks ?? {})) {
+    if (!draft.workflow.phases.includes(id) || !checks.length) continue;
+    const current = structuredClone(base?.steps.find((step) => step.id === id)?.qualityCommands ?? []);
+    const commandOf = (entry) => (typeof entry === 'string' ? entry : entry?.command ?? (entry?.argv ?? []).join(' '));
+    const taken = new Set(current.map((entry) => (typeof entry === 'string' ? entry : entry?.id)));
+    const added = checks.filter((check) => !current.some((entry) => commandOf(entry) === check.command)).map((check) => qualityCommand(check, taken));
+    if (added.length) changes.push({ op: 'phase.update', id, workflow: workflowId, qualityCommands: [...current, ...added] });
+  }
   for (const attachment of draft.attachments) {
     changes.push({ op: 'skill.attach', skill: attachment.skill, ...(attachment.agent ? { agent: attachment.agent } : { workflow: workflowId }),
       phases: attachment.steps.filter((step) => draft.workflow.phases.includes(step)), use: attachment.use ?? '' });
   }
   return { schema: 'sflow-studio-change-set@1', base: model.base, changes };
+}
+
+/**
+ * A found command as a check sflow runs when the step is submitted: argv when it is plain words, the
+ * command as written when it sets environment variables or quotes. It uses no model.
+ */
+function qualityCommand(check, taken) {
+  const stem = check.command.toLowerCase().replace(/[^a-z0-9]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 60) || 'check';
+  let id = stem;
+  for (let index = 2; taken.has(id); index += 1) id = `${stem}-${index}`;
+  taken.add(id);
+  const asWritten = /^[A-Za-z_][A-Za-z0-9_]*=|["'\\$`*?]/u.test(check.command);
+  return { id, modelPolicy: 'never', ...(asWritten ? { command: check.command } : { argv: check.command.split(/\s+/u) }),
+    kind: CHECK_KINDS[check.category], requirement: check.requirement ?? 'required', ...(check.directory ? { workingDirectory: check.directory } : {}) };
 }
 
 export function invalidMoves(findings) {

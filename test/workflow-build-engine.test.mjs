@@ -246,6 +246,34 @@ test('an orchestrator written as a skill is the process the steps come from, and
   assert.deepEqual(pair.map((twin) => accepted.items.find((entry) => entry.id === twin.id).status), ['confirmed', 'confirmed']);
 });
 
+test('a test, lint or build command in a skill becomes a step check sflow runs; a deployment stays with the agent', async () => {
+  const { run, flow, json } = await harness();
+  const root = await repository(run, flow);
+  const folder = await mkdtemp(path.join(os.tmpdir(), 'sflow-build-engine-checks-'));
+  await mkdir(path.join(folder, '.github/skills/release-checks'), { recursive: true });
+  await writeFile(path.join(folder, '.github/skills/release-checks/SKILL.md'), ['---', 'name: release-checks', 'description: What to run before a release.', '---',
+    '```sh', 'cd web && CI=true npm run test:unit', 'npm run lint', './scripts/deploy.sh staging', '```', ''].join('\n'));
+  const build = json(root, ['workflow', 'build', 'start', '--change', 'repo-feature', '--folder', folder]).build;
+  const command = (name) => build.items.find((entry) => entry.kind === 'command' && entry.name === name);
+  assert.deepEqual([command('CI=true npm run test:unit').category, command('CI=true npm run test:unit').directory, command('npm run lint').checkable, command('./scripts/deploy.sh staging').checkable],
+    ['test', 'web', true, false]);
+  assert.match(command('./scripts/deploy.sh staging').detail, /^a deployment command; it stays with the agent, and sflow never runs it$/u);
+  const refused = flow(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-'], { allowFailure: true,
+    input: JSON.stringify({ title: 'Deploy as a check', why: 'Wrong.', moves: [{ move: 'step.check', id: 'verification', item: command('./scripts/deploy.sh staging').id }] }) });
+  assert.match(refused.stderr + refused.stdout, /moves\[0\]\.item: '\.\/scripts\/deploy\.sh staging' is a deploy command: it stays with its skill or instructions for the agent, and sflow never runs it as a check\./u);
+  json(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-', '--by', 'you', '--accept'], { input: JSON.stringify({ title: 'Checks from the skill', why: 'The skill runs them before a release.',
+    moves: [{ move: 'step.check', id: 'verification', item: command('CI=true npm run test:unit').id }, { move: 'step.check', id: 'implementation', item: command('npm run lint').id, command: 'rm -rf /' }] }) });
+  const checked = json(root, ['workflow', 'build', 'check', '--build', build.id]);
+  const updates = Object.fromEntries(checked.changeSet.changes.filter((change) => change.qualityCommands).map((change) => [change.id, change.qualityCommands]));
+  assert.deepEqual(updates, {
+    verification: [{ id: 'ci-true-npm-run-test-unit', modelPolicy: 'never', command: 'CI=true npm run test:unit', kind: 'test', requirement: 'required', workingDirectory: 'web' }],
+    implementation: [{ id: 'npm-run-lint', modelPolicy: 'never', argv: ['npm', 'run', 'lint'], kind: 'lint', requirement: 'required' }]
+  }, 'the command is the one the team wrote, never one a proposal types in');
+  assert.equal(checked.plan.valid, true, JSON.stringify(checked.plan.problems));
+  assert.deepEqual(checked.explanation.steps.find((step) => step.id === 'implementation').checks.map((check) => check.command), ['npm run lint']);
+  assert.match(flow(root, ['workflow', 'build', 'check', '--build', build.id]).stdout, /^ {2}changed {2}Verification: checks: CI=true npm run test:unit$/mu);
+});
+
 test('later decisions: a step other workflows share is copied, not changed; a proposal an earlier one overtook goes stale; items can be left out', async () => {
   const { run, flow, json, engineEnv } = await harness();
   const root = await repository(run, flow);

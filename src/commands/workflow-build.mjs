@@ -99,7 +99,8 @@ function printCheck(result) {
     const parts = [step.agent ? `agent ${step.agent.label}` : 'no agent',
       step.skills.length ? `skills ${step.skills.map((skill) => skill.label).join(', ')}` : null,
       step.instructions.length ? `instructions ${step.instructions.join(', ')}` : null,
-      step.reads.length ? `reads ${step.reads.map((read) => read.label).join(', ')}` : null].filter(Boolean);
+      step.reads.length ? `reads ${step.reads.map((read) => read.label).join(', ')}` : null,
+      step.checks?.length ? `checks ${step.checks.map((check) => check.command).join(', ')}` : null].filter(Boolean);
     console.log(`     ${parts.join(' · ')}. ${step.signOff}`);
   }
   printChanges(result.changes);

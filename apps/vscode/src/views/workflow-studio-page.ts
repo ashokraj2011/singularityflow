@@ -6332,6 +6332,23 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     return card;
   }
 
+  /** A test, lint or build command the material holds becomes the check of a step, run when it is submitted. */
+  function buildCheckPicker(item) {
+    var b = buildState(); var workflow = buildWorkflow(b.check);
+    var steps = workflow ? workflow.steps : [];
+    if (!steps.length) return el('div', { class: 'muted', text: 'Once the workflow has steps, this can be the check of one of them.' });
+    b.checkStep = b.checkStep || {};
+    var chosen = b.checkStep[item.id] || steps[steps.length - 1].id;
+    return el('div', { class: 'studio-row' },
+      el('span', { class: 'muted', text: 'Run it as the check of' }),
+      select('build-check-step-' + item.id, steps.map(function (step) { return { value: step.id, label: step.label }; }), chosen, function (value) { b.checkStep[item.id] = value; }, { 'aria-label': 'Step that runs ' + item.name }),
+      button('Make it a check', function () {
+        var step = b.checkStep[item.id] || chosen;
+        var label = (steps.find(function (entry) { return entry.id === step; }) || {}).label || step;
+        buildMine('Check ' + label + ' with ' + item.name, 'sflow runs it when ' + label + ' is submitted and records the result.', [{ move: 'step.check', id: step, item: item.id }]);
+      }, { class: 'primary', 'data-key': 'build-check-' + item.id, disabled: Boolean(b.busy) }));
+  }
+
   function renderBuildFound(main) {
     var b = buildState(); var build = b.view.build;
     var found = build.conversation.filter(function (turn) { return turn.kind === 'found'; });
@@ -6354,11 +6371,12 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       var leaving = b.leaving[item.id];
       list.appendChild(el('article', { class: 'build-item status-' + item.status, 'data-item': item.id },
         el('div', { class: 'studio-row spread' }, el('span', null, el('span', { class: 'build-kind', text: buildKindOne(item.kind) }), ' ', el('strong', { text: item.name })),
-          el('span', { class: 'pill', title: item.reason || item.prerequisite || '', text: BUILD_ITEM_STATUS[item.status] || item.status })),
+          el('span', { class: 'pill', title: item.reason || item.prerequisite || '', text: item.usedAs === 'guidance' ? 'agent guidance' : BUILD_ITEM_STATUS[item.status] || item.status })),
         item.detail ? el('div', { class: 'muted', text: item.detail }) : null,
         item.reason ? el('div', { class: 'muted', text: 'Why: ' + item.reason }) : null,
         el('div', { class: 'studio-row' }, (item.evidence || []).slice(0, 3).map(function (span) { return evidenceButton(span); }),
           item.certainty === 'inferred' ? el('span', { class: 'muted', text: 'inferred' }) : null),
+        open && item.kind === 'command' && item.checkable ? buildCheckPicker(item) : null,
         open ? el('div', { class: 'studio-row' },
           leaving === undefined ? button('Leave out…', function () { b.leaving[item.id] = ''; state.focusKey = 'build-leave-' + item.id; render(); }, { class: 'secondary', 'data-key': 'build-leave-open-' + item.id }) : null,
           leaving === undefined && BUILD_LINK_KINDS.indexOf(item.kind) >= 0
@@ -6586,6 +6604,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         step.then.map(function (line) { return el('div', { class: 'muted', text: line }); }),
         step.agent ? el('div', { class: 'muted', text: 'Drafted by ' + step.agent.label + (step.skills.length ? ', with ' + step.skills.map(function (skill) { return skill.label; }).join(', ') : '') + '.' }) : null,
         step.instructions && step.instructions.length ? el('div', { class: 'muted', text: 'Follows the instructions ' + step.instructions.join(', ') + '.' }) : null,
+        step.checks && step.checks.length ? el('div', { class: 'muted', 'data-key': 'build-step-checks-' + step.id, text: 'When it is submitted, sflow runs ' + step.checks.map(function (check) {
+          return check.command + (check.directory ? ' in ' + check.directory + '/' : '') + (check.requirement === 'advisory' ? ' (advisory)' : ''); }).join(', ') + '.' }) : null,
         step.reads.length ? el('div', { class: 'muted', text: 'Reads ' + step.reads.map(function (read) { return read.label + (read.optional ? ' (if there)' : ''); }).join(', ') + '.' }) : null,
         step.apiCalls.length ? el('div', { class: 'muted', text: 'Calls ' + step.apiCalls.map(function (call) { return call.method + ' ' + call.target; }).join(', ') + '.' }) : null));
     });

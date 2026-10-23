@@ -36,7 +36,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 75
+version: 76
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1300,7 +1300,7 @@ singularity-flow workflow build status --build <ID> --json
 | API calls | OpenAPI and Swagger operations, Postman requests, `.http` and `.rest` requests, and `curl`, `fetch`, `requests` and `METHOD /path` lines in documents and scripts |
 | Tools and MCP servers | Servers in `mcp.json` or `.vscode/mcp.json`, and the server tools an agent asks for |
 | Links | Web links, by kind: ticket, wiki page, repository, file share or web page |
-| Commands | Check and build commands in code, such as `npm test`, `mvn verify` or `./scripts/check.sh` |
+| Commands | Commands in code blocks and inline code of skills, instructions, agents, documents and scripts, such as `npm test`, `cd web && CI=true npm run test:unit`, `pytest -q` or `./scripts/deploy.sh`: each part of an `&&` chain, with the folder a `cd` puts it in, and what it is for (test, lint, type check, format, build, install, run, deploy, script) |
 | Sign-off points | Sentences that ask for a sign-off, an approval or someone's review |
 | Documents and scripts | READMEs, runbooks and other text, and shell or PowerShell scripts |
 
@@ -1345,6 +1345,7 @@ singularity-flow workflow build finish --build <ID> --out payments-release.sflow
 | `decision.add`, `decision.remove` | Adds or removes a decision after a step |
 | `group.add` | Adds an approval group, empty; people are added in Workflow Studio |
 | `action.add` | Tells an existing integration target when a step is submitted, approved or rejected |
+| `step.check` | Makes a test, lint, type-check, format or build command the material holds a check of a step: sflow runs it when the step is submitted, records the result, and a failing one stops the submit. It is the command as the team wrote it; install, run, script and deployment commands stay in their skill or instructions for the agent and are never checks |
 | `item.classify`, `item.leaveOut`, `item.keepAsLink`, `item.prerequisite` | Says what a found item is or becomes, or leaves it out with a reason |
 
 A sign-off is `none` or `{ groups, minimum, sendBackTo }`. `sendBackTo` (optional) names the steps
@@ -1391,7 +1392,9 @@ to continue.
   lines as SFlow screened and kept them. Leave an item out with a reason, or keep it as a link.
   **Settle the rest…** does that for everything not used yet in one change of your own: links,
   documents, API calls, tools and scripts are kept as links, and the rest are left out with the one
-  reason you give (up to 50 at a time).
+  reason you give (up to 50 at a time). A test, lint or build command offers **Make it a check** on
+  the step you choose; a script or deployment inside a skill or instructions the workflow uses is
+  marked agent guidance: the agent runs it, sflow never does.
 - **Build** shows the conversation, the workflow drawn step by step, and what each step does with
   the check's findings. Each proposal reads in plain words with Preview, Accept and Decline; each
   question offers its choices. Preview draws and checks the workflow as a waiting proposal would

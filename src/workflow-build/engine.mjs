@@ -75,6 +75,20 @@ function refuseLanded(record, model) {
   fail('WORKFLOW_BUILD_FINISHED', finishedMessage(record, model.workflows.find((workflow) => workflow.id === record.goal.workflow).label));
 }
 
+/**
+ * A script, run, install or deployment command inside an agent, skill, instruction or prompt the
+ * workflow uses is that file's guidance: the agent runs it, sflow never does. It counts as used,
+ * and says so; a test, lint or build command waits to become a check or be settled by a person.
+ */
+function confirmGuidanceCommands(items) {
+  const used = new Set(items.filter((item) => item.status === 'confirmed' && ['process', 'agent', 'prompt', 'skill', 'instruction'].includes(item.kind))
+    .map((item) => item.evidence?.[0]?.path).filter(Boolean));
+  for (const item of items) {
+    if (item.kind !== 'command' || item.status !== 'open' || item.checkable || !used.has(item.evidence?.[0]?.path)) continue;
+    Object.assign(item, { status: 'confirmed', usedAs: 'guidance' });
+  }
+}
+
 const CHANGED_WORDS = { label: 'name', purpose: 'purpose', agent: 'agent', output: 'output', reads: 'what it reads', signOff: 'sign-off' };
 
 /**
@@ -112,9 +126,10 @@ function changesOf(model, draft, moves, explainWorkflow) {
     removed,
     moved: [...new Set(moves.filter((move) => move.move === 'step.move' && now.includes(move.id) && base.phases.includes(move.id)).map((move) => move.id))]
       .map((id) => ({ id, label: label(id), position: now.indexOf(id) + 1 })),
-    changed: now.filter((id) => base.phases.includes(id) && (draft.overrides[id] || draft.actions[id])).map((id) => ({ id, label: label(id),
+    changed: now.filter((id) => base.phases.includes(id) && (draft.overrides[id] || draft.actions[id] || draft.checks?.[id]?.length)).map((id) => ({ id, label: label(id),
       what: [...Object.keys(draft.overrides[id] ?? {}).filter((field) => draft.overrides[id][field] != null).map((field) => CHANGED_WORDS[field] ?? field),
-        ...(draft.actions[id] ? ['after-step actions'] : [])] })),
+        ...(draft.actions[id] ? ['after-step actions'] : []),
+        ...(draft.checks?.[id]?.length ? [`checks: ${draft.checks[id].map((check) => check.command).join(', ')}`] : [])] })),
     decisions: {
       added: draft.workflow.decisions.filter((decision) => !had.has(decisionKey(decision))).map((decision) => ({ after: decision.after, label: decision.label ?? decision.kind })),
       removed: (draft.workflow.baseDecisions ?? []).filter((decision) => !has.has(decisionKey(decision))).map((decision) => ({ after: decision.after, label: decision.label ?? decision.kind }))
@@ -157,7 +172,7 @@ function validateProposal(payload, record) {
     if (!items.has(item)) add(`items[${index}]`, 'BUILD_ITEM_UNKNOWN', `The build has no item '${item}'.`);
   }
   for (const [index, move] of (Array.isArray(moves) ? moves : []).entries()) {
-    if (plain(move) && String(move.move).startsWith('item.') && !items.has(move.item)) add(`moves[${index}].item`, 'BUILD_ITEM_UNKNOWN', `The build has no item '${move.item}'.`);
+    if (plain(move) && (String(move.move).startsWith('item.') || move.move === 'step.check') && !items.has(move.item)) add(`moves[${index}].item`, 'BUILD_ITEM_UNKNOWN', `The build has no item '${move.item}'.`);
   }
   for (const [index, question] of (Array.isArray(questions) ? questions : []).entries()) {
     const at = `questions[${index}]`;
@@ -209,7 +224,7 @@ export async function proposeToBuild(id, payload, { root = null, by = 'copilot',
   const shape = validateProposal(payload, record);
   if (shape.length) throw invalidMoves(shape);
   const repository = repositoryOf(record, root);
-  const moves = payload.moves ?? [];
+  const moves = withFoundCommands(payload.moves ?? [], record);
   await withRepository(repository, async (model) => {
     record.repository ??= { root: repository, label: path.basename(repository) };
     record.goal.workflow = targetWorkflow(record, model);
@@ -278,10 +293,24 @@ export async function decideInBuild(id, proposalId, { accept, reason = null, roo
   return saveWorkflowBuild(record, { env });
 }
 
+/**
+ * A check names the command it runs by the found item only: its words, category and directory are
+ * taken from what the build found, so a check is always a command the team wrote down.
+ */
+function withFoundCommands(moves, record) {
+  const found = new Map(record.items.filter((entry) => entry.kind === 'command').map((entry) => [entry.id, entry]));
+  return moves.map((move) => {
+    if (!plain(move) || move.move !== 'step.check') return move;
+    const { command: ignored, category: ignoredCategory, directory: ignoredDirectory, ...rest } = move;
+    const item = found.get(move.item);
+    return item ? { ...rest, command: item.name, category: item.category ?? null, ...(item.directory ? { directory: item.directory } : {}) } : rest;
+  });
+}
+
 /** Mark a checked proposal accepted, and what it says about found items. */
 function acceptProposal(record, proposal) {
   Object.assign(proposal, { status: 'accepted', decidedAt: new Date().toISOString() });
-  const used = new Set(proposal.items);
+  const used = new Set([...proposal.items, ...proposal.moves.filter((move) => move.move === 'step.check').map((move) => move.item)]);
   for (const item of record.items) {
     const change = applyMoves({ items: {}, workflow: { phases: [], decisions: [] }, steps: {}, overrides: {}, actions: {} }, proposal.moves.filter((move) => move.item === item.id)).items[item.id];
     if (change) Object.assign(item, change);
@@ -289,6 +318,7 @@ function acceptProposal(record, proposal) {
     if (used.has(item.id) && item.status === 'open') item.status = 'confirmed';
   }
   confirmProcessTwins(record.items);
+  confirmGuidanceCommands(record.items);
   record.conversation.push(turn('you', 'decision', `Accepted ${proposal.title}.`, { proposal: proposal.id }));
 }
 

@@ -13,6 +13,7 @@
  */
 import { readRecord } from '../schema-migrations.mjs';
 import { DECISION_FIELDS } from '../workflow-decisions.mjs';
+import { CHECK_KINDS, classifyCommand } from '../guidance-scan.mjs';
 
 export const CANDIDATE_KIND = 'team-import-candidate';
 export const DISPOSITIONS = Object.freeze(['mapped', 'approximated', 'unresolved', 'unsupported', 'excluded']);
@@ -173,6 +174,12 @@ export function validateCandidate(text, { session }) {
       }
       // A quality command is taken verbatim from the source, never invented. [TAWI-REQ-010]
       evidence(command.evidence, `${where}.evidence`);
+      // sflow runs a step's checks at every submit, so only a test, lint, type-check, format or build
+      // command is one; a script or deployment stays in its skill or instructions for the agent.
+      const category = Array.isArray(command.argv) ? classifyCommand(command.argv.join(' ')) : null;
+      if (category && !CHECK_KINDS[category]) {
+        add(`${where}.argv`, 'TEAM_IMPORT_NOT_A_CHECK', `'${command.argv.join(' ')}' is a${category === 'install' ? 'n' : ''} ${category} command, not a check: keep it in the skill or instructions that say to run it, for the agent.`);
+      }
     });
     if (phase.approval !== 'none') {
       if (closed(phase.approval, 'approval', `${at}.approval`)) {
@@ -382,6 +389,7 @@ export function candidateGuide() {
       'Every ID starts with "<namespace>-"; templates are "<namespace>/<name>.md".',
       'workflow.phases lists every phase once, in order; inputs name earlier phases only.',
       'Only a code phase (code: true) writes source (source-and-artifact); it needs qualityCommands taken verbatim from evidence, or a quality-command prerequisite.',
+      'qualityCommands are the checks sflow runs at every submit of that phase: only test, lint, type-check, format or build commands the source writes, on any phase; scripts, installs, runs and deployments stay in the skill or instructions for the agent.',
       'A code phase needs an earlier phase whose artifact kind defines requirement clauses (requirements or implementation-spec).',
       'Decisions use workflow.yml decision fields; a loop has goal, back, maxRounds 1-20 and by; going back needs approval mode required on the deciding phase.',
       'Running out of rounds always pauses for the by group; a source that escalates or skips instead maps as unsupported.',

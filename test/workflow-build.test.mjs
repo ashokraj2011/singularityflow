@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { scanGuidanceText } from '../src/guidance-scan.mjs';
+import { classifyCommand, scanGuidanceText } from '../src/guidance-scan.mjs';
 import { textCandidate } from '../src/team-import/formats.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -80,6 +80,16 @@ test('the scanner finds check commands and sign-off points, and team import stil
   assert.deepEqual(scan.checkpoints.map((entry) => entry.line), [7], 'a heading is not a sign-off point');
   assert.equal(textCandidate('requests/payments.http'), false);
   assert.equal(textCandidate('requests/payments.http', new Set(['.http'])), true);
+});
+
+test('commands are read from code in skills and instructions, each part of a chain, with its folder and what it is for', () => {
+  const scan = scanGuidanceText(['Run `pytest -q` for the API.', '```sh', 'cd web && CI=true npm run test:unit', 'npm ci && npm run lint && npx tsc --noEmit',
+    './scripts/deploy.sh staging', 'python manage.py test', 'node tools/seed.js', 'kubectl apply -f k8s/', 'git push', '```', 'Then npm test, in prose without code, is not read.'].join('\n'));
+  assert.deepEqual(scan.commands.map(({ command, category, directory }) => [command, category, directory ?? null]), [
+    ['pytest -q', 'test', null], ['CI=true npm run test:unit', 'test', 'web'], ['npm ci', 'install', null], ['npm run lint', 'lint', null],
+    ['npx tsc --noEmit', 'typecheck', null], ['./scripts/deploy.sh staging', 'deploy', null], ['python manage.py test', 'test', null],
+    ['node tools/seed.js', 'run', null], ['kubectl apply -f k8s/', 'deploy', null]]);
+  assert.equal(classifyCommand('npm run release-test'), 'deploy', 'a deployment is never a check, whatever else it says');
 });
 
 test('starting from a team folder lists what it holds, each item with its file and line, and withholds credentials unread', async () => {

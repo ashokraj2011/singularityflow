@@ -154,7 +154,12 @@ async function codeFixture(name, {
   git(root, 'config', 'user.email', ACTOR.email);
   const angularProfile = ['angular-karma', 'angular-unsupported'].includes(testProfile);
   const playwrightProfile = testProfile === 'playwright-inferred';
-  await writeFile(path.join(root, 'package.json'), `${JSON.stringify(playwrightProfile ? {
+  // An Nx workspace: the e2e project's Playwright target lives in its project.json, not in scripts.
+  const nxProfile = testProfile === 'nx-playwright-inferred';
+  await writeFile(path.join(root, 'package.json'), `${JSON.stringify(nxProfile ? {
+    name: 'delivery-fixture', private: true,
+    devDependencies: { nx: '19.8.0', '@nx/playwright': '19.8.0', '@playwright/test': '^1.0.0' }
+  } : playwrightProfile ? {
     name: 'delivery-fixture', private: true,
     scripts: { test: 'playwright test' },
     devDependencies: { '@playwright/test': '^1.0.0' }
@@ -221,6 +226,36 @@ async function codeFixture(name, {
     await writeFile(path.join(binDirectory, 'playwright.cmd'),
       '@node "%~dp0\\playwright-runner.mjs" %*\r\n');
   }
+  if (nxProfile) {
+    await writeFile(path.join(root, '.gitignore'), 'node_modules/\n.sflow/results/\n');
+    await writeFile(path.join(root, 'nx.json'), `${JSON.stringify({ defaultBase: 'main' })}\n`);
+    await mkdir(path.join(root, 'apps', 'shop-e2e'), { recursive: true });
+    await mkdir(path.join(root, 'apps', 'shop'), { recursive: true });
+    await writeFile(path.join(root, 'apps', 'shop', 'project.json'), `${JSON.stringify({
+      name: 'shop', projectType: 'application', targets: { serve: { executor: '@nx/js:node' } }
+    })}\n`);
+    await writeFile(path.join(root, 'apps', 'shop-e2e', 'project.json'), `${JSON.stringify({
+      name: 'shop-e2e', projectType: 'application', implicitDependencies: ['shop'],
+      targets: { e2e: { executor: '@nx/playwright:playwright', options: { config: 'apps/shop-e2e/playwright.config.ts' } } }
+    })}\n`);
+    const binDirectory = path.join(root, 'node_modules', '.bin');
+    await mkdir(binDirectory, { recursive: true });
+    // Stands in for `nx run shop-e2e:e2e`: refuses any other target, a cached run, or no report path.
+    await writeFile(path.join(binDirectory, 'nx-runner.mjs'), [
+      "import { writeFileSync } from 'node:fs';",
+      "if (JSON.stringify(process.argv.slice(2)) !== JSON.stringify(['run', 'shop-e2e:e2e', '--skip-nx-cache', '--reporter=json'])) process.exit(31);",
+      "if (!process.env.PLAYWRIGHT_JSON_OUTPUT_FILE) process.exit(32);",
+      "process.stdout.write('> nx run shop-e2e:e2e\\n');",
+      "writeFileSync(process.env.PLAYWRIGHT_JSON_OUTPUT_FILE, JSON.stringify({",
+      "  suites: [{ specs: [{ tests: [{ status: 'expected', results: [{ status: 'passed' }] }] }] }],",
+      "  stats: { expected: 1, unexpected: 0, flaky: 0, skipped: 0 }",
+      "}));",
+      ''
+    ].join('\n'));
+    await writeFile(path.join(binDirectory, 'nx'), ['#!/usr/bin/env node', "import './nx-runner.mjs';", ''].join('\n'));
+    await chmod(path.join(binDirectory, 'nx'), 0o755);
+    await writeFile(path.join(binDirectory, 'nx.cmd'), '@node "%~dp0\\nx-runner.mjs" %*\r\n');
+  }
   if (trackedResult) {
     await mkdir(path.join(root, '.sflow', 'results'), { recursive: true });
     await writeFile(path.join(root, '.sflow', 'results', 'unit.json'),
@@ -258,7 +293,7 @@ async function codeFixture(name, {
     clarification: { ...implementation.clarification, mode: 'off' },
     approval: requiresHumanApproval ? { ...implementation.approval, rejectTo: [phaseId] }
       : { mode: 'none', authorities: [], minimum: 0, rejectTo: [phaseId] },
-    qualityCommands: angularProfile || playwrightProfile || testProfile === 'maven' ? [] : [{
+    qualityCommands: angularProfile || playwrightProfile || nxProfile || testProfile === 'maven' ? [] : [{
       id: 'fixture-tests', kind: 'test',
       argv: [process.execPath, 'test-runner.mjs',
         ...(testProfile === 'configured-secret' ? ['--token', 'hidden-configured-secret'] : [])],
@@ -2612,6 +2647,35 @@ test('Angular Karma publication infers tests, captures stdout, and leaves protec
   await assert.rejects(() => readFile(resultPath), (error) => error.code === 'ENOENT',
     'submission left inferred Karma transport output in the worktree');
   assert.equal(git(context.root, 'diff', '--', 'singularity/workflow.yml'), '');
+});
+
+test('an Nx project\'s Playwright target is inferred, published and submitted without configuration', async (t) => {
+  const context = await codeFixture('nx-playwright-inference', { testProfile: 'nx-playwright-inferred', followingPhase: true });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  const protectedWorkflow = path.join(context.root, 'singularity', 'workflow.yml');
+  const protectedBefore = await readFile(protectedWorkflow, 'utf8');
+  await mkdir(path.join(context.root, 'apps', 'shop', 'src'), { recursive: true });
+  await mkdir(path.join(context.root, 'apps', 'shop-e2e', 'src'), { recursive: true });
+  await writeFile(path.join(context.root, 'apps', 'shop', 'src', 'filter.ts'), 'export const filter = (values) => values.filter(Boolean);\n');
+  await writeFile(path.join(context.root, 'apps', 'shop-e2e', 'src', 'filter.spec.ts'), '/** @ac:DELIVERY-1:AC-001 */\nexport const covered = true;\n');
+
+  const checked = await phasePrepublish(context.root, context.config, context.workflow, context.phase, {
+    session: { workId: 'DELIVERY-1', phaseId: 'implementation', agent: 'developer' }
+  });
+  assert.equal(checked.status, 'ready', JSON.stringify(checked.findings));
+  assert.deepEqual(checked.testExecution.commands.map((command) => [command.argv, command.workingDirectory, command.affectedRoots, command.result.path]), [[
+    ['npx', '--no-install', 'nx', 'run', 'shop-e2e:e2e', '--skip-nx-cache', '--reporter=json'], '.', ['apps/shop-e2e', 'apps/shop'],
+    '.sflow/results/apps-shop-e2e-playwright-tests.json'
+  ]]);
+  await inContext(context.root, () => publishCodeGoverned(context.root, context.config, context.workflow, 'implementation'));
+  await inContext(context.root, () => submitPhase(
+    context.root, context.config, context.workflow, { phaseId: 'implementation', persist: false }
+  ));
+  const execution = context.phase.deliveryEvidence.testExecutions[0];
+  const receipt = JSON.parse(await readFile(path.join(context.root, execution.receiptPath), 'utf8'));
+  assert.equal(receipt.adapter, 'playwright-json');
+  assert.deepEqual(receipt.tests, { discovered: 1, passed: 1, failed: 0, skipped: 0 });
+  assert.equal(await readFile(protectedWorkflow, 'utf8'), protectedBefore, 'no workflow configuration was needed');
 });
 
 test('Playwright publication infers a report and submission reads fresh governed JSON', async (t) => {

@@ -29,11 +29,11 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    changed-and-affected or all-configured execution; repair observed existing failures or request an
    eligible human risk decision. Unknown existing results remain unverified, not accepted failures.
 5. In VS Code offer Capabilities → Test setup, also Configuration Center → Test setup.
-   For shell-assisted configuration, read the approved authority via `singularity-flow configuration read
-   singularity/workflow.yml --json`; show a command-only qualityCommands diff. Keep non-test commands,
-   approval rules, test scope and other workflows unchanged. Use `kind: test`, `modelPolicy: never`,
-   argv, workingDirectory, affectedRoots and result.adapter/path. Report paths are module-relative.
-   Only after explicit consent run `/sf-configuration`'s exact proposal save (no sub-agent).
+   Otherwise preview: `singularity-flow capability test-setup --step <STEP> [--workflow <WORKFLOW>]
+   --use <SUGGESTION-ID> --json` (keep `--source-root`), or for a supplied command `--id <ID> --argv
+   '<JSON ARRAY>' --working-directory <DIR> --affected-root <DIR> --adapter <ADAPTER> --report <PATH>`
+   (report relative to the working directory). Show its `diff`. Only after explicit consent run its
+   `confirmCommand` with `--json`; it proposes the change for review (no sub-agent).
    Do not rewrite the application's checkout, run tests, merge, or push without the corresponding request.
 6. Inference and hidden approved argv (`argvWithheld: true`) need no YAML proposal/amendment.
    Existing Stories retain explicit pins. Only for explicit command revisions approved in sflow/config,

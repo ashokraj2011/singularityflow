@@ -14,7 +14,7 @@ related:
   - recovery
   - phase-appeals
   - escalation
-version: 6
+version: 7
 ---
 A finding is one exact reason a step cannot publish, submit or finish. Every finding has an owner and a recovery route: the step's own author fixes its draft, an earlier step's approvers decide an upstream issue, a person records a decision, or an owner restores trusted bytes. Each refusal names its finding code; read its entry here with `sflow explain findings --section <CODE>` (the code is matched without regard to case). No finding routes only back to its own author: each names at least one route for someone else, its approvers, an earlier step, an owner, or, when nothing more specific exists, the workflow maintainer. Nothing in this catalog waives a test, approves a step or accepts a risk by itself.
 
@@ -92,7 +92,7 @@ A planned evidence file (usually a screenshot) has not been produced. Start the 
 
 ### CODE_DELIVERY_TEST_COMMAND_REQUIRED
 
-No supported structured test command can be inferred for the changed code. `sflow capability test-setup --json` suggests one; repair the repository's own test script within the step's scope. An explicit command needs a reviewed policy amendment.
+No supported structured test command can be inferred for the changed code. `sflow capability test-setup --json` suggests one; repair the repository's own test script within the step's scope. An Nx project's Playwright target is inferred since this release, so updating Singularity Flow may be enough. An explicit command is proposed with `capability test-setup --step <STEP> … --confirm <digest>`, activated by a configuration approver, and adopted by the current Story through a reviewed policy amendment.
 
 ### SPEC_COVERAGE_INCOMPLETE
 

@@ -81,7 +81,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // from the main checkout), publication-unit-of-work.mjs +701, state.mjs +632, refusal-remediation.mjs +558,
     // sequence.mjs +501, util.mjs +388 (a missing working folder) and smaller. No new file.
     // 9,060,000 (next 5,000 boundary): both of the above together, merged at main 24466a14 + work-turns: 9,058,321.
-    assert.ok(closure.bytes <= 9_060_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,065,000 (next 5,000 boundary): Nx Playwright inference and the test command proposal add 1,867 to
+    // main ed71e5e6's 9,059,694: code-delivery-tests.mjs +1,160 (an Nx project as a module and its lazy loader),
+    // narration/messages.mjs +399 and command-registry.mjs +308. nx-test-targets.mjs and test-setup-proposal.mjs
+    // load lazily. No new file.
+    assert.ok(closure.bytes <= 9_065_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

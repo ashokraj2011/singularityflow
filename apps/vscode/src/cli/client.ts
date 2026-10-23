@@ -496,6 +496,8 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
       return hasOption(args, 'confirm-plan') ? 'mutation'
         : enabledBooleanOption(args, 'dry-run') ? 'read' : 'unknown';
     }
+    // A test command proposal previews as a read; its confirmed digest proposes the change.
+    if (args[1] === 'test-setup' && hasOption(args, 'confirm')) return 'mutation';
     return ['tree', 'show', 'of', 'proposals', 'proposal', 'setup-proposals', 'setup-proposal',
       'fsck', 'world-model', 'organisation',
       'leads', 'inspect-repository', 'test-setup']

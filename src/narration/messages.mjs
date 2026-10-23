@@ -62,6 +62,14 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Proposed user-defined agent ${slot(s.name)}: ${slot(s.files, '0')} file(s) copied unchanged, plus its agent, step and workflow. New Stories can run it once the proposal is activated.`,
     preserves: false
   },
+  'capability.test-setup.previewed': {
+    headline: (s) => `Previewed test command ${slot(s.command)} for step ${slot(s.step)}. Nothing was proposed; no tests ran.`,
+    preserves: true
+  },
+  'capability.test-setup.proposed': {
+    headline: (s) => `Proposed test command ${slot(s.command)} for step ${slot(s.step)} for review; it applies once activated. No tests ran.`,
+    preserves: false
+  },
   'call.listed': {
     headline: (s) => `${slot(s.count, '0')} user-defined agent(s).`,
     preserves: true

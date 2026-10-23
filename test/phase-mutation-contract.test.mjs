@@ -969,6 +969,24 @@ test('every registry skill\'s turn admits the SFlow commands its own body runs, 
   }
 });
 
+test('/sf-test-setup may propose the exact test command it previewed, its JSON argv quoted, with or without a Story', async t => {
+  const f = await fixture(t);
+  const bare = { cwd: f.root, sessionId: 'test-setup-bare', prompt: '/sf-test-setup' };
+  await recordRepositoryBoundaryTurn(bare, { captureMutation: (value, record) => captureMutationTurn(value, record,
+    { resolveRoot: async () => f.root, load: async () => { throw new Error('No Story yet'); } }) });
+  const bound = await f.enter('/sf-test-setup', 'test-setup-bound');
+  // The line `capability test-setup` prints as its confirmCommand, with --json added.
+  const command = `singularity-flow capability test-setup --step implementation --id shop-e2e-junit --argv '["npx","nx","run","shop-e2e:e2e"]' `
+    + `--working-directory . --affected-root apps/shop-e2e --adapter junit-xml --report coverage/e2e/shop-e2e/junit-results.xml --confirm sha256:${'a'.repeat(64)} --json`;
+  for (const payload of [bare, bound]) {
+    const decision = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+    assert.notEqual(decision.permissionDecision, 'deny', `${payload.sessionId}: ${decision.permissionDecisionReason}`);
+    // The same turn still edits no file itself.
+    const edit = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'printf x > singularity/workflow.yml', cwd: f.root } });
+    assert.equal(edit.permissionDecision, 'deny', payload.sessionId);
+  }
+});
+
 test('skills that run their own kernel steps get a kernel-only turn; /sf-inbox only attaches; reads stay read', () => {
   for (const skill of ['/sf-finalize', '/sf-pr', '/sf-push', '/sf-story-start', '/sf-refresh-branch', '/sf-cancel', '/sf-return',
     '/sf-assign', '/sf-mcp', '/sf-ready', '/sf-epic-start', '/sf-epic-sync', '/sf-jira-update', '/sf-upload', '/sf-test-setup']) {

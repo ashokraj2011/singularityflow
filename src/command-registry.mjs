@@ -1353,6 +1353,8 @@ function resolveCapabilityOperation(definition, positionals, options) {
   if (!CAPABILITY_SUBCOMMANDS.includes(subcommand)) {
     return unknownSubcommand('capability', subcommand, CAPABILITY_SUBCOMMANDS);
   }
+  // A test command proposal previews as a read; its confirmed digest proposes the change.
+  if (subcommand === 'test-setup' && options.confirm !== undefined) return never('capability.test-setup.propose', definition, 'mutation');
   if (subcommand === 'onboard') {
     return optionBoolean(options, 'dry-run')
       ? never('capability.onboard.preview', definition, 'read')
@@ -2067,6 +2069,7 @@ export function operationCatalog() {
     ...SESSION_READ_SUBCOMMANDS.map((name) => never(`session.${name}`, sessionDefinition, 'read')),
     ...SESSION_MUTATION_SUBCOMMANDS.map((name) => never(`session.${name}`, sessionDefinition, 'mutation')),
     ...CAPABILITY_READ_SUBCOMMANDS.map((name) => never(`capability.${name}`, capabilityDefinition, 'read')),
+    never('capability.test-setup.propose', capabilityDefinition, 'mutation'),
     ...CAPABILITY_MUTATION_SUBCOMMANDS.map((name) => never(`capability.${name}`, capabilityDefinition, 'mutation')),
     never('capability.onboard.preview', capabilityDefinition, 'read'),
     never('capability.onboard.apply', capabilityDefinition, 'mutation'),

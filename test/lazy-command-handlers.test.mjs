@@ -72,7 +72,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,045,000 (next 5,000 boundary): the packaged sample user-defined agent (careful-change) adds its
     // agent, starter template, folder and manifest digests to packaged-asset-history.mjs and its work type
     // and step to packaged-workflow-history.mjs, which every Story start reads: 9,041,169. No new file.
-    assert.ok(closure.bytes <= 9_045_000, `${file} exceeds the 9 MB eager-source budget`);
+    // 9,050,000 (next 5,000 boundary): start.mjs was 9,044,104 on main 507ade77; the read operations of Jira,
+    // Initiative, Epic, knowledge, harness, regression and init --check, so a read-only Copilot turn may run them
+    // (command-registry.mjs, +4,101), give 9,048,205. No new file.
+    assert.ok(closure.bytes <= 9_050_000, `${file} exceeds the 9 MB eager-source budget`);
   }
 });
 
@@ -97,7 +100,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 795,000: main 810418a6 was 790,885, over 790,000 without a recorded raise: creation-context.mjs +875,
   // git-remote-diagnostics.mjs +622 and cli-entry.mjs +56 (b3c8bf7f..810418a6, cold Story creation and configuration
   // reuse); no new file.
-  assert.ok(root.bytes <= 795_000, `root dispatch loads ${root.bytes} source bytes`);
+  // 800,000: main 507ade77 was 794,526; the read operations of Jira, Initiative, Epic, knowledge, harness, regression
+  // and init --check, so a read-only Copilot turn may run them (command-registry.mjs, +4,101), give 798,627. No new file.
+  assert.ok(root.bytes <= 800_000, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   for (const entry of ['commands/session-entry.mjs', 'commands/choices-entry.mjs']) {

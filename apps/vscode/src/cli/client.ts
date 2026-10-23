@@ -342,7 +342,25 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     return ['create', 'edit', 'remove'].includes(args[1] ?? '') && enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
   }
   if (args[0] === 'adhoc') return args[1] === 'status' ? 'read' : 'mutation';
-  if (args[0] === 'jira') return args[1] === 'status' ? 'read' : 'mutation';
+  // The CLI's read forms of mutation-named commands (src/command-registry.mjs readOnlySubcommandOperation).
+  if (args[0] === 'jira') return ['status', 'doctor', 'projects', 'epics', 'children', 'permissions', 'boards', 'board',
+    'list', 'assigned', 'pull', 'show', 'get', 'fields', 'transitions'].includes(args[1] ?? '') ? 'read' : 'mutation';
+  if (args[0] === 'initiative') {
+    const action = args[1] ?? 'status';
+    if (action === 'report') return hasOption(args, 'out') ? 'mutation' : 'read';
+    if (action === 'evidence') return (args[2] ?? 'list') === 'list' ? 'read' : 'mutation';
+    return ['status', 'next', 'journey', 'documents', 'checklist', 'verify'].includes(action) ? 'read' : 'mutation';
+  }
+  if (args[0] === 'epic') {
+    const action = args[1] ?? 'status';
+    if (action === 'report') return hasOption(args, 'out') ? 'mutation' : 'read';
+    if (action === 'stories') return ['list', 'show'].includes(args[2] ?? 'list') ? 'read' : 'mutation';
+    if (action === 'sources') return (args[2] ?? 'list') === 'list' ? 'read' : 'mutation';
+    return ['status', 'next', 'journey'].includes(action) ? 'read' : 'mutation';
+  }
+  if (args[0] === 'knowledge') return ['list', 'show'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
+  if (args[0] === 'harness') return (args[1] ?? 'report') === 'report' ? 'read' : 'mutation';
+  if (args[0] === 'regression') return (args[1] ?? 'analyze') === 'analyze' && !enabledBooleanOption(args, 'fetch') ? 'read' : 'mutation';
   // Inspect pending uploads; retry spends a transport attempt.
   if (args[0] === 'push') return (args[1] && !args[1].startsWith('-') ? args[1] : 'status') === 'status' ? 'read' : 'mutation';
   if (args[0] === 'integrations') return ['list', 'status', 'test'].includes(args[1] ?? 'status') ? 'read' : 'mutation';
@@ -381,6 +399,9 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   }
   if (args[0] === 'init' && enabledBooleanOption(args, 'smart-detect')
       && enabledBooleanOption(args, 'dry-run') && !hasOption(args, 'output')) return 'read';
+  // `init --check` reports installation and authority state and writes nothing.
+  if (args[0] === 'init' && !enabledBooleanOption(args, 'smart-detect') && !enabledBooleanOption(args, 'recover')
+      && enabledBooleanOption(args, 'check') && !enabledBooleanOption(args, 'repair')) return 'read';
   // Configuration inventory and previews are read-only. Every other configuration subcommand is
   // conservative-by-default because it either writes a governed file, changes the local session,
   // promotes planning output, materializes Jira/Git state, or commits and pushes. The previous

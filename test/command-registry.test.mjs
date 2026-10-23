@@ -51,6 +51,35 @@ test('every registered SGOS subcommand has a closed option contract', () => {
   }
 });
 
+test('read-only Jira, Initiative, Epic, knowledge and init --check forms are reads; their writers stay mutations', () => {
+  const catalog = new Map(operationCatalog().map(entry => [entry.id, entry]));
+  const resolve = (argv, options = {}) => resolveOperation({ requestedCommand: argv[0], positionals: argv, options });
+  for (const [argv, options, id] of [
+    [['init'], { check: true, json: true }, 'init.check'],
+    [['jira', 'assigned'], { json: true }, 'jira.assigned'], [['jira', 'pull', 'PMC-1'], {}, 'jira.pull'],
+    [['jira', 'doctor'], { json: true }, 'jira.doctor'], [['jira', 'board', '7'], {}, 'jira.board'],
+    [['initiative', 'status'], { json: true }, 'initiative.status'], [['initiative'], {}, 'initiative.status'],
+    [['initiative', 'next'], {}, 'initiative.next'], [['initiative', 'documents'], {}, 'initiative.documents'],
+    [['initiative', 'report'], { format: 'json' }, 'initiative.report'], [['initiative', 'evidence'], {}, 'initiative.evidence.list'],
+    [['epic', 'status'], {}, 'epic.status'], [['epic', 'journey', 'E-1'], {}, 'epic.journey'],
+    [['epic', 'stories', 'list'], {}, 'epic.stories.list'], [['epic', 'sources', 'list'], {}, 'epic.sources.list'],
+    [['knowledge'], {}, 'knowledge.list'], [['knowledge', 'show', 'abc'], {}, 'knowledge.show'],
+    [['harness', 'report'], { json: true }, 'harness.report'], [['regression', 'analyze'], { base: 'main', json: true }, 'regression.analyze']
+  ]) {
+    const operation = resolve(argv, options);
+    assert.equal(operation.id, id, argv.join(' '));
+    assert.equal(operation.classification, 'read', argv.join(' '));
+    assert.deepEqual(catalog.get(operation.id), operation, argv.join(' '));
+  }
+  for (const [argv, options] of [
+    [['init'], { check: true, repair: true }], [['init'], {}], [['jira', 'transition', 'PMC-1'], {}], [['jira', 'comment', 'PMC-1'], {}],
+    [['initiative', 'report'], { out: 'report.md' }], [['initiative', 'evidence', 'add', 'C-1'], {}], [['initiative', 'approve', 'phase'], {}],
+    [['epic', 'requirements', 'status'], {}], [['epic', 'merge-plan'], {}], [['epic', 'pr'], {}], [['epic', 'stories', 'update'], {}],
+    [['epic', 'sources', 'add'], {}], [['knowledge', 'record', 'decision'], {}], [['pr', 'describe', 'PMC-1'], {}],
+    [['regression', 'analyze'], { fetch: true }]
+  ]) assert.equal(resolve(argv, options).classification, 'mutation', argv.join(' '));
+});
+
 test('agent catalog reads have explicit model-free operations; every writer keeps its mutation lease', () => {
   const catalog = new Map(operationCatalog().map(entry => [entry.id, entry]));
   for (const action of ['list', 'mappings', 'status', 'create', 'edit', 'lock', 'sync', 'refresh-output']) {

@@ -156,9 +156,13 @@ async function codeFixture(name, {
   const playwrightProfile = testProfile === 'playwright-inferred';
   // An Nx workspace: the e2e project's Playwright target lives in its project.json, not in scripts.
   const nxProfile = testProfile === 'nx-playwright-inferred';
+  // An Nx workspace whose application runs Jest through the @nx/jest:jest executor.
+  const nxJestProfile = testProfile === 'nx-jest-inferred';
   await writeFile(path.join(root, 'package.json'), `${JSON.stringify(nxProfile ? {
     name: 'delivery-fixture', private: true,
     devDependencies: { nx: '19.8.0', '@nx/playwright': '19.8.0', '@playwright/test': '^1.0.0' }
+  } : nxJestProfile ? {
+    name: 'delivery-fixture', private: true, devDependencies: { nx: '19.8.0', '@nx/jest': '19.8.0', jest: '^29.0.0' }
   } : playwrightProfile ? {
     name: 'delivery-fixture', private: true,
     scripts: { test: 'playwright test' },
@@ -256,6 +260,34 @@ async function codeFixture(name, {
     await chmod(path.join(binDirectory, 'nx'), 0o755);
     await writeFile(path.join(binDirectory, 'nx.cmd'), '@node "%~dp0\\nx-runner.mjs" %*\r\n');
   }
+  if (nxJestProfile) {
+    await writeFile(path.join(root, '.gitignore'), 'node_modules/\n.sflow/results/\n');
+    await writeFile(path.join(root, 'nx.json'), `${JSON.stringify({ defaultBase: 'main' })}\n`);
+    await mkdir(path.join(root, 'apps', 'shop'), { recursive: true });
+    await writeFile(path.join(root, 'apps', 'shop', 'project.json'), `${JSON.stringify({
+      name: 'shop', projectType: 'application',
+      targets: { test: { executor: '@nx/jest:jest', options: { jestConfig: 'apps/shop/jest.config.ts' } } }
+    })}\n`);
+    const binDirectory = path.join(root, 'node_modules', '.bin');
+    await mkdir(binDirectory, { recursive: true });
+    // Stands in for `nx run shop:test`: refuses any other argv, and writes the report where Jest
+    // would, at --outputFile resolved against the process directory (the workspace root).
+    await writeFile(path.join(binDirectory, 'nx-runner.mjs'), [
+      "import { writeFileSync } from 'node:fs';",
+      "import path from 'node:path';",
+      "const expected = ['run', 'shop:test', '--skip-nx-cache', '--json', '--outputFile=.sflow/results/apps-shop-jest-tests.json'];",
+      "if (JSON.stringify(process.argv.slice(2)) !== JSON.stringify(expected)) process.exit(31);",
+      "process.stdout.write('> nx run shop:test\\n');",
+      "writeFileSync(path.resolve(process.cwd(), process.argv.at(-1).slice('--outputFile='.length)), JSON.stringify({",
+      "  success: true, numTotalTests: 1, numPassedTests: 1, numFailedTests: 0, numPendingTests: 0,",
+      "  testResults: [{ assertionResults: [{ title: 'keeps truthy values', fullName: 'filter keeps truthy values', ancestorTitles: ['filter'], status: 'passed', duration: 1 }] }]",
+      "}));",
+      ''
+    ].join('\n'));
+    await writeFile(path.join(binDirectory, 'nx'), ['#!/usr/bin/env node', "import './nx-runner.mjs';", ''].join('\n'));
+    await chmod(path.join(binDirectory, 'nx'), 0o755);
+    await writeFile(path.join(binDirectory, 'nx.cmd'), '@node "%~dp0\\nx-runner.mjs" %*\r\n');
+  }
   if (trackedResult) {
     await mkdir(path.join(root, '.sflow', 'results'), { recursive: true });
     await writeFile(path.join(root, '.sflow', 'results', 'unit.json'),
@@ -293,7 +325,7 @@ async function codeFixture(name, {
     clarification: { ...implementation.clarification, mode: 'off' },
     approval: requiresHumanApproval ? { ...implementation.approval, rejectTo: [phaseId] }
       : { mode: 'none', authorities: [], minimum: 0, rejectTo: [phaseId] },
-    qualityCommands: angularProfile || playwrightProfile || nxProfile || testProfile === 'maven' ? [] : [{
+    qualityCommands: angularProfile || playwrightProfile || nxProfile || nxJestProfile || testProfile === 'maven' ? [] : [{
       id: 'fixture-tests', kind: 'test',
       argv: [process.execPath, 'test-runner.mjs',
         ...(testProfile === 'configured-secret' ? ['--token', 'hidden-configured-secret'] : [])],
@@ -2674,6 +2706,45 @@ test('an Nx project\'s Playwright target is inferred, published and submitted wi
   const execution = context.phase.deliveryEvidence.testExecutions[0];
   const receipt = JSON.parse(await readFile(path.join(context.root, execution.receiptPath), 'utf8'));
   assert.equal(receipt.adapter, 'playwright-json');
+  assert.deepEqual(receipt.tests, { discovered: 1, passed: 1, failed: 0, skipped: 0 });
+  assert.equal(await readFile(protectedWorkflow, 'utf8'), protectedBefore, 'no workflow configuration was needed');
+});
+
+test('an Nx project\'s Jest executor target is inferred, published and submitted without configuration', async (t) => {
+  const context = await codeFixture('nx-jest-inference', { testProfile: 'nx-jest-inferred', followingPhase: true });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  const protectedWorkflow = path.join(context.root, 'singularity', 'workflow.yml');
+  const protectedBefore = await readFile(protectedWorkflow, 'utf8');
+  await mkdir(path.join(context.root, 'apps', 'shop', 'src'), { recursive: true });
+  await writeFile(path.join(context.root, 'apps', 'shop', 'src', 'filter.ts'), 'export const filter = (values) => values.filter(Boolean);\n');
+  // An exactly read Jest test witnesses only an indexed criterion, and its tag sits on the test.
+  const itemRelative = 'singularity/work-items/DELIVERY-1';
+  await buildSpecIndex(context.root, `${itemRelative}/artifacts/requirements/requirements.md`, {
+    workId: 'DELIVERY-1', phase: 'requirements', generation: 1,
+    outputPath: `${itemRelative}/context/spec-indexes/requirements-gen1.json`,
+    policy: { mode: 'enforce', coverage: 'enforce', acceptance: 'presence' }
+  });
+  await writeFile(path.join(context.root, 'apps', 'shop', 'src', 'filter.spec.ts'), [
+    "import { filter } from './filter';", "describe('filter', () => {", '  // @ac:DELIVERY-1:AC-001',
+    "  it('keeps truthy values', () => expect(filter([0, 1])).toEqual([1]));", '});', ''
+  ].join('\n'));
+
+  const checked = await phasePrepublish(context.root, context.config, context.workflow, context.phase, {
+    session: { workId: 'DELIVERY-1', phaseId: 'implementation', agent: 'developer' }
+  });
+  assert.equal(checked.status, 'ready', JSON.stringify(checked.findings));
+  assert.deepEqual(checked.testExecution.commands.map((command) => [command.argv, command.workingDirectory, command.affectedRoots, command.result]), [[
+    ['npx', '--no-install', 'nx', 'run', 'shop:test', '--skip-nx-cache', '--json', '--outputFile=.sflow/results/apps-shop-jest-tests.json'], '.', ['apps/shop'],
+    { adapter: 'jest-json', path: '.sflow/results/apps-shop-jest-tests.json', minimumDiscovered: 1, minimumPassed: 1 }
+  ]]);
+  await inContext(context.root, () => publishCodeGoverned(context.root, context.config, context.workflow, 'implementation'));
+  await inContext(context.root, () => submitPhase(
+    context.root, context.config, context.workflow, { phaseId: 'implementation', persist: false }
+  ));
+  const execution = context.phase.deliveryEvidence.testExecutions[0];
+  assert.equal(execution.status, 'passed');
+  const receipt = JSON.parse(await readFile(path.join(context.root, execution.receiptPath), 'utf8'));
+  assert.equal(receipt.adapter, 'jest-json');
   assert.deepEqual(receipt.tests, { discovered: 1, passed: 1, failed: 0, skipped: 0 });
   assert.equal(await readFile(protectedWorkflow, 'utf8'), protectedBefore, 'no workflow configuration was needed');
 });

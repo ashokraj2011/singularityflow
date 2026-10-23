@@ -41,6 +41,18 @@ test('nested applications are inspected explicitly, never by recursive monorepo 
   assert.deepEqual(result.suggestions[0].affectedRoots, ['apps/client']);
 });
 
+test('a module lists its unit command and the separate Playwright run publication adds beside it', async t => {
+  const root = await fixture(t);
+  await mkdir(path.join(root, 'apps', 'web'), { recursive: true });
+  await writeFile(path.join(root, 'apps', 'web', 'package.json'), JSON.stringify({
+    scripts: { test: 'vitest run', 'test:e2e': 'playwright test' }, devDependencies: { '@playwright/test': '^1.0.0' }
+  }));
+  const result = await inspectRepositoryTestSetup(root, { sourceRoots: ['apps/web'] });
+  assert.deepEqual(result.suggestions.map(entry => [entry.id, entry.workingDirectory, entry.result.adapter]), [
+    ['apps/web-node-tests', 'apps/web', 'vitest-json'], ['apps/web-playwright-tests', 'apps/web', 'playwright-json']
+  ]);
+});
+
 test('empty repositories, unsupported scripts and ambiguous modules return pending suggestions', async t => {
   const root = await fixture(t);
   assert.equal((await inspectRepositoryTestSetup(root)).status, 'pending-configuration');

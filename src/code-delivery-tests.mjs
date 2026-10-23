@@ -187,10 +187,10 @@ export async function resolveAffectedModule(root, candidate, { overrides = {} } 
       );
     }
     if (!manifests.length) {
-      // An Nx project keeps its targets in project.json. One tested by a Playwright target (its own,
-      // or the e2e project's beside it) belongs to that target; any other keeps the module above it.
+      // An Nx project keeps its targets in project.json. One with a Jest or Vitest target, or tested by a
+      // Playwright target (its own, or the e2e project's beside it), is a module; any other keeps the one above.
       const nx = await exists(path.join(root, directory, 'project.json'))
-        ? await (await import('./nx-test-targets.mjs')).nxPlaywrightProjectDirectory(root, directory || '.') : null;
+        ? await (await import('./nx-test-targets.mjs')).nxTestProjectDirectory(root, directory || '.') : null;
       if (nx) return { root: nx, system: 'nx', manifest: 'project.json', configured: false };
       continue;
     }
@@ -283,10 +283,11 @@ async function projectPythonLauncher(root, moduleRoot, platform) {
   return null;
 }
 
-/** An Nx project's Playwright target (src/nx-test-targets.mjs), loaded only for an Nx project. */
-async function nxTestCommand(root, moduleRoot) {
-  const { nxPlaywrightTestCommand } = await import('./nx-test-targets.mjs');
-  return nxPlaywrightTestCommand(root, moduleRoot, { packageManager: (workspace, manifest) => nodePackageManager(root, workspace, manifest) });
+/** An Nx project's test target (src/nx-test-targets.mjs), loaded only for an Nx project. */
+async function nxTestCommand(root, moduleRoot, options) {
+  return (await import('./nx-test-targets.mjs')).nxTestCommand(root, moduleRoot, {
+    ...options, packageManager: (workspace, manifest) => nodePackageManager(root, workspace, manifest)
+  });
 }
 
 async function nodePackageManager(root, moduleRoot, manifest) {
@@ -532,11 +533,11 @@ export async function inferModuleTestCommand(root, module, {
         workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
         result: { adapter: 'node-tap', path: `${resultBase}.tap`, minimumDiscovered: 1 }
       };
-      // An Nx project with a package.json of its own still runs its browser tests through Nx.
-      if (!unitOnly && await exists(path.join(root, cwd, 'project.json'))) return nxTestCommand(root, module.root);
+      // An Nx project with a package.json of its own still runs its tests through Nx.
+      if (await exists(path.join(root, cwd, 'project.json'))) return nxTestCommand(root, module.root, { unitOnly, nodeScript });
       return null;
     }
-    case 'nx': return unitOnly ? null : nxTestCommand(root, module.root);
+    case 'nx': return nxTestCommand(root, module.root, { unitOnly, nodeScript });
     case 'python': {
       const projectPython = await projectPythonLauncher(root, module.root, platform);
       return {

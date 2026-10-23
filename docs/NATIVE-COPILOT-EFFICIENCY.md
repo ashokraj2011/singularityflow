@@ -734,6 +734,41 @@ headline savings percentage inferred from skill text size. The complete Classic
 Delivery test exercises the kernel lifecycle and reports entry packet sizes, but it
 is a scripted test, **not** a live Copilot efficiency benchmark.
 
+## Measuring recorded host sessions
+
+Copilot CLI keeps one log per conversation in `~/.copilot/session-state/<id>/events.jsonl`.
+From the SFlow source/package directory, this reads those logs and prints one report:
+
+```sh
+npm run audit:copilot -- --sessions ~/.copilot/session-state --since 2026-10-18 > sflow-session-report.json
+```
+
+It only reads. Nothing is written, no model is called, and no work command, hook or
+skill reads the logs or the report. The report holds counts and identifiers only: no
+prompt, code, command, output text or path. It is the same for the same logs, so it can
+be shared as it is. Add `--details` for one row per model call and per tool result.
+
+Sessions without an SFlow command are left out. For the rest, the report gives:
+
+- **Input tokens,** as Copilot records them per model call, with the cached part,
+  model calls and premium requests.
+- **Calls by cause:** what the tool results since the previous model call were. The
+  causes are SFlow results, SFlow overflow-file reads, both, source reads, other shell
+  commands and host-saved output reads. A call right after a person's message is a
+  user turn; anything else is other.
+- **Bytes by route,** with the result types of SFlow results and of overflow files.
+- **Overflow reads:** reads per file and how often the same part was read again.
+- **Skill runs:** from a person's message to their next one, by the skill it invoked.
+  A run is finished only if SFlow's own result in it shows the skill's outcome, such as
+  published, submitted or approved. Runs that did not finish still count.
+- **The fixed prefix:** each conversation's first call, repeated on every call, as a
+  share of all input. Beside it are the tool-definition tokens, the system prompt, the
+  opening skill and the hook context.
+
+An office comparison needs at least 20 conversations with `/sf-code` and `/sf-phase`
+turns, from at least two people. Each person runs the command above on their own
+machine and shares only the report.
+
 ## Scripted measurement — 2026-10-10
 
 The complete Classic Delivery fixture finished intake, implementation, testing and

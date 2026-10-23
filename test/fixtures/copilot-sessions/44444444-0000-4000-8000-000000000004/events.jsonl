@@ -1,0 +1,6 @@
+{"type":"session.start","data":{"sessionId":"w","copilotVersion":"1.0.90","startTime":"2026-10-01T09:00:00.000Z"},"id":"ev-70","timestamp":"2026-10-20T10:01:10.000Z","parentId":null}
+{"type":"user.message","data":{"content":"/sf-next"},"id":"ev-71","timestamp":"2026-10-20T10:01:11.000Z","parentId":null}
+{"type":"session.usage_record","data":{"usage":{"model":"fixture-model","initiator":"user","interactionType":"conversation-agent","inputTokens":999,"outputTokens":10,"cacheReadTokens":0,"cacheWriteTokens":999,"cost":1}},"id":"ev-72","timestamp":"2026-10-20T10:01:12.000Z","parentId":null}
+{"type":"tool.execution_start","data":{"toolCallId":"o1","toolName":"bash","arguments":{"command":"singularity-flow nextsteps --json"}},"id":"ev-73","timestamp":"2026-10-20T10:01:13.000Z","parentId":null}
+{"type":"tool.execution_complete","data":{"toolCallId":"o1","success":true,"result":{"content":"progress line PLANTED-SECRET-STDERR\n{\n \"resultType\": \"sflow-nextsteps\"\n}\n<shellId: 1 completed with exit code 0>"}},"id":"ev-74","timestamp":"2026-10-20T10:01:14.000Z","parentId":null}
+{"type":"session.usage_record","data":{"usage":{"model":"fixture-model","initiator":"agent","interactionType":"conversation-agent","inputTokens":999,"outputTokens":10,"cacheReadTokens":999,"cacheWriteTokens":0,"cost":1}},"id":"ev-75","timestamp":"2026-10-20T10:01:15.000Z","parentId":null}

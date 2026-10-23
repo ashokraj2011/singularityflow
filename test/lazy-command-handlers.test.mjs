@@ -61,7 +61,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // environment files (docs/SPEC-ENVIRONMENT-FILES-v1.md) add 6,974 to 9,027,341: the registry policy and the
     // scoped-commit check in git.mjs, document intake's link-aware path check, the exact-path matcher, the operation
     // classes and the gate's file placement call. The engine itself is lazy; no new file.
-    assert.ok(closure.bytes <= 9_030_000, `${file} exceeds the 9 MB eager-source budget`);
+    // 9,035,000 (next 5,000 boundary): start.mjs was 9,028,819 on main a4aa046f; c2ac5250 (a decision input reuses the
+    // value an earlier decision recorded, so branches come back together) added 4,037 bytes to workflow-decisions.mjs,
+    // which every Story transition reads, and the build/import-team export actions 257 to command-registry.mjs: 9,033,113.
+    // No new file.
+    assert.ok(closure.bytes <= 9_035_000, `${file} exceeds the 9 MB eager-source budget`);
   }
 });
 

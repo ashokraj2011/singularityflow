@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 8
+version: 9
 commands:
   - configuration
   - workflow
@@ -67,13 +67,21 @@ In an Nx workspace a project's Playwright target is a suggestion: its `project.j
 `@nx/playwright/plugin` infers from its `playwright.config.*`. It runs as `nx run <project>:<target>
 --skip-nx-cache --reporter=json` from the workspace root and also covers the projects beside it that
 it names in `implicitDependencies`. Publication infers it the same way, with no configuration.
+A project's own Jest or Vitest target (the `@nx/jest:jest` executor, a plain `jest`, `vitest` or
+`vitest run` command, or the target `@nx/jest/plugin` or `@nx/vite/plugin` infers) is suggested beside
+it, with `--json --outputFile=<report>` or `--run --reporter=json --outputFile=<report>` and the report
+path written relative to the directory the runner resolves it against; publication runs both for a
+changed application. The `@nx/vite:test` executor is not inferred and needs an approved command.
 
 To save a chosen command from Copilot or a terminal, preview it with `singularity-flow capability
 test-setup --step <STEP> [--workflow <WORKFLOW>]` and either `--use <SUGGESTION-ID>` or the command in
 full (`--id`, `--argv '<JSON ARRAY>'`, `--working-directory`, `--affected-root`, `--adapter`,
 `--report`). The preview shows the `singularity/workflow.yml` diff and changes nothing; its printed
 `--confirm <digest>` command proposes exactly that change through the same reviewed save as the
-Test setup page. A command with the same ID is replaced; every other check is kept.
+Test setup page. A command with the same ID is replaced; every other check is kept. Run from a
+Story's checkout, it also names the Story's adoption once the proposal is activated. For a command one
+Story needs before that, a step approver accepts a Story-only command (`decision test-command`, see
+test-recovery).
 
 Existing Stories retain their configuration pin. An approved command-only revision can be reviewed
 for adoption in the **current code phase** through `singularity-flow story test-policy amend <WORK-ID>

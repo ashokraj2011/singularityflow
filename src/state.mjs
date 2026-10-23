@@ -106,7 +106,7 @@ import { assertPhaseGovernanceMayAdvance } from './phase-governance-routing.mjs'
 import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
 import {
   assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands,
-  reviewRepairTarget, uncoveredTestDeliveryPaths,
+  reviewRepairTarget, testCommandProvenance, uncoveredTestDeliveryPaths,
   verifyCodeDeliveryReceipt
 } from './delivery-evidence.mjs';
 import { generationSkillForPhase, pinCodeDeliveryTask } from './code-delivery-policy.mjs';
@@ -4035,8 +4035,8 @@ function requiredTestExecutionDiagnostic(root, command, check) {
   };
   return {
     commandId: command.id,
-    argv: command.provenance === 'inferred' ? [...command.argv] : null,
-    argvWithheld: command.provenance !== 'inferred',
+    argv: command.provenance !== 'configured' ? [...command.argv] : null,
+    argvWithheld: command.provenance === 'configured',
     provenance: command.provenance ?? 'configured',
     cwd,
     workingDirectory: command.workingDirectory,
@@ -4774,12 +4774,13 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
 }
 
 async function preflightCodeDeliveryTests(root, config, workflow, phase, deliveryEvidence) {
+  if (phase.storyTestCommands || workflow.testCommandDecisions) (await import('./story-test-commands.mjs')).assertStoryTestCommands(workflow);
   let commands = (await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence },
     { executionMode: workflow.resolution?.testExecutionMode }))
     .filter((command) => command && typeof command === 'object' && !Array.isArray(command) && command.kind === 'test')
     .map((command, index) => ({
       ...normalizeRequiredTestCommand(command, index),
-      provenance: (phase.qualityCommands ?? []).includes(command) ? 'configured' : 'inferred'
+      provenance: testCommandProvenance(phase, command)
     }))
     .map((command) => ({
       ...command,
@@ -4796,7 +4797,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
       }
     }));
   if (!commands.length) {
-    throw structuredTestCommandRequiredError(phase);
+    throw structuredTestCommandRequiredError(phase, { workId: workflow.workItem.id, paths: deliveryEvidence?.sourcePaths });
   }
   let trpSelection = null;
   if (workflow.testRecovery || workflow.resolution?.testRecovery?.enabled === true) {
@@ -5093,6 +5094,7 @@ async function submitPhaseTransition(root, config, workflow, {
   // submission because normal repository file access is the permanent fallback.
   await requireAstLifecycleReceipt(root, config, workflow, phase, { generation: phase.generation });
   const codeDeliveryRequired = phaseRequiresCodeDelivery(phase);
+  if (phase.storyTestCommands || workflow.testCommandDecisions) (await import('./story-test-commands.mjs')).assertStoryTestCommands(workflow);
   let deliveryCommands = await resolveDeliveryQualityCommands(root, phase,
     { executionMode: workflow.resolution?.testExecutionMode });
   let trpSelection = null;
@@ -5117,7 +5119,7 @@ async function submitPhaseTransition(root, config, workflow, {
       .filter((command) => command && typeof command === 'object' && !Array.isArray(command) && command.kind === 'test')
       .map((command, index) => ({
         ...normalizeRequiredTestCommand(command, index),
-        provenance: (phase.qualityCommands ?? []).includes(command) ? 'configured' : 'inferred'
+        provenance: testCommandProvenance(phase, command)
       }))
       .map((command) => ({
         ...command,
@@ -5134,7 +5136,7 @@ async function submitPhaseTransition(root, config, workflow, {
         }
       }));
     if (!requiredTestCommands.length) {
-      throw structuredTestCommandRequiredError(phase);
+      throw structuredTestCommandRequiredError(phase, { workId: workflow.workItem.id, paths: evidence?.sourcePaths });
     }
     if (workflow.testRecovery || workflow.resolution?.testRecovery?.enabled === true) {
       trpSelection = await resolveTrpDeliverySelection(root, config, workflow, phase, evidence, [
@@ -5284,7 +5286,7 @@ async function submitPhaseTransition(root, config, workflow, {
     // Assign provenance from trusted resolution identity, never a field supplied by configuration.
     commandProvenance: new Map(deliveryCommands.map((command) => [command,
       trpSelection && command?.kind === 'test' ? command.provenance
-        : (phase.qualityCommands ?? []).includes(command) ? 'configured' : 'inferred']))
+        : testCommandProvenance(phase, command)]))
   }) : [];
   if (retainedRisk) {
     const observation = retainedRisk.observation;

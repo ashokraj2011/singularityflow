@@ -30,7 +30,7 @@ export const DEFAULT_RISK_DAYS = 30;
 const MAX_RISK_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;
 // The order a chosen option's records are written in: an issue exists before it is decided.
-const EFFECT_ORDER = Object.freeze(['upstream-issue', 'evidence-reuse', 'test-run-risk', 'visual-profile', 'upstream-issue-decision']);
+const EFFECT_ORDER = Object.freeze(['upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-command', 'visual-profile', 'upstream-issue-decision']);
 const REASON = Object.freeze({ minimum: 20, maximum: 1000 });
 const CAUSE = Object.freeze({ minimum: 10, maximum: 300 });
 
@@ -369,6 +369,25 @@ function testRiskItem(workflow, context, risk) {
   };
 }
 
+/** One item for a Story-only test command someone requested for a step (`decision test-command`). */
+function testCommandItem(workflow, context, request) {
+  const name = stepName(workflow, request.phase);
+  const { command } = request;
+  return {
+    kind: 'test-command',
+    title: `Run ${command.id} as ${name}'s tests for this Story`,
+    why: `${request.requestedBy} asked that ${name} run ${JSON.stringify(command.argv)} from ${command.workingDirectory}, reading ${command.result.adapter} ${command.result.path}, `
+      + `covering ${listWords(command.affectedRoots)}: ${request.reason} Once accepted it runs at every publication and submission of ${name}, and its tests must pass.`,
+    options: [option(workflow, context, {
+      id: 'accept-test-command', label: 'Accept this command for this Story',
+      words: 'The repository configuration is unchanged; propose it there with /sf-test-setup for later Stories.',
+      effects: [{ kind: 'test-command', phase: request.phase, request: request.id }],
+      needs: { reason: textNeed(`${command.id} runs ${name}'s tests for this Story.`, { minimum: 0, maximum: REASON.maximum }) }
+    })],
+    details: { phase: request.phase, request: request.id, command, commands: [`singularity-flow decision test-command ${workflow.workItem.id} --accept ${request.id}`] }
+  };
+}
+
 /** The commands a person or script uses to record, with the packet digest. */
 export function decisionRecordCommand(workId, { phaseId = null, choices = [], digest, values = {} } = {}) {
   // POSIX single quotes, as canonicalDisplayToken in safe-command-guidance.mjs: a JSON double-quoted
@@ -392,6 +411,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     ...groups.map((group) => (group.kind === 'conformance-gap' ? gapItem(workflow, context, group) : issueItem(workflow, context, group.state))),
     ...(facts.visual ?? []).map((entry) => visualItem(workflow, context, entry)),
     ...(facts.testRisks ?? []).map((risk) => testRiskItem(workflow, context, risk)),
+    ...(facts.testCommands ?? []).map((request) => testCommandItem(workflow, context, request)),
     ...(facts.evidence ?? []).map((entry) => evidenceItem(workflow, context, entry))
   ];
   const items = built.map((item, index) => {
@@ -529,6 +549,7 @@ export function effectWords(workflow, effect, values = {}) {
   }
   if (effect.kind === 'upstream-issue') return `report the gap against ${stepName(workflow, effect.phase)} (new upstream issue about ${effect.about})`;
   if (effect.kind === 'test-run-risk') return `accept that ${effect.commandId} cannot run here until ${values.expires} (test-run risk)`;
+  if (effect.kind === 'test-command') return `run ${effect.request}'s command as ${stepName(workflow, effect.phase)}'s tests for this Story (test-command decision)`;
   if (effect.kind === 'visual-profile') return `record that screen size ${effect.profileId} does not apply to this Story (visual-profile decision)`;
   const what = { 'accept-risk': `accept it as a risk until ${values.expires}`, dismiss: 'dismiss it', return: `return the work to ${stepName(workflow, effect.issuePhase)}` }[effect.outcome] ?? effect.outcome;
   return `${what} (decision on ${effect.issue ?? 'the new upstream issue'})`;

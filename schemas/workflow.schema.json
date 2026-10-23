@@ -677,6 +677,28 @@
         "additionalProperties": false
       }
     },
+    "testCommandDecisions": {
+      "description": "Append-only Story-only test commands: a request for one exact structured test command for a step, and a step approver's acceptance or revocation of it. An accepted command runs at every publication and submission of the step like a configured one; its tests must pass.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["phase", "at"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^TCD-[0-9]{3,}$" },
+          "accepts": { "type": "string", "pattern": "^TCD-[0-9]{3,}$" },
+          "revokes": { "type": "string", "pattern": "^TCD-[0-9]{3,}$" },
+          "phase": { "type": "string", "minLength": 1 },
+          "command": { "type": "object" },
+          "reason": { "type": "string", "maxLength": 1000 },
+          "requestedBy": { "type": "string", "minLength": 1 },
+          "actor": { "type": "string", "minLength": 1 },
+          "authorityGroup": { "type": "string", "minLength": 1 },
+          "identityAssurance": { "type": ["string", "null"] },
+          "at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
     "testRunRisks": {
       "description": "Append-only decisions by a step's approvers that one of its test commands cannot run in this environment, and their revocations. A decision lets through only a run of the same command in which no test executed, until it expires or is revoked.",
       "type": "array",
@@ -1083,6 +1105,11 @@
           "writeScope": { "enum": ["artifact-only", "source-and-artifact"] },
           "sourceBoundary": { "enum": ["unrestricted", "test-automation"] },
           "requiredArtifact": { "type": ["object", "null"] },
+          "storyTestCommands": {
+            "description": "The step's Story-only test commands a step approver accepted, each bound to its request in testCommandDecisions; derived from those decisions.",
+            "type": "array",
+            "items": { "type": "object", "required": ["id", "kind", "argv", "storyDecision"] }
+          },
           "qualityCommands": {
             "type": "array",
             "items": {

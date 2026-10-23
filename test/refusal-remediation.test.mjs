@@ -699,14 +699,17 @@ test('code-delivery configuration refusals keep protected workflow changes outsi
     new Error('No structured test command was found.'),
     { code: 'CODE_DELIVERY_TEST_COMMAND_REQUIRED', details: { phase: 'implementation' } }
   ), ['phase', 'publish', 'implementation']);
-  assert.equal(missing.steps[0].command,
-    'singularity-flow phase show implementation --json');
-  assert.equal(missing.steps[0].skill, '/sf-phase-documents');
-  assert.equal(missing.steps[0].copilotCommand, '/sf-phase-documents implementation');
-  assert.equal(missing.steps[1].command, null);
-  assert.match(missing.steps[1].label, /in-scope test script or runner declaration/);
-  assert.match(missing.steps[1].label, /story test-policy amend --reason TEXT/);
-  assert.match(missing.steps[1].label, /refresh alone does not change its pin/);
+  // Within the three-step cap: the suggestions and the repository routes from there, the Story-only
+  // command a step approver accepts, and the recheck.
+  assert.deepEqual(missing.steps.map((entry) => entry.id), ['inspect-test-setup', 'request-story-test-command', 'recheck-structured-test-contract']);
+  assert.equal(missing.steps[0].command, 'singularity-flow capability test-setup --json');
+  assert.equal(missing.steps[0].skill, '/sf-test-setup');
+  assert.match(missing.steps[0].label, /capability test-setup --step implementation/);
+  assert.match(missing.steps[0].label, /in-scope test script or runner declaration/);
+  assert.match(missing.steps[0].label, /story test-policy amend --reason TEXT/);
+  assert.match(missing.steps[0].label, /refresh alone does not change its pin/);
+  assert.match(missing.steps[1].command, /^singularity-flow decision test-command <WORK-ID> --phase implementation --use <SUGGESTION-ID> /u);
+  assert.match(missing.steps[1].label, /A person who approves the step accepts it from the decision list/);
   assert.equal(missing.steps[2].command,
     'singularity-flow phase prepublish implementation --json');
   assert.match(missing.retry.label, /in-scope repository runner repair/);

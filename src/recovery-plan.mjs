@@ -448,19 +448,29 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
         testExecution.status = 'unavailable';
         testExecution.reason = deliveryErrors[0].code ?? 'CODE_DELIVERY_INCOMPLETE';
         testExecution.blockedBy = deliveryErrors.map(error => error.code ?? 'CODE_DELIVERY_INCOMPLETE');
+        // Before any change, resolve the runner the plan's paths will need, so a missing one is set
+        // up while the code is written instead of found at publication.
+        const { plannedStepPaths } = await import('./candidate-scope.mjs');
+        const planned = await plannedStepPaths(path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id), workflow, phase).catch(() => null);
+        if (planned?.sourcePaths.length || planned?.testPaths.length) {
+          const prospective = (await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence: planned },
+            { executionMode: workflow.resolution?.testExecutionMode }).catch(() => [])).filter(isTestCommand);
+          testExecution.planned = { runner: prospective.length ? 'available' : 'missing', commands: prospective.map((command) => command.id) };
+          if (!prospective.length) testExecution.reason = 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';
+        }
       } else {
         testCommands = (deliveryEvidence ? await resolveDeliveryQualityCommands(root, {
           ...phase, deliveryEvidence
         }, { executionMode: workflow.resolution?.testExecutionMode }) : phase.qualityCommands ?? []).filter(isTestCommand);
         const normalized = testCommands.map((command, index) =>
           normalizeRequiredTestCommand(command, index));
-        if (!testCommands.length) throw structuredTestCommandRequiredError(phase);
+        if (!testCommands.length) throw structuredTestCommandRequiredError(phase, { workId: workflow.workItem.id, paths: deliveryEvidence?.sourcePaths });
         const testPolicy = workflow.resolution?.codeDelivery?.tests;
         testExecution.status = 'not-run';
         if (deliveryErrors.length) testExecution.blockedBy = deliveryErrors.map(error => error.code ?? 'CODE_DELIVERY_INCOMPLETE');
         testExecution.commands = normalized.map((command, index) => {
           const configuredIndex = (phase.qualityCommands ?? []).indexOf(testCommands[index]);
-          return projectTestExecutionCommand(command, { configuredIndex, testPolicy });
+          return projectTestExecutionCommand(command, { configuredIndex, testPolicy, storyDecision: testCommands[index].storyDecision ?? null });
         });
         // Publication refuses affected paths no command covers; say so now, not after the tests ran.
         const uncovered = deliveryEvidence && !publishedCodeGeneration && testPolicy?.requireAffectedModuleCoverage !== false
@@ -580,6 +590,22 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
             : error.details?.deliveryRoute?.skill ?? '/sf-phase-documents',
           authoringSkill: configurationDependency ? null : generationSkill(phase, workflow)
         }));
+        if (missingRepositoryRunner) {
+          // An activated command the pin predates is adopted; otherwise a person accepts a Story-only one.
+          const { activatedTestCommandsFor } = await import('./test-setup-proposal.mjs');
+          const activated = await activatedTestCommandsFor(root, workflow, phase.id);
+          const workId = workflow.workItem.id;
+          actions.push(activated.length ? action({
+            id: `adopt-activated-test-command:${phase.id}`,
+            detail: `The activated configuration now gives ${phase.id} ${activated.map((command) => command.id).join(', ')}, which this Story's pinned policy predates. A person who approves the step previews the adoption, then applies it with the returned --apply --confirm; the tests run fresh.`,
+            command: `singularity-flow story test-policy amend --work-id ${workId} --phase ${phase.id} --reason "Adopt the activated test command for this step" --json`,
+            skill: '/sf-recover'
+          }) : action({
+            id: `request-story-test-command:${phase.id}`,
+            detail: `Request the exact command that runs ${phase.id}'s tests for this Story: singularity-flow decision test-command ${workId} --phase ${phase.id} --use <SUGGESTION-ID> --reason "<why>" (or --id, --argv '<JSON ARRAY>', --working-directory, --affected-root, --adapter and --report). A person who approves the step accepts it from the decision list. Or propose it for every later Story with capability test-setup --step ${phase.id}.`,
+            command: TEST_SETUP_COMMAND, skill: '/sf-test-setup'
+          }));
+        }
       }
     }
   }

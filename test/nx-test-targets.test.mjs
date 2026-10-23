@@ -40,11 +40,11 @@ test('an application change alone runs the e2e project that names it, and an unr
   const root = await workspace(t, {
     'package.json': { name: 'shop', private: true, scripts: { test: 'jest' } },
     'apps/shop/project.json': app, 'apps/shop-e2e/project.json': e2e(),
-    'apps/admin/project.json': { name: 'admin', targets: { test: { executor: '@nx/jest:jest' } } }
+    'apps/admin/project.json': { name: 'admin', targets: { test: { executor: '@nx/vite:test' } } }
   });
   assert.deepEqual(runs(await changed(root, 'apps/shop/src/cart.ts')),
     [['npx --no-install nx run shop-e2e:e2e --skip-nx-cache --reporter=json', 'apps/shop-e2e,apps/shop']]);
-  // No Playwright target tests admin: its files still resolve to the root package.json's tests.
+  // No target tests admin (its @nx/vite:test executor is not inferred): its files still resolve to the root package.json's tests.
   assert.deepEqual(runs(await changed(root, 'apps/admin/src/users.ts')), [['npm test -- --json --outputFile .sflow/results/node-tests.json', '.']]);
 });
 
@@ -69,6 +69,7 @@ test('only an unambiguous, plain Playwright target is inferred', async (t) => {
   assert.equal(runs(await target({ e2e: { executor: 'nx:run-commands', options: { command: 'playwright test -c playwright.config.ts' } } }))[0][0],
     'npx --no-install nx run shop-e2e:e2e --skip-nx-cache --reporter=json');
   assert.deepEqual(await target({ e2e: { executor: 'nx:run-commands', options: { command: 'playwright test && rm -rf out' } } }), []);
+  assert.deepEqual(await target({ e2e: { command: 'playwright test', options: { forwardAllArgs: false } } }), [], 'the reporter would not reach Playwright');
   assert.deepEqual(await target({ 'e2e:ci': playwright }), [], 'nx run reads a colon as a configuration');
   assert.deepEqual(await target({ e2e: playwright }, 'shop e2e; rm'), [], 'an unusable project name');
 });

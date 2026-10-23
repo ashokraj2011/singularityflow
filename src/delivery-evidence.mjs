@@ -1663,8 +1663,14 @@ export function isTestQualityCommand(command) {
   return /(^|[._-])(test|tests|acceptance|e2e)(?:[._-]|$)/.test(executable);
 }
 
+/** Where a step's test command came from: a person's Story-only decision, approved configuration, or inference. */
+export function testCommandProvenance(phase, command) {
+  return command?.storyDecision ? 'story-decision' : (phase.qualityCommands ?? []).includes(command) ? 'configured' : 'inferred';
+}
+
 export async function resolveDeliveryQualityCommands(root, phase, { executionMode = 'changed-and-affected' } = {}) {
-  const configured = [...(phase.qualityCommands ?? [])];
+  // Commands a step approver accepted for this Story only (src/story-test-commands.mjs) run like configured ones.
+  const configured = [...(phase.qualityCommands ?? []), ...(phase.storyTestCommands ?? [])];
   if (!phaseRequiresCodeDelivery(phase)) return configured;
   const configuredTests = configured.filter((command) =>
     command && typeof command === 'object' && !Array.isArray(command) && command.kind === 'test');
@@ -1705,9 +1711,9 @@ export async function resolveDeliveryQualityCommands(root, phase, { executionMod
     if (moduleCoveredByConfiguredTest(module.root)) continue;
     const command = await inferModuleTestCommand(root, module);
     if (command) inferred.push(command);
-    if (module.system === 'node' && command?.result?.adapter !== 'playwright-json') {
-      // A Node unit script is not evidence that newly authored browser tests ran. Add one
-      // unambiguous direct Playwright script when the module declares it separately.
+    if (['node', 'nx'].includes(module.system) && command?.result?.adapter !== 'playwright-json') {
+      // A unit command is not evidence that newly authored browser tests ran. Add one unambiguous
+      // direct Playwright script (or Nx Playwright target) when the module declares it separately.
       for (const nodeScript of ['test:e2e', 'test:playwright', 'e2e']) {
         const browserCommand = await inferModuleTestCommand(root, module, { nodeScript });
         if (browserCommand?.result?.adapter === 'playwright-json') {

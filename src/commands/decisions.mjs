@@ -15,7 +15,7 @@
  *
  * The Copilot guard lets an agent record here only options that write upstream-issue records, in a
  * /sf-decide turn; reusing a recorded run or accepting a test-run risk is the person's own step in
- * their own terminal, as for `decision evidence-reuse` and `decision test-risk`.
+ * their own terminal, as for `decision evidence-reuse`, `decision test-risk` and `decision test-command`.
  */
 import { readFile } from 'node:fs/promises';
 import { stdin as processInput, stdout as processOutput } from 'node:process';
@@ -265,6 +265,10 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
     return (await recordVisualProfileDecisionFor(root, config, workflow, { phaseId: effect.phase, profileId: effect.profileId,
       reason: step.values.reason }, { actor, agent })).record;
   }
+  if (effect.kind === 'test-command') {
+    const { recordStoryTestCommand } = await import('./decision-test-command.mjs');
+    return (await recordStoryTestCommand(root, config, workflow, { accept: effect.request, reason: step.values.reason ?? '' }, { actor, agent })).record;
+  }
   if (effect.kind === 'test-run-risk') {
     const { recordTestRunRiskDecision } = await import('./decision-test-risk.mjs');
     return (await recordTestRunRiskDecision(root, config, workflow, { phaseId: effect.phase, commandId: effect.commandId,
@@ -280,7 +284,7 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
 
 function recordId(kind, record) {
   if (kind === 'upstream-issue-decision') return `${record?.issue} ${record?.outcome}`;
-  return record?.id ?? null;
+  return record?.id ?? record?.accepts ?? record?.revokes ?? null;
 }
 
 async function record(root, options, workId, io) {

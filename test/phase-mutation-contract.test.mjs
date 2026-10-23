@@ -655,6 +655,24 @@ test('no agent turn accepts that a step\'s tests cannot run here or decides spec
   }
 });
 
+test('an agent may request a Story-only test command, but only a person who approves the step accepts or revokes it', async t => {
+  const f = await fixture(t);
+  const request = `singularity-flow decision test-command PMC-1 --phase custom-step --id module-tests --argv '["npx","nx","run","shop-e2e:e2e"]' `
+    + '--working-directory . --affected-root apps/shop --adapter playwright-json --report out.json --reason "The Nx Playwright run tests this module."';
+  const accept = 'singularity-flow decision test-command PMC-1 --accept TCD-001';
+  const revoke = 'singularity-flow decision test-command PMC-1 --revoke TCD-001 --reason "The repository configures this runner now."';
+  for (const [skill, mode] of [['/sf-phase', null], ['/sf-recover', 'kernel']]) {
+    const payload = await f.enter(skill, mode ?? undefined);
+    const asked = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: request, cwd: f.root } });
+    assert.notEqual(asked.permissionDecision, 'deny', `${skill}: ${asked.permissionDecisionReason}`);
+    for (const command of [accept, revoke]) {
+      const denied = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+      assert.equal(denied.permissionDecision, 'deny', `${skill}: ${command}`);
+      assert.match(denied.permissionDecisionReason, /decided by a person who approves that step, in their own terminal, not by this turn/u, skill);
+    }
+  }
+});
+
 test('no agent turn sets held changes aside; it shows the person the command', async t => {
   const f = await fixture(t);
   const setAside = `singularity-flow recover PMC-1 --phase custom-step --set-aside --confirm sha256:${'a'.repeat(64)} --json`;

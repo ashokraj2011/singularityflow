@@ -4,6 +4,18 @@ import { inferRepositoryTestCommands } from './repository-test-command-inference
 import { inferModuleTestCommand, resolveAffectedModule } from './code-delivery-tests.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
+/** What publication infers for a module: its command and, beside a Node or Nx unit command, the separate Playwright run. */
+async function moduleCommands(root, module, platform) {
+  const commands = [await inferModuleTestCommand(root, module, { platform })].filter(Boolean);
+  if (['node', 'nx'].includes(module.system) && commands[0]?.result?.adapter !== 'playwright-json') {
+    for (const nodeScript of ['test:e2e', 'test:playwright', 'e2e']) {
+      const browser = await inferModuleTestCommand(root, module, { platform, nodeScript });
+      if (browser?.result?.adapter === 'playwright-json') { commands.push(browser); break; }
+    }
+  }
+  return commands;
+}
+
 export async function inspectRepositoryTestSetup(root, { sourceRoots = ['.'], platform = process.platform } = {}) {
   if (!Array.isArray(sourceRoots) || !sourceRoots.length || sourceRoots.length > 20) {
     throw new SingularityFlowError('Choose from 1 to 20 explicit module directories.', { code: 'TEST_SETUP_SCOPE_INVALID' });
@@ -23,7 +35,7 @@ export async function inspectRepositoryTestSetup(root, { sourceRoots = ['.'], pl
     if (directory !== '.') await secureRepositoryPath(root, directory, { mustExist: true, type: 'directory', label: 'Test module' });
     try {
       const commands = directory === '.' ? await inferRepositoryTestCommands(root, { platform })
-        : [await inferModuleTestCommand(root, await resolveAffectedModule(root, `${directory}/__sflow_test_setup__`), { platform })].filter(Boolean);
+        : await moduleCommands(root, await resolveAffectedModule(root, `${directory}/__sflow_test_setup__`), platform);
       for (const command of commands) {
         if (!suggestions.some(entry => JSON.stringify(entry.argv) === JSON.stringify(command.argv)
             && entry.workingDirectory === command.workingDirectory)) suggestions.push(command);

@@ -157,7 +157,8 @@ export function requiredTestExecutionForRefusal(error) {
       || typeof execution.commandId !== 'string'
       || typeof execution.cwd !== 'string'
       || typeof execution.resultPath !== 'string') return null;
-  const inferred = execution.provenance === 'inferred';
+  // Only an approved configured command's argv is withheld (it may carry secrets); others are shown.
+  const inferred = execution.provenance !== 'configured';
   if (inferred && !Array.isArray(execution.argv)) return null;
   let argvRedacted = false;
   const argv = (inferred ? execution.argv : []).slice(0, MAX_ARGV).map((argument, index) => {

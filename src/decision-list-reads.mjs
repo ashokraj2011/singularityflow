@@ -123,11 +123,14 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     evidence,
     candidates: reuse.candidates, reuseProblems: reuse.problems,
     testRisks: await testRisks(root, config, workflow, phase, at),
+    testCommands: (workflow.testCommandDecisions ?? []).length
+      ? (await import('./story-test-commands.mjs')).pendingStoryTestCommands(workflow, phase.id) : [],
     visual: await visualProfiles(root, config, workflow, phase),
     state: {
       phases: Object.fromEntries((workflow.phaseOrder ?? []).map((id) => [id, `${workflow.phases?.[id]?.status}:${Number(workflow.phases?.[id]?.generation ?? 0)}`])),
       upstreamIssues: (workflow.upstreamIssues ?? []).length, upstreamIssueDecisions: (workflow.upstreamIssueDecisions ?? []).length,
       evidenceReuses: (workflow.evidenceReuses ?? []).length, testRunRisks: (workflow.testRunRisks ?? []).length,
+      testCommandDecisions: (workflow.testCommandDecisions ?? []).length,
       visualProfileDecisions: (workflow.visualProfileDecisions ?? []).length,
       evidence: evidence.map((entry) => `${entry.criterion}:${entry.result}:${entry.witnesses.map((witness) => witness.slot).join(',')}:${entry.risks.length}`),
       reports: Object.fromEntries(reports.map((entry) => [entry.step.id, entry.digest])),

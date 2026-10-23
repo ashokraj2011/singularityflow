@@ -55,7 +55,7 @@ import { discoverWorkspaceStoryRows, settleIndependentStoryRead, StoryRefreshGat
 import { sameStoryAttachPath, selectedCatalogStory, storyListingWorkspaceStatus, verifiedInboxRepositoryBinding, verifiedWorkspaceStoryRepository } from './story-attach.ts';
 import {
   storyCheckoutNeedsWindowSwitch, storyStartHandoffFromResult, storyStartHandoffMatches,
-  STORY_START_HANDOFF_KEY, STORY_START_DISCOVERY_IDLE_MS
+  STORY_START_HANDOFF_KEY, STORY_START_DISCOVERY_IDLE_MS, STORY_START_NOTICE_KEY, storyStartNotice, storyStartNoticeFor
 } from './story-start-handoff.ts';
 import type { StoriesMessage } from './views/stories.ts';
 import type { CapabilitiesMessage } from './views/capabilities.ts';
@@ -5405,6 +5405,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         discover();
       });
     };
+    const startNotice = storyStartNoticeFor(context.globalState.get<unknown>(STORY_START_NOTICE_KEY), scope.repository);
+    if (startNotice) {
+      void context.globalState.update(STORY_START_NOTICE_KEY, undefined).then(() => {}, () => {});
+      output.appendLine(`Approval enrollment pending: ${startNotice}`);
+      void showCompactWarningMessage(startNotice);
+    }
     const handoff = context.globalState.get<unknown>(STORY_START_HANDOFF_KEY);
     if (!forceReadiness && storyStartHandoffMatches(handoff, scope.repository, state.snapshot)) {
       // Confirmed core/lifecycle bytes remain the only source for actions. This one-use hint just
@@ -6395,6 +6401,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (handoff) {
           try { await context.globalState.update(STORY_START_HANDOFF_KEY, handoff); }
           catch { /* An advisory scheduling cache must not turn a published Story into a refusal. */ }
+        }
+        // Opening the checkout reloads the window; the new window shows what this one could not.
+        const notice = started.enrollmentPending ? storyStartNotice(started.repositoryPath, started.enrollmentPending) : null;
+        if (notice) {
+          try { await context.globalState.update(STORY_START_NOTICE_KEY, notice); }
+          catch { /* The start result already printed it; a lost notice must not refuse the Story. */ }
         }
         void showCompactInformationMessage(
           `Story ${started.id} started in its isolated checkout. Opening it now.`

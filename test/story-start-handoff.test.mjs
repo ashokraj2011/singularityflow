@@ -6,7 +6,7 @@ import test from 'node:test';
 import {
   storyCheckoutNeedsWindowSwitch,
   storyStartHandoffFromResult, storyStartHandoffMatches,
-  STORY_START_HANDOFF_MAX_AGE_MS, STORY_START_HANDOFF_KEY
+  STORY_START_HANDOFF_MAX_AGE_MS, STORY_START_HANDOFF_KEY, STORY_START_NOTICE_KEY, storyStartNotice, storyStartNoticeFor
 } from '../apps/vscode/src/story-start-handoff.ts';
 
 const repository = path.resolve('fixture/story-checkout');
@@ -103,4 +103,18 @@ test('the window opens a started Story unless one of its own folders already is 
     'a symbolic link to the same checkout is the same checkout');
   assert.equal(await storyCheckoutNeedsWindowSwitch(path.join(base, 'gone'), [launch]), true,
     'an unresolvable path is compared as written, never as a match');
+});
+
+test('a start warning survives the switch to the new checkout window, once, for that folder only', () => {
+  // Opening the isolated checkout reloads the window, which drops a warning shown just before it.
+  assert.equal(STORY_START_NOTICE_KEY, 'singularityFlow.storyStartNotice.v1');
+  const now = Date.parse('2026-10-23T12:00:00.000Z');
+  const notice = storyStartNotice(repository, '  Your Git identity was not added to the approval groups.  ', now);
+  assert.equal(notice.message, 'Your Git identity was not added to the approval groups.');
+  assert.equal(storyStartNoticeFor(notice, repository, now + 60_000), notice.message);
+  assert.equal(storyStartNoticeFor(notice, path.resolve('fixture/other-checkout'), now), null, 'another window keeps quiet');
+  assert.equal(storyStartNoticeFor(notice, repository, now + 31 * 60_000), null, 'a stale notice is not shown');
+  assert.equal(storyStartNoticeFor({ ...notice, schemaVersion: 2 }, repository, now), null);
+  assert.equal(storyStartNotice('relative/path', 'text', now), null);
+  assert.equal(storyStartNotice(repository, '   ', now), null);
 });

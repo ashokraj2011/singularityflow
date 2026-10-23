@@ -44,6 +44,30 @@ export function storyStartHandoffFromResult(result: {
   };
 }
 
+/**
+ * A warning a Story start leaves for the window that opens its isolated checkout: opening the folder
+ * reloads the window, which drops a message shown before it (a pending approval enrollment, say).
+ * One record, shown once in the window for that folder, and only while it is fresh.
+ */
+export const STORY_START_NOTICE_KEY = 'singularityFlow.storyStartNotice.v1';
+const NOTICE_FRESH_MS = 30 * 60 * 1000;
+
+export interface StoryStartNotice { schemaVersion: 1; repositoryPath: string; message: string; createdAt: string }
+
+export function storyStartNotice(repositoryPath: string, message: string, now = Date.now()): StoryStartNotice | null {
+  if (!path.isAbsolute(repositoryPath) || typeof message !== 'string' || !message.trim()) return null;
+  return { schemaVersion: 1, repositoryPath: path.resolve(repositoryPath), message: message.trim().slice(0, 4000), createdAt: new Date(now).toISOString() };
+}
+
+/** The notice's message when it was left for this repository and is still fresh, else null. */
+export function storyStartNoticeFor(value: unknown, repository: string, now = Date.now()): string | null {
+  const notice = value as Partial<StoryStartNotice> | null;
+  if (!notice || notice.schemaVersion !== 1 || typeof notice.message !== 'string' || typeof notice.repositoryPath !== 'string') return null;
+  if (path.resolve(notice.repositoryPath) !== path.resolve(repository)) return null;
+  const age = now - Date.parse(String(notice.createdAt));
+  return Number.isFinite(age) && age >= 0 && age <= NOTICE_FRESH_MS ? notice.message : null;
+}
+
 /** Exact locally confirmed identity fences a one-time deferral of optional remote inventory. */
 export function storyStartHandoffMatches(
   value: unknown, repository: string, snapshot: RepositorySnapshot, now = Date.now()

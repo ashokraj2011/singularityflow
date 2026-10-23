@@ -56,6 +56,8 @@ export interface Started {
   repositoryPath?: string;
   publication?: { pushed?: boolean; branch?: string; commit?: string };
   configuration?: { commit?: string } | null;
+  /** The Story started, but this person was not added to its approval groups: why, and the retry. */
+  enrollmentPending?: string;
 }
 
 export interface IntakeTarget {
@@ -1613,7 +1615,8 @@ export class IntakePanel {
       this.dispose();
       await this.onStarted({
         shape, id, currentPhase: payload.currentPhase, repositoryPath: payload.repositoryPath,
-        publication: payload.publication, configuration: payload.configuration
+        publication: payload.publication, configuration: payload.configuration,
+        ...(enrollmentPending ? { enrollmentPending } : {})
       });
     } catch (error) {
       const failure = error instanceof Error ? error : new Error(String(error));

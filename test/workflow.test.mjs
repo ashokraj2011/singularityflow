@@ -655,6 +655,11 @@ test('required planned claims refuse a zero-clause definition before code work c
   await completeArtifact(root, workflow, 'intake');
   flow(root, ['phase', 'publish', 'intake'], { selection: selection('feature', 'product-owner') });
   flow(root, ['submit'], { selection: selection('feature', 'product-owner') });
+  // Without a terminal, approval names the same command with --yes and records nothing.
+  const unattended = flow(root, ['approve'], { allowFailure: true, selection: selection('feature', 'product-owner') });
+  assert.notEqual(unattended.status, 0);
+  assert.match(unattended.stderr, /Shell: singularity-flow approve --yes/u);
+  assert.equal(JSON.parse(await readFile(workflowFile, 'utf8')).phases.intake.status, 'awaiting_approval');
   flow(root, ['approve', '--yes'], { selection: selection('feature', 'product-owner') });
 
   flow(root, ['prepare', 'requirements'], { selection: selection('feature', 'product-owner') });

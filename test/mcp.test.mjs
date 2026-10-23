@@ -929,6 +929,17 @@ test('MCP routing composes only the active agent and phase tool policy', () => {
   assert.match(prompt, /Never copy credentials/);
 });
 
+test('the MCP tool policy names an origin pinned after start, and leaves a start pin to the Story source', () => {
+  const definition = { mcpServers: configured() };
+  const pin = (source) => ({ mcpAuthorizations: { playwright: { origins: ['https://staging.example.test'], source } } });
+  const line = /- Authorized target origin: https:\/\/staging\.example\.test \(pinned after start\)/u;
+  assert.match(renderMcpPromptPolicy(definition, { agent: 'qa', phase: 'verification', workflow: pin('story-target-origin') }), line);
+  // A start pin is already in the Story source, so the prompt keeps its bytes; no pin, no line.
+  const plain = renderMcpPromptPolicy(definition, { agent: 'qa', phase: 'verification' });
+  assert.equal(renderMcpPromptPolicy(definition, { agent: 'qa', phase: 'verification', workflow: pin('story-intake') }), plain);
+  assert.doesNotMatch(plain, /Authorized target origin/u);
+});
+
 test('MCP assignments require matching custom-agent tool namespaces', () => {
   const definition = { mcpServers: configured(), agentCatalog: [{ id: 'qa', tools: ['read', 'playwright/*'] }] };
   assert.doesNotThrow(() => validateMcpAgentTools(definition));

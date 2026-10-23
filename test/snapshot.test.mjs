@@ -1523,10 +1523,14 @@ test('the lazy snapshot path returns exactly what the legacy path returned', asy
    * or invalidates state would show up here and nowhere else.
    */
   const root = await repository();
+  // The legacy module is imported directly, past the CLI entry that applies SINGULARITY_FLOW_NO_MODEL,
+  // so both sides run with the model mode left at its default: this compares routes, not modes.
+  const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Editor Tester' };
+  delete env.SINGULARITY_FLOW_NO_MODEL;
 
   const viaCommand = spawnSync(process.execPath, [bin, 'snapshot', '--json'], {
     cwd: root, encoding: 'utf8', maxBuffer: FULL_SNAPSHOT_MAX_BUFFER,
-    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Editor Tester' }
+    env
   });
   assert.equal(viaCommand.status, 0, viaCommand.stderr);
 
@@ -1535,7 +1539,7 @@ test('the lazy snapshot path returns exactly what the legacy path returned', asy
     + " await m.run(['snapshot','--json'], { positionals: ['snapshot'], options: { json: true } });"
   ], {
     cwd: root, encoding: 'utf8', maxBuffer: FULL_SNAPSHOT_MAX_BUFFER,
-    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Editor Tester' }
+    env
   });
   assert.equal(viaLegacy.status, 0, viaLegacy.stderr);
 

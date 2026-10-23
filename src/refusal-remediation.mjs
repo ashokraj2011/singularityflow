@@ -1027,6 +1027,15 @@ const KNOWN = Object.freeze({
     return [(override && step('confirm-soft-gate', label, override, 'remediation'))
       ?? step('confirm-soft-gate', label, null, 'remediation')];
   },
+  APPROVAL_CONFIRMATION_REQUIRED: (argv) => {
+    // Without a terminal the person approving adds --yes after reading the review above; the
+    // refused command's own words keep its phase and Story. A receipt route never takes --yes.
+    const yes = argv.length && !argv.includes('--yes') && !argv.includes('--selection-receipt')
+      ? safeCommandGuidance({ argv: [...argv, '--yes'] })?.command ?? null : null;
+    const label = 'Without an interactive terminal, the person approving reviews the summary above and runs the same command with --yes added. An agent never adds it for them.';
+    return [(yes && step('approve-with-yes', label, yes, 'remediation'))
+      ?? step('approve-with-yes', label, null, 'remediation')];
+  },
   ...Object.fromEntries(APPROVAL_IDENTITY_CODES.map((code) => [code, approvalIdentitySteps])),
   CLARIFICATION_AUTHORITY_REQUIRED: clarificationAuthoritySteps,
   CLARIFICATION_MODE_OFF: (_argv, error) => {
@@ -1165,6 +1174,8 @@ export function refusalRemediationPlan(error, argv = []) {
   const worktreeHeld = code === 'LIFECYCLE_WORKTREE_REVIEW_REQUIRED';
   // A soft gate names its own way through; generic help and diagnostics only bury it.
   const softGateBlocked = code === 'SEQUENCE_CONFIRMATION_REQUIRED';
+  // Approval refused only for want of a terminal: the same command with --yes is the whole answer.
+  const approvalTerminalBlocked = code === 'APPROVAL_CONFIRMATION_REQUIRED';
   // Configuration drafts and approval name their own next step; generic help would only bury it.
   const selfGuidedBlocked = ['CONFIGURATION_APPROVE_CONFIRMATION_REQUIRED', 'CONFIGURATION_APPROVE_PROPOSAL_REQUIRED',
     'CONFIGURATION_APPROVE_NOTHING', 'CONFIGURATION_DRAFTS_EMPTY'].includes(code);
@@ -1230,7 +1241,7 @@ export function refusalRemediationPlan(error, argv = []) {
     : configurationProblemsBlocked ? [...known, ...nonDuplicateExplicit]
     : selfGuidedBlocked ? [...nonDuplicateExplicit, ...known]
     : sessionTransportBlocked ? [...known, ...nonDuplicateExplicit]
-    : repositoryRunnerBlocked || pinnedTestPolicyBlocked || softGateBlocked || unknownRecoveryPhase || identityBlocked ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
+    : repositoryRunnerBlocked || pinnedTestPolicyBlocked || softGateBlocked || approvalTerminalBlocked || unknownRecoveryPhase || identityBlocked ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
     ? phaseContext.turn === 'new-turn'
       // Reserve the bounded recovery/new-turn steps before the global three-step presentation cap;
       // arbitrary producer diagnostics must never displace the instruction that ends approval.
@@ -1277,6 +1288,8 @@ export function refusalRemediationPlan(error, argv = []) {
     ? 'Retry only after the identified test, report, or source-mutation condition is repaired and the current phase is rechecked. Do not repeat an unchanged failing run.'
     : code === 'CLARIFICATION_MODE_OFF'
     ? 'Do not retry clarification recording while the pinned mode is off; continue the phase instead.'
+    : approvalTerminalBlocked
+    ? 'Nothing was recorded. Run the same command again in an interactive terminal, or with --yes added by the person approving.'
     : softGateBlocked
     ? 'Run it again with the override added, or take the Story\'s next step; repeating it unchanged is refused the same way.'
     : configurationProblemsBlocked

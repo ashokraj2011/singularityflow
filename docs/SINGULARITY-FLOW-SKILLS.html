@@ -9396,7 +9396,7 @@ Read pinned `clarifications`/`clarificationGuidance`; acknowledge `clarification
           <span class="pill">mutation</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1328 body tokens</span>
+          <span class="pill">~1330 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-revise</code></dd></div>
@@ -9428,7 +9428,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 1. Require a ready session, exact `repositoryPath`/`workId`, saved buffers, and an open generation whose registered task is `code`; never infer this from a phase name. Run `singularity-flow revision status --for-agent --json`. Stop on recovery, publication, terminal, wrong phase, or stale Candidate.
 2. For inspection run only `singularity-flow revision status --for-agent --json`, `singularity-flow revision card [&lt;INTERVAL-ID&gt;] --json`, or `singularity-flow revision show &lt;INTERVAL-ID&gt; --json`. Relay exact lineage, precheck, budgets, and recovery.
 3. Send the same bounded UTF-8 feedback through standard input only—never argv, environment, logs, or repository files. Preserve explicit `--criteria &lt;ID&gt;` and registered `--attachment-set &lt;SHA256&gt;` selections; never infer or rewrite them.
-4. Preview once: `singularity-flow revise --dry-run --feedback-stdin --saved-buffers-confirmed [--criteria &lt;ID&gt;] [--attachment-set &lt;SHA256&gt;] --json`. Show source snapshot/retained head, classification, criteria/disposition, effects, budgets, routing, and full digest. Preview retains no parent. A routing-required result creates no Human Request and cannot be confirmed: relay `routing`; explain that `/sf-recommend` only re-evaluates current state; stop.
+4. Preview once: `singularity-flow revise --dry-run --feedback-stdin --saved-buffers-confirmed [--criteria &lt;ID&gt;] [--attachment-set &lt;SHA256&gt;] --json`. Show source snapshot/retained head, classification, criteria/disposition, effects, budgets, routing, and full digest. Preview retains no parent. A routing-required result creates no Human Request and cannot be confirmed: relay `routing`; explain that `/sf-nextsteps` only re-evaluates the current next step; stop.
 5. For a ready plan, require the user to type that full digest. Send the same bytes and selectors once with `--saved-buffers-confirmed --confirm sha256:&lt;PLAN&gt;`. Assent or skill invocation is not confirmation. First confirmation retains the previewed source as immutable parent.
 6. Ask the developer to edit and save only returned code/test scope manually. This build has no admitted model/code executor: never edit through Copilot tools, shell, Git, `/sf-code`, or fallback; never process/configuration paths, Git, workflow state, approvals, criteria, proof policy, or external systems.
 7. Preview capture with `singularity-flow revision capture --preview --note &lt;NOTE&gt; --saved-buffers-confirmed`; after review, repeat with `--plan sha256:&lt;PLAN&gt; --confirm sha256:&lt;PLAN&gt;`. Never fabricate tests, screenshots, claims, or receipts. Later governed test and verification evidence is authoritative.

@@ -226,6 +226,19 @@ test('a soft sequence gate names the exact command with its override', () => {
   assert.equal(refusalRemediationPlan(error, ['reject', 'intake', '--confirm-override', 'continue:phaseStatus']).steps[0].command, null);
 });
 
+test('approval without a terminal names the same command with --yes for the person approving', () => {
+  const error = Object.assign(new Error('Approval needs an interactive terminal or the explicit --yes flag.'), {
+    code: 'APPROVAL_CONFIRMATION_REQUIRED', details: { phase: 'intake' } });
+  const plan = refusalRemediationPlan(error, ['approve', 'intake', '--work-id', 'FEAT-1']);
+  assert.equal(plan.steps[0].id, 'approve-with-yes');
+  assert.equal(plan.steps[0].command, 'singularity-flow approve intake --work-id FEAT-1 --yes');
+  assert.match(plan.steps[0].label, /person approving .* An agent never adds it/u);
+  assert.match(renderRefusalPlan(plan), /Shell: singularity-flow approve intake --work-id FEAT-1 --yes/u);
+  // A receipt route never takes --yes, and no command words leave the sentence alone.
+  assert.equal(refusalRemediationPlan(error, ['approve', '--selection-receipt', 'r1']).steps[0].command, null);
+  assert.equal(refusalRemediationPlan(error, []).steps[0].command, null);
+});
+
 test('the generic planner fallback answers without a workspace and is never the refused planner itself', () => {
   const generic = (argv) => refusalRemediationPlan(Object.assign(new Error('Something failed.'), { code: 'SOMETHING_UNKNOWN' }), argv)
     .steps.map(step => step.command);

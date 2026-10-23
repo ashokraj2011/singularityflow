@@ -13,7 +13,7 @@ import { exists, gitHeadIsUnborn, gitReadOutput, posix, snapshot, run } from './
 import { verifyInputsIntegrity } from './inputs.mjs';
 import { verifyAgentIntegrity } from './agents.mjs';
 import { matchApprovalAuthority, remainingRequiredAuthorities } from './approval-authority.mjs';
-import { verifyClarificationRecord } from './clarifications.mjs';
+import { clarificationRecordRelative, verifyClarificationRecord } from './clarifications.mjs';
 import { verifyPhaseTelemetry } from './telemetry.mjs';
 import { verifyMcpEvidence } from './mcp.mjs';
 import { verifyDesignSourceLifecycle } from './design-sources.mjs';
@@ -563,10 +563,16 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         }
       }
       const authorship = generationAuthorship(phase, generation);
-      if (authorship?.producer === 'governed-agent') {
+      // A governed-agent generation must carry its clarification. Another generation carries one only
+      // when its publication bound a record: that record is re-checked the same way, and one that no
+      // longer verifies was never bound (publication warned), so it warns here too.
+      const agentAuthored = authorship?.producer === 'governed-agent';
+      if (agentAuthored || await exists(path.join(root, clarificationRecordRelative(config, workflow, phase, generation)))) {
         const clarification = await verifyClarificationRecord(root, config, workflow, phase, { generation });
-        refuseEach('gate.clarification.invalid', clarification.errors, { phase: phaseId }); warnings.push(...clarification.warnings); passes.push(...clarification.passes);
-        if (clarification.path && clarification.record && found) {
+        if (agentAuthored) refuseEach('gate.clarification.invalid', clarification.errors, { phase: phaseId });
+        else warnings.push(...clarification.errors.map((message) => `${phaseId} generation ${generation} clarification record is not bound: ${message}`));
+        warnings.push(...clarification.warnings); passes.push(...clarification.passes);
+        if (clarification.path && clarification.record && found && (agentAuthored || !clarification.errors.length)) {
           if (run('git', ['cat-file', '-e', `${found[0]}:${clarification.path}`], { cwd: root, allowFailure: true }).status !== 0) refuse('gate.clarification.uncommitted', `clarification record was not committed with ${phaseId} generation ${generation}`, { phase: phaseId });
           else passes.push(`clarification audit committed: ${phaseId} generation ${generation}`);
         }

@@ -56,7 +56,10 @@ export function actionActor(root) {
 
 /** Typing the phase id to approve it. Deliberately not a y/n: approval should cost a moment. */
 export async function confirm(phase) {
-  if (!input.isTTY || !output.isTTY) throw new SingularityFlowError('Approval needs an interactive terminal or the explicit --yes flag.');
+  // The remediation plan names the same command with --yes added, for the person approving.
+  if (!input.isTTY || !output.isTTY) throw new SingularityFlowError('Approval needs an interactive terminal or the explicit --yes flag.', {
+    code: 'APPROVAL_CONFIRMATION_REQUIRED', details: { phase: phase.id }
+  });
   const io = readline.createInterface({ input, output });
   try {
     const answer = await io.question(`Type ${phase.id} to approve ${phase.label}: `);

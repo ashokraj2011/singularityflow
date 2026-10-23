@@ -911,7 +911,7 @@ export async function compose(root, options, {
   const clarificationGuard = renderFinalClarificationGuard(signals.phase, clarificationPolicy, {
     deterministicOnly: Boolean(governed.executionContract?.deterministicOnly)
   });
-  const mcpPolicy = renderMcpPromptPolicy(definition, { agent, phase: signals.phase });
+  const mcpPolicy = renderMcpPromptPolicy(definition, { agent, phase: signals.phase, workflow });
   const designSources = workflow && phase
     ? await renderDesignSourcePromptContext(root, workflow, phase, {
       itemDirectory: path.join(root, workItemRoot, workflow.workItem.id),

@@ -97,6 +97,18 @@ The channel is web. Check existing behavior first; a web Story closes after a hu
   cli('submit', PHASES[0], '--decision', 'channel=web');
   cli('approve', PHASES[0], '--yes');
   assert.equal((await readState()).currentPhase, PHASES[1]);
+  // A person published intake with a recorded answer: the gate re-checks that bound record too, and
+  // one that no longer verifies only warns (it was never bound), so a Story is not held at its end.
+  const gate = () => JSON.parse(run(process.execPath, [path.join(ROOT, 'bin/singularity-flow.mjs'), '--no-model', 'gate', '--json'], { allowFailure: true }).stdout);
+  const checked = gate();
+  assert.ok(checked.passes.includes(`clarification audit committed: ${PHASES[0]} generation 1`), checked.passes.join('\n'));
+  const recordPath = path.join(workRoot, 'context', `clarifications-${PHASES[0]}-gen1.json`);
+  const recorded = await readFile(recordPath, 'utf8');
+  await writeFile(recordPath, JSON.stringify({ ...JSON.parse(recorded), completed: false }, null, 2));
+  const loose = gate();
+  assert.equal(loose.findings?.some((finding) => /^gate\.clarification/u.test(finding.code ?? '')) ?? false, false, JSON.stringify(loose.findings));
+  assert.match(loose.warnings.join('\n'), new RegExp(`${PHASES[0]} generation 1 clarification record is not bound`, 'u'));
+  await writeFile(recordPath, recorded);
   const scope = JSON.parse(cli('evidence', 'scope', '--json')).data.scope;
   for (const item of scope.items.filter((entry) => entry.disposition === 'unresolved')) {
     cli('decision', 'scope', '--item', item.id, '--as', 'included', '--clause', 'REUSE-1:AC-001',

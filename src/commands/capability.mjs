@@ -855,8 +855,11 @@ export async function run(argv, context = {}) {
   if (subcommand === 'activate') return runActivation(context);
   if (subcommand === 'test-setup') {
     const options = context.options ?? {};
+    // --step and a command (or --use) propose it for that workflow step (src/test-setup-proposal.mjs).
+    const proposal = await import('../test-setup-proposal.mjs');
+    if (proposal.proposesTestCommand(options)) return proposal.runTestCommandProposal(options);
     if ((context.positionals?.length ?? 0) > 2 || Object.keys(options).some(key => !['source-root', 'json'].includes(key))) {
-      throw new SingularityFlowError('Use capability test-setup [--source-root <DIRECTORY>]... [--json]. Inspection does not execute or save commands.');
+      throw new SingularityFlowError('Use capability test-setup [--source-root <DIRECTORY>]... [--json]. Inspection does not execute or save commands; add --step <STEP> and a command to propose one.');
     }
     const [{ repoRoot }, { inspectRepositoryTestSetup }] = await Promise.all([
       import('../git.mjs'), import('../repository-test-setup.mjs')

@@ -11337,7 +11337,7 @@ The commands are the ones the capability selects, else the ones the Story&#39;s 
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1118 body tokens</span>
+          <span class="pill">~1115 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-test-setup</code></dd></div>
@@ -11380,11 +11380,11 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    changed-and-affected or all-configured execution; repair observed existing failures or request an
    eligible human risk decision. Unknown existing results remain unverified, not accepted failures.
 5. In VS Code offer Capabilities → Test setup, also Configuration Center → Test setup.
-   For shell-assisted configuration, read the approved authority via `singularity-flow configuration read
-   singularity/workflow.yml --json`; show a command-only qualityCommands diff. Keep non-test commands,
-   approval rules, test scope and other workflows unchanged. Use `kind: test`, `modelPolicy: never`,
-   argv, workingDirectory, affectedRoots and result.adapter/path. Report paths are module-relative.
-   Only after explicit consent run `/sf-configuration`&#39;s exact proposal save (no sub-agent).
+   Otherwise preview: `singularity-flow capability test-setup --step &lt;STEP&gt; [--workflow &lt;WORKFLOW&gt;]
+   --use &lt;SUGGESTION-ID&gt; --json` (keep `--source-root`), or for a supplied command `--id &lt;ID&gt; --argv
+   &#39;&lt;JSON ARRAY&gt;&#39; --working-directory &lt;DIR&gt; --affected-root &lt;DIR&gt; --adapter &lt;ADAPTER&gt; --report &lt;PATH&gt;`
+   (report relative to the working directory). Show its `diff`. Only after explicit consent run its
+   `confirmCommand` with `--json`; it proposes the change for review (no sub-agent).
    Do not rewrite the application&#39;s checkout, run tests, merge, or push without the corresponding request.
 6. Inference and hidden approved argv (`argvWithheld: true`) need no YAML proposal/amendment.
    Existing Stories retain explicit pins. Only for explicit command revisions approved in sflow/config,

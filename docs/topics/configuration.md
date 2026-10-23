@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 7
+version: 8
 commands:
   - configuration
   - workflow
@@ -61,6 +61,19 @@ the evidence behind its suggestions, and asks before configuration changes or te
 Shell `singularity-flow capability test-setup --source-root apps/client --json` provides deterministic
 suggestions without executing tests, cloning, or scanning a monorepo recursively. Without a scope
 it inspects only the repository root. Missing detection remains pending, not a test failure.
+
+In an Nx workspace a project's Playwright target is a suggestion: its `project.json` target (the
+`@nx/playwright:playwright` executor or a plain `playwright test` command), or the one
+`@nx/playwright/plugin` infers from its `playwright.config.*`. It runs as `nx run <project>:<target>
+--skip-nx-cache --reporter=json` from the workspace root and also covers the projects beside it that
+it names in `implicitDependencies`. Publication infers it the same way, with no configuration.
+
+To save a chosen command from Copilot or a terminal, preview it with `singularity-flow capability
+test-setup --step <STEP> [--workflow <WORKFLOW>]` and either `--use <SUGGESTION-ID>` or the command in
+full (`--id`, `--argv '<JSON ARRAY>'`, `--working-directory`, `--affected-root`, `--adapter`,
+`--report`). The preview shows the `singularity/workflow.yml` diff and changes nothing; its printed
+`--confirm <digest>` command proposes exactly that change through the same reviewed save as the
+Test setup page. A command with the same ID is replaced; every other check is kept.
 
 Existing Stories retain their configuration pin. An approved command-only revision can be reviewed
 for adoption in the **current code phase** through `singularity-flow story test-policy amend <WORK-ID>

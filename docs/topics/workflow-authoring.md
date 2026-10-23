@@ -40,7 +40,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 85
+version: 86
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1106,10 +1106,13 @@ rewritten. The constitution a selected workflow holds its Stories to travels too
 integration target of every after-step action and the approval group of every decision, loop
 decisions included. A carried agent is scoped to the exported steps: steps it drafts in workflows
 you did not export are left out of its copy, so the destination does not refuse it, and the
-destination's identical agent is reused unchanged.
+destination's identical agent is reused unchanged. A user-defined agent (one `call add` made)
+travels with its folder: its manifest and every copied file, byte for byte. Export refuses a folder
+that no longer matches the manifest its agent pins; restore it, or add the folder again with
+`call add`.
 
 Export lists what the bundle carries, by name (workflows, steps, agents, skills, instructions,
-templates, approval groups, integration targets, constitution), and adds a note for each repository
+templates, approval groups, integration targets, constitution, user-defined agent folders), and adds a note for each repository
 setting the workflow uses but the bundle leaves behind: per-step context handling, environments its
 checks use, steps that name no approval group, and Copilot agent mappings. The import preview lists
 what it adds and what the destination already has. The bundle never embeds a
@@ -1117,12 +1120,16 @@ token or credential. Repository-wide policy is a prerequisite:
 import validates it on the destination but never overwrites it. It does not include local caches,
 runtime ledgers, work-item artifacts, or application source.
 
-New exports use bundle v9: the constitution file, after-step targets whatever they send, and agents
-scoped to the exported steps, on top of v8's reusable instructions, v7's workflow skill attachments
+New exports use bundle v10: user-defined agent folders, on top of v9's constitution file, after-step
+targets whatever they send, and agents scoped to the exported steps, v8's reusable instructions, v7's workflow skill attachments
 and v5's skill master skills. v4 added the imported copies and their records; the reader refuses a
 bundle whose agents attach a skill it does not carry, or that carries one no agent attaches, and a
 constitution no carried workflow names. When the destination already has a different constitution,
-the import offers keep (suggested) or replace. Export refuses
+the import offers keep (suggested) or replace. A v9 or older bundle carries no user-defined agent
+folder, so the reader refuses one that brings such an agent; export it again from the source. Where
+the destination has the same folder, it is already there; a different folder under the same name is
+a conflict of its agent, kept or replaced with it. A user-defined agent cannot arrive under a new
+name, because its agent names its folder and pins the manifest. Export refuses
 an imported copy that no longer matches its lock; check it with `singularity-flow imports check`
 and import it again first. MCP assignments reachable from selected phases or agents are included,
 including agent-only assignments with an unrestricted phase list. The entire assignment remains

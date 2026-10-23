@@ -58,6 +58,9 @@ import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
 import { seededWorkflowProtection, assertSeededWorkflowsUnchanged } from './seeded-workflow-protection.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
+import {
+  USER_DEFINED_MANIFEST_METADATA, USER_DEFINED_ROOT, userDefinedAgentName, userDefinedFolderPath, userDefinedManifestPath
+} from './user-defined-agent-identity.mjs';
 
 export { importPlanText, importResolutionOptions } from './workflow-transfer-resolution.mjs';
 export const WORKFLOW_BUNDLE_KIND = 'sflow-workflow-bundle';
@@ -212,7 +215,7 @@ function textAssetFormat(bytes) {
 function importedAssetReuse(asset, targetBytes) {
   const incomingBytes = assetBytes(asset);
   // A vendored copy is pinned by the hash of its bytes, so only the same bytes can stand in for it.
-  if (asset.kind === 'vendored' || !/^text\//i.test(asset.mediaType)) {
+  if (['vendored', 'user-defined'].includes(asset.kind) || !/^text\//i.test(asset.mediaType)) {
     return { reusable: incomingBytes.equals(targetBytes), reason: 'same path has different content' };
   }
   const incoming = textAssetFormat(incomingBytes);
@@ -242,14 +245,15 @@ const TEXT_ASSET_FIELDS = Object.freeze(['kind', 'id', 'path', 'mediaType', 'siz
 const ASSET_FIELDS = Object.freeze({
   agent: TEXT_ASSET_FIELDS, skill: TEXT_ASSET_FIELDS, instruction: TEXT_ASSET_FIELDS, constitution: TEXT_ASSET_FIELDS,
   template: Object.freeze(['kind', 'governs', 'reference', 'rootRelative', 'path', 'mediaType', 'size', 'sha256', 'content']),
-  vendored: Object.freeze(['kind', 'owner', 'path', 'mediaType', 'size', 'sha256', 'content'])
+  vendored: Object.freeze(['kind', 'owner', 'path', 'mediaType', 'size', 'sha256', 'content']),
+  'user-defined': Object.freeze(['kind', 'owner', 'path', 'mediaType', 'size', 'sha256', 'content'])
 });
 
 function requireAssetFields(asset) {
   const allowed = ASSET_FIELDS[asset.kind];
   const unknown = Object.keys(asset).filter((field) => !allowed.includes(field)).sort();
   const missing = allowed.filter((field) => !Object.hasOwn(asset, field));
-  if (asset.kind === 'vendored' && plainObject(asset.owner)) {
+  if (['vendored', 'user-defined'].includes(asset.kind) && plainObject(asset.owner)) {
     unknown.push(...Object.keys(asset.owner).filter((field) => !['kind', 'id'].includes(field)).map((field) => `owner.${field}`));
   }
   if (unknown.length || missing.length) {
@@ -770,6 +774,7 @@ function summarizeBundle(bundle) {
     skills: bundle.assets.filter((asset) => asset.kind === 'skill').length,
     instructions: bundle.assets.filter((asset) => asset.kind === 'instruction').length,
     constitutions: bundle.assets.filter((asset) => asset.kind === 'constitution').length,
+    userDefinedFiles: bundle.assets.filter((asset) => asset.kind === 'user-defined').length,
     importRecords: Object.keys(bundle.imports ?? {}).length,
     assets: bundle.assets.length,
     skillPackages: bundle.skillPackages?.length ?? 0,
@@ -795,6 +800,7 @@ function dependencyInventory(bundle) {
     skills: bundle.assets.filter((asset) => asset.kind === 'skill').map((asset) => asset.id).sort(),
     instructions: bundle.assets.filter((asset) => asset.kind === 'instruction').map((asset) => asset.id).sort(),
     constitutions: bundle.assets.filter((asset) => asset.kind === 'constitution').map((asset) => asset.path).sort(),
+    userDefinedFolders: [...new Set(bundle.assets.filter((asset) => asset.kind === 'user-defined').map((asset) => asset.owner.id))].sort(),
     importRecords: Object.keys(bundle.imports ?? {}).sort(),
     approvalAuthorities: [
       ...objectIds('story', 'approvalAuthorities').map((id) => `story:${id}`),
@@ -1249,6 +1255,43 @@ function lockedAgentEntry(lock, agent) {
   };
 }
 
+/**
+ * A user-defined agent's folder as bundle assets: its manifest and every file the manifest lists,
+ * read from the source configuration and checked against the digest the agent pins. A folder that no
+ * longer matches is refused rather than carried, because the destination would refuse to compose
+ * its step from it.
+ */
+async function userDefinedAssets(root, agentId, name, pinned) {
+  const owner = { kind: 'agent', id: agentId };
+  const changed = (detail) => fail(`The folder of user-defined agent '${agentId}' ${detail}, so it cannot be exported. `
+    + 'Restore it, or add the folder again with call add, then export.', 'WORKFLOW_USER_AGENT_FOLDER_CHANGED', { agent: agentId });
+  const asset = (relative, bytes) => {
+    const content = bytes.toString('utf8');
+    if (!Buffer.from(content, 'utf8').equals(bytes)) changed(`has a file that is not UTF-8 text (${relative})`);
+    return { kind: 'user-defined', owner, path: relative,
+      mediaType: relative.endsWith('.json') ? 'application/json; charset=utf-8' : 'application/octet-stream',
+      size: bytes.length, sha256: digest(content), content };
+  };
+  const manifestPath = userDefinedManifestPath(name);
+  const secured = await secureRepositoryPath(root, manifestPath, { label: `Manifest of ${agentId}`, type: 'file' });
+  if (!secured.exists) changed('has no manifest');
+  const manifestBytes = await readFile(secured.absolute);
+  if (digest(manifestBytes) !== pinned) changed('has a manifest other than the one its agent pins');
+  let manifest;
+  try { manifest = JSON.parse(manifestBytes.toString('utf8')); } catch { changed('has a manifest that is not JSON'); }
+  const result = [asset(manifestPath, manifestBytes)];
+  for (const file of Array.isArray(manifest.files) ? manifest.files : []) {
+    const relative = `${userDefinedFolderPath(name)}/${file?.path}`;
+    safeAssetPath(relative);
+    const copy = await secureRepositoryPath(root, relative, { label: `File of ${agentId}`, type: 'file' });
+    if (!copy.exists) changed(`no longer has ${file.path}`);
+    const bytes = await readFile(copy.absolute);
+    if (digest(bytes) !== file.sha256) changed(`no longer matches its manifest (${file.path} changed)`);
+    result.push(asset(relative, bytes));
+  }
+  return result;
+}
+
 /** A vendored copy as a bundle asset: exact UTF-8 text, owned by the agent or MCP server it serves. */
 function vendoredAsset(relative, bytes, owner) {
   const content = bytes.toString('utf8');
@@ -1485,6 +1528,13 @@ async function buildBundle(root, workflowIds) {
     });
   }
   for (const asset of await referencedInstructionAssets(sourceRoot, assets)) pushAsset(asset);
+  // A user-defined agent's folder travels with it; without it the destination cannot compose its step.
+  for (const [agentId, content] of exportedAgentText) {
+    const agent = parseAgentDependencies(content, { source: `.github/agents/${agentId}.agent.md`, agentId });
+    const name = userDefinedAgentName(agent);
+    if (!name) continue;
+    for (const asset of await userDefinedAssets(sourceRoot, agentId, name, agent.metadata[USER_DEFINED_MANIFEST_METADATA])) pushAsset(asset);
+  }
   for (const asset of await constitutionAssets(sourceRoot, objects)) pushAsset(asset);
   for (const serverId of Object.keys(objects.story.mcpServers)) {
     const relative = mcpDescriptorPath(serverId);
@@ -1641,7 +1691,8 @@ async function validateBundle(raw, { importedHere = null } = {}) {
   let total = 0;
   const identities = new Set();
   const agents = new Map();
-  const assetKinds = storedVersion >= 9 ? ['template', 'agent', 'vendored', 'skill', 'instruction', 'constitution']
+  const assetKinds = storedVersion >= 10 ? ['template', 'agent', 'vendored', 'skill', 'instruction', 'constitution', 'user-defined']
+    : storedVersion >= 9 ? ['template', 'agent', 'vendored', 'skill', 'instruction', 'constitution']
     : storedVersion >= 8 ? ['template', 'agent', 'vendored', 'skill', 'instruction'] : storedVersion > 4 ? ['template', 'agent', 'vendored', 'skill']
     : storedVersion > 3 ? ['template', 'agent', 'vendored'] : ['template', 'agent'];
   for (const asset of raw.assets) {
@@ -1656,6 +1707,10 @@ async function validateBundle(raw, { importedHere = null } = {}) {
         || !plainObject(asset.owner) || !['agent', 'mcp-server'].includes(asset.owner.kind)
         || !ID.test(asset.owner.id ?? ''))) {
       fail(`Workflow bundle vendored copy is not owned by a carried agent or MCP server: ${asset.path}`);
+    }
+    if (asset.kind === 'user-defined' && (!asset.path.startsWith(`${USER_DEFINED_ROOT}/`)
+        || !plainObject(asset.owner) || asset.owner.kind !== 'agent' || !ID.test(asset.owner.id ?? ''))) {
+      fail(`Workflow bundle user-defined file is not owned by a carried agent: ${asset.path}`);
     }
     if (asset.kind === 'agent' && (!ID.test(asset.id ?? '')
         || asset.path !== `.github/agents/${asset.id}.agent.md`)) {
@@ -1730,6 +1785,7 @@ async function validateBundle(raw, { importedHere = null } = {}) {
   }
   validateBundleClosure(raw, agents, storedVersion, importedHere);
   validateVendoredCopies(raw, storedVersion);
+  validateUserDefinedFolders(raw, agents, storedVersion);
   validateCarriedSkills(raw, agents, storedVersion);
   validateSkillPackages(raw, storedVersion);
 
@@ -1910,7 +1966,7 @@ function linkedDependencyKind(governs, section) {
 }
 
 function targetTemplatePath(asset, storyValue, initiativeValue) {
-  if (['agent', 'vendored', 'skill', 'instruction', 'constitution', 'skill-package-file'].includes(asset.kind)) return asset.path;
+  if (['agent', 'vendored', 'user-defined', 'skill', 'instruction', 'constitution', 'skill-package-file'].includes(asset.kind)) return asset.path;
   const governs = asset.governs;
   const targetRoot = configuredTemplateRoot(
     governs === 'story' ? storyValue : initiativeValue, governs, storyValue
@@ -2178,6 +2234,42 @@ export async function planWorkflowImport(root, bundleOrPath, { resolutions = {},
   return plan;
 }
 
+/**
+ * Every carried user-defined agent brings its folder: the manifest its agent pins and every file that
+ * manifest lists, by hash, and nothing else. A bundle written before folders travelled (v9 and
+ * older) cannot run such an agent here, so it is refused with what to do instead of importing an
+ * agent whose step could never be composed.
+ */
+function validateUserDefinedFolders(bundle, agents, storedVersion) {
+  const files = new Map(bundle.assets.filter((asset) => asset.kind === 'user-defined').map((asset) => [asset.path, asset]));
+  const claimed = new Set();
+  for (const agent of agents.values()) {
+    const name = userDefinedAgentName(agent);
+    if (!name) continue;
+    const missing = (detail) => fail(`Workflow bundle carries user-defined agent '${agent.id}' ${detail}, so its step could not run here. `
+      + 'Export it again with this version of SFlow, which carries the folder.', 'WORKFLOW_BUNDLE_USER_AGENT_FOLDER_MISSING', { agent: agent.id });
+    if (storedVersion < 10) missing(`without its folder (a v${storedVersion} bundle)`);
+    const manifestPath = userDefinedManifestPath(name);
+    const manifest = files.get(manifestPath);
+    if (!manifest || manifest.owner.id !== agent.id) missing('without its manifest');
+    if (manifest.sha256 !== agent.metadata[USER_DEFINED_MANIFEST_METADATA]) missing('with a manifest other than the one it pins');
+    claimed.add(manifestPath);
+    let listed;
+    try { listed = JSON.parse(manifest.content); } catch { missing('with a manifest that is not JSON'); }
+    for (const file of Array.isArray(listed.files) ? listed.files : []) {
+      const relative = `${userDefinedFolderPath(name)}/${file?.path}`;
+      safeAssetPath(relative);
+      const copy = files.get(relative);
+      if (!copy || copy.owner.id !== agent.id) missing(`without ${file.path} from its folder`);
+      if (copy.sha256 !== file.sha256) missing(`with a different ${file.path} than its manifest lists`);
+      claimed.add(relative);
+    }
+  }
+  for (const relative of files.keys()) {
+    if (!claimed.has(relative)) fail(`Workflow bundle carries ${relative}, which no carried user-defined agent's manifest lists.`, 'WORKFLOW_BUNDLE_DEPENDENCY_EXTRA');
+  }
+}
+
 /** A subject reference a person can resolve, or null when the ID cannot name one. */
 function subjectRef(kind, id) {
   if (!kind || (['template-file', 'constitution'].includes(kind) ? !/^[^\s:]+$/.test(id ?? '') : !ID.test(id ?? ''))) return null;
@@ -2187,7 +2279,7 @@ function subjectRef(kind, id) {
 function assetSubject(asset, relative) {
   if (asset.kind === 'agent') return subjectRef('agent', asset.id);
   if (asset.kind === 'template') return subjectRef('template-file', relative);
-  if (asset.kind === 'vendored') return subjectRef(asset.owner.kind, asset.owner.id);
+  if (['vendored', 'user-defined'].includes(asset.kind)) return subjectRef(asset.owner.kind, asset.owner.id);
   if (asset.kind === 'skill') return subjectRef('skill', asset.id);
   if (asset.kind === 'instruction') return subjectRef('instruction', asset.id);
   if (asset.kind === 'constitution') return subjectRef('constitution', asset.path);
@@ -2209,6 +2301,7 @@ function conflictPart(item) {
   if (catalogSubjectKind(item.kind)) return 'definition';
   return ({
     agent: `agent file ${item.id}`, 'agent-lock': 'dependency lock', vendored: `imported copy ${item.id}`,
+    'user-defined': `user-defined agent file ${item.id}`,
     'import-record': `import record ${item.id}`, template: `file ${item.id}`
   })[item.kind] ?? `${item.kind} ${item.id}`;
 }
@@ -2619,7 +2712,7 @@ async function importPlan(root, destination, original, chosen) {
   if (writes.some((item) => item.kind === 'import-record')) changedPaths.add(IMPORTS_LOCK_PATH);
   if (writes.some((item) => ['workflow-skill-attachments', 'agent-skill-attachments'].includes(item.kind))) changedPaths.add(SKILL_ATTACHMENTS_PATH);
   for (const item of writes) {
-    if (['agent', 'template', 'vendored', 'skill', 'instruction', 'constitution', 'asset', 'skill-package-file', 'skill-package-attributes'].includes(item.kind)) changedPaths.add(item.id);
+    if (['agent', 'template', 'vendored', 'user-defined', 'skill', 'instruction', 'constitution', 'asset', 'skill-package-file', 'skill-package-attributes'].includes(item.kind)) changedPaths.add(item.id);
   }
   // What is still open, one entry per subject: why, which of the repository's workflows use it,
   // and the choices, with a free new name ready for rename.

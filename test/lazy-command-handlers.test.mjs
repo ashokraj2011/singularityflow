@@ -102,7 +102,10 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 795,000: main 810418a6 was 790,885, over 790,000 without a recorded raise: creation-context.mjs +875,
   // git-remote-diagnostics.mjs +622 and cli-entry.mjs +56 (b3c8bf7f..810418a6, cold Story creation and configuration
   // reuse); no new file.
-  assert.ok(root.bytes <= 795_000, `root dispatch loads ${root.bytes} source bytes`);
+  // 800,000: the enrollment blocker fix and its routes (29d5e906, 946f9716) take 795,000 to 795,379:
+  // cli-entry.mjs +465 (routes for an unavailable workspace) and util.mjs +388 (Git started in a missing folder
+  // names it); no new file.
+  assert.ok(root.bytes <= 800_000, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   for (const entry of ['commands/session-entry.mjs', 'commands/choices-entry.mjs']) {

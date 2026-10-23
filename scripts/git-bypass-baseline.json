@@ -832,14 +832,16 @@
       "digest": "afa9a427aa9cb912b7ea6d1129b4cbdca117e006c0e116af01970f510aab905e"
     },
     "src/creation-git-context.mjs": {
-      "counts": { "command-run": 1 },
+      "counts": {
+        "command-run": 1
+      },
       "digest": "0d3e5d26757146edeaad7b0a914b510f90e01d3bc4aed969261dd07acd1b602b"
     },
     "src/configuration-people.mjs": {
       "counts": {
         "command-run": 9
       },
-      "digest": "7f9df2a82d55b5efa50754df22a07390919b9700c9ccde4e6cb27f141116f7d1"
+      "digest": "8ea399a2ffbf2137d3709dd3147ce39fffc44e703cb58d91a3f0a2d027301f41"
     },
     "src/configuration-object-reader.mjs": {
       "counts": {
@@ -1237,10 +1239,10 @@
     },
     "src/ledger.mjs": {
       "counts": {
-        "command-git": 80,
+        "command-git": 79,
         "command-run": 2
       },
-      "digest": "6ca0ce385f82bf7d85709e901820d04e410f4fd56e940d8b0a6bb11866752069"
+      "digest": "9cc3462a30a22ca3d8a5a8fd9d5cc01f84366696439948b390d361eed8a85297"
     },
     "src/local-evidence-review.mjs": {
       "counts": {

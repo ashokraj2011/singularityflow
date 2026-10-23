@@ -14,7 +14,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
-import { agentAct, agentOutputGoverned, boundedAgentOutput, completeAgentResult, DEFAULT_AGENT_OUTPUT_BYTES, LOOP_THRESHOLD, observeAgentLoop, READ_CHUNK_BYTES, READ_PLAN_CHUNKS, returnsAgentPaths, withAgentRoutes } from '../src/agent-output.mjs';
+import { agentAct, agentOutputGoverned, boundedAgentOutput, boundedAgentText, completeAgentResult, DEFAULT_AGENT_OUTPUT_BYTES, LOOP_THRESHOLD, observeAgentLoop, OMITTED_FIELDS_SHOWN, READ_CHUNK_BYTES, READ_PLAN_CHUNKS, returnsAgentPaths, withAgentRoutes } from '../src/agent-output.mjs';
 import { CLI_PATH_REFERENCE } from '../src/safe-command-guidance.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
@@ -461,6 +461,59 @@ test('the default view fits inline in the host, which saves 8,192 characters and
   // Copilot CLI saves a shell result of 8,192+ characters outside the workspace with a 500-character
   // preview; a session turn may not read that copy. Leave room for the stderr lines in the same result.
   assert.ok(DEFAULT_AGENT_OUTPUT_BYTES <= 7_500, `${DEFAULT_AGENT_OUTPUT_BYTES} bytes`);
+});
+
+test('the bound has no gaps: literal output, no repository, many omitted fields and platform routes [OUT:REQ-014]', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-bound-'));
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-unkept-'));
+  t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(outside, { recursive: true, force: true })]));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const fits = (value) => assert.ok(Buffer.byteLength(value) <= DEFAULT_AGENT_OUTPUT_BYTES, `${Buffer.byteLength(value)} bytes`);
+
+  // Output that is not one JSON object: unchanged when it fits, else kept whole behind a literal envelope.
+  assert.equal(await boundedAgentOutput('[1,2]', { cwd: root }), '[1,2]');
+  const array = JSON.stringify(Array.from({ length: 2000 }, (_, index) => ({ index, text: 'x'.repeat(20) })), null, 2);
+  const arrayView = await boundedAgentOutput(array, { cwd: root });
+  fits(arrayView);
+  const literal = JSON.parse(arrayView);
+  assert.deepEqual([literal.act.state, literal.agentOutput.literal, literal.agentOutput.complete], ['read', 'json-array', false]);
+  assert.equal(await readFile(literal.agentOutput.path, 'utf8'), array, 'kept byte for byte');
+  assert.ok(literal.agentOutput.read.length > 0 && array.startsWith(literal.preview) && literal.preview.length > 0);
+  const malformed = `{"partial": true}\n${'not json\n'.repeat(3000)}`;
+  assert.equal(JSON.parse(await boundedAgentOutput(malformed, { cwd: root })).agentOutput.literal, 'not-json');
+
+  // No repository to keep the result in: the view still fits and names what it does not show.
+  const big = { resultType: 'x', status: 'ok', workId: 'W', blob: 'y'.repeat(20_000), other: 'z'.repeat(9_000) };
+  const unkeptView = await boundedAgentOutput(JSON.stringify(big), { cwd: outside });
+  fits(unkeptView);
+  const unkept = JSON.parse(unkeptView);
+  assert.deepEqual([unkept.agentOutput.retained, unkept.agentOutput.state, unkept.agentOutput.path], [false, 'detail-unavailable', undefined]);
+  assert.deepEqual(unkept.omittedFields.map((entry) => entry.field).sort(), ['blob', 'other']);
+  assert.equal(unkept.workId, 'W', 'small fields stay');
+  const unkeptLiteral = await boundedAgentOutput(array, { cwd: outside });
+  fits(unkeptLiteral);
+  assert.equal(JSON.parse(unkeptLiteral).agentOutput.state, 'detail-unavailable');
+  const unkeptText = await boundedAgentText('a line of output\n'.repeat(5000), { cwd: outside });
+  fits(unkeptText);
+  assert.match(unkeptText, /\[Output not kept\] Lines 1-\d+ of 5001 are above\. No repository was found from here/u);
+
+  // Many omitted fields: the view names a few, their count, and an index of every one.
+  const wide = { resultType: 'wide', repositoryPath: root, ...Object.fromEntries(Array.from({ length: 60 }, (_, index) => [`field${index}`, 'v'.repeat(400)])) };
+  const wideView = await boundedAgentOutput(JSON.stringify(wide), { cwd: root });
+  fits(wideView);
+  const view = JSON.parse(wideView);
+  assert.equal(view.omittedFields.length, OMITTED_FIELDS_SHOWN);
+  const index = JSON.parse(await readFile(view.omittedIndex.path, 'utf8'));
+  assert.equal(index.length, view.omittedFieldCount);
+  assert.ok(view.omittedFieldCount > OMITTED_FIELDS_SHOWN && index.every((entry) => Array.isArray(entry.lines)));
+  const { act: _act, ...restored } = completeAgentResult(view);
+  assert.deepEqual(restored, wide, 'the full result is still restored exactly');
+
+  // Each platform's copy of a route carries --for-agent with its command.
+  const routed = await withAgentRoutes({ step: { command: 'singularity-flow recover --phase intake --json', argv: ['recover', '--phase', 'intake', '--json'],
+    platformCommands: { darwin: "'singularity-flow' 'recover' '--phase' 'intake' '--json'", win32: "& 'singularity-flow' 'recover' '--phase' 'intake' '--json'" } } });
+  assert.deepEqual(routed.step.platformCommands, { darwin: "'singularity-flow' 'recover' '--phase' 'intake' '--for-agent' '--json'",
+    win32: "& 'singularity-flow' 'recover' '--phase' 'intake' '--for-agent' '--json'" });
 });
 
 test('routes an agent view returns carry --for-agent unless a strict agent entry would refuse it', async () => {

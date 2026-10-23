@@ -1299,7 +1299,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         placeholder: 'Why this step is here, in a sentence or two.', onchange: function (event) { phase.description = event.target.value.replace(/\s+/g, ' ').trim(); changed(); } }, phase.description || ''),
         'Shown to people in Workflow Studio and in workflow explanations. Agents never see it.'));
     }
-    if (explained) body.push(el('ul', { class: 'explain-list', 'data-key': 'step-explained' }, [explained.what, explained.signOff].concat(explained.then).map(function (line) { return el('li', { text: line }); })));
+    if (explained) body.push(el('ul', { class: 'explain-list', 'data-key': 'step-explained' }, [explained.what].concat(explained.checksText ? [explained.checksText] : [], [explained.signOff], explained.then).map(function (line) { return el('li', { text: line }); })));
     else body.push(el('div', { class: 'studio-row' }, button('Explain and check', function () { state.panel = 'check'; requestCheck(workflowId); }, { class: 'secondary', 'data-key': 'step-explain' })));
     marks.forEach(function (item) { body.push(el('div', { class: 'callout ' + (item.severity === 'problem' ? 'bad' : 'wait'), text: item.title })); });
     return section('about', 'About this step', body, null, phase.description ? 'described' : 'not described yet');
@@ -3516,6 +3516,22 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     return box;
   }
 
+  /**
+   * The checks sflow runs when a step is submitted, as the published workflow has them (Studio does
+   * not edit them): its own commands, then the tests a code step's change touches, or the repository's
+   * tests when a step that changes no code runs them.
+   */
+  function publishedStepChecks(workflowId, phaseId) {
+    var workflows = (state.model && state.model.workflows) || [];
+    var own = workflows.find(function (entry) { return entry.id === workflowId; });
+    var find = function (workflow) { return ((workflow && workflow.steps) || []).find(function (entry) { return entry.id === phaseId; }) || null; };
+    var step = find(own) || workflows.map(find).find(Boolean);
+    if (!step) return null;
+    var named = (step.qualityCommands || []).map(function (entry) { return typeof entry === 'string' ? entry : entry.command || (entry.argv || []).join(' '); });
+    if (step.output === 'code') named.push('the tests of the code it changes');
+    if (step.runsRepositoryTests) named.push("the repository's tests");
+    return named;
+  }
   /** A seeded step, read-only: what it produces, who drafts it, what it reads, who signs it off, what follows, its World Model and skills. */
   function renderReadOnlyStep(workflowId, phaseId) {
     var workflow = state.draft.workflows[workflowId];
@@ -3537,6 +3553,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       ['Then', afterChips(workflow, phaseId, index).map(function (entry) { return entry.title; }).join('; ')],
       ['Clarifying questions', phase.clarification && phase.clarification !== 'off' ? phase.clarification : 'Off']
     ];
+    var checks = publishedStepChecks(workflowId, phaseId);
+    if (checks) rows.splice(5, 0, ['Checks when submitted', checks.length ? checks.join(', ') : 'None']);
     aside.appendChild(section('ro-step', 'Step', el('dl', { class: 'ro-details', 'data-key': 'step-details' }, rows.map(function (row) {
       return [el('dt', { text: row[0] }), el('dd', { text: row[1] })];
     }))));
@@ -6634,8 +6652,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         step.then.map(function (line) { return el('div', { class: 'muted', text: line }); }),
         step.agent ? el('div', { class: 'muted', text: 'Drafted by ' + step.agent.label + (step.skills.length ? ', with ' + step.skills.map(function (skill) { return skill.label; }).join(', ') : '') + '.' }) : null,
         step.instructions && step.instructions.length ? el('div', { class: 'muted', text: 'Follows the instructions ' + step.instructions.join(', ') + '.' }) : null,
-        step.checks && step.checks.length ? el('div', { class: 'muted', 'data-key': 'build-step-checks-' + step.id, text: 'When it is submitted, sflow runs ' + step.checks.map(function (check) {
-          return check.command + (check.directory ? ' in ' + check.directory + '/' : '') + (check.requirement === 'advisory' ? ' (advisory)' : ''); }).join(', ') + '.' }) : null,
+        step.checksText ? el('div', { class: 'muted', 'data-key': 'build-step-checks-' + step.id, text: step.checksText }) : null,
         step.reads.length ? el('div', { class: 'muted', text: 'Reads ' + step.reads.map(function (read) { return read.label + (read.optional ? ' (if there)' : ''); }).join(', ') + '.' }) : null,
         step.apiCalls.length ? el('div', { class: 'muted', text: 'Calls ' + step.apiCalls.map(function (call) { return call.method + ' ' + call.target; }).join(', ') + '.' }) : null));
     });

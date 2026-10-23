@@ -30,6 +30,7 @@ function printSteps(explanation) {
     if (step.why) console.log(`     Why: ${step.why.text}`);
     console.log(`     Drafted by ${step.agent?.label ?? 'nobody yet'}${step.skills.length ? `, with ${step.skills.map((skill) => skill.label).join(', ')}` : ''}.`);
     if (step.reads.length) console.log(`     Reads ${step.reads.map((input) => `${input.label}${input.optional ? ' (if there)' : ''}`).join(', ')}.`);
+    if (step.checksText) console.log(`     ${step.checksText}`);
     console.log(`     ${step.signOff}`);
     for (const line of step.then) console.log(`     ${line}`);
   }

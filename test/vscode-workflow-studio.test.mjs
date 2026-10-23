@@ -1964,6 +1964,15 @@ test('a seeded workflow opens on a read-only canvas: its structure without editi
   for (const label of ['Produces', 'Drafted by', 'Drafted with', 'Reads', 'Sign-off', 'Then', 'Clarifying questions', 'World Model']) assert.match(shown, new RegExp(label, 'u'));
   assert.match(shown, /The Story itself/u, 'the first step reads the Story');
   assert.match(shown, /The Repository brief .* is added to this step's prompt/u);
+  // The checks each step runs when it is submitted: a code step the tests its change touches,
+  // verification the repository's own tests (repositoryTests: run).
+  const tested = model.workflows.find((workflow) => ['implementation', 'verification'].every((id) => workflow.phases.includes(id)));
+  assert.equal(tested.steps.find((step) => step.id === 'verification').runsRepositoryTests, true);
+  assert.equal(tested.steps.find((step) => step.id === 'implementation').runsRepositoryTests, undefined, 'a code step runs its tests already');
+  const checksRow = (id) => text(page.renderReadOnlyStep(tested.id, id)).match(/Checks when submitted\s+([^]*?)\s+Then/u)?.[1];
+  assert.equal(checksRow('verification'), "the repository's tests");
+  assert.equal(checksRow('implementation'), 'the tests of the code it changes');
+  assert.equal(checksRow(first), 'None');
   assert.ok(!all(details).some((node) => node.tag === 'input' && node.attributes.type === 'checkbox' && String(node.attributes['data-key'] ?? '').startsWith('view-')), 'there are no view checkboxes');
   assert.match(WORKFLOW_STUDIO_SCRIPT, /fixed \? null : el\('div', \{ class: 'node-tools' \}/, 'nodes have no move or remove tools');
   assert.match(WORKFLOW_STUDIO_SCRIPT, /draggable: fixed \? null : 'true'/, 'nodes cannot be dragged');

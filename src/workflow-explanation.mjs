@@ -12,7 +12,18 @@ const OUTPUT_WORDS = Object.freeze({
   none: 'Produces nothing of its own; it is a sign-off'
 });
 
+const REPOSITORY_TESTS_WORDS = "the repository's tests";
+
 const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
+
+/** The checks a step runs when it is submitted, as one sentence; empty when it runs none. */
+function checksWords(checks = []) {
+  if (!checks.length) return '';
+  const named = checks.map((check) => `${check.command}${check.directory ? ` in ${check.directory}/` : ''}${check.requirement === 'advisory' ? ' (advisory)' : ''}`);
+  const review = checks.some((check) => check.requirement === 'review')
+    ? `; if ${checks.length === 1 ? 'they' : "the repository's tests"} fail, the step waits for its reviewer` : '';
+  return `When it is submitted, sflow runs ${listWords(named)}${review}.`;
+}
 
 function listWords(items, joiner = 'and') {
   if (items.length <= 1) return items.join('');
@@ -110,6 +121,13 @@ export function explainWorkflow(model, workflowId, { resolved = null, guidance =
     const optional = new Set(step.optionalInputs ?? []);
     const agent = step.agent ? agents.get(step.agent) : null;
     const found = guidance.get(step.id) ?? { links: [], apiCalls: [] };
+    // The commands sflow runs when the step is submitted; a failing required one stops the submit.
+    // The repository's own tests come last: a failing run goes to the step's reviewer instead.
+    const checks = [...(step.qualityCommands ?? []).map((entry) => (typeof entry === 'string'
+      ? { id: entry, command: entry, kind: null, requirement: 'required' }
+      : { id: entry.id ?? null, command: entry.command ?? (entry.argv ?? []).join(' '), kind: entry.kind ?? null, requirement: entry.requirement ?? 'required',
+        ...(entry.workingDirectory ? { directory: entry.workingDirectory } : {}) })),
+    ...(step.runsRepositoryTests ? [{ id: 'repository-tests', command: REPOSITORY_TESTS_WORDS, kind: 'test', requirement: 'review' }] : [])];
     return {
       id: step.id,
       number: index + 1,
@@ -120,11 +138,8 @@ export function explainWorkflow(model, workflowId, { resolved = null, guidance =
       skills: (step.skills ?? []).map((entry) => ({ id: entry.id, label: skills.get(entry.id)?.label ?? entry.id, use: entry.use ?? null, scope: entry.scope ?? 'agent' })),
       instructions: [...new Set((step.skills ?? []).flatMap((entry) => skills.get(entry.id)?.instructionRefs ?? []))],
       reads: (step.inputs ?? []).map((id) => ({ id, label: stepLabel(id), optional: optional.has(id) })),
-      // The commands sflow runs when the step is submitted; a failing required one stops the submit.
-      checks: (step.qualityCommands ?? []).map((entry) => (typeof entry === 'string'
-        ? { id: entry, command: entry, kind: null, requirement: 'required' }
-        : { id: entry.id ?? null, command: entry.command ?? (entry.argv ?? []).join(' '), kind: entry.kind ?? null, requirement: entry.requirement ?? 'required',
-          ...(entry.workingDirectory ? { directory: entry.workingDirectory } : {}) })),
+      checks,
+      ...(checks.length ? { checksText: checksWords(checks) } : {}),
       signOff: signOffWords(step.approval, groupLabel),
       then: thenWords(step, workflow, { stepLabel, groupLabel, rejectTo: resolvedPhases.get(step.id)?.approval?.rejectTo ?? [] }),
       links: found.links,

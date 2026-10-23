@@ -413,6 +413,14 @@ export async function buildStudioModel(root, { authority = null } = {}) {
   const phases = raw.phases ?? {};
   const defaultAgentOf = (phaseId) => discovered.find((agent) => agent.defaultFor.includes(phaseId))?.id ?? null;
   const usedBy = (phaseId) => Object.entries(workTypes).filter(([, type]) => (type.phases ?? []).includes(phaseId)).map(([id]) => id);
+  // A step set to `repositoryTests: run` runs the repository's own tests when it is submitted, as
+  // verification-repository-tests decides: not for a code step (it runs its tests already), one that
+  // names its own test command, or one that reviews a code step's test receipt.
+  const asksForRepositoryTests = [...Object.values(phases), ...Object.values(workTypes).flatMap((type) => Object.values(type.phaseOverrides ?? {}))]
+    .some((phase) => phase?.repositoryTests === 'run');
+  const { isTestQualityCommand } = asksForRepositoryTests ? await import('./delivery-evidence.mjs') : {};
+  const runsRepositoryTests = (phase) => phase.repositoryTests === 'run' && outputOf(phase) !== 'code' && !phase.testEvidenceFrom
+    && !(phase.qualityCommands ?? []).some(isTestQualityCommand);
 
   const workflows = Object.entries(workTypes).map(([id, type]) => {
     let resolved = null;
@@ -464,6 +472,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
           afterStepSetByWorkflow: Boolean(type.phaseOverrides?.[phase.id] && Object.hasOwn(type.phaseOverrides[phase.id], 'afterStep')),
           // The checks sflow runs when the step is submitted, as written (a change adds to them).
           qualityCommands: structuredClone(phase.qualityCommands ?? []),
+          ...(asksForRepositoryTests && runsRepositoryTests(phase) ? { runsRepositoryTests: true } : {}),
           // Steps the engine generates, and compiled skill steps, cannot choose a drafting skill.
           generatedByEngine: isConvergencePhase(phase) || deterministicOnlyGeneration(phase),
           convergence: isConvergencePhase(phase),

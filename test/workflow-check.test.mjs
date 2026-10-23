@@ -119,6 +119,13 @@ test('a fresh configuration explains every workflow and has nothing to fix', asy
   assert.ok(implementation.then.includes('Next: Verification.'), implementation.then.join(' | '));
   assert.match(implementation.then.at(-1), /^If it is rejected: it is redone, or back to .*, as the person rejecting it chooses\.$/u);
   assert.equal(implementation.why, null, 'no description was written yet');
+  // Verification runs the repository's own tests when it is submitted; the code step runs its tests already.
+  const verification = feature.explanation.steps.find((step) => step.id === 'verification');
+  assert.deepEqual(verification.checks.at(-1), { id: 'repository-tests', command: "the repository's tests", kind: 'test', requirement: 'review' });
+  assert.equal(verification.checksText, "When it is submitted, sflow runs the repository's tests; if they fail, the step waits for its reviewer.");
+  assert.equal(implementation.checks.some((check) => check.id === 'repository-tests'), false);
+  assert.match(flow(root, ['workflow', 'check', 'repo-feature']).stdout,
+    /\d+\. Verification: [^\n]*\n(?: {5}[^\n]*\n)*? {5}When it is submitted, sflow runs the repository's tests; if they fail, the step waits for its reviewer\./u);
   assert.deepEqual(codes(feature.findings), ['CHECK_STEPS_UNDESCRIBED'], 'a repository-owned workflow is asked to say what its steps are for');
   // A step that smoke-checks a browser is noted with the target URL and machine setup it needs, from
   // the resolved workflow (here a workflow-level phaseOverride), never from its ID.

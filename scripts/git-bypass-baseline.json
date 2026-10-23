@@ -1308,9 +1308,9 @@
     },
     "src/organisation.mjs": {
       "counts": {
-        "command-run": 60
+        "command-run": 64
       },
-      "digest": "b2f64d0503c32463f90eccf5f4a58a0857a8b0fcba5eec4facf28af5a8865bd8"
+      "digest": "9ef7b67102151fac1ba31750831714f0a8228bf180bb7b72245cba9f4153f4a4"
     },
     "src/performance-doctor.mjs": {
       "counts": {

@@ -186,7 +186,14 @@ export async function resolveAffectedModule(root, candidate, { overrides = {} } 
         { code: 'TEST_MODULE_UNCOVERED', details: testSetupRoute({ path: relative, manifest, nativeManifest: native.name, system: native.system }) }
       );
     }
-    if (!manifests.length) continue;
+    if (!manifests.length) {
+      // An Nx project keeps its targets in project.json. One tested by a Playwright target (its own,
+      // or the e2e project's beside it) belongs to that target; any other keeps the module above it.
+      const nx = await exists(path.join(root, directory, 'project.json'))
+        ? await (await import('./nx-test-targets.mjs')).nxPlaywrightProjectDirectory(root, directory || '.') : null;
+      if (nx) return { root: nx, system: 'nx', manifest: 'project.json', configured: false };
+      continue;
+    }
     const systems = [...new Set(manifests.map((entry) => entry.system))];
     if (systems.length > 1) {
       throw new SingularityFlowError(
@@ -274,6 +281,12 @@ async function projectPythonLauncher(root, moduleRoot, platform) {
     }
   }
   return null;
+}
+
+/** An Nx project's Playwright target (src/nx-test-targets.mjs), loaded only for an Nx project. */
+async function nxTestCommand(root, moduleRoot) {
+  const { nxPlaywrightTestCommand } = await import('./nx-test-targets.mjs');
+  return nxPlaywrightTestCommand(root, moduleRoot, { packageManager: (workspace, manifest) => nodePackageManager(root, workspace, manifest) });
 }
 
 async function nodePackageManager(root, moduleRoot, manifest) {
@@ -519,8 +532,11 @@ export async function inferModuleTestCommand(root, module, {
         workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
         result: { adapter: 'node-tap', path: `${resultBase}.tap`, minimumDiscovered: 1 }
       };
+      // An Nx project with a package.json of its own still runs its browser tests through Nx.
+      if (!unitOnly && await exists(path.join(root, cwd, 'project.json'))) return nxTestCommand(root, module.root);
       return null;
     }
+    case 'nx': return unitOnly ? null : nxTestCommand(root, module.root);
     case 'python': {
       const projectPython = await projectPythonLauncher(root, module.root, platform);
       return {

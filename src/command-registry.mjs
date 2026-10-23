@@ -296,8 +296,8 @@ const WORKFLOW_AUTHOR_READ_ACTIONS = Object.freeze(['list', 'read', 'history', '
 const WORKFLOW_AUTHOR_MUTATION_ACTIONS = Object.freeze(['create', 'save', 'delete', 'submit']);
 const WORKFLOW_AUTHOR_ACTIONS = Object.freeze([...WORKFLOW_AUTHOR_READ_ACTIONS, ...WORKFLOW_AUTHOR_MUTATION_ACTIONS]);
 const WORKFLOW_STUDIO_ACTIONS = Object.freeze(['show', 'apply']);
-const WORKFLOW_IMPORT_TEAM_ACTIONS = Object.freeze(['inspect', 'compile', 'status']);
-const WORKFLOW_BUILD_ACTIONS = Object.freeze(['start', 'add', 'status', 'source', 'propose', 'decide', 'answer', 'check', 'finish']);
+const WORKFLOW_IMPORT_TEAM_ACTIONS = Object.freeze(['inspect', 'compile', 'status', 'export', 'import']);
+const WORKFLOW_BUILD_ACTIONS = Object.freeze(['start', 'add', 'status', 'source', 'propose', 'decide', 'answer', 'check', 'finish', 'export', 'import']);
 const WORKFLOW_SUBCOMMANDS = Object.freeze([...WORKFLOW_READ_SUBCOMMANDS, ...WORKFLOW_MUTATION_SUBCOMMANDS, 'author', 'studio', 'import-team', 'build', 'markup', 'intent']);
 const DOCUMENTS_READ_SUBCOMMANDS = Object.freeze(['list', 'view', 'preview', 'browse', 'artifacts', 'readiness']);
 const DOCUMENTS_MUTATION_SUBCOMMANDS = Object.freeze(['detach', 'scope', 'store', 'upload', 'add', 'fetch', 'restore']);
@@ -665,6 +665,7 @@ function resolveWorkflowCommandOperation(definition, positionals, options) {
     }
     // Inspect and status keep only machine-local session state. Compile writes a file only with
     // --out and without --dry-run; everything else is validation.
+    if (action === 'export') return never('workflow.import-team.export', definition, 'mutation');
     if (action !== 'compile') return never(`workflow.import-team.${action}`, definition, 'read');
     return optionBoolean(options, 'dry-run') || !options?.out
       ? never('workflow.import-team.compile.preview', definition, 'read')
@@ -673,7 +674,8 @@ function resolveWorkflowCommandOperation(definition, positionals, options) {
   if (subcommand === 'build') {
     const action = positionals[2] ?? 'status';
     if (!WORKFLOW_BUILD_ACTIONS.includes(action)) return unknownSubcommand('workflow build', action, WORKFLOW_BUILD_ACTIONS);
-    return never(`workflow.build.${action}`, definition, action === 'finish' ? 'mutation' : 'read');
+    // Export writes a file wherever it is told; every other action keeps machine-local build state.
+    return never(`workflow.build.${action}`, definition, ['finish', 'export'].includes(action) ? 'mutation' : 'read');
   }
   if (WORKFLOW_READ_SUBCOMMANDS.includes(subcommand)) {
     return never(`workflow.${subcommand}`, definition, 'read');

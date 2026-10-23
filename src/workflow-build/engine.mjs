@@ -104,6 +104,25 @@ function leaveOutWithFile(items) {
   }
 }
 
+/**
+ * The scripts and documents in a skill's folder go with the skill. Used: one the repository has is
+ * used with it (the agent finds it at its repository path); one only the team folder has is needed
+ * first, named. Left out: they are left out with it, saying why.
+ */
+function settleSkillFiles(items) {
+  const skills = new Map(items.filter((item) => item.kind === 'skill').map((item) => [item.id, item]));
+  for (const part of items) {
+    const skill = part.partOf ? skills.get(part.partOf) : null;
+    if (!skill || part.status !== 'open') continue;
+    if (skill.status === 'confirmed') {
+      Object.assign(part, part.repositoryPath ? { status: 'confirmed', usedAs: 'skill-file' }
+        : { status: 'prerequisite', prerequisite: `Add ${part.within ?? part.name} from the ${skill.name} skill to the repository: the skill uses it, and the agent runs in the repository.` });
+    } else if (skill.status === 'left-out') {
+      Object.assign(part, { status: 'left-out', reason: `${skill.name} is left out${skill.reason ? `: ${skill.reason}` : ''}`.slice(0, 600) });
+    }
+  }
+}
+
 const CHANGED_WORDS = { label: 'name', purpose: 'purpose', agent: 'agent', output: 'output', reads: 'what it reads', signOff: 'sign-off' };
 
 /**
@@ -335,6 +354,7 @@ function acceptProposal(record, proposal) {
   confirmProcessTwins(record.items);
   confirmGuidanceCommands(record.items);
   leaveOutWithFile(record.items);
+  settleSkillFiles(record.items);
   record.conversation.push(turn('you', 'decision', `Accepted ${proposal.title}.`, { proposal: proposal.id }));
 }
 

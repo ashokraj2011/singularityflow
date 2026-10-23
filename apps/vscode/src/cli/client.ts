@@ -442,12 +442,13 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     // Inspect and status keep only machine-local session state; compile writes a file only with
     // --out and without --dry-run.
     const action = args[2] && !args[2].startsWith('-') ? args[2] : 'status';
+    if (action === 'export') return 'mutation';
     if (action !== 'compile') return 'read';
     return enabledBooleanOption(args, 'dry-run') || !hasOption(args, 'out') ? 'read' : 'mutation';
   }
   if (args[0] === 'workflow' && args[1] === 'build') {
-    // A build is machine-local state; only finishing it changes a repository's configuration.
-    return args[2] === 'finish' ? 'mutation' : 'read';
+    // A build is machine-local state; finishing changes a repository's configuration, export writes a file.
+    return args[2] === 'finish' || args[2] === 'export' ? 'mutation' : 'read';
   }
   if (args[0] === 'workflow' && args[1] === 'intent') {
     return ['catalog', 'show', 'example', 'attachments', 'preflight'].includes(args[2] ?? '') ? 'read' : 'mutation';

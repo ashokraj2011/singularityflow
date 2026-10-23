@@ -7,13 +7,13 @@
  * files and notes are screened first and only then copied into the build, so a credential is never
  * copied anywhere. Everything found becomes an item with the file and lines it came from.
  */
-import { lstat, mkdir, readFile, readdir } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { scanText } from '../secrets.mjs';
 import { blockedPath } from '../team-import/formats.mjs';
 import { captureTeamDirectory } from '../team-import/capture.mjs';
 import { SingularityFlowError } from '../util.mjs';
-import { BUILD_TEXT_EXTENSIONS, ITEM_KIND_LABELS, ITEM_KIND_WORDS, countWords, inventoryCapture, itemCounts } from './inventory.mjs';
+import { BUILD_TEXT_EXTENSIONS, ITEM_KIND_LABELS, ITEM_KIND_WORDS, countWords, inventoryCapture, itemCounts, linkSkillFiles } from './inventory.mjs';
 import { movesGuide } from './moves.mjs';
 import { allocateWorkflowBuild, pruneWorkflowBuilds, readWorkflowBuild, saveWorkflowBuild, workflowBuildPaths, writePrivate } from './store.mjs';
 
@@ -76,7 +76,7 @@ async function addUploads(paths, { files = [], notes = [] }, previous) {
 }
 
 /** Capture every folder and the uploads, keep screened copies, and list what they hold. */
-async function captureMaterial(paths, folders, uploads) {
+async function captureMaterial(paths, folders, uploads, repository = null) {
   const roots = [...folders];
   if ((await readdir(paths.uploads).catch(() => [])).length) roots.push(paths.uploads);
   if (!roots.length) return { capture: null, items: [] };
@@ -85,7 +85,9 @@ async function captureMaterial(paths, folders, uploads) {
     const target = path.join(paths.capture, ...where.split('/'));
     if (target.startsWith(paths.capture + path.sep)) await writePrivate(target, text);
   }
-  const items = inventoryCapture(capture, contents);
+  // Real paths on both sides, so a folder reached through a link still counts as inside the repository.
+  const real = (where) => realpath(where).catch(() => where);
+  const items = linkSkillFiles(inventoryCapture(capture, contents), await Promise.all(roots.map(real)), repository ? await real(repository) : null);
   for (const entry of uploads.withheld) {
     items.push({ id: `i-upload-${items.length}`, kind: 'withheld', name: path.basename(entry.source), detail: entry.reason,
       evidence: [], foundBy: 'layout', certainty: 'stated', status: 'open' });
@@ -182,7 +184,7 @@ export async function startWorkflowBuild({ root = null, fromWorkflow = null, cha
   const base = fromWorkflow || change ? await workflowItems(root, fromWorkflow ?? change, { change: Boolean(change) }) : null;
   const { id, paths } = await allocateWorkflowBuild({ env });
   const uploads = await addUploads(paths, { files, notes }, {});
-  const { capture, items } = await captureMaterial(paths, resolvedFolders, uploads);
+  const { capture, items } = await captureMaterial(paths, resolvedFolders, uploads, root);
   const startedFrom = [
     ...(base ? [{ ...base.workflow, ...(change ? { change: true } : {}) }] : []),
     ...(resolvedFolders.length || uploads.files.length || uploads.notes ? [{ kind: 'material', folders: resolvedFolders, files: uploads.files.map((entry) => entry.name), notes: uploads.notes }] : []),
@@ -217,7 +219,7 @@ export async function addToWorkflowBuild(id, { folders = [], files = [], notes =
   }
   const uploads = await addUploads(paths, { files, notes }, record.sources.uploads ?? {});
   const before = new Set(record.items.map((entry) => entry.id));
-  const { capture, items } = await captureMaterial(paths, resolvedFolders, uploads);
+  const { capture, items } = await captureMaterial(paths, resolvedFolders, uploads, record.repository?.root ?? null);
   const kept = record.items.filter((entry) => entry.foundBy === 'workflow');
   const next = { ...record, sources: { folders: resolvedFolders, uploads }, capture, items: [...kept, ...reconcile(items, record.items)] };
   const material = next.goal.startedFrom.filter((entry) => entry.kind !== 'material');
@@ -247,4 +249,4 @@ export function workflowBuildView(record) {
   };
 }
 
-export { readWorkflowBuild, listWorkflowBuilds } from './store.mjs';
+export { readWorkflowBuild, listWorkflowBuilds, exportWorkflowBuild, importWorkflowBuild } from './store.mjs';

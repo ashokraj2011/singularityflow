@@ -52,6 +52,33 @@ function item(kind, name, file, { startLine = 1, endLine = startLine, detail = n
   };
 }
 
+/**
+ * The scripts and documents in a skill's folder (scripts/, references/) belong to that skill. The
+ * agent runs in the repository, so a part the repository has is found at its repository path; a part
+ * only the team folder has must be added to the repository before the skill can use it.
+ * `roots` are the captured folders in capture order; `repository` is the build's repository root.
+ */
+export function linkSkillFiles(items, roots, repository) {
+  const absoluteOf = (where) => {
+    const extra = /^\+(\d+)\/(.*)$/u.exec(where);
+    const root = extra ? roots[Number(extra[1])] : roots[0];
+    return root ? path.join(root, ...(extra ? extra[2] : where).split('/')) : null;
+  };
+  for (const skill of items.filter((entry) => entry.kind === 'skill' && /(?:^|\/)SKILL\.md$/u.test(entry.evidence?.[0]?.path ?? ''))) {
+    const folder = path.posix.dirname(skill.evidence[0].path);
+    for (const part of items) {
+      const where = part.evidence?.[0]?.path ?? '';
+      if (!['script', 'document'].includes(part.kind) || !where.startsWith(`${folder}/`)) continue;
+      const absolute = absoluteOf(where);
+      const inside = repository && absolute && !path.relative(repository, absolute).startsWith('..') && !path.isAbsolute(path.relative(repository, absolute));
+      const repositoryPath = inside ? path.relative(repository, absolute).split(path.sep).join('/') : null;
+      Object.assign(part, { partOf: skill.id, skillName: skill.name, repositoryPath, within: where.slice(folder.length + 1),
+        detail: `${part.detail ? `${part.detail}; ` : ''}part of the ${skill.name} skill${repositoryPath ? `: the agent finds it at ${repositoryPath}` : '; this repository does not have it'}` });
+    }
+  }
+  return items;
+}
+
 /** What a found command is, and what the workflow can do with it, in words. */
 function commandDetail({ category, directory }) {
   const where = directory ? ` (in ${directory}/)` : '';

@@ -429,6 +429,9 @@ Usage:
                                                         one workflow bundle only when it is ready
   singularity-flow workflow import-team status [--session ID] [--json]
                                                         list conversion sessions (machine-local, kept seven days)
+  singularity-flow workflow import-team export --session ID --out FILE [--json]
+  singularity-flow workflow import-team import --file FILE --folder DIRECTORY... [--json]
+                                                        move a session to another computer; compile still checks the folder holds what was read
   singularity-flow workflow copy <[story|initiative:]SOURCE> <TARGET> --label TEXT
     [--dry-run] [--confirm PLAN-SHA256] [--propose] [--json]
                                                         linked copy: preserve the complete workflow record and reuse dependencies
@@ -479,6 +482,9 @@ Usage:
                                                         the workflow as the accepted proposals leave it: explained and checked
   singularity-flow workflow build finish --build ID (--propose | --out FILE) [--json]
                                                         one reviewed proposal through Workflow Studio's apply, or a portable bundle
+  singularity-flow workflow build export --build ID --out FILE [--json]
+  singularity-flow workflow build import --file FILE [--json]
+                                                        move a build to another computer: export it here, import it there inside the repository
   singularity-flow workflow check [WORKFLOW] [--change-set FILE|-] [--json]
                                                         explain each workflow in plain words and list what does not make sense, with where
 

@@ -183,3 +183,74 @@ export async function listTeamImportSessions({ env = process.env, now = Date.now
   }
   return sessions.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
 }
+
+export const TEAM_IMPORT_SESSION_TRANSFER = 'sflow-team-import-session-transfer@1';
+
+/**
+ * A session as one file, to go on with the conversion on another computer: its sealed record, the
+ * screened copies it keeps and the candidate written so far. Nothing else leaves this computer.
+ */
+export async function exportTeamImportSession(sessionId, { env = process.env, now = Date.now() } = {}) {
+  const session = await readTeamImportSession(sessionId, { env, now });
+  const paths = sessionPaths(await stateRoot(env), session.id);
+  const files = [];
+  for (const entry of session.snapshots ?? []) {
+    files.push({ path: entry.path, text: await readFile(entry.snapshot, 'utf8') });
+  }
+  const candidate = await readFile(paths.candidate, 'utf8').catch(() => null);
+  const content = { schema: TEAM_IMPORT_SESSION_TRANSFER, exportedAt: new Date(now).toISOString(), session, files, candidate };
+  return { ...content, sha256: digest(JSON.stringify(content)) };
+}
+
+/**
+ * Go on with a session another computer exported. `folders` are where the team directory (and any
+ * extra roots) are on this computer, in the order inspect was given them; compile still checks they
+ * hold exactly what was interpreted. A session this computer has already is refused.
+ */
+export async function importTeamImportSession(transfer, { folders = [], env = process.env, now = Date.now() } = {}) {
+  if (!transfer || typeof transfer !== 'object' || transfer.schema !== TEAM_IMPORT_SESSION_TRANSFER) {
+    fail('TEAM_IMPORT_TRANSFER_INVALID', 'This is not a team import session file: export one with singularity-flow workflow import-team export.');
+  }
+  const { sha256, ...content } = transfer;
+  if (sha256 !== digest(JSON.stringify(content))) fail('TEAM_IMPORT_TRANSFER_INVALID', 'The session file was changed after it was exported.');
+  const session = transfer.session;
+  const id = requireSessionId(session?.id);
+  const { integritySha256, ...sealedContent } = session;
+  if (session.kind !== 'team-import-session' || integritySha256 !== digest(JSON.stringify(sealedContent))) {
+    fail('TEAM_IMPORT_TRANSFER_INVALID', `Session ${id} in the file was changed outside singularity-flow.`);
+  }
+  const roots = session.capture?.roots ?? [];
+  if (folders.length !== roots.length) {
+    fail('TEAM_IMPORT_TRANSFER_FOLDERS', `Session ${id} read ${roots.length} folder${roots.length === 1 ? '' : 's'}; name where ${roots.length === 1 ? 'it is' : 'they are'} on this computer with --folder, in the same order.`);
+  }
+  const root = await stateRoot(env);
+  const paths = sessionPaths(root, id);
+  if (await lstat(paths.directory).catch(() => null)) fail('TEAM_IMPORT_SESSION_EXISTS', `This computer already has session ${id}; go on with it here.`);
+  const files = Array.isArray(transfer.files) ? transfer.files : [];
+  for (const file of files) {
+    const parts = String(file?.path ?? '').split('/');
+    if (typeof file?.text !== 'string' || parts.some((part) => !part || part === '.' || part === '..' || part.includes('\\'))) {
+      fail('TEAM_IMPORT_TRANSFER_INVALID', `The session file names a file it may not hold: ${String(file?.path ?? '')}.`);
+    }
+  }
+  await mkdir(paths.directory, { mode: 0o700 });
+  const snapshots = [];
+  for (const file of files) {
+    const target = path.join(paths.capture, ...file.path.split('/'));
+    await writePrivate(target, file.text);
+    snapshots.push({ path: file.path, snapshot: target });
+  }
+  if (typeof transfer.candidate === 'string') await writePrivate(paths.candidate, transfer.candidate);
+  const rebound = roots.map((entry, index) => ({ ...entry, path: path.resolve(folders[index]) }));
+  const record = sealed({
+    ...sealedContent,
+    updatedAt: new Date(now).toISOString(),
+    expiresAt: new Date(now + TEAM_IMPORT_SESSION_DAYS * DAY).toISOString(),
+    capture: { ...session.capture, roots: rebound },
+    options: { ...session.options, ...(session.options?.roots ? { roots: rebound } : {}) },
+    snapshots,
+    candidatePath: paths.candidate
+  });
+  await writePrivate(paths.record, `${JSON.stringify(record, null, 2)}\n`);
+  return record;
+}

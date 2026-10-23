@@ -6223,6 +6223,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
           }, { class: 'primary', 'data-key': 'build-start-describe', disabled: busy })))));
     // The earlier screens stay reachable for work started in them.
     main.appendChild(el('div', { class: 'studio-row build-other', role: 'group', 'aria-label': 'Other ways to start' }, el('span', { class: 'muted', text: 'Other ways to start:' }),
+      button('Continue a build from a file…', function () { buildAction('importFile', null, 'start'); }, { class: 'secondary', 'data-key': 'build-import-file',
+        title: 'Go on with a build saved on another computer' }),
       button('Import a team workflow (earlier screen)…', function () { post({ type: 'studio.importTeam' }); }, { class: 'secondary', 'data-key': 'build-other-team',
         title: 'Turn a team\'s agent directory into a workflow bundle with Copilot, then import it here' }),
       button('Write it in workflow markup (earlier screen)…', function () { post({ type: 'studio.markup' }); }, { class: 'secondary', 'data-key': 'build-other-markup',
@@ -6264,7 +6266,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         el('strong', { text: build.label }),
         el('span', { class: 'muted', text: 'kept on this computer until ' + buildWhen(build.expiresAt) })),
       el('nav', { class: 'build-tabs', 'aria-label': 'Go to' },
-        tab('build', 'Build', pending), tab('found', 'What we found', open), tab('finish', ready ? 'Finish ✓' : 'Finish', 0))));
+        tab('build', 'Build', pending), tab('found', 'What we found', open), tab('finish', ready ? 'Finish ✓' : 'Finish', 0),
+        button('Move to another computer…', function () { buildAction('export', null, 'export'); }, { class: 'secondary', 'data-key': 'build-export',
+          title: 'Save the build as one file and continue it on another computer, with its proposals, questions and decisions', disabled: Boolean(b.busy) }))));
     if (b.error) main.appendChild(el('div', { class: 'callout bad', role: 'alert', 'data-key': 'build-error', text: b.error }));
     if (buildLanded()) main.appendChild(landedCallout(buildLanded()));
     var work = el('section', { class: 'build-section', 'data-key': 'build-section-build', 'aria-label': 'The workflow' });
@@ -6394,7 +6398,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       var leaving = b.leaving[item.id];
       list.appendChild(el('article', { class: 'build-item status-' + item.status, 'data-item': item.id },
         el('div', { class: 'studio-row spread' }, el('span', null, el('span', { class: 'build-kind', text: buildKindOne(item.kind) }), ' ', el('strong', { text: item.name })),
-          el('span', { class: 'pill', title: item.reason || item.prerequisite || '', text: item.usedAs === 'guidance' ? 'agent guidance' : BUILD_ITEM_STATUS[item.status] || item.status })),
+          el('span', { class: 'pill', title: item.reason || item.prerequisite || '', text: item.usedAs === 'guidance' ? 'agent guidance' : item.usedAs === 'skill-file' ? 'used with its skill' : BUILD_ITEM_STATUS[item.status] || item.status })),
         item.detail ? el('div', { class: 'muted', text: item.detail }) : null,
         item.reason ? el('div', { class: 'muted', text: 'Why: ' + item.reason }) : null,
         el('div', { class: 'studio-row' }, (item.evidence || []).slice(0, 3).map(function (span) { return evidenceButton(span); }),

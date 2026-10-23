@@ -54,7 +54,9 @@ Takeover preserves earlier completed synchronization if a later repository fails
 paths. A document kept only on the laptop that added it never blocks takeover and is never moved
 into Git. The result lists each one with its phases; when the current phase uses one,
 `documentsToRestore` asks for the same original with `documents restore <ID> --file <LOCAL-FILE>`,
-which keeps its ID and every approval. Takeover cannot recover unpushed work from a laptop.
+which keeps its ID and every approval. In VS Code, **Synchronize and Take Over Story** says which
+documents the current step needs, by name, and still opens the Story; **Copy upload commands** copies
+those commands, each starting in the Story's folder. Takeover cannot recover unpushed work from a laptop.
 It does not transfer credentials, private receipts, conversation history, approval authority or
 exclusive ownership. Git fast-forward checks remain the cross-machine publication boundary.
 

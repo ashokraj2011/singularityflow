@@ -1,5 +1,5 @@
 /**
- * `workflow import-team inspect|compile|status` — convert a team's agent directory into one
+ * `workflow import-team inspect|compile|status|export|import` — convert a team's agent directory into one
  * validated workflow bundle (src/team-import/). Nothing here changes a repository: the bundle is
  * imported later through `workflow import` and its review.
  */
@@ -8,9 +8,12 @@ import { SingularityFlowError, optionBoolean, optionString, optionStrings } from
 const OPTIONS = {
   inspect: new Set(['entry', 'root', 'max-files', 'max-total-bytes', 'json']),
   compile: new Set(['session', 'out', 'destination', 'dry-run', 'answer', 'allow-not-ready', 'json']),
-  status: new Set(['session', 'json'])
+  status: new Set(['session', 'json']),
+  // A session as one file, to go on with it on another computer.
+  export: new Set(['session', 'out', 'json']),
+  import: new Set(['file', 'folder', 'json'])
 };
-const POSITIONALS = { inspect: 4, compile: 3, status: 3 };
+const POSITIONALS = { inspect: 4, compile: 3, status: 3, export: 3, import: 3 };
 
 function refuse(message, code = 'TEAM_IMPORT_USAGE') {
   throw new SingularityFlowError(message, { code });
@@ -78,7 +81,7 @@ function printStatus(result) {
 
 export async function run(argv, { positionals, options }) {
   const action = positionals[2] ?? 'status';
-  if (!OPTIONS[action]) refuse(`workflow import-team has no '${action}'; use inspect, compile or status.`);
+  if (!OPTIONS[action]) refuse(`workflow import-team has no '${action}'; use inspect, compile, status, export or import.`);
   const unknown = Object.keys(options).filter((key) => !OPTIONS[action].has(key));
   if (unknown.length) refuse(`workflow import-team ${action} does not take ${unknown.map((key) => `--${key}`).join(', ')}.`);
   if (positionals.length > POSITIONALS[action]) refuse(`workflow import-team ${action} takes ${POSITIONALS[action] === 4 ? 'one directory' : 'no positional arguments'}.`);
@@ -105,6 +108,29 @@ export async function run(argv, { positionals, options }) {
     return json ? console.log(JSON.stringify(result, null, 2)) : printCompile(result);
   }
   const session = await import('../team-import/session.mjs');
+  if (action === 'export') {
+    const id = optionString(options, 'session') ?? refuse('Name the session: --session <ID>.');
+    const out = optionString(options, 'out') ?? refuse('Say where to write it: --out <FILE>.');
+    const { writeFile } = await import('node:fs/promises');
+    const { commandLineFile } = await import('../util.mjs');
+    const target = commandLineFile(await repositoryRoot(), out);
+    const transfer = await session.exportTeamImportSession(id);
+    await writeFile(target, `${JSON.stringify(transfer)}\n`, { mode: 0o600 });
+    if (json) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'team-import-export', session: id, path: target, files: transfer.files.length, candidate: transfer.candidate != null }, null, 2));
+    console.log(`Wrote ${target}: session ${id}, its ${transfer.files.length} screened files${transfer.candidate != null ? ' and its candidate' : ''}. It holds the team's material; share it as you would that.`);
+    return console.log(`  On the other computer: singularity-flow workflow import-team import --file <FILE> --folder <TEAM DIRECTORY>`);
+  }
+  if (action === 'import') {
+    const { readFile } = await import('node:fs/promises');
+    const { commandLineFile } = await import('../util.mjs');
+    const file = commandLineFile(await repositoryRoot(), optionString(options, 'file') ?? refuse('Name the session file: --file <FILE>.'), { reads: true });
+    let transfer;
+    try { transfer = JSON.parse(await readFile(file, 'utf8')); } catch (error) { refuse(`The session file cannot be read: ${error.message}`, 'TEAM_IMPORT_TRANSFER_INVALID'); }
+    const record = await session.importTeamImportSession(transfer, { folders: optionStrings(options, 'folder') });
+    if (json) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'team-import-import', session: record.id, roots: record.capture.roots, candidatePath: record.candidatePath }, null, 2));
+    console.log(`Session ${record.id} is on this computer now, reading ${record.capture.roots.map((entry) => entry.path).join(', ')}.`);
+    return console.log(`  Check it: singularity-flow workflow import-team compile --session ${record.id} --dry-run`);
+  }
   const sessionId = optionString(options, 'session');
   await session.pruneTeamImportSessions();
   const result = sessionId

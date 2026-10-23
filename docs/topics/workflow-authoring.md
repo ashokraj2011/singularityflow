@@ -36,7 +36,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 79
+version: 81
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1243,7 +1243,13 @@ singularity-flow workflow import-team inspect ./team-automation --entry delivery
 singularity-flow workflow import-team compile --session tis_0123456789abcdef --dry-run --json
 singularity-flow workflow import-team compile --session tis_0123456789abcdef \
   --out delivery-flow.sflow-workflows.json --destination . --json
+singularity-flow workflow import-team export --session tis_0123456789abcdef --out delivery.session.json
+singularity-flow workflow import-team import --file delivery.session.json --folder ./team-automation
 ```
+
+A session moves to another computer the same way: `export` writes its record, screened copies and
+candidate; `import` takes where the team directory is on that computer (`--folder`, one per folder
+inspect read), and compile still checks the folder holds exactly what was interpreted.
 
 1. **inspect** captures the directory, resolves links and names between files, and lists entries:
    the agents, prompts or skills that describe the whole process. A skill is one when it hands work to
@@ -1290,7 +1296,16 @@ singularity-flow workflow build add --build <ID> --file ../runbook.md --notes no
 cat meeting-notes.md | singularity-flow workflow build add --build <ID> --notes -
 singularity-flow workflow build status
 singularity-flow workflow build status --build <ID> --json
+singularity-flow workflow build export --build <ID> --out payments.sflow-build.json
+singularity-flow workflow build import --file payments.sflow-build.json
 ```
+
+A build lives on the computer it started on. To go on with it on another one, `export` writes it
+as one file (its record and the screened copies it keeps, never a withheld file) and `import`,
+run inside the repository's checkout there, continues it with its proposals, questions and
+decisions; a build that computer has already is refused, and a file changed after export is
+refused. In Workflow Studio: **Move to another computer…** on the build, and **Continue a build
+from a file…** where builds start. The file holds the team's material: share it as you would that.
 
 | Found | From |
 |---|---|
@@ -1303,7 +1318,7 @@ singularity-flow workflow build status --build <ID> --json
 | Commands | Commands in code blocks and inline code of skills, instructions, agents, documents and scripts, such as `npm test`, `cd web && CI=true npm run test:unit`, `pytest -q` or `./scripts/deploy.sh`: each part of an `&&` chain, with the folder a `cd` puts it in, and what it is for (test, lint, type check, format, build, install, run, deploy, script) |
 | Sign-off points | Sentences that ask for a sign-off, an approval or someone's review |
 | Branches | Sentences where the work goes a different way by one value: "when the channel is web …, if it is mobile …, otherwise …" (two or more values of the same thing, or one with an otherwise) |
-| Documents and scripts | READMEs, runbooks and other text, and shell or PowerShell scripts |
+| Documents and scripts | READMEs, runbooks and other text, and shell or PowerShell scripts. Those in a skill's folder (`scripts/`, `references/`) belong to that skill: used with it, a file the repository has is found at its repository path, and one only the team folder has becomes needed first (add it to the repository); left out with it, they go too |
 
 A file whose name looks like a credential, key or environment file is never read, and a file whose
 text looks like it holds a credential is withheld: it is listed by name, and its text is kept

@@ -4,7 +4,7 @@
  * description, and see what it holds
  * (src/workflow-build/). Builds are machine-local; nothing here changes a repository.
  */
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { SingularityFlowError, commandLineFile, optionBoolean, optionString, optionStrings } from '../util.mjs';
 
@@ -17,7 +17,9 @@ const OPTIONS = {
   decide: new Set(['build', 'proposal', 'accept', 'decline', 'reason', 'json']),
   answer: new Set(['build', 'question', 'choice', 'json']),
   check: new Set(['build', 'include', 'json']),
-  finish: new Set(['build', 'propose', 'out', 'json'])
+  finish: new Set(['build', 'propose', 'out', 'json']),
+  export: new Set(['build', 'out', 'json']),
+  import: new Set(['file', 'json'])
 };
 const SEVERITY = { problem: 'problem', warning: 'warning', note: 'note' };
 const SHOWN_PER_KIND = 12;
@@ -205,8 +207,23 @@ export async function run(argv, { positionals, options }) {
   }
   const buildId = () => optionString(options, 'build') ?? refuse(`Name the build: workflow build ${action} --build <ID>.`);
   if (['propose', 'decide', 'answer', 'check', 'finish', 'source'].includes(action)) return engineAction(action, { options, root, json, buildId, api, labels });
+  if (action === 'export') {
+    // One file to go on with the build on another computer: its record and screened copies.
+    const id = buildId();
+    const target = commandLineFile(root, optionString(options, 'out') ?? refuse('Say where to write it: --out <FILE>.'));
+    const transfer = await api.exportWorkflowBuild(id);
+    await writeFile(target, `${JSON.stringify(transfer)}\n`, { mode: 0o600 });
+    if (json) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'workflow-build-export', build: id, path: target, files: transfer.files.length }, null, 2));
+    console.log(`Wrote ${target}: build ${id} and the ${transfer.files.length} screened files it keeps. It holds the team's material; share it as you would that.`);
+    return console.log(`  On the other computer, inside the repository: singularity-flow workflow build import --file <FILE>`);
+  }
   let record;
-  if (action === 'start') {
+  if (action === 'import') {
+    const source = commandLineFile(root, optionString(options, 'file') ?? refuse('Name the build file: --file <FILE>.'), { reads: true });
+    let transfer;
+    try { transfer = JSON.parse(await readFile(source, 'utf8')); } catch (error) { refuse(`The build file cannot be read: ${error.message}`, 'WORKFLOW_BUILD_TRANSFER_INVALID'); }
+    record = await api.importWorkflowBuild(transfer, { root });
+  } else if (action === 'start') {
     record = await api.startWorkflowBuild({ root, fromWorkflow: optionString(options, 'from-workflow') ?? null, change: optionString(options, 'change') ?? null, ...(await material()),
       describe: optionString(options, 'describe') ?? null, name: optionString(options, 'name') ?? null });
   } else if (action === 'add') {

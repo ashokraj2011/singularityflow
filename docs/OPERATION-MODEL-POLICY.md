@@ -826,7 +826,9 @@ Every public operation is classified before its implementation module is importe
 | workflow.build.answer | read | never | — | — |
 | workflow.build.check | read | never | — | — |
 | workflow.build.decide | read | never | — | — |
+| workflow.build.export | read | never | — | — |
 | workflow.build.finish | mutation | never | — | — |
+| workflow.build.import | read | never | — | — |
 | workflow.build.propose | read | never | — | — |
 | workflow.build.source | read | never | — | — |
 | workflow.build.start | read | never | — | — |

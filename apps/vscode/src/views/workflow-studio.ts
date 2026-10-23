@@ -24,6 +24,7 @@ import {
   BUILD_ID, BUILD_PROPOSAL_ID, BUILD_QUESTION_ID, PROPOSAL_BRANCH, STUDIO_FOCUS_VIEWS, buildChatQuery, buildsForRepository, studioBuildArgs, STUDIO_MODEL_ARGS, STUDIO_PREVIEW_ARGS, WORKFLOW_STUDIO_SCRIPT, studioCheckArgs, localProposalUploads, proposalSummaries,
   studioPublishArgs, workflowStudioBody, type LocalProposalUpload, type StudioAuthority, type StudioFocusView
 } from './workflow-studio-page.ts';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { realpathSync, watch, type FSWatcher } from 'node:fs';
 import { stat } from 'node:fs/promises';
@@ -275,6 +276,8 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     'studio.build.open': (message) => this.buildOpen(stringField(message, 'build')),
     'studio.build.close': () => this.buildClose(),
     'studio.build.add': (message) => this.buildAdd(stringField(message, 'build')),
+    'studio.build.export': (message) => this.buildExport(stringField(message, 'build')),
+    'studio.build.importFile': () => this.buildImportFile(),
     'studio.build.decide': (message) => this.buildDecide(message),
     'studio.build.answer': (message) => this.buildAnswer(message),
     'studio.build.mine': (message) => this.buildMine(stringField(message, 'build'), stringField(message, 'proposal')),
@@ -907,6 +910,29 @@ export class WorkflowStudioPanel implements vscode.Disposable {
   private async buildOpen(raw: string | null): Promise<void> {
     if (!raw || !BUILD_ID.test(raw)) return this.buildFailed('Choose a build to open.');
     await this.buildChange(() => this.client.run<StudioBuildView>(studioBuildArgs('status', raw)), null, true);
+  }
+
+  /** One file to go on with the build on another computer (Build with Copilot there: Continue a build from a file). */
+  private async buildExport(raw: string | null): Promise<void> {
+    const id = this.openBuildId(raw);
+    if (!id) return;
+    const target = await vscode.window.showSaveDialog({ title: 'Save the build to continue it on another computer', saveLabel: 'Save',
+      defaultUri: vscode.Uri.file(path.join(os.homedir(), `${id}.sflow-build.json`)), filters: { 'Workflow build': ['json'] } });
+    if (!target) { this.post({ type: 'studio.buildCancelled' }); return; }
+    try {
+      const result = await this.client.run<{ path: string; files: number }>(studioBuildArgs('export', id, ['--out', target.fsPath]));
+      this.post({ type: 'studio.buildCancelled', status: `Saved ${path.basename(result.path)} with the ${result.files} screened files the build keeps. On the other computer, in this repository: Build with Copilot → Continue a build from a file…` });
+    } catch (error) { this.buildFailed((error as Error).message); }
+  }
+
+  /** Go on with a build another computer saved: it keeps its proposals, questions and decisions. */
+  private async buildImportFile(): Promise<void> {
+    const picked = await vscode.window.showOpenDialog({ canSelectFiles: true, canSelectMany: false, openLabel: 'Continue this build',
+      title: 'Choose a workflow build saved on another computer', filters: { 'Workflow build': ['json'] } });
+    const chosen = picked?.[0];
+    if (!chosen) { this.post({ type: 'studio.buildCancelled', status: 'Nothing was chosen.' }); return; }
+    await this.buildChange(() => this.client.run<StudioBuildView>(['workflow', 'build', 'import', '--file', chosen.fsPath, '--json']),
+      'Continued the build here: its proposals, questions and decisions came with it.', true);
   }
 
   private async buildAdd(raw: string | null): Promise<void> {

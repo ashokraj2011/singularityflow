@@ -1,7 +1,7 @@
 import { repositoryOwnedWorkflows, requirementsTemplatePlansCode } from './helpers/repository-owned-workflows.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -317,6 +317,70 @@ test('work that goes different ways by channel becomes one branch whose ways com
   assert.equal(step('web-test').then[0], 'Back together after channel web: Verification.');
   assert.deepEqual(checked.changes.decisions.added.map((decision) => decision.after), ['implementation', 'web-test', 'mobile-test']);
   assert.equal(json(root, ['workflow', 'build', 'status', '--build', build.id]).build.items.find((entry) => entry.id === branch.id).status, 'confirmed');
+});
+
+test('a build moves to another computer as one file and goes on there with its proposals and decisions', async () => {
+  const { run, flow, json, env, state } = await harness();
+  const root = await repository(run, flow);
+  const folder = await teamFolder();
+  const build = json(root, ['workflow', 'build', 'start', '--folder', folder, '--name', 'Payments release']).build;
+  json(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-'], { input: JSON.stringify(FIRST) });
+  const file = path.join(state, 'payments.sflow-build.json');
+  const exported = json(root, ['workflow', 'build', 'export', '--build', build.id, '--out', file]);
+  assert.deepEqual([exported.resultType, exported.build, exported.path, exported.files > 0], ['workflow-build-export', build.id, file, true]);
+  // The other computer: its own build state, the same repository checked out.
+  const other = { ...env, SINGULARITY_FLOW_WORKFLOW_BUILD_STATE: path.join(state, 'other-computer') };
+  const there = (args, input = '') => spawnSync(process.execPath, [bin, ...args, '--json'], { cwd: root, encoding: 'utf8', env: other, input });
+  const imported = JSON.parse(there(['workflow', 'build', 'import', '--file', file]).stdout).build;
+  assert.equal(imported.id, build.id);
+  assert.deepEqual(imported.proposals.map((proposal) => [proposal.id, proposal.status]), [['p-1', 'pending']]);
+  assert.match(imported.conversation.at(-1).text, /^Continued on this computer from a build file exported \d{4}-\d{2}-\d{2}\.$/u);
+  const source = JSON.parse(there(['workflow', 'build', 'source', '--build', build.id, '--path', '.github/agents/release-captain.agent.md']).stdout);
+  assert.match(source.lines.join('\n'), /Intake the change/u, 'the screened copies came with it');
+  assert.equal(JSON.parse(there(['workflow', 'build', 'decide', '--build', build.id, '--proposal', 'p-1', '--accept']).stdout).build.proposals[0].status, 'accepted',
+    'a person decides there as here');
+  const twice = there(['workflow', 'build', 'import', '--file', file]);
+  assert.match(twice.stderr + twice.stdout, /This computer already has build wb_[a-f0-9]{16}/u, 'nothing is overwritten');
+  const transfer = JSON.parse(await readFile(file, 'utf8'));
+  transfer.build.goal.label = 'Changed in transit';
+  await writeFile(file, JSON.stringify(transfer));
+  const altered = spawnSync(process.execPath, [bin, 'workflow', 'build', 'import', '--file', file, '--json'], { cwd: root, encoding: 'utf8',
+    env: { ...env, SINGULARITY_FLOW_WORKFLOW_BUILD_STATE: path.join(state, 'third-computer') } });
+  assert.match(altered.stderr + altered.stdout, /changed after it was exported/u);
+});
+
+test('the files in a skill\'s folder go with the skill: found in the repository, needed first when only the team has them', async () => {
+  const { run, flow, json } = await harness();
+  const root = await repository(run, flow);
+  const skillText = ['---', 'name: release', 'description: Releases a change.', '---', 'Run scripts/check.sh, then follow references/runbook.md.', ''].join('\n');
+  const write = async (base) => {
+    for (const [relative, text] of [['.github/skills/release/SKILL.md', skillText], ['.github/skills/release/scripts/check.sh', '#!/bin/sh\nnpm test\n'],
+      ['.github/skills/release/references/runbook.md', '# Runbook\nShip it.\n']]) {
+      await mkdir(path.dirname(path.join(base, relative)), { recursive: true });
+      await writeFile(path.join(base, relative), text);
+    }
+  };
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-build-engine-skillfiles-'));
+  await write(outside); await write(root);
+  for (const [folder, inRepository] of [[path.join(root, '.github'), true], [outside, false]]) {
+    const build = json(root, ['workflow', 'build', 'start', '--folder', folder]).build;
+    const skill = build.items.find((entry) => entry.kind === 'skill' && entry.name === 'release');
+    const part = build.items.find((entry) => entry.kind === 'script' && entry.name.endsWith('check.sh'));
+    assert.deepEqual([part.partOf, part.repositoryPath ?? null], [skill.id, inRepository ? '.github/skills/release/scripts/check.sh' : null]);
+    assert.match(part.detail, inRepository ? /part of the release skill: the agent finds it at \.github\/skills\/release\/scripts\/check\.sh$/u : /part of the release skill; this repository does not have it$/u);
+    const used = json(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-', '--by', 'you', '--accept'], { input: JSON.stringify({ title: 'Use the release skill',
+      why: 'The team releases with it.', moves: [{ move: 'skill.add', id: 'release', description: 'Releases a change.', procedure: 'Run the check script, then follow the runbook.' }], items: [skill.id] }) }).build;
+    const after = used.items.find((entry) => entry.id === part.id);
+    if (inRepository) assert.deepEqual([after.status, after.usedAs], ['confirmed', 'skill-file']);
+    else assert.deepEqual([after.status, after.prerequisite], ['prerequisite', 'Add scripts/check.sh from the release skill to the repository: the skill uses it, and the agent runs in the repository.']);
+  }
+  // Left out, the skill takes its files with it.
+  const build = json(root, ['workflow', 'build', 'start', '--folder', outside]).build;
+  const skill = build.items.find((entry) => entry.kind === 'skill');
+  const left = json(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-', '--by', 'you', '--accept'], { input: JSON.stringify({ title: 'No release skill',
+    why: 'Not ours.', moves: [{ move: 'item.leaveOut', item: skill.id, reason: 'Another team owns releases.' }] }) }).build;
+  assert.deepEqual(left.items.filter((entry) => entry.partOf === skill.id).map((entry) => [entry.status, entry.reason]),
+    [['left-out', 'release is left out: Another team owns releases.'], ['left-out', 'release is left out: Another team owns releases.']]);
 });
 
 test('later decisions: a step other workflows share is copied, not changed; a proposal an earlier one overtook goes stale; items can be left out', async () => {

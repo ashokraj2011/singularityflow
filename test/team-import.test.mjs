@@ -11,7 +11,7 @@ import { captureTeamDirectory } from '../src/team-import/capture.mjs';
 import { recognizeFormat } from '../src/team-import/formats.mjs';
 import { inspectTeamDirectory } from '../src/team-import/inspect.mjs';
 import { compileTeamImport } from '../src/team-import/compile.mjs';
-import { listTeamImportSessions, pruneTeamImportSessions, readTeamImportSession } from '../src/team-import/session.mjs';
+import { exportTeamImportSession, importTeamImportSession, listTeamImportSessions, pruneTeamImportSessions, readTeamImportSession } from '../src/team-import/session.mjs';
 import { applyWorkflowImport, compileWorkflowBundle, importResolutionOptions, planWorkflowImport, readWorkflowBundle } from '../src/workflow-transfer.mjs';
 import { initializeDefinition } from '../src/config.mjs';
 import { fixtureCandidate, teamFixture, writeCandidate } from './helpers/team-import-fixture.mjs';
@@ -202,6 +202,26 @@ test('a code phase keeps its checks and only it writes source; planning stays ar
   const deploy = await compiled(t, (candidate) => { candidate.phases[1].qualityCommands[0].argv = ['./scripts/deploy.sh', 'prod']; });
   assert.ok(deploy.result.findings.some((finding) => finding.code === 'TEAM_IMPORT_NOT_A_CHECK' && /a deploy command, not a check/u.test(finding.message)),
     'sflow runs checks at every submit, so a deployment is never one');
+});
+
+test('a session moves to another computer as one file and compiles there against the same team folder', async (t) => {
+  const f = await inspected(t);
+  await writeCandidate(f.inspection, fixtureCandidate(f.inspection));
+  const exported = await exportTeamImportSession(f.inspection.session.id, { env: f.env });
+  assert.equal(exported.candidate != null, true, 'the candidate written so far goes with it');
+  // The other computer: its own state, and the team folder copied to another place.
+  const elsewhere = path.join(f.base, 'elsewhere');
+  await mkdir(elsewhere, { recursive: true });
+  spawnSync('cp', ['-R', f.team, path.join(elsewhere, 'team')]);
+  const env = { ...f.env, SINGULARITY_FLOW_TEAM_IMPORT_STATE: path.join(f.base, 'other-state') };
+  await assert.rejects(() => importTeamImportSession(exported, { folders: [], env }), /read 1 folder; name where it is on this computer with --folder/u);
+  const moved = await importTeamImportSession(exported, { folders: [path.join(elsewhere, 'team')], env });
+  assert.equal(moved.id, f.inspection.session.id);
+  assert.deepEqual(moved.capture.roots.map((root) => root.path), [path.join(elsewhere, 'team')]);
+  const result = await compileTeamImport(moved.id, { env, dryRun: true });
+  assert.ok(!['invalid'].includes(result.state), JSON.stringify(result.findings.slice(0, 3)));
+  assert.equal(result.findings.some((finding) => finding.code === 'TEAM_IMPORT_SOURCE_CHANGED'), false, 'the same folder content, wherever it is');
+  await assert.rejects(() => importTeamImportSession(exported, { folders: [path.join(elsewhere, 'team')], env }), /already has session/u);
 });
 
 test('open questions hold the state at needs-decision until a person answers with one of their choices [TAWI:AC-009 AC-023]', async (t) => {

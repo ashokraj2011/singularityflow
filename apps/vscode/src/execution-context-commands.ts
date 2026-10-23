@@ -10,6 +10,13 @@ export const EXECUTION_CONTEXT_COMMANDS = [
   'singularityFlow.runRetention', 'singularityFlow.cleanupCheckouts', 'singularityFlow.takeoverStory'
 ] as const;
 
+/** What `session takeover --json` answers; the documents only another computer had are listed by name. */
+interface TakeoverResult {
+  ready: boolean; repositoryPath: string;
+  documentsToRestore?: { phase: string; documents: string[]; message: string } | null;
+  unavailableDocuments?: Array<{ id: string; name: string; neededNow: boolean; restore: string }>;
+}
+
 export function executionContextHandlers(context: vscode.ExtensionContext, client: SingularityFlowClient): Record<typeof EXECUTION_CONTEXT_COMMANDS[number], () => Promise<void>> {
   const surface = randomUUID();
   let maintenancePending = false;
@@ -68,9 +75,25 @@ export function executionContextHandlers(context: vscode.ExtensionContext, clien
       const id = await vscode.window.showInputBox({ title: 'Take over a published Story', prompt: 'Exact Story ID. Synchronizes published work; does not approve or advance the Story.' });
       if (!id?.trim()) return;
       const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
-        title: `Synchronizing ${id.trim()}…` }, () => client.run<{ ready: boolean; repositoryPath: string }>(['session', 'takeover', id.trim(), '--json']));
-      if (result.ready) await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(result.repositoryPath), { forceReuseWindow: true });
-      else await show(result);
+        title: `Synchronizing ${id.trim()}…` }, () => client.run<TakeoverResult>(['session', 'takeover', id.trim(), '--json']));
+      const open = () => vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(result.repositoryPath), { forceReuseWindow: true });
+      if (result.ready) { await open(); return; }
+      // Taken over, but the current step uses documents only the other computer had: say which, and
+      // still open the Story; they are uploaded again there, keeping their IDs and every approval.
+      const needed = (result.unavailableDocuments ?? []).filter(document => document.neededNow);
+      if (result.documentsToRestore && result.repositoryPath && needed.length) {
+        const choice = await showCompactWarningMessage(
+          `${id.trim()} is here, but its ${result.documentsToRestore.phase} step uses ${needed.length === 1 ? 'a document' : `${needed.length} documents`} only the other computer had: ${needed.map(document => document.name).join(', ')}.`,
+          { compactDetail: 'Upload each one again on this computer: its ID and every approval stay as they are.', detail: result.documentsToRestore.message },
+          'Open the Story', 'Copy upload commands');
+        if (choice === 'Copy upload commands') {
+          await vscode.env.clipboard.writeText(needed.map(document => `cd ${JSON.stringify(result.repositoryPath)} && ${document.restore}`).join('\n'));
+          void showCompactInformationMessage('Copied. Put each file\'s path in place of <LOCAL-FILE> and run them; opening the Story now.');
+        }
+        if (choice) await open();
+        return;
+      }
+      await show(result);
     })
   };
 }

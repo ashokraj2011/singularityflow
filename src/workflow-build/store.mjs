@@ -143,3 +143,75 @@ export async function listWorkflowBuilds({ env = process.env } = {}) {
   }
   return builds.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
 }
+
+export const WORKFLOW_BUILD_TRANSFER = 'sflow-workflow-build-transfer@1';
+const TRANSFER_BYTES = 32 * 1024 * 1024;
+
+async function filesUnder(directory, prefix = '') {
+  const found = [];
+  for (const entry of await readdir(path.join(directory, prefix), { withFileTypes: true }).catch(() => [])) {
+    const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) found.push(...await filesUnder(directory, relative));
+    else if (entry.isFile()) found.push(relative);
+  }
+  return found.sort();
+}
+
+/**
+ * A build as one file, to go on with it on another computer: its sealed record and the screened
+ * copies it keeps (never a withheld file, which was never copied). Nothing else leaves this computer.
+ */
+export async function exportWorkflowBuild(id, { env = process.env, now = Date.now() } = {}) {
+  const record = await readWorkflowBuild(id, { env });
+  const paths = buildPaths(await stateRoot(env), record.id);
+  const files = [];
+  let bytes = 0;
+  for (const [area, directory] of [['capture', paths.capture], ['uploads', paths.uploads]]) {
+    for (const relative of await filesUnder(directory)) {
+      const text = await readFile(path.join(directory, ...relative.split('/')), 'utf8');
+      bytes += Buffer.byteLength(text);
+      if (bytes > TRANSFER_BYTES) fail('WORKFLOW_BUILD_TRANSFER_TOO_LARGE', `Build ${record.id} keeps more than 32 MiB of material; it cannot be moved as one file.`);
+      files.push({ area, path: relative, text });
+    }
+  }
+  const content = { schema: WORKFLOW_BUILD_TRANSFER, exportedAt: new Date(now).toISOString(), build: record, files };
+  return { ...content, sha256: digest(JSON.stringify(content)) };
+}
+
+/**
+ * Go on with a build another computer exported. It keeps its ID, proposals, questions and decisions,
+ * and is bound to `root`, the checkout of its repository on this computer. A build this computer has
+ * already is refused, so nothing is overwritten.
+ */
+export async function importWorkflowBuild(transfer, { root = null, env = process.env } = {}) {
+  if (!transfer || typeof transfer !== 'object' || transfer.schema !== WORKFLOW_BUILD_TRANSFER) {
+    fail('WORKFLOW_BUILD_TRANSFER_INVALID', 'This is not a workflow build file: export one with singularity-flow workflow build export.');
+  }
+  const { sha256, ...content } = transfer;
+  if (sha256 !== digest(JSON.stringify(content))) fail('WORKFLOW_BUILD_TRANSFER_INVALID', 'The workflow build file was changed after it was exported.');
+  const record = transfer.build;
+  const id = requireBuildId(record?.id);
+  if (record.kind !== WORKFLOW_BUILD_KIND || sealed(record).integritySha256 !== record.integritySha256) {
+    fail('WORKFLOW_BUILD_TRANSFER_INVALID', `Build ${id} in the file was changed outside Singularity Flow.`);
+  }
+  if (record.repository && !root) fail('WORKFLOW_BUILD_REPOSITORY_REQUIRED', `Build ${id} is for a repository; run this inside that repository's checkout on this computer.`);
+  const stateDirectory = await stateRoot(env);
+  const paths = buildPaths(stateDirectory, id);
+  if (await lstat(paths.directory).catch(() => null)) {
+    fail('WORKFLOW_BUILD_EXISTS', `This computer already has build ${id}; go on with it here (singularity-flow workflow build status --build ${id}).`);
+  }
+  const files = Array.isArray(transfer.files) ? transfer.files : [];
+  for (const file of files) {
+    const parts = String(file?.path ?? '').split('/');
+    if (!['capture', 'uploads'].includes(file?.area) || typeof file.text !== 'string' || !parts.length
+        || parts.some((part) => !part || part === '.' || part === '..' || part.includes('\\'))) {
+      fail('WORKFLOW_BUILD_TRANSFER_INVALID', `The workflow build file names a file it may not hold: ${String(file?.path ?? '')}.`);
+    }
+  }
+  await mkdir(paths.directory, { mode: 0o700 });
+  for (const file of files) await writePrivate(path.join(paths[file.area], ...file.path.split('/')), file.text);
+  const { integritySha256: ignored, ...kept } = record;
+  const moved = { at: new Date().toISOString(), by: 'sflow', kind: 'moved', text: `Continued on this computer from a build file exported ${String(transfer.exportedAt ?? '').slice(0, 10) || 'earlier'}.` };
+  return saveWorkflowBuild({ ...kept, conversation: [...(kept.conversation ?? []), moved],
+    ...(record.repository ? { repository: { root, label: path.basename(root) } } : {}) }, { env });
+}

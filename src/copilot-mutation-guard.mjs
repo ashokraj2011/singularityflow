@@ -141,8 +141,8 @@ async function createRecord(payload, record, root, accepted, previous = null) {
   // The step's own staging files follow from the pinned contract, so every turn bound to this step
   // may write them: also a turn after an interrupted one, or a new chat (SPEC-STAGING-PERMISSIONS D1).
   // Each is one exact file that must pass the same checks as an issued one; nothing else widens.
-  const derived = (await stagingPaths()).phaseStagingPaths({ gitDirectory: gitIdentity.gitDir, definition, workflow, phase, turnMode: mode })
-    .map(file => path.resolve(file));
+  const derived = (await stagingPaths()).phaseStagingPaths({ gitDirectory: gitIdentity.gitDir, definition, workflow, phase, turnMode: mode,
+    skill: record.skill }).map(file => path.resolve(file));
   contract.allow.staging = [...new Set([...derived, ...(samePhase ? previous.contract.allow.staging : [])])];
   for (const file of derived) {
     if (!mutationPathDecision(contract, file, root).allowed) {
@@ -151,6 +151,10 @@ async function createRecord(payload, record, root, accepted, previous = null) {
     }
     // The kernel prepares only this file's parent, as issuance does; the parent grants no edits.
     await mkdir(path.dirname(file), { recursive: true, mode: 0o700 }).catch(() => {});
+  }
+  // The one file a /sf-reject turn may write is named in its rules, so the draft lands there.
+  if (mode === 'approval-only' && contract.allow.staging.length) {
+    contract.summary = `${contract.summary} Draft an intent amendment only at the issued file ${contract.allow.staging.join(', ')}, for story intent-amendment propose --file.`;
   }
   const value = { schemaVersion: currentSchemaVersion('copilot-mutation-contract'), kind: 'copilot-mutation-contract',
     turnId: record.turnId, sessionId: record.sessionId, skill: record.skill, recordedAt: record.recordedAt,
@@ -436,6 +440,13 @@ function shellAllowed(call, mode, value) {
     if (value.decisionEnded || options['work-id'] && options['work-id'] !== value.contract.workId) return false;
     // /sf-approve opens the decision list in its own turn when pending decisions hold the approval.
     if (positionals[0] === 'decisions') return decisionListChatRecord(positionals, options, value.contract.workId);
+    // /sf-reject's other routes, for the bound Story only, each previewed and confirmed by the CLI:
+    // reopen a closed Story, propose an intent amendment (its scope approvers decide it) and abandon
+    // rework. Deciding or acknowledging an amendment is not among them.
+    if (action === 'reject' && positionals[0] === 'reopen') return positionals.length === 2 && positionals[1] === value.contract.workId;
+    if (action === 'reject' && positionals[0] === 'story') return options['work-id'] === value.contract.workId && positionals.length === 3
+      && (positionals[1] === 'intent-amendment' && positionals[2] === 'propose' && typeof options.file === 'string'
+        || positionals[1] === 'rework' && positionals[2] === 'roll-forward' && typeof options['change-request'] === 'string');
     return positionals[0] === action && (!positionals[1] || positionals[1] === value.originPhase);
   }
   if (classification === 'read') return true;
@@ -609,6 +620,39 @@ function mentionsKernelExecution(call, value) {
   return /\b(?:singularity-flow|sflow)(?:\.(?:exe|cmd|bat))?(?=$|[\s'";&|`$<>()])/iu.test(command);
 }
 
+/**
+ * The command families a skill that needs no Story runs before one is bound (its registry
+ * executionBoundary is machine, repository or organisation), under the kernel-only rules: the
+ * families its own steps name, never every registered command. An Epic, Initiative or machine-level
+ * checkout binds no Story, so without this a kernel-only turn there could run none of its own steps.
+ * phase-mutation-contract.test.mjs holds each skill's named commands to this list.
+ */
+const NO_STORY_COMMANDS = Object.freeze({
+  admin: ['state'], adhoc: ['adhoc', 'land'], agents: ['agents'], auto: ['auto'],
+  'capability-add': ['capability'], 'capability-depend': ['capability'], 'capability-protect': ['capability'],
+  'capability-doctor': ['capabilities', 'capability'], 'call-add': ['call'], constitution: ['constitution'],
+  documents: ['documents', 'epic'], upload: ['documents', 'epic'], environment: ['env'],
+  'epic-complete': ['epic'], 'epic-drift': ['epic'], 'epic-merge-plan': ['epic'], 'epic-planning': ['epic', 'initiative'],
+  'epic-publish': ['epic'],
+  'epic-requirements': ['epic', 'initiative'], 'epic-resume': ['epic'], 'epic-review': ['epic'],
+  'epic-review-decision': ['epic'], 'epic-sources': ['epic'], 'epic-start': ['epic', 'initiative'],
+  'epic-stories': ['epic'], 'epic-story-draft': ['epic', 'initiative'], 'epic-sync': ['epic'],
+  'factory-reset': ['factory-reset'], fault: ['fault'], 'fresh-install': ['fresh-install'], goal: ['goal'],
+  'governance-rebuild': ['governance'],
+  impact: ['impact'], import: ['import', 'imports', 'marketplace'],
+  'initiative-approve': ['initiative'], 'initiative-evidence': ['initiative'], 'initiative-materialize': ['initiative'],
+  'initiative-phase': ['initiative'], 'initiative-start': ['initiative'], 'jira-initiative': ['initiative'],
+  'jira-update': ['jira'], integrations: ['integrations'], journal: ['journal'], knowledge: ['knowledge'], learn: ['learn'],
+  ledger: ['ledger'], local: ['local'], 'local-reset': ['local-reset'], mcp: ['mcp'], plugin: ['plugin'],
+  product: ['product'], 'prompt-log': ['prompt-log'], push: ['push'], quickstart: ['quickstart'], ready: ['precheck'],
+  'refresh-configuration': ['workspace'], 'reset-all': ['reset-all'], return: ['return'], secrets: ['secrets'],
+  sgos: ['intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit',
+    'device', 'authority-store', 'pack', 'memory', 'meta-tool'],
+  'sgos-create': ['intent'], stack: ['stack'], 'story-branch': ['story'], 'story-fetch': ['story'],
+  'story-start': ['story'], telemetry: ['telemetry'], watch: ['watch'],
+  'workspace-bootstrap': ['workspace'], 'workspace-impact': ['workspace']
+});
+
 function bootstrapAllowed(call, record) {
   if (shellAllowed(call, 'read', record)) return true;
   const mode = mutationTurnMode(record.skill);
@@ -624,8 +668,11 @@ function bootstrapAllowed(call, record) {
     'capability-map', 'workspace', 'worldmodel', 'start', 'test-setup'];
   const name = record.skill?.replace(/^\/?(?:sf|sflow)-/u, '');
   const command = scopedShellCommand(call, record) ?? '';
-  return setup.includes(name) && /^\s*(?:singularity-flow|sflow)\s+(?:workspace|configuration|workflow|skill|instruction|capability|init|precheck|wm|start|test-policy)\b/u.test(command)
-    && shellAllowed(call, 'kernel-only', record);
+  if (setup.includes(name) && /^\s*(?:singularity-flow|sflow)\s+(?:workspace|configuration|workflow|skill|instruction|capability|init|precheck|wm|start|test-policy)\b/u.test(command)
+    && shellAllowed(call, 'kernel-only', record)) return true;
+  const families = mode === 'kernel-only' ? NO_STORY_COMMANDS[name] : null;
+  const safe = families ? verifiedShellForm(call, record) : null;
+  return Boolean(safe) && families.includes(parseArgs(safe.argv).positionals[0]) && shellAllowed(call, 'kernel-only', record);
 }
 
 async function currentContract(payload, record) {

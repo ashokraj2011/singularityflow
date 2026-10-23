@@ -24,6 +24,20 @@ import { structuredTestCommandRequiredError } from '../src/code-delivery-tests.m
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 
+test('a Story start stopped by its enrollment push names the cause, and the way out is the exact retry', async () => {
+  const { enrollmentPendingError } = await import('../src/configuration-people.mjs');
+  const intent = 'psh_7e94aa00-1111-2222-3333-444455556666';
+  const refused = (fault) => enrollmentPendingError({ transportIntent: intent, transportStatus: 'needs-user', fault });
+  const hook = refused({ classification: 'local-hook-failed', advice: 'Review the local Git hook output.',
+    evidence: { diagnostic: 'husky - pre-push hook exited with code 1 (npm run lint)  ' } });
+  assert.match(hook.message, /^Automatic approval enrollment is pending publication\. Git refused the push to sflow\/config \(local-hook-failed\): "husky - pre-push hook exited with code 1 \(npm run lint\)"\. Review the local Git hook output\. After fixing that, run: singularity-flow push retry psh_7e94aa00-1111-2222-3333-444455556666, then start the Story again\.$/u);
+  const hookPlan = refusalRemediationPlan(hook, ['start', 'PMBEPP-1']);
+  assert.equal(hookPlan.steps.at(-1).command, `singularity-flow push retry ${intent}`, 'not another diagnosis of the hook');
+  const write = refused({ classification: 'authorization-denied', advice: 'Ask for write access, then retry.',
+    evidence: { diagnostic: 'remote: Permission to org/app.git denied to someone.' } });
+  assert.equal(refusalRemediationPlan(write, ['start', 'PMBEPP-1']).steps[0].command, `singularity-flow push retry ${intent}`);
+});
+
 test('session transport refusal retains the selected listing scope and explicit refresh without retry', () => {
   const error = Object.assign(new Error('State observation timed out'), {
     code: 'SESSION_STATE_REFRESH_UNAVAILABLE', details: {

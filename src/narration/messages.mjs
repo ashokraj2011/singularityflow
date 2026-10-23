@@ -16,6 +16,11 @@ function slot(value, fallback = '') {
   return value === undefined || value === null ? fallback : String(value);
 }
 
+/** Why Git refused a publication and what fixes it, when it said; nothing for one that landed. */
+function transportFault(s) {
+  return `${s.reason ? ` Git refused it (${slot(s.reason)}).` : ''}${s.advice ? ` ${slot(s.advice)}` : ''}`;
+}
+
 /**
  * What a Story that reached its end may claim. Every step being decided is not completion: only the
  * final evaluation its ending passed may name a completion label, and the sentence names that label.
@@ -921,7 +926,7 @@ export const MESSAGES = Object.freeze({
   },
   'transport.reported': {
     headline: (s) => s.intentId
-      ? `Transport ${slot(s.intentId)} is ${slot(s.status)}; commit ${slot(s.commit)} remains addressable.`
+      ? `Transport ${slot(s.intentId)} is ${slot(s.status)}; commit ${slot(s.commit)} remains addressable.${transportFault(s)}`
       : `Found ${slot(s.count, '0')} pending transport intent(s).`,
     preserves: true
   },
@@ -959,7 +964,7 @@ export const MESSAGES = Object.freeze({
     preserves: true
   },
   'transport.retry-completed': {
-    headline: (s) => `Transport ${slot(s.intentId)} is ${slot(s.status)} after the authorized retry.`
+    headline: (s) => `Transport ${slot(s.intentId)} is ${slot(s.status)} after the authorized retry.${transportFault(s)}`
   },
   'goal.listed': {
     headline: (s) => `Found ${slot(s.count, '0')} Goal(s) in ${slot(s.workspace)}.`,

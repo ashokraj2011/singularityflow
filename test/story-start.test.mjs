@@ -1210,7 +1210,14 @@ exit 0
           run('chmod', ['+x', rejectConfigurationHook], lead.source);
         }
       }),
-      (error) => error?.code === 'CONFIGURATION_ENROLLMENT_PENDING'
+      (error) => {
+        assert.equal(error?.code, 'CONFIGURATION_ENROLLMENT_PENDING');
+        // Retrying alone meets the same refusal: the error names Git's reason, then the retry.
+        assert.match(error.message, /Git refused the push to sflow\/config \([a-z-]+\): "remote: configuration enrollment rejected"\. /u);
+        assert.match(error.message, /run: singularity-flow push retry psh_[0-9a-f-]+, then start the Story again\.$/u);
+        assert.match(error.details.nextAction.command, /^singularity-flow push retry psh_[0-9a-f-]+$/u);
+        return true;
+      }
     );
     await assert.rejects(stat(candidateStore), (error) => error?.code === 'ENOENT');
     await rm(rejectConfigurationHook);

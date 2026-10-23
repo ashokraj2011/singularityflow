@@ -1129,6 +1129,10 @@ export function refusalRemediationPlan(error, argv = []) {
     retry: Object.freeze({ label: 'Do not retry until the compiler/build has been repaired or aligned and a fresh designer handoff is available.', automatic: false })
   });
   const hookFailure = error?.details?.remoteFailure?.hook ?? localGitHookFailure({ stderr: error?.message });
+  // A refusal that retained its publication names the exact retry; after the repair that is the way
+  // out, where a diagnosis would only describe the hook again.
+  const retainedRetry = hookFailure
+    ? explicitCommands(error).find((entry) => entry.argv?.[0] === 'push' && entry.argv?.[1] === 'retry') ?? null : null;
   if (hookFailure) return Object.freeze({
     schemaVersion: 1, // schema-transient: process-boundary guidance, never persisted
     status: 'blocked', code,
@@ -1141,7 +1145,7 @@ export function refusalRemediationPlan(error, argv = []) {
           : 'Verify the named command and its runtime in the calling IDE or terminal environment. Correct a typo or restore the approved tool/PATH. Do not install tools or disable hooks automatically.', null, 'remediation'),
       step('preserve-and-retry-hook',
         'Inspect local changes and preserve hook-generated files and authored work. Retry the retained publication after repair; if remote publication may have completed, reconcile the exact pending operation instead of recreating the Story.',
-        'singularity-flow doctor --json', 'diagnostic')
+        retainedRetry?.command ?? 'singularity-flow doctor --json', retainedRetry ? 'remediation' : 'diagnostic', retainedRetry?.skill ?? null)
     ]),
     retry: Object.freeze({ label: 'Retry only after the hook, command or runtime has changed; preserve the existing Story and exact publication checkpoint.', automatic: false })
   });

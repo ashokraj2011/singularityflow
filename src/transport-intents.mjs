@@ -352,6 +352,11 @@ function classified(result) {
   if (/hook declined|pre-receive hook|protected branch|branch protection|GH006/i.test(text)) {
     return { ...failure, classification: /hook/i.test(text) ? 'hook-rejected' : 'branch-protected', retryable: false };
   }
+  // Every transport intent is a push: a refusal here means the account cannot write, not read.
+  if (failure.classification === 'authorization-denied') {
+    return { ...failure, retryable: false, advice: 'Your Git account can read this repository but cannot push to it. '
+      + 'Ask the repository owner for write access (with SSO, authorize your credential for the organisation), then retry.' };
+  }
   return { ...failure, retryable: AUTO_RETRYABLE.has(failure.classification) };
 }
 
@@ -603,7 +608,9 @@ export async function retryTransportIntent(intentId, {
         ...intent, status, fault: { ...failure, evidence: gitResultEvidence(dryRun) },
         attempts: intent.attempts.map((entry) => entry.number === attempt.number
           ? { ...entry, completedAt: nowIso(), result: status, stage: 'dry-run' } : entry),
-        circuit: circuitAfter(intent, failure)
+        circuit: circuitAfter(intent, failure),
+        // Retrying repeats a refusal only a person can clear; the status shows why.
+        ...(status === 'pending' ? {} : { nextAction: { command: `singularity-flow push status ${intentId}`, skill: '/sf-push' } })
       });
     }
     // This is the transport ambiguity boundary. Persist it only after the non-mutating dry-run has

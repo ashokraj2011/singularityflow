@@ -219,6 +219,30 @@ export function automaticEnrollmentMayPublish(root, configurationSnapshot) {
 }
 
 /**
+ * Why automatic approval enrollment stopped a Story start. The retained commit could not be pushed
+ * to `sflow/config`; retrying alone meets the same refusal, so the error names Git's reason and its
+ * fix before the retry that publishes the commit afterwards.
+ */
+export function enrollmentPendingError(enrollment) {
+  const fault = enrollment?.fault ?? null;
+  const retry = enrollment?.transportIntent ? `singularity-flow push retry ${enrollment.transportIntent}` : null;
+  const reason = fault ? ` Git refused the push to ${CONFIGURATION_BRANCH}${fault.classification ? ` (${fault.classification})` : ''}`
+    + `${fault.evidence?.diagnostic?.trim() ? `: "${fault.evidence.diagnostic.trim()}"` : ''}.${fault.advice ? ` ${fault.advice}` : ''}` : '';
+  const then = retry
+    ? ` ${fault ? 'After fixing that, run' : 'Run'}: ${retry}, then start the Story again.`
+    : enrollment?.nextAction?.command ? ` Run: ${enrollment.nextAction.command}`
+      : ' Publish the retained configuration commit and start again.';
+  return new SingularityFlowError(`Automatic approval enrollment is pending publication.${reason}${then}`, {
+    code: 'CONFIGURATION_ENROLLMENT_PENDING',
+    details: {
+      ...(retry ? { nextAction: { command: retry, skill: '/sf-push' } } : {}),
+      intentId: enrollment?.transportIntent ?? null, status: enrollment?.transportStatus ?? null,
+      classification: fault?.classification ?? null
+    }
+  });
+}
+
+/**
  * Add the caller's current Git identity to approved authority groups and publish one exact commit.
  *
  * The approved branch is cloned into scratch. The caller's index, worktree, HEAD and Story snapshot
@@ -427,6 +451,7 @@ export async function publishCurrentIdentityToConfiguration(root, {
       automatic: Boolean(automatic),
       transportIntent: publication.intentId,
       transportStatus: publication.status,
+      fault: publication.fault ?? null,
       nextAction: publication.nextAction ?? null
     };
     if (result.pushed) {

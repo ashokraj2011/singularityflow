@@ -8,7 +8,22 @@ import {
 import { emitCommandResult } from '../narration/emit.mjs';
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
+/** Why a publication has not landed, when Git said: its class, Git's own line and the fix. */
+function faultSlots(intent) {
+  const fault = intent?.status === 'succeeded' ? null : intent?.fault;
+  if (!fault) return {};
+  return {
+    reason: `${fault.classification ?? 'unknown'}${fault.evidence?.diagnostic?.trim() ? `: ${fault.evidence.diagnostic.trim()}` : ''}`,
+    ...(fault.advice ? { advice: fault.advice } : {})
+  };
+}
+
 function nextActions(intent) {
+  // A refusal only a person can clear: once they have, the retry publishes the same commit.
+  if (['needs-user', 'attempt-budget-exhausted'].includes(intent?.status)) {
+    return [action({ id: 'transport-next-action', label: 'Retry after fixing the cause',
+      command: `singularity-flow push retry ${intent.intentId}`, kind: 'remediation' })];
+  }
   if (!intent?.nextAction?.command) return [];
   return [action({
     id: 'transport-next-action',
@@ -49,7 +64,7 @@ export async function run(_argv, { positionals, options, operation }) {
       outcome: succeeded('transport.reported', intent
         ? {
             intentId: intent.intentId, status: intent.status,
-            commit: intent.sourceCommit.slice(0, 12)
+            commit: intent.sourceCommit.slice(0, 12), ...faultSlots(intent)
           }
         : { count: result.length }),
       effects: noEffects(),
@@ -66,7 +81,7 @@ export async function run(_argv, { positionals, options, operation }) {
     // corrected outside SFlow. Automatic callers do not receive this authority.
     const intent = await retryTransportIntent(intentId, { allowNeedsUser: true });
     return emitCommandResult(result(operation, succeeded('transport.retry-completed', {
-      intentId: intent.intentId, status: intent.status
+      intentId: intent.intentId, status: intent.status, ...faultSlots(intent)
     }), { intent, changed: true }), { json });
   }
   throw new SingularityFlowError(`Unknown push subcommand '${action}'. Available: status, retry.`, {

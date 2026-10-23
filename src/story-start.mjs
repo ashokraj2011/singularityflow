@@ -43,7 +43,7 @@ import {
   captureConfigurationState, CONFIGURATION_BRANCH, loadStoryConfigurationSnapshot,
   materializeConfigurationSnapshot, readConfigurationSource, resolveNewStoryConfigurationAuthority
 } from './configuration-branch.mjs';
-import { publishCurrentIdentityToConfiguration } from './configuration-people.mjs';
+import { enrollmentPendingError, publishCurrentIdentityToConfiguration } from './configuration-people.mjs';
 import {
   publishCapabilityRepositoriesDurably, retainCapabilityPublicationRecovery
 } from './capability-publication-recovery.mjs';
@@ -573,14 +573,7 @@ export async function startStory(root, {
         target: '*', automatic: true, configurationSnapshot: approvedConfigurationSnapshot,
         expectedSourceCommit: selectedConfigurationCommit
       });
-      if (enrollment.changed && !enrollment.pushed) {
-        throw new SingularityFlowError(
-          `Automatic approval enrollment is pending publication. ${enrollment.nextAction?.command
-            ? `Run: ${enrollment.nextAction.command}`
-            : 'Publish the retained configuration commit and start again.'}`,
-          { code: 'CONFIGURATION_ENROLLMENT_PENDING' }
-        );
-      }
+      if (enrollment.changed && !enrollment.pushed) throw enrollmentPendingError(enrollment);
       if (enrollment.changed) {
         // `rev-parse` without --verify echoes an unresolved argument, and a failed read is not a
         // concurrent configuration change: only Git's clean "no parent" may fall through to stale.

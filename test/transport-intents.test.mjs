@@ -613,6 +613,41 @@ test('an offline dry-run cannot authorize another actor exact update', async () 
   assert.equal(recovered.healers.length, 0);
 });
 
+test('a refusal only a person can clear names its cause, and push status says why and offers the retry', async () => {
+  const item = await fixture();
+  // An office repository's husky hook judges every push from the checkout, sflow/config included,
+  // and Git runs it for the dry-run too.
+  const hook = path.join(item.work, '.git', 'hooks', 'pre-push');
+  await writeFile(hook, '#!/bin/sh\necho "husky - pre-push hook exited with code 1 (npm run lint)" >&2\nexit 1\n');
+  run('chmod', ['+x', hook]);
+  const created = await createTransportIntent({
+    repositoryRoot: item.work, sourceCommit: item.commit, targetRef: 'refs/heads/sflow/config', expectedRemote: null
+  }, item.options);
+  const refused = await retryTransportIntent(created.intentId, item.options);
+  assert.equal(refused.status, 'needs-user');
+  assert.equal(refused.fault.classification, 'local-hook-failed');
+  assert.match(refused.fault.evidence.diagnostic, /husky - pre-push hook exited with code 1/u);
+  assert.equal(refused.nextAction.command, `singularity-flow push status ${created.intentId}`, 'retrying alone meets the same hook');
+
+  const cli = new URL('../bin/singularity-flow.mjs', import.meta.url).pathname;
+  const status = run(process.execPath, [cli, '--no-model', 'push', 'status', created.intentId], { cwd: item.work, env: item.env }).stdout;
+  assert.match(status, /is needs-user; commit [0-9a-f]{12} remains addressable\. Git refused it \(local-hook-failed: husky - pre-push hook exited with code 1 \(npm run lint\)\)\. Review the local Git hook output/u);
+  assert.match(status, new RegExp(`singularity-flow push retry ${created.intentId}`, 'u'), 'after the fix, the retry publishes the same commit');
+
+  // A push the account may not make is a missing write permission, not read access.
+  const denied = await createTransportIntent({
+    repositoryRoot: item.work, sourceCommit: item.commit, targetRef: 'refs/heads/denied', expectedRemote: null
+  }, item.options);
+  const refusedWrite = await retryTransportIntent(denied.intentId, {
+    ...item.options,
+    runCommand: (command, args, options) => args[0] === 'push' && args.includes('--dry-run')
+      ? { status: 128, stdout: '', stderr: 'remote: Permission to org/app.git denied to someone.\nfatal: unable to access: The requested URL returned error: 403', signal: null }
+      : run(command, args, options)
+  });
+  assert.equal(refusedWrite.fault.classification, 'authorization-denied');
+  assert.match(refusedWrite.fault.advice, /cannot push to it\. Ask the repository owner for write access/u);
+});
+
 test('creating the same exact transport joins its durable intent instead of duplicating publication', async () => {
   const item = await fixture();
   const input = {

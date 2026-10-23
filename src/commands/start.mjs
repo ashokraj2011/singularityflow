@@ -31,7 +31,7 @@ import { loadCopilotSession, loadSession, recordStartedWorkItemSelection, select
 import { documentSetLifecycleBinding } from '../document-publication.mjs';
 import { loadManualStory, promptManualStory } from '../intake.mjs';
 import { storyStartTargetOrigin } from '../mcp-target.mjs';
-import { automaticEnrollmentMayPublish, publishCurrentIdentityToConfiguration, enrolledConfigurationAuthority } from '../configuration-people.mjs';
+import { automaticEnrollmentMayPublish, enrollmentPendingError, publishCurrentIdentityToConfiguration, enrolledConfigurationAuthority } from '../configuration-people.mjs';
 import { GitRemoteSession } from '../git-execution.mjs';
 import { configuredRemoteAuthority, configuredRemoteIdentity } from '../git-remote-diagnostics.mjs';
 import { capabilityLines } from '../verification/capability.mjs';
@@ -1538,14 +1538,7 @@ async function startCommandAtRoot(positionals, options) {
       session: storyRemoteSession
     }));
     automaticEnrollment = enrollment;
-    if (enrollment.changed && !enrollment.pushed) {
-      throw new SingularityFlowError(
-        `Automatic approval enrollment is pending publication. ${enrollment.nextAction?.command
-          ? `Run: ${enrollment.nextAction.command}`
-          : 'Run singularity-flow push status, retry the retained configuration commit with singularity-flow push retry <ID>, and start again.'}`,
-        { code: 'CONFIGURATION_ENROLLMENT_PENDING' }
-      );
-    }
+    if (enrollment.changed && !enrollment.pushed) throw enrollmentPendingError(enrollment);
     if (enrollment.changed) {
       const enrollmentParent = gitAnswer(root, ['rev-parse', '--verify', '--quiet', `${enrollment.commit}^`],
         'Automatic enrollment parent', { absentStatus: 1 })?.trim() ?? '';

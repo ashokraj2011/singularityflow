@@ -4,8 +4,8 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "f26e2e384f4bf81e8eeb9a0fd4bbd26c6741227f",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-23-VERIFICATION-REPOSITORY-TESTS.md",
+    "reviewedAtCommit": "2a03aa4e88d7e59cc9b12eeaf01ea568c8e1a41f",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-23-SAMPLE-USER-DEFINED-AGENT.md",
     "companionIds": [
       "workflow-configuration"
     ]
@@ -14,7 +14,7 @@
     {
       "id": "workflow-configuration",
       "path": "templates/workflow.yml",
-      "sha256": "sha256:d4dbe8be1e512262ac89b52e5b3e27b28d8a89401464611e71398c9ff0fec64f"
+      "sha256": "sha256:953603a000e11c357a01bb7aaf3fc719174d64bee034e0f1049b1349ec23d200"
     },
     {
       "id": "sgos-portable-schema",

@@ -617,6 +617,22 @@ workTypes:
       implement: { inputs: [intake] }
       verify: { inputs: [intake, implement] }
 
+  # A sample user-defined agent, as `call add` makes one: the folder in
+  # singularity/user-defined/careful-change/ runs as this one step (start <WORK-ID> --agent
+  # careful-change, then /sf-call careful-change). One code step defines no requirement clauses and
+  # plans itself, so its approvers record why scope and plan do not apply before the Story finishes.
+  careful-change:
+    label: Careful change
+    description: Careful change, run as one step (user-defined agent).
+    phases: [careful-change]
+    omits:
+      - responsibility: scope
+        reason: Careful change is a user-defined agent run as one step; it defines no requirement clauses.
+        authority: engineering-reviewers
+      - responsibility: plan
+        reason: Careful change plans and makes the change itself, in its one step, from its own instructions.
+        authority: engineering-reviewers
+
   classic-delivery:
     label: Classic delivery
     description: Intake, code, testing, and code checking with committed test receipts, the guarded manual REV refinement pilot during Code, and explicit reviewer feedback/rework to Code; REV feedback attachments are evidence only.
@@ -1723,6 +1739,16 @@ phases:
       - id: git-diff-check
         argv: [git, diff, --check]
         modelPolicy: never
+  # The sample user-defined agent's one step; its agent's instructions are its folder's main file.
+  careful-change:
+    label: Careful change
+    description: Runs Careful change, the user-defined agent from the careful-change folder.
+    defaultTemplate: common/careful-change.md
+    artifact: { path: artifacts/careful-change/careful-change.md, kind: careful-change, minimumBytes: 200 }
+    generation: { task: code }
+    writeScope: source-and-artifact
+    inputs: []
+    approval: { authorities: [engineering-reviewers], minimum: 1 }
 governance:
   requireAcceptanceCriteriaTags: true
   protectedPaths:

@@ -112,6 +112,31 @@ test('the step prompt gives the agent its folder, verified, and refuses a folder
     (error) => error.code === 'USER_AGENT_FOLDER_CHANGED');
 });
 
+test('the packaged sample agent is a consistent folder, and init seeds it ready to run', async (t) => {
+  const templates = fileURLToPath(new URL('../templates/', import.meta.url));
+  const folder = path.join(templates, 'user-defined', 'careful-change');
+  // The shipped files are what call add makes from the sample folder: same manifest, same pin, same instructions.
+  const { plan, instructions } = await userDefinedAgentPlan(folder, { label: 'Careful change', approvalGroup: 'engineering-reviewers' });
+  assert.equal(await readFile(path.join(templates, 'user-defined', 'careful-change.json'), 'utf8'), userDefinedManifestText(plan));
+  const agent = await readFile(path.join(templates, 'agents', 'careful-change.agent.md'), 'utf8');
+  assert.match(agent, new RegExp(`sflow-user-defined: careful-change\\n {2}sflow-user-defined-manifest: "${plan.manifestSha256}"`, 'u'));
+  assert.ok(agent.trimEnd().endsWith(instructions), 'the agent\'s instructions are the main file\'s own');
+  const workflow = YAML.parse(await readFile(path.join(templates, 'workflow.yml'), 'utf8'));
+  assert.deepEqual(workflow.workTypes['careful-change'].phases, ['careful-change']);
+  assert.deepEqual(workflow.workTypes['careful-change'].omits.map((entry) => entry.responsibility), ['scope', 'plan']);
+
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-user-agent-seed-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(path.join(root, '.git'));
+  const { initializeDefinition, loadDefinition } = await import('../src/config.mjs');
+  await initializeDefinition(root);
+  const definition = await loadDefinition(root);
+  assert.equal(userDefinedAgentWorkType(definition, 'careful-change'), 'careful-change', 'start --agent careful-change starts its workflow');
+  const text = await renderUserDefinedFolder(root, definition.agents['careful-change']);
+  assert.match(text, /^# The Careful change folder/u);
+  assert.match(text, /### skills\/plan-change\/SKILL\.md[\s\S]*### skills\/self-review\/SKILL\.md[\s\S]*### skills\/write-tests\/SKILL\.md/u);
+});
+
 test('--agent names a user-defined agent\'s workflow only for that agent; any other agent keeps its meaning', () => {
   const definition = {
     agents: { orchestrator: { metadata: { 'sflow-user-defined': 'orchestrator' }, defaultFor: ['orchestrator'] }, developer: { metadata: {}, defaultFor: ['implementation'] } },
@@ -178,7 +203,9 @@ test('a real folder is proposed, activated, started with --agent and finished as
   assert.equal(run('git', ['--git-dir', remote, 'cat-file', '-e', `${branch}:singularity/user-defined/orchestrator/.env`], { allowFailure: true }).status === 0, false);
   sflow('workflow', 'activate', branch, '--confirm', run('git', ['--git-dir', remote, 'rev-parse', branch]).stdout.trim(), '--acknowledge-unprotected');
 
-  const [listed] = json('call', 'list').data.agents;
+  // The packaged sample (careful-change) is listed beside it.
+  const listed = json('call', 'list').data.agents.find((agent) => agent.name === 'orchestrator');
+  assert.deepEqual(json('call', 'list').data.agents.map((agent) => agent.name).sort(), ['careful-change', 'orchestrator']);
   assert.deepEqual([listed.name, listed.workflow, listed.step, listed.main, listed.files, listed.manifest], ['orchestrator', 'orchestrator', 'orchestrator', 'orchestrator.agent.md', 3, 'matches']);
   assert.equal(json('call', 'show', 'orchestrator').next[0].command, 'singularity-flow start <WORK-ID> --agent orchestrator');
 
@@ -210,7 +237,7 @@ test('a real folder is proposed, activated, started with --agent and finished as
   await writeFile(path.join(edited, 'singularity/user-defined/orchestrator/notes/style.md'), '# Style\nAnything goes.\n');
   run('git', ['commit', '-qam', 'edit the copied note by hand'], { cwd: edited }); run('git', ['push', '-q', 'origin', 'sflow/config'], { cwd: edited });
   run('git', ['checkout', '-q', 'main']);
-  assert.equal(json('call', 'list').data.agents[0].manifest, 'changed');
+  assert.equal(json('call', 'list').data.agents.find((agent) => agent.name === 'orchestrator').manifest, 'changed');
   sflow('start', 'CALL-2', '--agent', 'orchestrator', '--from-branch', 'main', '--title', 'After a hand edit',
     '--description', 'Started after the folder was edited by hand.', '--readiness-baseline', 'defer');
   const changed = run(process.execPath, [cli, '--no-model', 'wm', 'compose', '--phase', 'orchestrator', '--render-only'], { allowFailure: true });

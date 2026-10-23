@@ -40,7 +40,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 83
+version: 84
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1294,6 +1294,11 @@ In Copilot: `/sf-call-add ~/team-agents`, then `/sf-start JIRA-123 --agent orche
   plan, and before the Story finishes the step's approvers record why they do not apply
   (`decision applicability --responsibility scope|plan --reason TEXT`). A document step
   (`--output document`) writes its deliverable and omits nothing.
+
+SFlow ships one as an example: **Careful change** (`careful-change`), a main agent that plans, makes
+the change with its tests and reviews itself, with three skills. `init` seeds its folder into
+`singularity/user-defined/careful-change/`, so `start <WORK-ID> --agent careful-change` works in a new
+repository; read it to see what a folder looks like.
 
 `call list` and `call show <name>` show each user-defined agent, its folder and whether the
 folder still matches its manifest. To give a team's agent checks between its own steps, convert the

@@ -1,0 +1,36 @@
+{
+  "files": [
+    {
+      "bytes": 652,
+      "path": "README.md",
+      "sha256": "sha256:07ef0ea5d847e239a34efd4a0d21a4010e51419364363fced33171d6c1640604"
+    },
+    {
+      "bytes": 1212,
+      "path": "careful-change.agent.md",
+      "sha256": "sha256:bddfc3272ede5e9e1ca7d1383cff3293edf90d66c7608a4dc1535c7ad572877a"
+    },
+    {
+      "bytes": 722,
+      "path": "skills/plan-change/SKILL.md",
+      "sha256": "sha256:d722a9ff6f6a48ead05382b1b9e282da45ac83d4a1c33948abd0debcc3618521"
+    },
+    {
+      "bytes": 632,
+      "path": "skills/self-review/SKILL.md",
+      "sha256": "sha256:acd91f6d4f757a131bbabb88aabe41b73c4823154e64d985b614951def28e255"
+    },
+    {
+      "bytes": 638,
+      "path": "skills/write-tests/SKILL.md",
+      "sha256": "sha256:04bb1ebea4c967ea24e4080781f1d006d35d9c5c1ecf09660bb13b784398d175"
+    }
+  ],
+  "label": "Careful change",
+  "leftOut": [],
+  "main": "careful-change.agent.md",
+  "name": "careful-change",
+  "output": "code",
+  "schema": "sflow-user-defined-agent@1"
+}
+

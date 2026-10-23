@@ -238,7 +238,8 @@ export function userDefinedPlanLines(plan) {
  * manifest when the configuration has it.
  */
 export async function listUserDefinedAgents(definition, configRoot) {
-  const agents = Object.values(definition.agents ?? {}).filter((agent) => userDefinedAgentName(agent));
+  // A packaged sample agent is in every catalog; it is listed only where its workflow exists.
+  const agents = Object.values(definition.agents ?? {}).filter((agent) => userDefinedAgentName(agent) && definition.workTypes?.[agent.id]);
   return Promise.all(agents.map(async (agent) => {
     const name = userDefinedAgentName(agent);
     const manifest = await readManifest(configRoot, name).catch(() => null);

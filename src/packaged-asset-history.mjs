@@ -436,6 +436,16 @@ const AGENTS_BEFORE_NATIVE_ENTRY_REUSE = Object.freeze({
 
 /** Current release digests, kept separate so a known current file is never offered as repairable. */
 export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
+  // The sample user-defined agent (careful-change): its agent, its step's starter template, and
+  // its folder and manifest under singularity/user-defined/.
+  '.github/agents/careful-change.agent.md': 'eb3e023e045ab108a481a1feb17de8f27ebb30e8b01fb6b9fbc2626c9ea0ebad',
+  'singularity/templates/common/careful-change.md': '28de53a2eec7fb9d0cb495102e1e064a8b201615d9a599038064d2524d403dfc',
+  'singularity/user-defined/careful-change/README.md': '07ef0ea5d847e239a34efd4a0d21a4010e51419364363fced33171d6c1640604',
+  'singularity/user-defined/careful-change/careful-change.agent.md': 'bddfc3272ede5e9e1ca7d1383cff3293edf90d66c7608a4dc1535c7ad572877a',
+  'singularity/user-defined/careful-change/skills/plan-change/SKILL.md': 'd722a9ff6f6a48ead05382b1b9e282da45ac83d4a1c33948abd0debcc3618521',
+  'singularity/user-defined/careful-change/skills/self-review/SKILL.md': 'acd91f6d4f757a131bbabb88aabe41b73c4823154e64d985b614951def28e255',
+  'singularity/user-defined/careful-change/skills/write-tests/SKILL.md': '04bb1ebea4c967ea24e4080781f1d006d35d9c5c1ecf09660bb13b784398d175',
+  'singularity/user-defined/careful-change.json': '053608f2a503620e778bc9ea11854f9c10bc735934570d02c201dadfc7431de0',
   '.github/agents/demo-instruction-analyst.agent.md': '11078f64190ab714005a3d1e3b510a4121a20224d87d75022ed3c2e3463b6f60',
   '.github/agents/demo-instruction-tester.agent.md': '730a595c8f145e7282aaab3df13e2f8b8ece3ee5d794a3ccaa4869b9ffa32b08',
   '.github/agents/demo-instruction-developer.agent.md': '999452eda034986bc089c1de2996cf314cc5c50dc8fe1f2532222984bfa21048',

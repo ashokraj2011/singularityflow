@@ -15,6 +15,8 @@ export const INITIALIZATION_MAPPINGS = Object.freeze([
   Object.freeze(['agents', '.github/agents']),
   Object.freeze(['skill-library', 'singularity/skill-library']),
   Object.freeze(['instruction-library', 'singularity/instruction-library']),
+  // The sample user-defined agent folder (and its manifest) the packaged careful-change step runs.
+  Object.freeze(['user-defined', 'singularity/user-defined']),
   Object.freeze(['copilot-planning.md', 'singularity/prompts/copilot-planning.md'])
 ]);
 
@@ -31,6 +33,7 @@ export const SMART_INITIALIZATION_ASSETS = Object.freeze([
   Object.freeze(['starter-packs', 'singularity/templates/starter-packs']),
   ...['architect', 'developer', 'product-owner', 'qa']
     .map((name) => Object.freeze([`agents/${name}.agent.md`, `.github/agents/${name}.agent.md`])),
+  Object.freeze(['user-defined', 'singularity/user-defined']),
   Object.freeze(['copilot-planning.md', 'singularity/prompts/copilot-planning.md'])
 ]);
 

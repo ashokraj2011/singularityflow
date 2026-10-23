@@ -260,6 +260,7 @@ const PHASES_BEFORE_WORLD_MODEL_REMOVAL = Object.freeze({
 /** Exact canonical hashes for every workflow node shipped by this package release. */
 export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
   workTypes: Object.freeze({
+    'careful-change': 'a6ea3be48cf4ece09dee0adf5f9088ad99cc02826fd2fe54bbdc29feb6baaeda',
     'demo-instruction-test-loop': '37355eeff7baba479e08f925b068343f6b53f277906cf7f0d8a0627ba6fbbb1a',
     'benchmarking-a': '683792ad3e475d6150b924c42fef6a78c8df657b331fd6dde45417db2797491a',
     'benchmarking-b': '96868ea267f0f37892d70bca6b527dfbf378b7892c9abdb062e2375b0acb104d',
@@ -279,6 +280,7 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'spec-driven-standard': 'c4006042d4bc9388096e5a71da3d1831ab4ef2cbbf123a6fd0612300549ff30e'
   }),
   phases: Object.freeze({
+    'careful-change': 'f1d09fc9b2581f97a19b8b6557810ba62d3f98bb92b2a26a4edd1c09d55c5cef',
     'demo-instruction-intake': '521a52d220ad7df8dc67933a10a7410f60fcb3839fe585cbcd3b9b38d078c1f0',
     'demo-instruction-test': '03d2174959b490fc63ab3db7575a6b96577e4ff99e63fe3c1b62f097705ea5e9',
     'demo-instruction-repair': '7e8ae07b42be559af1aec7e521065a42a8b58ee834435d2a3478bd288494cf90',

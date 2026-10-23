@@ -53,6 +53,7 @@ async function currentPackagedAssets() {
   await walkAssets(path.join(PACKAGE_TEMPLATES, 'agents'), '.github/agents', assets);
   await walkAssets(path.join(PACKAGE_TEMPLATES, 'skill-library'), 'singularity/skill-library', assets);
   await walkAssets(path.join(PACKAGE_TEMPLATES, 'instruction-library'), 'singularity/instruction-library', assets);
+  await walkAssets(path.join(PACKAGE_TEMPLATES, 'user-defined'), 'singularity/user-defined', assets);
   return new Map([...assets.entries()].sort(([left], [right]) => left.localeCompare(right)));
 }
 

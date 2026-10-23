@@ -511,6 +511,9 @@ for (const entry of agentFiles) {
 for (const entry of await readdir(path.join(root, 'templates/agents'))) {
   if (!entry.endsWith('.agent.md')) continue;
   const text = await readFile(path.join(root, 'templates/agents', entry), 'utf8');
+  // A user-defined agent's instructions are its folder's main file, pinned by its manifest; the
+  // composed step prompt carries the path contract, so its own text is never rewritten to add one.
+  if (/^ {2}sflow-user-defined: /mu.test(text)) continue;
   for (const message of cliPathContractErrors(text)) fail(`templates/agents/${entry}: ${message}`);
 }
 
@@ -1007,6 +1010,8 @@ for (const absolute of allFiles) {
     packagedAssetSources.set(relative, `singularity/skill-library/${relative.slice('templates/skill-library/'.length)}`);
   } else if (relative.startsWith('templates/instruction-library/')) {
     packagedAssetSources.set(relative, `singularity/instruction-library/${relative.slice('templates/instruction-library/'.length)}`);
+  } else if (relative.startsWith('templates/user-defined/')) {
+    packagedAssetSources.set(relative, `singularity/user-defined/${relative.slice('templates/user-defined/'.length)}`);
   }
 }
 const currentAssetPaths = [...packagedAssetSources.values()].sort();

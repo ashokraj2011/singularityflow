@@ -25,6 +25,9 @@ export const TRANSPORT_INTENT_STATUSES = Object.freeze([
 ]);
 const AUTO_RETRYABLE = new Set(['network-transient', 'rate-limited']);
 const TERMINAL = new Set(['succeeded', 'remote-diverged', 'needs-user', 'attempt-budget-exhausted']);
+/** What a person does when the target branch moved past a retained commit: no retry can land it. */
+export const REMOTE_DIVERGED_ADVICE = 'The remote branch moved after this commit was made, so it cannot be pushed as it is. '
+  + 'Repeat the operation that made it; a Story start makes its approval enrollment again from the current branch.';
 const TRANSPORT_DIAGNOSTIC_MAX_BYTES = 4096;
 const TRANSPORT_PUSH_MAX_BYTES = 1024 * 1024;
 
@@ -472,7 +475,9 @@ export async function retryTransportIntent(intentId, {
     let intent = await readTransportIntent(intentId, { env, home });
     if (intent.status === 'succeeded') return intent;
     if (intent.status === 'remote-diverged' || (intent.status === 'needs-user' && !allowNeedsUser)) {
-      throw new SingularityFlowError(`Transport intent '${intentId}' requires human reconciliation.`, {
+      const why = intent.status === 'remote-diverged' ? ` ${REMOTE_DIVERGED_ADVICE}`
+        : intent.fault?.advice ? ` Git refused it (${intent.fault.classification}). ${intent.fault.advice}` : '';
+      throw new SingularityFlowError(`Transport intent '${intentId}' requires human reconciliation.${why}`, {
         code: 'TRANSPORT_INTENT_NEEDS_USER', details: { status: intent.status }
       });
     }

@@ -1,6 +1,6 @@
 /** Inspect and retry exact pre-Story transport intents. */
 import {
-  listTransportIntents, readTransportIntent, retryTransportIntent, transportIntentsForRepository
+  listTransportIntents, readTransportIntent, REMOTE_DIVERGED_ADVICE, retryTransportIntent, transportIntentsForRepository
 } from '../transport-intents.mjs';
 import {
   action, commandResult, effects, noEffects, succeeded
@@ -12,9 +12,10 @@ import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 function faultSlots(intent) {
   const fault = intent?.status === 'succeeded' ? null : intent?.fault;
   if (!fault) return {};
+  const advice = fault.advice ?? (fault.classification === 'remote-diverged' ? REMOTE_DIVERGED_ADVICE : null);
   return {
     reason: `${fault.classification ?? 'unknown'}${fault.evidence?.diagnostic?.trim() ? `: ${fault.evidence.diagnostic.trim()}` : ''}`,
-    ...(fault.advice ? { advice: fault.advice } : {})
+    ...(advice ? { advice } : {})
   };
 }
 
@@ -24,7 +25,8 @@ function nextActions(intent) {
     return [action({ id: 'transport-next-action', label: 'Retry after fixing the cause',
       command: `singularity-flow push retry ${intent.intentId}`, kind: 'remediation' })];
   }
-  if (!intent?.nextAction?.command) return [];
+  // A diverged intent names a raw `git fetch`; only SFlow's own commands are routed actions.
+  if (!intent?.nextAction?.command?.startsWith('singularity-flow ')) return [];
   return [action({
     id: 'transport-next-action',
     label: intent.status === 'pending' ? 'Retry this preserved publication' : 'Inspect this transport intent',

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -646,6 +646,16 @@ test('a refusal only a person can clear names its cause, and push status says wh
   });
   assert.equal(refusedWrite.fault.classification, 'authorization-denied');
   assert.match(refusedWrite.fault.advice, /cannot push to it\. Ask the repository owner for write access/u);
+
+  // The branch moved on (another enrollment landed): the retry explains instead of failing to render.
+  await rm(hook);
+  await writeFile(path.join(item.work, 'README.md'), 'second\n');
+  run('git', ['commit', '-qam', 'second'], { cwd: item.work });
+  run('git', ['push', '-q', 'origin', 'HEAD:refs/heads/sflow/config'], { cwd: item.work });
+  const retried = run(process.execPath, [cli, '--no-model', 'push', 'retry', created.intentId], { cwd: item.work, env: item.env }).stdout;
+  assert.match(retried, /is remote-diverged after the authorized retry\. Git refused it \(remote-diverged\)\. The remote branch moved after this commit was made/u);
+  await assert.rejects(retryTransportIntent(created.intentId, { ...item.options, allowNeedsUser: true }),
+    (error) => error.code === 'TRANSPORT_INTENT_NEEDS_USER' && /requires human reconciliation\. The remote branch moved/u.test(error.message));
 });
 
 test('creating the same exact transport joins its durable intent instead of duplicating publication', async () => {

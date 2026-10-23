@@ -244,5 +244,23 @@ test('a real folder is proposed, activated, started with --agent and finished as
     '--description', 'Started after the folder was edited by hand.', '--readiness-baseline', 'defer');
   const changed = run(process.execPath, [cli, '--no-model', 'wm', 'compose', '--phase', 'orchestrator', '--render-only'], { allowFailure: true });
   assert.notEqual(changed.status, 0);
-  assert.match(changed.stderr, /no longer matches its manifest \(notes\/style\.md changed\).*add the folder again with call add/su);
+  assert.match(changed.stderr, /no longer matches its manifest \(notes\/style\.md changed\).*call add <FOLDER> --replace/su);
+
+  // The way back is a new copy under the same name: plain call add says so, --replace proposes it.
+  // The folder dropped its note, so the copy removes it; the step and workflow stay.
+  run('git', ['checkout', '-q', 'main']);
+  await rm(path.join(folder, 'notes'), { recursive: true });
+  const again = json('call', 'add', folder);
+  assert.ok(again.data.problems.some((problem) => /already exists; replace its folder with --replace/u.test(problem)), JSON.stringify(again.data.problems));
+  const replace = json('call', 'add', folder, '--replace');
+  assert.deepEqual([replace.data.replace, replace.data.problems, replace.data.files.length], [true, [], 2]);
+  const replaced = json('call', 'add', folder, '--replace', '--confirm', replace.data.planSha256);
+  sflow('workflow', 'activate', replaced.data.branch, '--confirm', run('git', ['--git-dir', remote, 'rev-parse', replaced.data.branch]).stdout.trim(), '--acknowledge-unprotected');
+  assert.equal(run('git', ['--git-dir', remote, 'cat-file', '-e', 'sflow/config:singularity/user-defined/orchestrator/notes/style.md'], { allowFailure: true }).status === 0, false, 'the dropped file is removed');
+  assert.equal(json('call', 'list').data.agents.find((agent) => agent.name === 'orchestrator').manifest, 'matches');
+  sflow('start', 'CALL-3', '--agent', 'orchestrator', '--from-branch', 'main', '--title', 'After the replace',
+    '--description', 'Started after the folder was replaced.', '--readiness-baseline', 'defer');
+  const recovered = sflow('wm', 'compose', '--phase', 'orchestrator', '--render-only');
+  assert.match(recovered, /# The Orchestrator folder[\s\S]*### skills\/review\/SKILL\.md/u);
+  assert.doesNotMatch(recovered, /### notes\/style\.md/u);
 });

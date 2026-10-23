@@ -16,7 +16,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 1. Use only the folder the person named; never choose, search for or create one. For `list` run `singularity-flow call list --json`; for `show` run `singularity-flow call show <NAME> --json`; relay and stop.
 2. Preview once: `singularity-flow call add <FOLDER> [--name <ID>] [--main <FILE>] [--output code|document] --json`, keeping only the options the person gave. Show the main agent, every file copied unchanged with its size, every file left out with its reason, the front-matter fields not used, the step and workflow it adds, any `problems`, and the full `planSha256`.
-3. A main-agent refusal lists the candidates: ask which file runs the others and preview again with `--main`. A name already taken: ask for another and preview again with `--name`.
+3. A main-agent refusal lists the candidates: ask which file runs the others and preview again with `--main`. A name already taken: when it is a user-defined agent, ask whether to replace its folder (preview again with `--replace`) or use another name (`--name`); otherwise ask for another name.
 4. Propose only after the person types that full digest: run the returned `confirmCommand` once. Assent or skill invocation is not confirmation. A changed-plan refusal means the folder or the choices changed: preview again.
 5. Relay the proposal and its activation route exactly. Once it is activated, a Story runs the agent with `/sf-start <WORK-ID> --agent <NAME>`, then `/sf-call <NAME>`.
 6. Never edit the folder, the copied files, the agent file or `singularity/workflow.yml` by hand, and never activate or approve for the person.

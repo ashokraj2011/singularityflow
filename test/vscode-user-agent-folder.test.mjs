@@ -67,6 +67,29 @@ test('several agent files ask which one is main, a taken name asks for another, 
   assert.deepEqual(fake.seen.reviewed, [], 'nothing is activated unless the person chooses to review it');
 });
 
+test('a folder named like one of your agents offers to replace its folder under the same name', async () => {
+  const taken = "A user-defined agent called 'orchestrator' already exists; replace its folder with --replace, or add this one under another name with --name.";
+  const fake = host({
+    folder: '/work/team-agents', confirm: ['Replace Its Folder', 'Propose It'], info: [undefined],
+    run: (argv) => (argv.includes('--confirm') ? { data: { branch: 'sflow/config-change/r' } }
+      : argv.includes('--replace') ? { data: preview({ replace: true }) } : { data: preview({ problems: [taken, "A step called 'orchestrator' already exists."] }) })
+  });
+  assert.equal(await addUserAgentFolder(fake), 'proposed');
+  assert.deepEqual(fake.seen.confirms[0].buttons, ['Replace Its Folder', 'Use Another Name…']);
+  assert.match(fake.seen.confirms[1].message, /^Replace the folder of Orchestrator \(orchestrator\) with the team-agents folder\?/u);
+  assert.match(fake.seen.confirms[1].detail, /its step and workflow stay, and running Stories keep the folder they started with/u);
+  assert.deepEqual(fake.seen.confirms[1].buttons, ['Propose It'], 'a replaced folder keeps its name and what its step makes');
+  assert.deepEqual(fake.seen.runs.at(-1), ['call', 'add', '/work/team-agents', '--replace', '--confirm', `sha256:${'a'.repeat(64)}`, '--json']);
+});
+
+test('/sf-call runs its step through the code or document skill, never a relay', async () => {
+  const skill = await readFile(new URL('../plugin/skills/sflow-call/SKILL.md', import.meta.url), 'utf8');
+  assert.match(skill, /Delegate once to `\/sf-code`[\s\S]*delegates once to `\/sf-phase` instead\. That canonical skill\s+runs the step itself/u);
+  assert.doesNotMatch(skill, /\/sf-next/u, '/sf-next stops at code steps and only names /sf-code');
+  const registry = await readFile(new URL('../plugin/skills/registry.yml', import.meta.url), 'utf8');
+  assert.match(registry, /sflow-call: \{ class: delegation, executionBoundary: machine, delegatesTo: sflow-code \}/u);
+});
+
 test('cancelling anywhere proposes nothing, and a refusal is shown, not retried', async () => {
   assert.equal(await addUserAgentFolder(host({ folder: null, run: () => assert.fail('no folder, no command') })), 'cancelled');
   const dismissed = host({ folder: '/work/pack', confirm: [undefined], run: () => ({ data: preview() }) });

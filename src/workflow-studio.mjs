@@ -15,7 +15,7 @@ import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { phaseTopologyFindings } from './phase-semantics.mjs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { parseYamlText } from './yaml-parse-cache.mjs';
@@ -596,6 +596,11 @@ function quoted(document, value) {
   return node;
 }
 
+/** Whether a Studio agent entry is the user-defined agent `name` (its metadata names its folder). */
+function userDefinedAgentText(entry, name) {
+  return new RegExp(`^ {2}sflow-user-defined: ${name}$`, 'mu').test(entry?.text ?? '');
+}
+
 function renderAgent(entry) {
   const base = entry.text ?? `---\nname: ${entry.id}\ndescription: ""\n---\n`;
   const { document, header, body } = splitAgentText(base, entry.id);
@@ -671,7 +676,7 @@ export function unifiedDiff(before, after, file) {
 // lists, so who owns a per-workflow setting is decided by the lists the change set ends with
 // (finalWorkflowPhases), not by the lists at that moment.
 const RANK = Object.freeze({
-  'marketplace.add': 0, 'marketplace.remove': 0, 'integration.target.create': 0, 'integration.target.update': 0.5, 'group.create': 0, 'group.update': 1, 'agent.create': 2, 'import.agent': 2.5, 'userAgent.add': 2.6, 'workflow.install': 3,
+  'marketplace.add': 0, 'marketplace.remove': 0, 'integration.target.create': 0, 'integration.target.update': 0.5, 'group.create': 0, 'group.update': 1, 'agent.create': 2, 'import.agent': 2.5, 'userAgent.add': 2.6, 'userAgent.update': 2.6, 'workflow.install': 3,
   'import.template': 3.5, 'template.create': 3.6, 'template.update': 3.6, 'artifactSet.create': 3.7, 'artifactSet.update': 3.7,
   'phase.create': 4, 'workflow.create': 4.5, 'phase.update': 5, 'workflow.update': 7, 'artifactSet.remove': 11.6,
   'epicStep.create': 4.2, 'epicWorkflow.create': 4.7, 'epicStep.update': 5.2, 'epicOutput.set': 5.3, 'epicOutput.remove': 5.4, 'epicWorkflow.update': 7.2,
@@ -958,6 +963,7 @@ class StudioCandidate {
       case 'agent.create': return this.createAgent(change);
       case 'agent.update': return this.updateAgent(change);
       case 'userAgent.add': return this.addUserDefinedAgent(change);
+      case 'userAgent.update': return this.replaceUserDefinedAgent(change);
       case 'workflow.install': return this.installBlueprint(change);
       case 'phase.create': return this.createPhase(change);
       case 'phase.update': return this.updatePhase(change);
@@ -2022,7 +2028,11 @@ class StudioCandidate {
    */
   addUserDefinedAgent(change) {
     const { name, manifest, files, tools } = userDefinedAgentFiles(change);
-    if (this.agents.has(name)) throw new SingularityFlowError(`An agent called '${name}' already exists; add the folder under another name with --name.`, { code: 'STUDIO_AGENT_EXISTS' });
+    if (this.agents.has(name)) {
+      throw new SingularityFlowError(userDefinedAgentText(this.agents.get(name), name)
+        ? `A user-defined agent called '${name}' already exists; replace its folder with --replace, or add this one under another name with --name.`
+        : `An agent called '${name}' already exists; add the folder under another name with --name.`, { code: 'STUDIO_AGENT_EXISTS' });
+    }
     if (this.content.workTypes?.[name]) throw new SingularityFlowError(`A workflow called '${name}' already exists; add the folder under another name with --name.`, { code: 'STUDIO_WORKFLOW_EXISTS' });
     if (existsSync(path.join(this.sources.configRoot, manifest.path))) throw new SingularityFlowError(`A user-defined agent called '${name}' already exists.`, { code: 'STUDIO_AGENT_EXISTS' });
     const label = requireLabel(change.label, 'The agent');
@@ -2038,6 +2048,43 @@ class StudioCandidate {
       body: [REPOSITORY_AGENT_BOUNDARY, '', String(change.instructions ?? '').trim(), '', AGENT_CLARIFICATION_GUIDANCE].join('\n')
     });
     this.summary.push(`User-defined agent ${label}: its folder (${files.length} file${files.length === 1 ? '' : 's'}) copied unchanged to singularity/user-defined/${name}/; its main file's instructions are the agent's.`);
+  }
+
+  /**
+   * A new copy of an existing user-defined agent's folder under the same name (`call add --replace`):
+   * its files, manifest and pinned agent text; files the new folder no longer has are removed. Its
+   * step and workflow are unchanged, so what the step makes cannot change here.
+   */
+  replaceUserDefinedAgent(change) {
+    const { name, manifest, files, tools } = userDefinedAgentFiles(change);
+    const agent = this.agents.get(name);
+    if (!agent || !userDefinedAgentText(agent, name)) {
+      throw new SingularityFlowError(`There is no user-defined agent called '${name}' to replace; add the folder without --replace.`, { code: 'STUDIO_AGENT_UNKNOWN' });
+    }
+    const step = this.phase(name);
+    if (step && outputOf(step) !== change.output) {
+      throw new SingularityFlowError(`${name}'s step makes ${outputOf(step) === 'code' ? 'code' : 'a document'}; a replaced folder keeps that. Add the folder under another name to change it.`, { code: 'STUDIO_AGENT_INVALID' });
+    }
+    const label = requireLabel(change.label, 'The agent');
+    const description = String(change.description ?? '').replace(/\s+/g, ' ').trim();
+    if (!description) throw new SingularityFlowError(`Say what ${label} does in one sentence.`, { code: 'STUDIO_AGENT_INVALID' });
+    const previous = existsSync(path.join(this.sources.configRoot, manifest.path))
+      ? JSON.parse(readFileSync(path.join(this.sources.configRoot, manifest.path), 'utf8')) : { files: [] };
+    const kept = new Set(files.map((file) => file.path));
+    for (const file of previous.files ?? []) {
+      const relative = posix(path.join('singularity', 'user-defined', name, String(file.path)));
+      if (!kept.has(relative)) this.vendored.set(relative, null);
+    }
+    for (const file of files) this.vendored.set(file.path, file.bytes);
+    this.vendored.set(manifest.path, manifest.bytes);
+    const entry = this.touch(agent);
+    Object.assign(entry, {
+      text: userDefinedAgentHeader({ name, label, description, manifestSha256: change.manifestSha256 }),
+      label, description, tools,
+      body: [REPOSITORY_AGENT_BOUNDARY, '', String(change.instructions ?? '').trim(), '', AGENT_CLARIFICATION_GUIDANCE].join('\n')
+    });
+    const removed = (previous.files ?? []).filter((file) => !kept.has(posix(path.join('singularity', 'user-defined', name, String(file.path))))).length;
+    this.summary.push(`User-defined agent ${label}: its folder replaced (${files.length} file${files.length === 1 ? '' : 's'}${removed ? `, ${removed} removed` : ''}); its step and workflow are unchanged, and running Stories keep the folder they started with.`);
   }
 
   updateAgent({ id, label, description, tools, views, instructions }) {

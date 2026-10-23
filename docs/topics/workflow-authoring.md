@@ -40,7 +40,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 85
+version: 86
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1300,8 +1300,10 @@ the change with its tests and reviews itself, with three skills. `init` seeds it
 `singularity/user-defined/careful-change/`, so `start <WORK-ID> --agent careful-change` works in a new
 repository; read it to see what a folder looks like.
 
-`call list` and `call show <name>` show each user-defined agent, its folder and whether the
-folder still matches its manifest. To give a team's agent checks between its own steps, convert the
+To change an agent's folder later, run `call add <FOLDER> --replace`: it proposes a new copy under the
+same name (files the folder no longer has are removed) and keeps its step and workflow; Stories already
+running keep the folder they started with. `call list` and `call show <name>` show each user-defined
+agent, its folder and whether the folder still matches its manifest. To give a team's agent checks between its own steps, convert the
 same folder into a workflow instead (below).
 
 ## Convert a team's agents into a workflow

@@ -3,6 +3,7 @@
  *
  *   singularity-flow call add <FOLDER> [--name ID] [--label TEXT] [--main FILE] [--output code|document] [--approval-group ID] [--json]
  *   singularity-flow call add <FOLDER> ... --confirm sha256:PLAN [--json]
+ *   singularity-flow call add <FOLDER> --replace [...]   (a new copy of an existing agent's folder, same name)
  *   singularity-flow call list [--json]
  *   singularity-flow call show <NAME> [--json]
  *
@@ -29,7 +30,7 @@ function addArguments(folder, options) {
   return [folder, ...['name', 'label', 'main', 'output', 'approval-group'].flatMap((key) => {
     const value = optionString(options, key);
     return value ? [`--${key}`, value] : [];
-  })];
+  }), ...(optionBoolean(options, 'replace') ? ['--replace'] : [])];
 }
 
 const quoteArgument = (value) => (/^[A-Za-z0-9_./:@=+-]+$/u.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`);
@@ -41,11 +42,17 @@ async function addCommand(folder, options) {
   if (confirm && !DIGEST.test(confirm)) throw new SingularityFlowError('--confirm takes the plan digest the preview printed (sha256:…).', { code: 'USER_AGENT_USAGE' });
   const root = repoRoot();
   const { userDefinedAgentPlan, userDefinedAgentChangeSet, userDefinedPlanLines } = await import('../user-defined-agents.mjs');
-  const planned = await userDefinedAgentPlan(path.resolve(folder), {
+  const replace = optionBoolean(options, 'replace');
+  const choices = (output) => ({
     name: optionString(options, 'name') ?? null, label: optionString(options, 'label') ?? null,
-    main: optionString(options, 'main') ?? null, output: optionString(options, 'output') ?? 'code',
-    approvalGroup: optionString(options, 'approval-group') ?? null
+    main: optionString(options, 'main') ?? null, output, approvalGroup: optionString(options, 'approval-group') ?? null, replace
   });
+  let planned = await userDefinedAgentPlan(path.resolve(folder), choices(optionString(options, 'output') ?? 'code'));
+  // A replaced folder keeps what its step makes unless --output says otherwise (Studio refuses a change).
+  if (replace && !optionString(options, 'output')) {
+    const existing = (await readAgents(root)).find((agent) => agent.name === planned.plan.name);
+    if (existing?.output && existing.output !== planned.plan.output) planned = await userDefinedAgentPlan(path.resolve(folder), choices(existing.output));
+  }
   const { plan } = planned;
   // The step's approvers: the group --approval-group names, else the first, as Workflow Studio's new step.
   const groups = Object.keys((await withApprovedConfigurationRead(root, () => loadDefinition(root), { preferAuthority: true })).approvalAuthorities ?? {});
@@ -66,7 +73,8 @@ async function addCommand(folder, options) {
       outcome: succeeded('call.add.previewed', { name: plan.name, files: plan.files.length }),
       effects: noEffects(),
       next: problems.length ? [] : [action({ id: 'call.add.confirm', command: confirmCommand, rank: 'NOW', kind: 'review',
-        label: `Propose ${plan.label}: its folder copied unchanged, plus one agent, step and workflow, as one reviewed configuration change.` })],
+        label: plan.replace ? `Propose a new copy of ${plan.label}'s folder under the same name, as one reviewed configuration change.`
+          : `Propose ${plan.label}: its folder copied unchanged, plus one agent, step and workflow, as one reviewed configuration change.` })],
       data: { ...plan, problems, warnings: studio.warnings.map((entry) => entry.message), confirmCommand: problems.length ? null : confirmCommand }
     }), { json });
     return;

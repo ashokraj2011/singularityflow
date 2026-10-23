@@ -12,6 +12,8 @@ export interface UserAgentPreview {
   name: string; label: string; main: string; output: 'code' | 'document'; step: string; workflow: string;
   folder: string; files: Array<{ path: string; bytes: number }>; leftOut: Array<{ path: string; reason: string }>;
   notUsed: string[]; problems: string[]; planSha256: string; confirmCommand: string | null;
+  /** A new copy of an existing agent's folder under the same name (call add --replace). */
+  replace?: boolean;
 }
 
 export interface UserAgentHost {
@@ -29,7 +31,7 @@ export interface UserAgentHost {
 
 export type UserAgentOutcome = 'cancelled' | 'refused' | 'proposed' | 'reviewed';
 
-interface Choices { name?: string; main?: string; output?: 'code' | 'document' }
+interface Choices { name?: string; main?: string; output?: 'code' | 'document'; replace?: boolean }
 
 const NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? '' : 's'}`;
@@ -38,7 +40,8 @@ const plural = (count: number, word: string): string => `${count} ${word}${count
 export function userAgentArgv(folder: string, choices: Choices, confirm: string | null = null): string[] {
   return ['call', 'add', folder,
     ...(choices.name ? ['--name', choices.name] : []), ...(choices.main ? ['--main', choices.main] : []),
-    ...(choices.output ? ['--output', choices.output] : []), ...(confirm ? ['--confirm', confirm] : []), '--json'];
+    ...(choices.output ? ['--output', choices.output] : []), ...(choices.replace ? ['--replace'] : []),
+    ...(confirm ? ['--confirm', confirm] : []), '--json'];
 }
 
 /** What the confirmation shows: everything copied, everything left out and why, and what it adds. */
@@ -49,10 +52,13 @@ export function userAgentPreviewText(preview: UserAgentPreview): { message: stri
     ...preview.files.map((file) => `  • ${file.path} (${file.bytes} bytes)`),
     ...(preview.leftOut.length ? [`Left out: ${plural(preview.leftOut.length, 'file')}.`, ...preview.leftOut.map((entry) => `  • ${entry.path}: ${entry.reason}`)] : []),
     ...(preview.notUsed.length ? [`Not used from ${preview.main}: ${preview.notUsed.join(', ')} (SFlow sets the agent's tools and steps).`] : []),
-    `It runs as one ${preview.output === 'code' ? 'code' : 'document'} step. Start a Story with it from Start Work (Your agents) or: singularity-flow start <WORK-ID> --agent ${preview.name}.`,
+    preview.replace
+      ? `It replaces the folder of your agent ${preview.name}; its step and workflow stay, and running Stories keep the folder they started with.`
+      : `It runs as one ${preview.output === 'code' ? 'code' : 'document'} step. Start a Story with it from Start Work (Your agents) or: singularity-flow start <WORK-ID> --agent ${preview.name}.`,
     'This creates one configuration proposal for review; nothing is active until it is activated.'
   ];
-  return { message: `Add ${preview.label} (${preview.name}) from the ${preview.folder} folder?`, detail: lines.join('\n') };
+  return { message: preview.replace ? `Replace the folder of ${preview.label} (${preview.name}) with the ${preview.folder} folder?`
+    : `Add ${preview.label} (${preview.name}) from the ${preview.folder} folder?`, detail: lines.join('\n') };
 }
 
 function refusal(error: unknown): { code: string | null; message: string; details: Record<string, unknown> } {
@@ -83,6 +89,14 @@ export async function addUserAgentFolder(host: UserAgentHost): Promise<UserAgent
       return 'refused';
     }
     const taken = preview.problems.find((problem) => /already exists/u.test(problem));
+    // One of the person's own agents: replace its folder under the same name, or use another name.
+    if (taken && /--replace/u.test(taken) && !choices.replace) {
+      const answer = await host.confirm(`${preview.name} is already one of your agents.`,
+        'Replace its folder with this one: its step and workflow stay, and running Stories keep the folder they started with. Or add this folder under another name.',
+        ['Replace Its Folder', 'Use Another Name…']);
+      if (answer === 'Replace Its Folder') { choices.replace = true; continue; }
+      if (answer !== 'Use Another Name…') return 'cancelled';
+    }
     if (taken) {
       const name = await host.input(`${taken} Choose another name for this agent, its step and its workflow.`, `${preview.name}-agent`,
         (value) => (NAME.test(value) ? null : 'Use lowercase words joined by hyphens.'));
@@ -96,7 +110,8 @@ export async function addUserAgentFolder(host: UserAgentHost): Promise<UserAgent
     }
     const text = userAgentPreviewText(preview);
     const other = preview.output === 'code' ? 'Make It a Document Step' : 'Make It a Code Step';
-    const answer = await host.confirm(text.message, text.detail, ['Propose It', 'Change the Name…', other]);
+    // A replaced folder keeps its name and what its step makes, so only proposing it is offered.
+    const answer = await host.confirm(text.message, text.detail, preview.replace ? ['Propose It'] : ['Propose It', 'Change the Name…', other]);
     if (answer === 'Change the Name…') {
       const name = await host.input('Name for this agent, its step and its workflow', preview.name,
         (value) => (NAME.test(value) ? null : 'Use lowercase words joined by hyphens.'));

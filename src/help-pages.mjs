@@ -1388,6 +1388,7 @@ const PAGES = Object.freeze({
       ['--main FILE', 'The file that runs the others, when the folder has several agent files.'],
       ['--output code|document', 'Whether the step changes code and tests (default) or writes a document.'],
       ['--approval-group ID', 'Who approves the step; the first approval group by default.'],
+      ['--replace', 'Propose a new copy of an existing user-defined agent\'s folder under the same name; its step and workflow stay, and running Stories keep the folder they started with.'],
       ['--confirm sha256:PLAN', 'add only: propose exactly the previewed plan.']
     ],
     examples: [

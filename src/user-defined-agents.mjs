@@ -127,7 +127,7 @@ export function userDefinedManifestText(plan) {
  * What `call add` would propose, from the folder as it is now. The plan digest covers every choice
  * and every file's bytes, so a confirmation applies exactly what was previewed.
  */
-export async function userDefinedAgentPlan(folder, { name = null, label = null, main = null, output = 'code', approvalGroup = null } = {}) {
+export async function userDefinedAgentPlan(folder, { name = null, label = null, main = null, output = 'code', approvalGroup = null, replace = false } = {}) {
   if (!OUTPUTS.has(output)) fail('USER_AGENT_USAGE', '--output is code (the agent changes code and tests) or document (it writes a document).');
   const captured = await captureUserDefinedFolder(folder);
   if (!captured.files.length) fail('USER_AGENT_FOLDER_EMPTY', `${folder} has no text file to copy.`, { leftOut: captured.leftOut });
@@ -148,6 +148,9 @@ export async function userDefinedAgentPlan(folder, { name = null, label = null, 
     label: oneLine(label ?? (typeof frontMatter.name === 'string' && !ID.test(frontMatter.name) ? frontMatter.name : titleOf(id)), 120),
     description: declared || oneLine(`${firstLine || `Runs the ${id} agent's own instructions.`}`, 300),
     main: mainFile.path, output, step: id, workflow: id, approvalGroup: approvalGroup ?? null,
+    // Replace: a new copy of an existing user-defined agent's folder under the same name; its step and
+    // workflow stay as they are.
+    ...(replace ? { replace: true } : {}),
     folder: path.basename(captured.root),
     files: captured.files.map((file) => ({ path: file.path, sha256: file.sha256, bytes: file.size })),
     leftOut: captured.leftOut,
@@ -168,12 +171,14 @@ export function userDefinedAgentHeader(plan) {
 /** The Studio change set that adds the agent, its one step and its one workflow. */
 export function userDefinedAgentChangeSet({ plan, captured, instructions }, { approvalGroup = null } = {}) {
   const group = plan.approvalGroup ?? approvalGroup;
+  const folder = { id: plan.name, label: plan.label, description: plan.description, output: plan.output,
+    manifestSha256: plan.manifestSha256, manifest: userDefinedManifestText(plan), instructions,
+    files: captured.files.map((file) => ({ path: file.path, sha256: file.sha256, base64: file.bytes.toString('base64') })) };
+  if (plan.replace) return { schema: 'sflow-studio-change-set@1', changes: [{ op: 'userAgent.update', ...folder }] };
   return {
     schema: 'sflow-studio-change-set@1',
     changes: [
-      { op: 'userAgent.add', id: plan.name, label: plan.label, description: plan.description, output: plan.output,
-        manifestSha256: plan.manifestSha256, manifest: userDefinedManifestText(plan), instructions,
-        files: captured.files.map((file) => ({ path: file.path, sha256: file.sha256, base64: file.bytes.toString('base64') })) },
+      { op: 'userAgent.add', ...folder },
       { op: 'phase.create', id: plan.step, label: plan.label, output: plan.output, inputs: [], agent: plan.name,
         description: `Runs ${plan.label}, the user-defined agent from the ${plan.folder} folder.`,
         ...(plan.approvalGroup ? { approval: { group: plan.approvalGroup } } : {}) },
@@ -226,7 +231,8 @@ export function userDefinedPlanLines(plan) {
     `  Main agent: ${plan.main} (its instructions become the agent's)`,
     `  Copied unchanged to ${userDefinedFolderPath(plan.name)}/: ${plan.files.length} file${plan.files.length === 1 ? '' : 's'}`,
     ...plan.files.map((file) => `    ${file.path} (${file.bytes} bytes)`),
-    `  Runs as: one ${plan.output === 'code' ? 'code' : 'document'} step '${plan.step}' in workflow '${plan.workflow}'${plan.approvalGroup ? `, approved by ${plan.approvalGroup}` : ''}`
+    plan.replace ? `  Replaces the folder of the existing agent '${plan.name}'; its step and workflow stay as they are. Running Stories keep the folder they started with.`
+      : `  Runs as: one ${plan.output === 'code' ? 'code' : 'document'} step '${plan.step}' in workflow '${plan.workflow}'${plan.approvalGroup ? `, approved by ${plan.approvalGroup}` : ''}`
   ];
   if (plan.leftOut.length) lines.push(`  Left out (${plan.leftOut.length}):`, ...plan.leftOut.map((entry) => `    ${entry.path}: ${entry.reason}`));
   if (plan.notUsed.length) lines.push(`  Not used from ${plan.main}'s front matter: ${plan.notUsed.join(', ')} (SFlow sets the agent's tools and steps)`);
@@ -249,7 +255,7 @@ export async function listUserDefinedAgents(definition, configRoot) {
       && (await Promise.all(manifest.files.map(async (file) => sha256(await readFile(path.join(configRoot, userDefinedFolderPath(name), file.path)).catch(() => Buffer.alloc(0))) === file.sha256))).every(Boolean);
     return {
       name: agent.id, label: agent.label, description: agent.description ?? null, folder: userDefinedFolderPath(name), workflow,
-      step: agent.defaultFor?.[0] ?? null, main: manifest?.main ?? null, files: manifest?.files?.length ?? null,
+      step: agent.defaultFor?.[0] ?? null, main: manifest?.main ?? null, output: manifest?.output ?? null, files: manifest?.files?.length ?? null,
       leftOut: manifest?.leftOut?.length ?? null,
       manifest: intact ? 'matches' : manifest ? 'changed' : 'missing'
     };
@@ -275,7 +281,7 @@ export async function renderUserDefinedFolder(configRoot, agent) {
   // A Story reads the configuration it started with, so a difference here means the copied folder was
   // edited by hand instead of through `call add`.
   const changed = (detail) => fail('USER_AGENT_FOLDER_CHANGED',
-    `The folder of user-defined agent ${agent.label ?? agent.id} ${detail}, so its step cannot be composed from it. The copied folder changes only through call add: restore it, or add the folder again with call add.`,
+    `The folder of user-defined agent ${agent.label ?? agent.id} ${detail}, so its step cannot be composed from it. The copied folder changes only through call add: restore it, or propose the folder again under the same name with call add <FOLDER> --replace.`,
     { agent: agent.id, folder: userDefinedFolderPath(name) });
   if (!manifest) changed('has no manifest');
   if (manifest.sha256 !== pinned) changed('has a manifest other than the one its agent pins');

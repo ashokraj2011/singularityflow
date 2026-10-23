@@ -123,7 +123,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
       `source review reads must not statically reach ${name}`);
   }
   // 7,348,470 bytes on 2026-10-23 after the enrollment, push-refusal and turn-gap fixes (7 MiB before).
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_350_000,
+  // 7,355,000 (next 5,000 boundary): 7,352,651 on 2026-10-24 after the missing-runner routes, the
+  // Story-only test command decisions and Nx unit targets (7,349,935 on main 47c15469): the runner
+  // refusal's routes, recovery's planned-runner check and adoption/request actions, the resolver's
+  // Story-only commands and provenance, and the decision's narration line.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_355_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

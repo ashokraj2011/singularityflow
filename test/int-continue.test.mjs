@@ -1,5 +1,7 @@
 /**
  * Continuation is reconstructed, never remembered. `[INT:AC-008]` `[INT:AC-009]` `[INT:CON-062]` `[INT:CON-063]`
+ *
+ * Part of the P1 release gate `[INT:CON-160]`.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';

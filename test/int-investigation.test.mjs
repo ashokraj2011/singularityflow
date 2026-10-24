@@ -1,5 +1,7 @@
 /**
  * Investigation: a disposable bisection, and records that never blur. `[INT:AC-014]` `[INT:AC-015]`
+ *
+ * Part of the P3 release gate `[INT:CON-162]`.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';

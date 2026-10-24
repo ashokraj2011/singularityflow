@@ -20,6 +20,7 @@ export function previewDigest(preview) {
   return `sha256:${createHash('sha256').update(canonicalJson(preview)).digest('hex')}`;
 }
 
+/** Effects are the six-key record, so a plan always separates context, state, files, refs, publication and external change `[INT:REQ-110]`. */
 export function planDescriptor({ effects = {}, preview, idempotencyKey, externalTargets = [] } = {}) {
   if (!preview || typeof preview !== 'object') throw new TypeError('A plan descriptor needs the exact preview a person confirms.');
   if (!idempotencyKey) throw new TypeError('A plan descriptor needs an idempotency key.');

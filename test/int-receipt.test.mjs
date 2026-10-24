@@ -3,6 +3,8 @@
  *
  * One mutation, planned by its real planner from real records, carried out by a counting executor
  * so "never twice" is a number rather than an impression.
+ *
+ * Part of the P2 release gate `[INT:CON-161]`.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';

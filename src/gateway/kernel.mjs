@@ -521,7 +521,9 @@ export function createGatewayKernel({
      * Exchange a host-collected confirmation for a one-time, out-of-band run receipt.
      * `[INT:CON-039]` `[INT:CON-111]` `[INT:REQ-111]`
      *
-     * Not a model-facing tool, and the receipt value never enters tool arguments or results. A
+     * Not a model-facing tool, and the receipt value never enters tool arguments or results; the model
+   * cannot compose, prefill or simulate it `[INT:CON-112]`, and the plan it confirms lives in this
+   * kernel's handle store rather than in conversation `[INT:CON-102]`. A
      * host-confirm plan is confirmed by its hash; an exact-confirm plan also needs the digest of the
      * exact preview the host displayed, so a confirmation of a preview recomputed against a moved
      * world cannot redeem the new plan `[INT:CON-064]`.

@@ -108,7 +108,8 @@ export function configuredTestCommands(definition) {
 /**
  * The evidence sequence, in the order §10.2 gives it `[INT:REQ-091]`. A step that cannot run is
  * recorded as such and the ones after it still run; a step that fails stops the walk, and the
- * report keeps everything already observed and names what did not complete `[INT:REQ-155]`.
+ * report keeps everything already observed and names what did not complete `[INT:REQ-155]`. Every
+ * step's status — completed, skipped, unavailable, failed, not run — is disclosed `[INT:REQ-093]`.
  */
 export const EVIDENCE_SEQUENCE = Object.freeze([
   'incident-facts', 'build-provenance', 'repository-state', 'change-range', 'tests',
@@ -123,7 +124,11 @@ export const INVESTIGATION_RECORD_TYPES = Object.freeze([
 /** Categorical, evidence-based confidence; never a number `[INT:CON-098]`. */
 export const CONFIDENCE_LABELS = Object.freeze(['verified', 'strong-candidate', 'candidate', 'correlated', 'unknown']);
 
-/** The §10.1 inputs. One not given is recorded as unknown, never filled from an assumption `[INT:CON-091]`. */
+/**
+ * The §10.1 inputs `[INT:REQ-090]`. One not given is recorded as unknown, never filled from an
+ * assumption `[INT:CON-091]`. The whole planner is a read: reproduction and bisection are separate,
+ * confirmed plans `[INT:CON-090]`.
+ */
 const INCIDENT_INPUTS = Object.freeze(['expected', 'environment', 'observedVersion', 'observedBuildId', 'since', 'reproduction', 'lastKnownGood']);
 
 const record = (type, statement, { confidence = 'unknown', source = 'deterministic', reference = null } = {}) =>

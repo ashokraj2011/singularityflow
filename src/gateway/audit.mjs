@@ -9,6 +9,7 @@
  * never leaves this machine), and no prompt, secret, confirmation value, receipt, source excerpt or
  * model reasoning is ever an argument to this module, so none can be written by it.
  *
+ * Nothing here persists a confirmation value, receipt, secret or raw prompt `[INT:CON-103]`.
  * Machine-local, append-only and bounded: the newest events are kept and older ones expire, because
  * these are transient guide-session records, not evidence. Evidence keeps its own handles.
  */

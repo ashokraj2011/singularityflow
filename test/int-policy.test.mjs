@@ -118,3 +118,23 @@ test('the destructive operations are unreachable because they are not declared a
     assert.equal(isGatewayReachable(id), false, `${id} is reachable from the gateway`);
   }
 });
+
+test('most-restrictive-policy-wins', () => {
+  // `[INT:AC-018]` `[INT:CON-120]` `[INT:CON-121]` `[INT:CON-122]`: a repository layer cannot weaken a
+  // central rule, a narrower layer always wins, and no policy at all is deterministic reads only.
+  const central = { ...DEFAULT_GATEWAY_POLICY, confirmation: { ...DEFAULT_GATEWAY_POLICY.confirmation, 'work.start': 'explicit-only' } };
+  const weakened = resolveGatewayPolicy([central, { layer: 'repository', confirmation: { 'work.start': 'host-confirm', 'watch.create': 'none' } }]);
+  assert.equal(operationPermission(weakened, 'work.start').confirmation, 'explicit-only');
+  assert.equal(operationPermission(weakened, 'work.start').executable, false);
+  assert.equal(operationPermission(weakened, 'watch.create').confirmation, 'host-confirm');
+  assert.ok(weakened.problems.filter((entry) => entry.code === 'POLICY_WEAKENING_IGNORED').length >= 2);
+  const narrowed = resolveGatewayPolicy([DEFAULT_GATEWAY_POLICY, { layer: 'identity', confirmation: { 'workspace.switch': 'exact-confirm' } }]);
+  assert.equal(operationPermission(narrowed, 'workspace.switch').confirmation, 'exact-confirm');
+  const missing = resolveGatewayPolicy([]);
+  assert.equal(missing.degraded, true);
+  assert.equal(missing.modelRouting, 'disabled');
+  for (const operation of gatewayRegistry().operations) {
+    const permission = operationPermission(missing, operation.id);
+    if (operation.classification !== 'read') assert.equal(permission.executable, false, operation.id);
+  }
+});

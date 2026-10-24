@@ -6,7 +6,8 @@
  * facts and accepts back only candidates that cite them. This makes that shape reusable and
  * checkable for impact and investigation.
  *
- * The kernel never calls a model. It returns a relay request — the fact set, its hash, and the one
+ * The kernel never calls a model, so with no model available every deterministic read, explicit
+ * command and ceremony still works `[INT:CON-151]`. It returns a relay request — the fact set, its hash, and the one
  * response shape it will accept — and a host that has a model answers with interpretations. Each
  * interpretation is a risk, a question or a hypothesis, cites at least one fact by ID, and carries
  * no confidence number. A response that tries to add, remove or reclassify a fact is rejected

@@ -3,7 +3,8 @@ import { isConvergencePhase } from './phase-roles.mjs';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { changes, hasRemote, hasUpstream, head } from './git.mjs';
-import { initializationStatus, loadDefinition, WORKFLOW_PATH } from './config.mjs';
+import { initializationStatus, loadDefinition, pinnedInitializationStatus, WORKFLOW_PATH } from './config.mjs';
+import { CONFIGURATION_SOURCE_PATH } from './configuration-assets.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { loadSession } from './session.mjs';
 import { VERSION } from './version.mjs';
@@ -184,12 +185,21 @@ export async function doctorSnapshot(root, {
   const gitName = run('git', ['config', '--get', 'user.name'], { cwd: root, allowFailure: true }).stdout.trim();
   const gitEmail = run('git', ['config', '--get', 'user.email'], { cwd: root, allowFailure: true }).stdout.trim();
   checks.push(check('git-identity', gitName && gitEmail ? 'pass' : 'fail', gitName && gitEmail ? `Git identity ${gitName} <${gitEmail}>.` : 'Git user.name and/or user.email is missing.', gitName && gitEmail ? null : 'Configure git user.name and git user.email before creating lifecycle commits.'));
-  const initialization = await initializationStatus(root);
+  // A canonical Story carries exactly its pinned configuration (often only its own workflow's
+  // closure), so today's packaged inventory is not what it should hold; `init --check` agrees.
+  const storyPin = existsSync(path.join(root, CONFIGURATION_SOURCE_PATH))
+    ? await (await import('./commands/shared/start-context.mjs')).capabilityDoctorStoryPin(root).catch(() => null)
+    : null;
+  const initialization = storyPin?.valid
+    ? await pinnedInitializationStatus(root, storyPin)
+    : await initializationStatus(root);
   checks.push(check(
     'initialization-assets',
     initialization.complete ? 'pass' : initialization.configurationError ? 'fail' : 'warn',
     initialization.complete
-      ? `All ${initialization.expectedFiles.length} packaged initialization assets are present and valid.`
+      ? initialization.pinned
+        ? `All ${initialization.expectedFiles.length} configuration assets this Story pins are present and valid.`
+        : `All ${initialization.expectedFiles.length} packaged initialization assets are present and valid.`
       // Every file present but the configuration not loading is an edit to fix, not a missing asset.
       : !initialization.missingFiles.length && initialization.configurationError
         ? `All packaged initialization assets are present, but the workflow configuration does not load: ${initialization.configurationError}`

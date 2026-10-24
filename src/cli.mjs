@@ -66,7 +66,7 @@ import { operationContext } from './operation-context.mjs';
 import { invokeModel, resolveModelProvider } from './model-runner.mjs';
 import { summarizingRoute } from './model-tiers.mjs';
 import { effectivePhasePublicationProducer, phasePublicationCommandForProducer } from './manual-authorship.mjs';
-import { initializationStatus, initializeDefinition, loadDefinition, resolveWorkType, WORKFLOW_PATH } from './config.mjs';
+import { initializationStatus, initializeDefinition, loadDefinition, pinnedInitializationStatus, resolveWorkType, WORKFLOW_PATH } from './config.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import { collectImpactEvidence, compareImpactReceipts, confirmImpactEnrollment, exportImpactReceipts, hydrateImpactPlan, impactDoctor, importImpactEvidence, listImpactReceipts, recordImpactExposure, verifyImpactReceipt } from './impact.mjs';
 import { explainChangeFlightPlanFinding, previewChangeFlightPlan, readChangeFlightPlan, recordChangeFlightPlanDisposition, recordChangeFlightPlanExpansionDisposition, refreshChangeFlightPlan, startChangeFlightPlan } from './change-flight-plan.mjs';
@@ -253,27 +253,6 @@ async function initializationStatusFromSnapshot(snapshot) {
   }
 }
 
-async function initializationStatusForPinnedStory(root, pin) {
-  const expectedFiles = Object.keys(pin.source?.assets ?? pin.source?.files ?? {}).sort();
-  let configurationError = null;
-  try {
-    // Validate the definition carried by this immutable Story, not today's package inventory.
-    // A later SFlow release may add templates or agents; that does not make an older exact pin
-    // incomplete or authorize `init --repair` to rewrite its lifecycle input.
-    await loadDefinition(root);
-  } catch (error) {
-    configurationError = error.message;
-  }
-  return {
-    schemaVersion: 1,
-    complete: configurationError == null,
-    expectedFiles,
-    presentFiles: [...expectedFiles],
-    missingFiles: [],
-    configurationError
-  };
-}
-
 /**
  * Probe initialization authority before any checkout or file mutation.
  *
@@ -391,7 +370,7 @@ async function initCommand(options) {
     : null;
   if (checkOnly) {
     const localStatus = storyPin?.valid
-      ? await initializationStatusForPinnedStory(root, storyPin)
+      ? await pinnedInitializationStatus(root, storyPin)
       : await initializationStatus(root);
     const selectedStatus = configurationRelation || localPinContext
       ? localStatus : authorityProbe.status ?? localStatus;

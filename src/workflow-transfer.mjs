@@ -585,7 +585,12 @@ function templateReferences(governs, workflow, phases) {
 // Export and the closed bundle reader traverse the same graph. MCP declarations can lead back
 // to phases, default agents and agent-backed templates, so a single pass cannot close it. Keep
 // complete server scopes rather than silently narrowing a shared server to the chosen workflow.
-function workflowDependencyClosure(configs, workflows, agents, missingCode, { legacy = false, eventTargets = true } = {}) {
+// A Story's own branch is the one exception (`serverScope: 'selected'`): it runs only its own
+// steps, so a server it uses travels without pulling in the other workflows' steps that share it,
+// and the Story closure narrows that server to the steps and agents it carries.
+function workflowDependencyClosure(configs, workflows, agents, missingCode, {
+  legacy = false, eventTargets = true, seedAgents = [], serverScope = 'complete'
+} = {}) {
   const dependencies = {
     artifactSets: new Set(), authorities: { story: new Set(), initiative: new Set() },
     mcpServers: new Set(), agents: new Set(), reviewerAgents: new Set(),
@@ -620,6 +625,7 @@ function workflowDependencyClosure(configs, workflows, agents, missingCode, { le
     collectNamedDependencies(definition, dependencies, { governs, eventTargets });
     for (const phaseId of definition.phases ?? []) selectedPhases[governs].add(phaseId);
   }
+  for (const id of seedAgents) dependencies.agents.add(id);
   const size = () => selectedPhases.story.size + selectedPhases.initiative.size
     + dependencies.artifactSets.size + dependencies.agents.size + dependencies.mcpServers.size;
   let references = [];
@@ -643,7 +649,7 @@ function workflowDependencyClosure(configs, workflows, agents, missingCode, { le
         if (governs === 'story' || legacy) {
           for (const id of defaultAgents.get(phaseId) ?? []) dependencies.agents.add(id);
         }
-        if (governs === 'story') {
+        if (governs === 'story' && serverScope === 'complete') {
           for (const id of serversByPhase.get(phaseId) ?? []) dependencies.mcpServers.add(id);
         }
       }
@@ -707,7 +713,7 @@ function workflowDependencyClosure(configs, workflows, agents, missingCode, { le
       const agent = agents.get(id);
       if (!agent) fail(`Referenced agent '${id}' is not installed.`, missingCode);
       for (const view of agent.worldModelViews) dependencies.worldModelViews.add(view);
-      if (!legacy) {
+      if (!legacy && serverScope === 'complete') {
         for (const serverId of serversByAgent.get(id) ?? []) dependencies.mcpServers.add(serverId);
       }
     }
@@ -716,8 +722,18 @@ function workflowDependencyClosure(configs, workflows, agents, missingCode, { le
       processedServers.add(id);
       const server = ownCatalogEntry(configs.story?.mcpServers, id);
       if (!server) fail(`Referenced MCP server '${id}' is not defined.`, missingCode);
+      if (serverScope !== 'complete') continue;
       if (!legacy) for (const phaseId of server.phases ?? []) selectedPhases.story.add(phaseId);
       for (const agentId of server.agents ?? []) dependencies.agents.add(agentId);
+    }
+  }
+  if (serverScope === 'selected') {
+    // A server travels when one carried agent may use it in one carried step (an empty list
+    // means any). Servers only the other workflows can use stay behind.
+    for (const [id, server] of Object.entries(configs.story?.mcpServers ?? {})) {
+      const phases = strings(server?.phases); const assigned = strings(server?.agents);
+      if ((!phases.length || phases.some((phaseId) => selectedPhases.story.has(phaseId)))
+          && (!assigned.length || assigned.some((agentId) => dependencies.agents.has(agentId)))) dependencies.mcpServers.add(id);
     }
   }
   return { dependencies, selectedPhases, references };
@@ -1305,7 +1321,7 @@ function vendoredAsset(relative, bytes, owner) {
   };
 }
 
-async function buildBundle(root, workflowIds) {
+async function buildBundle(root, workflowIds, { seedAgents = [], serverScope = 'complete', skillPackages = true } = {}) {
   const sourceRoot = configurationReadRoot(root);
   const story = await readYamlDocument(sourceRoot, STORE.story, { optional: true });
   const initiative = await readYamlDocument(sourceRoot, STORE.initiative, { optional: true });
@@ -1357,7 +1373,7 @@ async function buildBundle(root, workflowIds) {
     .map(({ workflow, id, phases, use }) => ({ workflow, id, phases: [...phases], use }));
   const { dependencies, selectedPhases, references } = workflowDependencyClosure(
     configs, workflows, new Map(discovered.map((agent) => [agent.id, agent])),
-    'WORKFLOW_DEPENDENCY_MISSING');
+    'WORKFLOW_DEPENDENCY_MISSING', { seedAgents, serverScope });
   for (const governs of ['story', 'initiative']) {
     const config = configs[governs];
     const store = STORE[governs];
@@ -1598,7 +1614,7 @@ async function buildBundle(root, workflowIds) {
   };
   // Export declarations, never credentials hidden in malformed integration targets.
   normalizeIntegrations(objects.story.integrations);
-  const selectedSkills = selectedSkillBindings(bundle);
+  const selectedSkills = skillPackages ? selectedSkillBindings(bundle) : [];
   let selectedSkillBytes = 0;
   if (selectedSkills.length) {
     const snapshot = configurationReadSnapshot(root);

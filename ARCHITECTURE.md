@@ -180,6 +180,17 @@ provenance record contains the configuration remote, branch, full commit SHA, an
 SHA-256 for every copied configuration asset. The Story remains reproducible even
 after `sflow/config` changes.
 
+The branch receives only its own work type's closure of that revision
+(`src/story-configuration-closure.mjs`): `workflow.yml` with just that work type and
+what it uses, the agents that may draft its steps (step lists trimmed as workflow export
+trims them), its templates, attached skills and instructions, and every repository
+setting a Story reads (portfolio, capabilities, impact, model tiers, prompts). The
+dependency graph is the workflow bundle closure that export and delete use. The record's
+`closure` names the work types and, for each rewritten file, the approved object it came
+from; Story start derives the closure again from the approved bytes and compares. A base
+branch that already carries configuration keeps its work types, or receives the whole
+revision when a closure would delete files it has.
+
 At work-item creation the CLI resolves:
 
 1. The selected work type and its phase sequence.

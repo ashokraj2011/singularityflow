@@ -1703,7 +1703,10 @@ async function startCommandAtRoot(positionals, options) {
     configurationSnapshot = await measureCommandSpan('start.configuration-materialize', () => materializeConfigurationSnapshot(root, {
       authority: configurationAuthority,
       snapshot: approvedConfigurationSnapshot,
-      remoteName: remote
+      remoteName: remote,
+      // The Story branch carries its own workflow's closure, not every approved workflow.
+      workTypes: [workType],
+      agents: [optionString(options, 'agent')].filter(Boolean)
     }));
   }
   // The selected lifecycle branch, not the checkout the user happened to start from, owns the

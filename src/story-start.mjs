@@ -708,7 +708,10 @@ export async function startStory(root, {
       configurationSnapshot = await materializeConfigurationSnapshot(root, {
         authority: configurationAuthority,
         snapshot: approvedConfigurationSnapshot,
-        remoteName: remote
+        remoteName: remote,
+        // The Story branch carries its own workflow's closure, not every approved workflow.
+        workTypes: [workType],
+        agents: [agent].filter(Boolean)
       });
     }
   }

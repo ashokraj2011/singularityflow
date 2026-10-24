@@ -1403,9 +1403,9 @@ export async function captureWorkflowTestCommandAmendment(root, config, currentW
   verifyPublishedTestCommandBinding(root, config, currentWorkflow, decision);
   // Only the configuration owner can provide this capability. A cloned snapshot object fails.
   const { applyCapabilityPolicyToWorkResolution } = await import('./capability-context.mjs');
-  const { resolveApprovedStoryWorkType, approvedStoryApprovalAuthorities } = await import('./configuration-branch.mjs');
+  const { resolveApprovedStoryWorkTypeFor, approvedStoryApprovalAuthorities } = await import('./configuration-branch.mjs');
   const candidate = applyCapabilityPolicyToWorkResolution(
-    resolveApprovedStoryWorkType(approvedConfigurationSnapshot, currentWorkflow.workItem.workType), currentWorkflow.resolution.capability);
+    await resolveApprovedStoryWorkTypeFor(approvedConfigurationSnapshot, currentWorkflow), currentWorkflow.resolution.capability);
   assertTestCommandCandidateGlobalScope(previous.policy, candidate);
   const candidatePhase = candidate.phases.find((phase) => phase.id === decision.phaseId);
   const nextPhase = proposedWorkflow.resolution.phases.find((phase) => phase.id === decision.phaseId);

@@ -2,12 +2,14 @@
  * Shared Singularity configuration lives on a branch that is independent of application history.
  *
  * `main` is application code, `sflow/config` is approved configuration, and a lifecycle branch
- * receives an exact copy of the approved configuration when it is created.  The copy is deliberate:
+ * receives an exact copy of the approved configuration (a Story: its own workflow's closure of it)
+ * when it is created.  The copy is deliberate:
  * every later phase must see the same prompts, agents, templates and policies even when the shared
  * configuration branch moves on.
  */
 import path from 'node:path';
 import os from 'node:os';
+import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { creationConfiguration, creationConfigurationOwner, withCreationContext } from './creation-context.mjs';
 import { isDeepStrictEqual, types } from 'node:util';
@@ -68,6 +70,7 @@ import {
 } from './git-repository-identity.mjs';
 
 import { CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH } from './configuration-assets.mjs';
+import { PACKAGE_ROOT } from './package-root.mjs';
 export { CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH };
 export const STATE_CONFIGURATION_BRANCH = 'state';
 export const STATE_CONFIGURATION_MANIFEST = 'configuration/manifest.json';
@@ -2281,6 +2284,21 @@ export function resolveApprovedStoryWorkType(snapshot, workTypeId) {
   return resolveWorkType(structuredClone(verifiedStoryDefinition(snapshot)), workTypeId);
 }
 
+/**
+ * The approved work type as one Story compares it: in the same projection its branch carries.
+ *
+ * A Story started with a closure (`configurationSource.closure`) pinned its policy from that
+ * closure, where catalogs keyed by other workflows' steps (context overrides) are left out. A
+ * newer approved revision is therefore resolved through the same closure before a reviewed
+ * amendment compares the two, so a difference in another workflow is never read as one here.
+ */
+export async function resolveApprovedStoryWorkTypeFor(snapshot, workflow) {
+  const workTypeId = workflow?.workItem?.workType;
+  const closure = workflow?.resolution?.configurationSource?.closure;
+  if (closure?.kind !== 'work-type' || !Array.isArray(closure.workTypes)) return resolveApprovedStoryWorkType(snapshot, workTypeId);
+  return resolveWorkType((await storyConfigurationClosure(snapshot, closure.workTypes)).copyDefinition(), workTypeId);
+}
+
 /** Current approved reviewer catalog, even if that source removed the old Story work type. */
 export function approvedStoryApprovalAuthorities(snapshot) {
   return structuredClone(verifiedStoryDefinition(snapshot).approvalAuthorities);
@@ -3294,6 +3312,55 @@ export async function withStoryConfigurationSnapshotRead(root, snapshot, fn, { s
   }
 }
 
+// Editor bundles load the closure by computed URL from the staged CLI's sources, so the workflow
+// bundle compiler stays out of every editor read bundle; the CLI and its bundle import it literally.
+// The module shares no request state with this one: it reads plain directories.
+const STORY_CONFIGURATION_CLOSURE_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'story-configuration-closure.mjs')).href;
+const storyConfigurationClosureModule = () => globalThis.__SFLOW_EXTENSION_HOST__ === true
+  ? import(STORY_CONFIGURATION_CLOSURE_MODULE)
+  : import('./story-configuration-closure.mjs');
+
+/**
+ * The verified closure of `workTypes`: the files a Story branch for them carries, computed once
+ * per verified snapshot and work-type set (src/story-configuration-closure.mjs). Refused when the
+ * projection would not load as a configuration of its own.
+ */
+export async function storyConfigurationClosure(snapshot, workTypes) {
+  assertVerifiedStorySnapshot(snapshot);
+  return (await storyConfigurationClosureModule()).storyConfigurationClosure(snapshot, workTypes, () => ({
+    assets: captureStoryConfigurationSnapshotAssets(snapshot),
+    definition: structuredClone(verifiedStoryDefinition(snapshot)),
+    resolveWorkType
+  }));
+}
+
+/**
+ * What a checkout materialized from `snapshot` must carry, derived again from the approved bytes:
+ * the whole snapshot, or the closure its provenance names. Returns the expected asset map and its
+ * compiled definition rebound to `root`; null when the record names no closure this snapshot gives.
+ */
+export async function expectedStoryConfigurationMaterialization(snapshot, source, root) {
+  assertVerifiedStorySnapshot(snapshot);
+  if (source?.closure == null) {
+    return {
+      assets: Object.fromEntries(snapshot.assets.map((entry) => [entry.relative, {
+        sha256: entry.sha256, object: entry.object, mode: entry.gitMode
+      }]).sort(([a], [b]) => a.localeCompare(b))),
+      definition: () => copyVerifiedStoryConfigurationDefinition(snapshot, root)
+    };
+  }
+  const closure = await storyConfigurationClosure(snapshot, source.closure.workTypes).catch(() => null);
+  return closure && closure.materialization(source.closure, root);
+}
+
+/** The closure a new Story branch receives, or null for the whole copy (`storyBranchClosure`). */
+async function storyBranchConfigurationClosure(root, snapshot, workTypes, agents, baseCommit, before) {
+  return (await storyConfigurationClosureModule()).storyBranchClosure((selected) => storyConfigurationClosure(snapshot, selected), {
+    approved: verifiedStoryDefinition(snapshot), assets: snapshot.assets, workTypes, agents, base: [...before.keys()],
+    carried: before.size && baseCommit ? yamlAtRef(root, baseCommit, 'singularity/workflow.yml').value?.workTypes : null
+  });
+}
+
 /** Find the organisation configuration for a repository inside or outside a managed workspace. */
 export async function resolveConfigurationRemote(root, remoteName = 'origin', {
   session = new GitRemoteSession({ cwd: root })
@@ -3326,12 +3393,19 @@ export async function resolveConfigurationRemote(root, remoteName = 'origin', {
 
 /**
  * Copy one approved configuration revision into the current lifecycle branch and record provenance.
+ *
+ * With `workTypes`, the branch receives only their closure of that revision (see
+ * `storyConfigurationClosure`), and the record names the closure and every rewritten file's
+ * approved object. Without it, or when no closure applies, the whole revision is copied. `agents`
+ * names an agent the person asked to start with.
  */
 export async function materializeConfigurationSnapshot(root, {
   remote = null,
   remoteName = 'origin',
   authority = null,
-  snapshot = null
+  snapshot = null,
+  workTypes = null,
+  agents = []
 } = {}) {
   const resolvedAuthority = authority ?? snapshot?.authority
     ?? (remote ? await resolveRemoteStoryConfigurationAuthority(remote) : await resolveStoryConfigurationAuthority(root, remoteName));
@@ -3356,12 +3430,24 @@ export async function materializeConfigurationSnapshot(root, {
   {
     const baseCommit = configurationRepositoryHead(root);
     const before = configurationTreeEntries(root, baseCommit);
+    const selection = workTypes?.length
+      ? await storyBranchConfigurationClosure(root, verifiedSnapshot, workTypes, agents, baseCommit, before)
+      : { closure: null, reason: null };
+    const closure = selection.closure;
+    const materialized = closure ? closure.entries : captured;
+    // The closure's bytes were checked when it was computed; prove they did not change since.
+    if (closure && materialized.some((entry) => createHash('sha256').update(entry.contents).digest('hex')
+        !== closure.assets[entry.relative]?.sha256)) {
+      throw new SingularityFlowError('Verified Story configuration closure changed in memory.', {
+        code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID'
+      });
+    }
     const keep = new Set();
     // Preserve identical ordinary files and their index/stat identities. Deleting and rewriting
     // every template made Windows rescan/re-hash the entire closure during initial publication.
     // This is byte equality, not an mtime cache; final provenance verification remains mandatory.
     const current = new Set(await configurationAssetPaths(root));
-    for (const entry of captured) {
+    for (const entry of materialized) {
       if (!current.has(entry.relative)) continue;
       const target = path.join(root, entry.relative), info = await lstat(target);
       if (info.isFile() && !info.isSymbolicLink() && info.nlink === 1
@@ -3369,7 +3455,7 @@ export async function materializeConfigurationSnapshot(root, {
           && (await readFile(target)).equals(entry.contents)) keep.add(entry.relative);
     }
     const removed = await clearConfigurationAssets(root, keep, [...current]);
-    const changed = captured.filter(entry => !keep.has(entry.relative));
+    const changed = materialized.filter(entry => !keep.has(entry.relative));
     const files = [...keep, ...await writeCapturedStoryConfigurationAssets(changed, root)].sort();
     incrementCommandCounter('configuration.assets-reused', keep.size);
     incrementCommandCounter('configuration.assets-written', changed.length);
@@ -3377,7 +3463,7 @@ export async function materializeConfigurationSnapshot(root, {
       throw new SingularityFlowError(
         `${CONFIGURATION_BRANCH}@${commit.slice(0, 12)} does not contain singularity/workflow.yml.`);
     }
-    const assets = Object.fromEntries(verifiedSnapshot.assets.map((entry) => [entry.relative, {
+    const assets = Object.fromEntries(materialized.map((entry) => [entry.relative, {
       sha256: entry.sha256,
       object: entry.object,
       mode: entry.gitMode
@@ -3401,8 +3487,18 @@ export async function materializeConfigurationSnapshot(root, {
       files: Object.fromEntries(Object.entries(hashes).sort(([a], [b]) => a.localeCompare(b))),
       assets,
       removed: removedAssets,
-      projectionSha256
+      projectionSha256,
+      // Additive and outside both digests, so every reader of the v2 record still verifies it.
+      // `expectedStoryConfigurationMaterialization` derives the asset map from the approved bytes
+      // again, which is what binds a closure (and each rewritten file) to the approved commit.
+      ...(closure ? { closure: {
+        kind: closure.kind,
+        workTypes: [...closure.workTypes],
+        approvedAssetCount: closure.approvedAssetCount,
+        derived: structuredClone({ ...closure.derived })
+      } } : {})
     };
+    if (closure) incrementCommandCounter('configuration.closure-assets-omitted', closure.approvedAssetCount - materialized.length);
     const recordFile = path.join(root, CONFIGURATION_SOURCE_PATH);
     await mkdir(path.dirname(recordFile), { recursive: true });
     await writeFile(recordFile, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
@@ -3411,6 +3507,7 @@ export async function materializeConfigurationSnapshot(root, {
     // tracked on the Story branch.
     return {
       ...record,
+      ...(workTypes?.length && !closure ? { closureUnavailable: selection.reason } : {}),
       paths: [...new Set([...removed, ...files, CONFIGURATION_SOURCE_PATH])].sort()
     };
   }

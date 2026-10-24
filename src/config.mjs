@@ -1814,6 +1814,33 @@ export async function initializationStatus(root) {
   };
 }
 
+/**
+ * Initialization status of a canonical Story checkout, judged by its own verified pin.
+ *
+ * Validate the definition carried by this immutable Story, not today's package inventory. A later
+ * SFlow release may add templates or agents, and a Story branch carries only its own workflow's
+ * closure: neither makes the exact pin incomplete or authorizes `init --repair` to rewrite its
+ * lifecycle input. `pin` is a valid `capabilityDoctorStoryPin` result.
+ */
+export async function pinnedInitializationStatus(root, pin) {
+  const expectedFiles = Object.keys(pin.source?.assets ?? pin.source?.files ?? {}).sort();
+  let configurationError = null;
+  try {
+    await loadDefinition(root);
+  } catch (error) {
+    configurationError = error.message;
+  }
+  return {
+    schemaVersion: 1,
+    pinned: true,
+    complete: configurationError == null,
+    expectedFiles,
+    presentFiles: [...expectedFiles],
+    missingFiles: [],
+    configurationError
+  };
+}
+
 function declaredCatalogValue(catalog, id) {
   return catalog != null && Object.hasOwn(catalog, id) ? catalog[id] : undefined;
 }

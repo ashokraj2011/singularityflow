@@ -353,7 +353,8 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
 
 /** A rule's meaning as one line: "When …: … (what it is for)". */
 export function meaningText(meaning) {
-  const condition = meaning.condition.replace(/^when\s+/iu, '');
+  // A drafted condition may end with a full stop ("When `x`.: refuses" in a live run).
+  const condition = meaning.condition.replace(/^when\s+/iu, '').replace(/[.\s]+$/u, '');
   return `When ${condition}: ${meaning.outcome.replace(/[.\s]+$/u, '')}${meaning.intent ? ` (${meaning.intent.replace(/[.\s]+$/u, '')})` : ''}`;
 }
 

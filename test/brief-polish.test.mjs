@@ -199,3 +199,45 @@ test('a person\'s confirmed meaning is never offered to the model, and a phrasin
   assert.doesNotMatch(cut.text, /phrased by/u);
   assert.match(cut.text, /Read without a model from the committed source\./u);
 });
+
+test('wm brief --polish says why a model could not phrase the brief, and keeps the fixed wording', { timeout: 180_000 }, async (t) => {
+  const repository = await ordersRepository(t);
+  const base = path.dirname(repository);
+  const bin = await mkdtemp(path.join(os.tmpdir(), 'sflow-polish-copilot-'));
+  t.after(() => rm(bin, { recursive: true, force: true }));
+  // Copilot CLI 1.0.103 refused to start with an option it had removed; the brief showed only its
+  // fixed wording, with no word of why.
+  await writeFile(path.join(bin, 'copilot'), '#!/bin/sh\necho "error: --no-remote was removed. Use /remote off in a session." >&2\nexit 1\n', { mode: 0o755 });
+  const state = await mkdtemp(path.join(os.tmpdir(), 'sflow-polish-state-'));
+  t.after(() => rm(state, { recursive: true, force: true }));
+  const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, NODE_ENV: 'test',
+    SINGULARITY_FLOW_TEST_IDENTITY: 'Polish Tester', SINGULARITY_FLOW_AGENT_OUTPUT: 'full',
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(state, 'w.json'), SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(state, 'a.json'),
+    SINGULARITY_FLOW_LEAD_REGISTRY: path.join(state, 'l.json'), SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(state, 'mode.json'),
+    GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'Polish Tester',
+    GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 'polish.tester@example.invalid' };
+  delete env.NODE_TEST_CONTEXT;
+  const cli = (args, extra = {}) => spawnSync(process.execPath, [path.join(root, 'bin/singularity-flow.mjs'), ...args],
+    { cwd: repository, env: { ...env, ...extra }, encoding: 'utf8', timeout: 120_000 });
+  const must = (command, args, extra) => {
+    const result = command === 'git' ? spawnSync('git', args, { cwd: repository, env, encoding: 'utf8' }) : cli(args, extra);
+    assert.equal(result.status, 0, `${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+    return result.stdout;
+  };
+  const off = { SINGULARITY_FLOW_NO_MODEL: '1' };
+  must('cli', ['--no-model', 'init'], off);
+  must('git', ['add', '-A']); must('git', ['commit', '-qm', 'init']);
+  must('git', ['init', '-q', '--bare', '-b', 'main', path.join(base, `${path.basename(repository)}.git`)]);
+  must('git', ['remote', 'add', 'origin', path.join(base, `${path.basename(repository)}.git`)]);
+  t.after(() => rm(path.join(base, `${path.basename(repository)}.git`), { recursive: true, force: true }));
+  must('git', ['push', '-q', '-u', 'origin', 'main']);
+  must('cli', ['--no-model', 'start', 'QF-1', '--from-branch', 'main', '--work-type', 'quick-fix', '--title', 'Cancel placed orders only',
+    '--description', 'Only a placed order may be cancelled.'], off);
+  const on = { ...env }; delete on.SINGULARITY_FLOW_NO_MODEL;
+  const result = JSON.parse(spawnSync(process.execPath, [path.join(root, 'bin/singularity-flow.mjs'), 'wm', 'brief', '--work-id', 'QF-1',
+    '--phase', 'implement', '--polish', '--json'], { cwd: repository, env: on, encoding: 'utf8', timeout: 120_000 }).stdout);
+  assert.equal(result.phrasing.by, 'template');
+  // The provider's own reason is named (here: this stand-in advertises no ACP transport).
+  assert.match(result.warnings.join('\n'), /could not phrase it \(.+\)/u);
+  assert.match(result.note, /could not phrase it/u);
+});

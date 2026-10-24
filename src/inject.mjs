@@ -252,6 +252,8 @@ function comparablePromptRecord(record) {
   delete value.injectedAt;
   // Cache-hit is an observation about this call, not part of a generation's durable identity.
   delete value.compositionCache;
+  // The Repository brief's record list describes the prompt bytes compared beside it.
+  delete value.repositoryBrief;
   return value;
 }
 
@@ -765,6 +767,7 @@ export async function recordInjection(root, workflow, phase, injection, {
     promptBudget,
     persistedGrounding,
     tokenReduction,
+    repositoryBrief: structuredClone(injection.repositoryBrief ?? null),
     remoteSkills: structuredClone(injection.remoteSkills ?? []),
     // Omission on a snapshot-backed Story is not evidence that mutable live instructions were
     // used. Current composers provide the exact identity; older/custom adapters remain honestly

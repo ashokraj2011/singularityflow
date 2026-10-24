@@ -1,0 +1,76 @@
+{
+  "phase": "implementation",
+  "model": "recorded",
+  "sentences": [
+    {
+      "text": "An order can have at most 25 lines.",
+      "cites": [
+        "C-e1b850eb202f"
+      ],
+      "bad": "changes a value: the configuration says 20"
+    },
+    {
+      "text": "Cancelling also refunds the payment through Stripe.",
+      "cites": [
+        "C-b330a05ec2e7"
+      ],
+      "bad": "adds a name"
+    },
+    {
+      "text": "An empty order is refused with HTTP 422.",
+      "cites": [
+        "R-7824df8e8786"
+      ],
+      "bad": "changes a value: the code returns 400"
+    },
+    {
+      "text": "Cancelling goes through POST /orders/{id}/refund.",
+      "cites": [
+        "C-6f66603a2806"
+      ],
+      "bad": "adds a path"
+    },
+    {
+      "text": "OrderService.cancel is reached by 1 entry point and is tested.",
+      "cites": [
+        "K-risk-d7f9ca1fb04d"
+      ],
+      "bad": "drops a \"no\": no test reaches it"
+    },
+    {
+      "text": "Cancelling is refused with \"Only placed orders can be cancelled\" (HTTP 409) unless the status is `OrderStatus.PLACED`, so an order that has moved on stays as it is.",
+      "cites": [
+        "R-368c20579589"
+      ],
+      "bad": null
+    },
+    {
+      "text": "A cancel request for an order in any other state gets HTTP 409.",
+      "cites": [
+        "R-dfc13014852f"
+      ],
+      "bad": null
+    },
+    {
+      "text": "This Story changes OrderService.cancel, which OrderController.cancel calls for POST /orders/{id}/cancel; no test reaches it.",
+      "cites": [
+        "K-impact-a25543c81258"
+      ],
+      "bad": null
+    },
+    {
+      "text": "An order moves through PLACED, PAID, SHIPPED and CANCELLED.",
+      "cites": [
+        "C-d00ad4c4faa9"
+      ],
+      "bad": null
+    },
+    {
+      "text": "The cancel endpoint is safe and well designed.",
+      "cites": [
+        "C-6f66603a2806"
+      ],
+      "bad": null
+    }
+  ]
+}

@@ -491,6 +491,8 @@ function argvAllowed(argv, mode, value) {
   }
   // Environment values come only from the person's own secret helper on standard input, in no turn.
   if (positionals[0] === 'env' && ['bind', 'unbind'].includes(positionals[1])) return false;
+  // What the code means is a person's word: confirming a rule's meaning or reviewing knowledge, in no turn.
+  if (knowledgeConfirmation(positionals)) return false;
   // Confirming a workflow delete is the person's own step, in any turn; the preview stays allowed.
   if (positionals[0] === 'workflow' && positionals[1] === 'delete' && options.confirm !== undefined) return false;
   let classification;
@@ -690,6 +692,20 @@ function testRunRiskDecision(call, value) {
 function storyTestCommandDecision(positionals, options) {
   return positionals[0] === 'decision' && positionals[1] === 'test-command' && (options.accept !== undefined || options.revoke !== undefined);
 }
+
+/** `wm rules confirm` or `wm knowledge confirm|correct|reject`: a person's word on what the code means. */
+function knowledgeConfirmation(positionals) {
+  return positionals[0] === 'wm' && ((positionals[1] === 'rules' && positionals[2] === 'confirm')
+    || (positionals[1] === 'knowledge' && ['confirm', 'correct', 'reject'].includes(positionals[2])));
+}
+function knowledgeConfirmationCall(call, value) {
+  const safe = verifiedShellForm(call, value);
+  return Boolean(safe) && knowledgeConfirmation(parseArgs(safe.argv).positionals);
+}
+const KNOWLEDGE_CONFIRMATION_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: what a business rule means, and whether a repository '
+  + 'knowledge item is right, is confirmed by a person who knows the code, in their own terminal (singularity-flow wm rules confirm '
+  + 'RULE-ID, or wm knowledge confirm|correct|reject ITEM), never by this turn. Show the user the draft (singularity-flow wm rules list, '
+  + 'which is allowed) and the command; do not retry it';
 
 /** A confirmed `story target-origin`: pinning a Story's authorized browser target origin. */
 function targetOriginPin(positionals, options) {
@@ -1012,6 +1028,9 @@ export async function mutationToolGuard(payload = {}) {
     if (guarded.some(call => TERMINALS.has(call.name) && hookInvocation(call, bootstrap))) {
       return { permissionDecision: 'deny', next: [], permissionDecisionReason: HOOK_DENIAL };
     }
+    if (guarded.some(call => TERMINALS.has(call.name) && knowledgeConfirmationCall(call, bootstrap))) {
+      return { permissionDecision: 'deny', next: [], permissionDecisionReason: KNOWLEDGE_CONFIRMATION_DENIAL };
+    }
     if (turnExpired(record)) return turnExpiredDenial(record);
     if (draftKind(record.skill) && guarded.some(call => isEdit(call.name))) return { permissionDecision: 'deny', next: [],
       permissionDecisionReason: `DRAFT_PATH_DENIED: this turn edits only the exact files its SFlow commands issued to it${issuedDrafts.length ? ` (${issuedDrafts.join(', ')})` : ', and none is issued yet'}. `
@@ -1043,6 +1062,7 @@ export async function mutationToolGuard(payload = {}) {
         if (decisionListRecord(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: recording the decision list is the person\'s own step: they run the exact decisions record command in their own terminal (a /sf-decide turn may record only its upstream-issue options, after their explicit yes). Show the user the summary and the command, and stop; do not retry it or change its digest');
         if (targetOriginPinCall(call, value)) return mutationDenial(contract, TARGET_ORIGIN_PIN_DENIAL);
+        if (knowledgeConfirmationCall(call, value)) return mutationDenial(contract, KNOWLEDGE_CONFIRMATION_DENIAL);
         if (testRunRiskDecision(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step\'s tests cannot run here, reusing an earlier step\'s recorded run for it, that one of its screen sizes does not apply, or how a closed Story\'s drifted clause is resolved, is decided by a person who approves that step, in their own terminal, not by this turn. Show the user the command and stop; do not retry it');
         if (contract.turnMode !== 'authoring' && verifiedShellForm(call, value)) {

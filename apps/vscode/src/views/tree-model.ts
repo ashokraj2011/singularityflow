@@ -1183,6 +1183,12 @@ function storyWorkflowNode(
               icon: 'info'
             }]),
             ...storyPhaseActions(workflow, phase, actor, submissionReadiness),
+            {
+              // The Repository brief this phase's prompt carries, read without recording anything.
+              kind: 'action' as const, id: `story-phase:${phase.id}:brief`, label: 'What this phase sees',
+              description: 'the Repository brief in its prompt', icon: 'book',
+              runCommand: 'singularityFlow.showPhaseBrief', contextValue: 'sflow.story.phase.brief'
+            },
             ...(current ? [{
               kind: 'action' as const, id: `story:${phase.id}:appeals`, label: 'Resolve phase issues',
               description: 'extra-work appeals, repair and risk review', icon: 'tools',

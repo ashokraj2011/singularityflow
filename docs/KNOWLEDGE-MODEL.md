@@ -108,7 +108,8 @@ When the reviewed lines change, the review stops applying and the item says to r
 review whose item no longer exists is listed as a pitfall, never dropped quietly. Rules are
 numbered within their function, so editing a condition keeps the rule's id and its review.
 In VS Code, **Singularity Flow: Repository Brief** shows the current build and **Review Repository
-Knowledge** picks an item and records the same confirm, correct or reject review.
+Knowledge** picks an item and records the same confirm, correct or reject review. A Copilot turn is
+refused these three commands, and `wm rules confirm` below: what the code means is a person's word.
 
 ## Repository brief
 
@@ -258,9 +259,12 @@ Story touches, built without a model. It is the phase's only World Model context
   come first; an item appears once. "What a change touches" is read from the Story's changed lines
   and planned files (see above); with neither, it lists what depends on the functions the Story
   names.
-- **Format:** short sections with plain bullets, each ending with its source as `(File.java:42)` or
-  `(README.md › Heading)`; what could not be determined is one closing "Not known" line. No JSON,
-  hashes or fact IDs reach the prompt.
+- **Format:** short sections with plain bullets, each ending with its source as `(File.java:42)`,
+  `(README.md › Heading)` or, for the repository's counts, `(commit 0123456789ab)`; a line that
+  cites nothing is left out. What could not be determined is one closing "Not known" line naming only
+  what this phase's sections lack (an intake brief is not told calls were matched by name). No JSON,
+  hashes or fact IDs reach the prompt; the prompt receipt's `repositoryBrief` records the IDs of the
+  records included, the renderer and profile, and whether a model phrased them.
 - **Budget:** the whole brief fits the phase's budget; what did not fit is counted on a pointer
   line. `worldModel.knowledge.maxBytes` replaces the defaults for every phase.
 
@@ -280,6 +284,36 @@ recording anything. The brief travels in the prompt's World Model grounding sect
 budgets and token-reduction contracts apply unchanged. Turn it off with
 `worldModel.knowledge.prompt: off`, or for one work type with `intelligence.worldModel: off`.
 
+## Model phrasing and confirmed meaning
+
+Records are built without a model, the same way with or without one; a model never creates, removes
+or changes a record.
+
+**Phrasing.** `wm brief --phase PHASE --polish` (operation `wm.brief.polish`; without model use it
+is `wm brief`) sends the model the lines the brief selected, each with what its record says, and
+asks for plain sentences that name a rule's or a flow's intent and merge lines that say the same
+thing. Each sentence must cite records of one section, each record once; every code name, number
+(single digits too), path, capitalised name and quoted text in it must be in those records; it may
+not claim what a record says is missing ("tested" where no test reaches it), judge the code, leave a
+code span open or run past 45 words. A sentence that fails is dropped and its records keep their
+fixed wording; a rule's status (documented, enforced, tested, conflict) is always added by the brief,
+never the model's. The brief's header and closing line say it was phrased by a model. The answer is
+saved under the Git directory (`singularity-flow/knowledge/brief-polish-<key>.json`), keyed by the
+knowledge build, the Story's changed and planned lines and the exact selection; composing a prompt
+reuses it while model use is on and never calls a model. A failing model is a warning.
+
+**Meaning.** `wm rules propose` drafts each rule's condition, outcome and intent. With a model
+(`wm.rules.propose`) the draft comes from the rule record, its linked docs statements and a few cited
+code lines, checked like a phrasing; without one (`wm.rules.propose.deterministic`) it is the
+rule's own condition and outcome. Drafts are model-advisory: they stay in
+`singularity-flow/knowledge/rule-proposals.json` under the Git directory and never reach a prompt.
+`wm rules confirm RULE-ID [--condition TEXT] [--outcome TEXT] [--intent TEXT]` is a person's act: it
+writes the meaning to `docs/knowledge/rule-meanings.yml`, bound to a digest of every line the rule
+rests on (its code span and each linked docs statement). While those lines are unchanged, the brief
+shows the rule in that meaning, marked as confirmed by a person, and `wm knowledge show rules` lists
+it; when one changes, both go back to the code's own wording and `wm rules list` says to confirm it
+again.
+
 ## Measuring it
 
 `wm knowledge eval` scores a build against an expectations file (rules, limits, entities, entry
@@ -293,6 +327,39 @@ suite:
 | Spring orders service (Java, JUnit) | 21 | 21 |
 | Android notes app (Kotlin, Gradle modules, Compose, Retrofit, Room, JUnit) | 20 | 20 |
 | FastAPI orders service (Python, pydantic, pytest) | 17 | 17 |
+
+**Repository brief quality (World Model v5).** `test/world-model-v5-briefs.test.mjs` builds four
+fixture repositories, applies a Story's change to the working tree, briefs all eight phase profiles,
+compares four of them per repository with golden briefs (`test/fixtures/knowledge/briefs/`, the fixed
+wording byte for byte) and holds the quality bar below. The labels (which docs-to-code links are
+right, which docs statements are rules, which callers and tests a change must reach, which words make
+a line about the Story) were written by hand for each fixture, and the polish rows replay a recorded
+model answer that mixes good sentences with adversarial ones (a changed value, an added name or path,
+a dropped "no", a judgement). `node scripts/world-model-v5-benchmark.mjs --repository PATH --spec FILE`
+measures any repository the same way. Measured 2026-10-24:
+
+| Repository | Brief bytes per phase | Statements cited | Most "Not known" lines | Rule linking precision | Doc statement precision | Impact recall | Story's lines first | Polish: kept sentences that change a value or add a name |
+|---|---|---|---|---|---|---|---|---|
+| orders (Spring, with a README) | 1882–3013 | 100% | 1 | 100% (8/8; recall 8/8) | 100% (8/8) | 100% (6/6) | 100% | 0 (4 good kept, 5 adversarial refused) |
+| pricing rules (rule files) | 892–1268 | 100% | 1 | 100% (3/3) | 100% (3/3) | n/a | 100% | n/a |
+| refunds (validation, two languages) | 1671–2747 | 100% | 1 | 100% (4/4) | 100% (4/4) | 100% (2/2) | 100% | 0 (3 good kept, 4 adversarial refused) |
+| shop (React, specifications) | 1273–2126 | 100% | 1 | n/a | n/a | 100% (3/3) | 100% | n/a |
+| a private Spring rule engine (local copy) | 1873–4008 | 100% | 1 | 100% (9/9; recall 8/12) | 87% (27/31) | 100% (4/4) | 98% | n/a |
+
+The bar: 2–4 KB per phase (the budget is the cap; small fixtures have less to say), every statement
+cited, at most one "Not known" line, linking precision at least 90%, docs statement precision at least
+85%, impact recall at least 90%, the Story's lines first within each section, and no kept polish
+sentence that changes a value or adds a name. The rule engine was measured on a copy with a local
+spec (its labels are not in this repository) for the Story "Add a startsWith operator" and a one-line
+change in `RuleEngineService.evalCondition`. Measuring found what is now fixed. On the rule engine,
+lead-in lines ending in a colon ("in list of values:") were read as rules (27 of 38 statements were
+rules, 71%), and a private helper reached only through its callers named no test (its impact line now
+says "tested through its callers by …"). On the orders fixture, a not-found status the exception
+handler maps (404) was reported as one the code never returns, a status-table row the code does
+return ("409 — …") said no code enforced it, a changed handler did not name its endpoint, and a
+change's functions were not ranked by the Story's words. The rule engine's remaining misses are
+recall, not precision: docs statements about comparison, unknown operators and `isNull` have no
+linked code rule.
 
 ## Boundaries
 

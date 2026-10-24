@@ -824,6 +824,7 @@ Every public operation is classified before its implementation module is importe
 | wm.ast.symbol | read | never | — | — |
 | wm.ast.warm | mutation | never | — | — |
 | wm.brief | read | never | — | — |
+| wm.brief.polish | read | optional | wm.brief | copilot-cli |
 | wm.cache | mutation | never | — | — |
 | wm.compose | mutation | never | — | — |
 | wm.design-inventory | read | never | — | — |
@@ -846,6 +847,10 @@ Every public operation is classified before its implementation module is importe
 | wm.read | read | never | — | — |
 | wm.read-contract | read | never | — | — |
 | wm.read-views | read | never | — | — |
+| wm.rules.confirm | mutation | never | — | — |
+| wm.rules.list | read | never | — | — |
+| wm.rules.propose | read | optional | wm.rules.propose.deterministic | copilot-cli |
+| wm.rules.propose.deterministic | read | never | — | — |
 | wm.show-prompt | read | never | — | — |
 | wm.show-prompt.record-audit | mutation | never | — | — |
 | workflow.activate | mutation | never | — | — |

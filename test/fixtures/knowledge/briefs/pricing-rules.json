@@ -1,0 +1,51 @@
+{
+  "name": "pricing-rules",
+  "fixture": "rules-config",
+  "story": {
+    "title": "Raise the loyal customer discount",
+    "description": "Customers with at least 3 years should get 15% off orders over 100 instead of 10%.",
+    "acceptanceCriteria": []
+  },
+  "phases": [
+    "intake",
+    "design",
+    "implementation-spec",
+    "reproduction",
+    "implementation",
+    "verification",
+    "conformance",
+    "release"
+  ],
+  "golden": [
+    "intake",
+    "design",
+    "implementation",
+    "verification"
+  ],
+  "labels": {
+    "links": [
+      {
+        "docs": "at least 3 years",
+        "code": "loyal-customer-discount"
+      },
+      {
+        "docs": "risk score over 80",
+        "code": "high-risk-block"
+      },
+      {
+        "docs": "at least 21 years",
+        "code": "minimum-age"
+      }
+    ],
+    "statements": [
+      "at least 3 years",
+      "risk score over 80",
+      "at least 21 years"
+    ],
+    "impact": [],
+    "relevant": [
+      "loyal",
+      "discount"
+    ]
+  }
+}

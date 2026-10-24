@@ -21,6 +21,7 @@ export { DiagnosticsPanel } from './views/diagnostics.ts';
 export { ComprehensionCenterPanel } from './views/comprehension-center.ts';
 export { CodeExplainerPanel } from './views/code-explainer.ts';
 export { RepositoryBriefPanel } from './views/repository-brief.ts';
+export { PhaseBriefPanel } from './views/phase-brief.ts';
 export { LocalResetPanel } from './views/local-reset.ts';
 export { GoalsPanel } from './views/goals.ts';
 export { FaultRepairsPanel } from './views/fault-repairs.ts';

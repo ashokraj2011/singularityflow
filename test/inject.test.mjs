@@ -532,6 +532,26 @@ test('recordInjection preserves prompt-study, agent, and remote-skill provenance
   assert.deepEqual(record.remoteSkills, remoteSkills);
 });
 
+test('recordInjection records which Repository brief records were sent, and a receipt from before it stays reusable', async () => {
+  const root = await fixtureRoot();
+  const rendered = await composedInjection(root);
+  const workflow = { workItem: { id: 'ENG-BRIEF' } };
+  const phase = { id: 'design', generation: 0 };
+  const workDir = path.join(root, 'singularity/work-items/ENG-BRIEF');
+  const repositoryBrief = {
+    renderer: 'repository-brief@1', profile: 'design', budget: 3072, bytes: 1800, records: ['R-000000000001', 'C-000000000002'], omitted: 0,
+    phrasing: { by: 'model', model: 'recorded', key: 'k'.repeat(32), sentences: 1 }
+  };
+  const { record } = await recordInjection(root, workflow, phase, { ...rendered, agent: 'architect', renderedText: '# Brief receipt\n' }, { workDir });
+  assert.equal(record.repositoryBrief, null, 'an earlier composer recorded no brief');
+  const again = await recordInjection(root, workflow, phase, { ...rendered, agent: 'architect', renderedText: '# Brief receipt\n', repositoryBrief }, { workDir });
+  assert.equal(again.record.renderedSha256, record.renderedSha256, 'the same prompt bytes reuse the receipt instead of conflicting');
+  const other = { workItem: { id: 'ENG-BRIEF-2' } };
+  const fresh = await recordInjection(root, other, phase, { ...rendered, agent: 'architect', renderedText: '# Brief receipt\n', repositoryBrief },
+    { workDir: path.join(root, 'singularity/work-items/ENG-BRIEF-2') });
+  assert.deepEqual(fresh.record.repositoryBrief, repositoryBrief);
+});
+
 test('recordInjection refuses diagnostic prose and paths in durable grounding reasons', async () => {
   const root = await fixtureRoot();
   const rendered = await composedInjection(root);

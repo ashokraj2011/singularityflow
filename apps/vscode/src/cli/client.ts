@@ -548,6 +548,9 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'wm' && args[1] === 'knowledge') {
     return ['confirm', 'correct', 'reject'].includes(args[2] ?? '') ? 'mutation' : 'read';
   }
+  // A phase's brief only reads (--polish writes its machine-local cache); confirming a rule's meaning writes docs/knowledge/rule-meanings.yml.
+  if (args[0] === 'wm' && args[1] === 'brief') return 'read';
+  if (args[0] === 'wm' && args[1] === 'rules') return args[2] === 'confirm' ? 'mutation' : 'read';
   if (args[0] === 'intent') {
     return ['show', 'validate', 'workflow-guide'].includes(args[1] ?? 'show')
       ? 'read' : 'mutation';
@@ -1156,6 +1159,7 @@ export class SingularityFlowClient {
     }
     // A model-written repository brief or explanation can take minutes; a cached or template brief returns at once.
     return (args[0] === 'wm' && args[1] === 'knowledge' && ['brief', 'explain', 'calls'].includes(args[2] ?? ''))
+      || (args[0] === 'wm' && ((args[1] === 'brief' && args.includes('--polish')) || (args[1] === 'rules' && args[2] === 'propose')))
       || (args[0] === 'workspace' && args[1] === 'impact' && args[2] === 'analyze')
       ? WORLD_MODEL_TIMEOUT_MS : CLI_TIMEOUT_MS;
   }

@@ -30,6 +30,18 @@ function recordId(key) {
   return `R-${createHash('sha256').update(key).digest('hex').slice(0, 12)}`;
 }
 
+/**
+ * The lines a record rests on, each with a digest of what they said: a person's confirmed meaning is
+ * bound to these, and goes out of date when one of them changes (see rule-meaning.mjs).
+ */
+function codeAnchor(citation) {
+  return citation ? [{ path: citation.path, line: citation.lines?.[0] ?? null, sha256: citation.spanSha256 ?? null }] : [];
+}
+
+function docAnchor(doc) {
+  return { path: doc.source.path, line: doc.source.line ?? null, sha256: createHash('sha256').update(doc.text).digest('hex') };
+}
+
 function family(op) {
   return op?.startsWith('>') ? 'lower' : op?.startsWith('<') ? 'upper' : null;
 }
@@ -263,6 +275,7 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
         conflict: conflicts.length ? conflictText(conflicts[0].disagreement) : null,
         parts: { field: statement.field, type: statement.type, constraints: statement.constraints, bound: anchors.bounds[0] ?? null, message: anchors.message },
         sources: { code: citation ? [{ path: citation.path, line: citation.lines?.[0] ?? null, symbol: item.subject?.symbol ?? null }] : [], docs: links.map((link) => link.doc.source), tests: [] },
+        quotes: links.map((link) => link.doc.text), anchors: [...codeAnchor(citation), ...links.map((link) => docAnchor(link.doc))],
         weight: 4,
         words: new Set([...anchors.words, ...links.flatMap((link) => [...link.doc.anchors.words])])
       });
@@ -283,6 +296,7 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
         docs: links.map((link) => link.doc.source),
         tests
       },
+      quotes: links.map((link) => link.doc.text), anchors: [...codeAnchor(citation), ...links.map((link) => docAnchor(link.doc))],
       weight: KIND_WEIGHT[item.statement?.kind] ?? 2,
       words: new Set([...anchors.words, ...links.flatMap((link) => [...link.doc.anchors.words])])
     });
@@ -295,16 +309,27 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
       status: 'documented-only', documented: true, enforced: false, tested: false, conflict: null,
       parts: { bound: doc.anchors.bounds[0] ?? null, statuses: [...doc.anchors.statuses] },
       sources: { code: [], docs: [doc.source], tests: [] },
+      quotes: [], anchors: [docAnchor(doc)],
       weight: 3, words: doc.anchors.words
     });
   }
-  // A status the docs promise that no code refusal returns: one repository-wide conflict.
-  const codeStatuses = new Set(codeRules.map((code) => code.anchors.status).filter(Boolean));
+  // A status the docs promise that the code never returns: one repository-wide conflict. The code
+  // returns its refusals' statuses and every status an exception handler maps (a lookup that throws
+  // "not found" has no condition to read as a rule).
+  const errorPaths = items.filter((item) => item.kind === 'error-path' && statusNumber(item.statement?.status) && item.citations?.[0]);
+  const codeStatuses = new Set([...codeRules.map((code) => code.anchors.status), ...errorPaths.map((item) => statusNumber(item.statement.status))].filter(Boolean));
   for (const record of records.filter((entry) => entry.origin === 'docs')) {
     const promised = (record.parts.statuses ?? []).filter((code) => code >= 400);
-    if (codeStatuses.size && promised.length && !promised.some((code) => codeStatuses.has(code))) {
+    if (!codeStatuses.size || !promised.length) continue;
+    if (!promised.some((code) => codeStatuses.has(code))) {
       record.status = 'conflict';
       record.conflict = `the docs promise HTTP ${promised.join(' or ')}; the code's refusals return HTTP ${[...codeStatuses].sort().join(', ')}`;
+    } else if (/^[1-5]\d\d\b/u.test(record.text)) {
+      // A row of a status table ("404 — the order does not exist") names a status the code returns.
+      const returning = errorPaths.filter((item) => promised.includes(statusNumber(item.statement.status))).slice(0, 1);
+      Object.assign(record, { status: 'agreed', enforced: true, tested: null });
+      record.sources.code = returning.map((item) => ({ path: item.citations[0].path, line: item.citations[0].lines?.[0] ?? null, symbol: item.subject?.symbol ?? null }));
+      record.anchors.push(...returning.flatMap((item) => codeAnchor(item.citations[0])));
     }
   }
   const focusWords = subjectWords(focus);
@@ -313,6 +338,12 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
     .map((record) => ({ ...record, relevance: relevance(record) }))
     .sort((a, b) => b.relevance - a.relevance || STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || b.weight - a.weight || a.text.localeCompare(b.text, 'en'))
     .map(({ words, ...record }) => record);
+}
+
+/** A rule's meaning as one line: "When …: … (what it is for)". */
+export function meaningText(meaning) {
+  const condition = meaning.condition.replace(/^when\s+/iu, '');
+  return `When ${condition}: ${meaning.outcome.replace(/[.\s]+$/u, '')}${meaning.intent ? ` (${meaning.intent.replace(/[.\s]+$/u, '')})` : ''}`;
 }
 
 /** "Documented, enforced, tested." and its variants, for a reader. */
@@ -337,10 +368,10 @@ export function ruleQuestions(records, { limit = 4 } = {}) {
   for (const record of records) {
     if (questions.length >= limit) break;
     const source = [...record.sources.code, ...record.sources.docs];
-    if (record.status === 'conflict') questions.push({ text: `Docs and code disagree on ${subject(record)}: ${record.conflict}. Which is right?`, source });
-    else if (record.declaredOnly) questions.push({ text: `${record.parts.type}.${record.parts.field} is declared ${constraintText(record.parts.constraints)}, but no endpoint validates ${record.parts.type}. Should it be validated (@Valid)?`, source });
-    else if (record.status === 'documented-only' && record.parts.bound) questions.push({ text: `The docs say ${subject(record)}, but no code enforcing it was found. Is it still required?`, source });
-    else if (record.status === 'enforced-only' && !record.tested && record.parts.outcome?.kind === 'refuses') questions.push({ text: `The code refuses ${subject(record)}, but the docs do not state it and no test reaches it. Is it still required?`, source });
+    if (record.status === 'conflict') questions.push({ text: `Docs and code disagree on ${subject(record)}: ${record.conflict}. Which is right?`, source, record: record.id });
+    else if (record.declaredOnly) questions.push({ text: `${record.parts.type}.${record.parts.field} is declared ${constraintText(record.parts.constraints)}, but no endpoint validates ${record.parts.type}. Should it be validated (@Valid)?`, source, record: record.id });
+    else if (record.status === 'documented-only' && record.parts.bound) questions.push({ text: `The docs say ${subject(record)}, but no code enforcing it was found. Is it still required?`, source, record: record.id });
+    else if (record.status === 'enforced-only' && !record.tested && record.parts.outcome?.kind === 'refuses') questions.push({ text: `The code refuses ${subject(record)}, but the docs do not state it and no test reaches it. Is it still required?`, source, record: record.id });
   }
   return questions;
 }
@@ -355,6 +386,9 @@ export function renderRuleRecords(records, { limit = 40 } = {}) {
   for (const record of records.slice(0, limit)) {
     const sources = [...record.sources.code, ...record.sources.docs].filter((source) => source?.path).map(label);
     lines.push(`- ${record.text.replace(/[.\s]+$/u, '')}. ${ruleStatusWords(record)}${sources.length ? ` (${sources.slice(0, 3).join('; ')})` : ''}`);
+    // A person's confirmed meaning (singularity-flow wm rules confirm), while its lines are the ones confirmed.
+    if (record.meaning?.current) lines.push(`  - Meaning, confirmed${record.meaning.by ? ` by ${record.meaning.by}` : ''}: ${meaningText(record.meaning)}.`);
+    else if (record.meaning) lines.push(`  - A confirmed meaning is out of date: its lines changed. Confirm it again: singularity-flow wm rules confirm ${record.id}`);
   }
   if (records.length > limit) lines.push(`- … ${records.length - limit} more`);
   return lines.join('\n');

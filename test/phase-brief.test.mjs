@@ -17,7 +17,7 @@ test('a brief is ranked by the Story, ordered for the phase, cited, and fits the
       })),
       contracts: [{ text: 'POST /orders handled by OrderController.place', sources: [{ path: 'src/web/OrderController.java', line: 21, label: 'x' }] }],
       flows: [], impact: [], risks: [],
-      questions: [{ text: 'Should cancelled orders be refunded?', sources: [] }]
+      questions: [{ text: 'Should cancelled orders be refunded?', sources: [{ path: 'README.md', line: 4, label: 'README.md:4' }] }, { text: 'An uncited question is not shown.', sources: [] }]
     }
   };
   const profile = phaseBriefProfile('intake');
@@ -33,11 +33,20 @@ test('a brief is ranked by the Story, ordered for the phase, cited, and fits the
   assert.match(brief.text, /## Contracts\n- POST \/orders handled by OrderController\.place \(OrderController\.java:21\)/u);
   assert.match(brief.text, /- … \d+ more: singularity-flow wm brief --phase intake/u, 'what did not fit is counted, with where to read it');
   assert.equal(brief.text.match(/^Not known: /gmu)?.length, 1);
-  assert.match(brief.text, /Not known: no registered producer for runtime-guarantee, schema-contract; no runtime or incident data\./u);
+  assert.match(brief.text, /Not known: no registered producer for runtime-guarantee, schema-contract\./u,
+    'an intake brief reads no risks, so it is not told there is no incident data');
   assert.match(brief.text, /Read without a model from the committed source\./u);
+  assert.match(brief.text, /^- shop: 12 code files in java \(commit 0123456789ab\)$/mu, 'the repository\'s counts cite the commit');
+  assert.doesNotMatch(brief.text, /uncited/u, 'a line that cites nothing is not rendered');
   assert.doesNotMatch(brief.text, /registered World Model/u, 'the brief names no registered World Model');
   const implementation = renderPhaseBrief({ repository: 'shop', profile: phaseBriefProfile('implementation'), template });
   assert.doesNotMatch(implementation.text, /Questions for the product owner/u, 'only the product reader gets questions');
+  const unknown = ['no README or docs were found', 'calls are matched by name (no semantic pack is warmed)', 'no change history', 'no runtime or incident data'];
+  const notKnown = (id) => renderPhaseBrief({ repository: 'shop', profile: phaseBriefProfile(id), template, notKnown: unknown }).text.match(/^Not known: (.*)\.$/mu)?.[1];
+  assert.equal(notKnown('intake'), 'no README or docs were found', 'each phase is told only what its own sections lack');
+  assert.equal(notKnown('implementation'), 'no README or docs were found; calls are matched by name (no semantic pack is warmed); no change history; no runtime or incident data');
+  assert.equal(notKnown('release'), 'no README or docs were found');
+  assert.equal(notKnown('verification'), unknown.join('; '));
   assert.equal(phaseBriefProfile('verification').budget, 3072);
   assert.equal(phaseBriefProfile('implementation-spec').budget, 4096);
   assert.equal(phaseBriefProfile('fix-design').id, 'implementation-spec');

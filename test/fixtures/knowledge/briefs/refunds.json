@@ -1,0 +1,73 @@
+{
+  "name": "refunds",
+  "fixture": "validation-mix",
+  "story": {
+    "title": "Refund a paid order",
+    "description": "A refund needs a positive amount and a reason, and is validated before it reaches the payment gateway.",
+    "acceptanceCriteria": []
+  },
+  "phases": [
+    "intake",
+    "design",
+    "implementation-spec",
+    "reproduction",
+    "implementation",
+    "verification",
+    "conformance",
+    "release"
+  ],
+  "golden": [
+    "intake",
+    "design",
+    "implementation",
+    "verification"
+  ],
+  "change": {
+    "paths": [
+      "src/main/java/com/acme/api/OrderController.java"
+    ],
+    "edits": [
+      {
+        "file": "src/main/java/com/acme/api/OrderController.java",
+        "find": "public String refund(@RequestBody Refund refund) {",
+        "replace": "public String refund(@Valid @RequestBody Refund refund) {"
+      }
+    ]
+  },
+  "labels": {
+    "links": [
+      {
+        "docs": "at most 20 lines",
+        "code": "OrderRequest.lines"
+      },
+      {
+        "docs": "at least 10.00",
+        "code": "OrderRequest.total"
+      },
+      {
+        "docs": "Refund amounts must be positive",
+        "code": "Refund.amount"
+      },
+      {
+        "docs": "user name is at most 40",
+        "code": "CreateUserDto.name"
+      }
+    ],
+    "statements": [
+      "at most 20 lines",
+      "at least 10.00",
+      "Refund amounts",
+      "user name"
+    ],
+    "impact": [
+      "OrderController.refund",
+      "POST /refunds"
+    ],
+    "relevant": [
+      "refund",
+      "PaymentGateway",
+      "StripeGateway",
+      "OrderController.java"
+    ]
+  }
+}

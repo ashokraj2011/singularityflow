@@ -1,0 +1,50 @@
+{
+  "name": "shop",
+  "fixture": "shop",
+  "story": {
+    "title": "Change the free shipping threshold",
+    "description": "Free shipping should start at 75.00 instead of 50.00.",
+    "acceptanceCriteria": []
+  },
+  "phases": [
+    "intake",
+    "design",
+    "implementation-spec",
+    "reproduction",
+    "implementation",
+    "verification",
+    "conformance",
+    "release"
+  ],
+  "golden": [
+    "intake",
+    "design",
+    "implementation",
+    "verification"
+  ],
+  "change": {
+    "paths": [
+      "src/rules/pricing.ts"
+    ],
+    "edits": [
+      {
+        "file": "src/rules/pricing.ts",
+        "find": "return subtotal(cart) >= FREE_SHIPPING_THRESHOLD_CENTS ? 0 : SHIPPING_CENTS;",
+        "replace": "return subtotal(cart) > FREE_SHIPPING_THRESHOLD_CENTS ? 0 : SHIPPING_CENTS;"
+      }
+    ]
+  },
+  "labels": {
+    "links": [],
+    "statements": [],
+    "impact": [
+      "shipping",
+      "total",
+      "pricing.test.ts"
+    ],
+    "relevant": [
+      "shipping",
+      "FREE_SHIPPING_THRESHOLD"
+    ]
+  }
+}

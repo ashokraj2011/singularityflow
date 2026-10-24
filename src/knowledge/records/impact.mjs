@@ -16,6 +16,8 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
+import { subjectWords } from './anchors.mjs';
+
 function recordId(key) {
   return `K-impact-${createHash('sha256').update(key).digest('hex').slice(0, 12)}`;
 }
@@ -80,7 +82,14 @@ export function knowledgePaths(knowledge) {
   return new Set([...(knowledge?.graph?.functions ?? []).map((fn) => fn.file), ...(knowledge?.items ?? []).map((item) => item.subject?.path).filter(Boolean)]);
 }
 
-export function buildImpactRecords(knowledge, { changedPaths = [], changedRanges = null, plannedPaths = [] } = {}) {
+/** How much a Story's words name a function or file: a word the Story repeats weighs more. */
+function focusWeight(focus) {
+  const counts = new Map();
+  for (const token of String(focus ?? '').split(/\s+/u)) for (const word of subjectWords(token)) counts.set(word, (counts.get(word) ?? 0) + 1);
+  return (text) => [...subjectWords(text)].reduce((sum, word) => sum + (counts.get(word) ?? 0), 0);
+}
+
+export function buildImpactRecords(knowledge, { changedPaths = [], changedRanges = null, plannedPaths = [], focus = null } = {}) {
   const items = knowledge?.items ?? [];
   const functions = knowledge?.graph?.functions ?? [];
   const calls = knowledge?.graph?.calls ?? [];
@@ -158,23 +167,29 @@ export function buildImpactRecords(knowledge, { changedPaths = [], changedRanges
     // A caller in the same class is named by its method; one elsewhere keeps its class (OrderController.cancel, not cancel).
     const owner = qn.split('.').slice(0, -1).join('.');
     const callerName = (caller) => (caller.split('.').slice(0, -1).join('.') === owner ? shortName(caller) : caller);
-    const flows = [...new Set(flowsThrough(qn))];
+    // The endpoints a changed handler serves, then the flows that pass through it.
+    const handles = [...entries.values()].filter((item) => item.subject?.symbol === qn).map((item) => String(item.statement.label).split(' → ')[0]);
+    const flows = [...new Set(flowsThrough(qn))].filter((flow) => !handles.includes(flow));
     const rules = rulesOf.get(qn) ?? 0;
     const tests = [...(testsOf.get(qn) ?? [])];
-    const via = tests.length ? null : testedThrough.get(qn);
+    // A helper no test calls is still reached by its callers' tests: those are the tests to re-run.
+    const callerTests = tests.length ? [] : [...new Set(callers.flatMap((caller) => [...(testsOf.get(caller) ?? [])]))].sort();
+    const via = tests.length || callerTests.length ? null : testedThrough.get(qn);
     const parts = [
       callers.length ? `called by ${names(callers.map(callerName))}` : null,
+      handles.length ? `handles ${names(handles, 2)}` : null,
       flows.length ? `on ${names(flows, 2)}` : null,
       rules ? plural(rules, 'rule') : null,
-      tests.length ? `tested by ${names(tests.map(basename), 2)}` : via ? `tested through ${via}` : 'no test reaches it',
+      tests.length ? `tested by ${names(tests.map(basename), 2)}`
+        : callerTests.length ? `tested through its callers by ${names(callerTests.map(basename), 2)}` : via ? `tested through ${via}` : 'no test reaches it',
       partnerText(fn.file)
     ].filter(Boolean);
     records.push({
       id: recordId(`${state}:${fn.file}:${qn}`), kind: 'impact', scope: 'function', state,
       text: `${qn} (${state}): ${parts.join('; ')}`,
-      parts: { symbol: qn, path: fn.file, callers, flows, rules, tests, testedThrough: via ?? null },
+      parts: { symbol: qn, path: fn.file, callers, handles, flows, rules, tests, callerTests, testedThrough: via ?? null },
       sources: { code: [{ path: fn.file, line: fn.start ?? null }] },
-      weight: flows.length * 4 + callers.length * 2 + rules + (tests.length || via ? 0 : 2)
+      weight: (flows.length + handles.length) * 4 + callers.length * 2 + rules + (tests.length || callerTests.length || via ? 0 : 2)
     });
   };
   const fileRecord = (file, state) => {
@@ -209,7 +224,10 @@ export function buildImpactRecords(knowledge, { changedPaths = [], changedRanges
     for (const fn of touched) functionRecord(fn, 'changed');
   }
   for (const file of planned) fileRecord(file, 'planned');
-  return records.sort((a, b) => Number(a.state === 'planned') - Number(b.state === 'planned') || b.weight - a.weight || a.text.localeCompare(b.text, 'en'));
+  // Changed before planned, then what the Story's own words name, then what the change reaches most.
+  const relevance = focusWeight(focus);
+  const named = (record) => relevance(`${record.parts.symbol ?? ''} ${record.parts.path}`);
+  return records.sort((a, b) => Number(a.state === 'planned') - Number(b.state === 'planned') || named(b) - named(a) || b.weight - a.weight || a.text.localeCompare(b.text, 'en'));
 }
 
 /** The functions a change's lines fall in, from its impact records. */

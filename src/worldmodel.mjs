@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { SingularityFlowError, optionBoolean, optionString } from './util.mjs';
+import { operationContext } from './operation-context.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { loadSession } from './session.mjs';
@@ -12,15 +13,21 @@ import { recordPromptAudit } from './prompt-audit.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { clearCompositionCache, compositionCacheStatus } from './composition-cache.mjs';
 import { REMOVED_WORLD_MODEL_SUBCOMMANDS, removedWorldModelError } from './removed-features.mjs';
-import { compose, loadPromptConfig as load } from './phase-prompt-composer.mjs';
+import { compose, loadPromptConfig as load, phaseRepositoryBrief } from './phase-prompt-composer.mjs';
 export { composePhasePrompt, resolveOptionalTokenReductionShadowRuntime, approvedReferenceAlreadyCaptured,
   intentConflictRecovery, phasePromptExecutionContract, withPhasePromptRuntimeGuidance,
   renderFinalClarificationGuard } from './phase-prompt-composer.mjs';
 const KNOWLEDGE_COMMAND_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'knowledge', 'command.mjs')).href;
+const RULES_COMMAND_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'knowledge', 'rules-command.mjs')).href;
 
 /**
  * `wm brief`: the repository brief a phase receives, read from the composed prompt without recording
  * anything, so it is exactly what the phase sees (a saved prompt is shown as it was saved).
+ *
+ * `--polish` has the model phrase the brief's selected lines when model use is on (checked, and
+ * saved for these records, so the phase prompt reuses it); `--refresh` asks again. With model use
+ * off it is the same brief in its fixed wording. A phase whose prompt cannot be composed yet (its
+ * inputs are not approved) shows the brief it would carry now, from the same inputs, and says why.
  */
 async function phaseBriefCommand(root, options) {
   const story = await load(root, { agent: optionString(options, 'agent'), workId: optionString(options, 'work-id'), phase: optionString(options, 'phase') });
@@ -30,19 +37,51 @@ async function phaseBriefCommand(root, options) {
       { code: 'WORLD_MODEL_BRIEF_STORY_REQUIRED' }
     );
   }
+  const polishAsked = optionBoolean(options, 'polish');
+  const polish = polishAsked && operationContext()?.operation?.id === 'wm.brief.polish';
+  let brief = null;
+  let blocked = null;
   const prompt = await compose(root, {
     ...(optionString(options, 'work-id') ? { 'work-id': optionString(options, 'work-id') } : {}),
     ...(optionString(options, 'phase') ? { phase: optionString(options, 'phase') } : {}),
     ...(optionString(options, 'agent') ? { agent: optionString(options, 'agent') } : {}),
-    'render-only': true, 'return-only': true, 'skip-prompt-audit': true
+    'render-only': true, 'return-only': true, 'skip-prompt-audit': true,
+    ...(polish ? { 'brief-polish': 'write', 'brief-polish-refresh': optionBoolean(options, 'refresh') } : {}),
+    'brief-observer': (value) => { brief = value; }
+  }).catch(async (error) => {
+    const phase = optionString(options, 'phase') ?? story.workflow.currentPhase;
+    if (!(error instanceof SingularityFlowError) || !story.workflow.phases?.[phase]) throw error;
+    // The brief needs none of what the refusal is about; the prompt around it does.
+    blocked = String(error.message).split('\n').slice(0, 2).join(' ').replace(/:\s*-\s+/u, ': ').replace(/\s+/gu, ' ').trim();
+    brief = await phaseRepositoryBrief(root, { definition: story.definition, workflow: story.workflow, phase,
+      polish: polish ? 'write' : 'cached', refresh: optionBoolean(options, 'refresh') });
+    return brief.text;
   });
   const lines = String(prompt ?? '').split('\n');
   const start = lines.findIndex((line) => line.startsWith('# Repository brief: '));
   const end = start < 0 ? -1 : lines.findIndex((line, index) => index > start && /^# /u.test(line));
   const text = start < 0 ? '' : lines.slice(start, end < 0 ? undefined : end).join('\n').trimEnd();
-  const result = { status: text ? 'ok' : 'none', phase: optionString(options, 'phase') ?? null, bytes: Buffer.byteLength(text), text };
+  // A phase whose prompt is already composed shows the brief it was composed with; phrasing applies to its next one.
+  const notes = [
+    blocked ? `This phase's prompt cannot be composed yet (${blocked.replace(/[.:\s]+$/u, '')}); this is the Repository brief it would carry now.` : null,
+    !polishAsked ? null
+      : !brief ? 'This phase\'s prompt is already composed, so its brief is shown as it was composed; a phrasing applies to its next generation.'
+        : !polish ? 'Model use is off, so the brief keeps its fixed wording.'
+          : brief.polish?.applied ? null : 'The model\'s phrasing did not pass its checks, so the brief keeps its fixed wording.'
+  ].filter(Boolean);
+  const note = notes.join(' ') || null;
+  const result = {
+    status: text ? 'ok' : 'none', phase: optionString(options, 'phase') ?? null, bytes: Buffer.byteLength(text), text,
+    budget: brief?.budget ?? null, profile: brief?.profile ?? null, saved: Boolean(text) && !brief,
+    phrasing: brief?.receipt?.phrasing ?? null, records: brief?.receipt?.records ?? [], omitted: brief?.omitted ?? null,
+    composed: !blocked, note, ...(polishAsked ? { polish: brief?.polish ?? null } : {})
+  };
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
-  else console.log(text || 'This phase receives no repository brief: knowledge is off and no registered view is selected.');
+  else {
+    console.log(text || 'This phase receives no repository brief: knowledge is off and no registered view is selected.');
+    for (const entry of brief?.polish?.rejected?.slice(0, 8) ?? []) console.log(`  kept its fixed wording: "${entry.text}" (${entry.reason})`);
+    if (note) console.log(note);
+  }
   return result;
 }
 
@@ -181,6 +220,8 @@ export async function worldModelCommand(root, positionals, options) {
     const { knowledgeCommand } = await import(KNOWLEDGE_COMMAND_MODULE);
     return knowledgeCommand(root, positionals.slice(2), options);
   }
+  // Business rules and their meaning: a model may draft one, a person confirms it.
+  if (command === 'rules') return (await import(RULES_COMMAND_MODULE)).rulesCommand(root, positionals.slice(2), options);
   if (command === 'read') {
     const reference = positionals[2];
     if (!reference) {
@@ -219,6 +260,6 @@ export async function worldModelCommand(root, positionals, options) {
   if (REMOVED_WORLD_MODEL_SUBCOMMANDS.has(command)) throw removedWorldModelError(`wm ${command}`);
   if (optionBoolean(options, 'state-only') || optionString(options, 'format')) throw removedWorldModelError('wm --format');
   throw new SingularityFlowError(
-    'Usage: singularity-flow wm compose|inject|show-prompt|brief|knowledge|ast|read <ncg-view>|read-views|read-contract <ncg-view>|cache status|clear'
+    'Usage: singularity-flow wm compose|inject|show-prompt|brief|knowledge|rules|ast|read <ncg-view>|read-views|read-contract <ncg-view>|cache status|clear'
   );
 }

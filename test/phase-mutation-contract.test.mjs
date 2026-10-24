@@ -655,6 +655,24 @@ test('no agent turn accepts that a step\'s tests cannot run here or decides spec
   }
 });
 
+test('no agent turn confirms what a business rule means or reviews a knowledge item; listing and drafting stay allowed', async t => {
+  const f = await fixture(t);
+  for (const [skill, session] of [['/sf-phase', 'author'], ['/sf-recover', 'kernel'], ['/sf-worldmodel', 'wm']]) {
+    const payload = await f.enter(skill, session);
+    const shell = command => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+    for (const command of ['singularity-flow wm rules list --json', 'singularity-flow wm rules propose --json']) {
+      assert.deepEqual(await shell(command), {}, `${skill}: ${command}`);
+    }
+    for (const command of ['singularity-flow wm rules confirm R-0123456789ab --json',
+      'singularity-flow wm rules confirm R-0123456789ab --condition "an order has no lines" --outcome "it is refused"',
+      'singularity-flow wm knowledge confirm K-rule-0123456789abcdef', 'singularity-flow wm knowledge reject K-rule-0123456789abcdef --note "Not a rule."']) {
+      const denied = await shell(command);
+      assert.equal(denied.permissionDecision, 'deny', `${skill}: ${command}`);
+      assert.match(denied.permissionDecisionReason, /confirmed by a person who knows the code, in their own terminal/u, `${skill}: ${command}`);
+    }
+  }
+});
+
 test('an agent may request a Story-only test command, but only a person who approves the step accepts or revokes it', async t => {
   const f = await fixture(t);
   const request = `singularity-flow decision test-command PMC-1 --phase custom-step --id module-tests --argv '["npx","nx","run","shop-e2e:e2e"]' `

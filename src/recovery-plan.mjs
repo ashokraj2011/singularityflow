@@ -592,7 +592,7 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
         }));
         if (missingRepositoryRunner) {
           // An activated command the pin predates is adopted; otherwise a person accepts a Story-only one.
-          const { activatedTestCommandsFor } = await import('./test-setup-proposal.mjs');
+          const { activatedTestCommandsFor } = await import('./activated-test-commands.mjs');
           const activated = await activatedTestCommandsFor(root, workflow, phase.id);
           const workId = workflow.workItem.id;
           actions.push(activated.length ? action({

@@ -93,21 +93,7 @@ export async function planTestCommandProposal(root, { step: phase, workflow = nu
   }, { preferAuthority: true });
 }
 
-/**
- * Test commands the activated configuration now gives a Story's step that its pinned policy lacks:
- * what `story test-policy amend` would adopt. Empty when there are none or the authority cannot be read.
- */
-export async function activatedTestCommandsFor(root, workflow, phaseId) {
-  try {
-    return await withApprovedConfigurationRead(root, async () => {
-      const raw = YAML.parse(await readFile(path.join(configurationReadRoot(root), WORKFLOW_PATH), 'utf8')) ?? {};
-      const commands = raw.workTypes?.[workflow.workItem?.workType]?.phaseOverrides?.[phaseId]?.qualityCommands
-        ?? raw.phases?.[phaseId]?.qualityCommands ?? [];
-      const pinned = (workflow.resolution?.phases?.find((entry) => entry.id === phaseId)?.qualityCommands ?? []).map(canonicalJson);
-      return commands.filter((entry) => entry?.kind === 'test' && !pinned.includes(canonicalJson(entry)));
-    }, { preferAuthority: true });
-  } catch { return []; }
-}
+export { activatedTestCommandsFor } from './activated-test-commands.mjs';
 
 /** The test command the options name: an inspected suggestion (--use), or the one given in full. */
 export async function requestedCommand(root, options) {
@@ -138,6 +124,10 @@ export async function requestedCommand(root, options) {
     workingDirectory: optionString(options, 'working-directory'), affectedRoots: optionStrings(options, 'affected-root'), modelPolicy: 'never',
     result: { adapter: optionString(options, 'adapter'), path: optionString(options, 'report'), minimumDiscovered: 1 }
   };
+}
+
+function cliOnly() {
+  throw new SingularityFlowError('A test command is proposed from the command line: singularity-flow capability test-setup.');
 }
 
 export async function runTestCommandProposal(options) {
@@ -174,7 +164,10 @@ export async function runTestCommandProposal(options) {
   }
   if (problems.length) throw new SingularityFlowError(`Test command '${command.id}' cannot be proposed: ${problems[0]}`, { code: 'TEST_SETUP_PROPOSAL_INVALID', details: { subjectKind: 'configuration', problems } });
   // The same transaction as VS Code's Test setup: `configuration save --propose`, bound to the bytes previewed.
-  const [legacy, { withStdinText }] = await Promise.all([import('./commands/legacy.mjs'), import('./read-stdin.mjs')]);
+  // The extension host never proposes a test command, so its bundles drop this branch and the whole
+  // CLI with it (the CLI's installer module uses top-level await, which a CommonJS bundle cannot hold).
+  const [legacy, { withStdinText }] = globalThis.__SFLOW_EXTENSION_HOST__ === true
+    ? cliOnly() : await Promise.all([import('./commands/legacy.mjs'), import('./read-stdin.mjs')]);
   const lines = [];
   const original = console.log;
   if (json) console.log = (...args) => lines.push(args.join(' '));

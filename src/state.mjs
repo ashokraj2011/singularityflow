@@ -5928,24 +5928,15 @@ export async function approvePhase(root, config, workflow, {
   for (const commit of interveningCommits) {
     if (!allowedReviewCommits.has(commit) && applicabilityDecisionCommit(root, config, workflow, commit)) allowedReviewCommits.add(commit);
   }
-  if (interveningCommits.some((commit) => !allowedReviewCommits.has(commit))) {
-    throw new SingularityFlowError(
-      `Phase '${phase.id}' repository history changed after its immutable review evidence was recorded. `
-      + 'Only prior approvals, applicability decisions or an exact Auto human-boundary checkpoint for this submitted phase may precede another approval; submit fresh evidence for every other commit.',
-      {
-        code: 'STORY_REVIEW_INTERVENING_COMMIT',
-        details: {
-          workId: workflow.workItem.id,
-          phase: phase.id,
-          generation: phase.generation,
-          evidenceCommit: submittedReview.evidenceCommit,
-          currentHead: head(root),
-          interveningCommits,
-          priorApprovalCommits,
-          allowedReviewCommits: [...allowedReviewCommits]
-        }
-      }
-    );
+  const blockingCommits = interveningCommits.filter((commit) => !allowedReviewCommits.has(commit));
+  if (blockingCommits.length) {
+    // Name each commit and route an undecided intent amendment among them to its decision first.
+    const { interveningCommitRefusal } = await import('./review-intervening-commits.mjs');
+    throw interveningCommitRefusal(root, workflow, phase, {
+      blocking: blockingCommits, interveningCommits, priorApprovalCommits,
+      allowedReviewCommits: [...allowedReviewCommits],
+      evidenceCommit: submittedReview.evidenceCommit, currentHead: head(root)
+    });
   }
   // Architecture intent was removed; a binding recorded before then is compared as recorded, never re-resolved.
   const architectureIntentBinding = (phase?.generationPublications ?? []).find((entry) =>

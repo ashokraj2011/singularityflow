@@ -41,6 +41,12 @@ function workspaceRegistryFile(env = process.env, home = os.homedir()) {
   return path.resolve(env.SINGULARITY_FLOW_WORKSPACE_REGISTRY || path.join(home, '.singularity-flow', 'workspaces.json'));
 }
 
+/** The active workspace's ID, read from the stored selection only (workspace-context.mjs owns it). */
+export async function activeWorkspaceId(env = process.env, home = os.homedir()) {
+  const file = path.resolve(env.SINGULARITY_FLOW_ACTIVE_WORKSPACE || path.join(home, '.singularity-flow', 'active-workspace.json'));
+  try { return JSON.parse(await readFile(file, 'utf8'))?.workspaceId ?? null; } catch { return null; }
+}
+
 /** Beside the workspace registry, wherever that is redirected. */
 export function storyIndexFile(env = process.env, home = os.homedir()) {
   return path.resolve(env.SINGULARITY_FLOW_STORY_INDEX

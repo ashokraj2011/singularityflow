@@ -254,6 +254,9 @@ test('one Story has one checkout across workspaces, and a Work ID decides where 
       assert.equal(refusal.code, 'STORY_CHECKOUT_REQUIRED');
       assert.match(refusal.message, /session open NOPE-1/u);
 
+      // Opening a Story that has no checkout yet is not refused for it: that makes its one checkout.
+      const resumed = f.cli(['resume', 'NOPE-1', '--json'], { cwd: one.checkoutPath, allowFailure: true });
+      assert.notEqual(JSON.parse(resumed.stdout).error?.code, 'STORY_CHECKOUT_REQUIRED', resumed.stdout);
       // The current Story by name, and by none, is unchanged.
       assert.equal(f.json(['status', '--work-id', 'S-1'], { cwd: one.checkoutPath }).value.workItem.id, 'S-1');
       assert.equal(f.json(['status'], { cwd: one.checkoutPath }).value.workItem.id, 'S-1');

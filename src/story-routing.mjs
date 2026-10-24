@@ -149,11 +149,18 @@ async function storyChangesHere(root, workflowPath) {
 
 function refusal(message, code, details) { return new SingularityFlowError(message, { code, details }); }
 
+// These create a Story or prepare its first checkout: the Story need not exist anywhere yet.
+const STORY_CREATION_SUBCOMMANDS = new Set(['start', 'prepare-worktree', 'prepare-configuration', 'discard-worktree']);
+// These open a published Story here when it has no checkout yet; one that has a checkout goes to it.
+const opensStory = (command, positionals) => ['resume', 'return'].includes(command)
+  || command === 'story' && positionals[1] === 'return';
+
 /**
  * Where a command that names a Story runs: null to run here, else `{ root, route }` for that
  * Story's checkout. Refuses when the Story is in another workspace or has no checkout here.
  */
 export async function routeNamedStory({ command, positionals, options, argv, root, env = process.env }) {
+  if (command === 'story' && STORY_CREATION_SUBCOMMANDS.has(positionals[1])) return null;
   const named = namedWorkId(command, positionals, options);
   if (!named) return null;
   applyWorkIdOperand(named, positionals, argv);
@@ -172,7 +179,7 @@ export async function routeNamedStory({ command, positionals, options, argv, roo
     return null;
   }
   const { valid, unavailable } = await index.lookupStoryCheckouts(workId, { env });
-  const active = await activeWorkspaceId(env);
+  const active = await index.activeWorkspaceId(env);
   const here = new Set([member.workspace.id, active].filter(Boolean));
   const local = valid.filter((entry) => here.has(entry.workspace.id));
   const sameRepository = local.filter((entry) => entry.repository.key === member.repositoryKey);
@@ -186,6 +193,8 @@ export async function routeNamedStory({ command, positionals, options, argv, roo
   if (!entry) {
     const elsewhere = valid.find((item) => !here.has(item.workspace.id));
     if (elsewhere) throw await index.storyElsewhereError(workId, elsewhere, { sameWorkspace: false, operation: `${command}` });
+    // With no checkout anywhere, opening the Story here makes the one checkout it will have.
+    if (!unavailable.length && opensStory(command, positionals)) return null;
     if (unavailable.length) throw refusal(
       `Story ${workId}'s checkout at ${unavailable[0].checkoutPath} is not on this computer: ${unavailable[0].reason}. Nothing was run. `
       + 'Download the folder (or keep it on this computer) and run the command again.',
@@ -221,9 +230,3 @@ async function classification(command, positionals, options) {
   } catch { return 'mutation'; }
 }
 
-async function activeWorkspaceId(env) {
-  try {
-    const { activeWorkspaceFile } = await import('./workspace-context.mjs');
-    return JSON.parse(await readFile(activeWorkspaceFile(env), 'utf8'))?.workspaceId ?? null;
-  } catch { return null; }
-}

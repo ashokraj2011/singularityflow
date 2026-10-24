@@ -5,7 +5,6 @@
  * checkout before it is shown; one that no longer matches Git is dropped, never shown as current.
  * With a Work ID it locates that Story and gives the commands that go to its checkout.
  */
-import { readFile } from 'node:fs/promises';
 import { optionBoolean, SingularityFlowError, table } from '../util.mjs';
 
 const OPTIONS = new Set(['json', 'rebuild', 'timings']);
@@ -22,11 +21,6 @@ function projected(entry, activeWorkspaceId) {
   };
 }
 
-async function activeWorkspaceId() {
-  const { activeWorkspaceFile } = await import('../workspace-context.mjs');
-  try { return JSON.parse(await readFile(activeWorkspaceFile(), 'utf8'))?.workspaceId ?? null; } catch { return null; }
-}
-
 export async function run(positionals = [], options = {}) {
   for (const key of Object.keys(options)) {
     if (!OPTIONS.has(key)) throw new SingularityFlowError(`workspace stories takes --rebuild and --json, not --${key}.`,
@@ -37,7 +31,7 @@ export async function run(positionals = [], options = {}) {
   const workId = positionals[2] ?? null;
   const index = await import('../story-index.mjs');
   const listing = await index.listStoryIndex({ rebuild: optionBoolean(options, 'rebuild') });
-  const active = await activeWorkspaceId();
+  const active = await index.activeWorkspaceId();
   const stories = listing.entries
     .filter((entry) => !workId || entry.workId === workId || entry.branch === workId || (entry.aliases ?? []).includes(workId))
     .map((entry) => projected(entry, active));

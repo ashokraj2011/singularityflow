@@ -37,7 +37,7 @@ workspace, repository, branch, phase and status. `workspace stories` lists them 
 Work ID operand of `status`, `nextsteps`, `report` and the others) runs in that Story's checkout
 wherever it was started from, and prints `<WORK-ID> → <CHECKOUT>` (JSON: `storyRoute`). A Story in
 another workspace is refused with `workspace use <WORKSPACE>`; one with no checkout here, with
-`session open <WORK-ID>`. Start, `session open`, `session open-local` and `session attach` reuse
+`session open <WORK-ID>` (`resume` and `return` open it here instead). Start, `session open`, `session open-local` and `session attach` reuse
 the Story's checkout or refuse to make a second one, in another clone or another workspace. The
 index is a lookup, never authority: every read checks the entry against the checkout's own Git
 files and drops one that no longer matches.

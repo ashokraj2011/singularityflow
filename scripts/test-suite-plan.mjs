@@ -19,6 +19,19 @@ const PROCESS_HEAVY_FILE_WEIGHTS = Object.freeze({
   'test/workspace.test.mjs': 4_000_000
 });
 
+/**
+ * Measured time per test file, from a full run's timing profile (scripts/update-test-durations.mjs).
+ * It only schedules shards; it never selects files, so coverage and receipts are unchanged.
+ */
+export const TEST_DURATIONS_PATH = 'benchmarks/test-durations.json';
+
+export async function readTestDurations(root) {
+  try {
+    const profile = JSON.parse(await readFile(path.join(root, TEST_DURATIONS_PATH), 'utf8'));
+    return profile?.schemaVersion === 1 && profile.files && typeof profile.files === 'object' ? profile.files : {};
+  } catch { return {}; }
+}
+
 export function needsTypeStripping(source) {
   return /['"`][^'"`]*\.ts['"`]/.test(source) || source.includes('apps/vscode');
 }
@@ -31,6 +44,7 @@ export async function discoverTestSuite(root, suite = 'all') {
   if (!TEST_SUITES.includes(suite)) {
     throw new Error(`Test suite must be one of: ${TEST_SUITES.join(', ')}.`);
   }
+  const durations = await readTestDurations(root);
   const names = (await readdir(path.join(root, 'test')))
     .filter((name) => name.endsWith('.test.mjs'))
     .sort();
@@ -45,7 +59,8 @@ export async function discoverTestSuite(root, suite = 'all') {
       kind,
       bytes: Buffer.byteLength(source),
       sourceSha256: digest(source),
-      needsTypeStripping: needsTypeStripping(source)
+      needsTypeStripping: needsTypeStripping(source),
+      ...(Number.isFinite(durations[relative]) && durations[relative] > 0 ? { measuredMs: durations[relative] } : {})
     }));
   }
   if (!files.length) throw new Error(`No ${suite} tests were discovered.`);
@@ -58,12 +73,13 @@ export async function discoverTestSuite(root, suite = 'all') {
 }
 
 /**
- * Deterministically distribute expensive files without requiring machine-specific timing data.
+ * Deterministically distribute expensive files, longest first, onto the lightest shard.
  *
- * Source bytes are only a scheduling hint, never evidence. Largest-first placement keeps the
- * unusually large Auto, SGOS, VS Code, and World-Model fixtures in separate lanes; the exact
- * selected-file digest below is what proves coverage. A future reviewed timing profile can replace
- * the weight without changing shard identity or completeness rules.
+ * With a timing profile, a file weighs its measured milliseconds, and a file the profile has not
+ * seen yet weighs its bytes at the profile's median milliseconds per byte. Without one, source
+ * bytes and the reviewed process-heavy weights stand in, which keeps the Auto, SGOS and Workspace
+ * journeys in lanes of their own. Weights are only a scheduling hint, never evidence: the exact
+ * selected-file digest below is what proves coverage, whatever the weights were.
  */
 export function partitionTestFiles(files, shardCount) {
   if (!Number.isInteger(shardCount) || shardCount < 1 || shardCount > 64) {
@@ -72,7 +88,11 @@ export function partitionTestFiles(files, shardCount) {
   const shards = Array.from({ length: shardCount }, (_, index) => ({
     index: index + 1, weight: 0, files: []
   }));
-  const weightOf = (file) => Math.max(file.bytes, PROCESS_HEAVY_FILE_WEIGHTS[file.relative] ?? 0);
+  const ratios = files.filter((file) => file.measuredMs > 0 && file.bytes > 0).map((file) => file.measuredMs / file.bytes).sort((a, b) => a - b);
+  const msPerByte = ratios.length ? ratios[Math.floor(ratios.length / 2)] : null;
+  const unmeasured = (file) => Math.max(file.bytes, PROCESS_HEAVY_FILE_WEIGHTS[file.relative] ?? 0);
+  const weightOf = (file) => (msPerByte == null ? unmeasured(file)
+    : Math.round(file.measuredMs > 0 ? file.measuredMs : unmeasured(file) * msPerByte));
   const ordered = [...files].sort((left, right) => (
     weightOf(right) - weightOf(left) || left.relative.localeCompare(right.relative)
   ));

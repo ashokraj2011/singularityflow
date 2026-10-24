@@ -87,14 +87,15 @@ test('a command that reaches the network gets a bound, and a timeout is not a re
   assert.equal(defaultTimeoutFor('gh'), NETWORK_TIMEOUT_MS);
   assert.ok(NETWORK_TIMEOUT_MS > 0);
   // A fetch against a large repository legitimately takes minutes; a shorter deadline is not the fix.
-  assert.equal(defaultTimeoutFor('git'), 30_000);
+  // The product defaults; the suite runner gives local reads a longer one under load.
+  assert.equal(defaultTimeoutFor('git', { env: {} }), 30_000);
   assert.equal(defaultTimeoutFor('git', {
     timeoutClass: 'local-read', env: { SINGULARITY_FLOW_GIT_LOCAL_TIMEOUT_MS: '4321' }
   }), 4321);
-  assert.equal(defaultTimeoutFor('git', { timeoutClass: 'remote-read' }), 180_000);
-  assert.equal(defaultTimeoutFor('git', { args: ['-C', '/repo', '-c', 'x.y=z', 'status'] }), 30_000);
-  assert.equal(defaultTimeoutFor('git', { args: ['commit', '-m', 'status'] }), 180_000);
-  assert.equal(defaultTimeoutFor('git', { args: ['fetch'] }), 180_000);
+  assert.equal(defaultTimeoutFor('git', { timeoutClass: 'remote-read', env: {} }), 180_000);
+  assert.equal(defaultTimeoutFor('git', { args: ['-C', '/repo', '-c', 'x.y=z', 'status'], env: {} }), 30_000);
+  assert.equal(defaultTimeoutFor('git', { args: ['commit', '-m', 'status'], env: {} }), 180_000);
+  assert.equal(defaultTimeoutFor('git', { args: ['fetch'], env: {} }), 180_000);
   assert.equal(defaultTimeoutFor('node'), undefined);
 
   const started = Date.now();

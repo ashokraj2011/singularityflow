@@ -18,6 +18,7 @@ import YAML from 'yaml';
 
 import { resolveWorkType, validateDefinition } from '../src/config.mjs';
 import { verificationRepositoryTests } from '../src/verification/repository-tests.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -26,7 +27,7 @@ const choreFlow = { workType: 'chore', agent: 'developer' };
 function execute(command, args, cwd, { allowFailure = false } = {}) {
   const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_TEST_IDENTITY: 'Verification Tester',
     SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify(choreFlow) };
-  const result = spawnSync(command, args, { cwd, encoding: 'utf8', env, timeout: 180_000 });
+  const result = spawnSync(command, args, { cwd, encoding: 'utf8', env, timeout: childTimeout(180_000) });
   if (!allowFailure && result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
   return result;
 }

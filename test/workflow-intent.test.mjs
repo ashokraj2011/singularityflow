@@ -20,6 +20,7 @@ import { planStudioChangeSet } from '../src/workflow-studio.mjs';
 import { derivedMcpPolicy } from '../src/workflow-markup-mcp.mjs';
 import { STEP_OUTPUTS, newStepContract, newStepTemplate } from '../src/step-outputs.mjs';
 import { workflowIntentExample } from '../src/workflow-intent-catalog.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const example = await readFile(new URL('../examples/demo-tagged-workflow.xml', import.meta.url), 'utf8');
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
@@ -282,7 +283,7 @@ test('copied skills and instructions retain inline placement and credential-shap
 
 test('catalog commands are model-free, bounded, root-explicit and refuse repeated options or stale retrieval', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-intent-cli-')); t.after(() => rm(root, { recursive: true, force: true }));
-  const run = args => spawnSync(process.execPath, [CLI, 'workflow', 'intent', ...args], { cwd: root, encoding: 'utf8', timeout: 30000 });
+  const run = args => spawnSync(process.execPath, [CLI, 'workflow', 'intent', ...args], { cwd: root, encoding: 'utf8', timeout: childTimeout(30000) });
   const list = run(['catalog', '--source', 'installed', '--kind', 'skill', '--limit', '2', '--json']); assert.equal(list.status, 0, list.stderr);
   const catalog = JSON.parse(list.stdout);
   const show = run(['show', 'skill', catalog.entries[0].id, '--source', 'installed', '--expected-source', catalog.sourceSha256, '--json']); assert.equal(show.status, 0, show.stderr);

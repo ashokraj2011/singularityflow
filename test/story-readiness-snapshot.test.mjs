@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { createStoryReadinessFixture } from '../scripts/story-readiness-benchmark.mjs';
 import { storyReadinessSnapshot } from '../src/story-readiness-snapshot.mjs';
 import { saveRepositoryCheckSettings } from '../src/repository-check-settings.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 test('intake catalogs share the cache policy, explicit refresh and complete-only admission', async t => {
   const f = await createStoryReadinessFixture({ files: 1 }); t.after(f.cleanup);
@@ -118,7 +119,7 @@ test('a remote Story appearing during the preview cache window is refused by fre
     'start', 'PERF-READY', '--from-branch', 'main', '--isolated-worktree', '--work-type', 'feature',
     '--title', 'Must not overwrite', '--description', 'Collision test', '--json',
     ...(cached.packet.preflight.intakeReceipt?.issued ? ['--intake-receipt', cached.packet.preflight.intakeReceipt.id] : [])], {
-    cwd: f.original, env: f.env, encoding: 'utf8', timeout: 90_000, maxBuffer: 8 * 1024 * 1024
+    cwd: f.original, env: f.env, encoding: 'utf8', timeout: childTimeout(90_000), maxBuffer: 8 * 1024 * 1024
   });
   assert.notEqual(started.status, 0);
   assert.match(started.stderr + started.stdout, /already exists|Resume|story.*exists/iu);

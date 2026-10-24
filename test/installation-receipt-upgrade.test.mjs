@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { inspectInstallationReceipt, retainLegacyInstallationReceipt } from '../scripts/install-staged-artifacts.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const slash = value => value.replaceAll('\\', '/');
@@ -92,7 +93,7 @@ exec ${JSON.stringify(slash(process.execPath))} "$@"`
     : 'export PATH="$INSTALL_TEST_BIN:$PATH"; exec bash "$@"';
   const run = args => spawnSync(bash, ['-c', enter, 'sflow-receipt-test',
     slash(path.join(f.directory, 'install.sh')), '--no-update', ...args], {
-    cwd: f.directory, encoding: 'utf8', timeout: 30_000,
+    cwd: f.directory, encoding: 'utf8', timeout: childTimeout(30_000),
     env: { ...process.env, HOME: slash(f.directory), INSTALL_TEST_LOG: slash(log), INSTALL_TEST_BIN: slash(bin),
       PATH: process.platform === 'win32' ? `${bin};${process.env.PATH}` : `${bin}:/bin:/usr/bin` }
   });

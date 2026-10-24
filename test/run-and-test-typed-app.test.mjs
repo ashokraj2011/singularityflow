@@ -8,6 +8,7 @@ import test, { after } from 'node:test';
 import YAML from 'yaml';
 
 import { buildRepositoryReadinessPlan } from '../src/initialization/runtime-readiness.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const CLI = path.resolve('bin/singularity-flow.mjs');
 const SECRET = 'typed-fixture-secret-9c41';
@@ -38,7 +39,7 @@ const git = (root, ...args) => {
   assert.equal(result.status, 0, result.stderr);
   return result.stdout;
 };
-const cli = (root, args, input = null) => spawnSync(process.execPath, [CLI, ...args], { cwd: root, encoding: 'utf8', input, timeout: 60_000 });
+const cli = (root, args, input = null) => spawnSync(process.execPath, [CLI, ...args], { cwd: root, encoding: 'utf8', input, timeout: childTimeout(60_000) });
 const json = (root, args) => {
   const result = cli(root, args);
   assert.equal(result.status, 0, result.stderr);

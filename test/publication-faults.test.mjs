@@ -33,6 +33,7 @@ import {
   capabilityPublicationPlanSha256, publishCapabilityRepositoriesDurably,
   retainCapabilityPublicationRecovery
 } from '../src/capability-publication-recovery.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -829,7 +830,7 @@ test('a mid-wave hard crash retains both landed peers and an unattempted tail fo
     `);`
   ].join('\n');
   const child = spawnSync(process.execPath, ['--input-type=module', '--eval', childScript], {
-    cwd: packageRoot, encoding: 'utf8', timeout: 15_000
+    cwd: packageRoot, encoding: 'utf8', timeout: childTimeout(15_000)
   });
   assert.equal(child.signal, 'SIGKILL', child.stderr);
   const pending = await readPendingPublication(fixture.root, fixture.subject);

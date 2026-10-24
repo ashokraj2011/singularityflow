@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url));
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -197,7 +198,7 @@ test('commands that load the legacy CLI leave the SQLite build and the ACP SDK t
     "await new Promise((resolve) => setTimeout(resolve, 100)); port1.close();",
     "console.log(JSON.stringify({ count: loaded.length, heavy: loaded.filter((url) => /node_modules\\/(?:sql\\.js|@agentclientprotocol)\\//u.test(url)) }));"
   ].join('\n');
-  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', timeout: 60_000 });
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', timeout: childTimeout(60_000) });
   assert.equal(result.status, 0, result.stderr);
   const report = JSON.parse(result.stdout.trim().split('\n').at(-1));
   assert.ok(report.count > 100, 'the hook saw the CLI graph load');

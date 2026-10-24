@@ -6,11 +6,12 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { CALL_CAUSES, RESULT_ROUTES, createSessionAttribution, readCopilotSessionReport } from '../src/native-copilot-sessions.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fixture = path.join(packageRoot, 'test/fixtures/copilot-sessions');
 const audit = (...args) => spawnSync(process.execPath, [path.join(packageRoot, 'scripts/native-copilot-audit.mjs'), ...args],
-  { cwd: packageRoot, encoding: 'utf8', timeout: 15000 });
+  { cwd: packageRoot, encoding: 'utf8', timeout: childTimeout(15000) });
 
 // SPEC-OUT v3 AC-001: every call one cause, every result one route, totals equal the input.
 test('session report gives every model call one cause and every tool result one route', async () => {

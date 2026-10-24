@@ -14,12 +14,13 @@ import { fileURLToPath } from 'node:url';
 import { createHostGateway } from '../src/gateway/host.mjs';
 import { cliStartRoute, gatewayMutationExecutors } from '../src/gateway/planners/executors.mjs';
 import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const ACTOR = { login: 'tester', email: 'tester@example.com', name: 'Tester' };
 
 function git(cwd, ...args) {
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 60_000 });
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: childTimeout(60_000) });
   assert.equal(result.status, 0, `${args.join(' ')}: ${result.stderr}`);
   return result.stdout;
 }
@@ -38,7 +39,7 @@ async function governedRepository(t) {
   git(root, 'init', '-q', '-b', 'main');
   git(root, 'config', 'user.email', ACTOR.email);
   git(root, 'config', 'user.name', ACTOR.name);
-  const init = spawnSync(process.execPath, [cli, 'init'], { cwd: root, encoding: 'utf8', timeout: 120_000 });
+  const init = spawnSync(process.execPath, [cli, 'init'], { cwd: root, encoding: 'utf8', timeout: childTimeout(120_000) });
   assert.equal(init.status, 0, init.stderr);
   git(root, 'add', '-A');
   git(root, 'commit', '-q', '-m', 'init');

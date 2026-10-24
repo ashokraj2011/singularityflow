@@ -10,6 +10,7 @@ import {
   applicationStartArgv, applicationStartCommandSha256, debuggerListeners, normalizeCapabilityApplication, validateCapabilities
 } from '../src/capabilities.mjs';
 import { recordSha256 } from '../src/records.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const CLI = path.resolve('bin/singularity-flow.mjs');
 const start = (overrides = {}) => ({
@@ -140,7 +141,7 @@ async function fixture(t, entry) {
   return root;
 }
 
-const cli = (root, args) => spawnSync(process.execPath, [CLI, ...args], { cwd: root, encoding: 'utf8', timeout: 60_000 });
+const cli = (root, args) => spawnSync(process.execPath, [CLI, ...args], { cwd: root, encoding: 'utf8', timeout: childTimeout(60_000) });
 
 test('app plan shows the resolved argv per environment and app start runs the chosen one', async (t) => {
   const port = await freePort();

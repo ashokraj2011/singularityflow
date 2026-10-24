@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
+import { childTimeout } from './child-timeout.mjs';
 
 export async function performanceFixture(base, cli, { workId = 'PERF-1', native = false } = {}) {
   const root = path.join(base, 'repo');
@@ -20,7 +21,7 @@ export async function performanceFixture(base, cli, { workId = 'PERF-1', native 
   }
   const run = (command, args, cwd = root, extraEnv = {}) => {
     const started = performance.now();
-    const result = spawnSync(command, args, { cwd, env: { ...env, ...extraEnv }, encoding: 'utf8', timeout: 180_000,
+    const result = spawnSync(command, args, { cwd, env: { ...env, ...extraEnv }, encoding: 'utf8', timeout: childTimeout(180_000),
       maxBuffer: 16 * 1024 * 1024 });
     return { ...result, elapsedMs: performance.now() - started };
   };

@@ -7,6 +7,7 @@ import path from 'node:path';
 import test, { after } from 'node:test';
 
 import { buildRepositoryReadinessPlan } from '../src/initialization/runtime-readiness.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const CLI = path.resolve('bin/singularity-flow.mjs');
 const SECRET = 'fixture-secret-value-7f3a';
@@ -71,7 +72,7 @@ async function fixture({ ready, mode = 'listen', environments = null, policy = n
 }
 
 function cli(root, args, input = null) {
-  return spawnSync(process.execPath, [CLI, ...args], { cwd: root, encoding: 'utf8', input, timeout: 60_000 });
+  return spawnSync(process.execPath, [CLI, ...args], { cwd: root, encoding: 'utf8', input, timeout: childTimeout(60_000) });
 }
 
 const started = new Set();

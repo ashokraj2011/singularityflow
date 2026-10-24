@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 test('thin local session entry preserves the original selector and protocol refusals', async t => {
@@ -15,7 +16,7 @@ test('thin local session entry preserves the original selector and protocol refu
     const results = [];
     for (const mode of ['legacy', 'shared']) {
       const result = spawnSync(process.execPath, [cli, '--no-model', 'session', 'open-local', 'LOCAL-1', ...args, '--json'], {
-        cwd: root, encoding: 'utf8', timeout: 30_000, env: { ...process.env, SINGULARITY_FLOW_BUNDLE: 'off',
+        cwd: root, encoding: 'utf8', timeout: childTimeout(30_000), env: { ...process.env, SINGULARITY_FLOW_BUNDLE: 'off',
           SINGULARITY_FLOW_SESSION_READS: mode, SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1',
           SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, 'registry.json'), SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, 'active.json'),
           SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(root, 'mode.json') }

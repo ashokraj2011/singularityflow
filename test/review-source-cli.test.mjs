@@ -22,6 +22,7 @@ import { renderPlatformCommand, withAgentPathProtocol } from '../src/safe-comman
 import { completeAgentResult, withAgentRoutes } from '../src/agent-output.mjs';
 
 import { publishedSpecificationStory, reviewReport } from './helpers/source-review-fixture.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const executable = path.join(packageRoot, 'bin/singularity-flow.mjs');
@@ -36,7 +37,7 @@ function git(root, ...args) {
 
 function cli(root, ...args) {
   const result = spawnSync(process.execPath, [executable, ...args], {
-    cwd: root, encoding: 'utf8', timeout: 30000,
+    cwd: root, encoding: 'utf8', timeout: childTimeout(30000),
     env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.git/test-workspace-registry.json'),
       SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.git/test-active-workspace.json') }
   });
@@ -172,7 +173,7 @@ test('real and copied workflow preparation returns authoring instead of reviewin
     assert.match(cli(root, 'review-source', 'context', phaseId), new RegExp(`prepare ${phaseId}`));
     for (const action of ['check', 'submit']) {
       const refused = spawnSync(process.execPath, [executable, 'review-source', action, phaseId,
-        '--report-file', old.stagingPath, '--json'], { cwd: root, encoding: 'utf8', timeout: 30000 });
+        '--report-file', old.stagingPath, '--json'], { cwd: root, encoding: 'utf8', timeout: childTimeout(30000) });
       assert.notEqual(refused.status, 0);
       assert.equal(completeAgentResult(refused.stdout).error.code, 'SOURCE_REVIEW_SUCCESSOR_UNPUBLISHED');
     }
@@ -326,7 +327,7 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
   const reviewerDecision = spawnSync(process.execPath, [executable, 'review-source', 'decide',
     'specification', '--finding', 'exclusion:export-exclusion',
     '--reason', 'The reviewer cannot approve this exclusion.', '--json'], {
-    cwd: root, encoding: 'utf8', timeout: 30000
+    cwd: root, encoding: 'utf8', timeout: childTimeout(30000)
   });
   assert.notEqual(reviewerDecision.status, 0,
     'the selected read-only reviewer cannot record its own human disposition');
@@ -342,7 +343,7 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
   for (const confirmation of [undefined, 'b'.repeat(64)]) {
     const failed = spawnSync(process.execPath, [executable, 'review-source', 'decide', 'specification',
       '--work-id', WORK_ID, '--finding', 'exclusion:export-exclusion', '--reason', reason,
-      ...(confirmation ? ['--confirm', confirmation] : []), '--json'], { cwd: root, encoding: 'utf8', timeout: 30000 });
+      ...(confirmation ? ['--confirm', confirmation] : []), '--json'], { cwd: root, encoding: 'utf8', timeout: childTimeout(30000) });
     assert.notEqual(failed.status, 0);
     assert.match(failed.stdout + failed.stderr, /SOURCE_REVIEW_DECISION_STALE/);
     assert.equal(git(root, 'rev-parse', 'HEAD'), beforeDecision);
@@ -358,7 +359,7 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
   assert.equal(submitRoute.nextSkill, '/sf-submit');
   cli(root, 'agent', '--agent', 'sflow-source-reviewer');
   const reviewerSubmit = spawnSync(process.execPath, [executable, 'submit', 'specification'], {
-    cwd: root, encoding: 'utf8', timeout: 30000
+    cwd: root, encoding: 'utf8', timeout: childTimeout(30000)
   });
   assert.notEqual(reviewerSubmit.status, 0, 'the selected read-only reviewer cannot submit the phase');
   assert.match(`${reviewerSubmit.stderr}\n${reviewerSubmit.stdout}`, /read-only source reviewer/);
@@ -381,7 +382,7 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
   assert.equal(approveRoute.nextCommand, `singularity-flow approve specification --work-id ${WORK_ID} --fetch`);
   assert.equal(approveRoute.copilotCommand, `/sf-approve specification --work-id ${WORK_ID}`);
   const approval = spawnSync(process.execPath, [executable, 'approve', 'specification', '--yes'], {
-    cwd: root, encoding: 'utf8', timeout: 30000
+    cwd: root, encoding: 'utf8', timeout: childTimeout(30000)
   });
   assert.equal(approval.status, 0, `approval after a ready review failed:\n${approval.stderr}\n${approval.stdout}`);
   assert.doesNotMatch(`${approval.stderr}\n${approval.stdout}`, /source review is stale/);
@@ -431,7 +432,7 @@ test('real CLI review requires acknowledgement of the human answers retained by 
   assert.equal(afterSubmission.status, 'ready', 'submission metadata must preserve the clarification-bound review');
   assert.deepEqual(afterSubmission.binding.clarifications, packet.binding.clarifications);
   const approval = spawnSync(process.execPath, [executable, 'approve', phaseId, '--yes'], {
-    cwd: root, encoding: 'utf8', timeout: 30000
+    cwd: root, encoding: 'utf8', timeout: childTimeout(30000)
   });
   assert.equal(approval.status, 0, `approval with pinned answers failed:\n${approval.stderr}\n${approval.stdout}`);
   assert.doesNotMatch(`${approval.stderr}\n${approval.stdout}`, /source review is stale/);
@@ -483,7 +484,7 @@ test('malformed reviewer packets are diagnosed read-only and cannot be committed
   assert.ok(checked.findings.some((entry) => entry.field === 'findings[0].severity'));
   assert.ok(checked.findings.some((entry) => entry.field === 'findings[0].message'));
   const submit = spawnSync(process.execPath, [executable, 'review-source', 'submit', phaseId,
-    '--report-file', packet.stagingPath, '--json'], { cwd: root, encoding: 'utf8', timeout: 30000 });
+    '--report-file', packet.stagingPath, '--json'], { cwd: root, encoding: 'utf8', timeout: childTimeout(30000) });
   assert.notEqual(submit.status, 0);
   const refusal = completeAgentResult(submit.stdout);
   assert.equal(refusal.error.code, 'SOURCE_REVIEW_REPORT_INVALID');
@@ -503,7 +504,7 @@ test('reviewer cannot prepare or publish a phase under shared authorship, before
   for (const args of [['prepare', phaseId], ['phase', 'publish', phaseId,
     '--authored', 'governed-agent', '--channel', 'copilot-host']]) {
     const result = spawnSync(process.execPath, [executable, ...args, '--json'],
-      { cwd: root, encoding: 'utf8', timeout: 30000 });
+      { cwd: root, encoding: 'utf8', timeout: childTimeout(30000) });
     assert.notEqual(result.status, 0);
     assert.match(`${result.stdout}\n${result.stderr}`, /read-only source reviewer/u);
     assert.equal(git(root, 'rev-parse', 'HEAD'), head);

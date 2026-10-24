@@ -11,11 +11,12 @@ import { buildTestExecutionReceipt, replayTestReports } from '../src/code-delive
 import { bindingsDigest } from '../src/implementation-bindings.mjs';
 import { canonicalJson } from '../src/records.mjs';
 import { scanJavaScriptDeclarations } from '../src/verification/javascript-declarations.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 
 function git(root, ...args) {
-  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 10_000 });
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: childTimeout(10_000) });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
 }
@@ -194,7 +195,7 @@ test('receipt and raw-report batches replay the same passing attempts with bound
       requireAffectedModuleCoverage: false, evidenceCommit: ${JSON.stringify(f.evidenceCommit)} });
     if (result.errors.length !== 1 || result.executions.length !== 6) throw new Error(JSON.stringify(result.errors));`;
   const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], { cwd: f.root,
-    encoding: 'utf8', timeout: 15000, env: { ...process.env, SINGULARITY_FLOW_SUBPROCESS_PROBE: '1', SINGULARITY_FLOW_GIT_FACT_STORE: 'off' } });
+    encoding: 'utf8', timeout: childTimeout(15000), env: { ...process.env, SINGULARITY_FLOW_SUBPROCESS_PROBE: '1', SINGULARITY_FLOW_GIT_FACT_STORE: 'off' } });
   assert.equal(child.status, 0, child.stderr);
   const calls = Number(/subprocesses:\s+(\d+)\s+calls/u.exec(child.stderr)?.[1]);
   assert.ok(calls <= 9, `replay took ${calls} Git processes`);

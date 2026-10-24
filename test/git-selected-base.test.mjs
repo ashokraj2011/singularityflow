@@ -7,9 +7,10 @@ import test from 'node:test';
 import { checkout, fetchRemote, localRefHeads } from '../src/git.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { prepareStoryWorktree } from '../src/story-worktree.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 function git(root, ...args) {
-  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 30_000 });
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: childTimeout(30_000) });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
 }

@@ -9,6 +9,7 @@ import {
   autoAttemptId, discoverAutoCandidateRecoveryAuthority, freezeAutoCandidate,
   publishAutoCandidateRecoveryAuthority, restoreAutoCandidateWorktree
 } from '../src/auto/auto-candidate.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 function git(root, ...args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
@@ -44,7 +45,7 @@ function freezeThenHardExit(root, options) {
   ].join('\n');
   return spawnSync(process.execPath, [
     '--input-type=module', '-e', script, moduleUrl, root, encoded
-  ], { cwd: root, encoding: 'utf8', timeout: 30_000 });
+  ], { cwd: root, encoding: 'utf8', timeout: childTimeout(30_000) });
 }
 
 for (const [index, disposition] of ['authored', 'preserved-after-failure'].entries()) {

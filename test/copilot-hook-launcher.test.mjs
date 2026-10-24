@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { copilotHookCommand } from '../src/copilot-hook-commands.mjs';
 import { RUNTIME_UNAVAILABLE_MARKER } from '../src/copilot-repository-boundary.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const pluginRoot = path.join(packageRoot, 'plugin');
@@ -19,7 +20,7 @@ const events = ['userPromptSubmitted', 'preToolUse', 'postToolUse', 'sessionEnd'
 const powershellArgs = ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command'];
 const powershell = ['pwsh', ...(process.platform === 'win32' ? ['powershell'] : [])].find(command =>
   spawnSync(command, [...powershellArgs, '$PSVersionTable.PSVersion.ToString()'],
-    { encoding: 'utf8', timeout: 10_000 }).status === 0);
+    { encoding: 'utf8', timeout: childTimeout(10_000) }).status === 0);
 
 function rootEnvironment(env, roots) {
   const next = { ...env };
@@ -55,7 +56,7 @@ async function fixture(t) {
     SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(directory, 'workspace.json'),
     SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(directory, 'registry.json') };
   const invoke = (action, candidates = [cli], input = '{}') => spawnSync(process.execPath,
-    [bootstrap, action, ...candidates], { cwd, env, input, encoding: 'utf8', timeout: 10_000 });
+    [bootstrap, action, ...candidates], { cwd, env, input, encoding: 'utf8', timeout: childTimeout(10_000) });
   return { directory, cwd, env, invoke };
 }
 
@@ -183,7 +184,7 @@ test('every packaged bash hook accepts VS Code and CLI roots, preferring the cur
   ]) for (const [action, command] of await manifestCommands('bash')) {
     const result = spawnSync('/bin/bash', ['-c', command], {
       cwd: item.cwd, env: { ...rootEnvironment(item.env, roots), PATH: `${bin}:/usr/bin:/bin` },
-      input: '{}', encoding: 'utf8', timeout: 10_000
+      input: '{}', encoding: 'utf8', timeout: childTimeout(10_000)
     });
     assert.equal(result.status, 0, `${action}: ${result.stderr}`);
     assert.equal(result.stderr, '', action);
@@ -203,7 +204,7 @@ test('the packaged preToolUse hook judges a batched toolCalls payload call by ca
   const hook = (action, payload) => {
     const result = spawnSync('/bin/bash', ['-c', commands[action]], {
       cwd: item.cwd, env: { ...rootEnvironment(item.env, { PLUGIN_ROOT: pluginRoot }), PATH: `${bin}:/usr/bin:/bin` },
-      input: JSON.stringify(payload), encoding: 'utf8', timeout: 30_000
+      input: JSON.stringify(payload), encoding: 'utf8', timeout: childTimeout(30_000)
     });
     assert.equal(result.status, 0, `${action}: ${result.stderr}`);
     return JSON.parse(result.stdout);
@@ -247,7 +248,7 @@ test('every bash hook diagnoses missing, empty or stale plugin roots before laun
     { PLUGIN_ROOT: path.join(item.directory, 'missing plugin'), COPILOT_PLUGIN_ROOT: pluginRoot }
   ]) for (const [action, command] of await manifestCommands('bash')) {
     assertRootUnavailable(spawnSync('/bin/bash', ['-c', command], {
-      cwd: item.cwd, env: rootEnvironment(item.env, roots), input: '{}', encoding: 'utf8', timeout: 10_000
+      cwd: item.cwd, env: rootEnvironment(item.env, roots), input: '{}', encoding: 'utf8', timeout: childTimeout(10_000)
     }), action);
   }
 });
@@ -266,7 +267,7 @@ test('every PowerShell hook invokes the literal host root and forwards the actio
     { PLUGIN_ROOT: '', COPILOT_PLUGIN_ROOT: mountedPlugin }
   ]) for (const [action, command] of await manifestCommands('powershell')) {
     const result = spawnSync(powershell, [...powershellArgs, command], {
-      cwd: item.cwd, env: rootEnvironment(item.env, roots), input: '{"sessionId":"exact"}', encoding: 'utf8', timeout: 10_000
+      cwd: item.cwd, env: rootEnvironment(item.env, roots), input: '{"sessionId":"exact"}', encoding: 'utf8', timeout: childTimeout(10_000)
     });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stderr, '');
@@ -286,7 +287,7 @@ test('every PowerShell hook returns structured diagnostics for missing, empty or
     { PLUGIN_ROOT: path.join(item.directory, 'missing plugin'), COPILOT_PLUGIN_ROOT: pluginRoot }
   ]) for (const [action, command] of await manifestCommands('powershell')) {
     assertRootUnavailable(spawnSync(powershell, [...powershellArgs, command], {
-      cwd: item.cwd, env: rootEnvironment(item.env, roots), input: '{}', encoding: 'utf8', timeout: 10_000
+      cwd: item.cwd, env: rootEnvironment(item.env, roots), input: '{}', encoding: 'utf8', timeout: childTimeout(10_000)
     }), action);
   }
 });
@@ -317,7 +318,7 @@ test('packaged PowerShell launcher finds the Windows-style APPDATA runtime and f
     const result = spawnSync(powershell, [...powershellArgs, command], {
       cwd: item.cwd, env: { ...rootEnvironment(item.env, { PLUGIN_ROOT: pluginRoot }), APPDATA: appData,
         PATH: `${hostBin}${path.delimiter}${path.dirname(process.execPath)}${path.delimiter}${item.env.PATH ?? ''}` },
-      input: '{"sessionId":"exact"}', encoding: 'utf8', timeout: 10_000
+      input: '{"sessionId":"exact"}', encoding: 'utf8', timeout: childTimeout(10_000)
     });
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(result.stdout), { argv: ['hook', action], input: '{"sessionId":"exact"}' });
@@ -356,7 +357,7 @@ test('with no SFlow turn recorded, bash guard, after-tool and end hooks answer w
   await writeFile(path.join(bin, 'node'), `#!/bin/sh\necho started >> '${started}'\nexec '${process.execPath}' "$@"\n`, { mode: 0o755 });
   await symlink(cli, path.join(bin, 'singularity-flow'));
   const launch = (action, input = '{"sessionId":"native"}') => spawnSync('/bin/bash', [path.join(pluginRoot, 'hook-launcher.sh'), action], {
-    cwd: item.cwd, env: { ...item.env, PATH: `${bin}:/usr/bin:/bin` }, input, encoding: 'utf8', timeout: 10_000
+    cwd: item.cwd, env: { ...item.env, PATH: `${bin}:/usr/bin:/bin` }, input, encoding: 'utf8', timeout: childTimeout(10_000)
   });
   const nodeStarts = () => (existsSync(started) ? readFileSync(started, 'utf8').split('\n').filter(Boolean).length : 0);
   for (const action of ['boundary-guard', 'boundary-after', 'boundary-end']) {
@@ -393,7 +394,7 @@ test('a runtime that cannot load keeps the shell guard failing closed until a wo
   // whose bootstrap refuses for a runtime it cannot load (shown above).
   await writeFile(path.join(bin, 'node'), `#!/bin/sh\necho started >> '${started}'\necho '{}'\n`, { mode: 0o755 });
   const shellGuard = spawnSync('/bin/bash', [path.join(pluginRoot, 'hook-launcher.sh'), 'boundary-guard'], {
-    cwd: item.cwd, env: { ...item.env, PATH: `${bin}:/usr/bin:/bin` }, input: '{"sessionId":"native"}', encoding: 'utf8', timeout: 10_000
+    cwd: item.cwd, env: { ...item.env, PATH: `${bin}:/usr/bin:/bin` }, input: '{"sessionId":"native"}', encoding: 'utf8', timeout: childTimeout(10_000)
   });
   assert.equal(shellGuard.status, 0, shellGuard.stderr);
   assert.equal(existsSync(started), true, 'not answered by the shell fast path');
@@ -415,7 +416,7 @@ test('with no SFlow turn recorded, PowerShell guard, after-tool and end hooks an
   await writeFile(standIn[0], standIn[1], { mode: 0o755 });
   const launch = (action, input = '{"sessionId":"native"}') => spawnSync(powershell,
     [...powershellArgs, `& '${path.join(pluginRoot, 'hook-launcher.ps1')}' ${action}`], {
-      cwd: item.cwd, env: { ...item.env, PATH: `${bin}${path.delimiter}${item.env.PATH}` }, input, encoding: 'utf8', timeout: 30_000
+      cwd: item.cwd, env: { ...item.env, PATH: `${bin}${path.delimiter}${item.env.PATH}` }, input, encoding: 'utf8', timeout: childTimeout(30_000)
     });
   const nodeStarts = () => (existsSync(started) ? readFileSync(started, 'utf8').split(/\r?\n/u).filter(Boolean).length : 0);
   for (const action of ['boundary-guard', 'boundary-after', 'boundary-end']) {

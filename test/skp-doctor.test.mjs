@@ -14,6 +14,7 @@ import {
   compileConfirmedSkillPhase, configurationPhaseFromCompiledSkill,
   skillCandidateCatalogSha256, skillContractSha256, skillPhaseCandidateSha256
 } from '../src/skp-contract.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const capture = (entry = '# Exact approved procedure\n') => inspectSkillPackageContents(
@@ -109,7 +110,7 @@ test('skill doctor refuses an ambiguous Story/phase before repository or source 
   for (const flags of [[], ['--story', 'story-id'], ['--phase', 'analysis'],
     ['--story', 'story-id', '--phase', 'analysis', '--confirm', 'yes']]) {
     const result = spawnSync(process.execPath, [CLI, 'skill', 'doctor', 'report', ...flags, '--json'],
-      { cwd: isolated, encoding: 'utf8', timeout: 10000, env: {
+      { cwd: isolated, encoding: 'utf8', timeout: childTimeout(10000), env: {
         ...process.env,
         SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(isolated, '.test-workspaces.json'),
         SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(isolated, '.test-active-workspace.json'),
@@ -129,7 +130,7 @@ async function retainedStory(t) {
   });
   const invoke = (executable, argv, { allowFailure = false } = {}) => {
     const result = spawnSync(executable, argv, {
-      cwd: root, encoding: 'utf8', timeout: 30000,
+      cwd: root, encoding: 'utf8', timeout: childTimeout(30000),
       env: {
         ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Skill Doctor Tester',
         SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.test-workspaces.json'),

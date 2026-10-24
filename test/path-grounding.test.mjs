@@ -18,6 +18,7 @@ import { buildSpecIndex, canonicalJson, derivePlannedClaimMap } from '../src/spe
 import { removeTemporaryTree, snapshot } from '../src/util.mjs';
 import { PHASE_ENTRY_SKILLS } from '../src/copilot-mode.mjs';
 import { CLI_PATH_CONTRACT } from '../src/safe-command-guidance.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(root, 'bin', 'singularity-flow.mjs');
@@ -210,7 +211,7 @@ test('blank-machine entry skills execute before workspace, repository, or Story 
     'SINGULARITY_FLOW_WORKSPACE_ROOT'
   ]) delete env[key];
   const invoke = (...args) => spawnSync(process.execPath, [cli, ...args], {
-    cwd, env, encoding: 'utf8', timeout: 180_000
+    cwd, env, encoding: 'utf8', timeout: childTimeout(180_000)
   });
   const succeeds = (label, args) => {
     const result = invoke(...args);
@@ -270,7 +271,7 @@ test('repository entry initializes an explicitly opened unregistered Git root wi
   for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'SINGULARITY_FLOW_WORKSPACE_ROOT']) delete env[key];
 
   const initialized = spawnSync(process.execPath, [cli, 'init'], {
-    cwd: repository, env, encoding: 'utf8', timeout: 30_000
+    cwd: repository, env, encoding: 'utf8', timeout: childTimeout(30_000)
   });
   assert.equal(initialized.status, 0,
     `repository entry failed before registration:\n${initialized.stderr || initialized.stdout}`);
@@ -280,7 +281,7 @@ test('repository entry initializes an explicitly opened unregistered Git root wi
     'repository initialization must not silently create a workspace registration');
 
   const checked = spawnSync(process.execPath, [cli, 'init', '--check', '--json'], {
-    cwd: repository, env, encoding: 'utf8', timeout: 30_000
+    cwd: repository, env, encoding: 'utf8', timeout: childTimeout(30_000)
   });
   assert.equal(checked.status, 0, checked.stderr || checked.stdout);
   const report = JSON.parse(checked.stdout);

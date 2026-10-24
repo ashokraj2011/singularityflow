@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 import { nodeTypeScriptFlags } from '../scripts/typescript-runtime.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 test('TypeScript source execution uses the bounded loader throughout supported Node 20', () => {
   assert.deepEqual(nodeTypeScriptFlags('/fixture', '20.0.0'), [
@@ -50,7 +51,7 @@ test('the compatibility loader actually executes TypeScript through a URL on the
   delete env.NODE_TEST_CONTEXT;
   const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(root, '20.20.2'),
     '--input-type=module', '-e', `console.log((await import(${JSON.stringify(pathToFileURL(fixture).href)})).value)`],
-  { cwd: directory, env, encoding: 'utf8', timeout: 30_000 });
+  { cwd: directory, env, encoding: 'utf8', timeout: childTimeout(30_000) });
   assert.equal(result.error, undefined, result.error?.message);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), '42');

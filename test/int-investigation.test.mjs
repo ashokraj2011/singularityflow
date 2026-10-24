@@ -19,10 +19,11 @@ import {
   CONFIDENCE_LABELS, EVIDENCE_SEQUENCE, INVESTIGATION_RECORD_TYPES, problemInvestigate, problemInvestigateAssisted
 } from '../src/gateway/planners/problem-investigate.mjs';
 import { message } from '../src/gateway/messages.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 function git(cwd, ...args) {
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 60_000 });
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: childTimeout(60_000) });
   assert.equal(result.status, 0, `${args.join(' ')}: ${result.stderr}`);
   return result.stdout.trim();
 }
@@ -34,7 +35,7 @@ async function regression(t) {
   git(root, 'init', '-q', '-b', 'main');
   git(root, 'config', 'user.email', 'dev@example.test');
   git(root, 'config', 'user.name', 'Dev');
-  assert.equal(spawnSync(process.execPath, [cli, 'init'], { cwd: root, encoding: 'utf8', timeout: 120_000 }).status, 0);
+  assert.equal(spawnSync(process.execPath, [cli, 'init'], { cwd: root, encoding: 'utf8', timeout: childTimeout(120_000) }).status, 0);
   const configPath = path.join(root, 'singularity', 'workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.phases.implementation.qualityCommands = [{

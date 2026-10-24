@@ -8,6 +8,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 /**
  * `session open --for-agent --json` must finish or refuse with a classified reason in bounded time.
@@ -33,7 +34,7 @@ async function storyFixture(t) {
   const root = path.join(base, 'repo');
   const env = fixtureEnv(base);
   const must = (command, args, cwd = root) => {
-    const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: 180_000 });
+    const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: childTimeout(180_000) });
     assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
   };
   must('git', ['init', '-q', '-b', 'main', root], base);

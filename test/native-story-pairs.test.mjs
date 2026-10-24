@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const runner = fileURLToPath(new URL('../scripts/native-story-pairs.mjs', import.meta.url));
 
@@ -14,7 +15,7 @@ test('a human stop persists at Intake and prevents another native provider launc
   const manifest = path.join(directory, 'native-pairs.json');
   await writeFile(manifest, JSON.stringify({ pairs: [{ status: 'prepared' }] }));
   const invoke = action => spawnSync(process.execPath, [runner, action, directory], {
-    encoding: 'utf8', timeout: 15_000, env: { ...process.env, PATH: directory }
+    encoding: 'utf8', timeout: childTimeout(15_000), env: { ...process.env, PATH: directory }
   });
   const stopped = invoke('stop');
   assert.equal(stopped.status, 0, stopped.stderr);
@@ -42,7 +43,7 @@ test('a stop issued while a native turn runs survives that turn', { skip: proces
   await writeFile(fake, `#!/bin/sh\n${JSON.stringify(process.execPath)} ${JSON.stringify(runner)} stop ${JSON.stringify(directory)} >/dev/null\nexit 0\n`);
   await chmod(fake, 0o755);
   const invoke = action => spawnSync(process.execPath, [runner, action, directory], {
-    encoding: 'utf8', timeout: 30_000, env: { ...process.env, PATH: directory }
+    encoding: 'utf8', timeout: childTimeout(30_000), env: { ...process.env, PATH: directory }
   });
   const ran = invoke('run-next');
   assert.equal(ran.status, 0, ran.stderr);

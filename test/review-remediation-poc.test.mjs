@@ -10,6 +10,7 @@ import YAML from 'yaml';
 import { loadAcceptedStoryExecution } from '../src/accepted-story-execution.mjs';
 import { resolveStoryExecutionContext } from '../src/story-execution-context.mjs';
 import { run } from '../src/util.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -20,7 +21,7 @@ function git(root, args, options = {}) {
 
 function invoke(env, cwd, args, { expectStatus = 0 } = {}) {
   const result = spawnSync(process.execPath, [cli, ...args], {
-    cwd, env, encoding: 'utf8', timeout: 180_000
+    cwd, env, encoding: 'utf8', timeout: childTimeout(180_000)
   });
   assert.equal(result.status, expectStatus,
     `singularity-flow ${args.join(' ')}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);

@@ -11,6 +11,7 @@ import { withOperationContext } from '../src/operation-context.mjs';
 import { createWorkflow } from '../src/state.mjs';
 import { loadStoryDecisionExecution, storyDecisionArguments } from '../src/story-decision-context.mjs';
 import { run } from '../src/util.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const ID = 'PIN-DECISION';
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
@@ -72,7 +73,7 @@ test('approve and reject use saved templates and agents even when live resources
     assert.doesNotMatch(context.workflow.resolution.templates.specification.path, /unavailable-new-spec/);
     assert.equal(context.definition.agentCatalog.find((agent) => agent.id === 'product-owner').scope, 'workflow-snapshot');
     const result = spawnSync(process.execPath, [cli, action, 'specification', '--work-id', ID, '--json'], {
-      cwd: root, encoding: 'utf8', timeout: 30000
+      cwd: root, encoding: 'utf8', timeout: childTimeout(30000)
     });
     assert.notEqual(result.status, 0);
     const output = result.stdout + result.stderr;
@@ -96,7 +97,7 @@ test('an accepted phase removed from the live catalog is still a phase, not a br
     assert.equal(context.requestedPhase, 'specification');
     assert.ok(context.workflow.phases.specification);
     const result = spawnSync(process.execPath, [cli, action, 'specification', '--json'], {
-      cwd: root, encoding: 'utf8', timeout: 30000
+      cwd: root, encoding: 'utf8', timeout: childTimeout(30000)
     });
     assert.notEqual(result.status, 0);
     assert.match(result.stdout + result.stderr, /requires status awaiting_approval.*specification.*in_progress/s);

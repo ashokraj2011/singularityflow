@@ -9,6 +9,7 @@ import { gitDisabledHooksPath, gitEmptyConfigPath } from '../src/git-isolation-p
 import {
   enterpriseGitEnvironment, withoutGitProcessOverrides
 } from '../src/git-enterprise-environment.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 test('Git process overrides are removed case-insensitively for Windows-compatible environments', () => {
   const cleaned = withoutGitProcessOverrides({
@@ -56,26 +57,26 @@ test('the isolated Git environment reads the real empty file and excludes ambien
     assert.equal(isolated.GIT_CONFIG_GLOBAL, gitEmptyConfigPath());
     assert.equal(isolated.GIT_CONFIG_SYSTEM, gitEmptyConfigPath());
     const listed = spawnSync('git', ['config', '--global', '--list'], {
-      cwd: scratch, env: isolated, encoding: 'utf8', timeout: 10_000
+      cwd: scratch, env: isolated, encoding: 'utf8', timeout: childTimeout(10_000)
     });
     assert.equal(listed.status, 0, listed.stderr || String(listed.error ?? 'Git config read failed'));
     assert.equal(listed.stdout, '');
     const user = spawnSync('git', ['config', '--get', 'user.name'], {
-      cwd: scratch, env: isolated, encoding: 'utf8', timeout: 10_000
+      cwd: scratch, env: isolated, encoding: 'utf8', timeout: childTimeout(10_000)
     });
     assert.equal(user.status, 1, user.stderr || 'Ambient user.name entered isolated Git');
     const remote = path.join(scratch, 'authority.git');
     const initialized = spawnSync('git', ['init', '--bare', '--quiet', remote], {
-      cwd: scratch, env: isolated, encoding: 'utf8', timeout: 10_000
+      cwd: scratch, env: isolated, encoding: 'utf8', timeout: childTimeout(10_000)
     });
     assert.equal(initialized.status, 0, initialized.stderr || 'Local authority setup failed');
     const observed = spawnSync('git', ['ls-remote', '--heads', '--', remote], {
-      cwd: scratch, env: isolated, encoding: 'utf8', timeout: 10_000
+      cwd: scratch, env: isolated, encoding: 'utf8', timeout: childTimeout(10_000)
     });
     assert.equal(observed.status, 0, observed.stderr || 'Isolated Git authority read failed');
     const checkout = path.join(scratch, 'checkout');
     const initializedCheckout = spawnSync('git', ['init', '--quiet', checkout], {
-      cwd: scratch, env: isolated, encoding: 'utf8', timeout: 10_000
+      cwd: scratch, env: isolated, encoding: 'utf8', timeout: childTimeout(10_000)
     });
     assert.equal(initializedCheckout.status, 0,
       initializedCheckout.stderr || 'Local hook-isolation setup failed');
@@ -89,7 +90,7 @@ test('the isolated Git environment reads the real empty file and excludes ambien
         GIT_AUTHOR_NAME: 'Isolation Test', GIT_AUTHOR_EMAIL: 'isolation@example.test',
         GIT_COMMITTER_NAME: 'Isolation Test', GIT_COMMITTER_EMAIL: 'isolation@example.test'
       },
-      encoding: 'utf8', timeout: 10_000
+      encoding: 'utf8', timeout: childTimeout(10_000)
     });
     assert.equal(committed.status, 0, committed.stderr || 'Isolated Git commit failed');
     if (process.platform === 'win32') {
@@ -118,7 +119,7 @@ test('Git reads reviewed credential helpers through the isolated config path', (
     assert.equal(isolated.GIT_CONFIG_GLOBAL, gitEmptyConfigPath());
     assert.equal(isolated.GIT_CONFIG_COUNT, '3');
     const helpers = spawnSync('git', ['config', '--null', '--get-all', 'credential.helper'], {
-      cwd: scratch, env: isolated, encoding: 'utf8', timeout: 10_000
+      cwd: scratch, env: isolated, encoding: 'utf8', timeout: childTimeout(10_000)
     });
     assert.equal(helpers.status, 0, helpers.stderr || String(helpers.error ?? 'Git helper read failed'));
     assert.deepEqual(helpers.stdout.split('\0'), [

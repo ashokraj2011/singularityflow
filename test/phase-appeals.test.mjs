@@ -31,6 +31,7 @@ import { recoveryPlan } from '../src/collaboration.mjs';
 import { setAgentSession } from '../src/session.mjs';
 import { inspectPhasePublicationReadiness, assertPhasePublicationReadiness } from '../src/phase-publication-readiness.mjs';
 import { completeAgentResult } from '../src/agent-output.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const WORK = 'APPEAL-1';
@@ -121,7 +122,7 @@ test('malformed and orphan appeal state cannot escape the shared gate', async ()
 });
 
 function run(command, args, cwd, allowFailure = false) {
-  const result = spawnSync(command, args, { cwd, encoding: 'utf8', timeout: 60000,
+  const result = spawnSync(command, args, { cwd, encoding: 'utf8', timeout: childTimeout(60000),
     env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Appeal Tester', SINGULARITY_FLOW_NO_MODEL: '1',
       SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(cwd, '.git', 'test-active-workspace.json'),
       SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(cwd, '.git', 'test-workspaces.json') } });
@@ -137,7 +138,7 @@ async function acceptDocumentRisk(root, cli, phase, { transitions = [] } = {}) {
   const id = `PQR-${packet.packetSha256.slice(7, 31)}`;
   const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('NODE_TEST_')));
   const ceremony = spawnSync('/usr/bin/expect', ['-c', `set timeout 45\nspawn -noecho $env(PQR_NODE) $env(PQR_CLI) --no-model appeal risk-accept --phase $env(PQR_PHASE) --finding artifact.placeholder.unresolved --gate-mode soft --expires $env(PQR_EXPIRES) --reason $env(PQR_REASON) {*}$env(PQR_TRANSITIONS) --confirm $env(PQR_CONFIRM) --json\nexpect "Type Accept risk ${id} to confirm this exact action, or Enter to cancel:"\nsend -- "Accept risk ${id}\\r"\nexpect eof\ncatch wait result\nexit [lindex $result 3]`],
-    { cwd: root, encoding: 'utf8', timeout: 50000, env: { ...environment, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Appeal Tester',
+    { cwd: root, encoding: 'utf8', timeout: childTimeout(50000), env: { ...environment, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Appeal Tester',
       PQR_NODE: process.execPath, PQR_CLI: CLI, PQR_PHASE: phase, PQR_EXPIRES: expires, PQR_REASON: reason,
       PQR_CONFIRM: packet.packetSha256, PQR_TRANSITIONS: transitions.flatMap(transition => ['--transition', transition]).join(' ') } });
   assert.equal(ceremony.status, 0, ceremony.stdout + ceremony.stderr); assert.match(ceremony.stdout, /risk-accepted/u);
@@ -319,7 +320,7 @@ for (const surface of ['terminal', 'browser']) test(`reviewed evidence typing vi
   }
   const ceremony = surface === 'browser' ? await browserEvidenceAcceptance(t, f.root, browserArgv, `Correct evidence ${id}`)
     : spawnSync('/usr/bin/expect', ['-c', `set timeout 45\nspawn -noecho $env(PEA_NODE) $env(PEA_CLI) --no-model appeal evidence-accept --phase implementation --clause $env(PEA_CLAUSE) --path $env(PEA_PATH) --method visual --reason $env(PEA_REASON) --confirm $env(PEA_CONFIRM) --json\nexpect "Type Correct evidence ${id} to confirm this exact action, or Enter to cancel:"\nsend -- "Correct evidence ${id}\\r"\nexpect eof\ncatch wait result\nexit [lindex $result 3]`],
-    { cwd: f.root, encoding: 'utf8', timeout: 60000, env: { ...environment, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Appeal Tester',
+    { cwd: f.root, encoding: 'utf8', timeout: childTimeout(60000), env: { ...environment, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Appeal Tester',
       PEA_NODE: process.execPath, PEA_CLI: CLI, PEA_CLAUSE: `${WORK}:AC-001`, PEA_PATH: evidencePath, PEA_REASON: options.at(-1), PEA_CONFIRM: packet.packetSha256 } });
   assert.equal(ceremony.status, 0, ceremony.stdout + ceremony.stderr);
   assert.match(ceremony.stdout, /evidence-contract-corrected/u);
@@ -552,7 +553,7 @@ test('pilot risk unlocks only the reviewed editable candidate, still runs tests 
     const accept = packet => {
       const id = `PQR-${packet.packetSha256.slice(7, 31)}`;
       const ceremony = spawnSync('/usr/bin/expect', ['-c', `set timeout 45\nspawn -noecho $env(PQR_NODE) $env(PQR_CLI) --no-model appeal risk-accept --phase implementation --expires $env(PQR_EXPIRES) --reason {The second planned location is explicitly deferred for this pilot.} --confirm $env(PQR_CONFIRM) --json\nexpect "Type Accept risk ${id} to confirm this exact action, or Enter to cancel:"\nsend -- "Accept risk ${id}\\r"\nexpect eof\ncatch wait result\nexit [lindex $result 3]`],
-      { cwd: f.root, encoding: 'utf8', timeout: 50000, env: { ...environment, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Appeal Tester',
+      { cwd: f.root, encoding: 'utf8', timeout: childTimeout(50000), env: { ...environment, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Appeal Tester',
         PQR_NODE: process.execPath, PQR_CLI: CLI, PQR_EXPIRES: options[3], PQR_CONFIRM: packet.packetSha256 } });
       assert.equal(ceremony.status, 0, ceremony.stdout + ceremony.stderr); assert.match(ceremony.stdout, /risk-accepted/u);
     };
@@ -618,7 +619,7 @@ test('one live document-quality decision survives publication and submission wit
     const id = `PQR-${preview.packetSha256.slice(7, 31)}`;
     const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('NODE_TEST_')));
     const ceremony = spawnSync('/usr/bin/expect', ['-c', `set timeout 45\nspawn -noecho $env(PQR_NODE) $env(PQR_CLI) --no-model appeal risk-accept --phase implementation --finding artifact.placeholder.unresolved --gate-mode soft --expires $env(PQR_EXPIRES) --reason $env(PQR_REASON) --confirm $env(PQR_CONFIRM) --json\nexpect "Type Accept risk ${id} to confirm this exact action, or Enter to cancel:"\nsend -- "Accept risk ${id}\\r"\nexpect eof\ncatch wait result\nexit [lindex $result 3]`],
-      { cwd: f.root, encoding: 'utf8', timeout: 50000, env: { ...environment, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Appeal Tester',
+      { cwd: f.root, encoding: 'utf8', timeout: childTimeout(50000), env: { ...environment, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Appeal Tester',
         PQR_NODE: process.execPath, PQR_CLI: CLI, PQR_EXPIRES: expires, PQR_REASON: reason, PQR_CONFIRM: preview.packetSha256 } });
     assert.equal(ceremony.status, 0, ceremony.stdout + ceremony.stderr);
     assert.match(ceremony.stdout, /risk-accepted/u);

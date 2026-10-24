@@ -13,11 +13,12 @@ import { planWorkflowImport, applyWorkflowImport, exportWorkflowBundle } from '.
 import { renderAgentSkills } from '../src/agents.mjs';
 import { inspectWorkflowAttachments } from '../src/workflow-intent-attachments.mjs';
 import { withWorkflowIntentCatalog } from '../src/workflow-intent-catalog.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const example = await readFile(new URL('../examples/demo-tagged-workflow.xml', import.meta.url), 'utf8');
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 async function temporary(t) { const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-design-review-')); t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10 })); return root; }
-function run(cwd, command, args, env = {}) { const r = spawnSync(command, args, { cwd, encoding: 'utf8', timeout: 60000, env: { ...process.env, NODE_ENV: 'test', ...env } }); assert.equal(r.status, 0, r.stderr || r.stdout); return r.stdout.trim(); }
+function run(cwd, command, args, env = {}) { const r = spawnSync(command, args, { cwd, encoding: 'utf8', timeout: childTimeout(60000), env: { ...process.env, NODE_ENV: 'test', ...env } }); assert.equal(r.status, 0, r.stderr || r.stdout); return r.stdout.trim(); }
 
 test('optional design review reflects native scope, approvals and return routes without changing the portable bundle', async () => {
   const ordinary = await compileWorkflowMarkup(example), reviewed = await compileWorkflowMarkup(example, { designReview: true });

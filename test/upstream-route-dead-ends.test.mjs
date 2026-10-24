@@ -21,6 +21,7 @@ import { rememberRefusal } from '../src/evidence/refusal-memory.mjs';
 import { gateRefusal } from '../src/evidence/gate-refusal.mjs';
 import { extractClauses, normalizeClaimMap } from '../src/specifications.mjs';
 import { raiseUpstreamIssueRoute, upstreamChangeRoutes } from '../src/upstream-routes.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin/singularity-flow.mjs');
@@ -195,7 +196,7 @@ test('recover surfaces a remembered refused ending instead of reporting no block
     SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(root, '.git/mode-not-set.json'),
     SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.git/no-workspace.json'),
     SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.git/no-registry.json') };
-  const result = spawnSync(process.execPath, [cli, 'recover', 'ENDING-1', '--json'], { cwd: root, env, encoding: 'utf8', timeout: 60_000 });
+  const result = spawnSync(process.execPath, [cli, 'recover', 'ENDING-1', '--json'], { cwd: root, env, encoding: 'utf8', timeout: childTimeout(60_000) });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const plan = JSON.parse(result.stdout);
   const blocker = plan.blockers.find(entry => entry.category === 'terminal-readiness');

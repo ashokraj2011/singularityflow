@@ -9,10 +9,11 @@ import test from 'node:test';
 import { readLocalGitBlobs } from '../src/git-blob-batch.mjs';
 import { withLocalReadDeadline } from '../src/local-read-deadline.mjs';
 import { run } from '../src/util.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 function git(root, args, { input, encoding = 'utf8', env = process.env } = {}) {
   const result = spawnSync('git', args, {
-    cwd: root, env, input, encoding, timeout: 10_000
+    cwd: root, env, input, encoding, timeout: childTimeout(10_000)
   });
   assert.equal(result.status, 0, String(result.stderr || result.error || args.join(' ')));
   return result.stdout;
@@ -31,7 +32,7 @@ for (const format of ['sha1', 'sha256']) {
     try {
       const initialized = spawnSync('git', [
         'init', '--quiet', ...(format === 'sha256' ? ['--object-format=sha256'] : [])
-      ], { cwd: root, encoding: 'utf8', timeout: 10_000 });
+      ], { cwd: root, encoding: 'utf8', timeout: childTimeout(10_000) });
       if (initialized.status !== 0 && format === 'sha256') {
         t.skip('This Git does not support SHA-256 repositories.');
         return;
@@ -212,7 +213,7 @@ if (process.argv[2] === 'recreate') {
 }
 console.log(JSON.stringify({ formats }));`;
   const runChild = (mode) => spawnSync(process.execPath, ['--input-type=module', '-e', script, root, mode], {
-    encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_SUBPROCESS_PROBE: '1' }, timeout: 30_000
+    encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_SUBPROCESS_PROBE: '1' }, timeout: childTimeout(30_000)
   });
   git(root, ['init', '--quiet']);
   const same = runChild('same');

@@ -14,6 +14,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -29,7 +30,7 @@ test('a step approver accepts a Story-only test command, and publication and sub
     GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'Runner Tester',
     GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 'runner.tester@example.invalid' };
   delete env.NODE_TEST_CONTEXT;
-  const run = (command, args, cwd = root) => spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: 180_000 });
+  const run = (command, args, cwd = root) => spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: childTimeout(180_000) });
   const must = (command, args, cwd = root) => {
     const result = run(command, args, cwd);
     assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
@@ -39,7 +40,7 @@ test('a step approver accepts a Story-only test command, and publication and sub
   const json = (...args) => JSON.parse(sflow(...args, '--json'));
   // A second person, who reviews the Story, decides what the developer asked.
   const asReviewer = (...args) => {
-    const result = spawnSync(process.execPath, [cli, '--no-model', ...args, '--json'], { cwd: root, encoding: 'utf8', timeout: 180_000,
+    const result = spawnSync(process.execPath, [cli, '--no-model', ...args, '--json'], { cwd: root, encoding: 'utf8', timeout: childTimeout(180_000),
       env: { ...env, SINGULARITY_FLOW_TEST_IDENTITY: 'Runner Reviewer', GIT_CONFIG_VALUE_0: 'Runner Reviewer', GIT_CONFIG_VALUE_1: 'runner.reviewer@example.invalid' } });
     assert.equal(result.status, 0, `${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
     return JSON.parse(result.stdout);

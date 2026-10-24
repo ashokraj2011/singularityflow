@@ -19,6 +19,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { encodePngRgba8 } from '../src/png-rgba8.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const bin = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const OMITTED = 'This test workflow checks one step and delivers nothing else.';
@@ -26,7 +27,7 @@ const OMITTED = 'This test workflow checks one step and delivers nothing else.';
 function execute(command, args, cwd, { allowFailure = false, selection } = {}) {
   const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Singularity Flow Test' };
   if (selection) env.SINGULARITY_FLOW_TEST_SELECTION = JSON.stringify(selection);
-  const result = spawnSync(command, args, { cwd, encoding: 'utf8', env, timeout: 180_000 });
+  const result = spawnSync(command, args, { cwd, encoding: 'utf8', env, timeout: childTimeout(180_000) });
   if (!allowFailure && result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
   return result;
 }

@@ -10,6 +10,7 @@ import {
   resolveWindowsBatchProcess, resolveWindowsSystemTool
 } from '../src/platform-process.mjs';
 import { distributionFixture, fileSha256 } from './helpers/distribution-artifacts.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 function canonicalWindowsPath(value) {
   return path.win32.normalize(String(value)).toLowerCase();
@@ -140,7 +141,7 @@ test('distribution bootstrap executes npm only from a private verified snapshot'
       SFLOW_ORIGINAL_TARBALL: originalTarball
     },
     encoding: 'utf8',
-    timeout: 30_000
+    timeout: childTimeout(30_000)
   });
   assert.equal(result.status, 0, result.stderr);
   const invocation = JSON.parse(await readFile(output, 'utf8'));
@@ -203,7 +204,7 @@ test('distribution bootstrap and Windows wrappers preserve reviewed argv through
 
   const direct = spawnSync(process.execPath, [
     bootstrap, 'install', ...common, '--marker', marker
-  ], { cwd: release.directory, env: environment, encoding: 'utf8', timeout: 30_000 });
+  ], { cwd: release.directory, env: environment, encoding: 'utf8', timeout: childTimeout(30_000) });
   assert.equal(direct.status, 0, direct.stderr || direct.error?.message);
 
   for (const [script, runner] of [
@@ -214,7 +215,7 @@ test('distribution bootstrap and Windows wrappers preserve reviewed argv through
       ...common, '--marker', `${script}: ${marker}`
     ], { environment });
     const result = spawnSync(launch.executable, launch.arguments, {
-      cwd: release.directory, env: environment, encoding: 'utf8', timeout: 30_000,
+      cwd: release.directory, env: environment, encoding: 'utf8', timeout: childTimeout(30_000),
       ...launch.spawnOptions
     });
     assert.equal(result.status, 0, `${script}: ${result.stderr || result.error?.message}`);
@@ -236,7 +237,7 @@ test('distribution bootstrap and Windows wrappers preserve reviewed argv through
     const result = spawnSync(powershell, [
       '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
       '-File', scriptPath, ...common, '--marker', `${script}: ${marker}`
-    ], { cwd: release.directory, env: environment, encoding: 'utf8', timeout: 30_000 });
+    ], { cwd: release.directory, env: environment, encoding: 'utf8', timeout: childTimeout(30_000) });
     assert.equal(result.status, 0, `${script}: ${result.stderr || result.error?.message}`);
     const records = await readJsonLines(harness.output);
     const record = records.at(-1);
@@ -271,7 +272,7 @@ test('distribution bootstrap and Windows wrappers preserve reviewed argv through
 
   const unsafe = spawnSync(process.execPath, [
     bootstrap, 'install', ...common, '--marker', '%PATH%'
-  ], { cwd: release.directory, env: environment, encoding: 'utf8', timeout: 30_000 });
+  ], { cwd: release.directory, env: environment, encoding: 'utf8', timeout: childTimeout(30_000) });
   assert.notEqual(unsafe.status, 0);
   assert.match(unsafe.stderr, /cannot contain controls, percent signs, or exclamation marks/u);
   assert.equal((await readJsonLines(harness.output)).length, 5,
@@ -308,7 +309,7 @@ test('distribution bootstrap Windows timeout terminates the npm descendant tree'
   const result = spawnSync(process.execPath, [
     path.join(release.directory, 'bootstrap.mjs'), 'install',
     '--artifact-key', release.publicKeyPath, '--dry-run'
-  ], { cwd: release.directory, env: environment, encoding: 'utf8', timeout: 15_000 });
+  ], { cwd: release.directory, env: environment, encoding: 'utf8', timeout: childTimeout(15_000) });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /npm runner exceeded its 300ms operation deadline/u);
   assert.equal((await readJsonLines(harness.output)).length, 1);

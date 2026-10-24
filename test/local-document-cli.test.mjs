@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(source, 'bin/singularity-flow.mjs');
@@ -24,7 +25,7 @@ test('real CLI delivers private source context, asks on takeover, and resumes af
     SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(base, 'copilot-mode.json'),
     SINGULARITY_FLOW_AGENT_OUTPUT: 'full' };
   function run(command, args, cwd = root, allowFailure = false) {
-    const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: 120_000, maxBuffer: 8 * 1024 * 1024 });
+    const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: childTimeout(120_000), maxBuffer: 8 * 1024 * 1024 });
     if (!allowFailure) assert.equal(result.status, 0, `${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
     return result;
   }

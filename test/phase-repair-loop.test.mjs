@@ -9,6 +9,7 @@ import { coordinatePhaseRepair, phaseRepairConditionHash } from '../src/phase-re
 import { assertPhaseRepairSettled, phaseRepairBinding, phaseRepairJournalDirectory,
   phaseRepairLoopSummary, readPhaseRepairJournal, repairDigest } from '../src/phase-repair-journal.mjs';
 import { resolveOperation } from '../src/command-registry.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 async function fixture(t, { maximum = 3, phaseId = 'custom-phase' } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-phase-loop-'));
@@ -131,7 +132,7 @@ test('a terminated process leaves a durable reservation that another process can
     const plan=await coordinatePhaseRepair({...request,action:'plan'},dependencies);
     await coordinatePhaseRepair({...request,action:'run',confirmation:plan.confirmation},
       {...dependencies,afterReservation:()=>process.exit(23)});`;
-  const result = spawnSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8', timeout: 20000 });
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8', timeout: childTimeout(20000) });
   assert.equal(result.status, 23, result.stderr);
   const retained = await f.call('status'); assert.equal(retained.consumed, 1); assert.equal(retained.active.attempt, 1);
   f.set('ready'); const resumed = await f.call('resume');

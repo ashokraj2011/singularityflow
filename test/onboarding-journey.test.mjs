@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { run } from '../src/util.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 
@@ -50,7 +51,7 @@ function journeyEnvironment(base) {
 
 function invoke(env, cwd, args, { expectStatus = 0 } = {}) {
   const result = spawnSync(process.execPath, [cli, ...args], {
-    cwd, env, encoding: 'utf8', timeout: 120_000
+    cwd, env, encoding: 'utf8', timeout: childTimeout(120_000)
   });
   assert.equal(result.status, expectStatus,
     `singularity-flow ${args.join(' ')}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);

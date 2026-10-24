@@ -14,6 +14,7 @@ import {
 } from '../src/configuration-branch.mjs';
 import { skillInspectionView } from '../src/skp-package.mjs';
 import { run } from '../src/util.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -120,7 +121,7 @@ test('skill approved CLI resolves approved authority, returns source commit, and
   const { root, remote, checkout } = await approvedSkillFixture(t);
   const before = run('git', ['status', '--porcelain'], { cwd: checkout }).stdout;
   const result = spawnSync(process.execPath, [CLI, 'skill', 'approved', 'threat-model', '--json'], {
-    cwd: checkout, encoding: 'utf8', timeout: 30000
+    cwd: checkout, encoding: 'utf8', timeout: childTimeout(30000)
   });
   assert.equal(result.status, 0, result.stderr);
   const response = JSON.parse(result.stdout);
@@ -139,13 +140,13 @@ test('skill approved CLI resolves approved authority, returns source commit, and
 
   const mismatch = spawnSync(process.execPath, [CLI, 'skill', 'approved', 'threat-model',
     '--expected-package-sha256', `sha256:${'0'.repeat(64)}`, '--json'], {
-    cwd: checkout, encoding: 'utf8', timeout: 30000
+    cwd: checkout, encoding: 'utf8', timeout: childTimeout(30000)
   });
   assert.notEqual(mismatch.status, 0);
   assert.match(mismatch.stdout, /SKP_SKILL_DRIFT|confirmed package/u);
 
   const missing = spawnSync(process.execPath, [CLI, 'skill', 'approved', 'local-only', '--json'], {
-    cwd: checkout, encoding: 'utf8', timeout: 30000
+    cwd: checkout, encoding: 'utf8', timeout: childTimeout(30000)
   });
   assert.notEqual(missing.status, 0);
   assert.match(missing.stdout, /SKP_SKILL_MISSING|exact SKILL\.md/u);
@@ -177,7 +178,7 @@ test('skill approved CLI resolves approved authority, returns source commit, and
     SINGULARITY_FLOW_ACTIVE_WORKSPACE: selection,
     SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry };
   const routed = spawnSync(process.execPath, [CLI, 'skill', 'approved', 'threat-model', '--json'], {
-    cwd: neutral, env, encoding: 'utf8', timeout: 30000
+    cwd: neutral, env, encoding: 'utf8', timeout: childTimeout(30000)
   });
   assert.equal(routed.status, 0, routed.stderr);
   assert.deepEqual(JSON.parse(routed.stdout).data.inspection.source,
@@ -187,7 +188,7 @@ test('skill approved CLI resolves approved authority, returns source commit, and
   await mkdir(local);
   await writeFile(path.join(local, 'SKILL.md'), '# Explicit local skill\n');
   const inspected = spawnSync(process.execPath, [CLI, 'skill', 'inspect', local, '--json'], {
-    cwd: neutral, env, encoding: 'utf8', timeout: 30000
+    cwd: neutral, env, encoding: 'utf8', timeout: childTimeout(30000)
   });
   assert.equal(inspected.status, 0, inspected.stderr);
   assert.equal(JSON.parse(inspected.stdout).data.inspection.source.kind, 'local-directory');
@@ -205,7 +206,7 @@ test('skill approved refuses a repository with no approved configuration authori
     env: { ...process.env,
       SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, 'no-active-workspace.json'),
       SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, 'no-workspace-registry.json') },
-    encoding: 'utf8', timeout: 30000
+    encoding: 'utf8', timeout: childTimeout(30000)
   });
   assert.notEqual(result.status, 0);
   assert.match(result.stdout, /SKP_APPROVED_AUTHORITY_UNAVAILABLE|No approved configuration authority/u);

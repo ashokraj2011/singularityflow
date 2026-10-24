@@ -13,6 +13,7 @@ import { resolveOperation } from '../src/command-registry.mjs';
 import { copilotCommandForCommand } from '../src/copilot-guidance.mjs';
 import { installDirectSkills, renderDirectSkill } from '../src/direct-skills.mjs';
 import { loadSkillPolicy } from '../scripts/skill-policy.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(root, 'bin', 'singularity-flow.mjs');
@@ -57,7 +58,7 @@ test('pause, paused Home and hooks work without Git or any workspace, and leave 
   await writeFile(env.SINGULARITY_FLOW_ACTIVE_WORKSPACE, '{broken');
   await writeFile(path.join(directory, 'draft.md'), 'Uncommitted native work');
   const invoke = (args) => {
-    const result = spawnSync(process.execPath, [cli, ...args], { cwd: directory, env, encoding: 'utf8', timeout: 15_000 });
+    const result = spawnSync(process.execPath, [cli, ...args], { cwd: directory, env, encoding: 'utf8', timeout: childTimeout(15_000) });
     assert.equal(result.status, 0, `${args.join(' ')}: ${result.stderr}`);
     const payload = JSON.parse(result.stdout);
     if (args[0] === 'pause') assert.equal(payload.resultType, 'command-result');
@@ -89,7 +90,7 @@ test('pause, paused Home and hooks work without Git or any workspace, and leave 
     ['session', 'open', '--allow-dirty', '--json'], ['session', 'open', 'CHOSEN-1', 'EXTRA', '--json'],
     ['session', 'open', '--json=false'], ['session', 'open', '--for-agent'],
     ['session', 'open', '--for-agent=false', '--json']]) {
-    const invalid = spawnSync(process.execPath, [cli, ...args], { cwd: directory, env, encoding: 'utf8', timeout: 15_000 });
+    const invalid = spawnSync(process.execPath, [cli, ...args], { cwd: directory, env, encoding: 'utf8', timeout: childTimeout(15_000) });
     assert.notEqual(invalid.status, 0);
     assert.match(invalid.stdout + invalid.stderr, args.includes('--json=false')
       ? /session open requires --json without a value/ : args[1] === 'open'
@@ -103,13 +104,13 @@ test('pause, paused Home and hooks work without Git or any workspace, and leave 
   assert.equal(invoke(['review-source', 'context', 'custom-plan', '--for-agent', '--json']).nativeCopilot, true);
   for (const args of [['review-source', 'context', '--for-agent', '--allow-dirty', '--json'],
     ['review-source', 'submit', '--for-agent', '--json'], ['review-source', 'decide', '--for-agent', '--json']]) {
-    const invalid = spawnSync(process.execPath, [cli, ...args], { cwd: directory, env, encoding: 'utf8', timeout: 15_000 });
+    const invalid = spawnSync(process.execPath, [cli, ...args], { cwd: directory, env, encoding: 'utf8', timeout: childTimeout(15_000) });
     assert.notEqual(invalid.status, 0);
     assert.equal(JSON.parse(invalid.stdout).error.code, 'REVIEW_SOURCE_OPTIONS_INVALID');
   }
   for (const command of ['inputs', 'nextsteps']) {
     const invalid = spawnSync(process.execPath, [cli, command, '--for-agent', '--allow-dirty', '--json'],
-      { cwd: directory, env, encoding: 'utf8', timeout: 15_000 });
+      { cwd: directory, env, encoding: 'utf8', timeout: childTimeout(15_000) });
     assert.notEqual(invalid.status, 0);
     assert.equal(JSON.parse(invalid.stdout).error.code, `${command.toUpperCase()}_OPTIONS_INVALID`);
   }

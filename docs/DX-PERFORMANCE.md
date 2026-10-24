@@ -498,6 +498,22 @@ The aggregate prints a standard Node test summary, so existing verification-rece
 compatible. Sharding changes scheduling only: deterministic disjoint file-set digests prove that
 every discovered test file appears exactly once.
 
+Shards are balanced by measured time. Each shard records how long each file's tests took beside its
+receipt, and the aggregate gathers them into `durations.json` in its run directory. The committed
+timing profile, `benchmarks/test-durations.json`, is what the plan reads: a file weighs its measured
+milliseconds (a file the profile has not seen weighs its bytes at the profile's median rate), and
+files go longest first onto the lightest shard. Before the profile, shards were balanced by source
+bytes, and on 2026-10-24 three shards held one file each (3–11 minutes) while five held about 240
+files each (48–62 minutes). Refresh the profile after a quiet full run:
+
+```bash
+node scripts/update-test-durations.mjs .git/singularity-flow/test-runs/<run id>
+```
+
+The suite runner also gives every file a temporary folder Spotlight does not index
+(`<tmp>/sflow-tests.noindex`, through `TMPDIR`), and a 120-second local Git read deadline instead of
+the product's 30 seconds, so files running side by side cannot fail each other's Git reads.
+
 ### Slow lane
 
 A test that takes over a minute on a quiet machine opts into the slow lane with

@@ -19,6 +19,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { nodeTypeScriptFlags } from '../scripts/typescript-runtime.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const storeModule = pathToFileURL(path.join(packageRoot, 'apps/vscode/src/state.ts')).href;
@@ -49,7 +50,7 @@ function drive({ cached = null, snapshotFails = false }) {
     process.stdout.write(JSON.stringify({ primed, writes, published, final: store.current.snapshot?.marker ?? null, finalStale: store.current.stale }));
   `;
   const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
-    encoding: 'utf8', cwd: packageRoot, timeout: 60_000
+    encoding: 'utf8', cwd: packageRoot, timeout: childTimeout(60_000)
   });
   assert.equal(result.status, 0, `child failed: ${result.stderr}`);
   return JSON.parse(result.stdout);
@@ -127,7 +128,7 @@ test('revision-only confirmation clears stale state without rewriting an unchang
       head: store.current.snapshot?.revision?.head, events }));
   `;
   const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
-    encoding: 'utf8', cwd: packageRoot, timeout: 60_000
+    encoding: 'utf8', cwd: packageRoot, timeout: childTimeout(60_000)
   });
   assert.equal(result.status, 0, `child failed: ${result.stderr}`);
   const outcome = JSON.parse(result.stdout);
@@ -180,7 +181,7 @@ test('A-to-B-to-A switching restores only that repository cache and forces a ful
     process.stdout.write(JSON.stringify({ calls, paints, immediateB, immediateA, final: store.current.snapshot?.marker }));
   `;
   const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
-    encoding: 'utf8', cwd: packageRoot, timeout: 60_000
+    encoding: 'utf8', cwd: packageRoot, timeout: childTimeout(60_000)
   });
   assert.equal(result.status, 0, `child failed: ${result.stderr}`);
   const outcome = JSON.parse(result.stdout);
@@ -269,7 +270,7 @@ test('switching repositories aborts and detaches the old snapshot flight before 
     }));
   `;
   const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
-    encoding: 'utf8', cwd: packageRoot, timeout: 60_000
+    encoding: 'utf8', cwd: packageRoot, timeout: childTimeout(60_000)
   });
   assert.equal(result.status, 0, `child failed: ${result.stderr}`);
   assert.deepEqual(JSON.parse(result.stdout), {
@@ -310,7 +311,7 @@ test('a leased SGOS slice loads lazily and is released when Command Center close
     process.stdout.write(JSON.stringify({ beforeLease, duringLease, afterRelease:calls.at(-1), loaded, released }));
   `;
   const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
-    encoding: 'utf8', cwd: packageRoot, timeout: 60_000
+    encoding: 'utf8', cwd: packageRoot, timeout: childTimeout(60_000)
   });
   assert.equal(result.status, 0, `child failed: ${result.stderr}`);
   const value = JSON.parse(result.stdout);
@@ -360,7 +361,7 @@ test('a leased comprehension slice is isolated, evicted, and never restored from
       afterRelease:calls.at(-1), loaded, released }));
   `;
   const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
-    encoding: 'utf8', cwd: packageRoot, timeout: 60_000
+    encoding: 'utf8', cwd: packageRoot, timeout: childTimeout(60_000)
   });
   assert.equal(result.status, 0, `child failed: ${result.stderr}`);
   const value = JSON.parse(result.stdout);
@@ -401,7 +402,7 @@ test('shared panel slice leases stop heavyweight polling only after the final pa
     process.stdout.write(JSON.stringify({ whileBothOpen, afterFirstClose, afterFinalClose }));
   `;
   const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
-    encoding: 'utf8', cwd: packageRoot, timeout: 60_000
+    encoding: 'utf8', cwd: packageRoot, timeout: childTimeout(60_000)
   });
   assert.equal(result.status, 0, `child failed: ${result.stderr}`);
   const value = JSON.parse(result.stdout);
@@ -446,7 +447,7 @@ test('a concurrent panel waits for the first shared slice expansion without trig
     leases.forEach((lease) => lease.dispose());
   `;
   const result = spawnSync(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source], {
-    encoding: 'utf8', cwd: packageRoot, timeout: 60_000
+    encoding: 'utf8', cwd: packageRoot, timeout: childTimeout(60_000)
   });
   assert.equal(result.status, 0, `child failed: ${result.stderr}`);
   assert.deepEqual(JSON.parse(result.stdout), { calls: 2, settledBeforeExpansion: false });

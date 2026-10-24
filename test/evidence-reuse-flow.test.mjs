@@ -14,6 +14,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -27,7 +28,7 @@ test('a verify approver reuses the run implement recorded, and it always reads a
     SINGULARITY_FLOW_LEAD_REGISTRY: path.join(base, 'leads.json'), SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(base, 'copilot-mode.json'),
     GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'Reuse Flow Tester',
     GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 'reuse.flow@example.invalid' };
-  const run = (command, args, { cwd = root, as = null } = {}) => spawnSync(command, args, { cwd, encoding: 'utf8', timeout: 180_000,
+  const run = (command, args, { cwd = root, as = null } = {}) => spawnSync(command, args, { cwd, encoding: 'utf8', timeout: childTimeout(180_000),
     env: as ? { ...env, SINGULARITY_FLOW_GITHUB_ACTOR: as } : env });
   const must = (command, args, options) => {
     const result = run(command, args, options);

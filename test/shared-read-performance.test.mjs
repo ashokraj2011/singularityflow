@@ -9,6 +9,7 @@ import { withReadScope } from '../src/read-scope.mjs';
 import { withCommandTiming } from '../src/dx-timing-context.mjs';
 import { repoRoot } from '../src/git.mjs';
 import { loadSession } from '../src/session.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 test('only closed local session projections share the command read scope', () => {
   for (const form of ['current', 'status', 'context']) {
@@ -47,7 +48,7 @@ test('session current shares configuration and Git identity without retaining mu
   const fixture = await createWarmReadFixture({ storyMode: 'pinned', files: 20, artifacts: 2 });
   t.after(fixture.cleanup);
   const invoke = () => spawnSync(process.execPath, [fixture.cli, 'session', 'current', '--json', '--timings'], {
-    cwd: fixture.repository, env: fixture.env, encoding: 'utf8', timeout: 90_000, maxBuffer: 8 * 1024 * 1024
+    cwd: fixture.repository, env: fixture.env, encoding: 'utf8', timeout: childTimeout(90_000), maxBuffer: 8 * 1024 * 1024
   });
   const head = fixture.git(['rev-parse', 'HEAD']);
   const initialState = await readFile(fixture.statePath);
@@ -83,7 +84,7 @@ test('session projections use accepted amended phases instead of an unrelated li
   for (const args of [['session', 'current', '--json'],
     ['session', 'context', '--work-id', fixture.workId, '--slice', 'brief', '--json']]) {
     const result = spawnSync(process.execPath, [fixture.cli, ...args], {
-      cwd: fixture.repository, env: fixture.env, encoding: 'utf8', timeout: 90_000, maxBuffer: 8 * 1024 * 1024
+      cwd: fixture.repository, env: fixture.env, encoding: 'utf8', timeout: childTimeout(90_000), maxBuffer: 8 * 1024 * 1024
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
     const value = JSON.parse(result.stdout);

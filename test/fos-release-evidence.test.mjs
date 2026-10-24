@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import {
   buildFosEvidenceInventory, FOS_ACCEPTANCE_CASES
 } from '../src/fos-release-evidence.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -34,7 +35,7 @@ test('FOS release inventory binds exact source locations and test-body digests w
 
 test('FOS local benchmark compares cached and uncached semantics without authorizing claims', () => {
   const run = spawnSync(process.execPath, ['scripts/fos-benchmark.mjs', '--samples=1'], {
-    cwd: root, encoding: 'utf8', timeout: 30_000, maxBuffer: 8 * 1024 * 1024
+    cwd: root, encoding: 'utf8', timeout: childTimeout(30_000), maxBuffer: 8 * 1024 * 1024
   });
   assert.equal(run.status, 0, run.stderr);
   const report = JSON.parse(run.stdout);
@@ -53,7 +54,7 @@ test('FOS local benchmark compares cached and uncached semantics without authori
 
 test('FOS evidence command reports missing witnesses and never marks an inventory-only run passed', async () => {
   const run = spawnSync(process.execPath, ['scripts/fos-release-evidence.mjs'], {
-    cwd: root, encoding: 'utf8', timeout: 30_000, maxBuffer: 8 * 1024 * 1024
+    cwd: root, encoding: 'utf8', timeout: childTimeout(30_000), maxBuffer: 8 * 1024 * 1024
   });
   assert.equal(run.status, 0, run.stderr);
   const report = JSON.parse(run.stdout);

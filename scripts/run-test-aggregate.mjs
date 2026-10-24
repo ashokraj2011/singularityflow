@@ -167,6 +167,11 @@ const aggregate = {
   failedShards: failedShards.map((shard) => shard.index)
 };
 await writeAtomic(path.join(runDirectory, 'aggregate.json'), aggregate);
+// Every shard that ran wrote how long its files took; together they are this run's timing profile.
+const measured = {};
+for (const { receiptFile } of pending) Object.assign(measured, (await readJson(`${receiptFile}.durations.json`))?.files ?? {});
+const durationsFile = path.join(runDirectory, 'durations.json');
+if (Object.keys(measured).length) await writeAtomic(durationsFile, { schemaVersion: 1, files: measured });
 
 console.log(`\nSFlow aggregate ${runId}: ${statusValue}; ${shardCount} shard(s), ${plan.files.length} file(s).`);
 console.log(`ℹ tests ${counters.tests}`);
@@ -176,6 +181,7 @@ console.log(`ℹ cancelled ${counters.cancelled}`);
 console.log(`ℹ skipped ${counters.skipped}`);
 console.log(`ℹ todo ${counters.todo}`);
 console.log(`Aggregate receipt: ${path.join(runDirectory, 'aggregate.json')}`);
+if (Object.keys(measured).length) console.log(`Timing profile: ${durationsFile} (update the committed one with node scripts/update-test-durations.mjs ${runDirectory})`);
 if (statusValue !== 'passed') {
   console.error(`Retry only incomplete shards: node scripts/run-test-aggregate.mjs ${suite} --shards=${shardCount} --workers=${workers} --deadline-ms=${deadlineMs}`);
   process.exitCode = 1;

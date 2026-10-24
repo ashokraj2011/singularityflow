@@ -2,6 +2,7 @@
 import { access, chmod, mkdir, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { childTimeout } from './child-timeout.mjs';
 
 export function gitTestWrapperEnvironment(directory, source = process.env) {
   const entries = Object.entries(source);
@@ -78,7 +79,7 @@ class GitTestWrapper {
   }
   if (!compiler) throw new Error('Native Windows Git fault-injection tests require the .NET Framework C# compiler.');
   const result = spawnSync(compiler, ['/nologo', '/target:exe', '/out:' + executable, program],
-    { encoding: 'utf8', timeout: 30_000, maxBuffer: 1024 * 1024 });
+    { encoding: 'utf8', timeout: childTimeout(30_000), maxBuffer: 1024 * 1024 });
   if (result.status !== 0) throw new Error('Could not compile native Git test wrapper: ' + result.stdout + result.stderr);
   return executable;
 }

@@ -40,6 +40,7 @@ import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 import { publishOrganisationCapabilityMap, readOrganisation } from '../src/organisation.mjs';
 import { GitRemoteSession } from '../src/git-execution.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -508,14 +509,14 @@ test('rootless CLI Story start materializes a deferred selection after read-only
   };
   const target = path.join(created.workspace.path, 'repos', 'platform');
   const intake = spawnSync(process.execPath, [cli, 'workspace', 'branches', '--json', '--intake'], {
-    cwd: root, env, encoding: 'utf8', timeout: 15_000
+    cwd: root, env, encoding: 'utf8', timeout: childTimeout(15_000)
   });
   assert.notEqual(intake.status, 0,
     'the present checkout-bound intake route cannot answer from a neutral directory');
   assert.equal(await stat(target).catch(() => null), null,
     'an intake read does not clone the selected repository');
   const started = spawnSync(process.execPath, [cli, 'start', 'DEFERRED-1', '--json'], {
-    cwd: root, env, encoding: 'utf8', timeout: 30_000
+    cwd: root, env, encoding: 'utf8', timeout: childTimeout(30_000)
   });
   assert.notEqual(started.status, 0,
     'the fixture has no workflow and cannot complete a governed Story start');

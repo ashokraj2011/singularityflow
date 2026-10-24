@@ -11,6 +11,7 @@ import { SKP_PILOT_PLAN, SKP_QUALIFICATION_LIMITS, SKP_QUALIFICATION_PROFILE, SK
   captureQualificationSource, parseQualificationOptions, qualificationAssessment,
   readBoundedQualificationFile, detachUnclosedQualificationChild,
   runQualificationTarget, runSkpQualification, summarizeQualificationEvents } from '../scripts/skp-qualification.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const RUNNER = fileURLToPath(new URL('../scripts/skp-qualification.mjs', import.meta.url));
@@ -21,7 +22,7 @@ const childEnvironment = () => { const env = { ...process.env }; delete env.NODE
 const event = (type = 'test:pass', extra = {}) => ({ type, data: { name: 'private prompt TOKEN_SECRET_123',
   file: '/private/person/temporary/secret.test.mjs', line: 20, column: 3, ...extra } });
 const cli = (...args) => spawnSync(process.execPath, [RUNNER, ...args], { cwd: ROOT,
-  env: childEnvironment(), encoding: 'utf8', timeout: 15000, maxBuffer: 1024 * 1024, shell: false, windowsHide: true });
+  env: childEnvironment(), encoding: 'utf8', timeout: childTimeout(15000), maxBuffer: 1024 * 1024, shell: false, windowsHide: true });
 
 test('qualification options admit only fixed plan/execute/release modes, never arbitrary paths, code or attestations', () => {
   assert.deepEqual(parseQualificationOptions([]), { execute: false, requireRelease: false });
@@ -175,7 +176,7 @@ test('actual Node reporter hides noisy secret diagnostics and reports failed/ski
     test('SKIP_SECRET',{skip:'SECRET_SKIP_REASON'},()=>{});
     test('TODO_SECRET',{todo:'SECRET_TODO_REASON'},()=>{});`);
   const result = spawnSync(process.execPath, ['--test', `--test-reporter=${pathToFileURL(RUNNER).href}`, file],
-    { cwd: ROOT, env: childEnvironment(), encoding: 'utf8', timeout: 15000, maxBuffer: 1024 * 1024, shell: false, windowsHide: true });
+    { cwd: ROOT, env: childEnvironment(), encoding: 'utf8', timeout: childTimeout(15000), maxBuffer: 1024 * 1024, shell: false, windowsHide: true });
   assert.equal(result.status, 1, result.stderr);
   const report = JSON.parse(result.stdout); assert.equal(report.counts.fail, 1); assert.equal(report.counts.skipped, 1); assert.equal(report.counts.todo, 1);
   assert.doesNotMatch(result.stdout, /TOKEN_SECRET|RAW_BODY|RAW_STDERR|RAW_ERROR|SKIP_SECRET|TODO_SECRET|SECRET_SKIP|SECRET_TODO|private\.test\.mjs/u);

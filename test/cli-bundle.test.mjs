@@ -12,6 +12,7 @@ import { COMMAND_LOADERS } from '../src/command-loaders.mjs';
 import { bundledCliUrl, bundledCopilotHookUrl } from '../src/bundled-cli.mjs';
 import { buildCliBundle } from '../scripts/build-cli-bundle.mjs';
 import { readPerformanceReport } from '../src/performance-trace-store.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const cli = path.join(root, 'bin', 'singularity-flow.mjs');
@@ -219,7 +220,7 @@ export async function load(url, context, next) {
   // Classified capture must share the timer through the coarse lazy chunks, not just source ESM.
   const traceAction = randomUUID();
   for (const bundled of [false, true]) {
-    const result = spawnSync(process.execPath, [cli, 'logs', 'path'], { cwd: repo, encoding: 'utf8', timeout: 30_000,
+    const result = spawnSync(process.execPath, [cli, 'logs', 'path'], { cwd: repo, encoding: 'utf8', timeout: childTimeout(30_000),
       env: { ...env, SINGULARITY_FLOW_DISABLE_TIMING_LOG: '0', SINGULARITY_FLOW_PERF_TRACE: '1',
         SINGULARITY_FLOW_PERF_ACTION_ID: traceAction,
         ...(bundled ? { SINGULARITY_FLOW_BUNDLE_DIR: outdir } : { SINGULARITY_FLOW_BUNDLE: 'off' }) } });
@@ -263,7 +264,7 @@ export async function load(url, context, next) {
       await rm(log, { force: true });
       const result = spawnSync(process.execPath, ['--import', pathToFileURL(hook).href,
         path.join(root, 'plugin/hook-launcher.mjs'), action, cli], {
-        cwd: repo, encoding: 'utf8', input: JSON.stringify(payload), timeout: 30000,
+        cwd: repo, encoding: 'utf8', input: JSON.stringify(payload), timeout: childTimeout(30000),
         env: { ...env, MODULE_LOG: log, SINGULARITY_FLOW_HOOK_RUNTIME: 'dedicated',
           SINGULARITY_FLOW_BUNDLE: bundled ? 'on' : 'off', ...(bundled ? { SINGULARITY_FLOW_BUNDLE_DIR: outdir } : {}) }
       });

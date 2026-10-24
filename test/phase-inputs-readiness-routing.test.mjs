@@ -16,6 +16,7 @@ import { refusalEnvelope, refusalRemediationPlan, renderRefusalPlan } from '../s
 import { phaseContextAdmission, phaseAdmissionActions } from '../src/phase-entry-admission.mjs';
 import { phaseResolutionChoices } from '../src/phase-resolution.mjs';
 import { completeAgentResult, withAgentRoutes } from '../src/agent-output.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin/singularity-flow.mjs');
@@ -73,7 +74,7 @@ async function fixture(t) {
     SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.git/no-workspace.json'),
     SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.git/no-registry.json') };
   const invoke = (...args) => spawnSync(process.execPath, [cli, ...args], {
-    cwd: root, env, encoding: 'utf8', timeout: 60_000
+    cwd: root, env, encoding: 'utf8', timeout: childTimeout(60_000)
   });
   return { root, workflow, config, invoke };
 }

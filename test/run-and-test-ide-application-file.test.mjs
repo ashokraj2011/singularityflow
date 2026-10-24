@@ -7,6 +7,7 @@ import test from 'node:test';
 import YAML from 'yaml';
 
 import { readApplicationFile } from '../src/capability-application-file.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const CLI = path.resolve('bin/singularity-flow.mjs');
 const APPLICATION = {
@@ -61,7 +62,7 @@ test('capability edit --lead --application-file proposes the block on a review b
     git(seed, ['commit', '-qm', 'Initial'], env);
     git(seed, ['push', '-q', remotes[name], 'main:main'], env);
   }
-  const sflow = (args) => spawnSync(process.execPath, [CLI, ...args], { cwd: base, encoding: 'utf8', env, timeout: 120_000 });
+  const sflow = (args) => spawnSync(process.execPath, [CLI, ...args], { cwd: base, encoding: 'utf8', env, timeout: childTimeout(120_000) });
   const mapped = sflow(['capability', 'map', 'service', '--lead', remotes.platform, '--kind', 'delivery', '--repository', remotes.service, '--json']);
   assert.equal(mapped.status, 0, mapped.stderr);
   const mapping = JSON.parse(mapped.stdout);

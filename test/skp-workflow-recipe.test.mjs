@@ -21,6 +21,7 @@ import { parseArgs } from '../src/util.mjs';
 import {
   isSpecificationDefinitionPhase, selectActiveSpecRecords, skillPhasePrimaryOutputRole
 } from '../src/specifications.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const H = (digit) => `sha256:${digit.repeat(64)}`;
 const ORDER = ['intake', 'team-criteria', 'team-plan', 'team-code', 'conformance'];
@@ -276,14 +277,14 @@ test('recipe plans become stale when selected contracts or the explicit workflow
 });
 
 function git(root, ...argv) {
-  const result = spawnSync('git', argv, { cwd: root, encoding: 'utf8', timeout: 10000 });
+  const result = spawnSync('git', argv, { cwd: root, encoding: 'utf8', timeout: childTimeout(10000) });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
 }
 
 function cli(root, ...argv) {
   return spawnSync(process.execPath, [CLI, ...argv], {
-    cwd: root, encoding: 'utf8', timeout: 30000,
+    cwd: root, encoding: 'utf8', timeout: childTimeout(30000),
     env: {
       ...process.env, NODE_ENV: 'test',
       SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.test-workspaces.json'),

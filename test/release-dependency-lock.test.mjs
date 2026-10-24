@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 import { releaseDependencyLockProblems, workspaceDependencyLockProblems } from '../src/release-dependency-lock.mjs';
 import { resolvePlatformProcess } from '../src/platform-process.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -248,7 +249,7 @@ test('committed source lock passes npm clean-install validation offline in a fre
     'ci', '--dry-run', '--offline', '--ignore-scripts', '--no-audit', '--no-fund'
   ]);
   const result = spawnSync(launch.executable, launch.arguments, {
-    cwd: directory, encoding: 'utf8', timeout: 30_000, ...launch.spawnOptions
+    cwd: directory, encoding: 'utf8', timeout: childTimeout(30_000), ...launch.spawnOptions
   });
   assert.equal(result.status, 0, result.error?.message || result.stderr || result.stdout);
   assert.equal(await readFile(path.join(directory, 'package-lock.json'), 'utf8'), before,

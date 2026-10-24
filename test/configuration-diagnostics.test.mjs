@@ -9,6 +9,7 @@ import { applyWorkflowCompatibility, initializeDefinition, resolveWorkType, vali
 import { isAgentTemplateReference } from '../src/agents.mjs';
 import { diagnoseWorkflowText, formatConfigurationProblems, locateMessage, plainConfigurationMessage } from '../src/configuration-diagnostics.mjs';
 import YAML from 'yaml';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const packaged = await readFile(fileURLToPath(new URL('../templates/workflow.yml', import.meta.url)), 'utf8');
 const swap = (text, from, to) => { assert.ok(text.includes(from), `fixture anchor missing: ${from}`); return text.replace(from, () => to); };
@@ -86,14 +87,14 @@ test('the CLI lists every problem with its line, a plan to fix the first, and th
   spawnSync('git', ['-c', 'user.name=Config Tester', '-c', 'user.email=config@example.invalid', 'commit', '-qm', 'fixture'], { cwd: root });
   const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
   const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1' };
-  const valid = spawnSync(process.execPath, [cli, 'configuration', 'validate'], { cwd: root, encoding: 'utf8', env, timeout: 60000 });
+  const valid = spawnSync(process.execPath, [cli, 'configuration', 'validate'], { cwd: root, encoding: 'utf8', env, timeout: childTimeout(60000) });
   assert.equal(valid.status, 0, valid.stderr);
   assert.match(valid.stdout, /^Configuration is valid: \d+ work type\(s\), \d+ phase\(s\), \d+ agent\(s\)\.\n$/);
   const file = path.join(root, 'singularity/workflow.yml');
   let text = await readFile(file, 'utf8');
   for (const [from, to] of [TYPO, INPUT]) text = swap(text, from, to);
   await writeFile(file, text);
-  const refused = spawnSync(process.execPath, [cli, 'configuration', 'validate'], { cwd: root, encoding: 'utf8', env, timeout: 60000 });
+  const refused = spawnSync(process.execPath, [cli, 'configuration', 'validate'], { cwd: root, encoding: 'utf8', env, timeout: childTimeout(60000) });
   assert.equal(refused.status, 1);
   assert.match(refused.stderr, /singularity\/workflow\.yml has 2 problems:/);
   assert.match(refused.stderr, new RegExp(`singularity/workflow\\.yml, line ${lineOf(text, 'requirments')}: .*Did you mean 'requirements'\\?`));
@@ -101,11 +102,11 @@ test('the CLI lists every problem with its line, a plan to fix the first, and th
   assert.match(refused.stderr, /1\. Fix singularity\/workflow\.yml, line \d+: Change 'requirments' to 'requirements'\. Then fix the other problem listed above\./);
   assert.match(refused.stderr, /Shell: singularity-flow configuration validate/);
   assert.doesNotMatch(refused.stderr, /factory-reset|configuration --help/);
-  const json = spawnSync(process.execPath, [cli, 'configuration', 'validate', '--json'], { cwd: root, encoding: 'utf8', env, timeout: 60000 });
+  const json = spawnSync(process.execPath, [cli, 'configuration', 'validate', '--json'], { cwd: root, encoding: 'utf8', env, timeout: childTimeout(60000) });
   const envelope = JSON.parse(json.stdout);
   assert.deepEqual(envelope.error.details.configurationProblems.map(problem => [problem.line, problem.suggestion]),
     [[lineOf(text, 'requirments'), 'requirements'], [lineOf(text, '[intak]'), 'intake']]);
-  const doctor = spawnSync(process.execPath, [cli, 'doctor'], { cwd: root, encoding: 'utf8', env, timeout: 120000 });
+  const doctor = spawnSync(process.execPath, [cli, 'doctor'], { cwd: root, encoding: 'utf8', env, timeout: childTimeout(120000) });
   assert.match(doctor.stdout + doctor.stderr, /initialization-assets: All packaged initialization assets are present, but the workflow configuration does not load/);
   assert.doesNotMatch(doctor.stdout + doctor.stderr, /0 packaged initialization asset\(s\) are missing/);
 });

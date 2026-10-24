@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { childTimeout } from './child-timeout.mjs';
 
 export const cli = fileURLToPath(new URL('../../bin/singularity-flow.mjs', import.meta.url));
 
@@ -45,7 +46,7 @@ export async function repository(t, { extraCommands = [], implementCommands = tr
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'repo');
   const env = environment(base);
-  const run = (command, args, cwd = root) => spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: 240_000 });
+  const run = (command, args, cwd = root) => spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: childTimeout(240_000) });
   const must = (command, args, cwd = root) => {
     const result = run(command, args, cwd);
     assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);

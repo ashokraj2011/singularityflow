@@ -16,6 +16,7 @@ import { STORY_DECISION_LISTS, storyDecisionsDigest } from '../src/phase-upstrea
 import { currentSchemaVersion, readRecord } from '../src/schema-migrations.mjs';
 import { acceptQualityRisk, coverageRiskEligibility, inspectPhaseQualityGate, normalizeQualityGateMode,
   prepareQualityRisk, qualityRiskBinding, qualityRiskStatus, validateQualityRiskPacket } from '../src/phase-quality-risk.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const ID = 'COVER-1';
 const ITEM = `singularity/work-items/${ID}`;
@@ -247,7 +248,7 @@ test('exact committed risk needs live human origin; stale/expired/revoked decisi
       console.log('RESULT:'+result.status);`;
     const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('NODE_TEST_')));
     const ceremony = spawnSync('/usr/bin/expect', ['-c', `set timeout 20\nspawn -noecho $env(PQR_NODE) --input-type=module -e $env(PQR_CODE)\nexpect "Type Re-review risk ${record.id} to confirm this exact action, or Enter to cancel:"\nsend -- "Re-review risk ${record.id}\\r"\nexpect eof\ncatch wait result\nexit [lindex $result 3]`],
-      { cwd: f.root, encoding: 'utf8', timeout: 30000, env: { ...environment, PQR_NODE: process.execPath, PQR_CODE: code } });
+      { cwd: f.root, encoding: 'utf8', timeout: childTimeout(30000), env: { ...environment, PQR_NODE: process.execPath, PQR_CODE: code } });
     assert.equal(ceremony.status, 0, ceremony.stdout + ceremony.stderr);
     assert.match(ceremony.stdout, /risk-review-origin-restored/);
     const coverage = await assertFinalCodeSpecificationCoverage(f.root, f.config, f.workflow, phase, phase.generationCommit);
@@ -329,7 +330,7 @@ test('live pilot acceptance commits only decision metadata and keeps its human e
       console.log('RESULT:'+result.status);`;
     const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('NODE_TEST_')));
     const ceremony = spawnSync('/usr/bin/expect', ['-c', `set timeout 30\nspawn -noecho $env(PQR_NODE) --input-type=module -e $env(PQR_CODE)\nexpect "Type Accept risk ${id} to confirm this exact action, or Enter to cancel:"\nsend -- "Accept risk ${id}\\r"\nexpect eof\ncatch wait result\nexit [lindex $result 3]`],
-      { cwd: f.root, encoding: 'utf8', timeout: 40000, env: { ...environment, PQR_NODE: process.execPath, PQR_CODE: code } });
+      { cwd: f.root, encoding: 'utf8', timeout: childTimeout(40000), env: { ...environment, PQR_NODE: process.execPath, PQR_CODE: code } });
     assert.equal(ceremony.status, 0, ceremony.stdout + ceremony.stderr);
     assert.match(ceremony.stdout, /RESULT:risk-accepted/);
     const retained = JSON.parse(await readFile(path.join(f.root, ITEM, 'workflow.json'), 'utf8'));

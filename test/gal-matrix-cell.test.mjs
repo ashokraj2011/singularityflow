@@ -5,10 +5,11 @@ import test from 'node:test';
 import {
   classifySkippedScenarios, runtimeClass, validBenchmarkMeasurement
 } from '../scripts/gal-matrix-cell.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 function run(...args) {
   return spawnSync(process.execPath, ['scripts/gal-matrix-cell.mjs', ...args], {
-    cwd: process.cwd(), encoding: 'utf8', timeout: 15_000,
+    cwd: process.cwd(), encoding: 'utf8', timeout: childTimeout(15_000),
     maxBuffer: 1024 * 1024, windowsHide: true, shell: false
   });
 }

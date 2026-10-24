@@ -15,6 +15,7 @@ import { loadDefinition } from '../src/config.mjs';
 import { withCommandObservability } from '../src/command-observability.mjs';
 import { instructionText } from '../src/instruction-library.mjs';
 import { librarySkillText, skillAttachmentsText } from '../src/skill-library.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 test('combined utility entry is closed to mutations, effects, ambiguous flags and prototype keys', () => {
   const flags = { json: true, 'for-agent': true, 'utility-entry': true };
@@ -65,7 +66,7 @@ test('utility reads preserve outputs, pause before Git and share only one read i
     skillAttachmentsText([{ id: 'example', workflow: 'chore', phases: ['intake'], use: 'Check the requested change.' }]));
   const invoke = (args, env = {}) => spawnSync(process.execPath, [fixture.cli, ...args], {
     cwd: fixture.repository, env: { ...fixture.env, SINGULARITY_FLOW_AGENT_OUTPUT: 'full', ...env },
-    encoding: 'utf8', timeout: 60_000, maxBuffer: 8 * 1024 * 1024
+    encoding: 'utf8', timeout: childTimeout(60_000), maxBuffer: 8 * 1024 * 1024
   });
   for (const args of [['status', 'PERF-001'], ['nextsteps', 'PERF-001'], ['logs', '--tail', '10'],
     ['progress', 'PERF-001'], ['workflow', 'list', '--for-start'],

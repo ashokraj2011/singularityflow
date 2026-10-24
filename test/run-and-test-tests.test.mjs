@@ -10,6 +10,7 @@ import { KEPT_TEST_RUNS, listTestRuns, newTestRunId, saveTestRun, TEST_RUN_FORMA
 import { latestStepAttempts, recordTestAttempt } from '../src/verification/attempts.mjs';
 
 import { cli, repository, startQuickFix } from './helpers/run-and-test-fixture.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 test('a capability-scope run is a private local preview and its summary lists cases with their requirement tags', { timeout: 300_000 }, async (t) => {
   const repo = await repository(t, { extraCommands: [
@@ -56,7 +57,7 @@ test('a capability-scope run is a private local preview and its summary lists ca
   // JUnit XML that names each case's file and line, and a totals-only report.
   // From a host that sets its own variables, as VS Code does: karma-totals exits 3 if it sees them.
   const hosted = spawnSync(process.execPath, [cli, '--no-model', 'tests', 'run', '--command', 'module-junit', '--command', 'karma-totals', '--json'], {
-    cwd: repo.root, encoding: 'utf8', timeout: 240_000,
+    cwd: repo.root, encoding: 'utf8', timeout: childTimeout(240_000),
     env: { ...repo.env, ELECTRON_RUN_AS_NODE: '1', SINGULARITY_FLOW_SURFACE_CONTEXT: JSON.stringify({ schemaVersion: 1, repositoryPath: repo.root }) }
   });
   const mixed = { status: hosted.status, value: JSON.parse(hosted.stdout) };
@@ -194,7 +195,7 @@ test('a Story step run is staged as local attempts, read as a local run, and adm
   await assert.rejects(readdir(path.join(root, '.git', 'singularity-flow', 'test-attempts', 'QF-1', 'implement')), { code: 'ENOENT' }, 'nothing ran');
   // Run from a host that sets its own variables, as VS Code does: the tests never see them.
   const hosted = spawnSync(process.execPath, [cli, '--no-model', 'tests', 'run', '--work-id', 'QF-1', '--expect-command', plan.commands[0].commandSha256, '--json'], {
-    cwd: root, encoding: 'utf8', timeout: 240_000,
+    cwd: root, encoding: 'utf8', timeout: childTimeout(240_000),
     env: { ...repo.env, ELECTRON_RUN_AS_NODE: '1', SINGULARITY_FLOW_SURFACE_CONTEXT: JSON.stringify({ schemaVersion: 1, repositoryPath: root }) }
   });
   const run = { status: hosted.status, value: JSON.parse(hosted.stdout), stderr: hosted.stderr };
@@ -219,7 +220,7 @@ test('a Story step run is staged as local attempts, read as a local run, and adm
   // Publication runs its own preflight and admits every kept attempt, the local one included. Run
   // from a host that sets its own variables too: the preflight's tests never see them either.
   const published = spawnSync(process.execPath, [cli, '--no-model', 'phase', 'publish', 'implement'], {
-    cwd: root, encoding: 'utf8', timeout: 240_000,
+    cwd: root, encoding: 'utf8', timeout: childTimeout(240_000),
     env: { ...repo.env, ELECTRON_RUN_AS_NODE: '1', SINGULARITY_FLOW_SURFACE_CONTEXT: JSON.stringify({ schemaVersion: 1, repositoryPath: root }) }
   });
   assert.equal(published.status, 0, published.stdout + published.stderr);

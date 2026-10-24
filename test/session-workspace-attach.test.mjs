@@ -8,6 +8,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { bootstrapRepository } from '../src/bootstrap.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 /**
  * Attaching a Story in a workspace: a repository that is not there yet is cloned; one that is there
@@ -19,7 +20,7 @@ import { bootstrapRepository } from '../src/bootstrap.mjs';
 const bin = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
 function run(command, args, cwd, env = process.env) {
-  const result = spawnSync(command, args, { cwd, encoding: 'utf8', env, timeout: 180_000 });
+  const result = spawnSync(command, args, { cwd, encoding: 'utf8', env, timeout: childTimeout(180_000) });
   if (result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed\n${result.stdout}\n${result.stderr}`);
   return result;
 }
@@ -99,7 +100,7 @@ test('attach clones an absent workspace repository, fast-forwards a present one,
     const repository = path.join(workspacePath, 'repos', 'application');
     const selector = ['--workspace', workspacePath, '--repository', 'application'];
     const attach = (extra = env) => spawnSync(process.execPath, [bin, 'session', 'attach', 'ATT-101', ...selector, '--json'],
-      { cwd: base, env: extra, encoding: 'utf8', timeout: 180_000 });
+      { cwd: base, env: extra, encoding: 'utf8', timeout: childTimeout(180_000) });
 
     await t.test('absent: the Story branch is cloned into the workspace, fetching it once', async () => {
       assert.equal(spawnSync('git', ['-C', repository, 'rev-parse'], { encoding: 'utf8' }).status, 128, 'not cloned yet');
@@ -238,7 +239,7 @@ syncBuiltinESMExports();
       assert.deepEqual(step.argv, relocation.argv);
 
       const opened = spawnSync(process.execPath, [bin, 'session', 'open', 'ATT-101', ...selector, '--for-agent', '--json'],
-        { cwd: base, env: offloaded, encoding: 'utf8', timeout: 180_000 });
+        { cwd: base, env: offloaded, encoding: 'utf8', timeout: childTimeout(180_000) });
       assert.notEqual(opened.status, 0);
       const openRefusal = JSON.parse(opened.stdout);
       assert.equal(openRefusal.error.code, 'GIT_STORAGE_UNAVAILABLE');
@@ -254,7 +255,7 @@ syncBuiltinESMExports();
       run(process.execPath, [bin, ...argv, '--json'], base, env);
       run(process.execPath, [bin, ...relocation.useArgv], base, env);
       const moved = spawnSync(process.execPath, [bin, 'session', 'attach', 'ATT-101', '--json'],
-        { cwd: base, env: offloaded, encoding: 'utf8', timeout: 180_000 });
+        { cwd: base, env: offloaded, encoding: 'utf8', timeout: childTimeout(180_000) });
       assert.equal(moved.status, 0, `${moved.stdout}\n${moved.stderr}`);
       assert.equal(realpathSync.native(JSON.parse(moved.stdout).repositoryPath), realpathSync.native(path.join(fresh, 'attachws-local', 'repos', 'application')));
       assert.equal(JSON.parse(moved.stdout).commit, remoteHead());

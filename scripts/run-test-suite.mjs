@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { availableParallelism, tmpdir } from 'node:os';
 import path from 'node:path';
@@ -22,7 +22,6 @@ const deadlineMs = parsePositiveInteger(
   option('deadline-ms') ?? process.env.SINGULARITY_FLOW_TEST_DEADLINE_MS ?? 30 * 60 * 1000,
   'Test shard deadline', { minimum: 1_000, maximum: 4 * 60 * 60 * 1000 }
 );
-const receiptOption = option('receipt') ?? process.env.SINGULARITY_FLOW_TEST_RECEIPT ?? null;
 const plan = await discoverTestSuite(root, suite);
 const selectedShard = partitionTestFiles(plan.files, shard.count)[shard.index - 1];
 const selected = selectedShard.files.map((file) => file.relative);
@@ -49,6 +48,14 @@ if (needsStripping && flags.includes('--experimental-loader')) {
 const releaseReporterFlags = failOnSkippedFiles
   ? ['--test-reporter', pathToFileURL(path.join(root, 'scripts', 'release-test-reporter.mjs')).href]
   : [];
+const receiptOption = option('receipt') ?? process.env.SINGULARITY_FLOW_TEST_RECEIPT ?? null;
+// Beside its receipt, a shard records how long each file's tests took (scripts/test-duration-reporter.mjs),
+// which balances later runs' shards. Two reporters need a destination each; TAP stays on stdout.
+const durationsFile = receiptOption ? `${path.resolve(root, receiptOption)}.durations.json` : null;
+const reporterFlags = durationsFile
+  ? [...(releaseReporterFlags.length ? releaseReporterFlags : ['--test-reporter', 'tap']), '--test-reporter-destination', 'stdout',
+    '--test-reporter', pathToFileURL(path.join(root, 'scripts', 'test-duration-reporter.mjs')).href, '--test-reporter-destination', durationsFile]
+  : releaseReporterFlags;
 
 /**
  * Test files are processes, and many of those processes spawn several CLI, Git, model-provider, and
@@ -66,9 +73,22 @@ if (!Number.isInteger(parsedConcurrency) || parsedConcurrency < 1) {
 }
 const concurrencyFlag = `--test-concurrency=${parsedConcurrency}`;
 
-/** Run against a throwaway machine-state root and home, never the developer's own. */
-const machineState = mkdtempSync(path.join(tmpdir(), 'sflow-test-machine-state-'));
+/**
+ * Run against a throwaway machine-state root and home, never the developer's own.
+ *
+ * Tests create and delete thousands of fixture repositories. Under a folder whose name ends in
+ * `.noindex`, Spotlight indexes none of them; on 2026-10-23 that indexing took most of the CPU a
+ * full run had. The files' own temporary folders go there too, through TMPDIR.
+ */
+const temporaryRoot = path.join(tmpdir(), 'sflow-tests.noindex');
+mkdirSync(temporaryRoot, { recursive: true });
+const machineState = mkdtempSync(path.join(temporaryRoot, 'sflow-test-machine-state-'));
 const isolated = isolatedTestEnvironment(machineState);
+isolated.TMPDIR = temporaryRoot;
+// A local Git read gets 30 s in the product. Files running side by side, each with Git children of
+// its own, can stall one past that, and the test then fails though nothing is wrong; a test of the
+// deadline itself sets its own.
+isolated.SINGULARITY_FLOW_GIT_LOCAL_TIMEOUT_MS ??= '120000';
 delete isolated.FORCE_COLOR;
 delete isolated.SINGULARITY_FLOW_COLOR;
 // A contract test may invoke this runner from inside node:test. The new child owns an independent
@@ -187,7 +207,7 @@ console.log(`SFlow test shard ${shard.index}/${shard.count}: ${selected.length} 
 let result;
 try {
   result = await executeBounded([
-    ...releaseReporterFlags, ...flags, concurrencyFlag, '--test', ...selected
+    ...reporterFlags, ...flags, concurrencyFlag, '--test', ...selected
   ]);
 } finally {
   rmSync(machineState, { recursive: true, force: true });

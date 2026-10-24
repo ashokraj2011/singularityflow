@@ -6,6 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { compareNativeCopilotTraces, summarizeNativeCopilotTrace } from '../src/native-copilot-efficiency.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const event = (overrides = {}) => ({ command: 'singularity-flow nextsteps --for-agent --json',
   responseBytes: 100, ...overrides });
@@ -119,18 +120,18 @@ test('the CLI compares selected bounded traces and refuses an unpaired compariso
   await writeFile(before, JSON.stringify(trace([event()], { benchmark })));
   await writeFile(after, JSON.stringify(trace([event(), event()], { benchmark })));
   const script = fileURLToPath(new URL('../scripts/native-copilot-audit.mjs', import.meta.url));
-  const result = spawnSync(process.execPath, [script, '--trace', before, '--compare', after], { encoding: 'utf8', timeout: 15000 });
+  const result = spawnSync(process.execPath, [script, '--trace', before, '--compare', after], { encoding: 'utf8', timeout: childTimeout(15000) });
   assert.equal(result.status, 0, result.stderr);
   const report = JSON.parse(result.stdout);
   assert.equal(report.comparison.comparable, true);
   assert.equal(report.comparison.changes.toolCalls.reductionPercent, -100);
   assert.equal(report.entryStrategies['session-open'], 1);
   await writeFile(after, JSON.stringify(trace([event()], { benchmark: { ...benchmark, platform: 'darwin' } })));
-  const mismatched = spawnSync(process.execPath, [script, '--trace', before, '--compare', after], { encoding: 'utf8', timeout: 15000 });
+  const mismatched = spawnSync(process.execPath, [script, '--trace', before, '--compare', after], { encoding: 'utf8', timeout: childTimeout(15000) });
   assert.notEqual(mismatched.status, 0);
   assert.equal(JSON.parse(mismatched.stdout).comparison.comparable, false);
   for (const args of [['--compare', after], ['--trace', before, '--compare'], ['--trace', before, '--trace', after]]) {
-    const invalid = spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', timeout: 15000 });
+    const invalid = spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', timeout: childTimeout(15000) });
     assert.notEqual(invalid.status, 0);
     assert.equal(invalid.stdout, '');
   }

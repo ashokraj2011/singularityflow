@@ -20,13 +20,14 @@ import { createHostGateway } from '../src/gateway/host.mjs';
 import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
 import { readGatewayEvents } from '../src/gateway/audit.mjs';
 import { serveMcp } from '../src/gateway/mcp-stdio.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const runtime = fileURLToPath(new URL('../apps/vscode/dist/gateway-runtime.cjs', import.meta.url));
 const ACTOR = { email: 'dev@example.test', name: 'Dev' };
 
 function git(cwd, ...args) {
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 60_000 });
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: childTimeout(60_000) });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
 }

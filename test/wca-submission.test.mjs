@@ -15,6 +15,7 @@ import { removeTemporaryTree } from '../src/util.mjs';
 import { previewWorkflowDraftPackage, WCA_REQUEST_SCHEMA } from '../src/wca-compiler.mjs';
 import { openGitDraftStore } from '../src/wca-git-drafts.mjs';
 import { createWorkflowDraftReviewProposal, validateWorkflowDraftSubmissionSnapshot, workflowDraftSubmissionPlan } from '../src/wca-submission.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 // These fixture workflows exercise configuration authoring, not delivery, and say so for each
 // responsibility a Story would otherwise owe; omitting one a route does hold is only a warning.
@@ -28,7 +29,7 @@ const terminalFailure = (result) => JSON.stringify({ error: result.error, change
   output: result.output?.slice(-2000) });
 
 function git(root, ...args) {
-  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 30_000 });
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: childTimeout(30_000) });
   assert.equal(result.status, 0, `git ${args.join(' ')}: ${result.stderr}`);
   return result.stdout.trim();
 }
@@ -42,7 +43,7 @@ function flowEnvironment(root) {
 }
 function author(root, ...args) {
   return spawnSync(process.execPath, [CLI, 'workflow', 'author', ...args, '--json'], {
-    cwd: root, encoding: 'utf8', timeout: 30_000, env: flowEnvironment(root)
+    cwd: root, encoding: 'utf8', timeout: childTimeout(30_000), env: flowEnvironment(root)
   });
 }
 async function applicationObservation(root) {
@@ -251,7 +252,7 @@ async function assertCustomRootProposal(f, result) {
   assert.deepEqual(snapshot.inputs.request, f.request);
   assert.equal(snapshot.confirmation.authenticatedNativeHost, false);
   for (const file of snapshot.files) {
-    const emitted = spawnSync('git', ['--git-dir', f.remote, 'show', `${result.commit}:${file.path}`], { cwd: f.base, timeout: 30_000 });
+    const emitted = spawnSync('git', ['--git-dir', f.remote, 'show', `${result.commit}:${file.path}`], { cwd: f.base, timeout: childTimeout(30_000) });
     assert.equal(emitted.status, 0, emitted.stderr.toString());
     assert.deepEqual(emitted.stdout, Buffer.from(file.contentBase64, 'base64'));
     assert.equal(git(f.base, '--git-dir', f.remote, 'ls-tree', result.commit, '--', file.path).split(' ')[0], '100644');
@@ -446,7 +447,7 @@ test('actual terminal submission retains exact complete inputs on one review-onl
   for (const file of snapshot.files) {
     const bytes = Buffer.from(file.contentBase64, 'base64');
     assert.equal(bytes.length, file.bytes); assert.equal(`sha256:${sha256(bytes)}`, file.sha256);
-    const emitted = spawnSync('git', ['--git-dir', f.remote, 'show', `${result.commit}:${file.path}`], { cwd: f.base, timeout: 30_000 });
+    const emitted = spawnSync('git', ['--git-dir', f.remote, 'show', `${result.commit}:${file.path}`], { cwd: f.base, timeout: childTimeout(30_000) });
     assert.equal(emitted.status, 0, emitted.stderr.toString()); assert.deepEqual(emitted.stdout, bytes);
     assert.equal(git(f.base, '--git-dir', f.remote, 'ls-tree', result.commit, '--', file.path).split(' ')[0], '100644');
   }

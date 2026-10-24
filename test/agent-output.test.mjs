@@ -16,6 +16,7 @@ import YAML from 'yaml';
 
 import { agentAct, agentOutputGoverned, boundedAgentOutput, boundedAgentText, completeAgentResult, DEFAULT_AGENT_OUTPUT_BYTES, LOOP_THRESHOLD, observeAgentLoop, OMITTED_FIELDS_SHOWN, READ_CHUNK_BYTES, READ_PLAN_CHUNKS, returnsAgentPaths, withAgentRoutes } from '../src/agent-output.mjs';
 import { CLI_PATH_REFERENCE } from '../src/safe-command-guidance.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const digest = `sha256:${'e'.repeat(64)}`;
@@ -333,9 +334,9 @@ test('the CLI bounds a real phase entry, and the bytes it leaves out are in the 
     GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'Agent Tester',
     GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 'agent.tester@example.invalid' };
   delete env.SINGULARITY_FLOW_AGENT_OUTPUT;
-  const run = (args, extra = {}) => spawnSync(process.execPath, [cli, '--no-model', ...args], { cwd: root, env: { ...env, ...extra }, encoding: 'utf8', timeout: 180_000 });
+  const run = (args, extra = {}) => spawnSync(process.execPath, [cli, '--no-model', ...args], { cwd: root, env: { ...env, ...extra }, encoding: 'utf8', timeout: childTimeout(180_000) });
   const must = (command, args, cwd = root) => {
-    const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: 180_000 });
+    const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: childTimeout(180_000) });
     assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
     return result.stdout;
   };
@@ -553,9 +554,9 @@ test('every route form given --for-agent is accepted, fits the host, and a pause
     SINGULARITY_FLOW_LEAD_REGISTRY: path.join(base, 'leads.json'), SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(base, 'copilot-mode.json'),
     GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'Agent Tester',
     GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 'agent.tester@example.invalid' };
-  const run = (args, cwd = root) => spawnSync(process.execPath, [cli, '--no-model', ...args], { cwd, env, encoding: 'utf8', timeout: 180_000 });
+  const run = (args, cwd = root) => spawnSync(process.execPath, [cli, '--no-model', ...args], { cwd, env, encoding: 'utf8', timeout: childTimeout(180_000) });
   const must = (command, args, cwd = root) => {
-    const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: 180_000 });
+    const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: childTimeout(180_000) });
     assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
   };
   must('git', ['init', '-q', '-b', 'main', root], base);

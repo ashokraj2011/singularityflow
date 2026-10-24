@@ -10,6 +10,7 @@ import {
   discoverTestSuite, needsTypeStripping, parsePositiveInteger, parseShard, partitionTestFiles, SLOW_LANE_IMPORT,
   summarizeTestShardReceipts, testRunId, testSelectionSha256, testShardReceiptMatches
 } from '../scripts/test-suite-plan.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -35,20 +36,24 @@ test('test shards are deterministic, disjoint, complete, and weight-balanced', (
   assert.equal(first[0].sourceSha256, testSelectionSha256(first[0].files));
 });
 
-test('reviewed process-heavy integration files stay out of ordinary aggregate lanes', async () => {
+test('with a timing profile, shards are balanced by measured time, not by file count', async () => {
   const plan = await discoverTestSuite(root, 'all');
+  assert.ok(plan.files.filter((file) => file.measuredMs > 0).length > plan.files.length / 2, 'benchmarks/test-durations.json covers most files');
   const shards = partitionTestFiles(plan.files, 8);
-  for (const relative of [
-    'test/auto-mode.test.mjs',
-    'test/sgos-runtime.test.mjs',
-    'test/workspace.test.mjs'
-  ]) {
-    const shard = shards.find((candidate) =>
-      candidate.files.some((entry) => entry.relative === relative));
-    assert.ok(shard, `${relative} was omitted from the aggregate`);
-    assert.deepEqual(shard.files.map((entry) => entry.relative), [relative],
-      `${relative} must not share a process-heavy lane`);
-  }
+  const weights = shards.map((shard) => shard.weight);
+  const longest = Math.max(...plan.files.map((file) => file.measuredMs ?? 0));
+  const mean = weights.reduce((sum, weight) => sum + weight, 0) / weights.length;
+  // Largest-first onto the lightest shard: no shard runs past the mean by more than a file's time.
+  assert.ok(Math.max(...weights) <= Math.max(longest, mean * 1.1), `shard minutes ${weights.map((weight) => Math.round(weight / 60_000)).join(' ')}`);
+});
+
+test('without a timing profile, the reviewed process-heavy files never share a lane', async () => {
+  const plan = await discoverTestSuite(root, 'all');
+  const shards = partitionTestFiles(plan.files.map(({ measuredMs, ...file }) => file), 8);
+  const heavy = ['test/auto-mode.test.mjs', 'test/sgos-runtime.test.mjs', 'test/workspace.test.mjs'];
+  const lanes = heavy.map((relative) => shards.findIndex((shard) => shard.files.some((entry) => entry.relative === relative)));
+  assert.ok(lanes.every((lane) => lane >= 0), 'a process-heavy file was omitted from the aggregate');
+  assert.equal(new Set(lanes).size, heavy.length, 'process-heavy files must not share a lane');
 });
 
 test('the slow lane holds exactly the files that import it, and the default suite still lists them', async () => {
@@ -142,7 +147,7 @@ test('a shard deadline writes a retryable receipt and terminates the expensive c
     const result = spawnSync(process.execPath, [
       path.join(root, 'scripts/run-test-suite.mjs'), 'all', '--shard=1/64',
       '--deadline-ms=1000', `--receipt=${receiptPath}`
-    ], { cwd: root, encoding: 'utf8', timeout: 10_000 });
+    ], { cwd: root, encoding: 'utf8', timeout: childTimeout(10_000) });
     const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
     assert.notEqual(result.status, 0, output);
     assert.match(output, /exceeded its 1000 ms deadline/);

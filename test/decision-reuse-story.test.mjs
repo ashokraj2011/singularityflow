@@ -7,6 +7,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ID = 'demo-check-repair-close';
@@ -25,7 +26,7 @@ test('a real Story chooses the channel once and a later decision routes on it wi
     SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: ID, agent: AGENTS[0] }) };
   delete env.NODE_TEST_CONTEXT;
   const run = (command, args, { allowFailure = false } = {}) => {
-    const result = spawnSync(command, args, { cwd: root, env, encoding: 'utf8', timeout: 120000 });
+    const result = spawnSync(command, args, { cwd: root, env, encoding: 'utf8', timeout: childTimeout(120000) });
     if (!allowFailure) assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
     return allowFailure ? result : result.stdout;
   };

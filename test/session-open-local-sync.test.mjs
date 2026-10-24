@@ -8,6 +8,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 /**
  * `session open <ID>` on a Story that already has its own managed checkout brings that checkout up
@@ -32,13 +33,13 @@ test('session open fast-forwards an existing local Story checkout, and never mer
       GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'Sync Opener',
       GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 'sync.opener@example.invalid' };
     const must = (command, args, cwd = root) => {
-      const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: 180_000 });
+      const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: childTimeout(180_000) });
       assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
       return result.stdout;
     };
     const open = () => {
       const result = spawnSync(process.execPath, [cli, 'session', 'open', 'SYNC-1', '--for-agent', '--json'],
-        { cwd: root, env, encoding: 'utf8', timeout: 180_000 });
+        { cwd: root, env, encoding: 'utf8', timeout: childTimeout(180_000) });
       let packet = null;
       try {
         packet = JSON.parse(result.stdout);

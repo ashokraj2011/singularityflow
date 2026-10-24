@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -23,7 +24,7 @@ test('Windows wrapper delegates the update choice without pulling ahead of recov
   for (const noUpdate of [false, true]) {
     const result = spawnSync('bash', [path.join(fixture, 'install-windows-git-bash.sh'),
       '--cli-only', '--skip-tests', ...(noUpdate ? ['--no-update'] : [])], {
-      cwd: fixture, env: process.env, encoding: 'utf8', timeout: 30_000
+      cwd: fixture, env: process.env, encoding: 'utf8', timeout: childTimeout(30_000)
     });
     assert.ifError(result.error);
     assert.equal(result.status, 0, result.stdout + result.stderr);

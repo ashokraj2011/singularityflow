@@ -21,9 +21,10 @@ import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { removeTemporaryTree } from '../src/util.mjs';
 import { acquireFileLease } from '../src/file-lease.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 function git(cwd, ...args) {
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000 });
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: childTimeout(30_000) });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
 }
@@ -214,7 +215,7 @@ test('a live entry is never evicted and dead-owner quarantine is retired before 
   const module = new URL('../src/file-lease.mjs', import.meta.url).href;
   const fixtureOwner = spawnSync(process.execPath, ['--input-type=module', '-e',
     `import { acquireFileLease } from ${JSON.stringify(module)}; const lease = await acquireFileLease(${JSON.stringify(deceased)}); await lease.retainQuarantine({ childPids: [], unknownChildren: false });`],
-  { encoding: 'utf8', timeout: 10_000 });
+  { encoding: 'utf8', timeout: childTimeout(10_000) });
   assert.equal(fixtureOwner.status, 0, fixtureOwner.stderr);
   const result = await read(f);
   assert.equal(result.counters['configuration.object-cache-evicted'], 1);
@@ -645,7 +646,7 @@ for (const kind of ['structured-refusal', 'ordinary-error', 'type-error']) {
     await writeFile(loader, `export async function load(url, context, nextLoad) { const result = await nextLoad(url, context); if (url !== ${JSON.stringify(execution)}) return result; const source = String(result.source); const signature = 'export async function runRemoteGitAsync(args, options = {}) {'; if (!source.includes(signature)) throw new Error('fixture transfer signature changed'); return { ...result, source: source.replace(signature, 'async function runFixtureOriginalRemoteGitAsync(args, options = {}) {') + ${JSON.stringify(wrapper)} }; }\n`);
     const child = spawnSync(process.execPath, ['--experimental-loader', loader, '--input-type=module', '-e',
       `import { loadStoryConfigurationSnapshot } from ${JSON.stringify(configuration)}; let error = null; try { await loadStoryConfigurationSnapshot(${JSON.stringify(f.authority)}, { env: process.env, useObjectCache: true }); } catch (value) { error = { name: value.name, message: value.message, code: value.code ?? null }; } process.stdout.write(JSON.stringify({ error }));`],
-    { cwd: f.source, env: { ...f.env, NODE_NO_WARNINGS: '1' }, encoding: 'utf8', timeout: 30_000 });
+    { cwd: f.source, env: { ...f.env, NODE_NO_WARNINGS: '1' }, encoding: 'utf8', timeout: childTimeout(30_000) });
     assert.equal(child.error, undefined, child.error?.message); assert.equal(child.status, 0, child.stderr);
     const expected = kind === 'structured-refusal'
       ? { name: 'SingularityFlowError', message: 'fixture transport refusal', code: 'REMOTE_AUTH_REQUIRED' }

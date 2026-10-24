@@ -27,12 +27,13 @@ import { withApprovedConfigurationRead } from '../src/approved-configuration-rea
 import { configurationReadSnapshot } from '../src/configuration-read-scope.mjs';
 import { captureVerifiedConfigurationAssetBytes } from '../src/configuration-branch.mjs';
 import { withCommandTiming } from '../src/dx-timing-context.mjs';
+import { childTimeout } from './helpers/child-timeout.mjs';
 
 // These fixture workflows exercise configuration authoring, not delivery, and say so for each
 // responsibility a Story would otherwise owe; omitting one a route does hold is only a warning.
 const OMITS = ['scope', 'plan', 'implement', 'verify', 'review'].map((responsibility) => ({ responsibility, reason: 'A configuration-authoring fixture that exercises no delivery.', authority: 'reviewers' }));
 
-function git(root, ...argv) { const result = spawnSync('git', argv, { cwd: root, encoding: 'utf8', timeout: 30_000 }); assert.equal(result.status, 0, result.stderr); return result.stdout.trim(); }
+function git(root, ...argv) { const result = spawnSync('git', argv, { cwd: root, encoding: 'utf8', timeout: childTimeout(30_000) }); assert.equal(result.status, 0, result.stderr); return result.stdout.trim(); }
 const testDigest = (value) => `sha256:${recordSha256(value)}`;
 const testDomainDigest = (domain, value) => `sha256:${createHash('sha256').update(`${domain}\0`).update(canonicalJson(value)).digest('hex')}`;
 function resealGroupedHistorical(value) {

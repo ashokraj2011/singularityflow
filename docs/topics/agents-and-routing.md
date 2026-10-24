@@ -14,7 +14,7 @@ related:
   - model-independence
   - assignments-and-watchlists
   - skill-master
-version: 7
+version: 8
 ---
 Phase activation selects an agent from pinned policy. Human approval authority remains separate from agent selection, and explicit overrides are local and audited.
 
@@ -27,8 +27,10 @@ both are recorded and fail closed if the provider substitutes another model.
 A tier may also carry `params.effort` (Copilot reasoning effort: none, minimal, low, medium,
 high, xhigh or max) and `params.autoTier` (the Auto routing profile, such as efficiency). Which
 tiers send them is configurable with `sendParameters` in `singularity/modelTiers.yml`: `none`,
-`all`, or a list of tasks. The bundled map sends only `summarize` (`autoTier: efficiency`,
-`effort: low`), which repository briefs, explanations, narration and PR polish route through;
+`all`, or a list of tasks. An effort is never sent to `auto`: Auto chooses its own, and Copilot
+CLI 1.0.103 refuses a session given one, so an Auto tier sends only its `autoTier`. The bundled
+map sends only `summarize` (`autoTier: efficiency`; its `effort: low` is kept but not sent to
+Auto), which repository briefs, explanations, narration and PR polish route through;
 `all` also sends `reason` `effort: high`, which raises the cost of code generation and Auto. Every
 tier's params are recorded on each invocation receipt, with the ones sent under
 `routing.sentParameters`, and the Configuration Center Model routing tab marks them.

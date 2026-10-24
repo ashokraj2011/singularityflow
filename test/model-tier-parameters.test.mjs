@@ -79,7 +79,8 @@ test('a mapping that does not say sends nothing and keeps the revision it always
 
 test('a list sends only the tiers it names, matched by task or by the tier a task aliases', () => {
   const listed = normalizeModelTiers(YAML.parse(`sendParameters: [summarize]\n${TIERS}`));
-  assert.deepEqual(tierLadder(listed, 'summarize').sentParams, { effort: 'low', autoTier: 'efficiency' },
+  // summarize runs on auto, which picks its own effort: only its Auto profile is sent.
+  assert.deepEqual(tierLadder(listed, 'summarize').sentParams, { autoTier: 'efficiency' },
     'temperature is recorded but never sent');
   assert.equal(tierLadder(listed, 'code').sentParams, null);
   const byAlias = normalizeModelTiers(YAML.parse(`sendParameters: [reason]\n${TIERS}`));
@@ -99,9 +100,10 @@ test('the setting and the sendable params are validated', () => {
   ]) assert.throws(() => normalizeModelTiers(YAML.parse(yaml)), pattern);
 });
 
-test('Copilot receives effort always and the Auto profile only for auto', () => {
+test('Copilot receives effort only for a named model, and the Auto profile only for auto', () => {
+  // Copilot CLI 1.0.103 refuses a session for auto when it is given an effort.
   assert.deepEqual(copilotModelParameterArguments({ effort: 'low', autoTier: 'efficiency' }, 'auto'),
-    ['--reasoning-effort', 'low', '--auto-tier', 'efficiency']);
+    ['--auto-tier', 'efficiency']);
   assert.deepEqual(copilotModelParameterArguments({ effort: 'high', autoTier: 'efficiency' }, 'strong-model'),
     ['--reasoning-effort', 'high']);
   assert.deepEqual(copilotModelParameterArguments(null, 'auto'), []);
@@ -112,7 +114,7 @@ test('the provider is asked with the sent params, and the receipt records them',
   await run(root, { task: 'summarize' });
   let args = await argv(root);
   assert.equal(flag(args, '--model'), 'auto');
-  assert.equal(flag(args, '--reasoning-effort'), 'low');
+  assert.equal(args.includes('--reasoning-effort'), false, 'auto takes its routing profile, not an effort');
   assert.equal(flag(args, '--auto-tier'), 'efficiency');
   await run(root, { task: 'code' });
   args = await argv(root);
@@ -123,7 +125,7 @@ test('the provider is asked with the sent params, and the receipt records them',
   assert.equal(first.routing.sentParameters, null);
   assert.match(first.routing.paramsDigest, /^[0-9a-f]{16}$/u, 'unsent params are still recorded');
   assert.equal(second.routing.task, 'summarize');
-  assert.deepEqual(second.routing.sentParameters, { effort: 'low', autoTier: 'efficiency' });
+  assert.deepEqual(second.routing.sentParameters, { autoTier: 'efficiency' });
 });
 
 test('all sends every tier, none sends nothing', async () => {
@@ -157,10 +159,11 @@ test('summarizing calls route by the summarize task only when a mapping exists a
   assert.deepEqual(await summarizingRoute(await repository(null)), { model: null });
 });
 
-test('the packaged mapping sends only the summarize tier, at efficiency and low effort', async () => {
+test('the packaged mapping sends only the summarize tier, at the efficiency Auto profile', async () => {
   const packaged = normalizeModelTiers(YAML.parse(await readFile(path.join(packageRoot, 'templates', 'modelTiers.yml'), 'utf8')));
   assert.deepEqual(packaged.sendParameters, ['summarize']);
-  assert.deepEqual(tierLadder(packaged, 'summarize').sentParams, { autoTier: 'efficiency', effort: 'low' });
+  // Its low effort stays in the mapping (and its digest); Auto refuses an effort, so none is sent.
+  assert.deepEqual(tierLadder(packaged, 'summarize').sentParams, { autoTier: 'efficiency' });
   for (const task of ['relay', 'clarify', 'reason', 'code', 'analyze']) {
     assert.equal(tierLadder(packaged, task).sentParams, null, task);
   }

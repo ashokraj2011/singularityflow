@@ -15,6 +15,7 @@ import { comprehensionSourceReferences } from './source-expansion.mjs';
 import { buildComprehensionWalkthroughDraft } from './walkthrough.mjs';
 import { buildCodeExplanation } from './code-explanation.mjs';
 import { readStoryClauseSources } from './xpl2/clause-sources.mjs';
+import { readStoryRecordSources } from './xpl2/record-sources.mjs';
 import { readChangeSourceTags } from './xpl2/source-tags.mjs';
 import { explainXpl2Subject } from './xpl2/subjects.mjs';
 
@@ -114,11 +115,15 @@ async function loadComprehensionIdeSliceOnce(root, {
   let explanationView = null;
   let explanationViewUnavailableReason = null;
   let clauseSources = null;
+  let recordSources = null;
   try {
     clauseSources = await readStoryClauseSources(root, selectedWorkflow);
+    // Recorded runs, witnesses and reuse decisions of the selected phase, through their owners.
+    recordSources = await readStoryRecordSources(root, selectedWorkflow, { phaseId: context.phase })
+      .catch(() => ({ status: 'unavailable' }));
     explanationView = explainXpl2Subject({
       context, manifest, codeExplanation, evidence, workflow: selectedWorkflow,
-      clauseSources, replay, sourceReferences, codeScope: { hidden }, sourceTags
+      clauseSources, replay, sourceReferences, codeScope: { hidden }, sourceTags, recordSources
     }, { subject: 'change' });
   } catch (error) {
     explanationViewUnavailableReason = error?.code ?? 'XPL2_VIEW_UNAVAILABLE';
@@ -141,7 +146,7 @@ async function loadComprehensionIdeSliceOnce(root, {
   // CLI subject views rebuild from these exact inputs. They stay out of the serialized IDE
   // snapshot, which carries only the computed view.
   const explanationInputs = includeExplanationInputs
-    ? { workflow: selectedWorkflow, clauseSources, codeScope: { hidden }, sourceTags }
+    ? { workflow: selectedWorkflow, clauseSources, codeScope: { hidden }, sourceTags, recordSources }
     : undefined;
 
   return {

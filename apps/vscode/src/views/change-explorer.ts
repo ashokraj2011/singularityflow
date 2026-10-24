@@ -11,6 +11,7 @@
  */
 import { XPL2_RELATIONSHIPS } from '../../../../src/comprehension/xpl2/vocabulary.mjs';
 import { XPL2_REASONS } from '../../../../src/comprehension/xpl2/reasons.mjs';
+import { compareXpl2Views } from '../../../../src/comprehension/xpl2/compare.mjs';
 import { escape as escapeHtml } from './webview.ts';
 
 export interface Xpl2Source {
@@ -89,6 +90,8 @@ export interface Xpl2Unit {
   opaqueReason?: string | null;
   regionSha256: string;
   explanationUnitSha256: string;
+  /** The change content this unit holds, independent of the snapshot; absent in older views. */
+  changeContentSha256?: string;
 }
 
 export interface Xpl2File {
@@ -202,7 +205,9 @@ const STYLE_LABELS: Record<string, string> = {
   diagnostic: 'observation gap',
   containment: 'contains',
   navigation: 'navigation hint',
-  citation: 'cites'
+  citation: 'cites',
+  occurrence: 'exact occurrence',
+  decision: 'owner decision'
 };
 
 const CONTROL = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
@@ -389,8 +394,14 @@ function nodeSubtitle(view: Xpl2Explanation, node: Xpl2Node): string {
       : node.status === 'conflicting-declarations' ? 'Conflicting declarations — all shown'
         : 'Named here; no specification read here declares it';
   }
-  if (node.kind === 'test') return 'Test source with a declared @ac tag';
-  if (node.kind === 'run') return `Local delivery record · ${node.status ?? 'unknown'}`;
+  if (node.kind === 'test') return node.status === 'exact-declaration' ? 'Recorded witness · one exact test declaration' : 'Test source with a declared @ac tag';
+  if (node.kind === 'run') {
+    if (/^TA-/u.test(node.label)) {
+      return node.status === 'recorded-elsewhere' ? 'Test attempt named by a reuse decision' : `Recorded test attempt · ${node.status ?? 'unknown'}`;
+    }
+    return `Local delivery record · ${node.status ?? 'unknown'}`;
+  }
+  if (node.kind === 'decision') return `Evidence-reuse decision · ${node.status === 'active' ? 'applies now' : node.status === 'unknown' ? 'cannot be judged' : `does not apply (${node.status ?? 'unknown'})`}`;
   if (node.kind === 'diagnostic') {
     return node.status === 'owner-reported-gap' ? 'Reported by its owner · not a failed test'
       : node.status === 'region-only-association' ? 'Region association only' : 'No exact cause link recorded';
@@ -403,11 +414,13 @@ function nodeEyebrow(node: Xpl2Node): string {
     : node.kind === 'file' ? 'Changed file'
       : node.kind === 'test' ? 'Declared mapping'
         : node.kind === 'run' ? 'Recorded result'
-          : node.kind === 'diagnostic' ? 'Observation gap' : node.kind;
+          : node.kind === 'decision' ? 'Recorded decision'
+            : node.kind === 'diagnostic' ? 'Observation gap' : node.kind;
 }
 
 function nodeButton(view: Xpl2Explanation, node: Xpl2Node, column: string, index: number): string {
-  const gap = node.kind === 'diagnostic' || (node.kind === 'run' && !['passed', 'pass', 'succeeded', 'success'].includes(String(node.status)));
+  const gap = node.kind === 'diagnostic' || (node.kind === 'run' && !['passed', 'pass', 'succeeded', 'success', 'recorded-elsewhere'].includes(String(node.status)))
+    || (node.kind === 'decision' && node.status !== 'active');
   const described = view.relationships.filter((edge) => edge.from === node.id || edge.to === node.id)
     .map((edge) => relationshipSentence(view, edge)).join(' ');
   return `<button type="button" class="xpl-node xpl-${node.kind}${gap ? ' xpl-gap' : ''}" id="${domId(node.id)}" data-node="${escape(node.id)}" data-column="${column}" data-index="${index}" aria-label="${escape(`${nodeEyebrow(node)}: ${node.label}. ${nodeSubtitle(view, node)}. ${described}`)}">
@@ -482,7 +495,7 @@ function mapHtml(view: Xpl2Explanation): string {
   </div>
   <p class="xpl-note" id="xpl-edge-note" hidden></p>
   <ul class="xpl-sr-edges" aria-label="Relationships shown on the map">${drawn.map((edge) => `<li>${escape(relationshipSentence(view, edge))} (${escape(edge.scope)})</li>`).join('')}</ul>
-  <p class="xpl-legend"><span class="xpl-key xpl-key-region"></span> Recorded region association <span class="xpl-key xpl-key-proposed"></span> Declared tag (@clause in code, @ac in tests) <span class="xpl-key xpl-key-citation"></span> Clause cites clause <span class="xpl-key xpl-key-exact"></span> Exact path identity <span class="xpl-key xpl-key-diagnostic"></span> Observation gap · <strong>No test-to-hunk coverage is inferred.</strong></p>`;
+  <p class="xpl-legend"><span class="xpl-key xpl-key-region"></span> Recorded region association <span class="xpl-key xpl-key-proposed"></span> Declared tag (@clause in code, @ac in tests) <span class="xpl-key xpl-key-citation"></span> Clause cites clause <span class="xpl-key xpl-key-exact"></span> Exact path identity or test occurrence <span class="xpl-key xpl-key-decision"></span> Recorded decision <span class="xpl-key xpl-key-diagnostic"></span> Observation gap · <strong>No test-to-hunk coverage is inferred.</strong></p>`;
 }
 
 function relationshipsTable(view: Xpl2Explanation): string {
@@ -691,6 +704,8 @@ export interface ExplorerRenderInput {
   timeline: TimelineEvent[] | null;
   audience: ExplorerAudience;
   newerSnapshot: boolean;
+  /** The newer computed view, when one is waiting; only compared, never shown in place of the pinned one. */
+  newerView?: Xpl2Explanation | null;
   token: string;
   /**
    * A resolved menu request. The host sends it with every render of the same explanation set, and
@@ -698,6 +713,20 @@ export interface ExplorerRenderInput {
    * later render cannot undo a selection the reader made since.
    */
   focus?: (ExplorerFocus & { id: string }) | null;
+}
+
+/**
+ * "Snapshot changed", with what moved when the newer view is at hand: units compared by full digest,
+ * never by display ID, and the sources whose identity or state differs [XPL2 5.1].
+ */
+function snapshotBanner(view: Xpl2Explanation, newer: Xpl2Explanation | null): string {
+  const comparison = compareXpl2Views(view, newer);
+  const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
+  const moved = comparison
+    ? ` Since this view: ${plural(comparison.units.addedCount, 'change unit')} new, ${comparison.units.removedCount} gone, ${comparison.units.kept} unchanged${comparison.sources.changedCount ? `; ${plural(comparison.sources.changedCount, 'source')} changed (${comparison.sources.changed.map((id) => escape(id)).join(', ')}${comparison.sources.changedCount > comparison.sources.changed.length ? ', …' : ''})` : ''}.`
+      + `${comparison.units.added.length ? ` New: ${comparison.units.added.map((unit) => `${escape(unit.unitId)} ${escape(unit.path)}`).join(', ')}.` : ''}`
+    : '';
+  return `<div class="xpl-banner" role="status"><strong>Snapshot changed.</strong> The repository moved since this view was built.${moved} You are still looking at the earlier snapshot. <button type="button" class="secondary" data-message="refresh">Refresh to the new snapshot</button></div>`;
 }
 
 /** Complete Change Explorer body; the host renders it inside the Comprehension Center page. */
@@ -716,7 +745,7 @@ export function changeExplorerBody(input: ExplorerRenderInput): string {
   })));
   return `<style nonce="${escape(input.token)}">${EXPLORER_STYLE}</style>
   <div class="xpl" id="xpl-root" data-set="${escape(view.explanationSetSha256)}" data-session="${escape(input.token)}" data-units="${escape(unitsJson)}" data-first-unit="${escape(firstUnit?.unitId ?? '')}"${focus ? ` data-focus-id="${escape(focus.id)}" data-focus-node="${escape(focus.node ?? '')}" data-focus-unit="${escape(focus.unit ?? '')}"` : ''}>
-    ${input.newerSnapshot ? '<div class="xpl-banner" role="status"><strong>Snapshot changed.</strong> The repository moved since this view was built. You are still looking at the earlier snapshot. <button type="button" class="secondary" data-message="refresh">Refresh to the new snapshot</button></div>' : ''}
+    ${input.newerSnapshot ? snapshotBanner(view, input.newerView ?? null) : ''}
     <header class="xpl-header">
       <div>
         <p class="xpl-kicker">Singularity Flow / Change Explorer</p>
@@ -845,6 +874,7 @@ export const EXPLORER_STYLE = `
   .xpl-edges .xpl-edge-proposed { stroke-dasharray:2 3; }
   .xpl-edges .xpl-edge-diagnostic { stroke-dasharray:4 4; stroke: var(--vscode-editorWarning-foreground, currentColor); }
   .xpl-edges .xpl-edge-citation { stroke: var(--vscode-textLink-foreground, currentColor); }
+  .xpl-edges .xpl-edge-decision { stroke-dasharray:8 3 2 3; }
   .xpl-edges .xpl-edge-active { stroke: var(--vscode-focusBorder); stroke-width:2.5; }
   .xpl-edge-labels { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:2; overflow:visible; }
   .xpl-edge-labels rect { fill: var(--vscode-editor-background); stroke: var(--vscode-focusBorder); stroke-width:1; }
@@ -861,6 +891,7 @@ export const EXPLORER_STYLE = `
   .xpl-key-proposed { border-top-style:dotted; }
   .xpl-key-diagnostic { border-top-style:dashed; border-top-color: var(--vscode-editorWarning-foreground, currentColor); }
   .xpl-key-citation { border-top-color: var(--vscode-textLink-foreground, currentColor); }
+  .xpl-key-decision { border-top-style:double; border-top-width:3px; }
   .xpl-sr-edges, .xpl-sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
   .xpl-diff-actions { display:flex; gap:6px; flex-wrap:wrap; }
   .xpl-diff-head { display:flex; justify-content:space-between; margin:8px 0; }

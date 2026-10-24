@@ -24,7 +24,7 @@ related:
   - delivery-and-proof
   - model-independence
   - world-model
-version: 10
+version: 11
 ---
 ## Purpose and prerequisites
 
@@ -154,6 +154,16 @@ view or its hashes. `--commentary` additionally allows free text labelled
 markup, links, control characters, secret-shaped or oversized text, or cites IDs that are not
 statements. With models off the narration is reported unavailable and the computed view is
 unchanged.
+
+Recorded checks come from their owners: the test attempts a phase's delivery bound (each checked
+against its recorded digest), each acceptance criterion's witness as the verification owner judges
+it, and evidence-reuse decisions with their owner's state. A reused run is never shown as a new run,
+and nothing is carried forward unless that owner says it still applies. `--subject line` adds the
+commit that last changed the line at the baseline (an added line has none yet), and
+`--subject generation` lists this machine's model invocations, prompt-log entries (never their text)
+and test attempts for that generation. Neither says who or what wrote a line: that stays
+`origin-unestablished`. When the Change Explorer says the snapshot changed, it also counts the
+change units that are new, gone and unchanged since the view on screen.
 
 ## State and safety
 

@@ -8,14 +8,14 @@
  */
 import path from 'node:path';
 
-import { repoRoot } from '../../git.mjs';
+import { lineCommitAt, repoRoot } from '../../git.mjs';
 import {
   action, commandResult, noEffects, succeeded
 } from '../../narration/command-result.mjs';
 import { emitCommandResult } from '../../narration/emit.mjs';
 import { optionBoolean, optionNumber, optionString, SingularityFlowError } from '../../util.mjs';
 import { loadComprehensionIdeSlice } from '../ide-slice.mjs';
-import { explainXpl2Subject, normalizeXpl2Query } from './subjects.mjs';
+import { explainXpl2Subject, normalizeXpl2Query, xpl2LineHistoryRequest } from './subjects.mjs';
 
 /**
  * The initial wire payload goal [XPL2 18]: a bounded, labelled page rather than a silently truncated
@@ -82,10 +82,10 @@ async function readProofGaps(root, workId) {
   }
 }
 
-function boundedModel(input, query, proof, maximumBytes) {
+function boundedModel(input, query, extra, maximumBytes) {
   let maximumUnits = null;
   for (let attempt = 0; attempt < 12; attempt += 1) {
-    const model = explainXpl2Subject(input, query, { proof, maximumUnits });
+    const model = explainXpl2Subject(input, query, { ...extra, maximumUnits });
     const bytes = Buffer.byteLength(JSON.stringify(model), 'utf8');
     if (bytes <= maximumBytes) return { model, bytes };
     const total = model.inventory.units.length;
@@ -93,7 +93,7 @@ function boundedModel(input, query, proof, maximumBytes) {
     if (current <= 1) return { model, bytes };
     maximumUnits = Math.max(1, Math.floor(current / 2));
   }
-  const model = explainXpl2Subject(input, query, { proof, maximumUnits: 1 });
+  const model = explainXpl2Subject(input, query, { ...extra, maximumUnits: 1 });
   return { model, bytes: Buffer.byteLength(JSON.stringify(model), 'utf8') };
 }
 
@@ -139,10 +139,21 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
     sourceTags: slice.explanationInputs?.sourceTags ?? null,
     replay: slice.replay,
     sourceReferences: slice.sourceReferences,
-    codeScope: slice.codeScope
+    codeScope: slice.codeScope,
+    recordSources: slice.explanationInputs?.recordSources ?? null
   };
   const proof = query.subject === 'gap' ? await readProofGaps(root, slice.context.workId) : null;
-  const { model, bytes } = boundedModel(input, query, proof, maximumBytes);
+  // A line asks ordinary commit history once, at the exact baseline commit, after the capture is
+  // complete; a generation reads this machine's records for it. Neither is read for other subjects.
+  let lineHistory = null;
+  if (query.subject === 'line') {
+    const request = xpl2LineHistoryRequest({ codeExplanation: slice.codeExplanation, diff: slice.diff, context: slice.context }, query);
+    lineHistory = { request, result: request?.kind === 'baseline' ? lineCommitAt(root, request.revision, request.path, request.line) : null };
+  }
+  const generationSources = query.subject === 'generation' && input.workflow
+    ? await (await import('./record-sources.mjs')).readGenerationSources(root, input.workflow, { phase: query.phase, generation: query.generation })
+    : null;
+  const { model, bytes } = boundedModel(input, query, { proof, lineHistory, generationSources }, maximumBytes);
   // The computed view is complete before narration starts and is never changed by it [XPL2-AC-009].
   const narration = wantsNarration
     ? await (await import('./narration-command.mjs')).narrateXpl2Explanation(root, model, {

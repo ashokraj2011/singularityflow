@@ -133,7 +133,8 @@ function presentationFor(model, selection, next = []) {
       .map((entry) => entry.id)
   ];
   const intent = byKind(['clause-declared', 'clause-cites', 'clause-required', 'clause-untagged', 'clause-tag', 'region-association']);
-  const checks = byKind(['test-tag', 'acceptance-tag', 'test-result', 'gap-observed', 'no-complete-evaluation']);
+  const checks = byKind(['test-tag', 'acceptance-tag', 'test-result', 'witness-result', 'test-attempt', 'evidence-reuse',
+    'gap-observed', 'no-complete-evaluation']);
   const limits = byKind(['admission-unavailable', 'feature-state', 'source-state', 'cause-not-recorded', 'provenance-unavailable']);
   const history = byKind(['generation-recorded']);
   const unique = (ids) => [...new Set(ids)];
@@ -163,6 +164,232 @@ function presentationFor(model, selection, next = []) {
   };
 }
 
+const COMMIT = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+
+/** The kind of one after-side line inside a hunk of the bounded patch: added, or the baseline line it was. */
+function afterLineInHunk(diff, unit, line) {
+  if (diff?.status !== 'available' || typeof diff.patch !== 'string' || !unit.hunk) return null;
+  const file = (diff.files ?? []).find((entry) => entry.pathBefore === (unit.location?.pathBefore ?? null)
+    && entry.pathAfter === (unit.location?.pathAfter ?? null));
+  if (!file) return null;
+  const rows = diff.patch.slice(file.patchStart, file.patchEnd).split('\n');
+  const header = rows.findIndex((row) => row.replace(/\r$/u, '') === String(unit.hunk.header ?? '').replace(/\r$/u, ''));
+  if (header < 0) return null;
+  let before = unit.hunk.before.start;
+  let after = unit.hunk.after.start;
+  for (const row of rows.slice(header + 1)) {
+    if (row.startsWith('@@ ') || row.startsWith('diff --git ')) break;
+    if (row.startsWith('-')) before += 1;
+    else if (row.startsWith('+')) { if (after === line) return { kind: 'added' }; after += 1; }
+    else if (row.startsWith(' ')) { if (after === line) return { kind: 'context', baselineLine: before }; before += 1; after += 1; }
+  }
+  return null;
+}
+
+/**
+ * What ordinary commit history can say about one line [XPL2 12]: the exact baseline commit and
+ * baseline line to ask `git blame` about, the change unit that added the line (no commit records
+ * it yet), or why neither is possible. Pure; the command performs the one bounded Git read.
+ */
+export function xpl2LineHistoryRequest({ codeExplanation, diff = null, context = {} } = {}, rawQuery = {}) {
+  const query = normalizeXpl2Query(rawQuery);
+  if (query.subject !== 'line') return null;
+  const revision = String(context?.base ?? '');
+  const units = (codeExplanation?.whyEachChange ?? []).filter((unit) =>
+    (query.side === 'before' ? unit.location?.pathBefore : unit.location?.pathAfter) === query.path);
+  if (units.some((unit) => unit.unitKind === 'untracked-region-opaque') && query.side === 'after') {
+    return { kind: 'captured-change', unitId: units[0].unitId };
+  }
+  if (units.length && units.every((unit) => !unit.hunk)) {
+    return { kind: 'unavailable', reason: units.some((unit) => unit.opacity?.reason === 'tracked-file-has-no-text-hunks') ? 'opaque-content' : 'text-projection-unavailable' };
+  }
+  if (!COMMIT.test(revision)) return { kind: 'unavailable', reason: 'source-not-recorded' };
+  if (query.side === 'before') return { kind: 'baseline', revision, path: query.path, line: query.line, side: 'before', placement: 'baseline' };
+  const covering = units.find((unit) => unit.hunk && unit.hunk.after.lines > 0 && query.line >= unit.hunk.after.start
+    && query.line <= unit.hunk.after.start + unit.hunk.after.lines - 1);
+  const basePath = units.find((unit) => unit.location?.pathBefore)?.location.pathBefore ?? (units.length ? null : query.path);
+  if (covering) {
+    const kind = afterLineInHunk(diff, covering, query.line);
+    if (!kind) return { kind: 'unavailable', reason: 'text-projection-unavailable' };
+    if (kind.kind === 'added' || !basePath) return { kind: 'captured-change', unitId: covering.unitId };
+    return { kind: 'baseline', revision, path: basePath, line: kind.baselineLine, side: 'after', placement: 'context' };
+  }
+  if (!basePath) return { kind: 'captured-change', unitId: units[0]?.unitId ?? 'unit' };
+  // Outside every unit the line is unchanged: shift it by the size change of each hunk above it.
+  let offset = 0;
+  for (const unit of units.filter((entry) => entry.hunk)) {
+    const { before, after } = unit.hunk;
+    const above = after.lines > 0 ? after.start + after.lines - 1 < query.line : after.start < query.line;
+    if (above) offset += before.lines - after.lines;
+  }
+  return { kind: 'baseline', revision, path: basePath, line: query.line + offset, side: 'after', placement: 'outside' };
+}
+
+/** Admit what the line history read returned: a commit, the change unit, or the reason there is none. */
+function lineHistoryStatements(b, derived, query, history) {
+  const request = history?.request ?? null;
+  if (!request) return;
+  if (request.kind === 'captured-change') {
+    derived.push(b.derivedStatement({
+      about: 'line', template: 'xpl2.line-uncommitted@1', cites: ['SRC-MANIFEST'],
+      arguments: { path: query.path, line: query.line, unitId: request.unitId }
+    }));
+    return;
+  }
+  const result = history.result;
+  if (request.kind === 'baseline' && result && COMMIT.test(String(result.commit ?? ''))) {
+    b.source({
+      id: 'SRC-LINE-HISTORY', label: 'Commit history of the baseline', owner: 'git.commit-history', family: 'git-blame-line',
+      recordId: result.commit, integrity: 'verified', origin: 'recorded-local', applicability: 'current', availability: 'present',
+      coverage: { scope: `line ${request.line} of ${request.path} at the baseline commit`, complete: true }, subject: true
+    });
+    derived.push(b.derivedStatement({
+      about: 'line', template: 'xpl2.line-commit@1', cites: ['SRC-LINE-HISTORY'],
+      arguments: {
+        side: query.side, path: query.path, line: query.line, placement: request.placement ?? 'baseline', baselineLine: request.line, commit: result.commit,
+        summary: String(result.summary ?? ''), author: String(result.author ?? ''), authorTime: String(result.authorTime ?? 'an unrecorded time')
+      },
+      limitations: ['origin-unestablished']
+    }));
+    return;
+  }
+  const reason = request.kind === 'unavailable' ? request.reason : 'source-inaccessible';
+  b.observation({
+    id: 'OBS-LINE-HISTORY', adapter: 'git.commit-history', scope: 'commit history of the baseline for this line',
+    completeness: 'unavailable', reason, subject: true
+  });
+  derived.push(b.derivedStatement({
+    about: 'line', template: 'xpl2.line-commit-unavailable@1', cites: ['OBS-LINE-HISTORY'],
+    arguments: { side: query.side, path: query.path, line: query.line, reason }
+  }));
+}
+
+const INVOCATION_STATES = new Set(['completed', 'failed', 'started']);
+const PROMPT_SOURCE_KINDS = new Set(['wm-compose', 'vscode-governed-handoff', 'model-invocation']);
+const MAXIMUM_OVERLAPS = 20;
+
+function instant(value) {
+  const time = Date.parse(String(value ?? ''));
+  return Number.isFinite(time) ? time : null;
+}
+
+/**
+ * Admit one generation's machine-local records [XPL2 12.1]: invocations in their own recorded
+ * order with overlaps named rather than ordered, prompt-log entries by what they say they were,
+ * and the phase's test attempts of that generation. Missing outcomes, tool observations and
+ * disabled capture stay visible as such; none is read as zero.
+ */
+function generationStatements(b, derived, query, sources) {
+  const invocations = sources?.invocations ?? null;
+  if (invocations?.status === 'available') {
+    const records = [...invocations.records].sort((left, right) => String(left.startedAt ?? '').localeCompare(String(right.startedAt ?? ''))
+      || String(left.id).localeCompare(String(right.id)));
+    b.source({
+      id: 'SRC-INVOCATIONS', label: 'Model invocation records on this machine', owner: 'model-runner.invocation-audit',
+      family: 'model-invocation-audit',
+      integrity: records.length && records.every((record) => record.observationIntegrity === 'machine-local-mac') ? 'self-hashed' : 'unverified',
+      origin: 'observed-local', applicability: 'current', availability: 'present',
+      coverage: { scope: 'this machine', complete: !invocations.omitted, records: records.length }, subject: true
+    });
+    derived.push(b.derivedStatement({
+      about: 'generation', template: 'xpl2.capture-state@1', cites: ['SRC-INVOCATIONS'],
+      arguments: { capture: 'invocations', state: 'on', records: records.length, retentionDays: 0, reason: 'machine-local-only' },
+      limitations: invocations.omitted ? ['partial-inventory'] : []
+    }));
+    for (const record of records) {
+      const status = INVOCATION_STATES.has(record.status) ? record.status : 'started';
+      const calls = Array.isArray(record.toolObservation?.calls) ? record.toolObservation.calls : null;
+      derived.push(b.derivedStatement({
+        about: 'generation', template: 'xpl2.generation-invocation@1', cites: ['SRC-INVOCATIONS'],
+        arguments: {
+          invocationId: String(record.id ?? 'unidentified'), status,
+          requestedModel: String(record.requestedModel ?? 'not recorded'),
+          reportedModel: String(record.modelSelection?.providerSelectedModel ?? 'unreported'),
+          startedAt: String(record.startedAt ?? 'not recorded'),
+          completedAt: status === 'started' ? 'not recorded' : String(record.completedAt ?? 'not recorded'),
+          toolsObserved: Boolean(calls), toolCalls: calls?.length ?? 0,
+          integrity: record.observationIntegrity === 'machine-local-mac' ? 'machine-local-mac' : 'unverified-local'
+        },
+        limitations: [...(status === 'started' ? ['outcome-unobserved'] : []), 'origin-unestablished']
+      }));
+    }
+    // Concurrent invocations keep their own IDs; arrival order is not a causal order [XPL2-AC-042].
+    let overlaps = 0;
+    for (let left = 0; left < records.length && overlaps < MAXIMUM_OVERLAPS; left += 1) {
+      for (let right = left + 1; right < records.length && overlaps < MAXIMUM_OVERLAPS; right += 1) {
+        const [a, c] = [records[left], records[right]];
+        const aStart = instant(a.startedAt); const cStart = instant(c.startedAt);
+        if (aStart == null || cStart == null) continue;
+        const aEnd = instant(a.completedAt) ?? Infinity; const cEnd = instant(c.completedAt) ?? Infinity;
+        if (aStart < cEnd && cStart < aEnd) {
+          overlaps += 1;
+          derived.push(b.derivedStatement({
+            about: 'generation', template: 'xpl2.invocation-overlap@1', cites: ['SRC-INVOCATIONS'],
+            arguments: { first: String(a.id), second: String(c.id) }
+          }));
+        }
+      }
+    }
+  } else if (invocations) {
+    b.observation({ id: 'OBS-INVOCATIONS', adapter: 'model-runner.invocation-audit', scope: 'model invocation records on this machine',
+      completeness: 'unavailable', reason: invocations.status === 'unsupported' ? 'unsupported-source-version' : 'source-inaccessible', subject: true });
+  }
+  const prompts = sources?.prompts ?? null;
+  if (prompts?.status === 'available') {
+    b.source({
+      id: 'SRC-PROMPTS', label: 'Prompt log on this machine', owner: 'prompt-audit', family: 'prompt-audit-record',
+      integrity: prompts.integrity === 'verified' ? 'verified' : 'unverified', origin: 'recorded-local', applicability: 'current',
+      availability: prompts.enabled ? 'present' : 'disabled',
+      coverage: { scope: 'this machine', complete: !prompts.omitted, records: prompts.records.length, retentionDays: prompts.retentionDays }, subject: true
+    });
+    derived.push(b.derivedStatement({
+      about: 'generation', template: 'xpl2.capture-state@1', cites: ['SRC-PROMPTS'],
+      arguments: {
+        capture: 'prompt-log', state: prompts.enabled ? 'on' : 'off', records: prompts.records.length,
+        retentionDays: prompts.enabled && Number.isSafeInteger(prompts.retentionDays) ? prompts.retentionDays : 0,
+        reason: prompts.enabled ? 'machine-local-only' : 'recording-disabled'
+      }
+    }));
+    for (const record of prompts.records) {
+      derived.push(b.derivedStatement({
+        about: 'generation', template: 'xpl2.generation-prompt@1', cites: ['SRC-PROMPTS'],
+        arguments: {
+          recordId: String(record.id ?? 'unidentified'), source: PROMPT_SOURCE_KINDS.has(record.source) ? record.source : 'other',
+          recordedAt: String(record.recordedAt ?? 'an unrecorded time'), redactions: record.redactions,
+          invocation: String(record.invocationId ?? 'none')
+        }
+      }));
+    }
+  } else if (prompts) {
+    b.observation({ id: 'OBS-PROMPTS', adapter: 'prompt-audit', scope: 'prompt log on this machine',
+      completeness: 'unavailable', reason: 'source-inaccessible', subject: true });
+  }
+  const attempts = sources?.attempts ?? null;
+  if (attempts?.status === 'available' && attempts.records.length) {
+    b.source({
+      id: 'SRC-GENERATION-ATTEMPTS', label: 'Test attempts of this generation', owner: 'verification.test-attempts', family: 'test-execution',
+      integrity: 'unverified', origin: 'recorded-local', applicability: 'current', availability: 'present',
+      coverage: { scope: 'admitted and kept attempts on this machine', complete: !attempts.omitted, records: attempts.records.length }, subject: true
+    });
+    for (const record of attempts.records) {
+      const tests = record.tests && typeof record.tests === 'object' ? record.tests : null;
+      const count = (value) => Number.isSafeInteger(value) && value >= 0 ? value : 0;
+      derived.push(b.derivedStatement({
+        about: 'generation', template: 'xpl2.test-attempt@1', cites: ['SRC-GENERATION-ATTEMPTS'],
+        arguments: {
+          attemptId: String(record.attemptId ?? 'attempt').replace(/[^A-Za-z0-9:._@/+-]/gu, '_') || 'attempt',
+          commandId: String(record.commandId ?? 'unknown command'),
+          purpose: String(record.purpose ?? 'unknown').replace(/[^A-Za-z0-9:._@/+-]/gu, '_') || 'unknown',
+          status: String(record.status ?? 'unavailable').replace(/[^A-Za-z0-9:._@/+-]/gu, '_') || 'unavailable',
+          completedAt: String(record.process?.completedAt ?? 'not recorded'),
+          countsKnown: Boolean(tests), passed: count(tests?.passed), failed: count(tests?.failed), skipped: count(tests?.skipped),
+          previous: String(record.parentAttemptId ?? 'none')
+        }
+      }));
+    }
+  }
+}
+
 function nextActions(model) {
   const first = model.attention[0] ?? null;
   return first ? [{
@@ -175,7 +402,9 @@ function nextActions(model) {
  * Build one subject view. `input` is the slice-derived universe input; `proof` optionally carries
  * a shadow-proof gap register already read through its owner for the `gap` subject.
  */
-export function explainXpl2Subject(input, rawQuery = {}, { proof = null, maximumUnits = null } = {}) {
+export function explainXpl2Subject(input, rawQuery = {}, {
+  proof = null, maximumUnits = null, lineHistory = null, generationSources = null
+} = {}) {
   const query = normalizeXpl2Query(rawQuery);
   const universe = buildChangeExplanationUniverse({
     ...input, includeAllDeclaredClauses: query.subject === 'clause'
@@ -253,9 +482,12 @@ export function explainXpl2Subject(input, rawQuery = {}, { proof = null, maximum
         arguments: { side: query.side, path: query.path, line: query.line }
       }));
     }
+    lineHistoryStatements(b, derived, query, lineHistory);
+    // Ordinary commit history is not provenance: who or what wrote the captured content is not
+    // established by any admitted record, and no share of it is estimated [XPL2-AC-011, AC-041].
     derived.push(b.derivedStatement({
       about: 'line', template: 'xpl2.provenance-unavailable@1', cites: ['OBS-PROVENANCE'],
-      arguments: { subject: `${query.path}:${query.line} (${query.side})`, reason: 'adapter-unavailable' }
+      arguments: { subject: `${query.path}:${query.line} (${query.side})`, reason: 'origin-unestablished' }
     }));
   }
 
@@ -281,9 +513,12 @@ export function explainXpl2Subject(input, rawQuery = {}, { proof = null, maximum
           limitations: input.replay.truncated ? ['partial-inventory'] : []
         }));
       }
+      generationStatements(b, derived, query, generationSources);
+      // Records of invocations and prompts are not observed writes: no record says which lines any
+      // of them produced, so the generation's authorship stays unestablished [XPL2-AC-011].
       derived.push(b.derivedStatement({
         about: 'generation', template: 'xpl2.provenance-unavailable@1', cites: ['OBS-PROVENANCE', 'OBS-PE'],
-        arguments: { subject: `${query.phase} generation ${query.generation}`, reason: 'adapter-unavailable' }
+        arguments: { subject: `${query.phase} generation ${query.generation}`, reason: generationSources ? 'origin-unestablished' : 'adapter-unavailable' }
       }));
     }
     seeds = [];

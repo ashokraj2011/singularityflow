@@ -48,6 +48,16 @@ export const XPL2_RELATIONSHIPS = Object.freeze({
     means: 'The tagged test source is one of the changed files in this interval.',
     notImplied: 'That the test exercises the other changed files.'
   }),
+  'test-occurrence-in-run': Object.freeze({
+    granularity: 'exact-occurrence', style: 'occurrence',
+    means: 'The verification owner found this exact test declaration\'s own occurrence in the recorded run.',
+    notImplied: 'That every test in the run passed, that the run was authenticated, or that the test covers the changed code.'
+  }),
+  'reuse-decision-cites-run': Object.freeze({
+    granularity: 'owner-decision', style: 'decision',
+    means: 'A recorded evidence-reuse decision names this earlier run; its owner states whether it still applies.',
+    notImplied: 'That the run happened on this change; a reused run is not a new execution.'
+  }),
   'observation-gap': Object.freeze({
     granularity: 'diagnostic', style: 'diagnostic',
     means: 'The owner or this reader reported no admitted record of this kind for the item.',

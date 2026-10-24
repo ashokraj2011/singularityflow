@@ -11,11 +11,22 @@
  */
 import { createHash } from 'node:crypto';
 
+import { recordSha256 } from '../../records.mjs';
 import { createXpl2Builder } from './model.mjs';
 
 export const XPL2_CHANGE_ADAPTER = 'xpl2.adapter.change@1';
 
 const INITIAL_GRAPH_NODES = 40;
+
+// Witness outcomes from the verification owner, and which of them needs a reader's attention.
+const WITNESS_OUTCOME_ATTENTION = Object.freeze({
+  passed: null, 'passed-with-skips': 'advisory', failed: 'blocker', flaky: 'advisory', 'not-run': 'advisory',
+  missing: 'advisory', inconclusive: 'advisory', unavailable: 'advisory', 'unverified-skipped': 'advisory', ambiguous: 'advisory'
+});
+const ASSURANCE_RUNGS = Object.freeze(['none', 'declared', 'source-bound', 'module-observed', 'exact-local-observed', 'exact-authenticated']);
+const REUSE_STATE_SET = Object.freeze({
+  active: 1, revoked: 1, expired: 1, superseded: 1, unobserved: 1, 'source-changed': 1, 'attempt-changed': 1, unknown: 1
+});
 
 function hex12(value) {
   return createHash('sha256').update(String(value)).digest('hex').slice(0, 12);
@@ -84,7 +95,8 @@ export function buildChangeExplanationUniverse({
   sourceReferences = [],
   includeAllDeclaredClauses = false,
   codeScope = null,
-  sourceTags = null
+  sourceTags = null,
+  recordSources = null
 }) {
   const b = createXpl2Builder();
   const truth = manifest.sourceKind === 'repository-change-set'
@@ -368,7 +380,14 @@ export function buildChangeExplanationUniverse({
         name: symbol.qualifiedName ?? symbol.name, line: symbol.line, assurance: symbol.assurance
       })),
       regionSha256: unit.regionSha256,
-      explanationUnitSha256: unit.explanationUnitSha256
+      explanationUnitSha256: unit.explanationUnitSha256,
+      // The change's own content, independent of which snapshot captured it: the file change's
+      // content identity plus this unit's kind and ranges. Used only to say what moved between two
+      // snapshots; a link still binds the full unit digest of one snapshot.
+      changeContentSha256: `sha256:${recordSha256({
+        change: regionBySha.get(unit.regionSha256)?.sourceChangeId ?? null,
+        kind: unit.unitKind, before: unit.hunk?.before ?? null, after: unit.hunk?.after ?? null
+      })}`
     });
   }
 
@@ -581,6 +600,134 @@ export function buildChangeExplanationUniverse({
     }
   }
 
+  // ---- Recorded runs, criterion witnesses and evidence reuse [XPL2 M3] -------------------------
+  const records = recordSources?.status === 'available' ? recordSources : null;
+  const runCitations = new Map();
+  const attemptNodes = new Map();
+  let attemptCount = 0;
+  let witnessCount = 0;
+  let reuseCount = 0;
+  if (records) {
+    for (const [index, entry] of records.attempts.entries()) {
+      const id = `SRC-RUN-${String(index + 1).padStart(2, '0')}`;
+      const attemptId = identifier(entry.binding.attemptId ?? entry.record?.attemptId, `attempt-${index + 1}`);
+      if (entry.status === 'verified') {
+        b.source({
+          id, label: `Test attempt ${attemptId}`, owner: 'verification.test-attempts', family: 'test-execution',
+          recordId: attemptId, digest: entry.sha256, integrity: 'verified', origin: 'recorded-local',
+          applicability: deliveryLimits.length ? 'stale' : 'current', availability: 'present',
+          coverage: { scope: `${identifier(records.phase, 'phase')} ${records.submitted ? 'submitted' : 'preflight'} run`, complete: true }
+        });
+        runCitations.set(entry.binding.commandId, id);
+        const record = entry.record;
+        const nodeId = `run:${attemptId}`;
+        attemptNodes.set(attemptId, nodeId);
+        const status = identifier(record.status, 'unavailable');
+        b.node({ id: nodeId, kind: 'run', label: attemptId, status, cites: [id], detail: { commandId: record.commandId, purpose: record.purpose } });
+        const tests = record.tests && typeof record.tests === 'object' ? record.tests : null;
+        const count = (value) => Number.isSafeInteger(value) && value >= 0 ? value : 0;
+        const statement = b.statement({
+          about: nodeId, template: 'xpl2.test-attempt@1', cites: [id],
+          arguments: {
+            attemptId, commandId: String(record.commandId ?? 'unknown command'), purpose: identifier(record.purpose, 'unknown'),
+            status, completedAt: String(record.process?.completedAt ?? 'not recorded'),
+            countsKnown: Boolean(tests), passed: count(tests?.passed), failed: count(tests?.failed), skipped: count(tests?.skipped),
+            previous: String(record.parentAttemptId ?? 'none')
+          },
+          limitations: ['origin-unestablished', ...deliveryLimits]
+        });
+        attemptCount += 1;
+        if (['failed', 'blocked'].includes(status)) {
+          b.attention({ category: 'blocker', about: nodeId, reason: 'owner-reported-failure', statement });
+        }
+      } else {
+        // A tampered, unreadable or not-yet-admitted attempt contributes no fact [XPL2-AC-007].
+        const reason = entry.status === 'integrity-failed' ? 'integrity-failed' : entry.status === 'not-recorded' ? 'source-not-recorded'
+          : entry.status === 'unsupported' ? 'unsupported-source-version' : 'source-inaccessible';
+        b.observation({
+          id: `OBS-RUN-${String(index + 1).padStart(2, '0')}`, adapter: 'verification.test-attempts',
+          scope: `attempt bound by the ${identifier(records.phase, 'phase')} delivery record`, completeness: 'unavailable', reason
+        });
+      }
+    }
+    for (const entry of records.witnesses) {
+      const { witness, result } = entry;
+      if (typeof witness?.clauseId !== 'string' || typeof witness?.testSource !== 'string' || !deliveryCitation) continue;
+      const exact = Boolean(result.identityKey);
+      const testKey = exact ? `witness:${result.identityKey}` : witness.testSource;
+      let testId = testNodes.get(testKey);
+      if (!testId) {
+        testId = `test:${hex12(testKey)}`;
+        testNodes.set(testKey, testId);
+        b.node({ id: testId, kind: 'test', label: exact ? result.label : witness.testSource, status: exact ? 'exact-declaration' : null, cites: [deliveryCitation] });
+      }
+      const clauseNodeId = clauseNode(witness.clauseId, [deliveryCitation]);
+      b.relationship({
+        type: 'test-source-tags-clause', from: testId, to: clauseNodeId, scope: 'declared-tag', qualifier: 'witness', cites: [deliveryCitation]
+      });
+      const run = runCitations.get(entry.commandId) ?? null;
+      const runNode = result.attemptId ? attemptNodes.get(result.attemptId) ?? null : null;
+      // An occurrence edge only when the verification owner observed this test's own occurrence.
+      if (run && runNode && result.execution === 'exact-local-observed') {
+        b.relationship({ type: 'test-occurrence-in-run', from: testId, to: runNode, scope: 'exact-occurrence', cites: [run, deliveryCitation] });
+      }
+      const outcome = Object.hasOwn(WITNESS_OUTCOME_ATTENTION, result.outcome) ? result.outcome : 'inconclusive';
+      const statement = b.statement({
+        about: testId, template: 'xpl2.witness-result@1', cites: [deliveryCitation, ...(run ? [run] : [])],
+        arguments: {
+          label: String(result.label ?? witness.testSource), clauseId: witness.clauseId, outcome,
+          identity: result.identity === 'source-bound' ? 'source-bound' : 'declared',
+          assurance: ASSURANCE_RUNGS.includes(result.assurance) ? result.assurance : 'none',
+          requiredAssurance: ASSURANCE_RUNGS.includes(result.requiredAssurance) ? result.requiredAssurance : 'none',
+          attempt: String(result.attemptId ?? 'none'), commandId: String(entry.commandId ?? 'no command'), shortfall: result.shortfall === true
+        },
+        limitations: [...(entry.attemptUsable ? [] : ['integrity-failed']), ...deliveryLimits]
+      });
+      witnessCount += 1;
+      const category = WITNESS_OUTCOME_ATTENTION[outcome];
+      if (category) {
+        b.attention({ category, about: testId, reason: category === 'blocker' ? 'owner-reported-failure' : 'owner-reported-gap', statement });
+      }
+    }
+    if (records.reuses.length) {
+      b.source({
+        id: 'SRC-REUSE', label: 'Evidence-reuse decisions', owner: 'story.evidence-reuse', family: 'evidence-reuse-decision',
+        recordId: identifier(context.workId, 'story'), digest: `sha256:${recordSha256(records.reuses.map((entry) => entry.digest))}`,
+        integrity: 'unverified', origin: 'recorded-local', applicability: 'unknown', availability: 'present',
+        coverage: { scope: 'selected Story', complete: !records.omitted?.reuses, decisions: records.reuses.length }
+      });
+      for (const { decision, state } of records.reuses) {
+        const reuseId = identifier(decision.id, 'ERU');
+        const nodeId = `decision:${reuseId}`;
+        const reuseState = Object.hasOwn(REUSE_STATE_SET, state) ? state : 'unknown';
+        b.node({ id: nodeId, kind: 'decision', label: reuseId, status: reuseState, cites: ['SRC-REUSE'] });
+        const attemptId = identifier(decision.attempt?.id, 'attempt');
+        const runNode = attemptNodes.get(attemptId) ?? `run:${attemptId}`;
+        if (!attemptNodes.has(attemptId)) {
+          b.node({ id: runNode, kind: 'run', label: attemptId, status: 'recorded-elsewhere', cites: ['SRC-REUSE'] });
+        }
+        b.relationship({ type: 'reuse-decision-cites-run', from: nodeId, to: runNode, scope: 'owner-decision', qualifier: reuseState, cites: ['SRC-REUSE'] });
+        const statement = b.statement({
+          about: nodeId, template: 'xpl2.evidence-reuse@1', cites: ['SRC-REUSE'],
+          arguments: {
+            reuseId, phase: identifier(decision.phase, 'phase'), attemptId,
+            sourcePhase: String(decision.attempt?.phase ?? 'an earlier step'), commit: String(decision.source?.commit ?? 'an unrecorded commit').slice(0, 12),
+            state: reuseState, actor: String(decision.actor ?? 'someone')
+          },
+          // A reuse decision never says the run happened on this change [XPL2-AC-039].
+          limitations: reuseState === 'active' ? [] : ['revalidation-unestablished']
+        });
+        reuseCount += 1;
+        if (reuseState !== 'active') b.attention({ category: 'visibility', about: nodeId, reason: 'revalidation-unestablished', statement });
+      }
+    }
+  } else if (recordSources) {
+    b.observation({
+      id: 'OBS-RECORDS', adapter: 'verification.test-attempts', scope: 'recorded test attempts and witnesses for the selected phase',
+      completeness: 'unavailable', reason: 'source-inaccessible'
+    });
+  }
+
   // ---- Declared links in the changed files: @clause tags in code, @ac tags in tests -------------
   const fileByPath = new Map(files.filter((file) => file.pathAfter).map((file) => [file.pathAfter, file]));
   const explainedFiles = new Set();
@@ -730,7 +877,10 @@ export function buildChangeExplanationUniverse({
     acceptanceTags: shownTags.filter((tag) => tag.tag === 'ac').length,
     clauseCitations,
     testBindings: bindings.length,
-    testResults: evidence?.testExecutions?.length ?? 0
+    testResults: evidence?.testExecutions?.length ?? 0,
+    testAttempts: attemptCount,
+    witnesses: witnessCount,
+    evidenceReuses: reuseCount
   };
   const availability = {
     diff: diffAvailable ? 'available' : 'unavailable',
@@ -744,7 +894,10 @@ export function buildChangeExplanationUniverse({
     pe: 'unavailable',
     impact: 'unavailable',
     provenance: 'unavailable',
-    replay: replay ? 'available' : 'unavailable'
+    replay: replay ? 'available' : 'unavailable',
+    attempts: records ? (records.attempts.length ? (attemptCount === records.attempts.length ? 'available' : 'partial') : 'not-applicable') : 'unavailable',
+    witnesses: records ? (records.witnesses.length ? 'available' : 'not-applicable') : 'unavailable',
+    reuse: records ? (records.reuses.length ? 'available' : 'not-applicable') : 'unavailable'
   };
   const snapshot = {
     truth,

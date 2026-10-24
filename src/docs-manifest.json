@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "6efb42448c1b6f8c27de2efa052682c0fc576280",
+  "sourceCommit": "21544fb62030034e279d11907fa82420d457f547",
   "topicCount": 85,
-  "contentSha256": "70da24675eb5d0acb92595c79c9534ab474d449a47034aa79d056656e04badf5",
+  "contentSha256": "f9f0bffb2ec02d8c9afb21895a69f6a4edc86084fdd16f426b6e13b292b3eaed",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -96,8 +96,8 @@
     {
       "id": "code-explanation",
       "title": "Explain current code changes",
-      "version": 10,
-      "sha256": "d337cd9100f396bb71d33cbb77015c4a17b1f8909faf4bf967141ebb10ff613b",
+      "version": 11,
+      "sha256": "893de8e7753448aeb4f8f6bdcae786ebe46cc068bed96a6a9f794965fe957a48",
       "routingSha256": "850900458031734fd5a411202347b68652e528c290aeaa6dce22d6e7cfc910e2",
       "file": "code-explanation.md"
     },

@@ -2194,6 +2194,20 @@ export function commitsChangingSince(root, base, paths, { target = 'HEAD', limit
   }).filter((entry) => /^[0-9a-f]{40,64}$/u.test(entry.commit));
 }
 
+/** One line's `git blame` at the exact commit `revision`, or null; the author is what the commit records. */
+export function lineCommitAt(root, revision, file, line) {
+  if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(String(revision)) || !(line >= 1)) return null;
+  const result = git(['blame', '--porcelain', '-L', `${line},${line}`, revision, '--', file],
+    { cwd: root, allowFailure: true, env: { ...process.env, GIT_NO_LAZY_FETCH: '1' } });
+  const lines = result.status === 0 ? String(result.stdout).split('\n') : [];
+  const head = /^([0-9a-f]{40,64}) (\d+)/u.exec(lines[0] ?? '');
+  if (!head) return null;
+  const field = (name) => lines.find((entry) => entry.startsWith(`${name} `))?.slice(name.length + 1) ?? null;
+  const time = Number(field('author-time'));
+  return { commit: head[1], originalLine: Number(head[2]), author: field('author'), summary: field('summary'),
+    authorTime: time > 0 ? new Date(time * 1000).toISOString() : null };
+}
+
 /**
  * Every path Git tracks under `prefix` (the whole repository when null), and whether the listing
  * fit in `maximumBytes`. A listing that does not fit is reported as incomplete with no paths, never

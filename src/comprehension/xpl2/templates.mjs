@@ -77,6 +77,62 @@ const TAG_PLACEMENT_LABELS = Object.freeze({
   unknown: 'line-level change detail is not available'
 });
 
+// Verification-owner vocabularies, in plain words [E2G-017]. Unknown values are refused, not guessed.
+const ASSURANCE_LABELS = Object.freeze({
+  none: 'no assurance',
+  declared: 'a declaration by tag only',
+  'source-bound': 'one exact declaration',
+  'module-observed': 'a pass observed through its module command',
+  'exact-local-observed': 'its own occurrence observed in a local run',
+  'exact-authenticated': 'its own occurrence observed in an authenticated run'
+});
+
+const IDENTITY_LABELS = Object.freeze({
+  declared: 'declared by a tag',
+  'source-bound': 'bound to one exact test declaration'
+});
+
+const WITNESS_OUTCOMES = Object.freeze({
+  passed: 'passed', failed: 'failed', flaky: 'was flaky', 'not-run': 'has no recorded run',
+  missing: 'was not found in the run', inconclusive: 'was inconclusive', 'passed-with-skips': 'passed with skipped tests',
+  unavailable: 'has no usable result', 'unverified-skipped': 'was skipped', ambiguous: 'matched more than one occurrence'
+});
+
+// The evidence-reuse owner's states (src/evidence-reuse.mjs), plus unknown for a record it cannot judge.
+const REUSE_STATES = Object.freeze({
+  active: 'applies now, because the source and test inputs are unchanged since that run',
+  revoked: 'was revoked',
+  expired: 'has expired',
+  superseded: 'no longer applies: the step that ran it was reopened',
+  unobserved: 'is not confirmed: the current source was not compared',
+  'source-changed': 'no longer applies: the source or its test inputs changed after that run',
+  'attempt-changed': 'no longer applies: the attempt record changed',
+  unknown: 'cannot be judged: the record lacks what its rule binds'
+});
+
+const INVOCATION_STATUS = Object.freeze({
+  completed: 'completed',
+  failed: 'failed',
+  started: 'started and has no recorded outcome'
+});
+
+const PROMPT_SOURCES = Object.freeze({
+  'wm-compose': 'composed and prepared; whether it was sent was not observed',
+  'vscode-governed-handoff': 'handed to the Copilot host; the host\'s own invocation was not observed',
+  'model-invocation': 'sent through the model runner',
+  other: 'kept by another writer'
+});
+
+const CAPTURE_LABELS = Object.freeze({
+  'prompt-log': 'The prompt log',
+  invocations: 'The model invocation record',
+  attempts: 'The test attempt record'
+});
+
+const CAPTURE_STATES = Object.freeze({
+  on: 'is readable', off: 'is off', unreadable: 'could not be read'
+});
+
 function fileTypeSentence(a) {
   const meaning = FILE_TYPE_MEANING[a.after === 'missing' ? a.before : a.after];
   if (a.before === a.after) return `${a.path} is ${FILE_TYPE_LABELS[a.after]} on both sides${meaning ? `; ${meaning}` : '.'}`;
@@ -84,6 +140,15 @@ function fileTypeSentence(a) {
   if (a.after === 'missing') return `${a.path} was ${FILE_TYPE_LABELS[a.before]} and is removed${meaning ? `; ${meaning}` : '.'}`;
   return `${a.path} changed from ${FILE_TYPE_LABELS[a.before]} to ${FILE_TYPE_LABELS[a.after]}.`;
 }
+
+const sideLabel = (side) => side === 'before' ? 'Before' : 'After';
+
+// Where an after-side line sits when commit history is asked about it.
+const LINE_PLACEMENTS = Object.freeze({
+  baseline: (a) => '',
+  context: (a) => ` is unchanged context inside a change unit (baseline line ${a.baselineLine}), and`,
+  outside: (a) => ` is baseline line ${a.baselineLine}, outside the changed units, and`
+});
 
 const TEMPLATES = [
   {
@@ -232,6 +297,84 @@ const TEMPLATES = [
     render: (a) => `Change provenance for ${a.subject} is unavailable. ${xpl2ReasonText(a.reason)}`
   },
   {
+    id: 'xpl2.witness-result@1',
+    arguments: {
+      label: 'text', clauseId: 'identifier', outcome: 'witness-outcome', identity: 'identity-assurance',
+      assurance: 'assurance', requiredAssurance: 'assurance', attempt: 'text', commandId: 'text', shortfall: 'boolean'
+    },
+    render: (a) => `${a.label} is the recorded witness for ${a.clauseId}: it ${WITNESS_OUTCOMES[a.outcome]}`
+      + `${a.attempt === 'none' ? '' : ` in attempt ${a.attempt} of ${a.commandId}`}. It is ${IDENTITY_LABELS[a.identity]} and reached `
+      + `${ASSURANCE_LABELS[a.assurance]}${a.shortfall ? `, below the ${ASSURANCE_LABELS[a.requiredAssurance]} its runner can reach` : ''}. `
+      + 'This is a local recorded run, not authenticated Candidate execution.'
+  },
+  {
+    id: 'xpl2.test-attempt@1',
+    arguments: {
+      attemptId: 'identifier', commandId: 'text', purpose: 'identifier', status: 'identifier', completedAt: 'text',
+      countsKnown: 'boolean', passed: 'count', failed: 'count', skipped: 'count', previous: 'text'
+    },
+    render: (a) => `Attempt ${a.attemptId} (${a.purpose}) of ${a.commandId} `
+      + `${a.completedAt === 'not recorded' ? 'has no recorded completion time' : `completed at ${a.completedAt}`}: ${a.status}`
+      + `${a.countsKnown ? `, ${a.passed} passed, ${a.failed} failed, ${a.skipped} skipped` : ', with no test counts in its report'}; `
+      + `${a.previous === 'none' ? 'no earlier attempt of this command is recorded' : `it follows attempt ${a.previous}`}.`
+  },
+  {
+    id: 'xpl2.evidence-reuse@1',
+    arguments: { reuseId: 'identifier', phase: 'identifier', attemptId: 'text', sourcePhase: 'text', commit: 'text', state: 'reuse-state', actor: 'text' },
+    render: (a) => `${a.reuseId}: ${a.actor} recorded that attempt ${a.attemptId}, run by ${a.sourcePhase} at ${a.commit}, stands for ${a.phase}. `
+      + `Its owner reports that this decision ${REUSE_STATES[a.state]}. A reused run is not a new run on this change.`
+  },
+  {
+    id: 'xpl2.line-commit@1',
+    arguments: {
+      side: 'side', path: 'text', line: 'count', placement: 'line-placement', baselineLine: 'count', commit: 'identifier',
+      summary: 'quote', author: 'quote', authorTime: 'text'
+    },
+    render: (a) => `${sideLabel(a.side)}-side line ${a.line} of ${a.path}${LINE_PLACEMENTS[a.placement](a)} was last changed in commit `
+      + `${a.commit.slice(0, 12)} (“${a.summary || 'no summary'}”, recorded author ${a.author || 'not recorded'}, ${a.authorTime}). `
+      + 'The author field is what the commit records; it does not show how the line was produced.'
+  },
+  {
+    id: 'xpl2.line-uncommitted@1',
+    arguments: { path: 'text', line: 'count', unitId: 'identifier' },
+    render: (a) => `After-side line ${a.line} of ${a.path} was added or changed in ${a.unitId} of this captured change; no commit records it yet.`
+  },
+  {
+    id: 'xpl2.line-commit-unavailable@1',
+    arguments: { side: 'side', path: 'text', line: 'count', reason: 'reason' },
+    render: (a) => `Commit attribution for ${a.side}-side line ${a.line} of ${a.path} is unavailable. ${xpl2ReasonText(a.reason)}`
+  },
+  {
+    id: 'xpl2.generation-invocation@1',
+    arguments: {
+      invocationId: 'text', status: 'invocation-status', requestedModel: 'text', reportedModel: 'text', startedAt: 'text',
+      completedAt: 'text', toolsObserved: 'boolean', toolCalls: 'count', integrity: 'identifier'
+    },
+    render: (a) => `Model invocation ${a.invocationId} ${INVOCATION_STATUS[a.status]}: requested model ${a.requestedModel}; `
+      + `${a.reportedModel === 'unreported' ? 'the provider did not report which model served it' : `the provider reported ${a.reportedModel}`}; `
+      + `started ${a.startedAt}, ${a.completedAt === 'not recorded' ? 'with no recorded end' : `ended ${a.completedAt}`}; `
+      + `${a.toolsObserved ? `${plural(a.toolCalls, 'tool call')} observed, in their recorded order` : 'no tool observation was recorded'}. `
+      + `It is this machine's record (${a.integrity}); it does not say which files or lines it wrote.`
+  },
+  {
+    id: 'xpl2.invocation-overlap@1',
+    arguments: { first: 'text', second: 'text' },
+    render: (a) => `Model invocations ${a.first} and ${a.second} overlap in time; the records establish no order between them.`
+  },
+  {
+    id: 'xpl2.generation-prompt@1',
+    arguments: { recordId: 'text', source: 'prompt-source', recordedAt: 'text', redactions: 'count', invocation: 'text' },
+    render: (a) => `Prompt-log entry ${a.recordId}, recorded at ${a.recordedAt}, was ${PROMPT_SOURCES[a.source]}`
+      + `${a.redactions ? `; ${plural(a.redactions, 'secret-shaped value')} ${a.redactions === 1 ? 'was' : 'were'} redacted before it was kept` : ''}`
+      + `${a.invocation === 'none' ? '' : `; it names invocation ${a.invocation}`}.`
+  },
+  {
+    id: 'xpl2.capture-state@1',
+    arguments: { capture: 'capture', state: 'capture-state', records: 'count', retentionDays: 'count', reason: 'reason' },
+    render: (a) => `${CAPTURE_LABELS[a.capture]} on this machine ${CAPTURE_STATES[a.state]}${a.retentionDays ? ` (it keeps ${a.retentionDays} days)` : ''}: `
+      + `${plural(a.records, 'record')} for this generation. ${xpl2ReasonText(a.reason)}`
+  },
+  {
     id: 'xpl2.source-state@1',
     arguments: { source: 'text', reason: 'reason' },
     render: (a) => `${a.source}: ${xpl2ReasonText(a.reason)}`
@@ -253,6 +396,15 @@ function validArgument(kind, value) {
     case 'mode': return typeof value === 'string' && /^[0-7]{6}$/u.test(value);
     case 'operation': return OPERATIONS.has(value);
     case 'tag-placement': return Object.hasOwn(TAG_PLACEMENT_LABELS, value);
+    case 'assurance': return Object.hasOwn(ASSURANCE_LABELS, value);
+    case 'identity-assurance': return Object.hasOwn(IDENTITY_LABELS, value);
+    case 'witness-outcome': return Object.hasOwn(WITNESS_OUTCOMES, value);
+    case 'reuse-state': return Object.hasOwn(REUSE_STATES, value);
+    case 'invocation-status': return Object.hasOwn(INVOCATION_STATUS, value);
+    case 'prompt-source': return Object.hasOwn(PROMPT_SOURCES, value);
+    case 'capture': return Object.hasOwn(CAPTURE_LABELS, value);
+    case 'capture-state': return Object.hasOwn(CAPTURE_STATES, value);
+    case 'line-placement': return Object.hasOwn(LINE_PLACEMENTS, value);
     case 'reason':
       try { xpl2ReasonText(value); return true; } catch { return false; }
     default: return false;

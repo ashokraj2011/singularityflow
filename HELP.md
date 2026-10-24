@@ -3453,7 +3453,10 @@ when it is a page. Every view carries a fixed reading tour (purpose, changes, li
 attention, history, one safe next step). `--narrate` is a separate optional operation: a model may
 only choose and order statement IDs, the statements shown are the computed ones, attention items are
 always shown, and nothing is stored; `--commentary` adds labelled, unverified model prose that is
-withheld when it carries markup, control characters, secret-shaped or oversized text. In Copilot use `/sf-explain`; in VS Code open **Change Explorer**. See
+withheld when it carries markup, control characters, secret-shaped or oversized text. Recorded test
+attempts, criterion witnesses and evidence-reuse decisions are shown as their owners record and
+judge them; `--subject line` adds the commit that last changed the line at the baseline, and
+`--subject generation` this machine's invocation and prompt-log records, never who wrote a line. In Copilot use `/sf-explain`; in VS Code open **Change Explorer**. See
 [Explain for humans](docs/XPL2-EXPLAIN-FOR-HUMANS.md).
 
 ### Reference expansion

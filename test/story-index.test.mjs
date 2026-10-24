@@ -21,7 +21,10 @@ import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import YAML from 'yaml';
 
-import { applyWorkIdOperand, namedWorkId, rebaseFileOptions, workIdOperandIndex } from '../src/story-routing.mjs';
+import { STORY_OPERAND_COMMANDS } from '../src/cli-entry.mjs';
+import {
+  applyWorkIdOperand, namedWorkId, rebaseFileOptions, STORY_OPERAND_COMMAND_NAMES, workIdOperandIndex
+} from '../src/story-routing.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
@@ -29,6 +32,8 @@ const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url
 const canonical = (file) => realpathSync.native(file);
 
 test('a command names its Story by --work-id or by the operand it declares, never both differently', () => {
+  // The root dispatcher loads routing only for these commands (or --work-id); the two lists agree.
+  assert.deepEqual([...STORY_OPERAND_COMMANDS].sort(), [...new Set(STORY_OPERAND_COMMAND_NAMES)].sort());
   assert.equal(workIdOperandIndex('status', ['status']), 1);
   assert.equal(workIdOperandIndex('decisions', ['decisions', 'record', 'S-1']), 2);
   assert.equal(workIdOperandIndex('decisions', ['decisions', 'S-1']), 1);
@@ -256,6 +261,18 @@ test('one Story has one checkout across workspaces, and a Work ID decides where 
       // Routing reads no model: the same answer with model mode on (no Copilot is reachable here).
       const modelOn = f.json(['status', '--work-id', 'S-2'], { cwd: one.checkoutPath, extra: { SINGULARITY_FLOW_NO_MODEL: '' } });
       assert.equal(modelOn.value.workItem.id, 'S-2');
+    });
+
+    await t.test('a Story whose branch is not its Work ID is found through its recorded branch', async () => {
+      f.use('wsa');
+      f.cli(['--no-model', 'start', 'S-5', '--from-branch', 'main', '--ref', 'feature/s5', '--work-type', 'spec-driven-standard',
+        '--title', 'Value S-5', '--description', 'Return an approved value.'], { cwd: f.workspaces.wsa.clone });
+      const [five] = await f.entry('S-5');
+      assert.equal(five.branch, 'feature/s5');
+      const [one] = await f.entry('S-1');
+      const routed = f.json(['status', '--work-id', 'S-5'], { cwd: one.checkoutPath }).value;
+      assert.equal(routed.workItem.id, 'S-5');
+      assert.equal(routed.storyRoute.branch, 'feature/s5');
     });
 
     await t.test('file arguments are rebased to where the command was run', async () => {

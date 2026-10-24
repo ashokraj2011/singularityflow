@@ -18,7 +18,7 @@
  */
 import { readdir, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import { optionString, SingularityFlowError } from './util.mjs';
+import { optionString, samePlatformPath, SingularityFlowError } from './util.mjs';
 
 // `<command> [WORK-ID]`: the first operand names the Story (HELP.md usage).
 const FIRST_OPERAND = new Set(['status', 'nextsteps', 'report', 'approvals', 'progress', 'snapshot', 'recover', 'doctor',
@@ -35,6 +35,9 @@ const SECOND_OPERAND = Object.freeze({
 // `story test-policy <action> [WORK-ID]`.
 const STORY_TEST_POLICY_ACTIONS = new Set(['show', 'plan', 'confirm', 'repair', 'baseline', 'amend', 'attest',
   'accept-risk', 'revoke-risk', 'attest-risk', 'baseline-admission']);
+
+/** Every command with a declared Work ID operand; cli-entry.mjs loads this module only for these or --work-id. */
+export const STORY_OPERAND_COMMAND_NAMES = Object.freeze([...FIRST_OPERAND, ...Object.keys(SECOND_OPERAND)]);
 
 /** Where a command's declared Work ID operand sits, or null when it declares none. */
 export function workIdOperandIndex(command, positionals) {
@@ -126,7 +129,6 @@ async function boundTurnStories(root) {
   const directory = path.join(path.dirname(copilotModeFile()), 'copilot-boundaries');
   const names = await readdir(directory).catch(() => []);
   const canonicalRoot = await realpath(root).catch(() => path.resolve(root));
-  const { samePlatformPath } = await import('./story-worktree.mjs');
   const stories = [];
   for (const name of names.filter((entry) => entry.endsWith('.mutation.json'))) {
     try {
@@ -183,13 +185,13 @@ export async function routeNamedStory({ command, positionals, options, argv, roo
   const entry = candidates[0];
   if (!entry) {
     const elsewhere = valid.find((item) => !here.has(item.workspace.id));
-    if (elsewhere) throw index.storyElsewhereError(workId, elsewhere, { sameWorkspace: false, operation: `${command}` });
+    if (elsewhere) throw await index.storyElsewhereError(workId, elsewhere, { sameWorkspace: false, operation: `${command}` });
     if (unavailable.length) throw refusal(
       `Story ${workId}'s checkout at ${unavailable[0].checkoutPath} is not on this computer: ${unavailable[0].reason}. Nothing was run. `
       + 'Download the folder (or keep it on this computer) and run the command again.',
       'STORY_CHECKOUT_UNAVAILABLE', { workId, storyCheckout: { workId, checkoutPath: unavailable[0].checkoutPath, workspace: unavailable[0].workspace },
         nextAction: `singularity-flow workspace stories ${workId}` });
-    const routes = index.storyCheckoutRoutes(workId, { workspace: member.workspace }, { sameWorkspace: true });
+    const routes = await index.storyCheckoutRoutes(workId, { workspace: member.workspace }, { sameWorkspace: true });
     throw refusal(`Story ${workId} has no checkout on this computer, so this command was not run here, in ${current?.workId ?? 'a checkout without a Story'}. `
       + `Open it first. ${routes.text}.`, 'STORY_CHECKOUT_REQUIRED', { workId, nextAction: routes.commands[0], recoveryCommands: routes.commands });
   }

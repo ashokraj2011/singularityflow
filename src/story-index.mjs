@@ -23,14 +23,10 @@ import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { cloudSyncedFolder } from './git-storage-availability.mjs';
-import { resolvedGitRepositoryComparisonKey } from './git-repository-identity.mjs';
 import { withRegistryFileLease } from './file-lease.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { safeCommandGuidance } from './safe-command-guidance.mjs';
-import { samePlatformPath } from './story-worktree.mjs';
-import { nowIso, SingularityFlowError, writeAtomic } from './util.mjs';
+import { nowIso, samePlatformPath, SingularityFlowError, writeAtomic } from './util.mjs';
 import { DEFAULT_WORK_ITEM_ROOT, workItemRootFromDefinitionText } from './work-item-location.mjs';
-import { workspaceRegistryFile } from './workspace-context.mjs';
 import { readWorkspace, readWorkspaceRegistry, workspaceRepositoryPath } from './workspace-manifest.mjs';
 
 export const STORY_INDEX_FILE = 'story-index.json';
@@ -39,6 +35,11 @@ const LOCK_TIMEOUT_MS = 10_000;
 const SMALL_FILE_LIMIT = 64 * 1024;
 const WORKFLOW_FILE_LIMIT = 16 * 1024 * 1024;
 const WORK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+
+// The registry's location rule (workspace-context.mjs), here so the index stays out of its Git graph.
+function workspaceRegistryFile(env = process.env, home = os.homedir()) {
+  return path.resolve(env.SINGULARITY_FLOW_WORKSPACE_REGISTRY || path.join(home, '.singularity-flow', 'workspaces.json'));
+}
 
 /** Beside the workspace registry, wherever that is redirected. */
 export function storyIndexFile(env = process.env, home = os.homedir()) {
@@ -108,7 +109,12 @@ async function originUrl(commonDir, synced) {
 
 /** The comparison key of a repository: its normalized remote, else its own Git storage. */
 export async function repositoryKey(url, commonDir) {
-  return (url ? await resolvedGitRepositoryComparisonKey(url) : null) ?? `gitdir:${commonDir}`;
+  return (url ? await remoteKey(url) : null) ?? `gitdir:${commonDir}`;
+}
+
+// Lazy: the identity rules belong to the catalog reads' bundle chunk, which this module must not take.
+async function remoteKey(url) {
+  return (await import('./git-repository-identity.mjs')).resolvedGitRepositoryComparisonKey(url);
 }
 
 async function workItemRoot(checkout, synced) {
@@ -121,9 +127,16 @@ async function workItemRoot(checkout, synced) {
   }
 }
 
-async function workflowAt(checkout, relative, synced) {
+const escaped = (value) => value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+
+/**
+ * The Story record at `relative`, when it can name `branch`. A merged repository carries every
+ * finished Story's workflow.json, so the text is checked for the branch before it is parsed.
+ */
+async function workflowAt(checkout, relative, synced, branch = null) {
   const text = await readSmall(path.join(checkout, ...relative.split('/')), { synced, limit: WORKFLOW_FILE_LIMIT });
   if (text == null) return null;
+  if (branch && !new RegExp(`"(?:branch|canonicalBranch|name)"\\s*:\\s*"${escaped(branch)}"`, 'u').test(text)) return null;
   try { return readRecord('story-workflow', Buffer.from(text)).record; } catch { return null; }
 }
 
@@ -135,14 +148,17 @@ const storyBranches = (state) => [state?.workItem?.branch, state?.lineage?.canon
  * The branch need not equal the Work ID (a naming pattern or `--ref`), so the Work ID-named
  * directory is tried first and the work-item directories are read only when that misses.
  */
-export async function storyInCheckout(checkout, { facts = null, workId = null } = {}) {
+export async function storyInCheckout(checkout, { facts = null, workId = null, workflowPath = null } = {}) {
   const git = facts ?? await checkoutGitFacts(checkout);
   if (!git?.branch) return null;
-  const root = await workItemRoot(git.checkoutPath, git.synced);
+  // A recorded entry names its workflow.json; the configured root is read only when it moved.
+  const known = workId && workflowPath?.endsWith(`/${workId}/workflow.json`)
+    ? workflowPath.slice(0, -`/${workId}/workflow.json`.length) : null;
+  const root = known ?? await workItemRoot(git.checkoutPath, git.synced);
   const read = async (id) => {
     if (!WORK_ID.test(id)) return null;
     const relative = `${root}/${id}/workflow.json`;
-    const state = await workflowAt(git.checkoutPath, relative, git.synced);
+    const state = await workflowAt(git.checkoutPath, relative, git.synced, git.branch);
     return state?.workItem?.id === id && storyBranches(state).includes(git.branch) ? { state, relative } : null;
   };
   let found = workId ? await read(workId) : await read(git.branch);
@@ -236,7 +252,8 @@ export async function verifyStoryEntry(entry) {
     if (url && await repositoryKey(url, facts.commonDir) !== entry.repository.key) {
       return { status: 'stale', reason: 'the checkout has another remote' };
     }
-    const story = await storyInCheckout(entry.checkoutPath, { facts, workId: entry.workId });
+    const story = await storyInCheckout(entry.checkoutPath, { facts, workId: entry.workId, workflowPath: entry.workflowPath })
+      ?? await storyInCheckout(entry.checkoutPath, { facts, workId: entry.workId });
     if (!story) return { status: 'stale', reason: `the checkout no longer holds ${entry.workId}` };
     return { status: 'valid', entry: { ...entry, checkoutPath: facts.checkoutPath, title: story.title ?? entry.title ?? null,
       workflowPath: story.workflowPath, phase: story.phase, phaseStatus: story.phaseStatus, storyStatus: story.storyStatus,
@@ -464,9 +481,10 @@ export async function checkoutMembership(checkout, { env = process.env } = {}) {
  * The commands that go to a Story's checkout: `session open` (preceded by `workspace use` when the
  * Story lives in another workspace), with their Copilot, Shell and VS Code routes.
  */
-export function storyCheckoutRoutes(workId, entry, { sameWorkspace }) {
+export async function storyCheckoutRoutes(workId, entry, { sameWorkspace }) {
   const commands = [...(sameWorkspace ? [] : [`singularity-flow workspace use ${entry.workspace.id}`]),
     `singularity-flow session open ${workId}`];
+  const { safeCommandGuidance } = await import('./safe-command-guidance.mjs');
   const guidance = commands.map((command) => safeCommandGuidance({ command }));
   const copilot = guidance.map((item, index) => item?.copilotCommand
     ? `${item.copilotCommand}${index === guidance.length - 1 ? ` ${workId}` : ''}` : null);
@@ -476,11 +494,11 @@ export function storyCheckoutRoutes(workId, entry, { sameWorkspace }) {
 }
 
 /** The refusal for a Story whose one checkout is somewhere else, with the commands to go there. */
-export function storyElsewhereError(workId, entry, { sameWorkspace, operation }) {
+export async function storyElsewhereError(workId, entry, { sameWorkspace, operation }) {
   const where = sameWorkspace
     ? `another clone of workspace '${entry.workspace.name}'`
     : `workspace '${entry.workspace.name}' (${entry.workspace.path})`;
-  const routes = storyCheckoutRoutes(workId, entry, { sameWorkspace });
+  const routes = await storyCheckoutRoutes(workId, entry, { sameWorkspace });
   return new SingularityFlowError(
     `Story ${workId} already has its checkout in ${where}, at ${entry.checkoutPath}. One Story has one checkout on this computer, `
     + `so ${operation} did not create another. Nothing was changed. Go there instead. ${routes.text}.`,
@@ -507,7 +525,7 @@ export async function otherStoryCheckout(root, workId, { env = process.env } = {
 /** Refuse the creation path when the Story's one checkout is in another clone. */
 export async function assertSingleStoryCheckout(root, workId, { env = process.env, operation = 'this command' } = {}) {
   const other = await otherStoryCheckout(root, workId, { env });
-  if (other) throw storyElsewhereError(workId, other.entry, { sameWorkspace: other.sameWorkspace, operation });
+  if (other) throw await storyElsewhereError(workId, other.entry, { sameWorkspace: other.sameWorkspace, operation });
 }
 
 /**
@@ -522,7 +540,7 @@ export async function storyCheckoutForOpen(reference, {
   const member = root ? await checkoutMembership(root, { env }).catch(() => null) : null;
   const workspace = member?.workspace.id ?? workspaceId;
   if (!workspace) return null;
-  const key = member?.repositoryKey ?? (repositoryUrl ? await resolvedGitRepositoryComparisonKey(repositoryUrl) : null);
+  const key = member?.repositoryKey ?? (repositoryUrl ? await remoteKey(repositoryUrl) : null);
   const { valid } = await lookupStoryCheckouts(reference, { env, repositoryKey: key });
   if (!valid.length || member && valid.some((entry) => samePlatformPath(entry.commonDir, member.facts.commonDir))) return null;
   const here = valid.filter((entry) => entry.workspace.id === workspace);
@@ -533,5 +551,5 @@ export async function storyCheckoutForOpen(reference, {
       storyCheckout: { workId: here[0].workId, checkoutPaths: here.map((entry) => entry.checkoutPath) },
       nextAction: `singularity-flow workspace stories ${here[0].workId}` } });
   if (here.length === 1) return { entry: here[0] };
-  throw storyElsewhereError(valid[0].workId, valid[0], { sameWorkspace: false, operation });
+  throw await storyElsewhereError(valid[0].workId, valid[0], { sameWorkspace: false, operation });
 }

@@ -50,7 +50,7 @@ export async function run(positionals = [], options = {}) {
   };
   if (workId && stories.length) {
     const story = stories[0];
-    result.routes = index.storyCheckoutRoutes(story.workId, story, { sameWorkspace: story.activeWorkspace });
+    result.routes = await index.storyCheckoutRoutes(story.workId, story, { sameWorkspace: story.activeWorkspace });
   }
   if (json) return console.log(JSON.stringify(result, null, 2));
   for (const dropped of listing.dropped) console.log(`Dropped ${dropped.workId} at ${dropped.checkoutPath}: ${dropped.reason}.`);

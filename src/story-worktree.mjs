@@ -18,7 +18,7 @@ import { parsePorcelainV2Status } from './git-status-detail.mjs';
 import {
   activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
 } from './workspace-context.mjs';
-import { nowIso, run, SingularityFlowError } from './util.mjs';
+import { nowIso, run, samePlatformPath, SingularityFlowError } from './util.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
 import { withRegistryFileLease } from './file-lease.mjs';
 import { measureCommandSpan } from './dx-timing-context.mjs';
@@ -62,21 +62,13 @@ export function storyCheckoutOptions(root, { runCommand = run, parallelism = ava
 }
 
 /**
- * Compare filesystem path spellings using the host platform's identity rules.
+ * Compare filesystem path spellings using the host platform's identity rules (util.mjs).
  *
  * Git for Windows may report drive-letter and component casing differently from Node even when
  * both names identify the same directory. Worktree ownership is a security boundary, so callers
  * must not use raw string equality for this comparison.
  */
-export function samePlatformPath(left, right, platform = process.platform) {
-  if (left == null || right == null) return false;
-  const api = platform === 'win32' ? path.win32 : path;
-  const normalize = (value) => {
-    const resolved = api.resolve(String(value));
-    return platform === 'win32' ? resolved.toLocaleLowerCase('en-US') : resolved;
-  };
-  return normalize(left) === normalize(right);
-}
+export { samePlatformPath };
 
 async function sameRegisteredPath(left, right) {
   if (samePlatformPath(left, right)) return true;

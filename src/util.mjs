@@ -65,6 +65,14 @@ const TEMPORARY_TREE_RETRYABLE_ERRORS = new Set([
  * dot/space. Returning false for those spellings prevents one approved record from identifying
  * different filesystem objects on different hosts.
  */
+/** Path identity by the host's rules: Git for Windows varies drive and component case. Never raw strings. */
+export function samePlatformPath(left, right, platform = process.platform) {
+  if (left == null || right == null) return false;
+  const api = platform === 'win32' ? path.win32 : path;
+  const key = (value) => (platform === 'win32' ? api.resolve(String(value)).toLocaleLowerCase('en-US') : api.resolve(String(value)));
+  return key(left) === key(right);
+}
+
 export function isPortableRepositoryPathComponent(value, { allowGit = false } = {}) {
   return typeof value === 'string' && Boolean(value) && value === value.normalize('NFC')
     && value !== '.' && value !== '..' && !value.includes('/') && !value.includes('\\')

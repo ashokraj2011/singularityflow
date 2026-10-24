@@ -8,7 +8,7 @@
  */
 import path from 'node:path';
 
-import { gitDir, lineCommitAt, repoRoot } from '../../git.mjs';
+import { committedFilesAtRevisions, gitDir, lineCommitAt, repoRoot } from '../../git.mjs';
 import {
   action, commandResult, noEffects, succeeded
 } from '../../narration/command-result.mjs';
@@ -199,13 +199,20 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
     }, query);
     lineHistory = { request, result: request?.kind === 'baseline' ? lineCommitAt(root, request.revision, request.path, request.line) : null };
   }
+  // Who left the line: this machine's observed writes, matched to the bytes that hold it by digest.
+  const lineWriter = query.subject === 'line'
+    ? await (await import('./line-writer.mjs')).readLineWriter({
+      manifest: slice.manifest, baselineCommit: slice.baselineCommit, gitDirectory: gitDir(root),
+      readBlobs: (requests) => committedFilesAtRevisions(root, requests)
+    }, query, lineHistory)
+    : null;
   const generationSources = query.subject === 'generation' && input.workflow
     ? await (await import('./clause-sources.mjs')).readGenerationSources(root, input.workflow, { phase: query.phase, generation: query.generation })
     : null;
   // --max-bytes bounds what is delivered: the explanation and, when asked for, its narration. A
   // narration keeps a small reserve for its own notice; one that would not fit is replaced by it.
   const reserve = wantsNarration ? NARRATION_RESERVE_BYTES : 0;
-  const { model, bytes } = boundedModel(input, query, { proof, lineHistory, generationSources }, maximumBytes - reserve);
+  const { model, bytes } = boundedModel(input, query, { proof, lineHistory, lineWriter, generationSources }, maximumBytes - reserve);
   // A comparison reads the retained store only when asked, and never changes the view.
   const comparison = compareSelector == null ? null : await compareWithRetained(root, compareSelector, model, slice.context.workId);
   // The computed view is complete before narration starts and is never changed by it [XPL2-AC-009].
@@ -253,6 +260,8 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
       modelPolicy: 'optional'
     }));
   }
+  // This view's terminal prose loads with this handler only.
+  await import('../../narration/render-explanation-subject.mjs');
   return emitCommandResult(commandResult({
     operation,
     subject: slice.context.workId

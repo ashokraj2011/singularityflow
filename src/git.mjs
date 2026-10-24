@@ -2203,8 +2203,12 @@ export function lineCommitAt(root, revision, file, line) {
   if (!head) return null;
   const field = (name) => lines.find((entry) => entry.startsWith(`${name} `))?.slice(name.length + 1) ?? null;
   const time = Number(field('author-time'));
+  // Where the line was in that commit, and the parent and path its change came from (none for a
+  // file the commit added; a boundary commit's parent is outside the history Git can see).
+  const previous = /^([0-9a-f]{40,64}) (.+)$/u.exec(field('previous') ?? '');
   return { commit: head[1], originalLine: Number(head[2]), author: field('author'), summary: field('summary'),
-    authorTime: time > 0 ? new Date(time * 1000).toISOString() : null };
+    authorTime: time > 0 ? new Date(time * 1000).toISOString() : null, filename: field('filename'),
+    previous: previous ? { commit: previous[1], path: previous[2] } : null, boundary: lines.some((entry) => entry === 'boundary') };
 }
 
 /**

@@ -124,6 +124,7 @@ const PROMPT_SOURCES = Object.freeze({
 });
 
 const CAPTURE_LABELS = Object.freeze({
+  writes: 'The observed-write record',
   'prompt-log': 'The prompt log',
   invocations: 'The model invocation record',
   attempts: 'The test attempt record'
@@ -140,7 +141,26 @@ const BINDING_DECISION_WORDS = Object.freeze({
 });
 
 const STORE_LABELS = Object.freeze({
+  writes: 'the observed-write records',
   'prompt-log': 'the prompt log', invocations: 'the model invocation records', attempts: 'the test attempt records'
+});
+
+// Which change an attributed line's recorded writes explain exactly.
+const WRITER_SPANS = Object.freeze({
+  captured: () => 'the file\'s bytes from the baseline to this capture',
+  commit: (a) => `commit ${a.commit.slice(0, 12)}\'s change to the file, from its parent\'s bytes to the committed bytes`
+});
+
+// Why observed writes do not establish who left a line (src/comprehension/xpl2/writer-attribution.mjs).
+const WRITER_BASES = Object.freeze({
+  'no-recorded-writes': 'this machine has no recorded write of the file.',
+  'bytes-not-left-by-a-recorded-write': 'no recorded write left the bytes that hold the line.',
+  'recorded-writes-incomplete': 'the recorded writes do not connect the bytes before that change to the bytes that hold the line; an unrecorded change came in between.',
+  'unverified-write': 'a recorded write on the way to these bytes could not be checked against its tool\'s own arguments.',
+  'several-writers': 'the recorded writes allow more than one writer, or more than one history, for this line.',
+  'unchanged-by-recorded-writes': 'the recorded writes left this line as the bytes before them had it.',
+  'records-unreadable': 'the observed-write records on this machine could not be read.',
+  'no-content-digest': 'no content digest is recorded for the bytes that hold the line, so they cannot be matched to a write.'
 });
 
 // Why the prompt log removed an entry it once kept (src/prompt-audit.mjs removal notes).
@@ -387,6 +407,26 @@ const TEMPLATES = [
       + `${a.invocation === 'none' ? '' : `; it names invocation ${a.invocation}`}.`
   },
   {
+    id: 'xpl2.line-writer@1',
+    arguments: { side: 'side', path: 'text', line: 'count', writes: 'text', tools: 'text', writer: 'text', subject: 'text', span: 'writer-span', commit: 'text' },
+    render: (a) => `${sideLabel(a.side)}-side line ${a.line} of ${a.path} holds bytes that recorded write ${a.writes} (${a.tools}) left, by ${a.writer}${a.subject}. `
+      + `Recorded writes on this machine explain ${WRITER_SPANS[a.span](a)} exactly, each checked against its tool's own arguments; `
+      + 'this names the write that changed the line last, not who designed it.'
+  },
+  {
+    id: 'xpl2.line-writer-unestablished@1',
+    arguments: { subject: 'text', basis: 'writer-basis', writes: 'count', span: 'writer-span', commit: 'text' },
+    render: (a) => `Who wrote ${a.subject} is not established by observed writes: ${WRITER_BASES[a.basis]} `
+      + (a.span === 'commit' ? `The line was last changed in commit ${a.commit.slice(0, 12)}` : 'The line was added or changed in this capture')
+      + `${a.writes ? `; this machine holds ${plural(a.writes, 'recorded write')} of the file` : ''}.`
+  },
+  {
+    id: 'xpl2.generation-write@1',
+    arguments: { writeId: 'identifier', tools: 'text', writer: 'text', recordedAt: 'text', files: 'count', verified: 'count', paths: 'text' },
+    render: (a) => `Recorded write ${a.writeId} (${a.tools}) by ${a.writer} at ${a.recordedAt} left ${plural(a.files, 'file')} (${a.paths}); `
+      + `${a.verified === a.files ? 'every one' : `${a.verified} of them`} checked against the tool's own arguments. It is this machine's record of what a tool did.`
+  },
+  {
     id: 'xpl2.prompt-entries-removed@1',
     arguments: { records: 'count', reason: 'removal-reason', earliest: 'text', latest: 'text' },
     render: (a) => `${plural(a.records, 'prompt-log entry', 'prompt-log entries')} of this generation, recorded `
@@ -483,6 +523,8 @@ function validArgument(kind, value) {
     case 'binding-decision': return Object.hasOwn(BINDING_DECISIONS, value);
     case 'file-gone': return value === 'deleted' || value === 'renamed';
     case 'removal-reason': return Object.hasOwn(REMOVAL_REASONS, value);
+    case 'writer-span': return Object.hasOwn(WRITER_SPANS, value);
+    case 'writer-basis': return Object.hasOwn(WRITER_BASES, value);
     case 'reason':
       try { xpl2ReasonText(value); return true; } catch { return false; }
     default: return false;

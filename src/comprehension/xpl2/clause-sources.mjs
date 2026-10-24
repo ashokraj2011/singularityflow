@@ -127,6 +127,7 @@ export const XPL2_RECORD_LIMITS = Object.freeze({
   reuses: 50,
   invocations: 100,
   prompts: 100,
+  writes: 50,
   attemptBytes: 8 * 1024 * 1024
 });
 
@@ -249,7 +250,7 @@ async function workItemRelative(root, workId) {
 export async function readGenerationSources(root, workflow, { phase, generation }) {
   const workId = workflow?.workItem?.id ?? null;
   if (!workId) return null;
-  const result = { invocations: null, prompts: null, attempts: null };
+  const result = { invocations: null, prompts: null, attempts: null, writes: null };
   try {
     const { listModelInvocationAudits } = await import('../../model-runner.mjs');
     const all = (await listModelInvocationAudits(root)).filter((record) => record?.subject?.id === workId
@@ -293,6 +294,16 @@ export async function readGenerationSources(root, workflow, { phase, generation 
     };
   } catch {
     result.prompts = { status: 'inaccessible', enabled: null, retentionDays: null, integrity: null, records: [], omitted: 0 };
+  }
+  try {
+    // Observed writes this machine recorded for the generation while it was open.
+    const [{ gitDir }, { readObservedWrites }] = await Promise.all([import('../../git.mjs'), import('./observed-writes.mjs')]);
+    const read = await readObservedWrites(gitDir(root), { subject: { workId, phase, generation } });
+    result.writes = read.status === 'inaccessible' ? { status: 'inaccessible', records: [], omitted: 0 }
+      : { status: 'available', records: read.records.slice(-XPL2_RECORD_LIMITS.writes), omitted: read.omitted + Math.max(0, read.records.length - XPL2_RECORD_LIMITS.writes),
+        dropped: read.dropped ?? 0, unreadable: read.unreadable ?? 0, retentionDays: read.retentionDays ?? 0 };
+  } catch {
+    result.writes = { status: 'inaccessible', records: [], omitted: 0 };
   }
   try {
     const { stepAttempts } = await import('../../verification/attempts.mjs');

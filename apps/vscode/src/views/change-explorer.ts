@@ -587,7 +587,7 @@ function timelineHtml(view: Xpl2Explanation, events: TimelineEvent[] | null): st
     return `<p class="xpl-empty">No Story history is bound to this repository view. ${escape(reasonText('no-active-story'))}</p>`;
   }
   const rows = events.map((event) => `<tr><td>${escape(event.at ?? 'unknown')}</td><td>${escape(event.kind)}</td><td>${escape(event.phase ?? '—')}</td><td>${escape(event.generation ?? '—')}</td><td>${escape(event.provenance ?? 'unavailable')}</td></tr>`).join('');
-  return `<p class="xpl-note">Normalized Story history in its recorded order. It is not a provenance timeline: observed writes and invocation links are ${escape(view.availability.provenance ?? 'unavailable')}.</p>
+  return `<p class="xpl-note">Normalized Story history in its recorded order. It is not a provenance timeline: observed writes and invocation links are ${escape(view.availability.provenance ?? 'unavailable')} for the whole change. Who left one line is asked line by line: <code>singularity-flow explain --subject line --path PATH --line N</code>.</p>
     ${rows ? `<div class="table-wrap"><table class="xpl-table"><thead><tr><th scope="col">When</th><th scope="col">Event</th><th scope="col">Phase</th><th scope="col">Generation</th><th scope="col">Provenance</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="xpl-empty">No normalized events are recorded.</p>'}`;
 }
 

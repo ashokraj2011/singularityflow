@@ -360,6 +360,7 @@ async function narratedResult(model, narration) {
 
 test('XPL2 13.2 the terminal shows a narration: banner, the model\'s order of recorded statements, attention, commentary state', async (t) => {
   const { renderCommandResult } = await import('../src/narration/render-terminal.mjs');
+  await import('../src/narration/render-explanation-subject.mjs');
   const { model, input } = await narrationFixture(t);
   const [first, second] = input.statements.filter((entry) => !input.mandatory.includes(entry.id));
   const narration = validateXpl2Narration(JSON.stringify({

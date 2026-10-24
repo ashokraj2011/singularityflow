@@ -190,6 +190,8 @@ async function createRecord(payload, record, root, accepted, previous = null) {
     turnId: record.turnId, sessionId: record.sessionId, skill: record.skill, recordedAt: record.recordedAt,
     modeChangedAt: record.modeChangedAt, contract,
     originPhase: previous?.originPhase ?? contract.phaseId,
+    // The generation this turn's edits belong to, when one is open; XPL2 observed writes name it.
+    openGeneration: phase?.generationIntent?.status === 'open' ? phase.generationIntent.generation ?? null : null,
     decisionEnded: previous?.decisionEnded ?? false,
     binding: { workflowFile, workflowSha256: digest(await readFile(workflowFile)), ...gitIdentity },
     baseline: previous?.baseline ?? null, findings: previous?.findings ?? [],
@@ -1133,9 +1135,36 @@ async function shellSnapshot(root) {
   return { headTree: fingerprint.headTree, indexTree: fingerprint.indexTree, files: fingerprint.fileDigests };
 }
 
+/**
+ * XPL2 observed writes: what this explicit turn's successful file edits left, as content digests and
+ * changed line ranges only (never content, arguments or commands). Lazy, bounded and best effort:
+ * it never changes or delays a decision beyond hashing the edited files once.
+ */
+async function recordObservedEdits(payload, record, edits) {
+  const value = await boundedRecord(recordFile(payload)).catch(() => null);
+  const contract = value?.contract;
+  if (!contract?.repositoryRoot || !value.binding?.gitDir || value.turnId !== record.turnId) return;
+  const { observeToolWrites, recordObservedWrite } = await import('./comprehension/xpl2/observed-write-recorder.mjs');
+  const files = await observeToolWrites({ root: contract.repositoryRoot, cwd: payload.cwd ?? contract.repositoryRoot,
+    calls: edits.map(call => ({ ...call, targets: targets(call.args) })) });
+  if (!files.length) return;
+  const agent = payload.agentName ?? payload.agent_name;
+  await recordObservedWrite(value.binding.gitDir, {
+    source: 'copilot-hook', tool: [...new Set(edits.map(call => call.name))].join(','),
+    writer: { kind: 'copilot-turn', session: key(payload).slice(0, 16), turn: record.turnId, skill: record.skill,
+      agent: typeof agent === 'string' ? agent.slice(0, 80) : null },
+    subject: { workId: contract.workId, phase: contract.phaseId, generation: value.openGeneration ?? null },
+    files
+  });
+}
+
 export async function mutationPostToolGuard(payload = {}) {
   const record = await turn(payload);
-  const terminals = calls(payload).filter(call => TERMINALS.has(call.name));
+  const toolCalls = calls(payload);
+  const terminals = toolCalls.filter(call => TERMINALS.has(call.name));
+  // Only a call the host reports as successful changed what its arguments say.
+  const edits = record && !record.corrupt && payload.toolResult?.resultType === 'success' ? toolCalls.filter(call => isEdit(call.name)) : [];
+  if (edits.length) await recordObservedEdits(payload, record, edits).catch(() => {});
   if (!record || !terminals.length) return {};
   // A turn with no Story contract has no baseline to compare and nothing to go stale: its pre-tool
   // guard admitted only verified commands (import-team's own three and reads; setup and session

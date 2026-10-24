@@ -10,7 +10,7 @@
  */
 import { stepResponsibilities } from './phase-roles.mjs';
 import { WITNESS_CHECKLIST } from './verification/witness-records.mjs';
-import { safeCommandGuidance } from './safe-command-guidance.mjs';
+import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
 
 const MAX_LISTED = 8;
 const MAX_TEXT = 160;
@@ -154,4 +154,21 @@ export function owedDecisionLines(owed) {
     if (owed.more.scopeItems) lines.push(`  …and ${owed.more.scopeItems} more: singularity-flow evidence scope`);
   }
   return lines;
+}
+
+/**
+ * Commits approval would refuse for (`blockingCommits`, src/review-intervening-commits.mjs) as
+ * the warning lines an approver is shown beside the owed decisions, each action with its routes.
+ * Kept here, where both printers already look, so neither loads the history reader to print.
+ */
+export function blockingCommitLines(advisory) {
+  if (!advisory?.count) return [];
+  return [
+    `${advisory.statement} (Advisory; the approval gate decides.)`,
+    ...advisory.lines.map((line) => `  ${line}`),
+    ...(advisory.actions ?? []).flatMap((action) => {
+      const guidance = safeCommandGuidance({ command: action.command });
+      return [`  ${action.label}`, ...(guidance ? commandRouteLines(guidance, '    ') : [`    ${action.command}`])];
+    })
+  ];
 }

@@ -312,6 +312,8 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /approval CLI is the sole permitted lifecycle mutation/i,
       /positional argument selects \*\*PHASE-ID\*\*, never Work ID/i,
       /Review outside chat against the exact binding/i,
+      // Commits approval would refuse for are shown, never a reason to stop the review.
+      /`blockingCommits` \(advisory: show it, then continue\)/,
       /exactly matching non-null `displayBinding`/,
       /New chat, changed\/null binding, omissions or truncation require fresh human review/i,
       /A phase supplied before a new or changed packet review is not its confirmation/i,

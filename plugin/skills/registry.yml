@@ -93,7 +93,7 @@ skills:
   sflow-agents: { class: echo, executionBoundary: repository }
   sflow-admin: { class: conversational, executionBoundary: machine }
   sflow-approvals: { class: echo, executionBoundary: repository }
-  sflow-approve: { class: review, maximumTokenOverride: 870, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit. When pending decisions hold the approval it opens the decision list in the same turn (/sf-decide steps 11-14) instead of printing raw decision commands (2026-10-19, decision list)." }
+  sflow-approve: { class: review, maximumTokenOverride: 883, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit. When pending decisions hold the approval it opens the decision list in the same turn (/sf-decide steps 11-14) instead of printing raw decision commands (2026-10-19, decision list). It shows `blockingCommits`, the commits approval would refuse for with any pending intent amendment, and continues the review rather than stopping (2026-10-24, approval history)." }
   sflow-assign: { class: mutation }
   sflow-auto: { class: interactive, kernelModelPolicy: conditional, executionBoundary: repository }
   sflow-cancel: { class: mutation }

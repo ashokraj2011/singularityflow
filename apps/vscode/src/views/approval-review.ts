@@ -12,8 +12,8 @@ import {
   booleanField, registerMessageRouter, stringField, type InboundMessage
 } from './messages.ts';
 import { navigateTo } from './navigate.ts';
-import { contentSecurityPolicy, escape, evidenceConsistencyHtml, navigationTarget, nonce, page,
-  type EvidenceConsistencyPresentation } from './webview.ts';
+import { approvalBlockingCommits, approvalBlockingCommitsHtml, contentSecurityPolicy, escape, evidenceConsistencyHtml, navigationTarget,
+  nonce, page, type EvidenceConsistencyPresentation } from './webview.ts';
 
 export const APPROVAL_DECISIONS = ['satisfied', 'exception', 'not-applicable'] as const;
 export type ApprovalChecklistDecision = {
@@ -67,6 +67,11 @@ export interface ApprovalReviewRequest {
    * bundle. Presentation only: the approval gate checks again.
    */
   pendingDecisions?: { count: number; headline: string } | null;
+  /**
+   * Commits after the submission that approval would refuse for (`blockingCommits` of submission
+   * readiness), read beside the bundle as returned. Advisory: the approval gate checks again.
+   */
+  blockingCommits?: unknown;
   /** The step's test run (`tests summary --json`), when one is recorded: its label and totals. */
   testRun?: { label: string; totals: string } | null;
   priorExceptions: Array<{ article?: string; decision?: string; reason?: string; actor?: string }>;
@@ -305,7 +310,7 @@ function reviewBody(request: ApprovalReviewRequest, errors: string[] = []): stri
       <p class="meta">Review the exact generation, record every required decision, then type the phase confirmation.</p>
     </header>
     <div class="review-binding approval-binding">${binding}</div>
-    ${held}${tests}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
+    ${held}${approvalBlockingCommitsHtml(approvalBlockingCommits(request.blockingCommits))}${tests}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
       ${checklist}${witnessReview}
       <section class="approval-confirmation">
         <h2>Confirm your decision</h2>

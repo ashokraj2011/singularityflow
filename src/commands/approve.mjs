@@ -92,7 +92,8 @@ export async function approveCommand(positionals, options) {
   }
   const { root, config, workflow, phase, session, receipt, receiptToken } = await decisionWorkflow(positionals, options, 'approve');
   const selfApproval = (phase.generatedBy?.login ?? phase.generatedBy?.email ?? phase.generatedBy?.name) === (session.actor.login ?? session.actor.email ?? session.actor.name);
-  if (!forAgent) printPhaseReview(await phaseReview(root, config, workflow, phase), { showArtifact: optionBoolean(options, 'show-artifact') });
+  // Approval itself names any commit that blocks it, in its refusal; the advisory would only repeat it.
+  if (!forAgent) printPhaseReview(await phaseReview(root, config, workflow, phase, { includeBlockingCommits: false }), { showArtifact: optionBoolean(options, 'show-artifact') });
   const approvalAuthority = requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
     phase.approvalPolicy,

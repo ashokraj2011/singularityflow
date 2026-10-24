@@ -5741,6 +5741,66 @@ async function writeDecision(root, config, workflow, phase, decision) {
   });
 }
 
+/**
+ * The commits after a submitted phase's review evidence, and which of them may precede its approval.
+ *
+ * A receipt intentionally binds HEAD when review begins, so receipt freshness alone cannot tell
+ * whether an unrelated commit was inserted *before* that point. Permit prior partial approvals,
+ * verified test-risk reviews, applicability decisions and the exact Auto human-boundary checkpoint
+ * for this submitted phase. Auto records that checkpoint immediately after submission so a human
+ * can resume the flight after approval; it is observational evidence, not a new generation.
+ * Approval refuses on every other commit (`blocking`); the approval packet and phase show name the
+ * same commits beforehand, so all three read this one classification. `reviewedRisks` is read only
+ * when a commit is not already a prior approval.
+ */
+export async function reviewHistoryCommits(root, config, workflow, phase, submittedReview, { reviewedRisks = async () => [] } = {}) {
+  const reviewRange = `${submittedReview.evidenceCommit}..${head(root)}`;
+  const interveningCommits = storyHistoryCommits(root, [
+    'rev-list', '--first-parent', reviewRange
+  ], `Phase '${phase.id}' history since its review evidence`);
+  const approvalSummary = posix(path.relative(
+    root, approvalPath(root, config, workflow.workItem.id, phase.id)
+  ));
+  const priorApprovalCommits = storyHistoryCommits(root, [
+    'log', '--first-parent', '--format=%H', reviewRange, '--', approvalSummary
+  ], `Phase '${phase.id}' prior approvals`);
+  const allowedReviewCommits = new Set(priorApprovalCommits);
+  const unallowed = () => interveningCommits.filter((commit) => !allowedReviewCommits.has(commit));
+  if (unallowed().length) {
+    for (const reviewedRisk of (await reviewedRisks()).filter(Boolean)) {
+      for (const commit of await verifiedStoryTestRiskReviewCommits(root, config, workflow, reviewedRisk, unallowed())) allowedReviewCommits.add(commit);
+    }
+  }
+  if (workflow.auto && unallowed().length) {
+    const { readGovernedAutoCheckpoint } = await import('./auto/auto-checkpoint.mjs');
+    for (const projection of workflow.publicationProjections ?? []) {
+      const event = projection.event;
+      if (event?.type !== 'evidence-recorded'
+          || event.payload?.kind !== 'auto-boundary-checkpoint'
+          || event.payload?.checkpointClass !== 'human-boundary'
+          || event.phaseId !== phase.id) continue;
+      const checkpoint = await readGovernedAutoCheckpoint(root, workflow, projection);
+      const commit = checkpoint.commit;
+      if (!interveningCommits.includes(commit)
+          || checkpoint.record.story.workId !== workflow.workItem.id
+          || checkpoint.record.story.phase !== phase.id
+          || checkpoint.record.story.generation !== phase.generation
+          || checkpoint.record.position !== 'submitted') continue;
+      const identity = governedCommitIdentity(root, commit);
+      if (identity?.parents.length !== 1
+          || identity.parents[0] !== submittedReview.evidenceCommit
+          || identity.parents[0] !== checkpoint.record.story.sourceRevision
+          || (event.sourceCommit && event.sourceCommit !== identity.parents[0])
+          || identity.eventSha256 !== `sha256:${recordSha256(event)}`) continue;
+      allowedReviewCommits.add(commit);
+    }
+  }
+  for (const commit of unallowed()) {
+    if (applicabilityDecisionCommit(root, config, workflow, commit)) allowedReviewCommits.add(commit);
+  }
+  return { interveningCommits, priorApprovalCommits, allowedReviewCommits: [...allowedReviewCommits], blocking: unallowed() };
+}
+
 export async function approvePhase(root, config, workflow, {
   phaseId,
   channel = 'terminal',
@@ -5877,65 +5937,17 @@ export async function approvePhase(root, config, workflow, {
       { code: 'STORY_REVIEW_TEST_INPUT_CHANGED' }
     );
   }
-  // A receipt intentionally binds HEAD when review begins, so receipt freshness alone cannot tell
-  // whether an unrelated commit was inserted *before* that point. Permit prior partial approvals
-  // and the exact Auto human-boundary checkpoint for this submitted phase. Auto records that
-  // checkpoint immediately after submission so a human can resume the flight after approval;
-  // it is observational evidence, not a new generation. All other commits require resubmission.
-  const reviewRange = `${submittedReview.evidenceCommit}..${head(root)}`;
-  const interveningCommits = storyHistoryCommits(root, [
-    'rev-list', '--first-parent', reviewRange
-  ], `Phase '${phase.id}' history since its review evidence`);
-  const approvalSummary = posix(path.relative(
-    root, approvalPath(root, config, workflow.workItem.id, phase.id)
-  ));
-  const priorApprovalCommits = storyHistoryCommits(root, [
-    'log', '--first-parent', '--format=%H', reviewRange, '--', approvalSummary
-  ], `Phase '${phase.id}' prior approvals`);
-  const allowedReviewCommits = new Set(priorApprovalCommits);
   const riskReference = phase.deliveryEvidence?.testRecovery;
   const approvalRisk = riskReference ? await assertStoryTestRiskGate(root, config, workflow, {
     phaseId: phase.id, operation: 'approve', generation: phase.generation,
     observationSha256: riskReference.observationSha256, evidenceCommit: submittedReview.evidenceCommit }) : null;
-  for (const reviewedRisk of [approvalRisk, ...documentRisks].filter(Boolean)) {
-    for (const commit of await verifiedStoryTestRiskReviewCommits(root, config, workflow, reviewedRisk,
-      interveningCommits.filter(item => !allowedReviewCommits.has(item)))) allowedReviewCommits.add(commit);
-  }
-  if (workflow.auto && interveningCommits.some((commit) => !allowedReviewCommits.has(commit))) {
-    const { readGovernedAutoCheckpoint } = await import('./auto/auto-checkpoint.mjs');
-    for (const projection of workflow.publicationProjections ?? []) {
-      const event = projection.event;
-      if (event?.type !== 'evidence-recorded'
-          || event.payload?.kind !== 'auto-boundary-checkpoint'
-          || event.payload?.checkpointClass !== 'human-boundary'
-          || event.phaseId !== phase.id) continue;
-      const checkpoint = await readGovernedAutoCheckpoint(root, workflow, projection);
-      const commit = checkpoint.commit;
-      if (!interveningCommits.includes(commit)
-          || checkpoint.record.story.workId !== workflow.workItem.id
-          || checkpoint.record.story.phase !== phase.id
-          || checkpoint.record.story.generation !== phase.generation
-          || checkpoint.record.position !== 'submitted') continue;
-      const identity = governedCommitIdentity(root, commit);
-      if (identity?.parents.length !== 1
-          || identity.parents[0] !== submittedReview.evidenceCommit
-          || identity.parents[0] !== checkpoint.record.story.sourceRevision
-          || (event.sourceCommit && event.sourceCommit !== identity.parents[0])
-          || identity.eventSha256 !== `sha256:${recordSha256(event)}`) continue;
-      allowedReviewCommits.add(commit);
-    }
-  }
-  for (const commit of interveningCommits) {
-    if (!allowedReviewCommits.has(commit) && applicabilityDecisionCommit(root, config, workflow, commit)) allowedReviewCommits.add(commit);
-  }
-  const blockingCommits = interveningCommits.filter((commit) => !allowedReviewCommits.has(commit));
-  if (blockingCommits.length) {
+  const history = await reviewHistoryCommits(root, config, workflow, phase, submittedReview, {
+    reviewedRisks: async () => [approvalRisk, ...documentRisks] });
+  if (history.blocking.length) {
     // Name each commit and route an undecided intent amendment among them to its decision first.
     const { interveningCommitRefusal } = await import('./review-intervening-commits.mjs');
     throw interveningCommitRefusal(root, workflow, phase, {
-      blocking: blockingCommits, interveningCommits, priorApprovalCommits,
-      allowedReviewCommits: [...allowedReviewCommits],
-      evidenceCommit: submittedReview.evidenceCommit, currentHead: head(root)
+      ...history, evidenceCommit: submittedReview.evidenceCommit, currentHead: head(root)
     });
   }
   // Architecture intent was removed; a binding recorded before then is compared as recorded, never re-resolved.

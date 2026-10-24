@@ -11,6 +11,7 @@ import { approvalRequirementsMet } from '../src/approval-authority.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { publishedGenerationCommit } from '../src/generation-publication-store.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const WORK = 'AMEND-POLICY-1';
@@ -43,7 +44,7 @@ function specification(value) {
   ].join('\n');
 }
 
-test('amendments honor required groups, retain all reviewers and let a prior reviewer reject a stale proposal', { timeout: 240_000 }, async (t) => {
+test('amendments honor required groups, retain all reviewers and let a prior reviewer reject a stale proposal', slowLane({ timeout: 240_000 }), async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-amendment-policy-'));
   const root = path.join(directory, 'repository');
   const remote = path.join(directory, 'origin.git');

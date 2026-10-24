@@ -7,6 +7,7 @@ import test from 'node:test';
 
 import { run } from '../src/util.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 
@@ -100,9 +101,9 @@ async function externallyMerge(remote, branch, hook) {
   return disabled;
 }
 
-test('capability review through workspace creation reaches a governed first Story', {
+test('capability review through workspace creation reaches a governed first Story', slowLane({
   timeout: 180_000
-}, async () => {
+}), async () => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-onboarding-journey-'));
   const env = journeyEnvironment(base);
   try {

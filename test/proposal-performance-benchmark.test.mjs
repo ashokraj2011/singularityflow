@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const script = fileURLToPath(new URL('../scripts/proposal-performance-benchmark.mjs', import.meta.url));
-test('the proposal benchmark exercises actual local activation and reports bounded Git work', { timeout: 120_000 }, () => {
+test('the proposal benchmark exercises actual local activation and reports bounded Git work', slowLane({ timeout: 120_000 }), () => {
   const result = spawnSync(process.execPath, [script, '--samples=1', '--files=10'],
     { encoding: 'utf8', timeout: childTimeout(110_000), maxBuffer: 1024 * 1024,
       env: { ...process.env, GIT_DIR: '/unavailable-benchmark-poison', GIT_WORK_TREE: '/unavailable-benchmark-poison' } });

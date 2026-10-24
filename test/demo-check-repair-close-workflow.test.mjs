@@ -16,6 +16,7 @@ import { installWorkflow, simulateWorkflow, workflowCatalog } from '../src/workf
 import { applyWorkflowImport, exportWorkflowBundle, planWorkflowImport } from '../src/workflow-transfer.mjs';
 import { librarySkillPath, loadSkillLibrary, SKILL_ATTACHMENTS_PATH } from '../src/skill-library.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ID = 'demo-check-repair-close';
@@ -199,7 +200,7 @@ test('export and renamed import retain agent-table skill identities and runnable
   assert.deepEqual(rendered.skills.map((entry) => entry.id), [SKILLS[1]]);
 });
 
-test('real CLI Story pins agent skills and closes a fresh no-change pass only after human checkpoints and closing documents', async (t) => {
+test('real CLI Story pins agent skills and closes a fresh no-change pass only after human checkpoints and closing documents', slowLane(), async (t) => {
   const root = await temporary(t);
   const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Demo Reviewer',
     SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.git/test-active-workspace.json'),
@@ -430,7 +431,7 @@ Pending authorized review of this exact report. The agent does not approve or cl
   cli('approve', PHASES[1], '--yes');
 }
 
-test('a Story that repaired and then passed its recheck closes, and its repair counts as implemented', async (t) => {
+test('a Story that repaired and then passed its recheck closes, and its repair counts as implemented', slowLane(), async (t) => {
   const story = await intakeApprovedStory(t, 'export const title = "Draft screen";\n');
   const { env, run, cli, workRoot, readState } = story;
   await checkCurrentCode(story, 'repair');

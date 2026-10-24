@@ -12,6 +12,7 @@ import { prepareWorkspaceBranch } from '../src/workspace-branch-checkout.mjs';
 import { readWorkspace, rememberWorkspace } from '../src/workspace.mjs';
 import { withRepositoryMutationLease } from '../src/subject-lock.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const git = (root, args) => {
@@ -94,7 +95,7 @@ test('bounded maintenance rotates past protected entries instead of starving lat
   assert.equal(third[0].entry.path, 'checkout-256'); assert.ok(third.some(item => item.entry.path === 'checkout-000'));
 });
 
-test('published completed lifecycle fixtures use completion retention, not cancellation retention', { timeout: 180000 }, async t => {
+test('published completed lifecycle fixtures use completion retention, not cancellation retention', slowLane({ timeout: 180000 }), async t => {
   const f = await fixture(t), target = await f.story('COMPLETE', { cancel: false });
   // Isolated lifecycle fixture: no real user approval or Story is changed by qualification.
   const { loadAcceptedStoryExecution } = await import('../src/accepted-story-execution.mjs');
@@ -111,7 +112,7 @@ test('published completed lifecycle fixtures use completion retention, not cance
   assert.ok(result.removed.some(item => item.root === target && item.status === 'closed'), JSON.stringify(result));
 });
 
-test('automatic retention removes only the published cancelled worktree after retention, keeping its branch and source clone', { timeout: 180000 }, async t => {
+test('automatic retention removes only the published cancelled worktree after retention, keeping its branch and source clone', slowLane({ timeout: 180000 }), async t => {
   const f = await fixture(t), target = await f.story('RETIRE');
   const early = await runWorkspaceRetention(f.workspacePath, { force: true });
   assert.equal(early.removed.length, 0);
@@ -125,7 +126,7 @@ test('automatic retention removes only the published cancelled worktree after re
   assert.equal((await runWorkspaceRetention(f.workspacePath, { now: Date.now() + 8 * 86400000 })).status, 'not-due');
 });
 
-test('unpushed, active, dirty, ignored, recovery and open-window Story worktrees are preserved', { timeout: 240000 }, async t => {
+test('unpushed, active, dirty, ignored, recovery and open-window Story worktrees are preserved', slowLane({ timeout: 240000 }), async t => {
   const f = await fixture(t), target = await f.story('PROTECT');
   await saveWorkspaceRetention(f.workspacePath, { cancelledDays: 0 });
   const check = async reason => {
@@ -176,7 +177,7 @@ test('CLI policy updates and automatic run are distinct from manual deletion con
   assert.notEqual(f.flow(['workspace', 'retention', f.workspacePath, '--heartbeat', '--enabled', 'false', '--json'], { fail: true }).status, 0);
 });
 
-test('background worker finishes independently and repeat foreground launches are throttled', { timeout: 120000 }, async t => {
+test('background worker finishes independently and repeat foreground launches are throttled', slowLane({ timeout: 120000 }), async t => {
   const f = await fixture(t);
   const { scheduleWorkspaceRetention } = await import('../src/workspace-retention-background.mjs');
   const options = { protect: [f.root], env: { ...process.env, NODE_ENV: 'production', SINGULARITY_FLOW_AUTOMATIC_CLEANUP: 'on' } };
@@ -213,7 +214,7 @@ test('the background worker refuses to start without a valid launch packet', asy
   assert.deepEqual(await readdir(base), [], 'a refused launch writes nothing');
 });
 
-test('unused superseded clones have their own retention clock and selected clones survive', { timeout: 180000 }, async t => {
+test('unused superseded clones have their own retention clock and selected clones survive', slowLane({ timeout: 180000 }), async t => {
   const f = await fixture(t);
   const first = await prepareWorkspaceBranch(f.workspace, 'app', 'main');
   git(first.repositoryPath, ['config', 'user.name', 'Retention Tester']); git(first.repositoryPath, ['config', 'user.email', 'retention@example.com']);

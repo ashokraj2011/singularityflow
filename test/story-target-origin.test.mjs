@@ -16,11 +16,12 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const ORIGIN = 'https://staging.example.test';
 
-test('start pins the target a later browser smoke needs when given, and a Story without one has it pinned once by a step approver', { timeout: 300_000 }, async (t) => {
+test('start pins the target a later browser smoke needs when given, and a Story without one has it pinned once by a step approver', slowLane({ timeout: 300_000 }), async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-target-origin-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'repo');

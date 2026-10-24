@@ -32,6 +32,7 @@ import { setAgentSession } from '../src/session.mjs';
 import { inspectPhasePublicationReadiness, assertPhasePublicationReadiness } from '../src/phase-publication-readiness.mjs';
 import { completeAgentResult } from '../src/agent-output.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const WORK = 'APPEAL-1';
@@ -231,7 +232,7 @@ async function browserEvidenceAcceptance(t, root, argv, label, { cancel = false 
   return closed;
 }
 
-for (const surface of ['terminal', 'browser']) test(`reviewed evidence typing via ${surface} preserves the draft/index and clears only exact screenshot ownership`, { timeout: 180000 }, async t => {
+for (const surface of ['terminal', 'browser']) test(`reviewed evidence typing via ${surface} preserves the draft/index and clears only exact screenshot ownership`, slowLane({ timeout: 180000 }), async t => {
   const f = await fixture(t, { directCoverage: true, missingPlannedSource: true, completionWorkflow: surface === 'browser', sourceRequirement: true });
   const evidencePath = `${f.item}/evidence/value.png`;
   await f.write(evidencePath, Buffer.from('retained visual proof, not a passing adjudication'));
@@ -398,7 +399,7 @@ test('publication stage follows policy and generation rather than a built-in pha
 });
 
 test('rejected code successors submit fresh evidence, including old-writer historical live pointers',
-  { timeout: 240000 }, async t => {
+  slowLane({ timeout: 240000 }), async t => {
     for (const legacyWriter of [false, true]) await t.test(legacyWriter ? 'already published by old writer' : 'new publication', async t => {
       const f = await fixture(t, { directCoverage: true });
       f.cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
@@ -537,7 +538,7 @@ test('rejected code successors submit fresh evidence, including old-writer histo
   });
 
 test('pilot risk unlocks only the reviewed editable candidate, still runs tests and requires fresh published review',
-  { timeout: 180000, skip: process.platform === 'win32' || !existsSync('/usr/bin/expect') }, async t => {
+  slowLane({ timeout: 180000, skip: process.platform === 'win32' || !existsSync('/usr/bin/expect') }), async t => {
     const f = await fixture(t, { pilotCoverage: true });
     const options = ['--phase', 'implementation', '--expires', new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
       '--reason', 'The second planned location is explicitly deferred for this pilot.'];
@@ -593,7 +594,7 @@ test('pilot risk unlocks only the reviewed editable candidate, still runs tests 
   });
 
 test('one live document-quality decision survives publication and submission without waiving tests or approval',
-  { timeout: 180000, skip: process.platform === 'win32' || !existsSync('/usr/bin/expect') }, async t => {
+  slowLane({ timeout: 180000, skip: process.platform === 'win32' || !existsSync('/usr/bin/expect') }), async t => {
     const f = await fixture(t, { directCoverage: true });
     const original = await readFile(path.join(f.root, f.summary), 'utf8');
     await f.write(f.summary, `${original}\nPilot limitation: TODO add the explanatory appendix.\n`);
@@ -654,7 +655,7 @@ test('one live document-quality decision survives publication and submission wit
   });
 
 test('non-code intake keeps an accepted document shortfall visible through approval and downstream use',
-  { timeout: 180000, skip: process.platform === 'win32' || !existsSync('/usr/bin/expect') }, async t => {
+  slowLane({ timeout: 180000, skip: process.platform === 'win32' || !existsSync('/usr/bin/expect') }), async t => {
     const f = await fixture(t, { directCoverage: true, intakeDocumentRisk: true });
     const { workflow, definition } = await f.load(); const phase = workflow.phases.intake;
     assert.equal(phase.status, 'approved');
@@ -678,7 +679,7 @@ test('non-code intake keeps an accepted document shortfall visible through appro
   });
 
 test('a publication-only document exception can be extended by fresh human review without republication',
-  { timeout: 180000, skip: process.platform === 'win32' || !existsSync('/usr/bin/expect') }, async t => {
+  slowLane({ timeout: 180000, skip: process.platform === 'win32' || !existsSync('/usr/bin/expect') }), async t => {
     const f = await fixture(t, { directCoverage: true });
     const original = await readFile(path.join(f.root, f.summary), 'utf8');
     await f.write(f.summary, `${original}\nPilot appendix: TODO complete explanatory notes.\n`);
@@ -733,7 +734,7 @@ async function liveReview(root, id, confirm, action = 'decide', decision = 'acco
 }
 
 test('exact-diff appeal preserves source/drafts/index, blocks transitions, and human scope accounting still requires tests',
-  { timeout: 240000, skip: process.platform === 'win32' || !existsSync('/usr/bin/expect') }, async t => {
+  slowLane({ timeout: 240000, skip: process.platform === 'win32' || !existsSync('/usr/bin/expect') }), async t => {
     const f = await fixture(t); let { definition, workflow } = await f.load();
     const beforeHead = f.git('rev-parse', 'HEAD').stdout.trim();
     const draft = await readFile(path.join(f.root, f.summary), 'utf8');
@@ -832,7 +833,7 @@ test('exact-diff appeal preserves source/drafts/index, blocks transitions, and h
   });
 
 test('request changes preserves the rejected bytes, requires correction, and refuses forged decisions',
-  { timeout: 240000, skip: process.platform === 'win32' || !existsSync('/usr/bin/expect') }, async t => {
+  slowLane({ timeout: 240000, skip: process.platform === 'win32' || !existsSync('/usr/bin/expect') }), async t => {
     const f = await fixture(t); let { definition, workflow } = await f.load();
     const prepared = await preparePhaseAppeal(f.root, definition, workflow, request);
     await submitPhaseAppeal(f.root, definition, workflow, { ...request, confirm: prepared.packetSha256 });

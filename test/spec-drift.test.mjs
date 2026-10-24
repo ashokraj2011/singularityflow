@@ -13,6 +13,7 @@ import YAML from 'yaml';
 import { runFirstRunGuide } from '../src/first-run-guide.mjs';
 import { parseZeroContextPatch, rangeTouches } from '../src/spec-drift.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -34,7 +35,7 @@ test('a zero-context patch gives old-coordinate ranges, insertions, additions an
   assert.equal(rangeTouches({ start: 2, end: 2, insertion: true }, 1, 2), false, 'an insertion after the last bound line does not');
 });
 
-test('a closed Story reads in sync, drifted or orphaned as its code changes, and a later Story is told what it touches', { timeout: 300_000 }, async (t) => {
+test('a closed Story reads in sync, drifted or orphaned as its code changes, and a later Story is told what it touches', slowLane({ timeout: 300_000 }), async (t) => {
   const guide = await runFirstRunGuide({ keep: true });
   const root = guide.repository;
   t.after(() => rm(path.dirname(root), { recursive: true, force: true }));

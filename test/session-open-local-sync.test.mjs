@@ -9,6 +9,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 /**
  * `session open <ID>` on a Story that already has its own managed checkout brings that checkout up
@@ -19,7 +20,7 @@ import { childTimeout } from './helpers/child-timeout.mjs';
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
 test('session open fast-forwards an existing local Story checkout, and never merges or discards local work',
-  { timeout: 300_000 }, async (t) => {
+  slowLane({ timeout: 300_000 }), async (t) => {
     const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-open-local-sync-'));
     t.after(() => rm(base, { recursive: true, force: true }));
     const root = path.join(base, 'repo');

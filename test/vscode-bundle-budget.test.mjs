@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 
 import { buildVsCodeBundleBudgetReport } from '../src/vscode-bundle-budget.mjs';
 import { VSCODE_GENERATED_FILES } from '../scripts/vscode-dev.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const runFile = promisify(execFile);
@@ -52,7 +53,7 @@ test('bundle budgets refuse oversized, missing, and unreviewed runtime graphs', 
   assert.ok(report.failures.includes('surprise-runtime.cjs:unbudgeted-entry'));
 });
 
-test('the built VS Code CommonJS closure remains inside the reviewed budget', { timeout: 120_000 }, () => {
+test('the built VS Code CommonJS closure remains inside the reviewed budget', slowLane({ timeout: 120_000 }), () => {
   const run = spawnSync(process.execPath, ['scripts/vscode-bundle-budget.mjs', '--json'], {
     cwd: root, encoding: 'utf8'
   });
@@ -64,7 +65,7 @@ test('the built VS Code CommonJS closure remains inside the reviewed budget', { 
   assert.doesNotMatch(run.stdout, /\/Users\/|[A-Z]:\\|repositoryPath|workId|identity/);
 });
 
-test('concurrent bundle-budget builds use isolated output directories', { timeout: 120_000 }, async () => {
+test('concurrent bundle-budget builds use isolated output directories', slowLane({ timeout: 120_000 }), async () => {
   const runBudget = () => runFile(process.execPath, ['scripts/vscode-bundle-budget.mjs', '--json'], {
     cwd: root, encoding: 'utf8', timeout: 120_000, maxBuffer: 4 * 1024 * 1024
   });

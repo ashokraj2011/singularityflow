@@ -7,9 +7,10 @@ import test from 'node:test';
 import { createWarmReadFixture, bindPhaseReadFixture } from '../scripts/warm-read-fixture.mjs';
 import { buildCliBundle } from '../scripts/build-cli-bundle.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 for (const storyMode of ['legacy', 'pinned', 'amended']) {
-  test(`bound ${storyMode} phase entry composes context and worker guidance observes the same binding`, { timeout: 180_000 }, async t => {
+  test(`bound ${storyMode} phase entry composes context and worker guidance observes the same binding`, slowLane({ timeout: 180_000 }), async t => {
     const f = await createWarmReadFixture({ storyMode, phaseReady: true, artifacts: 8 });
     const adapter = await import(pathToFileURL(path.join(f.engine, 'src/read-worker-client.mjs')).href);
     t.after(async () => { adapter.disposeReadWorkers(); await f.cleanup(); });
@@ -61,7 +62,7 @@ for (const storyMode of ['legacy', 'pinned', 'amended']) {
   });
 }
 
-test('bound legacy composition survives native checkout conversion without changing pinned template bytes', { timeout: 180_000 }, async t => {
+test('bound legacy composition survives native checkout conversion without changing pinned template bytes', slowLane({ timeout: 180_000 }), async t => {
   const f = await createWarmReadFixture({ phaseReady: true });
   t.after(() => f.cleanup());
   f.env.SINGULARITY_FLOW_AGENT_OUTPUT = 'raw';
@@ -74,7 +75,7 @@ test('bound legacy composition survives native checkout conversion without chang
   assert.ok(value.context?.text);
 });
 
-test('composition reloads under its lease rather than inheriting an advisory accepted-context memo', { timeout: 180_000 }, async t => {
+test('composition reloads under its lease rather than inheriting an advisory accepted-context memo', slowLane({ timeout: 180_000 }), async t => {
   const f = await createWarmReadFixture({ phaseReady: true });
   t.after(() => f.cleanup()); await bindPhaseReadFixture(f);
   const load = await import(pathToFileURL(path.join(f.engine, 'src/accepted-story-execution.mjs')));
@@ -91,7 +92,7 @@ test('composition reloads under its lease rather than inheriting an advisory acc
   await assert.rejects(readFile(path.join(path.dirname(f.statePath), 'context', `${f.phaseId}-gen1.json`)), { code: 'ENOENT' });
 });
 
-test('installed bound phase, composition and nextsteps do not load compatibility or model dispatch', { timeout: 180_000 }, async t => {
+test('installed bound phase, composition and nextsteps do not load compatibility or model dispatch', slowLane({ timeout: 180_000 }), async t => {
   const f = await createWarmReadFixture({ storyMode: 'pinned', phaseReady: true, artifacts: 8 });
   t.after(() => f.cleanup()); await bindPhaseReadFixture(f); await buildCliBundle({ root: f.engine });
   const log = path.join(f.directory, 'module-roster.log'), hook = path.join(f.directory, 'module-hook.mjs');

@@ -19,6 +19,7 @@ import { removeTemporaryTree, snapshot } from '../src/util.mjs';
 import { PHASE_ENTRY_SKILLS } from '../src/copilot-mode.mjs';
 import { CLI_PATH_CONTRACT } from '../src/safe-command-guidance.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(root, 'bin', 'singularity-flow.mjs');
@@ -186,11 +187,11 @@ test('every generated skill boundary forbids home search and uses only its decla
   }
 });
 
-test('blank-machine entry skills execute before workspace, repository, or Story selection', {
+test('blank-machine entry skills execute before workspace, repository, or Story selection', slowLane({
   // The test launches several complete CLI processes, including quickstart's isolated sandbox.
   // Keep the guard bounded while allowing aggregate shards to share a constrained CI/office host.
   timeout: 300_000
-}, async (t) => {
+}), async (t) => {
   const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-skill-machine-'));
   const machineHome = path.join(machine, 'home');
   const cwd = path.join(machine, 'empty-cwd');

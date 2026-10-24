@@ -8,11 +8,12 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const sha = (text) => `sha256:${createHash('sha256').update(text).digest('hex')}`;
 
-test('a test command chosen in /sf-test-setup is previewed, proposed by its digest and activated, from the command line alone', { timeout: 600_000 }, async (t) => {
+test('a test command chosen in /sf-test-setup is previewed, proposed by its digest and activated, from the command line alone', slowLane({ timeout: 600_000 }), async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-test-setup-proposal-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'repo'); const remote = path.join(base, 'remote.git');

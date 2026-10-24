@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (name) => path.join(root, 'apps', 'vscode', 'src', name);
@@ -468,7 +469,7 @@ test('the engine\'s refusals of an action or a run are said plainly, with what t
   assert.equal(model.refusalWords(new Error('plain failure')), 'plain failure');
 });
 
-test('the real engine\'s answers read into the page: list, create, path, suggest and the missing-file refusal', { timeout: 180_000 }, async (t) => {
+test('the real engine\'s answers read into the page: list, create, path, suggest and the missing-file refusal', slowLane({ timeout: 180_000 }), async (t) => {
   const { repository } = await import(pathToFileURL(path.join(root, 'test', 'helpers', 'environment-files-fixture.mjs')).href);
   const repo = await repository(t, { files: {
     'apps/web/.env.dev.example': 'API_TOKEN=CHANGE_ME\n',

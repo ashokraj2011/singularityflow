@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { completeAgentResult } from '../src/agent-output.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
@@ -36,7 +37,7 @@ function run(command, args, cwd, { allowFailure = false } = {}) {
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-test('an honest partial verdict publishes and submits, and approval waits for a decided upstream issue', { timeout: 600_000 }, async (t) => {
+test('an honest partial verdict publishes and submits, and approval waits for a decided upstream issue', slowLane({ timeout: 600_000 }), async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-honest-verdict-'));
   const remote = `${root}.git`;
   t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(remote, { recursive: true, force: true })]));

@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { encodePngRgba8 } from '../src/png-rgba8.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const bin = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const OMITTED = 'This test workflow checks one step and delivers nothing else.';
@@ -87,7 +88,7 @@ async function png(root, name, width, height, value = 255) {
   return `shots/${name}`;
 }
 
-test('design-intake names its missing design source before publication, and an uploaded export does not count', { timeout: 300_000 }, async (t) => {
+test('design-intake names its missing design source before publication, and an uploaded export does not count', slowLane({ timeout: 300_000 }), async (t) => {
   const { base, root, flow, phaseId, workflowFile } = await story(t, 'design-only', 'product-designer', 'DESIGN-1');
   const exportDirectory = path.join(base, 'export');
   await mkdir(exportDirectory);
@@ -125,7 +126,7 @@ test('design-intake names its missing design source before publication, and an u
   assert.deepEqual(published.designSourceSets.map((set) => set.records.map((entry) => entry.fileVersion)), [['v1']]);
 });
 
-test('a visual step is not published uncovered, and a capture recorded after publication routes to the publication that opens its generation', { timeout: 300_000 }, async (t) => {
+test('a visual step is not published uncovered, and a capture recorded after publication routes to the publication that opens its generation', slowLane({ timeout: 300_000 }), async (t) => {
   const { root, flow, phaseId, workflowFile } = await story(t, 'visual-only', 'qa', 'VISUAL-1');
   const record = async (profileId, width, height) => {
     const file = await png(root, `${profileId}.png`, width, height);
@@ -192,7 +193,7 @@ test('a visual step is not published uncovered, and a capture recorded after pub
   assert.ok(status.coverage.stale.includes(firstPhone.id), 'the generation 1 capture stays recorded, counted for generation 1 only');
 });
 
-test('visual compare reads a design document and a native capture by the IDs the template and coverage name', { timeout: 300_000 }, async (t) => {
+test('visual compare reads a design document and a native capture by the IDs the template and coverage name', slowLane({ timeout: 300_000 }), async (t) => {
   const { base, root, flow, phaseId } = await story(t, 'visual-only', 'qa', 'VISUAL-2');
   const design = path.join(base, 'checkout-design.png');
   const designed = Buffer.alloc(390 * 844 * 4, 255);

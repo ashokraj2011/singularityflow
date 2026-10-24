@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import YAML from 'yaml';
 import { encodePngRgba8 } from '../src/png-rgba8.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -686,7 +687,7 @@ test('required planned claims refuse a zero-clause definition before code work c
   assert.equal(workflow.phases.requirements.specIndex, undefined);
 });
 
-test('feature profile publishes generations, records tokens, approvals, and conformance', async () => {
+test('feature profile publishes generations, records tokens, approvals, and conformance', slowLane(), async () => {
   const root = await repository(); const workId = 'FEATURE-101';
   const definitionPath = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
@@ -802,7 +803,7 @@ test('feature profile publishes generations, records tokens, approvals, and conf
   assert.match(`${missingRow.stdout}\n${missingRow.stderr}`, /conformance report has no row for FEATURE-101:REQ-001/);
 });
 
-test('figma-mobile completes the governed design-to-visual-conformance lifecycle', async () => {
+test('figma-mobile completes the governed design-to-visual-conformance lifecycle', slowLane(), async () => {
   const root = await repository(); const workId = 'MOBILE-101';
   flow(root, ['start', workId, '--from-branch', 'main', '--title', 'Build approved mobile screens'], { selection: selection('figma-mobile', 'product-designer') });
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');

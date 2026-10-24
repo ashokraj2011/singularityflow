@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { runInNewContext } from 'node:vm';
 import { initializeDefinition } from '../src/config.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const execute = promisify(execFile);
@@ -1480,7 +1481,7 @@ test('fresh-list Create cannot silently change the destination disclosed by the 
   f.controller.dispose();
 });
 
-test('actual CLI-backed clients share identity, fence autosave races and Preview captured catalog choices before copy-only Submit', async (t) => {
+test('actual CLI-backed clients share identity, fence autosave races and Preview captured catalog choices before copy-only Submit', slowLane(), async (t) => {
   const base = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-shared-drafts-')));
   t.after(() => rm(base, { recursive: true, force: true }));
   const application = path.join(base, 'opened'); const peer = path.join(base, 'peer');

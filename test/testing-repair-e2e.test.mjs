@@ -9,6 +9,7 @@ import YAML from 'yaml';
 import { loadDefinition } from '../src/config.mjs';
 import { previewTestingRepair, rejectPhase } from '../src/state.mjs';
 import { evaluateCodeDeliveryPreflight } from '../src/delivery-evidence.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
@@ -122,7 +123,7 @@ async function approvedCodeStory(t, workType) {
   };
 }
 
-for (const workType of ['classic-delivery', 'quick-fix']) test(`${workType}: dirty review returns changed test bytes to Code with fresh evidence`, async (t) => {
+for (const workType of ['classic-delivery', 'quick-fix']) test(`${workType}: dirty review returns changed test bytes to Code with fresh evidence`, slowLane(), async (t) => {
   const {
     root, codePhase, reviewPhase, authorship, summaryPath, testPath, cli, tryCli, workflow,
     approved, originalCodeGeneration, originalSource, priorTest
@@ -238,7 +239,7 @@ async function publishReview(story, phase) {
   assert.equal(run('git', ['status', '--porcelain'], root).stdout, '');
 }
 
-test('classic-delivery: a submitted review rejected back to Code accepts a test-only generation', async (t) => {
+test('classic-delivery: a submitted review rejected back to Code accepts a test-only generation', slowLane(), async (t) => {
   const story = await approvedCodeStory(t, 'classic-delivery');
   const { root, workId, codePhase, reviewPhase, authorship, summaryPath, testPath, cli, tryCli, workflow, originalSource } = story;
   await publishReview(story, reviewPhase);
@@ -295,7 +296,7 @@ test('classic-delivery: a submitted review rejected back to Code accepts a test-
   assert.equal(run('git', ['status', '--porcelain'], root).stdout, '');
 });
 
-test('classic-delivery: a review repair whose test edit is undone publishes the approved bytes again', async (t) => {
+test('classic-delivery: a review repair whose test edit is undone publishes the approved bytes again', slowLane(), async (t) => {
   const story = await approvedCodeStory(t, 'classic-delivery');
   const { root, codePhase, reviewPhase, authorship, summaryPath, testPath, cli, tryCli, workflow, originalSource, priorTest } = story;
   await writeFile(testPath, `${priorTest}// testing found an assertion fixture to correct\n`);

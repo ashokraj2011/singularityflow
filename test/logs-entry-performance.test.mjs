@@ -7,11 +7,12 @@ import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { summarizeSamples } from '../src/dx-performance.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const legacy = new URL('../src/commands/legacy.mjs', import.meta.url).href;
 
-test('isolated logs entry retains legacy results without loading the general dispatcher', { timeout: 180_000 }, async t => {
+test('isolated logs entry retains legacy results without loading the general dispatcher', slowLane({ timeout: 180_000 }), async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-logs-entry-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_NO_NETWORK: '1',
@@ -65,7 +66,7 @@ export async function load(url, context, next) { const value = await next(url, c
   }
 });
 
-test('reading the activity log never writes its own invocation into it', { timeout: 120_000 }, async t => {
+test('reading the activity log never writes its own invocation into it', slowLane({ timeout: 120_000 }), async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-logs-quiet-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   // The default levels, unlike the parity test above: logging is on.

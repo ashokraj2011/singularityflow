@@ -20,6 +20,7 @@ import { completeDeferredIndexRefresh } from '../src/deferred-index-refresh.mjs'
 import { commitIsolated, refreshStalePublishedIndex } from '../src/git.mjs';
 import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
 import { run } from '../src/util.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'singularity-flow.mjs');
 
@@ -191,7 +192,7 @@ function lockHolder(lock, { holdMs = null, everyMs = 2 } = {}) {
   return async () => { child.kill(); await new Promise((resolve) => setTimeout(resolve, 50)); await rm(lock, { force: true }); };
 }
 
-test('a Story publishes while an editor keeps taking the index lock for a moment', { timeout: 300_000 }, async (t) => {
+test('a Story publishes while an editor keeps taking the index lock for a moment', slowLane({ timeout: 300_000 }), async (t) => {
   const { root, lock, publish } = await preparedStory(t);
   const stop = lockHolder(lock, { holdMs: 150, everyMs: 400 });
   t.after(stop);
@@ -201,7 +202,7 @@ test('a Story publishes while an editor keeps taking the index lock for a moment
   assert.equal(git(root, 'status', '--porcelain'), '', 'nothing looks changed after publishing');
 });
 
-test('a Story publish succeeds even when the lock outlasts the wait; the next command leaves nothing looking changed', { timeout: 300_000 }, async (t) => {
+test('a Story publish succeeds even when the lock outlasts the wait; the next command leaves nothing looking changed', slowLane({ timeout: 300_000 }), async (t) => {
   const { root, lock, sflow, publish } = await preparedStory(t);
   const stop = lockHolder(lock);
   t.after(stop);
@@ -230,7 +231,7 @@ test('a publication that failed after committing names sync, not the publish aga
   assert.match(plan.retry.label, /Do not repeat the original command/u);
 });
 
-test('recover refreshes Story index entries left behind by an earlier sync, and nothing else', { timeout: 300_000 }, async (t) => {
+test('recover refreshes Story index entries left behind by an earlier sync, and nothing else', slowLane({ timeout: 300_000 }), async (t) => {
   const { root, sflow, publish } = await preparedStory(t);
   assert.equal(publish().status, 0);
   // What an older sync left: published and pushed, the index still describing the parent.
@@ -251,7 +252,7 @@ test('recover refreshes Story index entries left behind by an earlier sync, and 
   assert.equal(git(root, 'status', '--porcelain'), 'A  notes.txt', 'only what someone staged remains');
 });
 
-test('recover removes an index lock a crashed command left, and only waits on a fresh one', { timeout: 300_000 }, async (t) => {
+test('recover removes an index lock a crashed command left, and only waits on a fresh one', slowLane({ timeout: 300_000 }), async (t) => {
   const { root, lock, sflow } = await preparedStory(t);
   await writeFile(lock, '');
   const fresh = JSON.parse(sflow(['recover', 'LOCK-1', '--phase', 'poc-lite-plan', '--json']).stdout);
@@ -270,7 +271,7 @@ test('recover removes an index lock a crashed command left, and only waits on a 
   assert.equal(git(root, 'status', '--porcelain').includes('index.lock'), false);
 });
 
-test('a specification draft not yet published or submitted recovers from a lagging index without losing a word', { timeout: 300_000 }, async (t) => {
+test('a specification draft not yet published or submitted recovers from a lagging index without losing a word', slowLane({ timeout: 300_000 }), async (t) => {
   const base = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-index-lock-spec-')));
   t.after(() => rm(base, { recursive: true, force: true }));
   const repo = path.join(base, 'app');

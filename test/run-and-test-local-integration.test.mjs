@@ -7,6 +7,7 @@ import test from 'node:test';
 import { normalizeExternalCommand } from '../src/external-command-policy.mjs';
 import { environmentQualityCommandBlock, environmentQualityCommandGate } from '../src/state.mjs';
 import { repository, startQuickFix } from './helpers/run-and-test-fixture.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const SECRET = 'qa-token-not-for-git-8c41';
 const identity = {
@@ -166,7 +167,7 @@ async function implementStep(repo) {
   repo.sflow('prepare', 'implement');
 }
 
-test('policy off at the gate: publication refuses the bound environment-linked command and names the switch; nothing ran', { timeout: 300_000 }, async (t) => {
+test('policy off at the gate: publication refuses the bound environment-linked command and names the switch; nothing ran', slowLane({ timeout: 300_000 }), async (t) => {
   const { repo } = await integrationRepository(t, { policy: null });
   await bindQa(repo);
   // A local preview does not run it either, and says which policy would allow it.
@@ -185,7 +186,7 @@ test('policy off at the gate: publication refuses the bound environment-linked c
   await assert.rejects(readFile(repo.env.FIXTURE_FLAG), { code: 'ENOENT' }, 'the command was never executed');
 });
 
-test('policy allowed: runs get the values in the child only, redacted, labelled local-integration, and count only in qa', { timeout: 300_000 }, async (t) => {
+test('policy allowed: runs get the values in the child only, redacted, labelled local-integration, and count only in qa', slowLane({ timeout: 300_000 }), async (t) => {
   const { repo } = await integrationRepository(t, { policy: 'allowed' });
   await bindQa(repo);
   // A capability-scope preview in qa: values in the child, never in the private run record.

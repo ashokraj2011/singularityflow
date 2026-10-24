@@ -6,12 +6,13 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { performanceFixture, authoredFixtureIntake } from './helpers/performance-v2-fixture.mjs';
 import { summarizeSamples } from '../src/dx-performance.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const samples = Number(process.env.SINGULARITY_FLOW_JOURNEY_BENCHMARK ?? 0);
 
-test('phase entry and publication keep exact effects in a paired disposable journey', { timeout: 3_600_000,
-  skip: !Number.isSafeInteger(samples) || samples < 1 || samples > 100 }, async (t) => {
+test('phase entry and publication keep exact effects in a paired disposable journey', slowLane({ timeout: 3_600_000,
+  skip: !Number.isSafeInteger(samples) || samples < 1 || samples > 100 }), async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-perf-journey-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const fixture = await performanceFixture(path.join(base, 'seed'), cli);

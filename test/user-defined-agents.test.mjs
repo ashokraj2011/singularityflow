@@ -14,6 +14,7 @@ import {
 import { userDefinedAgentWorkType } from '../src/user-defined-agent-identity.mjs';
 import { refusalEnvelope } from '../src/refusal-remediation.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const sha = (text) => `sha256:${createHash('sha256').update(text).digest('hex')}`;
@@ -167,7 +168,7 @@ test('--agent names a user-defined agent\'s workflow only for that agent; any ot
   assert.equal(userDefinedAgentWorkType({ ...definition, workTypes: {} }, 'orchestrator'), null);
 });
 
-test('a real folder is proposed, activated, started with --agent and finished as one governed step', { timeout: 600_000 }, async (t) => {
+test('a real folder is proposed, activated, started with --agent and finished as one governed step', slowLane({ timeout: 600_000 }), async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-user-agent-cli-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const folder = await teamFolder(base);

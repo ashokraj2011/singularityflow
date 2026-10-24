@@ -15,6 +15,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const TEST_SETUP = 'singularity-flow capability test-setup --json';
@@ -95,7 +96,7 @@ async function quickFix(t, id, { qualityCommands = null, supporting = [], module
 const blockerCodes = (result) => JSON.stringify(result);
 const planCommands = (envelope) => (envelope.remediationPlan?.steps ?? []).map((entry) => entry.command).filter(Boolean);
 
-test('two build systems at the root: prepublish names the ambiguity and both route to test setup', { timeout: 300_000 }, async (t) => {
+test('two build systems at the root: prepublish names the ambiguity and both route to test setup', slowLane({ timeout: 300_000 }), async (t) => {
   const story = await quickFix(t, 'QF-3');
   const recovery = JSON.parse(story.sflow('recover', 'QF-3', '--phase', 'implement', '--json'));
   const plan = recovery.data?.plan ?? recovery.plan ?? recovery;
@@ -114,7 +115,7 @@ test('two build systems at the root: prepublish names the ambiguity and both rou
   assert.ok(planCommands(refused).includes(TEST_SETUP), JSON.stringify(refused.remediationPlan));
 });
 
-test('a build file no module owns is named by prepublish exactly as publication refuses it; metadata is not', { timeout: 300_000 }, async (t) => {
+test('a build file no module owns is named by prepublish exactly as publication refuses it; metadata is not', slowLane({ timeout: 300_000 }), async (t) => {
   const story = await quickFix(t, 'QF-4', { module: 'app', supporting: ['.gitignore', 'tools/build.properties'] });
   const ready = story.prepublish();
   const text = JSON.stringify(ready);
@@ -133,7 +134,7 @@ test('a build file no module owns is named by prepublish exactly as publication 
   assert.ok(planCommands(refused).includes(TEST_SETUP), JSON.stringify(refused.remediationPlan));
 });
 
-test('an approved test command decides the ambiguity; covered source and repository metadata publish, submit and close', { timeout: 300_000 }, async (t) => {
+test('an approved test command decides the ambiguity; covered source and repository metadata publish, submit and close', slowLane({ timeout: 300_000 }), async (t) => {
   const story = await quickFix(t, 'QF-5', { qualityCommands: [APPROVED_TESTS], supporting: ['.gitignore'] });
   const ready = story.prepublish();
   assert.doesNotMatch(JSON.stringify(ready), /TEST_MODULE_(?:AMBIGUOUS|UNCOVERED)/u);

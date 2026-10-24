@@ -13,6 +13,7 @@ import { planningEvidenceRepair } from '../src/planning-evidence-repair.mjs';
 import {
   deriveObservedClaimMap, evaluateSpecCoverage, mergeObservedClaimRecords, normalizeClaimMap
 } from '../src/specifications.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
@@ -80,7 +81,7 @@ test('each fulfillment type is observed by its own evidence, and none needs new 
   assert.deepEqual(coverage.invalidEvidence ?? [], [], 'test-only and removal evidence are valid');
 });
 
-test('a real Story delivers source, configuration, test-only, removal, document and reviewed screenshot evidence in one code step', async (t) => {
+test('a real Story delivers source, configuration, test-only, removal, document and reviewed screenshot evidence in one code step', slowLane(), async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-fulfillment-'));
   const remote = `${root}.git`;
   t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(remote, { recursive: true, force: true })]));

@@ -18,6 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -73,7 +74,7 @@ function measure(repositoryRoot, refs) {
   return { subprocesses: Number(summary[1]), subjects: Number(run.stdout) };
 }
 
-test('adding Stories does not add subprocesses', { timeout: 120_000 }, async () => {
+test('adding Stories does not add subprocesses', slowLane({ timeout: 120_000 }), async () => {
   const refs = ['main', 'work-1', 'work-2'];
 
   const few = measure(await repository(2), refs);
@@ -88,7 +89,7 @@ test('adding Stories does not add subprocesses', { timeout: 120_000 }, async () 
     + ' The read is per-Story again.');
 });
 
-test('adding refs adds no subprocesses: every ref is read in the same batches', { timeout: 120_000 }, async () => {
+test('adding refs adds no subprocesses: every ref is read in the same batches', slowLane({ timeout: 120_000 }), async () => {
   /**
    * Refs were the factor that legitimately cost something: about seven processes each, so a
    * repository with sixty-eight remote branches spent 630 processes on one `session candidates`.

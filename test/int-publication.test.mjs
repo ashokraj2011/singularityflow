@@ -15,6 +15,7 @@ import { createHostGateway } from '../src/gateway/host.mjs';
 import { cliStartRoute, gatewayMutationExecutors } from '../src/gateway/planners/executors.mjs';
 import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const ACTOR = { login: 'tester', email: 'tester@example.com', name: 'Tester' };
@@ -62,7 +63,7 @@ async function startThroughGateway(kernel, fields) {
   return { review, result: await run(), run };
 }
 
-test('gateway-preserves-publication-recovery', { timeout: 300_000 }, async (t) => {
+test('gateway-preserves-publication-recovery', slowLane({ timeout: 300_000 }), async (t) => {
   const { root, remote } = await governedRepository(t);
   const { kernel } = createHostGateway({
     root, hostSessionId: 'sess-publication', planners: gatewayPlanners(), plannerContext: { actor: ACTOR },

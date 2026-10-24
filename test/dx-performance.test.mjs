@@ -11,6 +11,7 @@ import {
   measureCommandSpan, withCommandTiming
 } from '../src/dx-command-timing.mjs';
 import { withRepositoryResetBarrier } from '../src/subject-lock.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(await readFile(path.join(root, 'benchmarks/dx/reference-fixture.json'), 'utf8'));
@@ -131,7 +132,7 @@ test('every command the benchmark runs carries a budget, including the ones nobo
   }
 });
 
-test('the growth tier measures what follows the repository', { timeout: 600_000 }, () => {
+test('the growth tier measures what follows the repository', slowLane({ timeout: 600_000 }), () => {
   /**
    * A benchmark of one repository size cannot make a complexity claim.
    *
@@ -195,9 +196,9 @@ test('the growth tier measures what follows the repository', { timeout: 600_000 
   }
 });
 
-test('tail fixtures independently cover ignored output, submodules, and linked worktrees', {
+test('tail fixtures independently cover ignored output, submodules, and linked worktrees', slowLane({
   timeout: 300_000
-}, () => {
+}), () => {
   const run = spawnSync(process.execPath, [
     'scripts/dx-benchmark.mjs', '--samples=1', '--json', '--skip-scale', '--skip-connected'
   ], {
@@ -561,7 +562,7 @@ test('an accepted baseline cannot be written from the wrong runtime', () => {
   assert.match(run.stderr, /--write-baseline is restricted/);
 });
 
-test('the report counts every topology dimension the fixture declares', { timeout: 300_000 }, () => {
+test('the report counts every topology dimension the fixture declares', slowLane({ timeout: 300_000 }), () => {
   /**
    * The gate this unblocks had never run once.
    *

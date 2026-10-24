@@ -149,7 +149,7 @@ test('an amendment keeps the approval of a step it cites nothing of, refreshes o
   assert.equal(refreshed.currentPhase, 'fix-design');
 });
 
-test('a clause an amendment removes is named wherever a tag still claims it', { timeout: 300_000 }, async (t) => {
+test('a clause an amendment removes is named wherever a tag still claims it', slowLane({ timeout: 300_000 }), async (t) => {
   const f = await fixture(t);
   await f.designed('QN-3');
   await f.amend('QN-3', (text) => text.split('\n').filter((line) => !line.includes('QN-3:AC-002')).join('\n')

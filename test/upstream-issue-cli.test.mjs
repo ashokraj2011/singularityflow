@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
@@ -172,7 +173,7 @@ test('--from-artifact files an item whole against the step it names, holds an un
   assert.match(late.stdout + late.stderr, /UPI-001 is already decided \(dismiss\)/u);
 });
 
-test('a Story completes only once its open upstream issue is decided', async (t) => {
+test('a Story completes only once its open upstream issue is decided', slowLane(), async (t) => {
   const W = 'ISSUE-3';
   const AC = `${W}:AC-001`;
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-upstream-complete-'));

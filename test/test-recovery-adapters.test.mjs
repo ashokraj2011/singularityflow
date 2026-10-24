@@ -11,6 +11,7 @@ import { parseTestResult, parseTrpJunitReport } from '../src/code-delivery-tests
 import { runQualityCommand, verifyCompletedQualityLaunch } from '../src/quality-command-runner.mjs';
 import { captureTrpIntakeBaseline, inspectTrpIntakeBaseline } from '../src/test-recovery-runtime.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const digest = bytes => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const configuration = prefix => process.env[`${prefix}_EXECUTABLE`] && process.env[`${prefix}_ROOTS`]
@@ -115,10 +116,10 @@ test('baseline capture cannot bypass private-environment or disabled-model execu
 });
 
 for (const [adapter, runtime] of [['pytest-junit-v1', python], ['maven-surefire-junit-v1', maven]]) {
-  test(`${adapter}: real installed native runner authenticates exact failing inventory and report bytes`, {
+  test(`${adapter}: real installed native runner authenticates exact failing inventory and report bytes`, slowLane({
     skip: !runtime ? 'Set explicit isolated runtime executable/roots to qualify this installed adapter; synthetic reports do not qualify it.' : false,
     timeout: 180000
-  }, async t => {
+  }), async t => {
     const value = await fixture(t, adapter, runtime);
     const { root, command, declaration, workflow, phase } = value;
     if (adapter === 'maven-surefire-junit-v1') {
@@ -153,9 +154,9 @@ for (const [adapter, runtime] of [['pytest-junit-v1', python], ['maven-surefire-
       await assert.rejects(() => readTrpCaseInventory(root, workflow, phase, command), /standard target outputs/u);
     }
   });
-  test(`${adapter}: real baseline binds native runtime and permits only approved product-source compatibility`, {
+  test(`${adapter}: real baseline binds native runtime and permits only approved product-source compatibility`, slowLane({
     skip: !runtime ? 'Explicit installed runtime qualification is required.' : false, timeout: 180000
-  }, async t => {
+  }), async t => {
     const { root, declaration, command } = await fixture(t, adapter, runtime);
     const productRoot = adapter === 'pytest-junit-v1' ? 'app' : 'src/main/java';
     const productFile = `${productRoot}/${adapter === 'pytest-junit-v1' ? 'service.py' : 'Service.java'}`;

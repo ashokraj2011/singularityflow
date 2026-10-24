@@ -10,6 +10,7 @@ import YAML from 'yaml';
 import { initializeDefinition, loadDefinition, resolveWorkType, validateDefinition } from '../src/config.mjs';
 import { phaseRequiresCodeDelivery, resolveDeliveryQualityCommands } from '../src/delivery-evidence.mjs';
 import { installWorkflow } from '../src/workflow-catalog.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin', 'singularity-flow.mjs');
@@ -105,7 +106,7 @@ test('fresh init and catalog install ship phase-specific POC Lite agents and tem
   ]);
 });
 
-test('POC Lite completes its one human boundary with --no-model and a local bare remote', async (t) => {
+test('POC Lite completes its one human boundary with --no-model and a local bare remote', slowLane(), async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-poc-lite-start-'));
   const remote = `${root}.git`;
   t.after(() => Promise.all([

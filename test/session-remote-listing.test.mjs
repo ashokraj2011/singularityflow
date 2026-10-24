@@ -8,6 +8,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { bootstrapRepository } from '../src/bootstrap.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 /**
  * When the local clone's own Git files cannot be read (macOS had evicted them to iCloud
@@ -52,7 +53,7 @@ function evict(gitDirectory) {
 }
 
 test('a clone whose Git files cannot be read still lists its Stories from the remote, and says what is blocked',
-  { skip: !posix, timeout: 300_000 }, async (t) => {
+  slowLane({ skip: !posix, timeout: 300_000 }), async (t) => {
     const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-remote-listing-'));
     t.after(() => rm(base, { recursive: true, force: true }));
     const remote = path.join(base, 'remote.git');

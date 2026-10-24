@@ -10,6 +10,7 @@ import { CASE_MESSAGE_LIMIT, testCaseMessages } from '../src/test-case-messages.
 import { buildTestSummary } from '../src/test-summary.mjs';
 
 import { repository } from './helpers/run-and-test-fixture.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const xml = (body) => `<?xml version="1.0" encoding="UTF-8"?>\n<testsuites>${body}</testsuites>`;
 
@@ -107,7 +108,7 @@ writeFileSync('.sflow/results/jest.json', JSON.stringify({ numTotalTests: 1, num
 process.exit(1);
 `;
 
-test('tests run and tests summary carry each failed case\'s message, redacted with the values a bound environment gave', { timeout: 300_000 }, async (t) => {
+test('tests run and tests summary carry each failed case\'s message, redacted with the values a bound environment gave', slowLane({ timeout: 300_000 }), async (t) => {
   const commands = [
     { id: 'login-tests', kind: 'test', argv: ['node', 'tools/secret-junit.mjs'], workingDirectory: '.', affectedRoots: ['tests'], modelPolicy: 'never',
       result: { adapter: 'junit-xml', path: '.sflow/results/secret.xml' } },

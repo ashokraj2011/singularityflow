@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { warmReadRequest, readWorkerBuildFingerprint } from '../src/read-worker-protocol.mjs';
 import { createWarmReadFixture } from '../scripts/warm-read-fixture.mjs';
 import { SingularityFlowClient } from '../apps/vscode/src/cli/client.ts';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 // Reports legitimately contain read-time clocks. Compare every semantic field; only exclude
 // their two generatedAt fields, rendered clock line, and the hashes derived from those clocks.
@@ -43,7 +44,7 @@ test('unstamped editable sources use CLI fallback', async () => {
   assert.equal(await readWorkerBuildFingerprint(path.resolve('bin/singularity-flow.mjs')), null);
 });
 
-test('private worker matches cold canonical reads and freshly observes repository/configuration changes', { timeout: 120_000 }, async t => {
+test('private worker matches cold canonical reads and freshly observes repository/configuration changes', slowLane({ timeout: 120_000 }), async t => {
   const f = await createWarmReadFixture();
   const adapter = await import(pathToFileURL(path.join(f.engine, 'src/read-worker-client.mjs')).href);
   t.after(async () => { adapter.disposeReadWorkers(); await f.cleanup(); });

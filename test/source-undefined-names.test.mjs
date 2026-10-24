@@ -17,6 +17,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Node globals the DOM library does not declare. Node's own `process` and `Buffer` are reported
@@ -28,7 +29,7 @@ function typescriptCompiler() {
   catch { return null; }
 }
 
-test('every name the CLI source, its entry point and the plugin scripts use is defined', { timeout: 180_000 }, async (t) => {
+test('every name the CLI source, its entry point and the plugin scripts use is defined', slowLane({ timeout: 180_000 }), async (t) => {
   const tsc = typescriptCompiler();
   if (!tsc) return t.skip('typescript is not installed');
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-undefined-names-'));

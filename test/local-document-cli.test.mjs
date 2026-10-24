@@ -7,11 +7,12 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(source, 'bin/singularity-flow.mjs');
 
-test('real CLI delivers private source context, asks on takeover, and resumes after exact re-upload without changing Story state', { timeout: 300_000 }, async t => {
+test('real CLI delivers private source context, asks on takeover, and resumes after exact re-upload without changing Story state', slowLane({ timeout: 300_000 }), async t => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-document-cli-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'repo');

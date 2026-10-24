@@ -13,6 +13,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
@@ -106,7 +107,7 @@ async function storyWithTaggedChange(t) {
   return { root, cli };
 }
 
-test('a real Story\'s change explains its clause links on every surface, without its own records', { timeout: 300_000 }, async (t) => {
+test('a real Story\'s change explains its clause links on every surface, without its own records', slowLane({ timeout: 300_000 }), async (t) => {
   const { cli } = await storyWithTaggedChange(t);
 
   const change = JSON.parse(cli('explain', '--subject', 'change', '--json')).data.explanation;

@@ -11,6 +11,7 @@ import { configurePerformanceActions, withPerformanceAction, performanceActionId
 import { createMessageRouter } from '../apps/vscode/src/views/messages.ts';
 import { createWarmReadFixture } from '../scripts/warm-read-fixture.mjs';
 import { readPerformanceReport } from '../src/performance-trace-store.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 function fakeChild() {
   const child = new EventEmitter();
@@ -74,7 +75,7 @@ test('lazy module copies and webview message routes share one opt-in host action
   assert.equal(disabled.route({ type: 'run' }), null);
 });
 
-test('different trace IDs reuse the same private worker; diagnostics preserve fresh read semantics', { timeout: 120_000 }, async t => {
+test('different trace IDs reuse the same private worker; diagnostics preserve fresh read semantics', slowLane({ timeout: 120_000 }), async t => {
   const f = await createWarmReadFixture();
   const adapter = await import(pathToFileURL(path.join(f.engine, 'src/read-worker-client.mjs')).href);
   t.after(async () => { adapter.disposeReadWorkers(); await f.cleanup(); });

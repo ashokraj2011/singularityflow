@@ -12,6 +12,7 @@ import { publicationArguments } from '../src/commands/phase-publish-if-ready.mjs
 import { submitArguments } from '../src/commands/submit-if-ready.mjs';
 import { completeAgentResult, withAgentRoutes } from '../src/agent-output.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -45,7 +46,7 @@ test('only the exact publication command prepublish returns for the same phase i
   assert.equal(operation({ 'for-agent': true, json: true, 'publish-if-ready': true }).classification, 'mutation');
 });
 
-test('prepublish --publish-if-ready returns the unchanged check, and publishes with its review only when ready', { timeout: 300_000 }, async (t) => {
+test('prepublish --publish-if-ready returns the unchanged check, and publishes with its review only when ready', slowLane({ timeout: 300_000 }), async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-publish-if-ready-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'repo');

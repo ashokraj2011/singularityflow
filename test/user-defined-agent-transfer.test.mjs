@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { readWorkflowBundle } from '../src/workflow-transfer.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const sha256 = (value) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
@@ -42,7 +43,7 @@ async function teamFolder(base, note = 'Use small functions.') {
   return folder;
 }
 
-test('a user-defined agent\'s folder travels with its workflow, and an import that would lose it is refused', { timeout: 600_000 }, async (t) => {
+test('a user-defined agent\'s folder travels with its workflow, and an import that would lose it is refused', slowLane({ timeout: 600_000 }), async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-user-agent-transfer-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const folder = await teamFolder(base);

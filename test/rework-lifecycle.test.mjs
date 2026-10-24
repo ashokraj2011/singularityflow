@@ -9,6 +9,7 @@ import YAML from 'yaml';
 import { phaseNeedsGeneration } from '../src/sequence.mjs';
 import { verifiedAbandonedGenerations } from '../src/governance.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const bin = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const verify = 'poc-lite-verify';
@@ -83,7 +84,7 @@ async function fixture(t, id, { code = false, minimum = 1 } = {}) {
   return { root, git, flow, state, publish, rollForward, producer, changeSource };
 }
 
-test('published abandoned rework restores an approvable review without reusing generation identities', async (t) => {
+test('published abandoned rework restores an approvable review without reusing generation identities', slowLane(), async (t) => {
   const { root, git, flow, state, publish, rollForward } = await fixture(t, 'REWORK-ORDINAL');
   const before = await state();
   const originalPacket = before.lineage.submissions.at(-1);
@@ -170,7 +171,7 @@ test('roll-forward preserves dirty checkpoint bytes without authenticating them 
   assert.match(approval.stderr, /source or tests changed|STORY_REVIEW_SOURCE_CHANGED/);
 });
 
-test('Code rework after abandonment retains tested source and passes terminal audit at generation three', async (t) => {
+test('Code rework after abandonment retains tested source and passes terminal audit at generation three', slowLane(), async (t) => {
   const { root, flow, state, publish, rollForward, producer, changeSource } = await fixture(t, 'REWORK-CODE', { code: true });
   flow(['reject', final, '--to', producer, '--reason', 'Consider an alternative tested implementation.']);
   flow(['prepare', producer]);
@@ -194,7 +195,7 @@ test('Code rework after abandonment retains tested source and passes terminal au
   flow(['gate', '--terminal']);
 });
 
-test('restored review invalidates partial approvals and requires the full fresh threshold', async (t) => {
+test('restored review invalidates partial approvals and requires the full fresh threshold', slowLane(), async (t) => {
   const { flow, state, publish, rollForward } = await fixture(t, 'REWORK-THRESHOLD', { minimum: 2 });
   flow(['approve', final, '--yes']);
   let workflow = await state();
@@ -211,7 +212,7 @@ test('restored review invalidates partial approvals and requires the full fresh 
   assert.equal((await state()).status, 'closed');
 });
 
-test('governed repairs and later Code publications are not stale evidence; out-of-band edits are', async (t) => {
+test('governed repairs and later Code publications are not stale evidence; out-of-band edits are', slowLane(), async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-rework-governed-chain-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const root = path.join(directory, 'repo');

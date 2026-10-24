@@ -12,6 +12,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
@@ -114,7 +115,7 @@ async function approvedImplementation(t) {
   return { root, cli };
 }
 
-test('a real approved implementation reaches every surface as exact bound lines, recorded runs and witnesses', { timeout: 300_000 }, async (t) => {
+test('a real approved implementation reaches every surface as exact bound lines, recorded runs and witnesses', slowLane({ timeout: 300_000 }), async (t) => {
   const { root, cli } = await approvedImplementation(t);
   const explain = (...args) => JSON.parse(cli('explain', ...args, '--json')).data.explanation;
 

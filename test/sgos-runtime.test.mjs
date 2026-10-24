@@ -95,6 +95,7 @@ import {
   writeSgosExecutionLease
 } from '../src/sgos/store.mjs';
 import { publishSgosProgramAuthority } from './helpers/sgos-authority.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const HASH = Object.freeze({
   intent: `sha256:${'1'.repeat(64)}`,
@@ -1997,7 +1998,7 @@ test('dynamic fork imports completed children at a later checkpoint', async () =
   )).status, 'ok');
 });
 
-test('interrupted dynamic fork transitions recover without duplicate imports', async () => {
+test('interrupted dynamic fork transitions recover without duplicate imports', slowLane(), async () => {
   for (const occurrence of [2, 3, 4]) {
     const fixture = await repository(`SGOS-STORY-DYNAMIC-FORK-CRASH-${occurrence}`);
     const compiled = dynamicFanoutProgram().program;

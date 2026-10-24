@@ -10,10 +10,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const bin = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'singularity-flow.mjs');
 
-test('a Story on a repository with an older specification template still gets the Scenario coverage table', { timeout: 300_000 }, async (t) => {
+test('a Story on a repository with an older specification template still gets the Scenario coverage table', slowLane({ timeout: 300_000 }), async (t) => {
   const base = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-spec-scaffold-')));
   t.after(() => rm(base, { recursive: true, force: true }));
   const repo = path.join(base, 'app');

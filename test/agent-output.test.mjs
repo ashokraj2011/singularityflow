@@ -17,6 +17,7 @@ import YAML from 'yaml';
 import { agentAct, agentOutputGoverned, boundedAgentOutput, boundedAgentText, completeAgentResult, DEFAULT_AGENT_OUTPUT_BYTES, LOOP_THRESHOLD, observeAgentLoop, OMITTED_FIELDS_SHOWN, READ_CHUNK_BYTES, READ_PLAN_CHUNKS, returnsAgentPaths, withAgentRoutes } from '../src/agent-output.mjs';
 import { CLI_PATH_REFERENCE } from '../src/safe-command-guidance.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const digest = `sha256:${'e'.repeat(64)}`;
@@ -333,7 +334,7 @@ test('a long text held by a longer one the agent reads is a reference; a lone co
   assert.deepEqual(completeAgentResult(view).contract, result.contract);
 });
 
-test('the CLI bounds a real phase entry, and the bytes it leaves out are in the file it names', { timeout: 300_000 }, async (t) => {
+test('the CLI bounds a real phase entry, and the bytes it leaves out are in the file it names', slowLane({ timeout: 300_000 }), async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-output-cli-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'repo');
@@ -553,7 +554,7 @@ test('routes an agent view returns carry --for-agent unless a strict agent entry
   assert.equal(routed.prose, 'Run singularity-flow status --json when ready.', 'prose is never rewritten');
 });
 
-test('every route form given --for-agent is accepted, fits the host, and a paused SFlow answers first', { timeout: 300_000 }, async (t) => {
+test('every route form given --for-agent is accepted, fits the host, and a paused SFlow answers first', slowLane({ timeout: 300_000 }), async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-routes-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'repo');

@@ -11,6 +11,7 @@ import { loadAcceptedStoryExecution } from '../src/accepted-story-execution.mjs'
 import { resolveStoryExecutionContext } from '../src/story-execution-context.mjs';
 import { run } from '../src/util.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -118,9 +119,9 @@ async function writePhaseArtifact(root, accepted, phaseId, detail) {
     + 'and must run the agent and instructions pinned at start, not the files currently in its working tree.\n');
 }
 
-test('FIX:AC-605 complete public review-remediation path survives a second checkout', {
+test('FIX:AC-605 complete public review-remediation path survives a second checkout', slowLane({
   timeout: 360_000
-}, async (t) => {
+}), async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-remediation-poc-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const authority = await createAuthorityRemote(base);

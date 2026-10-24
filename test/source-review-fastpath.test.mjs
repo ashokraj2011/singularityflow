@@ -9,6 +9,7 @@ import { completeAgentResult } from '../src/agent-output.mjs';
 import { scopedUtilityRead } from '../src/utility-entry.mjs';
 import { publishedSpecificationStory, reviewReport } from './helpers/source-review-fixture.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const engine = fileURLToPath(new URL('..', import.meta.url));
 
@@ -50,7 +51,7 @@ test('only exact read forms share a review command scope; writers and override f
   }
 });
 
-test('native review context/check/status avoid full catalog accounting and retention still rebinds fresh', { timeout: 120_000 }, async t => {
+test('native review context/check/status avoid full catalog accounting and retention still rebinds fresh', slowLane({ timeout: 120_000 }), async t => {
   const { root, phaseId } = await publishedSpecificationStory(t, { humanAnswers: true });
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-read-scope-'));
   t.after(() => rm(directory, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 }));

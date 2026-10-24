@@ -20,6 +20,7 @@ import {
 } from '../src/gateway/planners/problem-investigate.mjs';
 import { message } from '../src/gateway/messages.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 function git(cwd, ...args) {
@@ -54,7 +55,7 @@ async function regression(t) {
   return { root, commits };
 }
 
-test('bisect-proves-boundary-safely', { timeout: 300_000 }, async (t) => {
+test('bisect-proves-boundary-safely', slowLane({ timeout: 300_000 }), async (t) => {
   const { root, commits } = await regression(t);
   // The developer's own work in progress, which bisection must never touch.
   await writeFile(path.join(root, 'notes.txt'), 'local edits in progress\n');
@@ -157,7 +158,7 @@ test('a stopped investigation keeps what was observed and names what did not run
   assert.ok(Object.values(result.effects).every((value) => value === false));
 });
 
-test('a bisection refuses a range it would only partly walk', { timeout: 300_000 }, async (t) => {
+test('a bisection refuses a range it would only partly walk', slowLane({ timeout: 300_000 }), async (t) => {
   const { root, commits } = await regression(t);
   const { kernel } = createHostGateway({
     root, hostSessionId: 'sess-bisect-range', planners: gatewayPlanners(), mutationExecutors: cliMutationExecutors(), readOnly: false

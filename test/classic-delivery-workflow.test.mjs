@@ -12,6 +12,7 @@ import { phaseRequiresCodeDelivery } from '../src/code-delivery-policy.mjs';
 import { installWorkflow, simulateWorkflow, workflowCatalog } from '../src/workflow-catalog.mjs';
 import { summarizeNativeCopilotTrace } from '../src/native-copilot-efficiency.mjs';
 import { completeAgentResult } from '../src/agent-output.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
@@ -98,7 +99,7 @@ test('Classic delivery is installed with its templates, agents, and UI phase lab
   assert.deepEqual(resolveWorkType(await loadDefinition(root), 'classic-delivery').phases.map((phase) => phase.id), PHASES);
 });
 
-test('Classic delivery commits passing test results before Testing and Code checking', async (t) => {
+test('Classic delivery commits passing test results before Testing and Code checking', slowLane(), async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-classic-story-'));
   const remote = `${root}.git`;
   t.after(async () => {

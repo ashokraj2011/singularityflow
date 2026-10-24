@@ -14,6 +14,7 @@ import { verifyPhaseApprovalWaiver } from '../src/approval-waiver.mjs';
 import { assertReviewCodeEvidenceFresh } from '../src/delivery-evidence.mjs';
 import { readStoryReviewPacket } from '../src/story-lineage.mjs';
 import { run } from '../src/util.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 test('first-run completion has replayable authority and verification cannot replace tested bytes', async (t) => {
   const result = await runFirstRunGuide({ keep: true });
@@ -265,7 +266,7 @@ async function quickFixStory(t, id, { configure = () => {} } = {}) {
 const gateResult = (result) => JSON.parse(result.stdout);
 const holdsDisposition = (phase) => Object.hasOwn(phase, 'approvalDisposition') || Object.hasOwn(phase, 'approvalWaiver');
 
-test('a waiver from an earlier round never outlives rework, and a stale one never fails a phase people approved', async (t) => {
+test('a waiver from an earlier round never outlives rework, and a stale one never fails a phase people approved', slowLane(), async (t) => {
   const { root, file, git, flow, state, publish, source, complete } = await quickFixStory(t, 'QF-STALE');
   await complete(2);
   let workflow = await state();

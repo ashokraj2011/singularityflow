@@ -41,6 +41,7 @@ import { publishOrganisationCapabilityMap, readOrganisation } from '../src/organ
 import { GitRemoteSession } from '../src/git-execution.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -1342,7 +1343,7 @@ test('workspace capability drop refuses retained submodule metadata and local Gi
   assert.equal(await readFile(lfsObject, 'utf8'), 'local LFS payload\n');
 });
 
-test('workspace capability drop isolates Git evidence and retains non-ref local data', async (t) => {
+test('workspace capability drop isolates Git evidence and retains non-ref local data', slowLane(), async (t) => {
   await t.test('an ambient GIT_INDEX_FILE cannot hide index-only staged data', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-ambient-index-'));
     const fixture = await attachedCapabilityWorkspace(root, 'ambient-index');

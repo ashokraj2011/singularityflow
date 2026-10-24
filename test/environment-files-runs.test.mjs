@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { CLI, git, repository as envRepository, writeFiles } from './helpers/environment-files-fixture.mjs';
 import { repository as testsRepository } from './helpers/run-and-test-fixture.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const WEB_SECRET = 'web-token-secret-7731';
 const API_SECRET = 'api-db-pass-9142';
@@ -71,7 +72,7 @@ async function monorepo(t) {
   } });
 }
 
-test('app start places only its app\'s files, refuses a missing one before anything runs, and redacts file values', { timeout: 180_000 }, async (t) => {
+test('app start places only its app\'s files, refuses a missing one before anything runs, and redacts file values', slowLane({ timeout: 180_000 }), async (t) => {
   const repo = await monorepo(t);
   const refused = repo.sflow(['app', 'start', 'web', '--capability', 'web']);
   assert.equal(refused.status, 1);
@@ -116,7 +117,7 @@ test('reads the placed environment file', () => {
 });
 `;
 
-test('tests run refuses a missing environment file before any command runs, then places it and redacts its values', { timeout: 300_000 }, async (t) => {
+test('tests run refuses a missing environment file before any command runs, then places it and redacts its values', slowLane({ timeout: 300_000 }), async (t) => {
   const command = { id: 'integration-tests', kind: 'test', argv: ['node', '--test', 'integration/qa.check.mjs'], workingDirectory: '.',
     affectedRoots: ['integration'], modelPolicy: 'never', result: { adapter: 'node-tap', path: '.sflow/results/integration.tap' } };
   const repo = await testsRepository(t, { implementQualityCommands: [command], files: { 'integration/qa.check.mjs': CHECK } });
@@ -147,7 +148,7 @@ test('tests run refuses a missing environment file before any command runs, then
   assert.equal(git(repo.root, ['status', '--porcelain', '--', '.env.qa']).stdout, '');
 });
 
-test('a repository without exact localFiles and without a registry loads no environment-file module', { timeout: 120_000 }, async (t) => {
+test('a repository without exact localFiles and without a registry loads no environment-file module', slowLane({ timeout: 120_000 }), async (t) => {
   const repo = await envRepository(t, { declaration: 'schemaVersion: 1\nenvironments:\n  qa:\n    requires:\n      - { name: API_BASE_URL, kind: endpoint, value: "https://qa.example.test" }\n    localFiles: ["config/*.local.yml"]\n' });
   const hooks = path.join(repo.base, 'hooks');
   await writeFiles(hooks, {
@@ -189,7 +190,7 @@ test('reaches the configured service', () => {
 });
 `;
 
-test('a Story step\'s local run and its publish gate place the file, block without it, and redact it in kept reports', { timeout: 400_000 }, async (t) => {
+test('a Story step\'s local run and its publish gate place the file, block without it, and redact it in kept reports', slowLane({ timeout: 400_000 }), async (t) => {
   const { startQuickFix } = await import('./helpers/run-and-test-fixture.mjs');
   const command = { id: 'integration-tests', kind: 'test', argv: ['node', '--test', 'integration/qa.check.mjs'], workingDirectory: '.',
     affectedRoots: ['integration'], modelPolicy: 'never', result: { adapter: 'node-tap', path: '.sflow/results/integration.tap' } };

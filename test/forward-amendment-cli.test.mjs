@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
@@ -77,7 +78,7 @@ async function documentStory(t) {
   return { root, cli, attempt, state, artifact };
 }
 
-test('an approved earlier document is amended in place; a later step keeps its approval once revalidated', async (t) => {
+test('an approved earlier document is amended in place; a later step keeps its approval once revalidated', slowLane(), async (t) => {
   const { root, cli, attempt, state, artifact } = await documentStory(t);
   // Asking whether a step needs source review is answered for every step, never refused.
   const review = JSON.parse(cli('review-source', 'status', 'design', '--json').stdout);

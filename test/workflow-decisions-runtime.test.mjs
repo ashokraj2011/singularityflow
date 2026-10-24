@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -108,7 +109,7 @@ async function work(root, workId, phaseId, submitArgs = []) {
   return flow(root, ['submit', ...submitArgs], { agent, allowFailure: submitArgs.allowFailure });
 }
 
-test('a branch skips a phase, a loop goes back and stops at its limit, and a person chooses', async () => {
+test('a branch skips a phase, a loop goes back and stops at its limit, and a person chooses', slowLane(), async () => {
   const root = await repository();
   const workId = 'DEC-1';
   start(root, workId);
@@ -235,7 +236,7 @@ test('a person can finish a Story early, and the finished Story reopens from the
   assert.equal(workflow.phases.design.skippedBy, undefined);
 });
 
-test('a condition-enforced workflow cannot override a failed verdict through the CLI at its loop limit', async () => {
+test('a condition-enforced workflow cannot override a failed verdict through the CLI at its loop limit', slowLane(), async () => {
   const root = await repository({ enforceConditions: true });
   const workId = 'DEC-STRICT';
   start(root, workId);

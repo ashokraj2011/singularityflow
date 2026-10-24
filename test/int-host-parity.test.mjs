@@ -21,6 +21,7 @@ import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
 import { readGatewayEvents } from '../src/gateway/audit.mjs';
 import { serveMcp } from '../src/gateway/mcp-stdio.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const runtime = fileURLToPath(new URL('../apps/vscode/dist/gateway-runtime.cjs', import.meta.url));
@@ -122,7 +123,7 @@ async function through(kernel, request) {
   return { resolved, read: readable ? await kernel.read({ resolutionId: resolved.next[0].handle }) : null };
 }
 
-test('hosts-share-semantics', { timeout: 300_000 }, async (t) => {
+test('hosts-share-semantics', slowLane({ timeout: 300_000 }), async (t) => {
   const root = await fixture(t);
   if (!existsSync(runtime)) return t.skip('build apps/vscode/dist first (node apps/vscode/esbuild.mjs)');
   const editor = createRequire(import.meta.url)(runtime).gatewaySession({
@@ -154,7 +155,7 @@ test('hosts-share-semantics', { timeout: 300_000 }, async (t) => {
   assert.equal((await mcp.tool('sflow_run', { planId: approval.next[0].handle })).kind, 'refusal');
 });
 
-test('a plan over MCP is confirmed in the client UI, and refused where there is none', { timeout: 300_000 }, async (t) => {
+test('a plan over MCP is confirmed in the client UI, and refused where there is none', slowLane({ timeout: 300_000 }), async (t) => {
   const root = await fixture(t);
   // A client with elicitation: the person types the subject; the model never sees the receipt.
   const confirming = mcpClient(root, { elicit: (params) => ({ action: 'accept', content: { confirm: params.requestedSchema.properties.confirm.type === 'boolean' ? true : 'WRK-1' } }) });
@@ -185,7 +186,7 @@ test('a plan over MCP is confirmed in the client UI, and refused where there is 
   assert.equal((await declining.tool('sflow_run', { planId: offered.data.plan.handle })).why[0].code, 'gateway.confirmation-declined');
 });
 
-test('audit-is-useful-without-private-reasoning', { timeout: 300_000 }, async (t) => {
+test('audit-is-useful-without-private-reasoning', slowLane({ timeout: 300_000 }), async (t) => {
   // `[INT:AC-021]` `[INT:IFC-070]` `[INT:CON-140]` `[INT:REQ-140]`.
   const root = await fixture(t);
   const secret = 'customer-ssn-123-45-6789 private-marker';

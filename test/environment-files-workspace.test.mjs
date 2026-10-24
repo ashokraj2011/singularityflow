@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import { placeEnvironmentFilesForRun } from '../src/environment-files.mjs';
 import { cliRunner, git, machineEnvironment, withMachineState, writeFiles } from './helpers/environment-files-fixture.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const APP = `schemaVersion: 1
 environments:
@@ -57,7 +58,7 @@ async function workspace(t) {
   return { base, env, directory, appCheckout, apiCheckout, ...cliRunner(env, appCheckout) };
 }
 
-test('a two-repository workspace: one store per repository, one view across them, a folder per environment and workspace-level files', { timeout: 240_000 }, async (t) => {
+test('a two-repository workspace: one store per repository, one view across them, a folder per environment and workspace-level files', slowLane({ timeout: 240_000 }), async (t) => {
   const ws = await workspace(t);
   const view = ws.json(['env', 'files', '--workspace']);
   assert.equal(view.status, 0, view.stderr);

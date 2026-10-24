@@ -12,10 +12,11 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
-test('a lowercase Work ID prepares clause anchors in capitals and keeps its own spelling elsewhere', { timeout: 180_000 }, async (t) => {
+test('a lowercase Work ID prepares clause anchors in capitals and keeps its own spelling elsewhere', slowLane({ timeout: 180_000 }), async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-clause-case-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'repo');

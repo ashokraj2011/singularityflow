@@ -15,10 +15,11 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
-test('a verify approver reuses the run implement recorded, and it always reads as implement\'s run', { timeout: 300_000 }, async (t) => {
+test('a verify approver reuses the run implement recorded, and it always reads as implement\'s run', slowLane({ timeout: 300_000 }), async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-evidence-reuse-flow-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'repo');

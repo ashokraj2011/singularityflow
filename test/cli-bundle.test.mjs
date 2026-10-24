@@ -13,6 +13,7 @@ import { bundledCliUrl, bundledCopilotHookUrl } from '../src/bundled-cli.mjs';
 import { buildCliBundle } from '../scripts/build-cli-bundle.mjs';
 import { readPerformanceReport } from '../src/performance-trace-store.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const cli = path.join(root, 'bin', 'singularity-flow.mjs');
@@ -67,7 +68,7 @@ test('the bundle runs only for the stamped build it was made for, unless it is f
   assert.equal(bundledCliUrl(pkg, { SINGULARITY_FLOW_BUNDLE_DIR: path.join(pkg, 'bundle') }), null, 'partial deployment uses sources');
 });
 
-test('the bundled CLI answers exactly like the sources while opening a handful of files', { timeout: 300_000 }, async (t) => {
+test('the bundled CLI answers exactly like the sources while opening a handful of files', slowLane({ timeout: 300_000 }), async (t) => {
   const outdir = path.join(root, `.bundle-test-${process.pid}`);
   t.after(() => rm(outdir, { recursive: true, force: true }));
   const { manifest } = await buildCliBundle({ outdir });

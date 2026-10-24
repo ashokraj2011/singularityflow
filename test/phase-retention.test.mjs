@@ -12,6 +12,7 @@ import { headTreeDigest } from '../src/git.mjs';
 import { reopenPhaseRange, resetPhaseRangeForRework } from '../src/lifecycle-transitions.mjs';
 import { retainableApprovals } from '../src/phase-retention.mjs';
 import { changedUpstream } from '../src/phase-upstream.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
@@ -111,7 +112,7 @@ function run(command, args, cwd, { allowFailure = false } = {}) {
   return result;
 }
 
-test('after rework, a phase whose inputs did not change keeps its approval by rule E1, and one whose inputs changed runs again', async (t) => {
+test('after rework, a phase whose inputs did not change keeps its approval by rule E1, and one whose inputs changed runs again', slowLane(), async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-phase-retention-'));
   const remote = `${root}.git`;
   t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(remote, { recursive: true, force: true })]));

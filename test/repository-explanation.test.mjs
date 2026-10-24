@@ -16,6 +16,7 @@ import { latestStoryStartAstWarmStatus, readRepositoryAstWarmStatus } from '../s
 import { runStoryStartAstWarmWorker } from '../src/ast-story-start-warm.mjs';
 import { explainRepository, scheduleRepositoryAstWarm } from '../src/comprehension/repository-explanation.mjs';
 import { cliJson, createChangeRepository, git, isolatedHome } from './helpers/xpl2-fixture.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -151,7 +152,7 @@ test('a checkout defers inventory and budget checks to its background worker', a
   assert.equal(launchedBig, true);
 });
 
-test('workspace creation indexes the cloned repository in the background, and its explanation says so', { timeout: 120_000 }, async (t) => {
+test('workspace creation indexes the cloned repository in the background, and its explanation says so', slowLane({ timeout: 120_000 }), async (t) => {
   const { root, home } = await shop(t);
   const remote = `${root}-remote.git`;
   git(root, 'init', '-q', '--bare', '-b', 'main', remote);

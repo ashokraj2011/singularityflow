@@ -15,6 +15,7 @@ import { gatewayMutationExecutors } from '../src/gateway/planners/executors.mjs'
 import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
 import { readActiveWorkspaceContext } from '../src/workspace-context.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -59,7 +60,7 @@ async function twoWorkspaces(t) {
   return { base, env, repository };
 }
 
-test('switch-is-context-not-authority', { timeout: 240_000 }, async (t) => {
+test('switch-is-context-not-authority', slowLane({ timeout: 240_000 }), async (t) => {
   const { env, repository } = await twoWorkspaces(t);
   for (const [key, value] of Object.entries(env)) if (key.startsWith('SINGULARITY_FLOW_')) process.env[key] = value;
   const governed = () => Promise.all([

@@ -39,6 +39,7 @@ import { readLocalDocument } from '../src/document-storage.mjs';
 import { acpPermissionOutcome } from '../src/model-providers/copilot-cli.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { withSubjectLock } from '../src/subject-lock.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 const autoTestMachineState = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-machine-'));
@@ -1528,7 +1529,7 @@ test('never repair policy halts at the first Candidate refusal', async () => {
   assert.equal(modelCalls, 1);
 });
 
-test('one confirmed repair opens a new generation and succeeds without reusing consumed intent', async () => {
+test('one confirmed repair opens a new generation and succeeds without reusing consumed intent', slowLane(), async () => {
   const root = await executableRepository();
   const plan = await createAutoPlan(root, 'Change the value and repair one refused submission.', {
     ...proposal,
@@ -1600,7 +1601,7 @@ test('a failed confirmed repair halts permanently and cannot consume a third mod
   assert.equal((await readAutoFlightState(root, halted.flightId)).counters.modelInvocations, 2);
 });
 
-test('phase pacing accepts only one governed transition and external approval resumes completion', async () => {
+test('phase pacing accepts only one governed transition and external approval resumes completion', slowLane(), async () => {
   const root = await executableRepository();
   const workflowPath = path.join(root, 'singularity/workflow.yml');
   const configured = YAML.parse(await readFile(workflowPath, 'utf8'));

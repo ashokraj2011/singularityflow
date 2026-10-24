@@ -11,8 +11,9 @@ import { latestStepAttempts, recordTestAttempt } from '../src/verification/attem
 
 import { cli, repository, startQuickFix } from './helpers/run-and-test-fixture.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
-test('a capability-scope run is a private local preview and its summary lists cases with their requirement tags', { timeout: 300_000 }, async (t) => {
+test('a capability-scope run is a private local preview and its summary lists cases with their requirement tags', slowLane({ timeout: 300_000 }), async (t) => {
   const repo = await repository(t, { extraCommands: [
     { id: 'bulk-junit', kind: 'test', argv: ['node', 'tools/junit.mjs', String(SUMMARY_CASE_LIMIT + 1)], workingDirectory: '.',
       affectedRoots: ['bulk'], modelPolicy: 'never', result: { adapter: 'junit-xml', path: '.sflow/results/bulk.xml' } }
@@ -167,7 +168,7 @@ test('the summary read model reports perCase false for counts-only adapters and 
   assert.equal(summary.totals.discovered, SUMMARY_CASE_LIMIT + 9);
 });
 
-test('a Story step run is staged as local attempts, read as a local run, and admitted only with the next publication', { timeout: 300_000 }, async (t) => {
+test('a Story step run is staged as local attempts, read as a local run, and admitted only with the next publication', slowLane({ timeout: 300_000 }), async (t) => {
   const repo = await repository(t, { implementCommands: false });
   const { root, sflow, sflowJson, must } = repo;
   await startQuickFix(repo);

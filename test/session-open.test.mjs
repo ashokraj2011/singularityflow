@@ -11,6 +11,7 @@ import { summarizeSamples } from '../src/dx-performance.mjs';
 import { physicalProcessProbe } from './helpers/physical-process-probe.mjs';
 import { readCopilotStoryFollow, copilotStoryFollowDirectory } from '../src/copilot-story-follow.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 function completeAgentResult(text) {
   const result = JSON.parse(text);
@@ -30,7 +31,7 @@ function semanticProjection(value) {
   return copy;
 }
 
-test('session open lists the Stories without an ID and opens one with its status, context and next steps in one command', { timeout: 300_000 }, async (t) => {
+test('session open lists the Stories without an ID and opens one with its status, context and next steps in one command', slowLane({ timeout: 300_000 }), async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-session-open-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'repo');

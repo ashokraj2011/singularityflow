@@ -9,6 +9,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 /**
  * `session open --for-agent --json` must finish or refuse with a classified reason in bounded time.
@@ -90,7 +91,7 @@ function gitProcessesUsing(text) {
 }
 
 test('session open refuses within its bounds when Git cannot read the repository, or the remote is silent or unreachable',
-  { skip: !posix, timeout: 300_000 }, async (t) => {
+  slowLane({ skip: !posix, timeout: 300_000 }), async (t) => {
     const fixture = await storyFixture(t);
 
     await t.test('undownloaded Git files are named instead of waiting for a Git deadline', async () => {

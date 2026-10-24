@@ -19,6 +19,7 @@ import YAML from 'yaml';
 import { resolveWorkType, validateDefinition } from '../src/config.mjs';
 import { verificationRepositoryTests } from '../src/verification/repository-tests.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -116,7 +117,7 @@ test('a Story pinned before the setting, or a step that names its own test, runs
     { commands: [], notes: [] });
 });
 
-test('a verification step runs the repository tests and records the pass', { timeout: 300_000 }, async (t) => {
+test('a verification step runs the repository tests and records the pass', slowLane({ timeout: 300_000 }), async (t) => {
   const root = await repository(t, { tests: 'passing' });
   const { phase } = await submitVerification(root, 'CH-PASS');
   const run = phase.checks.filter((check) => check.source === 'repository-tests');
@@ -127,7 +128,7 @@ test('a verification step runs the repository tests and records the pass', { tim
   flow(root, ['approve', '--yes']);
 });
 
-test('a failing run goes to the reviewer, who returns the Story to repair it', { timeout: 300_000 }, async (t) => {
+test('a failing run goes to the reviewer, who returns the Story to repair it', slowLane({ timeout: 300_000 }), async (t) => {
   const root = await repository(t, { tests: 'failing' });
   const { submitted, phase } = await submitVerification(root, 'CH-FAIL');
   assert.match(submitted.stderr, /Warning: the repository's tests failed: .*verification goes to its reviewer, who cannot approve it/su);
@@ -142,7 +143,7 @@ test('a failing run goes to the reviewer, who returns the Story to repair it', {
   assert.equal(workflow.currentPhase, 'implementation');
 });
 
-test('a repository with no test command gets a note, and the step can still be approved', { timeout: 300_000 }, async (t) => {
+test('a repository with no test command gets a note, and the step can still be approved', slowLane({ timeout: 300_000 }), async (t) => {
   const root = await repository(t);
   const { phase } = await submitVerification(root, 'CH-NONE');
   const notes = phase.checks.filter((check) => check.source === 'repository-tests');

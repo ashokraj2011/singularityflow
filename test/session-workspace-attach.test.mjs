@@ -9,6 +9,7 @@ import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { bootstrapRepository } from '../src/bootstrap.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 /**
  * Attaching a Story in a workspace: a repository that is not there yet is cloned; one that is there
@@ -60,7 +61,7 @@ function shape(directory) {
 const sha = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
 
 test('attach clones an absent workspace repository, fast-forwards a present one, and leaves an offloaded one untouched',
-  { timeout: 300_000 }, async (t) => {
+  slowLane({ timeout: 300_000 }), async (t) => {
     const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-attach-'));
     t.after(() => rm(base, { recursive: true, force: true }));
     const remote = path.join(base, 'remote.git');

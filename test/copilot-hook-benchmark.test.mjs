@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { hookBenchmarkSampleCount, runCopilotHookBenchmark } from '../src/copilot-hook-benchmark.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 test('hook benchmark bounds sample counts before creating a fixture', () => {
   assert.equal(hookBenchmarkSampleCount(), 30);
@@ -42,7 +43,7 @@ test('ambient Git relocation and a selected real checkout cannot escape the benc
   }
 });
 
-test('isolated benchmark proves response parity and a smaller hook graph without using timing as a flaky gate', { timeout: 120000 }, async () => {
+test('isolated benchmark proves response parity and a smaller hook graph without using timing as a flaky gate', slowLane({ timeout: 120000 }), async () => {
   const report = await runCopilotHookBenchmark({ samples: 1 });
   assert.equal(report.recommendedSampleCountMet, false);
   assert.equal(report.platform, process.platform);

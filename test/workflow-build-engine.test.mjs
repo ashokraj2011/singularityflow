@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -488,7 +489,7 @@ test('a reused step keeps its send-back targets; the check names the one move th
   assert.ok(guide.rules.some((rule) => /^signOff\.sendBackTo .*the step itself or steps before it in this workflow/u.test(rule)));
 });
 
-test('starting from a workflow copies it; finishing writes a bundle that imports, or one reviewed proposal on the approved configuration', async () => {
+test('starting from a workflow copies it; finishing writes a bundle that imports, or one reviewed proposal on the approved configuration', slowLane(), async () => {
   const { run, flow, json } = await harness();
   const { initializeDefinition } = await import('../src/config.mjs');
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-build-finish-'));

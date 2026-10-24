@@ -26,6 +26,7 @@ import {
 } from './result.mjs';
 import { resolveIntent } from './resolve.mjs';
 import { homeProjectionV2 } from './home-projection-v2.mjs';
+import { confirmationText } from './plan-descriptor.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
 /** How long a collected intake stays in the session before it has to be collected again. */
@@ -524,11 +525,13 @@ export function createGatewayKernel({
      */
     planReview(planId) {
       const plan = handles.verify({ id: planId }, { kind: 'plan', binding: currentBinding() });
-      return Object.freeze({
+      const reviewed = {
         planId: plan.id, planHash: plan.signature, operationId: plan.operationId,
         confirmation: plan.confirmation, effects: plan.effects, externalTargets: plan.externalTargets,
         review: plan.review ?? null, expiresAt: plan.expiresAt
-      });
+      };
+      // One text for every host's native confirmation, so no host cuts the effects off its own way.
+      return Object.freeze({ ...reviewed, confirmationText: confirmationText(reviewed) });
     },
 
     /**

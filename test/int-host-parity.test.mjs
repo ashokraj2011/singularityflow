@@ -259,3 +259,35 @@ test('the stdio server answers malformed, batched and oversized input with JSON-
   assert.match(replies[11].error.message, /too large/i);
   assert.ok(replies.every((reply) => reply.jsonrpc === '2.0'));
 });
+
+test('the confirmation an MCP client shows is the kernel\'s confirmation text, effects first', async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const sent = [];
+  const reviewed = {
+    planId: 'pln_1', planHash: 'h', operationId: 'watch.create', confirmation: 'host-confirm', effects: { contextChanged: true },
+    externalTargets: [], review: { digest: 'sha256:x', preview: { action: 'create-watch' } },
+    confirmationText: { title: 'Confirm: create watch', detail: 'This will change: contextChanged\nsubject.id: WRK-1' }
+  };
+  const kernel = { planReview: () => reviewed, run: async () => { throw new Error('a declined confirmation ran the plan'); } };
+  let buffered = '';
+  output.on('data', (chunk) => {
+    buffered += chunk;
+    let at;
+    while ((at = buffered.indexOf('\n')) >= 0) {
+      const message = JSON.parse(buffered.slice(0, at));
+      buffered = buffered.slice(at + 1);
+      sent.push(message);
+      if (message.method === 'elicitation/create') input.write(`${JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { action: 'decline' } })}\n`);
+      // A client waits for initialize's answer before its first call.
+      if (message.id === 1) input.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'sflow_run', arguments: { planId: 'pln_1' } } })}\n`);
+      if (message.id === 2) input.end();
+    }
+  });
+  const served = serveMcp({ input, output, serverInfo: { name: 'sflow-test', version: '0' }, createKernel: async () => kernel });
+  input.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { capabilities: { elicitation: {} } } })}\n`);
+  await served;
+  const elicitation = sent.find((message) => message.method === 'elicitation/create');
+  assert.equal(elicitation.params.message, 'Confirm: create watch\nThis will change: contextChanged\nsubject.id: WRK-1');
+  assert.equal(sent.find((message) => message.id === 2).result.structuredContent.why[0].code, 'gateway.confirmation-declined');
+});

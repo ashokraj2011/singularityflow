@@ -43,14 +43,9 @@ function refusal(code, slots = {}) {
   });
 }
 
-/** The words a person sees before confirming: the exact preview, and what it will change. */
+/** The words a person sees before confirming: the kernel's confirmation text, effects first. */
 function confirmationMessage(review) {
-  const preview = review.review?.preview ?? {};
-  const changes = Object.entries(review.effects).filter(([, value]) => value).map(([key]) => key);
-  return [`Confirm: ${String(preview.action ?? review.operationId).replaceAll('-', ' ')}`,
-    ...Object.entries(preview).filter(([key]) => key !== 'action')
-      .map(([key, value]) => `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`),
-    `This will change: ${changes.length ? changes.join(', ') : 'nothing'}`].join('\n').slice(0, 4000);
+  return `${review.confirmationText.title}\n${review.confirmationText.detail}`;
 }
 
 /**

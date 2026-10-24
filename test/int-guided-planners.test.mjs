@@ -290,6 +290,25 @@ test('work start plans the exact normalized record from a session intake and der
   // An intake from another session — or none at all — is not a thing this session can start.
   const unknown = await kernel.resolve({ utterance: 'create the work item', arguments: { intakeId: 'int_never_recorded' } });
   assert.equal(unknown.why[0].slots.code, 'WORK_INTAKE_UNKNOWN');
+
+  // The words a person confirms: what will change, and what will not, come first and whole; a long
+  // field is cut on its own, with what was left out counted, and never pushes another field off.
+  const long = await kernel.resolve({ utterance: 'create the work item', arguments: { intakeId: kernel.recordIntake({
+    workId: 'WRK-12', workType: 'feature', title: 'Long intake', description: 'd'.repeat(1990), acceptanceCriteria: 'a'.repeat(1990)
+  }).intakeId } });
+  const shown = kernel.planReview(long.data.plan.handle).confirmationText;
+  const lines = shown.detail.split('\n');
+  assert.equal(shown.title, 'Confirm: start work');
+  assert.match(lines[0], /^This will change: stateChanged, filesChanged, gitRefsChanged, publicationCreated$/);
+  assert.equal(lines[1], 'Leaves unchanged: other Stories, approvals, the developer working tree');
+  assert.equal(lines[2], 'External references: none');
+  assert.ok(lines.includes('subject.id: WRK-12'));
+  for (const field of ['source.description', 'source.acceptanceCriteria']) {
+    const line = lines.find((entry) => entry.startsWith(`${field}: `));
+    assert.match(line, /… \(1590 more characters\)$/, field);
+  }
+  assert.ok(lines.includes('branch.name: WRK-12') && lines.includes('source.tracker: none'), 'every other field is still shown');
+  assert.ok(shown.detail.length <= 4000 + 200);
 });
 
 // ---------------------------------------------------------------------------------------------------

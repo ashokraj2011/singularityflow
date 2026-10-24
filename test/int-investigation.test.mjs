@@ -155,3 +155,46 @@ test('a stopped investigation keeps what was observed and names what did not run
   assert.ok(result.warnings.some((warning) => warning.code === 'investigation.step-incomplete' && warning.slots.step === 'deterministic-impact'));
   assert.ok(Object.values(result.effects).every((value) => value === false));
 });
+
+test('a bisection refuses a range it would only partly walk', { timeout: 300_000 }, async (t) => {
+  const { root, commits } = await regression(t);
+  const { kernel } = createHostGateway({
+    root, hostSessionId: 'sess-bisect-range', planners: gatewayPlanners(), mutationExecutors: cliMutationExecutors(), readOnly: false
+  });
+  const plan = (good, bad) => kernel.resolve({ utterance: 'bisect this regression', arguments: { good, bad, testCommandId: 'checkout-contract' } });
+  const { typedFirstParentRange } = await import('../src/git-access.mjs');
+
+  // A known-good commit reached only through a merge's second parent is not on the chain the
+  // bisection walks: the walk would run past it to the root and draw a boundary through nothing.
+  git(root, 'checkout', '-q', '-b', 'side', commits[1]);
+  await writeFile(path.join(root, 'side.txt'), 'side\n');
+  git(root, 'add', '-A');
+  git(root, 'commit', '-q', '-m', 'side work');
+  const side = git(root, 'rev-parse', 'HEAD');
+  git(root, 'checkout', '-q', 'main');
+  git(root, 'merge', '-q', '--no-ff', 'side', '-m', 'merge side');
+  const merged = git(root, 'rev-parse', 'HEAD');
+  assert.equal(typedFirstParentRange(root, side, merged).firstParentChain, false);
+  const offChain = await plan(side, merged);
+  assert.deepEqual([offChain.kind, offChain.why[0].slots.code], ['refusal', 'BISECT_RANGE_NOT_FIRST_PARENT']);
+  // The executor holds the same line for a plan made any other way, before any commit is tested.
+  const { investigationBisectExecute } = await import('../src/gateway/planners/investigation-bisect.mjs');
+  const forged = await investigationBisectExecute({ root, plan: { review: { preview: {
+    repository: root, good: { commit: side }, bad: { commit: merged }, maxSteps: 8,
+    testCommand: { id: 'checkout-contract', argv: [process.execPath, 'contract.mjs'], workingDirectory: '.' }
+  } } } });
+  assert.deepEqual([forged.data.verdict, forged.data.stopped, forged.data.observations.length], ['unknown', 'BISECT_RANGE_NOT_FIRST_PARENT', 0]);
+
+  // Past the walk's cap the oldest commits were the ones dropped, so range[0] was not good's child.
+  const capped = typedFirstParentRange(root, commits[0], commits[5], { max: 3 });
+  assert.equal(capped.truncated, true);
+  const stream = [];
+  for (let index = 1; index <= 4100; index += 1) {
+    stream.push(`commit refs/heads/main\nmark :${index}\ncommitter Dev <dev@example.test> ${1_700_000_000 + index} +0000\ndata 6\nc${String(index).padStart(4, '0')}\n${index === 1 ? `from ${merged}\n` : ''}`);
+  }
+  const imported = spawnSync('git', ['fast-import', '--quiet'], { cwd: root, input: `${stream.join('\n')}\n`, encoding: 'utf8', timeout: 120_000 });
+  assert.equal(imported.status, 0, imported.stderr);
+  git(root, 'reset', '-q', '--hard', 'main');
+  const long = await plan(commits[0], 'HEAD');
+  assert.deepEqual([long.kind, long.why[0].slots.code], ['refusal', 'BISECT_RANGE_TOO_LONG']);
+});

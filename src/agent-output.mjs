@@ -55,6 +55,9 @@ const DOCUMENT_BODY_REASON = 'document body: the person reviews it outside the c
 const FIELD_BYTES = 6_000;
 const SMALL_FIELD_BYTES = 300;
 const KEPT_RESULTS = 40;
+// The omitted-field list a view shows; past it, a count and a paged index file. `[OUT:REQ-014]`
+export const OMITTED_FIELDS_SHOWN = 12;
+const PREVIEW_BYTES = 1_500;
 const bytes = (text) => Buffer.byteLength(text, 'utf8');
 const sha256 = (text) => `sha256:${createHash('sha256').update(text).digest('hex')}`;
 const oneLine = (text, limit = 400) => {
@@ -510,6 +513,11 @@ export async function withAgentRoutes(value) {
     if (typeof node.command === 'string' && next.command !== node.command && Array.isArray(node.argv) && node.argv.includes('--json')) {
       next.argv = node.argv.flatMap((value) => value === '--json' ? ['--for-agent', '--json'] : [value]);
     }
+    // And so does each platform's quoted copy of it, which an agent may run instead.
+    if (typeof node.command === 'string' && next.command !== node.command && node.platformCommands && typeof node.platformCommands === 'object') {
+      next.platformCommands = Object.fromEntries(Object.entries(node.platformCommands).map(([platform, line]) => [platform,
+        typeof line === 'string' && !line.includes('--for-agent') ? line.replace(/ (['"]?)--json\1(?=\s|$)/u, ' $1--for-agent$1 $1--json$1') : line]));
+    }
     return next;
   };
   return walk(value);
@@ -535,15 +543,90 @@ export function returnsAgentPaths(result) {
   return visit(result, true);
 }
 
+// Sizing stands in for the index the view will name; its numbers are as wide as a real one's.
+const INDEX_PLACEHOLDER = Object.freeze({ path: `${'x'.repeat(240)}.omitted.json`, bytes: 9_999_999, lines: 9_999_999,
+  read: Array.from({ length: READ_PLAN_CHUNKS }, () => ({ lines: [9_999_999, 9_999_999], bytes: 9_999_999 })) });
+
+/** The omitted fields a view names: all of them, or the first few with their count and the index of every one. */
+function omittedList(references, index) {
+  return references.length > OMITTED_FIELDS_SHOWN
+    ? { omittedFields: references.slice(0, OMITTED_FIELDS_SHOWN), omittedFieldCount: references.length, omittedIndex: index }
+    : { omittedFields: references };
+}
+
+/**
+ * The bounded fallback (§5.3) when no repository can be found to keep the full result: the view
+ * still fits, keeps what it can, and names the fields it does not show instead of printing them all.
+ * `[OUT:REQ-014]`
+ */
+function unretainedView(act, ordered, budget, agentJson) {
+  const keys = Object.keys(ordered).filter((key) => key !== 'act');
+  const size = Object.fromEntries(keys.map((key) => [key, bytes(JSON.stringify(ordered[key]) ?? 'null')]));
+  const reads = new Set((act?.read ?? []).map((field) => String(field).split('.')[0]));
+  const agentOutput = { complete: false, retained: false, state: 'detail-unavailable', bytes: bytes(agentJson(ordered)),
+    instruction: 'No repository was found from here to keep the full result; the omitted fields are not shown. Run the command from the Story checkout to read them.' };
+  const render = (kept) => agentJson({ ...(act ? { act: { ...act, complete: false } } : {}), agentOutput,
+    ...omittedList(keys.filter((key) => !kept.has(key)).map((key) => ({ field: key, bytes: size[key] })), null),
+    ...Object.fromEntries(keys.filter((key) => kept.has(key)).map((key) => [key, ordered[key]])) });
+  const kept = new Set(keys);
+  // The fields act reads stay longest; otherwise the largest go first.
+  const order = (left, right) => Number(reads.has(left)) - Number(reads.has(right)) || size[right] - size[left];
+  while (bytes(render(kept)) > budget && kept.size) kept.delete([...kept].sort(order)[0]);
+  const rendered = render(kept);
+  if (bytes(rendered) <= budget) return `${rendered}\n`;
+  // Nothing else fits: what is missing, by name and count only.
+  return `${agentJson({ act: { state: act?.state ?? 'read', said: null, do: null, complete: false }, agentOutput, omittedFieldCount: keys.length })}\n`;
+}
+
+/** The lines of `text` that fit `limit` bytes, whole lines only. */
+function headLines(text, limit) {
+  let shown = '';
+  for (const line of text.split('\n')) {
+    if (bytes(shown) + bytes(line) + 1 > limit) break;
+    shown += `${line}\n`;
+  }
+  return shown;
+}
+
+/**
+ * Output that is not one JSON object (malformed JSON, an array) and does not fit: the bounded literal
+ * envelope. The text is kept whole in a file named with its read plan, and a preview of its first
+ * lines stays in view; without a repository to keep it in, the envelope says what is not shown.
+ * `[OUT:REQ-014]`
+ */
+async function literalEnvelope(text, { cwd, budget, now, literal }) {
+  const { agentJson } = await import('./agent-packet-presentation.mjs');
+  const target = repositoryOf({}, cwd);
+  const said = literal === 'json-array' ? 'The command returned a JSON array, not one result object.' : 'The command returned text that is not one JSON object.';
+  let agentOutput;
+  if (target) {
+    const file = path.join(target.directory, `literal-${now.toISOString().replace(/[:.]/gu, '-')}-${sha256(text).slice(7, 15)}.txt`);
+    await writeAtomic(file, text, { mode: 0o600 });
+    await registerReadFiles(target.root, [file]);
+    await prune(target.directory);
+    const relative = path.relative(target.root, file).split(path.sep).join('/');
+    agentOutput = { complete: false, literal, path: file, relativePath: relative, bytes: bytes(text), lines: text.split('\n').length - 1,
+      sha256: sha256(text), read: lineRanges(text), instruction: 'Literal output kept whole: request every agentOutput.read line range together in one response; nothing was truncated.' };
+  } else {
+    agentOutput = { complete: false, literal, retained: false, state: 'detail-unavailable', bytes: bytes(text),
+      instruction: 'No repository was found from here to keep this output; only the preview is shown. Run the command from the Story checkout to read all of it.' };
+  }
+  const envelope = (preview) => agentJson({ act: { state: 'read', said, do: null, complete: false }, agentOutput, preview });
+  const reserve = bytes(envelope('')) + 16;
+  return `${envelope(headLines(text, Math.max(0, Math.min(PREVIEW_BYTES, budget - reserve))))}\n`;
+}
+
 /**
  * The agent view of one command's JSON stdout. Small results keep every field, with `act` first;
- * larger ones are written whole and stdout keeps what fits. Text that is not one JSON object is
- * returned unchanged.
+ * larger ones are written whole and stdout keeps what fits. Other text that fits is returned
+ * unchanged; larger text gets the literal envelope.
  */
 export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = agentOutputBudget(), now = new Date() } = {}) {
   let result;
-  try { result = JSON.parse(text); } catch { return text; }
-  if (!result || typeof result !== 'object' || Array.isArray(result)) return text;
+  let literal = null;
+  try { result = JSON.parse(text); } catch { literal = 'not-json'; }
+  if (!literal && (!result || typeof result !== 'object' || Array.isArray(result))) literal = Array.isArray(result) ? 'json-array' : 'not-json';
+  if (literal) return bytes(text) <= budget ? text : literalEnvelope(text, { cwd, budget, now, literal });
   const { agentJson } = await import('./agent-packet-presentation.mjs');
   // The repository is resolved only when it is needed (a counted result or one to write), so the
   // small reads every skill turn makes cost no extra Git process.
@@ -568,7 +651,8 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
   // file even for short review sources, rather than duplicating them as numbered prompt text.
   const reviewSources = ['source-review-agent-context', 'source-review-context'].includes(result.resultType)
     && result.canReview && Array.isArray(result.sources) && result.sources.length > 0;
-  if ((!catalog && !reviewSources && bytes(whole) <= budget) || !locate()) return `${whole}\n`;
+  if ((!catalog && !reviewSources && bytes(whole) <= budget) || (!locate() && bytes(whole) <= budget)) return `${whole}\n`;
+  if (!locate()) return unretainedView(act, ordered, budget, agentJson);
   // A bounded view returns the file it wrote, so it names the rule too.
   if (act && !act.paths && !result.paused) {
     ({ act, ordered, whole } = await presented(true));
@@ -612,8 +696,8 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
       ...(length > READ_CHUNK_BYTES ? { read: lineRanges(readFileSync(textFile, 'utf8')) } : {}) }))]));
   const reference = (ranges) => Object.fromEntries(keys.map((key) => [key,
     { field: key, bytes: size[key], lines: ranges[key] ?? null, ...(textFiles[key].length ? { textFiles: textFiles[key] } : {}) }]));
-  const render = (kept, agentOutput, references, order = keys, values = ordered) => agentJson({ act: { ...(act ?? {}), complete: false }, agentOutput,
-    omittedFields: order.filter((key) => !kept.has(key)).map((key) => references[key]),
+  const render = (kept, agentOutput, references, order = keys, values = ordered, index = null) => agentJson({ act: { ...(act ?? {}), complete: false }, agentOutput,
+    ...omittedList(order.filter((key) => !kept.has(key)).map((key) => references[key]), index ?? INDEX_PLACEHOLDER),
     ...Object.fromEntries(keys.filter((key) => kept.has(key)).map((key) => [key, values[key]])) });
   // Keep every field without a long text, then move fields out until the view fits: larger ones
   // before small ones, and within each, the material before the packet's read order before what
@@ -650,7 +734,18 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
   const ranges = topLevelRanges(fullText);
   const read = readPlan(fullText, ranges, omitted);
   const agentOutput = { ...describe(fullText, instruction), ...(read.length ? { read } : {}) };
-  return `${render(kept, agentOutput, reference(ranges), omitted, fields)}\n`;
+  const placed = reference(ranges);
+  let index = null;
+  if (omitted.length > OMITTED_FIELDS_SHOWN) {
+    // Every omitted field's reference, in a file of its own the agent pages through when it needs one.
+    const indexText = `${JSON.stringify(omitted.map((key) => placed[key]), null, 2)}\n`;
+    const indexFile = path.join(target.directory, `${base}.omitted.json`);
+    await writeAtomic(indexFile, indexText, { mode: 0o600 });
+    await registerReadFiles(target.root, [indexFile]);
+    index = { path: indexFile, bytes: bytes(indexText), lines: indexText.split('\n').length - 1,
+      ...(bytes(indexText) > READ_CHUNK_BYTES ? { read: lineRanges(indexText) } : {}) };
+  }
+  return `${render(kept, agentOutput, placed, omitted, fields, index)}\n`;
 }
 
 /**
@@ -660,7 +755,13 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
 export async function boundedAgentText(text, { cwd = process.cwd(), budget = agentOutputBudget(), now = new Date(), kind = 'text' } = {}) {
   if (bytes(text) <= budget) return text;
   const target = repositoryOf({}, cwd);
-  if (!target) return text;
+  if (!target) {
+    // The bounded fallback: the start that fits, and what could not be kept. `[OUT:REQ-014]`
+    const total = text.split('\n').length;
+    const footer = (shown) => `\n[Output not kept] Lines 1-${shown} of ${total} are above. No repository was found from here to keep the rest; run the command from the Story checkout to read all of it.\n`;
+    const head = headLines(text, Math.max(0, budget - bytes(footer(total))));
+    return `${head}${footer(head ? head.split('\n').length - 1 : 0)}`;
+  }
   const name = String(kind || 'text').replace(/[^A-Za-z0-9-]/gu, '-').slice(0, 48) || 'text';
   const file = path.join(target.directory, `${name}-${now.toISOString().replace(/[:.]/gu, '-')}-${sha256(text).slice(7, 15)}.txt`);
   await writeAtomic(file, text, { mode: 0o600 });

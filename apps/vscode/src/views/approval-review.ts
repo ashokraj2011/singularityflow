@@ -353,6 +353,7 @@ body > .page-nav button { flex:none; white-space:nowrap; }
 .approval-confirmation { border-left:3px solid var(--sf-wait); padding-left:1rem; }
 .approval-held { margin:1rem 0; padding:1rem; border:1px solid var(--sf-wait); border-left:4px solid var(--sf-wait); border-radius:var(--sf-radius); }
 .approval-held h2 { margin-top:0; }
+.approval-held pre { white-space:pre-wrap; overflow-wrap:anywhere; }
 .approval-errors { min-height:1.2rem; color:var(--sf-bad); }
 .approval-errors p { margin:.2rem 0; }
 .form-actions { display:flex; gap:.6rem; flex-wrap:wrap; margin:0; padding:.6rem 0; border-top:var(--sf-border); background:var(--vscode-editor-background); }

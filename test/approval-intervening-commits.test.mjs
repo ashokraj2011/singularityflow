@@ -119,6 +119,9 @@ test('the advisory prints as warning lines with every route, and the approval pa
   assert.doesNotMatch(html, /<button|data-command/u, 'nothing on the page runs a command');
   assert.equal(approvalBlockingCommits({ statement: 'x', lines: [] }), null);
   assert.equal(approvalBlockingCommitsHtml(null), '');
+  // Seen in real VS Code (2026-10-24): an unwrapped decide command ran past the notice's edge.
+  const reviewPage = await readFile(path.join(PACKAGE, 'apps/vscode/src/views/approval-review.ts'), 'utf8');
+  assert.match(reviewPage, /\.approval-held pre \{ white-space:pre-wrap; overflow-wrap:anywhere; \}/u);
 });
 
 function specification(value) {

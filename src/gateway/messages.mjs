@@ -40,6 +40,7 @@ export const RESULT_MESSAGES = Object.freeze({
   'gateway.developer-next': M('Your recommended next step'),
   'gateway.next': M('What you can do now'),
   'gateway.explained': M('Here is the explanation'),
+  'gateway.explained-work': M('Where {work} stands', 'Read from its own record: {phase}, {status}.'),
   'gateway.refused': M('Not ready'),
   'gateway.not-ready': M('Not ready to submit'),
   'gateway.returned': M('Where you left this'),

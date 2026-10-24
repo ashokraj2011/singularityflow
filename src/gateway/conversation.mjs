@@ -103,7 +103,18 @@ const ROUTES = Object.freeze([
     operationId: 'work.readiness', skill: '/sf-nextsteps', automatic: true, confirmation: 'none',
     patterns: [
       /\b(blocked|blocker|blockers|blocking|what is missing|what's missing|ready to|readiness)\b/,
-      /\bwhy\b.{0,32}\b(cannot|can't|wont|won't)\b.{0,24}\b(advance|continue|submit|publish)\b/
+      /\bwhy\b.{0,32}\b(cannot|can't|wont|won't)\b.{0,24}\b(advance|continue|submit|publish)\b/,
+      // Named work only: "what's wrong with my code" is a bug to investigate, not a Story's state.
+      /\bwhat(?:'s| is) wrong with\b.{0,24}\b(story|work|epic|initiative|phase|[a-z][a-z0-9]*-[0-9]+)\b/,
+      /\b(story|work|epic|initiative|phase|[a-z][a-z0-9]*-[0-9]+)\b.{0,16}\b(stuck|held up)\b/
+    ]
+  }),
+  route({
+    id: 'inspect-review-packet', intent: 'inspect', label: 'Show what is up for approval',
+    operationId: 'review.packet', skill: '/sf-review', automatic: true, confirmation: 'none',
+    patterns: [
+      /\b(show|open|see|view|read|get)\b.{0,32}\b(review |approval )?packet\b/,
+      /\b(which|what)\b.{0,16}\bapprovals?\b.{0,24}\b(outstanding|pending|missing|needed|required|waiting)\b/
     ]
   }),
   route({
@@ -230,10 +241,11 @@ export function planDeveloperConversation(utterance) {
     : [];
   // "Why can't I submit?" asks for diagnosis, not submission. Preserve ambiguity for genuinely
   // combined actions ("generate and submit"), but do not make a refusal-shaped question look like
-  // mutation intent merely because it names the blocked action.
+  // mutation intent merely because it names the blocked action. "Why can't I continue?" is the same
+  // question about continuing, so it is not a request to continue either.
   if (matched.some((entry) => entry.id === 'inspect-readiness')
     && /\b(why|cannot|can't|blocked|blocking|not ready)\b/.test(normalized)) {
-    matched = matched.filter((entry) => !entry.id.startsWith('act-'));
+    matched = matched.filter((entry) => !entry.id.startsWith('act-') && entry.id !== 'continue');
   }
   // "What can I do next?" asks which actions exist; "do the next step" asks to take one. The first
   // also contains "do … next", so a question that reached orientation is not an imperative as well:
@@ -311,9 +323,38 @@ export function planDeveloperConversation(utterance) {
   });
 }
 
+/** The routes that read where work stands, so a question reaching one is about the work's state. */
+const WORK_STATE_ROUTES = new Set([
+  'inspect-readiness', 'inspect-progress', 'inspect-review-packet', 'recover-publication', 'orient'
+]);
+
+/** "What does blocked mean?" names a state but asks about the word. */
+const DEFINITION = /\b(mean|means|meaning|define|definition)\b|\bwhat (?:is|are) (?:a|an)\b/;
+
+/**
+ * Whether a question asks where work stands rather than how the product works.
+ *
+ * The same vocabulary `sflow_resolve` routes by: a question that would resolve to a state read
+ * ("why is my Story blocked?", "what's wrong with WRK-12?") is answered from the work record, and
+ * everything else ("how do approvals work?", "what is a blocker?") from the documentation.
+ */
+export function workStateQuestion(question) {
+  const normalized = normalize(question);
+  if (!normalized || DEFINITION.test(normalized)) return false;
+  const planned = planDeveloperConversation(question);
+  const routes = planned.route ? [planned.route] : planned.choices;
+  return routes.length > 0 && routes.every((entry) => WORK_STATE_ROUTES.has(entry.id));
+}
+
 /** "this", "that", "it" and their kin, when they point at a piece of work rather than at the repository. */
 const DEICTIC = /\b(?:it|this|that|these|those)\b(?! (?:repository|repo|codebase|code|workspace|branch|machine|file|files|change|changes)\b)/;
 const WORK_ID = /\b[A-Za-z][A-Za-z0-9]*-[0-9]+\b/g;
+
+/** The one work ID an utterance names, as written; null when it names none or several. */
+export function mentionedWorkId(utterance) {
+  const ids = new Map([...String(utterance ?? '').matchAll(WORK_ID)].map(([id]) => [id.toLowerCase(), id]));
+  return ids.size === 1 ? [...ids.values()][0] : null;
+}
 
 /**
  * Which visible subject a conversational reference means, or that it is not clear. `[INT:REQ-100]`

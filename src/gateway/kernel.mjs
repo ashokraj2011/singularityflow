@@ -25,6 +25,7 @@ import {
   validateSflowResult
 } from './result.mjs';
 import { resolveIntent } from './resolve.mjs';
+import { mentionedWorkId, workStateQuestion } from './conversation.mjs';
 import { homeProjectionV2 } from './home-projection-v2.mjs';
 import { confirmationText } from './plan-descriptor.mjs';
 import { SingularityFlowError } from '../util.mjs';
@@ -55,7 +56,9 @@ export const KERNEL_MESSAGES = Object.freeze([
    */
   'gateway.not-ready',
   /** The return briefing's own heading, so it is not narrated as a generic read. */
-  'gateway.returned'
+  'gateway.returned',
+  /** `sflow_explain` answering where work stands from its record, not from the documentation. */
+  'gateway.explained-work'
 ]);
 
 /**
@@ -130,6 +133,13 @@ function namedWork(hint) {
   if (!['story', 'initiative', 'epic'].includes(hint?.kind) || !hint.id) return null;
   // Work records are Stories and Initiatives; an Epic is matched by its ID alone.
   return { id: String(hint.id), kind: hint.kind === 'epic' ? null : hint.kind };
+}
+
+/** A named ID as its record spells it: "HEX-12" names hex-12 when exactly one record matches. */
+function recordedName(named, items = []) {
+  if (!named || items.some((item) => item.id === named.id)) return named;
+  const folded = items.filter((item) => String(item.id).toLowerCase() === named.id.toLowerCase());
+  return folded.length === 1 ? { ...named, id: folded[0].id } : named;
 }
 
 /**
@@ -591,7 +601,7 @@ export function createGatewayKernel({
       return { warnings: [{ code: 'gateway.next-work-unread', source: 'unavailable', slots: {} }] };
     }
     const { deriveHomeState } = await import('./home-work-projection.mjs');
-    const named = namedWork(hint);
+    const named = recordedName(namedWork(hint), listed.data.items);
     const state = deriveHomeState(listed.data, {
       workId: named?.id ?? context.workId ?? context.storyId ?? null,
       workKind: named ? named.kind : context.workKind ?? null,
@@ -629,8 +639,54 @@ export function createGatewayKernel({
       data: {
         focus: focus ? summary(focus) : null,
         work: { count: open.length, items: shown.map(summary), listed: shown.length }
-      }
+      },
+      // What `explain` reads beyond the summary: the whole record item, and the name it was asked by.
+      named,
+      item: focus
     };
+  }
+
+  /** The decision a focused item awaits, as the ceremony destination a person opens. Never an act. */
+  async function decisionDestination(item, legalSet) {
+    if (item.status !== 'awaiting_approval' || item.group !== 'waiting-on-you') return null;
+    const operation = registry.operations.find((entry) => entry.id === 'review.open');
+    if (!operation || typeof planners.get(operation.gateway.planner) !== 'function') return null;
+    if ((legalSet && !legalSet.includes(operation.id)) || !operationPermission(policy, operation.id, { registry }).reachable) return null;
+    const { reviewOpenResult } = await import('./planners/review-open.mjs');
+    return { ...reviewOpenResult(item).next[0], emphasis: 'secondary' };
+  }
+
+  /**
+   * A question about where work stands, answered from the work record. `[INT:REQ-061]`
+   *
+   * Live (2026-10-24), "why is my Story blocked?" with `subject: {workId}` came back as a list of
+   * every documentation topic, and the answer took five more calls. The work is read as `next`
+   * reads it (`leadingWork`): the subject named, else a work ID in the question, else Home's focus.
+   * Null when there is no open work and nothing was named, so the documentation still answers.
+   */
+  async function workStateAnswer(workList, question, hint) {
+    const issuedAgainst = currentBinding();
+    const mentioned = namedWork(hint) ? null : mentionedWorkId(question);
+    const asked = mentioned ? { workId: mentioned } : hint;
+    const legalSet = currentLegalActions(subjectOf(asked));
+    const work = await leadingWork(workList, asked, legalSet, issuedAgainst);
+    if (!work.data || (!work.item && !work.named && !work.data.work.count)) return null;
+    const { explainWhichWorkResult, explainWorkResult } = await import('./planners/help-explain.mjs');
+    if (!work.item) return explainWhichWorkResult({ question, named: work.named, why: work.why, lead: work.lead, work: work.data.work });
+    const { kind, id } = work.item;
+    return sealHostActions(explainWorkResult({
+      question,
+      item: work.item,
+      lead: work.lead.filter((action) => action.id === `work:${id}`),
+      chosen: work.named ? [] : work.why,
+      decision: await decisionDestination(work.item, legalSet),
+      binding: issuedAgainst,
+      // The revision the record was read at; a lifecycle hash only when the binding is about this item.
+      subject: subjectFromBinding({
+        ...issuedAgainst, subjectKind: kind, subjectId: id,
+        lifecycleRevision: issuedAgainst.subjectId === id ? issuedAgainst.lifecycleRevision : null
+      })
+    }));
   }
 
   function nextResult(scope, subject, legal, { lead = [], why = [], warnings = [], data = {} } = {}) {
@@ -661,18 +717,26 @@ export function createGatewayKernel({
     hostCapabilities: Object.freeze({ ...hostCapabilities }),
     registryHash: registry.contentHash,
 
-    /** `sflow_resolve`: the only entry point that takes words. */
+    /**
+     * `sflow_resolve`: the only entry point that takes words.
+     *
+     * A host may pass the tool input as it arrived, `subject` included (VS Code does). A subject
+     * that names work is that work; a workspace or repository hint adds nothing to a kernel
+     * already bound to one, and is left out rather than narrowing what the words can reach.
+     */
     async resolve(request = {}, { subject = null } = {}) {
+      const { subject: hinted = null, ...words } = request ?? {};
+      const about = subject ?? (hinted?.workId ? subjectOf(hinted) : null);
       const issuedAgainst = currentBinding();
-      const result = resolveIntent(request, {
+      const result = resolveIntent(words, {
         registry,
         policy,
         handles,
-        legalActions: currentLegalActions(subject),
+        legalActions: currentLegalActions(about),
         binding: issuedAgainst,
-        subject
+        subject: about
       });
-      return ceremonyDestination(await issueResolvedPlan(result, issuedAgainst), subject);
+      return ceremonyDestination(await issueResolvedPlan(result, issuedAgainst), about);
     },
 
     /**
@@ -747,12 +811,22 @@ export function createGatewayKernel({
         : nextResult(scope, work.subject ?? subjectOf(subject), legalNow(legal, issuedAgainst), work)));
     },
 
-    /** `sflow_explain`: bounded, cited, and never a way to turn an answer into an act `[INT:CON-040]`. */
+    /**
+     * `sflow_explain`: bounded, cited, and never a way to turn an answer into an act `[INT:CON-040]`.
+     *
+     * A question about where work stands is answered from the work record (`workStateAnswer`),
+     * provided this host has the explain planner at all; every other question, and a state
+     * question with no work to read, is answered from the documentation as before.
+     */
     async explain({ question, topic, subject = null } = {}) {
       const operation = registry.operations.find((entry) => entry.id === 'help.explain');
       const permission = operationPermission(policy, 'help.explain', { registry });
       if (!permission.reachable) return refuse('help.explain', 'gateway.denied-by-policy', 'policy');
-      return invoke(operation, { question, ...(topic ? { topic } : {}) }, subject);
+      const asked = question ?? topic ?? '';
+      const workList = typeof planners.get(operation.gateway.planner) === 'function' && workStateQuestion(asked)
+        ? workReader('subject') : null;
+      const answered = workList ? await workStateAnswer(workList, asked, subject) : null;
+      return answered ?? invoke(operation, { question, ...(topic ? { topic } : {}) }, subjectOf(subject));
     },
 
     /**

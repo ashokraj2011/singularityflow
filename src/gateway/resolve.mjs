@@ -231,13 +231,14 @@ function candidateResult(candidates, handles, context, why) {
    *
    * The next turn refers to a handle, not to a restated operation name — otherwise "the second one"
    * would be resolved by matching words again, and the whole point of offering a bounded choice is
-   * that the choosing already happened.
+   * that the choosing already happened. Each handle carries the arguments its own operation was
+   * typed with, so a work ID taken from the subject is not lost on the way back.
    */
-  const offered = candidates.map((operation, index) => {
+  const offered = candidates.map(([operation, args], index) => {
     const { reference } = handles.issueSelection({
       operationId: operation.id,
       classification: operation.classification,
-      arguments: context.arguments,
+      arguments: args,
       binding: context.binding
     });
     const { confirmation } = context.permissions.get(operation.id);
@@ -327,6 +328,24 @@ function resolvedResult(operation, args, handles, context, why, matchedBy = MATC
     restState: null,
     data: { arguments: args }
   });
+}
+
+/**
+ * An operation's typed arguments: the ones given, or, when it needs a work ID nobody gave, the work
+ * the subject hint names.
+ *
+ * The hint is the caller's own as much as `arguments` is, so a Story named there is named. Filling
+ * only on a missing `workId` keeps an operation that takes no work ID from being refused for an
+ * argument it never had. Live, "show me the review packet" with `subject: {workId}` came back
+ * asking for the workId it had just been given.
+ */
+function typedArguments(operation, proposed, subjectWork) {
+  try {
+    return validateArguments(operation.gateway.argumentSchema, proposed);
+  } catch (error) {
+    if (!subjectWork || error.code !== 'MISSING_OPERATION_ARGUMENT' || error.details?.field !== 'workId') throw error;
+    return validateArguments(operation.gateway.argumentSchema, { ...proposed, workId: subjectWork });
+  }
 }
 
 /**
@@ -467,9 +486,10 @@ export function resolveIntent(request = {}, {
   const typed = [];
   const invalid = [];
   const incomplete = new Map();
+  const subjectWork = ['story', 'initiative', 'epic'].includes(subject?.kind) && subject.id ? String(subject.id) : null;
   for (const operation of pool) {
     try {
-      typed.push([operation, validateArguments(operation.gateway.argumentSchema, context.arguments)]);
+      typed.push([operation, typedArguments(operation, context.arguments, subjectWork)]);
     } catch (error) {
       if (error.code === 'MISSING_OPERATION_ARGUMENT') {
         incomplete.set(operation.id, [...(incomplete.get(operation.id) ?? []), error.details.field]);
@@ -497,7 +517,7 @@ export function resolveIntent(request = {}, {
 
   // ---- 7. One answer.
   if (typed.length > 1) {
-    return candidateResult(typed.map(([operation]) => operation), handles, context,
+    return candidateResult(typed, handles, context,
       [...why, reason('resolution.ambiguous', { slots: { count: typed.length } })]);
   }
 
@@ -507,7 +527,7 @@ export function resolveIntent(request = {}, {
    * may not choose one. A single survivor is returned as a choice the user makes, not a resolution.
    */
   if ([MATCH_GOAL, MATCH_CONVERSATION].includes(matchedBy) && operation.classification !== 'read') {
-    return candidateResult([operation], handles, context,
+    return candidateResult(typed, handles, context,
       [...why, policyReason('resolution.goal-alone-cannot-write', { slots: { operation: operation.id } })]);
   }
 

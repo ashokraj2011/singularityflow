@@ -770,7 +770,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (name === 'sflow_resolve') return kernel.resolve(input as never);
       if (name === 'sflow_read') return kernel.read({ resolutionId: String(input.resolutionId ?? '') });
       if (name === 'sflow_next') return kernel.next({ scope: input.scope, subject: input.subject ?? null });
-      if (name === 'sflow_explain') return kernel.explain?.({ question: input.question, topic: input.topic });
+      if (name === 'sflow_explain') return kernel.explain?.({ question: input.question, topic: input.topic, subject: input.subject ?? null });
       let review;
       try { review = kernel.planReview(String(input.planId ?? '')); } catch { return kernel.run({ planId: String(input.planId ?? '') }); }
       return (await confirmPlanOutOfBand(route, review)) ?? kernel.run({ planId: String(input.planId ?? '') });

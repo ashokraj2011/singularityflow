@@ -106,7 +106,15 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // commandLineWithoutSkill), safe-command-guidance.mjs +666 (no-skill guidance and its unavailable status),
     // copilot-guidance.mjs +417, narration/command-result.mjs +169, phase-governance-routing.mjs +86 and
     // shared/print-command-routes.mjs +59: 9,086,147. No new file.
-    assert.ok(closure.bytes <= 9_090_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,095,000 (next 5,000 boundary): SPEC-OAP M2 adds 6,115 to main bdd4049e's 9,087,930, all state.mjs: the
+    // REVIEW_EFFECTS registry (one effect per lifecycle event type and decision kind, which the review-history
+    // check and Auto's resume read) and the approval stage that holds an undecided amendment: 9,094,045. The
+    // amendment verifiers in approval-check.mjs load lazily. No new file.
+    // 9,100,000 (next 5,000 boundary): the Story index adds 1,153 to main 951e4122's 9,094,045 for 9,095,198:
+    // util.mjs +466 (samePlatformPath, moved from story-worktree.mjs), commands/start.mjs +380 (the one-checkout
+    // refusal and the index record after start), schema-migrations.mjs +285 (the story-index family) and
+    // command-registry.mjs +22. story-index.mjs loads lazily. No new file.
+    assert.ok(closure.bytes <= 9_100_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

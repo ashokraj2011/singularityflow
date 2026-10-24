@@ -56,6 +56,12 @@ export const ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS = new Set([
   'workspace', 'session', 'repositories', 'plugin', 'goal', 'journal', 'push', 'local'
 ]);
 
+/** Commands with a Work ID operand; story-routing.mjs says where it sits. */
+export const STORY_OPERAND_COMMANDS = new Set(['status', 'nextsteps', 'report', 'approvals', 'progress', 'snapshot',
+  'recover', 'doctor', 'reopen', 'cancel', 'sync', 'resume', 'return', 'watch', 'agent', 'specify', 'plan', 'implement',
+  'verify', 'converge', 'receipt', 'change', 'tokens', 'context', 'impact', 'documents', 'state', 'ledger', 'delivery',
+  'pr', 'story', 'decisions', 'decision']);
+
 /**
  * Capability-map operations that address an organisation lead by URL rather than a checkout.
  *
@@ -833,6 +839,17 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
       }
     }
   });
+  // A command naming another Story runs in its checkout, or refuses (story-routing.mjs).
+  if (root && !boundRoot && !routingExcluded && !automaticIntake
+      && (options['work-id'] !== undefined || positionals.length > 1 && STORY_OPERAND_COMMANDS.has(definition.name))) {
+    const routed = await withCommandTiming(timer, async () => (await import('./story-routing.mjs'))
+      .routeNamedStory({ command: definition.name, positionals, options, argv: effectiveArgv, root }));
+    if (routed) {
+      process.chdir(root = routed.root);
+      globalThis.__SFLOW_STORY_ROUTE = routed.route;
+      if (!optionBoolean(options, 'json')) process.stderr.write(`${routed.route.workId} → ${root}\n`);
+    }
+  }
   if (!root && !routingExcluded) {
     throw new SingularityFlowError(
       "Run Singularity Flow from inside a Git repository, or select one with 'singularity-flow workspace use <WORKSPACE>'.",
@@ -1035,6 +1052,9 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
         && !LOCAL_STATE_RESET_COMMANDS.has(definition.name)) {
       await import('./history-index.mjs').then(({ refreshHistoryIndex }) => refreshHistoryIndex(root)).catch(() => {});
       timer.stage('history-index');
+      // The Story index learns this checkout's phase and status (story-index.mjs).
+      await import('./story-index.mjs').then(({ recordStoryCheckout }) => recordStoryCheckout(root)).catch(() => {});
+      timer.stage('story-index');
     }
     // Even legacy handlers that print directly instead of using the narration boundary have now
     // produced their terminal result. Record that as feedback before sealing the timing event so

@@ -25,6 +25,8 @@ import path from 'node:path';
 export const MACHINE_STATE_LOCATIONS = Object.freeze({
   SINGULARITY_FLOW_WORKSPACE_REGISTRY: 'workspaces.json',
   SINGULARITY_FLOW_ACTIVE_WORKSPACE: 'active-workspace.json',
+  // The Story index (src/story-index.mjs) follows the workspace registry when this is unset.
+  SINGULARITY_FLOW_STORY_INDEX: 'story-index.json',
   SINGULARITY_FLOW_LEAD_REGISTRY: 'leads.json',
   SINGULARITY_FLOW_REPOSITORY_CHECK_PREFERENCES: 'repository-checks.json',
   SINGULARITY_FLOW_COPILOT_MODE_FILE: 'copilot-mode.json',

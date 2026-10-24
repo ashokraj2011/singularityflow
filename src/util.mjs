@@ -57,6 +57,14 @@ const TEMPORARY_TREE_RETRYABLE_ERRORS = new Set([
   'EACCES', 'EBUSY', 'EMFILE', 'ENFILE', 'ENOTEMPTY', 'EPERM'
 ]);
 
+/** Path identity by the host's rules: Git for Windows varies drive and component case. Never raw strings. */
+export function samePlatformPath(left, right, platform = process.platform) {
+  if (left == null || right == null) return false;
+  const api = platform === 'win32' ? path.win32 : path;
+  const key = (value) => (platform === 'win32' ? api.resolve(String(value)).toLocaleLowerCase('en-US') : api.resolve(String(value)));
+  return key(left) === key(right);
+}
+
 /**
  * Validate one exact component of a durable repository-relative path.
  *

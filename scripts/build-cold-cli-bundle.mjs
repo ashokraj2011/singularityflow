@@ -36,7 +36,9 @@ const FAMILIES = Object.freeze([
     // dynamic ownership out of every hook/output helper's static closure and its existing ceiling.
     'workspace-membership.mjs', 'workspace-manifest.mjs', 'story-tree-read.mjs', 'decision-list-facts.mjs',
     'commands/intake-entry.mjs', 'commands/snapshot.mjs', 'commands/phase.mjs', 'phase-entry.mjs', 'agent-output.mjs', 'agent-catalog-presentation.mjs',
-    'commands/logs.mjs', 'commands/help.mjs', 'commands/explain.mjs']],
+    'commands/logs.mjs', 'commands/help.mjs', 'commands/explain.mjs',
+    // A command naming a Story finds its checkout here; that must not load the compatibility handler.
+    'story-routing.mjs', 'story-index.mjs', 'commands/workspace-stories.mjs']],
   // Claim catalog definitions before authoring closures. Leaving these dynamic roots unassigned
   // put every list/show in compatibility, importing the entire administration/model dispatcher.
   // Keep the broad reads slot too: making Home/Inbox fall into compatibility would shift the cost.

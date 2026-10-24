@@ -964,6 +964,7 @@ Every public operation is classified before its implementation module is importe
 | workspace.restore | mutation | never | — | — |
 | workspace.retention | mutation | never | — | — |
 | workspace.status | read | never | — | — |
+| workspace.stories | read | never | — | — |
 | workspace.sync | mutation | never | — | — |
 | workspace.update | mutation | never | — | — |
 | workspace.use | mutation | never | — | — |

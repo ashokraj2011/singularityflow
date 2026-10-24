@@ -49,6 +49,7 @@ export async function withCliJsonOutput(json, execute, { forAgent = false, kind 
     return true;
   };
   let value;
+  globalThis.__SFLOW_STORY_ROUTE = null;
   try {
     value = await execute();
     if (overflow) throw Object.assign(new Error('CLI JSON output exceeded the 64 MiB bound. Inspect the command journal before retrying; effects are not inferred from an output failure.'), {
@@ -67,13 +68,19 @@ export async function withCliJsonOutput(json, execute, { forAgent = false, kind 
     const { utilityResult } = await import('./utility-entry.mjs');
     output = JSON.stringify(utilityResult(utilityEntry, JSON.parse(output)), null, 2) + '\n';
   }
+  // A command that ran in another Story's checkout says where (story-routing.mjs).
+  const route = globalThis.__SFLOW_STORY_ROUTE;
+  if (route) try {
+    const parsed = JSON.parse(output);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) output = `${JSON.stringify({ ...parsed, storyRoute: route }, null, 2)}\n`;
+  } catch { /* Not one JSON object: written unchanged. */ }
   const serializedAt = timed ? performance.now() : 0;
   const { agentOutputGoverned, boundedAgentOutput } = forAgent ? await import('./agent-output.mjs') : {};
   const compact = forAgent && agentOutputGoverned();
   const rendered = compact ? await boundedAgentOutput(output) : output;
   const renderedAt = timed ? performance.now() : 0;
   if (compact) write.call(stream, rendered);
-  else if (utilityEntry) write.call(stream, output);
+  else if (utilityEntry || route) write.call(stream, output);
   else for (const chunk of chunks) write.call(stream, chunk);
   if (timed) process.stderr.write('@@sflow-output/v1 ' + JSON.stringify({
     serializeMs: serializedAt - outputStarted, renderMs: renderedAt - serializedAt,

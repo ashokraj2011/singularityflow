@@ -78,7 +78,12 @@ export async function openLocalSessionCommand(positionals, options) {
     `No ready repository is available for local Story '${workId}'. Select its exact workspace and repository, or use session attach to materialize it.`,
     { code: 'SESSION_LOCAL_REPOSITORY_UNAVAILABLE' }
   );
-  const root = resolved.workspaceContext?.canonicalRepositoryPath ?? resolved.root;
+  let root = resolved.workspaceContext?.canonicalRepositoryPath ?? resolved.root;
+  // The Story's one checkout may be in another clone of this workspace: open that one, and refuse
+  // another workspace's (story-index.mjs). Git's worktree list cannot see across clones.
+  const indexed = await (await import('../story-index.mjs')).storyCheckoutForOpen(workId, {
+    root, workspaceId: resolved.workspaceContext?.workspaceId ?? null, operation: 'session open-local' });
+  if (indexed) root = indexed.entry.checkoutPath;
   // Every Story checkout below reads this repository's objects; offloaded ones block with no limit.
   const unreadable = await (await import('./session.mjs')).unreadableGitStorage(root);
   if (unreadable) throw (await import('./shared/session-storage-refusal.mjs')).offloadedRepositoryRefusal(
@@ -88,7 +93,8 @@ export async function openLocalSessionCommand(positionals, options) {
   const matches = [];
   // Verifying a Story is the expensive step, and only a checkout holding this Story's state can
   // match. Try those first; any other layout falls back to verifying every registered checkout.
-  const registeredWorktrees = listStoryWorktrees(root);
+  const registeredWorktrees = indexed ? [{ repositoryPath: indexed.entry.checkoutPath, branch: indexed.entry.branch }]
+    : listStoryWorktrees(root);
   const holding = registeredWorktrees.filter((entry) => existsSync(path.join(entry.repositoryPath, 'singularity/work-items', workId, 'workflow.json')));
   for (const registered of holding.length ? holding : registeredWorktrees) {
     const checkout = registered.repositoryPath;
@@ -118,7 +124,7 @@ export async function openLocalSessionCommand(positionals, options) {
   let { accepted } = matches[0];
   // A repository-local caller may win resolution even while the machine's selected workspace
   // points at another repository. Refuse that ambiguity before changing phase session metadata.
-  if (!workspaceReference) {
+  if (!workspaceReference && !indexed) {
     const active = await readActiveWorkspaceContext(
       activeWorkspaceFile(), workspaceRegistryFile(), { refresh: false }
     );
@@ -159,6 +165,7 @@ export async function openLocalSessionCommand(positionals, options) {
       { code: 'SESSION_LOCAL_WORKSPACE_MISMATCH' }
     );
   }
+  await import('../story-index.mjs').then((index) => index.recordStoryCheckout(checkout, { source: 'session-open' })).catch(() => {});
   const result = {
     ready: true, localOnly: true,
     remoteSynchronized: ['current', 'fast-forwarded', 'ahead'].includes(remoteSync.status), remoteSync,

@@ -206,13 +206,12 @@ async function deterministicImpact({ arguments: args = {}, subject = null, root 
     owners = ownersText == null ? null : ownersOf(ownersText, paths);
   }
   if (owners == null) gaps.push('ownership');
-  const { buildRelation, readBuilds } = await import('../build-provenance.mjs');
+  const { buildRelation, gitAncestry, readBuilds } = await import('../build-provenance.mjs');
   const read = await readBuilds(root, { repositoryId: context.repositoryId ?? null, env, now, runs });
   let builds = { provider: read.provider, associations: [] };
   if (read.gap) gaps.push('build-provenance');
   else if (revisions.target && revisions.target !== 'worktree') {
-    const { typedMergeBase } = await import('../../git-access.mjs');
-    const isAncestor = (older, newer) => typedMergeBase(root, older, newer) === older;
+    const isAncestor = await gitAncestry(root);
     builds = { provider: read.provider, associations: read.builds.slice(0, 20).map((build) => ({
       buildId: build.buildId, pipeline: build.pipeline, sourceCommit: build.sourceCommit, result: build.result,
       providerReference: build.providerReference, ...buildRelation(build, revisions.target, { isAncestor })

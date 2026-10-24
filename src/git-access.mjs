@@ -1359,13 +1359,23 @@ export function typedFileText(root, revision, relative, { maxBytes = 256 * 1024 
 }
 
 /**
- * The first-parent commits after `good` up to and including `bad`, oldest first. The range a
- * bisection walks; null when `good` is not an ancestor of `bad`, which makes the range meaningless.
+ * The first-parent commits after `good` up to and including `bad`, oldest first: the range a
+ * bisection walks. Null when `good` is not an ancestor of `bad`, which makes the range meaningless.
+ *
+ * The range is exact only when both flags say so. `truncated`: more than `max` commits, of which
+ * `commits` holds the newest — read newest first one past the cap, because Git applies
+ * `--max-count` before `--reverse`, and a capped reverse walk silently kept the newest and lost the
+ * ones next to `good`. `firstParentChain`: `good` is on `bad`'s first-parent chain, i.e. the oldest
+ * commit's first parent is `good`; a `good` reached only through a merge's second parent leaves the
+ * walk running past it toward the root.
  */
 export function typedFirstParentRange(root, good, bad, { max = 4096 } = {}) {
   const ancestor = typedGit(root, ['merge-base', '--is-ancestor', good, bad]);
   if (ancestor.status !== 0) return null;
-  const output = typedOutput(typedGit(root, ['rev-list', '--first-parent', '--reverse', `--max-count=${max}`, `${good}..${bad}`, '--']),
+  const output = typedOutput(typedGit(root, ['rev-list', '--first-parent', '--parents', `--max-count=${max + 1}`, `${good}..${bad}`, '--']),
     'The bisection range');
-  return output.split('\n').filter(Boolean);
+  const rows = output.split('\n').filter(Boolean).map((line) => line.split(' '));
+  const truncated = rows.length > max;
+  const kept = rows.slice(0, max).reverse();
+  return { commits: kept.map(([commit]) => commit), truncated, firstParentChain: !truncated && kept.length > 0 && kept[0][1] === good };
 }

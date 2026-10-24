@@ -341,6 +341,8 @@ export const RESULT_MESSAGES = Object.freeze({
   'work.no-governed-record-created': M('No work was created'),
   'work.started': M('{work} was started', 'Its branch, lifecycle and pinned configuration were created and published.'),
   'work.start-refused': M('Starting did not go ahead ({code})', 'Nothing was created.'),
+  'work.start-outcome-unknown': M('Starting {work} stopped before it reported', 'Its branch, work record or publication may exist. Check with sflow status --work-id {work}; sflow sync {work} finishes a publication.'),
+  'work.tracker-only-read': M('The tracker was only read'),
   'work.start-recovery-record-kept': M('The publication record is kept', 'Your work is committed locally; finishing the publication completes it.'),
   'work.intake-recorded': M('Ready to review exactly what will be created', 'Nothing is created until you confirm the exact record.'),
   'workspace.selection-changed': M('You are now in {workspace}'),

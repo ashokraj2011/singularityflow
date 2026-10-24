@@ -26,6 +26,31 @@ import { configuredTestCommands } from './problem-investigate.mjs';
 export { configuredTestCommands };
 
 const STEP_TIMEOUT_MS = 10 * 60 * 1000;
+/** The most first-parent commits one bisection walks. */
+const MAX_RANGE_COMMITS = 4096;
+
+/**
+ * The walked range, exact or refused. Past the cap, or with the known-good commit off the known-bad
+ * one's first-parent chain, the range does not start at the known-good commit's child, and a
+ * boundary "verified" in it would be drawn between commits that are not neighbours.
+ */
+function exactRange(typedFirstParentRange, root, good, bad) {
+  const range = typedFirstParentRange(root, good, bad, { max: MAX_RANGE_COMMITS });
+  if (!range?.commits.length) {
+    throw new SingularityFlowError('The known-good commit is not an ancestor of the known-bad one.', { code: 'BISECT_RANGE_INVALID' });
+  }
+  if (range.truncated) {
+    throw new SingularityFlowError(`More than ${MAX_RANGE_COMMITS} first-parent commits separate the endpoints; choose a known-good commit closer to the known-bad one.`, {
+      code: 'BISECT_RANGE_TOO_LONG', details: { maximum: MAX_RANGE_COMMITS }
+    });
+  }
+  if (!range.firstParentChain) {
+    throw new SingularityFlowError('The known-good commit is reached only through a merge, not along the known-bad commit\'s first-parent history; choose one on that history, such as the merge\'s first parent.', {
+      code: 'BISECT_RANGE_NOT_FIRST_PARENT'
+    });
+  }
+  return range.commits;
+}
 
 export async function investigationBisectPlan({ arguments: args = {}, root = null } = {}) {
   if (!root) throw new SingularityFlowError('Bisection needs the repository it runs against.', { code: 'BISECT_NO_ROOT' });
@@ -42,10 +67,7 @@ export async function investigationBisectPlan({ arguments: args = {}, root = nul
   const good = typedRevision(root, args.good);
   const bad = typedRevision(root, args.bad ?? 'HEAD');
   if (!good || !bad) throw new SingularityFlowError('Both bisection endpoints must be exact revisions here.', { code: 'BISECT_REVISION_UNRESOLVED' });
-  const range = typedFirstParentRange(root, good, bad);
-  if (!range?.length) {
-    throw new SingularityFlowError('The known-good commit is not an ancestor of the known-bad one.', { code: 'BISECT_RANGE_INVALID' });
-  }
+  const range = exactRange(typedFirstParentRange, root, good, bad);
   const needed = Math.ceil(Math.log2(range.length + 1)) + 4;
   return planDescriptor({
     effects: { filesChanged: true },
@@ -74,9 +96,6 @@ export async function investigationBisectExecute({ plan, root }) {
     import('../../git.mjs'), import('../../quality-command-runner.mjs'), import('../../git-access.mjs')
   ]);
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-bisect-'));
-  if (path.resolve(base).startsWith(`${path.resolve(root)}${path.sep}`)) {
-    throw new SingularityFlowError('A disposable worktree must be outside the repository.', { code: 'BISECT_WORKTREE_UNSAFE' });
-  }
   const observations = [];
   let steps = 0;
   const testAt = async (commit) => {
@@ -100,7 +119,12 @@ export async function investigationBisectExecute({ plan, root }) {
   };
   let verdict;
   try {
-    const range = typedFirstParentRange(root, preview.good.commit, preview.bad.commit) ?? [];
+    // Inside the try, so the directory just made is removed by the same `finally` as every other run.
+    if (path.resolve(base).startsWith(`${path.resolve(root)}${path.sep}`)) {
+      throw new SingularityFlowError('A disposable worktree must be outside the repository.', { code: 'BISECT_WORKTREE_UNSAFE' });
+    }
+    // Checked again here, before any commit is tested: a plan made any other way gets no verdict either.
+    const range = exactRange(typedFirstParentRange, root, preview.good.commit, preview.bad.commit);
     const goodPasses = await testAt(preview.good.commit);
     const badFails = !(await testAt(preview.bad.commit));
     if (!goodPasses || !badFails) {

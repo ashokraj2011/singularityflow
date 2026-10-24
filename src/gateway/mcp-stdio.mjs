@@ -12,13 +12,13 @@
  * `[INT:CON-133]` `[INT:REQ-130]`. The adapter contains no lifecycle logic `[INT:CON-033]`: every
  * answer is the kernel's, serialized; MCP configuration carries no credentials `[INT:CON-132]`.
  */
-import { createInterface } from 'node:readline';
-
 import { noEffects, preservedAll, sflowResult } from './result.mjs';
 import { SFLOW_TOOLS } from './tools.mjs';
 
 export const MCP_PROTOCOL_VERSION = '2025-06-18';
 const ELICITATION_TIMEOUT_MS = 10 * 60 * 1000;
+/** The longest line a client may send; tool arguments are schema-bounded far below it. */
+export const MCP_MAX_LINE_BYTES = 4 * 1024 * 1024;
 
 /** What an MCP client's `initialize` declares, as the kernel's host capability record. */
 export function negotiatedCapabilities(params = {}) {
@@ -43,14 +43,9 @@ function refusal(code, slots = {}) {
   });
 }
 
-/** The words a person sees before confirming: the exact preview, and what it will change. */
+/** The words a person sees before confirming: the kernel's confirmation text, effects first. */
 function confirmationMessage(review) {
-  const preview = review.review?.preview ?? {};
-  const changes = Object.entries(review.effects).filter(([, value]) => value).map(([key]) => key);
-  return [`Confirm: ${String(preview.action ?? review.operationId).replaceAll('-', ' ')}`,
-    ...Object.entries(preview).filter(([key]) => key !== 'action')
-      .map(([key, value]) => `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`),
-    `This will change: ${changes.length ? changes.join(', ') : 'nothing'}`].join('\n').slice(0, 4000);
+  return `${review.confirmationText.title}\n${review.confirmationText.detail}`;
 }
 
 /**
@@ -136,15 +131,75 @@ export function serveMcp({ input, output, createKernel, serverInfo, log = () => 
     }
   }
 
-  const lines = createInterface({ input, crlfDelay: Infinity });
   const queue = [];
-  lines.on('line', (line) => {
+  const invalid = (id, message) => send({ id, error: { code: -32600, message } });
+  /**
+   * One line, judged before anything reads a field of it. Whatever a client writes, the answer is a
+   * JSON-RPC error and the server keeps serving: a `null` here used to throw in this listener and
+   * take the process down, and a batch got no reply at all.
+   */
+  function receive(line) {
     if (!line.trim()) return;
     let message;
     try { message = JSON.parse(line); } catch { send({ id: null, error: { code: -32700, message: 'Parse error' } }); return; }
-    // Responses to our own requests must not wait behind the call that is waiting for them.
-    if (message.id !== undefined && !message.method) { handle(message); return; }
+    // The protocol version served here removed JSON-RPC batching, so a batch is one invalid request.
+    if (Array.isArray(message)) { invalid(null, `Batches are not supported in MCP ${MCP_PROTOCOL_VERSION}; send one message per line.`); return; }
+    if (!message || typeof message !== 'object') { invalid(null, 'A message must be a JSON-RPC object.'); return; }
+    const { id } = message;
+    if (id !== undefined && id !== null && typeof id !== 'string' && !Number.isFinite(id)) { invalid(null, 'A request id is a string or a number.'); return; }
+    const answer = id === undefined ? null : id;
+    if (message.jsonrpc !== '2.0') { invalid(answer, 'A message must declare jsonrpc "2.0".'); return; }
+    if (message.method === undefined && id !== undefined) {
+      // A response: to our own request, which must not wait behind the call waiting for it, or to
+      // nothing we asked, which is dropped — answering a response would start a loop.
+      if (pending.has(id)) handle(message);
+      return;
+    }
+    if (typeof message.method !== 'string') { invalid(answer, 'A request names its method as a string.'); return; }
+    if (message.params !== undefined && (message.params === null || typeof message.params !== 'object' || Array.isArray(message.params))) {
+      invalid(answer, 'Request params are an object.');
+      return;
+    }
+    if (message.method === 'tools/call' && message.params?.arguments !== undefined
+        && (message.params.arguments === null || typeof message.params.arguments !== 'object' || Array.isArray(message.params.arguments))) {
+      send({ id: answer, error: { code: -32602, message: 'Tool arguments are an object.' } });
+      return;
+    }
     queue.push(handle(message));
+  }
+
+  return new Promise((resolve) => {
+    // Lines are split here rather than by readline, which buffers a line of any length: past the cap
+    // the rest of that line is discarded as it arrives, and the line is refused as a whole.
+    let parts = [];
+    let size = 0;
+    let dropping = false;
+    const finish = (piece) => {
+      if (dropping || size + piece.length > MCP_MAX_LINE_BYTES) invalid(null, `Message too large: one line holds at most ${MCP_MAX_LINE_BYTES} bytes.`);
+      else receive(Buffer.concat([...parts, piece]).toString('utf8').replace(/\r$/u, ''));
+      parts = []; size = 0; dropping = false;
+    };
+    input.on('data', (chunk) => {
+      const data = typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : chunk;
+      let start = 0;
+      for (let at = data.indexOf(10); at !== -1; at = data.indexOf(10, start)) {
+        finish(data.subarray(start, at));
+        start = at + 1;
+      }
+      const rest = data.subarray(start);
+      if (dropping || !rest.length) return;
+      if (size + rest.length > MCP_MAX_LINE_BYTES) { dropping = true; parts = []; size = 0; return; }
+      parts.push(rest);
+      size += rest.length;
+    });
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      if (dropping || size) finish(Buffer.alloc(0));
+      Promise.allSettled(queue).then(resolve);
+    };
+    input.on('end', close);
+    input.on('close', close);
   });
-  return new Promise((resolve) => lines.on('close', () => Promise.allSettled(queue).then(resolve)));
 }

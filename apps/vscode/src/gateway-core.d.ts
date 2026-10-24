@@ -74,6 +74,8 @@ interface PlanReview {
   readonly effects: Readonly<Record<string, boolean>>;
   readonly expiresAt: number;
   readonly review: { readonly digest: string; readonly preview: Readonly<Record<string, unknown>> } | null;
+  /** The kernel's one confirmation text: effects first, each long field cut on its own. */
+  readonly confirmationText: { readonly title: string; readonly detail: string };
 }
 
 /**

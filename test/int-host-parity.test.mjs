@@ -13,11 +13,13 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
+import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
 import { createHostGateway } from '../src/gateway/host.mjs';
 import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
 import { readGatewayEvents } from '../src/gateway/audit.mjs';
+import { serveMcp } from '../src/gateway/mcp-stdio.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const runtime = fileURLToPath(new URL('../apps/vscode/dist/gateway-runtime.cjs', import.meta.url));
@@ -218,4 +220,74 @@ test('audit-is-useful-without-private-reasoning', { timeout: 300_000 }, async (t
   // The local key behind the keyed hash is private to this machine.
   const keyFile = path.join(path.dirname(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE), 'gateway-intent.key');
   assert.ok((await readFile(keyFile, 'utf8')).trim().length > 20);
+});
+
+test('the stdio server answers malformed, batched and oversized input with JSON-RPC errors and keeps serving', async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const replies = [];
+  let buffered = '';
+  output.on('data', (chunk) => {
+    buffered += chunk;
+    let at;
+    while ((at = buffered.indexOf('\n')) >= 0) { replies.push(JSON.parse(buffered.slice(0, at))); buffered = buffered.slice(at + 1); }
+  });
+  const served = serveMcp({ input, output, serverInfo: { name: 'sflow-test', version: '0' }, createKernel: async () => ({}) });
+  const lines = [
+    'null', '42', '"words"', 'true', '[]',
+    JSON.stringify([{ jsonrpc: '2.0', id: 1, method: 'ping' }]),
+    JSON.stringify({ jsonrpc: '2.0', id: { nested: true }, method: 'ping' }),
+    JSON.stringify({ jsonrpc: '2.0', id: 3, method: 5 }),
+    JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: null }),
+    JSON.stringify({ jsonrpc: '2.0', id: 5, method: 'ping', params: 'loose' }),
+    // A response to nothing this server asked is dropped; answering a response would start a loop.
+    JSON.stringify({ jsonrpc: '2.0', id: 'sflow-999', result: {} }),
+    '{"jsonrpc":"2.0","id":6,',
+    // One line far past the cap is refused as a whole, and the line after it still parses.
+    `{"jsonrpc":"2.0","id":7,"method":"ping","params":{"pad":"${'x'.repeat(5 * 1024 * 1024)}"}}`,
+    JSON.stringify({ jsonrpc: '2.0', id: 8, method: 'ping' })
+  ];
+  for (const line of lines) input.write(`${line}\r\n`);
+  input.end(JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'ping' }));
+  await served;
+  const codes = replies.map((reply) => [reply.id, reply.error?.code ?? 'ok']);
+  assert.deepEqual(codes, [
+    [null, -32600], [null, -32600], [null, -32600], [null, -32600], [null, -32600], [null, -32600], [null, -32600],
+    [3, -32600], [4, -32600], [5, -32600], [null, -32700], [null, -32600], [8, 'ok'], [9, 'ok']
+  ]);
+  assert.match(replies[5].error.message, /batch/i);
+  assert.match(replies[11].error.message, /too large/i);
+  assert.ok(replies.every((reply) => reply.jsonrpc === '2.0'));
+});
+
+test('the confirmation an MCP client shows is the kernel\'s confirmation text, effects first', async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const sent = [];
+  const reviewed = {
+    planId: 'pln_1', planHash: 'h', operationId: 'watch.create', confirmation: 'host-confirm', effects: { contextChanged: true },
+    externalTargets: [], review: { digest: 'sha256:x', preview: { action: 'create-watch' } },
+    confirmationText: { title: 'Confirm: create watch', detail: 'This will change: contextChanged\nsubject.id: WRK-1' }
+  };
+  const kernel = { planReview: () => reviewed, run: async () => { throw new Error('a declined confirmation ran the plan'); } };
+  let buffered = '';
+  output.on('data', (chunk) => {
+    buffered += chunk;
+    let at;
+    while ((at = buffered.indexOf('\n')) >= 0) {
+      const message = JSON.parse(buffered.slice(0, at));
+      buffered = buffered.slice(at + 1);
+      sent.push(message);
+      if (message.method === 'elicitation/create') input.write(`${JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { action: 'decline' } })}\n`);
+      // A client waits for initialize's answer before its first call.
+      if (message.id === 1) input.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'sflow_run', arguments: { planId: 'pln_1' } } })}\n`);
+      if (message.id === 2) input.end();
+    }
+  });
+  const served = serveMcp({ input, output, serverInfo: { name: 'sflow-test', version: '0' }, createKernel: async () => kernel });
+  input.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { capabilities: { elicitation: {} } } })}\n`);
+  await served;
+  const elicitation = sent.find((message) => message.method === 'elicitation/create');
+  assert.equal(elicitation.params.message, 'Confirm: create watch\nThis will change: contextChanged\nsubject.id: WRK-1');
+  assert.equal(sent.find((message) => message.id === 2).result.structuredContent.why[0].code, 'gateway.confirmation-declined');
 });

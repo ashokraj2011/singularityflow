@@ -593,18 +593,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   async function confirmPlanOutOfBand(route: GatewayRepositoryContext, review: {
     planId: string; planHash: string; confirmation: string; effects: Readonly<Record<string, boolean>>;
     review: { digest: string; preview: Readonly<Record<string, unknown>> } | null;
+    confirmationText: { title: string; detail: string };
   }) {
     const { kernel } = gatewaySession(route);
     const preview = (review.review?.preview ?? {}) as Record<string, any>;
-    const changes = Object.entries(review.effects).filter(([, value]) => value).map(([key]) => key);
     const subject = String(preview.subject?.id ?? preview.workspace?.id ?? preview.watchId ?? '');
-    const detail = [
-      ...Object.entries(preview).filter(([key]) => key !== 'action')
-        .map(([key, value]) => `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`),
-      '', `This will change: ${changes.length ? changes.join(', ') : 'nothing'}`
-    ].join('\n').slice(0, 4000);
+    // The kernel's text, as the MCP client shows it: what will change first, long fields cut alone.
     const choice = await vscode.window.showWarningMessage(
-      `Confirm: ${String(preview.action ?? review.planId).replaceAll('-', ' ')}`, { modal: true, detail }, 'Confirm'
+      review.confirmationText.title, { modal: true, detail: review.confirmationText.detail }, 'Confirm'
     );
     if (choice !== 'Confirm') return null;
     if (review.confirmation === 'exact-confirm') {

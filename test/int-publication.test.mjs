@@ -101,3 +101,39 @@ test('gateway-preserves-publication-recovery', { timeout: 300_000 }, async (t) =
   }
   assert.equal(started.result.effects.publicationCreated, true);
 });
+
+test('the start route runs without blocking the server, and a start killed on timeout is an unknown outcome', async (t) => {
+  const { runSingularityFlowCli } = await import('../src/gateway/planners/executors.mjs');
+  const { spawn } = await import('node:child_process');
+  // The real spawn, given a child that outlives the timeout in place of the CLI, so the kill is real too.
+  const slow = (command, _args, options) => spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60_000)'], options);
+  let ticks = 0;
+  const pulse = setInterval(() => { ticks += 1; }, 20);
+  t.after(() => clearInterval(pulse));
+  const started = Date.now();
+  const killed = await runSingularityFlowCli(['start', 'WRK-9', '--json'], { cwd: os.tmpdir(), timeoutMs: 600, spawnCommand: slow });
+  clearInterval(pulse);
+  assert.deepEqual([killed.timedOut, killed.json], [true, null]);
+  assert.ok(Date.now() - started < 30_000, 'the timed-out child was not stopped');
+  // The event loop kept turning while the child ran: pings, cancellations and elicitation replies are answered.
+  assert.ok(ticks >= 10, `only ${ticks} timer ticks ran while the start route waited`);
+  const answered = await runSingularityFlowCli(['status'], { cwd: os.tmpdir(), spawnCommand: (command, _args, options) =>
+    spawn(process.execPath, ['-e', 'process.stdout.write(JSON.stringify({ resultType: "command-result" }))'], options) });
+  assert.deepEqual([answered.status, answered.timedOut, answered.json], [0, false, { resultType: 'command-result' }]);
+
+  // The executor does not say nothing was created when it cannot know: it says what may exist and how to check.
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-int-start-timeout-')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { workStartExecutor } = await import('../src/gateway/planners/work-start.mjs');
+  const preview = {
+    action: 'start-work', subject: { kind: 'story', id: 'WRK-9', title: 'Slow start' }, workspace: null, repository: root,
+    workProfile: { workType: 'feature', label: 'Feature', phases: ['design'] }, branch: { name: 'WRK-9', base: 'main', isolatedWorktree: true },
+    source: { tracker: 'none', description: 'It takes too long.', acceptanceCriteria: null }, unchanged: ['other Stories'], externalReferences: []
+  };
+  const unknown = await workStartExecutor({ runStart: async () => killed })({ plan: { review: { preview } }, root });
+  assert.equal(unknown.outcome.status, 'failed');
+  assert.equal(unknown.why[0].code, 'work.start-outcome-unknown');
+  assert.equal(unknown.preserved.some((entry) => entry.code === 'work.no-governed-record-created'), false);
+  assert.deepEqual(unknown.data.check, ['sflow status --work-id WRK-9', 'sflow sync WRK-9']);
+  assert.ok(unknown.data.mayHaveCreated.includes('the Story branch WRK-9'));
+});

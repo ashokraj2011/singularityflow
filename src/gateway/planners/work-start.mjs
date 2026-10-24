@@ -112,19 +112,24 @@ export async function workStartPlan({ arguments: args = {}, root = null, context
  * Every value comes from the signed preview, so a host executor that builds its command here starts
  * exactly what was confirmed. The branch is passed explicitly because the preview already rendered
  * the configured naming rule; letting `start` render it again is a second answer to one question.
+ *
+ * Every value travels inside its own option as `--name=value`. Passed as the next argv item, a value
+ * that starts with `--` is read as a new option, so a title of `--from-branch=evil` was shown as a
+ * title and started as a base branch. Joined, a value can only ever be that option's.
  */
 export function workStartArguments(preview) {
   const source = preview.source;
+  const option = (name, value) => `--${name}=${value}`;
   return [
     'start', preview.subject.id, '--json', '--fetch',
     ...(source.tracker === 'jira' ? ['--jira'] : []),
-    ...(source.tracker === 'github' ? ['--github', source.key] : []),
-    ...(source.tracker === 'none' ? ['--title', preview.subject.title, '--description', source.description] : []),
-    ...(source.tracker === 'none' && source.acceptanceCriteria ? ['--acceptance-criteria', source.acceptanceCriteria] : []),
-    '--work-type', preview.workProfile.workType,
+    ...(source.tracker === 'github' ? [option('github', source.key)] : []),
+    ...(source.tracker === 'none' ? [option('title', preview.subject.title), option('description', source.description)] : []),
+    ...(source.tracker === 'none' && source.acceptanceCriteria ? [option('acceptance-criteria', source.acceptanceCriteria)] : []),
+    option('work-type', preview.workProfile.workType),
     '--isolated-worktree',
-    '--ref', preview.branch.name,
-    ...(preview.branch.base ? ['--from-branch', preview.branch.base] : [])
+    option('ref', preview.branch.name),
+    ...(preview.branch.base ? [option('from-branch', preview.branch.base)] : [])
   ];
 }
 
@@ -200,6 +205,37 @@ function publicationRecoveryResult(workId, pending, { before = false } = {}) {
   });
 }
 
+/**
+ * A start stopped before it reported — killed on its timeout, or by a signal. `[INT:CON-115]`
+ *
+ * Nothing says how far it got: the branch, the work record, the worktree and the publication may
+ * each exist or not. So this is never "no work was created"; it names what may exist, declares the
+ * previewed effects as possible, and points at the two commands that tell which.
+ */
+function startOutcomeUnknown(workId, preview) {
+  const check = [`sflow status --work-id ${workId}`, `sflow sync ${workId}`];
+  return sflowResult({
+    kind: 'read',
+    operation: { id: 'work.start', classification: 'mutation' },
+    subject: { kind: 'story', id: workId },
+    outcome: { status: 'failed', messageId: 'gateway.refused', slots: { work: workId } },
+    effects: effects({ stateChanged: true, filesChanged: true, gitRefsChanged: true, publicationCreated: true }),
+    why: [{ code: 'work.start-outcome-unknown', source: 'lifecycle', slots: { work: workId } }],
+    preserved: [{ code: 'work.tracker-only-read', source: 'lifecycle', scope: 'externalSystemsChanged' }],
+    next: [plannerNavigation({
+      handle: `unknown:${workId}`, id: 'start-unknown:check', label: `Check what exists for ${workId}`, rank: 0, kind: 'read',
+      reasonCode: 'work.start-outcome-unknown', confirmation: 'none', interaction: 'recovery', emphasis: 'primary', executable: false,
+      fallback: { label: 'Check it in the terminal', command: check[0] }
+    }, 'work.continue', { workId })],
+    data: {
+      workId,
+      outcome: 'unknown',
+      mayHaveCreated: [`the Story branch ${preview.branch.name}`, `the work record for ${workId}`, 'its isolated worktree', 'its publication to the remote'],
+      check
+    }
+  });
+}
+
 /** v1 `start` effects, in the v2 vocabulary: a branch is created whenever state is. */
 function startEffects(reported = {}) {
   return effects({
@@ -260,6 +296,7 @@ export function workStartExecutor({ runStart }) {
     }
     const pending = await pendingPublication(root, workId);
     if (pending) return publicationRecoveryResult(workId, pending);
+    if (ran?.timedOut || ran?.signal) return startOutcomeUnknown(workId, preview);
     // A refusal from `start` is a refusal here; it declares no effects in its own contract too.
     const code = String(reported?.error?.code ?? 'WORK_START_FAILED').slice(0, 128);
     return sflowResult({

@@ -21,9 +21,31 @@ export function gatewayMutationExecutors({ runStart = null } = {}) {
   }));
 }
 
+/**
+ * This package's CLI as a bounded child: exit status and parsed JSON. `[INT:CON-066]`
+ *
+ * Asynchronous on purpose. The stdio gateway runs `start --fetch` through here, and a synchronous
+ * child held its event loop for as long as the start took, so pings, cancellations and the replies
+ * to its own confirmation requests went unanswered. A child still running at `timeoutMs` is stopped
+ * with its process tree, and `timedOut` says so: what it had done by then is not known. It runs
+ * through the asynchronous quality-command runner, the reviewed child-process path, and lives
+ * beside its one caller rather than in util.mjs, which every command loads eagerly.
+ */
+export async function runSingularityFlowCli(args, { cwd, env = process.env, timeoutMs = 600_000, spawnCommand = null } = {}) {
+  const [{ runQualityCommand }, { PACKAGE_ROOT }, { default: path }] = await Promise.all([
+    import('../../quality-command-runner.mjs'), import('../../package-root.mjs'), import('node:path')
+  ]);
+  const ran = await runQualityCommand(process.execPath, [path.join(PACKAGE_ROOT, 'bin', 'singularity-flow.mjs'), ...args], {
+    cwd, env, timeoutMs, captureBytes: 1 << 26, ...(spawnCommand ? { spawnCommand } : {})
+  });
+  const timedOut = Boolean(ran.timedOut);
+  let json = null;
+  if (!timedOut && !ran.stdoutTruncated) { try { json = JSON.parse(ran.stdout); } catch { json = null; } }
+  return { status: timedOut || ran.signal ? null : ran.status, signal: ran.signal ?? null, json, timedOut };
+}
+
 /** The CLI-side route to `start`: this package's own CLI, as a bounded child process. */
 export async function cliStartRoute(argv, { cwd }) {
-  const { runSingularityFlowCli } = await import('../../util.mjs');
   return runSingularityFlowCli(argv, { cwd });
 }
 

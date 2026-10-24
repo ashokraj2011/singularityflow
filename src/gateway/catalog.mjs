@@ -331,6 +331,8 @@ export const GUIDED_CODES = Object.freeze([
   'work.draft-saved-locally',
   'work.started',
   'work.start-refused',
+  'work.start-outcome-unknown',
+  'work.tracker-only-read',
   'work.start-recovery-record-kept',
   'work.intake-recorded',
   'work.no-governed-record-created',

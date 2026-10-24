@@ -36,6 +36,7 @@ import {
 } from './brief.mjs';
 import { parseKnowledgeExpectations, scoreKnowledge } from './benchmark.mjs';
 import { buildRuleRecords, renderRuleRecords } from './records/rules.mjs';
+import { applyRuleMeanings, readRuleMeanings } from './rule-meaning.mjs';
 import { buildContractRecords, renderContractRecords } from './records/contracts.mjs';
 import { buildFlowRecords, renderFlowRecords } from './records/flows.mjs';
 import { buildImpactRecords, impactSymbols, knowledgePaths, readChange, renderImpactRecords } from './records/impact.mjs';
@@ -109,7 +110,7 @@ export async function knowledgeCommand(root, positionals, options) {
     let records = null;
     // The rules and business views also show each rule with its docs, code and tests, and its status.
     if (view === 'rules' || view === 'business') {
-      records = buildRuleRecords(knowledge, readDocumentation(root, { focus }), { focus });
+      records = applyRuleMeanings(buildRuleRecords(knowledge, readDocumentation(root, { focus }), { focus }), await readRuleMeanings(root));
       const section = renderRuleRecords(records);
       if (section) text = `${text.trimEnd()}\n\n${section}\n`;
     }

@@ -10,7 +10,7 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-import { ruleStatusWords } from './records/rules.mjs';
+import { meaningText, ruleStatusWords } from './records/rules.mjs';
 
 export const PHASE_BRIEF_RENDERER = Object.freeze({ id: 'repository-brief', version: 1 });
 
@@ -178,8 +178,10 @@ export function renderPhaseBrief({
     for (const record of rules) {
       const status = ruleStatusWords(record);
       const said = (record.quotes ?? []).map((quote) => `the docs say: ${quote}`);
-      push('rules', `${record.text.replace(/[.\s]+$/u, '')}. ${status}`, [...record.sources.code, ...record.sources.docs], {
-        id: record.id, status, facts: [...said, record.conflict ? `conflict: ${record.conflict}` : null].filter(Boolean).join(' | ') || null
+      // A person's confirmed meaning replaces the code's wording while its lines are the ones confirmed.
+      const confirmed = record.meaning?.current ? `${meaningText(record.meaning)}. Meaning confirmed by a person.` : null;
+      push('rules', `${confirmed ?? `${record.text.replace(/[.\s]+$/u, '')}.`} ${status}`, [...record.sources.code, ...record.sources.docs], {
+        id: record.id, status, facts: [confirmed ? record.text : null, ...said, record.conflict ? `conflict: ${record.conflict}` : null].filter(Boolean).join(' | ') || null
       });
     }
   }

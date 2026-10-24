@@ -30,6 +30,18 @@ function recordId(key) {
   return `R-${createHash('sha256').update(key).digest('hex').slice(0, 12)}`;
 }
 
+/**
+ * The lines a record rests on, each with a digest of what they said: a person's confirmed meaning is
+ * bound to these, and goes out of date when one of them changes (see rule-meaning.mjs).
+ */
+function codeAnchor(citation) {
+  return citation ? [{ path: citation.path, line: citation.lines?.[0] ?? null, sha256: citation.spanSha256 ?? null }] : [];
+}
+
+function docAnchor(doc) {
+  return { path: doc.source.path, line: doc.source.line ?? null, sha256: createHash('sha256').update(doc.text).digest('hex') };
+}
+
 function family(op) {
   return op?.startsWith('>') ? 'lower' : op?.startsWith('<') ? 'upper' : null;
 }
@@ -263,7 +275,7 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
         conflict: conflicts.length ? conflictText(conflicts[0].disagreement) : null,
         parts: { field: statement.field, type: statement.type, constraints: statement.constraints, bound: anchors.bounds[0] ?? null, message: anchors.message },
         sources: { code: citation ? [{ path: citation.path, line: citation.lines?.[0] ?? null, symbol: item.subject?.symbol ?? null }] : [], docs: links.map((link) => link.doc.source), tests: [] },
-        quotes: links.map((link) => link.doc.text),
+        quotes: links.map((link) => link.doc.text), anchors: [...codeAnchor(citation), ...links.map((link) => docAnchor(link.doc))],
         weight: 4,
         words: new Set([...anchors.words, ...links.flatMap((link) => [...link.doc.anchors.words])])
       });
@@ -284,7 +296,7 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
         docs: links.map((link) => link.doc.source),
         tests
       },
-      quotes: links.map((link) => link.doc.text),
+      quotes: links.map((link) => link.doc.text), anchors: [...codeAnchor(citation), ...links.map((link) => docAnchor(link.doc))],
       weight: KIND_WEIGHT[item.statement?.kind] ?? 2,
       words: new Set([...anchors.words, ...links.flatMap((link) => [...link.doc.anchors.words])])
     });
@@ -297,7 +309,7 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
       status: 'documented-only', documented: true, enforced: false, tested: false, conflict: null,
       parts: { bound: doc.anchors.bounds[0] ?? null, statuses: [...doc.anchors.statuses] },
       sources: { code: [], docs: [doc.source], tests: [] },
-      quotes: [],
+      quotes: [], anchors: [docAnchor(doc)],
       weight: 3, words: doc.anchors.words
     });
   }
@@ -316,6 +328,12 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
     .map((record) => ({ ...record, relevance: relevance(record) }))
     .sort((a, b) => b.relevance - a.relevance || STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || b.weight - a.weight || a.text.localeCompare(b.text, 'en'))
     .map(({ words, ...record }) => record);
+}
+
+/** A rule's meaning as one line: "When …: … (what it is for)". */
+export function meaningText(meaning) {
+  const condition = meaning.condition.replace(/^when\s+/iu, '');
+  return `When ${condition}: ${meaning.outcome.replace(/[.\s]+$/u, '')}${meaning.intent ? ` (${meaning.intent.replace(/[.\s]+$/u, '')})` : ''}`;
 }
 
 /** "Documented, enforced, tested." and its variants, for a reader. */
@@ -358,6 +376,9 @@ export function renderRuleRecords(records, { limit = 40 } = {}) {
   for (const record of records.slice(0, limit)) {
     const sources = [...record.sources.code, ...record.sources.docs].filter((source) => source?.path).map(label);
     lines.push(`- ${record.text.replace(/[.\s]+$/u, '')}. ${ruleStatusWords(record)}${sources.length ? ` (${sources.slice(0, 3).join('; ')})` : ''}`);
+    // A person's confirmed meaning (singularity-flow wm rules confirm), while its lines are the ones confirmed.
+    if (record.meaning?.current) lines.push(`  - Meaning, confirmed${record.meaning.by ? ` by ${record.meaning.by}` : ''}: ${meaningText(record.meaning)}.`);
+    else if (record.meaning) lines.push(`  - A confirmed meaning is out of date: its lines changed. Confirm it again: singularity-flow wm rules confirm ${record.id}`);
   }
   if (records.length > limit) lines.push(`- … ${records.length - limit} more`);
   return lines.join('\n');

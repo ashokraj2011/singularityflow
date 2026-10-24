@@ -847,6 +847,8 @@ Usage:
   singularity-flow wm show-prompt [--phase ID] [--work-id ID] [--skill ID] [--task TEXT] [--evidence]
   singularity-flow wm brief [--phase ID] [--work-id ID] [--json] [--polish [--refresh]]   The repository brief a phase receives; --polish has a model phrase it
   singularity-flow wm inject [same options]              Compatibility alias for wm compose
+  singularity-flow wm rules list|propose [--focus TEXT] [--limit N] [--refresh] [--dry-run] [--json]   Business rules and their drafted or confirmed meaning
+  singularity-flow wm rules confirm RULE-ID [--condition TEXT] [--outcome TEXT] [--intent TEXT] [--json]   A person confirms what a rule means
   singularity-flow wm cache status|clear [--json]
   singularity-flow wm ast doctor|status [--json]
   singularity-flow wm ast build [--paths PATH]... [--all] [--max-files N] [--max-bytes N] [--max-facts N] [--max-output-bytes N] [--resume HANDLE] [--json]

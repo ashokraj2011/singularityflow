@@ -18,6 +18,7 @@ export { composePhasePrompt, resolveOptionalTokenReductionShadowRuntime, approve
   intentConflictRecovery, phasePromptExecutionContract, withPhasePromptRuntimeGuidance,
   renderFinalClarificationGuard } from './phase-prompt-composer.mjs';
 const KNOWLEDGE_COMMAND_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'knowledge', 'command.mjs')).href;
+const RULES_COMMAND_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'knowledge', 'rules-command.mjs')).href;
 
 /**
  * `wm brief`: the repository brief a phase receives, read from the composed prompt without recording
@@ -205,6 +206,8 @@ export async function worldModelCommand(root, positionals, options) {
     const { knowledgeCommand } = await import(KNOWLEDGE_COMMAND_MODULE);
     return knowledgeCommand(root, positionals.slice(2), options);
   }
+  // Business rules and their meaning: a model may draft one, a person confirms it.
+  if (command === 'rules') return (await import(RULES_COMMAND_MODULE)).rulesCommand(root, positionals.slice(2), options);
   if (command === 'read') {
     const reference = positionals[2];
     if (!reference) {
@@ -243,6 +246,6 @@ export async function worldModelCommand(root, positionals, options) {
   if (REMOVED_WORLD_MODEL_SUBCOMMANDS.has(command)) throw removedWorldModelError(`wm ${command}`);
   if (optionBoolean(options, 'state-only') || optionString(options, 'format')) throw removedWorldModelError('wm --format');
   throw new SingularityFlowError(
-    'Usage: singularity-flow wm compose|inject|show-prompt|brief|knowledge|ast|read <ncg-view>|read-views|read-contract <ncg-view>|cache status|clear'
+    'Usage: singularity-flow wm compose|inject|show-prompt|brief|knowledge|rules|ast|read <ncg-view>|read-views|read-contract <ncg-view>|cache status|clear'
   );
 }

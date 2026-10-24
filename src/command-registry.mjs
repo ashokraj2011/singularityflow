@@ -554,7 +554,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   product: PRODUCT_SUBCOMMANDS,
   ...Object.fromEntries(Object.entries(SGOS_SUBCOMMANDS)
     .map(([name, actions]) => [name, Object.freeze([...actions.read, ...actions.mutation])])),
-  wm: Object.freeze([...new Set([...WM_NEVER_OPERATIONS, 'ast', 'knowledge'])]),
+  wm: Object.freeze([...new Set([...WM_NEVER_OPERATIONS, 'ast', 'knowledge', 'rules'])]),
   workspace: Object.freeze([
     'copilot', 'impact', 'bootstrap', 'refresh-configuration', 'reinitialize',
     ...WORKSPACE_NEVER_OPERATIONS, ...WORKSPACE_SUBCOMMAND_ALIASES.keys()
@@ -1234,6 +1234,13 @@ function resolveWorldModelOperation(definition, positionals, options) {
     if (action === 'brief') return optional('wm.knowledge.brief', 'wm.knowledge.brief.deterministic', { ...definition, classification: 'read' });
     return never(`wm.knowledge.${action}`, definition, WM_KNOWLEDGE_REVIEW_ACTIONS.has(action) ? 'mutation' : 'read');
   }
+  if (subcommand === 'rules') {
+    // A model may draft a rule's meaning; only a person confirms it (docs/knowledge/rule-meanings.yml).
+    const action = positionals[2] ?? 'list';
+    if (action === 'propose') return optional('wm.rules.propose', 'wm.rules.propose.deterministic', { ...definition, classification: 'read' });
+    if (['list', 'confirm'].includes(action)) return never(`wm.rules.${action}`, definition, action === 'list' ? 'read' : 'mutation');
+    return unknownSubcommand('wm rules', action, ['list', 'propose', 'confirm'], 'action');
+  }
   if (REMOVED_WORLD_MODEL_SUBCOMMANDS.has(subcommand)) throw removedWorldModelError(`wm ${subcommand}`);
   if (optionBoolean(options, 'state-only') || optionString(options, 'format')) throw removedWorldModelError('wm --format');
   const id = `wm.${subcommand}`;
@@ -1678,6 +1685,9 @@ export function operationCatalog() {
   wm.push(never('wm.knowledge.explain.deterministic', commandDefinition('wm'), 'read'));
   wm.push(optional('wm.knowledge.brief', 'wm.knowledge.brief.deterministic', { ...commandDefinition('wm'), classification: 'read' }));
   wm.push(optional('wm.brief.polish', 'wm.brief', { ...commandDefinition('wm'), classification: 'read' }));
+  wm.push(never('wm.rules.list', commandDefinition('wm'), 'read'), never('wm.rules.confirm', commandDefinition('wm'), 'mutation'),
+    optional('wm.rules.propose', 'wm.rules.propose.deterministic', { ...commandDefinition('wm'), classification: 'read' }),
+    never('wm.rules.propose.deterministic', commandDefinition('wm'), 'read'));
   wm.push(never('wm.knowledge.brief.deterministic', commandDefinition('wm'), 'read'));
   const workspace = [...WORKSPACE_NEVER_OPERATIONS]
     .map((name) => never(`workspace.${name}`, commandDefinition('workspace'), WORKSPACE_READ_OPERATIONS.has(name) ? 'read' : 'mutation'))

@@ -78,6 +78,23 @@ function pathsNamed(text) {
 }
 
 /**
+ * What model text names that its evidence does not contain: code names, numbers, paths, capitalised
+ * names and quoted text, each looked up in `haystack` (also ignoring case).
+ */
+export function ungrounded(text, haystack) {
+  const lowered = haystack.toLowerCase();
+  return [...new Set([...groundedTokens(text), ...pathsNamed(text), ...capitalisedNames(text)])]
+    .filter((token) => !haystack.includes(token) && !lowered.includes(token.toLowerCase()));
+}
+
+/** Judgement, praise or an unbalanced code span or quotation: the reason a text is refused, or null. */
+export function unfitWording(text) {
+  if (JUDGEMENT.test(text) || PRAISE.test(text)) return 'judges instead of describing';
+  if ((text.match(/`/gu) ?? []).length % 2 || (text.match(/"/gu) ?? []).length % 2) return 'leaves a code span or a quotation open';
+  return null;
+}
+
+/**
  * Keep each sentence whose citations name selected records of one section, cited once, and whose
  * names, numbers, paths and quoted text appear in what those records say. Everything else is
  * rejected with its reason; nothing is repaired.
@@ -102,12 +119,9 @@ export function validatePolish(output, selection, { limits = POLISH_LIMITS } = {
     if (new Set(entries.map((entry) => entry.status ?? '')).size > 1) { reject('merges rules with different statuses'); continue; }
     const again = cites.filter((id) => covered.has(id));
     if (again.length) { reject(`cites a record another sentence already covers: ${again.join(', ')}`); continue; }
-    if (JUDGEMENT.test(text) || PRAISE.test(text)) { reject('judges instead of describing'); continue; }
-    if ((text.match(/`/gu) ?? []).length % 2 || (text.match(/"/gu) ?? []).length % 2) { reject('leaves a code span or a quotation open'); continue; }
-    const haystack = entries.map((entry) => `${entry.text} ${entry.facts ?? ''} ${entry.label ?? ''}`).join('\n');
-    const lowered = haystack.toLowerCase();
-    const found = (token) => haystack.includes(token) || lowered.includes(token.toLowerCase());
-    const missing = [...new Set([...groundedTokens(text), ...pathsNamed(text), ...capitalisedNames(text)])].filter((token) => !found(token));
+    const unfit = unfitWording(text);
+    if (unfit) { reject(unfit); continue; }
+    const missing = ungrounded(text, entries.map((entry) => `${entry.text} ${entry.facts ?? ''} ${entry.label ?? ''}`).join('\n'));
     if (missing.length) { reject(`names what its records do not contain: ${missing.join(', ')}`); continue; }
     for (const id of cites) covered.add(id);
     accepted.push({ text, cites, section: entries[0].section });

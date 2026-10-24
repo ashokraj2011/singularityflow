@@ -165,15 +165,25 @@ export function createGatewayKernel({
   });
 
   /**
-   * What happened to each plan this session carried out, by idempotency key. `[INT:CON-114]`
+   * What happened to each act this session carried out. `[INT:CON-114]`
    *
-   * Recorded before success is returned, so a repeated `sflow_run` — the same plan handle, or a new
-   * plan for the same act — answers with the recorded result, or with a safe in-progress refusal
-   * while the first is still running, and never executes twice. Session-scoped like every handle:
-   * a plan cannot outlive the session that signed it, so neither needs its record to.
+   * An act is the operation, the planner's key and the digest of the exact preview a person
+   * confirmed — not the planner's key alone, which names a subject: keyed on that, a corrected
+   * work.start plan was answered with the old plan's refusal. The same plan handle always answers
+   * with its own record. Another plan for the same act answers with it only while that act is in
+   * flight, or when the plan was made before the act finished: such a plan was computed against the
+   * world before the act, so it is the same request twice. A plan made afterwards was computed
+   * against a world that already holds the act, so the same preview again (switch A→B→A→B, create,
+   * revoke, create) is a new act and runs. Only a completed act answers at all: a refusal changed
+   * nothing and is not kept for twins, and an act that threw has an unknown outcome that stops the
+   * plans made before it, never the ones made after. Session-scoped like every handle.
    */
-  const executions = new Map();
+  const acts = new Map();
   const executionByPlan = new Map();
+  /** When each live plan was issued, on the same counter that orders act completions. */
+  const planIssued = new Map();
+  let sequence = 0;
+  const actKey = (plan) => [plan.operationId, plan.idempotencyKey, plan.review?.digest ?? ''].join('\u0000');
 
   /**
    * The world *now*, not the world this kernel was built in. `[INT:REQ-036]`
@@ -330,6 +340,9 @@ export function createGatewayKernel({
     const context = typeof plannerContext === 'function'
       ? plannerContext({ operation, arguments: args, subject: result.subject })
       : plannerContext;
+    // The world this plan describes is the one its builder reads, so its place in the act order is
+    // fixed before the builder starts: an act that finishes while it reads is still after it.
+    const plannedAt = sequence;
     let descriptor;
     try {
       descriptor = await builder({
@@ -356,6 +369,7 @@ export function createGatewayKernel({
       idempotencyKey: descriptor.idempotencyKey,
       review: descriptor.review
     });
+    planIssued.set(reference.id, plannedAt);
     return sflowResult({
       ...result,
       next: result.next.map((action, index) => index === 0
@@ -591,8 +605,12 @@ export function createGatewayKernel({
       if (!permission.executable || permission.confirmation !== plan.confirmation) {
         return refuse('gateway.run', 'gateway.denied-by-policy', 'policy');
       }
-      const prior = recordedExecution(plan.idempotencyKey);
-      if (prior) return prior;
+      const act = actKey(plan);
+      const prior = acts.get(act);
+      // A plan with no recorded issue (one a host signed itself) is treated as made before everything.
+      if (prior && (prior.state === 'in-progress' || (planIssued.get(plan.id) ?? -1) < prior.finishedAt)) {
+        return recordedExecution(prior);
+      }
       const executor = mutationExecutors.get(operation.gateway.planner);
       if (typeof executor !== 'function') {
         return refuse('gateway.run', 'gateway.executor-unavailable', 'unavailable', {
@@ -619,24 +637,27 @@ export function createGatewayKernel({
       // Consume only after the exact receipt redeems; a missing/invalid confirmation never burns the
       // reviewed Plan. From this point the act is single-use even when publication enters recovery.
       handles.verify({ id: planId }, { kind: 'plan', binding, consume: true });
-      executions.set(plan.idempotencyKey, { state: 'in-progress', planId });
-      executionByPlan.set(planId, plan.idempotencyKey);
+      planIssued.delete(planId);
+      const entry = { state: 'in-progress', planId, result: null, finishedAt: Infinity };
+      acts.set(act, entry);
+      executionByPlan.set(planId, entry);
       let produced;
       try {
         produced = await runExecutor(executor, operation, plan);
       } catch (error) {
         // The act may have partly happened. Never run it again from here; say so instead.
-        executions.set(plan.idempotencyKey, { state: 'unknown', planId });
+        Object.assign(entry, { state: 'unknown', finishedAt: ++sequence });
         throw error;
       }
-      executions.set(plan.idempotencyKey, { state: 'completed', planId, result: produced });
+      Object.assign(entry, { state: 'completed', result: produced, finishedAt: ++sequence });
+      // A refusal or a failure is this plan's answer and nobody else's: a twin may still be carried out.
+      if (!['succeeded', 'noop'].includes(produced.outcome.status) && acts.get(act) === entry) acts.delete(act);
       return produced;
     }
   });
 
-  /** The recorded answer for an idempotency key: the result, or a safe in-progress refusal. */
-  function recordedExecution(key) {
-    const entry = key ? executions.get(key) : null;
+  /** The recorded answer for one execution: its result, or a safe in-progress or unknown-outcome refusal. */
+  function recordedExecution(entry) {
     if (!entry) return null;
     if (entry.state === 'completed') {
       return sflowResult({

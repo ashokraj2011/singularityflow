@@ -15,7 +15,7 @@ import path from 'node:path';
 import { createHandleAuthority, RECEIPT_TTL_MS } from '../src/gateway/handles.mjs';
 import { createGatewayKernel } from '../src/gateway/kernel.mjs';
 import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
-import { effects, sflowResult } from '../src/gateway/result.mjs';
+import { effects, noEffects, preservedAll, sflowResult } from '../src/gateway/result.mjs';
 import { SFLOW_TOOLS } from '../src/gateway/tools.mjs';
 
 const ACTOR = { login: 'dev-1', email: 'dev-1@example.com', name: 'Dev One' };
@@ -33,7 +33,7 @@ async function records(t) {
   return root;
 }
 
-function session(root, { hostSessionId = 'sess-receipt', delayMs = 0 } = {}) {
+function session(root, { hostSessionId = 'sess-receipt', delayMs = 0, respond = null } = {}) {
   const world = {
     workspaceId: 'payments', repository: 'checkout-service', branch: 'main', subjectKind: null, subjectId: null,
     sourceCommit: 'a'.repeat(40), worktreeHash: null, worktreeAlgorithm: 'sflow-worktree-v2', lifecycleRevision: null,
@@ -45,6 +45,7 @@ function session(root, { hostSessionId = 'sess-receipt', delayMs = 0 } = {}) {
   const executor = async ({ operation, plan }) => {
     ran.push(plan.id);
     if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    if (respond) return respond(operation, ran.length);
     return sflowResult({
       kind: 'read', operation: { id: operation.id, classification: operation.classification },
       outcome: { status: 'succeeded', messageId: 'gateway.completed', slots: {} },
@@ -129,16 +130,57 @@ test('receipt-is-bound-and-single-use', async (t) => {
   {
     const { kernel, ran } = session(root);
     const planId = await planned(kernel);
+    // A second plan for the same act, made before the first was carried out, is that same act.
+    const twin = await planned(kernel);
     const receipt = confirm(kernel, planId);
     assert.equal((await kernel.run({ planId }, out(receipt))).outcome.status, 'succeeded');
     const again = await kernel.run({ planId }, out(receipt));
     assert.ok(again.warnings.some((warning) => warning.code === 'gateway.result-replayed'));
     assert.equal(ran.length, 1);
-    // A fresh plan for the same act is the same act: recorded, not repeated.
-    const twin = await planned(kernel);
     const replay = await kernel.run({ planId: twin }, out(confirm(kernel, twin)));
     assert.ok(replay.warnings.some((warning) => warning.code === 'gateway.result-replayed'));
     assert.equal(ran.length, 1);
+    // A plan made after that act finished is planned in a world that already holds it, so the same
+    // preview is a new act (create, revoke, create again; switch A→B→A→B), never the old answer.
+    const later = await planned(kernel);
+    const fresh = await kernel.run({ planId: later }, out(confirm(kernel, later)));
+    assert.equal(fresh.warnings.some((warning) => warning.code === 'gateway.result-replayed'), false);
+    assert.equal(ran.length, 2);
+  }
+  // A refusal is not a completed act, and an unknown outcome stops only the plans made before it.
+  {
+    const refusal = (operation) => sflowResult({
+      kind: 'refusal', operation: { id: operation.id, classification: operation.classification },
+      outcome: { status: 'refused', messageId: 'gateway.refused', slots: {} }, effects: noEffects(),
+      why: [{ code: 'gateway.denied-by-policy', source: 'policy', slots: {} }],
+      preserved: preservedAll('gateway.nothing-was-carried-out'), restState: 'blocked'
+    });
+    const done = (operation) => sflowResult({
+      kind: 'read', operation: { id: operation.id, classification: operation.classification },
+      outcome: { status: 'succeeded', messageId: 'gateway.completed', slots: {} },
+      effects: effects({ contextChanged: true }), restState: 'complete'
+    });
+    const { kernel, ran } = session(root, { respond: (operation, count) => {
+      if (count === 1) return refusal(operation);
+      if (count === 2) throw new Error('the act stopped part way');
+      return done(operation);
+    } });
+    const [first, retry, beforeUnknown] = [await planned(kernel), await planned(kernel), await planned(kernel)];
+    assert.equal((await kernel.run({ planId: first }, out(confirm(kernel, first)))).kind, 'refusal');
+    // Asking again with the same plan answers with what happened.
+    assert.ok((await kernel.run({ planId: first })).warnings.some((warning) => warning.code === 'gateway.result-replayed'));
+    assert.equal(ran.length, 1);
+    // A refused act changed nothing, so another plan for it runs rather than replaying the refusal.
+    await assert.rejects(kernel.run({ planId: retry }, out(confirm(kernel, retry))), /part way/);
+    assert.equal(ran.length, 2);
+    // The outcome is unknown: that plan, and any made before the act stopped, are not run again …
+    assert.equal((await kernel.run({ planId: retry })).why[0].code, 'gateway.run-outcome-unknown');
+    assert.equal((await kernel.run({ planId: beforeUnknown }, out(confirm(kernel, beforeUnknown)))).why[0].code, 'gateway.run-outcome-unknown');
+    assert.equal(ran.length, 2);
+    // … and a plan made afterwards, against the world as it now is, is not stuck behind it.
+    const replanned = await planned(kernel);
+    assert.equal((await kernel.run({ planId: replanned }, out(confirm(kernel, replanned)))).outcome.status, 'succeeded');
+    assert.equal(ran.length, 3);
   }
   // Wrong actor, wrong workspace, drifted source: the plan no longer describes this world.
   for (const [field, value] of [['actorId', 'someone-else@example.com'], ['workspaceId', 'identity'], ['sourceCommit', 'b'.repeat(40)]]) {

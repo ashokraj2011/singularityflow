@@ -98,4 +98,19 @@ test('switch-is-context-not-authority', { timeout: 240_000 }, async (t) => {
   assert.equal(active.workspaceId, 'local--identity');
   // … and nothing governed did: refs, HEAD and the pinned work record are byte-identical.
   assert.deepEqual(await governed(), before);
+
+  // Back to payments, then identity again: the last switch has the first one's exact preview, and is a
+  // new act all the same — it switches, rather than replaying the first switch's "succeeded".
+  const activeNow = async () => (await readActiveWorkspaceContext(env.SINGULARITY_FLOW_ACTIVE_WORKSPACE,
+    env.SINGULARITY_FLOW_WORKSPACE_REGISTRY, { refresh: false })).workspaceId;
+  const digests = [];
+  for (const target of ['local--payments', 'local--identity']) {
+    const next = (await host.kernel.resolve({ utterance: 'switch workspace', arguments: { workspaceId: target } })).data.plan;
+    digests.push(next.review.digest);
+    const confirmed = host.kernel.confirmPlan({ planId: next.handle, planHash: host.kernel.planReview(next.handle).planHash });
+    const ran = await host.kernel.run({ planId: next.handle }, { confirmationReceiptId: confirmed.receiptId, confirmationValue: confirmed.value });
+    assert.equal(ran.warnings.some((warning) => warning.code === 'gateway.result-replayed'), false, target);
+    assert.equal(await activeNow(), target);
+  }
+  assert.equal(digests[1], plan.review.digest);
 });

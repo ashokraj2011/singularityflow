@@ -11,6 +11,8 @@
  * it were the answer.
  */
 import { resolveHelp } from '../../help-service.mjs';
+import { classifyHelpIntent } from '../../help-intents.mjs';
+import { catalogued } from '../catalog.mjs';
 import { noEffects, plannerNavigation, preservedAll, sflowResult } from '../result.mjs';
 
 /** The ceiling on a served body. Beyond it the reader gets a preview and a handle `[INT:CON-037]`. */
@@ -114,6 +116,108 @@ export async function helpExplain({ arguments: args = {}, subject = null } = {})
       related: resolved.related,
       handoff: resolved.handoff
     }
+  });
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Where a piece of work stands, answered from its record. `[DOC:REQ-020]` `[INT:REQ-061]`
+//
+// "Why is my Story blocked?" is a question about state, and the documentation cannot answer it: live
+// (2026-10-24), it came back as a list of every topic, and Copilot needed five more calls to reach
+// the record. The kernel reads the work the way `sflow_next` does — the named Story, else the one
+// checked out, else the only open one — and these build the answer from what it read. The state
+// plane is cited by revision and the documentation only by topic, never blended `[DOC:REQ-022]`.
+// ---------------------------------------------------------------------------------------------------
+
+/**
+ * The topic that explains each blocker `work-records.mjs` reports: a pointer one more
+ * `sflow_explain` follows, not an excerpt.
+ */
+export const BLOCKER_TOPICS = Object.freeze({
+  'publication-pending': 'recovery',
+  'publication-marker-unreadable': 'recovery',
+  'approvals-outstanding': 'approvals',
+  'required-artifact-missing': 'artifacts-and-generation'
+});
+
+const EXPLAIN_READ = Object.freeze({ id: 'help.explain', classification: 'read' });
+
+/**
+ * One work item's state as the answer: phase, status, blockers, the next action its record
+ * computes, and, while a phase awaits approval, the decision.
+ *
+ * The decision is a person's. It is described (`data.decision`) and offered only as the ceremony
+ * destination, which the contract keeps unexecutable; the one executable action is the read the
+ * record computed. `chosen` says how the item was picked when nobody named it, and `subject` carries
+ * the revision the record was read at.
+ */
+export function explainWorkResult({
+  question, item, lead = [], chosen = [], decision = null, binding = {}, subject = { kind: item.kind, id: item.id }
+}) {
+  const blockers = (item.blockers ?? []).map((blocker) => ({
+    blocker,
+    code: catalogued(`work.blocked.${blocker}`, 'work.blocked.unrecognised'),
+    topic: BLOCKER_TOPICS[blocker] ?? null
+  }));
+  const awaitingDecision = item.status === 'awaiting_approval';
+  const revision = binding.sourceCommit ?? null;
+  const next = [...lead, ...(decision ? [decision] : [])].map((action, rank) => ({ ...action, rank }));
+  return sflowResult({
+    kind: 'read',
+    operation: EXPLAIN_READ,
+    subject,
+    outcome: {
+      status: 'succeeded', messageId: 'gateway.explained-work',
+      slots: { work: item.id, phase: item.phase ?? 'none', status: item.status ?? 'none' }
+    },
+    effects: noEffects(),
+    why: [
+      { code: 'explain.situation-from-state', source: 'lifecycle', reference: revision, slots: { subject: item.id } },
+      ...chosen,
+      ...blockers.map((entry) => ({ code: entry.code, source: 'lifecycle', reference: item.id, slots: { blocker: entry.blocker } })),
+      ...(awaitingDecision ? [{ code: 'readiness.awaiting-a-human-decision', source: 'lifecycle', reference: item.id,
+        slots: { phase: item.phase ?? 'none' } }] : [])
+    ],
+    next,
+    restState: next.length ? null : 'informational',
+    data: {
+      helpIntent: classifyHelpIntent(question) ?? 'concept',
+      answeredFrom: 'work-records',
+      work: {
+        kind: item.kind, id: item.id, title: item.title, phase: item.phase, phaseLabel: item.phaseLabel,
+        status: item.status, generation: item.generation, group: item.group, whyVisible: item.whyVisible,
+        branch: item.branch, rail: item.rail ?? [], lastMaterialEvent: item.lastMaterialEvent ?? null,
+        blockers,
+        nextAction: item.nextAction
+          ? { ...item.nextAction, handle: lead.find((action) => action.id === `work:${item.id}`)?.handle ?? null }
+          : null
+      },
+      decision: awaitingDecision ? {
+        operation: 'review.open', phase: item.phase, decidedBy: 'person',
+        availableToActor: item.group === 'waiting-on-you', executable: false
+      } : null,
+      citation: { plane: 'state', subject: item.id, branch: binding.branch ?? null, revision }
+    }
+  });
+}
+
+/**
+ * Which work? Several are open and none is current, or the one named is not here.
+ *
+ * Asked back with the open work and each item's next action, never with documentation topics, and
+ * never by answering about a different item than the one named.
+ */
+export function explainWhichWorkResult({ question, named = null, why = [], lead = [], work }) {
+  return sflowResult({
+    kind: 'clarification',
+    operation: EXPLAIN_READ,
+    subject: named ? { kind: named.kind ?? 'story', id: named.id } : null,
+    outcome: { status: 'succeeded', messageId: 'gateway.clarification', slots: { query: question } },
+    effects: noEffects(),
+    why,
+    next: lead.map((action, rank) => ({ ...action, rank })),
+    restState: lead.length ? null : 'informational',
+    data: { helpIntent: classifyHelpIntent(question) ?? 'concept', answeredFrom: 'work-records', work }
   });
 }
 

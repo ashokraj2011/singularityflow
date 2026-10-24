@@ -93,7 +93,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 7,737 to main 1ecccc54's 9,065,911: configuration-branch.mjs +5,679 (closure materialization and its re-derived
     // check), commands/start.mjs +1,114 (closure inputs and the whole-copy fallback notice), config.mjs +956 (the
     // pinned initialization status doctor now shares). story-configuration-closure.mjs loads lazily. No new file.
-    assert.ok(closure.bytes <= 9_075_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,080,000 (next 5,000 boundary): SPEC-OAP M0 adds 1,385 to main 445e65b7's 9,073,648: specification-gate.mjs
+    // +873 (approvalChecklistPrompt, the checklist articles phase show and the refusal name so Copilot can approve a
+    // checklist phase) and state.mjs +512 (APPROVAL_CHECKLIST_INCOMPLETE with the unanswered articles): 9,075,033.
+    // No new file.
+    assert.ok(closure.bytes <= 9_080_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
   }
 });
 

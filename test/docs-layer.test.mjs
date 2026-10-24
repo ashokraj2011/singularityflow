@@ -126,6 +126,7 @@ test('natural questions resolve only with strong authored metadata', async () =>
   assert.equal(result.status, 0, result.stderr);
   const payload = JSON.parse(result.stdout);
   assert.equal(payload.data.topic.id, 'project-binding');
+  assert.equal(payload.data.topic.file, 'project-binding.md', 'the CLI preserves the served topic source for relative links');
   assert.equal(payload.data.helpIntent, 'concept');
   assert.match(payload.data.citation, /^— topic project-binding v4, docs /);
 });

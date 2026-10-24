@@ -1398,7 +1398,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const served = await new SingularityFlowClient({
         location, repository: process.cwd(), onOutput: (text) => output.append(text)
       }).run<{
-        data?: { served?: { text?: string }; citation?: string; topic?: { id?: string; title?: string } };
+        data?: { served?: { text?: string }; citation?: string; topic?: { id?: string; title?: string; file?: string } };
       }>(['explain', id, '--json']);
       const body = served.data?.served?.text ?? '';
       if (!body) throw new Error(`The engine returned no documentation body for '${id}'.`);
@@ -1408,7 +1408,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const topic = {
         id: served.data?.topic?.id ?? id,
         title: served.data?.topic?.title ?? id,
-        content: `${body}\n\n${served.data?.citation ?? ''}`.trim()
+        content: `${body}\n\n${served.data?.citation ?? ''}`.trim(),
+        sourceFile: served.data?.topic?.file ? `docs/topics/${served.data.topic.file}` : ''
       };
       const document: HelpDocument = {
         ...manual,

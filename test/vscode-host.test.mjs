@@ -2065,6 +2065,74 @@ test('clicking an offline topic renders the engine-served bytes inside Help Cent
   assert.deepEqual(registered.errors, []);
 });
 
+test('Help Center clicks open every displayed topic link from its source and surface stale-link errors', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  const { loadTopics } = await import('../src/docs-topics.mjs');
+  const topics = await loadTopics();
+  let clicked = 0;
+  for (const topic of topics) {
+    const links = [...topic.body.matchAll(/\[[^\]\n]+\]\(([^)\n]+)\)/gu)]
+      .map((match) => match[1]).filter((target) => !/^[a-z][a-z0-9+.-]*:|^#/iu.test(target));
+    if (!links.length) continue;
+    await registered.commands.get('singularityFlow.explainTopic')({ id: `help:topic:${topic.id}` });
+    const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.helpCenter');
+    assert.ok(panel, `the ${topic.id} topic opened`);
+    for (const target of links) {
+      const source = `docs/topics/${topic.file}`;
+      // The engine deliberately bounds previews; links beyond that preview have no click target.
+      // Full-catalog resolution, including those links, is covered by vscode-help-links.test.mjs.
+      if (!panel.webview.html.includes(`data-link="${target}"`)) continue;
+      assert.ok(panel.webview.html.includes(`data-link="${target}" data-help-source="${source}"`), `${topic.id}: ${target} must carry its source`);
+      const before = registered.executedCommands.length;
+      await panel.post({ type: 'open-link', source, target });
+      const opened = registered.executedCommands.slice(before).filter((call) => call.id === 'vscode.open');
+      assert.equal(opened.length, 1, `${topic.id}: ${target} must dispatch, not silently return`);
+      assert.equal(opened[0].args[0].fsPath, await realpath(path.resolve(packageRoot, 'docs/topics', target)));
+      clicked += 1;
+    }
+  }
+  assert.ok(clicked >= 8, `covered ${clicked} actual preview links`);
+  assert.deepEqual(registered.errors, []);
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.helpCenter');
+  const before = registered.executedCommands.length;
+  await panel.post({ type: 'open-link', source: 'docs/topics/old-topic.md', target: '../not-issued.md' });
+  assert.equal(registered.executedCommands.length, before, 'a forged/stale destination is never opened');
+  assert.match(registered.errors.at(-1), /Could not open Help link:.*Reopen its topic/);
+  const execute = api.commands.executeCommand;
+  api.commands.executeCommand = async (id, ...args) => {
+    if (id === 'vscode.open') throw new Error('The editor could not open this document.');
+    return execute(id, ...args);
+  };
+  await panel.post({ type: 'open-link', source: 'docs/topics/world-model.md', target: '../KNOWLEDGE-MODEL.md' });
+  assert.match(registered.errors.at(-1), /Could not open Help link: The editor could not open/);
+  api.commands.executeCommand = execute;
+});
+
+test('Help Center question-answer links keep their topic base, independently of manual selection', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.openHelp')({ id: 'help:all' });
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.helpCenter');
+  await panel.post({ type: 'ask-question', question: 'configuration', origin: 'typed' });
+  await until(() => panel.webview.html.includes('data-link="../CONFIGURATION-STATE-SERVICE.md"'));
+  assert.ok(panel.webview.html.includes('data-help-source="docs/topics/configuration.md"'));
+  const before = registered.executedCommands.length;
+  await panel.post({ type: 'open-link', source: 'docs/topics/configuration.md', target: '../CONFIGURATION-STATE-SERVICE.md' });
+  const opened = registered.executedCommands.slice(before).find((call) => call.id === 'vscode.open');
+  assert.ok(opened);
+  assert.equal(opened.args[0].fsPath, await realpath(path.join(packageRoot, 'docs/CONFIGURATION-STATE-SERVICE.md')));
+  assert.deepEqual(registered.errors, []);
+});
+
 test('every shared screen destination is connected through a real webview message', async (t) => {
   if (!requireBundle(t)) return;
   const root = await demoRepository();

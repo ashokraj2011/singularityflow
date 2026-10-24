@@ -14,8 +14,63 @@ import { docsManifest } from './docs-manifest.mjs';
 import { classifyHelpIntent } from './help-intents.mjs';
 import { copilotSkillForCommand } from './copilot-guidance.mjs';
 import { SingularityFlowError } from './util.mjs';
+import path from 'node:path';
+import { realpath, stat } from 'node:fs/promises';
 
 const HANDLE_PATTERN = /^sfdoc:v1:([a-z0-9]+(?:-[a-z0-9]+)*):([a-f0-9]{12})$/;
+
+function containedHelpPath(root, file) {
+  const relative = path.relative(root, file);
+  return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+function relativeHelpFile(value) {
+  return Boolean(value) && !/[\u0000-\u001f\u007f\\]/u.test(value)
+    && !path.posix.isAbsolute(value) && !path.win32.isAbsolute(value)
+    && !/^[a-z][a-z0-9+.-]*:/iu.test(value);
+}
+
+/** Resolve only a link in currently served bytes, relative to that source inside the package. */
+export async function resolveHelpLink(manualRoot, source, target, sources) {
+  if (typeof source !== 'string' || typeof target !== 'string' || !source || !target
+      || source.length > 1024 || target.length > 8192
+      || !sources.some((entry) => entry.file === source
+        && [...entry.content.matchAll(/\[[^\]\n]+\]\(([^)\n]+)\)/gu)].some((match) => match[1] === target))) {
+    throw new Error('This Help link is no longer in the displayed documentation. Reopen its topic and try again.');
+  }
+  if (/^https:\/\//iu.test(target)) {
+    const url = new URL(target);
+    if (url.username || url.password) throw new Error('Help links cannot contain credentials.');
+    return { kind: 'external', url: url.href };
+  }
+  const raw = target.split('#')[0] ?? '';
+  let relative;
+  try { relative = decodeURIComponent(raw); }
+  catch { throw new Error('This Help link has an invalid encoded path.'); }
+  if (!relativeHelpFile(source) || !relativeHelpFile(relative) || relative.includes('?')) {
+    throw new Error('This Help link is not a supported relative documentation path or HTTPS address.');
+  }
+  const root = path.resolve(manualRoot);
+  const sourcePath = path.resolve(root, source);
+  const destination = path.resolve(path.dirname(sourcePath), relative);
+  if (!containedHelpPath(root, sourcePath) || !containedHelpPath(root, destination)) {
+    throw new Error('This Help link points outside the installed documentation package.');
+  }
+  let verifiedRoot, verifiedSource, verifiedDestination;
+  try {
+    [verifiedRoot, verifiedSource, verifiedDestination] = await Promise.all([
+      realpath(root), realpath(sourcePath), realpath(destination)
+    ]);
+    if (!(await stat(verifiedDestination)).isFile()) throw new Error('not a document');
+  } catch {
+    throw new Error('The linked Help document is unavailable. Repair or update the SFlow installation, then reopen this topic.');
+  }
+  // Lexical containment is not enough for symlinks or Windows junctions.
+  if (!containedHelpPath(verifiedRoot, verifiedSource) || !containedHelpPath(verifiedRoot, verifiedDestination)) {
+    throw new Error('This Help link points outside the installed documentation package.');
+  }
+  return { kind: 'file', file: verifiedDestination };
+}
 
 export function docsHandle(topic) {
   return `sfdoc:v1:${topic.id}:${topic.sha256.slice(0, 12)}`;

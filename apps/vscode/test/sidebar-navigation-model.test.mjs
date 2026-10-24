@@ -34,7 +34,7 @@ test('selected workspace identifies the repository and offers intake only after 
   assert.deepEqual(view.workspace, { name: 'My Workspace', repository: 'catalog' });
   assert.deepEqual(view.next, {
     label: 'Start new work',
-    description: 'Begin the first governed work item in this workspace.',
+    description: 'Describe a request and start a Story.',
     actionId: 'work-start'
   });
   assert.equal(deriveSidebarNavigation([selectedWorkspace], null, { loading: true }).next, null);
@@ -45,7 +45,7 @@ test('active Story or Epic leads to My Work', () => {
   assert.deepEqual(deriveSidebarNavigation([selectedWorkspace], snapshot({
     workflow: { workItem: { id: 'STORY-1' } }
   })).next, {
-    label: 'Continue current work', description: 'Story STORY-1', actionId: 'my-work'
+    label: 'Continue STORY-1', description: 'Story', actionId: 'my-work'
   });
   assert.equal(deriveSidebarNavigation([selectedWorkspace], snapshot({ initiative: { state: {} } }))
     .next?.actionId, 'my-work');

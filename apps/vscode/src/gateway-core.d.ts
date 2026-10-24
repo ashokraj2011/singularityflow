@@ -296,6 +296,10 @@ interface HelpResolutionContract {
 }
 
 declare module '*/help-service.mjs' {
+  export function resolveHelpLink(
+    manualRoot: string, source: string | null, target: string | null,
+    sources: readonly { file: string; content: string }[]
+  ): Promise<{ kind: 'external'; url: string } | { kind: 'file'; file: string }>;
   export function resolveHelp(question: string, options?: {
     maxBytes?: number; section?: string; topicsDirectory?: string; manifest?: unknown;
   }): Promise<HelpResolutionContract>;

@@ -7,6 +7,8 @@ export interface HelpTopic {
   id: string;
   title: string;
   content: string;
+  /** Package-relative source; older manual sections are all from HELP.md. */
+  sourceFile?: string;
 }
 
 export interface HelpDocument {
@@ -62,12 +64,13 @@ const START_TOPICS = [
   'troubleshooting'
 ];
 
-function inline(value: string): string {
+function inline(value: string, sourceFile = 'HELP.md'): string {
   return escape(value)
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<span class="help-link" data-link="$2" role="link" tabindex="0">$1</span>');
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label: string, target: string) =>
+      `<span class="help-link" data-link="${target}" data-help-source="${escape(sourceFile)}" role="link" tabindex="0">${label}</span>`);
 }
 
 /**
@@ -77,8 +80,9 @@ function inline(value: string): string {
  * readable headings, lists, tables and copyable commands without admitting arbitrary HTML from a
  * repository or adding a second Markdown dependency to the extension.
  */
-export function renderHelpMarkdown(markdown: string): string {
+export function renderHelpMarkdown(markdown: string, sourceFile = 'HELP.md'): string {
   const lines = markdown.replace(/\r\n/g, '\n').split('\n');
+  const renderInline = (value: string): string => inline(value, sourceFile);
   const rendered: string[] = [];
   let paragraph: string[] = [];
   let list: 'ul' | 'ol' | null = null;
@@ -86,7 +90,7 @@ export function renderHelpMarkdown(markdown: string): string {
   let table: string[][] | null = null;
 
   const flushParagraph = (): void => {
-    if (paragraph.length) rendered.push(`<p>${inline(paragraph.join(' '))}</p>`);
+    if (paragraph.length) rendered.push(`<p>${renderInline(paragraph.join(' '))}</p>`);
     paragraph = [];
   };
   const flushList = (): void => {
@@ -97,7 +101,7 @@ export function renderHelpMarkdown(markdown: string): string {
     if (!table?.length) { table = null; return; }
     const rows = table.filter((row) => !row.every((cell) => /^:?-{3,}:?$/.test(cell)));
     const [head, ...body] = rows;
-    if (head) rendered.push(`<div class="help-table-wrap"><table><thead><tr>${head.map((cell) => `<th>${inline(cell)}</th>`).join('')}</tr></thead><tbody>${body.map((row) => `<tr>${row.map((cell) => `<td>${inline(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);
+    if (head) rendered.push(`<div class="help-table-wrap"><table><thead><tr>${head.map((cell) => `<th>${renderInline(cell)}</th>`).join('')}</tr></thead><tbody>${body.map((row) => `<tr>${row.map((cell) => `<td>${renderInline(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);
     table = null;
   };
 
@@ -125,13 +129,13 @@ export function renderHelpMarkdown(markdown: string): string {
     if (heading) {
       flushParagraph(); flushList();
       const level = Math.min(5, heading[1]?.length ?? 2);
-      rendered.push(`<h${level}>${inline(heading[2] ?? '')}</h${level}>`);
+      rendered.push(`<h${level}>${renderInline(heading[2] ?? '')}</h${level}>`);
       continue;
     }
     const quote = /^>\s?(.*)$/.exec(line);
     if (quote) {
       flushParagraph(); flushList();
-      rendered.push(`<blockquote>${inline(quote[1] ?? '')}</blockquote>`);
+      rendered.push(`<blockquote>${renderInline(quote[1] ?? '')}</blockquote>`);
       continue;
     }
     const bullet = /^[-*]\s+(.+)$/.exec(line);
@@ -140,7 +144,7 @@ export function renderHelpMarkdown(markdown: string): string {
       flushParagraph();
       const next = bullet ? 'ul' : 'ol';
       if (list !== next) { flushList(); list = next; rendered.push(`<${next}>`); }
-      rendered.push(`<li>${inline((bullet ?? numbered)?.[1] ?? '')}</li>`);
+      rendered.push(`<li>${renderInline((bullet ?? numbered)?.[1] ?? '')}</li>`);
       continue;
     }
     if (!line.trim()) { flushParagraph(); flushList(); continue; }
@@ -186,7 +190,7 @@ function answerHtml(answer: HelpAnswerView | null): string {
   return `<section class="help-answer ok">
     <p class="eyebrow">${escape(answer.intent)} · matched by ${escape(answer.matchedBy)}</p>
     <h2>${escape(answer.topic.title)}</h2>
-    <div class="help-answer-body">${renderHelpMarkdown(answer.content)}</div>
+    <div class="help-answer-body">${renderHelpMarkdown(answer.content, `docs/topics/${answer.topic.file}`)}</div>
     <p class="help-citation">Source: docs/topics/${escape(answer.topic.file)}<br>${escape(answer.citation ?? '')}</p>${actions}${related}</section>`;
 }
 
@@ -241,7 +245,7 @@ export function helpCenterHtml(
       </label>
       <div class="help-no-results" hidden><h2>No matching help</h2><p>Try a command name, workflow concept, file name, or Jira term.</p></div>
       ${document.topics.map((topic) => `<article id="help-${escape(topic.id)}" class="help-article${topic.id === selected?.id ? ' selected' : ''}" data-topic-id="${escape(topic.id)}" data-search-text="${escape(`${topic.title} ${topic.content}`.toLowerCase())}">
-        <p class="eyebrow">${escape(topic.id)}</p><h1>${escape(topic.title)}</h1>${renderHelpMarkdown(topic.content)}</article>`).join('')}
+        <p class="eyebrow">${escape(topic.id)}</p><h1>${escape(topic.title)}</h1>${renderHelpMarkdown(topic.content, topic.sourceFile)}</article>`).join('')}
     </main>
   </div>`;
 }
@@ -282,7 +286,7 @@ export const HELP_CENTER_SCRIPT = `
     vscode.postMessage({ type: 'prefill-action', skill: button.dataset.prefillHelp, topic: button.dataset.prefillTopic });
   }));
   document.querySelectorAll('[data-link]').forEach((link) => {
-    const open = () => vscode.postMessage({ type: 'open-link', target: link.dataset.link });
+    const open = () => vscode.postMessage({ type: 'open-link', source: link.dataset.helpSource, target: link.dataset.link });
     link.addEventListener('click', open);
     link.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') open(); });
   });

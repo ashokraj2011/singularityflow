@@ -227,6 +227,7 @@ export function explainServedResult(resolution, { wantsHere = false, here = null
       citation: resolution.citation,
       topic: {
         id: topic.id, title: topic.title, version: topic.version, sha256: topic.sha256,
+        file: topic.file,
         commands: [...topic.commands], related: [...topic.related], aliases: [...topic.aliases]
       },
       served: { text: served.text, bytes: served.bytes, truncated: served.truncated, sha256: served.sha256, handle: served.handle },

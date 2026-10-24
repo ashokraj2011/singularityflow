@@ -191,7 +191,9 @@ test('no stored field can authorize anything: the kernel never reads it, and its
     binding, planners: gatewayPlanners(), root: repo, plannerContext: { actor: ACTOR }, readOnly: false,
     mutationExecutors: new Map([['watch-create', () => { carriedOut = true; throw new Error('carried out'); }]])
   });
-  const listed = await first.next({ scope: 'home' });
+  // With work leading, next gives the legal set as phrases (data.legal); a scope that reads no work
+  // still answers with selectable actions, which is all this test needs a handle from.
+  const listed = await first.next({ scope: 'investigation' });
   const readHandle = listed.next.find((action) => /^sel_/.test(action.handle)).handle;
   const planned = await first.resolve({ utterance: 'watch this', arguments: { subjectId: 'WRK-1', predicate: 'phase-changed' } });
   const planId = planned.data.plan.handle;

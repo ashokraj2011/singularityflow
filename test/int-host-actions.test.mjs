@@ -190,7 +190,7 @@ test('the receiving host refuses what the kernel would, and a view this build do
   assert.deepEqual([tampered.result.kind, tampered.result.operation.id, tampered.result.why[0].code],
     ['refusal', 'gateway.host-action', 'gateway.host-action-refused']);
   assert.ok(Object.values(tampered.result.effects).every((value) => value === false), 'nothing was opened or changed');
-  assert.equal(tampered.result.restState, 'unavailable');
+  assert.equal(tampered.result.restState, 'blocked', 'a refused link is not something another surface can do instead');
 
   const absent = receiveHostAction({ id: 'vscode.openInvestigation', arguments: {} }, {
     available: ['vscode.openImpact'], fallback: { label: 'Investigate in the terminal', command: 'sflow explain' }
@@ -199,6 +199,8 @@ test('the receiving host refuses what the kernel would, and a view this build do
   assert.deepEqual(absent.result.why[0].slots, { action: 'vscode.openInvestigation', reason: 'not-available-in-this-build' });
   assert.equal(absent.result.next[0].fallback.command, 'sflow explain', 'the explicit fallback is the way forward');
   assert.equal(absent.result.next[0].executable, false);
+  const bare = receiveHostAction({ id: 'vscode.openProgress' }, { available: [] });
+  assert.equal(bare.result.restState, 'unavailable', 'a view this build lacks is unavailable here');
 });
 
 test('quick impact offers the Impact view as a typed host action with its terminal equivalent', async (t) => {

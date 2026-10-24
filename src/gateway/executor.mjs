@@ -225,7 +225,8 @@ export function hostActionRefusal({ action = 'unknown', reason = 'malformed' } =
     why: [{ code: 'gateway.host-action-refused', source: 'deterministic', slots: { action, reason } }],
     preserved: preservedAll('gateway.nothing-was-carried-out'),
     next: continuation,
-    restState: continuation.length ? null : 'unavailable'
+    // A view this build lacks is unavailable here; anything else was refused, and retrying it elsewhere will not help.
+    restState: continuation.length ? null : (reason === 'not-available-in-this-build' ? 'unavailable' : 'blocked')
   });
 }
 

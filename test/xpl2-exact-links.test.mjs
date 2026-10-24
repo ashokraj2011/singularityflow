@@ -13,7 +13,7 @@ import test from 'node:test';
 
 import { implementationBindings } from '../src/implementation-bindings.mjs';
 import { buildRepositoryChangeSet } from '../src/repository-change-set.mjs';
-import { readStoryBindingSources } from '../src/comprehension/xpl2/record-sources.mjs';
+import { readStoryBindingSources } from '../src/comprehension/xpl2/clause-sources.mjs';
 import { explainXpl2Subject } from '../src/comprehension/xpl2/subjects.mjs';
 import { createXpl2Fixture, xpl2InputFor } from './helpers/xpl2-fixture.mjs';
 

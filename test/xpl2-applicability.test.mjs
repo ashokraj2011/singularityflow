@@ -12,7 +12,7 @@ import test from 'node:test';
 
 import { buildTestExecutionReceipt } from '../src/code-delivery-tests.mjs';
 import { evidenceReuseState } from '../src/evidence-reuse.mjs';
-import { readStoryRecordSources } from '../src/comprehension/xpl2/record-sources.mjs';
+import { readStoryRecordSources } from '../src/comprehension/xpl2/clause-sources.mjs';
 import { explainXpl2Subject } from '../src/comprehension/xpl2/subjects.mjs';
 import { attemptSha256 } from '../src/verification/attempts.mjs';
 import { createXpl2Fixture } from './helpers/xpl2-fixture.mjs';

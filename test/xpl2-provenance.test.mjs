@@ -11,8 +11,7 @@ import { access, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
-import { compareXpl2Views } from '../src/comprehension/xpl2/compare.mjs';
-import { readGenerationSources } from '../src/comprehension/xpl2/record-sources.mjs';
+import { readGenerationSources } from '../src/comprehension/xpl2/clause-sources.mjs';
 import { explainXpl2Subject, xpl2LineHistoryRequest } from '../src/comprehension/xpl2/subjects.mjs';
 import { lineCommitAt } from '../src/git.mjs';
 import { invokeModel } from '../src/model-runner.mjs';
@@ -20,6 +19,7 @@ import { withOperationContext } from '../src/operation-context.mjs';
 import { promptAuditStatus, recordPromptAudit, setPromptAudit } from '../src/prompt-audit.mjs';
 import { comprehensionSlice, createChangeRepository, createXpl2Fixture, xpl2InputFor } from './helpers/xpl2-fixture.mjs';
 import { renderExplorer } from './helpers/xpl2-html.mjs';
+import { compareXpl2Views } from '../apps/vscode/src/views/change-explorer.ts';
 
 const GENERATION = { subject: 'generation', phase: 'implementation', generation: 2 };
 

@@ -14,8 +14,7 @@ import { buildComprehensionReplay } from './replay.mjs';
 import { comprehensionSourceReferences } from './source-expansion.mjs';
 import { buildComprehensionWalkthroughDraft } from './walkthrough.mjs';
 import { buildCodeExplanation } from './code-explanation.mjs';
-import { readStoryClauseSources } from './xpl2/clause-sources.mjs';
-import { readStoryBindingSources, readStoryRecordSources } from './xpl2/record-sources.mjs';
+import { readStoryBindingSources, readStoryClauseSources, readStoryRecordSources } from './xpl2/clause-sources.mjs';
 import { readChangeSourceTags } from './xpl2/source-tags.mjs';
 import { explainXpl2Subject } from './xpl2/subjects.mjs';
 

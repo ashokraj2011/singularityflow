@@ -37,9 +37,9 @@ XPL2 is a *subject view* layer over the existing comprehension capture (`CMP`), 
 
 | Surface | Owner |
 |---|---|
-| Engine | `src/comprehension/xpl2/` — `reasons`, `templates`, `vocabulary`, `model`, `change-subject`, `subjects`, `clause-sources`, `command` |
-| Records | `src/comprehension/xpl2/record-sources.mjs` (attempts, witnesses, reuse decisions in the slice; invocations and prompts for `--subject generation`), `compare.mjs` (snapshot comparison, zero-import), `lineCommitAt` in `src/git.mjs` |
-| Narration | `src/comprehension/xpl2/narration.mjs` (pure: input projection, prompt, validation) and `narration-command.mjs` (the one model call, loaded only for `--narrate`) |
+| Engine | `src/comprehension/xpl2/` — `reasons`, `templates`, `vocabulary`, `model`, `change-subject`, `subjects`, `clause-sources`, `narration`, `command` |
+| Records | `src/comprehension/xpl2/clause-sources.mjs` (clauses, and attempts, witnesses, reuse decisions and implementation bindings in the slice; invocations and prompts for `--subject generation`), `compareXpl2Views` in `apps/vscode/src/views/change-explorer.ts` (snapshot comparison), `lineCommitAt` in `src/git.mjs` |
+| Narration | `src/comprehension/xpl2/narration.mjs` (pure input projection, prompt and validation, and `narrateXpl2Explanation`, the one model call, loaded only for `--narrate`) |
 | Capture | `src/comprehension/ide-slice.mjs` (adds `explanationView`; `explanationInputs` only on request) |
 | CLI | `singularity-flow explain --subject …`, operation `explain.subject` in `src/command-registry.mjs` |
 | Copilot | `/sf-explain` (`plugin/skills/sflow-explain`), conversational, relays the same command |

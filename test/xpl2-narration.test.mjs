@@ -13,9 +13,8 @@ import test from 'node:test';
 import { explainXpl2Subject } from '../src/comprehension/xpl2/subjects.mjs';
 import {
   buildXpl2NarrationPrompt, validateXpl2Narration, XPL2_COMMENTARY_BANNER, XPL2_CONNECTIVES,
-  XPL2_NARRATION_BANNER, xpl2NarrationInput
+  narrateXpl2Explanation, XPL2_NARRATION_BANNER, xpl2NarrationInput
 } from '../src/comprehension/xpl2/narration.mjs';
-import { narrateXpl2Explanation } from '../src/comprehension/xpl2/narration-command.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
 import { listPromptAudits, setPromptAudit } from '../src/prompt-audit.mjs';
 import { cliJson, comprehensionSlice, createXpl2Fixture, isolatedHome } from './helpers/xpl2-fixture.mjs';

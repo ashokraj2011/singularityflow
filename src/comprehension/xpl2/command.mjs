@@ -152,12 +152,12 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
     lineHistory = { request, result: request?.kind === 'baseline' ? lineCommitAt(root, request.revision, request.path, request.line) : null };
   }
   const generationSources = query.subject === 'generation' && input.workflow
-    ? await (await import('./record-sources.mjs')).readGenerationSources(root, input.workflow, { phase: query.phase, generation: query.generation })
+    ? await (await import('./clause-sources.mjs')).readGenerationSources(root, input.workflow, { phase: query.phase, generation: query.generation })
     : null;
   const { model, bytes } = boundedModel(input, query, { proof, lineHistory, generationSources }, maximumBytes);
   // The computed view is complete before narration starts and is never changed by it [XPL2-AC-009].
   const narration = wantsNarration
-    ? await (await import('./narration-command.mjs')).narrateXpl2Explanation(root, model, {
+    ? await (await import('./narration.mjs')).narrateXpl2Explanation(root, model, {
       operation, length, commentary: optionBoolean(options, 'commentary'),
       workId: slice.context.workId, phase: slice.context.phase
     })

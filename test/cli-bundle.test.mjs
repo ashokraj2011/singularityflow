@@ -133,7 +133,11 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   // +11,131 (INT's typed Git reads in git-access.mjs, kept with the lazily loaded planners), cold-worker-protocol
   // +4,918, cold-core +2,586, cold-hooks +1,915 (the guard's host-only and canonical-name rules), cold-narrow-reads
   // +1,825 and cold-hook-context +159.
-  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_380_000,
+  // 7,385,000 (next 5,000 boundary): 7,383,460 after a Story branch carries only its own workflow's configuration
+  // closure (main 1ecccc54: 7,379,841): cold-catalogs +3,148, cold-narrow-reads +442 and cold-hook-context +29, from
+  // the closure materialization and its re-derived check in configuration-branch.mjs and the shared pinned
+  // initialization status in config.mjs. story-configuration-closure.mjs stays out of these reads.
+  assert.ok(closure('cold-hook-context.mjs').reduce((sum, item) => sum + item.bytes, 0) < 7_385_000,
     'phase-review reads retain their existing byte ceiling after moving families');
   assert.match(await readFile(path.join(outdir, 'cold-light.mjs'), 'utf8'), /function enterPhase\b/u,
     'phase binding must not fall through to the compatibility/admin bundle');

@@ -289,8 +289,10 @@ test('a whole Story on a closure-only branch starts, publishes, submits, approve
   git(config, 'remote', 'add', 'origin', remote); git(config, 'push', '-q', 'origin', 'sflow/config');
 
   const WORK = 'CLOSURE-CLI-1';
-  cli('start', WORK, '--from-branch', 'main', '--work-type', 'spec-driven-standard', '--target-url', 'https://staging.example.test',
+  const started = cli('start', WORK, '--from-branch', 'main', '--work-type', 'spec-driven-standard', '--target-url', 'https://staging.example.test',
     '--title', 'Validate a value', '--description', 'Return an approved value with browser-visible proof.');
+  // Start names a fallback to the whole copy; this Story got its closure, so it says nothing.
+  assert.doesNotMatch(started, /whole approved configuration/);
   const initFiles = git(app, 'show', '--name-only', '--format=', 'HEAD').split('\n')
     .filter(relative => !relative.startsWith('singularity/work-items/'));
   assert.ok(initFiles.length < approvedFiles / 5, `the init commit carries ${initFiles.length} of ${approvedFiles} configuration files`);

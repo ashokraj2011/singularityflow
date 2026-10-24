@@ -96,7 +96,7 @@ export const TOUR_STEP_LIMIT = 12;
 const TOUR_STEPS = Object.freeze([
   ['purpose', ['clause-declared', 'clause-cites', 'clause-required']],
   ['changes', ['change-inventory', 'singularity-files-hidden', 'file-type', 'mode-change', 'hunk', 'opaque-unit',
-    'line-in-unit', 'line-outside', 'line-opaque', 'line-commit', 'line-uncommitted', 'line-commit-unavailable']],
+    'line-in-unit', 'line-outside', 'line-opaque', 'line-commit', 'line-changed', 'line-commit-unavailable']],
   ['links', ['exact-cause', 'binding-not-joined', 'line-binding', 'clause-tag', 'region-association', 'acceptance-tag', 'test-tag']],
   ['checks', ['witness-result', 'test-result', 'test-attempt', 'evidence-reuse', 'binding-decision', 'gap-observed']],
   ['attention', ['no-complete-evaluation', 'admission-unavailable', 'feature-state', 'source-state', 'provenance-unavailable',
@@ -109,7 +109,9 @@ function readingTour(statements, attentionStatements, next) {
   const steps = TOUR_STEPS.map(([step, kinds]) => {
     const ids = [
       ...(step === 'attention' ? attentionStatements : []),
-      ...statements.filter((entry) => kinds.includes(entry.kind)).map((entry) => entry.id)
+      // Within a step, statements follow the step's kind order (the inventory before its units).
+      ...statements.filter((entry) => kinds.includes(entry.kind))
+        .sort((left, right) => kinds.indexOf(left.kind) - kinds.indexOf(right.kind)).map((entry) => entry.id)
     ].filter((id) => !placed.has(id));
     const unique = [...new Set(ids)];
     for (const id of unique) placed.add(id);
@@ -132,9 +134,10 @@ function presentationFor(model, selection, next = []) {
       .sort((left, right) => (unitOrder.get(left.about) ?? 0) - (unitOrder.get(right.about) ?? 0))
       .map((entry) => entry.id)
   ];
-  const intent = byKind(['clause-declared', 'clause-cites', 'clause-required', 'clause-untagged', 'clause-tag', 'region-association']);
+  const intent = byKind(['clause-declared', 'clause-cites', 'clause-required', 'clause-untagged', 'clause-tag', 'region-association',
+    'exact-cause', 'binding-not-joined']);
   const checks = byKind(['test-tag', 'acceptance-tag', 'test-result', 'witness-result', 'test-attempt', 'evidence-reuse',
-    'gap-observed', 'no-complete-evaluation']);
+    'binding-decision', 'gap-observed', 'no-complete-evaluation']);
   const limits = byKind(['admission-unavailable', 'feature-state', 'source-state', 'cause-not-recorded', 'provenance-unavailable']);
   const history = byKind(['generation-recorded']);
   const unique = (ids) => [...new Set(ids)];
@@ -231,7 +234,7 @@ function lineHistoryStatements(b, derived, query, history) {
   if (!request) return;
   if (request.kind === 'captured-change') {
     derived.push(b.derivedStatement({
-      about: 'line', template: 'xpl2.line-uncommitted@1', cites: ['SRC-MANIFEST'],
+      about: 'line', template: 'xpl2.line-changed@1', cites: ['SRC-MANIFEST'],
       arguments: { path: query.path, line: query.line, unitId: request.unitId }
     }));
     return;
@@ -462,6 +465,21 @@ export function explainXpl2Subject(input, rawQuery = {}, {
           about: unit.nodeId, template: 'xpl2.line-in-unit@1', cites: citeLine,
           arguments: { side: query.side, path: query.path, line: query.line, unitId: unit.unitId }
         }));
+        // An exactly bound changed line names the binding, never an author [XPL2 M4].
+        const covering = (universe.anchors.bindingIntervals.get(unit.nodeId) ?? []).filter((interval) => {
+          const [start, lines] = query.side === 'before' ? [interval.beforeStart, interval.beforeLines] : [interval.afterStart, interval.afterLines];
+          return Number(lines) > 0 && query.line >= start && query.line <= start + lines - 1;
+        });
+        for (const phase of [...new Set(covering.map((interval) => `${interval.phase}\u0000${interval.generation}`))]) {
+          const [phaseId, generation] = phase.split('\u0000');
+          const clauses = [...new Set(covering.filter((interval) => interval.phase === phaseId && interval.generation === generation)
+            .map((interval) => interval.clauseId))].sort();
+          derived.push(b.derivedStatement({
+            about: unit.nodeId, template: 'xpl2.line-binding@1',
+            cites: [...b.sourceIds().filter((id) => id.startsWith('SRC-BINDINGS-')), ...citeLine],
+            arguments: { side: query.side, path: query.path, line: query.line, unitId: unit.unitId, clauses: clauses.join(', '), phase: phaseId, generation }
+          }));
+        }
       }
     } else if (opaque.length) {
       seeds = opaque.map((unit) => unit.nodeId);

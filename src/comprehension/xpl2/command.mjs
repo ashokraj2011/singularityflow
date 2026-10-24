@@ -140,7 +140,8 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
     replay: slice.replay,
     sourceReferences: slice.sourceReferences,
     codeScope: slice.codeScope,
-    recordSources: slice.explanationInputs?.recordSources ?? null
+    recordSources: slice.explanationInputs?.recordSources ?? null,
+    bindingSources: slice.explanationInputs?.bindingSources ?? null
   };
   const proof = query.subject === 'gap' ? await readProofGaps(root, slice.context.workId) : null;
   // A line asks ordinary commit history once, at the exact baseline commit, after the capture is

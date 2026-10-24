@@ -58,6 +58,16 @@ export const XPL2_RELATIONSHIPS = Object.freeze({
     means: 'A recorded evidence-reuse decision names this earlier run; its owner states whether it still applies.',
     notImplied: 'That the run happened on this change; a reused run is not a new execution.'
   }),
+  'binding-covers-unit': Object.freeze({
+    granularity: 'exact-interval', style: 'exact-cause',
+    means: 'A code-delivery receipt binds the clause to exact changed lines inside this unit: the delivered hunks of the clause\'s planned path, whose file content this capture matches.',
+    notImplied: 'That the lines implement or meet the clause, or that they serve only this clause; every changed hunk of a planned path is bound, and a person decides.'
+  }),
+  'decision-covers-binding': Object.freeze({
+    granularity: 'owner-decision', style: 'decision',
+    means: 'A phase approval recorded a decision about the exact binding set that holds this clause\'s binding.',
+    notImplied: 'That the code meets the clause, or that any later revision is approved.'
+  }),
   'observation-gap': Object.freeze({
     granularity: 'diagnostic', style: 'diagnostic',
     means: 'The owner or this reader reported no admitted record of this kind for the item.',

@@ -3456,7 +3456,9 @@ always shown, and nothing is stored; `--commentary` adds labelled, unverified mo
 withheld when it carries markup, control characters, secret-shaped or oversized text. Recorded test
 attempts, criterion witnesses and evidence-reuse decisions are shown as their owners record and
 judge them; `--subject line` adds the commit that last changed the line at the baseline, and
-`--subject generation` this machine's invocation and prompt-log records, never who wrote a line. In Copilot use `/sf-explain`; in VS Code open **Change Explorer**. See
+`--subject generation` this machine's invocation and prompt-log records, never who wrote a line.
+Exact links are the implementation bindings a code-delivery step recorded, joined to a change unit
+only while the file holds the delivered bytes. In Copilot use `/sf-explain`; in VS Code open **Change Explorer**. See
 [Explain for humans](docs/XPL2-EXPLAIN-FOR-HUMANS.md).
 
 ### Reference expansion

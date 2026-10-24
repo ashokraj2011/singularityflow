@@ -207,7 +207,8 @@ const STYLE_LABELS: Record<string, string> = {
   navigation: 'navigation hint',
   citation: 'cites',
   occurrence: 'exact occurrence',
-  decision: 'owner decision'
+  decision: 'owner decision',
+  'exact-cause': 'exact lines'
 };
 
 const CONTROL = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
@@ -352,9 +353,10 @@ interface Column { title: string; nodes: Xpl2Node[] }
 function graphColumns(view: Xpl2Explanation): { intent: Column; code: Column; results: Column; alsoChanged: Xpl2Node[] } {
   const nodes = view.nodes;
   const linked = new Set<string>();
+  const fileOf = new Map(view.inventory.units.map((unit) => [unit.nodeId, unit.fileId]));
   for (const edge of view.relationships) {
-    if (['region-associated-with-clause', 'source-tags-clause', 'test-source-in-change'].includes(edge.type)) {
-      linked.add(edge.from); linked.add(edge.to);
+    if (['region-associated-with-clause', 'source-tags-clause', 'test-source-in-change', 'binding-covers-unit'].includes(edge.type)) {
+      linked.add(fileOf.get(edge.from) ?? edge.from); linked.add(fileOf.get(edge.to) ?? edge.to);
     }
   }
   const files = nodes.filter((node) => node.kind === 'file');
@@ -401,6 +403,7 @@ function nodeSubtitle(view: Xpl2Explanation, node: Xpl2Node): string {
     }
     return `Local delivery record · ${node.status ?? 'unknown'}`;
   }
+  if (node.kind === 'decision' && !/^ERU-/u.test(node.label)) return 'Approval decisions about the implementation bindings';
   if (node.kind === 'decision') return `Evidence-reuse decision · ${node.status === 'active' ? 'applies now' : node.status === 'unknown' ? 'cannot be judged' : `does not apply (${node.status ?? 'unknown'})`}`;
   if (node.kind === 'diagnostic') {
     return node.status === 'owner-reported-gap' ? 'Reported by its owner · not a failed test'
@@ -420,8 +423,10 @@ function nodeEyebrow(node: Xpl2Node): string {
 
 function nodeButton(view: Xpl2Explanation, node: Xpl2Node, column: string, index: number): string {
   const gap = node.kind === 'diagnostic' || (node.kind === 'run' && !['passed', 'pass', 'succeeded', 'success', 'recorded-elsewhere'].includes(String(node.status)))
-    || (node.kind === 'decision' && node.status !== 'active');
-  const described = view.relationships.filter((edge) => edge.from === node.id || edge.to === node.id)
+    || (node.kind === 'decision' && /^ERU-/u.test(node.label) && node.status !== 'active');
+  // A file card also speaks for its units' exact links, which the map draws to the card.
+  const own = new Set([node.id, ...view.inventory.units.filter((unit) => unit.fileId === node.id).map((unit) => unit.nodeId)]);
+  const described = view.relationships.filter((edge) => edge.type !== 'file-contains-unit' && (own.has(edge.from) || own.has(edge.to)))
     .map((edge) => relationshipSentence(view, edge)).join(' ');
   return `<button type="button" class="xpl-node xpl-${node.kind}${gap ? ' xpl-gap' : ''}" id="${domId(node.id)}" data-node="${escape(node.id)}" data-column="${column}" data-index="${index}" aria-label="${escape(`${nodeEyebrow(node)}: ${node.label}. ${nodeSubtitle(view, node)}. ${described}`)}">
     <span class="xpl-eyebrow">${escape(nodeEyebrow(node))}</span>
@@ -468,15 +473,23 @@ function relationshipSentence(view: Xpl2Explanation, edge: Xpl2Relationship): st
 function mapHtml(view: Xpl2Explanation): string {
   const columns = graphColumns(view);
   const drawn = view.relationships.filter((edge) => edge.type !== 'file-contains-unit' && edge.from !== edge.to);
-  const edges = drawn.map((edge) => ({
-    id: edge.id,
-    from: domId(edge.from),
-    to: domId(edge.to),
-    fromNode: edge.from,
-    toNode: edge.to,
-    style: (XPL2_RELATIONSHIPS as Record<string, { style: string }>)[edge.type]?.style ?? 'exact',
-    label: STYLE_LABELS[(XPL2_RELATIONSHIPS as Record<string, { style: string }>)[edge.type]?.style ?? 'exact'] ?? edge.granularity
-  }));
+  // Units are not cards on the map: an exact link to a unit is drawn to its file and labelled with
+  // the unit, and the Relationships table keeps the unit itself.
+  const units = new Map(view.inventory.units.map((unit) => [unit.nodeId, unit]));
+  const card = (nodeId: string) => units.get(nodeId)?.fileId ?? nodeId;
+  const edges = drawn.map((edge) => {
+    const style = (XPL2_RELATIONSHIPS as Record<string, { style: string }>)[edge.type]?.style ?? 'exact';
+    const unit = units.get(edge.to) ?? units.get(edge.from) ?? null;
+    return {
+      id: edge.id,
+      from: domId(card(edge.from)),
+      to: domId(card(edge.to)),
+      fromNode: card(edge.from),
+      toNode: card(edge.to),
+      style,
+      label: `${STYLE_LABELS[style] ?? edge.granularity}${unit ? ` · ${unit.unitId}` : ''}`
+    };
+  });
   const alsoVisible = columns.alsoChanged.slice(0, EXPLORER_ALSO_CHANGED_LIMIT);
   const alsoHidden = columns.alsoChanged.slice(EXPLORER_ALSO_CHANGED_LIMIT);
   const alsoOffset = columns.code.nodes.length;
@@ -495,7 +508,11 @@ function mapHtml(view: Xpl2Explanation): string {
   </div>
   <p class="xpl-note" id="xpl-edge-note" hidden></p>
   <ul class="xpl-sr-edges" aria-label="Relationships shown on the map">${drawn.map((edge) => `<li>${escape(relationshipSentence(view, edge))} (${escape(edge.scope)})</li>`).join('')}</ul>
-  <p class="xpl-legend"><span class="xpl-key xpl-key-region"></span> Recorded region association <span class="xpl-key xpl-key-proposed"></span> Declared tag (@clause in code, @ac in tests) <span class="xpl-key xpl-key-citation"></span> Clause cites clause <span class="xpl-key xpl-key-exact"></span> Exact path identity or test occurrence <span class="xpl-key xpl-key-decision"></span> Recorded decision <span class="xpl-key xpl-key-diagnostic"></span> Observation gap · <strong>No test-to-hunk coverage is inferred.</strong></p>`;
+  <p class="xpl-legend">${[
+    ['region', 'Recorded region association'], ['proposed', 'Declared tag (@clause in code, @ac in tests)'], ['citation', 'Clause cites clause'],
+    ['exact', 'Exact path identity or test occurrence'], ['exact-cause', 'Exact changed lines a delivery receipt binds'],
+    ['decision', 'Recorded decision'], ['diagnostic', 'Observation gap']
+  ].map(([key, text]) => `<span class="xpl-legend-item"><span class="xpl-key xpl-key-${key}"></span> ${text}</span>`).join(' ')} · <strong>No test-to-hunk coverage is inferred.</strong></p>`;
 }
 
 function relationshipsTable(view: Xpl2Explanation): string {
@@ -568,7 +585,8 @@ function inspectorPane(view: Xpl2Explanation, node: Xpl2Node): string {
   // A file's pane also states what is recorded about each of its change units.
   const unitNodes = new Set(units.map((unit) => unit.nodeId));
   const statements = view.statements.filter((entry) => entry.about === node.id || unitNodes.has(entry.about));
-  const edges = view.relationships.filter((edge) => (edge.from === node.id || edge.to === node.id) && edge.type !== 'file-contains-unit');
+  const edges = view.relationships.filter((edge) => edge.type !== 'file-contains-unit'
+    && (edge.from === node.id || edge.to === node.id || unitNodes.has(edge.from) || unitNodes.has(edge.to)));
   const citations = [...new Set([...node.cites, ...statements.flatMap((entry) => entry.cites), ...edges.flatMap((edge) => edge.cites)])].sort();
   const limits = [...new Set(statements.flatMap((entry) => entry.limitations))];
   const notImplied = [...new Set(edges.map((edge) => (XPL2_RELATIONSHIPS as Record<string, { notImplied: string }>)[edge.type]?.notImplied).filter(Boolean))];
@@ -615,7 +633,8 @@ function inventoryRail(view: Xpl2Explanation, audience: ExplorerAudience): strin
       const shape = file.opaque && !file.hunks ? 'opaque resource'
         : view.relationships.some((edge) => edge.type === 'region-associated-with-clause' && edge.to === file.fileId) ? 'region association'
           : null;
-      const status = [shape, declaredTags(view, file.fileId)].filter(Boolean).join(' · ') || 'reason not recorded';
+      const bound = view.relationships.some((edge) => edge.type === 'binding-covers-unit' && file.unitIds.some((unitId) => edge.to === `unit:${unitId}`));
+      const status = [shape, bound ? 'exact bound lines' : null, declaredTags(view, file.fileId)].filter(Boolean).join(' · ') || 'reason not recorded';
       return `<li data-path="${escape(file.path.toLowerCase())}"><button type="button" class="xpl-file" data-node="${escape(file.fileId)}"><span class="xpl-op" aria-label="${escape(file.operation)}">${escape(file.operation.slice(0, 1).toUpperCase())}</span><span><strong>${escape(file.path)}</strong><span class="xpl-sub">${fileKindLabels(file).map((label) => `${escape(label)} · `).join('')}${file.hunks ? `${file.hunks} text hunk${file.hunks === 1 ? '' : 's'}` : ''}${file.hunks && file.opaque ? ' · ' : ''}${file.opaque ? `${file.opaque} opaque` : ''} · ${escape(status)}</span></span></button></li>`;
     }).join('')}</ul>
     <p class="xpl-note" id="xpl-filter-note" hidden>Filtering changes this list, not the evidence set.</p>
@@ -724,7 +743,9 @@ function snapshotBanner(view: Xpl2Explanation, newer: Xpl2Explanation | null): s
   const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
   const moved = comparison
     ? ` Since this view: ${plural(comparison.units.addedCount, 'change unit')} new, ${comparison.units.removedCount} gone, ${comparison.units.kept} unchanged${comparison.sources.changedCount ? `; ${plural(comparison.sources.changedCount, 'source')} changed (${comparison.sources.changed.map((id) => escape(id)).join(', ')}${comparison.sources.changedCount > comparison.sources.changed.length ? ', …' : ''})` : ''}.`
-      + `${comparison.units.added.length ? ` New: ${comparison.units.added.map((unit) => `${escape(unit.unitId)} ${escape(unit.path)}`).join(', ')}.` : ''}`
+      // Files, not display IDs: the newer view numbers its units afresh, so its H-001 may be another change.
+      + `${comparison.units.added.length ? ` New changes in ${[...new Set(comparison.units.added.map((unit) => unit.path))].map((file) => escape(file)).join(', ')}.` : ''}`
+      + `${comparison.units.removed.length ? ` Changes gone from ${[...new Set(comparison.units.removed.map((unit) => unit.path))].map((file) => escape(file)).join(', ')}.` : ''}`
     : '';
   return `<div class="xpl-banner" role="status"><strong>Snapshot changed.</strong> The repository moved since this view was built.${moved} You are still looking at the earlier snapshot. <button type="button" class="secondary" data-message="refresh">Refresh to the new snapshot</button></div>`;
 }
@@ -764,9 +785,9 @@ export function changeExplorerBody(input: ExplorerRenderInput): string {
       <div><strong>${counts.files}</strong><span>changed files</span></div>
       <div><strong>${counts.textHunks}</strong><span>text hunks</span></div>
       <div><strong>${counts.opaqueUnits}</strong><span>opaque units</span></div>
-      <div><strong>${counts.causeBoundUnits}</strong><span>hunk-bound cause links</span></div>
+      <div><strong>${counts.causeBoundUnits}</strong><span>${counts.causeBoundUnits === 1 ? 'unit' : 'units'} with exact bound lines</span></div>
       <div><strong>${counts.clauses}</strong><span>clauses in scope</span></div>
-      <p>Region associations and recorded results are not hunk-level proof.</p>
+      <p>Bound lines, region associations and recorded results map code to clauses; none of them is proof.</p>
     </section>
     ${focus?.notice ? `<div class="xpl-notice" id="xpl-focus-notice" role="status">${escape(focus.notice)}</div>` : ''}
     <div class="xpl-layout">
@@ -852,7 +873,8 @@ export const EXPLORER_STYLE = `
   .xpl-views { display:flex; gap:4px; flex-wrap:wrap; }
   .xpl-tour { margin:0; padding-left:20px; display:flex; flex-direction:column; gap:10px; }
   .xpl-tour-step h3 { font-size:13px; margin:0 0 4px; }
-  .xpl-tour-item { text-align:left; }
+  .xpl button.xpl-tour-item { font: inherit; color: inherit; padding:0; text-align:left; }
+  .xpl button.xpl-tour-item:hover:not(:disabled) { background:none; color:inherit; text-decoration: underline; box-shadow:none; }
   .xpl-views button { background:transparent; color:inherit; border:1px solid transparent; border-radius:6px; padding:4px 10px; cursor:pointer; }
   .xpl-views button[aria-selected="true"] { border-color: var(--vscode-focusBorder); }
   .xpl-map { position:relative; display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:28px; padding:6px 0; }
@@ -875,6 +897,7 @@ export const EXPLORER_STYLE = `
   .xpl-edges .xpl-edge-diagnostic { stroke-dasharray:4 4; stroke: var(--vscode-editorWarning-foreground, currentColor); }
   .xpl-edges .xpl-edge-citation { stroke: var(--vscode-textLink-foreground, currentColor); }
   .xpl-edges .xpl-edge-decision { stroke-dasharray:8 3 2 3; }
+  .xpl-edges .xpl-edge-exact-cause { stroke-width:2.5; }
   .xpl-edges .xpl-edge-active { stroke: var(--vscode-focusBorder); stroke-width:2.5; }
   .xpl-edge-labels { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:2; overflow:visible; }
   .xpl-edge-labels rect { fill: var(--vscode-editor-background); stroke: var(--vscode-focusBorder); stroke-width:1; }
@@ -892,6 +915,8 @@ export const EXPLORER_STYLE = `
   .xpl-key-diagnostic { border-top-style:dashed; border-top-color: var(--vscode-editorWarning-foreground, currentColor); }
   .xpl-key-citation { border-top-color: var(--vscode-textLink-foreground, currentColor); }
   .xpl-key-decision { border-top-style:double; border-top-width:3px; }
+  .xpl-key-exact-cause { border-top-width:4px; }
+  .xpl-legend-item { white-space:nowrap; display:inline-block; margin-right:10px; }
   .xpl-sr-edges, .xpl-sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
   .xpl-diff-actions { display:flex; gap:6px; flex-wrap:wrap; }
   .xpl-diff-head { display:flex; justify-content:space-between; margin:8px 0; }
@@ -975,6 +1000,12 @@ export const EXPLORER_SCRIPT = `
       const touches = (edge) => Boolean(selected) && (edge.fromNode === selected || edge.toNode === selected);
       // The selected item's edges first, then the rest in view order, never more than the limit.
       const ordered = edges.filter(touches).concat(edges.filter((edge) => !touches(edge)));
+      // Several relationships can join the same two cards (a tag and an exact binding); each gets
+      // its own lane and its own label row, so no line or label hides another.
+      const pairKey = (edge) => [edge.from, edge.to].sort().join('|');
+      const pairTotal = new Map();
+      for (const edge of ordered) pairTotal.set(pairKey(edge), (pairTotal.get(pairKey(edge)) || 0) + 1);
+      const pairSeen = new Map();
       let drawn = 0;
       let skipped = 0;
       for (const edge of ordered) {
@@ -988,8 +1019,12 @@ export const EXPLORER_SCRIPT = `
         // edges, so the line never crosses either card.
         const sameColumn = Math.abs(a.left - b.left) < 2;
         const leftFirst = a.left <= b.left;
-        const x1 = (sameColumn || leftFirst ? a.right : a.left) - base.left, y1 = a.top + a.height / 2 - base.top;
-        const x2 = (leftFirst && !sameColumn ? b.left : b.right) - base.left, y2 = b.top + b.height / 2 - base.top;
+        const key = pairKey(edge);
+        const lane = (pairSeen.get(key) || 0) - ((pairTotal.get(key) || 1) - 1) / 2;
+        pairSeen.set(key, (pairSeen.get(key) || 0) + 1);
+        const spread = Math.max(-20, Math.min(20, lane * 7));
+        const x1 = (sameColumn || leftFirst ? a.right : a.left) - base.left, y1 = a.top + a.height / 2 - base.top + spread;
+        const x2 = (leftFirst && !sameColumn ? b.left : b.right) - base.left, y2 = b.top + b.height / 2 - base.top + spread;
         const mid = sameColumn ? Math.max(x1, x2) + 28 : (x1 + x2) / 2;
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('d', 'M ' + x1 + ' ' + y1 + ' C ' + mid + ' ' + y1 + ', ' + mid + ' ' + y2 + ', ' + x2 + ' ' + y2);
@@ -1002,7 +1037,7 @@ export const EXPLORER_SCRIPT = `
         const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
         const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         label.setAttribute('x', String(mid));
-        label.setAttribute('y', String((y1 + y2) / 2));
+        label.setAttribute('y', String((y1 + y2) / 2 + lane * 11));
         label.setAttribute('text-anchor', 'middle');
         label.setAttribute('dominant-baseline', 'middle');
         label.textContent = edge.label;

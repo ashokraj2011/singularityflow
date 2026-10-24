@@ -12,6 +12,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { secureRepositoryPath } from '../../util.mjs';
+import { deliveredContent } from './change-subject.mjs';
 
 export const XPL2_RECORD_LIMITS = Object.freeze({
   attempts: 40,
@@ -183,4 +184,64 @@ export async function readGenerationSources(root, workflow, { phase, generation 
     result.attempts = { status: 'inaccessible', records: [], omitted: 0 };
   }
   return result;
+}
+
+const MAXIMUM_BINDING_PHASES = 8;
+const MAXIMUM_BINDINGS = 500;
+
+/**
+ * The implementation bindings every code-delivery phase recorded [E2G-011, XPL2 M4]: each clause
+ * bound to the exact changed hunks of its planned paths, the delivered content of each bound file,
+ * and the decision the phase's approval recorded about that exact binding set. The bindings are
+ * checked against their recorded digest and the delivered change set against its own, through
+ * their owners; a record that fails either contributes nothing. Pure over the Story state.
+ */
+export async function readStoryBindingSources(workflow) {
+  if (!workflow?.phases) return null;
+  const candidates = Object.entries(workflow.phases)
+    .filter(([, phase]) => Array.isArray(phase?.deliveryEvidence?.implementationBindings?.bindings));
+  if (!candidates.length) return { status: 'available', phases: [], omitted: 0 };
+  const [{ bindingsDigest }, { verifyRepositoryChangeSetIntegrity }] = await Promise.all([
+    import('../../implementation-bindings.mjs'), import('../../repository-change-set.mjs')
+  ]);
+  const order = new Map((workflow.phaseOrder ?? []).map((id, index) => [id, index]));
+  candidates.sort(([left], [right]) => (order.get(left) ?? 1e9) - (order.get(right) ?? 1e9) || left.localeCompare(right));
+  const phases = candidates.slice(0, MAXIMUM_BINDING_PHASES).map(([phaseId, phase]) => {
+    const delivery = phase.deliveryEvidence;
+    const recorded = delivery.implementationBindings;
+    const bindings = recorded.bindings.slice(0, MAXIMUM_BINDINGS);
+    const bindingsIntact = typeof recorded.bindingsSha256 === 'string' && bindingsDigest(recorded.bindings) === recorded.bindingsSha256;
+    let changeSetIntact = false;
+    try { changeSetIntact = Boolean(delivery.changeSet?.entries) && verifyRepositoryChangeSetIntegrity(delivery.changeSet).valid; }
+    catch { changeSetIntact = false; }
+    const bound = new Set(bindings.flatMap((binding) => (binding.regions ?? []).map((region) => region.path)));
+    const files = {};
+    if (changeSetIntact) {
+      for (const entry of delivery.changeSet.entries) {
+        for (const candidate of [entry.newPath, entry.oldPath]) {
+          if (candidate && bound.has(candidate) && !files[candidate]) files[candidate] = deliveredContent(entry);
+        }
+      }
+    }
+    // The latest standing approval that decided this exact binding set, if any.
+    const approval = [...(phase.approvals ?? [])].reverse().find((entry) => !entry?.invalidatedAt
+      && entry?.decision === 'approved' && entry.implementationBindings?.bindingsSha256 === recorded.bindingsSha256) ?? null;
+    return {
+      phaseId,
+      generation: Number.isSafeInteger(delivery.generation) ? delivery.generation : Number.isSafeInteger(phase.generation) ? phase.generation : null,
+      bindingsSha256: bindingsIntact ? recorded.bindingsSha256 : null,
+      changeSetSha256: changeSetIntact ? delivery.changeSet.digest : null,
+      integrity: bindingsIntact && changeSetIntact ? 'verified' : 'failed',
+      bindings: bindingsIntact && changeSetIntact ? bindings : [],
+      omitted: Math.max(0, recorded.bindings.length - bindings.length),
+      files,
+      decisions: approval ? {
+        generation: Number.isSafeInteger(approval.generation) ? approval.generation : null,
+        clauses: Object.fromEntries((approval.implementationBindings.decisions ?? [])
+          .filter((entry) => typeof entry?.clauseId === 'string')
+          .map((entry) => [entry.clauseId, { decision: entry.decision, reason: entry.reason ?? null }]))
+      } : null
+    };
+  });
+  return { status: 'available', phases, omitted: Math.max(0, candidates.length - phases.length) };
 }

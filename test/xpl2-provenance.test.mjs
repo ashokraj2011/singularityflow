@@ -57,7 +57,7 @@ test('XPL2-AC-011 a line changed in several invocations and then by a person has
     workflow: fixture.workflow, clauseSources: fixture.clauseSources, replay: fixture.replay
   });
   const line = lineView({ ...fixture, diff }, input, { subject: 'line', path: 'src/export/service.ts', line: 5 });
-  assert.match(texts(line), /After-side line 5 of src\/export\/service\.ts was added or changed in H-\d{3} of this captured change; no commit records it yet\./u);
+  assert.match(texts(line), /After-side line 5 of src\/export\/service\.ts was added or changed in H-\d{3} of this captured change, after the baseline; the baseline's commit history does not record it/u);
   const provenance = line.derived.find((entry) => entry.template === 'xpl2.provenance-unavailable@1');
   assert.match(provenance.text, /No admitted record establishes who or what produced this content\./u);
   assert.deepEqual(provenance.limitations, []);
@@ -183,7 +183,7 @@ test('line history: ordinary commit attribution maps unchanged lines across dele
   assert.equal(outside.result.originalLine, 26);
   assert.match(texts(outside.view), /After-side line 25 of app\.js is baseline line 26, outside the changed units, and was last changed in commit [0-9a-f]{12} \(“baseline”, recorded author XPL2 Fixture, /u);
   assert.match(texts(outside.view), /The author field is what the commit records; it does not show how the line was produced\./u);
-  assert.equal(at(20).request.kind, 'captured-change', 'the changed line has no commit yet');
+  assert.equal(at(20).request.kind, 'captured-change', 'the changed line is not in the baseline history');
   const context = at(19);
   assert.equal(context.request.placement, 'context');
   assert.equal(context.request.line, 20);
@@ -221,6 +221,7 @@ test('snapshot comparison names new, gone and unchanged units by full digest, an
   assert.equal(compareXpl2Views(older, null), null);
   const html = renderExplorer(older, { newerSnapshot: true, newerView: newer });
   assert.match(html, /<strong>Snapshot changed\.<\/strong> The repository moved since this view was built\. Since this view: 1 change unit new, 0 gone, 6 unchanged; \d+ sources? changed \(/u);
-  assert.match(html, /New: O-\d{3} src\/export\/extra\.ts\./u);
+  assert.match(html, /New changes in src\/export\/extra\.ts\./u);
+  assert.doesNotMatch(html, /New changes in [^.]*[HO]-\d{3}/u, 'the newer view\'s display IDs are not shown against the older view');
   assert.match(html, /You are still looking at the earlier snapshot\./u);
 });

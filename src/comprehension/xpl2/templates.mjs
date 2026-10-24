@@ -129,6 +129,16 @@ const CAPTURE_LABELS = Object.freeze({
   attempts: 'The test attempt record'
 });
 
+// A phase approval's decision about one implementation binding (src/implementation-bindings.mjs).
+const BINDING_DECISIONS = Object.freeze({
+  accepted: 'The phase approval accepted this binding.',
+  'accepted-with-exception': 'The phase approval accepted this binding with a recorded exception.',
+  'not-reviewed': 'No approval has decided this binding yet.'
+});
+const BINDING_DECISION_WORDS = Object.freeze({
+  accepted: 'accepted', 'accepted-with-exception': 'accepted with an exception', 'not-reviewed': 'not yet decided'
+});
+
 const CAPTURE_STATES = Object.freeze({
   on: 'is readable', off: 'is off', unreadable: 'could not be read'
 });
@@ -335,9 +345,10 @@ const TEMPLATES = [
       + 'The author field is what the commit records; it does not show how the line was produced.'
   },
   {
-    id: 'xpl2.line-uncommitted@1',
+    id: 'xpl2.line-changed@1',
     arguments: { path: 'text', line: 'count', unitId: 'identifier' },
-    render: (a) => `After-side line ${a.line} of ${a.path} was added or changed in ${a.unitId} of this captured change; no commit records it yet.`
+    render: (a) => `After-side line ${a.line} of ${a.path} was added or changed in ${a.unitId} of this captured change, after the baseline; `
+      + 'the baseline\'s commit history does not record it, and this view reads no later commit.'
   },
   {
     id: 'xpl2.line-commit-unavailable@1',
@@ -375,6 +386,35 @@ const TEMPLATES = [
       + `${plural(a.records, 'record')} for this generation. ${xpl2ReasonText(a.reason)}`
   },
   {
+    id: 'xpl2.exact-cause@1',
+    arguments: {
+      unitId: 'identifier', clauseId: 'identifier', phase: 'identifier', generation: 'text', lines: 'text', path: 'text',
+      note: 'quote', decision: 'binding-decision'
+    },
+    render: (a) => `${a.unitId} holds changed lines (${a.lines}) that the ${a.phase} code-delivery receipt (generation ${a.generation}) `
+      + `binds to ${a.clauseId}, as delivered hunks of its planned path ${a.path}${a.note ? `; the author's explanation: “${a.note}”` : ''}. `
+      + `${BINDING_DECISIONS[a.decision]} A binding maps changed lines to a clause; it does not show that the code meets it.`
+  },
+  {
+    id: 'xpl2.binding-not-joined@1',
+    arguments: { clauseId: 'identifier', phase: 'identifier', generation: 'text', path: 'text', reason: 'reason' },
+    render: (a) => `The ${a.phase} code-delivery receipt (generation ${a.generation}) binds ${a.clauseId} to changed lines of ${a.path}, `
+      + `but they are not joined to this capture. ${xpl2ReasonText(a.reason)}`
+  },
+  {
+    id: 'xpl2.binding-decision@1',
+    arguments: { phase: 'identifier', generation: 'text', clauseId: 'identifier', decision: 'binding-decision', reason: 'quote' },
+    render: (a) => `The ${a.phase} approval of generation ${a.generation} recorded that the binding of ${a.clauseId} is `
+      + `${BINDING_DECISION_WORDS[a.decision]}${a.reason ? ` (exception: “${a.reason}”)` : ''}; `
+      + 'it is a decision about the binding, not about whether the code meets the clause.'
+  },
+  {
+    id: 'xpl2.line-binding@1',
+    arguments: { side: 'side', path: 'text', line: 'count', unitId: 'identifier', clauses: 'text', phase: 'identifier', generation: 'text' },
+    render: (a) => `${sideLabel(a.side)}-side line ${a.line} of ${a.path} is one of the changed lines in ${a.unitId} that the ${a.phase} `
+      + `code-delivery receipt (generation ${a.generation}) binds to ${a.clauses}. A binding maps lines to a clause; it does not say who or what wrote them.`
+  },
+  {
     id: 'xpl2.source-state@1',
     arguments: { source: 'text', reason: 'reason' },
     render: (a) => `${a.source}: ${xpl2ReasonText(a.reason)}`
@@ -405,6 +445,7 @@ function validArgument(kind, value) {
     case 'capture': return Object.hasOwn(CAPTURE_LABELS, value);
     case 'capture-state': return Object.hasOwn(CAPTURE_STATES, value);
     case 'line-placement': return Object.hasOwn(LINE_PLACEMENTS, value);
+    case 'binding-decision': return Object.hasOwn(BINDING_DECISIONS, value);
     case 'reason':
       try { xpl2ReasonText(value); return true; } catch { return false; }
     default: return false;

@@ -61,7 +61,9 @@ export const KERNEL_CODES = Object.freeze([
   'gateway.not-a-read',
   'gateway.not-a-mutation',
   'gateway.read-only',
-  'gateway.not-implemented',
+  'gateway.run-in-progress',
+  'gateway.run-outcome-unknown',
+  'gateway.result-replayed',
   'gateway.executor-unavailable',
   'gateway.confirmation-required',
   'gateway.confirmation-invalid',
@@ -309,6 +311,10 @@ export const GUIDED_CODES = Object.freeze([
   'review.nothing-awaiting-decision',
   'review.no-decision-was-recorded',
   'work.draft-saved-locally',
+  'work.started',
+  'work.start-refused',
+  'work.start-recovery-record-kept',
+  'work.intake-recorded',
   'work.no-governed-record-created',
   'workspace.selection-changed',
   'workspace.governed-state-untouched',
@@ -428,6 +434,8 @@ export const WARNING_CODES = Object.freeze([
    * correct, but anything derived from the committed tree does not account for them.
    */
   'work.local-changes-present',
+  /** A repeated run answered with the recorded result of the first; nothing ran again. */
+  'gateway.result-replayed',
   /** A comparison shows the first paths only; the total is in the slots. */
   'compare.paths-truncated',
   /** A working-tree comparison reads tracked files; untracked ones are in neither side. */

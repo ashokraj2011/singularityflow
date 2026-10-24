@@ -273,6 +273,11 @@ export function createHandleAuthority({ secret = randomBytes(32), now = () => Da
       return record;
     },
 
+    /** Which kind of handle this is, or null. Routes a host to the right ceremony, never authorizes. */
+    kind(reference) {
+      return issued.get(reference?.id ?? reference)?.record.kind ?? null;
+    },
+
     /** Whether a handle is still usable, without the throw. For rendering, never for gating. */
     status(reference) {
       const entry = issued.get(reference?.id ?? reference);

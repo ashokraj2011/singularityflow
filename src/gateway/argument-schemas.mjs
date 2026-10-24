@@ -222,7 +222,15 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
     workspaceId: optional('identifier'),
     repositoryId: optional('identifier'),
     workType: optional('identifier'),
-    summary: optional('text')
+    summary: optional('text'),
+    // A complete proposal: the kernel records it as session data and plans its start `[INT:CON-064]`.
+    workId: optional('identifier'),
+    title: optional('string'),
+    description: optional('text'),
+    acceptanceCriteria: optional('text'),
+    baseBranch: optional('ref'),
+    tracker: optional('enum', { values: ['none', 'jira', 'github'] }),
+    trackerKey: optional('string')
   }),
   schema('work-start-v1', { intakeId: required('identifier') }),
   /**

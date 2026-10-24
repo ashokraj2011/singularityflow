@@ -23,6 +23,7 @@ declare module '*/gateway/host.mjs' {
     mutationExecutors?: Map<string, unknown>;
     plannerContext?: Record<string, unknown> | (() => Record<string, unknown>);
     readOnly?: boolean;
+    hostCapabilities?: { confirmationChannel: 'native' | 'terminal' | 'none' };
     now?: () => number;
   }): { root: string | null; binding: () => unknown; kernel: GatewayKernel };
 
@@ -53,12 +54,25 @@ interface GatewayKernel {
     context?: { subject?: unknown }): Promise<SflowResult> | SflowResult;
   read(request: { resolutionId: string }): Promise<SflowResult>;
   next(request?: { scope?: string; subject?: unknown }): SflowResult;
+  /** Host-only: the exact preview, effects and hash a confirmation is about. */
+  planReview(planId: string): PlanReview;
+  /** Host-only: exchange a confirmation collected in native UI for a one-time receipt. */
   confirmPlan(request: {
-    planId: string; requestSha256: string; planSha256: string;
+    planId: string; planHash: string; reviewDigest?: string | null;
   }): { readonly receiptId: string; readonly value: string; readonly expiresAt: number; readonly planHash: string };
   run(request: { planId: string }, confirmation?: {
     confirmationReceiptId?: string | null; confirmationValue?: string | null;
   }): Promise<SflowResult>;
+}
+
+interface PlanReview {
+  readonly planId: string;
+  readonly planHash: string;
+  readonly operationId: string;
+  readonly confirmation: 'host-confirm' | 'exact-confirm';
+  readonly effects: Readonly<Record<string, boolean>>;
+  readonly expiresAt: number;
+  readonly review: { readonly digest: string; readonly preview: Readonly<Record<string, unknown>> } | null;
 }
 
 /**
@@ -86,8 +100,8 @@ interface SflowResult {
 
 declare module '*/gateway/executor.mjs' {
   export function createActionExecutor(options: { gateway: unknown; scope?: string }): {
-    execute(action: unknown): Promise<{ outcome: string; result?: SflowResult; action?: unknown }>;
-    executeById(result: unknown, actionId: string): Promise<{ outcome: string; result?: SflowResult; action?: unknown }>;
+    execute(action: unknown): Promise<{ outcome: string; result?: SflowResult; action?: unknown; review?: PlanReview }>;
+    executeById(result: unknown, actionId: string): Promise<{ outcome: string; result?: SflowResult; action?: unknown; review?: PlanReview }>;
   };
 }
 
@@ -143,6 +157,17 @@ declare module '*/gateway/planners/work-readiness.mjs' { export const workReadin
 declare module '*/gateway/planners/work-return.mjs' { export const workReturn: unknown; }
 declare module '*/gateway/planners/work-start-intake.mjs' { export const workStartIntake: unknown; }
 declare module '*/gateway/planners/workspace-list.mjs' { export const workspaceList: unknown; }
+declare module '*/gateway/planners/watches.mjs' {
+  export const watchList: unknown; export const watchCreatePlan: unknown; export const watchRevokePlan: unknown;
+}
+declare module '*/gateway/planners/work-start.mjs' { export const workStartPlan: unknown; export const workDraftSavePlan: unknown; }
+declare module '*/gateway/planners/workspace-switch.mjs' { export const workspaceSwitchPlan: unknown; }
+declare module '*/gateway/planners/review-open.mjs' { export const reviewOpen: unknown; }
+declare module '*/gateway/planners/executors.mjs' {
+  export function gatewayMutationExecutors(options?: {
+    runStart?: ((argv: string[], options: { cwd: string | null }) => Promise<{ status: number | null; json: unknown }>) | null;
+  }): Map<string, unknown>;
+}
 declare module '*/gateway/planners/workspace-reliability-surface.mjs' {
   export const workspaceBootstrapStatus: unknown;
   export const workspacePrepareGuide: unknown;

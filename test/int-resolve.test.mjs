@@ -273,7 +273,7 @@ test('run is refused while the gateway is read-only', async () => {
   assert.equal(refused.why[0].code, 'gateway.read-only');
 
   const opened = createGatewayKernel({ binding, readOnly: false });
-  assert.equal((await opened.run({ planId: 'plan_1' })).why[0].code, 'gateway.not-implemented');
+  assert.equal((await opened.run({ planId: 'plan_1' })).why[0].code, 'gateway.executor-unavailable');
 });
 
 test('explain routes to its planner and stays a read', async () => {

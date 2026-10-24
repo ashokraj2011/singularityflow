@@ -19,7 +19,7 @@ import { randomUUID } from 'node:crypto';
 import { SingularityFlowError } from '../../util.mjs';
 import { gatewayStoreEntries, updateGatewayStore } from '../local-store.mjs';
 import { planDescriptor, plannerActor } from '../plan-descriptor.mjs';
-import { effects, sflowResult } from '../result.mjs';
+import { effects, noEffects, plannerNavigation, preservedAll, sflowResult } from '../result.mjs';
 import { resolveWorkRecord, workRecords } from '../work-records.mjs';
 
 /** The only shape a gateway can start in this build; the others stay on their explicit commands. */
@@ -35,9 +35,12 @@ function intakeOf(session, intakeId) {
   return intake;
 }
 
-/** What starting changes, every time: it is a governed creation with a publication. */
+/**
+ * What starting changes, every time: a governed creation with a publication. The push is the
+ * publication, so it is `publicationCreated`; a tracker is only read, so nothing external changes.
+ */
 export const WORK_START_EFFECTS = Object.freeze({
-  stateChanged: true, filesChanged: true, gitRefsChanged: true, publicationCreated: true, externalSystemsChanged: true
+  stateChanged: true, filesChanged: true, gitRefsChanged: true, publicationCreated: true, externalSystemsChanged: false
 });
 
 /** Fields of the work-type declaration a reader needs to weigh the choice `[INT:REQ-068]`. */
@@ -156,4 +159,118 @@ export async function workDraftSaveExecute({ plan, context = {}, env = process.e
 
 export async function workDrafts(actorId, { env = process.env } = {}) {
   return gatewayStoreEntries('drafts', actorId, { env });
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Execution: the existing `start` operation, reached unchanged. `[INT:CON-066]` `[INT:CON-115]`
+// ---------------------------------------------------------------------------------------------------
+
+async function pendingPublication(root, workId) {
+  const { inspectPendingPublication } = await import('../../publication-pending.mjs');
+  const found = await inspectPendingPublication(root, { kind: 'story', id: workId }).catch(() => null);
+  return found && found.status !== 'absent' ? { status: found.status, path: found.path ?? null } : null;
+}
+
+/**
+ * The interrupted publication, first. `[INT:REQ-156]` `[INT:CON-115]`
+ *
+ * Whatever else could be said next, the reader's work is committed locally and not yet published,
+ * and the record that lets it be finished is intact. So that record leads, its recovery is the one
+ * primary action, and the effects say exactly what landed: the local commit and branch, not the
+ * publication.
+ */
+function publicationRecoveryResult(workId, pending, { before = false } = {}) {
+  return sflowResult({
+    kind: before ? 'refusal' : 'read',
+    operation: { id: 'work.start', classification: 'mutation' },
+    subject: { kind: 'story', id: workId },
+    outcome: { status: before ? 'refused' : 'failed', messageId: 'gateway.refused', slots: { work: workId } },
+    effects: before ? noEffects() : effects({ stateChanged: true, filesChanged: true, gitRefsChanged: true }),
+    why: [{ code: 'publication.pending', source: 'lifecycle', reference: pending.path, slots: { work: workId, status: pending.status } }],
+    preserved: before
+      ? preservedAll('work.start-recovery-record-kept', { reference: pending.path })
+      : [{ code: 'work.start-recovery-record-kept', source: 'lifecycle', scope: 'publicationCreated', reference: pending.path }],
+    next: [plannerNavigation({
+      handle: `recover:publication:${workId}`, id: 'recover:publication', label: 'Finish the interrupted publication',
+      rank: 0, kind: 'read', reasonCode: 'recovery.resume-publication', confirmation: 'none', interaction: 'recovery',
+      emphasis: 'primary', executable: false,
+      fallback: { label: 'Finish it in the terminal', command: `sflow sync ${workId}` }
+    }, 'work.continue', { workId })],
+    data: { workId, recovery: { record: pending.path, status: pending.status, command: `sflow sync ${workId}` } }
+  });
+}
+
+/** v1 `start` effects, in the v2 vocabulary: a branch is created whenever state is. */
+function startEffects(reported = {}) {
+  return effects({
+    stateChanged: Boolean(reported.stateChanged),
+    filesChanged: Boolean(reported.filesChanged),
+    gitRefsChanged: Boolean(reported.stateChanged || reported.publicationCreated),
+    publicationCreated: Boolean(reported.publicationCreated),
+    externalSystemsChanged: Boolean(reported.externalSystemsChanged)
+  });
+}
+
+/**
+ * The work.start executor, for a host that can run the `start` operation.
+ *
+ * `runStart(argv, { cwd })` is the host's own route to the CLI — a child process here, the editor's
+ * CLI client there — and returns `{ status, json }`. The argv comes from the signed preview alone.
+ * Before anything runs, a competing pending publication for the same work is the answer
+ * `[INT:REQ-036]`; after a failure, a pending publication record is preserved and leads.
+ */
+export function workStartExecutor({ runStart }) {
+  if (typeof runStart !== 'function') throw new TypeError('A work.start executor needs the host route to start.');
+  return async ({ plan, root }) => {
+    const preview = plan.review.preview;
+    const workId = preview.subject.id;
+    const competing = await pendingPublication(root, workId);
+    if (competing) return publicationRecoveryResult(workId, competing, { before: true });
+    const ran = await runStart(workStartArguments(preview), { cwd: root });
+    const reported = ran?.json ?? null;
+    if (ran?.status === 0 && reported?.resultType === 'command-result' && reported.outcome?.status === 'succeeded') {
+      const data = reported.data ?? {};
+      return sflowResult({
+        kind: 'read',
+        operation: { id: 'work.start', classification: 'mutation' },
+        subject: { kind: 'story', id: workId, revision: { sourceCommit: data.publication?.commit ?? null } },
+        outcome: { status: 'succeeded', messageId: 'gateway.completed', slots: { work: workId, phase: data.currentPhase ?? 'none' } },
+        effects: startEffects(reported.effects),
+        why: [{ code: 'work.started', source: 'lifecycle', reference: data.publication?.commit ?? null, slots: { work: workId } }],
+        next: [plannerNavigation({
+          handle: `started:${workId}`, id: 'started:continue', label: `Continue ${workId}`, rank: 0, kind: 'read',
+          reasonCode: 'work.started', confirmation: 'none', interaction: 'navigation', emphasis: 'primary', executable: false,
+          fallback: { label: 'See the work', command: `sflow status --work-id ${workId}` }
+        }, 'work.continue', { workId })],
+        // `[INT:REQ-069]`: what was created, where, pinned to what, and what was left alone.
+        data: {
+          workId,
+          workspace: preview.workspace,
+          repositories: [preview.repository],
+          branch: data.publication?.branch ?? preview.branch.name,
+          base: data.base ?? null,
+          pinnedProfile: { workType: data.workType ?? preview.workProfile.workType, phase: data.currentPhase ?? null },
+          createdRecords: [data.returnLocator?.path, data.testPolicy?.path].filter(Boolean),
+          publication: data.publication ?? null,
+          worktree: { isolated: Boolean(data.worktree?.isolated) },
+          unchangedSystems: preview.unchanged,
+          nextVerb: 'continue'
+        }
+      });
+    }
+    const pending = await pendingPublication(root, workId);
+    if (pending) return publicationRecoveryResult(workId, pending);
+    // A refusal from `start` is a refusal here; it declares no effects in its own contract too.
+    const code = String(reported?.error?.code ?? 'WORK_START_FAILED').slice(0, 128);
+    return sflowResult({
+      kind: 'refusal',
+      operation: { id: 'work.start', classification: 'mutation' },
+      outcome: { status: 'refused', messageId: 'gateway.refused', slots: { work: workId, code } },
+      effects: noEffects(),
+      why: [{ code: 'work.start-refused', source: 'lifecycle', slots: { code } }],
+      preserved: preservedAll('work.no-governed-record-created', { reference: workId }),
+      restState: 'blocked',
+      data: { workId, remediation: (reported?.remediationPlan?.steps ?? []).slice(0, 5).map((step) => step.command).filter(Boolean) }
+    });
+  };
 }

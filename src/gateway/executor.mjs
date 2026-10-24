@@ -118,6 +118,29 @@ export function createActionExecutor({ gateway, scope = 'home' } = {}) {
       return { outcome: 'ceremony', action };
     }
 
+    /**
+     * A plan is confirmed, never dispatched. `[INT:CON-039]` `[INT:CON-111]`
+     *
+     * Pressing a plan's button hands the host its review — the exact preview, effects and hash —
+     * so the host can collect the confirmation in its own trusted UI and exchange it for a receipt.
+     * Nothing here runs the plan: `sflow_run` needs that receipt, and only the host has it.
+     */
+    if (kernel.handles?.kind?.(action.handle) === 'plan') {
+      try {
+        return { outcome: 'confirm', action, review: kernel.planReview(action.handle) };
+      } catch (error) {
+        const code = `gateway.${String(error?.code ?? '').toLowerCase().replaceAll('_', '-')}`;
+        const resolved = await kernel.resolve({ utterance: scope === 'home' ? 'home' : 'help' });
+        const recovery = resolved.next?.find((entry) => entry.executable === true) ?? null;
+        return {
+          outcome: 'stale',
+          result: staleRefusal(HANDLE_FAILURE_CODES.includes(code) ? code : 'gateway.handle-unrecognised', {
+            scope, actionId: action.id, recovery
+          })
+        };
+      }
+    }
+
     if (action.executable === false) {
       /**
        * Not executable means the user's click *selects* it and resolution runs again from the top.

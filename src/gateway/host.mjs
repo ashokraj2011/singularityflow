@@ -164,6 +164,8 @@ export function createHostGateway({
   /** Surface selection that every planner reads instead of re-deriving independently. */
   plannerContext = {},
   readOnly = true,
+  /** How this host collects confirmations; see createGatewayKernel `[INT:IFC-063]`. */
+  hostCapabilities = { confirmationChannel: 'native' },
   now = () => Date.now()
 } = {}) {
   if (!hostSessionId) {
@@ -233,6 +235,7 @@ export function createHostGateway({
     plannerContext: context,
     handles: createHandleAuthority({ now }),
     readOnly,
+    hostCapabilities,
     planBuilders: contextualPlanBuilders,
     mutationExecutors: contextualMutationExecutors,
     now

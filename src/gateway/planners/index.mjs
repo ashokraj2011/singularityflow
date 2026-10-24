@@ -54,6 +54,7 @@ const reviews = () => import('./review-open.mjs');
 const watches = () => import('./watches.mjs');
 const starts = () => import('./work-start.mjs');
 const workspaces = () => import('./workspace-switch.mjs');
+const bisection = () => import('./investigation-bisect.mjs');
 
 export function gatewayPlanners(overrides = {}) {
   return new Map(Object.entries({
@@ -98,6 +99,7 @@ export function gatewayPlanners(overrides = {}) {
     'work-draft-save': lazy(starts, 'workDraftSavePlan'),
     'workspace-switch': lazy(workspaces, 'workspaceSwitchPlan'),
     'workspace-materialize': lazy(workspaces, 'workspaceMaterializePlan'),
+    'investigation-bisect': lazy(bisection, 'investigationBisectPlan'),
     'work-continue': workContinue,
     'work-handoff': workHandoff,
     'work-readiness': workReadiness,

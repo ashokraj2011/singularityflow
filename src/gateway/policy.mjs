@@ -89,6 +89,7 @@ export const DEFAULT_GATEWAY_POLICY = Object.freeze({
     'watch.create': 'host-confirm',
     'watch.revoke': 'host-confirm',
     'work.draft.save': 'host-confirm',
+    'investigation.bisect': 'host-confirm',
 
     'work.start': 'exact-confirm',
     'review.open': 'ceremony'

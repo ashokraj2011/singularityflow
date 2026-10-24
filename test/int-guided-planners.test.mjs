@@ -315,7 +315,9 @@ test('assisted quick impact returns the deterministic facts and says nothing int
   t.after(() => rm(root, { recursive: true, force: true }));
   const result = await impactQuickAssisted({ root, context: { changedPaths: ['src/a.mjs'] } });
   assert.equal(result.operation.id, 'impact.quick.assisted');
-  assert.deepEqual(result.data.assisted, { requested: true, invoked: false });
+  assert.deepEqual([result.data.assisted.requested, result.data.assisted.invoked], [true, false]);
+  // Since P3 the assisted half carries the relay request a host model would answer [INT:CON-069].
+  assert.equal(result.data.assisted.relay.contract, 'sflow-assisted-relay-v1');
   assert.ok(result.warnings.some((warning) => warning.code === 'impact.assistance-not-invoked'));
   assert.deepEqual(result.data.affected.paths, ['src/a.mjs']);
 });

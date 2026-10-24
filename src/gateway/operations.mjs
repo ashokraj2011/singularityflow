@@ -36,7 +36,7 @@ export const GATEWAY_PLANNERS = Object.freeze([
   'workspace-bootstrap-status', 'workspace-prepare-guide', 'repository-open-guide',
   'workspace-doctor-guide', 'workspace-explore-guide',
   'impact-quick', 'impact-quick-assisted', 'impact-what-if', 'impact-what-if-assisted',
-  'problem-investigate', 'problem-investigate-assisted', 'repository-explore', 'repository-query', 'intent-trace',
+  'problem-investigate', 'problem-investigate-assisted', 'investigation-bisect', 'repository-explore', 'repository-query', 'intent-trace',
   'compare', 'watch-list', 'watch-create', 'watch-revoke', 'review-packet', 'review-open', 'help-explain'
 ].map((name) => Object.freeze({ name, run: null })));
 
@@ -578,6 +578,27 @@ export const GATEWAY_DECLARATIONS = Object.freeze([
     planner: 'problem-investigate-assisted',
     fallback: 'problem.investigate',
     noModelFixture: 'problem-investigate-assisted-fallback'
+  },
+
+  /**
+   * §10.4 A confirmed, disposable search for the introducing commit `[INT:IFC-042]` `[INT:CON-096]`.
+   *
+   * A mutation because it creates worktrees and runs project code, at `host-confirm` as §13 places
+   * it; its whole blast radius is temporary directories outside the repository.
+   */
+  {
+    id: 'investigation.bisect',
+    classification: 'mutation',
+    modelPolicy: 'never',
+    confirmation: 'host-confirm',
+    resultContract: 'sflow-result-v2',
+    externalDependencies: [],
+    goals: ['problem.investigate'],
+    aliases: en('bisect this regression', 'find the introducing commit'),
+    subjects: ['repository', 'investigation'],
+    argumentSchema: 'investigation-bisect-v1',
+    planner: 'investigation-bisect',
+    noModelFixture: 'investigation-bisect-model-free'
   },
 
   // §9 Exploration reads the repository the workspace already knows about.

@@ -263,7 +263,9 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
   schema('impact-quick-v1', {
     baseRef: optional('ref'),
     targetRef: optional('ref'),
-    includeWorktree: optional('boolean')
+    includeWorktree: optional('boolean'),
+    // A host model's answer to the assisted relay; validated against the facts, never trusted.
+    interpretation: optional('text', { maxLength: 8000 })
   }),
   schema('impact-what-if-v1', { proposal: required('text'), scope: optional('relative-path') }),
   schema('repository-explore-v1', {
@@ -362,7 +364,26 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
   schema('problem-investigate-v1', {
     symptom: required('text'),
     repositoryId: optional('identifier'),
-    sinceRef: optional('ref')
+    sinceRef: optional('ref'),
+    // §10.1's other inputs: missing ones stay unknown, never filled in `[INT:CON-091]`.
+    expected: optional('text'),
+    environment: optional('string'),
+    observedVersion: optional('string', { maxLength: 128 }),
+    observedBuildId: optional('identifier'),
+    since: optional('string', { maxLength: 64 }),
+    reproduction: optional('text'),
+    lastKnownGood: optional('ref'),
+    stopAfter: optional('enum', { values: [
+      'incident-facts', 'build-provenance', 'repository-state', 'change-range', 'tests', 'ownership-and-active-work', 'deterministic-impact'
+    ] }),
+    interpretation: optional('text', { maxLength: 8000 })
+  }),
+  schema('investigation-bisect-v1', {
+    good: required('ref'),
+    bad: optional('ref'),
+    testCommandId: required('identifier'),
+    maxSteps: optional('integer', { min: 3, max: 32 }),
+    repositoryId: optional('identifier')
   }),
   schema('watch-create-v1', { subjectId: required('identifier'), predicate: required('identifier') }),
   schema('watch-revoke-v1', { watchId: required('identifier') }),

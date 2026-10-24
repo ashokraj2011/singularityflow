@@ -26,3 +26,14 @@ export async function cliStartRoute(argv, { cwd }) {
   const { runSingularityFlowCli } = await import('../../util.mjs');
   return runSingularityFlowCli(argv, { cwd });
 }
+
+/**
+ * Everything the CLI-side host (the stdio gateway) can carry out, including the disposable
+ * bisection, which runs configured test commands in temporary worktrees. Kept out of the shared map
+ * so the editor bundle does not carry a test runner it never plans for.
+ */
+export function cliMutationExecutors() {
+  const executors = gatewayMutationExecutors({ runStart: cliStartRoute });
+  executors.set('investigation-bisect', async (request) => (await import('./investigation-bisect.mjs')).investigationBisectExecute(request));
+  return executors;
+}

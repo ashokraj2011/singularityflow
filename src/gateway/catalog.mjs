@@ -248,6 +248,7 @@ export const SURFACE_CODES = Object.freeze([
   'impact.tests-by-path-convention',
   'impact.work-in-the-same-area',
   'impact.start-reviewed-plan',
+  'impact.revision-unresolved',
   'explain.cited',
   'explain.ambiguous',
   'explain.no-match',
@@ -287,7 +288,22 @@ export const GOLDEN_JOURNEY_CODES = Object.freeze([
   'investigation.deterministic-triage',
   'investigation.assistance-not-invoked',
   'investigation.wrong-repository',
-  'investigation.nothing-was-carried-out'
+  'investigation.nothing-was-carried-out',
+  'investigation.boundary-verified',
+  'investigation.boundary-candidate',
+  'investigation.boundary-unknown',
+  'investigation.evidence-sequence',
+  'investigation.step-incomplete',
+  'investigation.unknown-input',
+  'investigation.record.observation',
+  'investigation.record.reproduction',
+  'investigation.record.correlation',
+  'investigation.record.hypothesis',
+  'investigation.record.conclusion',
+  'investigation.record.contradiction',
+  'investigation.record.unknown',
+  'investigation.bisect-available',
+  'investigation.start-from-finding'
 ]);
 
 /** Comparison, watches, ceremony destinations and the local records a confirmed plan writes. */
@@ -326,6 +342,7 @@ export const GUIDED_CODES = Object.freeze([
   'repository.query.switch-to-repository',
   'repository.query.not-registered',
   'repository.query.build-provider-unavailable',
+  'repository.query.build-unmapped',
   'repository.query.truncated',
   'repository.query.submodules-not-descended',
   'repository.query.large-files-skipped',
@@ -450,6 +467,10 @@ export const WARNING_CODES = Object.freeze([
   'repository.query.submodules-not-descended',
   /** Search matched files too large to return a preview from. */
   'repository.query.large-files-skipped',
+  /** An investigation step did not complete; what it would have read is not in the report. */
+  'investigation.step-incomplete',
+  /** An input the person did not give stays unknown rather than being filled in. */
+  'investigation.unknown-input',
   /** No workspace is selected, so only this repository is known. */
   'repository.query.no-workspace-selected'
 ]);

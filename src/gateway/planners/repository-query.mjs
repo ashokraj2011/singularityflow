@@ -166,7 +166,7 @@ function answer(root, args) {
   }
 }
 
-export async function repositoryQuery({ arguments: args = {}, subject = null, root = null, context = {}, env = process.env, now = () => new Date() } = {}) {
+export async function repositoryQuery({ arguments: args = {}, subject = null, root = null, context = {}, env = process.env, now = () => new Date(), runs = null } = {}) {
   if (!root) throw new SingularityFlowError('repository.query requires the repository root it should read.', { code: 'REPOSITORY_QUERY_NO_ROOT' });
   const retrievedAt = now().toISOString();
   if (args.query === 'repositories') {
@@ -183,10 +183,20 @@ export async function repositoryQuery({ arguments: args = {}, subject = null, ro
       { repository: String(args.repositoryId), onThisMachine: String(registered?.onThisMachine ?? false) });
   }
   if (args.query === 'build-commit') {
-    // Needs a configured read-only build-provider adapter; repository evidence alone cannot map a
-    // build to a commit, and a guess here is the claim `[INT:CON-093]` forbids.
-    return refusal('repository.query.build-provider-unavailable', { buildId: String(args.buildId ?? '') },
-      { restState: 'unavailable', source: 'unavailable' });
+    // Only a configured read-only provider can map a build to a commit, and only through the exact
+    // commit it reports; repository evidence alone would be the guess `[INT:CON-093]` forbids.
+    const { readBuilds } = await import('../build-provenance.mjs');
+    const read = await readBuilds(root, { repositoryId: context.repositoryId ?? null, env, now, runs });
+    if (read.gap) {
+      return refusal('repository.query.build-provider-unavailable', { buildId: String(args.buildId ?? ''), gap: read.gap },
+        { restState: 'unavailable', source: 'unavailable' });
+    }
+    const build = read.builds.find((entry) => entry.buildId === String(args.buildId ?? ''));
+    if (!build?.sourceCommit) {
+      return refusal('repository.query.build-unmapped', { buildId: String(args.buildId ?? '') }, { source: 'provider' });
+    }
+    return result({ args, root, context, subject, retrievedAt, tree: 'build-provider', commit: build.sourceCommit,
+      facts: [{ ...build, relation: 'built-from', language: 'built from this commit' }] });
   }
   let answered;
   try { answered = answer(root, args); } catch (error) {

@@ -1349,3 +1349,23 @@ export function typedPatch(root, left, right, relative, { maxBytes = 16 * 1024 }
     truncated: bytes > maxBytes
   };
 }
+
+/** One file's text at an explicit revision, bounded; null when the path is absent there. */
+export function typedFileText(root, revision, relative, { maxBytes = 256 * 1024 } = {}) {
+  const result = typedGit(root, ['show', `${revision}:${repositoryRelative(relative)}`], { maxBuffer: Math.max(maxBytes * 2, 64 * 1024) });
+  if (result.status !== 0) return null;
+  const text = String(result.stdout ?? '');
+  return Buffer.byteLength(text, 'utf8') > maxBytes ? text.slice(0, maxBytes) : text;
+}
+
+/**
+ * The first-parent commits after `good` up to and including `bad`, oldest first. The range a
+ * bisection walks; null when `good` is not an ancestor of `bad`, which makes the range meaningless.
+ */
+export function typedFirstParentRange(root, good, bad, { max = 4096 } = {}) {
+  const ancestor = typedGit(root, ['merge-base', '--is-ancestor', good, bad]);
+  if (ancestor.status !== 0) return null;
+  const output = typedOutput(typedGit(root, ['rev-list', '--first-parent', '--reverse', `--max-count=${max}`, `${good}..${bad}`, '--']),
+    'The bisection range');
+  return output.split('\n').filter(Boolean);
+}

@@ -84,11 +84,15 @@ classes:
 # repository for one explicitly opened/selected checkout, or organisation for a selected lead
 # authority. A broader boundary may narrow through verified CLI output, but may never discover a
 # repository by searching a home or parent directory.
+# gatewayTools: a read-turn skill whose step names the SFlow tool call (sflow_resolve, sflow_read,
+# sflow_next, sflow_explain) that makes the same kernel read as its CLI command. The generated
+# clause (scripts/skill-policy.mjs GATEWAY_TOOLS_CLAUSE) uses the tool when the host offers it and
+# the CLI command otherwise, on a refusal, or when the answer lacks a reported field.
 skills:
   sflow-pause: { class: mutation, executionBoundary: machine }
   sflow-about: { class: echo, executionBoundary: machine }
   sflow-adhoc: { class: interactive, executionBoundary: repository }
-  sflow-advise: { class: conversational, executionBoundary: machine }
+  sflow-advise: { class: conversational, executionBoundary: machine, gatewayTools: true }
   sflow-agent: { class: interactive }
   sflow-agents: { class: echo, executionBoundary: repository }
   sflow-admin: { class: conversational, executionBoundary: machine }
@@ -169,7 +173,7 @@ skills:
   sflow-journal: { class: interactive, executionBoundary: machine }
   sflow-harness: { class: echo, executionBoundary: repository }
   sflow-help: { class: conversational, executionBoundary: machine }
-  sflow-home: { class: guided, executionBoundary: machine, maximumTokenOverride: 805, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit." }
+  sflow-home: { class: guided, executionBoundary: machine, gatewayTools: true, maximumTokenOverride: 855, exception: "It keeps the guard and anti-stall sentences a 2026-10-19 budget trim had removed; never trim those to fit. Its no-request read names the SFlow tool calls (sflow_resolve, then sflow_read) beside `recommend --json` and where their answer sits (2026-10-24, gateway tools: 851)." }
   sflow-import-team: { class: guided, executionBoundary: machine }
   sflow-build-workflow: { class: guided, executionBoundary: repository, maximumTokenOverride: 900, exception: "It changes a workflow in place, explains it by its parts before changing it, names everything a piece removes with what goes with it, and settles what the material holds that the workflow does not use, so nothing leaves a workflow or a team's material unsaid (2026-10-23); never trim those to fit." }
   sflow-fix-workflow: { class: guided, executionBoundary: repository }
@@ -216,7 +220,7 @@ skills:
   sflow-integrations: { class: mutation, executionBoundary: repository }
   sflow-prompt-log: { class: mutation, executionBoundary: repository }
   sflow-quickstart: { class: echo, executionBoundary: machine }
-  sflow-recommend: { class: conversational, executionBoundary: machine }
+  sflow-recommend: { class: conversational, executionBoundary: machine, gatewayTools: true }
   sflow-repositories: { class: interactive, executionBoundary: machine }
   sflow-receipt: { class: echo, executionBoundary: repository }
   sflow-refresh-branch: { class: mutation }

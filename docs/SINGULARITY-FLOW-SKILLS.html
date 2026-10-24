@@ -1049,7 +1049,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">conversational</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~978 body tokens</span>
+          <span class="pill">~1211 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-advise</code></dd></div>
@@ -1073,6 +1073,9 @@ argument-hint: &quot;[QUESTION | ERROR | WHAT SHOULD I DO?]&quot;
 &lt;!-- sflow-copilot-pause --&gt;
 Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
 
+&lt;!-- sflow-gateway-tools --&gt;
+**SFlow tools:** When a step names an `sflow_*` call and that tool is in your tool list, make that call once, exactly as written, instead of the step&#39;s CLI command, and use its answer as the step says; each next action&#39;s routes there are its `fallback` (`copilotCommand`, `command`), with `modelFreeCommand` from the matching `data.guidance.actions` entry when one exists. A tool call checks pause itself (its `gateway.copilot-paused` refusal carries `data.paused`), so a turn that starts with one makes no separate pause check. If the tool is absent, errors or refuses for another reason, or its answer lacks a field the step reports, run the step&#39;s CLI command once and finish the step with it. Never call `sflow_run` here.
+
 &lt;!-- sflow-output-contract: guided-actions --&gt;
 **Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say &quot;not available for this action&quot;. Missing Copilot: &quot;no verified equivalent&quot;. Never invent routes.
 &lt;!-- sflow-execution-boundary --&gt;
@@ -1082,7 +1085,7 @@ Use this when the developer is confused, stuck, or does not know which SFlow rou
 
 1. Resolve machine-local Home state first. An active Story and repository are optional; chat history is
    not lifecycle evidence, and an empty Home result is not permission to search for either.
-2. With a question or error, run `singularity-flow home --json --request &#39;$ARGUMENTS&#39;`. With no argument, run `singularity-flow recommend --json`. Always pass `$ARGUMENTS` as one single-quoted argument, each `&#39;` inside written `&#39;\&#39;&#39;` (PowerShell `&#39;&#39;`), never in double quotes, so no `$`, backtick or `$(...)` in it expands.
+2. With a question or error, run `singularity-flow home --json --request &#39;$ARGUMENTS&#39;`. With no argument, call `sflow_resolve` with `{&quot;utterance&quot;: &quot;what should I do next&quot;}`, then `sflow_read` its one read handle (`next[0].handle`) as `resolutionId`, the read `recommend` makes; or run `singularity-flow recommend --json`. Always pass `$ARGUMENTS` as one single-quoted argument, each `&#39;` inside written `&#39;\&#39;&#39;` (PowerShell `&#39;&#39;`), never in double quotes, so no `$`, backtick or `$(...)` in it expands.
 3. If the result is ambiguous or has no confident route, preserve every returned choice and ask the developer to select one. Never choose on their behalf.
 4. When the question is about product behavior rather than current state, run `singularity-flow explain &#39;$ARGUMENTS&#39; --here --json` and cite the returned packaged topic. Do not answer product behavior from memory.
 5. When the returned guidance recommends `singularity-flow workspace reinitialize`, present `/sf-admin reinitialize` as the Copilot route. Explain that it previews an exact workspace/repository scope and requires the returned plan ID before applying; do not run either command from this advisory skill and never substitute factory reset.
@@ -5033,7 +5036,7 @@ filesystem for a repository in that case.
           <span class="pill">guided</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1124 body tokens</span>
+          <span class="pill">~1360 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-home</code></dd></div>
@@ -5056,6 +5059,9 @@ disable-model-invocation: true
 &lt;!-- sflow-copilot-pause --&gt;
 Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
 
+&lt;!-- sflow-gateway-tools --&gt;
+**SFlow tools:** When a step names an `sflow_*` call and that tool is in your tool list, make that call once, exactly as written, instead of the step&#39;s CLI command, and use its answer as the step says; each next action&#39;s routes there are its `fallback` (`copilotCommand`, `command`), with `modelFreeCommand` from the matching `data.guidance.actions` entry when one exists. A tool call checks pause itself (its `gateway.copilot-paused` refusal carries `data.paused`), so a turn that starts with one makes no separate pause check. If the tool is absent, errors or refuses for another reason, or its answer lacks a field the step reports, run the step&#39;s CLI command once and finish the step with it. Never call `sflow_run` here.
+
 &lt;!-- sflow-output-contract: conversational-guidance --&gt;
 **Output contract:** Resolve ordinary language through durable Home and Next projections; reads may run immediately, while every mutation requires an explicit governed choice. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say &quot;not available for this action&quot;. Missing Copilot: &quot;no verified equivalent&quot;. Never invent routes.
 &lt;!-- sflow-execution-boundary --&gt;
@@ -5065,7 +5071,7 @@ Work/recovery; automatic invocation is not mutation consent.
 
 Named workspace/Story skills override Home in every host syntax: `/sf-workspaces`, `/sf-workspace`, `/sf-stories`, `/sf-session` (also `sflow-*`). Never send their names to Home or replace tables with Home headings/refresh.
 
-1. With a request, run `singularity-flow home --json --request &#39;$ARGUMENTS&#39;`, single-quoted with each inner `&#39;` as `&#39;\&#39;&#39;` (PowerShell `&#39;&#39;`) so nothing expands; otherwise run `singularity-flow recommend --json`.
+1. With a request, run `singularity-flow home --json --request &#39;$ARGUMENTS&#39;`, single-quoted with each inner `&#39;` as `&#39;\&#39;&#39;` (PowerShell `&#39;&#39;`) so nothing expands; otherwise call `sflow_resolve` with `{&quot;utterance&quot;: &quot;what should I do next&quot;}`, then `sflow_read` its one read handle (`next[0].handle`) as `resolutionId`, whose `data` is the `data.home` below; or run `singularity-flow recommend --json`.
 2. Use `data.home`/`data.conversation`, not chat memory; `data.home.repository`,
    `data.home.currentWork` and `data.home.personalization.replyName` exactly. Never say the repository is unresolved when it exists. Do not derive a name from email, login, input, or memory.
    Report `bootstrap` when no workspace exists; route `home:workspace.switch` through its fallback.
@@ -8458,7 +8464,7 @@ Run `singularity-flow receipt show --work-id &lt;WORK-ID&gt; --json`, using the 
           <span class="pill">conversational</span>
           <span class="pill">machine boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~778 body tokens</span>
+          <span class="pill">~1035 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-recommend</code></dd></div>
@@ -8482,6 +8488,9 @@ disable-model-invocation: true
 &lt;!-- sflow-copilot-pause --&gt;
 Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
 
+&lt;!-- sflow-gateway-tools --&gt;
+**SFlow tools:** When a step names an `sflow_*` call and that tool is in your tool list, make that call once, exactly as written, instead of the step&#39;s CLI command, and use its answer as the step says; each next action&#39;s routes there are its `fallback` (`copilotCommand`, `command`), with `modelFreeCommand` from the matching `data.guidance.actions` entry when one exists. A tool call checks pause itself (its `gateway.copilot-paused` refusal carries `data.paused`), so a turn that starts with one makes no separate pause check. If the tool is absent, errors or refuses for another reason, or its answer lacks a field the step reports, run the step&#39;s CLI command once and finish the step with it. Never call `sflow_run` here.
+
 &lt;!-- sflow-output-contract: guided-actions --&gt;
 **Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say &quot;not available for this action&quot;. Missing Copilot: &quot;no verified equivalent&quot;. Never invent routes.
 &lt;!-- sflow-execution-boundary --&gt;
@@ -8491,8 +8500,11 @@ Use the durable workspace, work-item, evidence, and repository records. Never in
 
 ## Workflow
 
-1. Run `singularity-flow recommend --json` from machine context. Trust only the workspace,
-   repository, and Story paths returned by that command; do not search for missing context.
+1. Call `sflow_resolve` with `{&quot;utterance&quot;: &quot;what should I do next&quot;}`, then `sflow_read` its one
+   read handle (`next[0].handle`) as `resolutionId`: the read `recommend` makes, with the same
+   `data.guidance` and `data.personalization`; its secondary actions are `next[1..]`. Otherwise run
+   `singularity-flow recommend --json` from machine context. Trust only the workspace, repository,
+   and Story paths returned; do not search for missing context.
 2. Read `data.guidance` from the returned envelope.
 3. Address the developer by `data.personalization.replyName` when present.
 4. Present the answer under these short headings:

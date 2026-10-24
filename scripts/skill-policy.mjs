@@ -66,6 +66,23 @@ export const approvedInputsContractApplies = (contract) => contract === 'clarifi
  */
 export const COMPLETE_OUTPUT_CONTRACT = 'Act on a result\'s `act` first: its state, `do` routes and any `ask`. A bounded result names `agentOutput.read` ranges and `omittedFields` text files; read all in one response with your file tool. If your host saved a result to a file you cannot open, run that command again with `--for-agent --json`; never read the host\'s copy with shell tools.';
 
+/**
+ * A read skill answers through SFlow's gateway tools when the host offers them. `[gateway-tools]`
+ *
+ * VS Code registers `sflow_resolve`, `sflow_read`, `sflow_next`, `sflow_run` and `sflow_explain` as
+ * language-model tools, and `singularity-flow gateway serve` offers them over MCP; Copilot CLI's
+ * plugin registers neither. A read skill whose CLI read is the same kernel read names the tool call
+ * in its step beside the command, and this one clause says how to choose. Engine-owned like the
+ * contracts above (fixed overhead, not per-skill prose), on the read-turn skills `registry.yml`
+ * marks `gatewayTools`. It adds no stop: an absent tool, a refusal or a missing field runs the
+ * step's CLI command, and the paused answer is the pause line's own rule. The tools check pause
+ * themselves (src/gateway/host.mjs `pausedToolAnswer`); `sflow_run` is refused in read turns
+ * (copilot-mutation-guard.mjs) and never named here as something to call.
+ */
+export const GATEWAY_TOOLS_MARKER = '<!-- sflow-gateway-tools -->';
+export const GATEWAY_TOOLS_CLAUSE = '**SFlow tools:** When a step names an `sflow_*` call and that tool is in your tool list, make that call once, exactly as written, instead of the step\'s CLI command, and use its answer as the step says; each next action\'s routes there are its `fallback` (`copilotCommand`, `command`), with `modelFreeCommand` from the matching `data.guidance.actions` entry when one exists. A tool call checks pause itself (its `gateway.copilot-paused` refusal carries `data.paused`), so a turn that starts with one makes no separate pause check. If the tool is absent, errors or refuses for another reason, or its answer lacks a field the step reports, run the step\'s CLI command once and finish the step with it. Never call `sflow_run` here.';
+export const gatewayToolsApplies = (rule) => rule?.gatewayTools === true;
+
 export function cliPathContractErrors(body) {
   const text = String(body ?? '');
   return [
@@ -475,6 +492,18 @@ function withCopilotPauseGuard(text, enabled, file, name, boundary) {
   return `---\n${skill.frontmatterSource}\n---\n${body}`;
 }
 
+/** The clause sits directly under the pause line it amends; regeneration is idempotent. */
+function withGatewayToolsClause(text, enabled, file) {
+  const skill = splitSkill(text, file);
+  let body = skill.body.replace(/<!-- sflow-gateway-tools -->\r?\n[^\r\n]*\r?\n\r?\n?/gu, '');
+  if (enabled) {
+    const pause = /(<!-- sflow-copilot-pause -->\r?\n[^\r\n]*\r?\n)/u;
+    if (!pause.test(body)) throw new Error(`${file}: the gateway-tools clause needs the pause line it amends`);
+    body = body.replace(pause, `$1\n${GATEWAY_TOOLS_MARKER}\n${GATEWAY_TOOLS_CLAUSE}\n`);
+  }
+  return `---\n${skill.frontmatterSource}\n---\n${body}`;
+}
+
 /**
  * What a selectable authoring skill must say, checked on every catalog entry except `/sf-code` (the
  * only code skill, which checks code delivery itself and is never routed past).
@@ -658,6 +687,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       text = withAutomaticPolicy(text, automatic.has(name), AUTOMATIC_DESCRIPTIONS[name], file);
       text = withOutputContract(text, classPolicy.outputContract, kernelModelPolicy, file, executionBoundaryKind, refusalContractFor(rule, name), applicabilityContractApplies(rule));
       text = withCopilotPauseGuard(text, pauseGuardRequired, file, name, executionBoundaryKind);
+      text = withGatewayToolsClause(text, gatewayToolsApplies(rule), file);
       await writeFile(file, text);
     }
     const skill = splitSkill(text, file);
@@ -687,9 +717,11 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       ? domainBodyTokens - estimatedTokens(domainBody.replace(` ${APPROVED_INPUTS_CONTRACT}`, '')) : 0;
     const pauseGuard = copilotPauseGuardForSkill(name, executionBoundaryKind);
     const pauseGuardTokens = pauseGuardRequired ? estimatedTokens(`${COPILOT_PAUSE_MARKER}\n${pauseGuard}\n\n`) : 0;
+    const gatewayTools = gatewayToolsApplies(rule);
+    const gatewayToolsTokens = gatewayTools ? estimatedTokens(`${GATEWAY_TOOLS_MARKER}\n${GATEWAY_TOOLS_CLAUSE}\n\n`) : 0;
     // Fixed engine-owned path safety, not permission to expand domain-specific skill prose.
     const pathContractTokens = skill.body.includes(pathContractText) ? bodyTokens - domainBodyTokens : 0;
-    const maximum = (rule.maximumTokenOverride ?? classPolicy.maximumTokens) + commandPresentationTokens + artifactPresentationTokens + refusalHandlingTokens + applicabilityTokens + approvedInputsTokens + pauseGuardTokens + pathContractTokens;
+    const maximum = (rule.maximumTokenOverride ?? classPolicy.maximumTokens) + commandPresentationTokens + artifactPresentationTokens + refusalHandlingTokens + applicabilityTokens + approvedInputsTokens + pauseGuardTokens + gatewayToolsTokens + pathContractTokens;
     const marker = `<!-- sflow-output-contract: ${classPolicy.outputContract} -->`;
     const boundaryMarker = '<!-- sflow-execution-boundary -->';
     const boundaryText = executionBoundary(executionBoundaryKind, name);
@@ -699,6 +731,17 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
         || skill.body.indexOf(COPILOT_PAUSE_MARKER) > skill.body.indexOf(boundaryMarker))) {
       errors.push(`${name}: pause guard must precede all repository/Story boundary lookups`);
     }
+    if (rule.gatewayTools !== undefined && typeof rule.gatewayTools !== 'boolean') errors.push(`${name}: gatewayTools must be true or false`);
+    if (gatewayTools && mutationTurnMode(name) !== 'read') {
+      errors.push(`${name}: gatewayTools is for read-turn skills; a ${mutationTurnMode(name)} turn's tool use is not reviewed here`);
+    }
+    if (gatewayTools !== skill.body.includes(`${GATEWAY_TOOLS_MARKER}\n${GATEWAY_TOOLS_CLAUSE}`)) {
+      errors.push(`${name}: ${gatewayTools ? 'missing' : 'unexpected'} gateway-tools clause (registry.yml gatewayTools)`);
+    }
+    if (gatewayTools && !/`sflow_(?:resolve|read|next|explain)`/u.test(skill.body.replace(GATEWAY_TOOLS_CLAUSE, ''))) {
+      errors.push(`${name}: gatewayTools needs a step that names its sflow_* call`);
+    }
+    if (/`sflow_run`/u.test(skill.body.replace(GATEWAY_TOOLS_CLAUSE, ''))) errors.push(`${name}: a skill step must not name sflow_run`);
     if (automatic.has(name)) {
       if (skill.frontmatter['disable-model-invocation'] === true) errors.push(`${name}: automatic skill must not disable model invocation`);
       if (descriptionTokens > 15) errors.push(`${name}: automatic description is ${descriptionTokens} estimated tokens; maximum is 15`);
@@ -780,6 +823,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       applicabilityTokens,
       approvedInputsTokens,
       pauseGuardTokens,
+      gatewayToolsTokens,
       pathContractTokens,
       warningTokens: classPolicy.warningTokens,
       maximumTokens: maximum,

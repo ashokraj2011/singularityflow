@@ -18,7 +18,7 @@ related:
   - governed-execution
   - revision-loop
   - revision-feedback-attachments
-version: 22
+version: 23
 ---
 CLI, Copilot, and VS Code read the same durable repository and workspace records through shared projections. They do not share an in-memory global store, conversation history, or signed handles. Bundled skills are explicit-only: installing SFlow never opts ordinary Copilot requests into a Story. Invoke an `/sf-*` skill or explicitly select the SFlow workflow agent for natural-language routing. That agent accepts seven closed intents: orient, continue, start, inspect, act, recover, and help. Help retrieves cited packaged documentation; it does not convert an answer into an action.
 
@@ -102,3 +102,5 @@ Continue with `sflow explain developer-home`, `sflow explain help-and-docs`, `sf
 VS Code (Copilot agent mode) and any MCP host reach the same gateway through exactly five tools: `sflow_resolve` turns what the person said into one resolved operation, a bounded choice, a question or a refusal; `sflow_read` reads only a handle that resolution returned; `sflow_next` lists what is legal now; `sflow_explain` answers from cited documentation; and `sflow_run` carries out only a plan the person confirmed outside the conversation. A model can propose a broad goal and typed arguments; the kernel decides the operation, its legality and its plan.
 
 Run `singularity-flow gateway serve --transport stdio` as a local MCP server. Its configuration holds no credentials. A plan runs only after the person confirms it in the MCP client's own prompt (elicitation); a client that cannot ask shows every plan and refuses to run it, and the explicit terminal command still works. In VS Code the confirmation is the editor's own dialog, and an exact confirmation asks you to type the record's ID. `singularity-flow gateway tools --json` prints the five schemas and their measured size; `singularity-flow gateway events` lists recent gateway calls on this machine, filtered by host, operation, outcome, reason, subject or correlation ID, without anything anyone typed.
+
+While guidance is paused (`/sf-pause`), all five tools answer `gateway.copilot-paused` before they read anything, in VS Code and over MCP alike, so a tool call is no way around the pause. Read skills use the tools when the host offers them: `/sf-recommend`, `/sf-home` with no request and `/sf-advise` with no question call `sflow_resolve` with "what should I do next" and then `sflow_read` with the handle it returns, which is the read `singularity-flow recommend --json` makes. Without the tools (Copilot CLI's plugin registers none), on a refusal, or when an answer lacks a field the skill reports, they run that command instead. In a read skill's turn the Copilot guard refuses `sflow_run`; the other four tools pass.

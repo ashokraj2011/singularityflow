@@ -10,6 +10,9 @@ argument-hint: "[QUESTION | ERROR | WHAT SHOULD I DO?]"
 <!-- sflow-copilot-pause -->
 Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
 
+<!-- sflow-gateway-tools -->
+**SFlow tools:** When a step names an `sflow_*` call and that tool is in your tool list, make that call once, exactly as written, instead of the step's CLI command, and use its answer as the step says; each next action's routes there are its `fallback` (`copilotCommand`, `command`), with `modelFreeCommand` from the matching `data.guidance.actions` entry when one exists. A tool call checks pause itself (its `gateway.copilot-paused` refusal carries `data.paused`), so a turn that starts with one makes no separate pause check. If the tool is absent, errors or refuses for another reason, or its answer lacks a field the step reports, run the step's CLI command once and finish the step with it. Never call `sflow_run` here.
+
 <!-- sflow-output-contract: guided-actions -->
 **Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say "not available for this action". Missing Copilot: "no verified equivalent". Never invent routes.
 <!-- sflow-execution-boundary -->
@@ -19,7 +22,7 @@ Use this when the developer is confused, stuck, or does not know which SFlow rou
 
 1. Resolve machine-local Home state first. An active Story and repository are optional; chat history is
    not lifecycle evidence, and an empty Home result is not permission to search for either.
-2. With a question or error, run `singularity-flow home --json --request '$ARGUMENTS'`. With no argument, run `singularity-flow recommend --json`. Always pass `$ARGUMENTS` as one single-quoted argument, each `'` inside written `'\''` (PowerShell `''`), never in double quotes, so no `$`, backtick or `$(...)` in it expands.
+2. With a question or error, run `singularity-flow home --json --request '$ARGUMENTS'`. With no argument, call `sflow_resolve` with `{"utterance": "what should I do next"}`, then `sflow_read` its one read handle (`next[0].handle`) as `resolutionId`, the read `recommend` makes; or run `singularity-flow recommend --json`. Always pass `$ARGUMENTS` as one single-quoted argument, each `'` inside written `'\''` (PowerShell `''`), never in double quotes, so no `$`, backtick or `$(...)` in it expands.
 3. If the result is ambiguous or has no confident route, preserve every returned choice and ask the developer to select one. Never choose on their behalf.
 4. When the question is about product behavior rather than current state, run `singularity-flow explain '$ARGUMENTS' --here --json` and cite the returned packaged topic. Do not answer product behavior from memory.
 5. When the returned guidance recommends `singularity-flow workspace reinitialize`, present `/sf-admin reinitialize` as the Copilot route. Explain that it previews an exact workspace/repository scope and requires the returned plan ID before applying; do not run either command from this advisory skill and never substitute factory reset.

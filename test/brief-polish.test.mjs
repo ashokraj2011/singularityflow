@@ -109,10 +109,10 @@ async function ordersRepository(t) {
   return repository;
 }
 
-/** Model use on for the duration of `run`, whatever the suite's environment says. */
-async function withModelUse(run) {
+/** Model use on, or off, for the duration of `run`, whatever the suite's environment says. */
+async function withModelUse(run, on = true) {
   const before = process.env.SINGULARITY_FLOW_NO_MODEL;
-  delete process.env.SINGULARITY_FLOW_NO_MODEL;
+  if (on) delete process.env.SINGULARITY_FLOW_NO_MODEL; else process.env.SINGULARITY_FLOW_NO_MODEL = '1';
   try { return await run(); } finally { if (before === undefined) delete process.env.SINGULARITY_FLOW_NO_MODEL; else process.env.SINGULARITY_FLOW_NO_MODEL = before; }
 }
 
@@ -147,7 +147,7 @@ test('composing reuses a phrasing saved for exactly these records while model us
   const again = await withModelUse(() => repositoryBriefPrompt(repository, { ...options, ask: async () => { throw new Error('a compose must not call a model'); } }));
   assert.equal(again.text, written.text, 'a compose reuses the saved phrasing');
   assert.equal(again.polish.cached, true);
-  const off = await repositoryBriefPrompt(repository, { ...options });
+  const off = await withModelUse(() => repositoryBriefPrompt(repository, { ...options }), false);
   assert.equal(off.text, fixed.text, 'with model use off the fixed wording stands, byte for byte');
   assert.equal(off.receipt.phrasing.by, 'template');
 

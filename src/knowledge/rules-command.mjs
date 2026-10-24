@@ -149,7 +149,9 @@ async function confirmCommand(root, records, id, options) {
     intent: optionString(options, 'intent') ?? draft.intent ?? null
   };
   if (!meaning.condition?.trim() || !meaning.outcome?.trim()) {
-    throw new SingularityFlowError(`Rule ${id} has no drafted condition and outcome. Run singularity-flow wm rules propose, or give --condition and --outcome.`, { code: 'KNOWLEDGE_RULE_MEANING_REQUIRED' });
+    throw new SingularityFlowError(`Rule ${id} has no drafted condition and outcome. Run singularity-flow wm rules propose, or give --condition and --outcome.`, {
+      code: 'KNOWLEDGE_RULE_MEANING_REQUIRED', details: { ruleId: id, nextAction: 'singularity-flow wm rules propose' }
+    });
   }
   // The person's words are theirs; any field they kept is the draft's, with the draft's provenance.
   const kept = ['condition', 'outcome', 'intent'].filter((name) => !typed.includes(name) && meaning[name]);

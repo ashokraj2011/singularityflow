@@ -833,6 +833,17 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
       }
     }
   });
+  // A command naming another Story runs in that Story's own checkout, or refuses (story-routing.mjs).
+  if (root && !boundRoot && !routingExcluded && !automaticIntake && (options['work-id'] !== undefined || positionals.length > 1)) {
+    const routed = await withCommandTiming(timer, async () => (await import('./story-routing.mjs'))
+      .routeNamedStory({ command: definition.name, positionals, options, argv: effectiveArgv, root }));
+    if (routed) {
+      process.chdir(routed.root);
+      root = routed.root;
+      globalThis.__SFLOW_STORY_ROUTE = routed.route;
+      if (!optionBoolean(options, 'json')) process.stderr.write(`${routed.route.workId} \u2192 ${root}\n`);
+    }
+  }
   if (!root && !routingExcluded) {
     throw new SingularityFlowError(
       "Run Singularity Flow from inside a Git repository, or select one with 'singularity-flow workspace use <WORKSPACE>'.",
@@ -1035,6 +1046,9 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
         && !LOCAL_STATE_RESET_COMMANDS.has(definition.name)) {
       await import('./history-index.mjs').then(({ refreshHistoryIndex }) => refreshHistoryIndex(root)).catch(() => {});
       timer.stage('history-index');
+      // The Story index learns this checkout's phase and status; a cache, never authority (story-index.mjs).
+      await import('./story-index.mjs').then(({ recordStoryCheckout }) => recordStoryCheckout(root)).catch(() => {});
+      timer.stage('story-index');
     }
     // Even legacy handlers that print directly instead of using the narration boundary have now
     // produced their terminal result. Record that as feedback before sealing the timing event so

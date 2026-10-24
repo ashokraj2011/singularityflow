@@ -16,7 +16,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 17
+version: 18
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing repository state.
 
@@ -102,6 +102,18 @@ overrides win, then the most specific matching workspace, then user defaults.
 For a large delivery repository, configure its clone strategy while mapping the capability. `blobless` keeps the full checkout but fetches historical file bytes on demand. `blobless-sparse` also materializes only the declared cone directories; Singularity Flow automatically includes `singularity/` and `.github/agents/`. The default fallback is `refuse`: a server that ignores `filter=blob:none` cannot silently turn a planned partial clone into a full monorepo download. Choose the explicit `full` fallback only when that cost is acceptable.
 
 Before any workspace exists, use `sflow workspace prepare <REMOTE> --id <ID> --base <DIRECTORY>` to record and preflight a resumable setup. It creates no destination. Continue only with the returned `workspace bootstrap resume` command and exact workspace-ID confirmation. An interrupted setup remains addressable by its `bst_…` ID.
+
+### One Story, one checkout
+
+A Story has one checkout on this computer, whichever workspace or clone holds it. The Story index (`story-index.json`, beside the workspace registry) records each workspace Story's repository, Work ID, workspace, checkout, branch, phase and status. Identity is the repository (its remote) plus the Work ID across every workspace, so the same Story cannot be opened in a second workspace that clones the same repository. Checkouts outside every registered workspace are not indexed.
+
+- `sflow workspace stories` lists every Story checkout across all workspaces; `sflow workspace stories <WORK-ID>` says where one Story is and gives the commands that go there. `--rebuild` reads every registered workspace's clones again (`git worktree list` per clone, no folder crawl).
+- A command that names a Story, by `--work-id` or by its Work ID operand (`status`, `nextsteps`, `report`, `approvals`, `progress` and the others), runs in that Story's checkout wherever it was started, and says so: `<WORK-ID> → <CHECKOUT>` on stderr, or `storyRoute` in `--json` output. Relative file options (`--file`, `--out` and similar) are made absolute first.
+- A Story in another workspace is refused with `sflow workspace use <WORKSPACE>` and `sflow session open <WORK-ID>`; a Story with no checkout here, with `sflow session open <WORK-ID>`. A command never answers about the current folder's Story instead.
+- Start, `session open`, `session open-local` and `session attach` reuse the Story's checkout (including one in another clone of the same workspace) or refuse to create a second one.
+- An explicit checkout (`--context-root`, a VS Code window binding) still wins, and a Copilot turn bound to one Story cannot run a command for another (`ACTIVE_SUBJECT_MISMATCH`). A routed change is refused while the folder you are in has uncommitted changes to that Story's files.
+
+The index is a lookup and a cache, never authority. Every read checks an entry against the checkout's own Git files (folder, branch, Git directory, remote, the Story's `workflow.json`) and drops one that no longer matches; Git stays the truth. Phase and status are refreshed after each lifecycle command; no gate reads them. A checkout whose files are cloud placeholders is reported as unavailable, not read.
 
 ### Workspace selection and the editor
 
@@ -303,6 +315,7 @@ These commands can change repository or machine-local state: `workspace`, `sessi
 
 - If the selected Story or branch is wrong, stop and use `sflow home`, `sflow session`, or `sflow workspace list` before retrying.
 - If `/sf-session` lists the previous repository's Stories, compare the open folder and terminal cwd with `workspace current --json`. Select the workspace in VS Code and start a new, correctly scoped chat or terminal; alternatively pass the exact workspace/repository selectors. A registry selection alone does not retarget an existing host session.
+- If `STORY_CHECKOUT_ELSEWHERE` refuses a start, open or attach, the Story already has its checkout in the named workspace or clone. Go there with the commands it gives (`sflow workspace use <WORKSPACE>`, then `sflow session open <WORK-ID>`) instead of making a second copy. `sflow workspace stories <WORK-ID>` shows the same.
 - If a Story appears in candidates but attach refuses it, use `session candidates --json --diagnostics` with the same exact workspace/repository selectors and follow its unavailable-object or Git-access diagnosis. Do not create a duplicate Story or switch another Story's checkout by hand.
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.

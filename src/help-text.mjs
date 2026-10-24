@@ -1236,6 +1236,9 @@ Usage:
   singularity-flow workspace list [--table | --json]
   singularity-flow workspace prune [--json]
   singularity-flow workspace current [--git-shadow] [--json]
+  singularity-flow workspace stories [WORK-ID] [--rebuild] [--json]
+    (every Story checkout on this computer, across workspaces: workspace, repository, checkout,
+     branch, phase, status; with a Work ID, where that Story is and the commands that go there)
     (--git-shadow compares the typed Git reader without changing the authoritative result or
      recording repository values; the same evidence-only option is available on status, snapshot,
      and capability show; intended for migration evidence, not ordinary use)

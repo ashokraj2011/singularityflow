@@ -380,6 +380,7 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
         // receipt must never turn that durable success into a failed start or cause a duplicate retry.
         console.warn(`Warning: Story '${id}' started, but its active-checkout selection was not updated: ${error.message}`);
       }
+      await import('../story-index.mjs').then((index) => index.recordStoryCheckout(prepared.repositoryPath, { source: 'start' })).catch(() => {});
     } catch (error) {
       // Whether or not the failed start left a durable commit behind, the next attempt verifies from
       // scratch: a receipt is never reused after a start that got this far.
@@ -434,11 +435,13 @@ async function startCommandAtRoot(positionals, options) {
   parseReferenceRepositoryOptions(
     optionStrings(options, 'reference-repository'), optionStrings(options, 'reference-branch')
   );
+  const managedStoryWorktree = optionString(options, 'managed-story-worktree');
+  // One Story, one checkout on this computer: refuse before anything is created (story-index.mjs).
+  if (!managedStoryWorktree) await (await import('../story-index.mjs')).assertSingleStoryCheckout(root, id, { operation: 'start' });
   // Recovery owns the checkout that an interrupted start left behind. Run it before dirty-tree
   // routing; otherwise the recovery files themselves cause a second isolated worktree to be
   // created and the durable journal is never consumed.
   await recoverStoryStart(root, id);
-  const managedStoryWorktree = optionString(options, 'managed-story-worktree');
   const configurationHandoff = await isolatedStoryConfiguration(
     options, root, id, managedStoryWorktree
   );

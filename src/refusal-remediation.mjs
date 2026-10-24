@@ -1435,6 +1435,15 @@ export function refusalDetails(details) {
     exitCode: Number.isInteger(details.execution.exitCode) ? details.execution.exitCode : null
   });
   for (const key of ['workId', 'phase', 'currentPhase', 'operation', 'repositoryPath', 'preservation']) if (text(details[key])) projected[key] = text(details[key]);
+  // Where a Story's one checkout is on this computer (story-index.mjs), so a surface can go there.
+  const checkout = details.storyCheckout;
+  if (checkout && typeof checkout === 'object') projected.storyCheckout = compact({
+    workId: text(checkout.workId), checkoutPath: text(checkout.checkoutPath), branch: text(checkout.branch),
+    sameWorkspace: typeof checkout.sameWorkspace === 'boolean' ? checkout.sameWorkspace : null,
+    checkoutPaths: list(checkout.checkoutPaths, text).length ? list(checkout.checkoutPaths, text) : null,
+    workspace: checkout.workspace && typeof checkout.workspace === 'object'
+      ? compact({ id: text(checkout.workspace.id), name: text(checkout.workspace.name), path: text(checkout.workspace.path) }) : null
+  });
   const completed = list(details.completedRepositoryPaths, text);
   if (completed.length) projected.completedRepositoryPaths = completed;
   const retired = list(details.retired, item => item && typeof item === 'object' ? compact({

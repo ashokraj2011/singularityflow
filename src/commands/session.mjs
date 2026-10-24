@@ -454,6 +454,20 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
   }
   let resolved = await resolveSessionRepository({ workspaceReference, repositoryId: selectedRepositoryId, remoteProbe: !localListing && subcommand !== 'context' });
   let root = resolved.root;
+  // The Story's one checkout may be another clone of this workspace: attach reuses it rather than
+  // checking the branch out here, and refuses another workspace's (story-index.mjs).
+  if (subcommand === 'attach' && positionals[2]) {
+    const context = resolved.workspaceContext ?? null;
+    const indexed = await (await import('../story-index.mjs')).storyCheckoutForOpen(positionals[2], {
+      root, workspaceId: context?.workspaceId ?? null, operation: 'session attach',
+      repositoryUrl: !root && context?.workspacePath && context.repositoryId
+        ? (await readWorkspace(context.workspacePath).catch(() => null))?.repositories?.[context.repositoryId]?.url ?? null : null
+    });
+    if (indexed) {
+      root = indexed.entry.checkoutPath;
+      resolved = { ...resolved, root, resolvedFrom: 'story-index', authority: await sessionRepositoryAuthority(root) };
+    }
+  }
   const unreadable = root ? await unreadableGitStorage(root) : null;
   if (unreadable) {
     // Attaching needs this clone; it is left exactly as it is (session-storage-refusal.mjs).
@@ -711,6 +725,7 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
       activeWorkspaceFile(), workspaceRegistryFile(), attachmentRoot,
       { storyId: id, selectionSource: 'session-attach' }
     );
+    await import('../story-index.mjs').then((index) => index.recordStoryCheckout(attachmentRoot, { source: 'session-attach' })).catch(() => {});
     const result = {
       workId: id, branch: workflow.workItem.branch, remote, commit: remoteSha,
       phase: workflow.currentPhase, status: workflow.status, materialization, agent: session.selectedAgent,

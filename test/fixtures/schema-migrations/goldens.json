@@ -495,6 +495,7 @@
   "workspace-capability-drop-transaction": [{ "schemaVersion": 1 }],
   "workspace-branch-checkout": [{ "schemaVersion": 1, "workspaceId": "payments", "repositoryId": "payments-api", "branch": "main", "retry": "" }],
   "workspace-branch-pointer": [{ "schemaVersion": 1, "retry": "" }],
+  "story-index": [{ "schemaVersion": 1, "kind": "story-index", "updatedAt": null, "backfill": null, "entries": [] }],
   "active-workspace": [
     { "schemaVersion": 1 },
     { "schemaVersion": 2, "canonicalRepositoryPath": null, "checkoutPath": null, "head": null, "selectionSource": "workspace", "selectionStatus": "ready", "selectionError": null }

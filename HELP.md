@@ -30,6 +30,18 @@ another workspace window or repository cannot substitute its navigation selectio
 base branch and explicitly requested Git history/cleanup audits are separate operations, not
 Story discovery fallbacks.
 
+One Story has one checkout on this computer. The Story index (`story-index.json`, beside
+`workspaces.json`) records, for every registered workspace, which checkout holds each Story: its
+workspace, repository, branch, phase and status. `workspace stories` lists them and
+`workspace stories <WORK-ID>` says where one is. A command that names a Story (`--work-id`, or the
+Work ID operand of `status`, `nextsteps`, `report` and the others) runs in that Story's checkout
+wherever it was started from, and prints `<WORK-ID> → <CHECKOUT>` (JSON: `storyRoute`). A Story in
+another workspace is refused with `workspace use <WORKSPACE>`; one with no checkout here, with
+`session open <WORK-ID>`. Start, `session open`, `session open-local` and `session attach` reuse
+the Story's checkout or refuse to make a second one, in another clone or another workspace. The
+index is a lookup, never authority: every read checks the entry against the checkout's own Git
+files and drops one that no longer matches.
+
 `workspace checkouts <WORKSPACE> --json` shows the clone/worktree graph. `workspace cleanup
 <WORKSPACE> --json` previews recoverable retirement. Repeat with `--apply --confirm <DIGEST>`;
 for permanent removal, use `--purge` in both preview and application. Only verified unused owned
@@ -1143,6 +1155,7 @@ singularity-flow workspace create --local --id <ID> --organisation <LEAD-URL> --
 singularity-flow workspace list --json
 singularity-flow workspace use <ID|NAME|DIRECTORY>
 singularity-flow workspace current --json
+singularity-flow workspace stories [WORK-ID] [--rebuild] [--json]
 singularity-flow workspace rename <DIRECTORY> --name <TEXT> --confirm <WORKSPACE-ID>
 singularity-flow workspace archive-status <DIRECTORY> --fetch
 singularity-flow workspace archive <DIRECTORY> --confirm <WORKSPACE-ID>
@@ -1389,6 +1402,7 @@ singularity-flow workspace list
 singularity-flow workspace use <ID|NAME|JIRA|DIRECTORY> [--repository ID] [--story STORY]
 singularity-flow session workspace <ID|NAME|JIRA|DIRECTORY> [--repository ID] [--story STORY]
 singularity-flow workspace current
+singularity-flow workspace stories [WORK-ID] [--rebuild] [--json]
 singularity-flow workspace prompt
 singularity-flow workspace copilot [WORKSPACE] [--repository ID] [--story STORY] [--mode plan]
 singularity-flow workspace status [DIRECTORY]
@@ -3935,7 +3949,7 @@ singularity-flow logs workspace [--source all|activity|prompt|telemetry|workspac
 singularity-flow home [--workspace ID] [--request TEXT] [--json]
 singularity-flow journal today|refresh|settings|pause|resume|delete|export|doctor ...
 singularity-flow recommend [--workspace ID] [--json]
-singularity-flow workspace list|current|use|prompt|copilot
+singularity-flow workspace list|current|use|prompt|copilot|stories
 singularity-flow repositories providers|list|search|status|select|cache ...
 singularity-flow knowledge list|show|record|import|harvest|resolve ...
 singularity-flow knowledge import <REPOSITORY-RELATIVE-MANIFEST.json|yaml|yml> [--dry-run] [--json]

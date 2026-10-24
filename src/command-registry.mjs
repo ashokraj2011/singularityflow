@@ -277,7 +277,7 @@ const WM_KNOWLEDGE_REVIEW_ACTIONS = new Set(['confirm', 'correct', 'reject']);
  * pass of their own; calling them mutations is the wrong-but-safe direction in the meantime.
  */
 const WORKSPACE_READ_OPERATIONS = new Set([
-  'context', 'checkouts',
+  'context', 'checkouts', 'stories',
   'branches', 'list', 'current', 'prompt', 'archive-status', 'inspect', 'capabilities', 'status', 'documents', 'doctor',
   'migrate-schemas'
 ]);
@@ -298,7 +298,7 @@ const ENV_FILES_ACTIONS = Object.freeze(['list', 'path', 'suggest', 'create', 'l
  */
 export const PRODUCT_SUBCOMMANDS = Object.freeze(['status', 'align', 'reviews']);
 const WORKSPACE_NEVER_OPERATIONS = new Set([
-  'context', 'checkouts', 'cleanup', 'retention',
+  'context', 'checkouts', 'stories', 'cleanup', 'retention',
   'branches', 'prune', 'list', 'current', 'prompt', 'create', 'adopt', 'open', 'archive-status', 'rename', 'archive',
   'restore', 'inspect', 'duplicate', 'capabilities', 'update', 'attach-capability', 'detach-capability',
   'status', 'sync', 'repair', 'documents', 'forget', 'use',

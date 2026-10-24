@@ -3400,6 +3400,9 @@ const families = [
     steps: [migration(1, 2, activeWorkspaceV1ToV2)],
     paths: [/^\$local\/active-workspace\.json$/]
   }),
+  // The machine's Story index (src/story-index.mjs): a lookup and cache of which checkout holds
+  // each workspace Story. Every read re-verifies an entry against Git; it is never authority.
+  family({ id: 'story-index', currentVersion: 1, paths: [/^\$local\/story-index\.json$/] }),
   family({
     id: 'workspace-branch-checkout', currentVersion: 1,
     paths: [/^\$git\/branch-checkout\.json$/]

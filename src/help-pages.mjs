@@ -1800,6 +1800,9 @@ const PAGES = Object.freeze({
     description: [
       'Every repository command accepts --context-root <ABSOLUTE-CHECKOUT> for an explicit surface binding.',
       'workspace context --json shows that binding; workspace checkouts lists the clone/worktree dependency graph.',
+      'workspace stories lists every Story checkout on this computer across all workspaces, with its phase and status;',
+      'workspace stories <WORK-ID> says where one Story is. One Story has one checkout on the computer: a command that',
+      'names a Story (--work-id or its Work ID operand) runs in that checkout, or says to switch workspace or open it.',
       'workspace retention <WORKSPACE> configures local automatic cleanup (default: 7-day retention, daily scans).',
       'workspace cleanup <WORKSPACE> --automatic --refresh --json runs a safety-checked retention pass now.',
       'workspace cleanup previews recoverable retirement; --apply --confirm <DIGEST> applies it. Use --purge',
@@ -1884,6 +1887,7 @@ const PAGES = Object.freeze({
       ['--confirm-dirty SHA256', 'Content-bound acknowledgement required to retain a dirty adopted clone.'],
       ['--allow-synced-folder', 'Create, prepare, adopt or duplicate into a cloud-synced folder (OneDrive, iCloud Drive) even though Git can break there.'],
       ['--dry-run', 'Preview configuration refresh for every selected repository without changing a ref.'],
+      ['--rebuild', 'For workspace stories: read every registered workspace\'s clones for Story checkouts again (git worktree list).'],
       ['--repository VALUE', 'Repeatable. For doctor, an exact credential-free URL; for create/update, ID=URL; for repair or configuration refresh, a repository ID.'],
       ['--level LEVEL', 'For workspace status or repair: full (default), summary, or readiness. Readiness skips World Model and document detail.'],
       ['--resolve PATH=CHOICE', 'For refresh-configuration only: deliberately resolve one reported conflict as local, bundled, or merge; repeat for additional paths. Safe reinitialize refuses ownership transfer.'],
@@ -1894,6 +1898,8 @@ const PAGES = Object.freeze({
     examples: [
       ['singularity-flow workspace list --table', 'Every saved non-archived workspace in a numbered Markdown table; choose through /sf-workspace.'],
       ['singularity-flow workspace use payments', 'Make a workspace the active one for this session.'],
+      ['singularity-flow workspace stories', 'Every Story checkout on this computer: workspace, repository, checkout, branch, phase and status.'],
+      ['singularity-flow workspace stories PAY-142 --json', 'Where one Story is, and the commands that go to its checkout.'],
       ['singularity-flow workspace prepare https://git.example/payments.git --id payments', 'Record and preflight setup without creating the destination.'],
       ['singularity-flow workspace bootstrap resume bst_… --confirm payments', 'Recheck and register the exact recorded workspace plan; clone now only when --clone or --initialize was prepared.'],
       ['singularity-flow workspace repair /workspaces/payments --repository payments-api', 'Materialize one planned repository when its files are needed.'],

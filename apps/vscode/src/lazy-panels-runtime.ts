@@ -37,6 +37,7 @@ export { StoriesPanel } from './views/stories.ts';
 export { ApprovalsPanel } from './views/approvals.ts';
 export { InboxPanel } from './views/inbox.ts';
 export { JourneyPanel } from './views/journey.ts';
+export { HostRecordPanel } from './views/host-record-panel.ts';
 export { showPhaseArtifacts } from './views/phase-artifacts.ts';
 export { artifactPreviewMarkdown } from './views/phase-artifacts-page.ts';
 export { SgosCommandCenterPanel } from './views/sgos-command-center.ts';

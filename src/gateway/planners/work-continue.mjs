@@ -141,7 +141,27 @@ export function workContinueResult(item, { subject = null, localChanges = null, 
       emphasis: index === 0 ? 'primary' : 'secondary',
       executable: false,
       fallback: { label: operation, command: `sflow status --work-id ${item.id}` }
-    }, operation, { workId: item.id, workKind: item.kind })),
+    }, operation, { workId: item.id, workKind: item.kind })).concat(item.kind === 'story' && !diagnosticOnly ? [{
+      /**
+       * The Story's recorded progress in the editor's Progress view. `[INT:IFC-061]`
+       *
+       * Never a lifecycle action, so it trails them and leaves the rest state theirs: a Story with
+       * nothing legal is still blocked when it can show how far it got. Not offered beside an
+       * unreadable recovery marker, where diagnosis is the only thing this result offers.
+       */
+      handle: `host-action:progress:${item.id}`,
+      id: `progress:${item.id}:open-view`,
+      label: 'Open progress',
+      rank: actions.length,
+      kind: 'host-action',
+      reasonCode: 'work.open-progress-view',
+      confirmation: 'none',
+      interaction: 'navigation',
+      emphasis: 'link',
+      executable: false,
+      hostAction: { id: 'vscode.openProgress', arguments: { workId: item.id } },
+      fallback: { label: 'Show progress in the terminal', command: `sflow progress ${item.id}` }
+    }] : []),
     restState: actions.length ? null : 'blocked',
     data: {
       work: item,

@@ -228,11 +228,48 @@ test('the editor names a view for every allowlisted action, or refuses it as not
     HOST_ACTIONS.filter((id) => editor.EDITOR_HOST_ACTION_COMMANDS[id]), 'only views this build has are declared');
   const opened = session.hostActions.receive({ id: 'vscode.openReviewCeremony', arguments: { workId: 'WRK-2' } });
   assert.deepEqual([opened.accepted, opened.command], [true, 'singularityFlow.openApprovals']);
-  for (const id of ['vscode.openInvestigation', 'vscode.openContextReceipt', 'vscode.openHandoff', 'vscode.openProgress']) {
-    const refused = session.hostActions.receive({ id, arguments: id === 'vscode.openHandoff' ? { workId: 'WRK-2' } : {} });
-    assert.deepEqual([refused.accepted, refused.reason], [false, 'not-available-in-this-build'], id);
-  }
+  // A view that does not read arguments is opened with none, whatever the action carried.
+  assert.deepEqual([...opened.args], [], 'the Approvals page decides from records, never from the link');
+  assert.deepEqual([...session.hostActions.receive({ id: 'vscode.focusCopilot', arguments: {} }).args], []);
   const link = session.hostActions.receive(session.hostActions.fromLink('action=vscode.focusCopilot&prompt=approve%20it'));
   assert.deepEqual([link.accepted, link.reason], [false, 'command-text']);
+  editor.resetGatewaySession();
+});
+
+test('the four record views open with exactly the arguments their schema accepted, and nothing else', async () => {
+  // `[INT:IFC-061]` `[INT:CON-130]` `[INT:CON-131]`: the receipt names the command and hands it the
+  // validated, closed fields; a field the schema does not name or a value that is not an
+  // identifier is refused before any command is named.
+  const editor = await import(pathToFileURL(path.join(root, 'apps', 'vscode', 'src', 'gateway-session.ts')).href);
+  const session = editor.gatewaySession({ root: null, workspaceId: null, workspaceName: null, repositoryId: null, origin: 'test' });
+  const views = {
+    'vscode.openInvestigation': ['singularityFlow.openInvestigation', { investigationId: 'inv-0123456789abcdef0123', workId: 'WRK-2' }],
+    'vscode.openContextReceipt': ['singularityFlow.openContextReceipt', { receiptId: 'ctx-0123456789abcdef0123', workId: 'WRK-2' }],
+    'vscode.openHandoff': ['singularityFlow.openHandoff', { workId: 'WRK-2', workKind: 'story' }],
+    'vscode.openProgress': ['singularityFlow.openProgress', { workId: 'WRK-2' }]
+  };
+  for (const [id, [command, args]] of Object.entries(views)) {
+    assert.equal(editor.EDITOR_HOST_ACTION_COMMANDS[id], command);
+    assert.ok(session.kernel.hostCapabilities.hostActions.includes(id), `${id} is declared to the kernel`);
+    const received = session.hostActions.receive({ id, arguments: args });
+    assert.deepEqual([received.accepted, received.command], [true, command], id);
+    assert.deepEqual(received.args, [args], `${id} hands its view the accepted arguments`);
+    assert.ok(Object.isFrozen(received.args[0]), 'the view cannot change what was accepted');
+    // The same through a deep link, whose values arrive as strings.
+    const linked = session.hostActions.receive(session.hostActions.fromLink(new URLSearchParams({ action: id, ...args }).toString()));
+    assert.deepEqual(linked.args, [args], `${id} from a link`);
+    // An extra field, a non-identifier and command text are each refused, and no command is named.
+    for (const [bad, reason] of [
+      [{ ...args, path: 'README.md' }, 'argument-unknown'],
+      [{ ...args, workId: 'WRK 2' }, 'command-text'],
+      [{ ...args, workId: '../WRK-2' }, 'argument-invalid'],
+      [{ ...args, workId: 'WRK-2;whoami' }, 'command-text']
+    ]) {
+      const refused = session.hostActions.receive({ id, arguments: bad });
+      assert.deepEqual([refused.accepted, refused.reason, refused.command, refused.args], [false, reason, undefined, undefined], `${id} ${JSON.stringify(bad)}`);
+    }
+  }
+  assert.equal(session.hostActions.receive({ id: 'vscode.openHandoff', arguments: {} }).reason, 'argument-missing');
+  assert.equal(session.hostActions.receive({ id: 'vscode.openProgress', arguments: { jobId: 'job-1' }, extra: true }).reason, 'malformed');
   editor.resetGatewaySession();
 });

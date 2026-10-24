@@ -4,6 +4,7 @@
  * The result names suspects and observations. It never upgrades a commit, path, or text match into
  * a cause: causation still requires a reproducer or equivalent governed evidence.
  */
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import { branch, head } from '../../git.mjs';
@@ -134,9 +135,23 @@ const INCIDENT_INPUTS = Object.freeze(['expected', 'environment', 'observedVersi
 const record = (type, statement, { confidence = 'unknown', source = 'deterministic', reference = null } = {}) =>
   Object.freeze({ type, code: `investigation.record.${type}`, statement: String(statement).slice(0, 300), confidence, source, reference });
 
+/**
+ * The ID a host keeps this report under, derived from the report itself. `[INT:IFC-061]`
+ *
+ * An investigation is a read and stores nothing `[INT:CON-090]`, so this names a result rather than
+ * a record: the same evidence gives the same ID, and a host that kept the result can open it again
+ * by ID while one that did not says so instead of rerunning anything.
+ */
+export function investigationIdOf(report, repository = {}) {
+  const digest = createHash('sha256')
+    .update(JSON.stringify({ head: repository.head ?? null, branch: repository.branch ?? null, report }))
+    .digest('hex');
+  return `inv-${digest.slice(0, 20)}`;
+}
+
 export function problemInvestigationResult({
   symptom, repositoryId, repository, terms, matches, paths, commits, regression, subject = null,
-  assistedRequested = false, report = null, assisted = null, next = []
+  assistedRequested = false, report = null, assisted = null, next = [], investigationId = null
 } = {}) {
   const boundedMatches = [...new Map(matches.map((entry) => [
     `${entry.path}:${entry.line}`, { path: entry.path, line: entry.line }
@@ -188,6 +203,7 @@ export function problemInvestigationResult({
       conclusion: null,
       caveat: 'These observations narrow investigation. Only a reproducer or equivalent evidence can establish a cause.',
       assisted: assisted ?? { requested: assistedRequested, invoked: false },
+      ...(investigationId ? { investigationId } : {}),
       ...(report ? { report } : {})
     }
   });
@@ -357,10 +373,26 @@ export async function problemInvestigate({ arguments: args = {}, subject = null,
     kind: 'read', reasonCode: 'investigation.start-from-finding', confirmation: 'none', interaction: 'navigation',
     emphasis: 'link', executable: false, fallback: { label: 'Start in the terminal', command: 'sflow start <WORK-ID>' }
   }, 'work.start.intake', { source: 'bug-report', summary: String(args.symptom).slice(0, 1900) }));
+  const investigationId = investigationIdOf(report, repository);
+  const workId = typeof context.workId === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(context.workId) ? context.workId : null;
+  /**
+   * The whole report in the editor's Investigation view, by its ID only. `[INT:IFC-061]` `[INT:CON-131]`
+   *
+   * Opening a view, nothing more: the kernel withholds it from a host that has no such view, and
+   * the documentation route beside it is the continuation there, since this result already carries
+   * every record the view would show `[INT:REQ-130]`.
+   */
+  next.push({
+    handle: 'host-action:investigation', id: 'investigation:open-view', label: 'Open the investigation', rank: next.length,
+    kind: 'host-action', reasonCode: 'investigation.open-view', confirmation: 'none', interaction: 'navigation',
+    emphasis: 'link', executable: false,
+    hostAction: { id: 'vscode.openInvestigation', arguments: { investigationId, ...(workId ? { workId } : {}) } },
+    fallback: { label: 'Read about investigations in the terminal', command: 'sflow explain investigation' }
+  });
   return problemInvestigationResult({
     symptom: args.symptom,
     repositoryId: args.repositoryId ?? context.repositoryId ?? path.basename(root),
-    repository, ...observed, subject, assistedRequested, report, assisted, next
+    repository, ...observed, subject, assistedRequested, report, assisted, next, investigationId
   });
 }
 

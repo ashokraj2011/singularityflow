@@ -160,6 +160,8 @@ export const RESULT_MESSAGES = Object.freeze({
   'work.no-legal-action': M('Nothing is available to do here'),
   'work.check-readiness': M('Check whether this is ready'),
   'work.resume-phase': M('Resume this phase'),
+  'work.open-handoff-view': M('Open the handoff packet view'),
+  'work.open-progress-view': M('Open the progress view'),
   'work.all-phases-complete': M('Every step is decided'),
   'work.no-current-phase': M('No phase is current'),
   'work.final-phase-approved': M('The final phase was approved'),
@@ -249,6 +251,7 @@ export const RESULT_MESSAGES = Object.freeze({
     '{bytes} content byte(s) were included; deeper material remains behind a newly sealed read action.'
   ),
   'context.expand-slice': M('Expand only this context slice'),
+  'context.open-receipt-view': M('Open the context receipt view', 'What this packet included, left out and estimated, from its recorded receipt.'),
   'context.coverage-limited': M(
     'Some context was not included',
     '{omission} was unavailable or outside this page\'s explicit byte budget.'
@@ -298,6 +301,7 @@ export const RESULT_MESSAGES = Object.freeze({
   'investigation.record.unknown': M('Unknown'),
   'investigation.bisect-available': M('Find the introducing commit', 'A confirmed bisection in disposable worktrees, with the configured test.'),
   'investigation.start-from-finding': M('Start a Story from this finding'),
+  'investigation.open-view': M('Open the Investigation view'),
   'investigation.nothing-was-carried-out': M('Nothing was carried out', 'Investigation is read-only.'),
   'explain.cited': M('Answered from the compiled documentation'),
   'explain.ambiguous': M('More than one topic matches'),

@@ -141,7 +141,29 @@ export function workHandoffResult(item, {
       emphasis: 'primary',
       executable: false,
       fallback: { label: 'Open current work', command: `sflow status --work-id ${item.id}` }
-    }, 'work.continue', { workId: item.id, workKind: item.kind })],
+    }, 'work.continue', { workId: item.id, workKind: item.kind }), {
+      /**
+       * The whole packet in the editor's Handoff view, by the work's ID only. `[INT:IFC-061]`
+       *
+       * The view reads this same projection again, so it shows the records as they are when it
+       * opens rather than a copy of this result; a host without the view keeps the status route.
+       */
+      handle: `host-action:handoff:${item.id}`,
+      id: `handoff:${item.id}:open-view`,
+      label: 'Open the handoff packet',
+      rank: 1,
+      kind: 'host-action',
+      reasonCode: 'work.open-handoff-view',
+      confirmation: 'none',
+      interaction: 'navigation',
+      emphasis: 'link',
+      executable: false,
+      hostAction: {
+        id: 'vscode.openHandoff',
+        arguments: { workId: item.id, ...(['story', 'initiative'].includes(item.kind) ? { workKind: item.kind } : {}) }
+      },
+      fallback: { label: 'Show its status in the terminal', command: `sflow status --work-id ${item.id}` }
+    }],
     restState: null,
     data: {
       packet,

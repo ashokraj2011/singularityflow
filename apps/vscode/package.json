@@ -1153,6 +1153,22 @@
         "icon": "$(files)"
       },
       {
+        "command": "singularityFlow.openInvestigation",
+        "title": "Singularity Flow: Open Investigation"
+      },
+      {
+        "command": "singularityFlow.openContextReceipt",
+        "title": "Singularity Flow: Open Context Receipt"
+      },
+      {
+        "command": "singularityFlow.openHandoff",
+        "title": "Singularity Flow: Open Handoff Packet"
+      },
+      {
+        "command": "singularityFlow.openProgress",
+        "title": "Singularity Flow: Open Progress"
+      },
+      {
         "command": "singularityFlow.openStoryIntake",
         "title": "Singularity Flow: View Story Intake Details",
         "icon": "$(book)"

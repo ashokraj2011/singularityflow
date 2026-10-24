@@ -666,7 +666,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     output.appendLine(`[host-action] ${received.hostAction.id} opens ${received.command} (from a ${via})`);
     try {
-      await vscode.commands.executeCommand(received.command);
+      // The accepted arguments, only for a view that reads them; no other view is handed any.
+      await vscode.commands.executeCommand(received.command, ...(received.args ?? []));
       return true;
     } catch (error) {
       output.appendLine(`[host-action] ${received.hostAction.id} could not open: ${(error as Error).message}`);
@@ -1211,6 +1212,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.submitStoryPhase', 'singularityFlow.prefillStoryPhaseGeneration',
     'singularityFlow.reviewStoryTestRecovery', 'singularityFlow.resolvePhaseIssues',
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openCommandCenter',
+    'singularityFlow.openInvestigation', 'singularityFlow.openContextReceipt', 'singularityFlow.openHandoff', 'singularityFlow.openProgress',
     'singularityFlow.openComprehensionCenter', 'singularityFlow.openChangeExplorer',
     'singularityFlow.openCodeExplanation', 'singularityFlow.explainFileChanges', 'singularityFlow.explainChangeAtCursor',
     'singularityFlow.openCodeExplainer', 'singularityFlow.explainCodeAtCursor', 'singularityFlow.openRepositoryKnowledge', 'singularityFlow.showPhaseBrief',
@@ -8341,6 +8343,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         { propose: Boolean(plan.destinationAuthority) }));
   };
 
+  /**
+   * The four record views a host action opens, or the palette opens with nothing. `[INT:IFC-061]` `[INT:CON-131]`
+   *
+   * An object argument is checked again here against the action's own schema, through the same
+   * session a link or card is received in, so a command run with an object from anywhere opens
+   * nothing a link could not. With no argument (the palette) the view reads the attached Story.
+   */
+  const openHostRecord = async (action: 'vscode.openInvestigation' | 'vscode.openContextReceipt' | 'vscode.openHandoff' | 'vscode.openProgress',
+    request?: unknown): Promise<unknown> => {
+    await reconcileActiveWorkspaceSelection();
+    const session = () => gatewaySession(currentGuideRoute());
+    let accepted: Record<string, unknown> = {};
+    if (request !== null && typeof request === 'object' && Object.getPrototypeOf(request) === Object.prototype) {
+      const received = session().hostActions.receive({ id: action, arguments: request });
+      if (!received.accepted) {
+        output.appendLine(`[host-action] ${action} refused its arguments: ${received.reason}`);
+        showRefusal({ message: `That view was not opened (${received.reason}).`, result: received.result }, { headline: 'That view was not opened' });
+        return undefined;
+      }
+      accepted = received.hostAction.arguments;
+    }
+    const { HostRecordPanel } = lazyPanels();
+    return HostRecordPanel.show(action, accepted, {
+      read: (argv) => client.run(argv, undefined, { priority: 'interactive' }),
+      currentWorkId: () => store.current.snapshot?.workflow?.workItem.id ?? null,
+      gateway: session
+    });
+  };
+
   const registered: Record<string, (...args: never[]) => unknown> = {
     'singularityFlow.openCapabilities':
       async () => {
@@ -8946,6 +8977,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const { JourneyPanel } = lazyPanels();
       return JourneyPanel.show(context, store, onJourneyMessage, stepActionDeliveries);
     },
+    'singularityFlow.openInvestigation': ((request?: unknown) => openHostRecord('vscode.openInvestigation', request)) as never,
+    'singularityFlow.openContextReceipt': ((request?: unknown) => openHostRecord('vscode.openContextReceipt', request)) as never,
+    'singularityFlow.openHandoff': ((request?: unknown) => openHostRecord('vscode.openHandoff', request)) as never,
+    'singularityFlow.openProgress': ((request?: unknown) => openHostRecord('vscode.openProgress', request)) as never,
     'singularityFlow.openCommandCenter': async () => {
       await reconcileActiveWorkspaceSelection();
       const { SgosCommandCenterPanel } = lazyPanels();

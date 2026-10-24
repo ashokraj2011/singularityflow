@@ -1230,10 +1230,16 @@ test('a card opens only the view its host action names, a tampered link is refus
   await until(() => /That view was not opened/.test(result.webview.html) && /not-allowlisted/.test(result.webview.html) ? true : null);
   links.handleUri({ path: '/host-action', query: 'action=vscode.openJourney&workId=WRK-1%3Bwhoami' });
   await until(() => /command-text/.test(result.webview.html) ? true : null);
-  links.handleUri({ path: '/host-action', query: 'action=vscode.openInvestigation' });
-  await until(() => /not-available-in-this-build/.test(result.webview.html) ? true : null);
+  links.handleUri({ path: '/host-action', query: 'action=vscode.openProgress&workId=WRK-1&path=README.md' });
+  await until(() => /argument-unknown/.test(result.webview.html) ? true : null);
   assert.deepEqual(registered.executedCommands.slice(quiet).filter((entry) => /^singularityFlow\.|^workbench\./.test(entry.id)), [],
     'no refused link opened anything');
+  // A record view opens with exactly the arguments its schema accepted, and says when it has no record.
+  links.handleUri({ path: '/host-action', query: 'action=vscode.openInvestigation&investigationId=inv-00000000000000000000' });
+  const investigation = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.investigation'));
+  await until(() => /is not held by this window/.test(investigation.webview.html) ? true : null);
+  assert.deepEqual(registered.executedCommands.find((entry) => entry.id === 'singularityFlow.openInvestigation').args,
+    [{ investigationId: 'inv-00000000000000000000' }]);
 
   // Resetting the conversation forgets what the guide remembered and keeps work and the selection.
   const store = path.join(path.dirname(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE), 'gateway-guide-session.json');
@@ -2211,6 +2217,75 @@ test('phase artifact main-menu browsing opens rendered Markdown without changing
   panel.dispose();
   await panel.post({ type: 'open', id });
   assert.equal(registered.executedCommands.filter(item => item.id === 'markdown.showPreview').length, 2);
+});
+
+test('the record views open from a host-action link and from the palette, with the arguments that arrived', async (t) => {
+  // `[INT:IFC-061]` `[INT:CON-131]`: through the packaged extension, on a real started Story.
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  t.after(() => removeFixture(path.dirname(root)));
+  run('git', ['switch', 'main'], { cwd: root });
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.repositoryReadiness.requiredBeforeStory = false;
+  await writeFile(definitionPath, YAML.stringify(definition));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '--allow-empty', '-m', 'Record views fixture'], { cwd: root });
+  run('git', ['push', 'origin', 'main'], { cwd: root });
+  const started = spawnSync(process.execPath, [path.join(packageRoot, 'bin/singularity-flow.mjs'), 'start', 'RECORD-HOST',
+    '--from-branch', 'main', '--work-type', 'spec-driven-standard', '--agent', 'product-owner',
+    '--title', 'Record views', '--description', 'Open the four record views', '--json'],
+  { cwd: root, encoding: 'utf8', env: process.env });
+  assert.equal(started.status, 0, started.stderr || started.stdout);
+  const before = { head: run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout,
+    status: run('git', ['status', '--porcelain'], { cwd: root }).stdout };
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  let links = null;
+  api.window.registerUriHandler = (handler) => { links = handler; return { dispose() {} }; };
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  const visible = (panel) => panel.webview.html.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gu, '')
+    .replace(/<[^>]+>/gu, ' ').replace(/\s+/gu, ' ');
+  const settled = (panel) => until(() => /data-record-state="(ready|unavailable)"/u.test(panel.webview.html) ? panel : null);
+
+  // The palette, with no argument: the attached Story.
+  await registered.commands.get('singularityFlow.openProgress')();
+  const progress = await settled(await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.progress')));
+  assert.match(visible(progress), /Progress .*RECORD-HOST/u);
+  assert.match(visible(progress), /Specification/u, visible(progress));
+
+  // A link names the Story; the handoff is read through the kernel and bound to the exact commit.
+  links.handleUri({ path: '/host-action', query: 'action=vscode.openHandoff&workId=RECORD-HOST&workKind=story' });
+  const handoff = await settled(await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.handoff')));
+  assert.deepEqual(registered.executedCommands.find((entry) => entry.id === 'singularityFlow.openHandoff').args,
+    [{ workId: 'RECORD-HOST', workKind: 'story' }]);
+  assert.match(visible(handoff), new RegExp(`Source commit ${before.head.trim()}`, 'u'), visible(handoff));
+  assert.match(visible(handoff), /projection only — never lifecycle authority/u);
+
+  // A receipt this computer never recorded, and a job no build records, are said to be missing.
+  links.handleUri({ path: '/host-action', query: 'action=vscode.openContextReceipt&workId=RECORD-HOST&receiptId=ctx-00000000000000000000' });
+  const receipt = await settled(await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.contextReceipt')));
+  assert.match(visible(receipt), /No context receipt is recorded for RECORD-HOST on this computer|Receipt ctx-00000000000000000000 is not recorded/u, visible(receipt));
+  links.handleUri({ path: '/host-action', query: 'action=vscode.openProgress&jobId=job-1' });
+  await until(() => /Job job-1 has no record here/u.test(progress.webview.html) ? true : null);
+
+  // An object from anywhere else is checked against the same schema before anything opens.
+  const panels = registered.panels.length;
+  await registered.commands.get('singularityFlow.openHandoff')({ workId: '../RECORD-HOST' });
+  await registered.commands.get('singularityFlow.openHandoff')({ workId: 'RECORD-HOST', path: '/etc/passwd' });
+  assert.equal(registered.panels.filter((entry) => entry.id === 'singularityFlow.handoff').length, 1);
+  assert.ok(registered.output.some((line) => /vscode\.openHandoff refused its arguments: argument-invalid/u.test(line)));
+  assert.ok(registered.output.some((line) => /vscode\.openHandoff refused its arguments: argument-unknown/u.test(line)));
+  assert.ok(registered.panels.length >= panels);
+
+  // A route on the page runs its own existing command; nothing changed in the repository.
+  const renderId = progress.webview.html.match(/data-render-id="([^"]+)"/u)[1];
+  await progress.post({ type: 'record.route', id: 'handoff', renderId });
+  assert.deepEqual(registered.executedCommands.filter((entry) => entry.id === 'singularityFlow.openHandoff').at(-1).args,
+    [{ workId: 'RECORD-HOST' }]);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout, before.head);
+  assert.equal(run('git', ['status', '--porcelain'], { cwd: root }).stdout, before.status);
 });
 
 test('refusing to open an artifact path that escapes the repository', async (t) => {

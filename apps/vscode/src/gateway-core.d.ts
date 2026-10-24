@@ -179,6 +179,7 @@ declare module '*/gateway/planners/problem-investigate.mjs' {
 declare module '*/gateway/planners/repository-explore.mjs' { export const repositoryExplore: unknown; }
 declare module '*/gateway/planners/review-packet.mjs' { export const reviewPacket: unknown; }
 declare module '*/gateway/planners/work-continue.mjs' { export const workContinue: unknown; }
+declare module '*/gateway/planners/work-handoff.mjs' { export const workHandoff: unknown; }
 declare module '*/gateway/planners/work-list.mjs' { export const workList: unknown; }
 declare module '*/gateway/planners/work-readiness.mjs' { export const workReadiness: unknown; }
 declare module '*/gateway/planners/work-return.mjs' { export const workReturn: unknown; }

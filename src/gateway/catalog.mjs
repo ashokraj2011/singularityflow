@@ -169,6 +169,8 @@ export const WORK_CODES = Object.freeze([
   'work.no-legal-action',
   'work.check-readiness',
   'work.resume-phase',
+  'work.open-handoff-view',
+  'work.open-progress-view',
   /**
    * Why a work item is in the group it is in — `item.because`, from `work-records.mjs`.
    *
@@ -294,6 +296,7 @@ export const GOLDEN_JOURNEY_CODES = Object.freeze([
   'context.bounded-brief',
   'context.expand-slice',
   'context.coverage-limited',
+  'context.open-receipt-view',
   'repository.explore.bounded-facts',
   'repository.explore.empty-scope',
   'repository.explore.wrong-repository',
@@ -321,7 +324,8 @@ export const GOLDEN_JOURNEY_CODES = Object.freeze([
   'investigation.record.contradiction',
   'investigation.record.unknown',
   'investigation.bisect-available',
-  'investigation.start-from-finding'
+  'investigation.start-from-finding',
+  'investigation.open-view'
 ]);
 
 /** Comparison, watches, ceremony destinations and the local records a confirmed plan writes. */

@@ -14,6 +14,35 @@ const LABELS = Object.freeze({
   observation: 'Open the current compressed observation'
 });
 
+const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+/**
+ * The packet's recorded receipt, in the editor's Context Receipt view. `[INT:REQ-175]` `[INT:IFC-061]`
+ *
+ * Compiling a packet writes its content-free receipt (sources by digest, bytes, estimated tokens,
+ * omissions, expansions) beside the repository's Git data, so the view reads that record by the
+ * packet ID rather than this page. Offered only when the packet names its Story, which is what the
+ * record is read by; the terminal route reads the same record.
+ */
+function receiptView(data, workId, rank) {
+  const packetId = data.packetId ?? null;
+  if (!['evidence-packet', 'evidence-packet-expansion'].includes(data.kind)) return null;
+  if (!IDENTIFIER.test(String(packetId ?? '')) || !IDENTIFIER.test(String(workId ?? ''))) return null;
+  const phase = IDENTIFIER.test(String(data.binding?.phase ?? '')) ? data.binding.phase : null;
+  return {
+    handle: `host-action:context-receipt:${packetId}`, id: 'context:open-receipt', label: 'Open the context receipt', rank,
+    kind: 'host-action', reasonCode: 'context.open-receipt-view', confirmation: 'none', interaction: 'navigation',
+    emphasis: 'link', executable: false,
+    hostAction: { id: 'vscode.openContextReceipt', arguments: { receiptId: packetId, workId } },
+    fallback: {
+      label: 'Show the receipt in the terminal',
+      command: phase
+        ? `singularity-flow context xray --work-id ${workId} --phase ${phase} --packet ${packetId}`
+        : `singularity-flow tokens report --work-id ${workId} --packet ${packetId}`
+    }
+  };
+}
+
 export async function contextBrief({ arguments: args = {}, subject = null, root = null } = {}) {
   if (!root) throw new SingularityFlowError('context.brief requires a repository root.', { code: 'CONTEXT_BRIEF_NO_ROOT' });
   const data = await composeContextBrief(root, {
@@ -61,6 +90,8 @@ export async function contextBrief({ arguments: args = {}, subject = null, root 
       }),
       maxOutputBytes: data.accounting?.maximumOutputBytes ?? data.budget?.maximumOutputBytes
     }));
+  const receipt = receiptView(data, workId, next.length);
+  if (receipt) next.push(receipt);
 
   return sflowResult({
     kind: 'read',

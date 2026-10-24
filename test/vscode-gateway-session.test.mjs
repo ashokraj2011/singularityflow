@@ -118,7 +118,7 @@ test('the editor bundles the shared docs planner with a verified package root', 
    */
   const source = await readFile(path.join(root, 'apps', 'vscode', 'src', 'gateway-session.ts'), 'utf8');
   const imported = [...source.matchAll(/planners\/([a-z-]+)\.mjs/g)].map(([, name]) => name).sort();
-  assert.deepEqual(imported, ['ast-intelligence', 'compare', 'context-brief', 'developer-next', 'executors', 'governed-goal', 'help-explain', 'home-overview', 'impact-quick', 'impact-what-if', 'intent-trace', 'problem-investigate', 'repository-explore', 'repository-query', 'review-open', 'review-packet', 'watches', 'work-continue', 'work-list',
+  assert.deepEqual(imported, ['ast-intelligence', 'compare', 'context-brief', 'developer-next', 'executors', 'governed-goal', 'help-explain', 'home-overview', 'impact-quick', 'impact-what-if', 'intent-trace', 'problem-investigate', 'repository-explore', 'repository-query', 'review-open', 'review-packet', 'watches', 'work-continue', 'work-handoff', 'work-list',
     'work-readiness', 'work-return', 'work-start', 'work-start-intake', 'workspace-list', 'workspace-reliability-surface', 'workspace-switch']);
   assert.ok(codeOnly(source).includes('help-explain'), 'the docs planner is imported');
   assert.ok(codeOnly(source).includes("['intent-trace', intentTracePlanner]"),

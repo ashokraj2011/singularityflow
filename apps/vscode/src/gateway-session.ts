@@ -45,6 +45,7 @@ import {
 import { repositoryExplore } from '../../../src/gateway/planners/repository-explore.mjs';
 import { reviewPacket } from '../../../src/gateway/planners/review-packet.mjs';
 import { workContinue } from '../../../src/gateway/planners/work-continue.mjs';
+import { workHandoff } from '../../../src/gateway/planners/work-handoff.mjs';
 import { workList } from '../../../src/gateway/planners/work-list.mjs';
 import { workReadiness } from '../../../src/gateway/planners/work-readiness.mjs';
 import { workReturn } from '../../../src/gateway/planners/work-return.mjs';
@@ -79,6 +80,8 @@ export function editorPlanners(): Map<string, unknown> {
     ['help-explain', helpExplain],
     ['work-list', workList],
     ['work-continue', workContinue],
+    // The Handoff view reads the packet through the kernel like any other read `[INT:REQ-178]`.
+    ['work-handoff', workHandoff],
     ['work-readiness', workReadiness],
     ['work-return', workReturn],
     ['work-start-intake', workStartIntake],
@@ -144,7 +147,11 @@ export type GatewaySession = {
    */
   readonly hostActions: {
     receive(candidate: unknown, options?: { fallback?: { label?: string; command?: string } | null }):
-      { accepted: true; hostAction: { id: string; arguments: Record<string, unknown> }; command: string }
+      {
+        accepted: true; hostAction: { id: string; arguments: Record<string, unknown> }; command: string;
+        /** What the command is run with: the accepted arguments for a view that reads them, else nothing. */
+        args: readonly unknown[];
+      }
       | { accepted: false; reason: string; result: any };
     refuse(action: string, reason: string, fallback?: { label?: string; command?: string } | null): any;
     fromLink(query: string): unknown;
@@ -166,7 +173,47 @@ export type GatewaySession = {
    * screens never call it; pause turns off Copilot guidance, not this window.
    */
   readonly pausedToolAnswer: (tool: string) => any | null;
+  /**
+   * Investigation reports this session's kernel produced, by `data.investigationId`. `[INT:IFC-061]`
+   *
+   * An investigation is a read and stores nothing `[INT:CON-090]`, so the Investigation view can
+   * show a report only while the window that received it keeps it. Kept in memory, bounded, and
+   * gone with the session: a link from anywhere else finds nothing and says so.
+   */
+  readonly investigations: {
+    get(investigationId: string): RetainedInvestigation | null;
+    list(): readonly RetainedInvestigation[];
+  };
 };
+
+/** One kept investigation result, exactly as the kernel returned it. */
+export type RetainedInvestigation = Readonly<{ investigationId: string; receivedAt: string; result: any }>;
+
+const MAX_RETAINED_INVESTIGATIONS = 16;
+// The reads that name their report. A bisection runs only where the CLI-side gateway carries it out.
+const INVESTIGATION_OPERATIONS = new Set(['problem.investigate', 'problem.investigate.assisted']);
+
+/**
+ * The same kernel, keeping each investigation result it returns. Every other answer passes through
+ * untouched; nothing it keeps is ever read back by the kernel.
+ */
+function retainingInvestigations(kernel: any, kept: Map<string, RetainedInvestigation>): any {
+  const keep = (result: any): any => {
+    const id = result?.data?.investigationId;
+    if (typeof id === 'string' && INVESTIGATION_OPERATIONS.has(result?.operation?.id) && result.kind !== 'refusal') {
+      kept.delete(id);
+      kept.set(id, Object.freeze({ investigationId: id, receivedAt: new Date().toISOString(), result }));
+      while (kept.size > MAX_RETAINED_INVESTIGATIONS) kept.delete(kept.keys().next().value as string);
+    }
+    return result;
+  };
+  return Object.freeze({
+    ...kernel,
+    resolve: async (...args: unknown[]) => keep(await kernel.resolve(...args)),
+    read: async (...args: unknown[]) => keep(await kernel.read(...args)),
+    run: async (...args: unknown[]) => keep(await kernel.run(...args))
+  });
+}
 
 /**
  * The trusted view each allowlisted host action opens in this build. `[INT:IFC-061]` `[INT:IFC-060]`
@@ -186,16 +233,29 @@ export const EDITOR_HOST_ACTION_COMMANDS: Readonly<Record<string, string | null>
   'vscode.openReviewCeremony': 'singularityFlow.openApprovals',
   'vscode.openJourney': 'singularityFlow.openJourney',
   'vscode.openImpact': 'singularityFlow.openImpact',
-  'vscode.openInvestigation': null,
-  'vscode.openContextReceipt': null,
-  'vscode.openHandoff': null,
-  'vscode.openProgress': null,
+  // These four read their records from the arguments they are given, and do nothing else.
+  'vscode.openInvestigation': 'singularityFlow.openInvestigation',
+  'vscode.openContextReceipt': 'singularityFlow.openContextReceipt',
+  'vscode.openHandoff': 'singularityFlow.openHandoff',
+  'vscode.openProgress': 'singularityFlow.openProgress',
   // Focus only: no prompt is prefilled and nothing is sent.
   'vscode.focusCopilot': 'workbench.action.chat.open'
 });
 
 const EDITOR_HOST_ACTIONS = Object.freeze(Object.keys(EDITOR_HOST_ACTION_COMMANDS)
   .filter((id) => EDITOR_HOST_ACTION_COMMANDS[id]));
+
+/**
+ * The views that read the arguments a host action names. `[INT:CON-131]`
+ *
+ * Their command is run with exactly the arguments the schema accepted, one frozen object, and
+ * re-checks them itself. Every other view opens as it does from the menu, with nothing, so a
+ * command that already takes an argument of its own (Workspaces' upgrade options, the chat's query)
+ * is never handed one it did not ask for.
+ */
+export const EDITOR_HOST_ACTIONS_WITH_ARGUMENTS: ReadonlySet<string> = new Set([
+  'vscode.openInvestigation', 'vscode.openContextReceipt', 'vscode.openHandoff', 'vscode.openProgress'
+]);
 
 let session: GatewaySession | null = null;
 let sessionRoot: string | null = null;
@@ -327,19 +387,26 @@ export function gatewaySession(context: GatewayRepositoryContext): GatewaySessio
     hostCapabilities: { confirmationChannel: 'native', hostActions: EDITOR_HOST_ACTIONS },
     mutationExecutors: gatewayMutationExecutors({ runStart: startRouteProvider })
   });
+  const investigations = new Map<string, RetainedInvestigation>();
+  // One kernel for every caller, so a report read from a card, a tool or a form is the one kept.
+  const kernel = retainingInvestigations(host.kernel, investigations);
   session = {
     root: host.root,
     // Every call is recorded for the Logs view, without what anyone typed `[INT:IFC-070]`.
-    kernel: auditedKernel(host.kernel, { host: 'vscode', modelSelected: false }),
+    kernel: auditedKernel(kernel, { host: 'vscode', modelSelected: false }),
     /** `host.mjs` is untyped JavaScript; the shape asserted here is `hostBinding`'s return. */
     binding: host.binding as GatewaySession['binding'],
-    executor: createActionExecutor({ gateway: host }),
+    executor: createActionExecutor({ gateway: { ...host, kernel } }),
     hostActions: {
       receive(candidate, { fallback = null } = {}) {
         const received = receiveHostAction(candidate, { available: EDITOR_HOST_ACTIONS, fallback });
-        return received.accepted
-          ? { ...received, command: EDITOR_HOST_ACTION_COMMANDS[received.hostAction.id] as string }
-          : received;
+        if (!received.accepted) return received;
+        const { id, arguments: accepted } = received.hostAction;
+        return {
+          ...received,
+          command: EDITOR_HOST_ACTION_COMMANDS[id] as string,
+          args: EDITOR_HOST_ACTIONS_WITH_ARGUMENTS.has(id) ? Object.freeze([Object.freeze({ ...accepted })]) : Object.freeze([])
+        };
       },
       refuse: (action, reason, fallback = null) => hostActionRefusal({ action, reason }, { fallback }),
       fromLink: (query) => hostActionFromLink(query)
@@ -358,7 +425,11 @@ export function gatewaySession(context: GatewayRepositoryContext): GatewaySessio
       }),
       reset: async () => resetGuideSession(guideOwner())
     },
-    pausedToolAnswer: (tool) => pausedToolAnswer(tool)
+    pausedToolAnswer: (tool) => pausedToolAnswer(tool),
+    investigations: {
+      get: (investigationId) => investigations.get(investigationId) ?? null,
+      list: () => Object.freeze([...investigations.values()].reverse())
+    }
   };
   sessionRoot = root;
   sessionWorkspaceId = workspaceId;

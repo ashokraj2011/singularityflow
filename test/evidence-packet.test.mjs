@@ -16,6 +16,8 @@ import { compileContextManifest } from '../src/context-manifest.mjs';
 import { contextXray } from '../src/context-xray.mjs';
 import { gatewayOperation } from '../src/gateway/operations.mjs';
 import { contextBrief } from '../src/gateway/planners/context-brief.mjs';
+import { validateHostAction } from '../src/gateway/argument-schemas.mjs';
+import { contextPacketTelemetryRecords } from '../src/context-packet-telemetry.mjs';
 import { SFLOW_TOOLS } from '../src/gateway/tools.mjs';
 import { compileObservation } from '../src/observation-compiler.mjs';
 import { rankContextCandidates } from '../src/context-ranking.mjs';
@@ -238,6 +240,20 @@ test('accepted Flight Plan binding controls packet selection and detects tamperi
   assert.deepEqual(JSON.parse(cliResult.stdout).items.map((item) => item.itemId),
     gateway.data.context.items.map((item) => item.itemId));
   assert.equal(SFLOW_TOOLS.length, 5, 'Evidence Packets stay behind the existing model-facing tools');
+  // The packet's recorded receipt opens in the editor by its ID, and the record it names exists.
+  // `[INT:REQ-175]` `[INT:IFC-061]`
+  const receipt = gateway.next.find((action) => action.id === 'context:open-receipt');
+  assert.deepEqual(receipt.hostAction, {
+    id: 'vscode.openContextReceipt', arguments: { receiptId: gateway.data.context.packetId, workId: 'PAY-EPC-1' }
+  });
+  assert.equal(validateHostAction(receipt.hostAction).ok, true);
+  assert.equal(receipt.kind, 'host-action');
+  assert.match(receipt.fallback.command, new RegExp(`--work-id PAY-EPC-1 .*--packet ${gateway.data.context.packetId}$`));
+  const recorded = await contextPacketTelemetryRecords(worktree, { packetId: gateway.data.context.packetId });
+  assert.equal(recorded.length, 1, 'the receipt the view reads was written when the packet was compiled');
+  const reported = JSON.parse(run(process.execPath, [cli, 'tokens', 'report', '--work-id', 'PAY-EPC-1', '--json'], worktree).stdout);
+  assert.ok(reported.data.ledger.packets.some((packet) => packet.packetId === gateway.data.context.packetId),
+    'the route the view reads lists it');
 
   const acceptedFile = path.join(worktree, 'singularity/work-items/PAY-EPC-1/context/change-flight-plan/accepted-plan.json');
   const tampered = JSON.parse(await readFile(acceptedFile, 'utf8'));

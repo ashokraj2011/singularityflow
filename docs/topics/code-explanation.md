@@ -11,6 +11,8 @@ questions:
   - What evidence exists for the current code changes?
   - Which change unit does this line belong to?
   - What is known, and what is not recorded, about this requirement?
+  - Which turn wrote this line?
+  - What moved since the last time I looked?
 keywords:
   - hunks
   - impact
@@ -24,7 +26,7 @@ related:
   - delivery-and-proof
   - model-independence
   - world-model
-version: 12
+version: 14
 ---
 ## Purpose and prerequisites
 
@@ -153,7 +155,9 @@ view or its hashes. `--commentary` additionally allows free text labelled
 `AI commentary — semantic support unverified`; it is withheld, with the reason, when it carries
 markup, links, control characters, secret-shaped or oversized text, or cites IDs that are not
 statements. With models off the narration is reported unavailable and the computed view is
-unchanged.
+unchanged. In a terminal the narration comes first, under its banner and headings with each
+statement's own text and citations, followed by the commentary's state and then the unchanged record
+view.
 
 Recorded checks come from their owners: the test attempts a phase's delivery bound (each checked
 against its recorded digest), each acceptance criterion's witness as the verification owner judges
@@ -161,10 +165,27 @@ it, and evidence-reuse decisions with their owner's state. A reused run is never
 and nothing is carried forward unless that owner says it still applies. `--subject line` adds the
 commit that last changed the line at the baseline (an added or changed line is not in the
 baseline's history), and
-`--subject generation` lists this machine's model invocations, prompt-log entries (never their text)
-and test attempts for that generation. Neither says who or what wrote a line: that stays
-`origin-unestablished`. When the Change Explorer says the snapshot changed, it also counts the
-change units that are new, gone and unchanged since the view on screen.
+`--subject generation` lists this machine's model invocations, prompt-log entries (never their text),
+the entries the prompt log's retention removed (it keeps a text-free note of each), recorded writes
+and test attempts for that generation.
+
+**Who wrote a line.** In an explicit SFlow Copilot turn, every file edit the guard allows is noted
+before it runs and read again at the session's next tool call: the path, the SHA-256 of its bytes
+before and after, only the lines those differ in, the turn, skill and Copilot session that made it,
+and the commit it was made on (never content or arguments). Lines the tool's own arguments explain
+are checked; any other changed line is kept but never credited. `--subject line` names the turn
+whose checked write changed the line last, following the line back through each write's changed
+lines, and only from records made on this line's history. Otherwise it stays
+`origin-unestablished` and says why: no recorded write, bytes no write left (someone or something
+unrecorded changed the file), an unrecorded change in between, an unchecked line, or more than one
+writer. Terminal commands and edits outside explicit turns are not recorded. Records are kept for 14
+days and are this machine's only.
+
+**Compare with an earlier view.** The Change Explorer and `explain --subject change` keep their view on this machine (only what a
+comparison needs: no statement text or file bytes; 64 views, 14 days). `explain --subject change
+--compare previous` compares the current change with the previous view of the same Story, unit by
+unit, the way the Change Explorer's *Snapshot changed* banner does; `--compare SNAPSHOT-ID` names
+one (each view reports its own ID). Changes are compared by their content, never by display ID.
 
 Exact links come from the implementation bindings a code-delivery step records: each clause bound
 to the exact changed lines of its planned paths, with the author's explanation and the approval's
@@ -201,6 +222,10 @@ security, privacy, and the deferred authority prerequisites.
 - If a subject view says `bounded-delivery`, narrow the question with `--subject line` or
   `--subject clause`, or raise `--max-bytes`; the counts already cover the whole change.
 - If the Change Explorer says the snapshot changed, refresh it; it never mixes two captures.
+- If `--compare` says no snapshot matches, run `explain --subject change --compare previous --json`;
+  snapshots are retained only on this machine and expire after 14 days unseen.
+- If a line's writer is not established, the reason is the answer: only explicit SFlow turns'
+  checked edits are recorded, and any unrecorded change to the file since leaves it unestablished.
 - If right-click menus have no **Singularity Flow** entry, no repository is selected in
   this window yet. Open the Singularity Flow sidebar or choose a workspace, and the menus appear.
 - If `--repository` says the code is over the AST budget, ask about one folder with `--path`, or raise

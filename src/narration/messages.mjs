@@ -836,6 +836,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Explained the ${slot(s.subject, 'change')} subject (${slot(s.status, 'available')}) with ${slot(s.statements, '0')} cited statement(s); nothing was changed.`,
     preserves: true
   },
+  'explanation.subject-retained': {
+    headline: (s) => `Explained the ${slot(s.subject, 'change')} subject (${slot(s.status, 'available')}) with ${slot(s.statements, '0')} cited statement(s) and kept this view on this machine for a later --compare; nothing in the repository was changed.`,
+    preserves: false
+  },
   'comprehension.replay-reported': {
     headline: (s) => `Projected ${slot(s.events, '0')} comprehension replay event(s) for ${slot(s.workId)}${s.truncated ? ' (truncated)' : ''}.`,
     preserves: true

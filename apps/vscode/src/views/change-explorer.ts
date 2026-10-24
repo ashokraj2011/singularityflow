@@ -11,6 +11,7 @@
  */
 import { XPL2_RELATIONSHIPS } from '../../../../src/comprehension/xpl2/vocabulary.mjs';
 import { XPL2_REASONS } from '../../../../src/comprehension/xpl2/reasons.mjs';
+import { compareXpl2Views as compareXpl2Projections, XPL2_COMPARISON_LIMIT } from '../../../../src/comprehension/xpl2/compare.mjs';
 import { escape as escapeHtml } from './webview.ts';
 
 export interface Xpl2Source {
@@ -352,34 +353,18 @@ export function explorerSummary(view: Xpl2Explanation): string {
 
 // ---- Snapshot comparison [XPL2 M3, 5.1] -------------------------------------------------------
 /*
- * Pure, so the Change Explorer can tell a reader what moved between the snapshot
- * on screen and a newer one without rebuilding either. Units are compared by the content of the
- * change they hold (the file change's content identity, unit kind and ranges), never by display ID:
- * H-001 in one view and H-001 in another are the same change only when that content matches. A unit
- * digest stays bound to its own snapshot, so this comparison never lets a link from one view open a
- * unit of the other. Sources are compared by identity, digest and properties. Nothing here decides
+ * The comparison itself is the engine's import-free leaf (src/comprehension/xpl2/compare.mjs), so
+ * the Change Explorer's banner and `explain --compare` count the same units the same way. Units
+ * are compared by the content of the change they hold, never by display ID; a unit digest stays
+ * bound to its own snapshot, so no link from one view opens a unit of the other. Nothing here decides
  * which view is right; the older view stays the one on screen until the reader refreshes.
  */
-export const XPL2_COMPARISON_LIMIT = 20;
-
-const contentKey = (unit: Xpl2Unit) => unit.unitContentSha256 ?? '';
-
-function comparedUnits(view: Xpl2Explanation) {
-  return new Map((view?.inventory?.units ?? []).map((unit) => [contentKey(unit), unit]));
-}
-
-function comparedSources(view: Xpl2Explanation) {
-  return new Map<string, string>([
-    ...(view?.sources ?? []).map((source): [string, string] => [source.id, JSON.stringify([source.digest, source.properties])]),
-    ...(view?.observations ?? []).map((observation): [string, string] => [observation.id, JSON.stringify([observation.reason, observation.completeness])])
-  ]);
-}
-
-const brief = (unit: Xpl2Unit) => ({ unitId: unit.unitId, path: unit.path, digest: unit.explanationUnitSha256 });
+export { XPL2_COMPARISON_LIMIT };
 
 /** What differs between two views; null when either is missing or they are of different repositories. */
 export interface Xpl2Comparison {
   sameSet: boolean;
+  unitsUnavailable: string | null;
   units: { kept: number; added: Array<{ unitId: string; path: string; digest: string }>; removed: Array<{ unitId: string; path: string; digest: string }>;
     addedCount: number; removedCount: number } | null;
   sources: { changed: string[]; changedCount: number };
@@ -387,31 +372,7 @@ export interface Xpl2Comparison {
 }
 
 export function compareXpl2Views(older: Xpl2Explanation | null, newer: Xpl2Explanation | null): Xpl2Comparison | null {
-  if (!older || !newer || older.kind !== 'xpl2-explanation' || newer.kind !== 'xpl2-explanation') return null;
-  const olderSources = comparedSources(older);
-  const newerSources = comparedSources(newer);
-  const changedSources = [...new Set([...olderSources.keys(), ...newerSources.keys()])]
-    .filter((id) => olderSources.get(id) !== newerSources.get(id)).sort();
-  // A view built before units carried their own content cannot be compared unit by unit: its unit
-  // digests are bound to its snapshot, so every unit would read as new and gone.
-  const comparable = [older, newer].every((view) => view.inventory.units.every((unit) => Boolean(unit.unitContentSha256)));
-  const before = comparedUnits(older);
-  const after = comparedUnits(newer);
-  const added = [...after.values()].filter((unit) => !before.has(contentKey(unit)));
-  const removed = [...before.values()].filter((unit) => !after.has(contentKey(unit)));
-  const kept = [...after.keys()].filter((digest) => before.has(digest)).length;
-  return {
-    sameSet: older.explanationSetSha256 === newer.explanationSetSha256,
-    units: !comparable ? null : {
-      kept,
-      added: added.slice(0, XPL2_COMPARISON_LIMIT).map(brief),
-      removed: removed.slice(0, XPL2_COMPARISON_LIMIT).map(brief),
-      addedCount: added.length,
-      removedCount: removed.length
-    },
-    sources: { changed: changedSources.slice(0, XPL2_COMPARISON_LIMIT), changedCount: changedSources.length },
-    statements: { older: older.statements?.length ?? 0, newer: newer.statements?.length ?? 0 }
-  };
+  return compareXpl2Projections(older, newer);
 }
 
 // ---- Graph layout: three columns, bounded, clustered ------------------------------------------
@@ -627,7 +588,7 @@ function timelineHtml(view: Xpl2Explanation, events: TimelineEvent[] | null): st
     return `<p class="xpl-empty">No Story history is bound to this repository view. ${escape(reasonText('no-active-story'))}</p>`;
   }
   const rows = events.map((event) => `<tr><td>${escape(event.at ?? 'unknown')}</td><td>${escape(event.kind)}</td><td>${escape(event.phase ?? '—')}</td><td>${escape(event.generation ?? '—')}</td><td>${escape(event.provenance ?? 'unavailable')}</td></tr>`).join('');
-  return `<p class="xpl-note">Normalized Story history in its recorded order. It is not a provenance timeline: observed writes and invocation links are ${escape(view.availability.provenance ?? 'unavailable')}.</p>
+  return `<p class="xpl-note">Normalized Story history in its recorded order. It is not a provenance timeline: observed writes and invocation links are ${escape(view.availability.provenance ?? 'unavailable')} for the whole change. Who left one line is asked line by line: <code>singularity-flow explain --subject line --path PATH --line N</code>.</p>
     ${rows ? `<div class="table-wrap"><table class="xpl-table"><thead><tr><th scope="col">When</th><th scope="col">Event</th><th scope="col">Phase</th><th scope="col">Generation</th><th scope="col">Provenance</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="xpl-empty">No normalized events are recorded.</p>'}`;
 }
 
@@ -814,7 +775,11 @@ export function renderExplorerComparisonNote(comparison: Xpl2Comparison | null):
     ? `${plural(comparison.sources.changedCount, 'source')} changed (${comparison.sources.changed.map((id) => escape(id)).join(', ')}${comparison.sources.changedCount > comparison.sources.changed.length ? ', …' : ''})`
     : 'no source changed';
   const units = comparison.units;
-  if (!units) return ` This view predates change comparison, so its change units cannot be compared unit by unit; ${sources}.`;
+  if (!units) {
+    return comparison.unitsUnavailable === 'bounded-view'
+      ? ` One of the views holds only part of the change, so its change units cannot be compared unit by unit; ${sources}.`
+      : ` This view predates change comparison, so its change units cannot be compared unit by unit; ${sources}.`;
+  }
   return ` Since this view: ${plural(units.addedCount, 'change unit')} new, ${units.removedCount} gone, ${units.kept} unchanged; ${sources}.`
     // Files, not display IDs: the newer view numbers its units afresh, so its H-001 may be another change.
     + `${units.added.length ? ` New changes in ${[...new Set(units.added.map((unit) => unit.path))].map((file) => escape(file)).join(', ')}.` : ''}`

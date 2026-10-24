@@ -1333,10 +1333,13 @@ async function sgosSlice(root) {
   return loadSgosCommandCenter(root);
 }
 
-/** CMP is paid for only while its read-only Center is open. */
+/**
+ * CMP is paid for only while its read-only Center is open. Its Change Explorer view is kept on this
+ * machine as a comparison snapshot (no file bytes or statement text) for `explain --compare`.
+ */
 async function comprehensionSlice(root) {
   const { loadComprehensionIdeSlice } = await import('./comprehension/ide-slice.mjs');
-  return loadComprehensionIdeSlice(root);
+  return loadComprehensionIdeSlice(root, { retainExplanationSnapshot: true });
 }
 
 /**

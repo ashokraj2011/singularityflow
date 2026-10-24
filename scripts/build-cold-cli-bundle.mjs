@@ -5,6 +5,14 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+/**
+ * Read from `src/` at run time instead of being bundled: the install stamp, and the XPL2 observed-write
+ * recorder (node: imports only), which the pre-tool hook loads only around file edits. Keeping it out
+ * of the hook chunks keeps their byte ceilings for the decisions every tool call makes.
+ */
+export const LIVE_SOURCE_FILES = Object.freeze(['build-info.mjs', 'version.mjs', 'comprehension/xpl2/observed-write-recorder.mjs']);
+const LIVE_SOURCE = /\/(?:build-info|version|observed-write-recorder)\.mjs$/u;
+
 const FAMILIES = Object.freeze([
   ['core', ['cli-bundle-entry.mjs', 'command-loaders.mjs', 'deferred-index-refresh.mjs', 'build-stamp-reader.mjs',
     'commands/skill-request.mjs', 'commands/instruction-request.mjs']],
@@ -108,10 +116,10 @@ export async function buildColdCliBundle({ root, outdir, toolRoot, entries, exte
       plugins: [{
         name: 'live-engine-stamp',
         resolveId(source, importer) {
-          if (!importer || !/\/(?:build-info|version)\.mjs$/u.test(source)) return null;
+          if (!importer || !LIVE_SOURCE.test(source)) return null;
           const target = path.resolve(path.dirname(importer), source);
-          if (![path.join(root, 'src/build-info.mjs'), path.join(root, 'src/version.mjs')].includes(target)) return null;
-          return { id: `../src/${path.basename(target)}`, external: true };
+          const live = LIVE_SOURCE_FILES.map(file => path.join(root, 'src', file)).find(file => file === target);
+          return live ? { id: `../src/${path.relative(path.join(root, 'src'), live).split(path.sep).join('/')}`, external: true } : null;
         }
       }, nodeResolve({ preferBuiltins: true }), commonjs(), json({ compact: true })],
       // Existing source cycles are handled by the module compiler. New inter-family static cycles

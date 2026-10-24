@@ -5,8 +5,9 @@
  * says, and rewrites them into plain sentences, naming the intent of a rule or a flow and merging
  * lines that say the same thing. It never adds, removes or changes a record. Every sentence must cite
  * the records it covers, from one section; its code names, numbers (single digits too), paths,
- * capitalised names and quoted text must appear in those records; it may not claim what a record says
- * is missing ("tested" where no test reaches it); it may not judge; it is length-capped. A sentence that
+ * capitalised names (the first word of a sentence too) and quoted text must appear in those records;
+ * it may not state whether code is tested, documented, enforced or validated except as a record says
+ * so, clause by clause; it may not judge; it is length-capped. A sentence that
  * fails is dropped, and its records keep their fixed wording. A rule's status is never left to the
  * model: the brief adds it after the sentence.
  *
@@ -61,14 +62,27 @@ export function polishPrompt(selection, { repository = 'repository', profile = n
   return { text, sha256: digest(text), records: selection.slice(0, POLISH_LIMITS.records).map((entry) => entry.id) };
 }
 
-/** Capitalised words a sentence uses mid-sentence: names a record must contain. */
-function capitalisedNames(text) {
+// Words that may open a sentence without a record naming them.
+const STARTERS = new Set(['a', 'an', 'the', 'this', 'that', 'these', 'those', 'it', 'its', 'there', 'here', 'when', 'if', 'unless',
+  'only', 'every', 'each', 'any', 'all', 'both', 'no', 'not', 'none', 'some', 'most', 'for', 'to', 'in', 'on', 'at', 'by', 'with',
+  'without', 'after', 'before', 'while', 'once', 'since', 'because', 'so', 'then', 'also', 'but', 'and', 'or', 'should', 'must',
+  'can', 'may', 'will', 'is', 'are', 'what', 'which', 'who', 'how', 'why', 'where', 'whether', 'one', 'two', 'three']);
+
+/**
+ * Capitalised words a sentence uses: names a record must contain. A word that opens a sentence (or
+ * follows a full stop or colon) is a name too, unless it is a common opener or a word the records
+ * use (`Cancelling` where a record says "cancelled").
+ */
+function capitalisedNames(text, plainLower = '') {
   const names = [];
   const words = String(text).replace(/`[^`]*`|["“][^"”]*["”]/gu, ' ').split(/\s+/u);
+  const used = (word) => [word, word.replace(/(?:ing|ed|es|s)$/u, '')].some((form) => form.length > 2 && plainLower.includes(form));
   words.forEach((word, index) => {
     const clean = word.replace(/^[^\w]+|[^\w]+$/gu, '');
-    if (!/^[A-Z]/u.test(clean) || index === 0 || /[.!?:]$/u.test(words[index - 1] ?? '')) return;
-    if (!COMMON_NAMES.has(clean)) names.push(clean);
+    if (!/^[A-Z]/u.test(clean) || COMMON_NAMES.has(clean)) return;
+    const opens = index === 0 || /[.!?:]$/u.test(words[index - 1] ?? '');
+    if (opens && (STARTERS.has(clean.toLowerCase()) || (clean.slice(1) === clean.slice(1).toLowerCase() && used(clean.toLowerCase())))) return;
+    names.push(clean);
   });
   return names;
 }
@@ -84,7 +98,7 @@ function pathsNamed(text) {
  */
 export function ungrounded(text, haystack) {
   const lowered = haystack.toLowerCase();
-  return [...new Set([...groundedTokens(text), ...pathsNamed(text), ...capitalisedNames(text)])]
+  return [...new Set([...groundedTokens(text), ...pathsNamed(text), ...capitalisedNames(text, lowered)])]
     .filter((token) => !haystack.includes(token) && !lowered.includes(token.toLowerCase()));
 }
 
@@ -94,18 +108,32 @@ export function numbersMissing(text, plain) {
   return [...new Set(stated)].filter((number) => !new RegExp(`(?<![\\w.])${number.replace('.', '\\.')}(?![\\w]|\\.\\d)`, 'u').test(plain));
 }
 
-// A record that says something is missing, and the claim a sentence would make if it dropped the "no".
-const CONTRADICTIONS = Object.freeze([
-  [/\bno test reaches\b/iu, /\btest(?:ed|s)?\b/iu],
-  [/\bnot documented\b/iu, /\bdocumented\b/iu],
-  [/\bno code enforcing\b/iu, /\benforc/iu],
-  [/\bno endpoint validates\b/iu, /\bvalidat/iu]
+// Facts a sentence may state only as its records state them: whether a test reaches the code, the
+// docs state it, code enforces it, an endpoint validates it. `missing` is a record saying it is not so.
+const CLAIMS = Object.freeze([
+  { claim: /\btest(?:ed|s)?\b/iu, missing: /\bno test reaches\b|\buntested\b/iu, present: /\btest/iu },
+  { claim: /\bdocument(?:ed|s)?\b/iu, missing: /\bnot documented\b|\bundocumented\b/iu, present: /\bdocument|\bthe docs say\b/iu },
+  { claim: /\benforc(?:ed|es|ing)?\b/iu, missing: /\bno code enforcing\b/iu, present: /\benforc/iu },
+  { claim: /\bvalidat(?:ed|es|ing|ion)?\b/iu, missing: /\bno endpoint validates\b|@Valid is missing/iu, present: /\bvalidat/iu }
 ]);
 const NEGATION = /\b(?:no|not|never|without|none|nothing|untested|undocumented)\b|n't\b/iu;
+// A clause that asks or supposes asserts nothing.
+const HYPOTHETICAL = /\b(?:should|could|would|might|may|whether|if|unless)\b/iu;
 
-/** Whether a text claims what its record says is missing ("is tested" where no test reaches it). */
-export function contradicts(text, recordText) {
-  return !NEGATION.test(text) && CONTRADICTIONS.some(([said, claim]) => said.test(recordText) && claim.test(text));
+/**
+ * The reason a text states a test, docs or enforcement fact its records do not, clause by clause: a
+ * "no" in one clause does not license a claim in another. Null when it states none.
+ */
+export function claimProblem(text, recordText) {
+  for (const clause of String(text).split(/[;,.!?:]|\b(?:and|but|while|whereas|so)\b/iu)) {
+    if (NEGATION.test(clause) || HYPOTHETICAL.test(clause)) continue;
+    for (const { claim, missing, present } of CLAIMS) {
+      if (!claim.test(clause)) continue;
+      if (missing.test(recordText)) return 'says the opposite of what its records say';
+      if (!present.test(recordText)) return 'states a test, docs or enforcement fact its records do not';
+    }
+  }
+  return null;
 }
 
 /** Judgement, praise or an unbalanced code span or quotation: the reason a text is refused, or null. */
@@ -145,7 +173,8 @@ export function validatePolish(output, selection, { limits = POLISH_LIMITS } = {
     const plain = entries.map((entry) => `${entry.text} ${entry.facts ?? ''}`).join('\n');
     const missing = [...new Set([...ungrounded(text, entries.map((entry) => `${entry.text} ${entry.facts ?? ''} ${entry.label ?? ''}`).join('\n')), ...numbersMissing(text, plain)])];
     if (missing.length) { reject(`names what its records do not contain: ${missing.join(', ')}`); continue; }
-    if (entries.some((entry) => contradicts(text, `${entry.text} ${entry.facts ?? ''}`))) { reject('says the opposite of what its records say'); continue; }
+    const claimed = claimProblem(text, plain);
+    if (claimed) { reject(claimed); continue; }
     for (const id of cites) covered.add(id);
     accepted.push({ text, cites, section: entries[0].section });
   }

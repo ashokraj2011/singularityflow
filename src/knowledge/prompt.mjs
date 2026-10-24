@@ -126,7 +126,7 @@ export async function repositoryBriefPrompt(root, {
         template = templateBrief(briefEvidence(knowledge, documentation, { focus: focus || null }));
         template.notKnown = briefNotKnown(knowledge, documentation);
         // A person's confirmed meanings, never a model's draft; an unreadable file is a warning.
-        const meanings = await readRuleMeanings(root).catch((error) => { warnings.push(error.message); return []; });
+        const meanings = await readRuleMeanings(root, { warnings }).catch((error) => { warnings.push(error.message); return []; });
         rules = applyRuleMeanings(buildRuleRecords(knowledge, documentation, { focus: focus || null }), meanings);
         contracts = buildContractRecords(knowledge, { focus: focus || null });
         flows = buildFlowRecords(knowledge, { focus: focus || null });

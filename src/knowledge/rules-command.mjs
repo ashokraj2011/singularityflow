@@ -34,7 +34,11 @@ async function ruleRecords(root, options) {
   const focus = optionString(options, 'focus') ?? null;
   const knowledge = applyReviews(result.knowledge, await readConfirmations(root));
   const records = buildRuleRecords(knowledge, readDocumentation(root, { focus }), { focus });
-  return { result, records: applyRuleMeanings(records, await readRuleMeanings(root), await readProposals(root)) };
+  const warnings = [];
+  const meanings = await readRuleMeanings(root, { warnings });
+  // A meaning whose rule no longer exists (its code was removed, or its docs statement reworded) is listed, never dropped quietly.
+  const orphaned = meanings.filter((entry) => !records.some((record) => record.id === entry.rule));
+  return { result, records: applyRuleMeanings(records, meanings, await readProposals(root)), orphaned, warnings };
 }
 
 function meaningLine(record) {
@@ -48,10 +52,10 @@ export async function rulesCommand(root, positionals, options) {
   const action = positionals[0] ?? 'list';
   if (!['list', 'propose', 'confirm'].includes(action)) throw new SingularityFlowError(USAGE);
   const json = optionBoolean(options, 'json');
-  const { result, records } = await ruleRecords(root, options);
+  const { result, records, orphaned, warnings } = await ruleRecords(root, options);
   if (action === 'confirm') return confirmCommand(root, records, positionals[1], options);
   if (action === 'propose') return proposeCommand(root, result, records, options);
-  if (json) { console.log(JSON.stringify({ status: 'ok', commit: result.knowledge.repository.commit, rules: records }, null, 2)); return { rules: records }; }
+  if (json) { console.log(JSON.stringify({ status: 'ok', commit: result.knowledge.repository.commit, rules: records, orphaned, warnings }, null, 2)); return { rules: records, orphaned }; }
   if (!records.length) console.log('No business rules were found in the code or the docs.');
   for (const record of records.slice(0, 60)) {
     console.log(`${record.id}  ${record.text.replace(/[.\s]+$/u, '')}. ${ruleStatusWords(record)}`);
@@ -59,7 +63,12 @@ export async function rulesCommand(root, positionals, options) {
     if (meaning) console.log(`    ${meaning}`);
   }
   if (records.length > 60) console.log(`… ${records.length - 60} more (--json lists them all)`);
-  return { rules: records };
+  for (const entry of orphaned) {
+    console.log(`${entry.rule}  out of date: no rule has this ID any more (its code was removed or its docs statement changed): "${entry.about ?? `${entry.condition}: ${entry.outcome}`}"`);
+    console.log(`    Confirm the rule again under its new ID, then remove this entry from docs/knowledge/rule-meanings.yml.`);
+  }
+  for (const warning of warnings) console.log(warning);
+  return { rules: records, orphaned };
 }
 
 /**
@@ -133,7 +142,7 @@ async function confirmCommand(root, records, id, options) {
   const record = records.find((entry) => entry.id === id);
   if (!record) throw new SingularityFlowError(`No rule '${id}' in this build. List them with: singularity-flow wm rules list`, { code: 'KNOWLEDGE_RULE_UNKNOWN' });
   const draft = record.proposal ?? draftMeaning(record);
-  const typed = ['condition', 'outcome', 'intent'].some((name) => optionString(options, name) != null);
+  const typed = ['condition', 'outcome', 'intent'].filter((name) => optionString(options, name) != null);
   const meaning = {
     condition: optionString(options, 'condition') ?? draft.condition,
     outcome: optionString(options, 'outcome') ?? draft.outcome,
@@ -142,9 +151,12 @@ async function confirmCommand(root, records, id, options) {
   if (!meaning.condition?.trim() || !meaning.outcome?.trim()) {
     throw new SingularityFlowError(`Rule ${id} has no drafted condition and outcome. Run singularity-flow wm rules propose, or give --condition and --outcome.`, { code: 'KNOWLEDGE_RULE_MEANING_REQUIRED' });
   }
-  const { entry, file } = await confirmRuleMeaning(root, record, meaning, {
-    proposedBy: typed ? 'person' : record.proposal?.by ?? 'template', model: typed ? null : record.proposal?.model ?? null
-  });
+  // The person's words are theirs; any field they kept is the draft's, with the draft's provenance.
+  const kept = ['condition', 'outcome', 'intent'].filter((name) => !typed.includes(name) && meaning[name]);
+  const draftedBy = record.proposal?.by ?? 'template';
+  const { entry, file } = await confirmRuleMeaning(root, record, meaning, kept.length
+    ? { proposedBy: draftedBy, model: draftedBy === 'model' ? record.proposal?.model ?? null : null, typedByPerson: typed }
+    : { proposedBy: 'person' });
   if (optionBoolean(options, 'json')) console.log(JSON.stringify({ status: 'confirmed', meaning: entry, file }, null, 2));
   else {
     console.log(`Confirmed ${id}: ${meaningText(entry)}.`);

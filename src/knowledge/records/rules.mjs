@@ -42,6 +42,11 @@ function docAnchor(doc) {
   return { path: doc.source.path, line: doc.source.line ?? null, sha256: createHash('sha256').update(doc.text).digest('hex') };
 }
 
+/** The HTTP status a rule is refused with, as the exception handler maps it: a meaning naming it goes out of date when it changes. */
+function statusAnchor(path, status) {
+  return path && status ? [{ path, line: null, sha256: createHash('sha256').update(`HTTP ${status}`).digest('hex') }] : [];
+}
+
 function family(op) {
   return op?.startsWith('>') ? 'lower' : op?.startsWith('<') ? 'upper' : null;
 }
@@ -204,9 +209,12 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
   const items = knowledge?.items ?? [];
   const statusByMessage = new Map(items.filter((item) => item.kind === 'error-path' && item.statement?.message && item.statement?.status)
     .map((item) => [item.statement.message, String(item.statement.status)]));
+  // Where each refusal's status is mapped (the exception handler's file), for the status anchor.
+  const handlerByMessage = new Map(items.filter((item) => item.kind === 'error-path' && item.statement?.message)
+    .map((item) => [item.statement.message, item.statement.handler ?? item.citations?.[0]?.path ?? null]));
   const docs = [
     ...(documentation?.statements ?? []).map((statement) => ({
-      key: `${statement.path}:${statement.line}:${statement.text}`, text: statement.text, docText: statement.text,
+      key: `${statement.path}:${statement.line}:${statement.text}`, id: `${statement.path}:${statement.text}`, text: statement.text, docText: statement.text,
       source: { path: statement.path, line: statement.line, heading: statement.heading || null }
     })),
     ...items.filter((item) => item.kind === 'requirement').map((item) => ({
@@ -275,7 +283,8 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
         conflict: conflicts.length ? conflictText(conflicts[0].disagreement) : null,
         parts: { field: statement.field, type: statement.type, constraints: statement.constraints, bound: anchors.bounds[0] ?? null, message: anchors.message },
         sources: { code: citation ? [{ path: citation.path, line: citation.lines?.[0] ?? null, symbol: item.subject?.symbol ?? null }] : [], docs: links.map((link) => link.doc.source), tests: [] },
-        quotes: links.map((link) => link.doc.text), anchors: [...codeAnchor(citation), ...links.map((link) => docAnchor(link.doc))],
+        quotes: links.map((link) => link.doc.text),
+        anchors: [...codeAnchor(citation), ...statusAnchor(citation?.path, anchors.status), ...links.map((link) => docAnchor(link.doc))],
         weight: 4,
         words: new Set([...anchors.words, ...links.flatMap((link) => [...link.doc.anchors.words])])
       });
@@ -296,7 +305,8 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
         docs: links.map((link) => link.doc.source),
         tests
       },
-      quotes: links.map((link) => link.doc.text), anchors: [...codeAnchor(citation), ...links.map((link) => docAnchor(link.doc))],
+      quotes: links.map((link) => link.doc.text),
+      anchors: [...codeAnchor(citation), ...statusAnchor(handlerByMessage.get(item.statement?.then?.text) ?? citation?.path, anchors.status), ...links.map((link) => docAnchor(link.doc))],
       weight: KIND_WEIGHT[item.statement?.kind] ?? 2,
       words: new Set([...anchors.words, ...links.flatMap((link) => [...link.doc.anchors.words])])
     });
@@ -305,7 +315,7 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
     && (doc.anchors.bounds.length || doc.anchors.statuses.size || doc.anchors.messages.size || RULE_WORDING.test(doc.text));
   for (const doc of docs.filter((entry) => !linkedDocs.has(entry.key) && ruleLike(entry) && !/:\s*$/u.test(entry.text))) {
     records.push({
-      id: recordId(doc.key), kind: 'rule', origin: 'docs', text: doc.text,
+      id: recordId(doc.id ?? doc.key), kind: 'rule', origin: 'docs', text: doc.text,
       status: 'documented-only', documented: true, enforced: false, tested: false, conflict: null,
       parts: { bound: doc.anchors.bounds[0] ?? null, statuses: [...doc.anchors.statuses] },
       sources: { code: [], docs: [doc.source], tests: [] },
@@ -329,7 +339,8 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
       const returning = errorPaths.filter((item) => promised.includes(statusNumber(item.statement.status))).slice(0, 1);
       Object.assign(record, { status: 'agreed', enforced: true, tested: null });
       record.sources.code = returning.map((item) => ({ path: item.citations[0].path, line: item.citations[0].lines?.[0] ?? null, symbol: item.subject?.symbol ?? null }));
-      record.anchors.push(...returning.flatMap((item) => codeAnchor(item.citations[0])));
+      record.anchors.push(...returning.flatMap((item) => [...codeAnchor(item.citations[0]),
+        ...statusAnchor(item.statement.handler ?? item.citations[0].path, statusNumber(item.statement.status))]));
     }
   }
   const focusWords = subjectWords(focus);

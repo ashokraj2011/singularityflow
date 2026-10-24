@@ -53,7 +53,8 @@ async function phaseBriefCommand(root, options) {
     if (!(error instanceof SingularityFlowError) || !story.workflow.phases?.[phase]) throw error;
     // The brief needs none of what the refusal is about; the prompt around it does.
     blocked = String(error.message).split('\n').slice(0, 2).join(' ').replace(/:\s*-\s+/u, ': ').replace(/\s+/gu, ' ').trim();
-    brief = await phaseRepositoryBrief(root, { definition: story.definition, workflow: story.workflow, phase,
+    // A refusal after the brief was read keeps that brief: the model is asked at most once.
+    brief ??= await phaseRepositoryBrief(root, { definition: story.definition, workflow: story.workflow, phase,
       polish: polish ? 'write' : 'cached', refresh: optionBoolean(options, 'refresh') });
     return brief.text;
   });

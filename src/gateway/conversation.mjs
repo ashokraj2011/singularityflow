@@ -62,7 +62,7 @@ const ROUTES = Object.freeze([
     confirmation: 'none',
     patterns: [
       /\b(investigate|diagnose|triage)\b.{0,40}\b(bug|failure|problem|regression|error|issue)\b/,
-      /\b(what caused|find the cause|why is|why does)\b.{0,48}\b(fail|failing|failed|broken|error)\b/
+      /\b(what caused|find the cause|why is|why does)\b.{0,48}\b(fail|failing|failed|broken|error|bug|regression)\b/
     ]
   }),
   route({
@@ -153,6 +153,18 @@ const ROUTES = Object.freeze([
     id: 'continue', intent: 'continue', label: 'Continue current work',
     operationId: 'work.continue', skill: '/sf-resume', automatic: false, confirmation: 'host-confirm',
     patterns: [/\b(continue|resume|pick up|carry on|return to)\b(?:.{0,32}\b(work|story|task|epic|initiative|where i left off)\b)?/]
+  }),
+  /**
+   * A greeting opens the home, and is never a request to be guessed at. `[INT:REQ-021]`
+   *
+   * The whole utterance must be the greeting: "hi, continue WRK-1" is a substantive request and is
+   * resolved directly `[INT:REQ-025]`, which an anchored pattern guarantees and a prefix match
+   * would not.
+   */
+  route({
+    id: 'greet', intent: 'orient', label: 'What is on your mind today?',
+    operationId: 'home.overview', skill: '/sf-home', automatic: true, confirmation: 'none',
+    patterns: [/^(?:hello|hi|hey|hiya|greetings|good (?:morning|afternoon|evening))(?: (?:sflow|there|team|singularity flow))?$/]
   }),
   route({
     id: 'orient', intent: 'orient', label: 'Show current developer context',

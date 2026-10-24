@@ -282,3 +282,28 @@ test('explain routes to its planner and stays a read', async () => {
   assert.equal(explained.kind, 'read');
   assert.equal(explained.operation.id, 'help.explain');
 });
+
+test('model-proposes-kernel-resolves', async () => {
+  // `[INT:AC-005]` `[INT:CON-035]` `[INT:CON-036]`: a goal hint is a direction, never an operation.
+  // A hint spelled like an operation that is not a goal is refused outright, not repaired.
+  for (const goalHint of ['review.approve', 'work.start.execute', 'sflow approve', 'git push']) {
+    const refused = resolve({ utterance: 'do it', goalHint });
+    assert.deepEqual([refused.kind, refused.why[0].code], ['refusal', 'resolution.goal.unknown'], goalHint);
+  }
+  // A goal that reaches a write returns a signed choice, never a resolution and never a plan.
+  const write = resolve({ utterance: 'zzz unmatched words', goalHint: 'workspace.switch', arguments: { workspaceId: 'payments' } });
+  assert.ok(['candidates', 'clarification'].includes(write.kind), write.kind);
+  assert.ok(write.next.every((action) => action.executable === false && /^sel_/.test(action.handle)));
+  // Ambiguity is returned as signed, single-use selection handles; choosing restates no operation name.
+  const ambiguous = resolve({ utterance: 'zzz unmatched words', goalHint: 'home' });
+  assert.equal(ambiguous.kind, 'candidates');
+  const context = setup();
+  const offered = resolveIntent({ utterance: 'zzz unmatched words', goalHint: 'home' }, context);
+  const chosen = resolveIntent({ selectionHandle: offered.next[0].handle }, context);
+  assert.notEqual(chosen.kind, 'refusal');
+  const replayed = resolveIntent({ selectionHandle: offered.next[0].handle }, context);
+  assert.equal(replayed.why[0].code, 'resolution.selection-handle.invalid');
+  // The same inputs resolve the same way `[INT:REQ-030]`.
+  const shape = (result) => [result.kind, result.operation.id, result.next.map((action) => action.id)];
+  assert.deepEqual(shape(resolve({ utterance: 'home' })), shape(resolve({ utterance: 'home' })));
+});

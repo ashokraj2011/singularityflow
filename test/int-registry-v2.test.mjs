@@ -351,3 +351,24 @@ test('every declared schema is versioned, and every named schema exists', () => 
   }
   assert.ok(COMPARISON_SUBJECTS.includes('build'));
 });
+
+test('registry-is-closed-and-valid', () => {
+  // `[INT:AC-004]` `[INT:REQ-050]` in one place: every rule the compiler owes, against one fixture.
+  rejects([declaration(), declaration({ id: 'sample.other', noModelFixture: 'sample-other-model-free' })], 'is claimed by both');
+  rejects([
+    declaration({ aliases: { en: { version: 1, phrases: ['open the gate'] } } }),
+    declaration({ id: 'sample.approve', classification: 'authorization', confirmation: 'ceremony',
+      noModelFixture: 'sample-approve-model-free',
+      aliases: { en: { version: 1, phrases: ['authorise the gate'] }, de: { version: 1, phrases: ['open the gate'] } } })
+  ], 'is shared by');
+  rejects([declaration({ planner: 'p-absent' })], 'which no planner provides');
+  rejects([declaration({ argumentSchema: 'absent-v1' })], 'which does not exist');
+  rejects([declaration({ classification: 'authorization', confirmation: 'ceremony', executable: true })], 'must not be executable');
+  rejects([declaration({ noModelFixture: '' })], 'has no deterministic fixture');
+  rejects([declaration({ classification: 'mutation', confirmation: 'none' })], "must not be confirmation class 'none'");
+  rejects([declaration({ aliases: { en: { phrases: ['sample phrase'] } } })], 'has no integer version');
+  // And the shipped registry satisfies all of it, with every declared planner present in this build.
+  const shipped = gatewayRegistry();
+  assert.match(shipped.contentHash, /^[0-9a-f]{64}$/);
+  assert.deepEqual(unimplementedPlanners(gatewayPlanners()), []);
+});

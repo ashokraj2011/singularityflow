@@ -75,6 +75,9 @@ Subject views also join the implementation bindings a code-delivery step recorde
 captured units they cover; `explain code` keeps reporting causes as region-level and unchanged.
 `explain --subject ... --narrate` is its own optional operation, `explain.subject.narrate`, with the
 same automatic fallback; see [Explain for humans](XPL2-EXPLAIN-FOR-HUMANS.md) for its boundary.
+`explain --subject line` names who left a line only from this machine's observed writes, when they
+explain the file exactly, and `explain --subject change --compare previous|SNAPSHOT-ID` compares the
+change with a retained earlier view unit by unit.
 `explain code` keeps its fixed schema and does not change.
 
 ## Subject and interval

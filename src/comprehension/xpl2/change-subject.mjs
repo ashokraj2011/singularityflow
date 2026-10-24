@@ -263,7 +263,7 @@ export function buildChangeExplanationUniverse({
     completeness: 'unavailable', reason: 'adapter-unavailable'
   });
   b.observation({
-    id: 'OBS-PROVENANCE', adapter: 'none', scope: 'observed writes and invocation associations',
+    id: 'OBS-PROVENANCE', adapter: 'none', scope: 'observed writes and invocation associations for the whole change; --subject line asks them for one line',
     completeness: 'unavailable', reason: 'adapter-unavailable'
   });
 

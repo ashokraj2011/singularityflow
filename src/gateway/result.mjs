@@ -390,8 +390,28 @@ function frozenNextActions(entries) {
        * and `why` already carry their values, and a next action needs the same for the same reason.
        */
       slots: Object.freeze({ ...(entry.slots ?? {}) }),
-      // An authorization decision is never executable by an ambient tool `[INT:CON-113]`.
-      executable: entry.confirmation === 'ceremony' ? false : entry.executable !== false,
+      // An authorization decision is never executable by an ambient tool `[INT:CON-113]`, and a host
+      // action is opened by the host, never executed through a tool `[INT:CON-130]`.
+      executable: entry.confirmation === 'ceremony' || entry.kind === 'host-action' ? false : entry.executable !== false,
+      /**
+       * The trusted view this action opens, as the producer named it. `[INT:IFC-061]` `[INT:CON-130]`
+       *
+       * Carried exactly as given, not validated here: construction refusing an unknown action would
+       * turn a planner's mistake into a failed read, and the contract is that a bad host action is
+       * *dropped with a recorded reason*. The kernel does that on every result it emits, and the
+       * receiving host does it again before it opens anything. Present only when named, so every
+       * other action keeps its shape.
+       */
+      ...(entry.hostAction === undefined ? {} : {
+        hostAction: entry.hostAction !== null && typeof entry.hostAction === 'object' && !Array.isArray(entry.hostAction)
+          ? Object.freeze({
+            ...entry.hostAction,
+            ...(entry.hostAction.arguments && typeof entry.hostAction.arguments === 'object'
+              && !Array.isArray(entry.hostAction.arguments)
+              ? { arguments: Object.freeze({ ...entry.hostAction.arguments }) } : {})
+          })
+          : entry.hostAction
+      }),
       fallback: entry.fallback ? (() => {
         const guidance = safeCommandGuidance(entry.fallback);
         return guidance ? Object.freeze({

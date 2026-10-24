@@ -100,8 +100,6 @@ function contextualHandlers(handlers, root, policy, options = {}) {
  * repository open, and is invisible to every other field.
  */
 export function hostBinding(root, { workspaceId = null, hostSessionId, subject = null, registry, policy } = {}) {
-  const identityRoot = root ?? process.cwd();
-  const actor = identity(identityRoot, { offline: true });
   const workingTree = root ? worktreeFingerprint(root) : null;
   return Object.freeze({
     workspaceId,
@@ -127,9 +125,20 @@ export function hostBinding(root, { workspaceId = null, hostSessionId, subject =
      * stable. `identity()` reports whichever of these it could read without asking the network; a
      * name is the one field two people plausibly share.
      */
-    actorId: actor.email ?? actor.login ?? (root ? null : 'machine:git-identity-unconfigured'),
+    actorId: bindingActorId(root),
     hostSessionId
   });
+}
+
+/**
+ * Who a binding is for: email before login, and never a display name.
+ *
+ * Its own function so every surface that keys something per person — a handle binding, the guide
+ * session `[INT:CON-101]` — names the same person the same way, from the CLI and the editor alike.
+ */
+export function bindingActorId(root) {
+  const actor = identity(root ?? process.cwd(), { offline: true });
+  return actor.email ?? actor.login ?? (root ? null : 'machine:git-identity-unconfigured');
 }
 
 /**

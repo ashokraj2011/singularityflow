@@ -301,6 +301,7 @@ Every public operation is classified before its implementation module is importe
 | gate | mutation | never | — | — |
 | gateway.events | read | never | — | — |
 | gateway.serve | mutation | never | — | — |
+| gateway.session | read | never | — | — |
 | gateway.tools | read | never | — | — |
 | goal.abandon | mutation | never | — | — |
 | goal.change | read | never | — | — |

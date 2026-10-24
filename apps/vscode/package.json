@@ -1089,6 +1089,10 @@
         "icon": "$(home)"
       },
       {
+        "command": "singularityFlow.resetGuideSession",
+        "title": "Singularity Flow: Reset Conversation Context"
+      },
+      {
         "command": "singularityFlow.impactForm",
         "title": "Singularity Flow: Create a Change Flight Plan\u2026",
         "icon": "$(diff)"

@@ -595,6 +595,37 @@ function clarificationAuthoritySteps(argv, error) {
   ].filter(Boolean);
 }
 
+/**
+ * An intent amendment proposed after the phase was submitted and still undecided. Its decision
+ * comes first: approving it changes the clauses the submission cited, and rejecting it still leaves
+ * the submission older than the proposal. A person who approves the scope decides it; an agent's
+ * decision turn is refused it, so the route shows the command rather than doing it.
+ */
+function pendingAmendmentSteps(_argv, error) {
+  const details = error?.details ?? {};
+  const workId = safeWorkId(details.workId);
+  const phase = lowerKebab(details.phase);
+  const amendment = (Array.isArray(details.pendingIntentAmendments) ? details.pendingIntentAmendments : [])
+    .find((entry) => /^AMD-\d{3,}$/u.test(entry?.id ?? ''));
+  if (!workId || !phase || !amendment) return [];
+  const clauses = (Array.isArray(amendment.changedClauses) ? amendment.changedClauses : [])
+    .filter((clause) => typeof clause === 'string' && /^[A-Za-z0-9._:-]{1,128}$/u.test(clause)).slice(0, 5);
+  const commit = /^[0-9a-f]{7,64}$/u.test(amendment.commit ?? '') ? amendment.commit : null;
+  const scope = lowerKebab(details.scopePhase) ?? 'the scope';
+  return [
+    step('inspect-intent-amendment',
+      `See intent amendment ${amendment.id}, proposed${commit ? ` in ${commit}` : ''} after ${phase} was submitted`
+        + `${clauses.length ? `; it changes ${clauses.join(', ')}` : ''}. It is still waiting for a decision, and ${phase} cannot be approved until it has one.`,
+      `singularity-flow story intent-amendment status --work-id ${workId} --json`, 'remediation'),
+    step('decide-intent-amendment',
+      `A person who approves ${scope} decides ${amendment.id} in their own terminal; an agent cannot. `
+        + `Approving it changes ${clauses.length ? 'those clauses' : 'the approved clauses'}, so ${phase} reopens to be revised and submitted again. `
+        + `Rejecting it keeps the approved clauses, but ${phase} still needs a fresh submission before approval (return it with /sf-reject in a new turn).`,
+      `singularity-flow story intent-amendment decide ${amendment.id} --decision <approve|reject> --confirm ${amendment.id} --work-id ${workId}`,
+      'remediation')
+  ];
+}
+
 function localSyncSteps(argv, error) {
   const retry = safeCommandGuidance({ argv });
   return [step('preserve-local-story-work', error?.message ?? 'Preserve the local work yourself; nothing was changed.', null, 'remediation'),
@@ -602,6 +633,8 @@ function localSyncSteps(argv, error) {
 }
 
 const KNOWN = Object.freeze({
+  // Commits after a submission: an undecided intent amendment among them is decided first.
+  STORY_REVIEW_INTERVENING_COMMIT: pendingAmendmentSteps,
   SESSION_STATE_REFRESH_UNAVAILABLE: (argv, error) => {
     const { options } = parseArgs(argv);
     const selectors = ['workspace', 'repository', 'repository-url', 'configuration-url']
@@ -1208,6 +1241,8 @@ export function refusalRemediationPlan(error, argv = []) {
   // The cause lives in an earlier phase's approved input: never "repair the current phase".
   const upstreamInputBlocked = UPSTREAM_INPUT_CODES.has(code);
   const gapSteps = code === 'CONFORMANCE_BLOCKING_VERDICTS' ? conformanceGapSteps(error) : [];
+  // An intent amendment proposed after the submission waits for a person: decide it before the phase.
+  const amendmentPending = code === 'STORY_REVIEW_INTERVENING_COMMIT' && pendingAmendmentSteps(argv, error).length > 0;
   const conformanceGapBlocked = gapSteps.length > 0;
   const rawPhaseContext = phaseRemediationContext(argv, error);
   const phaseContext = pinnedTestPolicyBlocked && rawPhaseContext
@@ -1222,6 +1257,8 @@ export function refusalRemediationPlan(error, argv = []) {
     : conformanceGapBlocked && rawPhaseContext
       // People decide; the decision list opens in this same turn, nothing about the report is repaired.
       ? Object.freeze({ ...rawPhaseContext, strategy: 'person-decides-conformance-gap', turn: 'current-turn', retryCommand: null, retrySkill: null })
+    : amendmentPending && rawPhaseContext
+      ? Object.freeze({ ...rawPhaseContext, strategy: 'person-decides-intent-amendment', retryCommand: null, retrySkill: null })
       : rawPhaseContext;
   const phaseSteps = phaseContainmentSteps(phaseContext);
   let explicit = explicitCommands(error).map((command, index) => step(
@@ -1262,7 +1299,11 @@ export function refusalRemediationPlan(error, argv = []) {
     // A soft gate's alternative to the override is the Story's own next step: name it first.
     : softGateBlocked ? [...nonDuplicateExplicit, ...known]
     : repositoryRunnerBlocked || pinnedTestPolicyBlocked || approvalTerminalBlocked || unknownRecoveryPhase || identityBlocked ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
-    ? phaseContext.turn === 'new-turn'
+    ? amendmentPending
+      // The amendment's decision first, then the instruction that ends an approval turn.
+      ? [...known, ...phaseSteps.filter(entry => entry.id === 'leave-approval-turn'),
+        ...phaseSteps.filter(entry => entry.id !== 'leave-approval-turn'), ...nonDuplicateExplicit]
+    : phaseContext.turn === 'new-turn'
       // Reserve the bounded recovery/new-turn steps before the global three-step presentation cap;
       // arbitrary producer diagnostics must never displace the instruction that ends approval.
       ? riskReviewBlocked || upstreamInputBlocked || worktreeHeld
@@ -1296,6 +1337,8 @@ export function refusalRemediationPlan(error, argv = []) {
     ? 'Run the same command again only when this checkout decides as a listed member, or let another listed member decide. Nothing was recorded, and nothing needs rejecting.'
     : conformanceGapBlocked
     ? 'Never edit the verdict to clear this check. Approve again once a person has decided each gap on its upstream issue (an accepted risk with an expiry, or a dismissal); a return sends the work back instead. Accepting existing evidence never certifies a run that was not recorded.'
+    : amendmentPending
+    ? 'Do not retry approval in this turn. Approval needs a submission made after the amendment is decided: a revised one once it is approved, or a fresh one once it is rejected.'
     : riskReviewBlocked
     ? 'Inspect the exact risk or repair prerequisite. Only a delegated human can record an eligible exception; normal phase approval stays separate. End an approval-only turn before any review mutation, then re-evaluate in a fresh turn.'
     : phaseContext?.turn === 'new-turn'
@@ -1435,6 +1478,21 @@ export function refusalDetails(details) {
   // The refusing operation's own next command, when it is a safe Singularity Flow command.
   const next = safeCommandGuidance(typeof details.nextAction === 'string' ? { command: details.nextAction } : details.nextAction ?? {});
   if (next?.command) projected.nextAction = next.command;
+  // The commits after a submission that stop its approval, and an undecided amendment among them.
+  const shortCommit = (value) => (typeof value === 'string' && /^[0-9a-f]{7,64}$/u.test(value) ? value : null);
+  const blockingCommits = list(details.blockingCommits, (entry) => (entry && typeof entry === 'object' && shortCommit(entry.commit) ? compact({
+    commit: entry.commit, subject: text(entry.subject), kind: text(entry.kind),
+    amendment: entry.amendment && typeof entry.amendment === 'object' ? compact({ id: text(entry.amendment.id),
+      action: text(entry.amendment.action), status: text(entry.amendment.status) }) : null
+  }) : null)).slice(0, 10);
+  if (blockingCommits.length) {
+    projected.blockingCommits = blockingCommits;
+    if (Number.isSafeInteger(details.blockingCommitCount)) projected.blockingCommitCount = details.blockingCommitCount;
+  }
+  const pendingIntentAmendments = list(details.pendingIntentAmendments, (entry) => (entry && typeof entry === 'object'
+    && /^AMD-\d{3,}$/u.test(entry.id ?? '') ? compact({ id: entry.id, commit: shortCommit(entry.commit),
+      changedClauses: list(entry.changedClauses, text).slice(0, 20) }) : null));
+  if (pendingIntentAmendments.length) projected.pendingIntentAmendments = pendingIntentAmendments;
   // Each undecided partial or missing clause with its routes, so every surface names the decision.
   const conformanceGaps = list(details.conformanceGaps, (gap) => (gap && typeof gap === 'object' && text(gap.clauseId) ? compact({
     clauseId: text(gap.clauseId), verdict: text(gap.verdict), owner: text(gap.owner), status: text(gap.status), issue: text(gap.issue),
@@ -1598,6 +1656,8 @@ export function renderRefusalPlan(plan) {
           ? `  Scope: phase ${plan.context.phaseId} — the same finding keeps returning; stop repairing it and hand it to someone other than the author. Nothing was accepted or waived.`
         : plan.context.strategy === 'person-decides-conformance-gap'
           ? `  Scope: phase ${plan.context.phaseId} — people decide what is open; nothing about the report needs repairing. Open the decision list now.`
+        : plan.context.strategy === 'person-decides-intent-amendment'
+          ? `  Scope: phase ${plan.context.phaseId} — an intent amendment proposed after its submission waits for a person's decision; decide it before revising or resubmitting this phase.`
         : plan.context.strategy === 'approval-identity'
           ? `  Scope: phase ${plan.context.phaseId} — who decides, not what is decided; nothing about the work needs repairing.`
         : plan.context.strategy === 'upstream-input'

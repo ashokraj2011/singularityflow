@@ -1,0 +1,191 @@
+# One approval path (OAP) — v1
+
+Status: owner request 2026-10-24 ("all these approvals, pending commits should be seamless … too many
+clicks and ceremonies … one standard way and easy"). Plan only; nothing here is built yet. The
+recommended answers in [Decisions for the owner](#decisions-for-the-owner) are the defaults the
+milestones assume.
+
+The trigger was a real Story (2026-10-24): planning was submitted, an intent amendment was proposed
+six hours later, and approval refused with a sentence that named neither the commit nor the amendment.
+6fd93941 and c669bf3a now name the commits and the amendment, and show them before the review. The
+case itself is still slow, though. The person has to decide the amendment with one command family,
+return planning with another, resubmit, and then approve. Nothing ever showed them that whole path
+in one place.
+
+## What a person meets today
+
+From a code reading on 2026-10-24 (three inventories: ceremony, holds, pending state):
+
+| | Today |
+|---|---|
+| Things that can stop an approval | 39 conditions; 23 of them are seen only when `approve` runs, after the person reviewed and typed the phase |
+| Separate places that list pending work | 11 concepts (unpushed commits, transport intents, decision list, routing decision, owed witnesses/scope items, intent amendments, forward amendments, appeals, repair journal, TRP risks, quality risks), each with its own reader; none lists them all |
+| Command families a decision can need | about 13 (`decisions record`, `decision test-risk/evidence-reuse/visual-profile/test-command/witness/risk/scope/applicability/completeness/plan`, `story intent-amendment`, `upstream-issue`, `story test-policy`, `appeal`, `sync`, `push retry`, `decision choose`) |
+| Simplest approval (one approver, no checklist) | terminal: command + typed phase (phase often typed twice); Copilot: 2 turns; VS Code: 3 clicks + typed phase; then every surface sends the person to Copilot for `/clear` and `/sf-next` |
+| A decision recorded while the step waits | some kinds are allowed between submission and approval; others (intent-amendment propose/decide/acknowledge, forward amendments, `decision test-command`) silently make the submission stale, so approval later demands a fresh submission |
+
+Reported defects found by that reading. Each one gets a failing test before it is fixed (M0):
+
+1. VS Code sends `--witness-mapping <sha>=exception`; the CLI requires `exception:<facet>`, so a
+   witness exception recorded in VS Code is refused (`apps/vscode/src/actions.ts:555`,
+   `src/commands/approve.mjs:59`).
+2. VS Code's self-approval checkbox passes `--acknowledge-self-approval`, which Story approval never
+   reads, and its self-approval retry dialog can never appear (`actions.ts:577`).
+3. The decision list offers `decision test-command` while the step awaits approval. Recording it
+   commits to `testCommandDecisions`, which the approval gate does not allow, so the decision list
+   itself makes the approval stale (`src/story-test-commands.mjs:88`).
+4. An approved intent amendment must be acknowledged before approval (governance hold), and the
+   acknowledgement commit is itself a commit approval refuses. After submission the only way out
+   is reject and resubmit.
+5. The decision-list count shown by `nextsteps` and readiness leaves out visual, test-risk and
+   test-command items, so it can be lower than the list (`src/decision-list-facts.mjs:154`).
+6. The CLI inbox and VS Code Reviews offer "Approve" on a step that decisions hold.
+7. VS Code drops the approval's result text, including the next action (`actions.ts:567`).
+8. `/sf-approve` never passes `--article`, so a phase with a checklist cannot be approved from
+   Copilot at all.
+
+## The standard way
+
+One sentence: **every surface shows one list of what is pending, one check of whether approval
+would pass, and one form that records the approver's decisions and the approval together.**
+
+### 1. One approval check
+
+- `approvePhase` is split into `evaluateApproval` (read-only, returns every hold) and
+  `recordApproval` (the transaction). `recordApproval` calls `evaluateApproval` first, so the gate
+  and the preview cannot disagree. `reviewHistoryCommits` (c669bf3a) is the first piece already
+  shared this way.
+- Each hold is returned with one owner class and one route:
+
+  | Owner class | Meaning | Shown as |
+  |---|---|---|
+  | `you-decide` | this approver can clear it now (checklist, witness mapping, renewal of a lapsed test-run risk, an `approve`-operation risk acceptance they hold authority for) | a field in the approval form |
+  | `someone-decides` | another group decides (scope approvers for an intent amendment, TRP risk authority, an earlier step's approvers) | "Waiting for <group>: <item>", with the item's own route |
+  | `author-repairs` | the work has to change and be submitted again (source changed, evidence stale, artifact incomplete) | one "Request changes" action that returns the step |
+  | `machine` | Singularity Flow fixes it itself (unpushed commit, stale index, receipt refresh) | nothing, unless the automatic fix fails |
+
+- Submission readiness, the `/sf-approve` packet, `phase show`, the inbox, Reviews, `nextsteps` and
+  the journey all read this one result. "Approve" is offered only when nothing outside
+  `you-decide` remains.
+- A guard test extends `test/gate-parity.test.mjs`: every refusal `recordApproval` can raise must be
+  produced by `evaluateApproval`, so no hold can be found only at approve time again.
+
+### 2. Decisions never make a submission stale by accident
+
+- One registry, `REVIEW_EFFECTS`, gives every lifecycle commit kind exactly one effect on a step
+  awaiting approval:
+  - `review-safe`: may sit between submission and approval;
+  - `returns-step`: the command returns the step itself, in the same commit, and says so before it runs;
+  - `refused-during-review`: refused up front, naming the alternative (the precedent is
+    `assertReceiptsMayBeRecorded`).
+- `applicabilityDecisionCommit` reads this registry instead of its own list. A test fails when a
+  command that commits has no entry.
+- Intent amendments: propose, reject and acknowledge only add amendment records and never change an
+  approved artifact, so they become `review-safe`. A rejected amendment then leaves the submission
+  valid, and the person approves with no resubmission. An approved amendment reopens the steps
+  whose clauses it changes (M2 verifies this for a step awaiting approval), so the reopen is what
+  makes the submission stale, not the history rule. This removes defect 4 and the detour that
+  started this plan.
+- `decision test-command` changes what the checks run, so it becomes `returns-step` while the step
+  awaits approval. The decision list labels that option "returns <step> for a fresh run".
+
+### 3. One pending list
+
+- The decision list (`singularity-flow decisions <WORK-ID>`, `/sf-decide`, VS Code Decide) becomes
+  the one list of everything a person must decide on a Story. It gains: intent amendments (decide
+  and acknowledge), forward amendments, the routing decision, appeals, lapsed test-run risks while
+  awaiting approval, TRP and quality risks for the operation at hand, and owed witnesses and scope
+  items.
+- The step's approval itself is the list's last item, so "what do I do next" is always the first
+  open item of one list.
+- Inbox, Reviews, the Navigator badge, `nextsteps` and the journey count and order from the same
+  packet. A test asserts the counts are equal across surfaces (defect 5).
+- Each item says who decides. An item for another group shows their names and how to ask them. It
+  is never a dead end and never asks the current person to type something they cannot record.
+- Unpushed Story commits and transport intents are `machine` items. `sync` runs them automatically,
+  and `push retry` folds into `sync`. A person sees them only when the automatic attempt fails,
+  with the one failing cause.
+
+### 4. One approval ceremony
+
+The same three moments on every surface: **review → decide → confirm once.**
+
+- **Review.** The documents open where the person already is (VS Code editor, Copilot preview links,
+  terminal pager). Opening the review starts no clock.
+- **Decide.** Every `you-decide` hold appears in the approval form or packet: checklist articles,
+  witness mappings (default "adequate", as the CLI already accepts), renewals and risk acceptances
+  this approver holds. Each one is answered in place.
+- **Confirm once.** One deliberate act: typing the phase ID once (VS Code, terminal), or replying
+  with it (Copilot). `approve <phase>` given after the review in the same terminal is that
+  confirmation. Nobody types the phase twice.
+- **One commit.** The approver's decisions and the approval are recorded together, in one commit and
+  one push. Their decisions then never count as commits after the submission.
+- **The receipt binds the packet digest, not a 15-minute timer.** Approval is refused only when what
+  was reviewed changed, never because the review took long. The digest already proves nothing
+  changed.
+- **The next step is shown where the approval happened.** VS Code shows the result and a "Next"
+  button; the terminal prints the next command. A context reset is suggested only to Copilot users,
+  and only once.
+- **Copilot keeps working in the same turn** where the skill can continue. After `/sf-decide` records
+  decisions it continues to the approval confirmation instead of ending the turn. This removes an
+  exit; no skill edit in this plan adds a stop, relay or hand-off.
+- **Several approvers.** The second approver sees "1 of 2 approvals recorded (<name>)" in the same
+  form. Their own fields carry forward any decisions already recorded, so they answer only what is
+  theirs.
+
+### 5. Request changes is one action
+
+- A step that needs `author-repairs` gets one action, "Request changes": the reason, and the target
+  step preselected from the hold. It runs `reject … --to <step>` with the members and repair flags
+  the hold implies.
+- The author's next action becomes "Revise <step>", with the hold's text as the brief. After a
+  fresh submission the approver gets the same review → decide → confirm path.
+
+## Milestones
+
+Each milestone ends with a real VS Code walk over CDP and, once Copilot is involved, a live
+`/sf-approve` run on a fixture Story; green headless suites alone do not close a milestone.
+
+| Milestone | Scope | Done when |
+|---|---|---|
+| M0 Defects | The eight reported defects above, each with a failing test first | the tests pass; VS Code witness exception and self-approval work in the real extension |
+| M1 One check | `evaluateApproval` / `recordApproval`; owner classes; readiness, packet, phase show, inbox, Reviews, `nextsteps` and journey read it | gate-parity guard: no refusal is found only at approve time; "Approve" is not offered on a held step |
+| M2 Review effects | `REVIEW_EFFECTS` registry; intent-amendment propose/reject/acknowledge are review-safe; `decision test-command` returns the step | the amendment-after-submission fixture (test/approval-intervening-commits.test.mjs): propose, then reject the amendment, then approve planning with no resubmission |
+| M3 One list | The decision list holds every pending kind and the approval; all surfaces count from it; `sync` and `push retry` unify | equal counts across surfaces (test); no pending kind is missing from the list (registry test) |
+| M4 One ceremony | Decisions recorded in the approval commit; digest-bound receipt; phase typed once; `/sf-decide` continues to approval | simplest approval: one review plus one confirmation on every surface; a 40-minute review still approves |
+| M5 Next step in place | Result and next action on the approving surface; one context-reset suggestion for Copilot | VS Code and terminal approvals never send the person to Copilot to continue |
+
+Order: M0 first, because it is small and fixes real refusals. M1 next, because everything else reads
+it. M2 and M3 can run in parallel after M1; they touch different files. M4 and M5 come last.
+
+## Guards that keep it standard
+
+- `test/gate-parity.test.mjs` (extended): `evaluateApproval` produces every approval refusal.
+- A `REVIEW_EFFECTS` registry test: every committing command has one entry.
+- A pending-kinds registry test: every pending concept named in the table above has a decision-list
+  item kind or is a `machine` item.
+- A surface-count test: inbox, Reviews, badge, `nextsteps` and journey report the same open count
+  for one fixture Story.
+- A skill pin: `/sf-approve` and `/sf-decide` keep their "continue" sentences
+  (`scripts/skill-policy.mjs`).
+
+## Decisions for the owner
+
+1. **A rejected intent amendment keeps the step's submission valid.** Recommended: yes. It changed
+   no approved clause, so approval absorbs nothing unreviewed.
+2. **The approver's own decisions are recorded in the approval commit.** Recommended: yes. It means
+   one commit and one push, and their decisions never make the submission stale. The alternative is
+   separate commits that are each `review-safe`.
+3. **The selection receipt is bound to the packet digest, not 15 minutes.** Recommended: yes.
+4. **Confirmation stays one typed phase ID.** Recommended: yes. One deliberate act stays; the second
+   one goes. The alternative is a single "Approve" button, which removes the last friction but also
+   the explicit-intent check.
+5. **`push retry` folds into `sync`.** Recommended: yes. One command for "finish what was not
+   published".
+
+## Out of scope
+
+- Approving several steps or Stories at once.
+- Changing who may approve (groups, minimums, self-approval policy).
+- Initiative (Epic) approvals. They get the same treatment after Stories, reusing the same check
+  and list.

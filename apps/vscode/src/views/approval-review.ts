@@ -12,8 +12,8 @@ import {
   booleanField, registerMessageRouter, stringField, type InboundMessage
 } from './messages.ts';
 import { navigateTo } from './navigate.ts';
-import { contentSecurityPolicy, escape, evidenceConsistencyHtml, navigationTarget, nonce, page,
-  type EvidenceConsistencyPresentation } from './webview.ts';
+import { approvalBlockingCommits, approvalBlockingCommitsHtml, contentSecurityPolicy, escape, evidenceConsistencyHtml, navigationTarget,
+  nonce, page, type EvidenceConsistencyPresentation } from './webview.ts';
 
 export const APPROVAL_DECISIONS = ['satisfied', 'exception', 'not-applicable'] as const;
 export type ApprovalChecklistDecision = {
@@ -67,6 +67,11 @@ export interface ApprovalReviewRequest {
    * bundle. Presentation only: the approval gate checks again.
    */
   pendingDecisions?: { count: number; headline: string } | null;
+  /**
+   * Commits after the submission that approval would refuse for (`blockingCommits` of submission
+   * readiness), read beside the bundle as returned. Advisory: the approval gate checks again.
+   */
+  blockingCommits?: unknown;
   /** The step's test run (`tests summary --json`), when one is recorded: its label and totals. */
   testRun?: { label: string; totals: string } | null;
   priorExceptions: Array<{ article?: string; decision?: string; reason?: string; actor?: string }>;
@@ -305,7 +310,7 @@ function reviewBody(request: ApprovalReviewRequest, errors: string[] = []): stri
       <p class="meta">Review the exact generation, record every required decision, then type the phase confirmation.</p>
     </header>
     <div class="review-binding approval-binding">${binding}</div>
-    ${held}${tests}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
+    ${held}${approvalBlockingCommitsHtml(approvalBlockingCommits(request.blockingCommits))}${tests}${findings}${witnessed}${prior}${selfApproval}${evidenceConsistencyHtml(request.evidenceConsistency)}
       ${checklist}${witnessReview}
       <section class="approval-confirmation">
         <h2>Confirm your decision</h2>
@@ -348,6 +353,7 @@ body > .page-nav button { flex:none; white-space:nowrap; }
 .approval-confirmation { border-left:3px solid var(--sf-wait); padding-left:1rem; }
 .approval-held { margin:1rem 0; padding:1rem; border:1px solid var(--sf-wait); border-left:4px solid var(--sf-wait); border-radius:var(--sf-radius); }
 .approval-held h2 { margin-top:0; }
+.approval-held pre { white-space:pre-wrap; overflow-wrap:anywhere; }
 .approval-errors { min-height:1.2rem; color:var(--sf-bad); }
 .approval-errors p { margin:.2rem 0; }
 .form-actions { display:flex; gap:.6rem; flex-wrap:wrap; margin:0; padding:.6rem 0; border-top:var(--sf-border); background:var(--vscode-editor-background); }

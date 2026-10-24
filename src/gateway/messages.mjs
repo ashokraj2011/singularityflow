@@ -99,6 +99,9 @@ export const RESULT_MESSAGES = Object.freeze({
   'gateway.handle-invalid': M('That action is not valid'),
   'gateway.fingerprint-algorithm-stale': M('That action used an older worktree fingerprint', 'Refresh the view before continuing.'),
   'gateway.handle-unrecognised': M('That action failed for a reason this build has no name for'),
+  'gateway.host-action-dropped': M('A view link was left out', '{action} was not offered here ({reason}). The rest of this answer is complete.'),
+  'gateway.host-action-refused': M('That view was not opened', '{action} was refused ({reason}). Nothing was opened or changed.'),
+  'gateway.host-action-fallback': M('Do it from a terminal instead'),
 
   // ---- Home
   'home.active-work-leads': M('You have work in progress'),
@@ -238,6 +241,7 @@ export const RESULT_MESSAGES = Object.freeze({
   'impact.tests-by-path-convention': M('{matched} test(s) matched by path convention', 'Matched by naming, not by running anything.'),
   'impact.work-in-the-same-area': M('Other work touches this area'),
   'impact.start-reviewed-plan': M('Accept this exact plan in a guarded start ceremony'),
+  'impact.open-impact-view': M('Open the Impact Analysis view'),
   'context.bounded-brief': M(
     'Bounded {slice} context from records',
     '{bytes} content byte(s) were included; deeper material remains behind a newly sealed read action.'

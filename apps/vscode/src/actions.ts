@@ -437,6 +437,7 @@ export async function approveWithReceipt(
 
   let storyReview: StoryReviewBundle | null = null;
   let pendingDecisions: { count: number; headline: string } | null = null;
+  let blockingCommits: unknown = null;
   let testRun: { label: string; totals: string } | null = null;
   if (request.kind === 'story') {
     try {
@@ -447,6 +448,10 @@ export async function approveWithReceipt(
       // decision list first. A failed read shows nothing extra; the approval gate still decides.
       const decisions = client.run<{ data?: { items?: unknown[]; headline?: string } }>(
         ['decisions', request.workId, '--phase', request.phaseId, '--json']).catch(() => null);
+      // Commits after the submission that approval would refuse for (an undecided intent amendment
+      // among them), named on the page before the person reviews. Advisory, read the same way.
+      const readiness = client.run<{ blockingCommits?: unknown }>(
+        ['status', request.workId, '--submission-readiness', '--json']).catch(() => null);
       // The step's test run, when there is one, so the page can open its summary beside the review.
       type Totals = { passed?: number; failed?: number; discovered?: number };
       type Summary = { resultType?: string; run?: { label?: string } | null; totals?: Totals; data?: Summary };
@@ -457,6 +462,7 @@ export async function approveWithReceipt(
       const listed = (await decisions)?.data;
       pendingDecisions = Array.isArray(listed?.items) && listed.items.length && typeof listed.headline === 'string'
         ? { count: listed.items.length, headline: listed.headline } : null;
+      blockingCommits = (await readiness)?.blockingCommits ?? null;
       const answered = await tests;
       const summary = answered?.resultType === 'sflow-test-summary' ? answered : answered?.data;
       testRun = summary?.resultType === 'sflow-test-summary' && summary.run ? { label: summary.run.label ?? '',
@@ -498,6 +504,7 @@ export async function approveWithReceipt(
       witnessMappings: storyReview?.witnessReview?.mappings ?? [],
       evidenceConsistency: storyReview?.evidenceConsistency ?? null,
       pendingDecisions,
+      blockingCommits,
       testRun,
       priorExceptions: (storyReview?.priorExceptions ?? []).map((entry) => ({
         article: entry.article,

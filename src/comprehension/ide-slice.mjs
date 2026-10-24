@@ -1,5 +1,5 @@
 /** Bounded, model-free comprehension projection for an explicitly leased IDE surface. */
-import { branch } from '../git.mjs';
+import { branch, gitDir } from '../git.mjs';
 import { readCachedAstSymbols } from '../ast-intelligence.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from '../repository-subject-index.mjs';
 import { SingularityFlowError } from '../util.mjs';
@@ -24,7 +24,7 @@ import { explainXpl2Subject } from './xpl2/subjects.mjs';
  * promote an unreviewed cause, disposition, test result, or structural fact into authority.
  */
 async function loadComprehensionIdeSliceOnce(root, {
-  base = null, workId = null, phase = null, includeExplanationInputs = false
+  base = null, workId = null, phase = null, includeExplanationInputs = false, retainExplanationSnapshot = false
 } = {}) {
   const subjectIndex = await buildRepositorySubjectIndex(root);
   const context = {
@@ -145,6 +145,14 @@ async function loadComprehensionIdeSliceOnce(root, {
     );
   }
 
+  // Asked for by the Comprehension Center (its Change Explorer) and `explain --subject change`, which
+  // say so: the stable view is retained under its explanation-set digest for a later
+  // `explain --compare`. Only that command reads the store; failing to keep a snapshot changes
+  // nothing about this slice.
+  const explanationSnapshot = explanationView && retainExplanationSnapshot
+    ? await import('./xpl2/snapshots.mjs').then((store) => store.retainXpl2Snapshot(gitDir(root), explanationView)).catch(() => null)
+    : null;
+
   // CLI subject views rebuild from these exact inputs. They stay out of the serialized IDE
   // snapshot, which carries only the computed view.
   const explanationInputs = includeExplanationInputs
@@ -171,8 +179,11 @@ async function loadComprehensionIdeSliceOnce(root, {
     codeExplanation,
     explanationView,
     explanationViewUnavailableReason,
+    explanationSnapshot,
     // The exact commit the capture compared against, whatever revision text selected it.
     baselineCommit: changeSet.base?.commit ?? null,
+    // The commit checked out when the capture was read: observed writes must descend to it.
+    headCommit: changeSet.target?.head ?? null,
     walkthrough: {
       draft,
       unavailableReason: draft ? null : draftUnavailableReason

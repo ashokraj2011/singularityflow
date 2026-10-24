@@ -8,7 +8,7 @@
  */
 import path from 'node:path';
 
-import { committedFilesAtRevisions, gitDir, lineCommitAt, repoRoot } from '../../git.mjs';
+import { gitDir, isAncestor, lineCommitAt, repoRoot, worktreeBytesAtRevision } from '../../git.mjs';
 import {
   action, commandResult, noEffects, succeeded
 } from '../../narration/command-result.mjs';
@@ -169,7 +169,9 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
     base: optionString(options, 'since'),
     workId: optionString(options, 'work-id'),
     phase: query.subject === 'generation' ? null : optionString(options, 'phase'),
-    includeExplanationInputs: true
+    includeExplanationInputs: true,
+    // The change view is kept on this machine for a later --compare; the result says so.
+    retainExplanationSnapshot: query.subject === 'change'
   });
   const input = {
     context: slice.context,
@@ -202,8 +204,9 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
   // Who left the line: this machine's observed writes, matched to the bytes that hold it by digest.
   const lineWriter = query.subject === 'line'
     ? await (await import('./line-writer.mjs')).readLineWriter({
-      manifest: slice.manifest, baselineCommit: slice.baselineCommit, gitDirectory: gitDir(root),
-      readBlobs: (requests) => committedFilesAtRevisions(root, requests)
+      manifest: slice.manifest, baselineCommit: slice.baselineCommit, headCommit: slice.headCommit, gitDirectory: gitDir(root),
+      readBytes: (revision, file) => worktreeBytesAtRevision(root, revision, file),
+      isAncestor: (older, newer) => isAncestor(root, older, newer)
     }, query, lineHistory)
     : null;
   const generationSources = query.subject === 'generation' && input.workflow
@@ -214,7 +217,9 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
   const reserve = wantsNarration ? NARRATION_RESERVE_BYTES : 0;
   const { model, bytes } = boundedModel(input, query, { proof, lineHistory, lineWriter, generationSources }, maximumBytes - reserve);
   // A comparison reads the retained store only when asked, and never changes the view.
-  const comparison = compareSelector == null ? null : await compareWithRetained(root, compareSelector, model, slice.context.workId);
+  // Always the whole change view: a bounded page would report the units it left out as gone.
+  const comparison = compareSelector == null ? null
+    : await compareWithRetained(root, compareSelector, slice.explanationView ?? model, slice.context.workId);
   // The computed view is complete before narration starts and is never changed by it [XPL2-AC-009].
   let narration = null;
   if (wantsNarration) {
@@ -267,7 +272,8 @@ export async function runExplanationSubject(_argv, { positionals, options, opera
     subject: slice.context.workId
       ? { kind: 'story', id: slice.context.workId }
       : { kind: 'repository', id: path.basename(root) },
-    outcome: succeeded('explanation.subject-reported', {
+    // Keeping the comparison snapshot is a write to this machine's local store, and is said.
+    outcome: succeeded(slice.explanationSnapshot?.retained ? 'explanation.subject-retained' : 'explanation.subject-reported', {
       subject: query.subject,
       status: model.subject.status,
       statements: model.selection.statements.length + model.derived.length

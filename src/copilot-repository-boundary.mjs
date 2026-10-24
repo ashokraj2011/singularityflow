@@ -72,10 +72,19 @@ async function removeMutationRecord(file) {
   await rm(`${mutation}.issued`, { recursive: true, force: true }).catch(() => {});
 }
 
+/** XPL2: a turn's noted edits are settled for good before its records go. One lstat when none wait. */
+async function settleObservedEdits(payload) {
+  const pending = recordPath(payload)?.replace(/\.json$/u, '.pending-writes.json');
+  if (pending && await lstat(pending).then(() => true, () => false)) {
+    await (await import('./copilot-mutation-guard.mjs')).settleObservedEdits(payload).catch(() => {});
+  }
+}
+
 /** Reset on EVERY prompt, including native turns; never retain the prompt or its attachments. */
 export async function recordRepositoryBoundaryTurn(payload = {}, { now = Date.now(), captureMutation = null } = {}) {
   await removeRecord(path.join(path.dirname(copilotModeFile()), 'copilot-boundaries', RUNTIME_UNAVAILABLE_MARKER))
     .catch(() => {});
+  await settleObservedEdits(payload).catch(() => {});
   const file = recordPath(payload);
   if (!file) return {};
   const mode = readCopilotMode();
@@ -103,6 +112,7 @@ export async function recordRepositoryBoundaryTurn(payload = {}, { now = Date.no
 }
 
 export async function endRepositoryBoundaryTurn(payload = {}) {
+  await settleObservedEdits(payload).catch(() => {});
   await removeRecord(recordPath(payload));
   const file = recordPath(payload);
   await removeMutationRecord(file);

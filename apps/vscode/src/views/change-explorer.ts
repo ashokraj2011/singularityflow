@@ -364,6 +364,7 @@ export { XPL2_COMPARISON_LIMIT };
 /** What differs between two views; null when either is missing or they are of different repositories. */
 export interface Xpl2Comparison {
   sameSet: boolean;
+  unitsUnavailable: string | null;
   units: { kept: number; added: Array<{ unitId: string; path: string; digest: string }>; removed: Array<{ unitId: string; path: string; digest: string }>;
     addedCount: number; removedCount: number } | null;
   sources: { changed: string[]; changedCount: number };
@@ -774,7 +775,11 @@ export function renderExplorerComparisonNote(comparison: Xpl2Comparison | null):
     ? `${plural(comparison.sources.changedCount, 'source')} changed (${comparison.sources.changed.map((id) => escape(id)).join(', ')}${comparison.sources.changedCount > comparison.sources.changed.length ? ', …' : ''})`
     : 'no source changed';
   const units = comparison.units;
-  if (!units) return ` This view predates change comparison, so its change units cannot be compared unit by unit; ${sources}.`;
+  if (!units) {
+    return comparison.unitsUnavailable === 'bounded-view'
+      ? ` One of the views holds only part of the change, so its change units cannot be compared unit by unit; ${sources}.`
+      : ` This view predates change comparison, so its change units cannot be compared unit by unit; ${sources}.`;
+  }
   return ` Since this view: ${plural(units.addedCount, 'change unit')} new, ${units.removedCount} gone, ${units.kept} unchanged; ${sources}.`
     // Files, not display IDs: the newer view numbers its units afresh, so its H-001 may be another change.
     + `${units.added.length ? ` New changes in ${[...new Set(units.added.map((unit) => unit.path))].map((file) => escape(file)).join(', ')}.` : ''}`

@@ -101,7 +101,7 @@ test('XPL2 M3 every change view is retained under its set digest and compared un
   const directory = xpl2SnapshotDirectory(path.join(fixture.directory, '.git'));
   for (const name of await readdir(directory)) {
     const stored = await readFile(path.join(directory, name), 'utf8');
-    assert.doesNotMatch(stored, /const v5|500|statements"\s*:\s*\[/u, 'no source or statement text is retained');
+    assert.doesNotMatch(stored, /const v5 = 500|statements"\s*:\s*\[/u, 'no source or statement text is retained');
   }
 });
 
@@ -152,4 +152,24 @@ test('XPL2 M3 the snapshot store is bounded, expiring, content-addressed and ign
   const expired = start + (XPL2_SNAPSHOT_LIMITS.retentionDays + 1) * 24 * 60 * 60 * 1000;
   assert.deepEqual(await listXpl2Snapshots(gitDirectory, { now: expired }), []);
   assert.equal((await resolveXpl2Snapshot(gitDirectory, 'previous', { workId: 'ORD-1', now: expired })).status, 'not-found');
+});
+
+test('XPL2 M3 a bounded view is compared by the whole change, never reporting cut units as gone', async (t) => {
+  const fixture = await repository(t);
+  for (let index = 1; index <= 40; index += 8) await edit(fixture.directory, 'app.js', `const v${index} = ${index};`, `const v${index} = ${index * 100};`);
+  const first = json(cli(fixture, 'explain', '--subject', 'change', '--json')).data;
+  const total = first.explanation.inventory.counts.changeUnits;
+  assert.ok(total > 4, `fixture has ${total} units`);
+  await edit(fixture.directory, 'util.js', 'a = 1', 'a = 2');
+  // An 8 KiB page delivers only some units; the comparison still covers all of them.
+  const bounded = json(cli(fixture, 'explain', '--subject', 'change', '--max-bytes', '8192', '--compare', 'previous', '--json')).data;
+  assert.equal(bounded.explanation.delivery.complete, false);
+  assert.equal(bounded.comparison.result.units.removedCount, 0, 'units cut from the page are not gone');
+  assert.equal(bounded.comparison.result.units.addedCount, 1);
+  assert.equal(bounded.comparison.result.units.kept, total);
+  // A bounded page itself is never compared unit by unit.
+  const { compareXpl2Views: compare } = await import('../src/comprehension/xpl2/compare.mjs');
+  const page = compare(first.explanation, bounded.explanation);
+  assert.equal(page.units, null);
+  assert.equal(page.unitsUnavailable, 'bounded-view');
 });

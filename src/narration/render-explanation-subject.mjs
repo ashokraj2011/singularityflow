@@ -74,7 +74,9 @@ function comparisonLines(comparison, { safe, short }) {
     ? `${plural(result.sources.changedCount, 'source')} changed (${result.sources.changed.map((id) => safe(id)).join(', ')}${result.sources.changedCount > result.sources.changed.length ? ', …' : ''})`
     : 'no source changed';
   if (!result.units) {
-    lines.push(`  That snapshot predates unit content digests, so its change units cannot be compared unit by unit; ${sources}.`);
+    lines.push(result.unitsUnavailable === 'bounded-view'
+      ? `  One of the views holds only part of the change, so its change units cannot be compared unit by unit; ${sources}.`
+      : `  That snapshot predates unit content digests, so its change units cannot be compared unit by unit; ${sources}.`);
     return lines;
   }
   const files = (units) => [...new Set(units.map((unit) => safe(unit.path)))].join(', ');

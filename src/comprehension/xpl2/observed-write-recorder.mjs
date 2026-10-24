@@ -1,42 +1,56 @@
 /**
- * Observed-write recorder [XPL2 M3], run by the post-tool hook of an explicit SFlow Copilot turn.
+ * Observed-write recorder [XPL2 M3], driven by the hooks an explicit SFlow Copilot turn already runs.
  *
- * A completed file tool call is kept as what its own arguments and the file's bytes right after it
- * show. It is *verified* only when the arguments explain the bytes exactly: a whole-file write equal
- * to the file, or swaps that, undone on the file last first (each at its one place), give the
- * bytes before them. A record keeps paths, SHA-256 digests and changed line ranges; never content,
- * arguments or commands. Anything else is kept unverified. Kept small: this loads on the hook path.
- * `observed-writes.mjs` reads the store and `writer-attribution.mjs` chains records by digest.
+ * No hook of its own: the pre-tool guard *captures* each allowed file edit before it runs (its target
+ * paths, the SHA-256 of their bytes, salted hashes of their lines, and what the tool's own arguments
+ * say the bytes will become: that digest and the lines it changes), and the next pre-tool call of the
+ * session, or the turn's next prompt or end, *settles* it by reading the files again. A write keeps
+ * only the lines its before and after bytes differ in: the lines the arguments explain exactly are
+ * verified, any other changed line is kept unverified so it can never be credited. A record keeps
+ * paths, digests, line ranges, the turn and the HEAD commit it was made on; never content, arguments
+ * or commands. Line hashes live only in the pending note, which settling deletes.
+ *
+ * Fail-safe and small: callers swallow every error, nothing is printed, no Git process runs. The hook
+ * bundle loads this file from source so its chunks (and their byte ceilings) do not carry it.
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFile, lstat, mkdir, readdir, readFile, realpath, unlink, writeFile } from 'node:fs/promises';
+import { appendFile, lstat, mkdir, open, readdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-// Short local names: this module is counted in the hook chunk's byte ceiling.
-const FORMAT = 'xpl2-observed-write@1';
-const LIMIT = Object.freeze({ files: 32, fileBytes: 1 << 20, steps: 32, segmentBytes: 1 << 20, retentionDays: 14 });
+const FORMAT = 'xpl2-observed-write@2';
+const LIMIT = Object.freeze({
+  files: 32, fileBytes: 1 << 20, steps: 32, segmentBytes: 1 << 20, retentionDays: 14,
+  pendingBytes: 4 << 20, pendingMs: 30 * 60 * 1000, diffCells: 1_000_000
+});
 export { FORMAT as XPL2_OBSERVED_WRITE_FORMAT, LIMIT as XPL2_OBSERVED_WRITE_LIMITS };
+
 const DAY = 864e5;
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 const str = (value) => (typeof value === 'string' ? value : null);
-const lines = (text) => (text ? (text.endsWith('\n') ? text.slice(0, -1) : text).split('\n') : []);
+const split = (text) => (text ? (text.endsWith('\n') ? text.slice(0, -1) : text).split('\n') : []);
 
 export function xpl2ObservedWriteDirectory(gitDirectory) {
   return path.join(gitDirectory, 'singularity-flow', 'xpl2', 'observed-writes');
 }
 
-/** One call's file ops in its own order: swaps, whole-file writes, or unchecked. */
-function ops(name, args, targets) {
-  const file = str(args.path) ?? str(args.filePath);
-  const swap = (target, old, next) => (target && old != null && next != null ? { path: target, old, next } : { path: target, unchecked: true });
-  const pick = (entry) => swap(str(entry?.path) ?? str(entry?.filePath),
-    str(entry?.old_str) ?? str(entry?.oldString), str(entry?.new_str) ?? str(entry?.newString));
-  // The guard names a str_replace_editor call 'edit'; its create form writes a whole file.
+/** One call's file operations in its own order: replacements, inserts, whole files, deletions, or unchecked. */
+function operations(name, args, targets) {
+  const file = str(args.path) ?? str(args.filePath) ?? str(args.file_path);
+  const swap = (entry) => {
+    const target = str(entry?.path) ?? str(entry?.filePath) ?? str(entry?.file_path);
+    const old = str(entry?.old_str) ?? str(entry?.oldString) ?? str(entry?.old_string);
+    const next = str(entry?.new_str) ?? str(entry?.newString) ?? str(entry?.new_string);
+    return target && old != null && next != null ? { path: target, old, next } : { path: target, unchecked: true };
+  };
+  // The guard names a str_replace_editor call 'edit'; its create and insert forms are recognized too.
   if (['create', 'create_file', 'write_file'].includes(name) || (name === 'edit' && args.command === 'create')) {
     return [{ path: file, content: str(args.file_text) ?? str(args.content) }];
   }
-  if (['edit', 'str_replace', 'replace_string_in_file'].includes(name) && (!args.command || args.command === 'str_replace')) return [pick(args)];
-  if (name === 'multi_replace_string_in_file' && Array.isArray(args.swaps)) return args.swaps.map(pick);
+  if (name === 'edit' && args.command === 'insert' && Number.isSafeInteger(args.insert_line)) {
+    return [{ path: file, insert: args.insert_line, next: str(args.new_str) ?? '' }];
+  }
+  if (['edit', 'str_replace', 'replace_string_in_file'].includes(name) && (!args.command || args.command === 'str_replace')) return [swap(args)];
+  if (name === 'multi_replace_string_in_file' && Array.isArray(args.replacements)) return args.replacements.map(swap);
   const patch = str(args.patch) ?? str(args.input);
   if (name === 'apply_patch' && patch) return patchOperations(patch);
   return targets.map((target) => ({ path: target, unchecked: true }));
@@ -63,6 +77,7 @@ function patchOperations(patch) {
       close();
       // Moved lines arrive from elsewhere: who wrote them is not this tool's to say.
       if (moved) { found.push({ path: moved[1].trim(), unchecked: true }); file = null; continue; }
+      if (header?.[1] === 'Delete') found.push({ path: header[2].trim(), remove: true });
       file = header && header[1] !== 'Delete' ? { path: header[2].trim(), add: header[1] === 'Add' ? [] : null, update: header[1] === 'Update' } : null;
     } else if (file?.add && line.startsWith('+')) file.add.push(line.slice(1));
     else if (file?.update && line.startsWith('@@')) { const previous = file; close(); file = previous; hunk = []; }
@@ -72,43 +87,89 @@ function patchOperations(patch) {
   return found;
 }
 
-/** The whole lines one replacement at `at` changed: [beforeStart, beforeLines, afterStart, afterLines]. */
-function step(after, at, length, old) {
-  const start = at ? after.lastIndexOf('\n', at - 1) + 1 : 0;
-  for (let end = at + length; ;) {
-    const a = after.slice(start, end);
-    const b = after.slice(start, at) + old + after.slice(at + length, end);
-    if (end >= after.length || ((!a || a.endsWith('\n')) && (!b || b.endsWith('\n')))) {
-      const [x, y] = [lines(a), lines(b)];
-      let head = 0;
-      while (head < x.length && head < y.length && x[head] === y[head]) head += 1;
-      let tail = 0;
-      while (tail < x.length - head && tail < y.length - head && x[x.length - 1 - tail] === y[y.length - 1 - tail]) tail += 1;
-      const first = after.slice(0, start).split('\n').length + head;
-      return [first, y.length - head - tail, first, x.length - head - tail];
-    }
-    const next = after.indexOf('\n', end);
-    end = next < 0 ? after.length : next + 1;
+/** The one place `needle` occurs (at a line start for whole-line hunks), or -1 for none or several. */
+function onePlace(text, needle, whole) {
+  const places = [];
+  for (let at = text.indexOf(needle); at >= 0 && places.length < 2; at = text.indexOf(needle, at + 1)) {
+    if (!whole || !at || text[at - 1] === '\n') places.push(at);
   }
+  return places.length === 1 ? places[0] : -1;
 }
 
-/** Undo one file's swaps on its bytes, last first; each result must sit at exactly one place. */
-function undo(text, swaps) {
-  const steps = [];
-  for (const { old, next, whole } of [...swaps].reverse()) {
-    if (old === next) continue;
-    const places = [];
-    for (let at = next ? text.indexOf(next) : -1; at >= 0 && places.length < 2; at = text.indexOf(next, at + 1)) {
-      if (!whole || !at || text[at - 1] === '\n') places.push(at);
+/**
+ * What the tool's arguments say the file becomes: its text, `null` for absent, or `undefined` when
+ * they do not determine it. A replacement must match exactly once, as the tools require; in a CRLF
+ * file, arguments written with LF line ends are matched as CRLF.
+ */
+function expected(text, list) {
+  let current = text;
+  for (const op of list) {
+    if (op.unchecked) return undefined;
+    if (op.remove) { current = null; continue; }
+    if ('content' in op) { current = op.content ?? undefined; if (current === undefined) return undefined; continue; }
+    if (current == null) return undefined;
+    if ('insert' in op) {
+      const lines = current.split('\n');
+      const body = op.next.endsWith('\n') ? op.next.slice(0, -1) : op.next;
+      if (op.insert < 0 || op.insert > lines.length) return undefined;
+      lines.splice(op.insert, 0, ...body.split('\n'));
+      current = lines.join('\n');
+      continue;
     }
-    if (places.length !== 1) return { reason: places.length ? 'ambiguous' : 'not-found' };
-    steps.unshift(step(text, places[0], next.length, old));
-    text = text.slice(0, places[0]) + old + text.slice(places[0] + next.length);
+    let { old, next } = op;
+    if (!old) return undefined;
+    let at = onePlace(current, old, op.whole);
+    if (at < 0 && current.includes('\r\n') && old.includes('\n') && !old.includes('\r')) {
+      [old, next] = [old.replaceAll('\n', '\r\n'), next.replaceAll('\n', '\r\n')];
+      at = onePlace(current, old, op.whole);
+    }
+    if (at < 0) return undefined;
+    current = current.slice(0, at) + next + current.slice(at + old.length);
   }
-  return { before: text, steps };
+  return current;
 }
 
-/** A repo-relative path, or null outside the checkout or inside Git's directory. */
+/**
+ * The lines two versions differ in, as `[beforeStart, beforeLines, afterStart, afterLines]` hunks
+ * (1-based), from a longest-common-subsequence over the lines between their common head and tail.
+ * Past the size bound it returns null: the caller then keeps the write unverified.
+ */
+export function xpl2LineHunks(before, after) {
+  let head = 0;
+  while (head < before.length && head < after.length && before[head] === after[head]) head += 1;
+  let tail = 0;
+  while (tail < before.length - head && tail < after.length - head
+    && before[before.length - 1 - tail] === after[after.length - 1 - tail]) tail += 1;
+  const b = before.slice(head, before.length - tail);
+  const a = after.slice(head, after.length - tail);
+  if (!b.length && !a.length) return [];
+  if (!b.length || !a.length) return [[head + 1, b.length, head + 1, a.length]];
+  if (b.length * a.length > LIMIT.diffCells) return null;
+  const width = a.length + 1;
+  const table = new Uint32Array((b.length + 1) * width);
+  for (let i = b.length - 1; i >= 0; i -= 1) {
+    for (let j = a.length - 1; j >= 0; j -= 1) {
+      table[i * width + j] = b[i] === a[j] ? table[(i + 1) * width + j + 1] + 1
+        : Math.max(table[(i + 1) * width + j], table[i * width + j + 1]);
+    }
+  }
+  const hunks = [];
+  let open = null;
+  const mark = (i, j, before, after) => {
+    open ??= [head + i + 1, 0, head + j + 1, 0];
+    open[1] += before; open[3] += after;
+  };
+  let [i, j] = [0, 0];
+  while (i < b.length || j < a.length) {
+    if (i < b.length && j < a.length && b[i] === a[j]) { if (open) { hunks.push(open); open = null; } i += 1; j += 1; }
+    else if (j < a.length && (i >= b.length || table[i * width + j + 1] >= table[(i + 1) * width + j])) { mark(i, j, 0, 1); j += 1; }
+    else { mark(i, j, 1, 0); i += 1; }
+  }
+  if (open) hunks.push(open);
+  return hunks;
+}
+
+/** A repository-relative path, or null outside the checkout or inside Git's directory. */
 async function relative(root, cwd, target) {
   if (!target || target.includes('\0')) return null;
   const absolute = path.resolve(cwd, target);
@@ -117,51 +178,124 @@ async function relative(root, cwd, target) {
   return value && !value.startsWith('..') && !path.isAbsolute(value) && !/^\.git(?:[\\/]|$)/iu.test(value) ? value.split(path.sep).join('/') : null;
 }
 
+/** The file's bytes, or null when absent; anything else (a link, a directory, too large) is unreadable. */
+async function bytesOf(file) {
+  const info = await lstat(file).catch(() => null);
+  if (!info) return null;
+  if (!info.isFile() || info.size > LIMIT.fileBytes) throw new Error('unreadable');
+  return readFile(file);
+}
+
+/** The HEAD commit and branch of a checkout, from its own files (no Git process). */
+async function headOf(gitDirectory) {
+  const head = (await readFile(path.join(gitDirectory, 'HEAD'), 'utf8')).trim();
+  if (/^[0-9a-f]{40,64}$/u.test(head)) return { head, branch: null };
+  const ref = /^ref: (refs\/\S+)$/u.exec(head)?.[1];
+  if (!ref) return { head: null, branch: null };
+  const common = path.resolve(gitDirectory, (await readFile(path.join(gitDirectory, 'commondir'), 'utf8').catch(() => '.')).trim());
+  const loose = (await readFile(path.join(common, ref), 'utf8').catch(() => '')).trim();
+  const packed = loose || ((await readFile(path.join(common, 'packed-refs'), 'utf8').catch(() => ''))
+    .split('\n').find((line) => line.endsWith(` ${ref}`)) ?? '').split(' ')[0];
+  return { head: /^[0-9a-f]{40,64}$/u.test(packed) ? packed : null, branch: ref.replace(/^refs\/heads\//u, '') };
+}
+
+async function readPending(file) {
+  const info = await lstat(file).catch(() => null);
+  if (!info?.isFile() || info.size > LIMIT.pendingBytes) return null;
+  const value = JSON.parse(await readFile(file, 'utf8'));
+  return value?.format === FORMAT && Array.isArray(value.entries) ? value : null;
+}
+
+async function writePending(file, value) {
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, JSON.stringify(value), { flag: 'wx', mode: 0o600 });
+    await rename(temporary, file);
+  } finally { await unlink(temporary).catch(() => {}); }
+}
+
 /**
- * What successful file tool calls left, file by file. `calls` are the guard's `{ name, args, targets }`.
+ * Note what an allowed edit is about to change, before it runs. `calls` are the guard's normalized
+ * `{ name, args, targets }`; `writer`, `subject` and `gitDirectory` come from the turn's record.
  */
-export async function observeToolWrites({ root, cwd = root, calls = [] }) {
+export async function captureToolWrites({ pendingFile, root, cwd = root, calls = [], writer, subject = null, gitDirectory, now = Date.now() }) {
   const repo = await realpath(root);
-  const byPath = new Map();
+  const existing = await readPending(pendingFile).catch(() => null);
+  const pending = existing?.writer?.turn === writer?.turn ? existing : {
+    format: FORMAT, writer, subject, gitDirectory, root: repo, salt: randomUUID(), ...(await headOf(gitDirectory).catch(() => ({ head: null, branch: null }))), entries: []
+  };
+  const salted = (line) => hash(`${pending.salt}\n${line}`).slice(0, 16);
   for (const call of calls) {
-    for (const op of ops(call.name, call.args ?? {}, call.targets ?? [])) {
+    const byPath = new Map();
+    for (const op of operations(call.name, call.args ?? {}, call.targets ?? [])) {
       const file = await relative(repo, call.args?.cwd ?? cwd, op.path);
-      if (file && byPath.size <= LIMIT.files) byPath.set(file, [...(byPath.get(file) ?? []), op]);
+      if (file && byPath.size < LIMIT.files) byPath.set(file, [...(byPath.get(file) ?? []), op]);
+    }
+    const id = randomUUID();
+    for (const [file, list] of byPath) {
+      let bytes;
+      try { bytes = await bytesOf(path.join(repo, file)); } catch { continue; }
+      const text = bytes ? bytes.toString('utf8') : null;
+      const textual = !bytes || Buffer.from(text).equals(bytes);
+      const result = textual && list.length <= LIMIT.steps ? expected(text, list) : undefined;
+      const hunks = result === undefined ? null : xpl2LineHunks(split(text ?? ''), split(result ?? ''));
+      pending.entries.push({
+        call: id, tool: call.name, path: file, capturedAt: now,
+        before: bytes ? hash(bytes) : 'absent',
+        expected: hunks ? (result === null ? 'absent' : hash(Buffer.from(result))) : null,
+        steps: hunks,
+        lines: textual ? split(text ?? '').map(salted) : null
+      });
     }
   }
-  const files = [];
-  for (const [file, list] of [...byPath].slice(0, LIMIT.files)) {
-    const info = await lstat(path.join(repo, file)).catch(() => null);
-    if (!info) continue; // deleted or never created: nothing left to match
-    const skip = (reason, after = null) => files.push({ path: file, verified: false, reason, after });
-    if (!info.isFile()) { skip('not-a-file'); continue; }
-    if (info.size > LIMIT.fileBytes) { skip('too-large'); continue; }
-    const bytes = await readFile(path.join(repo, file));
-    const after = hash(bytes);
-    const text = bytes.toString('utf8');
-    const full = list.findLastIndex((op) => 'content' in op);
-    const swaps = list.slice(full + 1);
-    if (list.some((op) => op.unchecked)) { skip('unchecked', after); continue; }
-    if (swaps.length > LIMIT.steps) { skip('too-many-steps', after); continue; }
-    const undone = undo(text, swaps);
-    if (undone.reason) { skip(undone.reason, after); continue; }
-    if (full >= 0) {
-      // A whole-file write anchors itself; swaps after it in the same call were undone first.
-      if (undone.before !== list[full].content) skip('result-differs', after);
-      else files.push({ path: file, verified: true, full: true, before: null, after, steps: [[1, 0, 1, lines(undone.before).length], ...undone.steps] });
+  if (pending.entries.length) await writePending(pendingFile, pending);
+}
+
+/**
+ * Read the files a pending note names again and record each write that changed them. An unchanged
+ * file stays pending (its tool may not have run yet) until `final` or the note's age bound.
+ */
+export async function settleToolWrites(pendingFile, { final = false, now = Date.now() } = {}) {
+  const pending = await readPending(pendingFile).catch(() => null);
+  if (!pending) { await unlink(pendingFile).catch(() => {}); return; }
+  const salted = (line) => hash(`${pending.salt}\n${line}`).slice(0, 16);
+  const keep = [];
+  const calls = new Map();
+  for (const entry of pending.entries) {
+    let bytes;
+    try { bytes = await bytesOf(path.join(pending.root, entry.path)); } catch { continue; }
+    const after = bytes ? hash(bytes) : 'absent';
+    if (after === entry.before) {
+      if (!final && now - entry.capturedAt < LIMIT.pendingMs) keep.push(entry);
       continue;
     }
-    const before = hash(Buffer.from(undone.before));
-    if (before !== after) files.push({ path: file, verified: true, full: false, before, after, steps: undone.steps });
+    let file;
+    if (after === entry.expected) file = { path: entry.path, verified: true, before: entry.before, after, steps: entry.steps };
+    else {
+      // Bytes the arguments do not explain: keep exactly which lines changed, all of them unverified.
+      const text = bytes?.toString('utf8') ?? '';
+      const hunks = entry.lines && (!bytes || Buffer.from(text).equals(bytes))
+        ? xpl2LineHunks(entry.lines, split(text).map(salted)) : null;
+      file = { path: entry.path, verified: false, before: entry.before, after, steps: hunks ?? [[1, entry.lines?.length ?? 0, 1, split(text).length]] };
+    }
+    calls.set(entry.call, [...(calls.get(entry.call) ?? []), { tool: entry.tool, file }]);
   }
-  return files;
+  for (const list of calls.values()) {
+    await recordObservedWrite(pending.gitDirectory, {
+      source: 'copilot-hook', tool: list[0].tool, writer: pending.writer, subject: pending.subject,
+      head: pending.head, branch: pending.branch, files: list.map((entry) => entry.file)
+    }, { now });
+  }
+  if (keep.length) await writePending(pendingFile, { ...pending, entries: keep });
+  else await unlink(pendingFile).catch(() => {});
 }
 
 /**
  * Append one record to today's segment (UTC). Bounded and best effort: a full segment drops the
- * record and leaves a marker so explanations say records are missing; a new day prunes old days.
+ * record and leaves a marker (created exclusively, never through a link) so explanations say records
+ * are missing; a new day prunes old days.
  */
-export async function recordObservedWrite(gitDirectory, { source, tool, writer, subject = null, files }, { now = Date.now() } = {}) {
+export async function recordObservedWrite(gitDirectory, { source, tool, writer, subject = null, head = null, branch = null, files }, { now = Date.now() } = {}) {
   if (!files?.length) return null;
   const directory = xpl2ObservedWriteDirectory(gitDirectory);
   await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -169,12 +303,12 @@ export async function recordObservedWrite(gitDirectory, { source, tool, writer, 
   const day = new Date(now).toISOString().slice(0, 10);
   const id = `OW-${randomUUID().replaceAll('-', '').slice(0, 16)}`;
   const line = `${JSON.stringify({ kind: 'xpl2-observed-write', format: FORMAT, id, recordedAt: new Date(now).toISOString(),
-    source, tool: String(tool).replace(/[^\w.,:-]/gu, '-').slice(0, 80), writer, subject, files })}\n`;
+    source, tool: String(tool).replace(/[^\w.,:-]/gu, '-').slice(0, 80), writer, subject, head, branch, files })}\n`;
   const segment = path.join(directory, `${day}.jsonl`);
   const existing = await lstat(segment).catch(() => null);
   if (existing && !existing.isFile()) return null;
   if ((existing?.size ?? 0) + Buffer.byteLength(line) > LIMIT.segmentBytes) {
-    await writeFile(path.join(directory, `${day}.full`), '', { mode: 0o600 });
+    await open(path.join(directory, `${day}.full`), 'wx', 0o600).then((handle) => handle.close(), () => {});
     return null;
   }
   if (!existing) {

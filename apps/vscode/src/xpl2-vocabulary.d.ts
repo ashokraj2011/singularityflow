@@ -25,6 +25,7 @@ declare module '*/comprehension/xpl2/compare.mjs' {
   export function xpl2ComparisonProjection(view: unknown): unknown;
   export function compareXpl2Views(older: unknown, newer: unknown): {
     sameSet: boolean;
+    unitsUnavailable: string | null;
     units: { kept: number; added: UnitBrief[]; removed: UnitBrief[]; addedCount: number; removedCount: number } | null;
     sources: { changed: string[]; changedCount: number };
     statements: { older: number; newer: number };

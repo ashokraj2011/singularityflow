@@ -991,9 +991,51 @@ export function readsHostSavedOutput(call) {
 
 const HOST_SAVED_OUTPUT_DENIAL = 'PHASE_MUTATION_TOOL_PROTOCOL: that file is the host\'s saved copy of a long result, outside the workspace; do not read it with shell tools. Run the same SFlow command again, standalone, with --for-agent --json: its result starts with act, fits the host, and names the complete copy inside the repository (agentOutput.path) for your file-read tool. This refusal does not invalidate the phase or require repeating clarification';
 
+/**
+ * XPL2 observed writes, on the guard that already runs: settle what this session's earlier edits
+ * left, then note what this allowed edit is about to change. File reads only (no Git, no repository
+ * scan); it never changes the decision, prints nothing and swallows every error.
+ */
+async function observeEdits(payload, record, decision) {
+  const file = recordFile(payload);
+  if (!file) return;
+  const pending = file.replace(/\.mutation\.json$/u, '.pending-writes.json');
+  const edits = decision.permissionDecision === 'deny' || record.corrupt ? [] : calls(payload).filter(call => isEdit(call.name));
+  const waiting = await lstat(pending).then(() => true, () => false);
+  if (!edits.length && !waiting) return;
+  // A literal specifier: the hook bundle loads this module from source (scripts/build-cold-cli-bundle.mjs).
+  const recorder = await import('./comprehension/xpl2/observed-write-recorder.mjs');
+  if (waiting) await recorder.settleToolWrites(pending).catch(() => {});
+  if (!edits.length) return;
+  const value = await boundedRecord(file).catch(() => null);
+  const contract = value?.contract;
+  if (!contract?.repositoryRoot || !value.binding?.gitDir || value.turnId !== record.turnId) return;
+  const agent = payload.agentName ?? payload.agent_name;
+  await recorder.captureToolWrites({ pendingFile: pending, root: contract.repositoryRoot, cwd: payload.cwd ?? contract.repositoryRoot,
+    calls: edits.map(call => ({ ...call, targets: targets(call.args) })), gitDirectory: value.binding.gitDir,
+    writer: { kind: 'copilot-turn', session: key(payload).slice(0, 16), turn: record.turnId, skill: record.skill,
+      agent: typeof agent === 'string' ? agent.slice(0, 80) : null },
+    subject: { workId: contract.workId, phase: contract.phaseId, generation: value.openGeneration ?? null } });
+}
+
+/** Settle a session's noted edits for good when its turn ends or a new prompt starts. Never throws. */
+export async function settleObservedEdits(payload) {
+  const file = recordFile(payload);
+  const pending = file?.replace(/\.mutation\.json$/u, '.pending-writes.json');
+  if (!pending || !await lstat(pending).then(() => true, () => false)) return;
+  await import('./comprehension/xpl2/observed-write-recorder.mjs').then(recorder => recorder.settleToolWrites(pending, { final: true })).catch(() => {});
+  await unlink(pending).catch(() => {});
+}
+
 export async function mutationToolGuard(payload = {}) {
   const record = await turn(payload);
   if (!record) return {};
+  const decision = await mutationToolDecision(payload, record);
+  await observeEdits(payload, record, decision).catch(() => {});
+  return decision;
+}
+
+async function mutationToolDecision(payload, record) {
   const toolCalls = calls(payload);
   const guarded = toolCalls.filter(call => TERMINALS.has(call.name) || DELEGATION.has(call.name) || isEdit(call.name));
   const stagingReads = toolCalls.filter(call => FILE_READS.has(call.name)
@@ -1035,7 +1077,7 @@ export async function mutationToolGuard(payload = {}) {
     });
     const rest = toolCalls.filter(call => !issuedEdit(call));
     if (rest.length < toolCalls.length) return rest.some(call => TERMINALS.has(call.name) || DELEGATION.has(call.name) || isEdit(call.name))
-      ? mutationToolGuard({ ...payload, toolName: undefined, tool_name: undefined, toolArgs: undefined, tool_input: undefined, toolCalls: rest }) : {};
+      ? mutationToolDecision({ ...payload, toolName: undefined, tool_name: undefined, toolArgs: undefined, tool_input: undefined, toolCalls: rest }, record) : {};
   }
   let value;
   try { value = await currentContract(payload, record); }
@@ -1135,36 +1177,9 @@ async function shellSnapshot(root) {
   return { headTree: fingerprint.headTree, indexTree: fingerprint.indexTree, files: fingerprint.fileDigests };
 }
 
-/**
- * XPL2 observed writes: what this explicit turn's successful file edits left, as content digests and
- * changed line ranges only (never content, arguments or commands). Lazy, bounded and best effort:
- * it never changes or delays a decision beyond hashing the edited files once.
- */
-async function recordObservedEdits(payload, record, edits) {
-  const value = await boundedRecord(recordFile(payload)).catch(() => null);
-  const contract = value?.contract;
-  if (!contract?.repositoryRoot || !value.binding?.gitDir || value.turnId !== record.turnId) return;
-  const { observeToolWrites, recordObservedWrite } = await import('./comprehension/xpl2/observed-write-recorder.mjs');
-  const files = await observeToolWrites({ root: contract.repositoryRoot, cwd: payload.cwd ?? contract.repositoryRoot,
-    calls: edits.map(call => ({ ...call, targets: targets(call.args) })) });
-  if (!files.length) return;
-  const agent = payload.agentName ?? payload.agent_name;
-  await recordObservedWrite(value.binding.gitDir, {
-    source: 'copilot-hook', tool: [...new Set(edits.map(call => call.name))].join(','),
-    writer: { kind: 'copilot-turn', session: key(payload).slice(0, 16), turn: record.turnId, skill: record.skill,
-      agent: typeof agent === 'string' ? agent.slice(0, 80) : null },
-    subject: { workId: contract.workId, phase: contract.phaseId, generation: value.openGeneration ?? null },
-    files
-  });
-}
-
 export async function mutationPostToolGuard(payload = {}) {
   const record = await turn(payload);
-  const toolCalls = calls(payload);
-  const terminals = toolCalls.filter(call => TERMINALS.has(call.name));
-  // Only a call the host reports as successful changed what its arguments say.
-  const edits = record && !record.corrupt && payload.toolResult?.resultType === 'success' ? toolCalls.filter(call => isEdit(call.name)) : [];
-  if (edits.length) await recordObservedEdits(payload, record, edits).catch(() => {});
+  const terminals = calls(payload).filter(call => TERMINALS.has(call.name));
   if (!record || !terminals.length) return {};
   // A turn with no Story contract has no baseline to compare and nothing to go stale: its pre-tool
   // guard admitted only verified commands (import-team's own three and reads; setup and session

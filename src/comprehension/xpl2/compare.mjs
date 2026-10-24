@@ -23,6 +23,8 @@ export function xpl2ComparisonProjection(view) {
     kind: 'xpl2-explanation',
     projection: XPL2_COMPARISON_PROJECTION,
     explanationSetSha256: view.explanationSetSha256 ?? null,
+    // A bounded page delivers only some units: compared unit by unit, the rest would read as gone.
+    bounded: view.bounded === true || view.delivery?.complete === false,
     units: (view.inventory?.units ?? []).map((unit) => ({
       unitId: unit.unitId, path: unit.path, digest: unit.explanationUnitSha256, content: unit.unitContentSha256 ?? null
     })),
@@ -46,7 +48,8 @@ export function compareXpl2Views(older, newer) {
     .filter((id) => olderSources.get(id) !== newerSources.get(id)).sort();
   // A view built before units carried their own content cannot be compared unit by unit: its unit
   // digests are bound to its snapshot, so every unit would read as new and gone.
-  const comparable = [before, after].every((view) => view.units.every((unit) => Boolean(unit.content)));
+  const unitsUnavailable = [before, after].some((view) => view.bounded) ? 'bounded-view'
+    : [before, after].every((view) => view.units.every((unit) => Boolean(unit.content))) ? null : 'predates-unit-content';
   const olderUnits = new Map(before.units.map((unit) => [unit.content ?? '', unit]));
   const newerUnits = new Map(after.units.map((unit) => [unit.content ?? '', unit]));
   const added = [...newerUnits.values()].filter((unit) => !olderUnits.has(unit.content ?? ''));
@@ -54,7 +57,8 @@ export function compareXpl2Views(older, newer) {
   const kept = [...newerUnits.keys()].filter((digest) => olderUnits.has(digest)).length;
   return {
     sameSet: before.explanationSetSha256 === after.explanationSetSha256,
-    units: !comparable ? null : {
+    unitsUnavailable,
+    units: unitsUnavailable ? null : {
       kept,
       added: added.slice(0, XPL2_COMPARISON_LIMIT).map(brief),
       removed: removed.slice(0, XPL2_COMPARISON_LIMIT).map(brief),

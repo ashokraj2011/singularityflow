@@ -145,15 +145,15 @@ const STORE_LABELS = Object.freeze({
   'prompt-log': 'the prompt log', invocations: 'the model invocation records', attempts: 'the test attempt records'
 });
 
-// Which change an attributed line's recorded writes explain exactly.
+// Which change holds an attributed line: this capture, or the commit history names.
 const WRITER_SPANS = Object.freeze({
-  captured: () => 'the file\'s bytes from the baseline to this capture',
-  commit: (a) => `commit ${a.commit.slice(0, 12)}\'s change to the file, from its parent\'s bytes to the committed bytes`
+  captured: () => 'in this captured change',
+  commit: (a) => `before commit ${a.commit.slice(0, 12)} recorded it`
 });
 
 // Why observed writes do not establish who left a line (src/comprehension/xpl2/writer-attribution.mjs).
 const WRITER_BASES = Object.freeze({
-  'no-recorded-writes': 'this machine has no recorded write of the file.',
+  'no-recorded-writes': 'this machine has no recorded write of the file made on this line\'s history.',
   'bytes-not-left-by-a-recorded-write': 'no recorded write left the bytes that hold the line.',
   'recorded-writes-incomplete': 'the recorded writes do not connect the bytes before that change to the bytes that hold the line; an unrecorded change came in between.',
   'unverified-write': 'a recorded write on the way to these bytes could not be checked against its tool\'s own arguments.',
@@ -410,8 +410,8 @@ const TEMPLATES = [
     id: 'xpl2.line-writer@1',
     arguments: { side: 'side', path: 'text', line: 'count', writes: 'text', tools: 'text', writer: 'text', subject: 'text', span: 'writer-span', commit: 'text' },
     render: (a) => `${sideLabel(a.side)}-side line ${a.line} of ${a.path} holds bytes that recorded write ${a.writes} (${a.tools}) left, by ${a.writer}${a.subject}. `
-      + `Recorded writes on this machine explain ${WRITER_SPANS[a.span](a)} exactly, each checked against its tool's own arguments; `
-      + 'this names the write that changed the line last, not who designed it.'
+      + `That write changed this line ${WRITER_SPANS[a.span](a)}: its bytes were read before and after it, and its tool's own arguments `
+      + 'say this change. This names the recorded write that changed the line last on this machine, not who designed it.'
   },
   {
     id: 'xpl2.line-writer-unestablished@1',

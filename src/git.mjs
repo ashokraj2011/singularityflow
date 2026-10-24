@@ -2193,6 +2193,36 @@ export function commitsChangingSince(root, base, paths, { target = 'HEAD', limit
   }).filter((entry) => /^[0-9a-f]{40,64}$/u.test(entry.commit));
 }
 
+const QUOTED_ESCAPES = Object.freeze({ a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13 });
+
+/** A path Git printed C-quoted (non-ASCII bytes as octal escapes, special characters escaped), as text. */
+export function unquotedGitPath(value) {
+  if (typeof value !== 'string' || value.length < 2 || !value.startsWith('"') || !value.endsWith('"')) return value;
+  const bytes = [];
+  const text = value.slice(1, -1);
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] !== '\\') { bytes.push(...Buffer.from(text[index])); continue; }
+    const next = text[index + 1] ?? '';
+    if (/^[0-7]{3}$/u.test(text.slice(index + 1, index + 4))) { bytes.push(parseInt(text.slice(index + 1, index + 4), 8)); index += 3; }
+    else { bytes.push(QUOTED_ESCAPES[next] ?? next.charCodeAt(0)); index += 1; }
+  }
+  return Buffer.from(bytes).toString('utf8');
+}
+
+/**
+ * One file's bytes at an exact commit as a checkout writes them (Git's eol, text and smudge
+ * filters applied; large-file pointers are not fetched), or null when the commit or path does not
+ * exist. Comparable with bytes read from disk.
+ */
+export function worktreeBytesAtRevision(root, revision, file, { maximumBytes = 4 * 1024 * 1024 } = {}) {
+  if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(String(revision)) || !file || /[\u0000-\u001f]/u.test(file)) return null;
+  const result = git(['cat-file', '--filters', `${revision}:${file}`], {
+    cwd: root, allowFailure: true, encoding: 'buffer', maxBuffer: maximumBytes,
+    env: { ...process.env, GIT_NO_LAZY_FETCH: '1', GIT_LFS_SKIP_SMUDGE: '1' }
+  });
+  return result.status === 0 && Buffer.isBuffer(result.stdout) ? result.stdout : null;
+}
+
 /** `git blame` of one line at commit `revision`, or null. */
 export function lineCommitAt(root, revision, file, line) {
   if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(String(revision)) || !(line >= 1)) return null;
@@ -2207,8 +2237,8 @@ export function lineCommitAt(root, revision, file, line) {
   // file the commit added; a boundary commit's parent is outside the history Git can see).
   const previous = /^([0-9a-f]{40,64}) (.+)$/u.exec(field('previous') ?? '');
   return { commit: head[1], originalLine: Number(head[2]), author: field('author'), summary: field('summary'),
-    authorTime: time > 0 ? new Date(time * 1000).toISOString() : null, filename: field('filename'),
-    previous: previous ? { commit: previous[1], path: previous[2] } : null, boundary: lines.some((entry) => entry === 'boundary') };
+    authorTime: time > 0 ? new Date(time * 1000).toISOString() : null, filename: unquotedGitPath(field('filename')),
+    previous: previous ? { commit: previous[1], path: unquotedGitPath(previous[2]) } : null, boundary: lines.some((entry) => entry === 'boundary') };
 }
 
 /**

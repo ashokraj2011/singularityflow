@@ -190,8 +190,8 @@ for (const [event, action] of Object.entries(expectedHooks)) {
   }
 }
 if (hooksJson.hooks?.preToolUse?.[0]?.matcher !== '.*'
-    || hooksJson.hooks?.postToolUse?.[0]?.matcher !== 'bash|powershell|run_in_terminal|execute|exec_command|write_stdin|edit|create|apply_patch|str_replace|write_file|replace_string_in_file|multi_replace_string_in_file') {
-  fail('plugin/hooks.json explicit-turn mutation guard must cover edit payloads, post-terminal detection and post-edit observed writes');
+    || hooksJson.hooks?.postToolUse?.[0]?.matcher !== 'bash|powershell|run_in_terminal|execute|exec_command|write_stdin') {
+  fail('plugin/hooks.json explicit-turn mutation guard must cover edit payloads and post-terminal detection');
 }
 checked.push('plugin/hooks.json');
 if (pluginJson.skills !== 'skills/') fail('plugin.json skills path must be skills/');

@@ -1,7 +1,7 @@
 /**
  * The observed-write store [XPL2 M3]: this checkout's `<git dir>/singularity-flow/xpl2/observed-writes/`,
- * one JSONL segment per UTC day, written by `observed-write-recorder.mjs` from the post-tool hook of
- * explicit SFlow Copilot turns. It is bounded by day count and segment size, discardable, and never
+ * one JSONL segment per UTC day, written by `observed-write-recorder.mjs` from the pre-tool and turn
+ * hooks of explicit SFlow Copilot turns. It is bounded by day count and segment size, discardable, and never
  * authority: a lost record only leaves a line's writer unestablished. Only explain commands read it.
  */
 import { lstat, readdir, readFile } from 'node:fs/promises';
@@ -9,7 +9,9 @@ import path from 'node:path';
 
 import { XPL2_OBSERVED_WRITE_FORMAT, XPL2_OBSERVED_WRITE_LIMITS, xpl2ObservedWriteDirectory } from './observed-write-recorder.mjs';
 
-export { observeToolWrites, recordObservedWrite, XPL2_OBSERVED_WRITE_LIMITS, xpl2ObservedWriteDirectory } from './observed-write-recorder.mjs';
+export {
+  captureToolWrites, recordObservedWrite, settleToolWrites, XPL2_OBSERVED_WRITE_LIMITS, xpl2ObservedWriteDirectory
+} from './observed-write-recorder.mjs';
 
 const READ_RECORDS = 5000;
 const SEGMENT = /^(\d{4}-\d{2}-\d{2})\.jsonl$/u;

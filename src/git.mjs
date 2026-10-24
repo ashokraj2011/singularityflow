@@ -2090,13 +2090,7 @@ export function addCandidateWorktree(root, target, commit = 'HEAD') {
   return git(['worktree', 'add', '--detach', '--quiet', '--', target, commit], { cwd: root, allowFailure: true }).status === 0;
 }
 
-/**
- * Remove a candidate worktree's registration; the caller removes the directory.
- *
- * Only this one: `worktree remove --force` also drops the registration of a candidate whose
- * directory is already gone. A repository-wide `worktree prune` here dropped the registrations of
- * the developer's own worktrees whenever their directories were briefly missing.
- */
+/** Remove this candidate's registration only (a repository-wide prune drops the developer's own); the caller removes the directory. */
 export function removeCandidateWorktree(root, target) {
   git(['worktree', 'remove', '--force', '--', target], { cwd: root, allowFailure: true });
 }

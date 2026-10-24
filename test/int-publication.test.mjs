@@ -103,7 +103,7 @@ test('gateway-preserves-publication-recovery', { timeout: 300_000 }, async (t) =
 });
 
 test('the start route runs without blocking the server, and a start killed on timeout is an unknown outcome', async (t) => {
-  const { runSingularityFlowCli } = await import('../src/util.mjs');
+  const { runSingularityFlowCli } = await import('../src/gateway/planners/executors.mjs');
   const { spawn } = await import('node:child_process');
   // The real spawn, given a child that outlives the timeout in place of the CLI, so the kill is real too.
   const slow = (command, _args, options) => spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60_000)'], options);

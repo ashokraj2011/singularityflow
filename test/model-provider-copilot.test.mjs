@@ -33,6 +33,19 @@ const fakeAcpSource = `
 import { createHash } from 'node:crypto';
 import { access } from 'node:fs/promises';
 import readline from 'node:readline';
+// --fixture-1-0-103: Copilot CLI 1.0.103's help lists --acp but no longer --no-remote or
+// --no-remote-export, and that release refuses to start when given either.
+if (process.argv.includes('--fixture-1-0-103')) {
+  if (process.argv.includes('--help')) {
+    process.stdout.write('Usage: copilot [options]\\n  --acp  Start as an Agent Client Protocol server\\n  --disable-builtin-mcps\\n'
+      + '  --no-custom-instructions\\n  --no-auto-update\\n  --no-ask-user\\n');
+    process.exit(0);
+  }
+  if (process.argv.includes('--no-remote') || process.argv.includes('--no-remote-export')) {
+    process.stderr.write('error: --no-remote was removed. Use /remote off in a session; manage incoming connections in /environments.\\n');
+    process.exit(1);
+  }
+}
 const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 const send = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
 const providerToolName = (operation) => operation === 'read' ? 'view'
@@ -48,6 +61,10 @@ for await (const line of lines) {
       agentCapabilities: {}, agentInfo: { name: 'fake-copilot-acp', version: '1' }
     }});
   } else if (message.method === 'session/new') {
+    if (process.argv.includes('--fixture-session-error')) {
+      send({ jsonrpc: '2.0', id: message.id, error: { code: -32603, message: 'Request sessions.open failed with message: session construction failed: Reasoning effort is not supported when using the "auto" model.' } });
+      continue;
+    }
     cwd = message.params.cwd;
     const modelIndex = process.argv.indexOf('--model');
     const requestedModel = modelIndex >= 0 ? process.argv[modelIndex + 1] : 'auto';
@@ -250,6 +267,24 @@ test('the packaged CommonJS provider loads the locked SDK outside its bundle, no
   assert.equal(response.promptTransport, 'acp-stdio');
 });
 
+test('a session Copilot refuses names Copilot\'s own reason', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-session-error-'));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  // It was only "ACP prompt transport failed.": the refusal is in the protocol, not on stderr.
+  await assert.rejects(invokeAcp(root, { fixtureArguments: ['--fixture-session-error'] }),
+    (error) => error.code === 'MODEL_PROVIDER_PROTOCOL_FAILED' && /Reasoning effort is not supported when using the "auto" model/u.test(error.message));
+});
+
+test('a Copilot CLI that removed a boundary option still runs: only the options its help lists are passed', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-1-0-103-'));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  // Copilot CLI 1.0.103 refused to start with --no-remote, so every SFlow model call failed.
+  const result = await invokeAcp(root, { publicPrompt: { text: 'after the removal' }, fixtureArguments: ['--fixture-1-0-103'] });
+  const observed = JSON.parse(result.output);
+  assert.ok(!observed.argv.includes('--no-remote') && !observed.argv.includes('--no-remote-export'), JSON.stringify(observed.argv));
+  for (const kept of ['--disable-builtin-mcps', '--no-custom-instructions', '--no-ask-user', '--no-auto-update']) assert.ok(observed.argv.includes(kept), kept);
+});
+
 test('the Copilot provider sends verified prompt bytes over ACP stdio without argv or environment leakage', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-'));
   const outputRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-output-'));
@@ -365,10 +400,14 @@ test('Windows ACP cleanup fails closed when taskkill cannot prove a live child s
     }), (error) => error.code === 'MODEL_PROVIDER_TERMINATION_FAILED'
       && error.details?.softSignalled === false
       && error.details?.forceSignalled === false);
-    assert.equal(terminationCalls.length, 2);
-    assert.ok(terminationCalls.every((call) => call.command === 'C:\\Windows\\System32\\taskkill.exe'));
-    assert.deepEqual(terminationCalls[0].args, ['/PID', '424242', '/T']);
-    assert.deepEqual(terminationCalls[1].args, ['/PID', '424242', '/T', '/F']);
+    // Before the launch, one help probe reads which boundary options this Copilot CLI lists.
+    const probes = terminationCalls.filter((call) => call.args.some((value) => String(value).includes('--help')));
+    assert.equal(probes.length, 1);
+    const kills = terminationCalls.filter((call) => !probes.includes(call));
+    assert.equal(kills.length, 2);
+    assert.ok(kills.every((call) => call.command === 'C:\\Windows\\System32\\taskkill.exe'));
+    assert.deepEqual(kills[0].args, ['/PID', '424242', '/T']);
+    assert.deepEqual(kills[1].args, ['/PID', '424242', '/T', '/F']);
   } finally {
     child.stdin.destroy(); child.stdout.destroy(); child.stderr.destroy();
     await staged.cleanup();

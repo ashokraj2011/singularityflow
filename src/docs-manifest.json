@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "25853ca125de5e405d4a0eea34fae813eead3276",
+  "sourceCommit": "136a3468fc78b0809158a453f3623766be425b84",
   "topicCount": 85,
-  "contentSha256": "6633835cd936a561ae27f120e2bdb72bf17ba6e8dcedf1270a79f5bf27c485c6",
+  "contentSha256": "f3fa7ad23b6950330e74e9f9c0f69ff0ee205dcef05b7057e55a0ce720c0f4ff",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -32,8 +32,8 @@
     {
       "id": "agents-and-routing",
       "title": "Agents, assignments, and model routing",
-      "version": 7,
-      "sha256": "58600ac448ced51e5570fa0e8a2058190abff2ea2954c0b947355111b6abf58a",
+      "version": 8,
+      "sha256": "2670f95e189a884c2d825f50f4bbe97f0ebf9ce97167ef35950f9c721e256440",
       "routingSha256": "001a52719941c2f9910ffacf2306d9ded4e45e3a3d202f73a843fc33649dd603",
       "file": "agents-and-routing.md"
     },

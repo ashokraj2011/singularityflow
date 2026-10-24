@@ -63,19 +63,23 @@ async function phaseBriefCommand(root, options) {
   const end = start < 0 ? -1 : lines.findIndex((line, index) => index > start && /^# /u.test(line));
   const text = start < 0 ? '' : lines.slice(start, end < 0 ? undefined : end).join('\n').trimEnd();
   // A phase whose prompt is already composed shows the brief it was composed with; phrasing applies to its next one.
+  // A model that could not answer says why (Copilot CLI 1.0.103 refused a removed option, and the
+  // brief showed only its fixed wording, as if the phrasing had failed its checks).
+  const unphrased = (brief?.warnings ?? []).find((warning) => /could not phrase it/u.test(warning)) ?? null;
   const notes = [
     blocked ? `This phase's prompt cannot be composed yet (${blocked.replace(/[.:\s]+$/u, '')}); this is the Repository brief it would carry now.` : null,
     !polishAsked ? null
       : !brief ? 'This phase\'s prompt is already composed, so its brief is shown as it was composed; a phrasing applies to its next generation.'
         : !polish ? 'Model use is off, so the brief keeps its fixed wording.'
-          : brief.polish?.applied ? null : 'The model\'s phrasing did not pass its checks, so the brief keeps its fixed wording.'
+          : brief.polish?.applied ? null : unphrased ?? 'The model\'s phrasing did not pass its checks, so the brief keeps its fixed wording.'
   ].filter(Boolean);
   const note = notes.join(' ') || null;
   const result = {
     status: text ? 'ok' : 'none', phase: optionString(options, 'phase') ?? null, bytes: Buffer.byteLength(text), text,
     budget: brief?.budget ?? null, profile: brief?.profile ?? null, saved: Boolean(text) && !brief,
     phrasing: brief?.receipt?.phrasing ?? null, records: brief?.receipt?.records ?? [], omitted: brief?.omitted ?? null,
-    composed: !blocked, note, ...(polishAsked ? { polish: brief?.polish ?? null } : {})
+    composed: !blocked, note, ...(polishAsked ? { polish: brief?.polish ?? null } : {}),
+    ...(brief?.warnings?.length ? { warnings: brief.warnings } : {})
   };
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
   else {

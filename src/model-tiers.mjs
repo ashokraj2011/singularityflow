@@ -273,8 +273,12 @@ export function tierLadder(mapping, task) {
   if (!tier) {
     throw new SingularityFlowError(`No tier is mapped for task '${task}'.`, { code: 'MODEL_TIER_MISSING', details: { task } });
   }
+  // Auto chooses its own effort and refuses one it is given (Copilot CLI 1.0.103: "Reasoning effort
+  // is not supported when using the \"auto\" model", so every routed Auto call failed); its Auto
+  // routing profile carries the intent instead.
+  const sendable = SENDABLE_PARAMS.filter((key) => tier.params?.[key] != null && !(key === 'effort' && tier.model === 'auto'));
   const sent = sendsParameters(mapping.sendParameters, task, tier.aliasOf)
-    ? Object.fromEntries(SENDABLE_PARAMS.filter((key) => tier.params?.[key] != null).map((key) => [key, tier.params[key]]))
+    ? Object.fromEntries(sendable.map((key) => [key, tier.params[key]]))
     : {};
   return Object.freeze({
     task,

@@ -12,7 +12,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { draftMeaning, meaningCurrent, meaningPrompt, RULE_MEANINGS_PATH, validateMeanings, writeProposals } from '../src/knowledge/rule-meaning.mjs';
+import { meaningText, draftMeaning, meaningCurrent, meaningPrompt, RULE_MEANINGS_PATH, validateMeanings, writeProposals } from '../src/knowledge/rule-meaning.mjs';
 import { repositoryBriefPrompt } from '../src/knowledge/prompt.mjs';
 import { rulesCommand } from '../src/knowledge/rules-command.mjs';
 
@@ -234,4 +234,9 @@ test('a person who types only some fields is recorded for those, and the draft\'
   assert.equal(partly.entry.condition, 'an order has no lines');
   const wholly = await quietly(() => rulesCommand(repository, ['confirm', rule.id], { condition: 'no lines', outcome: 'refused', intent: 'something to ship' }));
   assert.deepEqual([wholly.entry.proposedBy, wholly.entry.model ?? null, wholly.entry.typedByPerson ?? null], ['person', null, null]);
+});
+
+test('a drafted condition that ends with a full stop reads as one sentence', () => {
+  assert.equal(meaningText({ condition: 'When `order.getStatus() != OrderStatus.PLACED`.', outcome: 'Refuses with "Only placed orders can be cancelled" (HTTP 409).' }),
+    'When `order.getStatus() != OrderStatus.PLACED`: Refuses with "Only placed orders can be cancelled" (HTTP 409)');
 });
